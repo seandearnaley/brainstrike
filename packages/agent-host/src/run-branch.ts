@@ -13,8 +13,8 @@ import {
   AssistantAttachmentValidationError,
   validateImageAttachmentPart,
 } from '@brainstrike/assistant-contract/assistant-attachments';
-import { type ModelMessage, modelMessageSchema } from 'ai';
-import { overlayHostChildOutcomes } from './child-delivery.js';
+import { type ModelMessage, modelMessageSchema, type UserModelMessage } from 'ai';
+import { overlayHostChildOutcomes, withHostDeliveryLedger } from './child-delivery.js';
 import {
   createHostRunState,
   foldHostRunMessages,
@@ -118,7 +118,7 @@ function wakeHostRunBranch(
 }
 
 /** A user message: its prompt alone, or its prompt followed by its images. */
-function hostUserMessage(branch: HostRunBranch): ModelMessage {
+function hostUserMessage(branch: HostRunBranch): UserModelMessage {
   if (!branch.attachments) {
     return { content: branch.prompt, role: 'user' };
   }
@@ -161,10 +161,7 @@ export function hostRunContext(
   // BST-1932: delivered child outcomes replace their acknowledgements from then on.
   const delivered = path.flatMap((turn) => turn.branch.delivery?.entries ?? []);
   return path.flatMap((turn) => [
-    ...(turn.branch.delivery?.via === 'next-turn'
-      ? [{ content: turn.branch.delivery.ledger, role: 'user' } satisfies ModelMessage]
-      : []),
-    hostUserMessage(turn.branch),
+    withHostDeliveryLedger(hostUserMessage(turn.branch), turn.branch.delivery),
     ...overlayHostChildOutcomes(turn.id, turn.messages, delivered),
   ]);
 }

@@ -8,6 +8,7 @@ export {
   buildCurrentDateNote,
   buildDefaultInstructions,
   buildLocalDefaultInstructions,
+  type DelegationPersonaSummary,
 } from './mastra/default-instructions';
 export { applyToolModelOutputProjections } from './mastra/tool-model-output';
 export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';

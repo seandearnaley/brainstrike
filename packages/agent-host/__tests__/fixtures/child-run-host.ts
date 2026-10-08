@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_PERMISSION_POLICIES,
   DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
@@ -16,8 +17,14 @@ import { type AppendItem, StateStore } from '@brainstrike/state-store';
 import { type MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { expect } from 'vitest';
 import { z } from 'zod';
+import { withHostDelegationTools } from '../../src/child-runs.js';
 import { HostCore, type HostEventStore } from '../../src/core.js';
-import type { HostClientOrigin, HostPlatform, HostTool } from '../../src/ports.js';
+import type {
+  HostClientOrigin,
+  HostPlatform,
+  HostRunAdmissionRequest,
+  HostTool,
+} from '../../src/ports.js';
 import type { HostLogRow } from '../../src/protocol.js';
 
 export type Chunk =
@@ -127,6 +134,8 @@ export const worker: AssistantPersonaDefinition = {
 
 /** Overrides for a fixture host: its personas, root policy and extra tools. */
 export interface ChildRunFixture {
+  /** The production run owner over the fixture's own store, as the host platform opens it. */
+  readonly memory?: (store: StateStore) => HostPlatform['openRun'];
   /** The platform's run owner (Memory), opened with each run's context. */
   readonly openRun?: HostPlatform['openRun'];
   readonly personas?: readonly AssistantPersonaDefinition[];
@@ -198,6 +207,33 @@ export function fixturePlatform(
   };
 }
 
+/**
+ * A per-run `admitRun` with the default admission's selection that records
+ * each request, as a production platform sees it.
+ */
+export function recordingAdmission(
+  requests: HostRunAdmissionRequest[]
+): (platform: HostPlatform) => HostPlatform['admitRun'] {
+  return (platform) => async (request) => {
+    requests.push(request);
+    const tools = withHostDelegationTools(platform.tools ?? {}, platform.delegation);
+    return {
+      configuration: {},
+      delegation: platform.delegation,
+      model: await (platform.resolveModel?.(request.modelId) ??
+        Promise.reject(new Error('No model'))),
+      snapshot: {
+        configuration: {},
+        maxSteps: platform.maxSteps ?? 4,
+        toolIdentities: Object.fromEntries(
+          Object.entries(tools).map(([id, tool]) => [id, tool.identity])
+        ),
+      },
+      tools,
+    };
+  };
+}
+
 /** `cleanup` receives the harness teardown; the caller runs it after the test. */
 export async function setupChildRunHost(
   model: MockLanguageModelV4,
@@ -207,7 +243,17 @@ export async function setupChildRunHost(
   admit?: (platform: HostPlatform) => HostPlatform['admitRun']
 ) {
   const root = await mkdtemp(join(tmpdir(), 'bs-m4-child-runs-'));
-  const store = await StateStore.open(root);
+  // Production Memory reads token counts through the writer's calculator module.
+  const store = await StateStore.open(
+    root,
+    fixture.memory
+      ? {
+          memoryCalculatorModule: fileURLToPath(
+            new URL('../../dist/adapters/memory-storage-calculator.js', import.meta.url)
+          ),
+        }
+      : undefined
+  );
   const batches: AppendItem[][] = [];
   /** A crashed process writes nothing more; its successor opens the same store. */
   const writer = (): { dead: boolean; port: HostEventStore } => {
@@ -229,7 +275,8 @@ export async function setupChildRunHost(
   };
   let current = writer();
   const writes: string[] = [];
-  const base = fixturePlatform(model, writes, fixture);
+  const openRun = fixture.memory?.(store) ?? fixture.openRun;
+  const base = fixturePlatform(model, writes, { ...fixture, ...(openRun ? { openRun } : {}) });
   const admitRun = admit?.(base);
   const platform: HostPlatform = admitRun ? { ...base, admitRun } : base;
   let core = await HostCore.open(current.port, platform, () => () => undefined);

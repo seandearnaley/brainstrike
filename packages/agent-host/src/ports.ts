@@ -121,6 +121,12 @@ export interface HostProviderPort {
 
 /** One immutable selection retained across approval legs, never re-read from Settings. */
 export interface HostRunAdmission {
+  /**
+   * BST-1932: the host-supplied context (date, skills, workspace instructions)
+   * a delegated child receives beside its persona instructions; never the
+   * root's supervisor instructions.
+   */
+  readonly childSystem?: string | undefined;
   /** Join resources selected before the run is committed, including failed admission. */
   close?(): Promise<void>;
   readonly configuration: Readonly<RuntimeData>;

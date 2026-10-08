@@ -4,8 +4,8 @@
  * background-ledger.ts, removed with BST-1935); the outcomes replace their
  * dispatch acknowledgements in the parent's own tool results.
  */
-import type { ModelMessage } from 'ai';
-import type { HostChildDeliveryEntry } from './protocol.js';
+import type { ModelMessage, UserModelMessage } from 'ai';
+import type { HostChildDelivery, HostChildDeliveryEntry, HostLogRow } from './protocol.js';
 
 export type HostChildLedgerState = HostChildDeliveryEntry['state'] | 'running';
 
@@ -54,15 +54,31 @@ export function describeHostChildLedger(entries: readonly HostChildLedgerEntry[]
   return lines.join('\n');
 }
 
+/**
+ * A completed follow-up typed into an idle child reaches its parent as the
+ * shipped continuation notification (packages/agent/src/mastra/child-continuation.ts,
+ * removed with BST-1935): the final completed leg's text only.
+ */
+export function describeHostChildContinuation(entry: HostChildDeliveryEntry): string {
+  const contents = JSON.stringify({
+    childThreadId: entry.childThreadId,
+    continuationId: entry.childRunId,
+    result: entry.outcome,
+    status: 'completed',
+  });
+  return `<child_continuation_result>${contents}</child_continuation_result>`;
+}
+
 /** A parent run's own messages with each delivered outcome in place of its acknowledgement. */
 export function overlayHostChildOutcomes(
   runId: string,
   messages: readonly ModelMessage[],
   entries: readonly HostChildDeliveryEntry[]
 ): ModelMessage[] {
+  // A follow-up answered no tool call; only invocation outcomes replace acknowledgements.
   const outcomes = new Map(
     entries
-      .filter((entry) => entry.parentRunId === runId)
+      .filter((entry) => entry.parentRunId === runId && !entry.followUp)
       .map((entry) => [entry.toolCallId, entry.outcome])
   );
   if (outcomes.size === 0) {
@@ -80,5 +96,34 @@ export function overlayHostChildOutcomes(
           }),
         }
       : message
+  );
+}
+
+/**
+ * A committed user turn as the model reads it: a next-turn delivery's ledger
+ * leads the user's own input inside that one user message, so every reader
+ * that rebuilds the turn from its user message keeps the ledger with it.
+ */
+export function withHostDeliveryLedger(
+  message: UserModelMessage,
+  delivery: HostChildDelivery | undefined
+): UserModelMessage {
+  if (delivery?.via !== 'next-turn') {
+    return message;
+  }
+  const content =
+    typeof message.content === 'string'
+      ? [{ text: message.content, type: 'text' as const }]
+      : message.content;
+  return { ...message, content: [{ text: delivery.ledger, type: 'text' }, ...content] };
+}
+
+/** Every child outcome delivered on a committed branch, from its runs' starts. */
+export function hostBranchDeliveries(
+  rows: readonly HostLogRow[],
+  onBranch: (runId: string) => boolean
+): HostChildDeliveryEntry[] {
+  return rows.flatMap(({ event }) =>
+    event.type === 'run.started' && onBranch(event.runId) ? (event.delivery?.entries ?? []) : []
   );
 }

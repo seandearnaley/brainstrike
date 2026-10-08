@@ -51,11 +51,36 @@ function matchesAdmission(started: StartedRow, accepted: AcceptedRow): boolean {
   );
 }
 
-/** Canonical source rows, independent of a projection's timestamp requirement. */
+/**
+ * BST-1932: the user message a host-admitted run answers without a client
+ * command, as `foldHostRunBranch` admits it. A child thread's first run
+ * answers its delegation task, keyed by the child thread; a wake answers its
+ * delivery after the run it was admitted behind, keyed by the delivery.
+ */
+function hostAdmissionId(rows: readonly HostLogRow[], started: StartedRow): string | undefined {
+  const event = started.event;
+  if (event.delivery?.via === 'wake') {
+    return typeof event.parentMessageId === 'string' ? event.delivery.messageId : undefined;
+  }
+  const thread = rows.filter((row) => row.threadId === started.threadId);
+  const delegated = thread.some(
+    ({ event: candidate }) => candidate.type === 'thread.started' && 'origin' in candidate
+  );
+  const first = thread.find((row) => row.event.type === 'run.started');
+  return delegated && first?.seq === started.seq && event.parentMessageId === null
+    ? started.threadId
+    : undefined;
+}
+
+/**
+ * Canonical source rows, independent of a projection's timestamp requirement.
+ * `admissionId` names the user message the run's admission committed: its
+ * client command, or a host-admitted delegation or wake.
+ */
 export function committedRunSource(
   rows: readonly HostLogRow[],
   runId: string
-): { readonly started: StartedRow; readonly accepted: AcceptedRow } {
+): { readonly admissionId: string; readonly started: StartedRow } {
   const started = startedRow(rows, runId);
   if (!started) {
     throw new Error('Run identity requires its committed start');
@@ -70,36 +95,44 @@ export function committedRunSource(
       row.event.result['runId'] === runId
   );
   const acceptance = accepted[0];
-  if (accepted.length !== 1 || !acceptance) {
+  if (accepted.length > 1) {
     throw new Error('Run identity requires one committed start command');
   }
-  if (!matchesAdmission(started, acceptance)) {
-    throw new Error('Run start does not match its committed command');
+  if (acceptance) {
+    if (!matchesAdmission(started, acceptance)) {
+      throw new Error('Run start does not match its committed command');
+    }
+    return { admissionId: acceptance.event.commandId, started };
   }
-  return { accepted: acceptance, started };
+  const admissionId = hostAdmissionId(rows, started);
+  if (admissionId === undefined) {
+    throw new Error('Run identity requires one committed start command');
+  }
+  return { admissionId, started };
 }
 
 /**
- * The run that committed user message `userMessageId` with its run/start
- * command. A regeneration answers it again but never creates it.
+ * The run whose admission committed user message `userMessageId`. A
+ * regeneration answers it again but never creates it.
  */
 function committedUserSource(
   rows: readonly HostLogRow[],
   threadId: string,
   userMessageId: string
 ): StartedRow {
-  const accepted = rows.find(
-    (row): row is AcceptedRow =>
+  for (const row of rows) {
+    if (
       row.threadId === threadId &&
-      row.event.type === 'command.accepted' &&
-      row.event.method === 'run/start' &&
-      row.event.commandId === userMessageId
-  );
-  const runId = isObject(accepted?.event.result) ? accepted.event.result['runId'] : undefined;
-  if (typeof runId !== 'string') {
-    throw new Error('Regenerated run references no committed user message');
+      row.event.type === 'run.started' &&
+      row.event.userMessageId === undefined
+    ) {
+      const source = committedRunSource(rows, row.event.runId);
+      if (source.admissionId === userMessageId) {
+        return source.started;
+      }
+    }
   }
-  return committedRunSource(rows, runId).started;
+  throw new Error('Regenerated run references no committed user message');
 }
 
 /**
@@ -117,7 +150,7 @@ export function committedRunIdentity(
   rows: readonly HostLogRow[],
   runId: string
 ): CommittedRunIdentity {
-  const { started, accepted } = committedRunSource(rows, runId);
+  const { admissionId, started } = committedRunSource(rows, runId);
   if (started.ts === undefined) {
     throw new Error('Run identity requires its committed start and SQLite timestamp');
   }
@@ -127,7 +160,7 @@ export function committedRunIdentity(
       assistantMessageId: runId,
       createdAt: new Date(started.ts),
       parentMessageId: committedUserParent(rows, started),
-      userMessageId: accepted.event.commandId,
+      userMessageId: admissionId,
     };
   }
   const original = committedUserSource(rows, started.threadId, reused);

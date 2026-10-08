@@ -10,7 +10,11 @@ import {
   DEFAULT_AGENT_MAX_STEPS,
   resolveScaledToolResultBudget,
 } from '@brainstrike/agent/tool-runtime';
-import type { HostRunAdmissionRequest, HostToolContext } from '@brainstrike/agent-host';
+import type {
+  HostDelegation,
+  HostRunAdmissionRequest,
+  HostToolContext,
+} from '@brainstrike/agent-host';
 import {
   CliWorkspaceRootsSchema,
   materializeCliWorkspaceIntent,
@@ -49,7 +53,11 @@ import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-ro
 import { readWorkspaceTextFile } from '../assistant-server/workspace-text-file-reader';
 import { getDatabase } from '../db-main';
 import { readProviderCredential } from '../provider-api-key';
-import { readDesktopHostSystemContext } from './desktop-host-context';
+import {
+  type DesktopHostSystemContext,
+  readDesktopHostSystemContext,
+} from './desktop-host-context';
+import { resolveDesktopHostDelegation } from './desktop-host-delegation';
 import type {
   DesktopWorkspaceBindingAuthority,
   DesktopWorkspaceBindingBorrow,
@@ -111,7 +119,7 @@ function desktopRetrievalScopeFields(
 function desktopDurableConfiguration(
   intent: z.output<typeof PlatformClientConfigurationSchema>,
   observerTarget: string | null,
-  system: string | undefined,
+  { childSystem, system }: DesktopHostSystemContext,
   cliWorkspaceRoots?: RuntimeData['workspaceRoots'],
   boundWorkspaceRoots?: RuntimeData['workspaceRoots']
 ): DesktopPlatformSelection['durableConfiguration'] {
@@ -122,6 +130,7 @@ function desktopDurableConfiguration(
         ...(cliWorkspaceRoots ? { cliWorkspaceRoots } : {}),
         ...(boundWorkspaceRoots ? { boundWorkspaceRoots } : {}),
         ...desktopSystemFields(system),
+        ...(childSystem === undefined ? {} : { childSystem }),
         memoryResolution: {
           observationalMemory: desktopObservationResolution(
             intent.memorySettings.observationalMemory.enabled,
@@ -463,6 +472,17 @@ async function createDesktopNativeTools(
   };
 }
 
+/** BST-1932: the child context and personas a run delegates with, when it may delegate. */
+function desktopDelegationFields(
+  childSystem: string | undefined,
+  delegation: HostDelegation | undefined
+): Pick<DesktopPlatformSelection, 'childSystem' | 'delegation'> {
+  return {
+    ...(childSystem === undefined ? {} : { childSystem }),
+    ...(delegation ? { delegation } : {}),
+  };
+}
+
 /** Lazy borrows: Root/New Thread never waits for indexing or credential initialization. */
 export function productionDesktopCapabilities(
   dependencies: DesktopAssistantToolDependencies,
@@ -516,8 +536,14 @@ export function productionDesktopCapabilities(
     };
     try {
       policies.set(request.threadId, permissionPolicy);
-      const system = await readDesktopHostSystemContext({
+      const delegation = resolveDesktopHostDelegation(
+        intent,
+        configuration.provider,
+        native.runtime.workspaceRoots ?? []
+      );
+      const { childSystem, system } = await readDesktopHostSystemContext({
         inputTokenLimit,
+        ...(delegation ? { personas: delegation.personas } : {}),
         ...desktopContextReaderFields(
           intent.cliWorkspace !== undefined || workspace !== undefined,
           native.readWorkspaceFile
@@ -535,10 +561,11 @@ export function productionDesktopCapabilities(
         durableConfiguration: desktopDurableConfiguration(
           intent,
           observerTarget,
-          system,
+          { childSystem, system },
           intent.cliWorkspace ? native.runtime.workspaceRoots : undefined,
           desktopWorkspaceRootObservation(workspace)
         ),
+        ...desktopDelegationFields(childSystem, delegation),
         inputTokenLimit,
         maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
         memory: { options: intent.memoryOptions, settings: memorySettings },

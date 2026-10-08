@@ -11,7 +11,11 @@ import {
   type ProductionHostRunConfiguration,
   platformToolInputSchema,
 } from '@brainstrike/agent-host';
-import { findProviderDefinition, type SupportedProvider } from '@brainstrike/assistant-contract';
+import {
+  type AssistantPersonaDefinition,
+  findProviderDefinition,
+  type SupportedProvider,
+} from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
 import type { HostStartOptions } from '@brainstrike/host-lease';
@@ -72,6 +76,19 @@ function desktopRuntimeConfiguration(
 }
 
 /** Electron-free production entry: Node owns the model loop, Memory and committed log. */
+/** A persona from Main's wire, without the absent optional fields zod reports as undefined. */
+function platformPersona(
+  persona: NonNullable<z.output<typeof PlatformSelectionSchema>['delegation']>['personas'][number]
+): AssistantPersonaDefinition {
+  const { mode, model, source, ...required } = persona;
+  return {
+    ...required,
+    ...(mode ? { mode } : {}),
+    ...(model ? { model } : {}),
+    ...(source ? { source } : {}),
+  };
+}
+
 export async function createHostPlatform(
   _options: HostStartOptions,
   startup: HostStartupContext,
@@ -309,8 +326,13 @@ export async function createHostPlatform(
         ])
       );
       return {
+        childSystem: selected.childSystem,
         close: closeSelection,
         configuration,
+        delegation: selected.delegation && {
+          personas: selected.delegation.personas.map(platformPersona),
+          settings: selected.delegation.settings,
+        },
         durableConfiguration: selected.durableConfiguration,
         ...(selected.system === undefined ? {} : { system: selected.system }),
         maxSteps: selected.maxSteps,

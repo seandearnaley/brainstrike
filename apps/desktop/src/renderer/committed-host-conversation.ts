@@ -16,6 +16,12 @@ import { CommittedHostMcpInput } from './committed-host-mcp-input';
 
 const logger = createLogger('CommittedHostConversation');
 
+/** A committed run.started the host admitted to deliver child results (a wake). */
+const HostWakeStartSchema = z.object({
+  delivery: z.object({ via: z.literal('wake') }),
+  type: z.literal('run.started'),
+});
+
 /** A composer image as the host's user-message attachment; anything else is refused. */
 function hostImageAttachment(
   attachment: NonNullable<AppendMessage['attachments']>[number]
@@ -61,7 +67,14 @@ export function createCommittedHostConversation(options: {
       if (typeof runId !== 'string') {
         throw new Error('Committed conversation has no run identity');
       }
-      return committedRunIdentity(source.getSnapshot().rows, runId);
+      const identity = committedRunIdentity(source.getSnapshot().rows, runId);
+      // BST-1932: a wake answers the host's child delivery, not a person; its
+      // ledger is model input, so the answer follows the run it woke behind.
+      if (HostWakeStartSchema.safeParse(row.event).success) {
+        const { userMessageId: _ledger, ...wake } = identity;
+        return wake;
+      }
+      return identity;
     },
     source,
     threadId,

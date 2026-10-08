@@ -218,10 +218,11 @@ export function deriveHostChildAdmission(
       : `${persona.instructions}\n\nAvailable tools: ${Object.entries(narrowed)
           .map(([id, tool]) => tool.permissionToolId ?? id)
           .join(', ')}.`;
-  const system = (provided: string | undefined): string =>
-    [instructions, provided].filter(Boolean).join('\n\n');
+  // The shipped child context: its persona, then only host-supplied context.
+  const system = [instructions, parent.childSystem].filter(Boolean).join('\n\n');
   const provider = parent.provider;
   return {
+    childSystem: parent.childSystem,
     configuration: parent.configuration,
     ...(delegates ? { delegation } : {}),
     model: parent.model,
@@ -243,7 +244,7 @@ export function deriveHostChildAdmission(
           ...prepared,
           maxOutputTokens: Math.min(prepared.maxOutputTokens ?? cap, cap),
           model: hostPermitModel(prepared.model, queue, request.signal),
-          system: system(prepared.system),
+          system,
           ...(synthesis
             ? {
                 activeTools: [],

@@ -6,7 +6,11 @@ import {
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import { createLogger } from '@brainstrike/logging';
 import type { LanguageModel } from 'ai';
-import { describeHostChildLedger, type HostChildLedgerState } from './child-delivery.js';
+import {
+  describeHostChildContinuation,
+  describeHostChildLedger,
+  type HostChildLedgerState,
+} from './child-delivery.js';
 import {
   deriveHostChildAdmission,
   type HostChildResult,
@@ -19,13 +23,15 @@ import {
 import { HostChildWorkQueue } from './child-work-queue.js';
 import { retainHostRunWork } from './core-run-lifecycle.js';
 import type { HostRunState } from './core-state.js';
-import type { HostDelegation, HostRunAdmission } from './ports.js';
+import type { HostDelegation, HostPlatform, HostRunAdmission } from './ports.js';
 import type {
   HostChildDelivery,
   HostChildDeliveryEntry,
   HostChildOrigin,
   HostEvent,
   HostLogRow,
+  HostParams,
+  HostRunSnapshot,
 } from './protocol.js';
 import { delegatedHostRunAdmission, type HostRunPosition, startedHostRun } from './run-branch.js';
 
@@ -125,7 +131,7 @@ export function reportHostChildWakeFailure(threadId: string, cause: unknown): vo
 /** The root turn a run belongs to: children and wakes keep their turn's ID. */
 export function hostRunTurnId(run: HostRunState): string {
   const delivery = run.branch.delivery;
-  return run.origin?.turnId ?? (delivery?.via === 'wake' ? delivery.turnId : run.id);
+  return run.turnId ?? run.origin?.turnId ?? (delivery?.via === 'wake' ? delivery.turnId : run.id);
 }
 
 type Outcome = NonNullable<HostRunState['outcome']>;
@@ -167,7 +173,7 @@ export class HostChildRuns {
     return this.origins.has(threadId);
   }
 
-  /** `threadId` and every descendant child thread, deepest first. */
+  /** `threadId` and every descendant child thread, deepest first: deletion takes them all. */
   subtree(threadId: string): string[] {
     const children = [...this.origins]
       .filter(([, origin]) => origin.parentThreadId === threadId)
@@ -189,16 +195,91 @@ export class HostChildRuns {
       const run = runs.get(event.runId);
       const origin = this.origins.get(row.threadId);
       if (run && origin) {
-        run.origin = origin;
-        if (!this.invocations.has(row.threadId)) {
-          this.invocations.set(row.threadId, run.id);
-        }
+        this.adopt(run, origin);
       }
       this.recordDelivery(event.delivery);
     } else if (event.type === 'run.finished') {
       this.settlements.get(event.runId)?.resolve();
       this.settlements.delete(event.runId);
     }
+  }
+
+  /**
+   * A run on a child thread: its first run is the delegated invocation; any
+   * later run is a follow-up typed into the idle child, which keeps the
+   * child's persona and depth but starts its own turn (Q-7) under the root's
+   * policy.
+   */
+  private adopt(run: HostRunState, origin: HostChildOrigin): void {
+    run.origin = origin;
+    run.policyThreadId = this.rootThread(run.threadId);
+    const invocation = this.invocations.get(run.threadId);
+    if (invocation === undefined) {
+      this.invocations.set(run.threadId, run.id);
+    } else if (invocation !== run.id) {
+      run.turnId = run.id;
+    }
+  }
+
+  /**
+   * The admission of a run typed into an idle child (Retry and Edit included):
+   * the platform's selection for the root thread, narrowed by the child's
+   * persona at its own depth, keeping only the tools its delegation admitted
+   * (the shipped rule permits only reductions). The run owns the platform
+   * selection, so the narrowed admission closes it.
+   */
+  async followUp(
+    threadId: string,
+    selected: HostRunAdmission,
+    runs: ReadonlyMap<string, HostRunState>,
+    platform: Pick<HostPlatform, 'readPermissionPolicy'>
+  ): Promise<{ admission: HostRunAdmission; adopt: (run: HostRunState) => void }> {
+    const origin = this.origins.get(threadId);
+    if (!origin) {
+      return { admission: selected, adopt: () => undefined };
+    }
+    const delegation = selected.delegation;
+    const persona = delegation?.personas.find((candidate) => candidate.id === origin.persona);
+    if (!(delegation && persona)) {
+      throw new Error(`Persona "${origin.persona}" is no longer available to continue this child`);
+    }
+    const original = runs.get(this.invocations.get(threadId) ?? '')?.snapshot?.toolIdentities;
+    // The follow-up's own turn queue; its run ID names the turn once admitted.
+    const queue = new HostChildWorkQueue(delegation.settings.maxConcurrentWork);
+    const derived = deriveHostChildAdmission(selected, persona, delegation, queue, origin.depth);
+    const tools = Object.fromEntries(
+      Object.entries(derived.tools).filter(([id, tool]) => original?.[id] === tool.identity)
+    );
+    const policy = await platform.readPermissionPolicy(this.rootThread(threadId));
+    return {
+      admission: {
+        ...derived,
+        ...(selected.close ? { close: selected.close } : {}),
+        snapshot: {
+          ...derived.snapshot,
+          toolIdentities: Object.fromEntries(
+            Object.entries(tools).map(([id, tool]) => [id, tool.identity])
+          ),
+        },
+        tools,
+      },
+      adopt: (run) => {
+        this.adopt(run, origin);
+        this.queues.set(run.id, queue);
+        run.admittedPolicy = policy;
+        this.runtimeLimits.set(run.id, delegation.settings.maxChildRuntimeMs);
+      },
+    };
+  }
+
+  /** The turn's shared work queue, created at its first child. */
+  private queue(turnId: string, settings: HostDelegation['settings']): HostChildWorkQueue {
+    let queue = this.queues.get(turnId);
+    if (!queue) {
+      queue = new HostChildWorkQueue(settings.maxConcurrentWork);
+      this.queues.set(turnId, queue);
+    }
+    return queue;
   }
 
   /** The root thread of `threadId`'s delegation tree. */
@@ -246,7 +327,9 @@ export class HostChildRuns {
       return [];
     }
     const turn = hostRunTurnId(run);
-    return [...runs.values()].filter((child) => !child.terminal && child.origin?.turnId === turn);
+    return [...runs.values()].filter(
+      (child) => !child.terminal && child.origin !== undefined && hostRunTurnId(child) === turn
+    );
   }
 
   /**
@@ -269,9 +352,24 @@ export class HostChildRuns {
         parentMessageId: tip.id,
         prompt: 'wake',
         threadId,
-        ...(tip.snapshot ? { configuration: tip.snapshot.configuration } : {}),
       },
     };
+  }
+
+  /**
+   * The wake continues its turn: it reopens the committed selection of the run
+   * it follows, as a restart reopens a run, never as a client's configuration.
+   */
+  wakeSelection(
+    params: HostParams<'run/start'> | HostParams<'run/regenerate'>,
+    runs: ReadonlyMap<string, HostRunState>
+  ): { readonly snapshot: HostRunSnapshot } {
+    const tip = 'parentMessageId' in params ? params.parentMessageId : undefined;
+    const snapshot = tip ? runs.get(tip)?.snapshot : undefined;
+    if (!snapshot) {
+      throw new Error('A wake requires the committed selection of the run it follows');
+    }
+    return { snapshot };
   }
 
   /** A committed run.started's delivery advances the watermark. */
@@ -281,10 +379,18 @@ export class HostChildRuns {
     }
   }
 
-  /** The parent thread a settled run's background invocation reports to. */
-  backgroundParent(run: HostRunState): string | undefined {
+  /**
+   * The parent thread a settled child run reports to: a background invocation
+   * in any outcome, a follow-up only when it completed (a pause or a stop never
+   * wakes the parent).
+   */
+  deliveryParent(run: HostRunState): string | undefined {
     const origin = run.origin;
-    return origin?.background && this.invocations.get(run.threadId) === run.id
+    if (!origin) {
+      return;
+    }
+    const invocation = this.invocations.get(run.threadId) === run.id;
+    return (invocation && origin.background) || (!invocation && run.outcome === 'completed')
       ? origin.parentThreadId
       : undefined;
   }
@@ -359,12 +465,7 @@ export class HostChildRuns {
   ):
     | { readonly entries: HostChildDeliveryEntry[]; readonly ledger: string; turnId: string }
     | undefined {
-    const all = [...this.origins].flatMap(([childThreadId, origin]): Invocation[] => {
-      const run = runs.get(this.invocations.get(childThreadId) ?? '');
-      return origin.background && origin.parentThreadId === threadId && run
-        ? [{ origin, run, threadId: childThreadId }]
-        : [];
-    });
+    const { all, followUps } = this.reports(threadId, runs);
     const stopped = (turnId: string): boolean =>
       [...runs.values()].some(
         (run) =>
@@ -378,8 +479,7 @@ export class HostChildRuns {
         ? [{ ...invocation, outcome }]
         : [];
     });
-    const last = due.at(-1);
-    if (!last) {
+    if (due.length === 0 && followUps.length === 0) {
       return;
     }
     const persona = ({ origin, run }: Invocation): AssistantPersonaDefinition =>
@@ -392,35 +492,71 @@ export class HostChildRuns {
         label: origin.persona,
         maxSteps: run.snapshot?.maxSteps ?? 0,
       };
+    const entry = (invocation: Invocation, outcome: Outcome): HostChildDeliveryEntry => ({
+      childRunId: invocation.run.id,
+      childThreadId: invocation.threadId,
+      outcome: hostChildResult(
+        invocation.threadId,
+        persona(invocation),
+        outcome,
+        invocation.run.messages
+      ).text,
+      parentRunId: invocation.origin.parentRunId,
+      state: settledState(outcome),
+      toolCallId: invocation.origin.toolCallId,
+    });
     const turns = new Set(due.map(({ origin }) => origin.turnId));
+    const continued = followUps.map(
+      (followUp): HostChildDeliveryEntry => ({ ...entry(followUp, 'completed'), followUp: true })
+    );
+    const ledger = due.length
+      ? [
+          describeHostChildLedger(
+            all
+              .filter(({ origin }) => turns.has(origin.turnId))
+              .map((invocation) => ({
+                persona: persona(invocation).label,
+                prompt: invocation.run.branch.prompt,
+                reason: invocation.run.detail,
+                state: ledgerState(invocation.run.outcome),
+                toolCallId: invocation.origin.toolCallId,
+                toolName: `agent-${invocation.origin.persona}`,
+              }))
+          ),
+        ]
+      : [];
     return {
-      entries: due.map((invocation) => ({
-        childRunId: invocation.run.id,
-        childThreadId: invocation.threadId,
-        outcome: hostChildResult(
-          invocation.threadId,
-          persona(invocation),
-          invocation.outcome,
-          invocation.run.messages
-        ).text,
-        parentRunId: invocation.origin.parentRunId,
-        state: settledState(invocation.outcome),
-        toolCallId: invocation.origin.toolCallId,
-      })),
-      ledger: describeHostChildLedger(
-        all
-          .filter(({ origin }) => turns.has(origin.turnId))
-          .map((invocation) => ({
-            persona: persona(invocation).label,
-            prompt: invocation.run.branch.prompt,
-            reason: invocation.run.detail,
-            state: ledgerState(invocation.run.outcome),
-            toolCallId: invocation.origin.toolCallId,
-            toolName: `agent-${invocation.origin.persona}`,
-          }))
-      ),
-      turnId: last.origin.turnId,
+      entries: [...due.map((invocation) => entry(invocation, invocation.outcome)), ...continued],
+      ledger: [...ledger, ...continued.map(describeHostChildContinuation)].join('\n\n'),
+      turnId: followUps.at(-1)?.run.id ?? due.at(-1)?.origin.turnId ?? threadId,
     };
+  }
+
+  /**
+   * What `threadId`'s children report to it: its background invocations, and
+   * the completed follow-ups typed into any of its children not yet delivered.
+   */
+  private reports(
+    threadId: string,
+    runs: ReadonlyMap<string, HostRunState>
+  ): { readonly all: Invocation[]; readonly followUps: Invocation[] } {
+    const all: Invocation[] = [];
+    const followUps: Invocation[] = [];
+    for (const run of runs.values()) {
+      const origin = run.origin;
+      if (origin?.parentThreadId !== threadId) {
+        continue;
+      }
+      const invocation: Invocation = { origin, run, threadId: run.threadId };
+      if (this.invocations.get(run.threadId) === run.id) {
+        if (origin.background) {
+          all.push(invocation);
+        }
+      } else if (run.outcome === 'completed' && !this.delivered.has(run.id)) {
+        followUps.push(invocation);
+      }
+    }
+    return { all, followUps };
   }
 
   /** The child's identity, its admission narrowed from the parent's, and its committed rows. */
@@ -451,16 +587,11 @@ export class HostChildRuns {
       toolCallId: action.toolCallId,
       turnId,
     };
-    let queue = this.queues.get(turnId);
-    if (!queue) {
-      queue = new HostChildWorkQueue(delegation.settings.maxConcurrentWork);
-      this.queues.set(turnId, queue);
-    }
     const childAdmission = deriveHostChildAdmission(
       admission,
       persona,
       delegation,
-      queue,
+      this.queue(turnId, delegation.settings),
       origin.depth
     );
     const threadId = randomUUID();

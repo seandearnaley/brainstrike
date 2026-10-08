@@ -16,7 +16,7 @@ import type {
   HostRunAdmissionRequest,
   HostRunOwner,
 } from './ports.js';
-import type { HostEvent } from './protocol.js';
+import type { HostEvent, HostRunSnapshot } from './protocol.js';
 import { HostRunSnapshotSchema } from './protocol.js';
 import { createHostSdkTools } from './sdk-tools.js';
 import { bindHostRunWorkspace, validateHostRunWorkspaceBinding } from './workspace-state.js';
@@ -145,15 +145,18 @@ export function hostRunCommandRequest(
     readonly threadId: string;
   },
   origin: HostClientOrigin | undefined,
-  prompt: string | undefined,
+  /**
+   * A command's user-written prompt, or (BST-1932) a wake's turn: it has no
+   * prompt and reopens the committed selection of the run it follows.
+   */
+  input: { readonly prompt: string } | { readonly snapshot: HostRunSnapshot },
   signal: AbortSignal
-): Omit<HostRunAdmissionRequest, 'snapshot' | 'workspaceBinding'> {
+): Omit<HostRunAdmissionRequest, 'workspaceBinding'> {
   return {
     ...(params.configuration ? { configuration: params.configuration } : {}),
     modelId: params.modelId,
     ...(origin ? { origin } : {}),
-    // BST-1932: a wake has no user-written prompt; its ledger follows admission.
-    ...(prompt === undefined ? {} : { prompt }),
+    ...input,
     signal,
     threadId: params.threadId,
   };

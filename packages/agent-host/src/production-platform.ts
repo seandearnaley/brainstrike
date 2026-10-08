@@ -37,6 +37,8 @@ import type { HostStartupContext } from './runtime.js';
 
 /** Existing settings/context/native catalog owners resolve this once per admitted run. */
 export interface ProductionHostRunConfiguration {
+  /** BST-1932: the host context a delegated child receives beside its persona instructions. */
+  readonly childSystem?: string | undefined;
   /** Borrowed platform capabilities remain owned until every run tail joins. */
   readonly close?: () => Promise<void>;
   readonly configuration: RuntimeData;
@@ -266,6 +268,7 @@ export async function createProductionHostPlatform(
         );
         request.signal.throwIfAborted();
         const selection: HostRunAdmission = {
+          childSystem: selected.childSystem,
           close: release,
           configuration: selected.configuration,
           delegation: selected.delegation,
