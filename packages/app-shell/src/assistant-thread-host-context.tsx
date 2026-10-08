@@ -1,4 +1,8 @@
 import type {
+  OpenRouterModelMetadataSnapshot,
+  ProviderVerificationSnapshot,
+} from '@brainstrike/assistant-contract';
+import type {
   AssistantMemoryThread,
   AssistantThreadMetadata,
   AssistantThreadRepository,
@@ -22,6 +26,18 @@ export interface AssistantThreadHostRuns {
   readonly subscribe: (listener: () => void) => () => void;
 }
 
+/**
+ * Provider facts the host answers from its own environment and credential
+ * store: availability, a credential probe and OpenRouter model metadata. A
+ * client sends only ids; keys never cross.
+ */
+export interface AssistantHostProviders {
+  readOpenRouterModel(modelId: string): Promise<OpenRouterModelMetadataSnapshot>;
+  /** The availability payload; `createAssistantStatusFetcher` validates it. */
+  readStatus(): Promise<unknown>;
+  verifyProvider(providerId: string): Promise<ProviderVerificationSnapshot>;
+}
+
 /** A host app supplies committed thread identity and its connected presentation. */
 export interface AssistantThreadHostCapability {
   createThread(resourceId: string): Promise<AssistantMemoryThread>;
@@ -30,6 +46,8 @@ export interface AssistantThreadHostCapability {
   listThreads(resourceId: string): Promise<readonly AssistantMemoryThread[]>;
   /** True only for an identity this host owns; its metadata never reaches history. */
   ownsThread(threadId: string): Promise<boolean>;
+  /** Omitted by a host that answers no provider reads (web uses its own server). */
+  readonly providers?: AssistantHostProviders;
   /** Commits an owned thread's title through the host; it never reaches history. */
   renameThread(threadId: string, title: string): Promise<void>;
   /**

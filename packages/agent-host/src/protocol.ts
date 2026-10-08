@@ -1,4 +1,11 @@
-import { isProviderCredential, type ProviderCredential } from '@brainstrike/assistant-contract';
+import {
+  isProviderCredential,
+  type OpenRouterModelMetadataSnapshot,
+  type ProviderCredential,
+  type ProviderVerificationSnapshot,
+  parseOpenRouterModelMetadataSnapshot,
+  parseProviderVerificationSnapshot,
+} from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE,
   SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES,
@@ -134,6 +141,8 @@ export const HOST_METHOD_SCHEMAS = {
   'auth/login': z.strictObject({ ...Provider, credential: LoginCredential }),
   'auth/status': z.strictObject(Provider),
   'auth/verify': z.strictObject(Provider),
+  /** Provider availability: the host's configured keys, unreadable entries and env-file failures. */
+  'host/status': z.strictObject({}),
   'host/stop': z.strictObject({}),
   initialize: z.strictObject({
     hostVersion: Id,
@@ -162,6 +171,10 @@ export const HOST_METHOD_SCHEMAS = {
   }),
   // Values are process-local and never enter HostCommandLedger.
   'mcp/input/stage': z.strictObject({ ...McpInput, content: McpContent.optional() }),
+  /** Model metadata through the host's OpenRouter key; the client sends only the model id. */
+  'providers/openrouter-model': z.strictObject({ model: Id }),
+  /** The cheapest authenticated probe of one provider's stored or env credential. */
+  'providers/verify': z.strictObject(Provider),
   'run/regenerate': z.strictObject({
     ...Command,
     ...Thread,
@@ -373,6 +386,8 @@ export const HOST_RESULT_SCHEMAS = {
   'auth/login': z.strictObject({ stored: z.literal(true) }),
   'auth/status': HostAuthStatusSchema,
   'auth/verify': HostAuthVerdictSchema,
+  // The renderer validates the availability payload strictly (use-assistant-availability).
+  'host/status': z.record(z.string(), z.json()),
   'host/stop': z.strictObject({ outcome: z.literal('stopped'), rootReleased: z.literal(true) }),
   initialize: z.strictObject({
     hostVersion: Id,
@@ -395,6 +410,14 @@ export const HOST_RESULT_SCHEMAS = {
     status: HostMcpInputStatusSchema,
   }),
   'mcp/input/stage': z.strictObject({ staged: z.literal(true) }),
+  'providers/openrouter-model': z
+    .unknown()
+    .transform(
+      (value): OpenRouterModelMetadataSnapshot => parseOpenRouterModelMetadataSnapshot(value)
+    ),
+  'providers/verify': z
+    .unknown()
+    .transform((value): ProviderVerificationSnapshot => parseProviderVerificationSnapshot(value)),
   'run/regenerate': z.strictObject({ runId: Id }),
   'run/start': z.strictObject({ runId: Id }),
   'run/stop': z.strictObject({ outcome: z.enum(['stopped', 'already-terminal']) }),

@@ -18,6 +18,16 @@ import {
   getToolActionIdentityKey,
 } from '@brainstrike/assistant-contract';
 import { respondJson } from '@brainstrike/assistant-service/http';
+import {
+  createOpenRouterModelMetadataService,
+  requireOpenRouterModelId,
+} from '@brainstrike/host-capabilities/openrouter-model-metadata';
+import {
+  createProviderVerificationService,
+  MissingProviderCredentialError,
+  UnknownVerificationProviderError,
+  UnsupportedVerificationCredentialError,
+} from '@brainstrike/host-capabilities/provider-verification';
 import { getDatabase } from '../db-main';
 import { createDesktopDelegatedSuspensionResolver } from './delegated-conversation-host';
 import {
@@ -27,23 +37,19 @@ import {
 import { desktopAssistantServerLogger as logger } from './logger';
 import { getDesktopMastraMemory } from './mastra-memory';
 import {
-  createOpenRouterModelMetadataService,
-  requireOpenRouterModelId,
-} from './openrouter-model-metadata';
-import { collectAvailableProviders, resolveProviderApiKeyOrRespond } from './provider-credentials';
-import {
-  createProviderVerificationService,
-  MissingProviderCredentialError,
-  UnknownVerificationProviderError,
-  UnsupportedVerificationCredentialError,
-} from './provider-verification';
+  collectAvailableProviders,
+  readMainVerificationCredential,
+  resolveProviderApiKeyOrRespond,
+} from './provider-credentials';
 import { respondToSecretReadError } from './secret-error-responses';
 import type { AssistantServerOptions } from './server-options';
 
 const defaultOpenRouterModelMetadataService = createOpenRouterModelMetadataService();
 // Desktop composition injects the host's subscription verifier; without it a
 // subscription probe fails closed as `verification_unsupported`.
-const defaultProviderVerificationService = createProviderVerificationService();
+const defaultProviderVerificationService = createProviderVerificationService({
+  readCredential: readMainVerificationCredential,
+});
 
 /**
  * Newest-N bound on rediscovered suspend() pauses per thread open (BST-1084,

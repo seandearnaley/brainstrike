@@ -18,6 +18,19 @@ export const HostPlatformLaunchOptionsSchema = z.strictObject({
       }),
     ])
     .optional(),
+  /**
+   * Env files the launching shell rejected. Their messages name the file and
+   * line only, never a value; provider status reports them and gates on them.
+   */
+  envFileFailures: z
+    .array(
+      z.strictObject({
+        code: z.enum(['env_file_invalid', 'env_file_unreadable']),
+        file: z.enum(['dev', 'dev-local', 'user-data']),
+        message: z.string().min(1),
+      })
+    )
+    .optional(),
   /** The MCP server configuration this host composes, as the desktop's config JSON. */
   mcpConfig: z
     .strictObject({
@@ -31,3 +44,4 @@ export const HostPlatformLaunchOptionsSchema = z.strictObject({
   openAiCodexIssuer: LoopbackIssuer.optional(),
 });
 export type HostPlatformLaunchOptions = z.infer<typeof HostPlatformLaunchOptionsSchema>;
+export type HostEnvFileFailure = NonNullable<HostPlatformLaunchOptions['envFileFailures']>[number];

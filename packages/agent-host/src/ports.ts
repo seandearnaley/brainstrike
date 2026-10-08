@@ -6,9 +6,11 @@ import type {
   McpElicitationSettlement,
   McpHostCloseReport,
   McpHostPort,
+  OpenRouterModelMetadataSnapshot,
   PermissionToolGateSnapshot,
   ProviderAuthStartMethod,
   ProviderAuthStatus,
+  ProviderVerificationSnapshot,
   ToolRiskCategory,
 } from '@brainstrike/assistant-contract';
 import type { McpTaskHandle } from '@brainstrike/assistant-contract/mcp-task-presentation';
@@ -208,6 +210,18 @@ export interface HostTool {
   readonly toModelOutput?: Tool<unknown, unknown>['toModelOutput'];
 }
 
+/**
+ * Provider reads a client makes by id: availability, a credential probe and
+ * OpenRouter model metadata. Keys resolve inside the host and never cross.
+ */
+export interface HostProviderService {
+  openRouterModel(modelId: string): Promise<OpenRouterModelMetadataSnapshot>;
+  /** The availability payload Settings and the assistant panel gate on. */
+  status(): Promise<Readonly<Record<string, unknown>>>;
+  /** A subscription probe needs the desktop origin, like a subscription run. */
+  verify(provider: string, origin: HostClientOrigin): Promise<ProviderVerificationSnapshot>;
+}
+
 /** Credentials and process-local capabilities never become protocol payloads. */
 export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
@@ -220,6 +234,8 @@ export interface HostPlatform {
   readonly maxSteps?: number | undefined;
   /** Run-scoped construction; cached shared memory must not capture a run signal. */
   openRun?(context: HostRunContext): Promise<HostRunOwner>;
+  /** Provider reads from the host's own store; absent where it owns none. */
+  readonly providers?: HostProviderService;
   readPermissionPolicy(
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;

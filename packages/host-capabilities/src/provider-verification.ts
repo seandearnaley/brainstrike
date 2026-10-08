@@ -62,11 +62,11 @@ import {
   type ProviderVerificationStatus,
 } from '@brainstrike/assistant-contract';
 import { resolveEnvAwsRegion } from '@brainstrike/assistant-service/provider-credential-projection';
-import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
-import { Effect } from 'effect';
-import { resolveProviderBaseUrl } from './provider-base-url';
-import { resolveProviderCredential } from './provider-credentials';
-import { resolveTavilyApiKeyFromKeychain, TAVILY_SECRET_PROVIDER } from './web-search-tool';
+import { runWithTimeout } from '@brainstrike/effect-kit';
+import { resolveProviderBaseUrl } from './provider-base-url.js';
+
+/** Tavily owns a Settings key slot but is not a chat provider in the registry. */
+export const TAVILY_SECRET_PROVIDER = 'tavily' as const;
 
 const DEFAULT_SUCCESS_TTL_MS = 60 * 1000;
 const DEFAULT_FAILURE_TTL_MS = 3 * 1000;
@@ -143,7 +143,7 @@ interface ProviderVerificationServiceOptions {
   readonly maxCacheEntries?: number;
   readonly now?: () => number;
   /** Typed main-side credential reader; the renderer only ever sends the id. */
-  readonly readCredential?: (providerId: string) => Promise<ProviderCredential | undefined>;
+  readonly readCredential: (providerId: string) => Promise<ProviderCredential | undefined>;
   readonly requestTimeoutMs?: number;
   readonly successTtlMs?: number;
   /** AWS profile-chain resolution seam (BST-1353); tests inject verdicts. */
@@ -397,14 +397,6 @@ function toVisibleError(error: unknown): string {
   return message.slice(0, MAX_VISIBLE_ERROR_CHARS);
 }
 
-async function defaultReadCredential(providerId: string): Promise<ProviderCredential | undefined> {
-  if (providerId === TAVILY_SECRET_PROVIDER) {
-    const key = await resolveTavilyApiKeyFromKeychain();
-    return key === undefined ? undefined : { key, type: 'api_key' };
-  }
-  return await resolveProviderCredential(providerId);
-}
-
 function defaultFindProvider(providerId: string): ProviderVerificationTarget | undefined {
   if (providerId === TAVILY_SECRET_PROVIDER) {
     // Tavily owns a settings key slot but is not a chat provider, so it has no
@@ -415,13 +407,13 @@ function defaultFindProvider(providerId: string): ProviderVerificationTarget | u
 }
 
 export function createProviderVerificationService(
-  options: ProviderVerificationServiceOptions = {}
+  options: ProviderVerificationServiceOptions
 ): ProviderVerificationService {
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
   const env = options.env ?? process.env;
   const now = options.now ?? Date.now;
   const findProvider = options.findProvider ?? defaultFindProvider;
-  const readCredential = options.readCredential ?? defaultReadCredential;
+  const readCredential = options.readCredential;
   const successTtlMs = requirePositiveInteger(
     options.successTtlMs ?? DEFAULT_SUCCESS_TTL_MS,
     'successTtlMs'
@@ -547,29 +539,27 @@ export function createProviderVerificationService(
 
   const runProbe = async (probe: ProbeRequest): Promise<ProviderVerificationResult> => {
     const checkedAt = new Date(now()).toISOString();
-    const request = Effect.tryPromise({
-      catch: (error: unknown): Error =>
-        error instanceof Error ? error : new ProviderProbeRequestError(error),
-      try: async (signal: AbortSignal): Promise<{ response: Response; bodyText: string }> => {
-        const response = await fetchImpl(probe.url, {
-          ...(probe.body === undefined ? {} : { body: probe.body }),
-          headers: probe.headers,
-          method: probe.method,
-          signal,
-        });
-        signal.throwIfAborted();
-        const bodyText = await response.text();
-        signal.throwIfAborted();
-        return { bodyText, response };
-      },
-    });
-    const bounded = Effect.timeoutOrElse(request, {
-      duration: requestTimeoutMs,
-      orElse: (): Effect.Effect<never, ProviderProbeTimeoutError> =>
-        Effect.fail(new ProviderProbeTimeoutError(requestTimeoutMs)),
-    });
     try {
-      const { response, bodyText } = await runAtPromiseBoundary(bounded);
+      const { response, bodyText } = await runWithTimeout(
+        async (signal: AbortSignal): Promise<{ response: Response; bodyText: string }> => {
+          const response = await fetchImpl(probe.url, {
+            ...(probe.body === undefined ? {} : { body: probe.body }),
+            headers: probe.headers,
+            method: probe.method,
+            signal,
+          });
+          signal.throwIfAborted();
+          const bodyText = await response.text();
+          signal.throwIfAborted();
+          return { bodyText, response };
+        },
+        {
+          onTimeout: () => new ProviderProbeTimeoutError(requestTimeoutMs),
+          timeoutMs: requestTimeoutMs,
+        }
+      ).catch((error: unknown) => {
+        throw error instanceof Error ? error : new ProviderProbeRequestError(error);
+      });
       const status = (probe.classifyHttp ?? classifySharedHttp)(response, bodyText);
       if (status === 'verified') {
         const detail = probe.describeSuccess?.(bodyText)?.slice(0, MAX_VISIBLE_ERROR_CHARS);

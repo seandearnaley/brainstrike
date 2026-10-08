@@ -7,14 +7,14 @@
 
 import type { DeprecatedEnvVarReport } from '@brainstrike/assistant-contract/provider-metadata';
 import type { AssistantLlmHostManager } from '@brainstrike/assistant-service/ports';
+import type { OpenRouterModelMetadataService } from '@brainstrike/host-capabilities/openrouter-model-metadata';
+import type { ProviderVerificationService } from '@brainstrike/host-capabilities/provider-verification';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { DesktopEnvLoadFailure } from '../desktop-env';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import type { AssistantServerAuth } from './auth';
 import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
 import type { ForgeService } from './forge-service';
-import type { OpenRouterModelMetadataService } from './openrouter-model-metadata';
-import type { ProviderVerificationService } from './provider-verification';
 import type { SnapshotRepository } from './snapshot-repository';
 import type { SnapshotService } from './snapshot-service';
 import type { WorktreeService } from './worktree-service';

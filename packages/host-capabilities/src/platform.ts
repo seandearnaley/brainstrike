@@ -103,6 +103,7 @@ export async function createHostPlatform(
       await mcp?.close();
       await host.close();
     },
+    providers: host.providers,
     ...(mcp ? { mcp: mcp.mcp } : {}),
     readConfiguration: async (request): Promise<ProductionHostRunConfiguration> => {
       request.signal.throwIfAborted();

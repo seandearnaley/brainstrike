@@ -517,10 +517,8 @@ test('assistant provider probes own complete response deadlines at one Effect bo
   assert.match(contract, /assistant provider probes bound fetch and body reading together/u);
   assert.match(contract, /effect-boundary\/provider-probe-lifetimes\.md/u);
   for (const name of ['provider-verification', 'openrouter-model-metadata']) {
-    const source = readRepoFile(`apps/desktop/src/assistant-server/${name}.ts`);
-    assert.match(source, /Effect\.tryPromise\(/u, `${name} wraps fetch and body`);
-    assert.match(source, /Effect\.timeoutOrElse\(/u, `${name} has a deadline`);
-    assert.match(source, /runAtPromiseBoundary\(/u, `${name} crosses once to Promise callers`);
+    const source = readRepoFile(`packages/host-capabilities/src/${name}.ts`);
+    assert.match(source, /runWithTimeout\(/u, `${name} bounds fetch and body with one deadline`);
     assert.match(source, /signal\.throwIfAborted\(\)/u, `${name} fences late bodies`);
     assert.doesNotMatch(source, /\bsetTimeout\(/u, `${name} cannot keep an unbounded timer`);
   }

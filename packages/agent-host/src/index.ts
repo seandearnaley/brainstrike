@@ -55,6 +55,7 @@ export {
 } from './mcp-authority.js';
 export { materializeHostProviderModel } from './model-router-sdk.js';
 export {
+  type HostEnvFileFailure,
   type HostPlatformLaunchOptions,
   HostPlatformLaunchOptionsSchema,
 } from './platform-launch-options.js';

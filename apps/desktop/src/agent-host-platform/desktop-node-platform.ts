@@ -132,6 +132,7 @@ export async function createHostPlatform(
       await request('platform/close', {});
     },
     mcp: mcpHost.services.mcp,
+    providers: host.providers,
     readConfiguration: async (admission) => {
       const response = await request(
         'platform/admit',

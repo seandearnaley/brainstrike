@@ -12,9 +12,21 @@
     "./credentials": { "types": "./dist/credentials.d.ts", "default": "./dist/credentials.js" },
     "./platform": { "types": "./dist/platform.d.ts", "default": "./dist/platform.js" },
     "./mcp/*": { "types": "./dist/mcp/*.d.ts", "default": "./dist/mcp/*.js" },
+    "./openrouter-model-metadata": {
+      "types": "./dist/openrouter-model-metadata.d.ts",
+      "default": "./dist/openrouter-model-metadata.js"
+    },
     "./provider-credentials": {
       "types": "./dist/provider-credentials.d.ts",
       "default": "./dist/provider-credentials.js"
+    },
+    "./provider-status": {
+      "types": "./dist/provider-status.d.ts",
+      "default": "./dist/provider-status.js"
+    },
+    "./provider-verification": {
+      "types": "./dist/provider-verification.d.ts",
+      "default": "./dist/provider-verification.js"
     }
   },
   "files": ["bin", "dist"],

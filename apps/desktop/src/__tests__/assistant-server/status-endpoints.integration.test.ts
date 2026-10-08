@@ -535,7 +535,7 @@ describe('verify-provider endpoint', () => {
 
   it('rejects an unknown provider id with 400', async () => {
     const { UnknownVerificationProviderError } = await import(
-      '../../assistant-server/provider-verification'
+      '@brainstrike/host-capabilities/provider-verification'
     );
     const verify = vi.fn().mockRejectedValue(new UnknownVerificationProviderError());
 
@@ -557,7 +557,7 @@ describe('verify-provider endpoint', () => {
 
   it('rejects a provider without a configured credential with 400', async () => {
     const { MissingProviderCredentialError } = await import(
-      '../../assistant-server/provider-verification'
+      '@brainstrike/host-capabilities/provider-verification'
     );
     const verify = vi.fn().mockRejectedValue(new MissingProviderCredentialError('anthropic'));
 
@@ -600,7 +600,7 @@ describe('verify-provider endpoint', () => {
 
   it('never leaks the stored key into the response payload (real service, mocked fetch)', async () => {
     const { createProviderVerificationService } = await import(
-      '../../assistant-server/provider-verification'
+      '@brainstrike/host-capabilities/provider-verification'
     );
     const fakeKey = 'sk-super-secret-endpoint-key';
     const service = createProviderVerificationService({

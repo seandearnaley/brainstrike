@@ -25,6 +25,7 @@ export { useAssistantModelChange } from './hooks/use-assistant-model-change';
 export { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
 export { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';
 export { useEnableModel } from './hooks/use-enable-model';
+export { useHostAssistantStatusFetcher } from './hooks/use-host-assistant-status-fetcher';
 export { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
 export * from './navigation';
 export * from './page-wrapper';

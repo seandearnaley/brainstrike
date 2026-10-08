@@ -56,6 +56,8 @@ export interface ProductionHostPlatformOptions {
   close(): Promise<void>;
   /** Desktop platform selections already include the existing qualified MCP executors. */
   readonly mcp?: HostMcpRuntime;
+  /** Provider reads from the same credential store. */
+  readonly providers?: HostPlatform['providers'];
   readConfiguration(request: HostRunAdmissionRequest): Promise<ProductionHostRunConfiguration>;
   readPermissionPolicy(
     threadId?: string
@@ -296,5 +298,6 @@ export async function createProductionHostPlatform(
     readPermissionPolicy: options.readPermissionPolicy,
     stateIndexer: indexer,
     ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.providers ? { providers: options.providers } : {}),
   };
 }

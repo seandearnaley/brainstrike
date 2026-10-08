@@ -213,6 +213,14 @@ export function createWindowThreadCapability(
     },
     listThreads,
     ownsThread: async (threadId) => (await threadClient(threadId)) !== undefined,
+    // This frame's desktop-ui client: the host reads its own store; Main serves none.
+    providers: {
+      readOpenRouterModel: async (model) =>
+        await (await client()).request('providers/openrouter-model', { model }),
+      readStatus: async () => await (await client()).request('host/status', {}),
+      verifyProvider: async (provider) =>
+        await (await client()).request('providers/verify', { provider }),
+    },
     renameThread: async (threadId, title) => {
       const host = await threadClient(threadId);
       if (!host) {
