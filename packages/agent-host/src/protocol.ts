@@ -268,6 +268,14 @@ export type HostLegacyImport = z.infer<typeof HostLegacyImportSchema>;
 
 const Provider = { provider: Id };
 
+/**
+ * Host -> client: a UI action only the connected desktop client performs. The
+ * one external opener for every host feature (OAuth sign-in, MCP authorization).
+ */
+export const CLIENT_OPEN_EXTERNAL = 'client/open-external';
+export const ClientOpenExternalParamsSchema = z.strictObject({ url: z.url() });
+export const ClientOpenExternalResultSchema = z.strictObject({ opened: z.literal(true) });
+
 export const HOST_METHOD_SCHEMAS = {
   // auth/* is secret-bearing: process-local, never in HostCommandLedger, the log
   // or diagnostics. The host is the single writer and token holder.

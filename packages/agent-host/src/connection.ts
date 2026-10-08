@@ -90,7 +90,7 @@ export function bindHostConnection(
       start: record.start,
     };
   });
-  bindHostAuthMethods(handle, auth, origin);
+  bindHostAuthMethods(handle, connection, auth, origin);
   bindHostProviderMethods(handle, providers, origin);
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));

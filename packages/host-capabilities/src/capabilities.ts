@@ -31,8 +31,6 @@ export interface HostCapabilitiesOptions {
   readonly env: NodeJS.ProcessEnv;
   /** Trusted process launch selection; never inferred or defaulted. */
   readonly launch: HostPlatformLaunchOptions | undefined;
-  /** The launching desktop's validated browser opener; the CLI has none. */
-  readonly openExternal?: (url: string) => Promise<void>;
   readonly startup: HostStartupContext;
 }
 
@@ -59,7 +57,6 @@ export async function createHostCapabilities(
     credentials,
     env: options.env,
     ...(options.launch?.legacyImportPending ? { legacyImportPending: true } : {}),
-    ...(options.openExternal ? { openExternal: options.openExternal } : {}),
   });
   return {
     auth,

@@ -254,10 +254,12 @@ export interface HostRunAdmission {
 export interface HostAuthService {
   cancel(provider: string): Promise<ProviderAuthStatus>;
   clear(): Promise<boolean>;
+  /** `openExternal` asks the requesting client to open the sign-in page. */
   connect(
     provider: string,
     method: ProviderAuthStartMethod | undefined,
-    origin: HostClientOrigin | undefined
+    origin: HostClientOrigin | undefined,
+    openExternal: (url: string) => Promise<void>
   ): Promise<ProviderAuthStatus>;
   deleteCredential(account: string): Promise<boolean>;
   disconnect(provider: string): Promise<ProviderAuthStatus>;
