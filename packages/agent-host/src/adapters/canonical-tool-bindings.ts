@@ -1,14 +1,20 @@
 import {
+  applyToolGuards,
   applyToolModelOutputProjections,
   createSanitizedToolNameMap,
   type RuntimeData,
+  resolveAssistantResilienceConfig,
+  resolveToolGuardBudget,
   type ScaledToolResultBudget,
 } from '@brainstrike/agent/tool-runtime';
 import {
+  isNativeToolId,
+  NATIVE_TOOL_EXECUTION_BUDGETS,
   NATIVE_TOOL_ID,
   type PermissionToolGateSnapshot,
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract';
+import { createLogger } from '@brainstrike/logging';
 import type { HostTool, HostToolContext } from '../ports.js';
 import {
   canonicalToolInputSchema,
@@ -17,6 +23,29 @@ import {
 } from './canonical-context.js';
 
 type CanonicalTools = NonNullable<RuntimeData['mastraTools']>;
+
+const guardLogger = createLogger('AgentHostToolGuard');
+
+/**
+ * The legacy execution guard (BST-1777) on every native tool: a call that
+ * outlives its declared budget, or the resilience default, answers with the
+ * structured timeout result, and a throw becomes the guarded error result.
+ * Other tools keep their owner's guard (MCP bindings guard themselves).
+ */
+function guardNativeTools(tools: CanonicalTools, defaultGuardMs: number): CanonicalTools {
+  const native = Object.fromEntries(Object.entries(tools).filter(([id]) => isNativeToolId(id)));
+  const guarded = applyToolGuards(native, {
+    declaredMaxMs: (id) => NATIVE_TOOL_EXECUTION_BUDGETS.get(id)?.maxMs,
+    logger: guardLogger,
+    timeoutMs: (id) => (args) =>
+      resolveToolGuardBudget({
+        budget: NATIVE_TOOL_EXECUTION_BUDGETS.get(id),
+        defaultGuardMs,
+        input: args[0],
+      }),
+  });
+  return { ...tools, ...guarded };
+}
 type CanonicalTool = Extract<CanonicalTools[string], { id: string; description: string }>;
 
 function isCanonicalTool(source: CanonicalTools[string]): source is CanonicalTool {
@@ -70,11 +99,17 @@ function canonicalInteraction(
 export function createAgentHostToolBindings(options: {
   readonly bindings: Readonly<Record<string, AgentHostToolBinding>>;
   readonly resolvedToolResultBudget: ScaledToolResultBudget;
+  /** The guard's default window; the resilience configuration owns it. */
+  readonly toolTimeoutMs?: number;
   readonly tools: CanonicalTools;
 }): AgentHostToolBindings {
   const toolNameMap = createSanitizedToolNameMap(Object.keys(options.tools));
-  const projected = applyToolModelOutputProjections(
+  const guarded = guardNativeTools(
     options.tools,
+    options.toolTimeoutMs ?? resolveAssistantResilienceConfig().toolTimeoutMs
+  );
+  const projected = applyToolModelOutputProjections(
+    guarded,
     toolNameMap,
     undefined,
     options.resolvedToolResultBudget
