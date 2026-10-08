@@ -4,14 +4,16 @@ import {
   canonicalToolModelOutput,
   createProductionHostPlatform,
   type HostPlatform,
+  type HostPlatformLaunchOptions,
   type HostStartupContext,
   type HostTool,
   type HostToolContext,
   type ProductionHostRunConfiguration,
   platformToolInputSchema,
 } from '@brainstrike/agent-host';
-import type { SupportedProvider } from '@brainstrike/assistant-contract';
+import { findProviderDefinition, type SupportedProvider } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
+import { createHostCapabilities } from '@brainstrike/host-capabilities';
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
@@ -66,8 +68,16 @@ function desktopRuntimeConfiguration(
 /** Electron-free production entry: Node owns the model loop, Memory and committed log. */
 export async function createHostPlatform(
   _options: HostStartOptions,
-  startup: HostStartupContext
+  startup: HostStartupContext,
+  platformOptions?: HostPlatformLaunchOptions
 ): Promise<HostPlatform> {
+  // Provider credentials resolve here, in Node, from the profile store Main's
+  // Settings writes. Only subscription OAuth still borrows Main's engine.
+  const host = await createHostCapabilities({
+    env: process.env,
+    launch: platformOptions,
+    startup,
+  });
   const port = await parentPlatformPort();
   const connection = mainPlatformConnection(port);
   const executions = new Map<string, HostToolContext & { readonly toolId: string }>();
@@ -136,6 +146,9 @@ export async function createHostPlatform(
       ): Promise<ProviderAuthInput | undefined> => {
         if (closing) {
           throw new Error('Private provider selection is closing');
+        }
+        if (findProviderDefinition(selectedProvider)?.authType !== 'oauth_subscription') {
+          return await host.resolveProviderAuth(selectedProvider);
         }
         const response = await request(
           'platform/auth',
