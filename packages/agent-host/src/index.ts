@@ -48,6 +48,12 @@ export {
 export { bindHostConnection } from './connection.js';
 export { HostCore, type HostEventStore } from './core.js';
 export { readHostRow } from './event-storage.js';
+export {
+  type HostHookTrustStore,
+  hostProjectHooksPath,
+  readHostHookApproval,
+  readHostHookTrust,
+} from './hook-trust.js';
 export { createAgentHostSpawner } from './launcher.js';
 export {
   assertMcpAuthorityReconstruction,

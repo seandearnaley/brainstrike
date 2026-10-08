@@ -92,8 +92,11 @@ test('Stop fences and joins a physical child even when accepting the durable com
         )
           ? Promise.reject(failure)
           : store.append(items, committed, durability),
+      deleteSetting: (key) => store.deleteSetting(key),
+      getSetting: (key) => store.getSetting(key),
       read: (threadId, fromSeq) => store.read(threadId, fromSeq),
       root: store.root,
+      setSetting: (key, value) => store.setSetting(key, value),
       syncBoundary: (threadId) => store.syncBoundary(threadId),
       threads: () => store.threads(),
     },
@@ -685,8 +688,11 @@ test('failed terminal append retains run admission and does not retry persistenc
       }
       return store.append(items, committed, durability);
     },
+    deleteSetting: (key) => store.deleteSetting(key),
+    getSetting: (key) => store.getSetting(key),
     read: (threadId, fromSeq) => store.read(threadId, fromSeq),
     root: store.root,
+    setSetting: (key, value) => store.setSetting(key, value),
     syncBoundary: (threadId) => store.syncBoundary(threadId),
     threads: () => store.threads(),
   };
@@ -802,8 +808,11 @@ test('failed atomic terminal FULL commit keeps live and replay views running and
       }
       return store.append(items, committed, durability);
     },
+    deleteSetting: (key) => store.deleteSetting(key),
+    getSetting: (key) => store.getSetting(key),
     read: (threadId, fromSeq) => store.read(threadId, fromSeq),
     root: store.root,
+    setSetting: (key, value) => store.setSetting(key, value),
     syncBoundary: (threadId) => store.syncBoundary(threadId),
     threads: () => store.threads(),
   };

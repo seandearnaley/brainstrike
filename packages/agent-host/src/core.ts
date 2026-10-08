@@ -32,6 +32,7 @@ import {
 } from './core-state.js';
 import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-storage.js';
 import { foldHostHookContext, hostRunAssistantTail, hostStopReason } from './hook-context.js';
+import type { HostHookTrustStore } from './hook-trust.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
 import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
@@ -81,7 +82,8 @@ export { jsonValue } from './json-value.js';
 export type HostEventStore = Pick<
   StateStore,
   'append' | 'read' | 'root' | 'syncBoundary' | 'threads'
-> & { readonly deleteThread?: StateStore['deleteThread'] };
+> &
+  HostHookTrustStore & { readonly deleteThread?: StateStore['deleteThread'] };
 
 /** One writer, one admission queue, and one SDK loop per root run (ADR-0011/12/17). */
 export class HostCore {

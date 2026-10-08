@@ -3,6 +3,7 @@ import type { HostRecord } from '@brainstrike/host-lease';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { bindHostAuthMethods } from './auth-connection.js';
 import type { HostCore } from './core.js';
+import { bindHostHookTrustMethods } from './hook-trust.js';
 import type { HostAuthService, HostClientOrigin, HostProviderService } from './ports.js';
 import { type HostLogRow, type HostMethod, type HostParams, parseHostParams } from './protocol.js';
 import { bindHostProviderMethods } from './provider-connection.js';
@@ -92,6 +93,7 @@ export function bindHostConnection(
   });
   bindHostAuthMethods(handle, auth, origin);
   bindHostProviderMethods(handle, providers, origin);
+  bindHostHookTrustMethods(handle, core.store);
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));
   handle('thread/delete', (params) => core.deleteThread(params));
