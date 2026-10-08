@@ -11,6 +11,8 @@ import { createContext, type ReactNode, useContext, useSyncExternalStore } from 
 export interface AssistantThreadHostRun {
   /** The committed finish time; null while running or when the host recorded none. */
   readonly completedAt: Date | null;
+  /** The run is waiting on its user: an approval, question or plan is unanswered. */
+  readonly needsInput: boolean;
   readonly status: Exclude<AssistantThreadRunStatus, 'cancelling'>;
 }
 
