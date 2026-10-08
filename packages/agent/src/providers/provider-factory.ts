@@ -20,6 +20,7 @@ import type { RuntimeData } from '../types';
 import { resolveBedrockModelId } from './bedrock-model-id';
 import { resolveCodexModelId } from './codex-model-id';
 import { createLlmHostChatModel } from './local/llm-host-chat-model';
+import { createLocalHostEmbeddingModel } from './local/local-host-embedding-model';
 import type { LocalLanguageModelSettings } from './local/local-language-model';
 import { OpenRouterStrictContentGateway } from './openrouter-strict-content';
 import { wrapModelWithDeclaredPromptCaching } from './prompt-caching';
@@ -495,6 +496,21 @@ function asSpecV3EmbeddingModel(model: unknown): MastraEmbeddingModel<string> {
       return typeof value === 'function' ? value.bind(target) : value;
     },
   }) as MastraEmbeddingModel<string>;
+}
+
+/**
+ * Mastra memory embedder over a local embedding host (desktop: the hidden
+ * embedding-host renderer, reached through Main). Mastra types its embedder
+ * against an internal copy of the AI SDK v5 types, so the structurally
+ * identical public EmbeddingModelV2 needs this one type bridge, as the legacy
+ * desktop recall embedder had.
+ * https://github.com/mastra-ai/mastra/tree/main/packages/core/src/vector
+ * Remove it when Mastra's embedder type accepts `@ai-sdk/provider`'s EmbeddingModelV2.
+ */
+export function createLocalHostMemoryEmbedder(
+  options: Parameters<typeof createLocalHostEmbeddingModel>[0]
+): MastraEmbeddingModel<string> {
+  return createLocalHostEmbeddingModel(options) as unknown as MastraEmbeddingModel<string>;
 }
 
 /**

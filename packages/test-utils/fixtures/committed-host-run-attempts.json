@@ -1,0 +1,465 @@
+[
+  {
+    "event": {
+      "commandId": "cdb6f795-66e1-4580-83c1-4febe6952077",
+      "method": "thread/start",
+      "payload": {
+        "commandId": "cdb6f795-66e1-4580-83c1-4febe6952077"
+      },
+      "result": {
+        "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 1,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482518830
+  },
+  {
+    "event": {
+      "commandId": "cdb6f795-66e1-4580-83c1-4febe6952077",
+      "type": "thread.started"
+    },
+    "seq": 2,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482518830
+  },
+  {
+    "event": {
+      "commandId": "98f593e1-8882-4f7d-b59d-81b0922cedb2",
+      "method": "run/start",
+      "payload": {
+        "commandId": "98f593e1-8882-4f7d-b59d-81b0922cedb2",
+        "modelId": "scripted",
+        "prompt": "Answer after a stall.",
+        "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828"
+      },
+      "result": {
+        "runId": "f728579f-4fb2-4e05-a85f-8d592657add9"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 3,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482518833
+  },
+  {
+    "event": {
+      "type": "run.started",
+      "runId": "f728579f-4fb2-4e05-a85f-8d592657add9",
+      "modelId": "scripted",
+      "parentMessageId": null,
+      "prompt": "Answer after a stall.",
+      "snapshot": {
+        "configuration": {},
+        "maxSteps": 3,
+        "toolIdentities": {
+          "probe": "probe-identity"
+        }
+      }
+    },
+    "seq": 4,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482518833
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "f728579f-4fb2-4e05-a85f-8d592657add9",
+      "chunk": {
+        "type": "start"
+      }
+    },
+    "seq": 5,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482518842
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "f728579f-4fb2-4e05-a85f-8d592657add9",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": [
+          {
+            "details": "temperature is not supported for reasoning models",
+            "feature": "temperature",
+            "type": "unsupported"
+          }
+        ]
+      }
+    },
+    "seq": 6,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482518844
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "f728579f-4fb2-4e05-a85f-8d592657add9",
+      "chunk": {
+        "id": "text-1",
+        "type": "text-start"
+      }
+    },
+    "seq": 7,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482518848
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "f728579f-4fb2-4e05-a85f-8d592657add9",
+      "chunk": {
+        "type": "text-delta",
+        "id": "text-1",
+        "text": "Partial"
+      }
+    },
+    "seq": 8,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482518849
+  },
+  {
+    "event": {
+      "type": "run.attempt",
+      "runId": "f728579f-4fb2-4e05-a85f-8d592657add9",
+      "attempt": 1,
+      "detail": "The model stream stalled after 400ms without output.",
+      "maxAttempts": 2,
+      "reason": "stalled",
+      "recovered": true,
+      "stall": {
+        "lastPartType": "text-delta",
+        "partsSeen": 4,
+        "phase": "streaming"
+      }
+    },
+    "seq": 9,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482519257
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "f728579f-4fb2-4e05-a85f-8d592657add9",
+      "chunk": {
+        "type": "start"
+      }
+    },
+    "seq": 10,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482519274
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "f728579f-4fb2-4e05-a85f-8d592657add9",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": [
+          {
+            "details": "temperature is not supported for reasoning models",
+            "feature": "temperature",
+            "type": "unsupported"
+          }
+        ]
+      }
+    },
+    "seq": 11,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482519276
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "f728579f-4fb2-4e05-a85f-8d592657add9",
+      "chunk": {
+        "id": "text-1",
+        "type": "text-start"
+      }
+    },
+    "seq": 12,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482519276
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "f728579f-4fb2-4e05-a85f-8d592657add9",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "Recovered answer."
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "mock-provider",
+        "modelId": "mock-model-id"
+      },
+      "stepNumber": 0,
+      "usage": {
+        "inputTokens": 1,
+        "inputTokenDetails": {
+          "noCacheTokens": 1,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "outputTokens": 1,
+        "outputTokenDetails": {
+          "textTokens": 1,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 2
+      }
+    },
+    "seq": 13,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482519278
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "f728579f-4fb2-4e05-a85f-8d592657add9",
+      "chunk": {
+        "type": "text-delta",
+        "id": "text-1",
+        "text": "Recovered answer."
+      }
+    },
+    "seq": 14,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482519299
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "f728579f-4fb2-4e05-a85f-8d592657add9",
+      "chunk": {
+        "id": "text-1",
+        "type": "text-end"
+      }
+    },
+    "seq": 15,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482519301
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "f728579f-4fb2-4e05-a85f-8d592657add9",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "stop",
+        "rawFinishReason": "stop",
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        },
+        "performance": {
+          "stepTimeMs": 1.150291000000152,
+          "toolExecutionMs": {},
+          "responseTimeMs": 0.35112500000013824,
+          "effectiveOutputTokensPerSecond": 2847.9886080444467,
+          "outputTokensPerSecond": 6841.489529095363,
+          "inputTokensPerSecond": 4879.0483904011435,
+          "effectiveTotalTokensPerSecond": 5695.977216088893,
+          "timeToFirstOutputMs": 0.20495800000003328
+        },
+        "response": {
+          "id": "aitxt-0kJ0Y2lLPZScxte41qET9X15",
+          "timestamp": "2026-10-08T18:01:59.274Z",
+          "modelId": "mock-model-id"
+        }
+      }
+    },
+    "seq": 16,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482519303
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "f728579f-4fb2-4e05-a85f-8d592657add9",
+      "chunk": {
+        "type": "finish",
+        "finishReason": "stop",
+        "rawFinishReason": "stop",
+        "totalUsage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        }
+      }
+    },
+    "seq": 17,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482519318
+  },
+  {
+    "event": {
+      "type": "run.finished",
+      "runId": "f728579f-4fb2-4e05-a85f-8d592657add9",
+      "outcome": "completed"
+    },
+    "seq": 18,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482519319
+  },
+  {
+    "event": {
+      "commandId": "99091892-7145-4783-b84a-f2ea20b94fb5",
+      "method": "run/start",
+      "payload": {
+        "commandId": "99091892-7145-4783-b84a-f2ea20b94fb5",
+        "modelId": "scripted",
+        "prompt": "Call the probe.",
+        "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828"
+      },
+      "result": {
+        "runId": "e87f7df0-5620-402a-96d6-5b36cbf6aa3d"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 19,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482519332
+  },
+  {
+    "event": {
+      "type": "run.started",
+      "runId": "e87f7df0-5620-402a-96d6-5b36cbf6aa3d",
+      "modelId": "scripted",
+      "parentMessageId": "f728579f-4fb2-4e05-a85f-8d592657add9",
+      "prompt": "Call the probe.",
+      "snapshot": {
+        "configuration": {},
+        "maxSteps": 3,
+        "toolIdentities": {
+          "probe": "probe-identity"
+        }
+      }
+    },
+    "seq": 20,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482519332
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "e87f7df0-5620-402a-96d6-5b36cbf6aa3d",
+      "chunk": {
+        "type": "start"
+      }
+    },
+    "seq": 21,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482519333
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "e87f7df0-5620-402a-96d6-5b36cbf6aa3d",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": [
+          {
+            "details": "temperature is not supported for reasoning models",
+            "feature": "temperature",
+            "type": "unsupported"
+          }
+        ]
+      }
+    },
+    "seq": 22,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482519335
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "e87f7df0-5620-402a-96d6-5b36cbf6aa3d",
+      "chunk": {
+        "id": "call-1",
+        "toolName": "probe",
+        "type": "tool-input-start",
+        "dynamic": false
+      }
+    },
+    "seq": 23,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482519335
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "e87f7df0-5620-402a-96d6-5b36cbf6aa3d",
+      "chunk": {
+        "delta": "{\"text\":",
+        "id": "call-1",
+        "type": "tool-input-delta"
+      }
+    },
+    "seq": 24,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482519336
+  },
+  {
+    "event": {
+      "type": "run.attempt",
+      "runId": "e87f7df0-5620-402a-96d6-5b36cbf6aa3d",
+      "attempt": 1,
+      "detail": "The model stream stalled after 400ms without output.",
+      "maxAttempts": 2,
+      "reason": "stalled",
+      "recovered": false,
+      "refusal": "tool-parts",
+      "stall": {
+        "lastPartType": "tool-input-delta",
+        "partsSeen": 4,
+        "phase": "streaming"
+      }
+    },
+    "seq": 25,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482519737
+  },
+  {
+    "event": {
+      "type": "run.finished",
+      "runId": "e87f7df0-5620-402a-96d6-5b36cbf6aa3d",
+      "detail": "The model stream stalled after 400ms without output.",
+      "outcome": "failed"
+    },
+    "seq": 26,
+    "threadId": "a5afd9d6-1f48-40f0-a85a-6217c38ec828",
+    "ts": 1791482519752
+  }
+]

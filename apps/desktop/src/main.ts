@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-metadata';
+import { createMainLlmHostClient } from '@brainstrike/assistant-service/ports';
 import { recoverInterruptedDimensionIndexMaintenanceAtStartup } from '@brainstrike/db';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { purgeMcpOAuthRuntimeState } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
@@ -197,7 +198,7 @@ import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { createNativeCallerRead } from './native-caller-query';
 import { createNativeIndexActivation } from './native-index-activation';
 import { reportNativeIndexActivationError as reportNativeIndexFailure } from './native-index-activation-error';
-import { NATIVE_INDEX_SETTINGS_KEY } from './native-index-settings';
+import { NATIVE_INDEX_SETTINGS_KEY, readNativeIndexSettings } from './native-index-settings';
 import {
   createInitialWindowAfterNativeReader,
   createNativeStartupFailureReporter,
@@ -1050,7 +1051,11 @@ const nativeIndexActivation = createNativeIndexActivation({
             return { ...policy, yolo: policy.yolo || !enforce };
           },
           undefined,
-          workspace
+          workspace,
+          // Local recall uses the saved local execution selection (Search & Indexing).
+          async () =>
+            readNativeIndexSettings(await storage.getItem(NATIVE_INDEX_SETTINGS_KEY)).selection ??
+            undefined
         ),
         // BST-1977: app-owned host/stop released Root with the native writer live.
         // Retiring the profile here would wait on this same Core close request.
@@ -1069,6 +1074,8 @@ const nativeIndexActivation = createNativeIndexActivation({
             );
           }
         },
+        // ADR-0007: a host thread's local observer borrows the hidden llm-host.
+        localLlm: createMainLlmHostClient(llmHostManager),
         // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
         mcp: createDesktopMcpPlatformCapabilities(getDesktopMcpHostRuntime()),
       });

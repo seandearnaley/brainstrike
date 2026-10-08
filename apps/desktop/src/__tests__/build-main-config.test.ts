@@ -161,6 +161,7 @@ describe('main-process bundle config', () => {
     const aliases = MAIN_PROCESS_BUILD_OPTIONS.alias as Record<string, string>;
     expect(Object.keys(aliases)).toEqual([
       '@brainstrike/assistant-data/assistant-memory-repository',
+      '@brainstrike/assistant-data/assistant-memory-resource',
       '@brainstrike/assistant-data/assistant-thread-run-reaper',
       '@brainstrike/notes-vault/core',
       '@brainstrike/workspace-search/core',
@@ -173,6 +174,12 @@ describe('main-process bundle config', () => {
     expect(
       aliases['@brainstrike/assistant-data/assistant-memory-repository']?.endsWith(
         path.join('packages', 'assistant-data', 'src', 'assistant-memory-repository.ts')
+      )
+    ).toBe(true);
+    // The host platform entry's memory resource constant (BST-1928).
+    expect(
+      aliases['@brainstrike/assistant-data/assistant-memory-resource']?.endsWith(
+        path.join('packages', 'assistant-data', 'src', 'assistant-memory-resource.ts')
       )
     ).toBe(true);
     expect(

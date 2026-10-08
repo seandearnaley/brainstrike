@@ -1,5 +1,7 @@
 import {
   createProvider,
+  type LocalEmbeddingHostClient,
+  type LocalLlmHostClient,
   type ProviderAuthInput,
   resolveRuntimeConfiguration,
 } from '@brainstrike/agent/provider-runtime';
@@ -9,49 +11,75 @@ import {
 } from '@brainstrike/agent-host';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import type { z } from 'zod';
-import {
-  createDesktopHostMemoryVectorConfiguration,
-  type DesktopHostMemoryVectorCapabilities,
-} from './memory-vector-configuration';
+import { createDesktopHostMemoryVectorConfiguration } from './memory-vector-configuration';
 import type { PlatformSelectionSchema } from './platform-wire';
+
+/** ADR-0007: Main's hidden embedding and llm hosts, borrowed for one admitted thread. */
+export interface DesktopHostLocalInference {
+  readonly embedding: LocalEmbeddingHostClient;
+  readonly llm: LocalLlmHostClient;
+  readonly signal: AbortSignal;
+}
+
+/** The observer model: hosted providers resolve here; local borrows Main's llm-host. */
+async function createObserverModel(
+  target: ReturnType<typeof parseObservationalMemoryModelTarget>,
+  resolveProviderAuth: (provider: string) => Promise<ProviderAuthInput | undefined>,
+  local: DesktopHostLocalInference | undefined
+): Promise<ReturnType<typeof materializeHostProviderModel>> {
+  if (target.provider === 'local') {
+    if (!local) {
+      throw new Error(
+        'Local Observational Memory requires the desktop local LLM host, which this host cannot reach.'
+      );
+    }
+    // Cold model loads exceed one generation's ceiling; warm the observer before
+    // the run, as the legacy runtime did.
+    await local.llm.warmup(target.model, { signal: local.signal });
+    return materializeHostProviderModel(
+      createProvider('local', undefined, target.model, { localLlmHostClient: local.llm })
+    );
+  }
+  const auth = await resolveProviderAuth(target.provider);
+  if (auth?.kind !== 'api_key' || !auth.apiKey.trim()) {
+    throw new Error(`Observational Memory requires the resolved ${target.provider} API credential`);
+  }
+  const configuration = resolveRuntimeConfiguration(
+    { model: target.model, provider: target.provider },
+    auth
+  );
+  return materializeHostProviderModel(
+    createProvider(
+      configuration.provider,
+      configuration.authInput,
+      configuration.runtime.model,
+      configuration.runtime
+    )
+  );
+}
 
 /** Materialize public Memory options from the admitted, non-secret selection. */
 export async function createDesktopHostMemoryConfiguration(
   selection: z.output<typeof PlatformSelectionSchema>,
   resolveProviderAuth: (provider: string) => Promise<ProviderAuthInput | undefined>,
-  vectors?: DesktopHostMemoryVectorCapabilities
+  local?: DesktopHostLocalInference
 ): Promise<ProductionHostRunConfiguration['memory']> {
   const { observationalMemory: observation } = selection.memory.settings;
-  const vectorConfiguration = createDesktopHostMemoryVectorConfiguration(selection, vectors);
+  const vectorConfiguration = await createDesktopHostMemoryVectorConfiguration(
+    selection,
+    resolveProviderAuth,
+    local?.embedding
+  );
 
   let observationalMemory: NonNullable<
     ProductionHostRunConfiguration['memory']['native']['options']
   >['observationalMemory'] = false;
   if (observation.enabled) {
-    const target = parseObservationalMemoryModelTarget(observation.modelTarget);
-    if (target.provider === 'local') {
-      throw new Error(
-        'Local Observational Memory requires the existing local LLM host capability.'
-      );
-    }
-    const auth = await resolveProviderAuth(target.provider);
-    if (auth?.kind !== 'api_key' || !auth.apiKey.trim()) {
-      throw new Error(
-        `Observational Memory requires the resolved ${target.provider} API credential`
-      );
-    }
-    const configuration = resolveRuntimeConfiguration(
-      { model: target.model, provider: target.provider },
-      auth
-    );
     observationalMemory = {
-      model: materializeHostProviderModel(
-        createProvider(
-          configuration.provider,
-          configuration.authInput,
-          configuration.runtime.model,
-          configuration.runtime
-        )
+      model: await createObserverModel(
+        parseObservationalMemoryModelTarget(observation.modelTarget),
+        resolveProviderAuth,
+        local
       ),
       scope: observation.scope,
       ...(observation.retrievalMode === 'messages'
@@ -64,12 +92,9 @@ export async function createDesktopHostMemoryConfiguration(
     };
   }
 
-  vectors?.signal.throwIfAborted();
+  local?.signal.throwIfAborted();
   return {
     native: {
-      ...(vectorConfiguration.vectorBridge
-        ? { embedder: vectorConfiguration.embedder, vector: vectorConfiguration.vectorBridge }
-        : {}),
       options: {
         ...selection.memory.options,
         observationalMemory,
@@ -79,6 +104,6 @@ export async function createDesktopHostMemoryConfiguration(
     },
     recordPrompt: async () => undefined,
     resourceId: selection.resourceId,
-    ...(vectorConfiguration.vectorBridge ? { vectorBridge: vectorConfiguration.vectorBridge } : {}),
+    ...(vectorConfiguration.vectors ? { vectors: vectorConfiguration.vectors } : {}),
   };
 }

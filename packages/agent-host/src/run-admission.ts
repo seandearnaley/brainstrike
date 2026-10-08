@@ -226,7 +226,18 @@ export async function acquireHostRunAdmission(
 export async function closeHostRunResources(run: HostRunState): Promise<void> {
   const joined = await Promise.allSettled([
     Promise.resolve(run.owner).then(
-      (owner) => owner?.close(),
+      async (owner) => {
+        try {
+          await owner?.close();
+        } catch (cause) {
+          // Only work the owner could not join keeps the run owned. A joined
+          // failure (a failed memory step) is the run's outcome; release it.
+          if (cause instanceof HostRunOwnerCleanupError) {
+            throw cause;
+          }
+          run.ownerFailure ??= cause;
+        }
+      },
       (cause: unknown) => {
         // A failed or aborted open has nothing to close, and its failure is
         // already the run's outcome. Only an unjoined partial acquisition is a

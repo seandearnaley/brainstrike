@@ -171,6 +171,9 @@ export async function createHostPlatform(
     },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     ...(mcp ? { mcp: mcp.mcp } : {}),
+    // The same memory resource as the desktop host, so one state root keeps one
+    // derived identity whichever host opens it. Vector Memory stays unavailable here.
+    memoryResourceIds: [WORKSPACE_MEMORY_RESOURCE_ID],
     readConfiguration: async (request): Promise<ProductionHostRunConfiguration> => {
       request.signal.throwIfAborted();
       if (readCliWorkspaceRunInput(request.configuration)) {

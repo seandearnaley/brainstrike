@@ -43,6 +43,25 @@ describe('createLocalHostEmbeddingModel', () => {
     expect(model.supportsParallelCalls).toBe(false);
   });
 
+  it('carries the caller abort signal to each host query', async () => {
+    const signals: (AbortSignal | undefined)[] = [];
+    const model = createLocalHostEmbeddingModel({
+      client: {
+        queryEmbedding: (_payload, options) => {
+          signals.push(options?.signal);
+          return Promise.resolve([0]);
+        },
+      },
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      resolveDimensions: () => Promise.resolve(1),
+    });
+    const controller = new AbortController();
+
+    await model.doEmbed({ abortSignal: controller.signal, values: ['first', 'second'] });
+
+    expect(signals).toEqual([controller.signal, controller.signal]);
+  });
+
   it('resolves dimensions once and reuses them across calls', async () => {
     const resolveDimensions = vi.fn().mockResolvedValue(384);
     const model = createLocalHostEmbeddingModel({

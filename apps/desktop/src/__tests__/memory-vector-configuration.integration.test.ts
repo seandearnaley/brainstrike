@@ -1,75 +1,33 @@
 // @vitest-environment node
-import { existsSync } from 'node:fs';
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
-import { createRequire } from 'node:module';
-import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import type { createPgliteMastraMemory } from '@brainstrike/agent/pglite-mastra-memory';
-import {
-  committedMemoryTranscript,
-  HostLogRowSchema,
-  type ProductionHostRunConfiguration,
-  readHostRow,
-  StateStoreHostMemory,
-  StateStoreMemoryStorage,
-} from '@brainstrike/agent-host';
-import {
-  createStateStoreIndexer,
-  openIndexer,
-  type StateMessageQuery,
-  type StateMessageVectorPort,
-  type StateObservationVectorPort,
-  type VectorProfile,
-} from '@brainstrike/indexer';
-import { StateStore } from '@brainstrike/state-store';
-import captured from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json';
+import type { LocalEmbeddingHostClient } from '@brainstrike/agent/provider-runtime';
+import type { VectorProfile } from '@brainstrike/indexer';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
-import { z } from 'zod';
 import { createDesktopHostMemoryConfiguration } from '../agent-host-platform/memory-model-configuration';
-import type { DesktopHostMemoryVectorCapabilities } from '../agent-host-platform/memory-vector-configuration';
 import {
   type PlatformSelection,
   PlatformSelectionSchema,
 } from '../agent-host-platform/platform-wire';
 
-const require = createRequire(import.meta.url);
-const hostDirectory = dirname(require.resolve('@brainstrike/agent-host'));
-type PublicMemory = Awaited<ReturnType<typeof createPgliteMastraMemory>>['memory'];
-// Desktop borrows public Memory through agent-host's declared dependency closure.
-// Resolve the installed public export with Node; no package alias or manifest edit.
-const publicMemoryModule: unknown = await import(
-  pathToFileURL(createRequire(join(hostDirectory, 'index.js')).resolve('@mastra/memory')).href
-);
-const Memory = z
-  .object({
-    Memory: z.custom<
-      new (
-        options: ProductionHostRunConfiguration['memory']['native']
-      ) => PublicMemory
-    >((input) => typeof input === 'function'),
-  })
-  .parse(publicMemoryModule).Memory;
-const profile: VectorProfile = {
+// The workspace index's one profile rule: a local token cap is optional.
+const localProfile: VectorProfile = {
   dimensions: 8,
   distance: 'cosine',
   dtype: 'fp32',
   modelId: 'deterministic-configuration-proof',
   provider: 'local',
   revision: 'c'.repeat(40),
-  tokenCap: 512,
 };
-const recordings = z.array(HostLogRowSchema).parse(captured);
-const started = recordings.find((row) => row.event.type === 'run.started');
-if (started?.event.type !== 'run.started') {
-  throw new Error('Recorded committed Core run is required');
-}
-const threadId = started.threadId;
-const runId = started.event.runId;
-const resourceId = 'configuration-proof-resource';
-const requests = () => Promise.withResolvers<void>();
+const hostedProfile: VectorProfile = {
+  dimensions: 4,
+  distance: 'cosine',
+  modelId: 'text-embedding-3-small',
+  provider: 'openai',
+};
 
-function selection(scope: 'thread' | 'resource' = 'thread'): PlatformSelection {
+function selection(
+  vectorProfile: VectorProfile | undefined,
+  scope: 'thread' | 'resource' = 'thread'
+): PlatformSelection {
   return PlatformSelectionSchema.parse({
     configuration: { model: 'gpt-4.1-mini', provider: 'openai' },
     contextWindow: 128_000,
@@ -91,295 +49,139 @@ function selection(scope: 'thread' | 'resource' = 'thread'): PlatformSelection {
           scope: 'thread',
         },
         semanticRecall: {
-          embeddingModelTarget: `local/${profile.modelId}`,
-          enabled: true,
+          embeddingModelTarget: vectorProfile
+            ? `${vectorProfile.provider}/${vectorProfile.modelId}`
+            : null,
+          enabled: vectorProfile !== undefined,
           messageRange: 0,
           scope,
           topK: 1,
         },
       },
+      ...(vectorProfile ? { vectorProfile } : {}),
     },
-    resourceId,
+    nativeRuntime: { provider: 'openai', workspaceRoots: [] },
+    resourceId: 'configuration-proof-resource',
     tools: {},
     toolTimeoutMs: 10_000,
   });
 }
 
-function embedding(text: string): number[] {
-  return Array.from({ length: profile.dimensions }, (_, index) =>
-    index === (text.includes('Capture rich') ? 0 : 1) ? 1 : 0
-  );
-}
-
-async function fixture(scope: 'thread' | 'resource' = 'thread', observations = false) {
-  const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-memory-configuration-')));
-  const controller = new AbortController();
-  const queries: StateMessageQuery[] = [];
-  const embeddings: { signal: AbortSignal | undefined; values: readonly string[] }[] = [];
-  let hold:
-    | { admitted: ReturnType<typeof requests>; release: ReturnType<typeof requests> }
-    | undefined;
-  const indexer = await openIndexer(
-    {
-      dbPath: join(root, 'index.sqlite'),
-      embedding: { indexMode: 'text-only' },
-      rootIds: [root],
-      stateProjection: {
-        mode: 'dev',
-        module: pathToFileURL(require.resolve('@brainstrike/agent-host/state-projection')).href,
-      },
-      stateResources: [{ profile, resourceId, rootId: root }],
-      stateRoot: root,
-    },
-    { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
-  );
-  const store = await StateStore.open(root, {
-    indexer: createStateStoreIndexer(indexer),
-    memoryCalculatorModule: join(hostDirectory, 'adapters/memory-storage-calculator.js'),
-  });
-  await store.append(recordings.map((row) => ({ event: row.event, threadId: row.threadId })));
-  const port: StateMessageVectorPort & Partial<StateObservationVectorPort> = {
-    prepareStateMessageVectors: (input) => indexer.prepareStateMessageVectors(input),
-    purgeStateMessageVectors: (input) => indexer.purgeStateMessageVectors(input),
-    queryStateMessageVectors: (input) => {
-      queries.push(structuredClone(input));
-      return indexer.queryStateMessageVectors(input);
-    },
-    upsertStateMessageVectors: (input) => indexer.upsertStateMessageVectors(input),
-    ...(observations
-      ? {
-          prepareStateObservationVectors: (
-            input: Parameters<StateObservationVectorPort['prepareStateObservationVectors']>[0]
-          ) => indexer.prepareStateObservationVectors(input),
-          purgeStateObservationVectors: (
-            input: Parameters<StateObservationVectorPort['purgeStateObservationVectors']>[0]
-          ) => indexer.purgeStateObservationVectors(input),
-          queryStateObservationVectors: (
-            input: Parameters<StateObservationVectorPort['queryStateObservationVectors']>[0]
-          ) => indexer.queryStateObservationVectors(input),
-          upsertStateObservationVectors: (
-            input: Parameters<StateObservationVectorPort['upsertStateObservationVectors']>[0]
-          ) => indexer.upsertStateObservationVectors(input),
-        }
-      : {}),
-  };
-  const caps: DesktopHostMemoryVectorCapabilities = {
-    embedder: {
-      doEmbed: async ({ values, abortSignal }) => {
-        embeddings.push({ signal: abortSignal, values: [...values] });
-        if (hold) {
-          hold.admitted.resolve();
-          await hold.release.promise; // Deliberately ignores abort until raw inference retires.
-        }
-        return {
-          embeddings: values.map(embedding),
-          usage: { tokens: values.length },
-          warnings: [],
-        };
-      },
-      maxEmbeddingsPerCall: 1,
-      modelId: profile.modelId,
-      provider: 'deterministic-test-only',
-      specificationVersion: 'v3',
-      supportsParallelCalls: false,
-    },
-    port,
-    profile,
-    scope: { resourceId, rootId: root, threadId },
-    signal: controller.signal,
-  };
-  const admitted = selection(scope);
-  const configuration = await createDesktopHostMemoryConfiguration(
-    admitted,
-    async () => undefined,
-    caps
-  );
-  const owner = await StateStoreHostMemory.open(
-    { runId, signal: controller.signal, threadId },
-    { ...configuration, store }
-  );
+function borrowed(queryEmbedding: LocalEmbeddingHostClient['queryEmbedding']) {
   return {
-    admitted,
-    caps,
-    async close() {
-      hold?.release.resolve();
-      try {
-        await owner.close();
-      } finally {
-        try {
-          await store.close();
-        } finally {
-          try {
-            await indexer.destroy();
-            for (const suffix of ['', '-wal', '-shm']) {
-              expect(existsSync(join(root, `index.sqlite${suffix}`))).toBe(false);
-            }
-          } finally {
-            await rm(root, { force: true, recursive: true });
-            expect(existsSync(root)).toBe(false);
-          }
-        }
-      }
+    embedding: { queryEmbedding },
+    llm: {
+      generate: async () => {
+        throw new Error('Recall configuration borrows no local LLM');
+      },
+      warmup: async () => {
+        throw new Error('Recall configuration borrows no local LLM');
+      },
     },
-    configuration,
-    controller,
-    embeddings,
-    holdEmbedding() {
-      hold = { admitted: requests(), release: requests() };
-      return hold;
-    },
-    indexer,
-    owner,
-    queries,
-    root,
-    store,
+    signal: new AbortController().signal,
   };
 }
 
-beforeEach(() => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => {
-      throw new Error('Live inference is forbidden in deterministic configuration proofs');
-    })
-  );
+const fetch = vi.fn<typeof globalThis.fetch>(async () => {
+  throw new Error('Live inference is forbidden in deterministic configuration proofs');
 });
-
-test('configured vector observations preserve retrieval options and one captured combined authority', async () => {
-  const f = await fixture('resource', true);
-  try {
-    const admitted = structuredClone(f.admitted);
-    admitted.memory.settings.observationalMemory.enabled = true;
-    admitted.memory.settings.observationalMemory.retrievalMode = 'vector';
-    admitted.memory.settings.observationalMemory.scope = 'resource';
-    const original = structuredClone(admitted);
-    const factory = vi.spyOn(StateStoreHostMemory, 'createObservationVectorBridge');
-    const configured = await createDesktopHostMemoryConfiguration(
-      admitted,
-      async () => ({
-        apiKey: 'deterministic-no-call-fixture',
-        kind: 'api_key' as const,
-      }),
-      f.caps
-    );
-    expect(factory).toHaveBeenCalledExactlyOnceWith({
-      port: f.caps.port,
-      profile: f.caps.profile,
-      scope: f.caps.scope,
-      signal: f.controller.signal,
-    });
-    expect(configured.native.vector).toBe(configured.vectorBridge);
-    expect(configured.native.embedder).toBe(f.caps.embedder);
-    expect(configured.native.options?.observationalMemory).toMatchObject({
-      retrieval: { scope: 'resource', vector: true },
-      scope: 'resource',
-    });
-    expect(() =>
-      configured.vectorBridge?.assertOwner(resourceId, threadId, f.controller.signal)
-    ).not.toThrow();
-    expect(() =>
-      configured.vectorBridge?.assertOwner(resourceId, threadId, new AbortController().signal)
-    ).toThrow();
-    expect(admitted).toEqual(original);
-    expect(f.embeddings).toHaveLength(0);
-  } finally {
-    await f.close();
-  }
+beforeEach(() => {
+  fetch.mockClear();
+  vi.stubGlobal('fetch', fetch);
 });
 afterEach(() => {
-  expect(fetch).not.toHaveBeenCalled();
   vi.unstubAllGlobals();
-  vi.restoreAllMocks();
 });
 
 test.each(['thread', 'resource'] as const)(
-  'configured public %s recall consumes the borrowed actual indexer with canonical identities',
+  'local %s recall borrows Main’s embedding host for the admitted profile and the caller signal',
   async (scope) => {
-    const f = await fixture(scope);
-    try {
-      const before = await f.store.readAll();
-      expect(f.configuration.native.vector).toBe(f.configuration.vectorBridge);
-      expect(f.configuration.native.embedder).toBe(f.caps.embedder);
-      expect(f.configuration.native.options?.semanticRecall).toEqual({
-        messageRange: 0,
-        scope,
-        topK: 1,
-      });
-      await f.owner.commitHostStep();
-      const rows = await Promise.all(before.map((row) => readHostRow(f.store, row)));
-      const transcript = committedMemoryTranscript(rows, resourceId);
-      const recalled = await f.owner.memory.recall({
-        resourceId,
-        threadConfig: { lastMessages: false },
-        vectorSearchString: 'The committed effect completed.',
-      });
-      expect(recalled.messages).toHaveLength(1);
-      expect(recalled.messages[0]?.id).toBe(
-        transcript.find((message) => message.id === JSON.stringify([threadId, 54]))?.id
-      );
-      const query = f.queries.at(-1);
-      expect(query).toMatchObject({ limit: 1, profile, scope: f.caps.scope });
-      expect(query?.threadIds).toEqual(scope === 'thread' ? [threadId] : undefined);
-      if (!query) {
-        throw new Error('Public recall did not reach the actual indexer');
-      }
-      const hits = await f.indexer.queryStateMessageVectors(query);
-      expect(hits[0]).toMatchObject({
-        messageId: recalled.messages[0]?.id,
-        score: 1,
-        seq: 54,
-        threadId,
-      });
-      expect(f.embeddings.length).toBeGreaterThan(0);
-      expect(await f.store.readAll()).toEqual(before);
-      expect(await f.store.check()).toEqual({ gaps: 0, integrity: 'ok' });
-    } finally {
-      await f.close();
+    const queries: { payload: unknown; signal: AbortSignal | undefined }[] = [];
+    const auth = vi.fn(async () => undefined);
+    const configured = await createDesktopHostMemoryConfiguration(
+      selection(localProfile, scope),
+      auth,
+      borrowed(async (payload, options) => {
+        queries.push({ payload, signal: options?.signal });
+        return Array.from({ length: localProfile.dimensions }, (_, index) => (index ? 0 : 1));
+      })
+    );
+    expect(configured.native.options?.semanticRecall).toEqual({ messageRange: 0, scope, topK: 1 });
+    expect(configured.vectors?.profile).toEqual(localProfile);
+    const embedder = configured.vectors?.embedder;
+    if (!embedder || typeof embedder === 'string') {
+      throw new Error('A concrete local embedder is required');
     }
+    const controller = new AbortController();
+    await embedder.doEmbed({ abortSignal: controller.signal, values: ['recall query'] });
+    expect(queries).toEqual([
+      {
+        payload: {
+          dimensions: localProfile.dimensions,
+          modelId: localProfile.modelId,
+          modelKey: `local::${localProfile.modelId}`,
+          query: 'recall query',
+        },
+        signal: controller.signal,
+      },
+    ]);
+    expect(auth).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   }
 );
 
-test('mismatched or absent borrowed capabilities refuse without altering admitted options', async () => {
-  const f = await fixture();
-  try {
-    const original = structuredClone(f.admitted);
-    const auth = vi.fn(async () => undefined);
-    for (const vectors of [
-      undefined,
-      { ...f.caps, scope: { ...f.caps.scope, resourceId: 'foreign-resource' } },
-      { ...f.caps, scope: { ...f.caps.scope, threadId: '' } },
-      { ...f.caps, profile: { ...profile, modelId: 'substituted-model' } },
-      { ...f.caps, profile: { ...profile, dimensions: 0 } },
-      { ...f.caps, profile: { ...profile, distance: 'l2' as const } },
-    ]) {
-      await expect(
-        createDesktopHostMemoryConfiguration(f.admitted, auth, vectors)
-      ).rejects.toBeInstanceOf(Error);
-    }
-    const missingTarget = structuredClone(f.admitted);
-    missingTarget.memory.settings.semanticRecall.embeddingModelTarget = null;
-    await expect(createDesktopHostMemoryConfiguration(missingTarget, auth, f.caps)).rejects.toThrow(
-      /embedding model target/
-    );
-    expect(f.admitted).toEqual(original);
-    expect(auth).not.toHaveBeenCalled();
-    expect(f.embeddings).toHaveLength(0);
-    expect(f.queries).toHaveLength(0);
-  } finally {
-    await f.close();
+test('hosted recall embeds in Node with the resolved credential for the admitted profile', async () => {
+  fetch.mockImplementationOnce(async () =>
+    Response.json({
+      data: [{ embedding: [1, 0, 0, 0], index: 0, object: 'embedding' }],
+      model: hostedProfile.modelId,
+      object: 'list',
+      usage: { prompt_tokens: 2, total_tokens: 2 },
+    })
+  );
+  const auth = vi.fn(async () => ({ apiKey: 'offline-fixture-key', kind: 'api_key' as const }));
+  const configured = await createDesktopHostMemoryConfiguration(selection(hostedProfile), auth);
+  expect(auth).toHaveBeenCalledExactlyOnceWith('openai');
+  expect(configured.vectors?.profile).toEqual(hostedProfile);
+  const embedder = configured.vectors?.embedder;
+  if (!embedder || typeof embedder === 'string') {
+    throw new Error('A concrete hosted embedder is required');
   }
+  const result = await embedder.doEmbed({ values: ['recall query'] });
+  expect(result.embeddings).toEqual([[1, 0, 0, 0]]);
+  const request = new Request(...(fetch.mock.calls[0] ?? ['about:blank']));
+  expect(request.url).toMatch(/\/embeddings$/u);
+  expect(request.headers.get('authorization')).toBe('Bearer offline-fixture-key');
+});
+
+test('missing vector capabilities refuse visibly without substituting a model', async () => {
+  const noProfile = selection(localProfile);
+  const { vectorProfile: _omitted, ...memory } = noProfile.memory;
+  await expect(
+    createDesktopHostMemoryConfiguration(
+      { ...noProfile, memory },
+      async () => undefined,
+      borrowed(async () => [])
+    )
+  ).rejects.toThrow(/embedding profile Main admitted/);
+  await expect(
+    createDesktopHostMemoryConfiguration(selection(localProfile), async () => undefined)
+  ).rejects.toThrow(/desktop embedding host/);
+  await expect(
+    createDesktopHostMemoryConfiguration(selection(hostedProfile), async () => undefined)
+  ).rejects.toThrow(/API credential/);
+  expect(fetch).not.toHaveBeenCalled();
 });
 
 test('disabled recall and existing observer messages/off options preserve provider model and thresholds', async () => {
-  const admitted = selection();
-  admitted.memory.settings.semanticRecall.enabled = false;
+  const admitted = selection(undefined);
   const disabled = await createDesktopHostMemoryConfiguration(admitted, async () => undefined);
   expect(disabled.native.options).toEqual({
     ...admitted.memory.options,
     observationalMemory: false,
     semanticRecall: false,
   });
-  expect(disabled.vectorBridge).toBeUndefined();
+  expect(disabled.vectors).toBeUndefined();
   for (const retrievalMode of ['off', 'messages'] as const) {
     admitted.memory.settings.observationalMemory = {
       ...admitted.memory.settings.observationalMemory,
@@ -410,150 +212,5 @@ test('disabled recall and existing observer messages/off options preserve provid
   await expect(
     createDesktopHostMemoryConfiguration(admitted, async () => undefined)
   ).rejects.toThrow(/API credential/);
-});
-
-test('configured run signal reaches concrete inference and close joins its physical retirement', async () => {
-  const f = await fixture();
-  try {
-    const hold = f.holdEmbedding();
-    const commit = f.owner.commitHostStep();
-    await hold.admitted.promise;
-    const reason = new Error('Configuration proof run stopped');
-    f.controller.abort(reason);
-    expect(f.embeddings.at(-1)?.signal?.aborted).toBe(true);
-    let closed = false;
-    const close = f.owner.close().then(() => {
-      closed = true;
-    });
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    expect(closed).toBe(false);
-    hold.release.resolve();
-    await Promise.all([commit, close]);
-    expect(closed).toBe(true);
-    expect(
-      await f.indexer.queryStateMessageVectors({
-        limit: 1,
-        profile,
-        scope: f.caps.scope,
-        vector: embedding('completed'),
-      })
-    ).toEqual([]);
-    await expect(
-      createDesktopHostMemoryConfiguration(f.admitted, async () => undefined, f.caps)
-    ).rejects.toBe(reason);
-  } finally {
-    await f.close();
-  }
-});
-
-test('vector OM refuses explicitly and the public observation probe preserves distinct durable group authority', async () => {
-  const f = await fixture();
-  let domain: StateStoreMemoryStorage | undefined;
-  let memory: PublicMemory | undefined;
-  try {
-    const observationSelection = structuredClone(f.admitted);
-    observationSelection.memory.settings.observationalMemory.enabled = true;
-    observationSelection.memory.settings.observationalMemory.retrievalMode = 'vector';
-    const original = structuredClone(observationSelection);
-    await expect(
-      createDesktopHostMemoryConfiguration(observationSelection, async () => undefined, f.caps)
-    ).rejects.toThrow(/observation-group authority/);
-    expect(observationSelection).toEqual(original);
-    await f.owner.commitHostStep();
-    domain = new StateStoreMemoryStorage(
-      resourceId,
-      f.store,
-      {
-        read: async () =>
-          committedMemoryTranscript(
-            await Promise.all((await f.store.readAll()).map((row) => readHostRow(f.store, row))),
-            resourceId
-          ),
-      },
-      threadId
-    );
-    const record = await domain.initializeObservationalMemory({
-      config: {},
-      resourceId,
-      scope: 'thread',
-      threadId,
-    });
-    const groupId = 'deterministic-observation-anchor';
-    const range = 'recorded-first-message:recorded-last-message';
-    const text = 'Synthetic observation from the deterministic configuration probe.';
-    const observedAt = new Date('2026-10-07T00:00:00.000Z');
-    await domain.updateActiveObservations({
-      id: record.id,
-      lastObservedAt: observedAt,
-      observations: `<observation-group id="${groupId}" range="${range}">\n${text}\n</observation-group>`,
-      tokenCount: 10,
-    });
-    const durable = (
-      await f.store.memory({ operation: 'read', ownerThreadId: threadId, resourceId })
-    ).entities.find((entity) => entity.kind === 'observation' && entity.id === record.id);
-    expect(durable?.payload['id']).toBe(record.id);
-    expect(durable?.payload['activeObservations']).toContain(`id="${groupId}"`);
-    const probeConfiguration = await createDesktopHostMemoryConfiguration(
-      f.admitted,
-      async () => undefined,
-      f.caps
-    );
-    const bridge = probeConfiguration.vectorBridge;
-    if (!bridge) {
-      throw new Error('Borrowed existing vector bridge is required');
-    }
-    memory = new Memory({
-      embedder: probeConfiguration.native.embedder,
-      options: { semanticRecall: false },
-      vector: bridge,
-    });
-    const upsert = vi.spyOn(bridge, 'upsert');
-    const transcript = committedMemoryTranscript(
-      await Promise.all((await f.store.readAll()).map((row) => readHostRow(f.store, row))),
-      resourceId
-    );
-    const canonical = transcript.find((message) => message.role === 'user');
-    if (!canonical) {
-      throw new Error('Recorded canonical user source is required');
-    }
-    const operation = () =>
-      memory!.indexObservation({ groupId, observedAt, range, resourceId, text, threadId });
-    await expect(
-      bridge.withPreparedMessages([{ messageId: canonical.id, seq: started.seq }], operation)
-    ).rejects.toThrow(/aliases/);
-    const input = upsert.mock.calls[0]?.[0];
-    expect(input?.metadata?.[0]?.['group_id']).toBe(groupId);
-    expect(input?.metadata?.[0]?.['message_id']).toBeUndefined();
-    expect(input?.ids).toHaveLength(1);
-    const output = await memory.searchMessages({ query: 'completed', resourceId, topK: 1 });
-    expect(output.results).toEqual([]);
-    const query = f.queries.at(-1);
-    if (!query) {
-      throw new Error('Observation query did not consume the borrowed port');
-    }
-    const canonicalHits = await f.indexer.queryStateMessageVectors(query);
-    expect(canonicalHits).toHaveLength(1);
-    console.info(
-      'Vector OM causal receipt:',
-      JSON.stringify({
-        canonicalHitIds: canonicalHits.map((hit) => hit.messageId),
-        durableEntityId: durable?.id,
-        groupId,
-        input,
-        kind: durable?.kind,
-        output,
-        recordId: record.id,
-        resourceId: record.resourceId,
-        scope: record.scope,
-        threadId: record.threadId,
-      })
-    );
-  } finally {
-    try {
-      await memory?.settled();
-      await domain?.close();
-    } finally {
-      await f.close();
-    }
-  }
+  expect(fetch).not.toHaveBeenCalled();
 });

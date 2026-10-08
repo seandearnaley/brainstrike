@@ -7,6 +7,7 @@ import {
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import { PERMISSION_DECISIONS, TOOL_RISK_CATEGORIES } from '@brainstrike/assistant-contract';
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
+import { type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
 import { z } from 'zod';
 
 const Id = z.string().min(1);
@@ -126,6 +127,15 @@ export const PlatformWorkspaceContextSchema = z.strictObject({
   selectedSourceApproxTokens: NullableTokens,
   tokenBudget: z.number().positive().optional(),
 });
+/** The indexer's one vector profile rule validates a recall embedding profile. */
+const PlatformVectorProfileSchema = z.custom<VectorProfile>((input) => {
+  try {
+    vectorProfileHash(input);
+    return true;
+  } catch {
+    return false;
+  }
+}, 'Memory vectors require a supported embedding profile');
 /** Existing UI preference owners supply only non-secret intent; roots remain Main-owned. */
 export const PlatformClientConfigurationSchema = z.strictObject({
   agentLoop: z
@@ -170,6 +180,8 @@ export const PlatformSelectionSchema = z.strictObject({
   memory: z.strictObject({
     options: PlatformMemoryOptionsSchema,
     settings: PlatformMemorySettingsSchema,
+    /** Recall/vector-OM embedding profile Main resolved; absent when memory uses no vectors. */
+    vectorProfile: PlatformVectorProfileSchema.optional(),
   }),
   /** The admitted runtime the host's shared native tools execute against. */
   nativeRuntime: PlatformNativeRuntimeSchema,
@@ -205,6 +217,73 @@ export const PlatformProgressSchema = z.strictObject({
   runId: Id,
   threadId: Id,
   toolCallId: Id,
+});
+/**
+ * ADR-0007: local generation runs in Main's hidden llm-host; the host only borrows it.
+ * Exact optional fields match the public local client types.
+ */
+const LocalLlmToolCallSchema = z.strictObject({
+  function: z.strictObject({ arguments: z.string(), name: z.string() }),
+  id: z.string(),
+  type: z.literal('function'),
+});
+export const PlatformLocalGenerationSchema = z.strictObject({
+  messages: z.array(
+    z.strictObject({
+      content: z.string(),
+      name: z.string().exactOptional(),
+      role: z.enum(['system', 'user', 'assistant', 'developer', 'tool']),
+      toolCallId: z.string().exactOptional(),
+      toolCalls: z.array(LocalLlmToolCallSchema).exactOptional(),
+      toolResponses: z
+        .array(z.strictObject({ name: z.string(), response: z.json() }))
+        .exactOptional(),
+    })
+  ),
+  modelId: Id,
+  options: z
+    .strictObject({
+      doSample: z.boolean().exactOptional(),
+      maxNewTokens: z.number().int().positive().exactOptional(),
+      repetitionPenalty: z.number().exactOptional(),
+      temperature: z.number().exactOptional(),
+      thinking: z.strictObject({ enabled: z.boolean().exactOptional() }).exactOptional(),
+      tools: z
+        .array(
+          z.strictObject({
+            function: z.strictObject({
+              description: z.string(),
+              name: z.string(),
+              parameters: z.looseObject({ type: z.literal('object') }),
+            }),
+            type: z.literal('function'),
+          })
+        )
+        .exactOptional(),
+      topK: z.number().exactOptional(),
+      topP: z.number().exactOptional(),
+    })
+    .exactOptional(),
+  threadId: Id,
+});
+export const PlatformLocalGenerationResultSchema = z.strictObject({
+  finishReason: z.enum(['stop', 'length', 'tool_calls']),
+  reasoningText: z.string().exactOptional(),
+  text: z.string(),
+  toolCalls: z.array(LocalLlmToolCallSchema).exactOptional(),
+  usage: z.strictObject({
+    completionTokens: z.number().nonnegative(),
+    promptTokens: z.number().nonnegative(),
+    totalTokens: z.number().nonnegative(),
+  }),
+});
+export const PlatformLocalWarmupSchema = z.strictObject({ modelId: Id, threadId: Id });
+export const PlatformLocalEmbeddingQuerySchema = z.strictObject({
+  query: z.string(),
+  threadId: Id,
+});
+export const PlatformLocalEmbeddingResultSchema = z.strictObject({
+  embedding: z.array(z.number()),
 });
 /** Confidential, private launcher channel only; absent from client protocol and log. */
 export const PlatformAuthSchema = z.union([
