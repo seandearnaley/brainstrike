@@ -247,9 +247,14 @@ test('Root close cancels but joins the original held binding validation before l
   }
 });
 
-test.each([false, true])(
-  'pending run recovery retains its committed binding and fences revocation=%s',
-  async (revoke) => {
+test.each([
+  { reopen: false, revoke: false },
+  { reopen: false, revoke: true },
+  { reopen: true, revoke: false },
+  { reopen: true, revoke: true },
+])(
+  'pending run retains its committed binding and fences revocation=$revoke after reopen=$reopen',
+  async ({ reopen, revoke }) => {
     const root = await mkdtemp(join(tmpdir(), 'bs-m3-workspace-binding-'));
     const originalId = randomUUID();
     const nextId = randomUUID();
@@ -336,15 +341,22 @@ test.each([false, true])(
         patch: next,
         threadId,
       });
-      await client.close();
-      client = undefined;
-      await host.close();
-      host = undefined;
+      if (reopen) {
+        await client.close();
+        client = undefined;
+        await host.close();
+        host = undefined;
+      }
       if (revoke) {
         live.delete(originalId);
       }
-      host = await startAgentHost({ lifetime: 'persistent', root }, platform);
-      client = await attachAgentHost(host.record);
+      if (reopen) {
+        host = await startAgentHost({ lifetime: 'persistent', root }, platform);
+        client = await attachAgentHost(host.record);
+      }
+      if (!client) {
+        throw new Error('The retained or reopened socket client is unavailable');
+      }
       expect(await client.request('thread/workspace/binding/read', { threadId })).toEqual({
         binding: next,
       });
@@ -374,7 +386,7 @@ test.each([false, true])(
           .toBe('completed');
       }
       expect(effects).toEqual(revoke ? [] : [originalId]);
-      expect(selections).toEqual(revoke ? [originalId] : [originalId, originalId]);
+      expect(selections).toEqual(reopen && !revoke ? [originalId, originalId] : [originalId]);
     } finally {
       await cleanup(client, host, root);
     }
@@ -423,6 +435,189 @@ test('an adapter that drops the committed operating root is joined before admiss
     expect(closedSelections).toBe(1);
     expect((await client.request('thread/read', { fromSeq: 0, threadId })).rows).toEqual(before);
   } finally {
+    await cleanup(client, host, root);
+  }
+});
+
+test('a root revoked while its existing admission is held cannot commit run acceptance', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-m3-workspace-binding-'));
+  const rootId = randomUUID();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let live = true;
+  let closedSelections = 0;
+  let host: AgentHost | undefined;
+  let client: HostClient | undefined;
+  try {
+    host = await startAgentHost(
+      { lifetime: 'persistent', root },
+      {
+        admitRun: async () => {
+          entered.resolve();
+          await release.promise;
+          return {
+            close: async () => {
+              closedSelections++;
+            },
+            configuration: { boundWorkspaceRootId: rootId },
+            model: scriptedModel(),
+            snapshot: { configuration: {}, maxSteps: 3, toolIdentities: {} },
+            tools: {},
+          };
+        },
+        close: async () => undefined,
+        readPermissionPolicy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false }),
+        validateWorkspaceBinding: async ({ signal }) => {
+          signal.throwIfAborted();
+          if (!live) {
+            throw new Error('The existing captured root is unavailable');
+          }
+        },
+      }
+    );
+    client = await attachAgentHost(host.record);
+    const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+    await client.request('thread/workspace/binding/update', {
+      commandId: randomUUID(),
+      patch: { operatingRootDisplayName: 'Captured owner root', operatingRootId: rootId },
+      threadId,
+    });
+    const before = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
+    const starting = client.request('run/start', {
+      commandId: randomUUID(),
+      modelId: 'scripted',
+      prompt: 'Run',
+      threadId,
+    });
+    const refusal = expect(starting).rejects.toThrow();
+    await entered.promise;
+    live = false;
+    release.resolve();
+    await refusal;
+    expect(closedSelections).toBe(1);
+    expect((await client.request('thread/read', { fromSeq: 0, threadId })).rows).toEqual(before);
+  } finally {
+    release.resolve();
+    await cleanup(client, host, root);
+  }
+});
+
+test('revocation during the final permission read prevents the admitted executor and effect append', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-m3-workspace-binding-'));
+  const rootId = randomUUID();
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let live = true;
+  let holdPolicy = false;
+  let executed = 0;
+  let host: AgentHost | undefined;
+  let client: HostClient | undefined;
+  try {
+    host = await startAgentHost(
+      { lifetime: 'persistent', root },
+      {
+        admitRun: async () => ({
+          configuration: { boundWorkspaceRootId: rootId },
+          model: scriptedModel('edit'),
+          snapshot: { configuration: {}, maxSteps: 3, toolIdentities: { edit: 'controlled-edit' } },
+          tools: {
+            edit: {
+              description: 'Existing recorded SDK call through a controlled live owner',
+              execute: async () => {
+                executed++;
+                return { written: true };
+              },
+              identity: 'controlled-edit',
+              inputSchema: z.object({ text: z.string() }),
+              risk: 'edit',
+            },
+          },
+        }),
+        close: async () => undefined,
+        readPermissionPolicy: async () => {
+          if (holdPolicy) {
+            entered.resolve();
+            await release.promise;
+          }
+          return { policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false };
+        },
+        validateWorkspaceBinding: async ({ signal }) => {
+          signal.throwIfAborted();
+          if (!live) {
+            throw new Error('The captured root was revoked');
+          }
+        },
+      }
+    );
+    client = await attachAgentHost(host.record);
+    host.core.onCommitted(({ event }) => {
+      if (event.type === 'interaction.responded') {
+        holdPolicy = true;
+      }
+    });
+    const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+    await client.request('thread/workspace/binding/update', {
+      commandId: randomUUID(),
+      patch: { operatingRootDisplayName: 'Captured owner root', operatingRootId: rootId },
+      threadId,
+    });
+    const { runId } = await client.request('run/start', {
+      commandId: randomUUID(),
+      modelId: 'scripted',
+      prompt: 'Edit',
+      threadId,
+    });
+    const active = client;
+    await expect
+      .poll(async () =>
+        (await active.request('thread/read', { fromSeq: 0, threadId })).rows.some(
+          ({ event }) => event.type === 'interaction.requested'
+        )
+      )
+      .toBe(true);
+    const pending = (await client.request('thread/read', { fromSeq: 0, threadId })).rows
+      .map(({ event }) => event)
+      .find((event) => event.type === 'interaction.requested');
+    if (!pending) {
+      throw new Error('The recorded SDK call did not reach a committed approval');
+    }
+    await client.request('interaction/respond', {
+      commandId: randomUUID(),
+      decision: 'approve',
+      interactionId: pending.interactionId,
+      runId,
+      threadId,
+    });
+    await entered.promise;
+    live = false;
+    release.resolve();
+    await expect
+      .poll(
+        async () =>
+          (await active.request('thread/read', { fromSeq: 0, threadId })).rows
+            .map(({ event }) => event)
+            .find((event) => event.type === 'run.finished')?.outcome
+      )
+      .toBe('completed');
+    const rows = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
+    expect(executed).toBe(0);
+    expect(rows.filter(({ event }) => event.type === 'effect.started')).toEqual([]);
+    const messages = rows.flatMap(({ event }) =>
+      event.type === 'model.messages' ? event.messages : []
+    );
+    expect(messages).toContainEqual({
+      content: expect.arrayContaining([
+        {
+          output: expect.objectContaining({ type: 'error-text' }),
+          toolCallId: pending.toolCallId,
+          toolName: pending.toolId,
+          type: 'tool-result',
+        },
+      ]),
+      role: 'tool',
+    });
+  } finally {
+    release.resolve();
     await cleanup(client, host, root);
   }
 });
