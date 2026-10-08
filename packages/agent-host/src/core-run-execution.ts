@@ -4,6 +4,11 @@ import {
   ApprovalInputReconstructionError,
   rebuildApprovedRuntimeMessages,
 } from './approval-input.js';
+import {
+  type HostContextCompactions,
+  prepareCompactedContext,
+  summarizeHostContext,
+} from './context-compaction.js';
 import { finishHostSdkLoop, retainHostRunWork } from './core-run-lifecycle.js';
 import type { HostRunState as Run } from './core-state.js';
 import { healInterruptedRunHistory } from './interrupted-history.js';
@@ -12,6 +17,7 @@ import type { HostMcpInputState } from './mcp-input-state.js';
 import type { HostPlatform, HostRunOwner } from './ports.js';
 import type { HostEvent, HostLogRow } from './protocol.js';
 import {
+  combineHostSystemContext,
   createAdmittedHostSdkTools,
   decideHostSdkApproval,
   ensureHostRunAdmission,
@@ -39,6 +45,7 @@ export interface HostRunExecutionPorts {
   ): Promise<HostLogRow[]>;
   closing(): boolean;
   commitMessages(run: Run, messages: readonly ModelMessage[]): Promise<void>;
+  readonly compactions: HostContextCompactions;
   dispatch(run: Run, action: HostRunAction, input: unknown): Promise<unknown>;
   finish(
     run: Run,
@@ -130,6 +137,16 @@ export async function executeHostAction(
   return output;
 }
 
+type Compacted = Extract<HostEvent, { type: 'context.compacted' }>;
+
+async function commitCompaction(
+  ports: HostRunExecutionPorts,
+  run: Run,
+  event: Compacted
+): Promise<void> {
+  await ports.append(run.threadId, [event], 'full', (rows) => ports.foldRows(rows));
+}
+
 /** One public SDK loop over the run's committed branch; every step commits before it is observed. */
 export async function runHostSdkLoop(
   ports: HostRunExecutionPorts,
@@ -144,6 +161,7 @@ export async function runHostSdkLoop(
   const ancestors = hostRunAncestors(ports.runs, run);
   let recordedInputLength = initialMessages.length;
   let historyPrepared = false;
+  let compactionNote: string | undefined;
   try {
     const owner = await ports.openRun(run);
     const admission = await ensureHostRunAdmission(ports.platform, run);
@@ -205,6 +223,19 @@ export async function runHostSdkLoop(
         if (!historyPrepared) {
           historyPrepared = true;
           prepared = healInterruptedRunHistory(messages, ancestors, run.threadId);
+          // The committed compaction overlay, plus a new one past the trigger ratio.
+          const overlay = await prepareCompactedContext({
+            chain: [...ancestors, run],
+            commit: (event) => commitCompaction(ports, run, event),
+            compactions: ports.compactions.read(run.threadId),
+            inputTokenLimit: admission.inputTokenLimit,
+            messages: prepared,
+            signal: run.controller.signal,
+            summarize: (transcript) =>
+              summarizeHostContext(admission.model, run.modelId, transcript, run.controller.signal),
+          });
+          prepared = overlay.messages;
+          compactionNote = overlay.note;
           recordedInputLength = prepared.length;
         }
         const memory = await owner?.prepareHostStep?.({
@@ -212,8 +243,9 @@ export async function runHostSdkLoop(
           stepNumber: run.steps,
         });
         recordedInputLength = memory?.messages.length ?? prepared.length;
+        const system = combineHostSystemContext(memory?.system, compactionNote).system;
         if (!admission.provider) {
-          return memory ?? { messages: prepared };
+          return { messages: memory?.messages ?? prepared, ...(system ? { system } : {}) };
         }
         const provider = await admission.provider.prepare({
           configuration: admission.configuration,
@@ -221,7 +253,7 @@ export async function runHostSdkLoop(
           modelId: run.modelId,
           signal: run.controller.signal,
         });
-        return prepareHostProviderStep(provider, memory?.system, owner);
+        return prepareHostProviderStep(provider, system, owner);
       },
       stopWhen: stepCountIs(admission.snapshot.maxSteps - run.steps),
       toolApproval: ({ toolCall }) => decideHostSdkApproval(run, ports.platform, toolCall),

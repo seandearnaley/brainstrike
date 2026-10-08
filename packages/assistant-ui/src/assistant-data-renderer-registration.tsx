@@ -16,6 +16,11 @@ import { assistantDiscoveryErrorDataUI } from './assistant-discovery-error-data-
 import { AssistantRunTimelineDataPart } from './assistant-run-timeline-data-part';
 import { AssistantToolApprovalDataPart } from './assistant-tool-approval-data-part';
 import { AssistantToolSuspendNotice } from './assistant-tool-suspend-notice';
+import { CompactionSummaryCard } from './compaction-summary-card';
+import {
+  HOST_CONTEXT_COMPACTED_DATA_NAME,
+  readHostContextCompaction,
+} from './compaction-summary-message';
 
 const assistantRunTimelineDataUI = {
   name: ASSISTANT_RUN_EVENT_DATA_NAME,
@@ -72,6 +77,22 @@ const assistantChildRunUsageDataUI = {
   render: () => null,
 } satisfies AssistantDataUIProps;
 
+// A host thread's committed compaction renders as the same card a durable
+// legacy compaction-summary message does, including its fallback label.
+const HostContextCompactedDataPart: DataMessagePartComponent = ({ data }) => {
+  const compaction = readHostContextCompaction(data);
+  return (
+    <CompactionSummaryCard fallbackKind={compaction.kind}>
+      <p className="whitespace-pre-wrap">{compaction.summary}</p>
+    </CompactionSummaryCard>
+  );
+};
+
+const hostContextCompactedDataUI = {
+  name: HOST_CONTEXT_COMPACTED_DATA_NAME,
+  render: HostContextCompactedDataPart,
+} satisfies AssistantDataUIProps;
+
 export const AssistantDataRendererRegistration = () => {
   useAssistantDataUI(assistantRunTimelineDataUI);
   useAssistantDataUI(assistantDiscoveryErrorDataUI);
@@ -81,6 +102,7 @@ export const AssistantDataRendererRegistration = () => {
   useAssistantDataUI(assistantShellOutputDataUI);
   useAssistantDataUI(assistantContextBreakdownDataUI);
   useAssistantDataUI(assistantChildRunUsageDataUI);
+  useAssistantDataUI(hostContextCompactedDataUI);
 
   return null;
 };

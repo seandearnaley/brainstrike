@@ -146,6 +146,8 @@ export interface HostRunAdmission {
   readonly configuration: Readonly<RuntimeData>;
   /** Title an untitled thread's first completed run through this run's model. */
   readonly generatesThreadTitle?: boolean;
+  /** The selected provider input budget; host compaction keeps requests inside it. */
+  readonly inputTokenLimit?: number | undefined;
   readonly model: LanguageModel;
   openRun?(context: HostRunContext): Promise<HostRunOwner>;
   readonly provider?: HostProviderPort;

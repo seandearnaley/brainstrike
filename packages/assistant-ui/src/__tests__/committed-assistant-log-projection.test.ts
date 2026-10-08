@@ -8,6 +8,7 @@ import {
   type CommittedAssistantLogRow,
   type CommittedAssistantRunIdentity,
 } from '../committed-assistant-log-projection';
+import { HOST_CONTEXT_COMPACTED_DATA_NAME } from '../compaction-summary-message';
 import { recordedMessage } from './committed-assistant-test-support';
 
 const rows: readonly CommittedAssistantLogRow[] = recording;
@@ -278,5 +279,36 @@ describe('rich committed-log presentation projection', () => {
       },
     ]);
     expect(projection.getSnapshot().observationWithheld).toBe('branched-thread');
+  });
+
+  it('shows a committed deterministic compaction fallback as a compaction card part of its run', () => {
+    const projection = projector();
+    projection.acceptCommitted(rows);
+    const last = rows.at(-1);
+    if (!last) {
+      throw new Error('Missing recorded rows.');
+    }
+    const summary =
+      'Deterministic fallback: dropped 3 earlier turns (6 messages) after an agentic summarizer failure; no summarization model ran.';
+    // The exact event the host commits when its summarizer fails past the trigger.
+    projection.acceptCommitted([
+      {
+        event: {
+          compactedRunIds: ['earlier-run'],
+          kind: 'deterministic',
+          reason: 'pre-request',
+          runId,
+          summary,
+          type: 'context.compacted',
+        },
+        seq: last.seq + 1,
+        threadId,
+      },
+    ]);
+    expect(answer(projection).content.at(-1)).toEqual({
+      data: { kind: 'deterministic', summary },
+      name: HOST_CONTEXT_COMPACTED_DATA_NAME,
+      type: 'data',
+    });
   });
 });
