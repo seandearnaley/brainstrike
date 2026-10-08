@@ -16,6 +16,8 @@ import {
   stateMessageHitSchema,
   stateMessagePlanSchema,
   stateMessageUpsertResultSchema,
+  stateObservationHitSchema,
+  stateObservationPlanSchema,
   stateStatsSchema,
 } from './contracts.js';
 import { assertCoverageAuthorityBound, coverageAuthoritySchema } from './coverage-authority.js';
@@ -106,6 +108,22 @@ export async function runIndexerProcess(
         }
         let work: unknown | Promise<unknown>;
         switch (request.op) {
+          case 'state-observation-prepare':
+            work = client.call(request.op, request.payload, decoder(stateObservationPlanSchema));
+            break;
+          case 'state-observation-upsert':
+            work = client.call(request.op, request.payload, decoder(Schema.Array(Schema.String)));
+            break;
+          case 'state-observation-query':
+            work = client.call(
+              request.op,
+              request.payload,
+              decoder(Schema.Array(stateObservationHitSchema))
+            );
+            break;
+          case 'state-observation-purge':
+            work = client.call(request.op, request.payload, decoder(Schema.Boolean));
+            break;
           case 'coverage-authority':
             decoder(Schema.Null)(request.payload);
             work = connection.db.transaction(() =>

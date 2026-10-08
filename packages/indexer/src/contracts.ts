@@ -391,6 +391,76 @@ export const stateMessagePurgeSchema = Schema.Struct({
   threadId: Schema.optional(nonblank),
 });
 export type StateMessagePurge = typeof stateMessagePurgeSchema.Type;
+/** Existing native OM group identity; never a canonical message identity. */
+export type StateObservationScope = StateMessageScope;
+export const stateObservationGroupSchema = Schema.Struct({
+  groupId: nonblank,
+  range: nonblank,
+  text: nonblank,
+  threadId: nonblank,
+});
+export type StateObservationGroup = typeof stateObservationGroupSchema.Type;
+const observationDate = Schema.String.check(
+  Schema.makeFilter((value) => {
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) && date.toISOString() === value;
+  })
+);
+export const stateObservationSourceSchema = Schema.Struct({
+  ...stateObservationGroupSchema.fields,
+  observedAt: Schema.optional(observationDate),
+});
+export type StateObservationSource = typeof stateObservationSourceSchema.Type;
+export const stateObservationPrepareSchema = Schema.Struct({
+  observation: stateObservationSourceSchema,
+  profile: vectorProfileSchema,
+  scope: stateMessageScopeSchema,
+});
+export type StateObservationPrepare = typeof stateObservationPrepareSchema.Type;
+export const stateObservationPlanSchema = Schema.Struct({
+  ...stateObservationPrepareSchema.fields,
+  chunks: Schema.Array(nonblank).check(Schema.isMinLength(1)),
+  generation: nonnegative,
+  recordIds: Schema.Array(nonblank).check(Schema.isMinLength(1)),
+  storeId: hash,
+  truthHash: hash,
+});
+export type StateObservationPlan = typeof stateObservationPlanSchema.Type;
+export const stateObservationUpsertSchema = Schema.Struct({
+  plan: stateObservationPlanSchema,
+  segments: Schema.Array(Schema.Struct({ id: nonblank, text: nonblank, vector: flexibleVector })),
+});
+export type StateObservationUpsert = typeof stateObservationUpsertSchema.Type;
+export const stateObservationQuerySchema = Schema.Struct({
+  limit: positive.check(Schema.isLessThanOrEqualTo(100)),
+  observedAfter: Schema.optional(observationDate),
+  observedBefore: Schema.optional(observationDate),
+  profile: vectorProfileSchema,
+  scope: stateMessageScopeSchema,
+  threadIds: Schema.optional(Schema.Array(nonblank)),
+  vector: flexibleVector,
+});
+export type StateObservationQuery = typeof stateObservationQuerySchema.Type;
+export const stateObservationMetadataSchema = Schema.Struct({
+  // biome-ignore lint/style/useNamingConvention: Pinned public Memory metadata field.
+  group_id: nonblank,
+  // biome-ignore lint/style/useNamingConvention: Pinned public Memory metadata field.
+  observed_at: Schema.optional(observationDate),
+  range: nonblank,
+  // biome-ignore lint/style/useNamingConvention: Pinned public Memory metadata field.
+  resource_id: nonblank,
+  text: nonblank,
+  // biome-ignore lint/style/useNamingConvention: Pinned public Memory metadata field.
+  thread_id: nonblank,
+});
+export const stateObservationHitSchema = Schema.Struct({
+  id: nonblank,
+  metadata: stateObservationMetadataSchema,
+  score: Schema.Finite,
+});
+export type StateObservationHit = typeof stateObservationHitSchema.Type;
+export type StateObservationPurge = StateMessagePurge;
+export const stateObservationPurgeSchema = stateMessagePurgeSchema;
 export const scopedRemoveSchema = Schema.Struct({ fileId: nonblank, scope: scopeSchema });
 export const scopedSearchSchema = Schema.Struct({
   fileIds: Schema.optional(Schema.Array(nonblank)),

@@ -1,13 +1,19 @@
 import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { decodeEvent, type EventSchema } from '@brainstrike/state-store';
+import {
+  decodeEvent,
+  type EventSchema,
+  type MemoryObservationRecord,
+} from '@brainstrike/state-store';
 import { Predicate, Schema } from 'effect';
 import {
   decoder,
   type StateMessageIdentity,
+  type StateObservationGroup,
   type StateProjectionOptions,
   stateMessageIdentitySchema,
+  stateObservationGroupSchema,
 } from './contracts.js';
 
 const callable = Schema.declare<(...args: readonly unknown[]) => unknown>(
@@ -17,6 +23,8 @@ const record = Schema.Record(Schema.String, Schema.Unknown);
 const moduleSchema = Schema.Struct({
   decode: Schema.optional(callable),
   messages: Schema.optional(callable),
+  observationChunks: Schema.optional(callable),
+  observations: Schema.optional(callable),
   schema: Schema.optional(
     Schema.Struct({
       currentVersion: Schema.Int.check(Schema.isGreaterThan(0)),
@@ -52,6 +60,8 @@ export interface StateProjection {
   event(raw: string): unknown;
   readonly identity: string;
   messages?(rows: readonly StateMessageEvent[]): readonly StateMessageIdentity[];
+  observationChunks?(text: string): readonly string[];
+  observations?(record: MemoryObservationRecord): readonly StateObservationGroup[];
 }
 
 export function validateStateModule(module: string): string {
@@ -73,6 +83,11 @@ export async function loadStateProjection(
 ): Promise<StateProjection> {
   const filename = validateStateModule(options.module);
   const loaded = decoder(moduleSchema)(await import(options.module));
+  if ((loaded.observations === undefined) !== (loaded.observationChunks === undefined)) {
+    throw new TypeError(
+      'State observation projection and native chunk primitive must be acquired together.'
+    );
+  }
   if ((loaded.schema === undefined) === (loaded.decode === undefined)) {
     throw new TypeError(
       'State producer must export exactly one versioned schema or canonical decode function.'
@@ -106,6 +121,14 @@ export async function loadStateProjection(
     return event;
   };
   return {
+    ...(loaded.observations && loaded.observationChunks
+      ? {
+          observationChunks: (text: string) =>
+            decoder(Schema.Array(Schema.NonEmptyString))(loaded.observationChunks?.(text)),
+          observations: (record: MemoryObservationRecord) =>
+            decoder(Schema.Array(stateObservationGroupSchema))(loaded.observations?.(record)),
+        }
+      : {}),
     ...(loaded.messages
       ? {
           messages: (rows: readonly StateMessageEvent[]) =>
