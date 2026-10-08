@@ -80,6 +80,7 @@ export async function createHostPlatform(
     startup,
   });
   return createProductionHostPlatform({
+    auth: host.auth,
     close: () => host.close(),
     readConfiguration: async (request): Promise<ProductionHostRunConfiguration> => {
       request.signal.throwIfAborted();
@@ -164,8 +165,8 @@ export async function createHostPlatform(
       };
     },
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
-    resolveProviderAuth: host.resolveProviderAuth,
+    // The standalone host has no private desktop client: subscription auth refuses.
+    resolveProviderAuth: (provider) => host.auth.resolveProviderAuth(provider, undefined),
     startup,
-    storeProviderCredential: host.storeProviderCredential,
   });
 }

@@ -52,9 +52,6 @@ function bindAcquiredPlatform(owned: HostPlatform, acquired: HostPlatform): void
   if (acquired.admitRun) {
     owned.admitRun = acquired.admitRun.bind(acquired);
   }
-  if (acquired.storeProviderCredential) {
-    owned.storeProviderCredential = acquired.storeProviderCredential.bind(acquired);
-  }
   if (acquired.validateWorkspaceBinding) {
     owned.validateWorkspaceBinding = acquired.validateWorkspaceBinding.bind(acquired);
   }
@@ -102,10 +99,8 @@ export async function startAgentHost(
     });
     return platformClose;
   };
-  const clientCapabilities = (): Pick<HostConnectionOptions, 'storeProviderCredential'> =>
-    ownedPlatform.storeProviderCredential
-      ? { storeProviderCredential: ownedPlatform.storeProviderCredential }
-      : {};
+  const clientCapabilities = (): Pick<HostConnectionOptions, 'auth'> =>
+    platform?.auth ? { auth: platform.auth } : {};
   const ownedPlatform: HostPlatform = {
     close: closePlatform,
     get generatesThreadTitles(): boolean | undefined {

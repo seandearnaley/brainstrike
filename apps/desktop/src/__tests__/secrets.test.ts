@@ -9,8 +9,10 @@ const safeStorageMock = vi.hoisted(() => ({
   isEncryptionAvailable: vi.fn<() => boolean>(),
 }));
 
+const userData = vi.hoisted(() => ({ path: '/unused-in-these-tests' }));
+
 vi.mock('electron', () => ({
-  app: { getPath: () => '/unused-in-these-tests' },
+  app: { getPath: () => userData.path },
   safeStorage: safeStorageMock,
 }));
 
@@ -326,28 +328,6 @@ describe('typed provider credentials (BST-1348)', () => {
   });
 
   describe('factory reset coverage', () => {
-    it('clearAll wipes an ENGINE-written oauth credential (BST-1355: factory reset covers the OAuth engine)', async () => {
-      const { toStoredOAuthCredential } = await import('../provider-auth/oauth-flow');
-      const { credentials, svc } = await desktopSecrets();
-      const credential = toStoredOAuthCredential(
-        {
-          accessToken: 'engine-access-token',
-          expiresInSeconds: 3600,
-          raw: { account_id: 'acct-9' },
-          refreshToken: 'engine-refresh-token',
-        },
-        { accountId: 'acct-9', now: 1_700_000_000_000 }
-      );
-      await svc.setCredential('fake-oauth-provider', credential);
-      await expect(svc.getCredential('fake-oauth-provider')).resolves.toEqual(credential);
-
-      await expect(svc.clearAll()).resolves.toBe(true);
-
-      await expect(svc.getCredential('fake-oauth-provider')).resolves.toBeNull();
-      await expect(svc.listProviders()).resolves.toEqual([]);
-      await credentials.close();
-    });
-
     it('clearAll removes MCP bearer credentials from the shared authority', async () => {
       const reference = {
         id: '00000000-0000-4000-8000-000000000001',
@@ -363,6 +343,87 @@ describe('typed provider credentials (BST-1348)', () => {
       await expect(authority.inspect(reference)).resolves.toEqual({ state: 'missing' });
       await credentials.close();
     });
+  });
+});
+
+describe("Main's view of the host-owned profile store", () => {
+  /** Main's services over a fresh disposable profile, with its one-time migration settled. */
+  async function mainSecrets() {
+    userData.path = await disposableProfile();
+    vi.resetModules();
+    const secrets = await import('../secrets');
+    await secrets.migrateDesktopLegacySecrets();
+    // The host's own handle on the same profile store.
+    const host = createHostCredentials({
+      selection: secrets.desktopCredentialStoreSelection(userData.path, true),
+    });
+    return { host, secrets };
+  }
+
+  it('reads host-written keys, refuses every write and never reads subscription tokens', async () => {
+    const { host, secrets } = await mainSecrets();
+    const signIn: ProviderCredential = {
+      access: 'host-held-access',
+      expires: Date.now() + 3_600_000,
+      refresh: 'host-held-refresh',
+      type: 'oauth',
+    };
+    await host.secrets().setCredential('openai', { key: 'sk-host-written', type: 'api_key' });
+    await host.secrets().setCredential('openai-codex', signIn);
+    const main = secrets.getSecretsService();
+
+    await expect(main.getKey('openai')).resolves.toBe('sk-host-written');
+    await expect(main.listProviders()).resolves.toEqual(
+      expect.arrayContaining(['openai', 'openai-codex'])
+    );
+    await expect(main.getCredential('openai-codex')).rejects.toMatchObject({
+      code: 'credential_type_unsupported',
+      provider: 'openai-codex',
+    });
+    for (const write of [
+      () => main.saveKey('openai', 'sk-main'),
+      () => main.setCredential('openai', { key: 'sk-main', type: 'api_key' }),
+      () => main.deleteKey('openai'),
+      () => main.clearAll(),
+    ]) {
+      await expect(write()).rejects.toThrow('the agent host owns every credential write');
+    }
+    await expect(host.secrets().getCredential('openai-codex')).resolves.toEqual(signIn);
+    await host.close();
+  });
+
+  it('Settings writes reach the store only through the host writer', async () => {
+    const { host, secrets } = await mainSecrets();
+    const writer = {
+      clear: vi.fn(() => host.secrets().clearAll()),
+      deleteCredential: vi.fn((account: string) => host.secrets().deleteKey(account)),
+      setCredential: vi.fn(async (account: string, credential: ProviderCredential) => {
+        await host.secrets().setCredential(account, credential);
+      }),
+    };
+    const settings = secrets.createDesktopSettingsSecrets(writer);
+
+    await expect(settings.saveKey('openai', 'sk-settings')).resolves.toBe(true);
+    expect(writer.setCredential).toHaveBeenCalledWith('openai', {
+      key: 'sk-settings',
+      type: 'api_key',
+    });
+    await expect(settings.getKey('openai')).resolves.toBe('sk-settings');
+    await expect(
+      settings.setCredential('openai-codex', {
+        access: 'renderer-supplied',
+        expires: Date.now() + 3_600_000,
+        refresh: 'renderer-supplied',
+        type: 'oauth',
+      })
+    ).rejects.toThrow('stored only by the host sign-in flow');
+    await expect(settings.deleteKey('openai')).resolves.toBe(true);
+    await expect(settings.getKey('openai')).resolves.toBeNull();
+    await expect(settings.clearAll()).resolves.toBe(true);
+    expect(writer.setCredential).toHaveBeenCalledOnce();
+    expect(writer.deleteCredential).toHaveBeenCalledWith('openai');
+    expect(writer.clear).toHaveBeenCalledOnce();
+    await host.close();
   });
 });
 

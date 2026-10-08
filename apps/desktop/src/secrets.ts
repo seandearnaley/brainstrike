@@ -1,6 +1,8 @@
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SecretReadError, type SecretsService } from '@brainstrike/agent-host/credential-contract';
+import type { HostLoginCredential } from '@brainstrike/agent-host/protocol';
+import type { ProviderCredential } from '@brainstrike/assistant-contract';
 import {
   createHostCredentials,
   type HostCredentialStoreSelection,
@@ -23,10 +25,10 @@ export {
 export type { ProviderCredential, SecretReadErrorCode } from '@brainstrike/assistant-contract';
 
 /**
- * The profile's credential store, shared by Main and the forked agent host.
- * Production uses the OS keyring under a profile-scoped service; isolated test
- * runs use a private file inside their disposable profile and never reach the
- * OS keychain.
+ * The profile's credential store: the forked agent host is its writer and Main
+ * reads it. Production uses the OS keyring under a profile-scoped service;
+ * isolated test runs use a private file inside their disposable profile and
+ * never reach the OS keychain.
  */
 export function desktopCredentialStoreSelection(
   userData: string = app.getPath('userData'),
@@ -48,9 +50,10 @@ function getDesktopCredentials(): HostCredentials {
 
 /**
  * The one-time move of the retired safeStorage entries into the profile's
- * store, started once. Every credential operation in Main and the forked host
- * waits for it; a conflict or decrypt failure keeps the legacy copy and every
- * credential operation rejects with that failure.
+ * store, started once and settled before the first host fork, so it never
+ * runs beside the host's writes. Every credential operation in Main and the
+ * forked host waits for it; a conflict or decrypt failure keeps the legacy
+ * copy and every credential operation rejects with that failure.
  */
 export function migrateDesktopLegacySecrets(): Promise<LegacySecretMigrationReport> {
   legacyMigration ??= migrateLegacySecrets({
@@ -60,22 +63,63 @@ export function migrateDesktopLegacySecrets(): Promise<LegacySecretMigrationRepo
   return legacyMigration;
 }
 
-/** One Main-process authority over the selected store (Settings, OAuth engine, MCP bearer). */
+/** The host's credential writes Settings forwards to; the host is their only writer. */
+export interface DesktopCredentialWriter {
+  clear(): Promise<boolean>;
+  deleteCredential(account: string): Promise<boolean>;
+  setCredential(account: string, credential: HostLoginCredential): Promise<void>;
+}
+
+function awaitingMigration<T>(operation: () => Promise<T>): Promise<T> {
+  return migrateDesktopLegacySecrets().then(operation);
+}
+
+/**
+ * Main's read-only view of the profile store (Settings listing, hosted
+ * embeddings, tool and MCP keys). Subscription tokens stay with the host's one
+ * refresher, so an OAuth entry reads as `credential_type_unsupported`. Writes
+ * refuse: Settings changes go through {@link createDesktopSettingsSecrets}.
+ */
 export function getSecretsService(): SecretsService {
   const service = getDesktopCredentials().secrets();
-  const migrated = async <T>(operation: () => Promise<T>): Promise<T> => {
-    await migrateDesktopLegacySecrets();
-    return operation();
+  const refuseWrite = async (): Promise<never> => {
+    throw new Error('Main reads credentials only; the agent host owns every credential write');
   };
   return {
-    clearAll: () => migrated(() => service.clearAll()),
-    deleteKey: (provider) => migrated(() => service.deleteKey(provider)),
-    getCredential: (provider) => migrated(() => service.getCredential(provider)),
-    getKey: (provider) => migrated(() => service.getKey(provider)),
-    listProviders: () => migrated(() => service.listProviders()),
-    saveKey: (provider, value) => migrated(() => service.saveKey(provider, value)),
-    setCredential: (provider, credential) =>
-      migrated(() => service.setCredential(provider, credential)),
+    clearAll: refuseWrite,
+    deleteKey: refuseWrite,
+    getCredential: (provider) =>
+      awaitingMigration(async () => {
+        const credential = await service.getCredential(provider);
+        if (credential?.type === 'oauth') {
+          throw new SecretReadError('credential_type_unsupported', provider);
+        }
+        return credential;
+      }),
+    getKey: (provider) => awaitingMigration(() => service.getKey(provider)),
+    listProviders: () => awaitingMigration(() => service.listProviders()),
+    saveKey: refuseWrite,
+    setCredential: refuseWrite,
+  };
+}
+
+/** Settings: Main's reads plus writes through the host's private desktop client. */
+export function createDesktopSettingsSecrets(writer: DesktopCredentialWriter): SecretsService {
+  const reads = getSecretsService();
+  const write = (account: string, credential: ProviderCredential): Promise<boolean> =>
+    awaitingMigration(async () => {
+      if (credential.type === 'oauth') {
+        throw new Error('Subscription sign-in is stored only by the host sign-in flow');
+      }
+      await writer.setCredential(account, credential);
+      return true;
+    });
+  return {
+    ...reads,
+    clearAll: () => awaitingMigration(() => writer.clear()),
+    deleteKey: (account) => awaitingMigration(() => writer.deleteCredential(account)),
+    saveKey: (account, key) => write(account, { key, type: 'api_key' }),
+    setCredential: write,
   };
 }
 

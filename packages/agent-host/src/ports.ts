@@ -7,6 +7,8 @@ import type {
   McpHostCloseReport,
   McpHostPort,
   PermissionToolGateSnapshot,
+  ProviderAuthStartMethod,
+  ProviderAuthStatus,
   ToolRiskCategory,
 } from '@brainstrike/assistant-contract';
 import type { McpTaskHandle } from '@brainstrike/assistant-contract/mcp-task-presentation';
@@ -23,6 +25,7 @@ import type {
   ToolSet,
 } from 'ai';
 import type { McpHostToolBinding } from './adapters/mcp.js';
+import type { HostAuthVerdict } from './auth-wire.js';
 import type { HostLoginCredential, HostRunSnapshot } from './protocol.js';
 
 /** Private native authority. Validation never resolves or sends an answer. */
@@ -120,6 +123,29 @@ export interface HostRunAdmission {
 }
 
 /**
+ * The host's single credential writer, token holder and OAuth refresher.
+ * `connect` and subscription use require the private desktop origin.
+ */
+export interface HostAuthService {
+  cancel(provider: string): Promise<ProviderAuthStatus>;
+  clear(): Promise<boolean>;
+  connect(
+    provider: string,
+    method: ProviderAuthStartMethod | undefined,
+    origin: HostClientOrigin | undefined
+  ): Promise<ProviderAuthStatus>;
+  deleteCredential(account: string): Promise<boolean>;
+  disconnect(provider: string): Promise<ProviderAuthStatus>;
+  /** A Settings-namespace entry under its existing account (provider, tool or MCP key). */
+  setCredential(account: string, credential: HostLoginCredential): Promise<void>;
+  status(provider: string): Promise<ProviderAuthStatus>;
+  /** A provider login, validated against the provider's authentication form. */
+  storeProviderCredential(provider: string, credential: HostLoginCredential): Promise<void>;
+  /** Refresh-aware session liveness through the one refresher; never a token. */
+  verify(provider: string): Promise<HostAuthVerdict>;
+}
+
+/**
  * The transport a run-admitting command arrived on. `desktop-ui` is only a port
  * the launching desktop handed over its private parent channel; every public
  * socket client (the CLI included) is `public-socket`. Absent means no live
@@ -183,6 +209,8 @@ export interface HostTool {
 /** Credentials and process-local capabilities never become protocol payloads. */
 export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
+  /** The host's credential authority; absent where the host owns no credential store. */
+  readonly auth?: HostAuthService;
   close(): Promise<void>;
   /** The default admission's auto-title capability; `admitRun` sets it per admission. */
   readonly generatesThreadTitles?: boolean | undefined;
@@ -196,8 +224,6 @@ export interface HostPlatform {
   resolveModel?(modelId: string): Promise<LanguageModel>;
   /** Borrowed existing native writer; startup acquires it before interrupted purge replay. */
   readonly stateIndexer?: StateStoreIndexerPort;
-  /** The host's own credential store, its single writer; absent where none is owned. */
-  storeProviderCredential?(provider: string, credential: HostLoginCredential): Promise<void>;
   readonly tools?: Readonly<Record<string, HostTool>> | undefined;
   validateWorkspaceBinding?(request: {
     readonly binding: ThreadWorkspaceBinding;
