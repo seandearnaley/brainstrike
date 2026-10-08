@@ -143,6 +143,7 @@ import { migration141OpenrouterInclusionaiLing30Flash } from './141-openrouter-i
 import { migration142OpenaiAnthropicOpenrouterBedrockCatalogModels } from './142-openai-anthropic-openrouter-bedrock-catalog-models.js';
 import { migration143AgentIdentityPalettes } from './143-agent-identity-palettes.js';
 import { migration144AgentFamilyColors } from './144-agent-family-colors.js';
+import { migration145LegacyUpgradeInterruptPending } from './145-legacy-upgrade-interrupt-pending.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -292,6 +293,7 @@ export const migrations: Migration[] = [
   migration142OpenaiAnthropicOpenrouterBedrockCatalogModels,
   migration143AgentIdentityPalettes,
   migration144AgentFamilyColors,
+  migration145LegacyUpgradeInterruptPending,
 ];
 
 // Export base migrations (without chunks table) for test environments
