@@ -25,6 +25,7 @@ import {
 import { readHostRow } from '../event-storage.js';
 import type { HostRunContext, HostRunOwner } from '../ports.js';
 import type { HostLogRow } from '../protocol.js';
+import { HostRunOwnerCleanupError } from '../run-admission.js';
 import { committedMemoryTranscript } from './committed-memory-transcript.js';
 import { HostMemory, type HostMemoryCapabilities, type HostMemoryIdentity } from './memory.js';
 import { StateStoreMemoryStorage } from './memory-storage.js';
@@ -239,7 +240,7 @@ export class StateStoreHostMemory implements HostRunOwner {
       try {
         await owner.close();
       } catch (cleanup) {
-        throw new AggregateError([cause, cleanup], 'Memory construction cleanup failed');
+        throw new HostRunOwnerCleanupError(cause, cleanup, 'Memory construction cleanup failed');
       }
       throw cause;
     }
