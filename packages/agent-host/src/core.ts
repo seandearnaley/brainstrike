@@ -77,6 +77,7 @@ import {
   finishApprovedHostResults,
   resolveHostApprovalInput,
 } from './run-continuation.js';
+import { userRunVerdict } from './run-verdicts.js';
 import { HostThreadPresentationState } from './thread-presentation-state.js';
 import { HostThreadWorkspaceState } from './workspace-state.js';
 
@@ -845,6 +846,14 @@ export class HostCore {
         cause instanceof Error ? cause.message : String(cause)
       );
     }
+  }
+
+  recordVerdict(params: HostParams<'run/verdict'>): Promise<{ accepted: true }> {
+    return this.command('run/verdict', params, async () => {
+      const event = userRunVerdict(this.runs.get(params.runId)?.threadId, params);
+      await this.accept(params.threadId, 'run/verdict', params, { accepted: true }, [event]);
+      return { accepted: true } as const;
+    });
   }
 
   stop(params: HostParams<'run/stop'>): Promise<{ outcome: 'stopped' | 'already-terminal' }> {
