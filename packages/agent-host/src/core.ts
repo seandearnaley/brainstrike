@@ -1,12 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import type { StateStore } from '@brainstrike/state-store';
-import {
-  type LanguageModel,
-  type ModelMessage,
-  modelMessageSchema,
-  stepCountIs,
-  streamText,
-} from 'ai';
+import type { BlobContent, StateStore } from '@brainstrike/state-store';
+import { type LanguageModel, type ModelMessage, stepCountIs, streamText } from 'ai';
 import {
   ApprovalInputReconstructionError,
   rebuildApprovedRuntimeMessages,
@@ -50,6 +44,7 @@ import {
   createAdmittedHostSdkTools,
   decideHostSdkApproval,
   ensureHostRunAdmission,
+  hostModelStepEvents,
   hostRunToolDecision,
   hostRunTools,
   prepareHostProviderStep,
@@ -75,12 +70,12 @@ import {
   finishApprovedHostResults,
   resolveHostApprovalInput,
 } from './run-continuation.js';
+import { HostWorkspaceEdits, hostEditScope, revertHostRunEdits } from './workspace-edits.js';
 import { HostThreadWorkspaceState } from './workspace-state.js';
 
 export { jsonValue } from './json-value.js';
 
 type Action = Extract<HostEvent, { type: 'effect.started' }>;
-type Interaction = Extract<HostEvent, { type: 'interaction.requested' }>;
 export type HostEventStore = Pick<
   StateStore,
   'append' | 'read' | 'root' | 'syncBoundary' | 'threads'
@@ -90,6 +85,7 @@ export type HostEventStore = Pick<
 export class HostCore {
   private readonly commands = new HostCommandLedger();
   private readonly mcpInputs = new HostMcpInputState();
+  private readonly edits = new HostWorkspaceEdits();
   private readonly threads = new Set<string>();
   private readonly workspaces = new HostThreadWorkspaceState((method, params, event, durability) =>
     this.accept(
@@ -170,6 +166,7 @@ export class HostCore {
 
   private fold(row: HostLogRow): void {
     this.mcpInputs.fold(row);
+    this.edits.fold(row);
     this.workspaces.fold(row);
     const event = row.event;
     switch (event.type) {
@@ -231,10 +228,15 @@ export class HostCore {
     threadId: string,
     events: readonly HostEvent[],
     durability: 'normal' | 'full' = 'normal',
-    beforePublish?: (rows: readonly HostLogRow[]) => void
+    beforePublish?: (rows: readonly HostLogRow[]) => void,
+    /** Blobs a single event names in `blobRefs`, durable before it commits. */
+    referenced?: readonly BlobContent[]
   ): Promise<HostLogRow[]> {
+    if (referenced && events.length !== 1) {
+      throw new Error('Referenced blobs belong to exactly one host event');
+    }
     const committed = await this.store.append(
-      events.map((event) => storedHostEvent(threadId, event)),
+      events.map((event) => storedHostEvent(threadId, event, referenced)),
       undefined,
       durability
     );
@@ -387,6 +389,7 @@ export class HostCore {
       this.threads.delete(params.threadId);
       this.workspaces.forget(params.threadId);
       this.mcpInputs.forgetThread(params.threadId);
+      this.edits.forgetThread(params.threadId);
       for (const run of runs) {
         this.runs.delete(run.id);
         this.conversationIds.delete(run.id);
@@ -511,6 +514,10 @@ export class HostCore {
     // Revalidating a canonical value can transform it a second time.
     const output = await registered.execute(input, {
       ...(resumeData === undefined ? {} : { resumeData }),
+      edits: this.edits.tracker(
+        hostEditScope(run, action, () => this.closing || this.deletions.has(run.threadId)),
+        (event, blobs) => this.append(run.threadId, [event], 'full', this.foldRows, blobs)
+      ),
       mcp: this.mcpInputs.execution(run, action, registered, {
         admit: (perform) => this.admit(run.threadId, perform, run.controller.signal),
         append: (events, beforePublish) =>
@@ -604,42 +611,11 @@ export class HostCore {
           // https://github.com/vercel/ai/blob/main/packages/ai/src/util/notify.ts
           // Remove this capture if the public step callback propagates failures.
           try {
-            const event: HostEvent = {
-              messages: step.response.messages.map((message) =>
-                jsonValue(modelMessageSchema.parse(message))
-              ),
-              model: jsonValue(step.model),
-              runId: run.id,
-              stepNumber: run.steps,
-              type: 'model.step',
-              usage: jsonValue(step.usage),
-            };
-            const interactions: Interaction[] = step.content.flatMap((part) => {
-              if (part.type !== 'tool-approval-request' || part.isAutomatic === true) {
-                return [];
-              }
-              const registered = hostRunTools(run)[part.toolCall.toolName];
-              if (!registered) {
-                throw new Error('Approval references an unknown tool');
-              }
-              return [
-                {
-                  input: jsonValue(part.toolCall.input),
-                  interactionId: part.approvalId,
-                  kind: registered.interaction?.kind ?? 'approval',
-                  runId: run.id,
-                  toolCallId: part.toolCall.toolCallId,
-                  toolId: part.toolCall.toolName,
-                  toolIdentity: registered.identity,
-                  type: 'interaction.requested',
-                },
-              ];
-            });
             // The complete public SDK context and its answerable interactions
             // share one SQLite commit, including when the provider stream is interrupted.
             const rows = await this.append(
               run.threadId,
-              [event, ...interactions],
+              hostModelStepEvents(run, step),
               'full',
               (committed) => {
                 for (const row of committed) {
@@ -722,6 +698,24 @@ export class HostCore {
       throw new Error('Unknown run for this thread');
     }
     return run;
+  }
+
+  /** Restore a finished run's edits to their baselines; the outcome joins the thread's log. */
+  revertCheckpoint(
+    params: HostParams<'checkpoint/revert'>
+  ): Promise<HostResults['checkpoint/revert']> {
+    const method = 'checkpoint/revert';
+    return this.command(method, params, async () => {
+      this.run(params.threadId, params.runId);
+      const { event, result } = await revertHostRunEdits(this.edits, params, {
+        pending: this.pendingAdmissions,
+        platform: this.platform,
+        runs: this.runs.values(),
+        storeRoot: this.store.root,
+      });
+      await this.accept(params.threadId, method, params, result, [event], this.foldRows, 'full');
+      return result;
+    });
   }
 
   readMcpInput(input: HostParams<'mcp/input/read'>): Promise<HostResults['mcp/input/read']> {

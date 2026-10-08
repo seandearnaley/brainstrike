@@ -4,23 +4,16 @@
  * Public-client contract for checkpoint undo in committed host mode (BST-1929,
  * #3543 6054394054 item 2, step 3).
  *
- * Today a host run's file edit reaches the legacy edit-checkpoint journal in
- * Main's PGlite, keyed by host thread/run IDs
- * (production-desktop-capabilities.ts injects them as `runtimeData.memory`).
- * But no turn-start snapshot is ever taken for a host run: the bracket
- * controller runs only on the legacy POST path (assistant-server.ts). So the
- * existing undo engine reports every host-run entry as unavailable, and the
- * committed surface mounts no checkpoint provider. These tests state, through
- * the public host client, what the committed client needs from Studio. They
- * are `test.fails` until the contract lands.
- *
- * Requested shapes (Studio owns the final names, and the platform capability
- * this fixture will then pass):
+ * These tests state, through the public host client, what the committed
+ * client needs from the host:
  * - a committed attribution event per file edit (`workspace.edit.recorded`):
- *   tool call, root, path, op, before/after identity;
- * - a host command `checkpoint/revert` that restores the run's paths to its
- *   turn-start snapshot, refuses while the thread has an active run, and
- *   commits the outcome (`workspace.edit.reverted`).
+ *   tool call, root, path, op, before/after identity. The fixture tool reports
+ *   its mutation through the Core-supplied `context.edits` capability, which
+ *   captures the path's state before the run first changed it;
+ * - a host command `checkpoint/revert` that restores the run's paths to that
+ *   state, refuses while the thread has an active run, and commits the outcome
+ *   (`workspace.edit.reverted`). The platform's live root owner
+ *   (`resolveWorkspaceRoot`) revalidates the edit's root before any restore.
  */
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -31,6 +24,7 @@ import {
   attachAgentHost,
   type HostClient,
   type HostLogRow,
+  type HostToolContext,
   startAgentHost,
 } from '@brainstrike/agent-host';
 import { scriptedModel } from '@brainstrike/agent-host/test-fixtures/scripted-model';
@@ -47,13 +41,8 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
 });
 
-/** A request the installed protocol does not define yet; Studio owns its final shape. */
-type ProposedRequest = (
-  method: string,
-  params: Readonly<Record<string, unknown>>
-) => Promise<unknown>;
-
 const ORIGINAL = 'turn-start content';
+const ROOT_ID = 'fixture-root';
 
 /** A thread whose first run is paused on the default `edit:ask` approval of a file write. */
 async function pausedEdit() {
@@ -69,11 +58,24 @@ async function pausedEdit() {
       maxSteps: 3,
       readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
       resolveModel: async () => model,
+      resolveWorkspaceRoot: async ({ rootId }) => {
+        if (rootId !== ROOT_ID) {
+          throw new Error('Unknown fixture root');
+        }
+        return root;
+      },
       tools: {
         write_file: {
           description: 'Write an owned fixture file',
-          execute: async (input: unknown) => {
-            await writeFile(file, z.object({ text: z.string() }).parse(input).text);
+          execute: async (input: unknown, context: HostToolContext) => {
+            const { text } = z.object({ text: z.string() }).parse(input);
+            if (!context.edits) {
+              throw new Error('Core supplied no edit tracking capability');
+            }
+            await context.edits.track(
+              { absolutePath: file, op: 'write', rootId: ROOT_ID, rootPath: root },
+              () => writeFile(file, text)
+            );
             return { path: file };
           },
           identity: 'native-fixture-generation-1',
@@ -153,7 +155,7 @@ test('a host run commits its approved file edit as an effect, with the new conte
   expect(await readFile(edited.file, 'utf8')).toBe('written by permitted host tool');
 });
 
-test.fails('the committed log attributes the edit, and a host revert restores the run’s file to turn start once', async () => {
+test('the committed log attributes the edit, and a host revert restores the run’s file to turn start once', async () => {
   const edited = await finishedEdit();
   const started = eventsOfType(edited.rows, 'effect.started')[0]?.event;
   expect(eventsOfType(edited.rows, 'workspace.edit.recorded')).toEqual([
@@ -164,8 +166,7 @@ test.fails('the committed log attributes the edit, and a host revert restores th
       }),
     }),
   ]);
-  const request = edited.client.request.bind(edited.client) as unknown as ProposedRequest;
-  await request('checkpoint/revert', {
+  await edited.client.request('checkpoint/revert', {
     commandId: randomUUID(),
     runId: edited.runId,
     threadId: edited.threadId,
@@ -179,11 +180,10 @@ test.fails('the committed log attributes the edit, and a host revert restores th
   expect(eventsOfType(rows, 'workspace.edit.reverted')).toHaveLength(1);
 });
 
-test.fails('a host revert is refused while the thread’s run is active, leaving the file untouched', async () => {
+test('a host revert is refused while the thread’s run is active, leaving the file untouched', async () => {
   const paused = await pausedEdit();
-  const request = paused.client.request.bind(paused.client) as unknown as ProposedRequest;
   await expect(
-    request('checkpoint/revert', {
+    paused.client.request('checkpoint/revert', {
       commandId: randomUUID(),
       runId: paused.runId,
       threadId: paused.threadId,

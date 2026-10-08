@@ -41,6 +41,22 @@ export class AgentHostStartupError extends AggregateError {
     super(causes, 'Host startup cleanup failed; durable root ownership is retained');
   }
 }
+/** Late-bound optional capabilities of the acquired platform; absence stays absence. */
+function bindOptionalPlatform(owned: HostPlatform, acquired: HostPlatform): void {
+  if (acquired.openRun) {
+    owned.openRun = acquired.openRun.bind(acquired);
+  }
+  if (acquired.admitRun) {
+    owned.admitRun = acquired.admitRun.bind(acquired);
+  }
+  if (acquired.resolveWorkspaceRoot) {
+    owned.resolveWorkspaceRoot = acquired.resolveWorkspaceRoot.bind(acquired);
+  }
+  if (acquired.validateWorkspaceBinding) {
+    owned.validateWorkspaceBinding = acquired.validateWorkspaceBinding.bind(acquired);
+  }
+}
+
 export async function startAgentHost(
   options: HostStartOptions,
   inputPlatform: HostPlatformInitializer,
@@ -190,17 +206,7 @@ export async function startAgentHost(
           }
           try {
             signal.throwIfAborted();
-            const acquiredPlatform = currentPlatform();
-            if (acquiredPlatform.openRun) {
-              ownedPlatform.openRun = acquiredPlatform.openRun.bind(acquiredPlatform);
-            }
-            if (acquiredPlatform.admitRun) {
-              ownedPlatform.admitRun = acquiredPlatform.admitRun.bind(acquiredPlatform);
-            }
-            if (acquiredPlatform.validateWorkspaceBinding) {
-              ownedPlatform.validateWorkspaceBinding =
-                acquiredPlatform.validateWorkspaceBinding.bind(acquiredPlatform);
-            }
+            bindOptionalPlatform(ownedPlatform, currentPlatform());
             core = await HostCore.open(store, ownedPlatform, retainRun, (acquired) => {
               core = acquired;
               if (signal.aborted) {

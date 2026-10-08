@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import {
   type AppendItem,
   BLOBS_DIR,
+  type BlobContent,
   type LogRow,
   largeText,
   type StateStore,
@@ -27,6 +28,7 @@ export async function readHostThreadHistory(
 
 const Spool = z.object({
   blob: z.string().regex(/^[a-f0-9]{64}$/u),
+  blobRefs: z.array(z.string().regex(/^[a-f0-9]{64}$/u)).optional(),
   bytes: z.number().int().positive(),
   preview: z.string(),
   runId: z.string().optional(),
@@ -55,22 +57,39 @@ export function decodeStoredHostEvent(
   if (event.type !== spool.type || ('runId' in event ? event.runId : undefined) !== spool.runId) {
     throw new Error('Committed host event blob identity does not match its row');
   }
+  const refs = 'blobRefs' in event ? (event.blobRefs ?? []) : [];
+  if (JSON.stringify(refs) !== JSON.stringify(spool.blobRefs ?? [])) {
+    throw new Error('Committed host event blob references do not match its row');
+  }
   return event;
 }
 
-/** Keep the existing event kind/run ID; StateStore owns blob durability and reference counting. */
-export function storedHostEvent(threadId: string, input: HostEvent): AppendItem {
+/**
+ * Keep the existing event kind/run ID; StateStore owns blob durability and reference counting.
+ * `referenced` are the blobs the event names in `blobRefs`; a spooled row keeps those names.
+ */
+export function storedHostEvent(
+  threadId: string,
+  input: HostEvent,
+  referenced: readonly BlobContent[] = []
+): AppendItem {
   const event = HostEventSchema.parse(input);
+  const refs = 'blobRefs' in event ? (event.blobRefs ?? []) : [];
+  const supplied = new Set(referenced.map((blob) => blob.hash));
+  if (refs.length !== supplied.size || refs.some((hash) => !supplied.has(hash))) {
+    throw new Error('Host event blob references do not match the supplied blobs');
+  }
   const stored = largeText(JSON.stringify(event));
   if (!stored.blob) {
-    return { event, threadId };
+    return { ...(referenced.length > 0 ? { blobs: referenced } : {}), event, threadId };
   }
   return {
-    blobs: [stored.blob],
+    blobs: [stored.blob, ...referenced],
     event: {
       type: event.type,
       ...('runId' in event ? { runId: event.runId } : {}),
       ...stored.fields,
+      ...(refs.length > 0 ? { blobRefs: refs } : {}),
     },
     threadId,
   };

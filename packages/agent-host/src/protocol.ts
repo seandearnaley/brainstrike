@@ -4,7 +4,8 @@ import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-
 import { z } from 'zod';
 
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
-// and the explicit branch links they commit on `run.started`).
+// and the explicit branch links they commit on `run.started`); committed
+// workspace edit attribution and `checkpoint/revert`.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -26,6 +27,57 @@ const McpContent = z.record(
   z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])
 );
 const Seq = z.number().int().nonnegative();
+const Sha256 = z.string().regex(/^[a-f0-9]{64}$/u);
+/** Root-relative POSIX path: no leading slash, no empty, `.` or `..` segment. */
+const WorkspaceRelativePath = z
+  .string()
+  .min(1)
+  .refine(
+    (value) =>
+      !value.startsWith('/') &&
+      value.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..'),
+    'Expected a normalized root-relative path'
+  );
+export const HOST_WORKSPACE_EDIT_OPS = ['write', 'string_replace', 'delete', 'rename'] as const;
+export const HostWorkspaceEditOpSchema = z.enum(HOST_WORKSPACE_EDIT_OPS);
+export type HostEditOp = (typeof HOST_WORKSPACE_EDIT_OPS)[number];
+/** A file's observed identity; content is never part of the client-visible event. */
+const HostFileIdentitySchema = z.strictObject({
+  existed: z.boolean(),
+  hash: Sha256.nullable(),
+  size: z.number().int().nonnegative().nullable(),
+});
+/**
+ * A path's state before the run first changed it. Content lives in a
+ * content-addressed StateStore blob that this event references (`blobRefs`).
+ */
+export const HostEditBaselineSchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('absent'), path: WorkspaceRelativePath }),
+  z.strictObject({
+    blob: Sha256,
+    bytes: z.number().int().nonnegative(),
+    encoding: z.enum(['utf8', 'base64']),
+    hash: Sha256,
+    kind: z.literal('content'),
+    mode: z.number().int().nonnegative(),
+    path: WorkspaceRelativePath,
+  }),
+  z.strictObject({
+    kind: z.literal('unavailable'),
+    path: WorkspaceRelativePath,
+    reason: z.enum(['too_large', 'symlink', 'not_a_file']),
+  }),
+]);
+export type HostEditBaseline = z.infer<typeof HostEditBaselineSchema>;
+export const HostEditRevertOutcomeSchema = z.discriminatedUnion('status', [
+  z.strictObject({ entryId: Id, status: z.literal('reverted') }),
+  z.strictObject({
+    entryId: Id,
+    reason: z.string().min(1),
+    status: z.enum(['conflict', 'not_revertible']),
+  }),
+]);
+export type HostEditRevertOutcome = z.infer<typeof HostEditRevertOutcomeSchema>;
 const McpAuthorityBase = {
   extensions: z.strictObject({ apps: z.boolean(), tasks: z.boolean() }),
   protocol: z.enum(['legacy', 'auto', '2026-07-28']),
@@ -78,6 +130,17 @@ export const HostRunSnapshotSchema = z.strictObject({
 });
 export type HostRunSnapshot = z.infer<typeof HostRunSnapshotSchema>;
 export const HOST_METHOD_SCHEMAS = {
+  /**
+   * Restore a finished run's edited paths to their state before the run first
+   * changed them (one entry, or every unreverted entry of the run). Refused
+   * while the thread has an active run; `force` skips the conflict gate.
+   */
+  'checkpoint/revert': z.strictObject({
+    ...Command,
+    ...Run,
+    entryId: Id.optional(),
+    force: z.boolean().optional(),
+  }),
   'host/stop': z.strictObject({}),
   initialize: z.strictObject({
     hostVersion: Id,
@@ -281,6 +344,31 @@ export const HostEventSchema = z.union([
     detail: z.string().optional(),
     outcome: z.enum(['completed', 'failed', 'stopped', 'interrupted']),
   }),
+  z.strictObject({
+    type: z.literal('workspace.edit.recorded'),
+    ...RunFields,
+    after: HostFileIdentitySchema,
+    /** First-touch baselines this edit captured for its run; later edits reuse them. */
+    baselines: z.array(HostEditBaselineSchema),
+    before: HostFileIdentitySchema,
+    blobRefs: z.array(Sha256).optional(),
+    entryId: Id,
+    /** Rename source; `before` observes it, `after` observes the destination. */
+    fromPath: WorkspaceRelativePath.optional(),
+    op: HostWorkspaceEditOpSchema,
+    path: WorkspaceRelativePath,
+    rootId: Id,
+    /** The admitted absolute root; revert revalidates it with the live root owner. */
+    rootPath: Id,
+    toolCallId: Id,
+    toolId: Id,
+  }),
+  z.strictObject({
+    type: z.literal('workspace.edit.reverted'),
+    ...RunFields,
+    commandId: Id,
+    outcomes: z.array(HostEditRevertOutcomeSchema),
+  }),
 ]);
 export type HostEvent = z.infer<typeof HostEventSchema>;
 export const HostLogRowSchema = z.strictObject({
@@ -292,6 +380,7 @@ export const HostLogRowSchema = z.strictObject({
 });
 export type HostLogRow = z.infer<typeof HostLogRowSchema>;
 export const HOST_RESULT_SCHEMAS = {
+  'checkpoint/revert': z.strictObject({ outcomes: z.array(HostEditRevertOutcomeSchema) }),
   'host/stop': z.strictObject({ outcome: z.literal('stopped'), rootReleased: z.literal(true) }),
   initialize: z.strictObject({
     hostVersion: Id,

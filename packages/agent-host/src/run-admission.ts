@@ -1,5 +1,5 @@
 import { resolvePermissionDecision } from '@brainstrike/assistant-contract';
-import type { ToolSet } from 'ai';
+import { modelMessageSchema, type StepResult, type ToolSet } from 'ai';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import type { HostRunState } from './core-state.js';
 import { canonical, jsonValue } from './json-value.js';
@@ -321,4 +321,38 @@ export async function decideHostSdkApproval(
   }
   run.permits.set(call.toolCallId, action);
   return 'approved';
+}
+
+/** One model step and its answerable interactions, committed together by Core. */
+export function hostModelStepEvents(run: HostRunState, step: StepResult<ToolSet>): HostEvent[] {
+  const event: HostEvent = {
+    messages: step.response.messages.map((message) => jsonValue(modelMessageSchema.parse(message))),
+    model: jsonValue(step.model),
+    runId: run.id,
+    stepNumber: run.steps,
+    type: 'model.step',
+    usage: jsonValue(step.usage),
+  };
+  const interactions = step.content.flatMap((part): HostEvent[] => {
+    if (part.type !== 'tool-approval-request' || part.isAutomatic === true) {
+      return [];
+    }
+    const registered = hostRunTools(run)[part.toolCall.toolName];
+    if (!registered) {
+      throw new Error('Approval references an unknown tool');
+    }
+    return [
+      {
+        input: jsonValue(part.toolCall.input),
+        interactionId: part.approvalId,
+        kind: registered.interaction?.kind ?? 'approval',
+        runId: run.id,
+        toolCallId: part.toolCall.toolCallId,
+        toolId: part.toolCall.toolName,
+        toolIdentity: registered.identity,
+        type: 'interaction.requested',
+      },
+    ];
+  });
+  return [event, ...interactions];
 }
