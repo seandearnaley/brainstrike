@@ -30,10 +30,9 @@ import {
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
-import { disposeLiveChildProcesses } from '../assistant-server/execute-command-tool';
-import { disposeLspServers } from '../assistant-server/lsp-diagnostics';
 import { mainPlatformConnection } from './connection';
 import { desktopHostSharedTools } from './desktop-host-shared-tools';
+import { disposeHostTools, serveHostCommandSessions } from './host-tool-process';
 import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
 import { parentPlatformPort } from './parent-platform-port';
 import {
@@ -157,6 +156,7 @@ export async function createHostPlatform(
     }
     await context.write?.(progress.chunk);
   });
+  serveHostCommandSessions(connection);
   connection.listen();
   connection.onClose(() => connection.dispose());
   await startup.register(async () => {
@@ -175,9 +175,8 @@ export async function createHostPlatform(
     close: async () => {
       // MCP cleanup still writes through Main's stores, so it joins before Main closes.
       await mcpHost.close();
-      // The language servers and command trees this host spawned.
-      await disposeLspServers();
-      disposeLiveChildProcesses();
+      // The language servers, command trees and command sessions this host spawned.
+      await disposeHostTools();
       await request('platform/close', {});
     },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
