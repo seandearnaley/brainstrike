@@ -5,6 +5,7 @@ import type { HostMcpInputPersistenceError } from './mcp-input-state.js';
 import type { HostRunAdmission, HostRunContext, HostRunOwner } from './ports.js';
 import {
   HOST_METHOD_SCHEMAS,
+  type HostChildDelivery,
   type HostChildOrigin,
   type HostEvent,
   type HostParams,
@@ -149,12 +150,17 @@ export function foldHostRunEffect(runs: ReadonlyMap<string, HostRunState>, event
     if (run) {
       run.terminal = true;
       run.outcome = event.outcome;
+      if (event.detail !== undefined) {
+        run.detail = event.detail;
+      }
     }
   }
 }
 
 /** A run's committed position in the thread's conversation tree. */
 export interface HostRunBranch {
+  /** BST-1932: background child results delivered with this run's user message. */
+  readonly delivery?: HostChildDelivery;
   /** The committed run its user message follows; null is the thread root. */
   readonly parentMessageId: string | null;
   readonly prompt: string;
@@ -170,6 +176,8 @@ export interface HostRunState {
   readonly checkpointedResults: Set<string>;
   completion?: Promise<void>;
   readonly controller: AbortController;
+  /** The committed run.finished detail, once terminal. */
+  detail?: string;
   readonly effects: Set<Promise<unknown>>;
   readonly id: string;
   readonly liveInputs: Map<string, { readonly value: unknown }>;

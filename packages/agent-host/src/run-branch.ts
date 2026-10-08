@@ -8,6 +8,7 @@
  * context is its selected path only: a sibling branch is never on it.
  */
 import { type ModelMessage, modelMessageSchema } from 'ai';
+import { overlayHostChildOutcomes } from './child-delivery.js';
 import {
   createHostRunState,
   foldHostRunMessages,
@@ -17,6 +18,7 @@ import {
 } from './core-state.js';
 import {
   HOST_RESULT_SCHEMAS,
+  type HostChildDelivery,
   type HostEvent,
   type HostParams,
   type HostRunSnapshot,
@@ -50,6 +52,7 @@ export function foldHostRunBranch(
   admission: HostRunAdmissionCommand
 ): HostRunBranch {
   const prior = [...runs].filter((run) => run.threadId === threadId);
+  const delivery = event.delivery ? { delivery: event.delivery } : {};
   if (event.userMessageId !== undefined) {
     const original = prior.find((run) => run.branch.userMessageId === event.userMessageId);
     if (admission.method !== 'run/regenerate' || !original) {
@@ -58,7 +61,10 @@ export function foldHostRunBranch(
     if (original.branch.prompt !== event.prompt) {
       throw new Error('Regenerated run does not repeat its committed user message');
     }
-    return original.branch;
+    return { ...original.branch, ...delivery };
+  }
+  if (admission.method === 'wake') {
+    return wakeHostRunBranch(prior, event, admission);
   }
   if (admission.method === 'delegation') {
     // BST-1932: a child thread's first run answers its delegation task.
@@ -75,7 +81,27 @@ export function foldHostRunBranch(
   if (parentMessageId !== null && !prior.some((run) => run.id === parentMessageId)) {
     throw new Error('Committed branch parent is not an earlier run of this thread');
   }
-  return { parentMessageId, prompt: event.prompt, userMessageId: admission.commandId };
+  return { ...delivery, parentMessageId, prompt: event.prompt, userMessageId: admission.commandId };
+}
+
+/** BST-1932: an automated wake follows the committed tip it was admitted after. */
+function wakeHostRunBranch(
+  prior: readonly HostRunState[],
+  event: Started,
+  admission: HostRunAdmissionCommand
+): HostRunBranch {
+  if (event.delivery?.via !== 'wake' || !event.parentMessageId) {
+    throw new Error('A wake run must deliver child results after a committed run');
+  }
+  if (!prior.some((run) => run.id === event.parentMessageId)) {
+    throw new Error('Committed branch parent is not an earlier run of this thread');
+  }
+  return {
+    delivery: event.delivery,
+    parentMessageId: event.parentMessageId,
+    prompt: event.prompt,
+    userMessageId: admission.commandId,
+  };
 }
 
 /**
@@ -87,9 +113,15 @@ export function hostRunContext(
   runs: ReadonlyMap<string, HostRunState>,
   run: HostRunState
 ): ModelMessage[] {
-  return [...hostRunAncestors(runs, run), run].flatMap((turn) => [
+  const path = [...hostRunAncestors(runs, run), run];
+  // BST-1932: delivered child outcomes replace their acknowledgements from then on.
+  const delivered = path.flatMap((turn) => turn.branch.delivery?.entries ?? []);
+  return path.flatMap((turn) => [
+    ...(turn.branch.delivery?.via === 'next-turn'
+      ? [{ content: turn.branch.delivery.ledger, role: 'user' } satisfies ModelMessage]
+      : []),
     { content: turn.branch.prompt, role: 'user' } satisfies ModelMessage,
-    ...turn.messages,
+    ...overlayHostChildOutcomes(turn.id, turn.messages, delivered),
   ]);
 }
 
@@ -179,9 +211,10 @@ export function foldHostConversationMessages(
 }
 
 /** Where a new run's user message goes. */
-export type HostRunPosition =
+export type HostRunPosition = (
   | { readonly parentMessageId: string | null; readonly prompt: string }
-  | { readonly prompt: string; readonly userMessageId: string };
+  | { readonly prompt: string; readonly userMessageId: string }
+) & { readonly delivery?: HostChildDelivery };
 
 /** A start follows its requested parent (omitted: the current tip; null: the root). */
 export function hostStartPosition(
@@ -265,6 +298,10 @@ export function foldHostStartedRun(
   ) {
     admission = delegatedHostRunAdmission(threadId);
     recordHostConversationId(conversationIds, threadId);
+  }
+  if (!admission && event.delivery?.via === 'wake') {
+    admission = { commandId: event.delivery.messageId, method: 'wake' };
+    recordHostConversationId(conversationIds, event.delivery.messageId);
   }
   if (!admission) {
     throw new Error('Committed run start has no committed admission command');

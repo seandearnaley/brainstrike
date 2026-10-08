@@ -19,12 +19,53 @@ import { canonical, jsonValue } from './json-value.js';
 import type { HostDelegation, HostRunAdmission, HostTool } from './ports.js';
 import type { HostEvent } from './protocol.js';
 
-/** The shipped Mastra delegation input, less its model-controlled memory/step overrides. */
-export const HostDelegationInputSchema = z.object({ prompt: z.string().min(1) });
+/**
+ * The shipped Mastra delegation input, less its model-controlled memory/step
+ * overrides. `_background` keeps the shipped foreground opt-out; retries and
+ * timeouts stay host-owned, so they are not offered.
+ */
+export const HostDelegationInputSchema = z.object({
+  _background: z
+    .object({
+      disposition: z
+        .enum(['foreground', 'deferred', 'awaited'])
+        .optional()
+        .describe('Run this delegation inline (foreground) or in the background (deferred).'),
+      enabled: z.boolean().optional().describe('false runs this delegation in the foreground.'),
+    })
+    .optional()
+    .describe('Optional: override how this delegation executes. Omit it in most cases.'),
+  prompt: z.string().min(1),
+});
+
+/**
+ * Report section 4: a root delegation runs in the background unless the
+ * model opts out; a child's own delegations run in the foreground (B5).
+ */
+export function hostDelegationRunsInBackground(
+  input: z.infer<typeof HostDelegationInputSchema>,
+  parentIsChild: boolean
+): boolean {
+  const override = input._background;
+  return !(
+    parentIsChild ||
+    override?.enabled === false ||
+    override?.disposition === 'foreground' ||
+    override?.disposition === 'awaited'
+  );
+}
 
 export const HostChildResultSchema = z.strictObject({
   childThreadId: z.string().min(1),
-  status: z.enum(['completed', 'no-answer', 'failed', 'stopped', 'interrupted', 'rejected']),
+  status: z.enum([
+    'started',
+    'completed',
+    'no-answer',
+    'failed',
+    'stopped',
+    'interrupted',
+    'rejected',
+  ]),
   text: z.string(),
 });
 export type HostChildResult = z.infer<typeof HostChildResultSchema>;
@@ -187,6 +228,15 @@ function missingAnswerText(persona: AssistantPersonaDefinition, calls: number): 
     'task this broad can exhaust them before it answers: re-delegate a narrower slice, or ' +
     'gather the remainder directly.'
   );
+}
+
+/** The shipped Mastra acknowledgement for a background dispatch. */
+export function hostChildStarted(childThreadId: string, toolName: string): HostChildResult {
+  return {
+    childThreadId,
+    status: 'started',
+    text: `Background task started. Task ID: ${childThreadId}. The tool "${toolName}" is running in the background. You will be notified when it completes.`,
+  };
 }
 
 /** What the parent's model reads for a settled child; never an empty success. */

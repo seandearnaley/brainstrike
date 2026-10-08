@@ -11,19 +11,26 @@ import {
   ApprovalInputReconstructionError,
   rebuildApprovedRuntimeMessages,
 } from './approval-input.js';
-import { type HostChildRunPort, HostChildRuns } from './core-child-runs.js';
-import { hostRunClosingOutcomes, reportRetiredHostOutcomes } from './core-retirement.js';
+import {
+  type HostChildRunPort,
+  HostChildRuns,
+  hostDeliveryPosition,
+  reportHostChildWakeFailure,
+} from './core-child-runs.js';
+import { reportRetiredHostOutcomes } from './core-retirement.js';
 import {
   abortHostThreadRuns,
+  acceptHostRunStop,
   assertHostAdmissionCleanup,
   finishHostSdkLoop,
-  joinHostClosingRun,
+  joinAllHostWork,
   joinHostRunOwner,
   joinHostThreadDeletion,
   queueHostAdmission,
   recoverHostRun,
   rejectHostRunAdmission,
   retainHostRunWork,
+  retireHostRuns,
 } from './core-run-lifecycle.js';
 import {
   createHostRunContext,
@@ -159,7 +166,8 @@ export class HostCore {
     for (const run of core.runs.values()) {
       const recovery = recoverHostRun(run);
       if (recovery?.kind === 'finish') {
-        await core.finish(run, recovery.outcome, recovery.detail);
+        // Q-2: the boot sweep never wakes a parent; its results reach the next user turn.
+        await core.finish(run, recovery.outcome, recovery.detail, false);
       } else if (recovery) {
         run.release = retainRun();
         if (recovery.kind === 'continue') {
@@ -444,7 +452,7 @@ export class HostCore {
 
   /** One admission per new run; restart folds its committed branch the same way. */
   private async admitRun(
-    method: 'run/start' | 'run/regenerate',
+    method: 'run/start' | 'run/regenerate' | 'wake',
     params: HostParams<'run/start'> | HostParams<'run/regenerate'>,
     position: () => HostRunPosition
   ): Promise<{ runId: string }> {
@@ -458,7 +466,7 @@ export class HostCore {
       admission = await acquireHostRunAdmission(this.platform, {
         ...(params.configuration ? { configuration: params.configuration } : {}),
         modelId: params.modelId,
-        prompt: selected.prompt,
+        ...(method === 'wake' ? {} : { prompt: selected.prompt }),
         signal: controller.signal,
         threadId: params.threadId,
         ...this.workspaces.admissionBinding(params.threadId),
@@ -468,7 +476,12 @@ export class HostCore {
       const { run, started } = admittedHostRun(
         this.runs.values(),
         { ...params, method, runId: randomUUID() },
-        selected,
+        hostDeliveryPosition(
+          method,
+          params.commandId,
+          selected,
+          this.children.pending(params.threadId, this.runs, admission.delegation, method !== 'wake')
+        ),
         admission.snapshot,
         controller
       );
@@ -478,7 +491,10 @@ export class HostCore {
       }
       run.release = release;
       const result = { runId: run.id };
-      await this.accept(params.threadId, method, params, result, [started]);
+      await (method === 'wake'
+        ? this.append(params.threadId, [started])
+        : this.accept(params.threadId, method, params, result, [started]));
+      this.children.recordDelivery(started.delivery);
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);
       recordHostConversationId(this.conversationIds, run.id);
@@ -862,51 +878,31 @@ export class HostCore {
   stop(params: HostParams<'run/stop'>): Promise<{ outcome: 'stopped' | 'already-terminal' }> {
     const join = async (): Promise<void> => {
       const run = this.run(params.threadId, params.runId);
+      const reason = new Error('Run stopped by user');
       run.stopped = true;
-      run.controller.abort(new Error('Run stopped by user'));
-      await joinHostRunOwner(run, (owned) => this.closeRunOwner(owned));
+      run.controller.abort(reason);
+      // Report section 4: a root Stop ends its turn's children, foreground and background.
+      await joinAllHostWork(
+        [
+          joinHostRunOwner(run, (owned) => this.closeRunOwner(owned)),
+          ...this.children
+            .turnChildren(run, this.runs)
+            .map((child) => this.stopChildRun(child, reason)),
+        ],
+        'Stop cleanup failed'
+      );
       await this.finish(run, 'stopped');
     };
     return this.command(
       'run/stop',
       params,
-      async () => {
-        const run = this.run(params.threadId, params.runId);
-        const result = {
-          outcome: run.terminal ? ('already-terminal' as const) : ('stopped' as const),
-        };
-        if (run.stopAcceptance) {
-          await join();
-          await run.stopAcceptance;
-          return result;
-        }
-        const acceptance = Promise.withResolvers<void>();
-        run.stopAcceptance = acceptance.promise;
-        acceptance.promise.catch(() => undefined);
-        run.stopped = true;
-        run.controller.abort(new Error('Run stopped by user'));
-        try {
-          await this.accept(run.threadId, 'run/stop', params, result, []);
-          acceptance.resolve();
-          run.stopAcceptance = undefined;
-        } catch (cause) {
-          acceptance.reject(cause);
-          const cleanup = await Promise.allSettled([join()]);
-          const failure = cleanup[0];
-          if (failure?.status === 'rejected' && failure.reason !== cause) {
-            throw new AggregateError(
-              [cause, failure.reason],
-              'Stop persistence and cleanup failed'
-            );
-          }
-          throw cause;
-        }
-        await join();
-        return result;
-      },
+      () =>
+        acceptHostRunStop(
+          this.run(params.threadId, params.runId),
+          (result) => this.accept(params.threadId, 'run/stop', params, result, []),
+          join
+        ),
       async (result) => {
-        // The committed command records intent, not proof of physical cleanup.
-        // Repeated Stop must observe the same joined completion, including failure.
         await join();
         return result;
       }
@@ -934,7 +930,8 @@ export class HostCore {
   private finish(
     run: Run,
     outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome'],
-    detail?: string
+    detail?: string,
+    wakes = true
   ): Promise<void> {
     return finishHostRunWithProviderBilling(
       run,
@@ -950,7 +947,26 @@ export class HostCore {
             this.fold(row);
           }
         })
-    ).then(() => this.titles.settle(run));
+    ).then(() => {
+      this.titles.settle(run);
+      const parent = this.children.backgroundParent(run) ?? (run.origin ? undefined : run.threadId);
+      if (parent && wakes) {
+        this.wake(parent);
+      }
+    });
+  }
+
+  /** B10/B14 (ADR-0010): an idle, unparked parent wakes once per batch of settled children. */
+  private wake(threadId: string): void {
+    if (this.closing || this.deletions.has(threadId) || !this.threads.has(threadId)) {
+      return;
+    }
+    this.admit(threadId, async () => {
+      const params = this.children.wakeParams(threadId, this.runs);
+      if (params) {
+        await this.admitRun('wake', params, () => hostStartPosition(this.runs.values(), params));
+      }
+    }).catch((cause: unknown) => reportHostChildWakeFailure(threadId, cause));
   }
 
   close(): Promise<void> {
@@ -970,30 +986,13 @@ export class HostCore {
     for (const run of this.runs.values()) {
       run.controller.abort(new Error('Host is closing'));
     }
-    const joined = await Promise.allSettled(
-      [...this.runs.values()].map((run) =>
-        joinHostClosingRun(
-          run,
-          (owned) => this.closeRunOwner(owned),
-          (owned) => this.finish(owned, 'interrupted', 'Host closed with a pending decision')
-        )
-      )
+    const outcomes = await retireHostRuns(
+      [...this.runs.values()],
+      (owned) => this.closeRunOwner(owned),
+      (owned) => this.finish(owned, 'interrupted', 'Host closed with a pending decision'),
+      () => this.platform.close(),
+      [...this.failedAdmissions.values()]
     );
-    const platform = await Promise.allSettled([this.platform.close()]);
-    const outcomes = hostRunClosingOutcomes(joined);
-    const failures = [
-      ...this.failedAdmissions.values(),
-      ...[...joined, ...platform]
-        .filter((result) => result.status === 'rejected')
-        .map((result) => result.reason),
-    ];
-    if (failures.length > 0) {
-      throw new AggregateError([...outcomes, ...failures], 'Host cleanup failed');
-    }
-    for (const run of this.runs.values()) {
-      run.release?.();
-      run.release = undefined;
-    }
     this.listeners.clear();
     reportRetiredHostOutcomes(outcomes);
   }

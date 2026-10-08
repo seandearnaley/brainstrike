@@ -148,6 +148,93 @@ export function abortHostThreadRuns(
   }
 }
 
+/**
+ * run/stop: commit the intent, then join the physical stop. A repeated Stop
+ * observes the same joined completion, including its failure.
+ */
+export async function acceptHostRunStop(
+  run: HostRunState,
+  accept: (result: { outcome: 'stopped' | 'already-terminal' }) => Promise<void>,
+  join: () => Promise<void>
+): Promise<{ outcome: 'stopped' | 'already-terminal' }> {
+  const result = {
+    outcome: run.terminal ? ('already-terminal' as const) : ('stopped' as const),
+  };
+  if (run.stopAcceptance) {
+    await join();
+    await run.stopAcceptance;
+    return result;
+  }
+  const acceptance = Promise.withResolvers<void>();
+  run.stopAcceptance = acceptance.promise;
+  acceptance.promise.catch(() => undefined);
+  run.stopped = true;
+  run.controller.abort(new Error('Run stopped by user'));
+  try {
+    await accept(result);
+    acceptance.resolve();
+    run.stopAcceptance = undefined;
+  } catch (cause) {
+    acceptance.reject(cause);
+    const cleanup = await Promise.allSettled([join()]);
+    const failure = cleanup[0];
+    if (failure?.status === 'rejected' && failure.reason !== cause) {
+      throw new AggregateError([cause, failure.reason], 'Stop persistence and cleanup failed');
+    }
+    throw cause;
+  }
+  await join();
+  return result;
+}
+
+/**
+ * Host close: join every run's task, effects and owner, then the platform.
+ * Returns the runs' retained outcomes once nothing failed to retire.
+ */
+export async function retireHostRuns(
+  runs: readonly HostRunState[],
+  closeOwner: (run: HostRunState) => Promise<void>,
+  finish: (run: HostRunState) => Promise<void>,
+  closePlatform: () => Promise<void>,
+  failedAdmissions: readonly unknown[]
+): Promise<readonly unknown[]> {
+  const joined = await Promise.allSettled(
+    runs.map((run) => joinHostClosingRun(run, closeOwner, finish))
+  );
+  const platform = await Promise.allSettled([closePlatform()]);
+  const outcomes = joined.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
+  const failures = [
+    ...failedAdmissions,
+    ...[...joined, ...platform]
+      .filter((result) => result.status === 'rejected')
+      .map((result) => result.reason),
+  ];
+  if (failures.length > 0) {
+    throw new AggregateError([...outcomes, ...failures], 'Host cleanup failed');
+  }
+  for (const run of runs) {
+    run.release?.();
+    run.release = undefined;
+  }
+  return outcomes;
+}
+
+/** Join every settled outcome, failing with all of the failures rather than the first. */
+export async function joinAllHostWork(
+  work: readonly Promise<unknown>[],
+  message: string
+): Promise<void> {
+  const failures = (await Promise.allSettled(work))
+    .filter((result) => result.status === 'rejected')
+    .map((result) => result.reason);
+  if (failures.length === 1) {
+    throw failures[0];
+  }
+  if (failures.length > 1) {
+    throw new AggregateError(failures, message);
+  }
+}
+
 /** Join the original SDK task and owner promises, retaining independent failures. */
 export async function joinHostRunOwner(
   run: HostRunState,

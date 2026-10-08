@@ -88,6 +88,38 @@ export const HostChildOriginSchema = z.strictObject({
   turnId: Id,
 });
 export type HostChildOrigin = z.infer<typeof HostChildOriginSchema>;
+/** One settled background invocation delivered to its parent (BST-1932). */
+export const HostChildDeliveryEntrySchema = z.strictObject({
+  childRunId: Id,
+  childThreadId: Id,
+  /** What the parent's model reads in place of the dispatch acknowledgement. */
+  outcome: z.string(),
+  parentRunId: Id,
+  state: z.enum(['returned', 'failed', 'cancelled']),
+  toolCallId: Id,
+});
+export type HostChildDeliveryEntry = z.infer<typeof HostChildDeliveryEntrySchema>;
+/**
+ * The durable delivery watermark: these entries reached the parent's model
+ * input on the run that records them, as an automated message that the user
+ * did not write. A wake run's prompt is that message; a user turn carries it
+ * ahead of its own message.
+ */
+export const HostChildDeliverySchema = z.discriminatedUnion('via', [
+  z.strictObject({
+    entries: z.array(HostChildDeliveryEntrySchema).min(1),
+    messageId: Id,
+    turnId: Id,
+    via: z.literal('wake'),
+  }),
+  z.strictObject({
+    entries: z.array(HostChildDeliveryEntrySchema).min(1),
+    ledger: Id,
+    messageId: Id,
+    via: z.literal('next-turn'),
+  }),
+]);
+export type HostChildDelivery = z.infer<typeof HostChildDeliverySchema>;
 /** Credentials and executable capabilities remain process-local. */
 export const HostRunSnapshotSchema = z.strictObject({
   configuration: z.record(z.string(), z.json()),
@@ -236,6 +268,8 @@ export const HostEventSchema = z.union([
   z.strictObject({
     type: z.literal('run.started'),
     ...RunFields,
+    /** BST-1932: background child results this run delivers to its model. */
+    delivery: HostChildDeliverySchema.optional(),
     modelId: Id,
     /**
      * The committed message this run's new user message follows (a run ID;
