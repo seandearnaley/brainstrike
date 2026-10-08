@@ -38,6 +38,7 @@ import { hostRunAncestors, hostRunContext } from './run-branch.js';
 import { resolveHostApprovalInput } from './run-continuation.js';
 import { HostRunOutcome } from './run-outcome.js';
 import { stopHostStreamAttempt, watchHostStream } from './run-stream-watchdog.js';
+import { hostArtifactReader } from './tool-artifacts.js';
 import type { HostToolRecords } from './tool-records.js';
 
 export type HostRunAction = Extract<HostEvent, { type: 'effect.started' }>;
@@ -107,6 +108,7 @@ export async function executeHostAction(
   await ensureHostRunAdmission(ports.platform, run);
   await ports.append(run.threadId, [action]);
   run.started.add(action.toolCallId);
+  run.effectTools.set(action.toolCallId, action.toolCatalogId ?? action.toolId);
   run.controller.signal.throwIfAborted();
   // The public SDK already validated/transformed this exact admitted input.
   // Revalidating a canonical value can transform it a second time.
@@ -118,6 +120,7 @@ export async function executeHostAction(
       () => ports.retired(run.threadId),
       (events, blobs) => ports.append(run.threadId, events, 'full', ports.foldRows, blobs)
     ),
+    artifacts: hostArtifactReader(() => ports.runs.values(), run.threadId),
     mcp: ports.mcpInputs.execution(run, action, registered, {
       admit: (perform) => ports.admit(run.threadId, perform, run.controller.signal),
       append: (events, beforePublish) =>
@@ -145,7 +148,7 @@ export async function executeHostAction(
       ]);
     },
   });
-  await ports.append(run.threadId, [
+  const [finished] = await ports.append(run.threadId, [
     {
       output: jsonValue(output),
       runId: run.id,
@@ -154,6 +157,9 @@ export async function executeHostAction(
     },
   ]);
   run.outputs.set(action.toolCallId, jsonValue(output));
+  if (finished?.ts !== undefined) {
+    run.outputCommittedAt.set(action.toolCallId, finished.ts);
+  }
   return output;
 }
 
