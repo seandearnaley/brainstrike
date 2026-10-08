@@ -8,9 +8,11 @@ import { createNativeIndexActivation } from '../native-index-activation';
 
 const mocks = vi.hoisted(() => ({
   acquire: vi.fn(),
+  acquireProfile: vi.fn(),
   close: vi.fn(),
   closeProfile: vi.fn(),
   closeReaders: vi.fn(),
+  createProfileOwner: vi.fn(),
   database: { query: vi.fn(), transaction: vi.fn() },
   destroy: vi.fn(),
   manager: {
@@ -36,7 +38,10 @@ vi.mock('../desktop-database-location', () => ({
   resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',
 }));
 vi.mock('../host-lease-manager', () => ({
-  createDesktopHostLease: () => ({ acquire: async () => {}, close: mocks.closeProfile }),
+  createDesktopHostLease: () => {
+    mocks.createProfileOwner();
+    return { acquire: () => mocks.acquireProfile(), close: mocks.closeProfile };
+  },
 }));
 vi.mock('../indexer-runtime', () => ({
   acquireIndexerHost: mocks.acquire,
@@ -171,6 +176,7 @@ export function resetActivationFixture(): void {
     rows: sql.includes('FROM embedding_sets') ? [{ id: 'selected' }] : [],
   }));
   mocks.acquire.mockResolvedValue(writer());
+  mocks.acquireProfile.mockResolvedValue(undefined);
   mocks.readyPort.mockReturnValue(writer());
   mocks.close.mockResolvedValue(undefined);
   mocks.destroy.mockResolvedValue(undefined);

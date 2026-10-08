@@ -71,11 +71,12 @@ describe('state DB migrations', () => {
       ]);
       // 112 appended setup_reason
       expect(cols('brainstrike_worktrees').at(-1)).toBe('setup_reason');
-      // 115 dropped generation and appended authority_epoch + blocked_diagnostic
+      // 115 dropped generation and appended authority_epoch + blocked_diagnostic; v5 thread_id
       expect(cols('brainstrike_mcp_tasks')).not.toContain('generation');
-      expect(cols('brainstrike_mcp_tasks').slice(-2)).toEqual([
+      expect(cols('brainstrike_mcp_tasks').slice(-3)).toEqual([
         'authority_epoch',
         'blocked_diagnostic',
+        'thread_id',
       ]);
     } finally {
       db.close();

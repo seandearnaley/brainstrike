@@ -1,8 +1,13 @@
-import type { HostPlatformLaunchOptions, HostStartupContext } from '@brainstrike/agent-host';
+import type {
+  HostPlatformLaunchOptions,
+  HostProviderService,
+  HostStartupContext,
+} from '@brainstrike/agent-host';
 import type { KeyringCredentialBackend } from '@brainstrike/agent-host/credential-contract';
 import { createHostCredentials, type HostCredentials } from './credentials.js';
 import { createTavilyKeyResolver } from './native-tools/web-search-tool.js';
 import { createHostAuthority, type HostAuthority } from './provider-auth/host-authority.js';
+import { createHostProviderServices } from './provider-services.js';
 
 /**
  * The Node capabilities every host composes, desktop and CLI alike. A shell
@@ -14,6 +19,8 @@ export interface HostCapabilities {
   readonly auth: HostAuthority;
   close(): Promise<void>;
   readonly credentials: HostCredentials;
+  /** Provider availability, probes and model metadata, read from this store. */
+  readonly providers: HostProviderService;
   /** The Tavily key for host-executed web search: env first, then this host's store. */
   resolveTavilyApiKey(): Promise<string | undefined>;
 }
@@ -58,6 +65,11 @@ export async function createHostCapabilities(
     auth,
     close,
     credentials,
+    providers: createHostProviderServices({
+      auth,
+      env: options.env,
+      envFileFailures: options.launch?.envFileFailures ?? [],
+    }),
     // Through the gated secrets: a pending legacy import settles before the key is read.
     resolveTavilyApiKey: createTavilyKeyResolver(options.env, (account) =>
       auth.secrets().getKey(account)

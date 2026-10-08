@@ -1,6 +1,6 @@
 import { parseOpenRouterModelMetadataSnapshot } from '@brainstrike/assistant-contract';
+import { createOpenRouterModelMetadataService } from '@brainstrike/host-capabilities/openrouter-model-metadata';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createOpenRouterModelMetadataService } from '../../assistant-server/openrouter-model-metadata';
 import recordedPayload from '../fixtures/openrouter-sonnet-4-6-model-metadata.json';
 
 const payload = {

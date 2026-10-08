@@ -6,10 +6,8 @@
  */
 
 import {
-  type ListWorkspaceContextInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
   type ReadToolOutputArtifactCursorInput,
-  type ReadWorkspaceContextInput,
   readToolOutputArtifact,
   type UpdateWorkspaceContextSelectionInput,
   type UpdateWorkspaceTapestrySelectionsInput,
@@ -22,10 +20,7 @@ import {
 } from '@brainstrike/host-capabilities/native-tools';
 import { createArtifactReaderModelProjection } from './artifact-reader-model-projection';
 import { executorGroup } from './native-tool-executor-context';
-import { projectListWorkspaceContextModelOutput } from './workspace-context-model-projection';
 import {
-  runListWorkspaceContext,
-  runReadWorkspaceContext,
   runUpdateWorkspaceContextSelection,
   runUpdateWorkspaceTapestrySelections,
 } from './workspace-context-tools';
@@ -61,42 +56,6 @@ export const WORKSPACE_TOOL_EXECUTORS = executorGroup({
       toModelOutput: createArtifactReaderModelProjection(resolveActiveDomainCharBudget),
     };
   },
-  [NATIVE_TOOL_ID.listWorkspaceContext]: ({ resolveActiveDomainCharBudget, runtimeData }) => ({
-    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.listWorkspaceContext],
-    execute: async (input: ToolExecuteInput<ListWorkspaceContextInput>) => {
-      const resolvedInput = parseToolExecuteInput(
-        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listWorkspaceContext],
-        input
-      );
-      try {
-        return runListWorkspaceContext(resolvedInput, runtimeData);
-      } catch (error) {
-        logToolFailure('listWorkspaceContext failed', error, resolvedInput);
-        throw error;
-      }
-    },
-    id: NATIVE_TOOL_ID.listWorkspaceContext,
-    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listWorkspaceContext],
-    toModelOutput: (output: unknown) =>
-      projectListWorkspaceContextModelOutput(output, resolveActiveDomainCharBudget()),
-  }),
-  [NATIVE_TOOL_ID.readWorkspaceContext]: ({ runtimeData }) => ({
-    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.readWorkspaceContext],
-    execute: async (input: ToolExecuteInput<ReadWorkspaceContextInput>) => {
-      const resolvedInput = parseToolExecuteInput(
-        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceContext],
-        input
-      );
-      try {
-        return await runReadWorkspaceContext(resolvedInput, runtimeData);
-      } catch (error) {
-        logToolFailure('readWorkspaceContext failed', error, resolvedInput);
-        throw error;
-      }
-    },
-    id: NATIVE_TOOL_ID.readWorkspaceContext,
-    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceContext],
-  }),
   [NATIVE_TOOL_ID.updateWorkspaceContextSelection]: ({ runtimeData }) => ({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.updateWorkspaceContextSelection],
     execute: async (input: ToolExecuteInput<UpdateWorkspaceContextSelectionInput>) => {

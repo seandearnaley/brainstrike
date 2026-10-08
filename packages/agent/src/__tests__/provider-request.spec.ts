@@ -21,6 +21,7 @@ import {
   ProviderRequestContextOverflowError,
   prepareProviderRequest,
   prepareProviderToolInputSchema,
+  SubscriptionQuotaExhaustedError,
 } from '../provider-request';
 import { createProvider } from '../providers/provider-factory';
 import type { SupportedProvider } from '../providers/types';
@@ -589,6 +590,56 @@ describe('canonical provider request preparation', () => {
     expect(requests).toBe(1);
     expect(errors[0]).toBeInstanceOf(OpenAIStoredItemExpiredError);
   });
+
+  it.each([
+    ['openai-codex', 1],
+    ['openai', 3],
+  ] as const)(
+    'a %s HTTP 429 is retried by the SDK only when it is not subscription quota',
+    async (provider, expectedRequests) => {
+      let requests = 0;
+      const fixture: LanguageModelV4 = {
+        ...model(),
+        doStream: () => {
+          requests += 1;
+          throw new APICallError({
+            isRetryable: true,
+            message: 'You have hit your usage limit.',
+            requestBodyValues: {},
+            // Keep the SDK's own Retry-After handling in the path without a real wait.
+            responseHeaders: { 'retry-after': '0' },
+            statusCode: 429,
+            url: 'https://example.test/responses',
+          });
+        },
+      };
+      const errors: unknown[] = [];
+      for await (const part of sdk.streamText({
+        maxRetries: 2,
+        messages: [{ content: 'continue', role: 'user' }],
+        model: sdk.wrapLanguageModel({
+          middleware: createProviderRequestMiddleware({
+            context: () => ({ provider, tokenMeasurement: measurement }),
+          }),
+          model: fixture,
+        }),
+      }).fullStream) {
+        if (part.type === 'error') {
+          errors.push(part.error);
+        }
+      }
+      expect(requests).toBe(expectedRequests);
+      expect(errors).toHaveLength(1);
+      if (provider === 'openai-codex') {
+        expect(errors[0]).toBeInstanceOf(SubscriptionQuotaExhaustedError);
+        expect(errors[0]).toMatchObject({
+          code: 'subscription_quota_exhausted',
+          message: 'You have hit your usage limit.',
+          retryable: false,
+        });
+      }
+    }
+  );
 });
 
 const fixtureUrl = new URL(

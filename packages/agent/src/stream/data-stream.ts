@@ -2,12 +2,9 @@ import type { AssistantDiscoveredRun } from '@brainstrike/assistant-contract/ass
 import { createLogger } from '@brainstrike/logging';
 import { generateUUID } from '@brainstrike/utils';
 import type { StreamChunk } from '../types';
+import type { OutputLimitContext } from './abnormal-finish';
 import { type EncodedChunk, encodeChunk, type StoredChunk } from './data-stream-codes';
-import {
-  DataStreamMapper,
-  type DataStreamTerminalOutcome,
-  type OutputLimitContext,
-} from './data-stream-mapper';
+import { DataStreamMapper, type DataStreamTerminalOutcome } from './data-stream-mapper';
 import { parseEventId } from './session-manager';
 import { SessionSubscription } from './session-subscription';
 

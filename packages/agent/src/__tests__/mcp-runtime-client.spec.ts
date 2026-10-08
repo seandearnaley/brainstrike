@@ -870,7 +870,7 @@ describe('MCP runtime client', () => {
       });
       const discovered = await runtimeClient?.listToolsetsWithErrors();
       const tool = requireExecutableTool(discovered?.toolsets['remote']?.['export']);
-      const execution = { bindTask: vi.fn(), requestInput: vi.fn() };
+      const execution = { bindTask: vi.fn(), requestInput: vi.fn(), threadId: 'thread-1' };
       const abortController = new AbortController();
       // The agent host's canonical tool context: top-level identities and `brainstrikeMcp`.
       await tool.execute(

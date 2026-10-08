@@ -6,9 +6,12 @@ import {
   HostImageAttachmentSchema,
 } from '@brainstrike/agent-host/protocol';
 import { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
+import { usePermissionPolicyStore } from '@brainstrike/app-state/stores/permission-policy-store';
 import {
+  type CommittedApprovalGrant,
   type CommittedAssistantCommands,
   CommittedAssistantLogStore,
+  committedApprovalGrant,
 } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
@@ -31,6 +34,17 @@ function hostImageAttachment(
     name: attachment.name,
     type: 'image',
   });
+}
+
+/**
+ * "Always allow" also saves the per-tool override in the permission settings,
+ * as the approval card's button does, until that write moves to the host's
+ * settings owner. A session grant is the host's alone.
+ */
+function keepToolOverride(grant: CommittedApprovalGrant): void {
+  if (grant.scope === 'tool') {
+    usePermissionPolicyStore.getState().setToolOverride(grant.toolId, 'allow');
+  }
 }
 
 export interface CommittedHostConversation {
@@ -58,6 +72,8 @@ export function createCommittedHostConversation(options: {
   readonly onTitleCommitted?: () => void;
   readonly readModelId?: () => string;
   readonly readConfiguration?: () => Record<string, unknown>;
+  /** Plan mode for the next run this view starts; absent is off. */
+  readonly readPlanMode?: () => boolean;
   readonly threadId: string;
 }): CommittedHostConversation {
   const { client, modelId, threadId } = options;
@@ -83,6 +99,7 @@ export function createCommittedHostConversation(options: {
         }
       : {}),
     modelId: options.readModelId?.() ?? modelId,
+    ...(options.readPlanMode?.() ? { planMode: true as const } : {}),
   });
   // A send, a send from a selected branch, and an edit all start a new user
   // message after the vendor's explicit parent (null: the thread root).
@@ -153,13 +170,19 @@ export function createCommittedHostConversation(options: {
         });
         return;
       }
+      // A grant option is committed by the host, which keeps it for the thread.
+      const grant = committedApprovalGrant(response.optionId, interaction);
       await client.request('interaction/respond', {
         commandId: crypto.randomUUID(),
         decision: response.approved ? 'approve' : 'deny',
+        ...(grant ? { grant } : {}),
         interactionId: interaction.interactionId,
         runId: interaction.runId,
         threadId,
       });
+      if (grant) {
+        keepToolOverride(grant);
+      }
     },
     // Branch selection is client view state: the vendor already moved its own
     // head over the committed tree, and nothing is written to the host.

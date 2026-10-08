@@ -143,6 +143,7 @@ export function hostRunCommandRequest(
   params: {
     readonly configuration?: HostRunAdmissionRequest['configuration'] | undefined;
     readonly modelId: string;
+    readonly planMode?: true | undefined;
     readonly threadId: string;
   },
   origin: HostClientOrigin | undefined,
@@ -153,6 +154,7 @@ export function hostRunCommandRequest(
     ...(params.configuration ? { configuration: params.configuration } : {}),
     modelId: params.modelId,
     ...(origin ? { origin } : {}),
+    ...(params.planMode ? { planMode: true } : {}),
     prompt,
     signal,
     threadId: params.threadId,
@@ -232,7 +234,18 @@ async function rejectHostRunSelection(selected: HostRunAdmission, cause: unknown
 export async function closeHostRunResources(run: HostRunState): Promise<void> {
   const joined = await Promise.allSettled([
     Promise.resolve(run.owner).then(
-      (owner) => owner?.close(),
+      async (owner) => {
+        try {
+          await owner?.close();
+        } catch (cause) {
+          // Only work the owner could not join keeps the run owned. A joined
+          // failure (a failed memory step) is the run's outcome; release it.
+          if (cause instanceof HostRunOwnerCleanupError) {
+            throw cause;
+          }
+          run.ownerFailure ??= cause;
+        }
+      },
       (cause: unknown) => {
         // A failed or aborted open has nothing to close, and its failure is
         // already the run's outcome. Only an unjoined partial acquisition is a
@@ -270,6 +283,7 @@ export async function ensureHostRunAdmission(
 ): Promise<HostRunAdmission> {
   const request: HostRunAdmissionRequest = {
     modelId: run.modelId,
+    ...(run.planMode ? { planMode: true } : {}),
     signal: run.controller.signal,
     ...(run.snapshot ? { snapshot: run.snapshot } : {}),
     ...(run.snapshot?.workspaceBinding ? { workspaceBinding: run.snapshot.workspaceBinding } : {}),
@@ -329,7 +343,7 @@ async function admitHostNativeWebSearch(
   if ([...run.approvals.values()].some((approval) => approval.event.toolId === toolId)) {
     return;
   }
-  const decision = await hostToolDecision(platform, run.threadId, admission.tools, toolId);
+  const decision = await hostToolDecision(platform, run, admission.tools, toolId);
   return decision === 'allow' ? { tool, toolId } : undefined;
 }
 
@@ -374,6 +388,7 @@ export function hostStepInteractions(
         input: jsonValue(part.toolCall.input),
         interactionId: part.approvalId,
         kind: registered.interaction?.kind ?? 'approval',
+        ...(registered.interaction ? {} : { risk: registered.risk }),
         runId: run.id,
         ...(registered.permissionToolId ? { toolCatalogId: registered.permissionToolId } : {}),
         toolCallId: part.toolCall.toolCallId,
@@ -391,12 +406,13 @@ export function hostRunToolDecision(
   run: HostRunState,
   toolId: string
 ): Promise<'allow' | 'ask' | 'deny'> {
-  return hostToolDecision(platform, run.threadId, hostRunTools(run), toolId);
+  return hostToolDecision(platform, run, hostRunTools(run), toolId);
 }
 
+/** `tools` is passed because admission decides before it retains the run's tools. */
 async function hostToolDecision(
   platform: HostPlatform,
-  threadId: string,
+  run: HostRunState,
   tools: HostRunAdmission['tools'],
   toolId: string
 ): Promise<'allow' | 'ask' | 'deny'> {
@@ -404,7 +420,7 @@ async function hostToolDecision(
   if (!registered) {
     throw new Error('Tool is not registered');
   }
-  const snapshot = await platform.readPermissionPolicy(threadId);
+  const snapshot = await platform.readPermissionPolicy(run.threadId);
   const permissionToolId = registered.permissionToolId ?? toolId;
   // ADR-0010: explicit deny outranks a session grant or YOLO.
   if (
@@ -413,12 +429,16 @@ async function hostToolDecision(
   ) {
     return 'deny';
   }
+  // The run's own committed grants add to the saved policy; deny already won.
   return resolvePermissionDecision({
+    perToolOverrides: {
+      ...snapshot.perToolOverrides,
+      ...Object.fromEntries([...run.grants.tools].map((tool) => [tool, 'allow' as const])),
+    },
     policies: snapshot.policies,
     riskCategory: registered.risk,
+    sessionGrants: new Set([...(snapshot.sessionGrants ?? []), ...run.grants.categories]),
     toolId: permissionToolId,
-    ...(snapshot.perToolOverrides ? { perToolOverrides: snapshot.perToolOverrides } : {}),
-    sessionGrants: new Set(snapshot.sessionGrants ?? []),
     yolo: snapshot.yolo,
   });
 }
@@ -454,7 +474,9 @@ export async function decideHostSdkApproval(
   run: HostRunState,
   platform: HostPlatform,
   call: { toolName: string; toolCallId: string; input: unknown; providerExecuted?: boolean }
-): Promise<'approved' | 'denied' | 'not-applicable' | 'user-approval'> {
+): Promise<
+  'approved' | 'denied' | 'not-applicable' | 'user-approval' | { type: 'denied'; reason: string }
+> {
   run.controller.signal.throwIfAborted();
   // The provider already ran its own search; admission and each step's active
   // tools are its gate (hostStepActiveTools), never a decision after the fact.
@@ -481,6 +503,18 @@ export async function decideHostSdkApproval(
   );
   if (decision === 'deny' || prior?.decision === 'deny') {
     return 'denied';
+  }
+  // A PreToolUse hook refines a decision the policy allows or asks about; it
+  // runs once per call, before any approval request.
+  if (!prior && run.admission?.hooks) {
+    const hooked = await run.admission.hooks.preToolUse({
+      input: call.input,
+      toolName: registered.permissionToolId ?? call.toolName,
+    });
+    run.controller.signal.throwIfAborted();
+    if (hooked.blocked) {
+      return { reason: hooked.reason, type: 'denied' };
+    }
   }
   if (registered.interaction) {
     run.liveInputs.set(call.toolCallId, { value: call.input });

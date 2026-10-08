@@ -1,4 +1,12 @@
-import { isProviderCredential, type ProviderCredential } from '@brainstrike/assistant-contract';
+import {
+  isProviderCredential,
+  type OpenRouterModelMetadataSnapshot,
+  type ProviderCredential,
+  type ProviderVerificationSnapshot,
+  parseOpenRouterModelMetadataSnapshot,
+  parseProviderVerificationSnapshot,
+  TOOL_RISK_CATEGORIES,
+} from '@brainstrike/assistant-contract';
 import {
   ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE,
   SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES,
@@ -17,8 +25,11 @@ import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 // and `run.started`), committed workspace edit attribution,
 // `checkpoint/revert`, per-thread tool state, the prompt breakdown on
 // `provider.request.prepared`, `run/steer` (end the active run at its next
-// step boundary), and `mcp.tools.unavailable`, committed with `run.started` for
-// each configured MCP server whose tools the run proceeds without.
+// step boundary), run attempt records, `mcp.tools.unavailable`, committed with
+// `run.started` for each configured MCP server whose tools the run proceeds
+// without, permission grants answered with an approval (`interaction/respond`
+// grant, `permission.granted`, the request's risk), and plan mode (`run/start`,
+// `run/regenerate` and `run.started` planMode).
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -34,6 +45,22 @@ const ThreadPresentation = {
   title: ThreadTitle.optional(),
 };
 const Run = { ...Thread, runId: Id };
+/**
+ * Plan mode: the run may only read and propose a plan. Approving its plan ends
+ * it and starts the thread's next run without plan mode.
+ */
+const PlanMode = { planMode: z.literal(true).optional() };
+const RiskCategory = z.enum(TOOL_RISK_CATEGORIES);
+/**
+ * A grant answered with an approval: the rest of that run allows the call's
+ * risk category (`session`; the client keeps it for its later runs) or the
+ * call's tool. Core accepts only the approved call's own category or tool.
+ */
+const PermissionGrant = z.discriminatedUnion('scope', [
+  z.strictObject({ category: RiskCategory, scope: z.literal('session') }),
+  z.strictObject({ scope: z.literal('tool'), toolId: Id }),
+]);
+export type HostPermissionGrant = z.infer<typeof PermissionGrant>;
 /** Task Ledger run labels (brainstrike_assistant_run_outcomes verdict/source). */
 const RunVerdict = z.enum(['failed', 'mixed', 'succeeded']);
 const RunVerdictDetail = z.string().max(2000);
@@ -213,6 +240,8 @@ export const HOST_METHOD_SCHEMAS = {
     entryId: Id.optional(),
     force: z.boolean().optional(),
   }),
+  /** Provider availability: the host's configured keys, unreadable entries and env-file failures. */
+  'host/status': z.strictObject({}),
   'host/stop': z.strictObject({}),
   initialize: z.strictObject({
     hostVersion: Id,
@@ -223,6 +252,7 @@ export const HOST_METHOD_SCHEMAS = {
     ...Command,
     ...Run,
     decision: z.enum(['approve', 'deny']),
+    grant: PermissionGrant.optional(),
     interactionId: Id,
   }),
   'interaction/resume': z.strictObject({
@@ -241,11 +271,16 @@ export const HOST_METHOD_SCHEMAS = {
   }),
   // Values are process-local and never enter HostCommandLedger.
   'mcp/input/stage': z.strictObject({ ...McpInput, content: McpContent.optional() }),
+  /** Model metadata through the host's OpenRouter key; the client sends only the model id. */
+  'providers/openrouter-model': z.strictObject({ model: Id }),
+  /** The cheapest authenticated probe of one provider's stored or env credential. */
+  'providers/verify': z.strictObject(Provider),
   'run/regenerate': z.strictObject({
     ...Command,
     ...Thread,
     configuration: z.record(z.string(), z.json()).optional(),
     modelId: Id,
+    ...PlanMode,
     /** The original committed user message: its run/start command ID. */
     userMessageId: Id,
   }),
@@ -258,6 +293,7 @@ export const HOST_METHOD_SCHEMAS = {
     modelId: Id,
     /** A committed run ID to follow, null for the thread root; omitted is the current tip. */
     parentMessageId: Id.nullable().optional(),
+    ...PlanMode,
     prompt: Id,
   }),
   /**
@@ -395,6 +431,7 @@ export const HostEventSchema = z.union([
      */
     parentMessageId: Id.nullable().optional(),
     parentRunId: Id.optional(),
+    ...PlanMode,
     prompt: Id,
     snapshot: HostRunSnapshotSchema.optional(),
     /** Regenerate only: the existing committed user message this run answers again. */
@@ -437,6 +474,8 @@ export const HostEventSchema = z.union([
     ...Action,
     interactionId: Id,
     kind: z.enum(['approval', 'question', 'plan']),
+    /** A permission approval's risk category, which its session grant names. */
+    risk: RiskCategory.optional(),
   }),
   z.strictObject({
     type: z.literal('interaction.responded'),
@@ -462,6 +501,30 @@ export const HostEventSchema = z.union([
     ...RunFields,
     detail: z.string().optional(),
     outcome: z.enum(['completed', 'failed', 'stopped', 'interrupted']),
+  }),
+  /**
+   * One provider attempt of a run leg ended in a recoverable class of failure.
+   * `recovered` means a fresh attempt over the committed branch follows;
+   * otherwise `refusal` says why not, and `run.finished` follows.
+   */
+  z.strictObject({
+    type: z.literal('run.attempt'),
+    ...RunFields,
+    /** The attempt that ended, from 1, within this leg's `maxAttempts`. */
+    attempt: z.number().int().positive(),
+    detail: z.string().min(1),
+    maxAttempts: z.number().int().positive(),
+    reason: z.enum(['stalled', 'provider-error', 'empty-response']),
+    recovered: z.boolean(),
+    refusal: z.enum(['budget-exhausted', 'tool-parts', 'committed-output']).optional(),
+    /** A stall's breadcrumb: which silence fired and how far the stream got. */
+    stall: z
+      .strictObject({
+        lastPartType: Id.optional(),
+        partsSeen: Seq,
+        phase: z.enum(['awaiting-output', 'reasoning', 'streaming', 'tool-executing']),
+      })
+      .optional(),
   }),
   z.strictObject({
     type: z.literal('workspace.edit.recorded'),
@@ -496,6 +559,8 @@ export const HostEventSchema = z.union([
     commandId: Id,
     outcomes: z.array(HostEditRevertOutcomeSchema),
   }),
+  /** Committed with the approval that granted it; the run's later decisions include it. */
+  z.strictObject({ type: z.literal('permission.granted'), ...RunFields, grant: PermissionGrant }),
   /** Only the host commits labels; precedence is applied by projectRunVerdicts. */
   z.strictObject({
     type: z.literal('run.verdict'),
@@ -529,6 +594,8 @@ export const HOST_RESULT_SCHEMAS = {
   'auth/status': HostAuthStatusSchema,
   'auth/verify': HostAuthVerdictSchema,
   'checkpoint/revert': z.strictObject({ outcomes: z.array(HostEditRevertOutcomeSchema) }),
+  // The renderer validates the availability payload strictly (use-assistant-availability).
+  'host/status': z.record(z.string(), z.json()),
   'host/stop': z.strictObject({ outcome: z.literal('stopped'), rootReleased: z.literal(true) }),
   initialize: z.strictObject({
     hostVersion: Id,
@@ -551,6 +618,14 @@ export const HOST_RESULT_SCHEMAS = {
     status: HostMcpInputStatusSchema,
   }),
   'mcp/input/stage': z.strictObject({ staged: z.literal(true) }),
+  'providers/openrouter-model': z
+    .unknown()
+    .transform(
+      (value): OpenRouterModelMetadataSnapshot => parseOpenRouterModelMetadataSnapshot(value)
+    ),
+  'providers/verify': z
+    .unknown()
+    .transform((value): ProviderVerificationSnapshot => parseProviderVerificationSnapshot(value)),
   'run/regenerate': z.strictObject({ runId: Id }),
   'run/start': z.strictObject({ runId: Id }),
   'run/steer': z.strictObject({ outcome: z.enum(['steering', 'already-terminal']) }),

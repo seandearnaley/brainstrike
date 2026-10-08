@@ -1,8 +1,12 @@
+// @vitest-environment node
 /**
- * McpDesktopTaskHost over a real PGlite store migrated by the production
- * runner (BST-1566). Env-sensitive (native PGlite, wall-clock polling), hence
- * the integration suffix.
+ * McpDesktopTaskHost over a real host StateStore, its one Tasks writer
+ * (BST-1566, BST-1930 ruling B). Env-sensitive (native SQLite, wall-clock
+ * polling), hence the integration suffix.
  */
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   McpClientExtensionRegistry,
   registerMcpTasksWireContracts,
@@ -10,11 +14,12 @@ import {
 import type { McpClientExtensionRequestContract } from '@brainstrike/agent/mcp-tasks';
 import type { McpTaskPresentation } from '@brainstrike/assistant-contract';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
-import { McpTaskRepository, MigrationRunner, migrations, wasmLoader } from '@brainstrike/db';
+import { McpTaskStore } from '@brainstrike/db';
 import type {
   McpBoundTaskElicitationPresenter,
   McpTaskElicitationBinding,
 } from '@brainstrike/host-capabilities/mcp/elicitation-presenter';
+import { stateStoreMcpTaskStorage } from '@brainstrike/host-capabilities/mcp/state-store-task-storage';
 import {
   deriveMcpTaskAuthorityIdentity,
   MCP_STDIO_TASK_PRINCIPAL,
@@ -22,7 +27,7 @@ import {
   McpDesktopTaskHost,
   type McpTaskConnection,
 } from '@brainstrike/host-capabilities/mcp/task-host';
-import type { PGlite } from '@electric-sql/pglite';
+import { StateStore } from '@brainstrike/state-store';
 import type { JSONObject } from '@modelcontextprotocol/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResolvedMcpServer } from '../../mcp-loader';
@@ -169,7 +174,10 @@ const elicitationPresenter = {
   ),
 };
 
-let db: PGlite;
+/** The host thread whose run admitted each execution; its deletion erases the rows. */
+const THREAD_ID = 'thread-host';
+let root: string;
+let store: StateStore;
 let host: McpDesktopTaskHost;
 const internalErrors: [string, unknown][] = [];
 const changes: McpTaskPresentation[] = [];
@@ -185,10 +193,9 @@ async function until(predicate: () => boolean, label: string): Promise<void> {
 }
 
 beforeEach(async () => {
-  db = await wasmLoader.createPGlite(`memory://mcp-task-host-${Date.now()}-${Math.random()}`);
-  const runner = new MigrationRunner(db);
-  await runner.initialize();
-  await runner.up(migrations);
+  root = await mkdtemp(join(tmpdir(), 'bs-mcp-task-host-'));
+  store = await StateStore.open(root);
+  await store.append([{ event: { type: 'thread.started' }, threadId: THREAD_ID }]);
   internalErrors.length = 0;
   changes.length = 0;
   bindings.length = 0;
@@ -196,7 +203,7 @@ beforeEach(async () => {
     elicitationPresenter,
     lifecycleLimits: LIMITS,
     onInternalError: (code, cause) => internalErrors.push([code, cause]),
-    openDatabase: async () => db,
+    openStorage: async () => stateStoreMcpTaskStorage(store),
     runtimeId: 'test-runtime',
   });
   host.subscribe((task) => changes.push(task));
@@ -204,7 +211,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await host.close();
-  await db.close();
+  await store.close();
+  await rm(root, { force: true, recursive: true });
   vi.clearAllMocks();
 });
 
@@ -399,7 +407,7 @@ describe('McpDesktopTaskHost', () => {
     });
     // A durable active row this host does not track (written by another
     // runtime, or whose earlier poller was lost): only recovery can resume it.
-    const repository = new McpTaskRepository(db);
+    const repository = new McpTaskStore(stateStoreMcpTaskStorage(store));
     const untracked = await repository.create(
       {
         ...live.handle,
@@ -635,6 +643,7 @@ describe('McpDesktopTaskHost', () => {
     const execution = {
       bindTask: vi.fn((_task: { assertCurrent(): Promise<void> }) => bound.promise),
       requestInput: vi.fn(async () => undefined),
+      threadId: THREAD_ID,
     };
     const initial = await host.track({
       configuredServerId: SERVER_ID,
@@ -691,6 +700,7 @@ describe('McpDesktopTaskHost', () => {
       execution: {
         bindTask: vi.fn(() => Promise.reject(refusal)),
         requestInput: vi.fn(async () => undefined),
+        threadId: THREAD_ID,
       },
       result: server.created('t-refused'),
       toolName: 'deploy',
@@ -736,7 +746,7 @@ describe('McpDesktopTaskHost', () => {
     });
     // A replaced definition retires the epoch: the old lease lists nothing.
     await host.retired(SERVER_ID, 'server-replaced');
-    const repository = new McpTaskRepository(db);
+    const repository = new McpTaskStore(stateStoreMcpTaskStorage(store));
     await expect(
       repository.listActive({
         authorityEpoch: initial.handle.authorityEpoch,

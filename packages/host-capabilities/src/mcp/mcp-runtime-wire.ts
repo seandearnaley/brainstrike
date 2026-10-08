@@ -6,10 +6,10 @@ import { z } from 'zod';
  * Node host (BST-1930 stage c1). Two interim groups, each with a removal point:
  *
  * - Node → Main `platform/mcp/*` store adapters: the decrypted config, Electron
- *   `shell.openExternal`, the PGlite Tasks tables and the safeStorage MCP OAuth
- *   records. Each goes when its store moves to Node (OAuth records to the shared
- *   credential store, host-owned Tasks storage, host-owned config). Bearer
- *   references already live in the profile credential store Node reads directly.
+ *   `shell.openExternal` and the safeStorage MCP OAuth records. Each goes when
+ *   its store moves to Node (OAuth records to the shared credential store,
+ *   host-owned config). Bearer references already live in the profile
+ *   credential store Node reads directly, and Tasks in the host's StateStore.
  * - Main → Node `mcp-runtime/*`: Main's renderer surfaces (settings, status,
  *   tasks, elicitation, Apps, content) reach that runtime. They go in c5, when
  *   the renderer calls public host-protocol methods instead.
@@ -22,7 +22,6 @@ export const MCP_STORE_METHODS = {
   openExternal: 'platform/open-external',
   ready: 'platform/mcp/ready',
   state: 'platform/mcp/state',
-  tasksQuery: 'platform/mcp/tasks-db/query',
 } as const;
 
 export const MCP_RUNTIME_METHODS = {

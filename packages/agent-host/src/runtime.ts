@@ -105,8 +105,10 @@ export async function startAgentHost(
     });
     return platformClose;
   };
-  const clientCapabilities = (): Pick<HostConnectionOptions, 'auth'> =>
-    platform?.auth ? { auth: platform.auth } : {};
+  const clientCapabilities = (): Pick<HostConnectionOptions, 'auth' | 'providers'> => ({
+    ...(platform?.auth ? { auth: platform.auth } : {}),
+    ...(platform?.providers ? { providers: platform.providers } : {}),
+  });
   const ownedPlatform: HostPlatform = {
     close: closePlatform,
     get generatesThreadTitles(): boolean | undefined {

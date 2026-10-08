@@ -28,6 +28,8 @@ const STANDALONE_NATIVE_TOOL_IDS = [
   NATIVE_TOOL_ID.renameWorkspaceFile,
   NATIVE_TOOL_ID.manageTaskList,
   NATIVE_TOOL_ID.manageCanvas,
+  NATIVE_TOOL_ID.globWorkspace,
+  NATIVE_TOOL_ID.findWorkspaceSymbol,
 ];
 
 const bin = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));

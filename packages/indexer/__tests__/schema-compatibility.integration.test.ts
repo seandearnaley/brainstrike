@@ -89,8 +89,9 @@ for (const version of [8, 9] as const) {
         expect(audit.prepare('SELECT count(*) FROM state_observation_vectors').pluck().get()).toBe(
           0
         );
+        // The upgrade retains the acquisition's bound Root/resource grants unchanged.
         expect(audit.prepare('SELECT resource_grants FROM state_index_source').pluck().get()).toBe(
-          version === 8 ? '[]' : f.recorded.rows['state_index_source']?.[0]?.['resource_grants']
+          version === 8 ? '[]' : JSON.stringify(f.options.stateResources)
         );
       } finally {
         audit.close();
@@ -254,9 +255,7 @@ for (const version of [8, 9] as const) {
           invalid === 'grants' && version === 8
             ? {
                 ...f.options,
-                stateResources: [
-                  { profile: f.recorded.memoryProfile, resourceId: 'resource', rootId: 'root' },
-                ],
+                stateResources: [{ resourceId: 'resource', rootId: 'root' }],
               }
             : f.options;
         await expect(openIndexer(options, deadlines)).rejects.toThrow(

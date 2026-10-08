@@ -5,7 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { crc32 } from 'node:zlib';
-import { createStateStoreIndexer, openIndexer, type StateMessagePlan } from '@brainstrike/indexer';
+import {
+  createStateStoreIndexer,
+  openIndexer,
+  type StateMessagePlan,
+  vectorProfileHash,
+} from '@brainstrike/indexer';
 import { openConnection } from '@brainstrike/sqlite-native';
 import { StateStore, type StateStoreHooks } from '@brainstrike/state-store';
 import recording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json' with {
@@ -43,8 +48,8 @@ async function fixture(hooks: StateStoreHooks = {}) {
       module: new URL('./fixtures/state-message-schema.mjs', import.meta.url).href,
     },
     stateResources: [
-      { profile, resourceId: 'resource', rootId: 'root' },
-      { profile, resourceId: 'foreign', rootId: 'other-root' },
+      { resourceId: 'resource', rootId: 'root' },
+      { resourceId: 'foreign', rootId: 'other-root' },
     ],
     stateRoot: root,
   } as const;
@@ -245,7 +250,7 @@ it('rejects adversarial Root/resource/thread/message selection before ranking or
   }
 });
 
-it('rejects incomplete profiles and finite/dimension/Float32-invalid batches atomically', async () => {
+it('rejects non-cosine profiles and finite/dimension/Float32-invalid batches atomically', async () => {
   const f = await fixture();
   try {
     await write(f);
@@ -273,13 +278,6 @@ it('rejects incomplete profiles and finite/dimension/Float32-invalid batches ato
         plan,
       })
     ).rejects.toThrow(/exactly once/);
-    await expect(
-      f.port.prepareStateMessageVectors({
-        messages: [message('one', 1)],
-        profile: { ...profile, revision: undefined },
-        scope,
-      })
-    ).rejects.toThrow(/complete/);
     await expect(
       f.port.prepareStateMessageVectors({
         messages: [message('one', 1)],
@@ -461,7 +459,7 @@ it('refuses schema8 and changed acquired resource grants while preserving files 
         {
           ...f.options,
           embedding: { indexMode: 'open-existing' },
-          stateResources: [{ profile, resourceId: 'resource', rootId: 'other-root' }],
+          stateResources: [{ resourceId: 'resource', rootId: 'other-root' }],
         },
         deadlines
       )
@@ -561,23 +559,32 @@ it('surfaces CRC and missing-sequence truth failures and never ranks across them
   }
 });
 
-it('requires the exact acquired selected profile and detects corrupt stored Float32 bytes on reopen', async () => {
+it('partitions vectors by each request’s complete profile and detects corrupt stored Float32 bytes on reopen', async () => {
   const f = await fixture();
   try {
     await write(f);
-    await expect(
-      f.port.prepareStateMessageVectors({
+    // The grant covers Root and resource; each request carries its profile, under
+    // the workspace index's one profile rule: a local token cap is optional.
+    const { tokenCap: _uncapped, ...uncapped } = profile;
+    const reselected = { ...uncapped, revision: 'b'.repeat(40) };
+    expect(vectorProfileHash(reselected)).not.toBe(vectorProfileHash(uncapped));
+    for (const selected of [uncapped, reselected]) {
+      // Another selected profile never reads the earlier profile's vectors.
+      expect(await f.port.queryStateMessageVectors({ ...query, profile: selected })).toEqual([]);
+      const plan = await f.port.prepareStateMessageVectors({
         messages: [message('one', 1)],
-        profile: { ...profile, modelId: 'foreign-selection' },
+        profile: selected,
         scope,
-      })
-    ).rejects.toMatchObject({ code: 'profile-not-authorized' });
-    await expect(
-      f.port.queryStateMessageVectors({
-        ...query,
-        profile: { ...profile, revision: 'b'.repeat(40) },
-      })
-    ).rejects.toMatchObject({ code: 'profile-not-authorized' });
+      });
+      await f.port.upsertStateMessageVectors({
+        embeddings: [{ messageId: message('one', 1).messageId, vectors: [vector] }],
+        plan,
+      });
+      expect(await f.port.queryStateMessageVectors({ ...query, profile: selected })).toHaveLength(
+        1
+      );
+    }
+    expect(await f.port.queryStateMessageVectors(query)).toHaveLength(1);
     await f.store.close();
     await f.port.close();
     const db = openConnection(f.options.dbPath);
@@ -626,7 +633,7 @@ it('accepts null text from real Core metadata across SQLite/vector reopen withou
       mode: 'dev',
       module: new URL('./fixtures/core-state-projection.mjs', import.meta.url).href,
     },
-    stateResources: [{ profile, resourceId: 'resource', rootId: 'root' }],
+    stateResources: [{ resourceId: 'resource', rootId: 'root' }],
     stateRoot: root,
   } as const;
   let port = await openIndexer(options, deadlines);

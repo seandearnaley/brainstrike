@@ -129,15 +129,12 @@ async function awaitReady(child: OwnedChild, root: string, signal: AbortSignal):
     );
   });
 }
-async function closeChild(child: OwnedChild, timeoutMs: number): Promise<void> {
+/** Joins the real exit: the platform finalizer behind it must not close the port during cleanup. */
+async function closeChild(child: OwnedChild): Promise<void> {
   if (child.exitCode === undefined) {
     child.handle.postMessage({ method: 'close' });
   }
-  const code = await runWithTimeout(() => child.exited, {
-    onTimeout: () =>
-      new Error(`Owned host utility pid ${child.handle.pid} did not exit after close`),
-    timeoutMs,
-  });
+  const code = await child.exited;
   child.handle.off('exit', child.exitListener);
   if (child.ready && code !== 0) {
     throw new Error(`Owned host utility exited with code ${code}`);
@@ -156,12 +153,21 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
   const scope = Scope.makeUnsafe();
   const abort = new AbortController();
   let acquiring: Promise<HostAttachment> | undefined;
-  let closing: Promise<void> | undefined;
   let retired = false;
   let releasing: Promise<void> | undefined;
+  let ownedPid: number | undefined;
+  // One release join; each caller bounds its own wait, so a host that exits after
+  // a deadline still completes this join instead of leaving a stale failure.
   const closeScope = (): Promise<void> => {
-    releasing ??= runAtPromiseBoundary(Scope.close(scope, Exit.void));
-    return releasing;
+    if (!releasing) {
+      releasing = runAtPromiseBoundary(Scope.close(scope, Exit.void));
+      releasing.catch(() => undefined);
+    }
+    const joined = releasing;
+    return runWithTimeout(() => joined, {
+      onTimeout: () => new Error(`Owned host utility pid ${ownedPid} did not exit after close`),
+      timeoutMs: closeTimeoutMs,
+    });
   };
   const acquire = async (): Promise<HostAttachment> => {
     try {
@@ -189,6 +195,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           combined.throwIfAborted();
           const platform = options.platform?.();
           if (platform) {
+            // Runs after closeChild has joined the host's exit, never during its cleanup.
             await addFinalizer(scope, () => platform.close());
           }
           const child = ownChild(
@@ -200,9 +207,10 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
                 : ['--platform-options', JSON.stringify(platformOptions)]),
             ])
           );
+          ownedPid = child.handle.pid;
           const ready = awaitReady(child, start.root, combined);
           ready.catch(() => undefined);
-          await addFinalizer(scope, () => closeChild(child, closeTimeoutMs));
+          await addFinalizer(scope, () => closeChild(child));
           if (platform) {
             child.handle.postMessage({ event: 'platform-capabilities' }, [platform.port]);
           }
@@ -245,12 +253,8 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
     close: () => {
       retired = true;
       abort.abort(new Error('Desktop host lease owner is closing'));
-      closing ??= (async () => {
-        // The acquire path owns failure rollback; close still joins every finalizer.
-        await acquiring?.catch(() => undefined);
-        await closeScope();
-      })();
-      return closing;
+      // The acquire path owns failure rollback; close still joins every finalizer.
+      return (acquiring?.catch(() => undefined) ?? Promise.resolve()).then(closeScope);
     },
   };
 }

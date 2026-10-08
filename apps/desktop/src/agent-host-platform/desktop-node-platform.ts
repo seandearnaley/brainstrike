@@ -1,4 +1,9 @@
-import type { ProviderAuthInput, RuntimeData } from '@brainstrike/agent/provider-runtime';
+import type {
+  LocalEmbeddingHostClient,
+  LocalLlmHostClient,
+  ProviderAuthInput,
+  RuntimeData,
+} from '@brainstrike/agent/provider-runtime';
 import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import {
   canonicalToolModelOutput,
@@ -13,7 +18,9 @@ import {
 } from '@brainstrike/agent-host';
 import type { SupportedProvider } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
+import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
+import { createHostRunHooks, getGlobalHooksPath } from '@brainstrike/host-capabilities/hooks';
 import { createDesktopNodeMcpHost } from '@brainstrike/host-capabilities/mcp/desktop-node-mcp';
 import { MCP_STORE_METHODS } from '@brainstrike/host-capabilities/mcp/mcp-runtime-wire';
 import {
@@ -23,11 +30,15 @@ import {
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
+import { disposeLiveChildProcesses } from '../assistant-server/execute-command-tool';
+import { disposeLspServers } from '../assistant-server/lsp-diagnostics';
 import { mainPlatformConnection } from './connection';
 import { desktopHostSharedTools } from './desktop-host-shared-tools';
 import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
 import { parentPlatformPort } from './parent-platform-port';
 import {
+  PlatformLocalEmbeddingResultSchema,
+  PlatformLocalGenerationResultSchema,
   PlatformPolicySchema,
   PlatformProgressSchema,
   PlatformSelectionSchema,
@@ -75,6 +86,36 @@ function desktopRuntimeConfiguration(
   };
 }
 
+type PlatformRequest = (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
+
+/**
+ * ADR-0007: Node never runs local inference. A thread's admitted local observer
+ * and recall embedder borrow Main's hidden hosts; JSON-RPC cancellation carries
+ * the caller's signal.
+ */
+function borrowedLocalInference(
+  request: PlatformRequest,
+  threadId: string
+): { readonly embedding: LocalEmbeddingHostClient; readonly llm: LocalLlmHostClient } {
+  return {
+    embedding: {
+      queryEmbedding: async ({ query }, options) =>
+        PlatformLocalEmbeddingResultSchema.parse(
+          await request('platform/embedding/query', { query, threadId }, options?.signal)
+        ).embedding,
+    },
+    llm: {
+      generate: async (generation, options) =>
+        PlatformLocalGenerationResultSchema.parse(
+          await request('platform/llm/generate', { ...generation, threadId }, options?.signal)
+        ),
+      warmup: async (modelId, options) => {
+        await request('platform/llm/warmup', { modelId, threadId }, options?.signal);
+      },
+    },
+  };
+}
+
 /** Electron-free production entry: Node owns the model loop, Memory and committed log. */
 export async function createHostPlatform(
   _options: HostStartOptions,
@@ -96,11 +137,7 @@ export async function createHostPlatform(
   const executions = new Map<string, HostToolContext & { readonly toolId: string }>();
   // One host-lifetime registry; its handles are scoped to their thread.
   const readFileCursorRegistry = new ReadWorkspaceFileCursorRegistry();
-  const request = async (
-    method: string,
-    input: unknown,
-    signal?: AbortSignal
-  ): Promise<unknown> => {
+  const request: PlatformRequest = async (method, input, signal) => {
     signal?.throwIfAborted();
     const cancellation = new CancellationTokenSource();
     const cancel = (): void => cancellation.cancel();
@@ -138,10 +175,16 @@ export async function createHostPlatform(
     close: async () => {
       // MCP cleanup still writes through Main's stores, so it joins before Main closes.
       await mcpHost.close();
+      // The language servers and command trees this host spawned.
+      await disposeLspServers();
+      disposeLiveChildProcesses();
       await request('platform/close', {});
     },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     mcp: mcpHost.services.mcp,
+    // Main admits every desktop run under the workspace memory resource.
+    memoryResourceIds: [WORKSPACE_MEMORY_RESOURCE_ID],
+    providers: host.providers,
     readConfiguration: async (admission) => {
       const response = await request(
         'platform/admit',
@@ -150,6 +193,7 @@ export async function createHostPlatform(
           ...(admission.snapshot ? { snapshot: admission.snapshot } : {}),
           ...(admission.workspaceBinding ? { workspaceBinding: admission.workspaceBinding } : {}),
           modelId: admission.modelId,
+          ...(admission.planMode ? { planMode: true } : {}),
           ...(admission.prompt === undefined ? {} : { prompt: admission.prompt }),
           threadId: admission.threadId,
         },
@@ -176,7 +220,10 @@ export async function createHostPlatform(
         ));
       let memory: ProductionHostRunConfiguration['memory'];
       try {
-        memory = await createDesktopHostMemoryConfiguration(selected, resolveAuth);
+        memory = await createDesktopHostMemoryConfiguration(selected, resolveAuth, {
+          ...borrowedLocalInference(request, admission.threadId),
+          signal: admission.signal,
+        });
       } catch (cause) {
         try {
           await closeSelection();
@@ -290,10 +337,22 @@ export async function createHostPlatform(
           ])
       );
       Object.assign(tools, shared);
+      // Global hooks run as configured; a root's project file stays untrusted
+      // (and is reported, not run) until the host owns its approval.
+      const hooks = createHostRunHooks({
+        globalPath: getGlobalHooksPath(),
+        maxHookTimeoutMs: selected.toolTimeoutMs,
+        roots: (selected.workspace?.roots ?? []).map((root) => ({
+          absPath: root.path,
+          rootId: root.rootId,
+        })),
+        sessionId: admission.threadId,
+      });
       return {
         close: closeSelection,
         configuration,
         durableConfiguration: selected.durableConfiguration,
+        ...(hooks ? { hooks } : {}),
         ...(selected.system === undefined ? {} : { system: selected.system }),
         maxSteps: selected.maxSteps,
         memory,

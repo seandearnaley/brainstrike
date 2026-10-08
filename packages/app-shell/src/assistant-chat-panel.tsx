@@ -20,6 +20,7 @@ import type {
   AssistantProviderReadError,
 } from './hooks/use-assistant-availability';
 import { useAssistantAvailabilityWithLocal } from './hooks/use-assistant-availability-with-local';
+import { useHostAssistantStatusFetcher } from './hooks/use-host-assistant-status-fetcher';
 import { useAssistantLinkCapabilitiesValue } from './use-assistant-link-capabilities';
 
 export interface AssistantChatPanelProps {
@@ -27,7 +28,7 @@ export interface AssistantChatPanelProps {
 }
 
 export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelProps): ReactElement {
-  const status = useAssistantAvailabilityWithLocal();
+  const status = useAssistantAvailabilityWithLocal(useHostAssistantStatusFetcher());
   const fixedProviderModelsResolution = useMemo<FixedProviderModelsResolution>(() => {
     if (!(status.state === 'enabled' && status.provider && status.model)) {
       return { state: 'not-required' };

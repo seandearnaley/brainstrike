@@ -11,10 +11,13 @@ import { join } from 'node:path';
 import type { AgentMessage, RuntimeData, StreamChunk } from '@brainstrike/agent';
 import { createAssistantRunEvent } from '@brainstrike/agent';
 import { buildHookTrustRequest } from '@brainstrike/app-state/stores/hook-trust-store';
+import type {
+  HookManager,
+  HookRunEventInput,
+  HookRunVerdict,
+} from '@brainstrike/host-capabilities/hooks';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopHookRunner } from '../../../assistant-server/hooks/hook-runner-impl';
-import type { HookManager, HookRunEventInput } from '../../../assistant-server/hooks/manager';
-import type { HookRunVerdict } from '../../../assistant-server/hooks/run-verdict';
 import {
   buildHookManager,
   deriveLastUserText,

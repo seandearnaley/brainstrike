@@ -4,19 +4,39 @@ import {
   buildCurrentDateNote,
   buildDefaultInstructions,
   buildLocalDefaultInstructions,
+  filterToolsForPlanMode,
   formatSkillsCatalog,
 } from '@brainstrike/agent/tool-runtime';
 import type { HostRunAdmissionRequest, HostTool } from '@brainstrike/agent-host';
+import type { ToolRiskCategory } from '@brainstrike/assistant-contract';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
+import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
 import { injectReferencedFilesContext } from '../assistant-server/referenced-files-context';
 import { injectActivatedSkillsContext } from '../assistant-server/skills-activation-context';
 import { injectWorkspaceInstructionsContext } from '../assistant-server/workspace-instructions-context';
 
+const planModeLogger = createLogger('DesktopHostPlanMode');
+
+/** Plan mode keeps what reads (and MCP), the shipped plan-mode gate's rule. */
+export function desktopPlanModeTools<
+  T extends { readonly permissionToolId?: string; readonly risk: ToolRiskCategory },
+>(tools: Readonly<Record<string, T>>): Record<string, T> {
+  const entries = Object.entries(tools);
+  return filterToolsForPlanMode(
+    { ...tools },
+    new Map(entries.map(([name, tool]) => [name, tool.permissionToolId ?? name])),
+    Object.fromEntries(entries.map(([name, tool]) => [tool.permissionToolId ?? name, tool.risk])),
+    planModeLogger
+  );
+}
+
 /** Existing readers and public vendor formatting; this creates no transcript or loop. */
 export async function readDesktopHostSystemContext(options: {
   readonly inputTokenLimit: number;
+  /** Plan mode: the instructions say the run may only read and propose a plan. */
+  readonly planMode: boolean;
   readonly readWorkspaceFile?: WorkspaceFileReader;
   readonly request: HostRunAdmissionRequest;
   readonly runtime: RuntimeData;
@@ -33,7 +53,7 @@ export async function readDesktopHostSystemContext(options: {
   const sections: (string | null)[] = [
     options.runtime.provider === 'local'
       ? buildLocalDefaultInstructions(names)
-      : buildDefaultInstructions(names),
+      : buildDefaultInstructions(names, { planMode: options.planMode }),
     buildCurrentDateNote(new Date()),
     buildContextBudgetNote(options.inputTokenLimit),
   ];

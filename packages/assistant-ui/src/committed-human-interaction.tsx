@@ -1,6 +1,7 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import { Button, Checkbox, Input } from '@brainstrike/ui';
 import { type ComponentProps, type ReactElement, type Ref, useId, useState } from 'react';
+import { usePlanModeExit } from './assistant-tool-suspend-notice';
 
 type ToolProps = ComponentProps<ToolCallMessagePartComponent>;
 function record(value: unknown): Record<string, unknown> {
@@ -31,6 +32,8 @@ export function CommittedHumanInteraction({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string>();
   const optionId = useId();
+  // Approving a plan ends plan mode for the next message, as the legacy notice does.
+  const exitPlanMode = usePlanModeExit();
   const approval = tool.approval;
   if (
     !(approval && approval.approved === undefined && approval.resolution === undefined) ||
@@ -134,9 +137,12 @@ export function CommittedHumanInteraction({
                 aria-disabled={sending || undefined}
                 className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
                 key={action}
-                onClick={() =>
-                  send({ action, ...(answer.trim() ? { feedback: answer.trim() } : {}) })
-                }
+                onClick={() => {
+                  if (action === 'approved') {
+                    exitPlanMode?.();
+                  }
+                  send({ action, ...(answer.trim() ? { feedback: answer.trim() } : {}) });
+                }}
                 variant={action === 'approved' ? 'default' : 'outline'}
               >
                 {action === 'approved' ? 'Approve plan' : 'Reject plan'}

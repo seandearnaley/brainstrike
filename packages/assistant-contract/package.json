@@ -223,6 +223,11 @@
       "import": "./dist/approval-action-message.js",
       "require": "./dist/approval-action-message.js"
     },
+    "./credential-child-environment": {
+      "types": "./dist/credential-child-environment.d.ts",
+      "import": "./dist/credential-child-environment.js",
+      "require": "./dist/credential-child-environment.js"
+    },
     "./tavily-env-keys": {
       "types": "./dist/tavily-env-keys.d.ts",
       "import": "./dist/tavily-env-keys.js",
