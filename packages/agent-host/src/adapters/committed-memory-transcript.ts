@@ -3,6 +3,29 @@ import { modelMessageSchema } from 'ai';
 import { committedRowAddress, committedRunIdentity } from '../committed-identities.js';
 import type { HostLogRow } from '../protocol.js';
 
+type CommittedModelRow = HostLogRow & {
+  readonly event: Extract<HostLogRow['event'], { type: 'model.step' | 'model.messages' }>;
+};
+
+function committedModelMetadata(
+  model: unknown
+): { readonly modelId: string; readonly provider: string } | undefined {
+  if (
+    model === null ||
+    typeof model !== 'object' ||
+    Array.isArray(model) ||
+    !('modelId' in model) ||
+    !('provider' in model) ||
+    typeof model.modelId !== 'string' ||
+    model.modelId.length === 0 ||
+    typeof model.provider !== 'string' ||
+    model.provider.length === 0
+  ) {
+    return;
+  }
+  return { modelId: model.modelId, provider: model.provider };
+}
+
 /** Immutable native segments address existing rows; there is no message-ID writer. */
 export function committedMemoryTranscript(
   rows: readonly HostLogRow[],
@@ -32,14 +55,21 @@ export function committedMemoryTranscript(
       threadId: started.threadId,
     });
     const previous: MastraDBMessage[] = [];
-    for (const row of rows) {
+    let modelMetadata: ReturnType<typeof committedModelMetadata>;
+    const segments = rows.filter(
+      (row): row is CommittedModelRow =>
+        row.threadId === started.threadId &&
+        (row.event.type === 'model.step' || row.event.type === 'model.messages') &&
+        row.event.runId === runId
+    );
+    for (const row of segments) {
       const event = row.event;
-      if (
-        row.threadId !== started.threadId ||
-        !(event.type === 'model.step' || event.type === 'model.messages') ||
-        event.runId !== runId ||
-        event.messages.length === 0
-      ) {
+      // Signed reasoning uses the exact SDK identity, not the request's provider
+      // family. Continuation results borrow only this run's preceding step.
+      if (event.type === 'model.step') {
+        modelMetadata = committedModelMetadata(event.model);
+      }
+      if (event.messages.length === 0) {
         continue;
       }
       if (row.ts === undefined) {
@@ -60,7 +90,7 @@ export function committedMemoryTranscript(
             {
               ...modelMessageSchema.parse(message),
               id,
-              metadata: { createdAt: new Date(row.ts as number) },
+              metadata: { createdAt: new Date(row.ts as number), ...modelMetadata },
             },
           ],
           'response',

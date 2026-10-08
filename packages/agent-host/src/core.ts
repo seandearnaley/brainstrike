@@ -15,7 +15,6 @@ import {
 import {
   abortHostThreadRuns,
   assertHostAdmissionCleanup,
-  finishHostRun,
   joinHostClosingRun,
   joinHostRunOwner,
   joinHostThreadDeletion,
@@ -38,6 +37,7 @@ import { healInterruptedRunHistory } from './interrupted-history.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import type { HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
 import type { HostEvent, HostLogRow, HostParams } from './protocol.js';
+import { finishHostRunWithProviderBilling } from './provider-billing-diagnostics.js';
 import {
   acquireHostRunAdmission,
   assertHostRunStartAvailable,
@@ -943,12 +943,13 @@ export class HostCore {
     outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome'],
     detail?: string
   ): Promise<void> {
-    return finishHostRun(
+    return finishHostRunWithProviderBilling(
       run,
       outcome,
       detail,
       () => this.closing,
       (owned) => this.closeRunOwner(owned),
+      () => this.read(run.threadId, 0),
       (event, commit) => this.append(run.threadId, [event], 'full', commit)
     );
   }
