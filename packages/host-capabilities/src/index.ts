@@ -19,6 +19,11 @@ export {
   LegacySecretVerificationError,
   migrateLegacySecrets,
 } from './legacy-secret-migration.js';
+export {
+  createHostAuthority,
+  type HostAuthority,
+  type HostAuthorityOptions,
+} from './provider-auth/host-authority.js';
 export { createHostProviderAuth, type HostProviderAuthOptions } from './provider-auth.js';
 export {
   createProviderCredentialReader,

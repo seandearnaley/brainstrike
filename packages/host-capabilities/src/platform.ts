@@ -35,6 +35,7 @@ import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assist
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { z } from 'zod';
 import { createHostCapabilities } from './capabilities.js';
+import { createCliMcpHost } from './mcp/cli-mcp-host.js';
 import {
   createSharedNativeHostTools,
   forgetSharedNativeToolThread,
@@ -55,7 +56,7 @@ const STANDALONE_WORKSPACE_TOOL_IDS = [
 ] as const;
 const STANDALONE_NATIVE_TOOL_IDS = [...STANDALONE_HUMAN_TOOL_IDS, ...STANDALONE_WORKSPACE_TOOL_IDS];
 
-const capabilities = {
+const standaloneCapabilities = {
   browserOAuth: 'unavailable',
   configuredMcp: 'unavailable',
   localInference: 'unavailable',
@@ -115,6 +116,16 @@ async function standaloneWorkspaceRoots(
   return roots;
 }
 
+/** What this standalone host can do, for the model. */
+function standaloneSystemPrompt(
+  roots: readonly RuntimeWorkspaceRoot[],
+  configuredMcp: boolean
+): string {
+  const mcpTools = configuredMcp ? ', and the configured MCP servers (text Apps only)' : '';
+  const unavailableMcp = configuredMcp ? 'MCP Tasks' : 'configured MCP/Tasks';
+  return `This standalone host supports the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, the task list and canvases${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. Search and shell tools, ${unavailableMcp}, Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
+}
+
 /** Root and its canonical writer have already been acquired by startAgentHost. */
 export async function createHostPlatform(
   options: HostStartOptions,
@@ -132,9 +143,29 @@ export async function createHostPlatform(
     launch: platformOptions,
     startup,
   });
+  // Configured MCP servers run in this host's own MCP runtime (Tasks off for now).
+  const mcpConfig = platformOptions?.mcpConfig;
+  const mcp = mcpConfig
+    ? await createCliMcpHost({ configPath: mcpConfig.path, credentials: host.credentials, startup })
+    : undefined;
+  if (mcp) {
+    await startup.register(async () => {
+      await mcp.close();
+    });
+  }
+  const capabilities = mcp
+    ? { ...standaloneCapabilities, configuredMcp: 'available' }
+    : standaloneCapabilities;
+  const system = standaloneSystemPrompt(workspaceRoots, mcp !== undefined);
   return createProductionHostPlatform({
-    close: () => host.close(),
+    auth: host.auth,
+    close: async () => {
+      // MCP cleanup can still write OAuth records through the credential store.
+      await mcp?.close();
+      await host.close();
+    },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
+    ...(mcp ? { mcp: mcp.mcp } : {}),
     // The same memory resource as the desktop host, so one state root keeps one
     // derived identity whichever host opens it. Vector Memory stays unavailable here.
     memoryResourceIds: [WORKSPACE_MEMORY_RESOURCE_ID],
@@ -234,13 +265,14 @@ export async function createHostPlatform(
           runtimeData: configuration,
         },
         resolvedToolResultBudget,
-        system: `This standalone host supports the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, the task list and canvases. Its workspace roots: ${workspaceRoots.map((root) => root.path).join(', ')}. Search and shell tools, configured MCP/Tasks, Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`,
+        system,
         tools: { ...bindings.tools, ...workspaceTools },
         toolTimeoutMs: resolveAssistantResilienceConfig().toolTimeoutMs,
       };
     },
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
-    resolveProviderAuth: host.resolveProviderAuth,
+    // The standalone host has no private desktop client: subscription auth refuses.
+    resolveProviderAuth: (provider) => host.auth.resolveProviderAuth(provider, undefined),
     resolveWorkspaceRoot: async ({ rootId }) => {
       const root = workspaceRoots.find((candidate) => candidate.rootId === rootId);
       if (!root) {
@@ -249,6 +281,5 @@ export async function createHostPlatform(
       return root.path;
     },
     startup,
-    storeProviderCredential: host.storeProviderCredential,
   });
 }

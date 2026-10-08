@@ -5,25 +5,30 @@ import {
   createDesktopIpcRegistry,
   type DesktopIpcSenderPolicy,
 } from '../platform/desktop-ipc-registry';
-import {
-  PROVIDER_AUTH_INTERACTIVE_ROLES,
-  type ProviderAuthEngine,
-} from '../provider-auth/provider-auth-engine';
 
 /**
  * Typed `provider-auth` IPC domain (BST-1355).
  *
  * Every channel is a sensitive invoke registered with the fail-closed
- * visible-ui-only sender policy ({@link PROVIDER_AUTH_INTERACTIVE_ROLES} —
- * the legal gate's interactive-desktop-only constraint, enforced by the
- * registry BEFORE the handler sees renderer arguments). The renderer sees
- * ONLY token-free {@link ProviderAuthStatus} payloads; tokens live and die in
- * the main process.
+ * visible-ui-only sender policy (the legal gate's interactive-desktop-only
+ * constraint, enforced by the registry BEFORE the handler sees renderer
+ * arguments). Each call is forwarded to the agent host's sign-in engine over
+ * Main's private desktop client; the renderer sees ONLY token-free
+ * {@link ProviderAuthStatus} payloads and tokens never enter Main.
  */
 
-const INTERACTIVE_POLICY: DesktopIpcSenderPolicy = {
-  roles: PROVIDER_AUTH_INTERACTIVE_ROLES,
-};
+const INTERACTIVE_POLICY: DesktopIpcSenderPolicy = { roles: ['visible-ui'] };
+
+/** The host's sign-in engine as Main's private desktop client reaches it. */
+export interface DesktopProviderAuth {
+  cancel(provider: string): Promise<ProviderAuthStatus>;
+  connect(
+    provider: string,
+    method: ProviderAuthStartMethod | undefined
+  ): Promise<ProviderAuthStatus>;
+  disconnect(provider: string): Promise<ProviderAuthStatus>;
+  status(provider: string): Promise<ProviderAuthStatus>;
+}
 
 function assertProviderId(value: unknown): string {
   if (typeof value !== 'string' || value.trim().length === 0) {
@@ -41,26 +46,19 @@ function assertStartMethod(value: unknown): ProviderAuthStartMethod | undefined 
   throw new TypeError('provider-auth IPC start method must be "loopback" or "device".');
 }
 
-export interface RegisterProviderAuthIpcHandlersOptions {
-  readonly engine: ProviderAuthEngine;
-}
-
 export function registerProviderAuthIpcHandlers({
-  engine,
-}: RegisterProviderAuthIpcHandlersOptions): () => void {
+  auth,
+}: {
+  readonly auth: DesktopProviderAuth;
+}): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
   registry.registerAuthorizedInvoke(
     'providerAuth',
     DESKTOP_IPC_CHANNELS.providerAuth.start,
     INTERACTIVE_POLICY,
-    async (_event, provider: unknown, method?: unknown): Promise<ProviderAuthStatus> => {
-      const resolvedMethod = assertStartMethod(method);
-      return await engine.start(
-        assertProviderId(provider),
-        ...(resolvedMethod === undefined ? [] : ([resolvedMethod] as const))
-      );
-    }
+    async (_event, provider: unknown, method?: unknown): Promise<ProviderAuthStatus> =>
+      await auth.connect(assertProviderId(provider), assertStartMethod(method))
   );
 
   registry.registerAuthorizedInvoke(
@@ -68,7 +66,7 @@ export function registerProviderAuthIpcHandlers({
     DESKTOP_IPC_CHANNELS.providerAuth.cancel,
     INTERACTIVE_POLICY,
     async (_event, provider: unknown): Promise<ProviderAuthStatus> =>
-      await engine.cancel(assertProviderId(provider))
+      await auth.cancel(assertProviderId(provider))
   );
 
   registry.registerAuthorizedInvoke(
@@ -76,7 +74,7 @@ export function registerProviderAuthIpcHandlers({
     DESKTOP_IPC_CHANNELS.providerAuth.status,
     INTERACTIVE_POLICY,
     async (_event, provider: unknown): Promise<ProviderAuthStatus> =>
-      await engine.getStatus(assertProviderId(provider))
+      await auth.status(assertProviderId(provider))
   );
 
   registry.registerAuthorizedInvoke(
@@ -84,7 +82,7 @@ export function registerProviderAuthIpcHandlers({
     DESKTOP_IPC_CHANNELS.providerAuth.disconnect,
     INTERACTIVE_POLICY,
     async (_event, provider: unknown): Promise<ProviderAuthStatus> =>
-      await engine.disconnect(assertProviderId(provider))
+      await auth.disconnect(assertProviderId(provider))
   );
 
   return () => registry.unregisterAll();

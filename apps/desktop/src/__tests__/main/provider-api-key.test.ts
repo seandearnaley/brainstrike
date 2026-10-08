@@ -222,6 +222,27 @@ describe('provider-api-key', () => {
     });
   });
 
+  it('counts a host-held subscription sign-in Main may not read as configured, and nothing else', async () => {
+    mockListAgentProviders.mockReturnValue(['anthropic', 'openai-codex']);
+    mockGetAgentProviderEnvKeys.mockReturnValue([]);
+    mockIsSupportedProvider.mockReturnValue(true);
+
+    const { SecretReadError } = await import('../../secrets');
+    // Main's read-only view refuses OAuth entries with this code.
+    const secrets = {
+      getCredential: vi.fn((provider: string) =>
+        Promise.reject(new SecretReadError('credential_type_unsupported', provider))
+      ),
+      listProviders: vi.fn().mockResolvedValue(['anthropic', 'openai-codex']),
+    };
+    mockGetSecretsService.mockReturnValue(secrets);
+
+    await expect(inspectProviderKeys()).resolves.toMatchObject({
+      configuredProviders: [{ provider: 'openai-codex', source: 'stored' }],
+      readFailures: [{ code: 'credential_type_unsupported', provider: 'anthropic' }],
+    });
+  });
+
   describe('readProviderCredential (BST-1352 typed reader)', () => {
     it('tags an env hit as an api_key credential with source env and never reads the store', async () => {
       mockGetAgentProviderEnvKeys.mockReturnValue(['OPENAI_KEY']);

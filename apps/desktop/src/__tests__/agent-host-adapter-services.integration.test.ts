@@ -205,15 +205,11 @@ describe('one Node adapter composition', () => {
     const { root, startup } = await compositionRoot();
     const entered = Promise.withResolvers<void>();
     const collected = Promise.withResolvers<AgentHostMcpCollection>();
-    let published = 0;
     const services = await createAgentHostAdapterServicesFactory({
       ...fixtureCapabilities,
       collectCombinedTools: () => {
         entered.resolve();
         return collected.promise;
-      },
-      onMcpDiscoverySkips: async () => {
-        published += 1;
       },
     })({
       appUi: 'text',
@@ -241,7 +237,6 @@ describe('one Node adapter composition', () => {
       collected.resolve({ mcpDiscoverySkips: [], tools: {} });
       await rejected;
       await close;
-      expect(published).toBe(0);
       expect(joined).toBe(true);
     } finally {
       collected.resolve({ mcpDiscoverySkips: [], tools: {} });
