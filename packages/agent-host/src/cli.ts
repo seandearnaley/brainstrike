@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { launchHost } from '@brainstrike/host-lease';
 import { HostCliExitError, runHostCliSession } from './cli-session.js';
@@ -17,6 +16,10 @@ import {
 
 export interface HostCliOutput {
   write(value: string): void;
+}
+/** Supplied by the composing executable; this Core entry has no built-in platform. */
+export interface HostCliDefaults {
+  readonly platformModule?: string;
 }
 function required(value: string | undefined, name: string): string {
   if (!value) {
@@ -181,7 +184,8 @@ function cliWorkspaceConfiguration(input: CliWorkspaceRunInput | undefined): {
 /** CLI is a client of the root owner; it never runs a second model/tool loop. */
 export async function runHostCli(
   args: string[],
-  output: HostCliOutput = process.stdout
+  output: HostCliOutput = process.stdout,
+  defaults: HostCliDefaults = {}
 ): Promise<void> {
   const { command, interactive, positionals, values, workspaceInput } = parseHostCliArgs(args);
   const workspaceConfiguration = cliWorkspaceConfiguration(workspaceInput);
@@ -231,11 +235,13 @@ Run signals stop and join its execution; attach signals detach.
         if (command === 'host status' || command === 'host stop') {
           throw new Error('No host is running for this root');
         }
-        await createAgentHostSpawner(
-          values.platform ??
-            fileURLToPath(new URL('./default-production-platform.js', import.meta.url)),
-          credentialSelection(values)
-        )(options, signal);
+        const platformModule = values.platform ?? defaults.platformModule;
+        if (!platformModule) {
+          throw new Error(
+            'Starting a host requires --platform <module>; this entry composes no default platform'
+          );
+        }
+        await createAgentHostSpawner(platformModule, credentialSelection(values))(options, signal);
         spawned = true;
       },
     }
@@ -403,9 +409,12 @@ Run signals stop and join its execution; attach signals detach.
 }
 
 /** Both installed executable names and the direct Node entry share exit semantics. */
-export async function runHostCliProcess(args: string[]): Promise<void> {
+export async function runHostCliProcess(
+  args: string[],
+  defaults: HostCliDefaults = {}
+): Promise<void> {
   try {
-    await runHostCli(args);
+    await runHostCli(args, process.stdout, defaults);
   } catch (cause: unknown) {
     process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
     process.exitCode = cause instanceof HostCliExitError ? cause.exitCode : 1;

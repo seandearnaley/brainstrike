@@ -1,0 +1,23 @@
+export {
+  createHostCapabilities,
+  type HostCapabilities,
+  type HostCapabilitiesOptions,
+} from './capabilities.js';
+export {
+  createHostCredentials,
+  type HostCredentialStoreSelection,
+  HostCredentialStoreUnselectedError,
+  type HostCredentials,
+  HostCredentialsClosedError,
+  type HostCredentialsOptions,
+} from './credentials.js';
+export {
+  LegacySecretConflictError,
+  type LegacySecretEntry,
+  type LegacySecretMigrationReport,
+  type LegacySecretSource,
+  LegacySecretVerificationError,
+  migrateLegacySecrets,
+} from './legacy-secret-migration.js';
+export { createHostProviderAuth, type HostProviderAuthOptions } from './provider-auth.js';
+export { createStandaloneHumanTools, STANDALONE_HUMAN_TOOL_IDS } from './standalone-human-tools.js';

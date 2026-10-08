@@ -4,14 +4,14 @@ import { access, chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { attachAgentHost } from '@brainstrike/agent-host';
 import { writePrivateCredentialFile } from '@brainstrike/agent-host/file-credentials';
+import { HOST_RESULT_SCHEMAS } from '@brainstrike/agent-host/protocol';
+import { removeFixtureRoot } from '@brainstrike/agent-host/test-fixtures/cooperative-host';
 import { decodeHostRecord, type HostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock, StateStore } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
-import { attachAgentHost } from '../src/client.js';
-import { HOST_RESULT_SCHEMAS } from '../src/protocol.js';
-import { removeFixtureRoot } from './fixtures/cooperative-host-fixture.js';
 
 const bin = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));
 const roots: string[] = [];

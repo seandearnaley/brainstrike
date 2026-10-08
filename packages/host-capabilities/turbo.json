@@ -1,0 +1,13 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test:integration": {
+      // Spawned CLI proofs resolve this package's emitted bin and platform module in Node.
+      "dependsOn": ["$TURBO_EXTENDS$", "build"]
+    },
+    "test:coverage": {
+      // The full coverage lane includes those same native process proofs.
+      "dependsOn": ["$TURBO_EXTENDS$", "build"]
+    }
+  }
+}

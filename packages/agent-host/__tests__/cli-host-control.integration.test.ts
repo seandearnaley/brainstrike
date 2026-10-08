@@ -27,7 +27,8 @@ import { type AgentHost, startAgentHost } from '../src/runtime.js';
 import { scriptedToolSequence } from '../src/test-fixtures/scripted-model.js';
 import { removeFixtureRoot } from './fixtures/cooperative-host-fixture.js';
 
-const cli = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));
+// The tracked product executable composes this Core CLI with host-capabilities.
+const cli = fileURLToPath(new URL('../../host-capabilities/bin/brainstrike.mjs', import.meta.url));
 const platform = fileURLToPath(new URL('./fixtures/process-platform.mjs', import.meta.url));
 const roots: string[] = [];
 const hosts: AgentHost[] = [];

@@ -4,6 +4,8 @@ import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { HOST_RESULT_SCHEMAS, HostLogRowSchema } from '@brainstrike/agent-host/protocol';
+import { removeFixtureRoot } from '@brainstrike/agent-host/test-fixtures/cooperative-host';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { decodeHostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
@@ -13,8 +15,6 @@ import question from '@brainstrike/test-utils/fixtures/committed-host-question.j
 };
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
-import { HOST_RESULT_SCHEMAS, HostLogRowSchema } from '../src/protocol.js';
-import { removeFixtureRoot } from './fixtures/cooperative-host-fixture.js';
 
 const bin = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));
 const httpFixture = new URL('./fixtures/standalone-production-http.mjs', import.meta.url).href;
