@@ -46,6 +46,7 @@ import {
 import { finishHostRunWithProviderBilling } from './provider-billing-diagnostics.js';
 import {
   acquireHostRunAdmission,
+  bindHostRunAdmission,
   closeHostRunResources,
   ensureHostRunAdmission,
   hostMcpUnavailableEvents,
@@ -217,12 +218,20 @@ export class HostCore {
       case 'interaction.responded':
         foldHostInteraction(this.runs, event);
         break;
-      case 'effect.started':
-        this.runs.get(event.runId)?.started.add(event.toolCallId);
+      case 'effect.started': {
+        const run = this.runs.get(event.runId);
+        run?.started.add(event.toolCallId);
+        run?.effectTools.set(event.toolCallId, event.toolCatalogId ?? event.toolId);
         break;
-      case 'effect.finished':
-        this.runs.get(event.runId)?.outputs.set(event.toolCallId, event.output);
+      }
+      case 'effect.finished': {
+        const run = this.runs.get(event.runId);
+        run?.outputs.set(event.toolCallId, event.output);
+        if (row.ts !== undefined) {
+          run?.outputCommittedAt.set(event.toolCallId, row.ts);
+        }
         break;
+      }
       case 'run.finished': {
         const run = this.runs.get(event.runId);
         if (run) {
@@ -498,7 +507,7 @@ export class HostCore {
         admission.snapshot,
         controller
       );
-      run.admission = admission;
+      bindHostRunAdmission(run, admission);
       if (this.conversationIds.has(run.id) || run.id === params.commandId) {
         throw new Error('Generated run collides with a committed conversation identity');
       }
