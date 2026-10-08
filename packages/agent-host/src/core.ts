@@ -597,7 +597,6 @@ export class HostCore {
     try {
       const owner = await this.openRun(run);
       const admission = await ensureHostRunAdmission(this.platform, run);
-      this.presentations.request(run, admission, this.runs.values());
       const result = streamText({
         abortSignal: run.controller.signal,
         maxRetries: 0,
@@ -931,12 +930,16 @@ export class HostCore {
     outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome'],
     detail?: string
   ): Promise<void> {
+    // A completed run asks for its thread's title while its admission is still live.
+    const titling =
+      outcome === 'completed' ? this.presentations.request(run, this.runs.values()) : undefined;
     return finishHostRunWithProviderBilling(
       run,
       outcome,
       detail,
       () => this.closing,
-      (owned) => this.closeRunOwner(owned),
+      (owned) =>
+        titling ? titling.then(() => this.closeRunOwner(owned)) : this.closeRunOwner(owned),
       () => this.read(run.threadId, 0),
       (event, commit) =>
         this.append(run.threadId, [event], 'full', (rows) => {
