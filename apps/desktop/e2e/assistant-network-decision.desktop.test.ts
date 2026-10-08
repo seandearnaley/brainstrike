@@ -19,7 +19,7 @@ async function openAssistantChat(window: Page): Promise<void> {
     });
   }
 
-  await expect(window.getByTestId('chat-panel')).toBeVisible({
+  await expect(window.getByRole('region', { exact: true, name: 'Assistant' })).toBeVisible({
     timeout: E2E_TIMEOUTS.chatPanel,
   });
 }

@@ -1,6 +1,10 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { readAssistantMockRequests, setupAssistantMock } from './utils/assistant-mock';
+import {
+  configureAssistantProvider,
+  readAssistantMockRequests,
+  setupAssistantMock,
+} from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { E2E_TIMEOUTS } from './utils/timeouts';
@@ -40,7 +44,7 @@ async function waitForAssistantChat(window: Page): Promise<void> {
       timeout: E2E_TIMEOUTS.loadingIndicator,
     });
   }
-  await expect(window.getByTestId('chat-panel')).toBeVisible({
+  await expect(window.getByRole('region', { exact: true, name: 'Assistant' })).toBeVisible({
     timeout: E2E_TIMEOUTS.chatPanel,
   });
 }
@@ -268,11 +272,13 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
   });
 
   test('a failed decision discovery preserves history and clears after successful reload', async ({
+    modelProvider,
     window,
   }) => {
     const prompt = 'Keep this conversation while checking pending decisions.';
     const reply = 'This saved response must remain visible.';
-    await setupAssistantMock(window, { message: reply, variant: 'simple' });
+    await configureAssistantProvider(window);
+    modelProvider.setScript({ finalText: reply });
     await waitForAssistantChat(window);
     await sendPrompt(window, prompt);
     await expect(window.getByText(reply).first()).toBeVisible({
@@ -332,11 +338,13 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
   });
 
   test('reload shows durable delegated decision states without resubmitting approvals or questions', async ({
+    modelProvider,
     window,
   }, testInfo) => {
     const prompt = 'Retain this conversation during decision recovery.';
     const reply = 'The saved conversation stays readable.';
-    await setupAssistantMock(window, { message: reply, variant: 'simple' });
+    await configureAssistantProvider(window);
+    modelProvider.setScript({ finalText: reply });
     await waitForAssistantChat(window);
     await sendPrompt(window, prompt);
     await expect(window.getByText(reply).first()).toBeVisible({

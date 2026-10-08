@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures/electron-fixture';
-import { setupAssistantMock } from './utils/assistant-mock';
+import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { E2E_TIMEOUTS } from './utils/timeouts';
@@ -11,11 +11,9 @@ test.describe('Assistant hover toolbar (desktop)', () => {
     await ensureMockWorkspaceOpen(window);
   });
 
-  test('shows a bare, smaller copy/retry toolbar on hover', async ({ window }) => {
-    await setupAssistantMock(window, {
-      message: 'Hello from desktop assistant!',
-      variant: 'detailed',
-    });
+  test('shows a bare, smaller copy/retry toolbar on hover', async ({ modelProvider, window }) => {
+    await configureAssistantProvider(window);
+    modelProvider.setScript({ finalText: 'Hello from desktop assistant!' });
 
     const assistantChatCard = await ensureAssistantShellVisible(window);
     await expect(assistantChatCard).toBeVisible({ timeout: E2E_TIMEOUTS.cardVisibility });
@@ -29,7 +27,7 @@ test.describe('Assistant hover toolbar (desktop)', () => {
         });
     }
 
-    const chatPanel = window.getByTestId('chat-panel');
+    const chatPanel = window.getByRole('region', { exact: true, name: 'Assistant' });
     await expect(chatPanel).toBeVisible({ timeout: E2E_TIMEOUTS.chatPanel });
 
     const input = window.getByRole('textbox', { name: 'Message input' });

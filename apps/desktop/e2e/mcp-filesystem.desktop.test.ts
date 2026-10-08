@@ -1,15 +1,16 @@
 import { expect, test } from './fixtures/electron-fixture';
-import { setupAssistantMock } from './utils/assistant-mock';
+import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 test.describe('Assistant chat (desktop)', () => {
   test.skip(!!process.env['CI'], 'Skipped in CI: Electron launch flag incompatibility.');
 
-  test.beforeEach(async ({ window }) => {
+  test.beforeEach(async ({ modelProvider, window }) => {
     const { mockFileSystemOperations } = await loadElectronHelpers();
     await mockFileSystemOperations(window);
-    await setupAssistantMock(window, { variant: 'detailed' });
+    await configureAssistantProvider(window);
+    modelProvider.setScript({ finalText: 'Hello from desktop assistant!' });
     await ensureMockWorkspaceOpen(window);
   });
 
@@ -24,7 +25,7 @@ test.describe('Assistant chat (desktop)', () => {
       });
     }
 
-    const chatPanel = window.getByTestId('chat-panel');
+    const chatPanel = window.getByRole('region', { exact: true, name: 'Assistant' });
     await expect(chatPanel).toBeVisible({ timeout: 25_000 });
 
     const input = window.getByRole('textbox', { name: 'Message input' });
