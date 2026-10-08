@@ -32,10 +32,12 @@ import {
   resolveToolRiskCategory,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
+import { listEmbeddingModels } from '@brainstrike/assistant-contract/provider-metadata';
 import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-repository';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
+import type { SelectedEmbeddingRequestPlan } from '@brainstrike/embeddings/inference-plan';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
 import { z } from 'zod';
 import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
@@ -55,6 +57,7 @@ import type {
   DesktopWorkspaceBindingBorrow,
 } from './desktop-workspace-binding';
 import type { DesktopPlatformCapabilities, DesktopPlatformSelection } from './main-platform';
+import { resolveDesktopMemoryVectors } from './memory-vector-selection';
 import {
   PlatformClientConfigurationSchema,
   PlatformModelConfigurationSchema,
@@ -268,16 +271,40 @@ function resolveDesktopMemorySettings(
         ? { ...observation, enabled: false }
         : { ...observation, modelTarget: observerTarget },
   };
-  if (
-    memorySettings.semanticRecall.enabled ||
-    (memorySettings.observationalMemory.enabled &&
-      memorySettings.observationalMemory.retrievalMode === 'vector')
-  ) {
-    throw new Error(
-      'This Root is missing the canonical Memory vector capability; the requested Memory settings were preserved.'
-    );
-  }
   return { memorySettings, observerTarget };
+}
+
+/** Catalog dimensions of the recall embedder: hosted from the registry, local from the DB catalog. */
+async function readEmbeddingDimensions(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  provider: string,
+  modelId: string
+): Promise<number> {
+  if (provider !== 'local') {
+    const model = isSupportedProvider(provider)
+      ? listEmbeddingModels(provider).find((candidate) => candidate.id === modelId)
+      : undefined;
+    if (!model) {
+      throw new Error(`Embedding model "${provider}/${modelId}" is not in the provider catalog.`);
+    }
+    return model.defaultDimension;
+  }
+  // The same catalog row the legacy local recall embedder read its dimensions from.
+  const result = await db.query(
+    'SELECT capabilities FROM models WHERE id = $1 AND provider_id = $2 LIMIT 1',
+    [modelId, 'local']
+  );
+  const row = z
+    .object({ capabilities: z.union([z.string(), z.record(z.string(), z.unknown())]) })
+    .optional()
+    .parse(result.rows[0]);
+  if (!row) {
+    throw new Error(`Local embedding model "${modelId}" is not in the model catalog.`);
+  }
+  return z
+    .object({ defaultDimension: z.number().int().positive() })
+    .parse(typeof row.capabilities === 'string' ? JSON.parse(row.capabilities) : row.capabilities)
+    .defaultDimension;
 }
 
 function desktopContextReader(
@@ -488,7 +515,8 @@ export function productionDesktopCapabilities(
   dependencies: DesktopAssistantToolDependencies,
   readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>,
   readCliOwnerIntent?: DesktopCliOwnerIntentReader,
-  workspaceAuthority?: DesktopWorkspaceBindingAuthority
+  workspaceAuthority?: DesktopWorkspaceBindingAuthority,
+  readLocalEmbeddingSelection?: () => Promise<SelectedEmbeddingRequestPlan | undefined>
 ): Omit<DesktopPlatformCapabilities, 'mcp'> {
   const policies = new Map<string, PermissionToolGateSnapshot>();
   const readConfiguration = async (
@@ -515,6 +543,16 @@ export function productionDesktopCapabilities(
       intent,
       configuration.provider
     );
+    const memoryVectors = await resolveDesktopMemoryVectors(memorySettings, {
+      readDimensions: (provider, modelId) => readEmbeddingDimensions(db, provider, modelId),
+      readLocalSelection: async () => {
+        if (!readLocalEmbeddingSelection) {
+          throw new Error('Local Memory vectors require the saved local execution selection');
+        }
+        return await readLocalEmbeddingSelection();
+      },
+    });
+    request.signal.throwIfAborted();
     const budget = resolveScaledToolResultBudget(definition.contextWindow);
     const native = await createDesktopNativeTools(
       db,
@@ -562,7 +600,12 @@ export function productionDesktopCapabilities(
         freshWorkspaceRoots: native.freshRoots,
         inputTokenLimit,
         maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
-        memory: { options: intent.memoryOptions, settings: memorySettings },
+        memory: {
+          options: intent.memoryOptions,
+          settings: memorySettings,
+          ...(memoryVectors ? { vectorProfile: memoryVectors.profile } : {}),
+        },
+        ...(memoryVectors?.local ? { localEmbedding: memoryVectors.local } : {}),
         nativeRuntime: desktopNativeRuntime(native.runtime),
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         ...desktopSystemFields(system),
@@ -659,6 +702,9 @@ export function productionDesktopCapabilities(
           : (captured ?? { policies: DEFAULT_PERMISSION_POLICIES, yolo: false })
       );
     },
+    ...(dependencies.embeddingHostManager
+      ? { localEmbedding: dependencies.embeddingHostManager }
+      : {}),
     // The Node host resolves every other provider itself; Main lends only the
     // interactive subscription OAuth engine it still owns.
     resolveProviderAuth: async (provider) => {
