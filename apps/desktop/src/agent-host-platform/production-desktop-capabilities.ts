@@ -41,6 +41,7 @@ import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thr
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-repository';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
+import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
 import { z } from 'zod';
 import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
 import {
@@ -51,7 +52,6 @@ import { deriveAssistantTurnAuthInput } from '../assistant-server/provider-auth-
 import { prepareRequestSkills } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
-import { readWorkspaceTextFile } from '../assistant-server/workspace-text-file-reader';
 import { getDatabase } from '../db-main';
 import { readDesktopMcpHostSnapshot } from '../ipc-mcp';
 import { getDesktopMcpHostRuntime } from '../mcp/host-runtime';

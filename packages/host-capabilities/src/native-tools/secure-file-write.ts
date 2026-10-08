@@ -9,7 +9,7 @@
 import { constants as fsConstants } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
-import { isWithinRoot, normalizeWorkspacePath } from './assistant-server/workspace-path';
+import { isWithinRoot, normalizeWorkspacePath } from './workspace-path.js';
 
 /**
  * Find the canonical (symlink-resolved) path of the nearest existing ancestor of

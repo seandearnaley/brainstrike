@@ -3,7 +3,7 @@ import {
   type GlobWorkspaceInput,
   type GrepSearchInput,
 } from '@brainstrike/agent';
-import type { GlobWorkspaceToolResult } from './glob-workspace-tool';
+import type { GlobWorkspaceToolResult } from '@brainstrike/host-capabilities/native-tools';
 import type { GrepToolResult } from './grep-search-result-contract';
 
 /**

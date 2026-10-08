@@ -13,10 +13,12 @@ import {
   isCompactionSummaryPayload,
 } from '@brainstrike/assistant-contract/compaction-summary';
 import { ASSISTANT_COMPACTION_RANGES_TABLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
+import {
+  readStateScope,
+  resetToolCallLoopGuards,
+} from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import { getDatabase } from '../db-main';
-import { resetToolCallLoopGuards } from './tool-call-loop-guards';
-import { readStateScope } from './workspace-file-staleness';
 
 const logger = createLogger('CompactionRangeRepository');
 

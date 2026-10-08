@@ -1,7 +1,7 @@
 import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET, QuerySelfInputSchema } from '@brainstrike/agent';
+import { decodedWorkspaceTextModelOutputChars as decodedChars } from '@brainstrike/host-capabilities/native-tools';
 import { describe, expect, it } from 'vitest';
 import { projectQuerySelfModelOutput } from '../../assistant-server/query-self-model-projection';
-import { decodedWorkspaceTextModelOutputChars as decodedChars } from '../../assistant-server/workspace-model-projection-helpers';
 
 function serializedChars(value: { type: 'text'; value: string }): number {
   return JSON.stringify(value).length;

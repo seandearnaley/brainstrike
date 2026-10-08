@@ -5,13 +5,31 @@
   "private": true,
   "type": "module",
   "license": "MIT",
-  "bin": { "brainstrike": "./bin/brainstrike.mjs", "brainstrike-host": "./bin/brainstrike.mjs" },
-  "engines": { "node": ">=24.20.0 <25 || >=26.8.2 <27" },
-  "exports": {
-    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
-    "./platform": { "types": "./dist/platform.d.ts", "default": "./dist/platform.js" }
+  "bin": {
+    "brainstrike": "./bin/brainstrike.mjs",
+    "brainstrike-host": "./bin/brainstrike.mjs"
   },
-  "files": ["bin", "dist"],
+  "engines": {
+    "node": ">=24.20.0 <25 || >=26.8.2 <27"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./platform": {
+      "types": "./dist/platform.d.ts",
+      "default": "./dist/platform.js"
+    },
+    "./native-tools": {
+      "types": "./dist/native-tools/index.d.ts",
+      "default": "./dist/native-tools/index.js"
+    }
+  },
+  "files": [
+    "bin",
+    "dist"
+  ],
   "scripts": {
     "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json",
@@ -26,7 +44,12 @@
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/assistant-data": "workspace:*",
     "@brainstrike/assistant-service": "workspace:*",
+    "@brainstrike/file-system": "workspace:*",
     "@brainstrike/host-lease": "workspace:*",
+    "@brainstrike/logging": "workspace:*",
+    "@brainstrike/tokenization": "workspace:*",
+    "@brainstrike/utils": "workspace:*",
+    "minimatch": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {
