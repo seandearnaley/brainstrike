@@ -113,11 +113,15 @@ export {
   type McpTaskBlockedDiagnostic,
   type McpTaskDatabase,
   type McpTaskIdentity,
+  type McpTaskInsert,
   McpTaskMetadataTooLargeError,
+  type McpTaskPatch,
   type McpTaskRecord,
   McpTaskRepository,
   type McpTaskScope,
   type McpTaskStatus,
+  type McpTaskStorage,
+  McpTaskStore,
   type UpdateMcpTaskInput,
 } from './mcp-task-repository.js';
 export {

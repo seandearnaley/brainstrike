@@ -33,6 +33,7 @@ import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
 import { newRetryStats, retrySharing } from './fs-retry.mjs';
 import { exportJsonl, readJsonl } from './jsonl.mjs';
+import { executeMcpTaskRequest } from './mcp-task-domain.mjs';
 import { executeMemoryRequest, executeNativeMemoryRequest } from './memory-domain.mjs';
 import { isCorrupt, RunLog, ThreadDamage, ThreadReadOnlyRefusal } from './run-log.mjs';
 import { blobsOf } from './run-log-format.mjs';
@@ -277,6 +278,11 @@ async function handle(m) {
     case 'memory':
       return handleMemory(
         /** @type {import('./memory-types.js').MemoryDomainRequest} */ (m['request'])
+      );
+    case 'mcp-tasks':
+      return executeMcpTaskRequest(
+        db,
+        /** @type {import('./mcp-task-types.js').McpTaskDomainRequest} */ (m['request'])
       );
     case 'append': {
       const t0 = clock();
