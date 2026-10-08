@@ -351,6 +351,7 @@ export async function createHostPlatform(
       throw new Error('Desktop provider auth requires an admitted thread selection');
     },
     startup,
+    storeProviderCredential: host.storeProviderCredential,
     validateWorkspaceBinding: async ({ binding, signal, threadId }) => {
       z.strictObject({ accepted: z.literal(true) }).parse(
         await request('platform/workspace/validate', { binding, threadId }, signal)

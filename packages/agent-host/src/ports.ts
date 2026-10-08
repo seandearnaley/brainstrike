@@ -23,7 +23,7 @@ import type {
   ToolSet,
 } from 'ai';
 import type { McpHostToolBinding } from './adapters/mcp.js';
-import type { HostRunSnapshot } from './protocol.js';
+import type { HostLoginCredential, HostRunSnapshot } from './protocol.js';
 
 /** Private native authority. Validation never resolves or sends an answer. */
 export interface HostMcpInputCapability {
@@ -192,6 +192,8 @@ export interface HostPlatform {
   resolveModel?(modelId: string): Promise<LanguageModel>;
   /** Borrowed existing native writer; startup acquires it before interrupted purge replay. */
   readonly stateIndexer?: StateStoreIndexerPort;
+  /** The host's own credential store, its single writer; absent where none is owned. */
+  storeProviderCredential?(provider: string, credential: HostLoginCredential): Promise<void>;
   readonly tools?: Readonly<Record<string, HostTool>> | undefined;
   validateWorkspaceBinding?(request: {
     readonly binding: ThreadWorkspaceBinding;

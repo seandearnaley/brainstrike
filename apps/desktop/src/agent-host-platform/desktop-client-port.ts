@@ -1,4 +1,4 @@
-import { type AgentHost, bindHostConnection } from '@brainstrike/agent-host';
+import type { AgentHost } from '@brainstrike/agent-host';
 import { z } from 'zod';
 import { mainPlatformConnection, type PlatformMessagePort } from './connection';
 
@@ -33,13 +33,6 @@ export function bindDesktopClientPort(input: unknown, host: AgentHost | undefine
     port.close();
     return true;
   }
-  bindHostConnection(
-    mainPlatformConnection(port),
-    host.core,
-    host.record,
-    () => undefined,
-    undefined,
-    'desktop-ui'
-  );
+  host.bindClientConnection(mainPlatformConnection(port), 'desktop-ui');
   return true;
 }

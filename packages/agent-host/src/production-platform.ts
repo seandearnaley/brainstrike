@@ -66,6 +66,7 @@ export interface ProductionHostPlatformOptions {
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
   readonly startup: HostStartupContext;
   readonly stateIndexer?: StateStoreIndexerPort;
+  readonly storeProviderCredential?: HostPlatform['storeProviderCredential'];
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
 }
 
@@ -279,5 +280,8 @@ export async function createProductionHostPlatform(
     },
     close,
     readPermissionPolicy: options.readPermissionPolicy,
+    ...(options.storeProviderCredential
+      ? { storeProviderCredential: options.storeProviderCredential }
+      : {}),
   };
 }

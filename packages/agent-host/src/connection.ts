@@ -2,7 +2,7 @@ import { timingSafeEqual } from 'node:crypto';
 import type { HostRecord } from '@brainstrike/host-lease';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import type { HostCore } from './core.js';
-import type { HostClientOrigin } from './ports.js';
+import type { HostClientOrigin, HostPlatform } from './ports.js';
 import { type HostLogRow, type HostMethod, type HostParams, parseHostParams } from './protocol.js';
 
 export interface HostConnectionLifecycle {
@@ -11,15 +11,22 @@ export interface HostConnectionLifecycle {
   stop(): Promise<void>;
 }
 
+export interface HostConnectionOptions {
+  readonly lifecycle?: HostConnectionLifecycle;
+  /** The transport's client origin; the public socket is never the desktop. */
+  readonly origin?: HostClientOrigin;
+  readonly storeProviderCredential?: HostPlatform['storeProviderCredential'];
+}
+
 /** All transports enter this same authenticated method dispatcher. */
 export function bindHostConnection(
   connection: MessageConnection,
   core: HostCore,
   record: HostRecord,
   attached: () => void,
-  lifecycle?: HostConnectionLifecycle,
-  origin: HostClientOrigin = 'public-socket'
+  options: HostConnectionOptions = {}
 ): () => void {
+  const { lifecycle, origin = 'public-socket', storeProviderCredential } = options;
   let initialized = false;
   let disposed = false;
   const mcpClient = {
@@ -77,6 +84,13 @@ export function bindHostConnection(
       protocolVersion: record.protocolVersion,
       start: record.start,
     };
+  });
+  handle('auth/login', async (params) => {
+    if (!storeProviderCredential) {
+      throw new Error('This host owns no credential store');
+    }
+    await storeProviderCredential(params.provider, params.credential);
+    return { stored: true };
   });
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));
