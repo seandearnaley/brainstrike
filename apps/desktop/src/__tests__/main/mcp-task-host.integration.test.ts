@@ -532,6 +532,82 @@ describe('McpDesktopTaskHost', () => {
     expect(server.cancels).toEqual([]);
   });
 
+  it('recovers from inside the restart_required notification with a fresh poller and fresh input', async () => {
+    const server = createFakeServer();
+    const parked = Promise.withResolvers<void>();
+    // The admitting run's user never answers; the recovered binding accepts.
+    elicitationPresenter.bindTaskPresenter.mockImplementationOnce(
+      (binding: McpTaskElicitationBinding) => {
+        bindings.push(binding);
+        return {
+          presenter: {
+            confirmUrl: async () => ({ action: 'cancel' as const }),
+            form: true,
+            openExternal: async () => undefined,
+            presentForm: () => {
+              parked.resolve();
+              return new Promise(() => undefined);
+            },
+            url: true,
+          },
+          release: vi.fn(),
+        };
+      }
+    );
+    await host.connected(createConnection(server));
+    const caller = new AbortController();
+    const initial = await host.track(
+      { configuredServerId: SERVER_ID, result: server.created('t-9'), toolName: 'stoppable' },
+      caller.signal
+    );
+    server.set('t-9', {
+      inputRequests: {
+        'input-1': {
+          method: 'elicitation/create',
+          params: {
+            message: 'Choose a workspace',
+            mode: 'form',
+            requestedSchema: {
+              properties: { workspace: { type: 'string' } },
+              required: ['workspace'],
+              type: 'object',
+            },
+          },
+        },
+      },
+      status: 'input_required',
+    });
+    await parked.promise;
+    // The subscriber recovers synchronously from the restart_required publication itself.
+    const recovered = Promise.withResolvers<Awaited<ReturnType<typeof host.act>>>();
+    host.subscribe((task) => {
+      if (task.handle.taskId === 't-9' && task.recovery === 'restart_required') {
+        host
+          .act({ action: 'recover', handle: task.handle })
+          .then(recovered.resolve, recovered.reject);
+      }
+    });
+    caller.abort(new Error('Run stopped by user'));
+    await expect(recovered.promise).resolves.toEqual({
+      ok: true,
+      task: expect.objectContaining({ handle: initial.handle, recovery: 'live' }),
+    });
+    expect(host.snapshot().sessions[0]).toMatchObject({ lifecycle: { activeTasks: 1 }, tasks: 1 });
+    // The recovered poller presents the input afresh and its answer completes the task.
+    await expect(host.awaitSettlement(initial.handle, { timeoutMs: 5000 })).resolves.toEqual({
+      settled: true,
+      task: expect.objectContaining({ recovery: 'terminal', status: 'completed' }),
+    });
+    expect(bindings.filter(({ taskHandle }) => taskHandle.taskId === 't-9')).toHaveLength(2);
+    expect(server.updates).toEqual([
+      {
+        inputResponses: { 'input-1': { action: 'accept', content: { workspace: 'Eng' } } },
+        taskId: 't-9',
+      },
+    ]);
+    expect(server.cancels).toEqual([]);
+  });
+
   it('marks tasks restart_required on disconnect, recovers them on reconnect, and retires the epoch on replacement', async () => {
     const server = createFakeServer();
     await host.connected(createConnection(server));

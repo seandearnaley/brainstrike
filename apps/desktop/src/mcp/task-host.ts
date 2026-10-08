@@ -546,6 +546,14 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
     };
     session.tasks.set(taskId, entry);
     this.store(entry.presentation);
+    // Idempotent and identity-guarded: it releases only this registration, so it
+    // can never erase an entry a later recovery registered for the same task.
+    const retire = (): void => {
+      binding.release();
+      if (session.tasks.get(taskId) === entry) {
+        session.tasks.delete(taskId);
+      }
+    };
     void tracked.settled
       .then(
         (record) => {
@@ -560,19 +568,16 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
           // Tracking ended (its caller stopped, or polling failed) while the
           // session stays open. Nothing will observe this task now, so its
           // unanswered input is withdrawn — finalizing the presentation so a
-          // late answer is refused — without sending tasks/cancel, and the
-          // durable row is projected as recoverable rather than live.
+          // late answer is refused — without sending tasks/cancel. The exact
+          // registration is retired BEFORE the durable row is projected as
+          // recoverable, so a recovery driven by that projection starts afresh.
           session.interaction?.withdraw(taskId);
+          retire();
           this.store(projectMcpTaskRecord(entry.record, 'restart_required'));
           this.options.onInternalError('mcp-task-settlement-failed', { cause, taskId });
         }
       )
-      .finally(() => {
-        binding.release();
-        if (session.tasks.get(taskId) === entry) {
-          session.tasks.delete(taskId);
-        }
-      });
+      .finally(retire);
     return entry;
   }
 
