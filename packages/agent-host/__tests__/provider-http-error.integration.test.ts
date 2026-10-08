@@ -15,6 +15,7 @@ import {
   type ProductionHostRunConfiguration,
 } from '../src/production-platform.js';
 import type { HostEvent, HostLogRow } from '../src/protocol.js';
+import { anthropicMessagesText, openAIResponsesText } from './fixtures/provider-sse.js';
 
 type Provider = 'openai' | 'anthropic';
 type Finished = Extract<HostEvent, { type: 'run.finished' }>;
@@ -279,3 +280,84 @@ test.each(['openai', 'anthropic'] as const)(
     );
   }
 );
+
+function jsonError(status: number, body: unknown, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), {
+    headers: { 'content-type': 'application/json', 'request-id': 'offline-request-id', ...headers },
+    status,
+  });
+}
+
+function preparedReceipts(rows: readonly HostLogRow[]): number {
+  return rows.filter((row) => row.event.type === 'provider.request.prepared').length;
+}
+
+function committedText(rows: readonly HostLogRow[]): string {
+  return rows
+    .flatMap((row) =>
+      row.event.type === 'stream.chunk' &&
+      typeof row.event.chunk === 'object' &&
+      row.event.chunk !== null &&
+      !Array.isArray(row.event.chunk) &&
+      row.event.chunk['type'] === 'text-delta' &&
+      typeof row.event.chunk['text'] === 'string'
+        ? [row.event.chunk['text']]
+        : []
+    )
+    .join('');
+}
+
+// The providers' documented transient envelopes. `retry-after: 0` keeps the
+// SDK's own Retry-After handling in the path without a real wait.
+const transient = [
+  [
+    'openai',
+    429,
+    {
+      error: {
+        code: 'rate_limit_exceeded',
+        message: 'Rate limit reached for requests.',
+        param: null,
+        type: 'requests',
+      },
+    },
+  ],
+  ['anthropic', 529, { error: { message: 'Overloaded', type: 'overloaded_error' }, type: 'error' }],
+  [
+    'openai',
+    503,
+    { error: { code: null, message: 'Service unavailable.', param: null, type: 'server_error' } },
+  ],
+] as const;
+
+test.each(transient)(
+  '%s HTTP %d before the stream opens is retried and the run completes',
+  async (provider, status, body) => {
+    const success = provider === 'openai' ? openAIResponsesText : anthropicMessagesText;
+    const { fetch, rows, terminal } = await runAgainstProviderHttp(provider, (call) =>
+      call === 1
+        ? jsonError(status, body, { 'retry-after': '0' })
+        : success('offline-model', 'Recovered answer.')
+    );
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(terminal.outcome).toBe('completed');
+    expect(committedText(rows)).toBe('Recovered answer.');
+    // The failed request never reached the log; each attempt left its receipt.
+    expect(errorChunks(rows)).not.toContainEqual(expect.objectContaining({ type: 'error' }));
+    expect(preparedReceipts(rows)).toBe(2);
+  }
+);
+
+test('a provider that stays unavailable fails visibly after the bounded retries', async () => {
+  const body = {
+    error: { code: null, message: 'Service unavailable.', param: null, type: 'server_error' },
+  };
+  const { fetch, rows, terminal } = await runAgainstProviderHttp('openai', () =>
+    jsonError(503, body, { 'retry-after': '0' })
+  );
+  // One request plus the SDK's two retries.
+  expect(fetch).toHaveBeenCalledTimes(3);
+  expect(preparedReceipts(rows)).toBe(3);
+  expect(terminal.outcome).toBe('failed');
+  expect(terminal.detail).toContain('Service unavailable.');
+});

@@ -155,7 +155,7 @@ class SubscriptionQuotaTerminalRetryProcessor implements ErrorProcessor {
   }
 }
 
-function isSubscriptionAuthProvider(provider: string): boolean {
+export function isSubscriptionAuthProvider(provider: string): boolean {
   return findProviderDefinition(normalizeProvider(provider))?.authType === 'oauth_subscription';
 }
 

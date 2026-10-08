@@ -28,6 +28,17 @@ import type { HostToolRecords } from './tool-records.js';
 
 export type HostRunAction = Extract<HostEvent, { type: 'effect.started' }>;
 
+/**
+ * SDK request retries per model step (exponential backoff from 2s, provider
+ * Retry-After honored up to 60s, abort-aware). The SDK retries only a request
+ * whose response stream never opened, with an `isRetryable` provider error:
+ * nothing of that request reached the log, `prepareStep` ran once outside the
+ * retry, and no tool executes inside it. Each attempt commits its own
+ * `provider.request.prepared` receipt. Subscription quota is typed
+ * non-retryable below this boundary by the provider request middleware.
+ */
+const HOST_PROVIDER_REQUEST_RETRIES = 2;
+
 /** HostCore's single-writer seams that a run's SDK loop and its tool effects commit through. */
 export interface HostRunExecutionPorts {
   admit<T>(threadId: string, perform: () => Promise<T>, signal: AbortSignal): Promise<T>;
@@ -151,7 +162,7 @@ export async function runHostSdkLoop(
     ports.presentations.request(run, admission, ports.runs.values());
     const result = streamText({
       abortSignal: run.controller.signal,
-      maxRetries: 0,
+      maxRetries: HOST_PROVIDER_REQUEST_RETRIES,
       messages: await rebuildApprovedRuntimeMessages({
         approvals: [...run.approvals.values()],
         checkpointedResults: run.checkpointedResults,
