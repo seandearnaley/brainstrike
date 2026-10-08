@@ -49,6 +49,7 @@ function hostCapability(): AssistantThreadHostCapability {
     deleteThread: vi.fn(),
     listThreads: vi.fn(),
     ownsThread: vi.fn(async (threadId: string) => threadId === HOST_THREAD),
+    renameThread: vi.fn(),
     renderThread: vi.fn(),
     updateThreadBinding: vi.fn(async () => undefined),
     workspaceRepository: (repository) => repository,

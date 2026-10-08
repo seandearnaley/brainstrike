@@ -3,12 +3,17 @@ import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/th
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { z } from 'zod';
 
-export const AGENT_HOST_PROTOCOL_VERSION = 10;
+// 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
+// and the explicit branch links they commit on `run.started`), and thread
+// titles (`thread/rename`, `thread.renamed`, titles in `thread/list`).
+export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = z.string().min(1);
 const Command = { commandId: Id };
 const Thread = { threadId: Id };
+/** A committed thread title: trimmed, never blank. */
+const ThreadTitle = z.string().trim().min(1);
 const Run = { ...Thread, runId: Id };
 const McpInput = { ...Run, interactionId: Id };
 export const HostMcpInputStatusSchema = z.enum([
@@ -104,11 +109,21 @@ export const HOST_METHOD_SCHEMAS = {
   }),
   // Values are process-local and never enter HostCommandLedger.
   'mcp/input/stage': z.strictObject({ ...McpInput, content: McpContent.optional() }),
+  'run/regenerate': z.strictObject({
+    ...Command,
+    ...Thread,
+    configuration: z.record(z.string(), z.json()).optional(),
+    modelId: Id,
+    /** The original committed user message: its run/start command ID. */
+    userMessageId: Id,
+  }),
   'run/start': z.strictObject({
     ...Command,
     ...Thread,
     configuration: z.record(z.string(), z.json()).optional(),
     modelId: Id,
+    /** A committed run ID to follow, null for the thread root; omitted is the current tip. */
+    parentMessageId: Id.nullable().optional(),
     prompt: Id,
   }),
   'run/stop': z.strictObject({ ...Command, ...Run }),
@@ -116,6 +131,7 @@ export const HOST_METHOD_SCHEMAS = {
   'thread/delete': z.strictObject(Thread),
   'thread/list': z.strictObject({}),
   'thread/read': z.strictObject({ ...Thread, fromSeq: Seq }),
+  'thread/rename': z.strictObject({ ...Command, ...Thread, title: ThreadTitle }),
   'thread/start': z.strictObject(Command),
   'thread/workspace/binding/read': z.strictObject(Thread),
   'thread/workspace/binding/update': z.strictObject({
@@ -190,6 +206,7 @@ export const HostEventSchema = z.union([
     type: z.literal('mcp.input.settled'),
   }),
   z.strictObject({ commandId: Id, type: z.literal('thread.started') }),
+  z.strictObject({ title: ThreadTitle, type: z.literal('thread.renamed') }),
   z.strictObject({ snapshot: WorkspaceSnapshotSchema, type: z.literal('workspace.updated') }),
   z.strictObject({
     commandId: Id,
@@ -202,9 +219,17 @@ export const HostEventSchema = z.union([
     type: z.literal('run.started'),
     ...RunFields,
     modelId: Id,
+    /**
+     * The committed message this run's new user message follows (a run ID;
+     * null is the thread root). Rows committed before branch history omit
+     * it: their parent is the previous run.
+     */
+    parentMessageId: Id.nullable().optional(),
     parentRunId: Id.optional(),
     prompt: Id,
     snapshot: HostRunSnapshotSchema.optional(),
+    /** Regenerate only: the existing committed user message this run answers again. */
+    userMessageId: Id.optional(),
   }),
   z.strictObject({ type: z.literal('stream.chunk'), ...RunFields, chunk: z.json() }),
   z.strictObject({
@@ -294,11 +319,16 @@ export const HOST_RESULT_SCHEMAS = {
     status: HostMcpInputStatusSchema,
   }),
   'mcp/input/stage': z.strictObject({ staged: z.literal(true) }),
+  'run/regenerate': z.strictObject({ runId: Id }),
   'run/start': z.strictObject({ runId: Id }),
   'run/stop': z.strictObject({ outcome: z.enum(['stopped', 'already-terminal']) }),
   'thread/delete': z.strictObject({ deleted: z.literal(true) }),
-  'thread/list': z.strictObject({ threads: z.array(z.strictObject(Thread)) }),
+  'thread/list': z.strictObject({
+    // A thread never renamed has no committed title.
+    threads: z.array(z.strictObject({ ...Thread, title: ThreadTitle.optional() })),
+  }),
   'thread/read': z.strictObject({ rows: z.array(HostLogRowSchema) }),
+  'thread/rename': z.strictObject({ accepted: z.literal(true) }),
   'thread/start': z.strictObject(Thread),
   'thread/workspace/binding/read': z.strictObject({
     binding: ThreadWorkspaceBindingSchema.nullable(),

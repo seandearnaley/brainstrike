@@ -131,8 +131,18 @@ export class CommittedThreadSession {
       listener();
     }
   }
-  connect(): () => void {
+  /**
+   * Subscribe, and return the disposer. Delivery stops as soon as it is
+   * called. Its promise settles with the `log/unsubscribe` outcome, as the CLI
+   * session's does: a refusal rejects rather than being swallowed, and an
+   * owner that closes the client must join it first. A request still queued
+   * when the client closes fails inside vscode-jsonrpc as an unhandled
+   * rejection. A connection that has already closed ended the subscription
+   * itself, so nothing is sent.
+   */
+  connect(): () => Promise<void> {
     let active = true;
+    let connectionClosed = false;
     const release = this.client.onEvent((row) => {
       if (active) {
         this.view.accept([row]);
@@ -151,15 +161,22 @@ export class CommittedThreadSession {
       }
     );
     const closed = (): void => {
+      connectionClosed = true;
       if (active) {
         this.update({ connected: false });
       }
     };
     this.client.closed.then(closed, closed);
+    let disposed: Promise<void> | undefined;
     return () => {
-      active = false;
-      release();
-      this.client.request('log/unsubscribe', { threadId: this.threadId }).catch(() => undefined);
+      disposed ??= (async (): Promise<void> => {
+        active = false;
+        release();
+        if (!connectionClosed) {
+          await this.client.request('log/unsubscribe', { threadId: this.threadId });
+        }
+      })();
+      return disposed;
     };
   }
 }

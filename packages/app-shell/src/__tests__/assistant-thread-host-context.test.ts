@@ -36,6 +36,7 @@ function repositories(deleteOwned: AssistantThreadHostCapability['deleteThread']
     deleteThread: deleteOwned,
     listThreads: vi.fn(),
     ownsThread: vi.fn(async (threadId: string) => OWNED.has(threadId)),
+    renameThread: vi.fn(async () => undefined),
     renderThread: vi.fn(),
     updateThreadBinding: vi.fn(async () => undefined),
     workspaceRepository: (repository) => repository,
@@ -70,14 +71,16 @@ test('a historical thread keeps its existing metadata repository', async () => {
   expect(host.updateThreadBinding).not.toHaveBeenCalled();
 });
 
-test('renaming a host-owned thread refuses visibly and never writes history', async () => {
-  const { history, repository } = repositories(vi.fn());
-  await expect(repository.renameThread('owned-thread', 'Renamed')).rejects.toThrow();
+test('renaming a host-owned thread commits its title through the host, never history', async () => {
+  const { history, host, repository } = repositories(vi.fn());
+  await repository.renameThread('owned-thread', 'Renamed');
+  expect(host.renameThread).toHaveBeenCalledExactlyOnceWith('owned-thread', 'Renamed');
   expect(history.renameThread).not.toHaveBeenCalled();
 });
 
 test('a refused host rename keeps the committed title instead of an optimistic one', async () => {
-  const { repository } = repositories(vi.fn());
+  const { history, host, repository } = repositories(vi.fn());
+  vi.mocked(host.renameThread).mockRejectedValueOnce(new Error('Host refused the title'));
   const committed = {
     createdAt: new Date('2026-10-08T00:00:00.000Z'),
     id: 'owned-thread',
@@ -92,6 +95,7 @@ test('a refused host rename keeps the committed title instead of an optimistic o
       .renameThread(repository, 'workspace', 'owned-thread', 'Optimistic title')
   ).rejects.toThrow();
   expect(useAssistantThreadStore.getState().threadsByResourceId['workspace']).toEqual([committed]);
+  expect(history.renameThread).not.toHaveBeenCalled();
 });
 
 test('renaming a historical thread keeps its existing repository', async () => {
