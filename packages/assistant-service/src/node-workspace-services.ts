@@ -1,4 +1,5 @@
-import { realpath } from 'node:fs/promises';
+import { realpath, stat } from 'node:fs/promises';
+import path from 'node:path';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
 import { isDurableRootId } from '@brainstrike/file-system';
@@ -20,6 +21,29 @@ export interface NodeWorkspaceServicesStartup {
 
 /** The existing selected location, not a request to derive a profile from cwd. */
 export type NodeWorkspaceProfileSelection = DatabaseLocation;
+
+/** Recover only the explicit acquired profile's existing layout, never select a default. */
+export async function existingProfileLocationForCanonicalRoot(
+  profileDirectory: string
+): Promise<DatabaseLocation> {
+  if (!path.isAbsolute(profileDirectory)) {
+    throw new Error('The acquired profile Root must be absolute and canonical.');
+  }
+  const canonicalDirectory = await realpath(profileDirectory);
+  if (canonicalDirectory !== profileDirectory || !(await stat(canonicalDirectory)).isDirectory()) {
+    throw new Error('The acquired profile Root must be an existing canonical directory.');
+  }
+  const profilesDirectory = path.dirname(canonicalDirectory);
+  const rootPath = path.dirname(profilesDirectory);
+  const profile = path.basename(canonicalDirectory);
+  if (
+    path.basename(profilesDirectory) !== 'profiles' ||
+    joinProfileDirectory(rootPath, profile) !== canonicalDirectory
+  ) {
+    throw new Error('The acquired profile Root must use the existing profiles layout.');
+  }
+  return { profile, rootPath, source: 'override' };
+}
 
 /** Existing owners provide these operations; this borrower constructs no store or mount. */
 export interface NodeWorkspaceProfileOwner<TDatabase> {

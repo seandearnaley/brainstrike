@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { access, readFile, realpath, symlink, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import {
+  existingProfileLocationForCanonicalRoot,
   joinProfileDirectory,
   openExistingNodeWorkspaceServices,
 } from '@brainstrike/assistant-service/node-workspace-services';
@@ -29,7 +30,10 @@ try {
     await unlink(alias);
     await symlink(profileB, alias, 'dir');
   }
-  const location = mode === 'retarget' ? locationB : locationA;
+  const location =
+    mode === 'retarget'
+      ? locationB
+      : await existingProfileLocationForCanonicalRoot(store.lock.owner.root);
   const selectedProfile = mode === 'retarget' ? profileB : profileA;
   assert.equal(await realpath(store.root), selectedProfile);
   const ledger = path.join(
