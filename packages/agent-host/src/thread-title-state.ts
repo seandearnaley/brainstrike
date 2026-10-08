@@ -79,7 +79,7 @@ export class HostThreadTitleState {
       system: TITLE_INSTRUCTIONS,
     }).then(
       (result) => normalizeTitle(result.text),
-      (cause: unknown) => {
+      (cause: unknown): undefined => {
         if (!run.controller.signal.aborted) {
           logger.warn('Host thread title request failed', {
             code: 'host_thread_title_failed',
