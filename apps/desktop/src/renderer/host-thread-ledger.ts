@@ -1,0 +1,242 @@
+import type { HostEvent, HostLogRow } from '@brainstrike/agent-host/protocol';
+import type {
+  AssistantThreadHostLedger,
+  AssistantThreadHostLedgerSnapshot,
+} from '@brainstrike/app-shell/assistant-thread-host-context';
+import type { RunLedgerRow } from '@brainstrike/assistant-data';
+import type { HostUsageRecord } from '@brainstrike/assistant-data/cost-tracking';
+import { createLogger } from '@brainstrike/logging';
+import { z } from 'zod';
+import { type CommittedHostRunSource, STATUS_BY_OUTCOME } from './host-thread-runs';
+
+const logger = createLogger('HostThreadLedger');
+
+/** The AI SDK step usage Core commits on model.step and memory.usage. */
+const CommittedUsageSchema = z.object({
+  inputTokenDetails: z
+    .object({
+      cacheReadTokens: z.number().int().nonnegative().optional(),
+      cacheWriteTokens: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
+  inputTokens: z.number().int().nonnegative().optional(),
+  outputTokens: z.number().int().nonnegative().optional(),
+});
+
+type Tokens = Pick<
+  HostUsageRecord,
+  'cacheReadTokens' | 'cacheWriteTokens' | 'inputTokens' | 'outputTokens'
+>;
+
+/** Unreported token counts are counted as none, as the legacy usage writer does. */
+function tokensOf(usage: unknown): Tokens {
+  const parsed = CommittedUsageSchema.parse(usage);
+  return {
+    cacheReadTokens: parsed.inputTokenDetails?.cacheReadTokens ?? 0,
+    cacheWriteTokens: parsed.inputTokenDetails?.cacheWriteTokens ?? 0,
+    inputTokens: parsed.inputTokens ?? 0,
+    outputTokens: parsed.outputTokens ?? 0,
+  };
+}
+
+/** A host run's `provider::model` catalog id, as desktop and the CLI admit it. */
+function catalogModel(modelId: string): { model: string; provider: string } | undefined {
+  const separator = modelId.indexOf('::');
+  return separator > 0
+    ? { model: modelId.slice(separator + 2), provider: modelId.slice(0, separator) }
+    : undefined;
+}
+
+interface RunFold {
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  completedAt: number | null;
+  failedToolCallCount: number;
+  inputTokens: number;
+  readonly model: string;
+  outputTokens: number;
+  readonly provider: string;
+  readonly runId: string;
+  readonly startedAt: number;
+  status: RunLedgerRow['status'];
+  readonly threadId: string;
+  toolCallCount: number;
+}
+
+/** One thread's committed log, folded incrementally from its first row. */
+class ThreadLedgerFold {
+  seq = 0;
+  readonly runs = new Map<string, RunFold>();
+  readonly usage: HostUsageRecord[] = [];
+
+  apply(row: HostLogRow): void {
+    this.seq = row.seq;
+    const { event } = row;
+    if (event.type === 'run.started') {
+      this.start(row, event);
+      return;
+    }
+    const run = 'runId' in event ? this.runs.get(event.runId) : undefined;
+    if (!run) {
+      return;
+    }
+    if (event.type === 'model.step') {
+      this.count(run, row, run, tokensOf(event.usage));
+    } else if (event.type === 'memory.usage') {
+      // Memory's own model calls cost under their own model, within the run.
+      this.count(run, row, catalogModel(event.modelId), tokensOf(event.usage));
+    } else if (event.type === 'stream.chunk') {
+      const chunk = z.object({ type: z.string() }).safeParse(event.chunk);
+      if (chunk.success && chunk.data.type === 'tool-call') {
+        run.toolCallCount += 1;
+      } else if (chunk.success && chunk.data.type === 'tool-error') {
+        run.failedToolCallCount += 1;
+      }
+    } else if (event.type === 'run.finished') {
+      run.status = STATUS_BY_OUTCOME[event.outcome];
+      run.completedAt = row.ts ?? null;
+    }
+  }
+
+  private start(row: HostLogRow, event: Extract<HostEvent, { type: 'run.started' }>): void {
+    const model = catalogModel(event.modelId);
+    if (!model || row.ts === undefined) {
+      logger.warn('A host run without a catalog model or commit time is not costed', {
+        runId: event.runId,
+      });
+      return;
+    }
+    this.runs.set(event.runId, {
+      ...model,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      completedAt: null,
+      failedToolCallCount: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      runId: event.runId,
+      startedAt: row.ts,
+      status: 'running',
+      threadId: row.threadId,
+      toolCallCount: 0,
+    });
+  }
+
+  private count(
+    run: RunFold,
+    row: HostLogRow,
+    model: { readonly model: string; readonly provider: string } | undefined,
+    tokens: Tokens
+  ): void {
+    run.inputTokens += tokens.inputTokens;
+    run.outputTokens += tokens.outputTokens;
+    run.cacheReadTokens += tokens.cacheReadTokens;
+    run.cacheWriteTokens += tokens.cacheWriteTokens;
+    if (model && row.ts !== undefined) {
+      this.usage.push({ at: row.ts, model: model.model, provider: model.provider, ...tokens });
+    }
+  }
+}
+
+function ledgerRow(run: RunFold): RunLedgerRow {
+  return {
+    completedAt: run.completedAt === null ? null : new Date(run.completedAt),
+    durationMs: run.completedAt === null ? null : run.completedAt - run.startedAt,
+    // The host log commits no edit facts before the in-host tools batch.
+    editCount: 0,
+    // The host records no provider-billed cost: every token is estimated.
+    estimatedCacheCreationTokens: run.cacheWriteTokens,
+    estimatedCacheReadTokens: run.cacheReadTokens,
+    estimatedInputTokens: run.inputTokens,
+    estimatedOutputTokens: run.outputTokens,
+    failedToolCallCount: run.failedToolCallCount,
+    inputTokens: run.inputTokens,
+    model: run.model,
+    outcomeDetail: null,
+    outcomeSource: null,
+    outcomeVerdict: null,
+    outputTokens: run.outputTokens,
+    provider: run.provider,
+    revertedEditCount: 0,
+    runId: run.runId,
+    startedAt: new Date(run.startedAt),
+    status: run.status,
+    threadId: run.threadId,
+    toolCallCount: run.toolCallCount,
+  };
+}
+
+/**
+ * The window's cost-view share of the host threads it knows: their runs and
+ * provider calls, folded from the committed log. A catalog read seeds a
+ * thread; a mounted view's session keeps it current; the later row wins.
+ */
+export class HostThreadLedger implements AssistantThreadHostLedger {
+  private readonly threads = new Map<string, ThreadLedgerFold>();
+  private snapshot: AssistantThreadHostLedgerSnapshot = { runs: [], usage: [] };
+  private readonly listeners = new Set<() => void>();
+
+  readonly getSnapshot = (): AssistantThreadHostLedgerSnapshot => this.snapshot;
+
+  readonly subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+
+  /** A complete committed log, read from its first row. */
+  accept(threadId: string, rows: readonly HostLogRow[]): void {
+    const fold = new ThreadLedgerFold();
+    for (const row of rows) {
+      fold.apply(row);
+    }
+    this.set(threadId, fold);
+  }
+
+  delete(threadId: string): void {
+    if (this.threads.delete(threadId)) {
+      this.publish();
+    }
+  }
+
+  /** Follow a mounted view's committed session; returns its release. */
+  observe(threadId: string, source: CommittedHostRunSource): () => void {
+    const fold = new ThreadLedgerFold();
+    let cursor = 0;
+    const sync = (): void => {
+      const { isLoading, rows } = source.getSnapshot();
+      if (isLoading || rows.length === cursor) {
+        return;
+      }
+      for (const row of rows.slice(cursor)) {
+        fold.apply(row);
+      }
+      cursor = rows.length;
+      this.set(threadId, fold, true);
+    };
+    sync();
+    return source.subscribe(sync);
+  }
+
+  private set(threadId: string, fold: ThreadLedgerFold, advanced = false): void {
+    const current = this.threads.get(threadId);
+    if (current && current !== fold && current.seq >= fold.seq) {
+      return;
+    }
+    if (current === fold && !advanced) {
+      return;
+    }
+    this.threads.set(threadId, fold);
+    this.publish();
+  }
+
+  private publish(): void {
+    const folds = [...this.threads.values()];
+    this.snapshot = {
+      runs: folds.flatMap((fold) => [...fold.runs.values()].map(ledgerRow)),
+      usage: folds.flatMap((fold) => fold.usage),
+    };
+    for (const listener of this.listeners) {
+      listener();
+    }
+  }
+}

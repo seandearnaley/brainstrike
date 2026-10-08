@@ -1,10 +1,10 @@
 import { ToolInputError } from '@brainstrike/assistant-contract';
-import { describe, expect, it } from 'vitest';
 import {
   ReadWorkspaceFileCursorRegistry,
   type ReadWorkspaceFileCursorScope,
   type ReadWorkspaceFileCursorState,
-} from '../../assistant-server/read-workspace-file-cursor-registry';
+} from '@brainstrike/host-capabilities/native-tools';
+import { describe, expect, it } from 'vitest';
 
 const HANDLE = 'rfh_abcdefghijklmnopqrstuv';
 const SCOPE: ReadWorkspaceFileCursorScope = {

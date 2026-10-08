@@ -35,8 +35,9 @@ vi.mock('@brainstrike/agent/pglite-mastra-memory', async () =>
 vi.mock('../../assistant-server/assistant-tools', async () =>
   (await mocks()).makeAssistantToolsMock()
 );
-vi.mock('../../assistant-server/workspace-text-file-reader', async () =>
-  (await mocks()).makeWorkspaceTextFileReaderMock()
+vi.mock(
+  '../../../../../packages/host-capabilities/src/native-tools/workspace-text-file-reader',
+  async () => (await mocks()).makeWorkspaceTextFileReaderMock()
 );
 vi.mock('../../db-main', async () => (await mocks()).makeDbMainMock());
 
@@ -454,9 +455,7 @@ describe('agent-stream-init runtime composition and memory', () => {
       '@brainstrike/assistant-contract'
     );
     const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
-    const { readWorkspaceTextFile } = await import(
-      '../../assistant-server/workspace-text-file-reader'
-    );
+    const { readWorkspaceTextFile } = await import('@brainstrike/host-capabilities/native-tools');
     const { streamResponse } = await import('../../assistant-server/http');
 
     mockDesktopDatabase.query.mockResolvedValueOnce({

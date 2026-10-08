@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
-import type { ProviderAuthInput } from '@brainstrike/agent/provider-runtime';
+import type { ProviderAuthInput, RuntimeData } from '@brainstrike/agent/provider-runtime';
 import {
   canonicalToolInputJsonSchema,
   type HostPlatform,
@@ -7,8 +7,10 @@ import {
   type HostTool,
   validateCanonicalToolInput,
 } from '@brainstrike/agent-host';
+import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
+import { isSharedNativeToolId } from '@brainstrike/host-capabilities/native-tools';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
@@ -26,13 +28,14 @@ import { serveProviderFetchTransport } from './provider-fetch-transport';
 
 export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'tools'> {
   close(): Promise<void>;
+  /** The admitted roots revalidated against their live owners, for the host's shared tools. */
+  freshWorkspaceRoots(): Promise<NonNullable<RuntimeData['workspaceRoots']>>;
   revalidateWorkspace?(signal: AbortSignal): Promise<void>;
   readonly tools: Readonly<Record<string, HostTool>>;
 }
 export interface DesktopPlatformCapabilities {
   /** Join Main-owned Root borrowers before Core releases its canonical writer. */
   closeRootCapabilities?(): Promise<void>;
-  /** The Node host's MCP runtime reaches Main's remaining MCP stores through these. */
   /** The Node host always composes its MCP runtime, which reaches these Main stores. */
   readonly mcp: DesktopMcpPlatformCapabilities;
   readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopPlatformSelection>;
@@ -40,6 +43,8 @@ export interface DesktopPlatformCapabilities {
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
+  /** The live path of a mounted profile root; rejects an unknown root. */
+  resolveWorkspaceRoot?(rootId: string): Promise<string>;
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
 }
 
@@ -71,6 +76,7 @@ async function describePlatformSelection(
   );
   const {
     close: _close,
+    freshWorkspaceRoots: _freshWorkspaceRoots,
     revalidateWorkspace: _revalidateWorkspace,
     tools: _tools,
     ...configuration
@@ -262,6 +268,21 @@ export function serveDesktopPlatform(
       return { accepted: true };
     })
   );
+  connection.onRequest('platform/workspace/root', (input: unknown, token: CancellationToken) =>
+    execute(token, async () => {
+      const { rootId } = z.strictObject({ rootId: z.string().min(1) }).parse(input);
+      if (!capabilities.resolveWorkspaceRoot) {
+        throw new Error('Desktop has no live workspace root owner');
+      }
+      return await capabilities.resolveWorkspaceRoot(rootId);
+    })
+  );
+  connection.onRequest('platform/workspace/roots', (input: unknown, token: CancellationToken) =>
+    execute(token, async () => {
+      const { threadId } = z.strictObject({ threadId: z.string().min(1) }).parse(input);
+      return CliWorkspaceRootsSchema.parse(await selection(threadId).freshWorkspaceRoots());
+    })
+  );
   connection.onRequest('platform/admit', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
       const request = PlatformRunRequestSchema.parse(input);
@@ -360,6 +381,9 @@ export function serveDesktopPlatform(
         const tool = selection(request.threadId).tools[request.toolId];
         if (!tool) {
           throw new Error('Platform executor is not admitted');
+        }
+        if (isSharedNativeToolId(tool.permissionToolId ?? request.toolId)) {
+          throw new Error('Shared native tools execute in the agent host');
         }
         const output = await tool.execute(request.input, {
           ...(request.resumeData === undefined ? {} : { resumeData: request.resumeData }),

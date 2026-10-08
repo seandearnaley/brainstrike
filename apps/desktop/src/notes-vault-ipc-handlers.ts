@@ -42,6 +42,12 @@ import { randomUUID } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { resolveValidatedPath } from '@brainstrike/file-system/path-validation';
+import {
+  ensureContainedDirectory,
+  isWithinRoot,
+  resolveWorkspaceWritePath,
+  writeContainedFileBytes,
+} from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import { WELCOME_NOTE_CONTENT, WELCOME_NOTE_NAME } from '@brainstrike/notes-vault/core';
 import type {
@@ -51,15 +57,9 @@ import type {
 } from '@brainstrike/notes-vault/desktop-contract';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
 import { ipcMain } from 'electron';
-import { isWithinRoot } from './assistant-server/workspace-path';
 import { notesVaultContract } from './ipc-domains/notes-vault.contract';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry, registerDomain } from './platform/desktop-ipc-registry';
-import {
-  ensureContainedDirectory,
-  resolveWorkspaceWritePath,
-  writeContainedFileBytes,
-} from './secure-file-write';
 
 const logger = createLogger('NotesVaultIpc');
 

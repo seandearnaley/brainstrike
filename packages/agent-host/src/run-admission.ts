@@ -1,5 +1,5 @@
 import { resolvePermissionDecision } from '@brainstrike/assistant-contract';
-import type { StepResult, ToolSet } from 'ai';
+import { modelMessageSchema, type StepResult, type ToolSet } from 'ai';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import type { HostRunState } from './core-state.js';
 import { canonical, jsonValue } from './json-value.js';
@@ -51,6 +51,14 @@ export class HostRunAdmissionCleanupError extends AggregateError {
   constructor(cause: unknown, cleanup: unknown) {
     super([cause, cleanup], 'Run selection and cleanup failed');
     this.name = 'HostRunAdmissionCleanupError';
+  }
+}
+
+/** A run owner's open acquired resources and then failed to join them. */
+export class HostRunOwnerCleanupError extends AggregateError {
+  constructor(cause: unknown, cleanup: unknown, message = 'Run owner open and cleanup failed') {
+    super([cause, cleanup], message);
+    this.name = 'HostRunOwnerCleanupError';
   }
 }
 
@@ -195,7 +203,17 @@ export async function acquireHostRunAdmission(
 /** The Core retains this promise; both owners are attempted even when one join fails. */
 export async function closeHostRunResources(run: HostRunState): Promise<void> {
   const joined = await Promise.allSettled([
-    Promise.resolve(run.owner).then((owner) => owner?.close()),
+    Promise.resolve(run.owner).then(
+      (owner) => owner?.close(),
+      (cause: unknown) => {
+        // A failed or aborted open has nothing to close, and its failure is
+        // already the run's outcome. Only an unjoined partial acquisition is a
+        // cleanup failure; an admission's own failure stays with that branch.
+        if (cause instanceof HostRunOwnerCleanupError) {
+          throw cause;
+        }
+      }
+    ),
     Promise.resolve(run.admissionTask ?? run.admission).then(
       (admission) => admission?.close?.(),
       (cause: unknown) => {
@@ -386,4 +404,21 @@ export async function decideHostSdkApproval(
   }
   run.permits.set(call.toolCallId, action);
   return 'approved';
+}
+
+/** One model step and its answerable interactions, committed together by Core. */
+export function hostModelStepEvents(run: HostRunState, step: StepResult<ToolSet>): HostEvent[] {
+  return [
+    {
+      messages: step.response.messages.map((message) =>
+        jsonValue(modelMessageSchema.parse(message))
+      ),
+      model: jsonValue(step.model),
+      runId: run.id,
+      stepNumber: run.steps,
+      type: 'model.step',
+      usage: jsonValue(step.usage),
+    },
+    ...hostStepInteractions(run, step.content),
+  ];
 }

@@ -11,7 +11,7 @@ import type { RunNotificationEvent } from '@brainstrike/app-state/notifications/
  * user's Stop is `cancelled`, and a run interrupted by shutdown is `failed`, as
  * the legacy startup reaper records an interrupted run.
  */
-const STATUS_BY_OUTCOME: Readonly<
+export const STATUS_BY_OUTCOME: Readonly<
   Record<Extract<HostEvent, { type: 'run.finished' }>['outcome'], AssistantThreadHostRun['status']>
 > = { completed: 'completed', failed: 'failed', interrupted: 'failed', stopped: 'cancelled' };
 

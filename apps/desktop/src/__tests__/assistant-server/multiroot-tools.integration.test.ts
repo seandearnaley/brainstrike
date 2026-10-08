@@ -26,8 +26,8 @@ vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
 }));
 
+import { resetToolCallLoopGuards } from '@brainstrike/host-capabilities/native-tools';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
-import { resetToolCallLoopGuards } from '../../assistant-server/tool-call-loop-guards';
 import { requireToolExecute } from './_tool-test-helpers';
 
 const ROOT_A = { displayName: 'ProjectA', rootId: 'root-a' };

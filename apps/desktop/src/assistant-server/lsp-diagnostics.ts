@@ -30,6 +30,12 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import type {
+  EditDiagnostic,
+  EditDiagnosticsResult,
+  LspDiagnosticSeverity,
+  LspUnavailableReason,
+} from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import {
   createMessageConnection,
@@ -97,37 +103,6 @@ const DIAGNOSTIC_SETTLE_MS = 700;
  * under the ~2750-token budget on its own. 15×300 ≈ 5.7KB worst case. */
 const MAX_DIAGNOSTICS = 15;
 const MAX_DIAGNOSTIC_MESSAGE_CHARS = 300;
-
-export type LspDiagnosticSeverity = 'error' | 'warning' | 'info' | 'hint';
-
-/** One diagnostic in model-facing shape (1-based line/character). */
-export interface EditDiagnostic {
-  character: number;
-  line: number;
-  message: string;
-  severity: LspDiagnosticSeverity;
-  source?: string;
-}
-
-/** Why diagnostics are unavailable (only set when `available` is false). */
-export type LspUnavailableReason = 'unsupported-language' | 'server-unavailable' | 'timeout';
-
-/**
- * Attached to an edit tool's result. Omitted entirely by the caller when the
- * language is unsupported (no note spam on every markdown/json edit); present
- * with `available:false` + `message` when a language we DO support has no
- * working server or timed out (honest, never silent).
- */
-export interface EditDiagnosticsResult {
-  available: boolean;
-  /** Total diagnostics before self-bounding (>= diagnostics.length). */
-  diagnosticCount?: number;
-  diagnostics?: EditDiagnostic[];
-  language?: string;
-  message?: string;
-  reason?: LspUnavailableReason;
-  truncated?: boolean;
-}
 
 /** A resolved language-server launch spec. */
 interface ResolvedServer {

@@ -27,11 +27,14 @@ import {
   NATIVE_TOOL_ID,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
+import {
+  ReadWorkspaceFileCursorRegistry,
+  SHARED_NATIVE_TOOL_EXECUTORS,
+} from '@brainstrike/host-capabilities/native-tools';
 import { RootLock, StateStore } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
 import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
-import { createReadWorkspaceDirectoryTool } from '../assistant-server/read-workspace-directory-executor';
-import { ReadWorkspaceFileCursorRegistry } from '../assistant-server/read-workspace-file-cursor-registry';
+import { legacyNativeToolPorts } from '../assistant-server/legacy-native-tool-ports';
 import { createDesktopMcpHostRuntime } from '../mcp/host-runtime';
 
 function toolCallCount(requests: readonly ObservedMcpHostRequest[]): number {
@@ -89,9 +92,9 @@ test.each(['approve', 'deny'] as const)(
         workspaceRootPath: workspace,
         workspaceRoots: [{ displayName: 'Owned workspace', path: workspace, rootId: 'owned-root' }],
       };
-      const read = createReadWorkspaceDirectoryTool({
-        dependencies: {},
+      const read = SHARED_NATIVE_TOOL_EXECUTORS[NATIVE_TOOL_ID.readWorkspaceDirectory]({
         isLocalProvider: false,
+        ports: legacyNativeToolPorts(runtimeData),
         readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
         resolveActiveDomainCharBudget: () =>
           CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget,

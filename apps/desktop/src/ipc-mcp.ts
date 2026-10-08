@@ -11,6 +11,7 @@ import {
   parseMcpHostControlRequest,
 } from '@brainstrike/assistant-contract';
 import { isPathInsideRoot } from '@brainstrike/file-system/path-validation';
+import type { McpDiscoveredTool } from '@brainstrike/host-capabilities/mcp/types';
 import { createLogger } from '@brainstrike/logging';
 import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import {
@@ -40,7 +41,6 @@ import {
   type ToolPreferenceWriteIntent,
   withToolPreferencesFileLock,
 } from './mcp/tool-discovery';
-import type { McpDiscoveredTool } from './mcp/types';
 import {
   getDefaultMcpConfigTemplate,
   getMcpConfigPath,

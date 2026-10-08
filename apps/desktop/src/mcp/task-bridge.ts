@@ -18,11 +18,11 @@ import {
   parseMcpTaskActionRequest,
   parseMcpTaskListResult,
 } from '@brainstrike/assistant-contract';
+import type { McpDesktopTaskHostPort } from '@brainstrike/host-capabilities/mcp/task-host';
 import { mcpTasksContract } from '../ipc-domains/mcp.contract';
 import { type DesktopIpcRegistry, registerDomain } from '../platform/desktop-ipc-registry';
 import type { Handlers } from '../platform/ipc-contract';
 import { getTrackedWindowsByRole } from '../window-role';
-import type { McpDesktopTaskHostPort } from './task-host';
 
 export class McpTaskBridgeError extends Error {
   constructor(readonly code: 'mcp-task-action-malformed') {

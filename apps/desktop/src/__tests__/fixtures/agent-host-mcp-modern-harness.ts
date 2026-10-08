@@ -30,18 +30,18 @@ import {
   readMcpTaskToolInvocationResult,
 } from '@brainstrike/assistant-contract';
 import { McpTaskRepository, MigrationRunner, migrations, wasmLoader } from '@brainstrike/db';
+import {
+  type ComposedAgentHostAdapterServices,
+  createAgentHostAdapterServicesFactory,
+} from '@brainstrike/host-capabilities/mcp/adapter-services';
+import type {
+  McpElicitationFinalizedEvent,
+  McpElicitationPresentation,
+} from '@brainstrike/host-capabilities/mcp/elicitation-presenter';
 import { processStartTime } from '@brainstrike/state-store';
 import type { PGlite } from '@electric-sql/pglite';
 import { expect } from 'vitest';
 import { z } from 'zod';
-import {
-  type ComposedAgentHostAdapterServices,
-  createAgentHostAdapterServicesFactory,
-} from '../../agent-host-platform/adapter-services';
-import type {
-  McpElicitationFinalizedEvent,
-  McpElicitationPresentation,
-} from '../../mcp/elicitation-presenter';
 import { CommittedHostMcpInput } from '../../renderer/committed-host-mcp-input';
 import { fixtureCapabilities, fixtureToolRequest } from './agent-host-adapter-fixture';
 

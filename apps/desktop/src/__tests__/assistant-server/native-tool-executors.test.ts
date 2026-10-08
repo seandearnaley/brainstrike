@@ -1,6 +1,7 @@
 import { registerToolGuardDeadlineSignal } from '@brainstrike/agent';
 import { DESKTOP_NATIVE_TOOL_IDS, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { legacyNativeToolPorts } from '../../assistant-server/legacy-native-tool-ports';
 import {
   NATIVE_TOOL_EXECUTORS,
   type NativeToolExecutorMap,
@@ -65,6 +66,7 @@ describe('native execution executors honour the guard deadline', () => {
       },
     },
     isLocalProvider: false,
+    ports: legacyNativeToolPorts(undefined),
     readFileCursorRegistry: {} as never,
     resolveActiveDomainCharBudget: () => 1000,
     resolvedDomainCharBudget: 1000,

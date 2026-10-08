@@ -8,6 +8,7 @@ import {
   type HostEvent,
   type HostImageAttachment,
   type HostParams,
+  HostPromptBreakdownSchema,
   type HostRunSnapshot,
 } from './protocol.js';
 
@@ -177,6 +178,8 @@ export interface HostRunState {
   readonly responses: Set<string>;
   readonly snapshot?: HostRunSnapshot;
   readonly started: Set<string>;
+  /** A committed run/steer: the run ends after its step in flight. */
+  steered: boolean;
   steps: number;
   stopAcceptance?: Promise<void> | undefined;
   stopped: boolean;
@@ -211,6 +214,7 @@ export function createHostRunState(
     rawInputs: new Map(),
     responses: new Set(),
     started: new Set(),
+    steered: false,
     steps: 0,
     stopped: false,
     terminal: false,
@@ -230,13 +234,18 @@ export function foldHostAcceptedCommand(
     result: event.result,
     threadId,
   });
-  if (event.method !== 'run/stop') {
+  if (event.method !== 'run/stop' && event.method !== 'run/steer') {
     return;
   }
-  const params = HOST_METHOD_SCHEMAS['run/stop'].parse(event.payload);
+  const params = HOST_METHOD_SCHEMAS[event.method].parse(event.payload);
   const run = runs.get(params.runId);
-  if (run) {
+  if (!run) {
+    return;
+  }
+  if (event.method === 'run/stop') {
     run.stopped = true;
+  } else {
+    run.steered = true;
   }
 }
 
@@ -299,6 +308,7 @@ export function createHostRunContext(
       await publish(run.threadId, [
         {
           accounting: jsonValue(receipt.accounting),
+          breakdown: HostPromptBreakdownSchema.parse(receipt.breakdown),
           modelId: receipt.modelId,
           provider: receipt.provider,
           runId: run.id,

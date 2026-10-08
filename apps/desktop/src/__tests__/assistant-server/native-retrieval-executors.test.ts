@@ -3,6 +3,7 @@ import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { expect, it, vi } from 'vitest';
 import type { z } from 'zod';
+import { legacyNativeToolPorts } from '../../assistant-server/legacy-native-tool-ports';
 import { SEARCH_TOOL_EXECUTORS } from '../../assistant-server/native-tool-executors-search';
 
 const calls = vi.hoisted(() => ({
@@ -35,6 +36,7 @@ function entry(
   const tool = SEARCH_TOOL_EXECUTORS[toolId]({
     dependencies: { embeddingHostManager, ...(native ? { nativeIndexSearch: capability } : {}) },
     isLocalProvider: false,
+    ports: legacyNativeToolPorts(undefined),
     readFileCursorRegistry: {} as never,
     resolveActiveDomainCharBudget: () => 6000,
     resolvedDomainCharBudget: 6000,

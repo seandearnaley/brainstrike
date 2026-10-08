@@ -12,6 +12,7 @@ import {
 } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
+import { CommittedHostCheckpoints } from './committed-host-checkpoints';
 import { CommittedHostMcpInput } from './committed-host-mcp-input';
 
 const logger = createLogger('CommittedHostConversation');
@@ -33,12 +34,19 @@ function hostImageAttachment(
 }
 
 export interface CommittedHostConversation {
+  /** The thread's committed edit checkpoints, reverted through the host. */
+  readonly checkpoints: CommittedHostCheckpoints;
   /** Release this view's subscription; the client/root host belongs to its caller. */
   close(): void;
   readonly commands: CommittedAssistantCommands;
   readonly mcpInput: CommittedHostMcpInput;
   /** The thread's committed session; this conversation connects and releases it. */
   readonly source: CommittedThreadSession;
+  /**
+   * Steer the active run: Core ends it after its step in flight. Resolves to
+   * the steered run, or undefined when no run was left to steer.
+   */
+  steer(): Promise<string | undefined>;
   readonly store: CommittedAssistantLogStore;
 }
 
@@ -169,6 +177,7 @@ export function createCommittedHostConversation(options: {
   });
   const disconnect = source.connect();
   return {
+    checkpoints: new CommittedHostCheckpoints(client, source, threadId),
     close: () => {
       unsubscribeTitles();
       mcpInput.close();
@@ -182,6 +191,18 @@ export function createCommittedHostConversation(options: {
     commands,
     mcpInput,
     source,
+    steer: async () => {
+      const runId = store.getCommittedView().activeRunId;
+      if (!runId) {
+        return;
+      }
+      const { outcome } = await client.request('run/steer', {
+        commandId: crypto.randomUUID(),
+        runId,
+        threadId,
+      });
+      return outcome === 'steering' ? runId : undefined;
+    },
     store,
   };
 }

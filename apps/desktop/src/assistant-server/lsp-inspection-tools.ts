@@ -8,10 +8,10 @@
  */
 import type { FindWorkspaceSymbolInput, LspInspectInput, RuntimeData } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
+import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
 import { findSymbolMatches } from './find-workspace-symbol';
 import { getLspInspection, type LspInspectionResult } from './lsp-diagnostics';
 import { resolveWorkspaceRoot } from './workspace-roots';
-import { readWorkspaceTextFile } from './workspace-text-file-reader';
 
 export async function runFindWorkspaceSymbol(
   input: FindWorkspaceSymbolInput,

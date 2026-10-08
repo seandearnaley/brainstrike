@@ -30,6 +30,7 @@ import {
 } from '@brainstrike/assistant-service/stream-init';
 import { ToolOutputArtifactRepository } from '@brainstrike/db';
 import type { HookRunVerdict } from '@brainstrike/host-capabilities/hooks';
+import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
 import {
   handleActiveRunDiscoveryRequest,
   registerInitializingAssistantRun,
@@ -132,7 +133,6 @@ import {
   enrichRuntimeDataWithWorkspaceRoots,
   getWorkspaceRoots,
 } from './assistant-server/workspace-roots';
-import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-reader';
 import type { WorktreeToolCapability } from './assistant-server/worktree-tools';
 import { type DesktopDatabase, getDatabase } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';

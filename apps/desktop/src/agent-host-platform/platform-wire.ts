@@ -153,6 +153,14 @@ export const PlatformClientConfigurationSchema = z.strictObject({
     oversizedOptInByRootId: z.record(z.string(), z.boolean()),
   }),
 });
+/** Admission data of the shared native tools; roots are revalidated per call via Main. */
+export const PlatformNativeRuntimeSchema = z.strictObject({
+  boundWorkspaceRootId: Id.optional(),
+  provider: Id,
+  selectionFolderId: Id.optional(),
+  workspaceRootPath: Id.optional(),
+  workspaceRoots: CliWorkspaceRootsSchema,
+});
 export const PlatformSelectionSchema = z.strictObject({
   configuration: PlatformModelConfigurationSchema,
   contextWindow: z.number().int().positive(),
@@ -163,6 +171,8 @@ export const PlatformSelectionSchema = z.strictObject({
     options: PlatformMemoryOptionsSchema,
     settings: PlatformMemorySettingsSchema,
   }),
+  /** The admitted runtime the host's shared native tools execute against. */
+  nativeRuntime: PlatformNativeRuntimeSchema,
   resourceId: Id,
   system: z.string().optional(),
   tools: z.record(

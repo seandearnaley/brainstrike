@@ -4,10 +4,10 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
+import { McpStdioDiagnosticCollector } from '@brainstrike/host-capabilities/mcp/stdio-diagnostics';
 import { build } from 'esbuild';
 import { expect, it } from 'vitest';
 import { MAIN_PROCESS_BUILD_OPTIONS } from '../../../scripts/build-main-config.mjs';
-import { McpStdioDiagnosticCollector } from '../../mcp/stdio-diagnostics';
 
 const APP_ROOT = path.resolve(import.meta.dirname, '../../..');
 const MISMATCH_MESSAGE = 'protected-resource metadata does not match the MCP server URL';

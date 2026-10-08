@@ -2916,12 +2916,42 @@ importers:
       '@brainstrike/assistant-service':
         specifier: workspace:*
         version: link:../assistant-service
+      '@brainstrike/db':
+        specifier: workspace:*
+        version: link:../db
+      '@brainstrike/effect-kit':
+        specifier: workspace:*
+        version: link:../effect-kit
+      '@brainstrike/file-system':
+        specifier: workspace:*
+        version: link:../file-system
       '@brainstrike/host-lease':
         specifier: workspace:*
         version: link:../host-lease
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging
+      '@brainstrike/tokenization':
+        specifier: workspace:*
+        version: link:../tokenization
+      '@brainstrike/utils':
+        specifier: workspace:*
+        version: link:../utils
+      '@modelcontextprotocol/client':
+        specifier: 'catalog:'
+        version: 2.1.0
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.0-rc.118
+      minimatch:
+        specifier: 'catalog:'
+        version: 10.2.6
+      strip-ansi:
+        specifier: 7.2.0
+        version: 7.2.0
+      vscode-jsonrpc:
+        specifier: 'catalog:'
+        version: 9.0.2(patch_hash=453ccfecff6e36bb5c12f09db91ef6daab8cd95806008fc65ebf01dd3589ca98)
       zod:
         specifier: 'catalog:'
         version: 4.6.5
@@ -2932,6 +2962,9 @@ importers:
       '@brainstrike/test-utils':
         specifier: workspace:*
         version: link:../test-utils
+      '@effect/tsgo':
+        specifier: 'catalog:'
+        version: 0.45.0
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3

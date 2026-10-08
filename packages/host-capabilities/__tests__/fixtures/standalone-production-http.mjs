@@ -109,17 +109,25 @@ globalThis.fetch = async (input, init) => {
     { response, type: 'response.completed' },
   ];
   const mode = process.env.BRAINSTRIKE_M3_STANDALONE_HTTP;
-  if (mode === 'question' || mode === 'plan') {
-    const committed = JSON.parse(
-      readFileSync(
-        new URL(
-          import.meta.resolve(`@brainstrike/test-utils/fixtures/committed-host-${mode}.json`)
-        ),
-        'utf8'
-      )
-    );
-    const request = committed.find(({ event }) => event.type === 'interaction.requested')?.event;
-    assert.equal(request?.kind, mode);
+  if (mode === 'question' || mode === 'plan' || mode === 'edit') {
+    // `edit` asks the shared native file tool for one workspace write.
+    const request =
+      mode === 'edit'
+        ? {
+            input: JSON.parse(process.env.BRAINSTRIKE_M3_STANDALONE_EDIT ?? 'null'),
+            toolId: 'brainstrike_writeWorkspaceFile',
+          }
+        : JSON.parse(
+            readFileSync(
+              new URL(
+                import.meta.resolve(`@brainstrike/test-utils/fixtures/committed-host-${mode}.json`)
+              ),
+              'utf8'
+            )
+          ).find(({ event }) => event.type === 'interaction.requested')?.event;
+    if (mode !== 'edit') {
+      assert.equal(request?.kind, mode);
+    }
     const name = request.toolId;
     assert.ok(body.tools.some((tool) => tool.type === 'function' && tool.name === name));
     const results = body.input.filter((item) => item.type === 'function_call_output');

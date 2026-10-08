@@ -9,11 +9,14 @@ import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-
 import { z } from 'zod';
 
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
-// and the explicit branch links they commit on `run.started`), and thread
+// and the explicit branch links they commit on `run.started`), thread
 // presentation (`thread/update`, `thread.updated`: title, colour and icon, also
 // in `thread/list`), withheld observational memory, tool catalog IDs on
-// committed tool events, and image attachments on a user message (`run/start`
-// and `run.started`).
+// committed tool events, image attachments on a user message (`run/start`
+// and `run.started`), committed workspace edit attribution,
+// `checkpoint/revert`, per-thread tool state, the prompt breakdown on
+// `provider.request.prepared`, and `run/steer` (end the active run at its next
+// step boundary).
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -46,6 +49,57 @@ const McpContent = z.record(
   z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])
 );
 const Seq = z.number().int().nonnegative();
+const Sha256 = z.string().regex(/^[a-f0-9]{64}$/u);
+/** Root-relative POSIX path: no leading slash, no empty, `.` or `..` segment. */
+const WorkspaceRelativePath = z
+  .string()
+  .min(1)
+  .refine(
+    (value) =>
+      !value.startsWith('/') &&
+      value.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..'),
+    'Expected a normalized root-relative path'
+  );
+export const HOST_WORKSPACE_EDIT_OPS = ['write', 'string_replace', 'delete', 'rename'] as const;
+export const HostWorkspaceEditOpSchema = z.enum(HOST_WORKSPACE_EDIT_OPS);
+export type HostEditOp = (typeof HOST_WORKSPACE_EDIT_OPS)[number];
+/** A file's observed identity; content is never part of the client-visible event. */
+const HostFileIdentitySchema = z.strictObject({
+  existed: z.boolean(),
+  hash: Sha256.nullable(),
+  size: z.number().int().nonnegative().nullable(),
+});
+/**
+ * A path's state before the run first changed it. Content lives in a
+ * content-addressed StateStore blob that this event references (`blobRefs`).
+ */
+export const HostEditBaselineSchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('absent'), path: WorkspaceRelativePath }),
+  z.strictObject({
+    blob: Sha256,
+    bytes: z.number().int().nonnegative(),
+    encoding: z.enum(['utf8', 'base64']),
+    hash: Sha256,
+    kind: z.literal('content'),
+    mode: z.number().int().nonnegative(),
+    path: WorkspaceRelativePath,
+  }),
+  z.strictObject({
+    kind: z.literal('unavailable'),
+    path: WorkspaceRelativePath,
+    reason: z.enum(['too_large', 'symlink', 'not_a_file']),
+  }),
+]);
+export type HostEditBaseline = z.infer<typeof HostEditBaselineSchema>;
+export const HostEditRevertOutcomeSchema = z.discriminatedUnion('status', [
+  z.strictObject({ entryId: Id, status: z.literal('reverted') }),
+  z.strictObject({
+    entryId: Id,
+    reason: z.string().min(1),
+    status: z.enum(['conflict', 'not_revertible']),
+  }),
+]);
+export type HostEditRevertOutcome = z.infer<typeof HostEditRevertOutcomeSchema>;
 /**
  * An image on a user message, as the composer encodes it: a base64 data URL.
  * Core admits it against the shared attachment contract's caps.
@@ -122,6 +176,17 @@ const LoginCredential = z.custom<HostLoginCredential>(
 export const HOST_METHOD_SCHEMAS = {
   // Secret-bearing: process-local, never in HostCommandLedger, the log or diagnostics.
   'auth/login': z.strictObject({ credential: LoginCredential, provider: Id }),
+  /**
+   * Restore a finished run's edited paths to their state before the run first
+   * changed them (one entry, or every unreverted entry of the run). Refused
+   * while the thread has an active run; `force` skips the conflict gate.
+   */
+  'checkpoint/revert': z.strictObject({
+    ...Command,
+    ...Run,
+    entryId: Id.optional(),
+    force: z.boolean().optional(),
+  }),
   'host/stop': z.strictObject({}),
   initialize: z.strictObject({
     hostVersion: Id,
@@ -169,6 +234,11 @@ export const HOST_METHOD_SCHEMAS = {
     parentMessageId: Id.nullable().optional(),
     prompt: Id,
   }),
+  /**
+   * End the active run gracefully at its next step boundary, after the step in
+   * flight, so the user's steering message can start the next turn (BST-588).
+   */
+  'run/steer': z.strictObject({ ...Command, ...Run }),
   'run/stop': z.strictObject({ ...Command, ...Run }),
   /** A client verdict is always the user's; hook and revert labels are host-committed. */
   'run/verdict': z.strictObject({
@@ -239,6 +309,15 @@ export const HostMcpInputRequestSchema = z.strictObject({
   requestId: z.union([Id, z.number().int().safe()]),
   taskId: Id.optional(),
   type: z.literal('mcp.input.requested'),
+});
+/** A prepared provider prompt's composition (the context popover's breakdown). */
+export const HostPromptBreakdownSchema = z.strictObject({
+  attachmentsCount: z.number().int().nonnegative(),
+  historyMessagesTokens: z.number().int().nonnegative(),
+  provenance: z.literal('heuristic'),
+  systemInstructionsTokens: z.number().int().nonnegative(),
+  toolDefinitionsProvenance: z.enum(['heuristic', 'measured']),
+  toolDefinitionsTokens: z.number().int().nonnegative(),
 });
 export const HostEventSchema = z.union([
   z.strictObject({
@@ -315,6 +394,8 @@ export const HostEventSchema = z.union([
     type: z.literal('provider.request.prepared'),
     ...RunFields,
     accounting: z.json(),
+    /** The prepared prompt's composition, for the context popover. */
+    breakdown: HostPromptBreakdownSchema.optional(),
     modelId: Id,
     provider: Id,
   }),
@@ -349,6 +430,39 @@ export const HostEventSchema = z.union([
     detail: z.string().optional(),
     outcome: z.enum(['completed', 'failed', 'stopped', 'interrupted']),
   }),
+  z.strictObject({
+    type: z.literal('workspace.edit.recorded'),
+    ...RunFields,
+    after: HostFileIdentitySchema,
+    /** First-touch baselines this edit captured for its run; later edits reuse them. */
+    baselines: z.array(HostEditBaselineSchema),
+    before: HostFileIdentitySchema,
+    blobRefs: z.array(Sha256).optional(),
+    entryId: Id,
+    /** Rename source; `before` observes it, `after` observes the destination. */
+    fromPath: WorkspaceRelativePath.optional(),
+    op: HostWorkspaceEditOpSchema,
+    path: WorkspaceRelativePath,
+    rootId: Id,
+    /** The admitted absolute root; revert revalidates it with the live root owner. */
+    rootPath: Id,
+    toolCallId: Id,
+    toolId: Id,
+  }),
+  z.strictObject({
+    type: z.literal('tool.state.updated'),
+    ...RunFields,
+    /** Tool-owned key, e.g. the task list or one canvas; the latest value per key wins. */
+    key: Id,
+    toolCallId: Id,
+    value: z.json(),
+  }),
+  z.strictObject({
+    type: z.literal('workspace.edit.reverted'),
+    ...RunFields,
+    commandId: Id,
+    outcomes: z.array(HostEditRevertOutcomeSchema),
+  }),
   /** Only the host commits labels; precedence is applied by projectRunVerdicts. */
   z.strictObject({
     type: z.literal('run.verdict'),
@@ -369,6 +483,7 @@ export const HostLogRowSchema = z.strictObject({
 export type HostLogRow = z.infer<typeof HostLogRowSchema>;
 export const HOST_RESULT_SCHEMAS = {
   'auth/login': z.strictObject({ stored: z.literal(true) }),
+  'checkpoint/revert': z.strictObject({ outcomes: z.array(HostEditRevertOutcomeSchema) }),
   'host/stop': z.strictObject({ outcome: z.literal('stopped'), rootReleased: z.literal(true) }),
   initialize: z.strictObject({
     hostVersion: Id,
@@ -393,6 +508,7 @@ export const HOST_RESULT_SCHEMAS = {
   'mcp/input/stage': z.strictObject({ staged: z.literal(true) }),
   'run/regenerate': z.strictObject({ runId: Id }),
   'run/start': z.strictObject({ runId: Id }),
+  'run/steer': z.strictObject({ outcome: z.enum(['steering', 'already-terminal']) }),
   'run/stop': z.strictObject({ outcome: z.enum(['stopped', 'already-terminal']) }),
   'run/verdict': z.strictObject({ accepted: z.literal(true) }),
   'thread/delete': z.strictObject({ deleted: z.literal(true) }),

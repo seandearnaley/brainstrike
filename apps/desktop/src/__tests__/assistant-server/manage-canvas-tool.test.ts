@@ -1,8 +1,11 @@
 import type { ManageCanvasInput, RuntimeData } from '@brainstrike/agent';
+import { runManageCanvas } from '@brainstrike/host-capabilities/native-tools';
 import { describe, expect, it } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
-import type { CanvasDatabase } from '../../assistant-server/canvas-repository';
-import { runManageCanvas } from '../../assistant-server/manage-canvas-tool';
+import {
+  type CanvasDatabase,
+  createDesktopCanvasStore,
+} from '../../assistant-server/canvas-repository';
 
 interface StoredVersion {
   readonly canvasId: string;
@@ -77,7 +80,12 @@ async function run(
   input: ManageCanvasInput,
   runtimeData: RuntimeData | undefined = runtimeWithThread()
 ) {
-  return await runManageCanvas(input, runtimeData, { database: db });
+  const memory = runtimeData?.memory;
+  const store =
+    memory?.threadId && memory.resourceId
+      ? createDesktopCanvasStore({ resourceId: memory.resourceId, threadId: memory.threadId }, db)
+      : undefined;
+  return await runManageCanvas(input, store);
 }
 
 describe('runManageCanvas', () => {

@@ -68,9 +68,9 @@ import type {
   AssistantRewindConflict,
   AssistantRewindFileOutcome,
 } from '@brainstrike/assistant-contract';
+import { resolveWorkspaceWritePath } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import type { ChangedFileEntry } from '@brainstrike/types';
-import { resolveWorkspaceWritePath } from '../secure-file-write';
 import type { CheckpointReindexAction } from './checkpoint-reindex-deps';
 import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
 import { resolveEarliestBatchTarget, resolveRewindRunRange } from './rewind-repository';
