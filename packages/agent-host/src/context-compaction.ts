@@ -1,4 +1,7 @@
-import { COMPACTION_SUMMARIZER_INSTRUCTIONS, hasCompactionSummarySchema } from '@brainstrike/agent';
+import {
+  COMPACTION_SUMMARIZER_INSTRUCTIONS,
+  hasCompactionSummarySchema,
+} from '@brainstrike/agent/provider-runtime';
 import { denormalizeNativeToolName, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { generateText, type LanguageModel, type ModelMessage } from 'ai';
 import type { HostRunState } from './core-state.js';
