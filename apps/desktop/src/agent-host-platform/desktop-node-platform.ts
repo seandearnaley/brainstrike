@@ -15,7 +15,6 @@ import type { SupportedProvider } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
 import { createDesktopNodeMcpHost } from '@brainstrike/host-capabilities/mcp/desktop-node-mcp';
-import { MCP_STORE_METHODS } from '@brainstrike/host-capabilities/mcp/mcp-runtime-wire';
 import {
   forgetSharedNativeToolThread,
   ReadWorkspaceFileCursorRegistry,
@@ -84,13 +83,10 @@ export async function createHostPlatform(
   const port = await parentPlatformPort();
   const connection = mainPlatformConnection(port);
   // The profile's one credential authority: the single writer, token holder and
-  // OAuth refresher. Main lends only its validated browser opener.
+  // OAuth refresher. Sign-in pages open through the requesting desktop client.
   const host = await createHostCapabilities({
     env: process.env,
     launch: platformOptions,
-    openExternal: async (url) => {
-      await request(MCP_STORE_METHODS.openExternal, { url });
-    },
     startup,
   });
   const executions = new Map<string, HostToolContext & { readonly toolId: string }>();
