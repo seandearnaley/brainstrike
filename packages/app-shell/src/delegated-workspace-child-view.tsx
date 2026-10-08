@@ -17,6 +17,7 @@ import type { DbHandle } from '@brainstrike/db/react';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import type { AssistantProviderSettingsMap } from '@brainstrike/types';
 import { type ReactNode, use, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useAssistantThreadHost } from './assistant-thread-host-context';
 import { DelegatedChildConversationPanel } from './delegated-child-conversation-panel';
 import { DelegatedConversationBreadcrumbs } from './delegated-conversation-breadcrumbs';
 import { DelegatedConversationToolbar } from './delegated-conversation-toolbar';
@@ -27,6 +28,7 @@ import { delegatedWorkspaceTabId } from './delegated-workspace-tab';
 import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import { useDebugBundleBinding } from './hooks/use-debug-bundle';
 import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
+import { LegacyThreadReadOnlyPanel } from './legacy-thread-read-only-panel';
 import { resolveDelegatedWorkspaceDecision } from './resolve-delegated-workspace-identity';
 import { sendDelegatedWorkspaceInput } from './send-delegated-workspace-input';
 import { useThreadSearchStore } from './thread-search-store';
@@ -271,7 +273,21 @@ function ReadyChildView({
   );
 }
 
+/**
+ * Delegated children are legacy-runtime threads (the host runs no children
+ * yet, BST-1932). With an agent host they open read-only (BST-1934), so no
+ * child answer, input, branch or stop can write the legacy tables.
+ */
 export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: ChildNode }) {
+  const host = useAssistantThreadHost();
+  return host ? (
+    <LegacyThreadReadOnlyPanel resourceId={node.resourceId} threadId={node.threadId} />
+  ) : (
+    <InteractiveChildView db={db} node={node} />
+  );
+}
+
+function InteractiveChildView({ db, node }: { readonly db: DbHandle; readonly node: ChildNode }) {
   const debugBundle = useDebugBundleBinding(node.threadId);
   const roots = use(RootsContext);
   const repository = useMemo(() => createDelegatedConversationRepository(db), [db]);

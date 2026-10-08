@@ -8,6 +8,7 @@ import {
   type HostParams,
   type HostResults,
 } from '@brainstrike/agent-host/protocol';
+import { LEGACY_READ_ONLY_MESSAGE } from '@brainstrike/app-shell/assistant-thread-host-context';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import { afterEach, expect, test, vi } from 'vitest';
 import { createWindowThreadCapability } from '../renderer/desktop-host-thread-capability';
@@ -138,6 +139,34 @@ test('a thread outside the host catalog is not host-owned', async () => {
     'thread/read',
     'thread/list',
   ]);
+});
+
+// BST-1934: legacy threads are read-only with a host, so their workspace
+// snapshot saves are refused instead of written to the legacy table.
+test('a legacy thread workspace snapshot save is refused and never reaches history', async () => {
+  const { capability, request } = fixture();
+  request
+    .mockResolvedValueOnce({ threads: [{ threadId: thread }] })
+    .mockResolvedValueOnce({ rows: startedRows })
+    .mockResolvedValueOnce({ threads: [{ threadId: thread }] });
+  await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
+  const history = {
+    getThreadWorkspace: vi.fn(),
+    getThreadWorkspaces: vi.fn(),
+    setThreadWorkspace: vi.fn(async () => undefined),
+  };
+  const workspaces = capability.workspaceRepository(history);
+  await expect(
+    workspaces.setThreadWorkspace('legacy-history-thread', WORKSPACE_MEMORY_RESOURCE_ID, {
+      apps: { openAppIds: [], selection: { kind: 'empty' } },
+      editors: {},
+      explorer: { byRoot: {} },
+      fileTabs: { activeTabId: null, tabs: [] },
+      roots: { focusedRootId: null, visibleRootIds: null },
+      version: 1,
+    })
+  ).rejects.toThrow(LEGACY_READ_ONLY_MESSAGE);
+  expect(history.setThreadWorkspace).not.toHaveBeenCalled();
 });
 
 test('a failed owner read rejects instead of classifying the thread as historical', async () => {
