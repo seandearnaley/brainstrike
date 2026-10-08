@@ -251,3 +251,21 @@ export function resolveDatabaseLocation(input: DatabaseLocationInput): DatabaseL
     source: rootOverride !== undefined && profileOverride !== undefined ? 'override' : source,
   };
 }
+
+/** Explicit cold launch selection uses the same override validators as Main. */
+export function resolveExplicitDatabaseLocation(input: {
+  readonly platform: NodeJS.Platform;
+  readonly profile: string;
+  readonly rootPath: string;
+}): DatabaseLocation {
+  const rootPath = normalizeOverride(input.rootPath);
+  const profile = normalizeOverride(input.profile);
+  if (rootPath === undefined || profile === undefined) {
+    throw new Error('Cold profile selection requires an explicit database root and profile.');
+  }
+  return {
+    profile: explicitProfile(profile),
+    rootPath: explicitRoot(rootPath, input.platform),
+    source: 'override',
+  };
+}
