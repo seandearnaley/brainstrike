@@ -5,8 +5,11 @@
  * run it starts, and undelivered results reach the next user turn exactly once.
  */
 import { randomUUID } from 'node:crypto';
+import type { ModelMessage } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
+import { withHostDelegationTools } from '../src/child-runs.js';
+import type { HostClientOrigin } from '../src/ports.js';
 import type { HostLogRow } from '../src/protocol.js';
 import {
   blocked,
@@ -205,3 +208,62 @@ test("a root Stop stops the turn's background children and wakes nothing", async
     `${LEDGER} — 2 total: 0 returned, 0 failed, 2 cancelled, 0 still running.`
   );
 });
+
+/** The last user text of a model request, as HostCore hands it to the provider. */
+function lastModelUser(messages: readonly ModelMessage[]): string {
+  const user = messages.findLast((message) => message.role === 'user');
+  if (!user) {
+    return '';
+  }
+  return typeof user.content === 'string'
+    ? user.content
+    : user.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('');
+}
+
+test.each(['desktop-ui', 'public-socket'] as const)(
+  'children and the wake run under the turn’s %s client origin',
+  async (origin: HostClientOrigin) => {
+    const { model, release } = fanOutModel();
+    release();
+    const admitted: (HostClientOrigin | undefined)[] = [];
+    const prepared: { readonly origin: HostClientOrigin | undefined; readonly user: string }[] = [];
+    const harness = await setupChildRunHost(model, cleanup, {}, (platform) => async (request) => {
+      admitted.push(request.origin);
+      const tools = withHostDelegationTools(platform.tools ?? {}, platform.delegation);
+      return {
+        configuration: {},
+        delegation: platform.delegation,
+        model,
+        // Origin-bound capabilities (subscription auth) live in the admission's provider.
+        provider: {
+          prepare: async ({ messages }) => {
+            prepared.push({ origin: request.origin, user: lastModelUser(messages) });
+            return { messages: [...messages], model };
+          },
+        },
+        snapshot: {
+          configuration: {},
+          maxSteps: 4,
+          toolIdentities: Object.fromEntries(
+            Object.entries(tools).map(([id, tool]) => [id, tool.identity])
+          ),
+        },
+        tools,
+      };
+    });
+    await harness.start('Fan out.', origin);
+    const rows = await rowsUntil(harness, harness.threadId, (row) =>
+      runsOf([row]).some((started) => started.delivery?.via === 'wake')
+    );
+    const wake = runsOf(rows).find((started) => started.delivery?.via === 'wake');
+    await rowsUntil(harness, harness.threadId, finished(wake?.runId ?? ''));
+    // The root turn and its wake are admitted with the turn's origin; children
+    // reuse that admission, so each child step runs under the same origin.
+    expect(admitted).toEqual([origin, origin]);
+    const childSteps = prepared.filter(
+      ({ user }) => user.startsWith('ALPHA') || user.startsWith('BETA')
+    );
+    expect(childSteps).toHaveLength(2);
+    expect(new Set(prepared.map((step) => step.origin))).toEqual(new Set([origin]));
+  }
+);

@@ -166,5 +166,6 @@ export async function createHostPlatform(
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
     resolveProviderAuth: host.resolveProviderAuth,
     startup,
+    storeProviderCredential: host.storeProviderCredential,
   });
 }

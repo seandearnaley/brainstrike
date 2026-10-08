@@ -200,20 +200,21 @@ export class HostChildRuns {
   wakeParams(threadId: string, runs: ReadonlyMap<string, HostRunState>) {
     const own = [...runs.values()].filter((run) => run.threadId === threadId);
     const tip = own.at(-1);
-    if (
-      !tip ||
-      own.some((run) => !run.terminal) ||
-      !this.pending(threadId, runs, undefined, false)
-    ) {
+    const pending = this.pending(threadId, runs, undefined, false);
+    if (!(tip && pending) || own.some((run) => !run.terminal)) {
       return;
     }
     return {
-      commandId: randomUUID(),
-      modelId: tip.modelId,
-      parentMessageId: tip.id,
-      prompt: 'wake',
-      threadId,
-      ...(tip.snapshot ? { configuration: tip.snapshot.configuration } : {}),
+      // The wake continues its turn under the client transport that admitted the turn.
+      origin: runs.get(pending.turnId)?.clientOrigin,
+      params: {
+        commandId: randomUUID(),
+        modelId: tip.modelId,
+        parentMessageId: tip.id,
+        prompt: 'wake',
+        threadId,
+        ...(tip.snapshot ? { configuration: tip.snapshot.configuration } : {}),
+      },
     };
   }
 
@@ -414,6 +415,8 @@ export class HostChildRuns {
       childAdmission.snapshot
     );
     child.origin = origin;
+    // A child runs under its parent's admitting client transport (desktop-ui or public-socket).
+    child.clientOrigin = run.clientOrigin;
     child.admission = childAdmission;
     const settled = Promise.withResolvers<void>();
     this.settlements.set(child.id, settled);

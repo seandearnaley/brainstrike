@@ -2,12 +2,13 @@ import type { ModelMessage } from 'ai';
 import { recordRawToolInputs } from './approval-input.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import type { HostMcpInputPersistenceError } from './mcp-input-state.js';
-import type { HostRunAdmission, HostRunContext, HostRunOwner } from './ports.js';
+import type { HostClientOrigin, HostRunAdmission, HostRunContext, HostRunOwner } from './ports.js';
 import {
   HOST_METHOD_SCHEMAS,
   type HostChildDelivery,
   type HostChildOrigin,
   type HostEvent,
+  type HostImageAttachment,
   type HostParams,
   type HostRunSnapshot,
 } from './protocol.js';
@@ -159,6 +160,8 @@ export function foldHostRunEffect(runs: ReadonlyMap<string, HostRunState>, event
 
 /** A run's committed position in the thread's conversation tree. */
 export interface HostRunBranch {
+  /** Images on the user message, beside its prompt. */
+  readonly attachments?: readonly HostImageAttachment[];
   /** BST-1932: background child results delivered with this run's user message. */
   readonly delivery?: HostChildDelivery;
   /** The committed run its user message follows; null is the thread root. */
@@ -174,6 +177,8 @@ export interface HostRunState {
   readonly approvals: Map<string, PendingInteraction>;
   readonly branch: HostRunBranch;
   readonly checkpointedResults: Set<string>;
+  /** The live client transport that admitted this run's turn; children inherit it. */
+  clientOrigin?: HostClientOrigin | undefined;
   completion?: Promise<void>;
   readonly controller: AbortController;
   /** Set when a child's execution deadline expired; it ends failed, not stopped. */

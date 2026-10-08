@@ -9,16 +9,19 @@ import { StateStore, StateStoreStartupError } from '@brainstrike/state-store';
 import {
   createMessageConnection,
   type Message,
+  type MessageConnection,
   StreamMessageReader,
   StreamMessageWriter,
 } from 'vscode-jsonrpc/node';
-import { bindHostConnection } from './connection.js';
+import { bindHostConnection, type HostConnectionOptions } from './connection.js';
 import { HostCore } from './core.js';
 import { closeHostStoreAfterCore, HostCoreRetiredError } from './core-retirement.js';
-import type { HostPlatform } from './ports.js';
+import type { HostClientOrigin, HostPlatform } from './ports.js';
 import { AGENT_HOST_PROTOCOL_VERSION } from './protocol.js';
 
 export interface AgentHost extends HostRuntime {
+  /** Binds a transport the launching parent supplied, as the given client origin. */
+  bindClientConnection(connection: MessageConnection, origin: HostClientOrigin): () => void;
   readonly core: HostCore;
 }
 export interface HostStartupContext {
@@ -41,6 +44,22 @@ export class AgentHostStartupError extends AggregateError {
     super(causes, 'Host startup cleanup failed; durable root ownership is retained');
   }
 }
+/** The owned facade forwards each optional capability the acquired platform supplies. */
+function bindAcquiredPlatform(owned: HostPlatform, acquired: HostPlatform): void {
+  if (acquired.openRun) {
+    owned.openRun = acquired.openRun.bind(acquired);
+  }
+  if (acquired.admitRun) {
+    owned.admitRun = acquired.admitRun.bind(acquired);
+  }
+  if (acquired.storeProviderCredential) {
+    owned.storeProviderCredential = acquired.storeProviderCredential.bind(acquired);
+  }
+  if (acquired.validateWorkspaceBinding) {
+    owned.validateWorkspaceBinding = acquired.validateWorkspaceBinding.bind(acquired);
+  }
+}
+
 export async function startAgentHost(
   options: HostStartOptions,
   inputPlatform: HostPlatformInitializer,
@@ -83,6 +102,10 @@ export async function startAgentHost(
     });
     return platformClose;
   };
+  const clientCapabilities = (): Pick<HostConnectionOptions, 'storeProviderCredential'> =>
+    ownedPlatform.storeProviderCredential
+      ? { storeProviderCredential: ownedPlatform.storeProviderCredential }
+      : {};
   const ownedPlatform: HostPlatform = {
     close: closePlatform,
     get delegation(): HostPlatform['delegation'] {
@@ -155,13 +178,16 @@ export async function startAgentHost(
             }
           );
           bindHostConnection(connection, core, record, attached, {
-            get closing(): boolean {
-              return lifecycle.closing;
+            lifecycle: {
+              get closing(): boolean {
+                return lifecycle.closing;
+              },
+              stop: () => {
+                shutdownMessage = dispatchingMessage;
+                return lifecycle.stop(replyFinished.promise);
+              },
             },
-            stop: () => {
-              shutdownMessage = dispatchingMessage;
-              return lifecycle.stop(replyFinished.promise);
-            },
+            ...clientCapabilities(),
           });
           socket.once('close', () => connection.dispose());
         },
@@ -196,17 +222,7 @@ export async function startAgentHost(
           }
           try {
             signal.throwIfAborted();
-            const acquiredPlatform = currentPlatform();
-            if (acquiredPlatform.openRun) {
-              ownedPlatform.openRun = acquiredPlatform.openRun.bind(acquiredPlatform);
-            }
-            if (acquiredPlatform.admitRun) {
-              ownedPlatform.admitRun = acquiredPlatform.admitRun.bind(acquiredPlatform);
-            }
-            if (acquiredPlatform.validateWorkspaceBinding) {
-              ownedPlatform.validateWorkspaceBinding =
-                acquiredPlatform.validateWorkspaceBinding.bind(acquiredPlatform);
-            }
+            bindAcquiredPlatform(ownedPlatform, currentPlatform());
             core = await HostCore.open(store, ownedPlatform, retainRun, (acquired) => {
               core = acquired;
               if (signal.aborted) {
@@ -264,6 +280,15 @@ export async function startAgentHost(
   const disconnected = (): void => signal.removeEventListener('abort', cancelled);
   runtime.closed.then(disconnected, disconnected);
   return {
+    bindClientConnection: (connection, origin) => {
+      if (!core) {
+        throw new Error('Host store was not initialized');
+      }
+      return bindHostConnection(connection, core, runtime.record, () => undefined, {
+        origin,
+        ...clientCapabilities(),
+      });
+    },
     get clientCount(): number {
       return runtime.clientCount;
     },

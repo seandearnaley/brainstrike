@@ -7,6 +7,12 @@
  * restart derive a run's branch through the same fold, and a run's model
  * context is its selected path only: a sibling branch is never on it.
  */
+import { createHash } from 'node:crypto';
+import {
+  ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
+  AssistantAttachmentValidationError,
+  validateImageAttachmentPart,
+} from '@brainstrike/assistant-contract/assistant-attachments';
 import { type ModelMessage, modelMessageSchema } from 'ai';
 import { overlayHostChildOutcomes } from './child-delivery.js';
 import {
@@ -20,6 +26,7 @@ import {
   HOST_RESULT_SCHEMAS,
   type HostChildDelivery,
   type HostEvent,
+  type HostImageAttachment,
   type HostParams,
   type HostRunSnapshot,
 } from './protocol.js';
@@ -81,7 +88,13 @@ export function foldHostRunBranch(
   if (parentMessageId !== null && !prior.some((run) => run.id === parentMessageId)) {
     throw new Error('Committed branch parent is not an earlier run of this thread');
   }
-  return { ...delivery, parentMessageId, prompt: event.prompt, userMessageId: admission.commandId };
+  return {
+    ...(event.attachments ? { attachments: event.attachments } : {}),
+    ...delivery,
+    parentMessageId,
+    prompt: event.prompt,
+    userMessageId: admission.commandId,
+  };
 }
 
 /** BST-1932: an automated wake follows the committed tip it was admitted after. */
@@ -104,6 +117,37 @@ function wakeHostRunBranch(
   };
 }
 
+/** A user message: its prompt alone, or its prompt followed by its images. */
+function hostUserMessage(branch: HostRunBranch): ModelMessage {
+  if (!branch.attachments) {
+    return { content: branch.prompt, role: 'user' };
+  }
+  return {
+    content: [
+      { text: branch.prompt, type: 'text' },
+      ...branch.attachments.map(
+        (attachment) =>
+          ({ data: attachment.data, mediaType: attachment.mediaType, type: 'file' }) as const
+      ),
+    ],
+    role: 'user',
+  };
+}
+
+/** The shared attachment contract, checked before a user message is admitted. */
+function assertHostAttachments(attachments: readonly HostImageAttachment[]): void {
+  let total = 0;
+  for (const attachment of attachments) {
+    total += validateImageAttachmentPart(attachment);
+  }
+  if (total > ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES) {
+    throw new AssistantAttachmentValidationError(
+      'oversized-combined',
+      `Attachments total ${total} bytes; the limit for one message is ${ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES} bytes.`
+    );
+  }
+}
+
 /**
  * The selected path's committed model context for `run`: each ancestor's user
  * message and own messages, root first, then this run's. Sibling branches are
@@ -120,7 +164,7 @@ export function hostRunContext(
     ...(turn.branch.delivery?.via === 'next-turn'
       ? [{ content: turn.branch.delivery.ledger, role: 'user' } satisfies ModelMessage]
       : []),
-    { content: turn.branch.prompt, role: 'user' } satisfies ModelMessage,
+    hostUserMessage(turn.branch),
     ...overlayHostChildOutcomes(turn.id, turn.messages, delivered),
   ]);
 }
@@ -163,15 +207,15 @@ function resolveHostBranchParent(
   return requested;
 }
 
-/** The prompt of committed user message `userMessageId` (its run/start command ID). */
-function committedHostUserPrompt(
+/** Committed user message `userMessageId` (its run/start command ID). */
+function committedHostUserMessage(
   runs: Iterable<HostRunState>,
   threadId: string,
   userMessageId: string
-): string {
+): HostRunBranch {
   for (const run of runs) {
     if (run.threadId === threadId && run.branch.userMessageId === userMessageId) {
-      return run.branch.prompt;
+      return run.branch;
     }
   }
   throw new Error('Regenerate references no committed user message in this thread');
@@ -211,17 +255,22 @@ export function foldHostConversationMessages(
 }
 
 /** Where a new run's user message goes. */
-export type HostRunPosition = (
-  | { readonly parentMessageId: string | null; readonly prompt: string }
-  | { readonly prompt: string; readonly userMessageId: string }
-) & { readonly delivery?: HostChildDelivery };
+export type HostRunPosition = {
+  readonly attachments?: HostImageAttachment[];
+  readonly delivery?: HostChildDelivery;
+  readonly prompt: string;
+} & ({ readonly parentMessageId: string | null } | { readonly userMessageId: string });
 
 /** A start follows its requested parent (omitted: the current tip; null: the root). */
 export function hostStartPosition(
   runs: Iterable<HostRunState>,
   params: HostParams<'run/start'>
 ): HostRunPosition {
+  if (params.attachments) {
+    assertHostAttachments(params.attachments);
+  }
   return {
+    ...(params.attachments ? { attachments: params.attachments } : {}),
     parentMessageId: resolveHostBranchParent(runs, params.threadId, params.parentMessageId),
     prompt: params.prompt,
   };
@@ -232,8 +281,14 @@ export function hostRegeneratePosition(
   runs: Iterable<HostRunState>,
   params: HostParams<'run/regenerate'>
 ): HostRunPosition {
+  const { attachments, prompt } = committedHostUserMessage(
+    runs,
+    params.threadId,
+    params.userMessageId
+  );
   return {
-    prompt: committedHostUserPrompt(runs, params.threadId, params.userMessageId),
+    ...(attachments ? { attachments: [...attachments] } : {}),
+    prompt,
     userMessageId: params.userMessageId,
   };
 }
@@ -326,4 +381,31 @@ export function assertHostRunAdmissible(
   if (conversationIds.has(params.commandId)) {
     throw new Error('Input command collides with a committed conversation identity');
   }
+}
+
+type HostStartParams = HostParams<'run/start'>;
+type HostStartImage = NonNullable<HostStartParams['attachments']>[number];
+
+/** run/start as recorded: each image named by digest instead of its bytes. */
+export type HostStartCommandRecord = Omit<HostStartParams, 'attachments'> & {
+  readonly attachments?: readonly (Omit<HostStartImage, 'data'> & { readonly sha256: string })[];
+};
+
+/**
+ * The durable record of a run/start command. An image is stored once: its bytes
+ * are the run's (run.started), and the command record names it by digest, which
+ * still detects a reused command with different images.
+ */
+export function hostStartCommandRecord(params: HostStartParams): HostStartCommandRecord {
+  const { attachments, ...command } = params;
+  if (!attachments) {
+    return command;
+  }
+  return {
+    ...command,
+    attachments: attachments.map(({ data, ...image }) => ({
+      ...image,
+      sha256: createHash('sha256').update(data).digest('hex'),
+    })),
+  };
 }

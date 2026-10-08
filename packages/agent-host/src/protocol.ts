@@ -1,3 +1,8 @@
+import { isProviderCredential, type ProviderCredential } from '@brainstrike/assistant-contract';
+import {
+  ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE,
+  SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES,
+} from '@brainstrike/assistant-contract/assistant-attachments';
 import { McpTaskHandleSchema } from '@brainstrike/assistant-contract/mcp-task-presentation';
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
@@ -6,8 +11,9 @@ import { z } from 'zod';
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
 // and the explicit branch links they commit on `run.started`), and thread
 // presentation (`thread/update`, `thread.updated`: title, colour and icon, also
-// in `thread/list`), withheld
-// observational memory, and tool catalog IDs on committed tool events.
+// in `thread/list`), withheld observational memory, tool catalog IDs on
+// committed tool events, and image attachments on a user message (`run/start`
+// and `run.started`).
 // 12: child threads (BST-1932): `thread.started` with a delegation `origin`, and
 // the child results a `run.started` delivers.
 export const AGENT_HOST_PROTOCOL_VERSION = 12;
@@ -39,6 +45,22 @@ const McpContent = z.record(
   z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])
 );
 const Seq = z.number().int().nonnegative();
+/**
+ * An image on a user message, as the composer encodes it: a base64 data URL.
+ * Core admits it against the shared attachment contract's caps.
+ */
+export const HostImageAttachmentSchema = z.strictObject({
+  data: z.string().min(1),
+  mediaType: z.enum(SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES),
+  /** The attached file's name, shown with the image. */
+  name: z.string().min(1).max(255),
+  type: z.literal('image'),
+});
+export type HostImageAttachment = z.infer<typeof HostImageAttachmentSchema>;
+const Attachments = z
+  .array(HostImageAttachmentSchema)
+  .min(1)
+  .max(ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE);
 const McpAuthorityBase = {
   extensions: z.strictObject({ apps: z.boolean(), tasks: z.boolean() }),
   protocol: z.enum(['legacy', 'auto', '2026-07-28']),
@@ -138,7 +160,15 @@ export const HostRunSnapshotSchema = z.strictObject({
   workspaceBinding: ThreadWorkspaceBindingSchema.optional(),
 });
 export type HostRunSnapshot = z.infer<typeof HostRunSnapshotSchema>;
+/** A key a user supplies directly. Subscription OAuth is never a login payload. */
+export type HostLoginCredential = Exclude<ProviderCredential, { readonly type: 'oauth' }>;
+const LoginCredential = z.custom<HostLoginCredential>(
+  (value) => isProviderCredential(value) && value.type !== 'oauth'
+);
+
 export const HOST_METHOD_SCHEMAS = {
+  // Secret-bearing: process-local, never in HostCommandLedger, the log or diagnostics.
+  'auth/login': z.strictObject({ credential: LoginCredential, provider: Id }),
   'host/stop': z.strictObject({}),
   initialize: z.strictObject({
     hostVersion: Id,
@@ -178,6 +208,8 @@ export const HOST_METHOD_SCHEMAS = {
   'run/start': z.strictObject({
     ...Command,
     ...Thread,
+    /** Images on the new user message, beside its prompt. */
+    attachments: Attachments.optional(),
     configuration: z.record(z.string(), z.json()).optional(),
     modelId: Id,
     /** A committed run ID to follow, null for the thread root; omitted is the current tip. */
@@ -210,7 +242,7 @@ export type HostMethod = keyof typeof HOST_METHOD_SCHEMAS;
 export type HostParams<M extends HostMethod> = z.infer<(typeof HOST_METHOD_SCHEMAS)[M]>;
 /** Private input diagnostics must not quote schema paths or unknown secret-bearing keys. */
 export function parseHostParams<M extends HostMethod>(method: M, input: unknown): HostParams<M> {
-  if (!method.startsWith('mcp/')) {
+  if (!(method.startsWith('mcp/') || method.startsWith('auth/'))) {
     return HOST_METHOD_SCHEMAS[method].parse(input) as HostParams<M>;
   }
   const parsed = HOST_METHOD_SCHEMAS[method].safeParse(input);
@@ -281,6 +313,8 @@ export const HostEventSchema = z.union([
   z.strictObject({
     type: z.literal('run.started'),
     ...RunFields,
+    /** The user message's images; a regeneration repeats its message's. */
+    attachments: Attachments.optional(),
     /** BST-1932: background child results this run delivers to its model. */
     delivery: HostChildDeliverySchema.optional(),
     modelId: Id,
@@ -368,6 +402,7 @@ export const HostLogRowSchema = z.strictObject({
 });
 export type HostLogRow = z.infer<typeof HostLogRowSchema>;
 export const HOST_RESULT_SCHEMAS = {
+  'auth/login': z.strictObject({ stored: z.literal(true) }),
   'host/stop': z.strictObject({ outcome: z.literal('stopped'), rootReleased: z.literal(true) }),
   initialize: z.strictObject({
     hostVersion: Id,

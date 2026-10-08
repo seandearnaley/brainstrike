@@ -6,6 +6,7 @@ import type { HostRunState } from './core-state.js';
 import { canonical, jsonValue } from './json-value.js';
 import { McpAuthorityReconstructionError } from './mcp-authority.js';
 import type {
+  HostClientOrigin,
   HostPlatform,
   HostPreparedModelRequest,
   HostRunAdmission,
@@ -130,6 +131,28 @@ async function defaultHostRunAdmission(
       ),
     },
     tools: admitted,
+  };
+}
+
+/** A new run command's admission request; only a live client supplies an origin. */
+export function hostRunCommandRequest(
+  params: {
+    readonly configuration?: HostRunAdmissionRequest['configuration'] | undefined;
+    readonly modelId: string;
+    readonly threadId: string;
+  },
+  origin: HostClientOrigin | undefined,
+  prompt: string | undefined,
+  signal: AbortSignal
+): Omit<HostRunAdmissionRequest, 'snapshot' | 'workspaceBinding'> {
+  return {
+    ...(params.configuration ? { configuration: params.configuration } : {}),
+    modelId: params.modelId,
+    ...(origin ? { origin } : {}),
+    // BST-1932: a wake has no user-written prompt; its ledger follows admission.
+    ...(prompt === undefined ? {} : { prompt }),
+    signal,
+    threadId: params.threadId,
   };
 }
 

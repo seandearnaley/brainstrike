@@ -17,7 +17,7 @@ import { type MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { expect } from 'vitest';
 import { z } from 'zod';
 import { HostCore, type HostEventStore } from '../../src/core.js';
-import type { HostPlatform } from '../../src/ports.js';
+import type { HostClientOrigin, HostPlatform } from '../../src/ports.js';
 import type { HostLogRow } from '../../src/protocol.js';
 
 export type Chunk =
@@ -102,11 +102,13 @@ export function blocked(options: StreamOptions) {
     stream: new ReadableStream<Chunk>({
       start(controller) {
         controller.enqueue({ type: 'stream-start', warnings: [] });
-        options.abortSignal?.addEventListener(
-          'abort',
-          () => controller.error(options.abortSignal?.reason),
-          { once: true }
-        );
+        const signal = options.abortSignal;
+        // A Stop can land before the provider call starts; that call must still end.
+        if (signal?.aborted) {
+          controller.error(signal.reason);
+          return;
+        }
+        signal?.addEventListener('abort', () => controller.error(signal.reason), { once: true });
       },
     }),
   };
@@ -155,7 +157,9 @@ export function fixturePlatform(
 export async function setupChildRunHost(
   model: MockLanguageModelV4,
   cleanup: (() => Promise<void>)[],
-  settings: Partial<RuntimeSubagentSettings> = {}
+  settings: Partial<RuntimeSubagentSettings> = {},
+  /** Replaces the default admission, as a production platform's `admitRun` does. */
+  admit?: (platform: HostPlatform) => HostPlatform['admitRun']
 ) {
   const root = await mkdtemp(join(tmpdir(), 'bs-m4-child-runs-'));
   const store = await StateStore.open(root);
@@ -180,7 +184,9 @@ export async function setupChildRunHost(
   };
   let current = writer();
   const writes: string[] = [];
-  const platform = fixturePlatform(model, writes, settings);
+  const base = fixturePlatform(model, writes, settings);
+  const admitRun = admit?.(base);
+  const platform: HostPlatform = admitRun ? { ...base, admitRun } : base;
   let core = await HostCore.open(current.port, platform, () => () => undefined);
   const crashed: HostCore[] = [];
   cleanup.push(async () => {
@@ -202,14 +208,17 @@ export async function setupChildRunHost(
       core = await HostCore.open(current.port, platform, () => () => undefined);
     },
     model,
-    start: async (prompt: string): Promise<string> =>
+    start: async (prompt: string, origin?: HostClientOrigin): Promise<string> =>
       (
-        await core.startRun({
-          commandId: randomUUID(),
-          modelId: 'scripted',
-          prompt,
-          threadId,
-        })
+        await core.startRun(
+          {
+            commandId: randomUUID(),
+            modelId: 'scripted',
+            prompt,
+            threadId,
+          },
+          origin
+        )
       ).runId,
     store,
     threadId,
