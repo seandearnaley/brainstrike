@@ -29,6 +29,9 @@ const ThreadPresentation = {
   title: ThreadTitle.optional(),
 };
 const Run = { ...Thread, runId: Id };
+/** Task Ledger run labels (brainstrike_assistant_run_outcomes verdict/source). */
+const RunVerdict = z.enum(['failed', 'mixed', 'succeeded']);
+const RunVerdictDetail = z.string().max(2000);
 const McpInput = { ...Run, interactionId: Id };
 export const HostMcpInputStatusSchema = z.enum([
   'requested',
@@ -167,6 +170,14 @@ export const HOST_METHOD_SCHEMAS = {
     prompt: Id,
   }),
   'run/stop': z.strictObject({ ...Command, ...Run }),
+  /** A client verdict is always the user's; hook and revert labels are host-committed. */
+  'run/verdict': z.strictObject({
+    ...Command,
+    ...Run,
+    detail: RunVerdictDetail.optional(),
+    source: z.literal('user'),
+    verdict: RunVerdict,
+  }),
   /** Destructive Root lifecycle; the existing StateStore intent owns recovery. */
   'thread/delete': z.strictObject(Thread),
   'thread/list': z.strictObject({}),
@@ -338,6 +349,14 @@ export const HostEventSchema = z.union([
     detail: z.string().optional(),
     outcome: z.enum(['completed', 'failed', 'stopped', 'interrupted']),
   }),
+  /** Only the host commits labels; precedence is applied by projectRunVerdicts. */
+  z.strictObject({
+    type: z.literal('run.verdict'),
+    ...RunFields,
+    detail: RunVerdictDetail.optional(),
+    source: z.enum(['edit_revert', 'hook', 'user']),
+    verdict: RunVerdict,
+  }),
 ]);
 export type HostEvent = z.infer<typeof HostEventSchema>;
 export const HostLogRowSchema = z.strictObject({
@@ -375,6 +394,7 @@ export const HOST_RESULT_SCHEMAS = {
   'run/regenerate': z.strictObject({ runId: Id }),
   'run/start': z.strictObject({ runId: Id }),
   'run/stop': z.strictObject({ outcome: z.enum(['stopped', 'already-terminal']) }),
+  'run/verdict': z.strictObject({ accepted: z.literal(true) }),
   'thread/delete': z.strictObject({ deleted: z.literal(true) }),
   'thread/list': z.strictObject({
     // Presentation fields never committed are absent.
