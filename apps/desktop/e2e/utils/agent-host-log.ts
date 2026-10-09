@@ -158,6 +158,33 @@ export async function readHostThreadWorkspace(
   }
 }
 
+/** The running app's host Root: the directory of its published record. */
+export async function readHostRoot(userDataDir: string): Promise<string> {
+  return path.dirname(await hostRecordPath(userDataDir));
+}
+
+/**
+ * The spooled blobs a thread's stored rows reference, read from the Root's
+ * StateStore: each row's `blob` hash, as the store spools a large event.
+ */
+export function readSpooledBlobHashes(root: string, threadId: string): readonly string[] {
+  const db = new DatabaseSync(path.join(root, 'state.db'), { readOnly: true });
+  try {
+    const hashes = db
+      .prepare('SELECT payload FROM run_events WHERE thread_id = ? ORDER BY seq')
+      .all(threadId)
+      .flatMap((row) => {
+        const payload: unknown = JSON.parse(String(row['payload']));
+        const blob =
+          payload && typeof payload === 'object' && 'blob' in payload ? payload.blob : undefined;
+        return typeof blob === 'string' ? [blob] : [];
+      });
+    return [...new Set(hashes)];
+  } finally {
+    db.close();
+  }
+}
+
 /** Whether the host still holds a thread: a deleted thread's read is refused as unknown. */
 export async function hostThreadExists(userDataDir: string, threadId: string): Promise<boolean> {
   const client = await attachAppHost(userDataDir);

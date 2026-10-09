@@ -4,9 +4,10 @@ import {
   providerCallWarningDetail,
   providerCallWarningLabel,
   readProviderCallWarning,
+  readToolTelemetryOmission,
 } from '@brainstrike/assistant-contract';
 import type { HostClient } from './client-connection.js';
-import type { HostEvent, HostLogRow } from './protocol.js';
+import type { HostEvent, HostLogRow, HostRunTelemetry } from './protocol.js';
 
 export type PendingHostApproval = Extract<HostEvent, { type: 'interaction.requested' }>;
 export interface HostRunView {
@@ -228,10 +229,61 @@ export interface HostThreadSnapshot {
   readonly rows: readonly HostLogRow[];
 }
 
+/**
+ * A view's telemetry in order, each chunk once: the subscription's replay
+ * over its rows first, then live chunks. A chunk whose ordinal the view already
+ * applied is skipped, as is a marker for output the view already has.
+ */
+class ViewTelemetry {
+  private readonly next = new Map<string, number>();
+  private early: HostRunTelemetry[] | undefined = [];
+
+  constructor(private readonly deliver: (telemetry: HostRunTelemetry) => void) {}
+
+  /** A live chunk; held until the subscription's replay has been applied. */
+  live(telemetry: HostRunTelemetry): void {
+    if (this.early) {
+      this.early.push(telemetry);
+      return;
+    }
+    this.apply(telemetry);
+  }
+
+  /** The subscription's replay, then the live chunks that arrived before it. */
+  replayed(replay: readonly HostRunTelemetry[]): void {
+    const early = this.early ?? [];
+    this.early = undefined;
+    for (const telemetry of [...replay, ...early]) {
+      this.apply(telemetry);
+    }
+  }
+
+  private apply(telemetry: HostRunTelemetry): void {
+    const omission = readToolTelemetryOmission(telemetry.chunk);
+    const key = JSON.stringify([telemetry.runId, telemetry.toolCallId ?? null]);
+    const next = this.next.get(key) ?? 0;
+    if (omission) {
+      if (next < omission.resumesAt) {
+        this.next.set(key, omission.resumesAt);
+        this.deliver(telemetry);
+      }
+      return;
+    }
+    if (telemetry.ordinal !== undefined) {
+      if (telemetry.ordinal < next) {
+        return;
+      }
+      this.next.set(key, telemetry.ordinal + 1);
+    }
+    this.deliver(telemetry);
+  }
+}
+
 /** Connection status and replay are external state, observed through one snapshot. */
 export class CommittedThreadSession {
   private readonly view: CommittedThreadView;
   private readonly listeners = new Set<() => void>();
+  private readonly telemetryListeners = new Set<(telemetry: HostRunTelemetry) => void>();
   private snapshot: HostThreadSnapshot = {
     connected: true,
     error: undefined,
@@ -240,7 +292,7 @@ export class CommittedThreadSession {
     rows: [],
   };
   constructor(
-    private readonly client: Pick<HostClient, 'closed' | 'onEvent' | 'request'>,
+    private readonly client: Pick<HostClient, 'closed' | 'onEvent' | 'onTelemetry' | 'request'>,
     private readonly threadId: string
   ) {
     this.view = new CommittedThreadView(threadId);
@@ -251,6 +303,15 @@ export class CommittedThreadSession {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   };
+  /**
+   * The thread's live telemetry for this view: its subscription's replay of
+   * running calls and open steps, applied after the replayed rows, then each
+   * live chunk once (ADR-0011 amendment).
+   */
+  onTelemetry(listener: (telemetry: HostRunTelemetry) => void): () => void {
+    this.telemetryListeners.add(listener);
+    return () => this.telemetryListeners.delete(listener);
+  }
   private update(change: Partial<HostThreadSnapshot>): void {
     this.snapshot = { ...this.snapshot, ...change };
     for (const listener of this.listeners) {
@@ -274,6 +335,16 @@ export class CommittedThreadSession {
         this.view.accept([row]);
       }
     });
+    const telemetry = new ViewTelemetry((received) => {
+      for (const listener of this.telemetryListeners) {
+        listener(received);
+      }
+    });
+    const releaseTelemetry = this.client.onTelemetry((received) => {
+      if (active && received.threadId === this.threadId) {
+        telemetry.live(received);
+      }
+    });
     this.client.request('log/subscribe', { fromSeq: 0, threadId: this.threadId }).then(
       (result) => {
         if (active) {
@@ -290,6 +361,7 @@ export class CommittedThreadSession {
           if (this.view.getSnapshot() === before) {
             this.update({});
           }
+          telemetry.replayed(result.telemetry);
         }
       },
       (cause: unknown) => {
@@ -313,6 +385,7 @@ export class CommittedThreadSession {
       disposed ??= (async (): Promise<void> => {
         active = false;
         release();
+        releaseTelemetry();
         if (!connectionClosed) {
           await this.client.request('log/unsubscribe', { threadId: this.threadId });
         }

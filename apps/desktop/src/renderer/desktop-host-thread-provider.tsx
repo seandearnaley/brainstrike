@@ -36,7 +36,6 @@ import {
 } from './committed-host-conversation';
 import { CommittedHostMcpInputView } from './committed-host-mcp-input-view';
 import { CommittedWorkspaceControls } from './committed-workspace-controls';
-import { readDesktopHostModel } from './desktop-host-configuration';
 import { createWindowThreadCapability } from './desktop-host-thread-capability';
 import { HostApprovalStrip } from './host-approval-strip';
 import { HostChildDetailsFold } from './host-child-details';
@@ -51,9 +50,9 @@ import {
   type ProviderReadErrors,
   useDesktopHostPresentation,
 } from './use-desktop-host-presentation';
-import { enabledCatalogRevision, useEnabledCatalogModels } from './use-enabled-catalog-models';
 import { useHostLastTurn } from './use-host-last-turn';
 import { useHostMemorySegment, withMemoryGate } from './use-host-memory-segment';
+import { useHostThreadSelection } from './use-host-thread-selection';
 import { useHostThreadUsage } from './use-host-thread-usage';
 
 /** The existing checkpoint undo controls, fed from the thread's committed edits. */
@@ -153,11 +152,13 @@ function HostThread({
   readonly threadId: string;
 }): ReactElement {
   const explorer = useFileExplorerStoreContext();
-  const { readConfiguration, readPlanMode, ...presentation } = useDesktopHostPresentation(
-    threadId,
-    providerReadErrors
-  );
+  // ADR-0019: the composer's model is the host thread's selection.
+  const selection = useHostThreadSelection(client, threadId);
+  const readSelectionFolderId = useCallback(() => explorer.getState().currentFolderId, [explorer]);
+  const { catalogKey, readConfiguration, readModelId, readPlanMode, ...presentation } =
+    useDesktopHostPresentation(threadId, selection, readSelectionFolderId, providerReadErrors);
   const configuration = useRef(readConfiguration);
+  const modelId = useRef(readModelId);
   const planMode = useRef(readPlanMode);
   // Legacy parity: a send binds an unbound thread to the Main root first.
   const database = useOptionalPGliteDatabase();
@@ -176,8 +177,9 @@ function HostThread({
   }, [client, database, explorer, threadId]);
   useLayoutEffect(() => {
     configuration.current = readConfiguration;
+    modelId.current = readModelId;
     planMode.current = readPlanMode;
-  }, [readConfiguration, readPlanMode]);
+  }, [readConfiguration, readModelId, readPlanMode]);
   const [conversation, setConversation] = useState<CommittedHostConversation>();
   // MCP Apps this thread's results mount: Main serves the shell, Core runs each call.
   const appBridge = useMemo(() => hostMcpAppBridge(client), [client]);
@@ -191,7 +193,7 @@ function HostThread({
       modelId: '',
       onTitleCommitted,
       readConfiguration: () => configuration.current(explorer.getState().currentFolderId),
-      readModelId: () => readDesktopHostModel(threadId),
+      readModelId: () => modelId.current(),
       readPlanMode: () => planMode.current(),
       threadId,
     });
@@ -202,24 +204,23 @@ function HostThread({
   // host); a delegated child's view offers none.
   const rewind = useRewindContext();
   // The meter's memory segment and the memory send gate: what admission would
-  // answer for the run the next send starts, re-read when the catalog changes.
-  const enabledCatalog = useEnabledCatalogModels();
+  // answer for the run the next send starts.
   const planModeEnabled = presentation.planMode?.enabled === true;
   const readMemoryRequest = useCallback(
     () => ({
       ...hostRunSettings({
         modelId: '',
         readConfiguration: () => readConfiguration(explorer.getState().currentFolderId),
-        readModelId: () => readDesktopHostModel(threadId),
+        readModelId,
         readPlanMode: () => planModeEnabled,
       }),
       threadId,
     }),
-    [explorer, planModeEnabled, readConfiguration, threadId]
+    [explorer, planModeEnabled, readConfiguration, readModelId, threadId]
   );
   const memory = useHostMemorySegment({
     blocked: presentation.isComposerDisabled === true,
-    catalogRevision: enabledCatalogRevision(enabledCatalog),
+    catalog: catalogKey,
     client,
     readRequest: readMemoryRequest,
     source: conversation?.source,

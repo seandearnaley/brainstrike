@@ -11,7 +11,11 @@ import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, type Mock, test, vi } from 'vitest';
-import { useDesktopHostPresentation } from '../renderer/use-desktop-host-presentation';
+import {
+  type ProviderReadErrors,
+  useDesktopHostPresentation,
+} from '../renderer/use-desktop-host-presentation';
+import type { HostThreadSelectionBinding } from '../renderer/use-host-thread-selection';
 
 // The provider list is this hook's input (the shared discovery resource owns
 // it); slash commands and @-mentions need the explorer and file-system shells
@@ -50,6 +54,12 @@ vi.mock('@brainstrike/db/react', async (importOriginal) => ({
 }));
 
 const THREAD = 'host-thread-presentation';
+/** A thread with no committed selection yet starts from the global default (ADR-0019). */
+const NO_SELECTION: HostThreadSelectionBinding = { selection: null, set: async () => undefined };
+const present = (
+  providerReadErrors?: ProviderReadErrors,
+  host: HostThreadSelectionBinding = NO_SELECTION
+) => useDesktopHostPresentation(THREAD, host, () => null, providerReadErrors);
 const openAiModel = getProviderModelDefinitions('openai').find((model) => model.type === 'llm');
 const localModel = getProviderModelDefinitions('local').find((model) => model.type === 'llm');
 if (!(openAiModel && localModel)) {
@@ -136,9 +146,109 @@ afterEach(() => {
   Reflect.deleteProperty(navigator, 'gpu');
 });
 
+describe("ADR-0019: the host composer's model is the thread's run selection", () => {
+  const openAiModels = getProviderModelDefinitions('openai').filter(
+    (model) => model.type === 'llm'
+  );
+  const [modelA, modelB] = openAiModels;
+  if (!(modelA && modelB)) {
+    throw new Error('The provider catalog lists fewer than two OpenAI chat models');
+  }
+  const compositeA = `openai::${modelA.id}`;
+  const compositeB = `openai::${modelB.id}`;
+  beforeEach(() => {
+    configured.current = { discoveryState: 'ready', providers: ['openai'] };
+    catalog.current = {
+      error: null,
+      loading: false,
+      rows: [
+        { id: modelA.id, providerId: 'openai' },
+        { id: modelB.id, providerId: 'openai' },
+      ],
+    };
+    useAssistantPreferencesStore.setState({ selectedModel: compositeA });
+  });
+
+  test("the committed selection names the model, over the renderer's own draft and default", () => {
+    useAssistantThreadStore.getState().setThreadDraftRuntime(THREAD, {
+      model: modelA.id,
+      provider: 'openai',
+    });
+    const host = { selection: { modelId: compositeB }, set: vi.fn(async () => undefined) };
+    const { result } = renderHook(() => present(undefined, host));
+    expect(result.current.selectedModel).toBe(compositeB);
+    expect(result.current.readModelId()).toBe(compositeB);
+    expect(result.current.readConfiguration(null)).toMatchObject({
+      modelConfiguration: { model: modelB.id, provider: 'openai' },
+    });
+    expect(host.set).not.toHaveBeenCalled();
+  });
+
+  test('a pick shows at once and is committed as the selection, with its own settings', async () => {
+    const host = { selection: { modelId: compositeA }, set: vi.fn(async () => undefined) };
+    const { result } = renderHook(() => present(undefined, host));
+    act(() => result.current.onModelChange?.(compositeB));
+    expect(result.current.selectedModel).toBe(compositeB);
+    await waitFor(() => expect(host.set).toHaveBeenCalledTimes(1));
+    expect(host.set).toHaveBeenCalledWith(
+      compositeB,
+      expect.objectContaining({ modelConfiguration: expect.objectContaining({ model: modelB.id }) })
+    );
+  });
+
+  test('a pick made while a notice gates the send is saved once the notice clears', async () => {
+    // The picked model's catalog row is not enabled yet: the provider notice gates.
+    catalog.current = { error: null, loading: false, rows: [] };
+    const host = { selection: null, set: vi.fn(async () => undefined) };
+    const { rerender, result } = renderHook(() => present(undefined, host));
+    act(() => result.current.onModelChange?.(compositeB));
+    expect(result.current.disabledReason).toBe('Enable at least one model for OpenAI to continue.');
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(host.set).not.toHaveBeenCalled();
+    // Settings enables the row: the notice clears and the same pick is saved.
+    catalog.current = {
+      error: null,
+      loading: false,
+      rows: [{ id: modelB.id, providerId: 'openai' }],
+    };
+    rerender();
+    await waitFor(() => expect(host.set).toHaveBeenCalledTimes(1));
+    expect(host.set).toHaveBeenCalledWith(compositeB, expect.anything());
+    await waitFor(() => expect(result.current.disabledReason).toBeUndefined());
+  });
+
+  test('a pick the host refuses gates the send with the reason', async () => {
+    const host = {
+      selection: { modelId: compositeA },
+      set: vi.fn(async () => {
+        throw new Error('Unknown thread');
+      }),
+    };
+    const { result } = renderHook(() => present(undefined, host));
+    act(() => result.current.onModelChange?.(compositeB));
+    await waitFor(() =>
+      expect(result.current.disabledReason).toBe('Could not save the model choice: Unknown thread')
+    );
+    expect(result.current.isComposerDisabled).toBe(true);
+  });
+
+  test("a selection the host could not read gates the send, never the renderer's default", () => {
+    const host = {
+      error: "Could not read this thread's model: host closed",
+      selection: undefined,
+      set: vi.fn(async () => undefined),
+    };
+    const { result } = renderHook(() => present(undefined, host));
+    expect(result.current.disabledReason).toBe("Could not read this thread's model: host closed");
+    expect(result.current.isComposerDisabled).toBe(true);
+  });
+});
+
 describe('the host composer gates a send on the provider notice', () => {
   test('no connected provider', () => {
-    const { result } = renderHook(() => useDesktopHostPresentation(THREAD));
+    const { result } = renderHook(() => present());
     expect(result.current.disabledReason).toBe(
       'Connect an AI provider in Settings → Providers to enable the assistant.'
     );
@@ -151,7 +261,7 @@ describe('the host composer gates a send on the provider notice', () => {
   test('a connected provider with no model the catalog enables, whatever the registry cache says', () => {
     configured.current = { discoveryState: 'ready', providers: ['openai'] };
     useModelRegistryStore.setState({ models: [registryRow(true)] });
-    const { result } = renderHook(() => useDesktopHostPresentation(THREAD));
+    const { result } = renderHook(() => present());
     expect(result.current.disabledReason).toBe('Enable at least one model for OpenAI to continue.');
     expect(result.current.isComposerDisabled).toBe(true);
   });
@@ -160,7 +270,7 @@ describe('the host composer gates a send on the provider notice', () => {
     configured.current = { discoveryState: 'ready', providers: ['openai'] };
     useModelRegistryStore.setState({ models: [registryRow(false)] });
     catalog.current = { error: null, loading: false, rows: [enabledOpenAi] };
-    const { result } = renderHook(() => useDesktopHostPresentation(THREAD));
+    const { result } = renderHook(() => present());
     expect(result.current.disabledReason).toBeUndefined();
     expect(result.current.isComposerDisabled).toBeUndefined();
     expect(
@@ -177,7 +287,7 @@ describe('the host composer gates a send on the provider notice', () => {
       loading: false,
       rows: [{ id: localModel.id, providerId: 'local' }],
     };
-    const { result } = renderHook(() => useDesktopHostPresentation(THREAD));
+    const { result } = renderHook(() => present());
     expect(result.current.disabledReason).toBeUndefined();
     expect(result.current.isComposerDisabled).toBeUndefined();
   });
@@ -186,7 +296,7 @@ describe('the host composer gates a send on the provider notice', () => {
     configured.current = { discoveryState: 'ready', providers: ['ollama'] };
     discoverOllama();
     useAssistantPreferencesStore.setState({ selectedModel: `ollama::${OLLAMA_MODEL}` });
-    const { result } = renderHook(() => useDesktopHostPresentation(THREAD));
+    const { result } = renderHook(() => present());
     await waitFor(() => {
       expect(result.current.pickerModels?.some(({ id }) => id === OLLAMA_MODEL)).toBe(true);
     });
@@ -197,7 +307,7 @@ describe('the host composer gates a send on the provider notice', () => {
   test('a local runtime discovery has not confirmed is named but never gates the send admission accepts', () => {
     configured.current = { discoveryState: 'ready', providers: ['openai'] };
     useAssistantPreferencesStore.setState({ selectedModel: `ollama::${OLLAMA_MODEL}` });
-    const { result } = renderHook(() => useDesktopHostPresentation(THREAD));
+    const { result } = renderHook(() => present());
     expect(result.current.disabledReason).toBe(
       'The selected local runtime is currently unavailable.'
     );
@@ -207,12 +317,12 @@ describe('the host composer gates a send on the provider notice', () => {
   test('a catalog still loading names nothing, and a failed catalog read gates the send', () => {
     configured.current = { discoveryState: 'ready', providers: ['openai'] };
     database.current = null;
-    const noDatabase = renderHook(() => useDesktopHostPresentation(THREAD));
+    const noDatabase = renderHook(() => present());
     expect(noDatabase.result.current.disabledReason).toBeUndefined();
     noDatabase.unmount();
     database.current = DATABASE;
     catalog.current = { error: null, loading: true, rows: [] };
-    const loading = renderHook(() => useDesktopHostPresentation(THREAD));
+    const loading = renderHook(() => present());
     expect(loading.result.current.disabledReason).toBeUndefined();
     loading.unmount();
     catalog.current = {
@@ -220,7 +330,7 @@ describe('the host composer gates a send on the provider notice', () => {
       loading: false,
       rows: [],
     };
-    const failed = renderHook(() => useDesktopHostPresentation(THREAD));
+    const failed = renderHook(() => present());
     expect(failed.result.current.disabledReason).toBe(
       'Could not read the enabled models: relation "models" does not exist'
     );
@@ -230,16 +340,14 @@ describe('the host composer gates a send on the provider notice', () => {
   test("the host status's credential read failure for the selected provider", () => {
     configured.current = { discoveryState: 'ready', providers: ['openai', 'anthropic'] };
     catalog.current = { error: null, loading: false, rows: [enabledOpenAi] };
-    const { result } = renderHook(() =>
-      useDesktopHostPresentation(THREAD, { openai: 'The OpenAI key could not be read.' })
-    );
+    const { result } = renderHook(() => present({ openai: 'The OpenAI key could not be read.' }));
     expect(result.current.disabledReason).toBe('The OpenAI key could not be read.');
     expect(result.current.isComposerDisabled).toBe(true);
   });
 
   test('a failed provider refresh with nothing connected names the refresh', () => {
     configured.current = { discoveryError: 'probe failed', discoveryState: 'error', providers: [] };
-    const { result } = renderHook(() => useDesktopHostPresentation(THREAD));
+    const { result } = renderHook(() => present());
     expect(result.current.disabledReason).toBe(
       'Could not refresh available providers: probe failed'
     );
@@ -253,7 +361,7 @@ describe('the host composer gates a send on the provider notice', () => {
       providers: ['openai'],
     };
     catalog.current = { error: null, loading: false, rows: [enabledOpenAi] };
-    const { result } = renderHook(() => useDesktopHostPresentation(THREAD));
+    const { result } = renderHook(() => present());
     expect(result.current.disabledReason).toBe(
       'Could not refresh available providers: probe failed'
     );
@@ -263,7 +371,7 @@ describe('the host composer gates a send on the provider notice', () => {
   test('a ready provider and model leave the composer open', () => {
     configured.current = { discoveryState: 'ready', providers: ['openai'] };
     catalog.current = { error: null, loading: false, rows: [enabledOpenAi] };
-    const { result } = renderHook(() => useDesktopHostPresentation(THREAD));
+    const { result } = renderHook(() => present());
     expect(result.current.disabledReason).toBeUndefined();
     expect(result.current.isComposerDisabled).toBeUndefined();
   });
@@ -299,7 +407,7 @@ describe("the host composer's Tools menu", () => {
   });
 
   test('lists the desktop native tools and the MCP tools host runs bind, as toggles', async () => {
-    const { result } = renderHook(() => useDesktopHostPresentation(THREAD), { wrapper });
+    const { result } = renderHook(() => present(), { wrapper });
     await waitFor(() => {
       expect(result.current.toolMenu?.items.some((tool) => tool.id === MCP_TOOL)).toBe(true);
     });
@@ -322,7 +430,7 @@ describe("the host composer's Tools menu", () => {
     if (!nativeTool) {
       throw new Error('No desktop native tool');
     }
-    const { result } = renderHook(() => useDesktopHostPresentation(THREAD), { wrapper });
+    const { result } = renderHook(() => present(), { wrapper });
     await waitFor(() => {
       expect(result.current.toolMenu?.items.some((tool) => tool.id === MCP_TOOL)).toBe(true);
     });
@@ -359,7 +467,7 @@ describe('the built-in local model load on a host thread', () => {
       listeners.add(listener);
       return () => listeners.delete(listener);
     });
-    const { result, unmount } = renderHook(() => useDesktopHostPresentation(THREAD));
+    const { result, unmount } = renderHook(() => present());
     expect(result.current.localLoadingState).toBeUndefined();
     act(() => {
       for (const listener of listeners) {

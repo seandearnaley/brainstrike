@@ -42,7 +42,7 @@ import { deleteHostThread } from './core-thread-deletion.js';
 import { readHostRow, storedHostEvent } from './event-storage.js';
 import { beginHostRun, foldHostHookContextEvent, hostRunTerminalEvents } from './hook-context.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
-import { HostLedgerProjection } from './ledger-projection.js';
+import { HostLogProjections } from './log-projections.js';
 import { HostMcpAppCalls } from './mcp-app-calls.js';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
 import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
@@ -87,6 +87,7 @@ import {
   startHostNextRun,
 } from './run-continuation.js';
 import { userRunVerdict } from './run-verdicts.js';
+import { HostTelemetryReplay } from './telemetry-replay.js';
 import { type HostEventStore, HostThreadCatalog } from './thread-catalog.js';
 import { HostThreadPresentationState } from './thread-presentation-state.js';
 import { HostThreadRewinds } from './thread-rewind.js';
@@ -122,7 +123,7 @@ export class HostCore {
   private readonly compactions = new HostContextCompactions();
   private readonly rewrites = new HostProjectionRewrites();
   /** Cost views and the thread list: every committed row, folded once. */
-  private readonly ledger = new HostLedgerProjection();
+  private readonly projections = new HostLogProjections();
   private readonly threads = new Set<string>();
   private readonly catalog = new HostThreadCatalog();
   private readonly presentations = new HostThreadPresentationState({
@@ -163,7 +164,8 @@ export class HostCore {
   private readonly admittedRuns = new Map<string, HostRunAdmissionCommand>();
   private readonly conversationIds = new Set<string>();
   private readonly listeners = new Set<(row: HostLogRow, parentThreadId?: string) => void>();
-  private readonly telemetryListeners = new Set<(telemetry: HostRunTelemetry) => void>();
+  /** Live telemetry: its listeners, and the replay a late subscriber receives. */
+  readonly liveTelemetry = new HostTelemetryReplay();
   private readonly pendingAdmissions = new Map<AbortController, string>();
   private readonly failedAdmissions = new Map<string, unknown>();
   private readonly deletions = new Map<string, Promise<HostResults['thread/delete']>>();
@@ -195,7 +197,7 @@ export class HostCore {
     // The root owner retains partially restored actors if hydration or cleanup fails.
     onAcquired?.(core);
     await core.catalog.hydrate(store, core.threads, (row) => {
-      core.ledger.apply(row);
+      core.projections.apply(row);
       core.selections.fold(row);
       core.fold(row);
     });
@@ -294,8 +296,9 @@ export class HostCore {
     this.catalog.noteCommitted(rows);
     beforePublish?.(rows);
     for (const row of rows) {
-      this.ledger.apply(row);
+      this.projections.apply(row);
       this.selections.fold(row);
+      this.liveTelemetry.committed(row);
       for (const listener of this.listeners) {
         listener(row, this.children.parentOf(row.threadId));
       }
@@ -310,27 +313,21 @@ export class HostCore {
 
   /** A running tool's live telemetry, published to listeners and never committed. */
   onTelemetry(listener: (telemetry: HostRunTelemetry) => void): () => void {
-    this.telemetryListeners.add(listener);
-    return () => this.telemetryListeners.delete(listener);
+    return this.liveTelemetry.subscribe(listener);
   }
 
   /** Top-level threads with the facts Core already holds: presentation, store dates, damage, binding, latest run. */
   listThreads(): HostResults['thread/list']['threads'] {
-    return this.children.topLevel(this.threads).map((threadId) => {
-      const latestRun = this.ledger.readLatestRun(threadId);
-      return {
-        threadId,
-        ...this.presentations.read(threadId),
-        ...this.catalog.entry(threadId),
-        ...this.workspaces.readBinding(this.threads, threadId),
-        ...(latestRun ? { latestRun } : {}),
-      };
+    return this.catalog.list(this.children.topLevel(this.threads), {
+      binding: (threadId) => this.workspaces.readBinding(this.threads, threadId),
+      latestRun: (threadId) => this.projections.ledger.readLatestRun(threadId),
+      presentation: (threadId) => this.presentations.read(threadId),
     });
   }
 
   /** Every thread's runs and costed provider calls, folded from its committed log. */
   readLedger(): HostResults['ledger/read'] {
-    return this.ledger.read();
+    return this.projections.ledger.read();
   }
 
   /** BST-1932: a thread's direct child threads, in delegation order, with their origins. */
@@ -475,7 +472,7 @@ export class HostCore {
     this.compactions.forgetThread(threadId);
     this.rewrites.forgetThread(threadId);
     this.rewinds.forgetThread(threadId);
-    this.ledger.forget(threadId);
+    this.projections.forget(threadId);
   }
 
   startThread(params: HostParams<'thread/start'>): Promise<{ threadId: string }> {
@@ -649,11 +646,7 @@ export class HostCore {
       rewrites: this.rewrites,
       runs: this.runs,
       syncBoundary: (threadId) => this.store.syncBoundary(threadId),
-      telemetry: (telemetry) => {
-        for (const listener of this.telemetryListeners) {
-          listener(telemetry);
-        }
-      },
+      telemetry: (telemetry) => this.liveTelemetry.publish(telemetry),
     };
   }
 
@@ -900,8 +893,11 @@ export class HostCore {
   }
 
   private openRun(run: Run): Promise<HostRunOwner | undefined> {
-    return openHostRunOwner(this.platform, run, (threadId, events) =>
-      this.append(threadId, events, 'full')
+    return openHostRunOwner(
+      this.platform,
+      run,
+      (threadId, events) => this.append(threadId, events, 'full'),
+      (threadIds) => this.projections.readRunnable(this.catalog, threadIds)
     );
   }
 
@@ -990,7 +986,7 @@ export class HostCore {
       runs: () => [...this.runs.values()],
     });
     this.listeners.clear();
-    this.telemetryListeners.clear();
+    this.liveTelemetry.clear();
     reportRetiredHostOutcomes(outcomes);
   }
 }

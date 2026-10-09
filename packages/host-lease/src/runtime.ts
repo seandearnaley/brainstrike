@@ -98,7 +98,6 @@ async function prepareSocketDirectory(root: string): Promise<string> {
   }
   return directory;
 }
-
 export async function startHost(
   input: HostStartOptions,
   bindings?: HostRuntimeBindings,
@@ -353,25 +352,17 @@ export async function startHost(
         async (timer) => clearTimeout(timer)
       );
     }
-    if (options.lifetime === 'app' && options.parent) {
-      const parent = options.parent;
-      if (processStartTime(parent.pid) !== parent.start) {
-        await close();
-        throw new Error('App parent is not alive at host startup');
-      }
-      await owner.acquire(
-        async () =>
-          setInterval(() => {
-            try {
-              if (processStartTime(parent.pid) !== parent.start) {
-                close().catch(() => undefined);
-              }
-            } catch (cause) {
-              close(cause).catch(() => undefined);
-            }
-          }, 100),
-        async (timer) => clearInterval(timer)
-      );
+    // "A host forked by the app dies with the app" (ADR-0017). The app is checked once here; after
+    // that the host lives exactly as long as its launcher's lifetime channel (the Node IPC channel,
+    // or Electron Main's lifetime port), which the process entry turns into close(). A channel's peer
+    // is the app process itself, so a later process reusing the app's pid cannot keep a host alive.
+    if (
+      options.lifetime === 'app' &&
+      options.parent &&
+      processStartTime(options.parent.pid) !== options.parent.start
+    ) {
+      await close();
+      throw new Error('App parent is not alive at host startup');
     }
     return {
       get clientCount(): number {

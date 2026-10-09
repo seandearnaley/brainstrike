@@ -71,7 +71,7 @@ export function decodeStoredHostEvent(
 const HYDRATED_CHUNK_TYPES: ReadonlySet<unknown> = new Set(['tool-call', 'tool-error']);
 
 /** `false` when no fold of Core's open reads the event, so the hydration read skips its row. */
-function hydrates(event: HostEvent): boolean {
+export function hydratesHostEvent(event: HostEvent): boolean {
   if (event.type !== 'stream.chunk') {
     return true;
   }
@@ -99,7 +99,7 @@ export function storedHostEvent(
   if (refs.length !== supplied.size || refs.some((hash) => !supplied.has(hash))) {
     throw new Error('Host event blob references do not match the supplied blobs');
   }
-  const mark = hydrates(event) ? {} : { hydrate: false as const };
+  const mark = hydratesHostEvent(event) ? {} : { hydrate: false as const };
   const stored = largeText(JSON.stringify(event));
   if (!stored.blob) {
     return { ...(referenced.length > 0 ? { blobs: referenced } : {}), event, ...mark, threadId };

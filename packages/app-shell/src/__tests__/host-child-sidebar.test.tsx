@@ -1,6 +1,10 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { __resetWorkspaceTabSelectionStoreForTests } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
+import { useAssistantThreadStore } from '@brainstrike/assistant-data';
+import {
+  __resetWorkspaceTabSelectionStoreForTests,
+  useWorkspaceTabSelectionStore,
+} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { act, cleanup, render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { afterEach, expect, it } from 'vitest';
@@ -10,13 +14,21 @@ import {
   AssistantThreadHostContext,
 } from '../assistant-thread-host-context';
 import { HostChildSidebarCell } from '../host-child-sidebar-cell';
+import { hostChildWorkspaceTabId } from '../host-child-workspace-tab';
 import type { ThreadPanelVisibleRow } from '../thread-panel-visible-rows';
+import { threadWorkspaceNavigation } from '../thread-workspace/live-thread-workspace-navigation';
 import { useHostChildSidebar } from '../use-host-child-sidebar';
 
+const threads = useAssistantThreadStore.getState();
 afterEach(() => {
   cleanup();
   __resetWorkspaceTabSelectionStoreForTests();
+  useAssistantThreadStore.setState(threads, true);
+  // No root's workspace stays ready for the next test's navigation.
+  threadWorkspaceNavigation.loading('workspace', null);
 });
+
+const CHILD_TAB = hostChildWorkspaceTabId({ persona: 'worker', threadId: 'child-1' });
 
 const refused = (): Promise<never> => Promise.reject(new Error('not used by the sidebar'));
 
@@ -70,11 +82,12 @@ function Panel() {
   );
 }
 
-it('a host thread’s child row follows the host’s notices and is unread until its tab is opened', async () => {
-  let status: AssistantThreadHostChild['status'] = 'working';
-  let notify: ((threadId: string) => void) | undefined;
-  const host: AssistantThreadHostCapability = {
-    childThreads: async () => [child(status)],
+function hostWith(
+  childThreads: NonNullable<AssistantThreadHostCapability['childThreads']>,
+  subscribeChildren: NonNullable<AssistantThreadHostCapability['subscribeChildren']>
+): AssistantThreadHostCapability {
+  return {
+    childThreads,
     createThread: refused,
     deleteThread: refused,
     isHostThread: (threadId) => threadId === 'root-1',
@@ -82,15 +95,48 @@ it('a host thread’s child row follows the host’s notices and is unread until
     ownsThread: refused,
     renameThread: refused,
     renderThread: () => undefined,
-    subscribeChildren: (listener) => {
+    subscribeChildren,
+    updateThreadBinding: refused,
+    workspaceRepository: (history) => history,
+  };
+}
+
+it('a child’s row opens it in its own root’s workspace, whichever root is open', async () => {
+  useAssistantThreadStore.getState().openThreadTab('workspace', 'other-root');
+  render(
+    <AssistantThreadHostContext.Provider
+      value={hostWith(
+        async () => [child('idle')],
+        () => () => undefined
+      )}
+    >
+      <Panel />
+    </AssistantThreadHostContext.Provider>
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Expand Plan the release' }));
+  await userEvent.click(await screen.findByRole('button', { name: /^Cedar-1a2b3c\s*Child$/u }));
+  // The child's root opens first; its tab opens once that root's workspace is ready.
+  expect(useAssistantThreadStore.getState().activeThreadIdByResourceId['workspace']).toBe('root-1');
+  expect(useWorkspaceTabSelectionStore.getState().openAppIds).not.toContain(CHILD_TAB);
+  act(() => threadWorkspaceNavigation.complete('workspace', 'root-1'));
+  expect(useWorkspaceTabSelectionStore.getState().selection).toEqual({
+    appId: CHILD_TAB,
+    kind: 'app',
+  });
+});
+
+it('a host thread’s child row follows the host’s notices and is unread until its tab is opened', async () => {
+  let status: AssistantThreadHostChild['status'] = 'working';
+  let notify: ((threadId: string) => void) | undefined;
+  const host = hostWith(
+    async () => [child(status)],
+    (listener) => {
       notify = listener;
       return () => {
         notify = undefined;
       };
-    },
-    updateThreadBinding: refused,
-    workspaceRepository: (history) => history,
-  };
+    }
+  );
   render(
     <AssistantThreadHostContext.Provider value={host}>
       <Panel />
@@ -107,6 +153,7 @@ it('a host thread’s child row follows the host’s notices and is unread until
   });
   // Opening the child's tab sees its change.
   await userEvent.click(unread);
+  act(() => threadWorkspaceNavigation.complete('workspace', 'root-1'));
   expect(
     await screen.findByRole('button', { name: /^Cedar-1a2b3c\s*Needs input$/u })
   ).toBeVisible();

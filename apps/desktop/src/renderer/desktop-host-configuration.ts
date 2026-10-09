@@ -30,39 +30,24 @@ import {
 
 export type { DesktopHostModelProjection } from '../agent-host-platform/desktop-host-intent';
 
-export function readDesktopHostModel(threadId: string): string {
-  const draft = useAssistantThreadStore.getState().draftRuntimeByThreadId[threadId];
-  const composite =
-    draft?.provider && draft.model
-      ? `${draft.provider}::${draft.model}`
-      : useAssistantPreferencesStore.getState().selectedModel;
-  if (!composite) {
-    throw new Error('Select a provider and model before sending');
-  }
-  const separator = composite.indexOf('::');
-  const provider = composite.slice(0, separator);
-  if (separator < 1 || !isSupportedProvider(provider)) {
-    throw new Error('The selected model has no supported provider');
-  }
-  return composite;
-}
-
 /**
- * Capture intent at Send from the same stores used by the existing assistant.
- * `openRouterLookup` is the composer's OpenRouter metadata: the efforts it
- * offered are validated against that same metadata, as the legacy Send did.
+ * Capture intent for the composer's model (`provider::model`, ADR-0019: the
+ * host thread's selection or the user's pick) from the same stores used by the
+ * existing assistant. `openRouterLookup` is the composer's OpenRouter metadata:
+ * the efforts it offered are validated against that same metadata, as the
+ * legacy Send did.
  */
 export function readDesktopHostConfiguration(
   threadId: string,
+  composite: string,
   selectionFolderId: string | null,
   projection?: DesktopHostModelProjection,
   openRouterLookup?: OpenRouterModelMetadataLookup
 ): Record<string, unknown> {
   const preferences = useAssistantPreferencesStore.getState();
-  const composite = readDesktopHostModel(threadId);
   const separator = composite.indexOf('::');
   const provider = composite.slice(0, separator);
-  if (!isSupportedProvider(provider)) {
+  if (separator < 1 || !isSupportedProvider(provider)) {
     throw new Error('The selected model has no supported provider');
   }
   const threadDraft = useAssistantThreadStore.getState().draftRuntimeByThreadId[threadId];

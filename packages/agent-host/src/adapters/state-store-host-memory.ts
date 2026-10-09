@@ -29,7 +29,6 @@ import {
   committedThreadBranches,
 } from '../committed-identities.js';
 import { compactedRunIds } from '../context-compaction.js';
-import { readHostRow } from '../event-storage.js';
 import type { HostProjectionRewrite, HostRunContext, HostRunOwner } from '../ports.js';
 import { committedRewrites } from '../projection-rewrites.js';
 import type { HostLogRow } from '../protocol.js';
@@ -101,6 +100,12 @@ export interface StateStoreHostMemoryOptions {
   readonly providerRequestContext?: () => ProviderRequestContext | Promise<ProviderRequestContext>;
   readonly recordObserverUsage?: HostMemoryCapabilities['recordObserverUsage'];
   readonly recordPrompt: HostMemoryCapabilities['recordPrompt'];
+  /**
+   * Told once the owner has joined and closed, so whatever keeps it by its run
+   * (an admission shared by delegated runs) drops it: a closed owner's public
+   * Memory and its WebAssembly hasher must not outlive the run.
+   */
+  readonly released?: () => void;
   readonly resourceId: string;
   readonly store: StateStore;
   /** Captured run bridge over the existing Root indexer, prepared before native embedding. */
@@ -119,11 +124,13 @@ export class StateStoreHostMemory implements HostRunOwner {
     private readonly identity: HostMemoryIdentity,
     private readonly domain: StateStoreMemoryStorage,
     private readonly storage: MastraCompositeStore,
-    private readonly readRows: () => Promise<HostLogRow[]>,
+    /** The given threads' committed rows, or the whole resource's without them. */
+    private readonly readRows: (threadIds?: ReadonlySet<string>) => Promise<HostLogRow[]>,
     private readonly providerContext: ProviderRequestContext | undefined,
     private readonly semanticRecall: boolean,
     private readonly resourceRecall: boolean,
-    private readonly vectorBridge: StateStoreMemoryVector | undefined
+    private readonly vectorBridge: StateStoreMemoryVector | undefined,
+    private readonly released: (() => void) | undefined
   ) {}
 
   static createVectorBridge(options: StateStoreMemoryVectorOptions): StateStoreMemoryVector {
@@ -191,13 +198,13 @@ export class StateStoreHostMemory implements HostRunOwner {
     }
     // Snapshot configuration before constructing native run-owned resources.
     const providerContext = await options.providerRequestContext?.();
-    const inputRows = await Promise.all(
-      (await options.store.read(context.threadId, 0)).map((row) => readHostRow(options.store, row))
-    );
+    const inputRows = context.readCommittedRows(new Set([context.threadId]));
     const native = await selectRunMemory(options.native, inputRows, context);
-    const readRows = (): Promise<HostLogRow[]> => readResourceRows(context, options);
-    const readTranscript = async (): Promise<MastraDBMessage[]> =>
-      committedMemoryTranscript(await readRows(), options.resourceId);
+    const readRows = (threadIds?: ReadonlySet<string>): Promise<HostLogRow[]> =>
+      readMemoryRows(context, options, threadIds);
+    const readTranscript = async (threadIds?: ReadonlySet<string>): Promise<MastraDBMessage[]> =>
+      committedMemoryTranscript(await readRows(threadIds), options.resourceId);
+    const ownThread = new Set([context.threadId]);
     const identity = { ...context, resourceId: options.resourceId };
     const domain = new StateStoreMemoryStorage(
       options.resourceId,
@@ -240,7 +247,8 @@ export class StateStoreHostMemory implements HostRunOwner {
       providerContext,
       semanticRecall,
       resourceRecall,
-      vectorBridge
+      vectorBridge,
+      options.released
     );
     try {
       await storage.init();
@@ -256,7 +264,7 @@ export class StateStoreHostMemory implements HostRunOwner {
           },
         });
       }
-      const rows = await readRows();
+      const rows = await readRows(ownThread);
       const currentIds = new Set(
         rows.flatMap((row) =>
           'runId' in row.event && row.event.runId === context.runId
@@ -265,7 +273,9 @@ export class StateStoreHostMemory implements HostRunOwner {
         )
       );
       currentIds.add(committed.userMessageId);
-      const current = (await readTranscript()).filter((message) => currentIds.has(message.id));
+      const current = (await readTranscript(ownThread)).filter((message) =>
+        currentIds.has(message.id)
+      );
       await memory.beginTurn(current);
       return owner;
     } catch (cause) {
@@ -344,6 +354,11 @@ export class StateStoreHostMemory implements HostRunOwner {
     }
   }
 
+  /** Resource-scoped recall reads every thread; otherwise history is this thread's. */
+  private historyThreads(): ReadonlySet<string> | undefined {
+    return this.resourceRecall ? undefined : new Set([this.identity.threadId]);
+  }
+
   private async selectStep(request: {
     readonly messages: readonly ModelMessage[];
     readonly stepNumber: number;
@@ -364,7 +379,7 @@ export class StateStoreHostMemory implements HostRunOwner {
     for (const id of recalled) {
       selected.add(id);
     }
-    const rows = await this.readRows();
+    const rows = await this.readRows(this.historyThreads());
     const historical: ModelMessage[] = [];
     const historicalIds = new Set<string>();
     // In this thread only the selected branch is history: a sibling branch's
@@ -520,7 +535,7 @@ export class StateStoreHostMemory implements HostRunOwner {
   }
 
   private async commitStep(): Promise<void> {
-    const rows = await this.readRows();
+    const rows = await this.readRows(new Set([this.identity.threadId]));
     const committed = committedRunIdentity(rows, this.identity.runId);
     const currentIds = new Set(
       rows.flatMap((row) =>
@@ -566,6 +581,7 @@ export class StateStoreHostMemory implements HostRunOwner {
           'Memory storage cleanup failed'
         );
       }
+      this.released?.();
       // Every memory tail joined and storage closed: a failure is the run's outcome.
       if (failure !== undefined) {
         throw failure;
@@ -639,10 +655,15 @@ function hasNativeEmbeddingText(message: MastraDBMessage): boolean {
   );
 }
 
-/** Vendor metadata cannot authorize a Root thread for the acquired resource. */
-async function readResourceRows(
+/**
+ * The committed rows of the resource's threads Memory asks for (every thread
+ * without `threadIds`). Vendor metadata cannot authorize a Root thread for the
+ * acquired resource.
+ */
+async function readMemoryRows(
   context: HostRunContext,
-  options: StateStoreHostMemoryOptions
+  options: StateStoreHostMemoryOptions,
+  threadIds?: ReadonlySet<string>
 ): Promise<HostLogRow[]> {
   const snapshot = await options.store.memory({
     operation: 'read',
@@ -666,9 +687,9 @@ async function readResourceRows(
   if (!threads.has(context.threadId)) {
     throw new Error('Acquired Memory thread has no durable resource binding');
   }
-  return Promise.all(
-    (await options.store.readAll())
-      .filter((row) => threads.has(row.threadId))
-      .map((row) => readHostRow(options.store, row))
-  );
+  // Core's committed-row projection: history without a store scan or re-decode,
+  // and only the threads asked for, so a thread's read does not grow with the
+  // resource's other threads.
+  const scope = threadIds ? new Set([...threadIds].filter((id) => threads.has(id))) : threads;
+  return [...context.readCommittedRows(scope)];
 }

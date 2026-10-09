@@ -132,7 +132,7 @@ export class HostTreeApprovals {
   private closed = false;
 
   constructor(
-    private readonly client: Pick<HostClient, 'closed' | 'onEvent' | 'request'>,
+    private readonly client: Pick<HostClient, 'closed' | 'onEvent' | 'onTelemetry' | 'request'>,
     threadId: string,
     source: CommittedThreadSession
   ) {

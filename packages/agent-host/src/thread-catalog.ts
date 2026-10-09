@@ -1,7 +1,14 @@
 import type { HydrationThread, LogRow, StateStore } from '@brainstrike/state-store';
 import { readHostRow, readHostThreadHistory } from './event-storage.js';
 import type { HostHookTrustStore } from './hook-trust.js';
-import type { HostLogRow } from './protocol.js';
+import type { HostLogRow, HostResults } from './protocol.js';
+
+type ListedThread = HostResults['thread/list']['threads'][number];
+
+/** A damaged thread's refusal: its text is written for the person who opened or ran it. */
+export class HostThreadDamagedRefusal extends Error {
+  override readonly name = 'HostThreadDamagedRefusal';
+}
 
 /** The Root store Core opens over and commits to. */
 export type HostEventStore = HostHookTrustStore &
@@ -117,6 +124,27 @@ export class HostThreadCatalog {
     return damage === undefined ? times : { ...times, damage };
   }
 
+  /** `thread/list`: each thread with its catalog facts beside the facts its other owners fold. */
+  list(
+    threadIds: readonly string[],
+    facts: {
+      readonly binding: (threadId: string) => Pick<ListedThread, 'binding'>;
+      readonly latestRun: (threadId: string) => ListedThread['latestRun'];
+      readonly presentation: (threadId: string) => Pick<ListedThread, 'color' | 'icon' | 'title'>;
+    }
+  ): ListedThread[] {
+    return threadIds.map((threadId) => {
+      const latestRun = facts.latestRun(threadId);
+      return {
+        threadId,
+        ...facts.presentation(threadId),
+        ...this.entry(threadId),
+        ...facts.binding(threadId),
+        ...(latestRun ? { latestRun } : {}),
+      };
+    });
+  }
+
   /** A thread's committed history; a damaged thread refuses with the reason its listing names. */
   readHistory(
     store: HostEventStore,
@@ -126,7 +154,9 @@ export class HostThreadCatalog {
   ): Promise<HostLogRow[]> {
     const damage = this.damaged.get(threadId);
     if (damage !== undefined) {
-      return Promise.reject(new Error(`This thread's history cannot be read: ${damage}`));
+      return Promise.reject(
+        new HostThreadDamagedRefusal(`This thread's history cannot be read: ${damage}`)
+      );
     }
     return readHostThreadHistory(store, threads, threadId, fromSeq);
   }
@@ -134,7 +164,9 @@ export class HostThreadCatalog {
   assertRunnable(threadId: string): void {
     const damage = this.damaged.get(threadId);
     if (damage !== undefined) {
-      throw new Error(`This thread's history cannot be read, so it cannot run: ${damage}`);
+      throw new HostThreadDamagedRefusal(
+        `This thread's history cannot be read, so it cannot run: ${damage}`
+      );
     }
   }
 

@@ -286,7 +286,26 @@ test('delegated command asks by default, then a per-tool grant streams output an
       await persistedToolCard.getByRole('button').first().click();
       await expect(persistedToolCard.locator('pre').last()).toContainText('STREAM_STDOUT_SECOND');
       await expect(persistedToolCard.locator('pre').last()).toContainText('STREAM_STDERR_SECOND');
-      expect(provider.requests().length).toBe(completedRequests);
+      // Any request after the snapshot is named: its tools and its last user message.
+      expect(
+        provider
+          .requests()
+          .slice(completedRequests)
+          .map(({ messages, toolNames }) => ({
+            lastUser: JSON.stringify(
+              messages
+                .filter(
+                  (message) =>
+                    message &&
+                    typeof message === 'object' &&
+                    'role' in message &&
+                    message.role === 'user'
+                )
+                .at(-1)
+            ).slice(0, 160),
+            tools: toolNames.length,
+          }))
+      ).toEqual([]);
       await window.screenshot({ path: testInfo.outputPath('worker-command-result.png') });
     } catch (error) {
       failures.push(error);

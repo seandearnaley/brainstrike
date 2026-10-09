@@ -6,32 +6,45 @@ import path from 'node:path';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
+import { readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
-import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
+import {
+  ensureActivityExpanded,
+  ensureAssistantShellVisible,
+  ensureMockWorkspaceOpen,
+} from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
 
 // Script only the external model provider. Assistant HTTP, native permission,
 // delegation, workspace reads, persistence and shared child controls are real.
+const FOLLOW_UP_PROMPT = 'FOLLOW_UP_1720: What did Explorer report?';
+const FOLLOW_UP_REPLY = 'FOLLOW_UP_ON_TERRA_1720';
+
 test('approves the exact reloaded child through the shared workspace @smoke', async ({
   electron,
 }, testInfo) => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-child-control-'));
   await writeFile(path.join(workspace, 'evidence.txt'), 'CHILD_EVIDENCE_1720');
   const observed = { childRead: false, parentResult: false };
-  const executedConfigurations: { isParent: boolean; body: unknown }[] = [];
+  const executedConfigurations: { body: unknown; followUp: boolean; isParent: boolean }[] = [];
   const provider = await startModelProviderShim(({ messages, toolNames, requestBody }) => {
     // Children now advertise delegation too; identify the actual root task.
-    const isParent = JSON.stringify(
+    const lastUser = JSON.stringify(
       messages
         .filter(
           (message) =>
             message && typeof message === 'object' && 'role' in message && message.role === 'user'
         )
         .at(-1)
-    ).includes('Delegate to Explorer to read evidence.txt.');
+    );
+    const isParent = lastUser.includes('Delegate to Explorer to read evidence.txt.');
+    const followUp = lastUser.includes(FOLLOW_UP_PROMPT);
     const history = JSON.stringify(messages);
     if (toolNames.length > 0) {
-      executedConfigurations.push({ body: requestBody, isParent });
+      executedConfigurations.push({ body: requestBody, followUp, isParent });
+    }
+    if (followUp) {
+      return { finalText: FOLLOW_UP_REPLY };
     }
     if (isParent && history.includes('CHILD_READ_COMPLETE_1720')) {
       observed.parentResult = true;
@@ -55,6 +68,9 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
           toolCall: { arguments: { path: 'evidence.txt' }, name: 'brainstrike_readWorkspaceFile' },
         };
   });
+  // A reload must not call the model. The host child view reads the provider's
+  // model metadata on mount, which is not a model call, so count generations.
+  const modelCalls = (): number => provider.requests().length;
   const previousUrl = process.env['OPENROUTER_BASE_URL'];
   const previousKey = process.env['BRAINSTRIKE_OPENROUTER_API_KEY'];
   const previousRoot = process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'];
@@ -65,10 +81,10 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     const window = await electron.ensureWindow();
     await ensureMockWorkspaceOpen(window);
     await configureAssistantProvider(window, {
-      compositeModelKey: 'openrouter::openai/gpt-5.4',
+      compositeModelKey: 'openrouter::anthropic/claude-sonnet-4.6',
       provider: 'openrouter',
     });
-    await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
+    await enableAssistantCatalogModel(window, 'openrouter::anthropic/claude-sonnet-4.6');
     await new HomePage(window).openSettings();
     await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
     await window
@@ -76,6 +92,8 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
       .selectOption('ask');
     await ensureAssistantShellVisible(window);
     const root = window.getByRole('region', { exact: true, name: 'Assistant' });
+    // The host reads OpenRouter reasoning controls from model metadata; the shim
+    // serves the one recorded identity (Sonnet 4.6, efforts low..max).
     await root.getByTestId('composer-effort-trigger').click();
     await window.getByRole('slider', { name: 'Reasoning effort' }).press('End');
     await window.keyboard.press('Escape');
@@ -83,10 +101,11 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
       .getByRole('textbox', { name: 'Message input' })
       .fill('Delegate to Explorer to read evidence.txt.');
     await root.getByRole('button', { exact: true, name: 'Send' }).click();
-    await expect(
-      root.getByRole('button', { exact: true, name: 'Approve brainstrike.readWorkspaceFile' })
-    ).toBeVisible();
+    // A host root lists its tree's waiting approvals in its strip; the child answers its own.
+    await expect(root.getByRole('button', { name: 'Review 1 pending approval' })).toBeVisible();
     await expect(root.getByText('Waiting for approval', { exact: true })).toHaveCount(0);
+    // The delegation card is inside the root's activity, collapsed by default.
+    await ensureActivityExpanded(root);
     const openChild = root.getByRole('button', { name: /Open .* conversation/ });
     await expect(openChild).toBeVisible();
     await openChild.click();
@@ -101,8 +120,8 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     ).toBeVisible();
     const firstChild = executedConfigurations.find((entry) => !entry.isParent);
     expect(firstChild?.body).toMatchObject({
-      model: 'openai/gpt-5.4',
-      reasoning: { effort: 'xhigh' },
+      model: 'anthropic/claude-sonnet-4.6',
+      reasoning: { effort: 'max' },
     });
     // Change the parent's actual model control while its child decision is pending.
     await root.getByTestId('composer-model-menu-trigger').click();
@@ -114,7 +133,7 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     await expect(terra).toBeVisible();
     await terra.click();
     await expect(root.getByTestId('composer-model-menu-trigger')).toContainText('GPT-5.6 Terra');
-    const pausedRequests = provider.requestCount();
+    const pausedRequests = modelCalls();
     await window.reload();
     await configureAssistantProvider(window, {
       compositeModelKey: 'openrouter::openai/gpt-5.6-terra',
@@ -125,7 +144,7 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     await expect(
       child.getByRole('button', { exact: true, name: 'Approve brainstrike.readWorkspaceFile' })
     ).toBeVisible();
-    expect(provider.requestCount()).toBe(pausedRequests);
+    expect(modelCalls()).toBe(pausedRequests);
     // The recreated sidebar must recover the same native pending decision without
     // relying on a live-stream publication from before the renderer reload.
     const sidebarRoot = window
@@ -138,24 +157,57 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
       name: `${childName} Needs input`,
     });
     await expect(pendingSidebarChild).toBeVisible();
-    expect(provider.requestCount()).toBe(pausedRequests);
+    expect(modelCalls()).toBe(pausedRequests);
     await child
       .getByRole('button', { exact: true, name: 'Approve brainstrike.readWorkspaceFile' })
       .click();
     await expect(child.getByText('CHILD_READ_COMPLETE_1720', { exact: true })).toBeVisible();
     await expect(root.getByText('PARENT_RECEIVED_CHILD_1720', { exact: true })).toBeVisible();
     expect(observed).toEqual({ childRead: true, parentResult: true });
-    const childExecutions = executedConfigurations.filter((entry) => !entry.isParent);
+    // The host committed the child's one approval, answered once, and its run completed.
+    const childLog = (await readHostThreadTree(electron.getUserDataDir())).find(
+      ({ parentThreadId }) => parentThreadId
+    );
+    const childEvents = (childLog?.rows ?? []).map(({ event }) => event);
+    expect(
+      childEvents.flatMap((event) =>
+        event.type === 'interaction.requested' ? [event.toolCatalogId ?? event.toolId] : []
+      )
+    ).toEqual(['brainstrike.readWorkspaceFile']);
+    expect(
+      childEvents.flatMap((event) =>
+        event.type === 'interaction.responded' && 'decision' in event ? [event.decision] : []
+      )
+    ).toEqual(['approve']);
+    expect(
+      childEvents.flatMap((event) => (event.type === 'run.finished' ? [event.outcome] : []))
+    ).toEqual(['completed']);
+    const childExecutions = executedConfigurations.filter(
+      (entry) => !(entry.isParent || entry.followUp)
+    );
     expect(childExecutions).toHaveLength(2);
     expect(childExecutions[1]?.body).toMatchObject({
-      model: 'openai/gpt-5.4',
-      reasoning: { effort: 'xhigh' },
+      model: 'anthropic/claude-sonnet-4.6',
+      reasoning: { effort: 'max' },
     });
+    // An admitted run's selection is frozen (ADR-0009/0010): the host kept the
+    // parent's run alive across the reload, so it finishes on the model it was
+    // admitted with. (Legacy switched here only because a reload killed the run
+    // and the renderer restarted it with the current composer.) The pick is the
+    // thread's committed selection (ADR-0019), so the next user message uses it.
     expect(executedConfigurations.filter((entry) => entry.isParent).at(-1)?.body).toMatchObject({
-      model: 'openai/gpt-5.6-terra',
+      model: 'anthropic/claude-sonnet-4.6',
+      reasoning: { effort: 'max' },
     });
+    await expect(root.getByTestId('composer-model-menu-trigger')).toContainText('GPT-5.6 Terra');
+    await root.getByRole('textbox', { name: 'Message input' }).fill(FOLLOW_UP_PROMPT);
+    await root.getByRole('button', { exact: true, name: 'Send' }).click();
+    await expect(root.getByText(FOLLOW_UP_REPLY, { exact: true })).toBeVisible();
+    const followUps = executedConfigurations.filter((entry) => entry.followUp);
+    expect(followUps).toHaveLength(1);
+    expect(followUps[0]?.body).toMatchObject({ model: 'openai/gpt-5.6-terra' });
     await expect(child.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
-    const completedRequests = provider.requestCount();
+    const completedRequests = modelCalls();
     // The tab ✕ is a mouse-only, aria-hidden sibling of the tab that shows on
     // hover (TabStrip contract), so point at the tab first.
     await window.getByRole('tab', { exact: true, name: childName }).hover();
@@ -177,7 +229,7 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     });
     await delegationGroup.getByRole('button', { name: /Open .* conversation/ }).click();
     await expect(child.getByText('CHILD_READ_COMPLETE_1720', { exact: true })).toBeVisible();
-    expect(provider.requestCount()).toBe(completedRequests);
+    expect(modelCalls()).toBe(completedRequests);
     await expect(child.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
     const geometry = await child.boundingBox();
     expect(geometry).not.toBeNull();
@@ -194,8 +246,9 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
         once(ownedProcess, 'exit', { signal: AbortSignal.timeout(5000) }),
         electron.dispose(),
       ]);
-      expect(ownedProcess.exitCode).toBe(0);
-      expect(ownedProcess.signalCode).toBeNull();
+      // Soft: a clean exit is required, but its failure never hides the body's.
+      expect.soft(ownedProcess.exitCode).toBe(0);
+      expect.soft(ownedProcess.signalCode).toBeNull();
     } finally {
       await provider.close();
       if (previousUrl === undefined) {
@@ -308,6 +361,9 @@ test('sends human input to the active child and reloads its rich conversation', 
       toolCall: { arguments: { path: 'evidence.txt' }, name: 'brainstrike_readWorkspaceFile' },
     };
   });
+  // A reload must not call the model. The host child view reads the provider's
+  // model metadata on mount, which is not a model call, so count generations.
+  const modelCalls = (): number => provider.requests().length;
   const environment = {
     BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace,
     BRAINSTRIKE_OPENROUTER_API_KEY: 'isolated-child-input-key',
@@ -321,10 +377,10 @@ test('sends human input to the active child and reloads its rich conversation', 
     const window = await electron.ensureWindow();
     await ensureMockWorkspaceOpen(window);
     await configureAssistantProvider(window, {
-      compositeModelKey: 'openrouter::openai/gpt-5.4',
+      compositeModelKey: 'openrouter::anthropic/claude-sonnet-4.6',
       provider: 'openrouter',
     });
-    await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
+    await enableAssistantCatalogModel(window, 'openrouter::anthropic/claude-sonnet-4.6');
     await new HomePage(window).openSettings();
     await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
     await window
@@ -374,17 +430,43 @@ test('sends human input to the active child and reloads its rich conversation', 
     expect(receivedFileContext).toBe(true);
     await expect(child.locator('img[src^="data:image/png"]')).toHaveCount(1);
     expect(childCalls).toBe(2);
-    const completedRequests = provider.requestCount();
+    // The host ended the active child run after its step and committed the input
+    // as the child's next run; only that run's answer reached the parent.
+    const tree = await readHostThreadTree(electron.getUserDataDir());
+    const childPrompts = (tree.find(({ parentThreadId }) => parentThreadId)?.rows ?? []).flatMap(
+      ({ event }) => (event.type === 'run.started' ? [event.prompt] : [])
+    );
+    expect(childPrompts).toHaveLength(2);
+    expect(childPrompts[1]).toContain('HUMAN_FOLLOWUP_1723');
+    const completedRequests = modelCalls();
+    const httpBeforeReload = provider.requestCount();
+    const metadataBeforeReload = provider.servedMetadata().length;
+    const refusalsBeforeReload = provider.refusals().length;
     await window.reload();
     await ensureAssistantShellVisible(window);
     await expect(child.getByText('HUMAN_FOLLOWUP_1723', { exact: true })).toBeVisible();
     await expect(child.getByText('CHILD_FOLLOWUP_RECEIVED', { exact: true })).toBeVisible();
-    expect(provider.requestCount()).toBe(completedRequests);
+    expect(modelCalls()).toBe(completedRequests);
+    // Evidence for what a reload asks the provider, beside the model calls it must not make.
+    const reloadRequests = {
+      http: provider.requestCount() - httpBeforeReload,
+      metadata: provider.servedMetadata().slice(metadataBeforeReload),
+      // Requests the shim refused instead of answering, with their routes.
+      refused: provider
+        .refusals()
+        .slice(refusalsBeforeReload)
+        .map(({ method, reason, route }) => ({ method, reason, route })),
+    };
+    console.log(`reload-provider-requests ${JSON.stringify(reloadRequests)}`);
+    await testInfo.attach('reload-provider-requests', {
+      body: JSON.stringify(reloadRequests),
+      contentType: 'application/json',
+    });
     await expect(input).toBeEnabled();
     await child.getByTestId('composer-effort-trigger').click();
     await window.getByRole('slider', { name: 'Reasoning effort' }).press('End');
     await window.keyboard.press('Escape');
-    await expect(child.getByTestId('composer-effort-trigger')).toContainText('Extra');
+    await expect(child.getByTestId('composer-effort-trigger')).toContainText('Max');
     const idleChooser = window.waitForEvent('filechooser');
     await child.getByRole('button', { exact: true, name: 'Attach image' }).click();
     await (await idleChooser).setFiles({
@@ -400,15 +482,15 @@ test('sends human input to the active child and reloads its rich conversation', 
     ).toBeVisible();
     await expect(root.getByText('PARENT_IDLE_CONTINUATION_OUTCOME', { exact: true })).toBeVisible();
     expect(childCalls).toBe(3);
-    expect(childGenerationRequests[2]).toMatchObject({ reasoning: { effort: 'xhigh' } });
-    const continuedRequests = provider.requestCount();
+    expect(childGenerationRequests[2]).toMatchObject({ reasoning: { effort: 'max' } });
+    const continuedRequests = modelCalls();
     await window.reload();
     await ensureAssistantShellVisible(window);
     await expect(child.locator('img[src^="data:image/png"]')).toHaveCount(2);
     await expect(
       child.getByText('CHILD_IDLE_CONTINUATION_RECEIVED', { exact: true })
     ).toBeVisible();
-    expect(provider.requestCount()).toBe(continuedRequests);
+    expect(modelCalls()).toBe(continuedRequests);
     await new HomePage(window).openSettings();
     await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
     await window
@@ -426,27 +508,27 @@ test('sends human input to the active child and reloads its rich conversation', 
     });
     await expect(approve).toBeVisible();
     expect(childCalls).toBe(4);
-    expect(childGenerationRequests[3]).toMatchObject({ reasoning: { effort: 'xhigh' } });
+    expect(childGenerationRequests[3]).toMatchObject({ reasoning: { effort: 'max' } });
     // A draft for a future child run must not mutate the suspended invocation.
     await child.getByTestId('composer-effort-trigger').click();
     await window.getByRole('slider', { name: 'Reasoning effort' }).press('Home');
     await window.keyboard.press('Escape');
-    const suspendedRequests = provider.requestCount();
+    const suspendedRequests = modelCalls();
     await window.reload();
     await ensureAssistantShellVisible(window);
     await expect(approve).toBeVisible();
-    expect(provider.requestCount()).toBe(suspendedRequests);
+    expect(modelCalls()).toBe(suspendedRequests);
     await approve.click();
     await expect(child.getByText('CHILD_IDLE_APPROVAL_COMPLETE', { exact: true })).toBeVisible();
     await expect(root.getByText('PARENT_IDLE_APPROVAL_OUTCOME', { exact: true })).toBeVisible();
     expect(childCalls).toBe(5);
-    expect(childGenerationRequests[4]).toMatchObject({ reasoning: { effort: 'xhigh' } });
-    const approvedRequests = provider.requestCount();
+    expect(childGenerationRequests[4]).toMatchObject({ reasoning: { effort: 'max' } });
+    const approvedRequests = modelCalls();
     await window.reload();
     await ensureAssistantShellVisible(window);
     await expect(child.getByText('CHILD_IDLE_APPROVAL_COMPLETE', { exact: true })).toBeVisible();
     await expect(approve).toHaveCount(0);
-    expect(provider.requestCount()).toBe(approvedRequests);
+    expect(modelCalls()).toBe(approvedRequests);
     await window.screenshot({
       animations: 'disabled',
       path: testInfo.outputPath('child-followup-reloaded.png'),
@@ -460,8 +542,9 @@ test('sends human input to the active child and reloads its rich conversation', 
           ? once(process, 'exit', { signal: AbortSignal.timeout(5000) })
           : Promise.resolve();
       await Promise.all([exited, electron.dispose()]);
-      expect(process.exitCode).toBe(0);
-      expect(process.signalCode).toBeNull();
+      // Soft: a clean exit is required, but its failure never hides the body's.
+      expect.soft(process.exitCode).toBe(0);
+      expect.soft(process.signalCode).toBeNull();
     } finally {
       await provider.close();
       for (const key of Object.keys(environment)) {

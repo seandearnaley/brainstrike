@@ -2,7 +2,7 @@ import type { HostClient } from '@brainstrike/agent-host/browser';
 import type { HostLogRow, HostParams, HostResults } from '@brainstrike/agent-host/protocol';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
 import type { OmMeterState } from '@brainstrike/assistant-ui';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
 
 type MemoryRead = HostResults['thread/memory/read'];
 
@@ -82,85 +82,107 @@ async function readSegment(
 }
 
 /**
+ * One thread view's memory reads: only the latest read publishes (an earlier
+ * answer is for older settings), and a request equal by value to the one the
+ * published segment answers is read again only when forced.
+ */
+class HostMemoryReads {
+  #segment: HostMemorySegment = {};
+  // The request the published segment answers, serialized; undefined while gated.
+  #answered: string | undefined;
+  #latest = 0;
+  readonly #listeners = new Set<() => void>();
+
+  readonly getSnapshot = (): HostMemorySegment => this.#segment;
+
+  readonly subscribe = (listener: () => void): (() => void) => {
+    this.#listeners.add(listener);
+    return () => {
+      this.#listeners.delete(listener);
+    };
+  };
+
+  read(
+    client: Pick<HostClient, 'request'>,
+    request: HostParams<'thread/memory/read'> | undefined,
+    catalog: string,
+    always: boolean
+  ): void {
+    // Admission also reads the enabled catalog, which the request does not carry.
+    const key = request === undefined ? undefined : JSON.stringify([request, catalog]);
+    if (!always && key === this.#answered) {
+      return;
+    }
+    this.#answered = key;
+    this.#latest += 1;
+    const attempt = this.#latest;
+    if (request === undefined) {
+      this.#publish({});
+      return;
+    }
+    this.#publish({ ...this.#segment, omSegment: { kind: 'loading' } });
+    readSegment(client, request).then(
+      (next) => {
+        if (attempt === this.#latest) {
+          this.#publish(next);
+        }
+      },
+      (cause: unknown) => {
+        if (attempt === this.#latest) {
+          this.#publish({
+            omSegment: {
+              kind: 'error',
+              reason: cause instanceof Error ? cause.message : String(cause),
+            },
+          });
+        }
+      }
+    );
+  }
+
+  #publish(segment: HostMemorySegment): void {
+    this.#segment = segment;
+    for (const listener of this.#listeners) {
+      listener();
+    }
+  }
+}
+
+/**
  * Reads `thread/memory/read` with the request the next `run/start` would send:
  * when the thread opens, when the request it builds changes (model,
  * configuration, plan mode; compared by value, since the thread view's
- * callback changes identity on every render), when the memory settings
- * change, when the enabled model catalog changes (admission reads it, and a
- * read made while the catalog reloaded may answer for an older catalog), and
- * after each committed memory call or run end. It never polls.
+ * callback changes identity on every render), when the enabled catalog that
+ * admission reads changes, when the memory settings change, and after each
+ * committed memory call or run end. It never polls.
  * While another notice already gates the send, the request cannot be built,
  * so nothing is read.
  */
 export function useHostMemorySegment(options: {
   readonly blocked: boolean;
-  /** The enabled model catalog the composer sees; a change re-reads the answer. */
-  readonly catalogRevision?: string;
+  /**
+   * The enabled catalog models admission reads, which the request does not
+   * carry: enabling the selected model must clear its gate.
+   */
+  readonly catalog: string;
   readonly client: Pick<HostClient, 'request'>;
   readonly readRequest: () => HostParams<'thread/memory/read'>;
   readonly source: HostMemoryRowSource | undefined;
 }): HostMemorySegment {
-  const { blocked, catalogRevision, client, readRequest, source } = options;
-  const [segment, setSegment] = useState<HostMemorySegment>({});
-  // Only the latest read may publish; an earlier answer is for older settings.
-  const latest = useRef(0);
-  // The request the published segment answers, serialized; undefined while gated.
-  const answered = useRef<string | undefined>(undefined);
+  const { blocked, catalog, client, readRequest, source } = options;
+  // An answer that arrives after unmount publishes to a store nothing reads.
+  const [reads] = useState(() => new HostMemoryReads());
+  const segment = useSyncExternalStore(reads.subscribe, reads.getSnapshot);
   const read = useCallback(
     (always: boolean): void => {
-      const request = blocked ? undefined : readRequest();
-      const key = request === undefined ? undefined : JSON.stringify(request);
-      if (!always && key === answered.current) {
-        return;
-      }
-      answered.current = key;
-      latest.current += 1;
-      const attempt = latest.current;
-      if (request === undefined) {
-        setSegment({});
-        return;
-      }
-      setSegment((previous) => ({ ...previous, omSegment: { kind: 'loading' } }));
-      readSegment(client, request).then(
-        (next) => {
-          if (attempt === latest.current) {
-            setSegment(next);
-          }
-        },
-        (cause: unknown) => {
-          if (attempt === latest.current) {
-            setSegment({
-              omSegment: {
-                kind: 'error',
-                reason: cause instanceof Error ? cause.message : String(cause),
-              },
-            });
-          }
-        }
-      );
+      reads.read(client, blocked ? undefined : readRequest(), catalog, always);
     },
-    [blocked, client, readRequest]
+    [blocked, catalog, client, readRequest, reads]
   );
   // The thread opened, or the request or its gate may have changed.
   useEffect(() => {
     read(false);
   }, [read]);
-  // An answer that arrives after unmount publishes nothing.
-  useEffect(
-    () => () => {
-      latest.current += 1;
-    },
-    []
-  );
-  // The catalog admission reads changed: an answer it decided may be stale.
-  const catalogSeen = useRef(catalogRevision);
-  useEffect(() => {
-    if (catalogSeen.current === catalogRevision) {
-      return;
-    }
-    catalogSeen.current = catalogRevision;
-    read(true);
-  }, [catalogRevision, read]);
   // Memory settings are captured from their store at call time.
   useEffect(() => useAssistantMemoryPreferencesStore.subscribe(() => read(true)), [read]);
   // Each committed memory call or run end changes what Memory holds.
