@@ -146,7 +146,12 @@ export class StateObservationVectors {
     }
   }
 
-  private canonical(resourceId: string): Map<string, Source> {
+  /**
+   * The resource's committed groups. A group attributed to `retiredThread`,
+   * the thread being deleted, is dropped with it; any other group whose thread
+   * is not a member still refuses.
+   */
+  private canonical(resourceId: string, retiredThread?: string): Map<string, Source> {
     if (!(this.projection.observations && this.projection.observationChunks)) {
       throw new IndexerError(
         'observation-projection-required',
@@ -157,6 +162,9 @@ export class StateObservationVectors {
     const result = new Map<string, Source>();
     for (const record of this.truth.memoryObservations(resourceId)) {
       for (const group of this.projection.observations(record)) {
+        if (record.threadId === null && group.threadId === retiredThread) {
+          continue;
+        }
         if (
           !members.has(group.threadId) ||
           (record.threadId !== null && record.threadId !== group.threadId)
@@ -371,7 +379,7 @@ export class StateObservationVectors {
   }
 
   /** Also erase groups lost when native shared OM was cleared by another thread. */
-  private prune(): void {
+  private prune(retiredThread?: string): void {
     const rows = decoder(
       Schema.Array(
         Schema.Struct({
@@ -392,7 +400,7 @@ export class StateObservationVectors {
     const resources = new Map(
       [...new Set(rows.map((row) => row.resourceId))].map((resourceId) => [
         resourceId,
-        this.canonical(resourceId),
+        this.canonical(resourceId, retiredThread),
       ])
     );
     for (const row of rows) {
@@ -406,7 +414,7 @@ export class StateObservationVectors {
 
   invalidate(threadId: string): void {
     this.db.prepare('DELETE FROM state_observation_vectors WHERE thread_id=?').run(threadId);
-    this.truth.snapshot(() => this.prune());
+    this.truth.snapshot(() => this.prune(threadId));
   }
 
   purge(input: unknown): boolean {

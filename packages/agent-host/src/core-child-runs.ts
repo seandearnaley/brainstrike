@@ -41,6 +41,7 @@ import type {
   HostRunSnapshot,
 } from './protocol.js';
 import { delegatedHostRunAdmission, type HostRunPosition, startedHostRun } from './run-branch.js';
+import type { HostThreadPresentationState } from './thread-presentation-state.js';
 
 type Action = Extract<HostEvent, { type: 'effect.started' }>;
 type Started = Extract<HostEvent, { type: 'run.started' }>;
@@ -415,6 +416,16 @@ export class HostChildRuns {
   }
 
   /** A thread's direct children, in the order their origins were committed. */
+  /** Child threads are reached through their parent, never listed as top-level threads. */
+  topLevel(
+    threads: ReadonlySet<string>,
+    presentations: Pick<HostThreadPresentationState, 'read'>
+  ): HostResults['thread/list']['threads'] {
+    return [...threads]
+      .filter((threadId) => !this.isChild(threadId))
+      .map((threadId) => ({ threadId, ...presentations.read(threadId) }));
+  }
+
   listed(
     threadId: string,
     threads: ReadonlySet<string>,

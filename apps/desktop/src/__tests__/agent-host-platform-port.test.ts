@@ -1,16 +1,9 @@
 // @vitest-environment node
 import { EventEmitter } from 'node:events';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
-import {
-  canonicalToolInputSchema,
-  type HostTool,
-  platformToolInputSchema,
-  validateCanonicalToolInput,
-} from '@brainstrike/agent-host';
 import { DEFAULT_PERMISSION_POLICIES, ToolInputError } from '@brainstrike/assistant-contract';
 import { expect, it, vi } from 'vitest';
 import { CancellationTokenSource, type MessageConnection } from 'vscode-jsonrpc/node';
-import { z } from 'zod';
 import {
   mainPlatformConnection,
   type PlatformMessagePort,
@@ -41,7 +34,7 @@ class UtilityPort extends EventEmitter implements PlatformMessagePort {
   }
 }
 function selected(
-  tools: Readonly<Record<string, HostTool>>,
+  tools: DesktopPlatformSelection['tools'],
   close = vi.fn(async () => undefined)
 ): DesktopPlatformSelection {
   return {
@@ -96,6 +89,7 @@ function harness(
     mcp: createDesktopMcpPlatformCapabilities(new RemoteMcpRuntime()),
     ...(closeRootCapabilities ? { closeRootCapabilities } : {}),
     readConfiguration,
+    readLegacyMemory: async () => ({ resource: null, resourceObservations: false }),
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
     ...(hostTools ? { hostTools } : {}),
     ...(localEmbedding ? { localEmbedding } : {}),
@@ -163,60 +157,43 @@ async function admit(client: MessageConnection): Promise<unknown> {
   });
 }
 
-it('utility loss aborts a progress-blocked executor and joins its physical tail before releasing the selection', async () => {
+const LIST_TABLES = {
+  request: { input: { mode: 'listTables', target: 'app' } },
+  threadId: 'thread',
+};
+
+/** A querySelf read that holds until its physical tail is released. */
+function heldRead(tail: Promise<void>) {
   const entered = Promise.withResolvers<AbortSignal>();
-  const progressEntered = Promise.withResolvers<void>();
-  const progressHeld = Promise.withResolvers<void>();
+  const querySelf = vi.fn(async (_read: unknown, signal?: AbortSignal) => {
+    if (!signal) {
+      throw new Error('Main supplied no signal to its read');
+    }
+    entered.resolve(signal);
+    await tail;
+    signal.throwIfAborted();
+    return { analyzed: false, kind: 'plan' as const, plan: [], target: 'app' as const };
+  });
+  return { entered: entered.promise, querySelf };
+}
+
+it('utility loss aborts an in-flight Main read and joins its physical tail before releasing the selection', async () => {
   const physicalTail = Promise.withResolvers<void>();
   const serverClosed = Promise.withResolvers<void>();
   const release = vi.fn(async () => undefined);
-  let progressRejected = false;
-  const h = harness(async () =>
-    selected(
-      {
-        tool: {
-          description: 'fixture',
-          execute: async (_input, context) => {
-            entered.resolve(context.signal);
-            try {
-              await context.write?.({ pending: true });
-            } catch (cause) {
-              progressRejected = true;
-              throw cause;
-            } finally {
-              await physicalTail.promise;
-            }
-            return {};
-          },
-          identity: 'canonical',
-          inputSchema: z.object({}),
-          risk: 'execute',
-        },
-      },
-      release
-    )
-  );
-  h.server.onClose(() => serverClosed.resolve());
-  h.client.onRequest('platform/progress', async () => {
-    progressEntered.resolve();
-    await progressHeld.promise;
+  const read = heldRead(physicalTail.promise);
+  const h = harness(async () => selected({}, release), undefined, {
+    querySelf: read.querySelf,
   });
+  h.server.onClose(() => serverClosed.resolve());
   try {
     await admit(h.client);
-    const executing = h.client.sendRequest('platform/execute', {
-      input: {},
-      runId: 'run',
-      threadId: 'thread',
-      toolCallId: 'call',
-      toolId: 'tool',
-    });
-    executing.catch(() => undefined);
-    const signal = await entered.promise;
-    await progressEntered.promise;
+    const reading = h.client.sendRequest('desktop-read/query-self', LIST_TABLES);
+    reading.catch(() => undefined);
+    const signal = await read.entered;
     h.crash();
     await serverClosed.promise;
     await vi.waitFor(() => expect(signal.aborted).toBe(true));
-    await vi.waitFor(() => expect(progressRejected).toBe(true));
     let closed = false;
     const closing = h.owner.close().then(() => {
       closed = true;
@@ -226,145 +203,31 @@ it('utility loss aborts a progress-blocked executor and joins its physical tail 
     expect(release).not.toHaveBeenCalled();
     physicalTail.resolve();
     await closing;
-    await expect(executing).rejects.toThrow();
+    await expect(reading).rejects.toThrow();
     expect(release).toHaveBeenCalledTimes(1);
   } finally {
     physicalTail.resolve();
-    progressHeld.resolve();
     h.destroy();
     await h.owner.close();
   }
 });
 
-it('preserves canonical transforms, validator failures, progress acknowledgement and model projection over real ports', async () => {
-  const inputSchema = canonicalToolInputSchema(
-    z.object({
-      count: z
-        .number()
-        .int()
-        .positive()
-        .transform((value) => value + 1),
-    })
-  );
-  const executed: unknown[] = [];
-  const progress: unknown[] = [];
-  const projected: unknown[] = [];
-  const close = vi.fn(async () => undefined);
-  const h = harness(async () =>
-    selected(
-      {
-        tool: {
-          description: 'fixture',
-          execute: async (input, context) => {
-            executed.push(input);
-            await context.write?.({ count: 1 });
-            expect(progress).toEqual([{ count: 1 }]);
-            return { completed: true };
-          },
-          identity: 'canonical',
-          inputSchema,
-          permissionToolId: 'canonical-tool',
-          risk: 'edit',
-          toModelOutput: ({ input, output }) => {
-            projected.push(input);
-            return { type: 'json', value: z.json().parse(output) };
-          },
-        },
-      },
-      close
-    )
-  );
-  h.client.onRequest('platform/progress', (input: unknown) => {
-    progress.push(z.object({ chunk: z.json() }).parse(input).chunk);
-  });
-  try {
-    const catalog = z
-      .object({
-        tools: z.record(z.string(), z.object({ inputSchema: z.record(z.string(), z.json()) })),
-      })
-      .parse(await admit(h.client));
-    const descriptor = catalog.tools['tool'];
-    if (!descriptor) {
-      throw new Error('Missing fixture tool');
-    }
-    const schema = platformToolInputSchema(descriptor.inputSchema, async (input) =>
-      z
-        .discriminatedUnion('success', [
-          z.object({ success: z.literal(true), value: z.json() }),
-          z.object({ error: z.string(), success: z.literal(false) }),
-        ])
-        .parse(
-          await h.client.sendRequest('platform/validate', {
-            input,
-            threadId: 'thread',
-            toolId: 'tool',
-          })
-        )
-    );
-    expect(await validateCanonicalToolInput(schema, { count: 2 })).toEqual({
-      success: true,
-      value: { count: 3 },
-    });
-    expect((await validateCanonicalToolInput(schema, { count: 0 })).success).toBe(false);
-    expect(executed).toEqual([]);
-    const output = await h.client.sendRequest('platform/execute', {
-      input: { count: 3 },
-      runId: 'run',
-      threadId: 'thread',
-      toolCallId: 'call',
-      toolId: 'tool',
-    });
-    expect(executed).toEqual([{ count: 3 }]);
-    await h.client.sendRequest('platform/project', {
-      input: { count: 3 },
-      output,
-      threadId: 'thread',
-      toolCallId: 'call',
-      toolId: 'tool',
-    });
-    expect(projected).toEqual([{ count: 3 }]);
-    await h.client.sendRequest('platform/release', { threadId: 'thread' });
-    await h.owner.close();
-    expect(close).toHaveBeenCalledTimes(1);
-  } finally {
-    h.destroy();
-  }
-});
-
-it('cancellation and close wait for the admitted executor physical tail before releasing borrowed capabilities', async () => {
-  const entered = Promise.withResolvers<AbortSignal>();
+it('cancellation and close wait for an in-flight Main read’s physical tail before releasing borrowed capabilities', async () => {
   const joined = Promise.withResolvers<void>();
   const close = vi.fn(async () => undefined);
-  const h = harness(async () =>
-    selected(
-      {
-        tool: {
-          description: 'fixture',
-          execute: async (_input, context) => {
-            entered.resolve(context.signal);
-            await joined.promise;
-            context.signal.throwIfAborted();
-            return {};
-          },
-          identity: 'canonical',
-          inputSchema: z.object({}),
-          risk: 'execute',
-        },
-      },
-      close
-    )
-  );
+  const read = heldRead(joined.promise);
+  const h = harness(async () => selected({}, close), undefined, { querySelf: read.querySelf });
   const cancellation = new CancellationTokenSource();
   let settled = false;
   try {
     await admit(h.client);
-    const executing = h.client.sendRequest(
-      'platform/execute',
-      { input: {}, runId: 'run', threadId: 'thread', toolCallId: 'call', toolId: 'tool' },
+    const reading = h.client.sendRequest(
+      'desktop-read/query-self',
+      LIST_TABLES,
       cancellation.token
     );
-    executing.catch(() => undefined);
-    const signal = await entered.promise;
+    reading.catch(() => undefined);
+    const signal = await read.entered;
     cancellation.cancel();
     await vi.waitFor(() => expect(signal.aborted).toBe(true));
     const closing = h.owner.close().then(() => {
@@ -374,7 +237,7 @@ it('cancellation and close wait for the admitted executor physical tail before r
     expect(settled).toBe(false);
     expect(close).not.toHaveBeenCalled();
     joined.resolve();
-    await expect(executing).rejects.toBeInstanceOf(Error);
+    await expect(reading).rejects.toBeInstanceOf(Error);
     await closing;
     expect(close).toHaveBeenCalledTimes(1);
   } finally {
@@ -425,16 +288,17 @@ it('an aborted admission joins the arriving selection and retains an independent
   }
 });
 
-it('failed schema projection releases the selection before an admission error returns', async () => {
+it('a selection the wire refuses releases before an admission error returns', async () => {
   const close = vi.fn(async () => undefined);
   const h = harness(async () =>
     selected(
       {
         tool: {
           description: 'fixture',
-          execute: async () => ({}),
-          identity: 'canonical',
-          inputSchema: canonicalToolInputSchema(z.object({ value: z.date() })),
+          // The wire's ids are nonempty: this descriptor cannot cross to the host.
+          identity: '',
+          inputSchema: { type: 'object' },
+          permissionToolId: 'tool',
           risk: 'read',
         },
       },

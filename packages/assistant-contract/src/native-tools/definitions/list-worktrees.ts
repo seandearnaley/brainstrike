@@ -22,6 +22,7 @@ export const listWorktrees = defineNativeTool({
   id: 'brainstrike.listWorktrees',
   inputSchema: providerCompatibleInputSchema(ListWorktreesInputSchema),
   kind: 'desktop',
+  localProvider: 'unregistered',
   returns:
     'worktrees[]: { branch, detached, disabledReason, externalTool, managed, name, path, primary, provenance, repositoryRoot, usable, worktreeId }. An unusable worktree is listed with its reason, never omitted.',
   surfaces: ['desktop'],

@@ -221,8 +221,10 @@ function verifyBlobReferences(rows) {
 }
 
 /** Resource identities are retained in the existing purge intent before FK deletion.
- * @param {string} threadId @param {number} seq */
-function eraseThreadMemory(threadId, seq) {
+ * @param {string} threadId @param {number} seq
+ * @param {'clear' | 'detach-thread'} sharedResource
+ * @param {import('./memory-types.js').ObservationTokenCounter} [countTokens] */
+function eraseThreadMemory(threadId, seq, sharedResource, countTokens) {
   const intent = /** @type {{ memory_resources:string } | undefined} */ (
     db
       .prepare('SELECT memory_resources FROM purge_intent WHERE thread_id=? AND seq=?')
@@ -232,19 +234,37 @@ function eraseThreadMemory(threadId, seq) {
     throw new Error('Memory erasure requires the existing purge intent');
   }
   for (const resourceId of JSON.parse(intent.memory_resources)) {
-    executeMemoryRequest(db, {
-      operation: 'purge-thread',
-      resourceId,
-      sharedResource: 'clear',
-      threadId,
-    });
+    executeMemoryRequest(
+      db,
+      { operation: 'purge-thread', resourceId, sharedResource, threadId },
+      countTokens
+    );
   }
+}
+
+/**
+ * Mastra OM's observation token counter, from the configured native memory
+ * calculator module; none when no calculator is configured.
+ * @returns {Promise<import('./memory-types.js').ObservationTokenCounter | undefined>} */
+async function observationTokenCounter() {
+  if (!cfg.memoryCalculatorModule) {
+    return;
+  }
+  const module = await import(pathToFileURL(cfg.memoryCalculatorModule).href);
+  if (typeof module.countObservationTokens !== 'function') {
+    throw new Error('Configured observation token counter is unavailable');
+  }
+  return /** @type {import('./memory-types.js').ObservationTokenCounter} */ (
+    module.countObservationTokens
+  );
 }
 
 /** @param {import('./memory-types.js').MemoryDomainRequest} request */
 async function handleMemory(request) {
   if (request.operation !== 'native') {
-    return { snapshot: executeMemoryRequest(db, request) };
+    const countTokens =
+      request.operation === 'purge-thread' ? await observationTokenCounter() : undefined;
+    return { snapshot: executeMemoryRequest(db, request, countTokens) };
   }
   if (!cfg.memoryCalculatorModule) {
     throw new Error('Native memory calculator capability is unavailable');
@@ -339,14 +359,20 @@ async function handle(m) {
       const threadId = String(m['threadId']);
       const seq = Number(m['seq']);
       log.purge(threadId, seq, String(m['tombstone']), () => {
-        eraseThreadMemory(threadId, seq);
+        // A purge erases what the thread may have contributed to shared memory.
+        eraseThreadMemory(threadId, seq, 'clear');
         kill?.();
       });
       return {};
     }
     case 'deleteThread': {
       const threadId = String(m['threadId']);
-      log.deleteThread(threadId, () => eraseThreadMemory(threadId, 0));
+      // Loaded before the transaction; the StateStore write chain keeps this op in order.
+      const countTokens = await observationTokenCounter();
+      // Deleting a thread keeps shared resource memory, as legacy did, minus its own sections.
+      log.deleteThread(threadId, () =>
+        eraseThreadMemory(threadId, 0, 'detach-thread', countTokens)
+      );
       return {};
     }
     case 'intentRecord': {

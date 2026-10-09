@@ -1,0 +1,1183 @@
+[
+  {
+    "event": {
+      "commandId": "b399f041-e77c-4c96-b77c-eec1bb50fe43",
+      "method": "thread/start",
+      "payload": {
+        "commandId": "b399f041-e77c-4c96-b77c-eec1bb50fe43"
+      },
+      "result": {
+        "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 1,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005867
+  },
+  {
+    "event": {
+      "commandId": "b399f041-e77c-4c96-b77c-eec1bb50fe43",
+      "type": "thread.started"
+    },
+    "seq": 2,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005867
+  },
+  {
+    "event": {
+      "commandId": "9f9e0b62-8151-4abd-9bb0-ddd259a36b13",
+      "method": "run/start",
+      "payload": {
+        "commandId": "9f9e0b62-8151-4abd-9bb0-ddd259a36b13",
+        "modelId": "scripted",
+        "prompt": "Fetch it with Python.",
+        "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d"
+      },
+      "result": {
+        "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 3,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005870
+  },
+  {
+    "event": {
+      "type": "run.started",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "modelId": "scripted",
+      "parentMessageId": null,
+      "prompt": "Fetch it with Python.",
+      "snapshot": {
+        "configuration": {},
+        "maxSteps": 4,
+        "toolIdentities": {
+          "brainstrike_runPython": "run-python-generation-1"
+        }
+      }
+    },
+    "seq": 4,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005870
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "start"
+      }
+    },
+    "seq": 5,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005878
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": []
+      }
+    },
+    "seq": 6,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005884
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool-call",
+              "toolCallId": "recorded-call-1",
+              "toolName": "brainstrike_runPython",
+              "input": {
+                "allowedDomains": [
+                  "pypi.org",
+                  "pypi.org"
+                ],
+                "code": "import urllib"
+              }
+            },
+            {
+              "type": "tool-approval-request",
+              "approvalId": "aitxt-CW9hgF8egdsxhytdWQs9OXOF",
+              "toolCallId": "recorded-call-1"
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "mock-provider",
+        "modelId": "mock-model-id"
+      },
+      "stepNumber": 0,
+      "usage": {
+        "inputTokens": 1,
+        "inputTokenDetails": {
+          "noCacheTokens": 1,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "outputTokens": 1,
+        "outputTokenDetails": {
+          "textTokens": 1,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 2
+      }
+    },
+    "seq": 7,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005887
+  },
+  {
+    "event": {
+      "type": "interaction.requested",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "input": {
+        "allowedDomains": [
+          "pypi.org",
+          "pypi.org"
+        ],
+        "code": "import urllib"
+      },
+      "toolCallId": "recorded-call-1",
+      "toolCatalogId": "brainstrike.runPython",
+      "toolId": "brainstrike_runPython",
+      "toolIdentity": "run-python-generation-1",
+      "executionContext": {
+        "allowedDomains": [
+          "pypi.org",
+          "pypi.org"
+        ],
+        "allowRead": [],
+        "allowWrite": [],
+        "defaultReadAccess": "permissive",
+        "executorKind": "fence",
+        "language": "python",
+        "scratchParentDir": "/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T",
+        "timeoutMs": 30000,
+        "policyFingerprint": "92c2698bb41315aadc68a1a00744decbae2697baebce37c2ee60838b6a6f9fb0"
+      },
+      "interactionId": "aitxt-CW9hgF8egdsxhytdWQs9OXOF",
+      "kind": "network",
+      "risk": "execute"
+    },
+    "seq": 8,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005887
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "tool-call",
+        "toolCallId": "recorded-call-1",
+        "toolName": "brainstrike_runPython",
+        "input": {
+          "allowedDomains": [
+            "pypi.org",
+            "pypi.org"
+          ],
+          "code": "import urllib"
+        }
+      }
+    },
+    "seq": 9,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005892
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "tool-approval-request",
+        "approvalId": "aitxt-CW9hgF8egdsxhytdWQs9OXOF",
+        "toolCall": {
+          "type": "tool-call",
+          "toolCallId": "recorded-call-1",
+          "toolName": "brainstrike_runPython",
+          "input": {
+            "allowedDomains": [
+              "pypi.org",
+              "pypi.org"
+            ],
+            "code": "import urllib"
+          }
+        }
+      }
+    },
+    "seq": 10,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005893
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "tool-calls",
+        "rawFinishReason": "tool_calls",
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        },
+        "performance": {
+          "stepTimeMs": 5.45554200000015,
+          "toolExecutionMs": {},
+          "responseTimeMs": 2.549750000000131,
+          "effectiveOutputTokensPerSecond": 392.19531326598633,
+          "outputTokensPerSecond": 910.920202479224,
+          "inputTokensPerSecond": 688.7246816198035,
+          "effectiveTotalTokensPerSecond": 784.3906265319727,
+          "timeToFirstOutputMs": 1.451958999999988
+        },
+        "response": {
+          "id": "aitxt-LL3NLKYGNY7aQmMvB4t0hmxf",
+          "timestamp": "2026-10-09T02:13:25.879Z",
+          "modelId": "mock-model-id"
+        }
+      }
+    },
+    "seq": 11,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005894
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "finish",
+        "finishReason": "tool-calls",
+        "rawFinishReason": "tool_calls",
+        "totalUsage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        }
+      }
+    },
+    "seq": 12,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005900
+  },
+  {
+    "event": {
+      "commandId": "0a75489c-1084-4cda-98b1-6b2a13c0d3a8",
+      "method": "interaction/resume",
+      "payload": {
+        "commandId": "0a75489c-1084-4cda-98b1-6b2a13c0d3a8",
+        "grant": {
+          "category": "execute",
+          "scope": "session"
+        },
+        "interactionId": "aitxt-CW9hgF8egdsxhytdWQs9OXOF",
+        "resumeData": {
+          "action": "allow"
+        },
+        "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+        "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d"
+      },
+      "result": {
+        "accepted": true
+      },
+      "type": "command.accepted"
+    },
+    "seq": 13,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005939
+  },
+  {
+    "event": {
+      "type": "permission.granted",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "grant": {
+        "category": "execute",
+        "scope": "session"
+      }
+    },
+    "seq": 14,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005939
+  },
+  {
+    "event": {
+      "type": "interaction.responded",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "interactionId": "aitxt-CW9hgF8egdsxhytdWQs9OXOF",
+      "resumeData": {
+        "action": "allow"
+      }
+    },
+    "seq": 15,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005939
+  },
+  {
+    "event": {
+      "type": "effect.started",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "input": {
+        "allowedDomains": [
+          "pypi.org",
+          "pypi.org"
+        ],
+        "code": "import urllib"
+      },
+      "toolCallId": "recorded-call-1",
+      "toolId": "brainstrike_runPython",
+      "toolIdentity": "run-python-generation-1"
+    },
+    "seq": 16,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005941
+  },
+  {
+    "event": {
+      "type": "effect.finished",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "output": {
+        "exitCode": 0,
+        "kind": "completed",
+        "stderr": "",
+        "stderrOmittedBytes": 0,
+        "stdout": "ran",
+        "stdoutOmittedBytes": 0
+      },
+      "toolCallId": "recorded-call-1"
+    },
+    "seq": 17,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005944
+  },
+  {
+    "event": {
+      "type": "model.messages",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "messages": [
+        {
+          "role": "tool",
+          "content": [
+            {
+              "type": "tool-approval-response",
+              "approvalId": "aitxt-CW9hgF8egdsxhytdWQs9OXOF",
+              "approved": true
+            },
+            {
+              "type": "tool-result",
+              "toolCallId": "recorded-call-1",
+              "toolName": "brainstrike_runPython",
+              "output": {
+                "type": "text",
+                "value": "{\"exitCode\":0,\"kind\":\"completed\",\"stderr\":\"\",\"stderrOmittedBytes\":0,\"stdout\":\"ran\",\"stdoutOmittedBytes\":0}"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "seq": 18,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005946
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "start"
+      }
+    },
+    "seq": 19,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005953
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": []
+      }
+    },
+    "seq": 20,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005954
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool-call",
+              "toolCallId": "recorded-call-2",
+              "toolName": "brainstrike_runPython",
+              "input": {
+                "allowedDomains": [
+                  "pypi.org",
+                  "pypi.org"
+                ],
+                "code": "import urllib"
+              }
+            },
+            {
+              "type": "tool-approval-request",
+              "approvalId": "aitxt-zHAn64zcmWZBzkqTYRaCDGIf",
+              "toolCallId": "recorded-call-2"
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "mock-provider",
+        "modelId": "mock-model-id"
+      },
+      "stepNumber": 1,
+      "usage": {
+        "inputTokens": 1,
+        "inputTokenDetails": {
+          "noCacheTokens": 1,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "outputTokens": 1,
+        "outputTokenDetails": {
+          "textTokens": 1,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 2
+      }
+    },
+    "seq": 21,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005955
+  },
+  {
+    "event": {
+      "type": "interaction.requested",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "input": {
+        "allowedDomains": [
+          "pypi.org",
+          "pypi.org"
+        ],
+        "code": "import urllib"
+      },
+      "toolCallId": "recorded-call-2",
+      "toolCatalogId": "brainstrike.runPython",
+      "toolId": "brainstrike_runPython",
+      "toolIdentity": "run-python-generation-1",
+      "executionContext": {
+        "allowedDomains": [
+          "pypi.org",
+          "pypi.org"
+        ],
+        "allowRead": [],
+        "allowWrite": [],
+        "defaultReadAccess": "permissive",
+        "executorKind": "fence",
+        "language": "python",
+        "scratchParentDir": "/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T",
+        "timeoutMs": 30000,
+        "policyFingerprint": "92c2698bb41315aadc68a1a00744decbae2697baebce37c2ee60838b6a6f9fb0"
+      },
+      "interactionId": "aitxt-zHAn64zcmWZBzkqTYRaCDGIf",
+      "kind": "network"
+    },
+    "seq": 22,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005955
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "tool-call",
+        "toolCallId": "recorded-call-2",
+        "toolName": "brainstrike_runPython",
+        "input": {
+          "allowedDomains": [
+            "pypi.org",
+            "pypi.org"
+          ],
+          "code": "import urllib"
+        }
+      }
+    },
+    "seq": 23,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005959
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "tool-approval-request",
+        "approvalId": "aitxt-zHAn64zcmWZBzkqTYRaCDGIf",
+        "toolCall": {
+          "type": "tool-call",
+          "toolCallId": "recorded-call-2",
+          "toolName": "brainstrike_runPython",
+          "input": {
+            "allowedDomains": [
+              "pypi.org",
+              "pypi.org"
+            ],
+            "code": "import urllib"
+          }
+        }
+      }
+    },
+    "seq": 24,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005960
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "tool-calls",
+        "rawFinishReason": "tool_calls",
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        },
+        "performance": {
+          "stepTimeMs": 1.4612919999999576,
+          "toolExecutionMs": {},
+          "responseTimeMs": 0.5467499999999745,
+          "effectiveOutputTokensPerSecond": 1828.9894833105561,
+          "outputTokensPerSecond": 3167.895282052795,
+          "inputTokensPerSecond": 4327.449444573761,
+          "effectiveTotalTokensPerSecond": 3657.9789666211122,
+          "timeToFirstOutputMs": 0.23108299999989868
+        },
+        "response": {
+          "id": "aitxt-DPGWkYsaeolL0yvmRyYkZlkK",
+          "timestamp": "2026-10-09T02:13:25.953Z",
+          "modelId": "mock-model-id"
+        }
+      }
+    },
+    "seq": 25,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005960
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "finish",
+        "finishReason": "tool-calls",
+        "rawFinishReason": "tool_calls",
+        "totalUsage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        }
+      }
+    },
+    "seq": 26,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005966
+  },
+  {
+    "event": {
+      "commandId": "9f79235c-df6b-4652-b740-2d1295fd0542",
+      "method": "interaction/resume",
+      "payload": {
+        "commandId": "9f79235c-df6b-4652-b740-2d1295fd0542",
+        "interactionId": "aitxt-zHAn64zcmWZBzkqTYRaCDGIf",
+        "resumeData": {
+          "action": "allow"
+        },
+        "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+        "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d"
+      },
+      "result": {
+        "accepted": true
+      },
+      "type": "command.accepted"
+    },
+    "seq": 27,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005996
+  },
+  {
+    "event": {
+      "type": "interaction.responded",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "interactionId": "aitxt-zHAn64zcmWZBzkqTYRaCDGIf",
+      "resumeData": {
+        "action": "allow"
+      }
+    },
+    "seq": 28,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005996
+  },
+  {
+    "event": {
+      "type": "effect.started",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "input": {
+        "allowedDomains": [
+          "pypi.org",
+          "pypi.org"
+        ],
+        "code": "import urllib"
+      },
+      "toolCallId": "recorded-call-2",
+      "toolId": "brainstrike_runPython",
+      "toolIdentity": "run-python-generation-1"
+    },
+    "seq": 29,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512005998
+  },
+  {
+    "event": {
+      "type": "effect.finished",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "output": {
+        "exitCode": 0,
+        "kind": "completed",
+        "stderr": "",
+        "stderrOmittedBytes": 0,
+        "stdout": "ran",
+        "stdoutOmittedBytes": 0
+      },
+      "toolCallId": "recorded-call-2"
+    },
+    "seq": 30,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512006000
+  },
+  {
+    "event": {
+      "type": "model.messages",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "messages": [
+        {
+          "role": "tool",
+          "content": [
+            {
+              "type": "tool-approval-response",
+              "approvalId": "aitxt-zHAn64zcmWZBzkqTYRaCDGIf",
+              "approved": true
+            },
+            {
+              "type": "tool-result",
+              "toolCallId": "recorded-call-2",
+              "toolName": "brainstrike_runPython",
+              "output": {
+                "type": "text",
+                "value": "{\"exitCode\":0,\"kind\":\"completed\",\"stderr\":\"\",\"stderrOmittedBytes\":0,\"stdout\":\"ran\",\"stdoutOmittedBytes\":0}"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "seq": 31,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512006001
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "start"
+      }
+    },
+    "seq": 32,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512006008
+  },
+  {
+    "event": {
+      "type": "effect.started",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "input": {
+        "code": "print(1)"
+      },
+      "toolCallId": "recorded-call-3",
+      "toolCatalogId": "brainstrike.runPython",
+      "toolId": "brainstrike_runPython",
+      "toolIdentity": "run-python-generation-1"
+    },
+    "seq": 33,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512006010
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": []
+      }
+    },
+    "seq": 34,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512006010
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "tool-call",
+        "toolCallId": "recorded-call-3",
+        "toolName": "brainstrike_runPython",
+        "input": {
+          "code": "print(1)"
+        }
+      }
+    },
+    "seq": 35,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512006010
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "tool-approval-request",
+        "approvalId": "aitxt-J0ec5jyQsPI3hPjx93FXITrG",
+        "toolCall": {
+          "type": "tool-call",
+          "toolCallId": "recorded-call-3",
+          "toolName": "brainstrike_runPython",
+          "input": {
+            "code": "print(1)"
+          }
+        },
+        "isAutomatic": true
+      }
+    },
+    "seq": 36,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512006011
+  },
+  {
+    "event": {
+      "type": "effect.finished",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "output": {
+        "exitCode": 0,
+        "kind": "completed",
+        "stderr": "",
+        "stderrOmittedBytes": 0,
+        "stdout": "ran",
+        "stdoutOmittedBytes": 0
+      },
+      "toolCallId": "recorded-call-3"
+    },
+    "seq": 37,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512006011
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "tool-approval-response",
+        "approvalId": "aitxt-J0ec5jyQsPI3hPjx93FXITrG",
+        "approved": true,
+        "toolCall": {
+          "type": "tool-call",
+          "toolCallId": "recorded-call-3",
+          "toolName": "brainstrike_runPython",
+          "input": {
+            "code": "print(1)"
+          }
+        }
+      }
+    },
+    "seq": 38,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512006011
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool-call",
+              "toolCallId": "recorded-call-3",
+              "toolName": "brainstrike_runPython",
+              "input": {
+                "code": "print(1)"
+              }
+            },
+            {
+              "type": "tool-approval-request",
+              "approvalId": "aitxt-J0ec5jyQsPI3hPjx93FXITrG",
+              "toolCallId": "recorded-call-3",
+              "isAutomatic": true
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": [
+            {
+              "type": "tool-approval-response",
+              "approvalId": "aitxt-J0ec5jyQsPI3hPjx93FXITrG",
+              "approved": true
+            },
+            {
+              "type": "tool-result",
+              "toolCallId": "recorded-call-3",
+              "toolName": "brainstrike_runPython",
+              "output": {
+                "type": "text",
+                "value": "{\"exitCode\":0,\"kind\":\"completed\",\"stderr\":\"\",\"stderrOmittedBytes\":0,\"stdout\":\"ran\",\"stdoutOmittedBytes\":0}"
+              }
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "mock-provider",
+        "modelId": "mock-model-id"
+      },
+      "stepNumber": 2,
+      "usage": {
+        "inputTokens": 1,
+        "inputTokenDetails": {
+          "noCacheTokens": 1,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "outputTokens": 1,
+        "outputTokenDetails": {
+          "textTokens": 1,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 2
+      }
+    },
+    "seq": 39,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512006012
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "tool-result",
+        "toolCallId": "recorded-call-3",
+        "toolName": "brainstrike_runPython",
+        "input": {
+          "code": "print(1)"
+        },
+        "output": {
+          "exitCode": 0,
+          "kind": "completed",
+          "stderr": "",
+          "stderrOmittedBytes": 0,
+          "stdout": "ran",
+          "stdoutOmittedBytes": 0
+        },
+        "dynamic": false
+      }
+    },
+    "seq": 40,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512006017
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "tool-calls",
+        "rawFinishReason": "tool_calls",
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        },
+        "performance": {
+          "stepTimeMs": 3.3545409999999265,
+          "toolExecutionMs": {
+            "recorded-call-3": 1.8716669999998885
+          },
+          "responseTimeMs": 0.2106250000001637,
+          "effectiveOutputTokensPerSecond": 4747.7744807084755,
+          "outputTokensPerSecond": 16393.442622910734,
+          "inputTokensPerSecond": 6683.375104427086,
+          "effectiveTotalTokensPerSecond": 9495.548961416951,
+          "timeToFirstOutputMs": 0.14962500000001455
+        },
+        "response": {
+          "id": "aitxt-kXRoCZRnQ8YjVDdeg6cF9Qwp",
+          "timestamp": "2026-10-09T02:13:26.009Z",
+          "modelId": "mock-model-id"
+        }
+      }
+    },
+    "seq": 41,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512006019
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": []
+      }
+    },
+    "seq": 42,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512006024
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "id": "text-1",
+        "type": "text-start"
+      }
+    },
+    "seq": 43,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512006025
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "Host run completed."
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "mock-provider",
+        "modelId": "mock-model-id"
+      },
+      "stepNumber": 3,
+      "usage": {
+        "inputTokens": 1,
+        "inputTokenDetails": {
+          "noCacheTokens": 1,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "outputTokens": 1,
+        "outputTokenDetails": {
+          "textTokens": 1,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 2
+      }
+    },
+    "seq": 44,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512006025
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "text-delta",
+        "id": "text-1",
+        "text": "Host run completed."
+      }
+    },
+    "seq": 45,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512006029
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "id": "text-1",
+        "type": "text-end"
+      }
+    },
+    "seq": 46,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512006030
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "stop",
+        "rawFinishReason": "stop",
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        },
+        "performance": {
+          "stepTimeMs": 1.1066250000001219,
+          "toolExecutionMs": {},
+          "responseTimeMs": 0.3585419999999431,
+          "effectiveOutputTokensPerSecond": 2789.0735255567233,
+          "outputTokensPerSecond": 12257.455597380682,
+          "inputTokensPerSecond": 3610.642730512022,
+          "effectiveTotalTokensPerSecond": 5578.147051113447,
+          "timeToFirstOutputMs": 0.2769590000000335
+        },
+        "response": {
+          "id": "aitxt-CDVHJx5Mpsrl3m574RgHkAfq",
+          "timestamp": "2026-10-09T02:13:26.018Z",
+          "modelId": "mock-model-id"
+        }
+      }
+    },
+    "seq": 47,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512006030
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "chunk": {
+        "type": "finish",
+        "finishReason": "stop",
+        "rawFinishReason": "stop",
+        "totalUsage": {
+          "inputTokens": 2,
+          "inputTokenDetails": {
+            "noCacheTokens": 2,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 2,
+          "outputTokenDetails": {
+            "textTokens": 2,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 4
+        }
+      }
+    },
+    "seq": 48,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512006036
+  },
+  {
+    "event": {
+      "type": "run.finished",
+      "runId": "c4993b4c-83c1-45ee-95b8-fee491fd3ce3",
+      "outcome": "completed"
+    },
+    "seq": 49,
+    "threadId": "802a9e9d-d99a-4387-9779-5591c819c52d",
+    "ts": 1791512006037
+  }
+]

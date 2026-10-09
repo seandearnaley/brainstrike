@@ -4,8 +4,13 @@ import {
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { ThemeProvider } from '@brainstrike/ui';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  type AssistantThreadHostCanvasVersion,
+  type AssistantThreadHostCapability,
+  AssistantThreadHostContext,
+} from '../assistant-thread-host-context';
 import { CanvasPanel } from '../canvas/canvas-panel';
 import { useChangesNavigationStore } from '../changes/changes-navigation-store';
 
@@ -219,6 +224,61 @@ describe('CanvasPanel', () => {
     await waitFor(() => {
       expect(queryMock.mock.calls.length).toBeGreaterThan(callsBefore);
     });
+  });
+
+  it("re-reads a host thread's canvases when its committed canvases change", async () => {
+    const version = (number: number): AssistantThreadHostCanvasVersion => ({
+      canvasId: 'canvas-1',
+      createdAt: '2026-10-08T12:00:00.000Z',
+      createdBy: 'assistant',
+      html: `<p>v${number}</p>`,
+      title: 'Chart',
+      version: number,
+    });
+    const versions = [version(1)];
+    const listeners = new Set<() => void>();
+    const subscribeCanvases = vi.fn((_threadId: string, listener: () => void) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    });
+    const host: AssistantThreadHostCapability = {
+      createThread: vi.fn(),
+      deleteThread: vi.fn(async () => false),
+      listThreads: vi.fn(async () => []),
+      ownsThread: vi.fn(async () => true),
+      readCanvases: vi.fn(async () => new Map([['canvas-1', [...versions]]])),
+      renameThread: vi.fn(),
+      renderThread: vi.fn(),
+      subscribeCanvases,
+      updateThreadBinding: vi.fn(),
+      workspaceRepository: (history) => history,
+    };
+    activateThread('host-thread');
+    const view = render(
+      <ThemeProvider storageAdapter={themeStorageAdapter}>
+        <AssistantThreadHostContext.Provider value={host}>
+          <CanvasPanel shellSrc="https://shell.invalid/canvas-frame.html" />
+        </AssistantThreadHostContext.Provider>
+      </ThemeProvider>
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId('canvas-version-label')).toHaveTextContent('v1 / 1');
+    });
+    expect(subscribeCanvases).toHaveBeenCalledWith('host-thread', expect.any(Function));
+
+    // A run commits a new version while the panel is open.
+    versions.push(version(2));
+    act(() => {
+      for (const listener of listeners) {
+        listener();
+      }
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('canvas-version-label')).toHaveTextContent('v2 / 2');
+    });
+    expect(queryMock).not.toHaveBeenCalled();
+    view.unmount();
+    expect(listeners.size).toBe(0);
   });
 
   it('ignores a background wrapper identity — only the thread store active id selects canvases', async () => {

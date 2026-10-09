@@ -45,6 +45,10 @@ beforeEach(async () => {
   owner.home = join(directory, 'home');
   await fs.mkdir(owner.home);
   owner.query.mockImplementation(async (sql: string, params: readonly unknown[]) => {
+    // No auto-observer candidate is enabled in these admissions' catalog.
+    if (sql.includes('JOIN providers')) {
+      return { rows: [] };
+    }
     if (sql.includes('FROM models')) {
       return { rows: [{ isEnabled: true, providerId: params[1] }] };
     }
@@ -301,4 +305,63 @@ test('a model the local Ollama or LM Studio runtime lists is admitted without a 
       await captured.close();
     }
   }
+});
+
+test('the auto observer is the first auto candidate the model catalog has enabled', async () => {
+  const eligible =
+    vi.fn<(pairs: readonly unknown[]) => { providerId: string; modelId: string }[]>();
+  owner.query.mockImplementation(async (sql: string, params: readonly unknown[]) => {
+    if (sql.includes('JOIN providers')) {
+      return { rows: eligible(params) };
+    }
+    if (sql.includes('FROM models')) {
+      return { rows: [{ isEnabled: true, providerId: params[1] }] };
+    }
+    if (sql.includes('FROM roots')) {
+      return { rows: [{ displayName: 'A', id: 'root-a', path: join(directory, 'a') }] };
+    }
+    throw new Error('Unexpected owner query in observer admission');
+  });
+  const observer = async () => {
+    const captured = await productionDesktopCapabilities({}).readConfiguration(
+      request(
+        [],
+        {
+          memorySettings: {
+            observationalMemory: {
+              enabled: true,
+              messageTokens: 1234,
+              modelTarget: 'auto',
+              observationTokens: 2345,
+              retrievalMode: 'off',
+              scope: 'thread',
+            },
+            semanticRecall: {
+              embeddingModelTarget: null,
+              enabled: false,
+              messageRange: 0,
+              scope: 'thread',
+              topK: 2,
+            },
+          },
+        },
+        { model: 'anthropic/claude-sonnet-4.6', provider: 'openrouter' }
+      )
+    );
+    try {
+      return captured.memory.settings.observationalMemory;
+    } finally {
+      await captured.close();
+    }
+  };
+
+  // OpenRouter's first auto candidate ships catalog-disabled; the enabled one after it observes.
+  eligible.mockReturnValue([{ modelId: 'google/gemini-3.5-flash-lite', providerId: 'openrouter' }]);
+  await expect(observer()).resolves.toMatchObject({
+    enabled: true,
+    modelTarget: 'openrouter/google/gemini-3.5-flash-lite',
+  });
+  // No enabled candidate: observation waits, disabled, as the settings resolver reports it.
+  eligible.mockReturnValue([]);
+  await expect(observer()).resolves.toMatchObject({ enabled: false });
 });

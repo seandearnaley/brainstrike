@@ -180,4 +180,90 @@ describe('useCrossRootCost', () => {
     expect(result.current.error).toBeInstanceOf(Error);
     expect(result.current.rows).toEqual([]);
   });
+
+  it("lists the agent host's per-root usage beside the usage rows", () => {
+    usePGliteDatabaseMock.mockReturnValue({});
+    usePGliteLiveQueryMock.mockImplementation((options: { query: string }) => ({
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
+      rows: options.query.includes('FROM roots')
+        ? []
+        : [
+            {
+              billedCostUsd: '0.1',
+              estimatedInputTokens: '0',
+              estimatedOutputTokens: '0',
+              inputTokens: '1000',
+              model: 'gpt-5.2',
+              outputTokens: '100',
+              provider: 'openai',
+              rootDisplayName: 'Workspace A',
+              rootId: 'root-a',
+            },
+          ],
+    }));
+    const hostRootUsage = [
+      {
+        estimatedCacheCreationTokens: 0,
+        estimatedCacheReadTokens: 0,
+        estimatedInputTokens: 40,
+        estimatedOutputTokens: 6,
+        inputTokens: 40,
+        model: 'anthropic/claude-sonnet-4.6',
+        outputTokens: 6,
+        provider: 'openrouter',
+        rootDisplayName: 'Workspace A',
+        rootId: 'root-a',
+      },
+    ];
+
+    const { result } = renderHook(() => useCrossRootCost(undefined, hostRootUsage));
+
+    expect(result.current.rows).toEqual([
+      expect.objectContaining({ inputTokens: 1000, rootId: 'root-a' }),
+      hostRootUsage[0],
+    ]);
+  });
+
+  it('names a host row by its root, as the usage aggregation joins the roots table', () => {
+    usePGliteDatabaseMock.mockReturnValue({});
+    usePGliteLiveQueryMock.mockImplementation((options: { query: string }) => ({
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
+      rows: options.query.includes('FROM roots')
+        ? [
+            { displayName: 'Workspace B', id: 'root-b' },
+            { displayName: null, id: 'root-c' },
+          ]
+        : [],
+    }));
+    const hostRow = {
+      estimatedCacheCreationTokens: 0,
+      estimatedCacheReadTokens: 0,
+      estimatedInputTokens: 40,
+      estimatedOutputTokens: 6,
+      inputTokens: 40,
+      model: 'anthropic/claude-sonnet-4.6',
+      outputTokens: 6,
+      provider: 'openrouter',
+    };
+    const hostRootUsage = [
+      { ...hostRow, rootDisplayName: null, rootId: null },
+      { ...hostRow, rootDisplayName: null, rootId: 'root-b' },
+      { ...hostRow, rootDisplayName: 'Committed name', rootId: 'root-c' },
+    ];
+
+    const { result } = renderHook(() => useCrossRootCost(undefined, hostRootUsage));
+
+    expect(
+      result.current.rows.map(({ rootDisplayName, rootId }) => [rootId, rootDisplayName])
+    ).toEqual([
+      [null, null],
+      ['root-b', 'Workspace B'],
+      // A root the table leaves unnamed keeps the name its run committed.
+      ['root-c', 'Committed name'],
+    ]);
+  });
 });

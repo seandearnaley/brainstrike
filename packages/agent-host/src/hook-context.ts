@@ -3,6 +3,7 @@ import type { HostRunState } from './core-state.js';
 import { jsonValue } from './json-value.js';
 import type { HostRunAdmission } from './ports.js';
 import type { HostEvent } from './protocol.js';
+import { hostTurnEnd, hostTurnStart } from './turn-snapshots.js';
 
 type HostToolResultOutput = Extract<ToolContent[number], { type: 'tool-result' }>['output'];
 type HookContextEvent = Extract<HostEvent, { type: 'hook.context' }>;
@@ -108,16 +109,23 @@ export function foldHostHookContextEvent(
 }
 
 /**
- * A run's terminal rows: its Stop hooks see how it ended, and a verdict they
- * report labels the run in the same append as `run.finished`, never after it.
+ * A run's terminal rows, in the append that finishes it: its Stop hooks see
+ * how it ended and may label it, then its turn ends with the workspace's
+ * snapshots, after any Stop hook that may still change it.
  */
 export async function hostRunTerminalEvents(
   run: HostRunState,
   finished: RunFinishedEvent
 ): Promise<HostEvent[]> {
+  const label = await hostStopLabel(run, finished);
+  return [...label, ...(await hostTurnEnd(run)), finished];
+}
+
+/** The run's Stop hooks see how it ended; a verdict they report labels the run. */
+async function hostStopLabel(run: HostRunState, finished: RunFinishedEvent): Promise<HostEvent[]> {
   const hooks = run.admission?.hooks;
   if (!hooks) {
-    return [finished];
+    return [];
   }
   const assistantMessage = hostRunAssistantTail(run.messages);
   const { verdict } = await hooks.stop({
@@ -125,16 +133,17 @@ export async function hostRunTerminalEvents(
     reason: hostStopReason(finished.outcome),
   });
   if (!verdict) {
-    return [finished];
+    return [];
   }
-  const label: HostEvent = {
-    ...(verdict.detail === undefined ? {} : { detail: verdict.detail }),
-    runId: run.id,
-    source: 'hook',
-    type: 'run.verdict',
-    verdict: verdict.verdict,
-  };
-  return [label, finished];
+  return [
+    {
+      ...(verdict.detail === undefined ? {} : { detail: verdict.detail }),
+      runId: run.id,
+      source: 'hook',
+      type: 'run.verdict',
+      verdict: verdict.verdict,
+    },
+  ];
 }
 
 /**
@@ -169,8 +178,9 @@ interface HostRunStartSteps {
 }
 
 /**
- * A fresh run starts past its UserPromptSubmit hooks: a block fails it, else
- * its loop runs. With no hooks the loop starts in this same turn, so the run's
+ * A fresh run records its turn start (where the platform snapshots
+ * workspaces), then passes its UserPromptSubmit hooks: a block fails it, else
+ * its loop runs. With neither, the loop starts in this same turn, so the run's
  * owner opens before run/start replies, as it did before lifecycle hooks.
  */
 export function beginHostRun(
@@ -178,7 +188,9 @@ export function beginHostRun(
   admission: HostRunAdmission,
   steps: HostRunStartSteps
 ): Promise<void> {
-  return admission.hooks ? gatedHostRun(run, admission, steps) : steps.loop(admission.model);
+  return admission.hooks || admission.captureTurnBoundary
+    ? gatedHostRun(run, admission, steps)
+    : steps.loop(admission.model);
 }
 
 async function gatedHostRun(
@@ -186,6 +198,10 @@ async function gatedHostRun(
   admission: HostRunAdmission,
   steps: HostRunStartSteps
 ): Promise<void> {
+  const start = hostTurnStart(run, admission);
+  if (start) {
+    await steps.commit([await start]);
+  }
   const failure = await passHostPromptHooks(run, admission, steps.commit);
   await (failure === undefined ? steps.loop(admission.model) : steps.fail(failure));
 }

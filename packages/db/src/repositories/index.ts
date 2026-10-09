@@ -105,6 +105,11 @@ export type {
   IViewFilterPresetsRepository,
 } from './interfaces.js';
 export {
+  type LegacyMemoryDatabase,
+  type PgliteLegacyMemory,
+  readPgliteLegacyMemory,
+} from './legacy-memory-read.js';
+export {
   type PgliteMcpTaskRows,
   pgliteMcpTaskStorage,
   readPgliteMcpTaskRows,

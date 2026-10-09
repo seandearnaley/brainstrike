@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import type {
   AgentMessage,
   AssistantToolApprovalAction,
@@ -66,14 +64,10 @@ async function closeVerifier(resources: readonly Promise<unknown>[]): Promise<vo
   }
 }
 
+// Stream initialization with the desktop capabilities keeps one MCP host generation
+// across discovery and approval resume. Since BST-1930 the legacy server passes no
+// host at all (agent-stream-init-and-memory asserts that); this supplies one directly.
 it('keeps one desktop MCP host generation across fresh discovery and approval resume', async () => {
-  const productionSource = readFileSync(
-    path.resolve(import.meta.dirname, '../../assistant-server.ts'),
-    'utf8'
-  );
-  // The behavioral path below supplies the host directly; this narrow source pin
-  // proves the production composer selects the same singleton without coupling to key order.
-  expect(productionSource).toContain('mcpHost: getDesktopMcpHostRuntime().host');
   const database = new PGlite();
   let modelTurn = 0;
   const llmHostManager = {

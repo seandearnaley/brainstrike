@@ -37,7 +37,6 @@ function read(
     request: {
       modelId: 'openrouter::model',
       prompt: `Summarize ${mention}`,
-      runId: 'run-1',
       signal: new AbortController().signal,
       threadId: 'thread-1',
       ...(snapshot ? { snapshot } : {}),

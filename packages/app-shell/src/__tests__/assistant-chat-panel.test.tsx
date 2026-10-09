@@ -3,7 +3,14 @@ import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantChatPanel } from '../assistant-chat-panel';
 
-const { assistantProviderSourceProviderMock, assistantUiPanelWrapperLazyMock } = vi.hoisted(() => ({
+const {
+  assistantProviderModelDefaultsMock,
+  assistantProviderSourceProviderMock,
+  assistantUiPanelWrapperLazyMock,
+} = vi.hoisted(() => ({
+  assistantProviderModelDefaultsMock: vi.fn((_props: Record<string, unknown>) => (
+    <div data-testid="provider-model-defaults-owner" />
+  )),
   assistantProviderSourceProviderMock: vi.fn(),
   assistantUiPanelWrapperLazyMock: vi.fn((_props: Record<string, unknown>) => (
     <div>Assistant UI Panel</div>
@@ -19,8 +26,12 @@ vi.mock('../hooks/assistant-provider-source', () => ({
     source: unknown;
   }) => {
     assistantProviderSourceProviderMock(source);
-    return <>{children}</>;
+    return <div data-testid="provider-source">{children}</div>;
   },
+}));
+
+vi.mock('../assistant-provider-model-defaults', () => ({
+  AssistantProviderModelDefaults: assistantProviderModelDefaultsMock,
 }));
 
 vi.mock('../hooks/use-assistant-availability-with-local', () => ({
@@ -39,6 +50,7 @@ const useAssistantAvailabilityWithLocalMock = vi.mocked(useAssistantAvailability
 
 describe('AssistantChatPanel', () => {
   beforeEach(() => {
+    assistantProviderModelDefaultsMock.mockClear();
     assistantProviderSourceProviderMock.mockClear();
     assistantUiPanelWrapperLazyMock.mockClear();
     useAssistantAvailabilityWithLocalMock.mockReset();
@@ -166,6 +178,36 @@ describe('AssistantChatPanel', () => {
           openrouter: 'Stored OpenRouter key is unreadable. Re-enter it to repair access.',
         },
       }),
+      undefined
+    );
+  });
+
+  it('mounts one model-defaults owner inside the provider source, for every thread kind', async () => {
+    useAssistantAvailabilityWithLocalMock.mockReturnValue({
+      providerErrors: [
+        {
+          code: 'decrypt_failed',
+          error: 'api_key_unreadable',
+          message: 'Stored OpenRouter key is unreadable. Re-enter it to repair access.',
+          provider: 'openrouter',
+        },
+      ],
+      providers: ['openrouter'],
+      state: 'enabled',
+    });
+
+    render(<AssistantChatPanel />);
+
+    expect(await screen.findByText('Assistant UI Panel')).toBeInTheDocument();
+    const owners = screen.getAllByTestId('provider-model-defaults-owner');
+    expect(owners).toHaveLength(1);
+    expect(screen.getByTestId('provider-source')).toContainElement(owners[0] ?? null);
+    expect(assistantProviderModelDefaultsMock).toHaveBeenLastCalledWith(
+      {
+        providerReadErrors: {
+          openrouter: 'Stored OpenRouter key is unreadable. Re-enter it to repair access.',
+        },
+      },
       undefined
     );
   });

@@ -1,6 +1,9 @@
 import type { ProviderAuthInput } from '@brainstrike/agent/provider-runtime';
 import type { HostAuthService, HostAuthVerdict, HostClientOrigin } from '@brainstrike/agent-host';
-import type { SecretsService } from '@brainstrike/agent-host/credential-contract';
+import {
+  joinCredentialCleanup,
+  type SecretsService,
+} from '@brainstrike/agent-host/credential-contract';
 import type { HostLegacyImport, HostLoginCredential } from '@brainstrike/agent-host/protocol';
 import type {
   OAuthProviderDescriptor,
@@ -11,6 +14,7 @@ import { findProviderDefinition, isSupportedProvider } from '@brainstrike/assist
 import { HOST_VERSION } from '@brainstrike/host-lease';
 import type { HostCredentials } from '../credentials.js';
 import { migrateLegacySecrets } from '../legacy-secret-migration.js';
+import { purgeMcpOAuthRuntimeState } from '../mcp/oauth-client-provider.js';
 import { createHostProviderAuth } from '../provider-auth.js';
 import { buildCodexUserAgent, createOpenAiCodexDescriptor } from './descriptors/openai-codex.js';
 import { ProviderAuthFlowError } from './errors.js';
@@ -42,7 +46,10 @@ export interface HostAuthorityOptions {
  */
 export interface HostAuthority extends HostAuthService {
   cancel(provider: string): Promise<ProviderAuthStatus>;
-  /** Factory reset: drop engine state (including a rotated in-memory pair), then every entry. */
+  /**
+   * Factory reset: drop engine state (including a rotated in-memory pair), then every
+   * entry, MCP OAuth records and their live providers included.
+   */
   clear(): Promise<boolean>;
   connect(
     provider: string,
@@ -146,7 +153,21 @@ export function createHostAuthority(options: HostAuthorityOptions): HostAuthorit
       for (const providerId of descriptors.keys()) {
         await engine.disconnect(providerId);
       }
-      return await secrets().clearAll();
+      let cleared = false;
+      await joinCredentialCleanup(
+        [
+          secrets()
+            .clearAll()
+            .then((value) => {
+              cleared = value;
+            }),
+        ],
+        'Credential reset completed with failures.',
+        // MCP OAuth records sit under their own accounts, outside the secrets namespace:
+        // live MCP OAuth providers disconnect, then every registered store clears.
+        () => [purgeMcpOAuthRuntimeState()]
+      );
+      return cleared;
     },
     connect: (provider, method, origin, openExternal) =>
       imported(async () => {

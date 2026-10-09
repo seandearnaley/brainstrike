@@ -52,11 +52,6 @@
       "import": "./dist/host-run-id.js",
       "require": "./dist/host-run-id.js"
     },
-    "./hook-trust-request": {
-      "types": "./dist/hook-trust-request.d.ts",
-      "import": "./dist/hook-trust-request.js",
-      "require": "./dist/hook-trust-request.js"
-    },
     "./local-llm": {
       "types": "./dist/local-llm.d.ts",
       "import": "./dist/local-llm.js",

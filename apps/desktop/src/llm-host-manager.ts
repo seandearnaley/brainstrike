@@ -1,7 +1,6 @@
 import type { LocalLlmGenerationResult } from '@brainstrike/agent/local-llm';
 import { createLogger } from '@brainstrike/logging';
 import type { BrowserWindow, WebContents } from 'electron';
-import { BrowserWindow as ElectronBrowserWindow } from 'electron';
 import {
   createStoppedLlmHostStatus,
   LLM_HOST_PROGRESS_EVENT,
@@ -25,7 +24,7 @@ import {
 } from './platform/runtime-host-state';
 import { RendererHostLifecycle } from './renderer-host-lifecycle';
 import { waitForWindowClosed } from './window-lifecycle-utils';
-import { getWindowRoleByWebContentsId } from './window-role';
+import { getTrackedWindowsByRole } from './window-role';
 
 const logger = createLogger('LlmHostManager');
 const LLM_HOST_GENERATE_TIMEOUT_MS = 5 * 60_000;
@@ -105,15 +104,9 @@ export interface LlmHostMainRequestOptions {
  * silent spinner while gigabytes download. Renderer-initiated requests
  * already receive progress over their own IPC reply channel.
  */
-function broadcastLoadingProgressToVisibleWindows(report: LlmHostProgressReport): void {
-  for (const window of ElectronBrowserWindow.getAllWindows()) {
-    if (window.isDestroyed()) {
-      continue;
-    }
-    // Hidden runtime hosts have an assigned role; visible UI windows do not.
-    if (getWindowRoleByWebContentsId(window.webContents.id)) {
-      continue;
-    }
+export function broadcastLoadingProgressToVisibleWindows(report: LlmHostProgressReport): void {
+  // Visible windows carry the 'visible-ui' role (createWindow), as hidden hosts carry theirs.
+  for (const window of getTrackedWindowsByRole('visible-ui')) {
     try {
       window.webContents.send(LLM_HOST_PROGRESS_EVENT, report);
     } catch (error) {

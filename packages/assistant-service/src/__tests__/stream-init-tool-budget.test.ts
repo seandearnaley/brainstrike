@@ -196,7 +196,7 @@ describe('webExtract artifact settlement budget', () => {
         eventToAssistant: vi.fn(),
         finalize: vi.fn(passthroughStream),
         makeBlockedStream: vi.fn(),
-        prepare: vi.fn(() => ({ manager: {}, runner: undefined })),
+        prepare: vi.fn(async () => ({ manager: {}, runner: undefined })),
         runUserPromptSubmitGate: vi.fn(async (_manager, messages) => ({
           kind: 'proceed' as const,
           messages,

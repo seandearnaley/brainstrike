@@ -49,7 +49,7 @@ describe('snapshot service lifecycle wiring', () => {
     expect(assignmentIndex).toBeGreaterThan(source.indexOf('createSnapshotService({'));
     expect(maintenanceIndex).toBeGreaterThan(assignmentIndex);
     expect(source).toMatch(
-      /startSnapshotStartupMaintenance\(\{\s*getDatabase,\s*logger,\s*mainProcessStartedAt,\s*snapshotService: constructedSnapshotService,\s*snapshotsBaseDir,\s*\}\)/
+      /startSnapshotStartupMaintenance\(\{\s*getDatabase,\s*logger,\s*mainProcessStartedAt,\s*readHostThreadIds,\s*snapshotService: constructedSnapshotService,\s*snapshotsBaseDir,\s*\}\)/
     );
     expect(source.indexOf('startSnapshotStartupMaintenance({', maintenanceIndex + 1)).toBe(-1);
   });

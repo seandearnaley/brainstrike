@@ -29,6 +29,8 @@ export * from './tool-call-telemetry.js';
 export * from './tool-execute-support.js';
 export * from './tool-projection-prune.js';
 export * from './tool-projection-supersession.js';
+export * from './web-extract-model-projection.js';
+export * from './web-extract-tool.js';
 export * from './web-search-citation-url.js';
 export * from './web-search-model-projection.js';
 export * from './web-search-tool.js';

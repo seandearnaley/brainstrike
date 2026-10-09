@@ -62,22 +62,4 @@ describe('security-sensitive store persistence during chunk evaluation', () => {
     expect(createBrowserJsonStorage).toHaveBeenCalledTimes(2);
     expect(persist?.hasHydrated()).toBe(true);
   });
-
-  it('keeps hook-trust persistence installed and retries a transient resolution failure', async () => {
-    const createBrowserJsonStorage = await installTransientStorageFailure();
-    const { useHookTrustStore } = await import('../stores/hook-trust-store');
-    const persist = (
-      useHookTrustStore as typeof useHookTrustStore & {
-        persist?: PersistApi;
-      }
-    ).persist;
-
-    expect(persist).toBeDefined();
-    expect(createBrowserJsonStorage).toHaveBeenCalledOnce();
-
-    await persist?.rehydrate();
-
-    expect(createBrowserJsonStorage).toHaveBeenCalledTimes(2);
-    expect(persist?.hasHydrated()).toBe(true);
-  });
 });

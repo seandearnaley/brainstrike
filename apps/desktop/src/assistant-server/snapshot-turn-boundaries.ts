@@ -126,6 +126,35 @@ export function resolveTurnAnchorMessageId(messages: readonly AgentMessage[]): s
   return null;
 }
 
+/**
+ * One root's boundary snapshot, shared by legacy turns and host runs. Never
+ * throws: a failure is logged and becomes a failed outcome, which the caller
+ * records as the failed-capture marker.
+ */
+export async function captureRootSnapshot(
+  service: SnapshotService,
+  kind: SnapshotKind,
+  threadId: string,
+  runId: string,
+  root: { readonly path: string; readonly rootId: string }
+): Promise<SnapshotCaptureOutcome> {
+  try {
+    const handle = await service.ensureShadowRepo({ path: root.path, rootId: root.rootId });
+    const { commitOid } = await service.snapshot(handle, { kind, runId, threadId });
+    return { commitOid, kind: 'captured', rootPath: handle.rootPath };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    logger.error('Workspace snapshot capture failed; recording a failed-capture marker', {
+      kind,
+      reason,
+      rootId: root.rootId,
+      runId,
+      threadId,
+    });
+    return { kind: 'failed', reason, rootPath: root.path };
+  }
+}
+
 export function createTurnBoundaryController(
   options: TurnBoundaryControllerOptions
 ): TurnBoundaryController {
@@ -179,22 +208,7 @@ export function createTurnBoundaryController(
   ): Promise<Map<string, SnapshotCaptureOutcome>> {
     const outcomes = new Map<string, SnapshotCaptureOutcome>();
     for (const root of roots) {
-      let outcome: SnapshotCaptureOutcome;
-      try {
-        const handle = await service.ensureShadowRepo({ path: root.path, rootId: root.rootId });
-        const { commitOid } = await service.snapshot(handle, { kind, runId, threadId });
-        outcome = { commitOid, kind: 'captured', rootPath: handle.rootPath };
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        logger.error('Workspace snapshot capture failed; recording a failed-capture marker', {
-          kind,
-          reason,
-          rootId: root.rootId,
-          runId,
-          threadId,
-        });
-        outcome = { kind: 'failed', reason, rootPath: root.path };
-      }
+      const outcome = await captureRootSnapshot(service, kind, threadId, runId, root);
       outcomes.set(root.rootId, outcome);
       await recordOutcome(kind, threadId, runId, root.rootId, outcome);
     }

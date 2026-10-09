@@ -310,6 +310,14 @@ export function hostRegeneratePosition(
   };
 }
 
+/** What a command's run keeps to start a follow-up with: its settings and its client. */
+export function hostRunInput(
+  configuration: HostRunInput['configuration'] | undefined,
+  origin: HostRunInput['origin'] | undefined
+): HostRunInput {
+  return { ...(configuration ? { configuration } : {}), ...(origin ? { origin } : {}) };
+}
+
 /** The run.started an admission commits, and its run's state on that branch. */
 export function admittedHostRun(
   runs: Iterable<HostRunState>,

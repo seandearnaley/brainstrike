@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { launchHost } from '@brainstrike/host-lease';
+import { trustCliProjectHooks } from './cli-hooks-trust.js';
 import { readCliMcpInput, settleCliMcpInput } from './cli-mcp-input.js';
 import { HostCliExitError, runHostCliSession } from './cli-session.js';
 import { attachAgentHost, type HostClient } from './client.js';
@@ -50,6 +51,7 @@ type CliStringOption =
   | 'resume-data'
   | 'root'
   | 'run'
+  | 'sha256'
   | 'skills'
   | 'workspace-instructions'
   | 'thread';
@@ -63,6 +65,21 @@ interface HostCliArguments {
       Record<CliBooleanOption, boolean> & { workspace: string[]; 'workspace-root': string[] }
   >;
   readonly workspaceInput?: CliWorkspaceRunInput;
+}
+
+/** The command the positionals name; `run "prompt"` and `hooks trust [dir]` carry an argument. */
+function cliCommand(positionals: readonly string[], help: boolean | undefined): string {
+  if (help) {
+    return 'help';
+  }
+  if (positionals[0] === 'run' && !['start', 'stop'].includes(positionals[1] ?? '')) {
+    return 'run';
+  }
+  // `hooks trust [dir]` names the root to trust, never a launch selection.
+  if (positionals[0] === 'hooks' && positionals[1] === 'trust' && positionals.length <= 3) {
+    return 'hooks trust';
+  }
+  return positionals.join(' ');
 }
 
 function parseHostCliArgs(args: string[]): HostCliArguments {
@@ -94,6 +111,7 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       'resume-data': { type: 'string' },
       root: { type: 'string' },
       run: { type: 'string' },
+      sha256: { type: 'string' },
       skills: { type: 'string' },
       thread: { type: 'string' },
       workspace: { multiple: true, type: 'string' },
@@ -102,8 +120,7 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
     },
     strict: true,
   });
-  const ordinaryRun = positionals[0] === 'run' && !['start', 'stop'].includes(positionals[1] ?? '');
-  const command = values.help ? 'help' : ordinaryRun ? 'run' : positionals.join(' ');
+  const command = cliCommand(positionals, values.help);
   if (
     ![
       'host start',
@@ -124,6 +141,7 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       'mcp input read',
       'mcp input settle',
       'auth login',
+      'hooks trust',
     ].includes(command)
   ) {
     throw new Error('Unknown host command');
@@ -286,9 +304,13 @@ log follow --thread <id> [--from-seq <n>]
 mcp input read --thread <id> --run <id> --interaction <id>
 mcp input settle --thread <id> --run <id> --interaction <id> --action accept|decline|cancel [--content <json>]
 auth login --provider <id> [--region <aws region> [--aws-profile <name>]]
+hooks trust [<root dir>] [--sha256 <hash>]
 
 auth login reads the API key or AWS bearer key from stdin, never from arguments.
 --aws-profile stores a named AWS profile chain and reads no secret.
+hooks trust shows a standalone root's .brainstrike/hooks.json (default: the current directory)
+and its SHA-256 for review; the host runs its project hooks only at that hash. --sha256
+confirms without a prompt. Desktop roots are approved in Settings > Hooks.
 
 Question answers use {"answer":"text"} or {"answer":["choice 1","choice 2"]}.
 Plan decisions use {"action":"approved"} or {"action":"rejected","feedback":"reason"}.
@@ -350,6 +372,15 @@ Run signals stop and join its execution; attach signals detach.
   try {
     assertCredentialAuthority(spawned, values);
     switch (command) {
+      case 'hooks trust':
+        print(
+          await trustCliProjectHooks(client, {
+            interactive,
+            root: positionals[2],
+            sha256: values.sha256,
+          })
+        );
+        break;
       case 'auth login': {
         print(await client.request('auth/login', required(login, 'provider')));
         break;

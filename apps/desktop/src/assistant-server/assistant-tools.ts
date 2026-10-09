@@ -6,6 +6,7 @@ import {
 import {
   DESKTOP_NATIVE_TOOL_IDS,
   isDesktopNativeToolId,
+  LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS,
   NATIVE_TOOL_ID,
 } from '@brainstrike/assistant-contract';
 import { readWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
@@ -52,11 +53,16 @@ export function buildDesktopAssistantTools(
       getActiveToolResultBudget()?.domainModelResultCharBudget ?? resolvedDomainCharBudget,
     resolvedDomainCharBudget,
     runtimeData,
-    // Main still executes web search for legacy threads, keyed from Main's view.
+    // Main still executes the web tools for legacy threads, keyed from Main's view.
+    webExtract: { resolveApiKey: resolveTavilyApiKeyFromKeychain, ...dependencies.webExtract },
     webSearch: { resolveApiKey: resolveTavilyApiKeyFromKeychain, ...dependencies.webSearch },
   };
   const tools: MastraTools = {};
   for (const toolId of DESKTOP_NATIVE_TOOL_IDS) {
+    // The catalog's localProvider: 'unregistered' tools have no local executor.
+    if (context.isLocalProvider && LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS.has(toolId)) {
+      continue;
+    }
     const tool = NATIVE_TOOL_EXECUTORS[toolId](context);
     if (tool) {
       tools[toolId] = tool;

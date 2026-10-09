@@ -13,17 +13,12 @@ import {
   providerCallWarningDetail,
   providerCallWarningLabel,
   providerCallWarningMetadata,
-  type RunAttemptNoticeInput,
   readProviderCallWarning,
 } from '@brainstrike/assistant-contract';
 import {
   type AssistantContextBreakdownState,
   parseAssistantContextBreakdown,
 } from '@brainstrike/assistant-contract/context-breakdown';
-import {
-  readShellOutputStreamPart,
-  SHELL_OUTPUT_DATA_NAME,
-} from '@brainstrike/assistant-contract/shell-output';
 import {
   createDeclinedToolCallResult,
   isCodeExecutionApprovalContext,
@@ -36,6 +31,8 @@ import {
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { parsePartialJsonObject } from 'assistant-stream/utils';
 import { committedApprovalOptions } from './committed-approval-options';
+import { committedStreamData, readRunAttempt } from './committed-event-readers';
+import { legacyObservationsNotice } from './committed-legacy-observations-notice';
 import { HOST_CONTEXT_COMPACTED_DATA_NAME } from './compaction-summary-message';
 import type { ThreadTokenUsage } from './context-usage-store';
 
@@ -63,9 +60,12 @@ export interface CommittedAssistantLogProjectionOptions {
   readonly threadId: string;
 }
 
+/** What a committed interaction asks of a person. */
+export type CommittedInteractionKind = 'approval' | 'question' | 'plan' | 'network';
+
 export interface CommittedAssistantPendingInteraction {
   readonly interactionId: string;
-  readonly kind?: 'approval' | 'question' | 'plan';
+  readonly kind?: CommittedInteractionKind;
   /** The tool a per-tool grant names: its catalog ID, else its recorded ID. */
   readonly permissionToolId: string;
   /** A permission approval's risk category, which its session grant names. */
@@ -120,38 +120,6 @@ type ProjectedRunEvent = Pick<
   AssistantRunEvent,
   'detail' | 'kind' | 'label' | 'metadata' | 'status'
 >;
-
-const ATTEMPT_REASONS = new Set<unknown>([
-  'context-overflow',
-  'empty-response',
-  'provider-error',
-  'stalled',
-]);
-const ATTEMPT_REFUSALS = new Set<unknown>(['budget-exhausted', 'tool-parts', 'committed-output']);
-
-/** A committed host `run.attempt` row, read strictly like every other committed event. */
-function readRunAttempt(event: Readonly<Record<string, unknown>>): RunAttemptNoticeInput {
-  const { attempt, maxAttempts, reason, recovered, refusal } = event;
-  if (
-    typeof attempt !== 'number' ||
-    typeof maxAttempts !== 'number' ||
-    !ATTEMPT_REASONS.has(reason) ||
-    typeof recovered !== 'boolean' ||
-    (refusal !== undefined && !ATTEMPT_REFUSALS.has(refusal))
-  ) {
-    throw new Error('Committed run attempt has an unsupported shape.');
-  }
-  return {
-    attempt,
-    detail: requiredString(event, 'detail'),
-    maxAttempts,
-    reason: reason as RunAttemptNoticeInput['reason'],
-    recovered,
-    ...(refusal === undefined
-      ? {}
-      : { refusal: refusal as NonNullable<RunAttemptNoticeInput['refusal']> }),
-  };
-}
 
 function record(value: unknown): Readonly<Record<string, unknown>> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -332,12 +300,20 @@ function committedToolCatalogId(event: Readonly<Record<string, unknown>>): strin
 
 /**
  * What the card reads beside the approval: a question or plan's kind, or a
- * code-execution approval's host facts (validated by the card before use).
+ * code-execution approval's host facts (validated by the card before use). A
+ * network consent carries both: its kind, and the facts when they are valid.
  */
 function interactionFacts(
-  kind: 'approval' | 'question' | 'plan',
+  kind: CommittedInteractionKind,
   executionContext: unknown
 ): NonNullable<ToolPart['providerMetadata']>[string] | undefined {
+  if (kind === 'network') {
+    const facts: Readonly<Record<string, unknown>> = {
+      interactionKind: kind,
+      ...(isCodeExecutionApprovalContext(executionContext) ? { executionContext } : {}),
+    };
+    return facts as NonNullable<ToolPart['providerMetadata']>[string];
+  }
   if (kind !== 'approval') {
     return { interactionKind: kind };
   }
@@ -351,11 +327,18 @@ function interactionFacts(
   return facts as NonNullable<ToolPart['providerMetadata']>[string];
 }
 
-/** A permission approval answers with its grant options; a question or plan with text. */
+/**
+ * A permission approval answers with its grant options; a question or plan with
+ * text. A network consent answers with text (`{ action }`), and with the
+ * approval's grant options only where it also stands in for an approval.
+ */
 function interactionAnswers(
-  kind: 'approval' | 'question' | 'plan',
+  kind: CommittedInteractionKind,
   risk: ToolRiskCategory | undefined
 ): Pick<NonNullable<ToolPart['approval']>, 'allowFreeform' | 'display' | 'options'> {
+  if (kind === 'network') {
+    return { allowFreeform: true, ...(risk ? { options: committedApprovalOptions(risk) } : {}) };
+  }
   if (kind !== 'approval') {
     return { allowFreeform: true, display: 'text' };
   }
@@ -368,6 +351,17 @@ function recordDenialReason(run: ProjectedRun, chunk: Readonly<Record<string, un
   if (chunk['approved'] === false && call && typeof chunk['reason'] === 'string') {
     run.denialReasons.set(requiredString(call, 'toolCallId'), chunk['reason']);
   }
+}
+
+/** Whether a committed response let its call run: approve, allow, or any answer. */
+function committedInteractionApproved(
+  kind: CommittedInteractionKind | undefined,
+  event: Readonly<Record<string, unknown>>
+): boolean {
+  if (kind === 'network') {
+    return record(event['resumeData'])?.['action'] === 'allow';
+  }
+  return kind !== 'approval' || event['decision'] === 'approve';
 }
 
 function incompleteReason(outcome: unknown): 'cancelled' | 'error' | 'other' {
@@ -740,6 +734,15 @@ export class CommittedAssistantLogProjection {
       this.data(run, row, event, 'brainstrike.host-event');
       return;
     }
+    if (event['reason'] === 'legacy-resource-observations') {
+      const notice = legacyObservationsNotice(
+        row,
+        requiredString(event, 'runId'),
+        this.message(run).createdAt.toISOString()
+      );
+      this.data(run, row, notice, ASSISTANT_RUN_EVENT_DATA_NAME);
+      return;
+    }
     if (event['reason'] !== 'branched-thread') {
       throw new Error('Committed withheld memory has an unsupported reason.');
     }
@@ -753,14 +756,9 @@ export class CommittedAssistantLogProjection {
       return;
     }
     const type = chunk['type'];
-    if ((type === 'data' || type === 'aui-data') && typeof chunk['name'] === 'string') {
-      this.data(run, row, chunk['data'], chunk['name']);
-      return;
-    }
-    // A command's live output, as its tool writer committed it (BST-1932, AT-07).
-    const shellOutput = readShellOutputStreamPart(chunk);
-    if (shellOutput) {
-      this.data(run, row, shellOutput, SHELL_OUTPUT_DATA_NAME);
+    const named = committedStreamData(chunk);
+    if (named) {
+      this.data(run, row, named.data, named.name);
       return;
     }
     if (type === 'tool-approval-response') {
@@ -817,7 +815,11 @@ export class CommittedAssistantLogProjection {
     this.data(run, row, chunk, 'brainstrike.host-stream');
   }
 
-  private finish(run: ProjectedRun, event: Readonly<Record<string, unknown>>): void {
+  private finish(
+    run: ProjectedRun,
+    row: CommittedAssistantLogRow,
+    event: Readonly<Record<string, unknown>>
+  ): void {
     run.terminal = true;
     for (const interaction of this.view.pendingInteractions.filter(
       (item) => item.runId === event['runId']
@@ -860,6 +862,15 @@ export class CommittedAssistantLogProjection {
               ...(typeof event['detail'] === 'string' ? { error: event['detail'] } : {}),
             },
     });
+    if (outcome === 'completed') {
+      // The legacy stream's terminal event, once on the run's final leg: its
+      // verdict and Changes review controls read the run from it.
+      this.runEvent(run, row, 'finished', {
+        kind: 'run.finished',
+        label: 'Assistant run completed',
+        status: 'completed',
+      });
+    }
     const active = [...this.runs].findLast(([, candidate]) => !candidate.terminal)?.[0];
     this.view = {
       ...this.view,
@@ -881,7 +892,7 @@ export class CommittedAssistantLogProjection {
     const id = this.tool(run, event, true);
     const interactionId = requiredString(event, 'interactionId');
     const kind = event['kind'];
-    if (kind !== 'approval' && kind !== 'question' && kind !== 'plan') {
+    if (kind !== 'approval' && kind !== 'question' && kind !== 'plan' && kind !== 'network') {
       throw new Error('Committed interaction has an unsupported kind.');
     }
     const risk = isToolRiskCategory(event['risk']) ? event['risk'] : undefined;
@@ -966,7 +977,7 @@ export class CommittedAssistantLogProjection {
         ...part,
         approval: {
           ...part.approval,
-          approved: interaction.kind !== 'approval' || event['decision'] === 'approve',
+          approved: committedInteractionApproved(interaction.kind, event),
           id: interaction.interactionId,
         },
       }));
@@ -982,7 +993,7 @@ export class CommittedAssistantLogProjection {
       this.updateTool(run, id, (part) => ({ ...part, isError: false, result: event['output'] }));
       run.authoritativeResults.add(id);
     } else if (event['type'] === 'run.finished') {
-      this.finish(run, event);
+      this.finish(run, row, event);
     } else {
       this.other(run, row);
     }

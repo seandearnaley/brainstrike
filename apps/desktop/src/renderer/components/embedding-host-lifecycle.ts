@@ -82,6 +82,8 @@ export function createEmbeddingHostCommandHandler(owner: {
   isDisposed(): boolean;
   stop(): Promise<void>;
   reset(nextRuntimeId: string): Promise<void>;
+  /** Settles after reporting the outcome itself; the worker is not touched. */
+  resolveDevice(): Promise<void>;
   report(
     runtimeId: string,
     state: 'stopped' | 'error',
@@ -101,6 +103,10 @@ export function createEmbeddingHostCommandHandler(owner: {
     }
     if (next.payload.action === 'reset' && next.payload.nextRuntimeId === owner.getRuntimeId()) {
       throw new Error('Embedding host reset requires a fresh nextRuntimeId.');
+    }
+    if (next.payload.action === 'resolve-device') {
+      void owner.resolveDevice();
+      return;
     }
     const pending =
       next.payload.action === 'stop' ? owner.stop() : owner.reset(next.payload.nextRuntimeId);

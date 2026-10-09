@@ -31,8 +31,8 @@
     "@fontsource-variable/geist-mono": "catalog:",
     "dompurify": "^3.4.13",
     "lucide-react": "catalog:",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "react-router-dom": "catalog:",
     "zod": "catalog:"
   },

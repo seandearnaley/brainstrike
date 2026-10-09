@@ -119,10 +119,6 @@
       "types": "./dist/stores/explorer-sort-state-store.d.ts",
       "import": "./dist/stores/explorer-sort-state-store.js"
     },
-    "./stores/hook-trust-store": {
-      "types": "./dist/stores/hook-trust-store.d.ts",
-      "import": "./dist/stores/hook-trust-store.js"
-    },
     "./stores/import-settings-store": {
       "types": "./dist/stores/import-settings-store.d.ts",
       "import": "./dist/stores/import-settings-store.js"
@@ -226,7 +222,7 @@
   ],
   "license": "ISC",
   "peerDependencies": {
-    "react": "^19.2.4",
+    "react": "^19.3.0",
     "zustand": "^5"
   },
   "private": true,

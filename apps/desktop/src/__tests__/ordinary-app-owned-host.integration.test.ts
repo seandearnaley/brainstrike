@@ -1,6 +1,5 @@
 // @vitest-environment node
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createSanitizedToolNameMap } from '@brainstrike/agent';
 import { startStatefulMcpHostServer } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
@@ -24,8 +23,12 @@ import {
   type ModelProviderScript,
   startModelProviderShim,
 } from '../../e2e/utils/model-provider-shim';
+import { createDisposableAppProfile } from './helpers/disposable-app-profile';
 
 const desktop = resolve(import.meta.dirname, '../..');
+// A send's admission (MCP discovery, memory resolution) and each model step
+// take seconds, not expect.poll's one-second default.
+const RUN_PROGRESS_POLL = { timeout: 30_000 } as const;
 // The meter leads with the thread's committed total; context occupancy moves to the ring.
 const THREAD_USAGE_LABEL = /^Thread usage: [1-9][\d.]*[KM]? tokens; context 0% of input budget$/u;
 // Public Models API response recorded without credentials or inference.
@@ -57,11 +60,11 @@ test.for(['normal', 'normal-om', 'utility-loss', 'human-interactions'] as const)
     if (fault === 'utility-loss' && process.platform === 'win32') {
       context.skip();
     }
-    const disposable = await mkdtemp(join(tmpdir(), 'brainstrike-m3-app-owned-'));
+    const { evidence, root: disposable } = await createDisposableAppProfile(
+      'brainstrike-m3-app-owned-'
+    );
     const profile = join(disposable, 'profiles/m3-owned');
     await mkdir(profile, { recursive: true });
-    const evidence = `${disposable}-evidence`;
-    await mkdir(evidence, { recursive: true });
     const workspace = join(disposable, 'workspace');
     await mkdir(workspace);
     await writeFile(join(workspace, 'AGENTS.md'), 'M3 workspace context sentinel 7246.');
@@ -400,21 +403,25 @@ setInterval(() => {}, 1000);
         );
       await panel.getByRole('textbox', { name: 'Message input' }).press('Enter');
       await expect
-        .poll(async () =>
-          (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.some(
-            ({ event }) => event.type === 'interaction.requested'
-          )
+        .poll(
+          async () =>
+            (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.some(
+              ({ event }) => event.type === 'interaction.requested'
+            ),
+          RUN_PROGRESS_POLL
         )
         .toBe(true);
       await expect(readFile(join(workspace, 'permitted.txt'), 'utf8')).rejects.toThrow();
       await page
-        .getByRole('button', { exact: true, name: 'Approve brainstrike_writeWorkspaceFile' })
+        .getByRole('button', { exact: true, name: 'Approve brainstrike.writeWorkspaceFile' })
         .click();
       await expect
-        .poll(async () =>
-          (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.some(
-            ({ event }) => event.type === 'run.finished' && event.outcome === 'completed'
-          )
+        .poll(
+          async () =>
+            (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.some(
+              ({ event }) => event.type === 'run.finished' && event.outcome === 'completed'
+            ),
+          RUN_PROGRESS_POLL
         )
         .toBe(true);
       expect(await readFile(join(workspace, 'permitted.txt'), 'utf8')).toBe(
@@ -499,10 +506,12 @@ setInterval(() => {}, 1000);
         await input.fill('Ask which environments to inspect, then submit the inspection plan.');
         await input.press('Enter');
         await expect
-          .poll(async () =>
-            (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.some(
-              ({ event }) => event.type === 'interaction.requested' && event.kind === 'question'
-            )
+          .poll(
+            async () =>
+              (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.some(
+                ({ event }) => event.type === 'interaction.requested' && event.kind === 'question'
+              ),
+            RUN_PROGRESS_POLL
           )
           .toBe(true);
         await page.reload();
@@ -521,7 +530,8 @@ setInterval(() => {}, 1000);
             async () =>
               (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.filter(
                 ({ event }) => event.type === 'run.finished' && event.outcome === 'completed'
-              ).length
+              ).length,
+            RUN_PROGRESS_POLL
           )
           .toBe(2);
         committed = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
@@ -572,18 +582,20 @@ setInterval(() => {}, 1000);
           async () =>
             (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.filter(
               ({ event }) => event.type === 'interaction.requested'
-            ).length
+            ).length,
+          RUN_PROGRESS_POLL
         )
         .toBe(fault === 'human-interactions' ? 4 : 2);
       await page
-        .getByRole('button', { exact: true, name: 'Decline brainstrike_writeWorkspaceFile' })
+        .getByRole('button', { exact: true, name: 'Decline brainstrike.writeWorkspaceFile' })
         .click();
       await expect
         .poll(
           async () =>
             (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.filter(
               ({ event }) => event.type === 'run.finished'
-            ).length
+            ).length,
+          RUN_PROGRESS_POLL
         )
         .toBe(fault === 'human-interactions' ? 3 : 2);
       await expect(stat(join(workspace, 'denied.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
@@ -608,11 +620,12 @@ setInterval(() => {}, 1000);
           async () =>
             (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.filter(
               ({ event }) => event.type === 'interaction.requested'
-            ).length
+            ).length,
+          RUN_PROGRESS_POLL
         )
         .toBe(fault === 'human-interactions' ? 5 : 3);
       await page
-        .getByRole('button', { exact: true, name: 'Approve brainstrike_executeCommand' })
+        .getByRole('button', { exact: true, name: 'Approve brainstrike.executeCommand' })
         .click();
       let commandOwner: { pid: number; ppid: number; electron: null } | undefined;
       await expect
@@ -632,30 +645,34 @@ setInterval(() => {}, 1000);
             }
             throw cause;
           }
-        })
+        }, RUN_PROGRESS_POLL)
         .toBe(true);
       if (!commandOwner) {
         throw new Error('The actual native command did not record its process identity');
       }
       await expect
-        .poll(async () =>
-          (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.some(
-            ({ event }) =>
-              event.type === 'stream.chunk' &&
-              z
-                .object({
-                  chunk: z.literal('owned command started\n'),
-                  stream: z.literal('stdout'),
-                  toolCallId: z.string().min(1),
-                  type: z.literal('brainstrike.shell-output.chunk'),
-                })
-                .safeParse(event.chunk).success
-          )
+        .poll(
+          async () =>
+            (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.some(
+              ({ event }) =>
+                event.type === 'stream.chunk' &&
+                z
+                  .object({
+                    chunk: z.literal('owned command started\n'),
+                    stream: z.literal('stdout'),
+                    toolCallId: z.string().min(1),
+                    type: z.literal('brainstrike.shell-output.chunk'),
+                  })
+                  .safeParse(event.chunk).success
+            ),
+          RUN_PROGRESS_POLL
         )
         .toBe(true);
       checkpoint('ordinary-command-live-output-committed');
+      // Neither long-lived owner is the command's to stop: the app, nor the
+      // host that spawns the command directly and outlives the stop.
       const commandPids = [commandOwner.pid, commandOwner.ppid].filter(
-        (pid) => pid !== application?.process().pid
+        (pid) => pid !== application?.process().pid && pid !== record.pid
       );
       const commandIdentities = commandPids.map((pid) => {
         const start = processStartTime(pid);
@@ -921,9 +938,20 @@ setInterval(() => {}, 1000);
       process.stderr.write(`App-owned M3 evidence: ${evidence}\n`);
       if (remaining.length > 0) {
         errors.push(new Error('Owned app or Root process remains live'));
-      }
-      if (!failure && errors.length === 0) {
-        await rm(disposable, { recursive: true });
+        // The failure is recorded; a proven-owned survivor (pid and start time
+        // still match) must not outlive the test. A SIGTERM-immune command would.
+        for (const { pid, start } of remaining) {
+          try {
+            if (processStartTime(pid) === start) {
+              process.kill(pid, 'SIGKILL');
+            }
+          } catch (cause) {
+            // ESRCH: it exited between the identity check and the signal.
+            if (!(cause instanceof Error && 'code' in cause && cause.code === 'ESRCH')) {
+              errors.push(cause);
+            }
+          }
+        }
       }
     }
     if (errors.length > 0) {

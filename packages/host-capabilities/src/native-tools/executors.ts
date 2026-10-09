@@ -20,6 +20,7 @@ import {
   type RuntimeData,
   readToolExecutionThreadId,
   type StringReplaceWorkspaceFileInput,
+  type WebExtractInput,
   type WebSearchInput,
   type WriteWorkspaceFileInput,
 } from '@brainstrike/agent';
@@ -50,6 +51,8 @@ import {
   type ToolExecuteContext,
   type ToolExecuteInput,
 } from './tool-execute-support.js';
+import { projectWebExtractModelOutput } from './web-extract-model-projection.js';
+import { runWebExtract, type WebExtractToolDependencies } from './web-extract-tool.js';
 import { projectWebSearchModelOutput } from './web-search-model-projection.js';
 import { runWebSearch, type WebSearchToolDependencies } from './web-search-tool.js';
 import { readStateScope } from './workspace-file-staleness.js';
@@ -85,6 +88,8 @@ export interface NativeToolBuildContext {
   readonly resolveActiveDomainCharBudget: () => number;
   readonly resolvedDomainCharBudget: number;
   readonly runtimeData: RuntimeData | undefined;
+  /** The process's Tavily key owner for web extract; absent omits it for the request. */
+  readonly webExtract?: WebExtractToolDependencies | undefined;
   /** The process's Tavily key owner; absent omits web search for the request. */
   readonly webSearch?: WebSearchToolDependencies | undefined;
 }
@@ -102,6 +107,7 @@ export const SHARED_NATIVE_TOOL_IDS = [
   NATIVE_TOOL_ID.renameWorkspaceFile,
   NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
   NATIVE_TOOL_ID.submitPlan,
+  NATIVE_TOOL_ID.webExtract,
   NATIVE_TOOL_ID.webSearch,
   NATIVE_TOOL_ID.writeWorkspaceFile,
 ] as const;
@@ -302,67 +308,84 @@ export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
     id: NATIVE_TOOL_ID.renameWorkspaceFile,
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.renameWorkspaceFile],
   }),
-  // Omitted for the built-in local provider (same WebGPU-prefill reasoning as
-  // the task-list tool and the plan-mode gate).
-  [NATIVE_TOOL_ID.manageCanvas]: ({ isLocalProvider, ports }) =>
-    isLocalProvider
-      ? undefined
-      : {
-          description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.manageCanvas],
-          execute: async (input: ToolExecuteInput<ManageCanvasInput>) => {
-            // Envelope-validate, then narrow to the clean action branch —
-            // tolerated cross-action extras are stripped here so the
-            // executor/store receive exactly ManageCanvasInput.
-            const resolvedInput = normalizeManageCanvasInput(
-              parseToolExecuteInput(NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCanvas], input)
-            );
-            try {
-              return await runManageCanvas(resolvedInput, ports.canvas);
-            } catch (error) {
-              logToolFailure('manageCanvas failed', error, resolvedInput);
-              throw error;
-            }
-          },
-          id: NATIVE_TOOL_ID.manageCanvas,
-          inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCanvas],
-        },
+  // `localProvider: 'unregistered'`: no fold builds it for the built-in local
+  // provider (same WebGPU-prefill reasoning as the task-list tool).
+  [NATIVE_TOOL_ID.manageCanvas]: ({ ports }) => ({
+    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.manageCanvas],
+    execute: async (input: ToolExecuteInput<ManageCanvasInput>) => {
+      // Envelope-validate, then narrow to the clean action branch —
+      // tolerated cross-action extras are stripped here so the
+      // executor/store receive exactly ManageCanvasInput.
+      const resolvedInput = normalizeManageCanvasInput(
+        parseToolExecuteInput(NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCanvas], input)
+      );
+      try {
+        return await runManageCanvas(resolvedInput, ports.canvas);
+      } catch (error) {
+        logToolFailure('manageCanvas failed', error, resolvedInput);
+        throw error;
+      }
+    },
+    id: NATIVE_TOOL_ID.manageCanvas,
+    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageCanvas],
+  }),
   // The two SUSPENDING native tools are registered as the factory-returned
   // Mastra Tool objects DIRECTLY (not re-wrapped in the registry's
   // { description, execute, id, inputSchema } literal shape): re-wrapping
   // would drop suspendSchema/resumeSchema and break both suspension and the
-  // hasSuspendSchema fail-safe/plan-mode keep-rule. Excluded for the
-  // built-in local provider (same WebGPU-prefill reasoning as the task-list
-  // tool and the plan-mode gate).
-  [NATIVE_TOOL_ID.askUser]: ({ isLocalProvider }) =>
-    isLocalProvider ? undefined : createAskUserTool(),
-  [NATIVE_TOOL_ID.submitPlan]: ({ isLocalProvider }) =>
-    isLocalProvider ? undefined : createSubmitPlanTool(),
-  // The built-in local model never gets the task-list tool: its persisted plan
+  // hasSuspendSchema fail-safe/plan-mode keep-rule. Both are
+  // `localProvider: 'unregistered'`: the built-in local provider has no
+  // suspend/resume, so no fold builds them for it.
+  [NATIVE_TOOL_ID.askUser]: () => createAskUserTool(),
+  [NATIVE_TOOL_ID.submitPlan]: () => createSubmitPlanTool(),
+  // `localProvider: 'unregistered'` — the built-in local model never gets the
+  // task-list tool: its persisted plan
   // is never re-injected into local instructions either (see
   // readThreadTaskListForTurn in assistant-server/agent-stream-init.ts and the provider gate on
   // buildCurrentTaskListNote in agent-runtime.ts), and the tiny on-device
   // model's WebGPU prefill budget cannot afford advertising a tool whose state
   // it will never see reflected back.
-  [NATIVE_TOOL_ID.manageTaskList]: ({ isLocalProvider, ports }) =>
-    isLocalProvider
-      ? undefined
-      : {
-          description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.manageTaskList],
-          execute: async (input: ToolExecuteInput<ManageTaskListInput>) => {
+  [NATIVE_TOOL_ID.manageTaskList]: ({ ports }) => ({
+    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.manageTaskList],
+    execute: async (input: ToolExecuteInput<ManageTaskListInput>) => {
+      const resolvedInput = parseToolExecuteInput(
+        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageTaskList],
+        input
+      );
+      try {
+        return await runManageTaskList(resolvedInput, ports.taskList);
+      } catch (error) {
+        logToolFailure('manageTaskList failed', error, resolvedInput);
+        throw error;
+      }
+    },
+    id: NATIVE_TOOL_ID.manageTaskList,
+    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageTaskList],
+  }),
+  // Tavily /extract; the key resolves in the executing process and never
+  // reaches the model, and refuseExtractUrl keeps internal URLs from leaving it.
+  [NATIVE_TOOL_ID.webExtract]: ({ resolveActiveDomainCharBudget, webExtract }) =>
+    webExtract
+      ? {
+          description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.webExtract],
+          execute: async (input: ToolExecuteInput<WebExtractInput>) => {
             const resolvedInput = parseToolExecuteInput(
-              NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageTaskList],
+              NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webExtract],
               input
             );
             try {
-              return await runManageTaskList(resolvedInput, ports.taskList);
+              return await runWebExtract(resolvedInput, webExtract);
             } catch (error) {
-              logToolFailure('manageTaskList failed', error, resolvedInput);
+              logToolFailure('webExtract failed', error, resolvedInput);
               throw error;
             }
           },
-          id: NATIVE_TOOL_ID.manageTaskList,
-          inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageTaskList],
-        },
+          id: NATIVE_TOOL_ID.webExtract,
+          inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webExtract],
+          toModelOutput: (output: unknown) =>
+            projectWebExtractModelOutput(output, resolveActiveDomainCharBudget()),
+        }
+      : undefined,
   // Tavily-backed; the key resolves in the executing process and never
   // reaches the model. A provider-native search replaces this entry only at
   // run admission, where the permission decision is known (run-admission.ts).
