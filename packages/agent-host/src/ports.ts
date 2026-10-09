@@ -39,6 +39,7 @@ import type {
   HostEvent,
   HostLegacyImport,
   HostLoginCredential,
+  HostObservationalMemoryState,
   HostRunSnapshot,
 } from './protocol.js';
 
@@ -239,6 +240,11 @@ export interface HostRunAdmission {
   readonly nativeWebSearch?: Tool;
   openRun?(context: HostRunContext): Promise<HostRunOwner>;
   readonly provider?: HostProviderPort;
+  /**
+   * Observational memory as this admission configures it, with the thread's
+   * committed record when it is on. Absent means off.
+   */
+  readObservation?(threadId: string): Promise<HostObservationalMemoryState>;
   readonly snapshot: HostRunSnapshot;
   readonly tools: Readonly<Record<string, HostTool>>;
   /** Configured MCP servers this run proceeds without; committed with `run.started`. */
