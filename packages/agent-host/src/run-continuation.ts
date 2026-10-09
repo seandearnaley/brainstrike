@@ -146,6 +146,31 @@ export function approvedHostPlanRunParams(
   };
 }
 
+/**
+ * The thread's next run, started by the host: an approved plan carried out,
+ * or a child's human input (BST-1932). A next run that cannot start is
+ * committed as failed, with its cause, so it never ends silently.
+ */
+export async function startHostNextRun(
+  runs: Iterable<Run>,
+  params: HostParams<'run/start'>,
+  start: () => Promise<unknown>,
+  commitFailed: (runId: string, events: readonly HostEvent[]) => Promise<void>,
+  refused?: Error
+): Promise<boolean> {
+  try {
+    if (refused) {
+      throw refused;
+    }
+    await start();
+    return true;
+  } catch (cause) {
+    const runId = randomUUID();
+    await commitFailed(runId, failedHostStartEvents(runs, params, runId, cause));
+    return false;
+  }
+}
+
 /** A next run that could not start, committed as started then failed with its cause. */
 export function failedHostStartEvents(
   runs: Iterable<Run>,
