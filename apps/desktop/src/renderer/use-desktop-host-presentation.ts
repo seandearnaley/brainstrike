@@ -274,17 +274,23 @@ export function useDesktopHostPresentation(
       if (disabledReason) {
         throw new Error(disabledReason);
       }
-      return readDesktopHostConfiguration(threadId, selectionFolderId, {
-        agentLoop: metadata.agentLoopSettings,
-        model,
-        modelSettings: metadata.modelSettings,
-        provider: selectedProvider,
-        providerOptions,
-      });
+      return readDesktopHostConfiguration(
+        threadId,
+        selectionFolderId,
+        {
+          agentLoop: metadata.agentLoopSettings,
+          model,
+          modelSettings: metadata.modelSettings,
+          provider: selectedProvider,
+          providerOptions,
+        },
+        metadata.lookup
+      );
     },
     [
       disabledReason,
       metadata.agentLoopSettings,
+      metadata.lookup,
       metadata.modelSettings,
       model,
       providerOptions,
