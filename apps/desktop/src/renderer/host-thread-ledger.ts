@@ -3,7 +3,12 @@ import type {
   AssistantThreadHostLedger,
   AssistantThreadHostLedgerSnapshot,
 } from '@brainstrike/app-shell/assistant-thread-host-context';
-import type { RunLedgerRow } from '@brainstrike/assistant-data';
+import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-usage';
+import type {
+  RunLedgerRow,
+  ThreadCumulativeUsage,
+  ThreadModelUsageSubtotal,
+} from '@brainstrike/assistant-data';
 import type { HostUsageRecord } from '@brainstrike/assistant-data/cost-tracking';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
@@ -39,6 +44,11 @@ function tokensOf(usage: unknown): Tokens {
   };
 }
 
+interface CatalogModel {
+  readonly model: string;
+  readonly provider: string;
+}
+
 /** A host run's `provider::model` catalog id, as desktop and the CLI admit it. */
 function catalogModel(modelId: string): { model: string; provider: string } | undefined {
   const separator = modelId.indexOf('::');
@@ -63,11 +73,24 @@ interface RunFold {
   toolCallCount: number;
 }
 
+/** The host records no provider-billed cost: every token is an estimate. */
+type CostedSubtotal = Required<Omit<ThreadModelUsageSubtotal, 'billedCostUsd'>>;
+type UsageSubtotal = { -readonly [Key in keyof CostedSubtotal]: CostedSubtotal[Key] };
+
+/** The observer's calls are one source each; the observer names its own model. */
+const MEMORY_USAGE_KIND = {
+  observation: 'om-observation',
+  reflection: 'om-reflection',
+} as const satisfies Record<string, AssistantRunUsageKind>;
+
 /** One thread's committed log, folded incrementally from its first row. */
 class ThreadLedgerFold {
   seq = 0;
   readonly runs = new Map<string, RunFold>();
   readonly usage: HostUsageRecord[] = [];
+  /** Per (provider, model, source) subtotals: the meter's thread total. */
+  readonly bySource = new Map<string, UsageSubtotal>();
+  private usageSnapshot: ThreadCumulativeUsage | undefined;
 
   apply(row: HostLogRow): void {
     this.seq = row.seq;
@@ -81,14 +104,18 @@ class ThreadLedgerFold {
       return;
     }
     if (event.type === 'model.step') {
-      this.count(run, row, run, tokensOf(event.usage));
+      this.count(run, row, run, tokensOf(event.usage), 'chat');
     } else if (event.type === 'memory.usage') {
       // Memory's own model calls cost under their own model, within the run.
-      this.count(run, row, catalogModel(event.modelId), tokensOf(event.usage));
+      const model = catalogModel(event.modelId);
+      if (!model) {
+        warnUncosted(event.modelId);
+      }
+      this.count(run, row, model, tokensOf(event.usage), MEMORY_USAGE_KIND[event.kind]);
     } else if (event.type === 'context.compacted' && event.usage !== undefined) {
       // A compaction summarizer's side call, when one ran, costs like Memory's.
       const model = event.modelId === undefined ? undefined : catalogModel(event.modelId);
-      this.count(run, row, model, tokensOf(event.usage));
+      this.count(run, row, model, tokensOf(event.usage), 'compaction-summary');
     } else if (event.type === 'stream.chunk') {
       const chunk = z.object({ type: z.string() }).safeParse(event.chunk);
       if (chunk.success && chunk.data.type === 'tool-call') {
@@ -129,17 +156,78 @@ class ThreadLedgerFold {
   private count(
     run: RunFold,
     row: HostLogRow,
-    model: { readonly model: string; readonly provider: string } | undefined,
-    tokens: Tokens
+    model: CatalogModel | undefined,
+    tokens: Tokens,
+    kind: AssistantRunUsageKind
   ): void {
     run.inputTokens += tokens.inputTokens;
     run.outputTokens += tokens.outputTokens;
     run.cacheReadTokens += tokens.cacheReadTokens;
     run.cacheWriteTokens += tokens.cacheWriteTokens;
-    if (model && row.ts !== undefined) {
+    if (!model) {
+      return;
+    }
+    if (row.ts !== undefined) {
       this.usage.push({ at: row.ts, model: model.model, provider: model.provider, ...tokens });
     }
+    const key = JSON.stringify([model.provider, model.model, kind]);
+    const subtotal = this.bySource.get(key) ?? emptySubtotal(model, kind);
+    subtotal.inputTokens += tokens.inputTokens;
+    subtotal.outputTokens += tokens.outputTokens;
+    subtotal.cacheReadTokens += tokens.cacheReadTokens;
+    subtotal.cacheCreationTokens += tokens.cacheWriteTokens;
+    subtotal.estimatedInputTokens += tokens.inputTokens;
+    subtotal.estimatedOutputTokens += tokens.outputTokens;
+    subtotal.estimatedCacheReadTokens += tokens.cacheReadTokens;
+    subtotal.estimatedCacheCreationTokens += tokens.cacheWriteTokens;
+    this.bySource.set(key, subtotal);
+    this.usageSnapshot = undefined;
   }
+
+  /**
+   * The thread's costed calls, as one value per change: only a costed call
+   * replaces it, so a streamed row never re-renders its readers.
+   */
+  threadUsage(): ThreadCumulativeUsage {
+    if (!this.usageSnapshot) {
+      const perModel = [...this.bySource.values()].map((subtotal) => ({ ...subtotal }));
+      this.usageSnapshot = {
+        perModel,
+        totalInputTokens: perModel.reduce((total, entry) => total + entry.inputTokens, 0),
+        totalOutputTokens: perModel.reduce((total, entry) => total + entry.outputTokens, 0),
+      };
+    }
+    return this.usageSnapshot;
+  }
+}
+
+function emptySubtotal(model: CatalogModel, runKind: AssistantRunUsageKind): UsageSubtotal {
+  return {
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
+    estimatedCacheCreationTokens: 0,
+    estimatedCacheReadTokens: 0,
+    estimatedInputTokens: 0,
+    estimatedOutputTokens: 0,
+    inputTokens: 0,
+    model: model.model,
+    outputTokens: 0,
+    provider: model.provider,
+    runKind,
+  };
+}
+
+const uncostedModelIds = new Set<string>();
+/**
+ * Core commits the observer's SDK model id, which names no provider: its calls
+ * cannot be priced or attributed, so cost views leave them out (once per id).
+ */
+function warnUncosted(modelId: string): void {
+  if (uncostedModelIds.has(modelId)) {
+    return;
+  }
+  uncostedModelIds.add(modelId);
+  logger.warn('Observer usage without a catalog model is not costed', { modelId });
 }
 
 function ledgerRow(run: RunFold): RunLedgerRow {
@@ -201,6 +289,10 @@ export class HostThreadLedger implements AssistantThreadHostLedger {
       this.publish();
     }
   }
+
+  /** One thread's costed calls for the meter; undefined until its log is read. */
+  readonly getThreadUsage = (threadId: string): ThreadCumulativeUsage | undefined =>
+    this.threads.get(threadId)?.threadUsage();
 
   /** Follow a mounted view's committed session; returns its release. */
   observe(threadId: string, source: CommittedHostRunSource): () => void {

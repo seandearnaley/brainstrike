@@ -32,6 +32,7 @@ import {
   type ProviderReadErrors,
   useDesktopHostPresentation,
 } from './use-desktop-host-presentation';
+import { useHostThreadUsage } from './use-host-thread-usage';
 
 /** The existing checkpoint undo controls, fed from the thread's committed edits. */
 function CommittedCheckpoints({
@@ -105,6 +106,8 @@ function HostThread({
     () => (conversation ? ledger.observe(threadId, conversation.source) : undefined),
     [conversation, ledger, threadId]
   );
+  // The meter's thread total and cost: the same committed provider calls.
+  const cumulativeUsage = useHostThreadUsage(ledger, threadId);
   // The composer's last-24h budget burn-down and send gate, host usage included.
   const budgetGuardrail = useBudgetGuardrailBinding();
   // Steer (BST-588): the queue holds the message at its front while Core ends
@@ -123,6 +126,7 @@ function HostThread({
             <CommittedAssistantConversation
               {...presentation}
               commands={conversation.commands}
+              {...(cumulativeUsage ? { cumulativeUsage } : {})}
               label="Assistant"
               onRunningChange={onRunningChange}
               onSteerActiveRun={steer}

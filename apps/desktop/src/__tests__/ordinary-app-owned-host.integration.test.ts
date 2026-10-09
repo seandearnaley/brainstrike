@@ -25,6 +25,8 @@ import {
 } from '../../e2e/utils/model-provider-shim';
 
 const desktop = resolve(import.meta.dirname, '../..');
+// The meter leads with the thread's committed total; context occupancy moves to the ring.
+const THREAD_USAGE_LABEL = /^Thread usage: [1-9][\d.]*[KM]? tokens; context 0% of input budget$/u;
 // Public Models API response recorded without credentials or inference.
 const recordedModelMetadata = parseOpenRouterModelMetadata(
   JSON.parse(
@@ -452,7 +454,7 @@ setInterval(() => {}, 1000);
       }
       await expect
         .poll(async () => panel.getByTestId('context-usage-trigger').getAttribute('aria-label'))
-        .toBe('Context usage: 0% of input budget');
+        .toMatch(THREAD_USAGE_LABEL);
       expect(await panel.getByTestId('context-usage-trigger').getAttribute('title')).toContain(
         'context 7 /'
       );
@@ -814,7 +816,7 @@ setInterval(() => {}, 1000);
             .getByTestId('context-usage-trigger')
             .getAttribute('aria-label')
         )
-        .toBe('Context usage: 0% of input budget');
+        .toMatch(THREAD_USAGE_LABEL);
       await writeFile(
         join(evidence, 'verdict.json'),
         JSON.stringify(
