@@ -3,7 +3,10 @@ import {
   intersectChildPermissionCeilings,
   type PermissionToolGateSnapshot,
 } from '@brainstrike/assistant-contract';
-import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import {
+  type AssistantPersonaDefinition,
+  personaMode,
+} from '@brainstrike/assistant-contract/personas';
 import { createLogger } from '@brainstrike/logging';
 import type { LanguageModel } from 'ai';
 import {
@@ -623,6 +626,7 @@ export class HostChildRuns {
       parentRunId: run.id,
       parentThreadId: run.threadId,
       persona: persona.id,
+      profile: { label: persona.label, mode: personaMode(persona) },
       toolCallId: action.toolCallId,
       turnId,
     };
