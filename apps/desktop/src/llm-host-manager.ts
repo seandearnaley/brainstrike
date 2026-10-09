@@ -105,7 +105,7 @@ export interface LlmHostMainRequestOptions {
  * silent spinner while gigabytes download. Renderer-initiated requests
  * already receive progress over their own IPC reply channel.
  */
-function broadcastLoadingProgressToVisibleWindows(report: LlmHostProgressReport): void {
+export function broadcastLoadingProgressToVisibleWindows(report: LlmHostProgressReport): void {
   for (const window of ElectronBrowserWindow.getAllWindows()) {
     if (window.isDestroyed()) {
       continue;
