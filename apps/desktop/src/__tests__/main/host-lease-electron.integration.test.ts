@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
-import { attachAgentHost, readHostRow } from '@brainstrike/agent-host';
+import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost, readHostRow } from '@brainstrike/agent-host';
 import { makeThrowingDecoder, runWithTimeout } from '@brainstrike/effect-kit';
 import {
   attachHost,
@@ -223,7 +223,8 @@ describe('real Electron host lease acquisition', () => {
     const app = startApp(root, undefined, agentPlatform);
     const record = await app.attached;
     expect(app.ownsHost()).toBe(true);
-    expect(record.protocolVersion).toBe(3);
+    // The app-owned host advertises the agent-host protocol its clients speak.
+    expect(record.protocolVersion).toBe(AGENT_HOST_PROTOCOL_VERSION);
     const client = await attachAgentHost(record);
     attachments.add(client);
     const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
