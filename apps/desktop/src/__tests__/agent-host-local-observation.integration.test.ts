@@ -118,7 +118,8 @@ afterEach(() => {
 /** Real Main platform and Node host over a private channel; only inference is faked. */
 async function borrowedHost(
   admit: (threadId: string) => DesktopPlatformSelection,
-  local: Pick<DesktopPlatformCapabilities, 'localEmbedding' | 'localLlm'>
+  local: Pick<DesktopPlatformCapabilities, 'localEmbedding' | 'localLlm'>,
+  readiness?: NonNullable<DesktopPlatformCapabilities['readMemoryReadiness']>
 ) {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-local-inference-'));
   const channel = new MessageChannel();
@@ -128,6 +129,7 @@ async function borrowedHost(
     ...local,
     mcp: createDesktopMcpPlatformCapabilities(new RemoteMcpRuntime()),
     readConfiguration: async (request) => admit(request.threadId),
+    ...(readiness ? { readMemoryReadiness: readiness } : {}),
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
   });
   let host: AgentHost | undefined;
@@ -145,7 +147,11 @@ async function borrowedHost(
       installParentPlatformPort({ data: { event: 'platform-capabilities' }, ports: [nodePort] })
     ).toBe(true);
     const options = { lifetime: 'persistent' as const, root };
-    host = await startAgentHost(options, (context) => createHostPlatform(options, context));
+    // A disposable, empty credential file: no keychain or real credential is read.
+    const credentialStore = { kind: 'file' as const, path: join(root, 'credentials.json') };
+    host = await startAgentHost(options, (context) =>
+      createHostPlatform(options, context, { credentialStore })
+    );
     client = await attachAgentHost(host.record);
   } catch (cause) {
     await close();
@@ -198,25 +204,43 @@ test('a local observational-memory observer runs through Main’s borrowed local
   }));
   const warmup = vi.fn<LocalLlmHostClient['warmup']>(async () => undefined);
   const admitted: string[] = [];
+  const observed = (threadId: string): DesktopPlatformSelection =>
+    selection(threadId, {
+      settings: {
+        ...settings,
+        observationalMemory: {
+          ...settings.observationalMemory,
+          enabled: true,
+          // The committed prompt alone crosses this threshold (buffering needs >= 1 token).
+          messageTokens: 5,
+          modelTarget: `local/${observerModel}`,
+        },
+      },
+    });
+  const readiness = vi.fn<NonNullable<DesktopPlatformCapabilities['readMemoryReadiness']>>(
+    async (request) => {
+      const { memory, resourceId } = observed(request.threadId);
+      return { memory, ready: true, resourceId };
+    }
+  );
   const host = await borrowedHost(
     (threadId) => {
       admitted.push(threadId);
-      return selection(threadId, {
-        settings: {
-          ...settings,
-          observationalMemory: {
-            ...settings.observationalMemory,
-            enabled: true,
-            // The committed prompt alone crosses this threshold (buffering needs >= 1 token).
-            messageTokens: 5,
-            modelTarget: `local/${observerModel}`,
-          },
-        },
-      });
+      return observed(threadId);
     },
-    { localLlm: { generate, warmup } }
+    { localLlm: { generate, warmup } },
+    readiness
   );
   try {
+    // Before any run: only the preconditions run, so no selection and no observer warmup.
+    const fresh = await host.thread();
+    expect(await host.memory(fresh)).toEqual({
+      admission: { ready: true },
+      observational: { record: null, state: 'active' },
+    });
+    expect(readiness).toHaveBeenCalledTimes(1);
+    expect(admitted).toEqual([]);
+    expect(warmup).not.toHaveBeenCalled();
     const { events, threadId } = await host.run('My favourite colour is teal.');
     expect(admitted).toEqual([threadId]);
     // Cold loads are warmed before the run, as legacy did.
@@ -232,6 +256,7 @@ test('a local observational-memory observer runs through Main’s borrowed local
     );
     // The meter's memory segment reads the committed observation record before the next send.
     // The one observation above is 7 tokens, active and nothing pending.
+    const warmups = warmup.mock.calls.length;
     expect(await host.memory(threadId)).toEqual({
       admission: { ready: true },
       observational: {
@@ -245,30 +270,59 @@ test('a local observational-memory observer runs through Main’s borrowed local
         state: 'active',
       },
     });
+    expect(warmup.mock.calls.length).toBe(warmups);
+    expect(admitted).toEqual([threadId]);
   } finally {
     await host.close();
   }
 });
 
-test('thread/memory/read shows a waiting observer, then the admission failure, before Send', async () => {
-  let failure: string | undefined;
+test('thread/memory/read shows a waiting observer, a missing credential and Main’s reason', async () => {
+  // No real credential is read: the observer's provider has none in this profile.
+  vi.stubEnv('ANTHROPIC_API_KEY', '');
+  const admit = vi.fn((threadId: string) => selection(threadId, {}));
+  let next: Awaited<ReturnType<NonNullable<DesktopPlatformCapabilities['readMemoryReadiness']>>> = {
+    ready: false,
+    reason: 'unset',
+  };
   const host = await borrowedHost(
-    (threadId) => {
-      if (failure) {
-        throw new Error(failure);
-      }
-      return selection(threadId, { observerAwaiting: 'no-hosted-chat-provider' });
-    },
-    { localLlm: { generate: vi.fn(), warmup: vi.fn() } }
+    admit,
+    { localLlm: { generate: vi.fn(), warmup: vi.fn() } },
+    async () => next
   );
   try {
     const threadId = await host.thread();
+    const { memory, resourceId } = selection(threadId, {});
+    next = {
+      memory: { ...memory, observerAwaiting: 'no-hosted-chat-provider' },
+      ready: true,
+      resourceId,
+    };
     expect(await host.memory(threadId)).toEqual({
       admission: { ready: true },
       observational: { reason: 'no-hosted-chat-provider', state: 'awaiting-observer' },
     });
-    failure = 'The embedding host is not running.';
-    expect(await host.memory(threadId)).toEqual({ admission: { ready: false, reason: failure } });
+    const observation = { ...settings.observationalMemory, enabled: true };
+    next = {
+      memory: {
+        ...memory,
+        settings: {
+          ...settings,
+          observationalMemory: { ...observation, modelTarget: 'anthropic/claude-haiku-4-5' },
+        },
+      },
+      ready: true,
+      resourceId,
+    };
+    // The credential resolution the run's observer makes, with its own reason.
+    expect(await host.memory(threadId)).toEqual({
+      admission: { ready: false, reason: 'The selected provider has no configured credential' },
+    });
+    next = { ready: false, reason: 'The embedding host is not running.' };
+    expect(await host.memory(threadId)).toEqual({
+      admission: { ready: false, reason: 'The embedding host is not running.' },
+    });
+    expect(admit).not.toHaveBeenCalled();
   } finally {
     await host.close();
   }

@@ -11,6 +11,7 @@ import {
 } from '@brainstrike/agent-host';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import type { z } from 'zod';
+import { requireMemoryApiKey } from './memory-readiness';
 import { createDesktopHostMemoryVectorConfiguration } from './memory-vector-configuration';
 import type { PlatformSelectionSchema } from './platform-wire';
 
@@ -40,10 +41,11 @@ async function createObserverModel(
       createProvider('local', undefined, target.model, { localLlmHostClient: local.llm })
     );
   }
-  const auth = await resolveProviderAuth(target.provider);
-  if (auth?.kind !== 'api_key' || !auth.apiKey.trim()) {
-    throw new Error(`Observational Memory requires the resolved ${target.provider} API credential`);
-  }
+  const auth = await requireMemoryApiKey(
+    'Observational Memory',
+    target.provider,
+    resolveProviderAuth
+  );
   const configuration = resolveRuntimeConfiguration(
     { model: target.model, provider: target.provider },
     auth
