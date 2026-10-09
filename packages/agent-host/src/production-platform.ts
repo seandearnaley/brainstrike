@@ -494,6 +494,7 @@ export async function createProductionHostPlatform(
     },
     close,
     readPermissionPolicy: options.readPermissionPolicy,
+    searchState: (request) => index.search(request),
     ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
     ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),
     ...(options.selectProjectionRewrites
