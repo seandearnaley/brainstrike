@@ -51,6 +51,7 @@ import {
   type ProviderReadErrors,
   useDesktopHostPresentation,
 } from './use-desktop-host-presentation';
+import { enabledCatalogRevision, useEnabledCatalogModels } from './use-enabled-catalog-models';
 import { useHostLastTurn } from './use-host-last-turn';
 import { useHostMemorySegment, withMemoryGate } from './use-host-memory-segment';
 import { useHostThreadUsage } from './use-host-thread-usage';
@@ -201,7 +202,8 @@ function HostThread({
   // host); a delegated child's view offers none.
   const rewind = useRewindContext();
   // The meter's memory segment and the memory send gate: what admission would
-  // answer for the run the next send starts.
+  // answer for the run the next send starts, re-read when the catalog changes.
+  const enabledCatalog = useEnabledCatalogModels();
   const planModeEnabled = presentation.planMode?.enabled === true;
   const readMemoryRequest = useCallback(
     () => ({
@@ -217,6 +219,7 @@ function HostThread({
   );
   const memory = useHostMemorySegment({
     blocked: presentation.isComposerDisabled === true,
+    catalogRevision: enabledCatalogRevision(enabledCatalog),
     client,
     readRequest: readMemoryRequest,
     source: conversation?.source,
