@@ -14,6 +14,7 @@ import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/th
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { z } from 'zod';
 import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
+import type { JsonSchemaFactory } from './json-value.js';
 import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.js';
 import { McpToolAuthoritySchema } from './mcp-authority-wire.js';
 import { MCP_CONTENT_METHOD_SCHEMAS, MCP_CONTENT_RESULT_SCHEMAS } from './protocol-mcp-content.js';
@@ -32,9 +33,9 @@ import {
 } from './protocol-rewind.js';
 import { SEARCH_METHOD_SCHEMAS, SEARCH_RESULT_SCHEMAS } from './protocol-search.js';
 import {
-  SELECTION_EVENT_SCHEMAS,
   SELECTION_METHOD_SCHEMAS,
   SELECTION_RESULT_SCHEMAS,
+  selectionEventSchemas,
 } from './protocol-selection.js';
 import { HostHookSkipSchema, HostImageAttachmentSchema } from './run-wire.js';
 import {
@@ -260,13 +261,16 @@ export const HostChildDeliverySchema = z.discriminatedUnion('via', [
 ]);
 export type HostChildDelivery = z.infer<typeof HostChildDeliverySchema>;
 /** Credentials and executable capabilities remain process-local. */
-export const HostRunSnapshotSchema = z.strictObject({
-  configuration: z.record(z.string(), z.json()),
-  maxSteps: z.number().int().positive(),
-  mcpAuthorities: z.record(z.string(), McpToolAuthoritySchema).optional(),
-  toolIdentities: z.record(z.string(), Id),
-  workspaceBinding: ThreadWorkspaceBindingSchema.optional(),
-});
+export function hostRunSnapshotSchema(json: JsonSchemaFactory) {
+  return z.strictObject({
+    configuration: z.record(z.string(), json()),
+    maxSteps: z.number().int().positive(),
+    mcpAuthorities: z.record(z.string(), McpToolAuthoritySchema).optional(),
+    toolIdentities: z.record(z.string(), Id),
+    workspaceBinding: ThreadWorkspaceBindingSchema.optional(),
+  });
+}
+export const HostRunSnapshotSchema = hostRunSnapshotSchema(z.json);
 export type HostRunSnapshot = z.infer<typeof HostRunSnapshotSchema>;
 /** A key a user supplies directly. Subscription OAuth is never a login payload. */
 export type HostLoginCredential = Exclude<ProviderCredential, { readonly type: 'oauth' }>;
@@ -512,15 +516,15 @@ export function parseHostParams<M extends HostMethod>(method: M, input: unknown)
 }
 
 const RunFields = { runId: Id };
-const Action = {
+const action = (json: JsonSchemaFactory) => ({
   ...RunFields,
-  input: z.json(),
+  input: json(),
   toolCallId: Id,
   /** The user-facing catalog ID (`brainstrike.readWorkspaceFile`), not the provider-sanitized name. */
   toolCatalogId: Id.optional(),
   toolId: Id,
   toolIdentity: Id,
-};
+});
 const McpOrigin = {
   ...RunFields,
   configuredServerId: Id,
@@ -552,303 +556,310 @@ export const HostPromptBreakdownSchema = z.strictObject({
  * shape. Two shapes that share a `type` are one member: the pipe's input
  * carries the `type` the union routes on, and its output union picks the shape.
  */
-export const HostEventSchema = z.discriminatedUnion('type', [
-  z.strictObject({
-    binding: ThreadWorkspaceBindingSchema,
-    type: z.literal('workspace.binding.updated'),
-  }),
-  z.strictObject({ ...McpOrigin, handle: McpTaskHandleSchema, type: z.literal('mcp.task.bound') }),
-  HostMcpInputRequestSchema,
-  z.strictObject({
-    ...RunFields,
-    action: z.enum(['accept', 'decline', 'cancel']),
-    commandId: Id,
-    interactionId: Id,
-    type: z.literal('mcp.input.intent'),
-  }),
-  z.strictObject({
-    ...RunFields,
-    interactionId: Id,
-    status: z.enum(['local-finalized', 'remote-acknowledged', 'unknown', 'retired']),
-    type: z.literal('mcp.input.settled'),
-  }),
-  z.strictObject({
-    ...RunFields,
-    // Already redacted and bounded by the MCP discovery diagnostics.
-    reason: z.string().min(1),
-    serverId: Id,
-    type: z.literal('mcp.tools.unavailable'),
-  }),
-  z
-    .looseObject({ type: z.literal('thread.started') })
-    .pipe(
+export function hostEventSchema(json: JsonSchemaFactory) {
+  return z.discriminatedUnion('type', [
+    z.strictObject({
+      binding: ThreadWorkspaceBindingSchema,
+      type: z.literal('workspace.binding.updated'),
+    }),
+    z.strictObject({
+      ...McpOrigin,
+      handle: McpTaskHandleSchema,
+      type: z.literal('mcp.task.bound'),
+    }),
+    HostMcpInputRequestSchema,
+    z.strictObject({
+      ...RunFields,
+      action: z.enum(['accept', 'decline', 'cancel']),
+      commandId: Id,
+      interactionId: Id,
+      type: z.literal('mcp.input.intent'),
+    }),
+    z.strictObject({
+      ...RunFields,
+      interactionId: Id,
+      status: z.enum(['local-finalized', 'remote-acknowledged', 'unknown', 'retired']),
+      type: z.literal('mcp.input.settled'),
+    }),
+    z.strictObject({
+      ...RunFields,
+      // Already redacted and bounded by the MCP discovery diagnostics.
+      reason: z.string().min(1),
+      serverId: Id,
+      type: z.literal('mcp.tools.unavailable'),
+    }),
+    z
+      .looseObject({ type: z.literal('thread.started') })
+      .pipe(
+        z.union([
+          z.strictObject({ commandId: Id, type: z.literal('thread.started') }),
+          z.strictObject({ origin: HostChildOriginSchema, type: z.literal('thread.started') }),
+        ])
+      ),
+    z.strictObject({ ...ThreadPresentation, type: z.literal('thread.updated') }),
+    z.strictObject({ snapshot: WorkspaceSnapshotSchema, type: z.literal('workspace.updated') }),
+    ...selectionEventSchemas(json),
+    z.strictObject({
+      commandId: Id,
+      method: Id,
+      payload: json(),
+      result: json(),
+      type: z.literal('command.accepted'),
+    }),
+    z.strictObject({
+      type: z.literal('run.started'),
+      ...RunFields,
+      /** The user message's images; a regeneration repeats its message's. */
+      attachments: Attachments.optional(),
+      /** BST-1932: background child results this run delivers to its model. */
+      delivery: HostChildDeliverySchema.optional(),
+      modelId: Id,
+      /**
+       * The committed message this run's new user message follows (a run ID;
+       * null is the thread root). Rows committed before branch history omit
+       * it: their parent is the previous run.
+       */
+      parentMessageId: Id.nullable().optional(),
+      parentRunId: Id.optional(),
+      ...PlanMode,
+      /** Empty only for a user message of images alone (the run/start refinement). */
+      prompt: Prompt,
+      snapshot: hostRunSnapshotSchema(json).optional(),
+      /** Regenerate only: the existing committed user message this run answers again. */
+      userMessageId: Id.optional(),
+    }),
+    z.strictObject({ type: z.literal('stream.chunk'), ...RunFields, chunk: json() }),
+    z.strictObject({
+      type: z.literal('model.step'),
+      ...RunFields,
+      messages: z.array(json()),
+      model: json(),
+      stepNumber: Seq,
+      usage: json(),
+    }),
+    z.strictObject({ type: z.literal('model.messages'), ...RunFields, messages: z.array(json()) }),
+    z.strictObject({
+      type: z.literal('memory.usage'),
+      ...RunFields,
+      kind: z.enum(['observation', 'reflection']),
+      modelId: Id,
+      usage: json(),
+    }),
+    /** OM keeps one merged text per thread, so a branched thread's run receives none. */
+    z.strictObject({
+      type: z.literal('memory.observation.withheld'),
+      ...RunFields,
+      reason: z.literal('branched-thread'),
+    }),
+    z.strictObject({
+      type: z.literal('provider.request.prepared'),
+      ...RunFields,
+      accounting: json(),
+      /** The prepared prompt's composition, for the context popover. */
+      breakdown: HostPromptBreakdownSchema.optional(),
+      modelId: Id,
+      provider: Id,
+    }),
+    z.strictObject({
+      type: z.literal('interaction.requested'),
+      ...action(json),
+      /**
+       * A code-execution approval's host-computed sandbox facts (reach, scratch
+       * folder, reads, timeout), which the tool's arguments cannot carry. Shape:
+       * assistant-contract's CodeExecutionApprovalContext; a consumer validates
+       * it with isCodeExecutionApprovalContext before showing it.
+       */
+      executionContext: json().optional(),
+      interactionId: Id,
+      kind: z.enum(['approval', 'question', 'plan', 'network']),
+      /** A permission approval's risk category, which its session grant names. */
+      risk: RiskCategory.optional(),
+    }),
+    z.looseObject({ type: z.literal('interaction.responded') }).pipe(
       z.union([
-        z.strictObject({ commandId: Id, type: z.literal('thread.started') }),
-        z.strictObject({ origin: HostChildOriginSchema, type: z.literal('thread.started') }),
+        z.strictObject({
+          type: z.literal('interaction.responded'),
+          ...RunFields,
+          /** BST-1932: the root's live policy, not a person, answered this approval. */
+          by: z.literal('policy').optional(),
+          decision: z.enum(['approve', 'deny']),
+          interactionId: Id,
+        }),
+        z.strictObject({
+          type: z.literal('interaction.responded'),
+          ...RunFields,
+          interactionId: Id,
+          resumeData: json(),
+        }),
       ])
     ),
-  z.strictObject({ ...ThreadPresentation, type: z.literal('thread.updated') }),
-  z.strictObject({ snapshot: WorkspaceSnapshotSchema, type: z.literal('workspace.updated') }),
-  ...SELECTION_EVENT_SCHEMAS,
-  z.strictObject({
-    commandId: Id,
-    method: Id,
-    payload: z.json(),
-    result: z.json(),
-    type: z.literal('command.accepted'),
-  }),
-  z.strictObject({
-    type: z.literal('run.started'),
-    ...RunFields,
-    /** The user message's images; a regeneration repeats its message's. */
-    attachments: Attachments.optional(),
-    /** BST-1932: background child results this run delivers to its model. */
-    delivery: HostChildDeliverySchema.optional(),
-    modelId: Id,
+    z.strictObject({ type: z.literal('effect.started'), ...action(json) }),
+    z.strictObject({
+      type: z.literal('effect.finished'),
+      ...RunFields,
+      output: json(),
+      toolCallId: Id,
+    }),
+    z.strictObject({
+      type: z.literal('run.finished'),
+      ...RunFields,
+      detail: z.string().optional(),
+      outcome: z.enum(['completed', 'failed', 'stopped', 'interrupted']),
+    }),
     /**
-     * The committed message this run's new user message follows (a run ID;
-     * null is the thread root). Rows committed before branch history omit
-     * it: their parent is the previous run.
+     * One provider attempt of a run leg ended in a recoverable class of failure.
+     * `recovered` means a fresh attempt over the committed branch follows;
+     * otherwise `refusal` says why not, and `run.finished` follows.
      */
-    parentMessageId: Id.nullable().optional(),
-    parentRunId: Id.optional(),
-    ...PlanMode,
-    /** Empty only for a user message of images alone (the run/start refinement). */
-    prompt: Prompt,
-    snapshot: HostRunSnapshotSchema.optional(),
-    /** Regenerate only: the existing committed user message this run answers again. */
-    userMessageId: Id.optional(),
-  }),
-  z.strictObject({ type: z.literal('stream.chunk'), ...RunFields, chunk: z.json() }),
-  z.strictObject({
-    type: z.literal('model.step'),
-    ...RunFields,
-    messages: z.array(z.json()),
-    model: z.json(),
-    stepNumber: Seq,
-    usage: z.json(),
-  }),
-  z.strictObject({ type: z.literal('model.messages'), ...RunFields, messages: z.array(z.json()) }),
-  z.strictObject({
-    type: z.literal('memory.usage'),
-    ...RunFields,
-    kind: z.enum(['observation', 'reflection']),
-    modelId: Id,
-    usage: z.json(),
-  }),
-  /** OM keeps one merged text per thread, so a branched thread's run receives none. */
-  z.strictObject({
-    type: z.literal('memory.observation.withheld'),
-    ...RunFields,
-    reason: z.literal('branched-thread'),
-  }),
-  z.strictObject({
-    type: z.literal('provider.request.prepared'),
-    ...RunFields,
-    accounting: z.json(),
-    /** The prepared prompt's composition, for the context popover. */
-    breakdown: HostPromptBreakdownSchema.optional(),
-    modelId: Id,
-    provider: Id,
-  }),
-  z.strictObject({
-    type: z.literal('interaction.requested'),
-    ...Action,
+    z.strictObject({
+      type: z.literal('run.attempt'),
+      ...RunFields,
+      /** The attempt that ended, from 1, within this leg's `maxAttempts`. */
+      attempt: z.number().int().positive(),
+      detail: z.string().min(1),
+      maxAttempts: z.number().int().positive(),
+      reason: z.enum(['stalled', 'provider-error', 'empty-response', 'context-overflow']),
+      recovered: z.boolean(),
+      refusal: z.enum(['budget-exhausted', 'tool-parts', 'committed-output']).optional(),
+      /** A stall's breadcrumb: which silence fired and how far the stream got. */
+      stall: z
+        .strictObject({
+          lastPartType: Id.optional(),
+          partsSeen: Seq,
+          phase: z.enum(['awaiting-output', 'reasoning', 'streaming', 'tool-executing']),
+        })
+        .optional(),
+    }),
     /**
-     * A code-execution approval's host-computed sandbox facts (reach, scratch
-     * folder, reads, timeout), which the tool's arguments cannot carry. Shape:
-     * assistant-contract's CodeExecutionApprovalContext; a consumer validates
-     * it with isCodeExecutionApprovalContext before showing it.
+     * Host-committed tool-output overlay (the legacy ToolProjectionRewriteEntry):
+     * a later request replaces each call's result with its marker. A supersession
+     * applies only while its superseding call is in the same request.
      */
-    executionContext: z.json().optional(),
-    interactionId: Id,
-    kind: z.enum(['approval', 'question', 'plan', 'network']),
-    /** A permission approval's risk category, which its session grant names. */
-    risk: RiskCategory.optional(),
-  }),
-  z.looseObject({ type: z.literal('interaction.responded') }).pipe(
-    z.union([
-      z.strictObject({
-        type: z.literal('interaction.responded'),
-        ...RunFields,
-        /** BST-1932: the root's live policy, not a person, answered this approval. */
-        by: z.literal('policy').optional(),
-        decision: z.enum(['approve', 'deny']),
-        interactionId: Id,
-      }),
-      z.strictObject({
-        type: z.literal('interaction.responded'),
-        ...RunFields,
-        interactionId: Id,
-        resumeData: z.json(),
-      }),
-    ])
-  ),
-  z.strictObject({ type: z.literal('effect.started'), ...Action }),
-  z.strictObject({
-    type: z.literal('effect.finished'),
-    ...RunFields,
-    output: z.json(),
-    toolCallId: Id,
-  }),
-  z.strictObject({
-    type: z.literal('run.finished'),
-    ...RunFields,
-    detail: z.string().optional(),
-    outcome: z.enum(['completed', 'failed', 'stopped', 'interrupted']),
-  }),
-  /**
-   * One provider attempt of a run leg ended in a recoverable class of failure.
-   * `recovered` means a fresh attempt over the committed branch follows;
-   * otherwise `refusal` says why not, and `run.finished` follows.
-   */
-  z.strictObject({
-    type: z.literal('run.attempt'),
-    ...RunFields,
-    /** The attempt that ended, from 1, within this leg's `maxAttempts`. */
-    attempt: z.number().int().positive(),
-    detail: z.string().min(1),
-    maxAttempts: z.number().int().positive(),
-    reason: z.enum(['stalled', 'provider-error', 'empty-response', 'context-overflow']),
-    recovered: z.boolean(),
-    refusal: z.enum(['budget-exhausted', 'tool-parts', 'committed-output']).optional(),
-    /** A stall's breadcrumb: which silence fired and how far the stream got. */
-    stall: z
-      .strictObject({
-        lastPartType: Id.optional(),
-        partsSeen: Seq,
-        phase: z.enum(['awaiting-output', 'reasoning', 'streaming', 'tool-executing']),
-      })
-      .optional(),
-  }),
-  /**
-   * Host-committed tool-output overlay (the legacy ToolProjectionRewriteEntry):
-   * a later request replaces each call's result with its marker. A supersession
-   * applies only while its superseding call is in the same request.
-   */
-  z.strictObject({
-    type: z.literal('tool.projection.rewritten'),
-    ...RunFields,
-    rewrites: z
-      .array(
-        z.union([
-          z.strictObject({
-            kind: z.literal('prune'),
-            markerText: z.string().regex(/\S/),
-            supersededByToolCallId: z.null(),
-            toolCallId: Id,
-          }),
-          z.strictObject({
-            kind: z.literal('supersession'),
-            markerText: z.string().regex(/\S/),
-            supersededByToolCallId: Id,
-            toolCallId: Id,
-          }),
-        ])
-      )
-      .min(1),
-  }),
-  /**
-   * Host-committed overlay from the run that made it: later requests replace
-   * these turns with `summary`. When a summarizer model ran, `modelId` and
-   * `usage` are its side-call receipt, in `memory.usage`'s shape.
-   */
-  z.strictObject({
-    type: z.literal('context.compacted'),
-    ...RunFields,
-    compactedRunIds: z.array(Id).min(1),
-    kind: z.enum(['agentic', 'deterministic']),
-    modelId: Id.optional(),
-    reason: z.enum(['pre-request', 'context-overflow']),
-    summary: z.string().min(1),
-    usage: z.json().optional(),
-  }),
-  z.strictObject({
-    type: z.literal('workspace.edit.recorded'),
-    ...RunFields,
-    after: HostFileIdentitySchema,
-    /** First-touch baselines this edit captured for its run; later edits reuse them. */
-    baselines: z.array(HostEditBaselineSchema),
-    before: HostFileIdentitySchema,
-    blobRefs: z.array(Sha256).optional(),
-    entryId: Id,
-    /** Rename source; `before` observes it, `after` observes the destination. */
-    fromPath: WorkspaceRelativePath.optional(),
-    op: HostWorkspaceEditOpSchema,
-    path: WorkspaceRelativePath,
-    rootId: Id,
-    /** The admitted absolute root; revert revalidates it with the live root owner. */
-    rootPath: Id,
-    toolCallId: Id,
-    toolId: Id,
-  }),
-  z.strictObject({
-    type: z.literal('tool.state.updated'),
-    ...RunFields,
-    /** Tool-owned key, e.g. the task list or one canvas; the latest value per key wins. */
-    key: Id,
-    toolCallId: Id,
-    value: z.json(),
-  }),
-  z.strictObject({
-    type: z.literal('workspace.edit.reverted'),
-    ...RunFields,
-    commandId: Id,
-    outcomes: z.array(HostEditRevertOutcomeSchema),
-  }),
-  /**
-   * The run's workspace at a turn boundary, for its Changes review: its roots'
-   * snapshots at the turn's start, and the same roots' at its end. `failure`
-   * records a capture that failed as a whole (no roots were snapshotted).
-   */
-  z.strictObject({
-    type: z.literal('workspace.snapshot.recorded'),
-    ...RunFields,
-    boundary: z.enum(['turn-start', 'turn-end']),
-    failure: z.string().min(1).optional(),
-    roots: z.array(HostTurnSnapshotSchema),
-  }),
-  ...REWIND_EVENT_SCHEMAS,
-  /** The hook files this run did not load, committed before any hook runs. */
-  z.strictObject({
-    type: z.literal('hooks.skipped'),
-    ...RunFields,
-    files: z.array(HostHookSkipSchema).min(1),
-  }),
-  /** Committed with the approval that granted it; the run's later decisions include it. */
-  z.strictObject({ type: z.literal('permission.granted'), ...RunFields, grant: PermissionGrant }),
-  /**
-   * A worktree this call's shell command made, which the desktop's worktree
-   * ledger adopted: the host observed it, it did not perform it.
-   */
-  z.strictObject({
-    type: z.literal('worktree.created'),
-    ...RunFields,
-    branch: z.string().min(1).nullable(),
-    path: z.string().min(1),
-    toolCallId: Id,
-    via: z.literal('shell'),
-    worktreeId: Id,
-  }),
-  /**
-   * Context a lifecycle hook added for the model: a UserPromptSubmit hook's
-   * for its run's instructions, or a PostToolUse hook's for one tool result.
-   */
-  z.strictObject({
-    type: z.literal('hook.context'),
-    ...RunFields,
-    context: z.string().min(1),
-    toolCallId: Id.optional(),
-  }),
-  /** Only the host commits labels; precedence is applied by projectRunVerdicts. */
-  z.strictObject({
-    type: z.literal('run.verdict'),
-    ...RunFields,
-    detail: RunVerdictDetail.optional(),
-    source: z.enum(['edit_revert', 'hook', 'user']),
-    verdict: RunVerdict,
-  }),
-]);
+    z.strictObject({
+      type: z.literal('tool.projection.rewritten'),
+      ...RunFields,
+      rewrites: z
+        .array(
+          z.union([
+            z.strictObject({
+              kind: z.literal('prune'),
+              markerText: z.string().regex(/\S/),
+              supersededByToolCallId: z.null(),
+              toolCallId: Id,
+            }),
+            z.strictObject({
+              kind: z.literal('supersession'),
+              markerText: z.string().regex(/\S/),
+              supersededByToolCallId: Id,
+              toolCallId: Id,
+            }),
+          ])
+        )
+        .min(1),
+    }),
+    /**
+     * Host-committed overlay from the run that made it: later requests replace
+     * these turns with `summary`. When a summarizer model ran, `modelId` and
+     * `usage` are its side-call receipt, in `memory.usage`'s shape.
+     */
+    z.strictObject({
+      type: z.literal('context.compacted'),
+      ...RunFields,
+      compactedRunIds: z.array(Id).min(1),
+      kind: z.enum(['agentic', 'deterministic']),
+      modelId: Id.optional(),
+      reason: z.enum(['pre-request', 'context-overflow']),
+      summary: z.string().min(1),
+      usage: json().optional(),
+    }),
+    z.strictObject({
+      type: z.literal('workspace.edit.recorded'),
+      ...RunFields,
+      after: HostFileIdentitySchema,
+      /** First-touch baselines this edit captured for its run; later edits reuse them. */
+      baselines: z.array(HostEditBaselineSchema),
+      before: HostFileIdentitySchema,
+      blobRefs: z.array(Sha256).optional(),
+      entryId: Id,
+      /** Rename source; `before` observes it, `after` observes the destination. */
+      fromPath: WorkspaceRelativePath.optional(),
+      op: HostWorkspaceEditOpSchema,
+      path: WorkspaceRelativePath,
+      rootId: Id,
+      /** The admitted absolute root; revert revalidates it with the live root owner. */
+      rootPath: Id,
+      toolCallId: Id,
+      toolId: Id,
+    }),
+    z.strictObject({
+      type: z.literal('tool.state.updated'),
+      ...RunFields,
+      /** Tool-owned key, e.g. the task list or one canvas; the latest value per key wins. */
+      key: Id,
+      toolCallId: Id,
+      value: json(),
+    }),
+    z.strictObject({
+      type: z.literal('workspace.edit.reverted'),
+      ...RunFields,
+      commandId: Id,
+      outcomes: z.array(HostEditRevertOutcomeSchema),
+    }),
+    /**
+     * The run's workspace at a turn boundary, for its Changes review: its roots'
+     * snapshots at the turn's start, and the same roots' at its end. `failure`
+     * records a capture that failed as a whole (no roots were snapshotted).
+     */
+    z.strictObject({
+      type: z.literal('workspace.snapshot.recorded'),
+      ...RunFields,
+      boundary: z.enum(['turn-start', 'turn-end']),
+      failure: z.string().min(1).optional(),
+      roots: z.array(HostTurnSnapshotSchema),
+    }),
+    ...REWIND_EVENT_SCHEMAS,
+    /** The hook files this run did not load, committed before any hook runs. */
+    z.strictObject({
+      type: z.literal('hooks.skipped'),
+      ...RunFields,
+      files: z.array(HostHookSkipSchema).min(1),
+    }),
+    /** Committed with the approval that granted it; the run's later decisions include it. */
+    z.strictObject({ type: z.literal('permission.granted'), ...RunFields, grant: PermissionGrant }),
+    /**
+     * A worktree this call's shell command made, which the desktop's worktree
+     * ledger adopted: the host observed it, it did not perform it.
+     */
+    z.strictObject({
+      type: z.literal('worktree.created'),
+      ...RunFields,
+      branch: z.string().min(1).nullable(),
+      path: z.string().min(1),
+      toolCallId: Id,
+      via: z.literal('shell'),
+      worktreeId: Id,
+    }),
+    /**
+     * Context a lifecycle hook added for the model: a UserPromptSubmit hook's
+     * for its run's instructions, or a PostToolUse hook's for one tool result.
+     */
+    z.strictObject({
+      type: z.literal('hook.context'),
+      ...RunFields,
+      context: z.string().min(1),
+      toolCallId: Id.optional(),
+    }),
+    /** Only the host commits labels; precedence is applied by projectRunVerdicts. */
+    z.strictObject({
+      type: z.literal('run.verdict'),
+      ...RunFields,
+      detail: RunVerdictDetail.optional(),
+      source: z.enum(['edit_revert', 'hook', 'user']),
+      verdict: RunVerdict,
+    }),
+  ]);
+}
+export const HostEventSchema = hostEventSchema(z.json);
 export type HostEvent = z.infer<typeof HostEventSchema>;
 export const HostLogRowSchema = z.strictObject({
   event: HostEventSchema,
