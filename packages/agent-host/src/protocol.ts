@@ -48,6 +48,16 @@ export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = z.string().min(1);
+/**
+ * A user message's text: empty only beside its images (an image sent alone,
+ * as the composer allows), never a message of nothing.
+ */
+const Prompt = z.string();
+const hasMessage = (message: {
+  readonly attachments?: readonly unknown[] | undefined;
+  readonly prompt: string;
+}): boolean => message.prompt.length > 0 || (message.attachments?.length ?? 0) > 0;
+const NO_MESSAGE = { message: 'A message needs text or an image', path: ['prompt'] };
 const Command = { commandId: Id };
 const Thread = { threadId: Id };
 /** A committed thread title: trimmed, never blank. */
@@ -451,15 +461,17 @@ export const HOST_METHOD_SCHEMAS = {
    * step in flight, and the input starts the child's next run under these run
    * settings; only that run's end reports to the parent.
    */
-  'run/input': z.strictObject({
-    ...Command,
-    ...Run,
-    attachments: Attachments.optional(),
-    configuration: z.record(z.string(), z.json()).optional(),
-    modelId: Id,
-    ...PlanMode,
-    prompt: Id,
-  }),
+  'run/input': z
+    .strictObject({
+      ...Command,
+      ...Run,
+      attachments: Attachments.optional(),
+      configuration: z.record(z.string(), z.json()).optional(),
+      modelId: Id,
+      ...PlanMode,
+      prompt: Prompt,
+    })
+    .refine(hasMessage, NO_MESSAGE),
   'run/regenerate': z.strictObject({
     ...Command,
     ...Thread,
@@ -469,18 +481,20 @@ export const HOST_METHOD_SCHEMAS = {
     /** The original committed user message: its run/start command ID. */
     userMessageId: Id,
   }),
-  'run/start': z.strictObject({
-    ...Command,
-    ...Thread,
-    /** Images on the new user message, beside its prompt. */
-    attachments: Attachments.optional(),
-    configuration: z.record(z.string(), z.json()).optional(),
-    modelId: Id,
-    /** A committed run ID to follow, null for the thread root; omitted is the current tip. */
-    parentMessageId: Id.nullable().optional(),
-    ...PlanMode,
-    prompt: Id,
-  }),
+  'run/start': z
+    .strictObject({
+      ...Command,
+      ...Thread,
+      /** Images on the new user message, beside its prompt. */
+      attachments: Attachments.optional(),
+      configuration: z.record(z.string(), z.json()).optional(),
+      modelId: Id,
+      /** A committed run ID to follow, null for the thread root; omitted is the current tip. */
+      parentMessageId: Id.nullable().optional(),
+      ...PlanMode,
+      prompt: Prompt,
+    })
+    .refine(hasMessage, NO_MESSAGE),
   /**
    * End the active run gracefully at its next step boundary, after the step in
    * flight, so the user's steering message can start the next turn (BST-588).
@@ -632,7 +646,8 @@ export const HostEventSchema = z.union([
     parentMessageId: Id.nullable().optional(),
     parentRunId: Id.optional(),
     ...PlanMode,
-    prompt: Id,
+    /** Empty only for a user message of images alone (the run/start refinement). */
+    prompt: Prompt,
     snapshot: HostRunSnapshotSchema.optional(),
     /** Regenerate only: the existing committed user message this run answers again. */
     userMessageId: Id.optional(),
