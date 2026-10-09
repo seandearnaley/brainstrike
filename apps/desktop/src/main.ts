@@ -206,6 +206,7 @@ import {
   observeNativeReaderStartup,
 } from './native-index-startup-window';
 import { createNativeRootDataDeletion } from './native-root-data-deletion';
+import { createNativeRootRegistration } from './native-root-registration';
 import { createNativeScopedSearchCapability } from './native-scoped-search';
 import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
@@ -990,16 +991,6 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
   },
   onWorkspaceRootGranted: (grantedPath: string) => {
     pendingRootGrantSubscriber?.(grantedPath);
-    if (app.isReady() && !isDesktopShuttingDown()) {
-      nativeRootDataDeletion
-        .transition(() => nativeIndexActivation.reconfigure())
-        .catch((error: unknown) =>
-          reportNativeIndexActivationError(
-            'Mounted native source configuration could not activate',
-            error
-          )
-        );
-    }
   },
 });
 function reportNativeIndexActivationError(message: string, error: unknown): void {
@@ -1155,7 +1146,18 @@ const nativeIndexSearch = createNativeScopedSearchCapability({
   rebuild: () => nativeRootDataDeletion.transition(() => nativeIndexActivation.rebuild()),
   withRead: nativeIndexActivation.withRead,
 });
-ipcDisposers.add('index-search', registerIndexSearchIpcHandlers(nativeIndexSearch));
+ipcDisposers.add(
+  'index-search',
+  registerIndexSearchIpcHandlers(
+    nativeIndexSearch,
+    createNativeRootRegistration({
+      isShuttingDown: isDesktopShuttingDown,
+      reconfigure: () => nativeIndexActivation.reconfigure(),
+      reportError: reportNativeIndexActivationError,
+      transition: (operation) => nativeRootDataDeletion.transition(operation),
+    })
+  )
+);
 ipcDisposers.add('main', () => {
   // The graceful filesystem step joins physical retirement. This late ledger
   // entry repeats idempotent bookkeeping and reports any retained cleanup error.
