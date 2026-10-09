@@ -16,10 +16,16 @@ const owner = vi.hoisted(() => ({
     throw new Error('Unexpected credential access in tool descriptor admission');
   }),
   home: '',
-  // The tool builders Main's admission loaded, if any: the desktop fold, its
-  // executor map and the host-tool bindings.
+  // The tool code Main's admission loaded, if any.
   loaded: new Set<string>(),
   query: vi.fn(),
+  /** A module recorded when loaded, then served unchanged. */
+  record:
+    (name: string) =>
+    async (importOriginal: () => Promise<unknown>): Promise<unknown> => {
+      owner.loaded.add(name);
+      return await importOriginal();
+    },
 }));
 vi.mock('node:os', async (importOriginal) => ({
   ...(await importOriginal<typeof import('node:os')>()),
@@ -34,18 +40,71 @@ vi.mock('../ipc-mcp', () => ({
   readDesktopMcpHostSnapshot: async (runtime: { host: { snapshot(): unknown } }) =>
     structuredClone(runtime.host.snapshot()),
 }));
-vi.mock('../assistant-server/assistant-tools', async (importOriginal) => {
-  owner.loaded.add('assistant-tools');
-  return await importOriginal();
-});
-vi.mock('../assistant-server/native-tool-executors', async (importOriginal) => {
-  owner.loaded.add('native-tool-executors');
-  return await importOriginal();
-});
-vi.mock('../agent-host-tool-bindings', async (importOriginal) => {
-  owner.loaded.add('agent-host-tool-bindings');
-  return await importOriginal();
-});
+// Tool executor code: the shared native-tools barrel (its executor map), the
+// host-tool bindings, the desktop fold and every desktop executor group.
+vi.mock(
+  '@brainstrike/host-capabilities/native-tools',
+  owner.record('host-capabilities/native-tools')
+);
+vi.mock('../agent-host-tool-bindings', owner.record('agent-host-tool-bindings'));
+vi.mock('../assistant-server/assistant-tools', owner.record('assistant-tools'));
+vi.mock('../assistant-server/native-tool-executors', owner.record('native-tool-executors'));
+vi.mock(
+  '../assistant-server/native-tool-executors-browser',
+  owner.record('native-tool-executors-browser')
+);
+vi.mock(
+  '../assistant-server/native-tool-executors-context',
+  owner.record('native-tool-executors-context')
+);
+vi.mock(
+  '../assistant-server/native-tool-executors-execution',
+  owner.record('native-tool-executors-execution')
+);
+vi.mock(
+  '../assistant-server/native-tool-executors-grep',
+  owner.record('native-tool-executors-grep')
+);
+vi.mock(
+  '../assistant-server/native-tool-executors-inspection',
+  owner.record('native-tool-executors-inspection')
+);
+vi.mock(
+  '../assistant-server/native-tool-executors-python',
+  owner.record('native-tool-executors-python')
+);
+vi.mock(
+  '../assistant-server/native-tool-executors-retrieval',
+  owner.record('native-tool-executors-retrieval')
+);
+vi.mock(
+  '../assistant-server/native-tool-executors-search',
+  owner.record('native-tool-executors-search')
+);
+vi.mock(
+  '../assistant-server/native-tool-executors-self',
+  owner.record('native-tool-executors-self')
+);
+vi.mock(
+  '../assistant-server/native-tool-executors-sessions',
+  owner.record('native-tool-executors-sessions')
+);
+vi.mock(
+  '../assistant-server/native-tool-executors-shell',
+  owner.record('native-tool-executors-shell')
+);
+vi.mock(
+  '../assistant-server/native-tool-executors-skills',
+  owner.record('native-tool-executors-skills')
+);
+vi.mock(
+  '../assistant-server/native-tool-executors-workspace',
+  owner.record('native-tool-executors-workspace')
+);
+vi.mock(
+  '../assistant-server/native-tool-executors-worktree',
+  owner.record('native-tool-executors-worktree')
+);
 
 import { PlatformClientConfigurationSchema } from '../agent-host-platform/platform-wire';
 import { productionDesktopCapabilities } from '../agent-host-platform/production-desktop-capabilities';
@@ -158,7 +217,7 @@ test('Main describes each admission’s tools exactly as recorded from real admi
   expect(observed).toEqual(recorded);
 });
 
-test('Main’s admission loads none of the tool builders: it describes, the host executes', async () => {
+test('Main’s admission loads no tool executor code: it describes, the host executes', async () => {
   const captured = await productionDesktopCapabilities({
     resolveForgeService: () => null,
     resolveWorktreeService: () => worktreeService as never,

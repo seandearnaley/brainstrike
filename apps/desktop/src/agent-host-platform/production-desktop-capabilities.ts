@@ -34,7 +34,7 @@ import { listEmbeddingModels } from '@brainstrike/assistant-contract/provider-me
 import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-repository';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
-import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
+import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-text-file-reader';
 import { z } from 'zod';
 import type { DesktopAssistantToolDependencies } from '../assistant-server/native-tool-executor-context';
 import {

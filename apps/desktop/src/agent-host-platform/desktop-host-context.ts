@@ -12,7 +12,7 @@ import {
 import { type HostRunIntentRequest, hostToolDiscoveryEnabled } from '@brainstrike/agent-host';
 import { isSupportedProvider, type ToolRiskCategory } from '@brainstrike/assistant-contract';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
-import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
+import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-text-file-reader';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
 import { injectReferencedFilesContext } from '../assistant-server/referenced-files-context';
