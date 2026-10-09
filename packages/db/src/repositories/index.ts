@@ -109,11 +109,7 @@ export {
   type PgliteLegacyMemory,
   readPgliteLegacyMemory,
 } from './legacy-memory-read.js';
-export {
-  type PgliteMcpTaskRows,
-  pgliteMcpTaskStorage,
-  readPgliteMcpTaskRows,
-} from './mcp-task-pglite-storage.js';
+export { pgliteMcpTaskStorage } from './mcp-task-pglite-storage.js';
 export {
   type CreateMcpTaskInput,
   MAX_ACTIVE_MCP_TASKS_PER_SCOPE,

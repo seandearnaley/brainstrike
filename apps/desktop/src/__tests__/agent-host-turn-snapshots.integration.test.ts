@@ -33,6 +33,7 @@ import { createSnapshotService, type SnapshotService } from '../assistant-server
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { RemoteMcpRuntime } from '../mcp/remote-runtime';
 import { desktopCredentialStoreSelection } from '../secrets';
+import { desktopAppPaths } from './fixtures/desktop-host-profile';
 
 /** Actual Node ports expose the same MessageEvent contract as the utility transport. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -132,7 +133,7 @@ async function withAdmittedRun(
         signal: new AbortController().signal,
         store,
       },
-      { credentialStore }
+      { appPaths: desktopAppPaths(root), credentialStore }
     );
     const admitRun = platform.admitRun;
     if (!admitRun) {

@@ -80,12 +80,6 @@ export async function makeAssistantServerHttpMock() {
   };
 }
 
-export function makeMcpLoaderMock() {
-  return {
-    loadMcpConfig: vi.fn(() => Promise.resolve({ config: undefined })),
-  };
-}
-
 export async function makeAgentClientLoaderMock() {
   const actual = await vi.importActual<typeof import('../../agent-client-loader')>(
     '../../agent-client-loader'

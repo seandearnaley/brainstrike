@@ -10,6 +10,9 @@ import {
   type HostMethod,
   type HostParams,
   type HostResults,
+  MCP_SETTINGS_EVENT,
+  type McpSettingsEvent,
+  McpSettingsEventSchema,
   parseHostParams,
 } from './protocol.js';
 
@@ -17,6 +20,8 @@ export interface HostClient extends HostAttachment {
   /** BST-1932: told the thread whose children changed status; re-read `thread/children`. */
   onChildrenChanged(listener: (threadId: string) => void): () => void;
   onEvent(listener: (row: HostLogRow) => void): () => void;
+  /** MCP settings changes, after this client's `mcp/settings/subscribe`. */
+  onMcpSettings(listener: (event: McpSettingsEvent) => void): () => void;
   request<M extends HostMethod>(method: M, params: HostParams<M>): Promise<HostResults[M]>;
 }
 /** Browser-safe connection; the private lease record comes from the owning launcher. */
@@ -27,6 +32,7 @@ export async function authenticateHostClient(
   transportClosed: Promise<void>
 ): Promise<HostClient> {
   const listeners = new Set<(row: HostLogRow) => void>();
+  const settingsListeners = new Set<(event: McpSettingsEvent) => void>();
   const childListeners = new Set<(threadId: string) => void>();
   const closeConnection = async (): Promise<void> => {
     const failures: unknown[] = [];
@@ -36,6 +42,7 @@ export async function authenticateHostClient(
       failures.push(cause);
     }
     listeners.clear();
+    settingsListeners.clear();
     childListeners.clear();
     try {
       await closeTransport();
@@ -59,6 +66,12 @@ export async function authenticateHostClient(
     const { threadId } = HostChildrenChangedSchema.parse(input);
     for (const listener of childListeners) {
       listener(threadId);
+    }
+  });
+  connection.onNotification(MCP_SETTINGS_EVENT, (input: unknown) => {
+    const event = McpSettingsEventSchema.parse(input);
+    for (const listener of settingsListeners) {
+      listener(event);
     }
   });
   connection.listen();
@@ -96,6 +109,10 @@ export async function authenticateHostClient(
     onEvent: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    onMcpSettings: (listener) => {
+      settingsListeners.add(listener);
+      return () => settingsListeners.delete(listener);
     },
     record,
     request: async <M extends HostMethod>(

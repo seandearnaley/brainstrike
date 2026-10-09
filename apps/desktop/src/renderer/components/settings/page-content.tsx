@@ -55,7 +55,10 @@ import {
 } from '@brainstrike/settings-ui/settings-page-content';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
-import { DESKTOP_IPC_CHANNELS } from '../../../platform/desktop-ipc-channels';
+import {
+  type DesktopHostMcpSettings,
+  resolveDesktopHostMcpSettings,
+} from '../../host-mcp-settings';
 import { DesktopLoggingSettings } from './logging-settings';
 import { useWorktreeSettings } from './use-worktree-settings';
 
@@ -99,28 +102,16 @@ function getToolDescription(toolId: string): string {
   return getNativeToolDescription(toolId) ?? `Native tool: ${toolId}`;
 }
 
-async function changeMcpToolPreferences(ids: string[], enabled: boolean): Promise<void> {
-  const mcp = window.mcp;
-  try {
-    if (enabled) {
-      await mcp?.enableTools?.(ids);
-    } else {
-      await mcp?.disableTools?.(ids);
-    }
-  } catch (error) {
-    // Strip only this channel's exact transport wrapper. Fault attribution stays
-    // with the caller's pre-action stats, never a racy post-failure stats read.
-    if (error instanceof Error) {
-      const channel = enabled
-        ? DESKTOP_IPC_CHANNELS.mcp.toolsEnable
-        : DESKTOP_IPC_CHANNELS.mcp.toolsDisable;
-      const prefix = `Error invoking remote method '${channel}': Error: `;
-      if (error.message.startsWith(prefix)) {
-        throw new Error(error.message.slice(prefix.length), { cause: error });
-      }
-    }
-    throw error;
+/** The host refuses a change it cannot save with its own message, which Settings shows. */
+async function changeMcpToolPreferences(
+  mcpSettings: DesktopHostMcpSettings | null,
+  ids: string[],
+  enabled: boolean
+): Promise<void> {
+  if (!mcpSettings) {
+    throw new Error('MCP tool preferences need the desktop agent host');
   }
+  await mcpSettings.request('mcp/tools/set', { enabled, toolIds: ids });
 }
 
 export default function SettingsPageContent() {
@@ -210,9 +201,11 @@ export default function SettingsPageContent() {
       ? assistantAvailability.providerKeySources
       : undefined;
 
+  // The agent host owns the MCP config, extension dials, tool preferences,
+  // server status and lifecycle control; a window without the host has none.
+  const mcpSettings = useMemo(() => resolveDesktopHostMcpSettings(), []);
   // Create non-executing tool catalog and MCP configuration operations.
   const toolOperations = useMemo(() => {
-    const onServerStatusUpdated = window.mcp?.onServerStatusUpdated;
     return {
       // BST-1585: user-initiated MCP content browsing is capability-gated on
       // the bridge methods; web omits them, so the Settings affordance is absent.
@@ -220,31 +213,38 @@ export default function SettingsPageContent() {
         completeMcpContent: async (request: McpCompleteRequest) =>
           await window.mcp.complete(request),
       }),
-      ...(window.mcp?.controlServer && {
+      ...(mcpSettings && {
         controlMcpServer: async (request: McpHostControlRequest) =>
-          await window.mcp.controlServer(request),
-      }),
-      ...(window.mcp?.getExtensionPreferences && {
-        getMcpExtensionPreferences: async () => await window.mcp.getExtensionPreferences(),
+          await mcpSettings.request('mcp/server/control', request),
+        getMcpExtensionPreferences: async () =>
+          await mcpSettings.request('mcp/extensions/read', {}),
+        getMcpServerStatus: async () => await mcpSettings.request('mcp/status/read', {}),
+        reloadToolPreferences: async () => {
+          await mcpSettings.request('mcp/tools/reload', {});
+        },
+        setMcpExtensionPreferences: async (preferences: McpExtensionEnablement) =>
+          await mcpSettings.request('mcp/extensions/set', preferences),
+        subscribeMcpExtensionPreferences: (
+          listener: (preferences: McpExtensionEnablement) => void
+        ) =>
+          mcpSettings.subscribe((event) => {
+            if (event.type === 'extensions') {
+              listener(event.extensions);
+            }
+          }),
+        subscribeMcpServerStatus: (listener: (event: McpHostWatchEvent) => void) =>
+          mcpSettings.subscribe((event) => {
+            if (event.type === 'status') {
+              listener(event.status);
+            }
+          }),
       }),
       ...(window.mcp?.getPrompt && {
         getMcpPrompt: async (request: McpGetPromptRequest) => await window.mcp.getPrompt(request),
       }),
-      ...(window.mcp?.setExtensionPreferences && {
-        setMcpExtensionPreferences: async (preferences: McpExtensionEnablement) =>
-          await window.mcp.setExtensionPreferences(preferences),
-      }),
-      ...(window.mcp?.onExtensionPreferencesUpdated && {
-        subscribeMcpExtensionPreferences: (
-          listener: (preferences: McpExtensionEnablement) => void
-        ) => window.mcp.onExtensionPreferencesUpdated(listener),
-      }),
       ...(window.mcp?.readResource && {
         readMcpResource: async (request: McpReadResourceRequest) =>
           await window.mcp.readResource(request),
-      }),
-      ...(window.mcp?.reloadToolPreferences && {
-        reloadToolPreferences: async () => await window.mcp.reloadToolPreferences(),
       }),
       disableTools: async (ids: string[]) => {
         const nativeToolIds = ids.filter((id) => isNativeTool(id));
@@ -254,7 +254,7 @@ export default function SettingsPageContent() {
           useNativeToolPreferencesStore.getState().setToolsEnabled(nativeToolIds, false);
         }
         if (mcpToolIds.length > 0) {
-          await changeMcpToolPreferences(mcpToolIds, false);
+          await changeMcpToolPreferences(mcpSettings, mcpToolIds, false);
         }
       },
       enableTools: async (ids: string[]) => {
@@ -265,20 +265,13 @@ export default function SettingsPageContent() {
           useNativeToolPreferencesStore.getState().setToolsEnabled(nativeToolIds, true);
         }
         if (mcpToolIds.length > 0) {
-          await changeMcpToolPreferences(mcpToolIds, true);
+          await changeMcpToolPreferences(mcpSettings, mcpToolIds, true);
         }
-      },
-      getMcpServerStatus: async () => {
-        const getServerStatusSnapshot = window.mcp?.getServerStatusSnapshot;
-        if (!getServerStatusSnapshot) {
-          throw new Error('MCP bridge is missing getServerStatusSnapshot');
-        }
-        return await getServerStatusSnapshot();
       },
       getStats: async () => {
         const { isToolEnabled } = useNativeToolPreferencesStore.getState();
         const nativeTools = getNativeToolsAsDisplayMetadata(isToolEnabled);
-        const mcpStats = await window.mcp?.getToolStats?.();
+        const mcpStats = await mcpSettings?.request('mcp/tools/stats', {});
 
         const nativeCount = nativeTools.length;
         const mcpCount = mcpStats?.total ?? 0;
@@ -315,18 +308,12 @@ export default function SettingsPageContent() {
         const nativeTools = getNativeToolsAsDisplayMetadata(isToolEnabled);
 
         // Add MCP tools if available
-        const mcpToolsData = await window.mcp?.listTools?.();
+        const mcpToolsData = await mcpSettings?.request('mcp/tools/list', {});
         const mcpTools: ToolDisplayMetadata[] = [];
 
         if (mcpToolsData) {
           for (const [serverName, serverTools] of Object.entries(mcpToolsData)) {
-            for (const tool of serverTools as Array<{
-              id: string;
-              description?: string;
-              enabled: boolean;
-              inputSchema?: unknown;
-              serverName: string;
-            }>) {
+            for (const tool of serverTools) {
               if (tool.serverName !== serverName) {
                 throw new Error(
                   `MCP tool projection identity mismatch: group "${serverName}" contains server "${tool.serverName}"`
@@ -351,92 +338,60 @@ export default function SettingsPageContent() {
         return [...nativeTools, ...mcpTools];
       },
       openMcpConfig: async () => {
-        // Open file picker to select a new MCP config file
-        const selectedPath = await window.mcp?.selectPath?.();
-        if (selectedPath) {
-          await window.mcp?.setPath?.(selectedPath);
-          // Refresh tools list to pick up changes from new config
-          await window.mcp?.listTools?.();
-        }
+        // The native picker hands the chosen file to the host, which selects it,
+        // reloads it and announces the new config and tools.
+        await window.mcp?.selectPath?.();
       },
       refreshMcpServers: async () => {
-        // Reload tools list to refresh server status
-        await window.mcp?.listTools?.();
+        await mcpSettings?.request('mcp/tools/list', {});
       },
       resetMcpConfig: async () => {
-        // Reset to default config path
-        await window.mcp?.setPath?.(null);
-        // Refresh tools list to pick up changes
-        await window.mcp?.listTools?.();
+        // Back to the profile's default config path; the host reloads and announces it.
+        await mcpSettings?.request('mcp/config/path/set', { path: null });
       },
       resetTools: async () => {
         useNativeToolPreferencesStore.getState().resetTools();
-        await window.mcp?.resetTools?.();
+        await mcpSettings?.request('mcp/tools/reset', {});
       },
       subscribeMcpConfig: (
         listener: (info: { error?: string; exists: boolean; path: string }) => void
       ) => {
-        const onConfigUpdated = window.mcp?.onConfigUpdated;
-        if (!onConfigUpdated) {
-          throw new Error('MCP bridge is missing onConfigUpdated');
+        if (!mcpSettings) {
+          throw new Error('MCP settings need the desktop agent host');
         }
-        return onConfigUpdated(listener);
+        return mcpSettings.subscribe((event) => {
+          if (event.type === 'config') {
+            listener(event.config);
+          }
+        });
       },
-      ...(onServerStatusUpdated && {
-        subscribeMcpServerStatus: (listener: (event: McpHostWatchEvent) => void) =>
-          onServerStatusUpdated(listener),
-      }),
       subscribeMcpTools: (listener: () => void) => {
-        const onToolsUpdated = window.mcp?.onToolsUpdated;
-        if (!onToolsUpdated) {
-          throw new Error('MCP bridge is missing onToolsUpdated');
+        if (!mcpSettings) {
+          throw new Error('MCP settings need the desktop agent host');
         }
-        return onToolsUpdated(() => listener());
+        return mcpSettings.subscribe((event) => {
+          if (event.type === 'tools') {
+            listener();
+          }
+        });
       },
-      ...(window.mcp?.getPath && {
-        getMcpConfigPath: async () => (await window.mcp?.getPath?.()) ?? '',
-      }),
-      ...(window.mcp?.setPath && {
+      ...(mcpSettings && {
+        getMcpConfigPath: async () => (await mcpSettings.request('mcp/config/path', {})).path,
+        readMcpConfigText: async () => await mcpSettings.request('mcp/config/read', {}),
         setMcpConfigPath: async (configPath: string | null) => {
-          const result = await window.mcp?.setPath?.(configPath);
-          if (!result?.success) {
-            throw new Error('Failed to set MCP config path');
-          }
+          await mcpSettings.request('mcp/config/path/set', { path: configPath });
         },
-      }),
-      ...(window.mcp?.readConfigText && {
-        readMcpConfigText: async () => {
-          const result = await window.mcp?.readConfigText?.();
-          if (!result) {
-            throw new Error('Failed to read MCP config text');
-          }
-          return result;
-        },
-      }),
-      ...(window.mcp?.writeConfigText && {
-        writeMcpConfigText: async (content: string) => {
-          const result = await window.mcp?.writeConfigText?.(content);
-          if (!result) {
-            return {
-              error: 'Failed to write MCP config text',
-              path: '',
-              success: false as const,
-            };
-          }
-          return result;
-        },
+        writeMcpConfigText: async (content: string) =>
+          await mcpSettings.request('mcp/config/write', { content }),
       }),
       createSampleConfig: async () => {
-        // Create a sample MCP config file at the default location
-        const result = await window.mcp?.createSampleConfig?.();
-        if (!result) {
-          return { error: 'MCP API not available', path: '', success: false };
+        if (!mcpSettings) {
+          return { error: 'MCP settings need the desktop agent host', path: '', success: false };
         }
-        return result;
+        return await mcpSettings.request('mcp/config/sample', {});
       },
       getMcpConfigInfo: async () => {
-        // Get current MCP config info
-        const config = await window.mcp?.getConfig?.();
+        const config = await mcpSettings?.request('mcp/config/status', {});
         if (!config) {
           return null;
         }
@@ -447,7 +402,7 @@ export default function SettingsPageContent() {
         };
       },
     };
-  }, []);
+  }, [mcpSettings]);
 
   const categories = useMemo<SettingsCategory[]>(() => {
     const diagnosticsCategory = createSystemDiagnosticsSettingsCategory();
@@ -488,7 +443,7 @@ export default function SettingsPageContent() {
         title: 'Logging & Diagnostics',
       },
       createToolsSettingsCategory({
-        mcpAvailable: true,
+        mcpAvailable: mcpSettings !== null,
         operations: toolOperations,
       }),
       createPermissionSettingsCategory(),
@@ -521,6 +476,7 @@ export default function SettingsPageContent() {
     devInlineFixtureEnabled,
     hookReviewRoots,
     hostProviders,
+    mcpSettings,
     revealEnvFile,
     setDevInlineFixtureEnabled,
     toolOperations,

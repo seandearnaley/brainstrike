@@ -5,7 +5,13 @@ import { bindHostAuthMethods } from './auth-connection.js';
 import type { HostCore } from './core.js';
 import { hostChildStatusChanged } from './core-child-runs.js';
 import { bindHostHookTrustMethods } from './hook-trust.js';
-import type { HostAuthService, HostClientOrigin, HostProviderService } from './ports.js';
+import { bindHostMcpSettingsMethods } from './mcp-settings-connection.js';
+import type {
+  HostAuthService,
+  HostClientOrigin,
+  HostMcpSettingsService,
+  HostProviderService,
+} from './ports.js';
 import {
   HOST_CHILDREN_CHANGED,
   type HostLogRow,
@@ -25,6 +31,8 @@ export interface HostConnectionOptions {
   /** The platform's credential authority, where the host owns one. */
   readonly auth?: HostAuthService;
   readonly lifecycle?: HostConnectionLifecycle;
+  /** The desktop's MCP settings authority, where the host owns one. */
+  readonly mcpSettings?: HostMcpSettingsService;
   /** The transport's client origin; the public socket is never the desktop. */
   readonly origin?: HostClientOrigin;
   /** The platform's provider reads, where the host owns a credential store. */
@@ -39,7 +47,7 @@ export function bindHostConnection(
   attached: () => void,
   options: HostConnectionOptions = {}
 ): () => void {
-  const { auth, lifecycle, origin = 'public-socket', providers } = options;
+  const { auth, lifecycle, mcpSettings, origin = 'public-socket', providers } = options;
   let initialized = false;
   let disposed = false;
   const mcpClient = {
@@ -116,6 +124,7 @@ export function bindHostConnection(
   });
   bindHostAuthMethods(handle, connection, auth, origin);
   bindHostProviderMethods(handle, providers, origin);
+  disposables.push(bindHostMcpSettingsMethods(handle, connection, mcpSettings, origin));
   bindHostHookTrustMethods(handle, core.store);
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));

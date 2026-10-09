@@ -3,41 +3,40 @@ import os from 'node:os';
 import path from 'node:path';
 import { parseMcpConfig as parseAgentMcpConfig } from '@brainstrike/agent';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { McpConfig } from '../../mcp-loader';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  createMcpConfigFile,
+  getDefaultMcpConfigTemplate,
+  parseMcpConfig,
+} from '../src/mcp/config-file.js';
 
-const appGetPath = vi.hoisted(() => vi.fn());
-const decryptStringAsync = vi.hoisted(() => vi.fn());
-const isAsyncEncryptionAvailable = vi.hoisted(() => vi.fn());
+/** One fresh config-file instance for a profile directory, under the loader's names. */
+function loader(userDataDir: string) {
+  const file = createMcpConfigFile(userDataDir);
+  return {
+    getDefaultMcpConfigTemplate,
+    getMcpConfigPath: () => file.path(),
+    loadMcpConfig: () => file.load(),
+    parseMcpConfig,
+    readMcpConfigText: (createIfMissing?: boolean) => file.readText(createIfMissing),
+    setCustomMcpConfigPath: (configPath: string | null) => file.setCustomPath(configPath),
+    writeMcpConfigText: (content: string) => file.writeText(content),
+  };
+}
 
-vi.mock('electron', () => ({
-  app: {
-    getPath: (key: string) => appGetPath(key),
-  },
-  safeStorage: {
-    decryptStringAsync: (buf: Buffer) => decryptStringAsync(buf),
-    isAsyncEncryptionAvailable: () => isAsyncEncryptionAvailable(),
-  },
-}));
-
-describe('mcp-loader', () => {
+describe('MCP config file', () => {
   let tempDir: string;
 
   beforeEach(() => {
-    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-loader-'));
-    appGetPath.mockReturnValue(tempDir);
-    decryptStringAsync.mockReset();
-    isAsyncEncryptionAvailable.mockReset();
-    isAsyncEncryptionAvailable.mockResolvedValue(true);
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-config-file-'));
   });
 
   afterEach(() => {
     fs.rmSync(tempDir, { force: true, recursive: true });
-    vi.resetModules();
   });
 
   it('parses valid MCP config and rejects invalid ones', async () => {
-    const { parseMcpConfig } = await import('../../mcp-loader');
+    const { parseMcpConfig } = loader(tempDir);
 
     expect(() => parseMcpConfig('{}')).toThrow('invalid_mcp_config');
 
@@ -70,7 +69,7 @@ describe('mcp-loader', () => {
   });
 
   it('applies one configured-server identity policy at every parser boundary', async () => {
-    const { parseMcpConfig } = await import('../../mcp-loader');
+    const { parseMcpConfig } = loader(tempDir);
     for (const name of ['', ' linear', 'linear ', '__proto__', 'linear\nproduction']) {
       expect(() => parseConfiguredMcpServerId(name)).toThrow();
       const input = JSON.stringify({ servers: [{ command: 'node', name, transport: 'stdio' }] });
@@ -80,7 +79,7 @@ describe('mcp-loader', () => {
   });
 
   it('requires explicit user startup for native OAuth HTTP servers', async () => {
-    const { parseMcpConfig } = await import('../../mcp-loader');
+    const { parseMcpConfig } = loader(tempDir);
     const nativeOAuth = parseMcpConfig(
       JSON.stringify({
         servers: [
@@ -114,7 +113,7 @@ describe('mcp-loader', () => {
   });
 
   it('surfaces omitted protocol migration without rewriting the JSONC document', async () => {
-    const { loadMcpConfig, setCustomMcpConfigPath } = await import('../../mcp-loader');
+    const { loadMcpConfig, setCustomMcpConfigPath } = loader(tempDir);
     const configPath = path.join(tempDir, 'mcp', 'protocol-migration.json');
     const content = `{
       // This comment and formatting must survive migration discovery.
@@ -138,7 +137,7 @@ describe('mcp-loader', () => {
   });
 
   it('accepts explicit protocol modes and rejects modern policy on legacy SSE', async () => {
-    const { parseMcpConfig } = await import('../../mcp-loader');
+    const { parseMcpConfig } = loader(tempDir);
     const auto = { command: 'node', name: 'auto', protocol: 'auto', transport: 'stdio' };
     expect(parseMcpConfig(JSON.stringify({ servers: [auto] })).servers[0]?.protocol).toBe('auto');
 
@@ -159,7 +158,7 @@ describe('mcp-loader', () => {
   });
 
   it('requires an explicit marker for user-paced authentication startup', async () => {
-    const { parseMcpConfig } = await import('../../mcp-loader');
+    const { parseMcpConfig } = loader(tempDir);
     const config = parseMcpConfig(
       JSON.stringify({
         servers: [
@@ -194,71 +193,72 @@ describe('mcp-loader', () => {
     ).toThrow('invalid_mcp_config');
   });
 
-  it('decrypts encrypted values and applies to headers/env', async () => {
-    decryptStringAsync.mockResolvedValue({ result: 'decrypted', shouldReEncrypt: false });
-    const { decryptIfEncrypted, withDecryptedSecrets } = await import('../../mcp-loader');
-
+  it('refuses safeStorage-encrypted header and env values visibly', () => {
     const encoded = Buffer.from('secret', 'utf-8').toString('base64');
+    expect(() =>
+      parseMcpConfig(
+        JSON.stringify({
+          servers: [
+            {
+              headers: { AuthorizationEncrypted: encoded },
+              name: 'remote',
+              protocol: 'legacy',
+              transport: 'sse',
+              url: 'https://example.com/sse',
+            },
+          ],
+        })
+      )
+    ).toThrow(
+      'invalid_mcp_config: MCP server "remote" value "AuthorizationEncrypted" holds an Electron safeStorage secret, which the agent host does not read; use a bearer credential reference'
+    );
+    expect(() =>
+      parseMcpConfig(
+        JSON.stringify({
+          servers: [
+            {
+              command: 'node',
+              env: { API_KEYEncrypted: encoded },
+              name: 'local',
+              protocol: 'legacy',
+              transport: 'stdio',
+            },
+          ],
+        })
+      )
+    ).toThrow(/MCP server "local" value "API_KEYEncrypted"/u);
+  });
 
-    await expect(decryptIfEncrypted(encoded)).resolves.toBe('decrypted');
-
-    const config: McpConfig = {
+  it('reports a stored encrypted value as a load error and refuses to save one', async () => {
+    const file = createMcpConfigFile(tempDir);
+    const configPath = await file.path();
+    const content = JSON.stringify({
       servers: [
         {
-          headers: { AuthorizationEncrypted: encoded },
-          name: 'remote',
-          transport: 'sse',
-          url: 'https://example.com/sse',
-        },
-        {
           command: 'node',
-          env: { API_KEYEncrypted: encoded },
+          env: { TOKENEncrypted: 'c2VjcmV0' },
           name: 'local',
+          protocol: 'legacy',
           transport: 'stdio',
         },
       ],
-    };
-
-    const decrypted = await withDecryptedSecrets(config);
-    const sseServer = decrypted.servers[0];
-    const stdioServer = decrypted.servers[1];
-    if (!(sseServer && stdioServer)) {
-      throw new Error('expected decrypted SSE and stdio servers');
-    }
-
-    if (sseServer.transport === 'sse') {
-      expect(sseServer.headers?.['Authorization']).toBe('decrypted');
-    }
-    if (stdioServer.transport === 'stdio') {
-      expect(stdioServer.env?.['API_KEY']).toBe('decrypted');
-    }
-  });
-
-  it('rejects when decryption fails', async () => {
-    decryptStringAsync.mockRejectedValue(new Error('fail'));
-    isAsyncEncryptionAvailable.mockResolvedValue(true);
-    const { decryptIfEncrypted } = await import('../../mcp-loader');
-
-    const encoded = Buffer.from('plain', 'utf-8').toString('base64');
-    await expect(decryptIfEncrypted(encoded)).rejects.toThrow('MCP encrypted value: fail');
-  });
-
-  it('rejects when asynchronous safeStorage is unavailable', async () => {
-    isAsyncEncryptionAvailable.mockResolvedValue(false);
-    decryptStringAsync.mockImplementation(() => {
-      throw new Error('fail');
     });
-    const { decryptIfEncrypted } = await import('../../mcp-loader');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, content, 'utf-8');
 
-    const encoded = Buffer.from('plain', 'utf-8').toString('base64');
-    await expect(decryptIfEncrypted(encoded)).rejects.toThrow(
-      'MCP encrypted value: safeStorage encryption is unavailable'
-    );
-    expect(decryptStringAsync).not.toHaveBeenCalled();
+    const loaded = await file.load();
+    expect(loaded).toMatchObject({ exists: true, path: configPath });
+    expect(loaded.error).toContain('"TOKENEncrypted"');
+    expect(loaded.config).toBeUndefined();
+
+    fs.rmSync(configPath);
+    const written = await file.writeText(content);
+    expect(written.success).toBe(false);
+    expect(fs.existsSync(configPath)).toBe(false);
   });
 
   it('uses custom config path when set', async () => {
-    const { getMcpConfigPath, setCustomMcpConfigPath } = await import('../../mcp-loader');
+    const { getMcpConfigPath, setCustomMcpConfigPath } = loader(tempDir);
 
     await setCustomMcpConfigPath('/tmp/custom-mcp.json');
     await expect(getMcpConfigPath()).resolves.toBe('/tmp/custom-mcp.json');
@@ -269,7 +269,7 @@ describe('mcp-loader', () => {
   });
 
   it('trims whitespace when setting a custom MCP config path', async () => {
-    const { getMcpConfigPath, setCustomMcpConfigPath } = await import('../../mcp-loader');
+    const { getMcpConfigPath, setCustomMcpConfigPath } = loader(tempDir);
     const expectedPath = path.join(tempDir, 'mcp', 'trimmed.config.json');
 
     await setCustomMcpConfigPath(`  ${expectedPath}  `);
@@ -277,7 +277,7 @@ describe('mcp-loader', () => {
   });
 
   it('treats whitespace-only custom path input as reset', async () => {
-    const { getMcpConfigPath, setCustomMcpConfigPath } = await import('../../mcp-loader');
+    const { getMcpConfigPath, setCustomMcpConfigPath } = loader(tempDir);
     await setCustomMcpConfigPath(path.join(tempDir, 'mcp', 'custom.config.json'));
 
     await setCustomMcpConfigPath('   ');
@@ -287,7 +287,7 @@ describe('mcp-loader', () => {
   });
 
   it('rejects relative custom MCP config paths', async () => {
-    const { setCustomMcpConfigPath } = await import('../../mcp-loader');
+    const { setCustomMcpConfigPath } = loader(tempDir);
 
     await expect(setCustomMcpConfigPath('relative/mcp.config.json')).rejects.toThrow(
       'invalid_mcp_config_path: path must be absolute'
@@ -295,7 +295,7 @@ describe('mcp-loader', () => {
   });
 
   it('ignores invalid persisted relative custom paths from disk', async () => {
-    const { getMcpConfigPath } = await import('../../mcp-loader');
+    const { getMcpConfigPath } = loader(tempDir);
     const persistedPathFile = path.join(tempDir, 'mcp', 'mcp-custom-path.txt');
     fs.mkdirSync(path.dirname(persistedPathFile), { recursive: true });
     fs.writeFileSync(persistedPathFile, 'relative/path/from/storage.json', 'utf-8');
@@ -305,9 +305,7 @@ describe('mcp-loader', () => {
   });
 
   it('loads MCP config from disk and reports missing config', async () => {
-    const { getMcpConfigPath, loadMcpConfig, setCustomMcpConfigPath } = await import(
-      '../../mcp-loader'
-    );
+    const { getMcpConfigPath, loadMcpConfig, setCustomMcpConfigPath } = loader(tempDir);
 
     await setCustomMcpConfigPath(null);
     const configPath = await getMcpConfigPath();
@@ -330,7 +328,7 @@ describe('mcp-loader', () => {
   });
 
   it('creates and reads a commented MCP config template when missing', async () => {
-    const { readMcpConfigText, setCustomMcpConfigPath } = await import('../../mcp-loader');
+    const { readMcpConfigText, setCustomMcpConfigPath } = loader(tempDir);
     const templatePath = path.join(tempDir, 'mcp', 'template.json');
     await setCustomMcpConfigPath(templatePath);
 
@@ -342,7 +340,7 @@ describe('mcp-loader', () => {
   });
 
   it('does not overwrite an existing MCP config when creation is requested', async () => {
-    const { readMcpConfigText, setCustomMcpConfigPath } = await import('../../mcp-loader');
+    const { readMcpConfigText, setCustomMcpConfigPath } = loader(tempDir);
     const existingPath = path.join(tempDir, 'mcp', 'existing.json');
     const existingContent = JSON.stringify({
       servers: [{ command: 'node', name: 'existing', transport: 'stdio' }],
@@ -359,7 +357,7 @@ describe('mcp-loader', () => {
   });
 
   it('returns an empty document when MCP config is missing and creation is disabled', async () => {
-    const { readMcpConfigText, setCustomMcpConfigPath } = await import('../../mcp-loader');
+    const { readMcpConfigText, setCustomMcpConfigPath } = loader(tempDir);
     const missingPath = path.join(tempDir, 'mcp', 'missing.json');
     await setCustomMcpConfigPath(missingPath);
 
@@ -373,7 +371,7 @@ describe('mcp-loader', () => {
   });
 
   it('validates before writing MCP config text', async () => {
-    const { setCustomMcpConfigPath, writeMcpConfigText } = await import('../../mcp-loader');
+    const { setCustomMcpConfigPath, writeMcpConfigText } = loader(tempDir);
     const configPath = path.join(tempDir, 'mcp', 'editable.json');
     await setCustomMcpConfigPath(configPath);
 
@@ -391,7 +389,7 @@ describe('mcp-loader', () => {
 
   it('reports saved SSE OAuth as a config error while preserving its raw JSONC for repair', async () => {
     const { loadMcpConfig, readMcpConfigText, setCustomMcpConfigPath, writeMcpConfigText } =
-      await import('../../mcp-loader');
+      loader(tempDir);
     const configPath = path.join(tempDir, 'legacy-oauth.jsonc');
     const content = `{
       // Keep this user's comment, whitespace, and omitted protocol.
@@ -425,7 +423,7 @@ describe('mcp-loader', () => {
   });
 
   it('returns JSONC syntax diagnostics with the raw editable document', async () => {
-    const { readMcpConfigText, setCustomMcpConfigPath } = await import('../../mcp-loader');
+    const { readMcpConfigText, setCustomMcpConfigPath } = loader(tempDir);
     const configPath = path.join(tempDir, 'invalid.jsonc');
     const content = '{ invalid json }';
     fs.writeFileSync(configPath, content, 'utf-8');
@@ -439,7 +437,7 @@ describe('mcp-loader', () => {
   });
 
   it('returns structured errors when writing MCP config text fails', async () => {
-    const { setCustomMcpConfigPath, writeMcpConfigText } = await import('../../mcp-loader');
+    const { setCustomMcpConfigPath, writeMcpConfigText } = loader(tempDir);
     const nonDirectoryPath = path.join(tempDir, 'not-a-directory');
     fs.writeFileSync(nonDirectoryPath, 'file marker', 'utf-8');
     const configPath = path.join(nonDirectoryPath, 'failing-write.json');
@@ -459,9 +457,7 @@ describe('mcp-loader', () => {
   });
 
   it('reports parse errors without treating config as missing', async () => {
-    const { getMcpConfigPath, loadMcpConfig, setCustomMcpConfigPath } = await import(
-      '../../mcp-loader'
-    );
+    const { getMcpConfigPath, loadMcpConfig, setCustomMcpConfigPath } = loader(tempDir);
 
     await setCustomMcpConfigPath(null);
     const configPath = await getMcpConfigPath();
@@ -479,7 +475,7 @@ describe('mcp-loader', () => {
     fs.mkdirSync(path.dirname(persistedPathFile), { recursive: true });
     fs.mkdirSync(persistedPathFile, { recursive: true }); // EISDIR on readFile
 
-    const { getMcpConfigPath } = await import('../../mcp-loader');
+    const { getMcpConfigPath } = loader(tempDir);
     const resolved = await getMcpConfigPath();
 
     expect(resolved).toBe(path.join(tempDir, 'mcp', 'mcp.config.json'));
@@ -488,10 +484,8 @@ describe('mcp-loader', () => {
   it('keeps in-memory custom path when persisting custom path fails', async () => {
     const userDataAsFile = path.join(tempDir, 'userdata-file');
     fs.writeFileSync(userDataAsFile, 'not-a-directory', 'utf-8');
-    appGetPath.mockReturnValue(userDataAsFile);
-    vi.resetModules();
 
-    const { getMcpConfigPath, setCustomMcpConfigPath } = await import('../../mcp-loader');
+    const { getMcpConfigPath, setCustomMcpConfigPath } = loader(userDataAsFile);
     const customPath = path.join(tempDir, 'mcp', 'persist-fail.json');
     await setCustomMcpConfigPath(customPath);
 
@@ -499,7 +493,7 @@ describe('mcp-loader', () => {
   });
 
   it('returns the default MCP config template text', async () => {
-    const { getDefaultMcpConfigTemplate } = await import('../../mcp-loader');
+    const { getDefaultMcpConfigTemplate } = loader(tempDir);
 
     const template = getDefaultMcpConfigTemplate();
     expect(template).toContain('"servers"');
@@ -517,19 +511,5 @@ describe('mcp-loader', () => {
     expect(template).toContain('Native Linear OAuth (read-write; opt in deliberately)');
     expect(template).not.toContain('"access"');
     expect(template).not.toContain('mcp-remote');
-  });
-
-  it('rejects unknown transport entries in withDecryptedSecrets', async () => {
-    const { withDecryptedSecrets } = await import('../../mcp-loader');
-    const unknownServer = { name: 'unknown-server', transport: 'custom' } as unknown as {
-      transport: 'sse' | 'stdio' | 'streamable-http';
-      name: string;
-    };
-
-    await expect(
-      withDecryptedSecrets({
-        servers: [unknownServer],
-      } as unknown as McpConfig)
-    ).rejects.toThrow(/invalid_mcp_config:.*unknown-server.*custom/u);
   });
 });

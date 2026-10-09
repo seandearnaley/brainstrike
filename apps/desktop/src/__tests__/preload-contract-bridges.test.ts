@@ -15,7 +15,6 @@ import { gitContract } from '../ipc-domains/git.contract';
 import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import {
   mcpAppsContract,
-  mcpContract,
   mcpElicitationContract,
   mcpPathSelectionContract,
   mcpTasksContract,
@@ -228,8 +227,8 @@ describe('preload contract-derived bridges', () => {
 
   it('exposes the composed MCP bridge with contract-derived root, Apps and Tasks keys', () => {
     const mcp = exposedApi('mcp');
+    // Server status and lifecycle control are agent-host methods (BST-1930 c5b).
     const expectedRootKeys = new Set([
-      ...Object.keys(mcpContract),
       ...Object.keys(mcpPathSelectionContract),
       ...Object.keys(mcpElicitationContract),
       'apps',
@@ -249,10 +248,6 @@ describe('preload contract-derived bridges', () => {
 
   it('routes MCP contract methods and subscriptions through their manifest channels', async () => {
     const mcp = exposedApi('mcp');
-    mockInvoke.mockResolvedValueOnce({ apps: true, tasks: true });
-    await expect(mcp['getExtensionPreferences']?.()).resolves.toEqual({ apps: true, tasks: true });
-    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.mcp.extensionsGet);
-
     const apps = mcp['apps'] as unknown as Record<string, (...args: unknown[]) => unknown>;
     mockInvoke.mockResolvedValueOnce({ preparationId: 'prep-1' });
     await apps['prepare']?.({ preparationId: 'prep-1' });
@@ -266,16 +261,51 @@ describe('preload contract-derived bridges', () => {
     expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.mcp.taskList);
 
     const listener = vi.fn();
-    const unsubscribe = mcp['onServerStatusUpdated']?.(listener) as () => void;
+    const unsubscribe = mcp['onElicitationRequested']?.(listener) as () => void;
     expect(mockElectron.ipcRenderer.on).toHaveBeenCalledWith(
-      DESKTOP_IPC_CHANNELS.mcp.statusUpdated,
+      DESKTOP_IPC_CHANNELS.mcp.elicitationRequested,
       expect.any(Function)
     );
     unsubscribe();
     expect(mockElectron.ipcRenderer.removeListener).toHaveBeenCalledWith(
-      DESKTOP_IPC_CHANNELS.mcp.statusUpdated,
+      DESKTOP_IPC_CHANNELS.mcp.elicitationRequested,
       expect.any(Function)
     );
+  });
+
+  it("reads an MCP App resource against the server's live generation from Main's status", async () => {
+    const apps = exposedApi('mcp')['apps'] as unknown as Record<
+      string,
+      (...args: unknown[]) => Promise<unknown>
+    >;
+    const uri = 'ui://fixture/app.html';
+    mockInvoke.mockResolvedValueOnce({
+      revision: 3,
+      servers: [{ configuredServerId: 'fixture', generation: 7 }],
+    });
+    mockInvoke.mockResolvedValueOnce({
+      ok: true,
+      result: {
+        result: { contents: [{ mimeType: 'text/html;profile=mcp-app', text: '<p>app</p>', uri }] },
+        type: 'resources/read',
+      },
+    });
+
+    await expect(
+      apps['readResource']?.({
+        mimeType: 'text/html;profile=mcp-app',
+        resourceUri: uri,
+        serverId: 'fixture',
+        toolName: 'show',
+      })
+    ).resolves.toBe('<p>app</p>');
+    expect(mockInvoke.mock.calls.slice(-2)).toEqual([
+      [DESKTOP_IPC_CHANNELS.mcp.statusGet],
+      [
+        DESKTOP_IPC_CHANNELS.mcp.contentReadResource,
+        { authority: { configuredServerId: 'fixture', generation: 7 }, uri },
+      ],
+    ]);
   });
 
   it('unwraps MCP content replies into the established public promise behavior', async () => {

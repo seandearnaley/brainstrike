@@ -27,6 +27,7 @@ import {
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { RemoteMcpRuntime } from '../mcp/remote-runtime';
+import { desktopAppPaths } from './fixtures/desktop-host-profile';
 
 /** The shipped Codex endpoints (descriptors/openai-codex), matched as recorded. */
 const CODEX_TOKEN_URL = 'https://auth.openai.com/oauth/token';
@@ -171,7 +172,7 @@ test('a desktop run and the legacy verifier share the host refresher without rep
     ).toBe(true);
     const options = { lifetime: 'persistent' as const, root };
     host = await startAgentHost(options, (context) =>
-      createHostPlatform(options, context, { credentialStore })
+      createHostPlatform(options, context, { appPaths: desktopAppPaths(root), credentialStore })
     );
     desktop = await desktopClient(host);
     const ui = desktop;

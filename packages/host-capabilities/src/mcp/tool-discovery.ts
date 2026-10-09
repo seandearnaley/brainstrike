@@ -1,27 +1,23 @@
 /**
- * MCP tool discovery and tool-preference projection, split out of
- * `ipc-mcp.ts` to keep that file within its size budget (BST-1604). Pure
- * helpers over the host port and the on-disk tool preferences: no config
+ * MCP tool discovery and tool-preference projection (BST-1604). Pure helpers
+ * over the host port and the profile's on-disk tool preferences: no config
  * lifecycle state lives here.
  */
-import {
-  loadToolPreferences,
-  mcpToolRegistry,
-  saveToolPreferences,
-  type ToolPreferences,
-} from '@brainstrike/agent';
+import { loadToolPreferences, saveToolPreferences, type ToolPreferences } from '@brainstrike/agent';
+// The registry host runs filter tools through: `collectCombinedTools` reads this
+// bundle's instance, not the package root's.
+import { mcpToolRegistry } from '@brainstrike/agent/mcp-client';
 import {
   type McpHostPort,
   type McpHostSnapshot,
   type McpToolPreferencesFaultKind,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
-import type { McpDiscoveredTool } from '@brainstrike/host-capabilities/mcp/types';
 import { createLogger } from '@brainstrike/logging';
-import { app } from 'electron';
-import type { McpServer, ResolvedMcpConfig, ResolvedMcpServer } from '../mcp-loader';
+import type { McpServer, ResolvedMcpConfig, ResolvedMcpServer } from './config-file.js';
+import type { McpDiscoveredTool } from './types.js';
 
-const logger = createLogger('DesktopMcpToolDiscovery');
+const logger = createLogger('McpToolDiscovery');
 const LEGACY_PLACEHOLDER_STDIO_ARG = 'path/to/your/mcp-server.js';
 const LEGACY_PLACEHOLDER_SSE_URL = 'https://example.com/mcp/sse';
 
@@ -280,11 +276,10 @@ async function readMergeBaseStates(userDataDir: string): Promise<Map<string, boo
  * disk, so the toggle silently reverted on the next launch.
  */
 export async function applyToolPreferenceMutation(
+  userDataDir: string,
   mutation: () => void,
   intent: ToolPreferenceWriteIntent
 ): Promise<void> {
-  const userDataDir = app.getPath('userData');
-
   await withToolPreferencesFileLock(async () => {
     const states = intent === 'merge' ? await readMergeBaseStates(userDataDir) : new Map();
 
@@ -379,8 +374,10 @@ export type ToolPreferenceProjection =
   | { status: 'not-read' };
 
 /** Read-only recovery: no retirement, rewrite, timestamp update or file creation. */
-export async function loadToolPreferencesForRecovery(): Promise<ToolPreferenceProjection> {
-  const result = await loadToolPreferences(app.getPath('userData'));
+export async function loadToolPreferencesForRecovery(
+  userDataDir: string
+): Promise<ToolPreferenceProjection> {
+  const result = await loadToolPreferences(userDataDir);
   if (result.status === 'invalid' || result.status === 'unreadable') {
     return { kind: result.status, path: result.path, reason: result.reason, status: 'unavailable' };
   }
@@ -416,10 +413,10 @@ export async function loadToolPreferencesForRecovery(): Promise<ToolPreferencePr
  *    configured servers we have no authority to retire anything.
  */
 export async function loadToolPreferencesForProjection(
+  userDataDir: string,
   registeredIds: ReadonlySet<string>,
   configuredServerNames: ReadonlySet<string>
 ): Promise<ToolPreferenceProjection> {
-  const userDataDir = app.getPath('userData');
   const result = await loadToolPreferences(userDataDir);
 
   if (result.status === 'invalid' || result.status === 'unreadable') {

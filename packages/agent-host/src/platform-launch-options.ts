@@ -42,12 +42,6 @@ export const HostPlatformLaunchOptionsSchema = z.strictObject({
       })
     )
     .optional(),
-  /**
-   * The launching desktop still holds a retired encrypted store it will import
-   * over `auth/import-legacy` once this host is ready; credential use waits
-   * for that import to settle.
-   */
-  legacyImportPending: z.literal(true).optional(),
   /** The MCP server configuration this host composes, as the desktop's config JSON. */
   mcpConfig: z
     .strictObject({

@@ -17,6 +17,12 @@ import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-
 import { z } from 'zod';
 import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 import { HostLedgerThreadSchema } from './ledger-wire.js';
+import {
+  MCP_SETTINGS_METHOD_SCHEMAS,
+  MCP_SETTINGS_RESULT_SCHEMAS,
+} from './protocol-mcp-settings.js';
+
+export * from './protocol-mcp-settings.js';
 
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
 // and the explicit branch links they commit on `run.started`), thread
@@ -41,9 +47,12 @@ import { HostLedgerThreadSchema } from './ledger-wire.js';
 // with `{ action }` and, when the policy also asked, an approval grant), a
 // run's turn snapshots for its Changes review (`workspace.snapshot.recorded`),
 // `ledger/read` (every thread's runs and costed provider calls, as Core folds
-// them) and the threads `thread/delete` deleted (`threadIds`). These additions
-// are optional fields, new variants and new methods, so a v11 reader that uses
-// none of them sees nothing new.
+// them), the threads `thread/delete` deleted (`threadIds`), and the desktop's
+// MCP settings (`mcp/config/*`, `mcp/extensions/*`, `mcp/tools/*`,
+// `mcp/settings/subscribe` and its `mcp/settings/event`) with server status and
+// control (`mcp/status/read`, `mcp/server/control`, the event's `status`
+// variant). These additions are optional fields, new variants and new methods,
+// so a v11 reader that uses none of them sees nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -307,16 +316,6 @@ export type HostLoginCredential = Exclude<ProviderCredential, { readonly type: '
 const LoginCredential = z.custom<HostLoginCredential>(
   (value) => isProviderCredential(value) && value.type !== 'oauth'
 );
-/**
- * The launching desktop's one-time import of its retired encrypted store,
- * decrypted where only it can decrypt: every entry, or why none could be read.
- */
-const HostLegacyImportSchema = z.union([
-  z.strictObject({ entries: z.array(z.strictObject({ account: Id, value: z.string() })) }),
-  z.strictObject({ unavailable: z.string().min(1) }),
-]);
-export type HostLegacyImport = z.infer<typeof HostLegacyImportSchema>;
-
 const Provider = { provider: Id };
 /** A workspace root by its durable ID: the desktop's DB `roots.id`. */
 const HookRoot = { rootId: Id };
@@ -373,6 +372,7 @@ export const ClientOpenExternalParamsSchema = z.strictObject({ url: z.url() });
 export const ClientOpenExternalResultSchema = z.strictObject({ opened: z.literal(true) });
 
 export const HOST_METHOD_SCHEMAS = {
+  ...MCP_SETTINGS_METHOD_SCHEMAS,
   // auth/* is secret-bearing: process-local, never in HostCommandLedger, the log
   // or diagnostics. The host is the single writer and token holder.
   'auth/cancel': z.strictObject(Provider),
@@ -384,7 +384,6 @@ export const HOST_METHOD_SCHEMAS = {
   'auth/credential/delete': z.strictObject({ account: Id }),
   'auth/credential/set': z.strictObject({ account: Id, credential: LoginCredential }),
   'auth/disconnect': z.strictObject(Provider),
-  'auth/import-legacy': HostLegacyImportSchema,
   'auth/login': z.strictObject({ ...Provider, credential: LoginCredential }),
   'auth/status': z.strictObject(Provider),
   'auth/verify': z.strictObject(Provider),
@@ -857,16 +856,13 @@ export const HostLogRowSchema = z.strictObject({
 });
 export type HostLogRow = z.infer<typeof HostLogRowSchema>;
 export const HOST_RESULT_SCHEMAS = {
+  ...MCP_SETTINGS_RESULT_SCHEMAS,
   'auth/cancel': HostAuthStatusSchema,
   'auth/clear': z.strictObject({ cleared: z.boolean() }),
   'auth/connect': HostAuthStatusSchema,
   'auth/credential/delete': z.strictObject({ deleted: z.boolean() }),
   'auth/credential/set': z.strictObject({ stored: z.literal(true) }),
   'auth/disconnect': HostAuthStatusSchema,
-  'auth/import-legacy': z.strictObject({
-    alreadyPresent: z.number().int().nonnegative(),
-    migrated: z.number().int().nonnegative(),
-  }),
   'auth/login': z.strictObject({ stored: z.literal(true) }),
   'auth/status': HostAuthStatusSchema,
   'auth/verify': HostAuthVerdictSchema,

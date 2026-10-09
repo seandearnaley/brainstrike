@@ -12,21 +12,12 @@ import type {
   McpElicitationPresentationWire,
   McpElicitationRetiredWire,
   McpElicitationSettlement,
-  McpExtensionEnablement,
-  McpHostControlRequest,
-  McpHostServerSnapshot,
   McpHostSnapshot,
-  McpHostWatchEvent,
   McpTaskActionRequest,
   McpTaskActionResult,
   McpTaskListResult,
   McpTaskStatusChangedEvent,
-  McpToolPreferencesFault,
 } from '@brainstrike/assistant-contract';
-import type {
-  McpProtocolMigration,
-  ResolvedMcpServer,
-} from '@brainstrike/assistant-contract/mcp-config';
 import type {
   McpContentApplicationError,
   McpContentApplicationRequest,
@@ -51,48 +42,6 @@ function oneArg<T>(subject: string): (raw: readonly unknown[]) => [value: T] {
   };
 }
 
-function oneString(subject: string): (raw: readonly unknown[]) => [value: string] {
-  return (raw) => {
-    assertArgCount(raw, 1, subject);
-    if (typeof raw[0] !== 'string') {
-      throw new Error(`${subject} requires a string`);
-    }
-    return [raw[0]];
-  };
-}
-
-function oneStringArray(subject: string): (raw: readonly unknown[]) => [value: string[]] {
-  return (raw) => {
-    assertArgCount(raw, 1, subject);
-    if (!Array.isArray(raw[0]) || raw[0].some((value) => typeof value !== 'string')) {
-      throw new Error(`${subject} requires an array of strings`);
-    }
-    return [[...raw[0]]];
-  };
-}
-
-export interface McpToolProjection {
-  readonly description?: string;
-  readonly discoveredAt: number;
-  readonly enabled: boolean;
-  readonly id: string;
-  readonly inputSchema?: unknown;
-  readonly serverName: string;
-}
-
-export interface McpConfigStatus {
-  error?: string;
-  exists: boolean;
-  loadedAt?: number;
-  migrations?: McpProtocolMigration[];
-  path: string;
-  servers?: Array<{
-    name: string;
-    protocol: ResolvedMcpServer['protocol'];
-    transport: ResolvedMcpServer['transport'];
-  }>;
-}
-
 export interface McpContentIpcFailure {
   readonly category: McpContentApplicationError['category'];
   readonly code: string;
@@ -103,143 +52,21 @@ export type McpContentIpcResponse =
   | { readonly error: McpContentIpcFailure; readonly ok: false }
   | { readonly ok: true; readonly result: McpContentApplicationResult };
 
-export interface McpToolStatsProjection {
-  readonly disabled: number;
-  readonly enabled: number;
-  readonly preferencesFault?: McpToolPreferencesFault;
-  readonly servers: number;
-  readonly total: number;
-}
-
+/**
+ * Preload-internal: an MCP App resource read names its server's live
+ * generation from Main's status mirror. Renderers read status and run
+ * lifecycle control on the agent host (`mcp/status/read`, `mcp/server/control`,
+ * BST-1930 c5b); this read goes when App content moves to the host (c5d).
+ */
 export const mcpContract = {
-  controlServer: rawChannel<[request: McpHostControlRequest], McpHostServerSnapshot>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.lifecycleControl,
-    parseArgs: oneArg('MCP lifecycle control'),
-    roles: VISIBLE_UI,
-  }),
-  createSampleConfig: rawChannel<[], { success: boolean; path: string; error?: string }>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.configCreateSample,
-    parseArgs: parseNoArgs,
-    roles: VISIBLE_UI,
-  }),
-  disableServerTools: rawChannel<[serverName: string], void>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.toolsDisableServer,
-    parseArgs: oneString('MCP disable server tools'),
-    roles: VISIBLE_UI,
-  }),
-  disableTools: rawChannel<[toolIds: string[]], void>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.toolsDisable,
-    parseArgs: oneStringArray('MCP disable tools'),
-    roles: VISIBLE_UI,
-  }),
-  enableServerTools: rawChannel<[serverName: string], void>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.toolsEnableServer,
-    parseArgs: oneString('MCP enable server tools'),
-    roles: VISIBLE_UI,
-  }),
-  enableTools: rawChannel<[toolIds: string[]], void>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.toolsEnable,
-    parseArgs: oneStringArray('MCP enable tools'),
-    roles: VISIBLE_UI,
-  }),
-  getConfig: rawChannel<[], McpConfigStatus>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.configGet,
-    parseArgs: parseNoArgs,
-    roles: VISIBLE_UI,
-  }),
-  getExtensionPreferences: rawChannel<[], McpExtensionEnablement>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.extensionsGet,
-    parseArgs: parseNoArgs,
-    roles: VISIBLE_UI,
-  }),
-  getPath: rawChannel<[], string>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.configGetPath,
-    parseArgs: parseNoArgs,
-    roles: VISIBLE_UI,
-  }),
   getServerStatusSnapshot: rawChannel<[], McpHostSnapshot>({
     channel: DESKTOP_IPC_CHANNELS.mcp.statusGet,
     parseArgs: parseNoArgs,
     roles: VISIBLE_UI,
   }),
-  getToolStats: rawChannel<[], McpToolStatsProjection>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.toolsGetStats,
-    parseArgs: parseNoArgs,
-    roles: VISIBLE_UI,
-  }),
-  listTools: rawChannel<[], Record<string, McpToolProjection[]>>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.toolsList,
-    parseArgs: parseNoArgs,
-    roles: VISIBLE_UI,
-  }),
-  onConfigUpdated: pushEvent<McpConfigStatus>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.configUpdated,
-  }),
-  onExtensionPreferencesUpdated: pushEvent<McpExtensionEnablement>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.extensionsUpdated,
-  }),
-  onServerStatusUpdated: pushEvent<McpHostWatchEvent>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.statusUpdated,
-  }),
-  onToolsUpdated: pushEvent<Record<string, McpToolProjection[]>>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.toolsUpdated,
-  }),
-  readConfigText: rawChannel<
-    [],
-    { path: string; exists: boolean; created: boolean; content: string; error?: string }
-  >({
-    channel: DESKTOP_IPC_CHANNELS.mcp.configReadText,
-    parseArgs: parseNoArgs,
-    roles: VISIBLE_UI,
-  }),
-  reloadToolPreferences: rawChannel<[], void>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.toolsReloadPreferences,
-    parseArgs: parseNoArgs,
-    roles: VISIBLE_UI,
-  }),
-  resetTools: rawChannel<[], void>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.toolsReset,
-    parseArgs: parseNoArgs,
-    roles: VISIBLE_UI,
-  }),
-  setExtensionPreferences: rawChannel<[preferences: unknown], McpExtensionEnablement>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.extensionsSet,
-    parseArgs: oneArg('MCP extension preferences'),
-    roles: VISIBLE_UI,
-  }),
-  setPath: rawChannel<[configPath: string | null], { success: boolean; path: string }>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.configSetPath,
-    parseArgs: (raw) => {
-      assertArgCount(raw, 1, 'MCP config path');
-      if (raw[0] !== null && typeof raw[0] !== 'string') {
-        throw new Error('MCP config path requires a string or null');
-      }
-      return [raw[0]];
-    },
-    roles: VISIBLE_UI,
-  }),
-  unwatch: rawChannel<[], { watching: false }>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.configUnwatch,
-    parseArgs: parseNoArgs,
-    roles: VISIBLE_UI,
-  }),
-  watch: rawChannel<[], { watching: boolean }>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.configWatch,
-    parseArgs: parseNoArgs,
-    roles: VISIBLE_UI,
-  }),
-  writeConfigText: rawChannel<
-    [content: unknown],
-    { success: true; path: string } | { success: false; path: string; error: string }
-  >({
-    channel: DESKTOP_IPC_CHANNELS.mcp.configWriteText,
-    // The handler intentionally returns its established failure envelope for
-    // non-string content; preserve that public behavior instead of rejecting here.
-    parseArgs: oneArg('MCP config text'),
-    roles: VISIBLE_UI,
-  }),
 } as const satisfies Contract;
 
+/** Main's native picker: the chosen file becomes the host's selected MCP config. */
 export const mcpPathSelectionContract = {
   selectPath: rawChannel<[], string | null>({
     channel: DESKTOP_IPC_CHANNELS.mcp.configSelectPath,
@@ -324,7 +151,6 @@ export const mcpTasksContract = {
   }),
 } as const satisfies Contract;
 
-export type McpContractBridge = Bridge<typeof mcpContract>;
 export type McpPathSelectionContractBridge = Bridge<typeof mcpPathSelectionContract>;
 export type McpContentContractBridge = Bridge<typeof mcpContentContract>;
 export type McpElicitationContractBridge = Bridge<typeof mcpElicitationContract>;
@@ -341,8 +167,7 @@ type McpContentResult<Type extends McpContentApplicationResult['type']> = Extrac
 >;
 
 /** Renderer-facing MCP shape after the preload's intentional compositions. */
-export type McpBridge = McpContractBridge &
-  McpPathSelectionContractBridge &
+export type McpBridge = McpPathSelectionContractBridge &
   McpElicitationContractBridge & {
     readonly apps?: McpAppsContractBridge & Pick<McpAppBridge, 'readResource'>;
     readonly complete: (

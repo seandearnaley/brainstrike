@@ -38,14 +38,15 @@ import type { HostAuthVerdict } from './auth-wire.js';
 import type {
   HostEditOp,
   HostEvent,
-  HostLegacyImport,
   HostLoginCredential,
   HostObservationalMemoryState,
+  HostParams,
   HostResults,
   HostRunSnapshot,
   HostTurnSnapshot,
   HostTurnSnapshotRoot,
 } from './protocol.js';
+import type { McpSettingsEvent } from './protocol-mcp-settings.js';
 
 /** One committed tool-output overlay entry (the legacy ToolProjectionRewriteEntry). */
 export type HostProjectionRewrite = Extract<
@@ -340,10 +341,6 @@ export interface HostAuthService {
   ): Promise<ProviderAuthStatus>;
   deleteCredential(account: string): Promise<boolean>;
   disconnect(provider: string): Promise<ProviderAuthStatus>;
-  /** Idempotent; settles every credential use a launch-declared pending import holds. */
-  importLegacy(
-    input: HostLegacyImport
-  ): Promise<{ readonly alreadyPresent: number; readonly migrated: number }>;
   /** A Settings-namespace entry under its existing account (provider, tool or MCP key). */
   setCredential(account: string, credential: HostLoginCredential): Promise<void>;
   status(provider: string): Promise<ProviderAuthStatus>;
@@ -474,6 +471,40 @@ export interface HostProviderService {
   verify(provider: string, origin: HostClientOrigin): Promise<ProviderVerificationSnapshot>;
 }
 
+/**
+ * The desktop host's MCP settings authority (BST-1930 c5a): the config file, the
+ * global extension dials, and the discovered tools with their saved preferences.
+ * It also reports the runtime's server status and runs lifecycle control (c5b).
+ */
+export interface HostMcpSettingsService {
+  configPath(): Promise<HostResults['mcp/config/path']>;
+  configStatus(): Promise<HostResults['mcp/config/status']>;
+  /** A connect, disconnect or reauthorize also reloads the discovered tools. */
+  control(request: HostParams<'mcp/server/control'>): Promise<HostResults['mcp/server/control']>;
+  createSampleConfig(): Promise<HostResults['mcp/config/sample']>;
+  extensions(): Promise<HostResults['mcp/extensions/read']>;
+  readConfigText(): Promise<HostResults['mcp/config/read']>;
+  reloadToolPreferences(): Promise<void>;
+  resetTools(): Promise<void>;
+  setConfigPath(
+    request: HostParams<'mcp/config/path/set'>
+  ): Promise<HostResults['mcp/config/path/set']>;
+  setExtensions(
+    request: HostParams<'mcp/extensions/set'>
+  ): Promise<HostResults['mcp/extensions/set']>;
+  setServerToolsEnabled(request: HostParams<'mcp/tools/server/set'>): Promise<void>;
+  setToolsEnabled(request: HostParams<'mcp/tools/set'>): Promise<void>;
+  snapshot(): Promise<HostResults['mcp/settings/subscribe']>;
+  status(): HostResults['mcp/status/read'];
+  /** Every later settings and status change; the returned function stops them. */
+  subscribe(listener: (event: McpSettingsEvent) => void): () => void;
+  toolStats(): Promise<HostResults['mcp/tools/stats']>;
+  tools(): Promise<HostResults['mcp/tools/list']>;
+  writeConfigText(
+    request: HostParams<'mcp/config/write'>
+  ): Promise<HostResults['mcp/config/write']>;
+}
+
 /** Credentials and process-local capabilities never become protocol payloads. */
 export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
@@ -493,6 +524,8 @@ export interface HostPlatform {
   readonly generatesThreadTitles?: boolean | undefined;
   /** Supplied by the existing run configuration, not a second host default. */
   readonly maxSteps?: number | undefined;
+  /** The desktop's MCP settings authority; absent where the host owns no MCP config. */
+  readonly mcpSettings?: HostMcpSettingsService;
   /** Run-scoped construction; cached shared memory must not capture a run signal. */
   openRun?(context: HostRunContext): Promise<HostRunOwner>;
   /** Provider reads from the host's own store; absent where it owns none. */
