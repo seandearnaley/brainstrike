@@ -84,7 +84,7 @@ function rewindConversationPreview(
   }
   const count =
     effect?.kind === 'branched'
-      ? ` ${effect.turns} turn${effect.turns === 1 ? '' : 's'} leave this conversation; switch back to them with the branch picker.`
+      ? ` ${effect.turns === 1 ? '1 turn leaves' : `${effect.turns} turns leave`} this conversation; switch back to ${effect.turns === 1 ? 'it' : 'them'} with the branch picker.`
       : '';
   return `The conversation returns to before this message.${count}`;
 }

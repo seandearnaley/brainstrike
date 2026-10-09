@@ -20,7 +20,7 @@ export function rewindConversationOutcome(effect: RewindConversationEffect): str
   if (effect.kind === 'hidden') {
     return `${effect.messages} message${effect.messages === 1 ? '' : 's'} hidden.`;
   }
-  return `${effect.turns} turn${effect.turns === 1 ? '' : 's'} left this conversation; switch back to them with the branch picker.`;
+  return `${effect.turns} turn${effect.turns === 1 ? '' : 's'} left this conversation; switch back to ${effect.turns === 1 ? 'it' : 'them'} with the branch picker.`;
 }
 
 export function RewindOutcomeSummary({
