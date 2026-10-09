@@ -177,6 +177,13 @@ Guard: `scripts/__tests__/check-open-pr-linear-conformance.test.mjs`.
   needs three same-head samples in evidence; collect them with `desktop-e2e.yml`'s
   `memory-baseline` dispatch suite. That suite is evidence collection only — it
   never replaces or routes a required PR check.
+- Desktop `test:integration` and `test:coverage` run through
+  `apps/desktop/scripts/run-integration.mjs`: a Node pass, then an Electron pass
+  for the files that need Electron's V8. Its ordinary vector-search proof copies
+  BGE Small from the repo-ignored `apps/desktop/test-cache/transformers-cache/`;
+  provision it once with `pnpm --filter @brainstrike/desktop provision:test-model-cache`
+  (Electron downloads the four public model files from huggingface.co into its own
+  Cache Storage). Model files are never committed.
 - AI Tools settings specs stay in both required PR smoke lanes and in nightly.
 - E2E collection selection waits for the named picker or loaded single-set label, never unrelated text or pending rows.
 
