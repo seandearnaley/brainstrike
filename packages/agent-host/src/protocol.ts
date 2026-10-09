@@ -338,6 +338,20 @@ export const HOST_METHOD_SCHEMAS = {
   'providers/openrouter-model': z.strictObject({ model: Id }),
   /** The cheapest authenticated probe of one provider's stored or env credential. */
   'providers/verify': z.strictObject(Provider),
+  /**
+   * BST-1932: human input for a running child. The active run ends after its
+   * step in flight, and the input starts the child's next run under these run
+   * settings; only that run's end reports to the parent.
+   */
+  'run/input': z.strictObject({
+    ...Command,
+    ...Run,
+    attachments: Attachments.optional(),
+    configuration: z.record(z.string(), z.json()).optional(),
+    modelId: Id,
+    ...PlanMode,
+    prompt: Id,
+  }),
   'run/regenerate': z.strictObject({
     ...Command,
     ...Thread,
@@ -745,6 +759,7 @@ export const HOST_RESULT_SCHEMAS = {
   'providers/verify': z
     .unknown()
     .transform((value): ProviderVerificationSnapshot => parseProviderVerificationSnapshot(value)),
+  'run/input': z.strictObject({ accepted: z.literal(true) }),
   'run/regenerate': z.strictObject({ runId: Id }),
   'run/start': z.strictObject({ runId: Id }),
   'run/steer': z.strictObject({ outcome: z.enum(['steering', 'already-terminal']) }),
