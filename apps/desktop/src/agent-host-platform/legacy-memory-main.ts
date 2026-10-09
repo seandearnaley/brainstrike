@@ -1,4 +1,4 @@
-import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
+import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import { type PgliteLegacyMemory, readPgliteLegacyMemory } from '@brainstrike/db';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
