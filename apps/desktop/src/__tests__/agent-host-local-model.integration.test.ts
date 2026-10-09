@@ -12,6 +12,7 @@ import {
   type HostClient,
   startAgentHost,
 } from '@brainstrike/agent-host';
+import { foldHostRuns } from '@brainstrike/agent-host/thread-view';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { afterEach, expect, test, vi } from 'vitest';
 import {
@@ -162,6 +163,15 @@ test('a host thread on the built-in local model generates through the hidden llm
     desktop = await desktopClient(host);
     const ui = desktop;
     const { threadId } = await ui.request('thread/start', { commandId: randomUUID() });
+    // The model's text reaches a subscribed view live, as uncommitted telemetry.
+    const deltas: string[] = [];
+    ui.onTelemetry(({ chunk }) => {
+      const { text, type } = chunk as { text?: unknown; type?: unknown };
+      if (type === 'text-delta' && typeof text === 'string') {
+        deltas.push(text);
+      }
+    });
+    await ui.request('log/subscribe', { fromSeq: 0, threadId });
     await ui.request('run/start', {
       commandId: randomUUID(),
       modelId: `local::${LOCAL_MODEL}`,
@@ -181,18 +191,11 @@ test('a host thread on the built-in local model generates through the hidden llm
     expect(generated.length).toBeGreaterThan(0);
     expect(generated[0]).toMatchObject({ modelId: LOCAL_MODEL });
     const rows = (await ui.request('thread/read', { fromSeq: 0, threadId })).rows;
-    // The renderer's progress snapshots streamed as the run's own text deltas.
-    const deltas = rows.flatMap(({ event }) =>
-      event.type === 'stream.chunk' &&
-      typeof event.chunk === 'object' &&
-      event.chunk !== null &&
-      !Array.isArray(event.chunk) &&
-      event.chunk['type'] === 'text-delta'
-        ? [event.chunk['text']]
-        : []
-    );
+    // The renderer's progress snapshots streamed live as the run's own text deltas,
+    // and the committed step owns the reply.
     expect(deltas[0]).toBe(REPLY.slice(0, 10));
     expect(deltas.join('')).toBe(REPLY);
+    expect(foldHostRuns(rows)[0]?.text).toBe(REPLY);
     expect(egress).not.toHaveBeenCalled();
   } finally {
     await desktop?.close();

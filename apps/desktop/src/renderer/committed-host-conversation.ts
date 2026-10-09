@@ -127,11 +127,6 @@ export function createCommittedHostConversation(options: {
   // A running command's output arrives as uncommitted telemetry; its committed
   // result owns the output from then on (ADR-0011 amendment).
   const liveShellOutputs = new LiveShellOutputs();
-  const releaseTelemetry = client.onTelemetry((telemetry) => {
-    if (telemetry.threadId === threadId) {
-      liveShellOutputs.accept(telemetry.chunk);
-    }
-  });
   const releaseResults = client.onEvent((row) => {
     if (row.threadId === threadId && row.event.type === 'effect.finished') {
       liveShellOutputs.clear(row.event.toolCallId);
@@ -142,6 +137,14 @@ export function createCommittedHostConversation(options: {
     liveShellOutputs,
     source,
     threadId,
+  });
+  // A tool's live output and the model's live text and reasoning; each consumer
+  // takes only its own chunk types.
+  const releaseTelemetry = client.onTelemetry((telemetry) => {
+    if (telemetry.threadId === threadId) {
+      liveShellOutputs.accept(telemetry.chunk);
+      store.acceptTelemetry(telemetry.runId, telemetry.chunk);
+    }
   });
   const runSettings = () => ({
     ...(options.readConfiguration
