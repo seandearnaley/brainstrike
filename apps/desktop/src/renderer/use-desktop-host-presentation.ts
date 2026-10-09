@@ -9,7 +9,9 @@ import {
   useAssistantLocalRuntimeCatalog,
   useAssistantModelChange,
   useAssistantModelPickerConfig,
+  useAssistantProviderDisabledReason,
   useAssistantSlashCommands,
+  useAssistantToolMenu,
   useComposerDraftChannel,
   useConfiguredAssistantProviders,
   useEnableModel,
@@ -18,8 +20,11 @@ import {
 } from '@brainstrike/app-shell';
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
-import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
-import { isSupportedProvider, type SupportedProvider } from '@brainstrike/assistant-contract';
+import {
+  findProviderDefinition,
+  isSupportedProvider,
+  type SupportedProvider,
+} from '@brainstrike/assistant-contract';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import type { CommittedAssistantConversationProps } from '@brainstrike/assistant-ui';
 import {
@@ -28,6 +33,7 @@ import {
 } from '@brainstrike/types';
 import { useCallback, useMemo, useState } from 'react';
 import { readDesktopHostConfiguration } from './desktop-host-configuration';
+import { type EnabledCatalogModels, useEnabledCatalogModels } from './use-enabled-catalog-models';
 
 type Presentation = Pick<
   CommittedAssistantConversationProps,
@@ -54,6 +60,7 @@ type Presentation = Pick<
   | 'openRouterModelMetadataLookup'
   | 'effectiveInputBudget'
   | 'planMode'
+  | 'toolMenu'
 >;
 
 interface DesktopHostPresentation extends Presentation {
@@ -62,8 +69,96 @@ interface DesktopHostPresentation extends Presentation {
   readPlanMode(): boolean;
 }
 
+/** The host status's per-provider credential read failures, keyed by provider. */
+export type ProviderReadErrors = Partial<Record<SupportedProvider, string>>;
+
+/**
+ * Admission's rule: a provider whose runtime is `local` (Ollama, LM Studio)
+ * serves whatever model its server lists, with no catalog row; every other
+ * selection needs an enabled `models` row.
+ */
+function isDynamicLocalRuntime(provider: SupportedProvider): boolean {
+  return findProviderDefinition(provider)?.runtime === 'local';
+}
+
+/**
+ * The legacy panel's pre-send provider notice, gating only what admission
+ * refuses. A failed provider refresh gates a send only while nothing is
+ * connected; beside a ready provider it is shown without gating it. A notice
+ * about a local runtime's discovery is shown without gating: admission admits
+ * that selection without the renderer's probe.
+ */
+function useProviderNotice({
+  catalog,
+  configuredProviders,
+  discoveryError,
+  getProviderLlmModels,
+  isModelEnabled,
+  localRuntimeHint,
+  providerReadErrors,
+  selectedModel,
+  selectedProvider,
+}: {
+  readonly catalog: EnabledCatalogModels;
+  readonly configuredProviders: readonly SupportedProvider[];
+  readonly discoveryError: string | undefined;
+  readonly getProviderLlmModels: (
+    provider: SupportedProvider
+  ) => readonly LlmProviderModelDefinition[];
+  readonly isModelEnabled: (provider: SupportedProvider, modelId: string) => boolean;
+  readonly localRuntimeHint: string | undefined;
+  readonly providerReadErrors: ProviderReadErrors | undefined;
+  readonly selectedModel: string | null | undefined;
+  readonly selectedProvider: SupportedProvider | undefined;
+}): { readonly advisory: string | undefined; readonly blocking: string | undefined } {
+  // Enablement is read through the picker's own predicate. Until the catalog
+  // is read, no catalog provider is claimed to have nothing enabled.
+  const providerHasEnabledModels = useCallback(
+    (provider: SupportedProvider): boolean =>
+      (catalog.state !== 'ready' && !isDynamicLocalRuntime(provider)) ||
+      getProviderLlmModels(provider).some((definition) => isModelEnabled(provider, definition.id)),
+    [catalog.state, getProviderLlmModels, isModelEnabled]
+  );
+  const refresh = discoveryError
+    ? `Could not refresh available providers: ${discoveryError}`
+    : undefined;
+  const blockingRefresh = configuredProviders.length === 0 ? refresh : undefined;
+  const provider = useAssistantProviderDisabledReason(
+    {
+      configuredProviders,
+      currentModel: selectedModel,
+      getProviderLlmModels,
+      localRuntimeHint,
+      providerHasEnabledModels,
+      ...(providerReadErrors ? { providerReadErrors } : {}),
+      selectedProvider: selectedProvider ?? null,
+    },
+    blockingRefresh !== undefined
+  );
+  if (selectedProvider && isDynamicLocalRuntime(selectedProvider)) {
+    return { advisory: provider ?? refresh, blocking: blockingRefresh };
+  }
+  const catalogError =
+    catalog.state === 'error' ? `Could not read the enabled models: ${catalog.message}` : undefined;
+  return { advisory: refresh, blocking: blockingRefresh ?? provider ?? catalogError };
+}
+
+/** The panel shows the reason a send is gated, else a notice that gates nothing. */
+function noticeProps(
+  gating: string | undefined,
+  advisory: string | undefined
+): Pick<Presentation, 'disabledReason' | 'isComposerDisabled'> {
+  if (gating) {
+    return { disabledReason: gating, isComposerDisabled: true };
+  }
+  return advisory ? { disabledReason: advisory } : {};
+}
+
 /** Existing picker/settings owners project controls; they own no assistant execution. */
-export function useDesktopHostPresentation(threadId: string): DesktopHostPresentation {
+export function useDesktopHostPresentation(
+  threadId: string,
+  providerReadErrors?: ProviderReadErrors
+): DesktopHostPresentation {
   useEnsureModelRegistry();
   const composerDraft = useComposerDraftChannel(threadId);
   const slashCommands = useAssistantSlashCommands(threadId);
@@ -85,16 +180,14 @@ export function useDesktopHostPresentation(threadId: string): DesktopHostPresent
   );
   const drafts = useAssistantThreadStore((state) => state.draftRuntimeByThreadId);
   const setThreadDraftRuntime = useAssistantThreadStore((state) => state.setThreadDraftRuntime);
-  const registry = useModelRegistryStore((state) => state.models);
-  const downloaded = useModelRegistryStore((state) => state.downloadedModels);
   const draft = drafts[threadId];
   const selectedModel =
     draft?.model && draft.provider ? `${draft.provider}::${draft.model}` : globalModel;
   const providerId = selectedModel?.split('::')[0];
   const selectedProvider = providerId && isSupportedProvider(providerId) ? providerId : undefined;
   const model = selectedModel?.slice((selectedModel.indexOf('::') ?? -1) + 2);
-  const { providers: configuredProviders } = useConfiguredAssistantProviders();
-  const { localRuntimeModels } = useAssistantLocalRuntimeCatalog({
+  const { discoveryError, providers: configuredProviders } = useConfiguredAssistantProviders();
+  const { localRuntimeHint, localRuntimeModels } = useAssistantLocalRuntimeCatalog({
     getLocalRuntimeModels,
     getLocalRuntimeStatuses,
   });
@@ -110,16 +203,14 @@ export function useDesktopHostPresentation(threadId: string): DesktopHostPresent
       getRuntimeProviderLlmModels(provider, runtimeModels, undefined),
     [runtimeModels]
   );
+  // The catalog host admission reads, not the Settings registry cache.
+  const catalog = useEnabledCatalogModels();
   const isModelEnabled = useCallback(
     (provider: SupportedProvider, modelId: string): boolean =>
-      provider === 'ollama' || provider === 'lmstudio'
+      isDynamicLocalRuntime(provider)
         ? getProviderLlmModels(provider).some((definition) => definition.id === modelId)
-        : provider === 'local'
-          ? downloaded[modelId] === true
-          : registry.some(
-              (entry) => entry.providerId === provider && entry.id === modelId && entry.isEnabled
-            ),
-    [downloaded, getProviderLlmModels, registry]
+        : catalog.state === 'ready' && catalog.keys.has(`${provider}::${modelId}`),
+    [catalog, getProviderLlmModels]
   );
   const picker = useAssistantModelPickerConfig({
     configuredProviders,
@@ -160,7 +251,20 @@ export function useDesktopHostPresentation(threadId: string): DesktopHostPresent
       settings,
       metadata.lookup
     );
-  const disabledReason = metadata.reason ?? providerDraft.reason;
+  const providerNotice = useProviderNotice({
+    catalog,
+    configuredProviders,
+    discoveryError,
+    getProviderLlmModels,
+    isModelEnabled,
+    localRuntimeHint,
+    providerReadErrors,
+    selectedModel,
+    selectedProvider,
+  });
+  // The legacy panel's order: the provider notice, then OpenRouter metadata,
+  // then an invalid settings draft.
+  const disabledReason = providerNotice.blocking ?? metadata.reason ?? providerDraft.reason;
   const readConfiguration = useCallback(
     (selectionFolderId: string | null): Record<string, unknown> => {
       if (disabledReason) {
@@ -232,6 +336,11 @@ export function useDesktopHostPresentation(threadId: string): DesktopHostPresent
     [planModeAvailable]
   );
   const onEnableModel = useEnableModel();
+  // Toggles write the native and MCP tool preferences the next send captures.
+  const { toolMenu } = useAssistantToolMenu({
+    runsMcpTools: true,
+    selectedProvider: selectedProvider ?? null,
+  });
   const contextWindow = metadata.modelDef?.contextWindow;
   // The legacy composer's gate: the selected model's vision decides.
   const attachmentsAvailability = resolveComposerAttachmentsAvailability({
@@ -258,10 +367,11 @@ export function useDesktopHostPresentation(threadId: string): DesktopHostPresent
       picker.pickerModels.some((entry) => `${entry.providerId}::${entry.id}` === recent)
     ),
     slashCommands,
+    toolMenu,
     ...(metadata.agentLoopSettings?.inputTokenLimit
       ? { effectiveInputBudget: metadata.agentLoopSettings.inputTokenLimit }
       : {}),
-    ...(disabledReason ? { disabledReason, isComposerDisabled: true } : {}),
+    ...noticeProps(disabledReason, providerNotice.advisory),
     ...(selectedModel ? { selectedModel } : {}),
     ...(selectedProvider ? { selectedProvider } : {}),
     ...(contextWindow ? { contextWindow } : {}),

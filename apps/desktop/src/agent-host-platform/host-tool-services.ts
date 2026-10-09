@@ -38,7 +38,6 @@ import {
   IndexCoverageRequestSchema,
   IndexGrepRequestSchema,
   IndexSearchRequestSchema,
-  QueryEmbeddingPayloadSchema,
   threadScoped,
 } from './retrieval-wire';
 
@@ -63,11 +62,6 @@ export interface HostToolServiceCapabilities {
   readonly grepIndex?: (options: GrepSearchOptions) => Promise<GrepSearchResult>;
   /** Main's workspace index (search, grep, coverage); it stays Main-owned in M3. */
   readonly indexSearch?: IndexSearchCapability;
-  /** The hidden renderer's query embedding (ADR-0007: inference never leaves it). */
-  readonly queryEmbedding?: (
-    payload: z.output<typeof QueryEmbeddingPayloadSchema>,
-    signal: AbortSignal
-  ) => Promise<number[]>;
   /** querySelf's SQL: the sandboxed application role or the read-only index process. */
   readonly querySelf?: QuerySelfRead;
   /** The retrieval catalog over Main's PGlite (embedding sets, file records, spaces). */
@@ -379,12 +373,5 @@ function serveRetrievalReads(
         admitted(threadId);
         return await store().embeddingSpaces(request);
       })
-  );
-  connection.onRequest('platform/embedding/query', (input: unknown, token: CancellationToken) =>
-    execute(token, async (signal) => {
-      const { request, threadId } = threadScoped(QueryEmbeddingPayloadSchema).parse(input);
-      admitted(threadId);
-      return await required(services?.queryEmbedding, 'query embedding host')(request, signal);
-    })
   );
 }

@@ -110,12 +110,9 @@ async function qualifyVectorSearch(): Promise<void> {
   };
   const model = await startModelProviderShim((request) => {
     providerRequests.push(request);
-    if (
-      !['brainstrike_queryEmbeddingSpace', 'brainstrike_hybridSearch'].every((name) =>
-        request.toolNames.includes(name)
-      )
-    ) {
-      throw new Error('The ordinary default catalog did not admit both native retrieval tools');
+    // Hosted discovery defers both native retrieval tools: the model loads them first.
+    if (!request.toolNames.includes('load_tool')) {
+      throw new Error('The ordinary default catalog did not install hosted tool discovery');
     }
     if (!workspaceRootId) {
       throw new Error('The ordinary workspace has no authoritative root identity');
@@ -123,6 +120,14 @@ async function qualifyVectorSearch(): Promise<void> {
     return {
       finalText: 'The actual semantic and hybrid SQLite results were received.',
       toolCallStages: [
+        [
+          {
+            arguments: {
+              toolNames: ['brainstrike_queryEmbeddingSpace', 'brainstrike_hybridSearch'],
+            },
+            name: 'load_tool',
+          },
+        ],
         [
           {
             arguments: {
@@ -619,7 +624,8 @@ async function qualifyVectorSearch(): Promise<void> {
       role: z.literal('tool'),
       tool_call_id: z.string(),
     });
-    const followingRequests = providerRequests.slice(1).map(({ messages }) =>
+    // After the load request and the request that follows the load.
+    const followingRequests = providerRequests.slice(2).map(({ messages }) =>
       messages.flatMap((message) => {
         const parsed = toolMessage.safeParse(message);
         return parsed.success ? [parsed.data] : [];

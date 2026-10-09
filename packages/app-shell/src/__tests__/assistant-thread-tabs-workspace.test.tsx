@@ -8,6 +8,7 @@ import { TAB_STRIP_ICON_BUTTON_CLASS_NAME } from '@brainstrike/ui';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import type { AssistantThreadHostCapability } from '../assistant-thread-host-context';
 import {
   ASSISTANT_THREAD_COLOR_PRESENTATION,
   THREAD_CONTROL_ACTION_CLASS_NAME,
@@ -94,6 +95,33 @@ describe('AssistantThreadTabsWorkspace', () => {
       expect.objectContaining({
         providerKeySources,
       })
+    );
+  });
+
+  it("hands the status's credential read errors to a host-rendered thread", async () => {
+    const renderThread = vi.fn<AssistantThreadHostCapability['renderThread']>((threadId) => (
+      <div data-testid="host-thread">{threadId}</div>
+    ));
+    const host: AssistantThreadHostCapability = {
+      createThread: vi.fn(),
+      deleteThread: vi.fn(async () => false),
+      listThreads: vi.fn(async () => []),
+      ownsThread: vi.fn(async () => false),
+      renameThread: vi.fn(),
+      renderThread,
+      updateThreadBinding: vi.fn(),
+      workspaceRepository: (history) => history,
+    };
+    const providerReadErrors = { openai: 'The OpenAI key could not be read.' };
+    renderWorkspace({ providerReadErrors }, host);
+
+    await screen.findByTestId('host-thread');
+
+    expect(renderThread).toHaveBeenCalledWith(
+      expect.any(String),
+      true,
+      expect.any(Function),
+      providerReadErrors
     );
   });
 

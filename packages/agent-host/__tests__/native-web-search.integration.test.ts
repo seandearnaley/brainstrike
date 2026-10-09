@@ -166,7 +166,11 @@ test('a PreToolUse hook matching web search keeps the catalog tool, so the hook 
       configuration: { provider: 'anthropic' },
       hooks: {
         matchesPreToolUse: (toolName: string) => toolName === WEB_SEARCH_TOOL_ID,
+        // Only a PreToolUse hook is configured; the other phases answer as the real hooks do.
+        postToolUse: async () => ({}),
         preToolUse,
+        stop: async () => ({}),
+        userPromptSubmit: async () => ({ blocked: false }),
       },
       model,
       nativeWebSearch,

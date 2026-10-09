@@ -98,6 +98,8 @@ export const MANUAL_PRODUCTION_REGISTRATIONS: readonly ManualIpcRegistration[] =
       [DESKTOP_IPC_CHANNELS.assistantCheckpoint.revertRun, 'invoke'],
       [DESKTOP_IPC_CHANNELS.hooks.getProjectHooksForReview, 'invoke'],
       [DESKTOP_IPC_CHANNELS.hooks.resolveTrustedRootIds, 'invoke'],
+      [DESKTOP_IPC_CHANNELS.hooks.trustProjectHooks, 'invoke'],
+      [DESKTOP_IPC_CHANNELS.hooks.untrustProjectHooks, 'invoke'],
       [DESKTOP_IPC_CHANNELS.secrets.clearAll, 'invoke'],
       [DESKTOP_IPC_CHANNELS.secrets.delete, 'invoke'],
       [DESKTOP_IPC_CHANNELS.secrets.envBootstrap, 'invoke'],

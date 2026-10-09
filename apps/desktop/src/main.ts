@@ -83,6 +83,7 @@ import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { getDesktopEnvironmentBootstrapResult } from './desktop-env';
 import { buildDesktopEnvBootstrapReport } from './desktop-env-report';
 import { serializeDesktopError } from './desktop-error-serialization';
+import { createDesktopHookTrust, loadDesktopRootPaths } from './desktop-hook-trust';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import {
   createDesktopMaintenanceTriggerGraph,
@@ -129,6 +130,7 @@ import {
 import { createDesktopDimensionIndexMaintenanceScheduler } from './dimension-index-maintenance-scheduler';
 import { resolveBuiltRendererPath } from './dist-root';
 import { installE2eForegroundLatencyProbes } from './e2e-foreground-latency-probes';
+import { createE2eScriptedLlmHost } from './e2e-scripted-llm-host';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
@@ -1081,10 +1083,9 @@ const nativeIndexActivation = createNativeIndexActivation({
             );
           }
         },
-        // ADR-0007: the host's built-in local model runs in the hidden llm-host renderer.
-        llmHost: llmHostManager,
-        // ADR-0007: a host thread's local observer borrows the hidden llm-host.
-        localLlm: createMainLlmHostClient(llmHostManager),
+        // ADR-0007: a host thread's admitted local chat model or observer borrows the hidden
+        // llm-host (an isolated E2E launch may script it instead of downloading the model).
+        localLlm: createMainLlmHostClient(createE2eScriptedLlmHost() ?? llmHostManager),
         // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
         mcp: createDesktopMcpPlatformCapabilities(getDesktopMcpHostRuntime()),
       });
@@ -1128,11 +1129,6 @@ const nativeIndexActivation = createNativeIndexActivation({
   storage,
 });
 installIndexCallerRead(createNativeCallerRead(nativeIndexActivation.withRead));
-const agentHostClientIpc = registerAgentHostClientIpc(
-  nativeIndexActivation.acquireProfile,
-  agentHostPrivateClients.open
-);
-ipcDisposers.add('agent-host-client', agentHostClientIpc.unregister);
 // Main's own desktop-origin client: Settings credential writes, provider sign-in
 // and subscription verification reach the host, their single owner, through it.
 // The host's sign-in pages open through the same validated shell path as the
@@ -1150,6 +1146,19 @@ const agentHostMainClient = createAgentHostMainClient(
 );
 // Only Main can decrypt the retired safeStorage store; the host writes it.
 installDesktopLegacyImporter((input) => agentHostMainClient.request('auth/import-legacy', input));
+// The host owns hook trust. Main imports the retired renderer approvals once,
+// and no visible client attaches, so no host run is admitted, before it settles.
+const desktopHookTrust = createDesktopHookTrust({
+  loadRootPaths: async () => loadDesktopRootPaths(await getDatabase()),
+  request: (method, params) => agentHostMainClient.request(method, params),
+  storage,
+});
+const agentHostClientIpc = registerAgentHostClientIpc(async () => {
+  const attachment = await nativeIndexActivation.acquireProfile();
+  await desktopHookTrust.imported();
+  return attachment;
+}, agentHostPrivateClients.open);
+ipcDisposers.add('agent-host-client', agentHostClientIpc.unregister);
 const nativeRootDataDeletion = createNativeRootDataDeletion({
   acquire: () => nativeIndexActivation.acquire(),
   captureOwner: async () => {
@@ -1294,7 +1303,7 @@ ipcDisposers.add(
     })
   )
 );
-ipcDisposers.add('hooks', registerHooksIpcHandlers());
+ipcDisposers.add('hooks', registerHooksIpcHandlers(desktopHookTrust));
 ipcDisposers.add('context-files', registerContextFilesIpcHandlers());
 ipcDisposers.add('skills', registerSkillsIpcHandlers());
 ipcDisposers.add('user-commands', registerUserCommandsIpcHandlers());

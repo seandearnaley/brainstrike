@@ -4,12 +4,9 @@ import { Button } from '@brainstrike/ui';
 import { Check, X } from 'lucide-react';
 import { type ComponentProps, type ReactElement, type Ref, useState } from 'react';
 import { ApprovalPreview } from './approval-preview';
-import {
-  type ApprovalPreviewSubject,
-  resolveApprovalPreviewPolicy,
-} from './approval-preview-policy';
+import type { ApprovalPreviewSubject } from './approval-preview-policy';
+import { GRANT_OPTION_KINDS, grantsDescribable } from './committed-approval-options';
 import { NetworkDomainChecklist, tickDomain } from './network-domain-checklist';
-import { GRANT_OPTION_KINDS } from './tool-approval-decision';
 
 type ToolProps = ComponentProps<ToolCallMessagePartComponent>;
 
@@ -47,10 +44,9 @@ export function CommittedNetworkConsent({
     ...(isCodeExecutionApprovalContext(context) ? { executionContext: context } : {}),
   };
   const domains = [...new Set(subject.executionContext?.allowedDomains)];
-  const grants =
-    resolveApprovalPreviewPolicy(subject)?.suppressGrants === true
-      ? []
-      : (approval.options ?? []).filter((option) => GRANT_OPTION_KINDS.has(option.kind));
+  const grants = grantsDescribable(subject)
+    ? (approval.options ?? []).filter((option) => GRANT_OPTION_KINDS.has(option.kind))
+    : [];
   const allTicked = domains.length > 0 && domains.every((domain) => ticked.has(domain));
   const send = (action: 'allow' | 'deny', optionId?: string): void => {
     // The pressed control stays focusable (aria-disabled) while pending; refuse a repeat.

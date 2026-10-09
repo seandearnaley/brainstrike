@@ -79,7 +79,8 @@ function selected(
 function harness(
   readConfiguration: DesktopPlatformCapabilities['readConfiguration'],
   closeRootCapabilities?: DesktopPlatformCapabilities['closeRootCapabilities'],
-  hostTools?: DesktopPlatformCapabilities['hostTools']
+  hostTools?: DesktopPlatformCapabilities['hostTools'],
+  localEmbedding?: DesktopPlatformCapabilities['localEmbedding']
 ) {
   const channel = new MessageChannel();
   const first = new UtilityPort(channel.port1);
@@ -92,6 +93,7 @@ function harness(
     readConfiguration,
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
     ...(hostTools ? { hostTools } : {}),
+    ...(localEmbedding ? { localEmbedding } : {}),
   });
   client.onClose(() => client.dispose());
   client.listen();
@@ -382,11 +384,16 @@ it('serves the workspace index, retrieval catalog and query embedding to an admi
     expect(signal).toBeInstanceOf(AbortSignal);
     return [0.5, 0.25];
   });
-  const h = harness(async () => selected({}), undefined, {
-    indexSearch,
-    queryEmbedding,
-    retrievalStore,
-  });
+  const h = harness(
+    async () => selected({}),
+    undefined,
+    { indexSearch, retrievalStore },
+    // Main's one embedding host relay serves the retrieval tools' queries too.
+    {
+      queryEmbedding: async (payload, options) =>
+        await queryEmbedding(payload, options?.signal ?? new AbortController().signal),
+    }
+  );
   const statusRead = { request: {}, threadId: 'thread' };
   try {
     await expect(

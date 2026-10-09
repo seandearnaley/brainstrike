@@ -1,40 +1,12 @@
-import type { ToolApprovalOption, ToolCallMessagePartComponent } from '@assistant-ui/react';
+import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import { isCodeExecutionApprovalContext } from '@brainstrike/assistant-contract/tool-approval';
 import { Button } from '@brainstrike/ui';
 import { type ComponentProps, type ReactElement, type Ref, useState } from 'react';
 import { ApprovalPreview } from './approval-preview';
-import {
-  type ApprovalPreviewSubject,
-  resolveApprovalPreviewPolicy,
-} from './approval-preview-policy';
+import type { ApprovalPreviewSubject } from './approval-preview-policy';
+import { approvalDecisions, describableApprovalOptions } from './committed-approval-options';
 
 type ToolProps = ComponentProps<ToolCallMessagePartComponent>;
-type ApprovalOptions = readonly ToolApprovalOption[] | undefined;
-
-/** The grant options: kept only when the preview can describe the call it would grant. */
-export const GRANT_OPTION_KINDS: ReadonlySet<string> = new Set(['allow-always', '_allow-session']);
-
-/**
- * A decision's buttons: the request's own options when it carries them (the
- * host's grants), else the plain Approve / Decline pair.
- */
-function approvalDecisions(options: ApprovalOptions): readonly {
-  readonly approved: boolean;
-  readonly label: string;
-  readonly optionId?: string;
-}[] {
-  if (!options?.length) {
-    return [
-      { approved: true, label: 'Approve' },
-      { approved: false, label: 'Decline' },
-    ];
-  }
-  return options.map((option) => ({
-    approved: !option.kind.startsWith('reject'),
-    label: option.label ?? option.id,
-    optionId: option.id,
-  }));
-}
 
 /** The committed approval's preview subject, with its host facts when they are valid. */
 function previewSubject(tool: ToolProps): ApprovalPreviewSubject {
@@ -71,10 +43,7 @@ export function ToolApprovalDecision({
     return null;
   }
   const subject = previewSubject(tool);
-  const suppressGrants = resolveApprovalPreviewPolicy(subject)?.suppressGrants === true;
-  const options = suppressGrants
-    ? approval.options?.filter((option) => !GRANT_OPTION_KINDS.has(option.kind))
-    : approval.options;
+  const options = describableApprovalOptions(approval.options, subject);
   return (
     <fieldset
       aria-label={`Tool approval ${tool.toolName}`}
