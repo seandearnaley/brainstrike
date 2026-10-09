@@ -212,7 +212,8 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
-    exclude: ['**/node_modules/**', '**/dist/**'],
+    // `*.compiled.test.*` suites run in vitest.compiled.config.mts.
+    exclude: ['**/node_modules/**', '**/dist/**', '**/*.compiled.test.{ts,tsx}'],
     globals: true,
     hookTimeout: 30_000,
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],

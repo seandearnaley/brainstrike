@@ -24,6 +24,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { GitResult, StructuredFileDiff } from '@brainstrike/types';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { type RewindPreviewPayload, resolveChangesBridge } from './changes-bridge';
+import { useStructuralIdentity } from './use-structural-identity';
 
 const logger = createLogger('UseRewind');
 
@@ -84,8 +85,7 @@ export function useRewind(target: RewindPreviewPayload | null): UseRewindResult 
   // Structural identity, same reason as `use-changeset.ts`'s `stableChangeset`:
   // callers build `{ threadId, messageId }` inline, and a successful load's own
   // `setPreview` re-renders, so a reference-compared dependency never settles.
-  const targetKey = target === null ? null : JSON.stringify(target);
-  const stableTarget = useMemo(() => target, [targetKey]);
+  const stableTarget = useStructuralIdentity(target);
 
   const load = useCallback(async (): Promise<void> => {
     generationRef.current += 1;
