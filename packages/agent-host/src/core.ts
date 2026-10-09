@@ -39,7 +39,7 @@ import {
   recordHostConversationId,
 } from './core-state.js';
 import { deleteHostThread } from './core-thread-deletion.js';
-import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-storage.js';
+import { readHostRow, storedHostEvent } from './event-storage.js';
 import { beginHostRun, foldHostHookContextEvent, hostRunTerminalEvents } from './hook-context.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import { HostLedgerProjection } from './ledger-projection.js';
@@ -343,7 +343,7 @@ export class HostCore {
   }
 
   read(threadId: string, fromSeq: number): Promise<HostLogRow[]> {
-    return readHostThreadHistory(this.store, this.threads, threadId, fromSeq);
+    return this.catalog.readHistory(this.store, this.threads, threadId, fromSeq);
   }
 
   readWorkspace(threadId: string): ReturnType<HostThreadWorkspaceState['readSnapshot']> {
