@@ -308,9 +308,7 @@ function loadProjectRoot(
   if (!trusted) {
     const changed = root.approvedSha256 !== undefined;
     errors.push({
-      message: changed
-        ? 'changed since it was trusted; review it in Settings > Hooks'
-        : 'untrusted; approve in Settings > Hooks',
+      message: changed ? 'changed since it was trusted' : 'not trusted',
       path: filePath,
       reason: changed ? 'changed' : 'untrusted',
       rootId: root.rootId,

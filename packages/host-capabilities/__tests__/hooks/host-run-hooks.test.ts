@@ -48,7 +48,7 @@ test('a run whose only project hooks file is untrusted runs no hooks, and names 
   expect(loaded.hooks).toBeUndefined();
   expect(loaded.skipped).toEqual([
     {
-      detail: 'untrusted; approve in Settings > Hooks',
+      detail: 'not trusted',
       path: projectPath,
       reason: 'untrusted',
       rootId: 'root-1',

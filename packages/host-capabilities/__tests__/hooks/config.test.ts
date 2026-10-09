@@ -138,7 +138,7 @@ describe('loadHooksConfig', () => {
     expect(commands).toEqual(['b']);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]?.rootId).toBe('root-a');
-    expect(result.errors[0]?.message).toMatch(/untrusted/i);
+    expect(result.errors[0]?.message).toBe('not trusted');
     expect(result.errors[0]?.reason).toBe('untrusted');
   });
 

@@ -68,7 +68,26 @@ describe('HookManager', () => {
 
     const notices = events.filter((e) => e.kind === 'hook.notice' && e.status === 'failed');
     expect(notices).toHaveLength(1);
-    expect(notices[0]?.detail).toContain('bad');
+    expect(notices[0]?.detail).toBe('/x/hooks.json: bad');
+  });
+
+  it('names Settings > Hooks for a project file that trusting would run', () => {
+    const events: HookRunEventInput[] = [];
+    makeManager(
+      {
+        errors: [
+          {
+            message: 'not trusted',
+            path: '/x/hooks.json',
+            reason: 'untrusted',
+            rootId: 'r1',
+            scope: 'project',
+          },
+        ],
+      },
+      events
+    ).reportConfigErrors();
+    expect(events[0]?.detail).toBe('/x/hooks.json: not trusted — review it in Settings > Hooks');
   });
 
   it('hasHooks reflects whether any event has hooks', () => {

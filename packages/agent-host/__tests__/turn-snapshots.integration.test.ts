@@ -159,7 +159,7 @@ test('a failed capture is committed visibly and the run still completes', async 
 });
 
 const UNTRUSTED = {
-  detail: 'untrusted; approve in Settings > Hooks',
+  detail: 'not trusted',
   path: '/workspace/project/.brainstrike/hooks.json',
   reason: 'untrusted' as const,
   rootId: 'root-1',
