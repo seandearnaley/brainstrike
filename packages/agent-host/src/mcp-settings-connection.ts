@@ -1,7 +1,7 @@
 import { ErrorCodes, type MessageConnection, ResponseError } from 'vscode-jsonrpc';
 import type { HostMethodHandler } from './auth-connection.js';
 import type { HostClientOrigin, HostMcpSettingsService } from './ports.js';
-import { MCP_SETTINGS_EVENT, McpSettingsEventSchema } from './protocol-mcp-settings.js';
+import { MCP_SETTINGS_EVENT } from './protocol-mcp-settings.js';
 
 const APPLIED = { applied: true } as const;
 const MAX_VISIBLE_ERROR_CHARS = 1000;
@@ -11,7 +11,9 @@ const MAX_VISIBLE_ERROR_CHARS = 1000;
  * Only the desktop's private client reaches them: the config file, extension
  * dials and tool preferences are the desktop profile's, never a CLI's.
  * `mcp/settings/subscribe` answers the current snapshot and starts this
- * connection's `mcp/settings/event` stream until it closes.
+ * connection's `mcp/settings/event` stream until it closes. Events go out as
+ * the typed service produced them; the client validates each on receipt (a
+ * live status snapshot may hold undefined optionals that the wire drops).
  */
 export function bindHostMcpSettingsMethods(
   handle: HostMethodHandler,
@@ -46,9 +48,7 @@ export function bindHostMcpSettingsMethods(
     visible(async () => {
       const owner = service();
       unsubscribe ??= owner.subscribe((event) => {
-        connection
-          .sendNotification(MCP_SETTINGS_EVENT, McpSettingsEventSchema.parse(event))
-          .catch(() => connection.dispose());
+        connection.sendNotification(MCP_SETTINGS_EVENT, event).catch(() => connection.dispose());
       });
       return await owner.snapshot();
     })
@@ -61,6 +61,8 @@ export function bindHostMcpSettingsMethods(
   handle('mcp/config/sample', () => visible(() => service().createSampleConfig()));
   handle('mcp/extensions/read', () => visible(() => service().extensions()));
   handle('mcp/extensions/set', (params) => visible(() => service().setExtensions(params)));
+  handle('mcp/status/read', () => visible(async () => service().status()));
+  handle('mcp/server/control', (params) => visible(() => service().control(params)));
   handle('mcp/tools/list', () => visible(() => service().tools()));
   handle('mcp/tools/stats', () => visible(() => service().toolStats()));
   handle('mcp/tools/set', (params) =>
