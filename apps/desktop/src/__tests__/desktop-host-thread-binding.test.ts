@@ -69,6 +69,7 @@ function fixture() {
     onEvent: vi.fn(() => () => undefined),
     onMcpPresentation: vi.fn(() => () => undefined),
     onMcpSettings: vi.fn(() => () => undefined),
+    onTelemetry: vi.fn(() => () => undefined),
     record: {
       endpoint: '/tmp/recorded-host-fixture',
       hostVersion: '0.1.0',

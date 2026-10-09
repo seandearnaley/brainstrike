@@ -117,6 +117,7 @@ export {
 } from './follow-up-queue-store';
 export { LiveDecisionProvider } from './live-decision-context';
 export { type LiveDecisionTransport, useLiveDecisionTransport } from './live-decision-transport';
+export { LiveShellOutputs } from './live-shell-outputs';
 export { hasDesktopLlmHost } from './local-runtime-adapter';
 export {
   McpTaskBridgeProvider,

@@ -77,5 +77,6 @@ export * from './tool-discovery.js';
 export * from './tool-metadata.js';
 export * from './tool-output-artifact.js';
 export * from './tool-suspend.js';
+export * from './tool-telemetry.js';
 export * from './user-personas.js';
 export * from './user-slash-commands.js';

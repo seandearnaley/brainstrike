@@ -103,6 +103,8 @@ export default defineConfig({
           environment: 'happy-dom',
           globals: true,
           include: ['src/**/*.compiled.test.{ts,tsx}'],
+          // Same as `unit`: one run of both projects needs one maxWorkers per groupOrder.
+          maxWorkers: process.env['CI'] ? '50%' : '100%',
           name: 'compiled',
           pool: 'threads',
           sequence: {

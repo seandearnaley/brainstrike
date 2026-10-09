@@ -254,6 +254,19 @@ export type HostChildStatus = z.infer<typeof HostChildStatusSchema>;
  */
 export const HOST_CHILDREN_CHANGED = 'thread/children/changed';
 export const HostChildrenChangedSchema = z.strictObject(Thread);
+/**
+ * A running tool's live telemetry (a shell-output slice or MCP progress), sent
+ * to the thread's log subscribers and never committed (ADR-0011 amendment).
+ * The tool result that commits later owns the output; a reload shows no slices.
+ */
+export const HOST_RUN_TELEMETRY = 'run/telemetry';
+export const HostRunTelemetrySchema = z.strictObject({
+  ...Thread,
+  chunk: z.json(),
+  runId: Id,
+  toolCallId: Id,
+});
+export type HostRunTelemetry = z.infer<typeof HostRunTelemetrySchema>;
 /** One settled background invocation delivered to its parent (BST-1932). */
 export const HostChildDeliveryEntrySchema = z.strictObject({
   childRunId: Id,
