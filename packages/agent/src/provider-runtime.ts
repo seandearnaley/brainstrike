@@ -5,6 +5,10 @@
  */
 
 export {
+  COMPACTION_SUMMARIZER_INSTRUCTIONS,
+  hasCompactionSummarySchema,
+} from './compaction-summary-schema';
+export {
   type AssistantResilienceConfig,
   resolveAssistantResilienceConfig,
 } from './config/resilience-config';
@@ -17,9 +21,17 @@ export {
   type ResolvedRuntimeConfiguration,
   resolveRuntimeConfiguration,
 } from './mastra/runtime-configuration';
+export {
+  extractProviderRunError,
+  isContextOverflowProviderErrorCode,
+} from './provider-error-metadata';
 export { createAwsCredentialChain } from './providers/aws-credential-chain';
 export type { LocalLlmHostClient } from './providers/local/llm-host-client';
 export type { LocalEmbeddingHostClient } from './providers/local/local-host-embedding-model';
+export {
+  createProviderNativeWebSearchTool,
+  providerSupportsNativeWebSearch,
+} from './providers/native-web-search';
 export {
   apiKeyAuthInput,
   type ProviderAuthInput,

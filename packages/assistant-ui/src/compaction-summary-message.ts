@@ -4,6 +4,26 @@ import {
   isCompactionSummaryPayload,
 } from '@brainstrike/assistant-contract/compaction-summary';
 
+/** A host thread's committed `context.compacted`, as a data part of the run that made it. */
+export const HOST_CONTEXT_COMPACTED_DATA_NAME = 'brainstrike.context-compacted';
+
+export interface HostContextCompaction {
+  readonly kind: CompactionSummaryPayload['fallbackKind'];
+  readonly summary: string;
+}
+
+/** The committed projection writes this part; any other shape is a projection defect. */
+export function readHostContextCompaction(data: unknown): HostContextCompaction {
+  if (
+    isRecord(data) &&
+    (data['kind'] === 'agentic' || data['kind'] === 'deterministic') &&
+    typeof data['summary'] === 'string'
+  ) {
+    return { kind: data['kind'], summary: data['summary'] };
+  }
+  throw new Error('Host compaction part has an unsupported shape.');
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }

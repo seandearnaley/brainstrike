@@ -1,9 +1,8 @@
 import type { WebSearchInput } from '@brainstrike/agent';
 import { fitItemsToCharBudget, WEB_SEARCH_TOOL_ID } from '@brainstrike/agent';
+import { TAVILY_ENV_KEYS } from '@brainstrike/assistant-contract/tavily-env-keys';
 import { createLogger } from '@brainstrike/logging';
-import { getSecretsService } from '../secrets';
-import { TAVILY_ENV_KEYS } from '../tavily-env-keys';
-import { isValidWebSearchCitationUrl } from './web-search-citation-url';
+import { isValidWebSearchCitationUrl } from './web-search-citation-url.js';
 
 const logger = createLogger('AssistantWebSearchTool');
 
@@ -76,12 +75,15 @@ export interface WebSearchToolResult {
   truncated: boolean;
 }
 
-/** Injectable dependencies so tests stay hermetic (no real network/keychain). */
+/** The key owner and the hermetic test seams of one web search. */
 export interface WebSearchToolDependencies {
   /** The fetch implementation (defaults to global fetch). */
   fetchImpl?: typeof fetch;
-  /** Resolves the Tavily API key (env → keychain). Returns undefined when unset. */
-  resolveApiKey?: () => Promise<string | undefined>;
+  /**
+   * Resolves the Tavily API key (env first, then the process's credential
+   * store). Returns undefined when unset. Each process supplies its own owner.
+   */
+  resolveApiKey: () => Promise<string | undefined>;
   /** Network timeout in ms (default 10000). */
   timeoutMs?: number;
 }
@@ -95,9 +97,10 @@ interface TavilyApiResponse {
   }>;
 }
 
-function readTavilyEnvKey(): string | undefined {
+/** The Tavily key from the environment, which wins over any stored key. */
+export function readTavilyEnvKey(env: Readonly<NodeJS.ProcessEnv>): string | undefined {
   for (const envKey of TAVILY_ENV_KEYS) {
-    const value = process.env[envKey];
+    const value = env[envKey];
     if (typeof value === 'string' && value.trim().length > 0) {
       return value.trim();
     }
@@ -106,20 +109,22 @@ function readTavilyEnvKey(): string | undefined {
 }
 
 /**
- * Resolve the Tavily key server-side ONLY: env vars first, then the encrypted
- * keychain via {@link getSecretsService}. The key is never returned to the
- * model or the renderer — it is used solely to authenticate the Tavily request
- * inside this main-process tool (and the BST-1357 verification probe, which is
- * equally main-side and returns only a typed status).
+ * Env first, then the process's own credential store. The key authenticates
+ * only the Tavily request; it never reaches the model, the renderer or a log.
  */
-export async function resolveTavilyApiKeyFromKeychain(): Promise<string | undefined> {
-  const envKey = readTavilyEnvKey();
-  if (envKey) {
-    return envKey;
-  }
-  const stored = await getSecretsService().getKey(TAVILY_SECRET_PROVIDER);
-  const normalized = typeof stored === 'string' ? stored.trim() : '';
-  return normalized.length > 0 ? normalized : undefined;
+export function createTavilyKeyResolver(
+  env: Readonly<NodeJS.ProcessEnv>,
+  readStoredKey: (account: typeof TAVILY_SECRET_PROVIDER) => Promise<string | null | undefined>
+): () => Promise<string | undefined> {
+  return async () => {
+    const envKey = readTavilyEnvKey(env);
+    if (envKey) {
+      return envKey;
+    }
+    const stored = await readStoredKey(TAVILY_SECRET_PROVIDER);
+    const normalized = typeof stored === 'string' ? stored.trim() : '';
+    return normalized.length > 0 ? normalized : undefined;
+  };
 }
 
 function coerceString(value: unknown): string {
@@ -193,11 +198,11 @@ function buildBudgetedResult(args: {
  */
 export async function runWebSearch(
   input: WebSearchInput,
-  dependencies: WebSearchToolDependencies = {}
+  dependencies: WebSearchToolDependencies
 ): Promise<WebSearchToolResult> {
   const query = input.query.trim();
   const maxResults = Math.min(input.maxResults ?? DEFAULT_MAX_RESULTS, MAX_RESULTS_CAP);
-  const resolveApiKey = dependencies.resolveApiKey ?? resolveTavilyApiKeyFromKeychain;
+  const resolveApiKey = dependencies.resolveApiKey;
   const fetchImpl = dependencies.fetchImpl ?? fetch;
   const timeoutMs = dependencies.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 

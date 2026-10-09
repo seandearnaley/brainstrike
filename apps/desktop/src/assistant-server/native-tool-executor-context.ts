@@ -16,13 +16,13 @@ import type {
   NativeToolBuildContext,
   NativeToolPorts,
   ReadWorkspaceFileCursorRegistry,
+  WebSearchToolDependencies,
 } from '@brainstrike/host-capabilities/native-tools';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import type { CommandSessionManager } from './command-session-manager';
 import type { ShellCorrelationCapability } from './shell-worktree-correlation';
 import type { WebExtractToolDependencies } from './web-extract-tool';
-import type { WebSearchToolDependencies } from './web-search-tool';
 import type { WorktreeToolCapability } from './worktree-tools';
 
 export type MastraTools = NonNullable<RuntimeData['mastraTools']>;
@@ -64,7 +64,7 @@ export interface DesktopAssistantToolDependencies {
    */
   /** Same injection seam as `webSearch`, for the webExtract tool. */
   webExtract?: WebExtractToolDependencies | undefined;
-  webSearch?: WebSearchToolDependencies | undefined;
+  webSearch?: Partial<WebSearchToolDependencies> | undefined;
   /**
    * Request-scoped worktree capability (BST-1392). Built in
    * `assistant-server.ts`, where the run id is in scope, so the ledger records

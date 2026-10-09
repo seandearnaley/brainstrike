@@ -34,6 +34,7 @@ async function runWithHooks(hooks: Partial<HostRunHooks>) {
     admitRun: async () => ({
       configuration: {},
       hooks: {
+        matchesPreToolUse: () => false,
         postToolUse: async () => ({}),
         preToolUse: async () => ({ blocked: false }),
         stop: async () => ({}),

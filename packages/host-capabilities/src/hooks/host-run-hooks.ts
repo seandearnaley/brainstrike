@@ -76,6 +76,7 @@ export function createHostRunHooks(options: HostRunHooksOptions): HostRunHooks |
     return;
   }
   return {
+    matchesPreToolUse: (toolName) => manager.matchesPreToolUse(toolName),
     postToolUse: async ({ error, input, output, toolName }) => {
       const result = await manager.runPostToolUse({
         toolError: error,

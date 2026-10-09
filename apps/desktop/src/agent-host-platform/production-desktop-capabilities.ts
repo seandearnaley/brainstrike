@@ -5,6 +5,7 @@ import {
   isSupportedProvider,
   type RuntimeData,
   resolveAssistantResilienceConfig,
+  type ScopedToolOutputArtifactReader,
 } from '@brainstrike/agent';
 import {
   DEFAULT_AGENT_MAX_STEPS,
@@ -48,6 +49,7 @@ import {
 } from '../assistant-server/assistant-tools';
 import { pgliteGrepIndex } from '../assistant-server/grep-search-tool';
 import { prepareRequestSkills } from '../assistant-server/request-skills';
+import { pgliteRetrievalStore } from '../assistant-server/retrieval-store-pglite';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
 import {
@@ -60,7 +62,7 @@ import type {
   DesktopWorkspaceBindingAuthority,
   DesktopWorkspaceBindingBorrow,
 } from './desktop-workspace-binding';
-import type { DesktopShellCorrelation } from './host-tool-services';
+import type { DesktopShellCorrelation, HostToolServiceCapabilities } from './host-tool-services';
 import type { DesktopPlatformCapabilities, DesktopPlatformSelection } from './main-platform';
 import { resolveDesktopMemoryVectors } from './memory-vector-selection';
 import {
@@ -343,6 +345,8 @@ async function createDesktopNativeTools(
   workspace?: DesktopWorkspaceBindingBorrow
 ): Promise<{
   readonly freshRoots: () => Promise<NonNullable<RuntimeData['workspaceRoots']>>;
+  /** Retrieval is admitted to the thread's own roots (a CLI selection or a binding). */
+  readonly retrievalRootsOnly: boolean;
   readonly readWorkspaceFile: WorkspaceFileReader;
   readonly revalidateWorkspace: () => Promise<void>;
   readonly runtime: RuntimeData;
@@ -374,11 +378,8 @@ async function createDesktopNativeTools(
   const revalidateWorkspace = async (): Promise<void> => {
     await freshRoots();
   };
-  const readWorkspaceFile = desktopContextReader(
-    request,
-    freshRoots,
-    selection !== undefined || workspace !== undefined
-  );
+  const retrievalRootsOnly = selection !== undefined || workspace !== undefined;
+  const readWorkspaceFile = desktopContextReader(request, freshRoots, retrievalRootsOnly);
   const focused = roots.find((root) => root.rootId === intent.selectionFolderId);
   if (intent.selectionFolderId && !focused) {
     throw new Error('The selected workspace root is no longer mounted');
@@ -457,12 +458,11 @@ async function createDesktopNativeTools(
               { resolveForgeService, resolveWorktreeService },
               { runId: context?.runId, threadId: context?.threadId }
             ),
-            ...desktopRetrievalScopeFields(
-              selection !== undefined || workspace !== undefined,
-              currentRoots
-            ),
+            ...desktopRetrievalScopeFields(retrievalRootsOnly, currentRoots),
             ...(workspaceSkills ? { skillScriptResolver: workspaceSkills } : {}),
             resolvedToolResultBudget: budget,
+            // The host owns committed outputs: it executes the artifact reader.
+            toolOutputArtifactReader: HOST_EXECUTED_ARTIFACT_READER,
           }
         ),
         ...skillTools,
@@ -495,6 +495,7 @@ async function createDesktopNativeTools(
   return {
     freshRoots,
     readWorkspaceFile,
+    retrievalRootsOnly,
     revalidateWorkspace,
     runtime,
     tools,
@@ -522,14 +523,25 @@ function advertisedNativeTools(
   return entries.filter(([, tool]) => !WORKTREE_TOOL_IDS.has(tool.permissionToolId ?? ''));
 }
 
+/** Main only describes the host's artifact reader; the host executes it over its own log. */
+const HOST_EXECUTED_ARTIFACT_READER: ScopedToolOutputArtifactReader = {
+  readRange: () => {
+    throw new Error('The tool output artifact reader executes in the agent host');
+  },
+};
+
 /** What the host's shared native tools need from this admission; roots come back per call. */
-function desktopNativeRuntime(runtime: RuntimeData): DesktopPlatformSelection['nativeRuntime'] {
+function desktopNativeRuntime(
+  runtime: RuntimeData,
+  retrievalRootsOnly: boolean
+): DesktopPlatformSelection['nativeRuntime'] {
   if (typeof runtime.provider !== 'string' || !runtime.workspaceRoots) {
     throw new Error('Desktop admission has no native tool runtime');
   }
   return {
     ...(runtime.boundWorkspaceRootId ? { boundWorkspaceRootId: runtime.boundWorkspaceRootId } : {}),
     provider: runtime.provider,
+    ...(retrievalRootsOnly ? { retrievalRootsOnly: true as const } : {}),
     ...(runtime.selectionFilePaths ? { selectionFilePaths: [...runtime.selectionFilePaths] } : {}),
     ...(runtime.selectionFolderId ? { selectionFolderId: runtime.selectionFolderId } : {}),
     ...(runtime.workspaceContext
@@ -541,6 +553,24 @@ function desktopNativeRuntime(runtime: RuntimeData): DesktopPlatformSelection['n
       path,
       rootId,
     })),
+  };
+}
+
+/** The Main-owned stores and services host threads' own tools read through Main. */
+function desktopHostToolServices(
+  dependencies: DesktopHostToolServices
+): HostToolServiceCapabilities {
+  const embeddings = dependencies.embeddingHostManager;
+  return {
+    grepIndex: pgliteGrepIndex,
+    ...(dependencies.nativeIndexSearch ? { indexSearch: dependencies.nativeIndexSearch } : {}),
+    ...(embeddings
+      ? {
+          queryEmbedding: (payload, signal) => embeddings.queryEmbedding(payload, { signal }),
+        }
+      : {}),
+    retrievalStore: pgliteRetrievalStore(),
+    shell: desktopShellCorrelation(dependencies),
   };
 }
 
@@ -702,7 +732,7 @@ export function productionDesktopCapabilities(
           ...(memoryVectors ? { vectorProfile: memoryVectors.profile } : {}),
         },
         ...(memoryVectors?.local ? { localEmbedding: memoryVectors.local } : {}),
-        nativeRuntime: desktopNativeRuntime(native.runtime),
+        nativeRuntime: desktopNativeRuntime(native.runtime, native.retrievalRootsOnly),
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         ...desktopSystemFields(system),
         tools,
@@ -722,7 +752,7 @@ export function productionDesktopCapabilities(
     ...(workspaceAuthority
       ? { validateWorkspaceBinding: workspaceAuthority.validateWorkspaceBinding }
       : {}),
-    hostTools: { grepIndex: pgliteGrepIndex, shell: desktopShellCorrelation(dependencies) },
+    hostTools: desktopHostToolServices(dependencies),
     readConfiguration: async (request) => {
       let workspace: DesktopWorkspaceBindingBorrow | undefined;
       if (request.workspaceBinding && changesThreadWorkspaceScope(request.workspaceBinding)) {

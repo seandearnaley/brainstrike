@@ -17,6 +17,7 @@ import {
   selectCommittedAssistantMessage,
   selectCommittedAssistantTool,
 } from '../committed-assistant-store';
+import { HOST_CONTEXT_COMPACTED_DATA_NAME } from '../compaction-summary-message';
 import { ToolFallback } from '../tool-fallback';
 import { ToolResultRendererProvider } from '../tool-result-renderer-context';
 import {
@@ -267,6 +268,34 @@ describe('production external store binding', () => {
     expect(await screen.findByTestId('context-usage-om-note')).toHaveTextContent(
       /paused.*branches/i
     );
+  });
+
+  it('shows a compaction that fell back as the compaction card in the committed thread', async () => {
+    const summary =
+      'Deterministic fallback: dropped 3 earlier turns (6 messages) after an agentic summarizer failure; no summarization model ran.';
+    const source = new PublishedConversation('root', [
+      viewMessage('answer', [
+        {
+          data: { kind: 'deterministic', summary },
+          name: HOST_CONTEXT_COMPACTED_DATA_NAME,
+          type: 'data',
+        },
+        { text: 'Answer', type: 'text' },
+      ]),
+    ]);
+    render(
+      <TooltipProvider>
+        <CommittedAssistantConversation
+          commands={{ onNew: vi.fn() }}
+          label="Conversation"
+          store={source}
+        />
+      </TooltipProvider>
+    );
+    const card = await screen.findByTestId('compaction-summary-card');
+    expect(card).toHaveAttribute('data-compaction-fallback', 'deterministic');
+    expect(card).toHaveTextContent('Deterministic compaction (no summarization model ran)');
+    expect(card).toHaveTextContent(summary);
   });
 
   it('observes asynchronous tool-resume failures without changing a pending interaction', async () => {

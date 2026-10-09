@@ -1,11 +1,13 @@
-import type { ToolRiskCategory } from '@brainstrike/assistant-contract';
-import type { ModelMessage } from 'ai';
+import type { PermissionToolGateSnapshot, ToolRiskCategory } from '@brainstrike/assistant-contract';
+import type { ModelMessage, Tool } from 'ai';
 import { recordRawToolInputs } from './approval-input.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import type { HostMcpInputPersistenceError } from './mcp-input-state.js';
 import type { HostClientOrigin, HostRunAdmission, HostRunContext, HostRunOwner } from './ports.js';
 import {
   HOST_METHOD_SCHEMAS,
+  type HostChildDelivery,
+  type HostChildOrigin,
   type HostEvent,
   type HostImageAttachment,
   type HostParams,
@@ -164,10 +166,41 @@ export function foldHostInteraction(
     approval.resumeData = event.resumeData;
   }
 }
+/** Folds a committed effect or terminal into its run; other events are not run effects. */
+export function foldHostRunEffect(
+  runs: ReadonlyMap<string, HostRunState>,
+  event: HostEvent,
+  ts: number | undefined
+): void {
+  if (event.type === 'effect.started') {
+    const run = runs.get(event.runId);
+    run?.started.add(event.toolCallId);
+    run?.effectTools.set(event.toolCallId, event.toolCatalogId ?? event.toolId);
+  } else if (event.type === 'effect.finished') {
+    const run = runs.get(event.runId);
+    run?.outputs.set(event.toolCallId, event.output);
+    if (ts !== undefined) {
+      run?.outputCommittedAt.set(event.toolCallId, ts);
+    }
+  } else if (event.type === 'run.finished') {
+    const run = runs.get(event.runId);
+    if (run) {
+      run.terminal = true;
+      run.outcome = event.outcome;
+      // BST-1932: a child's failure reaches its parent with its committed reason.
+      if (event.detail !== undefined) {
+        run.detail = event.detail;
+      }
+    }
+  }
+}
+
 /** A run's committed position in the thread's conversation tree. */
 export interface HostRunBranch {
   /** Images on the user message, beside its prompt. */
   readonly attachments?: readonly HostImageAttachment[];
+  /** BST-1932: background child results delivered with this run's user message. */
+  readonly delivery?: HostChildDelivery;
   /** The committed run its user message follows; null is the thread root. */
   readonly parentMessageId: string | null;
   readonly prompt: string;
@@ -178,12 +211,20 @@ export interface HostRunBranch {
 export interface HostRunState {
   admission?: HostRunAdmission;
   admissionTask?: Promise<HostRunAdmission>;
+  /** A child's root permission policy at admission; only its denies stay frozen (ADR-0010). */
+  admittedPolicy?: PermissionToolGateSnapshot;
   readonly approvals: Map<string, PendingInteraction>;
   readonly branch: HostRunBranch;
   readonly checkpointedResults: Set<string>;
   completion?: Promise<void>;
   readonly controller: AbortController;
+  /** Set when a child's execution deadline expired; it ends failed, not stopped. */
+  deadline?: string;
+  /** The committed run.finished detail, once terminal. */
+  detail?: string;
   readonly effects: Set<Promise<unknown>>;
+  /** The tool each committed effect ran, by call: catalog id, else provider name. */
+  readonly effectTools: Map<string, string>;
   /** Its thread's grants for this host process, shared with the thread's other runs. */
   readonly grants: HostThreadGrants;
   readonly id: string;
@@ -199,7 +240,17 @@ export interface HostRunState {
   /** This run's own committed model messages, after its user message. */
   readonly messages: ModelMessage[];
   readonly modelId: string;
+  /**
+   * The provider's web search standing in for the catalog tool, fixed when the
+   * run was admitted: only when that tool resolved to `allow` and no approval
+   * of it is in flight. It has no execute, so steps re-check the live policy.
+   */
+  nativeWebSearch?: { readonly tool: Tool; readonly toolId: string } | undefined;
+  /** BST-1932: present on every run of a child thread. */
+  origin?: HostChildOrigin;
   outcome?: Extract<HostEvent, { type: 'run.finished' }>['outcome'];
+  /** When each output committed (its row time), for artifact retention. */
+  readonly outputCommittedAt: Map<string, number>;
   readonly outputs: Map<string, Json>;
   owner?: Promise<HostRunOwner | undefined>;
   ownerClose?: Promise<void>;
@@ -209,6 +260,8 @@ export interface HostRunState {
   readonly permits: Map<string, Action>;
   /** Committed on run.started: it reads and proposes a plan, and approval ends it. */
   planMode?: true;
+  /** A child's root thread, whose live permission policy governs its decisions. */
+  policyThreadId?: string;
   /** A UserPromptSubmit hook's committed context, part of the run's instructions. */
   promptContext?: string;
   readonly rawInputs: Map<string, Json>;
@@ -226,6 +279,8 @@ export interface HostRunState {
   readonly threadId: string;
   /** PostToolUse hooks' committed context, read with each tool's result. */
   readonly toolContexts: Map<string, string>;
+  /** A follow-up typed into an idle child starts its own turn: its ID. */
+  turnId?: string;
 }
 
 export function createHostRunState(
@@ -250,6 +305,8 @@ export function createHostRunState(
     messages: [],
     modelId,
     ...(snapshot ? { snapshot } : {}),
+    effectTools: new Map(),
+    outputCommittedAt: new Map(),
     outputs: new Map(),
     paused: false,
     permits: new Map(),

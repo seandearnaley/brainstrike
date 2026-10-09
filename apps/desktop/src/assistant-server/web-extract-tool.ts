@@ -3,7 +3,7 @@ import { WEB_EXTRACT_TOOL_ID } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/logging';
 import { getSecretsService } from '../secrets';
 import { TAVILY_ENV_KEYS } from '../tavily-env-keys';
-import { TAVILY_SECRET_PROVIDER } from './web-search-tool';
+import { TAVILY_SECRET_PROVIDER } from './tavily-key';
 
 const logger = createLogger('AssistantWebExtractTool');
 

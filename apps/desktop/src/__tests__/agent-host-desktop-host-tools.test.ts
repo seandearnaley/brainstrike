@@ -114,6 +114,8 @@ test('the desktop host runs lspInspect in its own process, revalidating roots th
   const tools = desktopHostSharedTools({
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
+    // These cases build no web search; the host's Tavily owner is never read.
+    resolveTavilyApiKey: async () => undefined,
     selected: selection(root),
     threadId: 'host-thread',
   });
@@ -145,6 +147,8 @@ test('the desktop host reads the curated context selection in its own process', 
   const tools = desktopHostSharedTools({
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
+    // These cases build no web search; the host's Tavily owner is never read.
+    resolveTavilyApiKey: async () => undefined,
     selected: selection(root, {
       selectionFilePaths: ['notes.txt'],
       selectionFolderId: 'root-a',
@@ -198,6 +202,8 @@ test('the desktop host runs executeCommand in its own process and correlates wor
   const tools = desktopHostSharedTools({
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
+    // These cases build no web search; the host's Tavily owner is never read.
+    resolveTavilyApiKey: async () => undefined,
     selected: selection(root),
     threadId: 'host-thread',
   });
@@ -267,6 +273,8 @@ test('the desktop host greps in its own process, reading only the indexed half f
   const tools = desktopHostSharedTools({
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
+    // These cases build no web search; the host's Tavily owner is never read.
+    resolveTavilyApiKey: async () => undefined,
     selected: selection(root),
     threadId: 'host-thread',
   });

@@ -34,11 +34,6 @@ export interface HostAuthorityOptions {
    * ready; until that import settles, every credential use waits for it.
    */
   readonly legacyImportPending?: true;
-  /**
-   * The launching desktop's validated browser opener. Absent (the CLI), no
-   * subscription flow can start.
-   */
-  readonly openExternal?: (url: string) => Promise<void>;
 }
 
 /**
@@ -52,7 +47,8 @@ export interface HostAuthority extends HostAuthService {
   connect(
     provider: string,
     method: ProviderAuthStartMethod | undefined,
-    origin: HostClientOrigin | undefined
+    origin: HostClientOrigin | undefined,
+    openExternal: (url: string) => Promise<void>
   ): Promise<ProviderAuthStatus>;
   deleteCredential(provider: string): Promise<boolean>;
   disconnect(provider: string): Promise<ProviderAuthStatus>;
@@ -109,11 +105,9 @@ export function createHostAuthority(options: HostAuthorityOptions): HostAuthorit
       }
       return descriptor;
     },
-    openExternal: async (url) => {
-      if (!options.openExternal) {
-        throw new Error('This host has no interactive browser opener');
-      }
-      await options.openExternal(url);
+    // Every flow opens through the client that requested it (`connect`).
+    openExternal: async () => {
+      throw new Error('A sign-in flow needs its requesting client to open the browser');
     },
     // The engine reads and writes through the same single store.
     secrets: {
@@ -154,10 +148,10 @@ export function createHostAuthority(options: HostAuthorityOptions): HostAuthorit
       }
       return await secrets().clearAll();
     },
-    connect: (provider, method, origin) =>
+    connect: (provider, method, origin, openExternal) =>
       imported(async () => {
         assertInteractiveProviderAuthOrigin(origin);
-        return await engine.start(provider, ...(method === undefined ? [] : ([method] as const)));
+        return await engine.start(provider, method, openExternal);
       }),
     deleteCredential: (provider) => imported(() => secrets().deleteKey(provider)),
     disconnect: (provider) => imported(() => engine.disconnect(provider)),

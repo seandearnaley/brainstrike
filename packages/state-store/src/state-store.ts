@@ -693,7 +693,9 @@ export class StateStore implements MemoryDomainPort {
       const reply = await this.call({ op: 'mcp-tasks', request });
       return { rows: reply['rows'] as McpTaskDomainReply['rows'] };
     };
-    return request.operation === 'get' || request.operation === 'list-active'
+    return request.operation === 'get' ||
+      request.operation === 'list-active' ||
+      request.operation === 'legacy-import-status'
       ? execute()
       : this.run(execute);
   }

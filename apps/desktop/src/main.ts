@@ -176,6 +176,7 @@ import { registerParserHostIpcHandlers } from './ipc-parser-host';
 import { registerRuntimeIpcHandlers } from './ipc-runtime';
 import { registerSecretsIpcHandlers } from './ipc-secrets';
 import { registerShellIpcHandlers } from './ipc-shell';
+import { createShellIpcHandlers } from './ipc-shell-handlers';
 import { registerSkillsIpcHandlers } from './ipc-skills';
 import { registerTerminalIpc } from './ipc-terminal';
 import { registerUserCommandsIpcHandlers } from './ipc-user-commands';
@@ -1081,6 +1082,8 @@ const nativeIndexActivation = createNativeIndexActivation({
             );
           }
         },
+        // ADR-0007: the host's built-in local model runs in the hidden llm-host renderer.
+        llmHost: llmHostManager,
         // ADR-0007: a host thread's local observer borrows the hidden llm-host.
         localLlm: createMainLlmHostClient(llmHostManager),
         // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
@@ -1123,9 +1126,18 @@ const nativeIndexActivation = createNativeIndexActivation({
 installIndexCallerRead(createNativeCallerRead(nativeIndexActivation.withRead));
 // Main's own desktop-origin client: Settings credential writes, provider sign-in
 // and subscription verification reach the host, their single owner, through it.
+// The host's sign-in pages open through the same validated shell path as the
+// shell IPC domain (allow-listed protocols, never an embedded webview).
+const agentHostShellOpener = createShellIpcHandlers({ shell });
 const agentHostMainClient = createAgentHostMainClient(
   nativeIndexActivation.acquireProfile,
-  agentHostPrivateClients.open
+  agentHostPrivateClients.open,
+  async (url) => {
+    const result = await agentHostShellOpener.openExternal(url);
+    if (!result.ok) {
+      throw new Error(result.error ?? 'shell.openExternal failed');
+    }
+  }
 );
 // Only Main can decrypt the retired safeStorage store; the host writes it.
 installDesktopLegacyImporter((input) => agentHostMainClient.request('auth/import-legacy', input));
