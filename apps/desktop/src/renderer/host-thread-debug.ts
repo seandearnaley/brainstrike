@@ -2,9 +2,8 @@ import type { HostClient } from '@brainstrike/agent-host/browser';
 import { readDesktopRunConfiguration } from '@brainstrike/agent-host/desktop-run-configuration';
 import {
   catalogModel,
-  observerCallModel,
+  observerUsageModel,
   STATUS_BY_OUTCOME,
-  targetModel,
   tokensOf,
 } from '@brainstrike/agent-host/ledger-projection';
 import type { HostEvent, HostLogRow } from '@brainstrike/agent-host/protocol';
@@ -163,8 +162,6 @@ function usage(
   run: HostLogRow & { event: RunStarted }
 ): ThreadDebugBundleData['usage'] {
   const runModel = catalogModel(run.event.modelId);
-  const observerTarget = readDesktopRunConfiguration(run.event)?.memoryResolution?.observerTarget;
-  const observer = observerTarget ? targetModel(observerTarget) : undefined;
   return rows.flatMap((row): ThreadDebugBundleData['usage'] => {
     const { event } = row;
     if (runIdOf(event) !== run.event.runId) {
@@ -175,7 +172,7 @@ function usage(
         ? { model: runModel, modelId: run.event.modelId, usage: event.usage }
         : event.type === 'memory.usage'
           ? {
-              model: observerCallModel(observer, event.modelId),
+              model: observerUsageModel(event.modelId),
               modelId: event.modelId,
               usage: event.usage,
             }
