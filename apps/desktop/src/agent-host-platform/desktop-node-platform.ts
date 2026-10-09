@@ -50,6 +50,9 @@ import {
   PlatformLocalProgressSchema,
   PlatformPolicySchema,
   PlatformProgressSchema,
+  PlatformRewindConflictsSchema,
+  PlatformRewindOutcomesSchema,
+  PlatformRewindPreviewResultSchema,
   PlatformSelectionSchema,
   PlatformTurnSnapshotResultSchema,
 } from './platform-wire';
@@ -454,6 +457,19 @@ export async function createHostPlatform(
         .string()
         .min(1)
         .parse(await request('platform/workspace/root', { rootId }, signal)),
+    // Main's shadow-git owner restores a host thread's rewind and its redo.
+    rewindFiles: {
+      apply: async (input) =>
+        PlatformRewindOutcomesSchema.parse(await request('platform/rewind/apply', input)),
+      drift: async (input) =>
+        PlatformRewindConflictsSchema.parse(await request('platform/rewind/drift', input)),
+      preview: async (input) =>
+        PlatformRewindPreviewResultSchema.parse(await request('platform/rewind/preview', input)),
+      redo: async (input) =>
+        PlatformRewindOutcomesSchema.parse(await request('platform/rewind/redo', input)),
+      redoConflicts: async (input) =>
+        PlatformRewindConflictsSchema.parse(await request('platform/rewind/redo-conflicts', input)),
+    },
     selectProjectionRewrites: selectHostProjectionRewrites,
     startup,
     validateWorkspaceBinding: async ({ binding, signal, threadId }) => {
