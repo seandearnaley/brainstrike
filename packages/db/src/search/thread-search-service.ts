@@ -45,7 +45,28 @@ export interface ThreadSearchServiceRepository {
   ) => Promise<ThreadTitleMatch[]>;
 }
 
+/** One lexical message match from another owner's arm, best first in its list. */
+export interface ThreadSearchArmMessage {
+  readonly headline: string | null;
+  readonly messageCreatedAt: Date;
+  readonly messageId: string;
+  readonly role: string;
+  readonly threadId: string;
+}
+
+/**
+ * Gap 10: another owner's ranked arms (the agent host's threads), fused in the
+ * same pass as this repository's. Its threads are disjoint from this
+ * repository's, so its content and title lists are peers of ours at thread level.
+ */
+export interface ThreadSearchExtraArms {
+  readonly messages: readonly ThreadSearchArmMessage[];
+  readonly titles: readonly ThreadTitleMatch[];
+}
+
 export interface ThreadSearchQueryOptions {
+  /** Another owner's arms, fused in this one pass into the one result list. */
+  extraArms?: ThreadSearchExtraArms;
   /** FTS weight in message-level fusion (default 1.0). */
   ftsWeight?: number;
   /** Maximum threads in the final result (default 20). */
@@ -133,6 +154,7 @@ export class ThreadSearchService {
     }
 
     const {
+      extraArms,
       ftsWeight = 1.0,
       limit = DEFAULT_THREAD_LIMIT,
       messageSourceLimit = DEFAULT_MESSAGE_SOURCE_LIMIT,
@@ -228,19 +250,34 @@ export class ThreadSearchService {
       }
     }
 
-    // Level 2: fuse content-ranked threads with title-ranked threads.
+    // The other owner's messages are already one ranked lexical arm.
+    const extraContent = groupExtraMessages(extraArms?.messages ?? [], ftsWeight, rrfK);
+    for (const [threadId, matches] of extraContent) {
+      matchesByThreadId.set(threadId, matches);
+    }
+
+    // Level 2: fuse content-ranked threads with title-ranked threads, each owner a peer.
     const contentThreadList = [...bestScoreByThreadId.entries()]
       .sort((a, b) => b[1] - a[1])
       .map(([threadId, score]) => ({ id: threadId, score }));
-    const titleByThreadId = new Map(titleResults.map((match) => [match.threadId, match]));
+    const extraTitles = extraArms?.titles ?? [];
+    const titleByThreadId = new Map(
+      [...titleResults, ...extraTitles].map((match) => [match.threadId, match])
+    );
+    const titleList = (matches: readonly ThreadTitleMatch[]) =>
+      matches.map((match) => ({ id: match.threadId, score: match.similarity }));
     const fusedThreads = fuseRankedLists(
       [
         createRankedList(contentThreadList, 'content'),
         createRankedList(
-          titleResults.map((match) => ({ id: match.threadId, score: match.similarity })),
-          'title',
-          { weight: titleWeight }
+          [...extraContent.entries()].map(([threadId, matches]) => ({
+            id: threadId,
+            score: matches[0]?.rrfScore ?? 0,
+          })),
+          'extra-content'
         ),
+        createRankedList(titleList(titleResults), 'title', { weight: titleWeight }),
+        createRankedList(titleList(extraTitles), 'extra-title', { weight: titleWeight }),
       ],
       rrfK === undefined ? { limit } : { k: rrfK, limit }
     );
@@ -267,6 +304,39 @@ export class ThreadSearchService {
       results,
     };
   }
+}
+
+/** Another owner's ranked messages grouped by thread, in its order, scored by their own rank. */
+function groupExtraMessages(
+  messages: readonly ThreadSearchArmMessage[],
+  weight: number,
+  rrfK: number | undefined
+): Map<string, ThreadMessageMatchResult[]> {
+  const scores = new Map(
+    fuseRankedLists(
+      [
+        createRankedList(
+          messages.map((match, index) => ({ id: match.messageId, score: messages.length - index })),
+          'extra-fts',
+          { weight }
+        ),
+      ],
+      rrfK === undefined ? {} : { k: rrfK }
+    ).map((fused) => [fused.id, fused.rrfScore])
+  );
+  const grouped = new Map<string, ThreadMessageMatchResult[]>();
+  for (const match of messages) {
+    const result: ThreadMessageMatchResult = {
+      headline: match.headline,
+      messageCreatedAt: match.messageCreatedAt,
+      messageId: match.messageId,
+      role: match.role,
+      rrfScore: scores.get(match.messageId) ?? 0,
+      sources: ['fts'],
+    };
+    grouped.set(match.threadId, [...(grouped.get(match.threadId) ?? []), result]);
+  }
+  return grouped;
 }
 
 export function createThreadSearchService(
