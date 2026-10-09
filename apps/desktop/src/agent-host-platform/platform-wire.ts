@@ -1,5 +1,9 @@
 import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
-import { HostRunSnapshotSchema } from '@brainstrike/agent-host/protocol';
+import {
+  HostRunSnapshotSchema,
+  HostTurnSnapshotRootSchema,
+  HostTurnSnapshotSchema,
+} from '@brainstrike/agent-host/protocol';
 import {
   CliWorkspaceRootsSchema,
   CliWorkspaceSelectionSchema,
@@ -292,6 +296,20 @@ export const PlatformLocalEmbeddingQuerySchema = z.strictObject({
 export const PlatformLocalEmbeddingResultSchema = z.strictObject({
   embedding: z.array(z.number()),
 });
+/**
+ * A host run's turn boundary: its start snapshots the thread's admitted
+ * roots; its end, after Main released the selection, the start's roots.
+ */
+export const PlatformTurnSnapshotRequestSchema = z.discriminatedUnion('boundary', [
+  z.strictObject({ boundary: z.literal('turn-start'), runId: Id, threadId: Id }),
+  z.strictObject({
+    boundary: z.literal('turn-end'),
+    roots: z.array(HostTurnSnapshotRootSchema).min(1),
+    runId: Id,
+    threadId: Id,
+  }),
+]);
+export const PlatformTurnSnapshotResultSchema = z.array(HostTurnSnapshotSchema);
 /** Confidential, private launcher channel only; absent from client protocol and log. */
 export const PlatformAuthSchema = z.union([
   z.strictObject({ kind: z.literal('custom_fetch') }),
