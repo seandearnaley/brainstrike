@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { updateSettingsTestOverrides } from '@brainstrike/e2e-test-utils/settings-test-overrides';
+import type { ConsoleMessage } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
@@ -233,6 +234,14 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
 
     await openFactoryResetSettings(homePage, settingsPage);
     await overrideNextConfirm(window, true);
+    // A reset is an expected terminal retirement: the renderer logs no error through it.
+    const resetErrors: string[] = [];
+    const recordError = (message: ConsoleMessage): void => {
+      if (message.type() === 'error') {
+        resetErrors.push(message.text());
+      }
+    };
+    window.on('console', recordError);
     await window.getByTestId('factory-reset-button').click();
     await expect
       .poll(() => fs.existsSync(sentinelFile), {
@@ -249,6 +258,11 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
         localStorageValue: null,
         sessionStorageValue: null,
       });
+    // The reset ends with its replacement renderer ready; the retired one logged nothing wrong.
+    const { waitForAppReady: waitForResetRenderer } = await loadElectronHelpers();
+    await waitForResetRenderer(window);
+    window.off('console', recordError);
+    expect(resetErrors).toEqual([]);
 
     const restarted = await electronHarness.restart();
     const restartedWindow = restarted.window;

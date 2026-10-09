@@ -1142,10 +1142,12 @@ const readHostThreadIds = async (): Promise<ReadonlySet<string>> =>
   new Set(
     (await agentHostMainClient.request('thread/list', {})).threads.map(({ threadId }) => threadId)
   );
-const agentHostClientIpc = registerAgentHostClientIpc(
-  nativeIndexActivation.acquireProfile,
-  agentHostPrivateClients.open
-);
+const agentHostClientIpc = registerAgentHostClientIpc(async () => {
+  // A factory reset retires the profile until it reopens it, after its replacement
+  // renderer is ready: that renderer's clients connect once it has, not into the fence.
+  await handleResetLocal.idle();
+  return await nativeIndexActivation.acquireProfile();
+}, agentHostPrivateClients.open);
 ipcDisposers.add('agent-host-client', agentHostClientIpc.unregister);
 const nativeRootDataDeletion = createNativeRootDataDeletion({
   acquire: () => nativeIndexActivation.acquire(),
