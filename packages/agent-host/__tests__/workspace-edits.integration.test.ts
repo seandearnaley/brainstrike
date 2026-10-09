@@ -610,7 +610,10 @@ test('thread deletion collects the baselines its edits referenced and purges pla
   }
   const blob = join(state.dataRoot, BLOBS_DIR, baseline.blob);
   expect(await readFile(blob, 'utf8')).toBe('baseline only this thread keeps');
-  expect(await client.request('thread/delete', { threadId })).toEqual({ deleted: true });
+  expect(await client.request('thread/delete', { threadId })).toEqual({
+    deleted: true,
+    threadIds: [threadId],
+  });
   expect(await exists(blob)).toBe(false);
   // The platform purges the deleted thread's process-local tool caches.
   expect(forgotten).toEqual([threadId]);

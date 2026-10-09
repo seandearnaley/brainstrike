@@ -73,8 +73,9 @@ test('authenticated Root deletion removes only its recorded thread and preserves
     const ledgerThreads = async (): Promise<string[]> =>
       (await client?.request('ledger/read', {}))?.threads.map(({ threadId }) => threadId) ?? [];
     expect((await ledgerThreads()).sort()).toEqual([target, neighbor].sort());
-    expect(await client.request('thread/delete', { threadId: target })).toEqual({ deleted: true });
-    expect(await client.request('thread/delete', { threadId: target })).toEqual({ deleted: true });
+    const deleted = { deleted: true, threadIds: [target] };
+    expect(await client.request('thread/delete', { threadId: target })).toEqual(deleted);
+    expect(await client.request('thread/delete', { threadId: target })).toEqual(deleted);
     // Core's cost-view ledger forgets the deleted thread with its log.
     expect(await ledgerThreads()).toEqual([neighbor]);
     expect((await client.request('thread/list', {})).threads).not.toContainEqual({

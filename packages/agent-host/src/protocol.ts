@@ -40,9 +40,10 @@ import { HostLedgerThreadSchema } from './ledger-wire.js';
 // `interaction.requested` of kind `network`, answered by `interaction/resume`
 // with `{ action }` and, when the policy also asked, an approval grant), a
 // run's turn snapshots for its Changes review (`workspace.snapshot.recorded`),
-// and `ledger/read` (every thread's runs and costed provider calls, as Core
-// folds them). These additions are optional fields, new variants and new
-// methods, so a v11 reader that uses none of them sees nothing new.
+// `ledger/read` (every thread's runs and costed provider calls, as Core folds
+// them) and the threads `thread/delete` deleted (`threadIds`). These additions
+// are optional fields, new variants and new methods, so a v11 reader that uses
+// none of them sees nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -926,7 +927,11 @@ export const HOST_RESULT_SCHEMAS = {
       })
     ),
   }),
-  'thread/delete': z.strictObject({ deleted: z.literal(true) }),
+  'thread/delete': z.strictObject({
+    deleted: z.literal(true),
+    /** The thread and every child thread under it (BST-1932), all deleted. */
+    threadIds: z.array(Id).min(1),
+  }),
   'thread/list': z.strictObject({
     // Presentation fields never committed are absent.
     threads: z.array(z.strictObject({ ...Thread, ...ThreadPresentation })),

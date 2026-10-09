@@ -39,7 +39,10 @@ test('the production host composition deletes a committed thread and it stays de
     });
     const before = await client.request('thread/read', { fromSeq: 0, threadId: neighbor });
 
-    expect(await client.request('thread/delete', { threadId: target })).toEqual({ deleted: true });
+    expect(await client.request('thread/delete', { threadId: target })).toEqual({
+      deleted: true,
+      threadIds: [target],
+    });
     const listed = (await client.request('thread/list', {})).threads.map(
       (thread) => thread.threadId
     );

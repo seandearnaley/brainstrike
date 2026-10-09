@@ -146,7 +146,7 @@ export class HostCore {
   private readonly listeners = new Set<(row: HostLogRow, parentThreadId?: string) => void>();
   private readonly pendingAdmissions = new Map<AbortController, string>();
   private readonly failedAdmissions = new Map<string, unknown>();
-  private readonly deletions = new Map<string, Promise<{ deleted: true }>>();
+  private readonly deletions = new Map<string, Promise<HostResults['thread/delete']>>();
   private admission: Promise<void> = Promise.resolve();
   private readonly startNotices = new HostRunStartNotices();
   private closing = false;
@@ -391,7 +391,7 @@ export class HostCore {
   }
 
   /** BST-1977: raw StateStore deletion cannot retire active Memory/provider work. */
-  deleteThread(params: { readonly threadId: string }): Promise<{ deleted: true }> {
+  deleteThread(params: { readonly threadId: string }): Promise<HostResults['thread/delete']> {
     const existing = this.deletions.get(params.threadId);
     if (existing) {
       return existing;
@@ -408,7 +408,7 @@ export class HostCore {
     }
     // BST-1932: a thread's child threads are deleted with it, through this same path.
     const subtree = this.children.subtree(params.threadId);
-    const deletion = this.admission.then(async (): Promise<{ deleted: true }> => {
+    const deletion = this.admission.then(async (): Promise<HostResults['thread/delete']> => {
       if (this.closing) {
         throw new Error('Host is closing');
       }
@@ -429,7 +429,7 @@ export class HostCore {
         this.runs.delete(run.id);
         this.conversationIds.delete(run.id);
       }
-      return { deleted: true };
+      return { deleted: true, threadIds: subtree };
     });
     for (const threadId of subtree) {
       this.deletions.set(threadId, deletion);
