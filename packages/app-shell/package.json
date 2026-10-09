@@ -61,6 +61,10 @@
       "types": "./dist/assistant-thread-host-context.d.ts",
       "import": "./dist/assistant-thread-host-context.js"
     },
+    "./mcp-status-capability": {
+      "types": "./dist/mcp-status-capability.d.ts",
+      "import": "./dist/mcp-status-capability.js"
+    },
     "./mcp-tools-capability": {
       "types": "./dist/mcp-tools-capability.d.ts",
       "import": "./dist/mcp-tools-capability.js"

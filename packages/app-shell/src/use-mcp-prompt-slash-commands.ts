@@ -25,6 +25,7 @@ import { resolveMcpPromptBridge } from './mcp-prompts/mcp-prompt-bridge';
 import { type McpPromptEntry, selectMcpPromptEntries } from './mcp-prompts/mcp-prompt-catalog';
 import { useMcpPromptSelectionStore } from './mcp-prompts/mcp-prompt-selection-store';
 import { splitComposerTrigger } from './mcp-prompts/mcp-prompt-text';
+import { useMcpStatusCapability } from './mcp-status-capability';
 
 const logger = createLogger('McpPromptSlashCommands');
 
@@ -77,7 +78,8 @@ export function useMcpPromptSlashCommands(threadId: string | undefined): readonl
   // mounts, so resolve it once for the component's lifetime. A malformed bridge
   // is surfaced by `McpPromptComposerHost` (always mounted); this hook only has
   // to offer nothing.
-  const [resolution] = useState(resolveMcpPromptBridge);
+  const status = useMcpStatusCapability();
+  const [resolution] = useState(() => resolveMcpPromptBridge(status));
   const bridge = resolution.status === 'ready' ? resolution.bridge : null;
   const [snapshot, setSnapshot] = useState<McpHostSnapshot>(EMPTY_SNAPSHOT);
   const { toast } = useToast();

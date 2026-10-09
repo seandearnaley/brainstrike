@@ -10,6 +10,7 @@ import { isChangesBridgeAvailable } from '@brainstrike/app-shell/changes/availab
 // `/git-panel`, which also re-exports GitPanel + @codemirror/merge) so the
 // startup check does not defeat the lazy code-split in git-page-content.tsx.
 import { isGitBridgeAvailable } from '@brainstrike/app-shell/git-panel/availability';
+import { McpStatusCapabilityProvider } from '@brainstrike/app-shell/mcp-status-capability';
 import { McpToolsCapabilityProvider } from '@brainstrike/app-shell/mcp-tools-capability';
 import { navigationItems } from '@brainstrike/app-shell/navigation';
 import NotesPageContent from '@brainstrike/app-shell/notes-page-content';
@@ -41,7 +42,10 @@ import { GitBranch, Globe, NotebookPen } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
 import { registerDesktopEmbeddingRuntimeConfig } from '../create-embedding-queue';
 import { DesktopHostThreadProvider } from '../desktop-host-thread-provider';
-import { resolveDesktopMcpToolsCapability } from '../host-mcp-settings';
+import {
+  resolveDesktopMcpStatusCapability,
+  resolveDesktopMcpToolsCapability,
+} from '../host-mcp-settings';
 import { resolveMcpAppBridge } from '../mcp-app-bridge';
 import { resolveMcpTaskBridge } from '../mcp-task-bridge';
 import { useMcpAppsEnablement } from '../use-mcp-apps-enablement';
@@ -137,11 +141,13 @@ export default function RootLayoutContent() {
   const mcpTaskBridge = useMemo(() => resolveMcpTaskBridge(), []);
   // The agent host owns the MCP tools and their preferences the composer menu toggles.
   const mcpToolsCapability = useMemo(() => resolveDesktopMcpToolsCapability(), []);
+  // ...and the server status the prompt affordances and MCP Apps follow.
+  const mcpStatusCapability = useMemo(() => resolveDesktopMcpStatusCapability(), []);
   // Capability port (BST-1572): MCP Apps hosting comes from `window.mcp.apps`
   // when the visible-UI preload exposes it; `null` keeps app tool results on
   // the ordinary tool card with a visible note. Resolved once.
   const mcpAppBridge = useMemo(() => resolveMcpAppBridge(), []);
-  const mcpAppsEnabled = useMcpAppsEnablement();
+  const mcpAppsEnabled = useMcpAppsEnablement(mcpStatusCapability);
   const navigationConfig = useMemo<NavigationItem[]>(() => {
     const items = [...navigationItems];
     if (notesAvailable) {
@@ -382,15 +388,17 @@ export default function RootLayoutContent() {
     <TokenCacheWrapper>
       <McpTaskBridgeProvider bridge={mcpTaskBridge}>
         <McpToolsCapabilityProvider capability={mcpToolsCapability}>
-          <McpAppsEnablementProvider isEnabled={mcpAppsEnabled}>
-            <McpAppBridgeProvider bridge={mcpAppBridge}>
-              <ToolResultRendererProvider renderers={MCP_APP_TOOL_RESULT_RENDERERS}>
-                <DesktopHostThreadProvider>
-                  <RootLayout {...sharedProps} />
-                </DesktopHostThreadProvider>
-              </ToolResultRendererProvider>
-            </McpAppBridgeProvider>
-          </McpAppsEnablementProvider>
+          <McpStatusCapabilityProvider capability={mcpStatusCapability}>
+            <McpAppsEnablementProvider isEnabled={mcpAppsEnabled}>
+              <McpAppBridgeProvider bridge={mcpAppBridge}>
+                <ToolResultRendererProvider renderers={MCP_APP_TOOL_RESULT_RENDERERS}>
+                  <DesktopHostThreadProvider>
+                    <RootLayout {...sharedProps} />
+                  </DesktopHostThreadProvider>
+                </ToolResultRendererProvider>
+              </McpAppBridgeProvider>
+            </McpAppsEnablementProvider>
+          </McpStatusCapabilityProvider>
         </McpToolsCapabilityProvider>
       </McpTaskBridgeProvider>
     </TokenCacheWrapper>

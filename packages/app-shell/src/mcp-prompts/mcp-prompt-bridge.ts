@@ -1,11 +1,12 @@
 /**
- * Capability resolution for the `window.mcp` members the composer's MCP prompt
- * affordance needs (BST-1592).
+ * Capability resolution for what the composer's MCP prompt affordance needs
+ * (BST-1592): the `window.mcp` content members and the MCP status capability.
  *
  * Desktop-only by construction: the visible-UI preload exposes the
- * `mcp:content:*` bridge plus the revisioned host status channels; web has no
- * preload, so `resolveMcpPromptBridge()` reports `unsupported` and the
- * affordance is never constructed. There is no `isElectron()` branch anywhere.
+ * `mcp:content:*` bridge and the desktop provides the agent host's server
+ * status (BST-1930 c5b); web has neither, so `resolveMcpPromptBridge()` reports
+ * `unsupported` and the affordance is never constructed. There is no
+ * `isElectron()` branch anywhere.
  *
  * Lives beside the hook/host so the component modules export only components
  * (react-refresh) and so the required-member set can be pinned by tests.
@@ -17,6 +18,7 @@ import type {
   McpHostWatchEvent,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
+import type { McpStatusCapability } from '../mcp-status-capability';
 
 const logger = createLogger('McpPromptBridge');
 
@@ -67,12 +69,22 @@ const MCP_PROMPT_BRIDGE_REQUIRED_METHOD_SET = {
 } as const satisfies Record<keyof McpPromptBridge, true>;
 
 /**
- * Every `window.mcp` member the affordance requires. All four must be present:
- * a partial bridge disables the whole surface rather than degrading it.
+ * Every member the affordance requires. All four must be present: a partial
+ * bridge disables the whole surface rather than degrading it.
  */
 export const MCP_PROMPT_BRIDGE_REQUIRED_METHODS = Object.keys(
   MCP_PROMPT_BRIDGE_REQUIRED_METHOD_SET
 ) as readonly (keyof McpPromptBridge)[];
+
+/** The content members `window.mcp` carries; the status members come from the host. */
+const MCP_PROMPT_CONTENT_METHODS = [
+  'complete',
+  'getPrompt',
+] as const satisfies readonly (keyof McpPromptBridge)[];
+const MCP_PROMPT_STATUS_METHODS = [
+  'getServerStatusSnapshot',
+  'onServerStatusUpdated',
+] as const satisfies readonly (keyof McpPromptBridge)[];
 
 /**
  * Why the affordance is or is not available. "This runtime has no prompt bridge"
@@ -88,34 +100,44 @@ export type McpPromptBridgeResolution =
   | { readonly status: 'unsupported' };
 
 /**
- * Resolve the prompt members of `window.mcp`.
+ * Resolve the prompt bridge from the `window.mcp` content members and the MCP
+ * status capability.
  *
- * `unsupported` when there is no bridge at all (web/SSR) or when the host
- * exposes `window.mcp` with NONE of the content members (a preload manifest that
- * legitimately carries only the config members). `malformed` when SOME but not
- * all are present — a partial bridge can never be used, and the caller must say
- * so out loud instead of silently presenting web's empty surface.
+ * `unsupported` when there is no content bridge at all (web/SSR, or a preload
+ * that exposes `window.mcp` with none of the content members) and no status.
+ * `malformed` when some but not all members are present — a partial bridge can
+ * never be used, and the caller must say so out loud instead of silently
+ * presenting web's empty surface.
  */
-export function resolveMcpPromptBridge(): McpPromptBridgeResolution {
-  if (typeof window === 'undefined') {
-    return { status: 'unsupported' };
+export function resolveMcpPromptBridge(
+  status: McpStatusCapability | null
+): McpPromptBridgeResolution {
+  const candidate =
+    typeof window === 'undefined'
+      ? undefined
+      : (window as Window & { mcp?: Partial<McpPromptBridge> }).mcp;
+  const complete = candidate?.complete;
+  const getPrompt = candidate?.getPrompt;
+  if (typeof complete === 'function' && typeof getPrompt === 'function' && status) {
+    return {
+      bridge: {
+        complete,
+        getPrompt,
+        getServerStatusSnapshot: () => status.read(),
+        onServerStatusUpdated: (callback) => status.subscribe(callback),
+      },
+      status: 'ready',
+    };
   }
-  const candidate = (window as Window & { mcp?: Partial<McpPromptBridge> }).mcp;
-  if (!candidate) {
-    return { status: 'unsupported' };
-  }
-  const missing = MCP_PROMPT_BRIDGE_REQUIRED_METHODS.filter(
-    (method) => typeof candidate[method] !== 'function'
+  const missing: (keyof McpPromptBridge)[] = MCP_PROMPT_CONTENT_METHODS.filter(
+    (method) => typeof candidate?.[method] !== 'function'
   );
+  if (!status) {
+    missing.push(...MCP_PROMPT_STATUS_METHODS);
+  }
   if (missing.length === MCP_PROMPT_BRIDGE_REQUIRED_METHODS.length) {
-    // No content bridge at all (a host that exposes only the config members).
     return { status: 'unsupported' };
   }
-  if (missing.length > 0) {
-    logger.error('window.mcp prompt bridge is malformed; composer MCP prompts disabled', {
-      missing,
-    });
-    return { missing, status: 'malformed' };
-  }
-  return { bridge: candidate as McpPromptBridge, status: 'ready' };
+  logger.error('MCP prompt bridge is malformed; composer MCP prompts disabled', { missing });
+  return { missing, status: 'malformed' };
 }

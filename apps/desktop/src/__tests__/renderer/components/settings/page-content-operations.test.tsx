@@ -1,6 +1,8 @@
 import type { McpSettingsEvent } from '@brainstrike/agent-host/protocol';
 import {
   type McpExtensionEnablement,
+  type McpHostControlRequest,
+  type McpHostServerSnapshot,
   type McpHostSnapshot,
   type McpHostWatchEvent,
   parseConfiguredMcpServerId,
@@ -60,6 +62,7 @@ const fileExplorerMockState = vi.hoisted((): { current: FileExplorerMockState } 
 
 interface CapturedToolsOperations {
   completeMcpContent?: (request: unknown) => Promise<unknown>;
+  controlMcpServer?: (request: McpHostControlRequest) => Promise<McpHostServerSnapshot>;
   createSampleConfig: () => Promise<{ error?: string; path: string; success: boolean }>;
   disableTools: (ids: string[]) => Promise<void>;
   enableTools: (ids: string[]) => Promise<void>;
@@ -67,7 +70,7 @@ interface CapturedToolsOperations {
   getMcpConfigPath?: () => Promise<string>;
   getMcpExtensionPreferences?: () => Promise<McpExtensionEnablement>;
   getMcpPrompt?: (request: unknown) => Promise<unknown>;
-  getMcpServerStatus: () => Promise<McpHostSnapshot>;
+  getMcpServerStatus?: () => Promise<McpHostSnapshot>;
   getStats: () => Promise<{
     byCategory: Record<string, number>;
     bySource: { mcp: number; native: number };
@@ -312,10 +315,6 @@ interface DesktopTestWindow {
   mcp?: {
     complete?: (request: unknown) => Promise<unknown>;
     getPrompt?: (request: unknown) => Promise<unknown>;
-    getServerStatusSnapshot?: () => Promise<McpHostSnapshot>;
-    onServerStatusUpdated?: (
-      listener: (snapshot: McpHostSnapshot) => void
-    ) => (() => void) | undefined;
     readResource?: (request: unknown) => Promise<unknown>;
     selectPath?: () => Promise<string | null>;
   };
@@ -355,6 +354,8 @@ function createHostMcpSettings(): FakeHostMcpSettings {
     'mcp/config/write': () => ({ path: '/tmp/mcp.json', success: true }),
     'mcp/extensions/read': () => extensionPreferences,
     'mcp/extensions/set': (params) => params,
+    'mcp/server/control': () => hostSnapshot.servers[0],
+    'mcp/status/read': () => hostSnapshot,
     'mcp/tools/list': () => MCP_TOOLS,
     'mcp/tools/reload': () => ({ applied: true }),
     'mcp/tools/reset': () => ({ applied: true }),
@@ -415,8 +416,6 @@ describe('desktop SettingsPageContent tool operations', () => {
         result: { messages: [{ content: { text: 'Summarize', type: 'text' }, role: 'user' }] },
         type: 'prompts/get',
       })),
-      getServerStatusSnapshot: vi.fn(async () => hostSnapshot),
-      onServerStatusUpdated: vi.fn(() => vi.fn()),
       readResource: vi.fn(async () => ({
         result: { contents: [{ text: '# BST-1585', uri: 'linear://issue/BST-1585' }] },
         type: 'resources/read',
@@ -602,37 +601,42 @@ describe('desktop SettingsPageContent tool operations', () => {
     expect(operations).toHaveProperty('getMcpServerStatus');
   });
 
-  it('returns main-process status snapshots without reading tools', async () => {
+  it('reads server status from the agent host, hears its revisions, and runs control there', async () => {
     const operations = await renderOperations();
-    const mcp = getDesktopWindow().mcp;
     const settings = requireSettings();
     const toolReads = settings.request.mock.calls.filter(([method]) => method === 'mcp/tools/list');
+    if (
+      !(
+        operations.getMcpServerStatus &&
+        operations.subscribeMcpServerStatus &&
+        operations.controlMcpServer
+      )
+    ) {
+      throw new Error('Expected the MCP server status operations');
+    }
     await expect(operations.getMcpServerStatus()).resolves.toEqual(hostSnapshot);
+    expect(settings.request).toHaveBeenCalledWith('mcp/status/read', {});
     expect(
       settings.request.mock.calls.filter(([method]) => method === 'mcp/tools/list')
     ).toHaveLength(toolReads.length);
 
+    const disposer = vi.fn();
+    settings.subscribe.mockReturnValueOnce(disposer);
     const listener = vi.fn();
-    const subscribeMcpServerStatus = operations.subscribeMcpServerStatus;
-    const onServerStatusUpdated = mcp?.onServerStatusUpdated;
-    if (!(subscribeMcpServerStatus && onServerStatusUpdated)) {
-      throw new Error('Expected MCP status subscription to be available');
-    }
-    const statusDisposer = vi.fn();
-    vi.mocked(onServerStatusUpdated).mockReturnValueOnce(statusDisposer);
-    const unsubscribe = subscribeMcpServerStatus(listener);
-    expect(onServerStatusUpdated).toHaveBeenCalledWith(listener);
-    vi.mocked(onServerStatusUpdated).mock.calls[0]?.[0]?.(hostSnapshot);
-    expect(listener).toHaveBeenCalledWith(hostSnapshot);
+    const unsubscribe = operations.subscribeMcpServerStatus(listener);
+    const stream = settings.subscribe.mock.calls.at(-1)?.[0];
+    stream?.({ status: hostSnapshot, type: 'status' });
+    stream?.({ tools: {}, type: 'tools' });
+    expect(listener.mock.calls).toEqual([[hostSnapshot]]);
     unsubscribe();
-    expect(statusDisposer).toHaveBeenCalledOnce();
+    expect(disposer).toHaveBeenCalledOnce();
 
-    if (mcp) {
-      Reflect.deleteProperty(mcp, 'getServerStatusSnapshot');
-    }
-    await expect(operations.getMcpServerStatus()).rejects.toThrow(
-      'MCP bridge is missing getServerStatusSnapshot'
-    );
+    const request = {
+      action: 'connect' as const,
+      configuredServerId: hostSnapshot.servers[0].configuredServerId,
+    };
+    await expect(operations.controlMcpServer(request)).resolves.toEqual(hostSnapshot.servers[0]);
+    expect(settings.request).toHaveBeenCalledWith('mcp/server/control', request);
   });
 
   it('hears config and tools changes from the host settings stream', async () => {
@@ -694,15 +698,13 @@ describe('desktop SettingsPageContent tool operations', () => {
     expect(disposer).toHaveBeenCalledOnce();
   });
 
-  it('omits the live status operation when the preload subscription is unavailable', async () => {
-    const mcp = getDesktopWindow().mcp;
-    if (!mcp) {
-      throw new Error('Expected MCP bridge to be available');
-    }
-    Reflect.deleteProperty(mcp, 'onServerStatusUpdated');
+  it('omits server status and control where the window has no agent host', async () => {
+    hostMcpSettings.current = null;
     await renderOperations();
 
+    expect(capturedOperations).not.toHaveProperty('getMcpServerStatus');
     expect(capturedOperations).not.toHaveProperty('subscribeMcpServerStatus');
+    expect(capturedOperations).not.toHaveProperty('controlMcpServer');
   });
 
   it('rejects MCP tool projection identities that disagree with their group key', async () => {

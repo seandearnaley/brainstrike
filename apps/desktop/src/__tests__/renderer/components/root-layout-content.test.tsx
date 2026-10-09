@@ -55,6 +55,7 @@ vi.mock('../../../renderer/create-embedding-queue', () => ({
 // is exercised by the desktop host-thread integration and projection tests.
 // No agent host in jsdom: the composer menu gets no host MCP tools.
 vi.mock('../../../renderer/host-mcp-settings', () => ({
+  resolveDesktopMcpStatusCapability: () => null,
   resolveDesktopMcpToolsCapability: () => null,
 }));
 

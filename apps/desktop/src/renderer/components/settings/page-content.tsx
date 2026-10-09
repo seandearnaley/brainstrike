@@ -201,12 +201,11 @@ export default function SettingsPageContent() {
       ? assistantAvailability.providerKeySources
       : undefined;
 
-  // The agent host owns the MCP config, extension dials and tool preferences;
-  // a window without the host has none of them.
+  // The agent host owns the MCP config, extension dials, tool preferences,
+  // server status and lifecycle control; a window without the host has none.
   const mcpSettings = useMemo(() => resolveDesktopHostMcpSettings(), []);
   // Create non-executing tool catalog and MCP configuration operations.
   const toolOperations = useMemo(() => {
-    const onServerStatusUpdated = window.mcp?.onServerStatusUpdated;
     return {
       // BST-1585: user-initiated MCP content browsing is capability-gated on
       // the bridge methods; web omits them, so the Settings affordance is absent.
@@ -214,13 +213,12 @@ export default function SettingsPageContent() {
         completeMcpContent: async (request: McpCompleteRequest) =>
           await window.mcp.complete(request),
       }),
-      ...(window.mcp?.controlServer && {
-        controlMcpServer: async (request: McpHostControlRequest) =>
-          await window.mcp.controlServer(request),
-      }),
       ...(mcpSettings && {
+        controlMcpServer: async (request: McpHostControlRequest) =>
+          await mcpSettings.request('mcp/server/control', request),
         getMcpExtensionPreferences: async () =>
           await mcpSettings.request('mcp/extensions/read', {}),
+        getMcpServerStatus: async () => await mcpSettings.request('mcp/status/read', {}),
         reloadToolPreferences: async () => {
           await mcpSettings.request('mcp/tools/reload', {});
         },
@@ -232,6 +230,12 @@ export default function SettingsPageContent() {
           mcpSettings.subscribe((event) => {
             if (event.type === 'extensions') {
               listener(event.extensions);
+            }
+          }),
+        subscribeMcpServerStatus: (listener: (event: McpHostWatchEvent) => void) =>
+          mcpSettings.subscribe((event) => {
+            if (event.type === 'status') {
+              listener(event.status);
             }
           }),
       }),
@@ -263,13 +267,6 @@ export default function SettingsPageContent() {
         if (mcpToolIds.length > 0) {
           await changeMcpToolPreferences(mcpSettings, mcpToolIds, true);
         }
-      },
-      getMcpServerStatus: async () => {
-        const getServerStatusSnapshot = window.mcp?.getServerStatusSnapshot;
-        if (!getServerStatusSnapshot) {
-          throw new Error('MCP bridge is missing getServerStatusSnapshot');
-        }
-        return await getServerStatusSnapshot();
       },
       getStats: async () => {
         const { isToolEnabled } = useNativeToolPreferencesStore.getState();
@@ -368,10 +365,6 @@ export default function SettingsPageContent() {
           }
         });
       },
-      ...(onServerStatusUpdated && {
-        subscribeMcpServerStatus: (listener: (event: McpHostWatchEvent) => void) =>
-          onServerStatusUpdated(listener),
-      }),
       subscribeMcpTools: (listener: () => void) => {
         if (!mcpSettings) {
           throw new Error('MCP settings need the desktop agent host');

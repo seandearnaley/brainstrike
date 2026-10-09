@@ -5,22 +5,28 @@ import type {
   HostResults,
   McpSettingsEvent,
 } from '@brainstrike/agent-host/protocol';
+import type { McpStatusCapability } from '@brainstrike/app-shell/mcp-status-capability';
 import type { McpToolsCapability } from '@brainstrike/app-shell/mcp-tools-capability';
 import { createLogger } from '@brainstrike/logging';
 import { connectDesktopAgentHost } from './agent-host-client';
 
 const logger = createLogger('DesktopHostMcpSettings');
 
-/** The host methods that read and change the desktop's MCP settings. */
+/** The host methods that read and change the desktop's MCP settings and server status. */
 export type DesktopMcpSettingsMethod = Extract<
   HostMethod,
-  `mcp/config/${string}` | `mcp/extensions/${string}` | `mcp/tools/${string}`
+  | `mcp/config/${string}`
+  | `mcp/extensions/${string}`
+  | `mcp/server/${string}`
+  | `mcp/status/${string}`
+  | `mcp/tools/${string}`
 >;
 
 /**
  * The desktop profile's MCP settings (BST-1930 c5a): the agent host owns the
- * config file, extension dials and tool preferences; this window reads and
- * changes them over its own host client, and hears each change once subscribed.
+ * config file, extension dials, tool preferences, and the runtime's server
+ * status and lifecycle control (c5b); this window reads and changes them over
+ * its own host client, and hears each change once subscribed.
  */
 export interface DesktopHostMcpSettings {
   request<M extends DesktopMcpSettingsMethod>(
@@ -48,14 +54,15 @@ export function createDesktopHostMcpSettings(
   let connecting: Promise<HostClient> | undefined;
   let subscribing: Promise<void> | undefined;
   const listeners = new Set<(event: McpSettingsEvent) => void>();
+  const dispatch = (event: McpSettingsEvent): void => {
+    for (const listener of [...listeners]) {
+      listener(event);
+    }
+  };
   const client = (): Promise<HostClient> => {
     if (!connecting) {
       const attempt = connect().then((host) => {
-        host.onMcpSettings((event) => {
-          for (const listener of [...listeners]) {
-            listener(event);
-          }
-        });
+        host.onMcpSettings(dispatch);
         return host;
       });
       connecting = attempt;
@@ -82,7 +89,10 @@ export function createDesktopHostMcpSettings(
       return;
     }
     const attempt = client().then(async (host) => {
-      await host.request('mcp/settings/subscribe', {});
+      const { status } = await host.request('mcp/settings/subscribe', {});
+      // A status revision the stream started after reaches the listeners that
+      // were waiting on it; each reader keeps only newer revisions.
+      dispatch({ status, type: 'status' });
     });
     subscribing = attempt;
     attempt.catch((error: unknown) => {
@@ -120,6 +130,23 @@ export function resolveDesktopMcpToolsCapability(): McpToolsCapability | null {
       settings.subscribe((event) => {
         if (event.type === 'tools') {
           listener(event.tools);
+        }
+      }),
+  };
+}
+
+/** The runtime's server status, as the composer's prompt affordances and MCP Apps follow it. */
+export function resolveDesktopMcpStatusCapability(): McpStatusCapability | null {
+  const settings = resolveDesktopHostMcpSettings();
+  if (!settings) {
+    return null;
+  }
+  return {
+    read: () => settings.request('mcp/status/read', {}),
+    subscribe: (listener) =>
+      settings.subscribe((event) => {
+        if (event.type === 'status') {
+          listener(event.status);
         }
       }),
   };
