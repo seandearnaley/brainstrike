@@ -33,7 +33,10 @@ import { createWindowThreadCapability } from './desktop-host-thread-capability';
 import { HostApprovalStrip } from './host-approval-strip';
 import type { HostThreadLedger } from './host-thread-ledger';
 import type { HostThreadRuns } from './host-thread-runs';
-import { useDesktopHostPresentation } from './use-desktop-host-presentation';
+import {
+  type ProviderReadErrors,
+  useDesktopHostPresentation,
+} from './use-desktop-host-presentation';
 
 /** The existing checkpoint undo controls, fed from the thread's committed edits. */
 function CommittedCheckpoints({
@@ -70,6 +73,7 @@ function HostThread({
   ledger,
   onRunningChange,
   onTitleCommitted,
+  providerReadErrors,
   runs,
   threadId,
 }: {
@@ -78,11 +82,15 @@ function HostThread({
   readonly ledger: HostThreadLedger;
   readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
   readonly onTitleCommitted: () => void;
+  readonly providerReadErrors: ProviderReadErrors | undefined;
   readonly runs: HostThreadRuns;
   readonly threadId: string;
 }): ReactElement {
   const explorer = useFileExplorerStoreContext();
-  const { readConfiguration, readPlanMode, ...presentation } = useDesktopHostPresentation(threadId);
+  const { readConfiguration, readPlanMode, ...presentation } = useDesktopHostPresentation(
+    threadId,
+    providerReadErrors
+  );
   const configuration = useRef(readConfiguration);
   const planMode = useRef(readPlanMode);
   useLayoutEffect(() => {
@@ -185,6 +193,7 @@ const windowThreadCapability = createWindowThreadCapability(
     ledger,
     onRunningChange,
     onTitleCommitted,
+    providerReadErrors,
     runs,
     threadId,
   }) => {
@@ -201,6 +210,7 @@ const windowThreadCapability = createWindowThreadCapability(
         ledger={ledger}
         onRunningChange={onRunningChange}
         onTitleCommitted={onTitleCommitted}
+        providerReadErrors={providerReadErrors}
         runs={runs}
         threadId={threadId}
       />

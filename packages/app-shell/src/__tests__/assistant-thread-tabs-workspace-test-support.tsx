@@ -11,6 +11,10 @@ import { useEffect } from 'react';
 import { beforeEach, vi } from 'vitest';
 import { assistantThreadActions } from '../assistant-thread-context-actions';
 import {
+  type AssistantThreadHostCapability,
+  AssistantThreadHostContext,
+} from '../assistant-thread-host-context';
+import {
   AssistantThreadTabsWorkspace,
   type AssistantThreadTabsWorkspaceProps,
 } from '../assistant-thread-tabs-workspace';
@@ -174,12 +178,15 @@ vi.mock('../thread-identity-mark', async (importOriginal) => {
 });
 
 export function renderWorkspace(
-  props: AssistantThreadTabsWorkspaceProps = {}
+  props: AssistantThreadTabsWorkspaceProps = {},
+  host?: AssistantThreadHostCapability
 ): ReturnType<typeof createTestActionRegistry> {
   const actionRegistry = createTestActionRegistry({ actions: assistantThreadActions });
   render(
     <ActionRegistryProvider registry={actionRegistry.registry}>
-      <AssistantThreadTabsWorkspace {...props} />
+      <AssistantThreadHostContext.Provider value={host}>
+        <AssistantThreadTabsWorkspace {...props} />
+      </AssistantThreadHostContext.Provider>
     </ActionRegistryProvider>
   );
   return actionRegistry;
