@@ -21,6 +21,7 @@ export const runPython = defineNativeTool({
   id: 'brainstrike.runPython',
   inputSchema: RunPythonInputSchema,
   kind: 'desktop',
+  localProvider: 'unregistered',
   returns:
     'A discriminated result: completed (exitCode, stdout, stderr, per-stream omitted byte counts), timed_out, killed, cancelled (partial output), network_denied (deniedDomains — rewrite offline), declined (the user did not approve the run), or unavailable (no sandbox on this machine).',
   surfaces: ['desktop'],

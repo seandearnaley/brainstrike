@@ -10,7 +10,11 @@ import {
   type HostTool,
   type HostToolContext,
 } from '@brainstrike/agent-host';
-import { NATIVE_TOOL_ID, resolveToolRiskCategory } from '@brainstrike/assistant-contract';
+import {
+  LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS,
+  NATIVE_TOOL_ID,
+  resolveToolRiskCategory,
+} from '@brainstrike/assistant-contract';
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import {
@@ -125,6 +129,10 @@ export function createSharedNativeHostTools(
     };
     const tools: MastraTools = {};
     for (const id of options.ids) {
+      // The catalog's localProvider: 'unregistered' tools have no local executor.
+      if (context.isLocalProvider && LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS.has(id)) {
+        continue;
+      }
       const executor = executors[id];
       if (!executor) {
         throw new Error(`No host executor is registered for native tool ${id}`);
