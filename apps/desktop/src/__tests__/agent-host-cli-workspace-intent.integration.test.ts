@@ -5,11 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HostRunAdmissionRequest, HostTool, HostToolContext } from '@brainstrike/agent-host';
 import { HostRunSnapshotSchema } from '@brainstrike/agent-host/protocol';
-import {
-  DEFAULT_PERMISSION_POLICIES,
-  NATIVE_TOOL_ID,
-  ToolInputError,
-} from '@brainstrike/assistant-contract';
+import { DEFAULT_PERMISSION_POLICIES, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import type {
   IndexerSearchResult,
   IndexerStatus,
@@ -21,6 +17,7 @@ import type {
   DesktopHostIntent,
   DesktopHostModelProjection,
 } from '../agent-host-platform/desktop-host-intent';
+import { OUTSIDE_CHUNK, OUTSIDE_FILE, UNAVAILABLE } from './fixtures/guarded-retrieval-refusals';
 
 // Observe existing owner boundaries. The actual Main adapter, context readers,
 // semantic/hybrid dispatch and native scope validation remain production code.
@@ -693,7 +690,7 @@ test.each([
       const tool = admittedRetrieval(captured.tools, toolId);
       const result = tool.execute({ embeddingSetId: 'selected', query: 'marker' }, execution());
       if (selected.length === 0) {
-        await expect(result).rejects.toThrow('ERR_CLI_WORKSPACE_RETRIEVAL_UNAVAILABLE');
+        await expect(result).resolves.toMatchObject(UNAVAILABLE);
         expect(fixture.search).not.toHaveBeenCalled();
         expect(fixture.grep).not.toHaveBeenCalled();
         expect(fixture.coverageBatch).not.toHaveBeenCalled();
@@ -744,7 +741,7 @@ test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
           { embeddingSetId: 'selected', query: 'marker' },
           execution()
         )
-      ).rejects.toBeInstanceOf(ToolInputError);
+      ).resolves.toMatchObject(OUTSIDE_CHUNK);
       expect(fixture.search).toHaveBeenCalledWith(expect.objectContaining({ rootIds: ['root-a'] }));
     } finally {
       await captured.close();
@@ -778,7 +775,7 @@ test.each([
         execution()
       );
       if (selected.length === 0) {
-        await expect(result).rejects.toThrow('ERR_CLI_WORKSPACE_RETRIEVAL_UNAVAILABLE');
+        await expect(result).resolves.toMatchObject(UNAVAILABLE);
         expect(owner.query.mock.calls.some(([sql]) => String(sql).includes('embedding_sets'))).toBe(
           false
         );
@@ -845,7 +842,7 @@ test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
           { embeddingSetId: 'selected', query: 'marker' },
           execution()
         )
-      ).rejects.toBeInstanceOf(ToolInputError);
+      ).resolves.toMatchObject(OUTSIDE_FILE);
     } finally {
       await captured.close();
     }
@@ -915,7 +912,7 @@ test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
           { embeddingSetId: 'selected', query: 'marker' },
           execution()
         )
-      ).rejects.toBeInstanceOf(ToolInputError);
+      ).resolves.toMatchObject(OUTSIDE_FILE);
       expect(fixture.search).toHaveBeenCalled();
     } finally {
       await captured.close();
