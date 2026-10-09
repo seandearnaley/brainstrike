@@ -231,6 +231,11 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     const tokenToggle = window.getByTestId('token-counting-accurate-toggle');
     await tokenToggle.click();
     await expect(tokenToggle).toHaveAttribute('aria-checked', 'false');
+    // A saved permission policy, which the agent host keeps (BST-1930 stage e).
+    await homePage.openSettings();
+    await settingsPage.openCategory(/Permissions/i, 'permissions');
+    await window.getByTestId('permission-policy-edit').selectOption('deny');
+    await expect(window.getByTestId('permission-policy-edit')).toHaveValue('deny');
 
     await openFactoryResetSettings(homePage, settingsPage);
     await overrideNextConfirm(window, true);
@@ -287,5 +292,9 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
       });
     expect(fs.existsSync(sentinelFile)).toBe(false);
     expect(fs.existsSync(diagnosticFile)).toBe(true);
+    // The reset cleared the saved policy with the host's state: the default applies again.
+    await restartedHomePage.openSettings();
+    await restartedSettingsPage.openCategory(/Permissions/i, 'permissions');
+    await expect(restartedWindow.getByTestId('permission-policy-edit')).toHaveValue('ask');
   });
 });
