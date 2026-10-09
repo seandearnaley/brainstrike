@@ -15,6 +15,10 @@ import {
 import { ForeignLockError, RootLock, RootLockedError } from '@brainstrike/state-store';
 import { Effect, Exit, Scope } from 'effect';
 import { type MessagePortMain, utilityProcess } from 'electron';
+import {
+  createHostNativeChildren,
+  type HostNativeChildren,
+} from './agent-host-platform/host-native-children';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import type { HostLeaseControl } from './host-lease-control';
 
@@ -39,8 +43,14 @@ export interface DesktopHostLeaseOptions {
   readonly fork?: HostLeaseFork;
   /** A ready child this lease spawned; only it can receive private client ports. */
   readonly onChildReady?: (child: DesktopHostChild) => void;
-  /** Created only when this desktop actually owns a new Root child. */
-  readonly platform?: () => { readonly port: MessagePortMain; close(): Promise<void> };
+  /**
+   * Created only when this desktop actually owns a new Root child. Its platform connection
+   * feeds `nativeChildren`, through which Main supervises that host's native processes.
+   */
+  readonly platform?: (nativeChildren: HostNativeChildren) => {
+    readonly port: MessagePortMain;
+    close(): Promise<void>;
+  };
   /** Trusted Node composition module; the GUI and CLI use the same kernel. */
   readonly platformModule?: string;
   /** Trusted launch selection for that module, such as the profile's credential store. */
@@ -63,19 +73,25 @@ export interface DesktopHostLease {
 }
 
 interface OwnedChild {
+  closing: boolean;
   exitCode: number | undefined;
   readonly exited: Promise<number>;
   readonly exitListener: (code: number) => void;
   readonly handle: HostLeaseUtilityProcess;
   ready: boolean;
 }
-function ownChild(handle: HostLeaseUtilityProcess): OwnedChild {
+/** `lost` runs when the child exits before this owner asked it to close. */
+function ownChild(handle: HostLeaseUtilityProcess, lost: () => void): OwnedChild {
   const completion = Promise.withResolvers<number>();
   const child: OwnedChild = {
+    closing: false,
     exitCode: undefined,
     exited: completion.promise,
     exitListener: (code) => {
       child.exitCode = code;
+      if (!child.closing) {
+        lost();
+      }
       completion.resolve(code);
     },
     handle,
@@ -131,6 +147,7 @@ async function awaitReady(child: OwnedChild, root: string, signal: AbortSignal):
 }
 /** Joins the real exit: the platform finalizer behind it must not close the port during cleanup. */
 async function closeChild(child: OwnedChild): Promise<void> {
+  child.closing = true;
   if (child.exitCode === undefined) {
     child.handle.postMessage({ method: 'close' });
   }
@@ -142,6 +159,26 @@ async function closeChild(child: OwnedChild): Promise<void> {
 }
 function addFinalizer(scope: Scope.Closeable, release: () => Promise<void>): Promise<void> {
   return runAtPromiseBoundary(Scope.addFinalizer(scope, Effect.promise(release)));
+}
+/** The platform an owned host borrows, and Main's supervisor of its native processes (ADR-0017). */
+async function ownPlatform(
+  scope: Scope.Closeable,
+  options: DesktopHostLeaseOptions
+): Promise<{
+  readonly nativeChildren?: HostNativeChildren;
+  readonly platform?: ReturnType<NonNullable<DesktopHostLeaseOptions['platform']>>;
+}> {
+  if (!options.platform) {
+    return {};
+  }
+  const nativeChildren = createHostNativeChildren(options.root);
+  // Runs last, after the platform closed: join the host's native processes, then
+  // require the Root's flock free.
+  await addFinalizer(scope, () => nativeChildren.close());
+  const platform = options.platform(nativeChildren);
+  // Runs after closeChild has joined the host's exit, never during its cleanup.
+  await addFinalizer(scope, () => platform.close());
+  return { nativeChildren, platform };
 }
 
 /** One desktop acquisition lifetime; reset creates a new owner after close succeeds. */
@@ -193,11 +230,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           const platformOptions =
             options.platformModule === undefined ? undefined : await options.platformOptions?.();
           combined.throwIfAborted();
-          const platform = options.platform?.();
-          if (platform) {
-            // Runs after closeChild has joined the host's exit, never during its cleanup.
-            await addFinalizer(scope, () => platform.close());
-          }
+          const { nativeChildren, platform } = await ownPlatform(scope, options);
           const child = ownChild(
             fork(entrypoint, [
               JSON.stringify(start),
@@ -205,7 +238,9 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
               ...(platformOptions === undefined
                 ? []
                 : ['--platform-options', JSON.stringify(platformOptions)]),
-            ])
+            ]),
+            // A lost host leaves its native processes to Main (ADR-0017).
+            () => nativeChildren?.retire()
           );
           ownedPid = child.handle.pid;
           const ready = awaitReady(child, start.root, combined);

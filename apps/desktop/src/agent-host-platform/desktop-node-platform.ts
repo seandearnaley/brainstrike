@@ -35,6 +35,8 @@ import {
   selectHostProjectionRewrites,
 } from '@brainstrike/host-capabilities/native-tools';
 import type { HostStartOptions } from '@brainstrike/host-lease';
+import { createLogger } from '@brainstrike/logging';
+import { type NativeChild, observeNativeChildren } from '@brainstrike/state-store/native-children';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
 import { mainPlatformConnection } from './connection';
@@ -54,6 +56,7 @@ import {
 } from './platform-wire';
 
 type PlatformSelection = z.output<typeof PlatformSelectionSchema>;
+const logger = createLogger('DesktopNodePlatform');
 
 async function parsePlatformSelection(
   response: unknown,
@@ -216,6 +219,25 @@ export async function createHostPlatform(
     }
   };
   serveHostCommandSessions(connection);
+  // ADR-0017: Main supervises the native processes this host starts, and ends their
+  // process groups if the host dies. Windows reports none: the host's kill-on-close Job
+  // ends them with it.
+  if (process.platform !== 'win32') {
+    const notify = (method: string, child: NativeChild): void => {
+      const failed = (cause: unknown): void =>
+        logger.error('Main did not learn of a native process', { cause, method, pid: child.pid });
+      try {
+        connection.sendNotification(method, child).catch(failed);
+      } catch (cause) {
+        failed(cause);
+      }
+    };
+    const unobserve = observeNativeChildren({
+      exited: (child) => notify('platform/native-child/exited', child),
+      started: (child) => notify('platform/native-child/started', child),
+    });
+    await startup.register(async () => unobserve());
+  }
   // ADR-0007: a borrowed local generation streams through Main's progress notifications.
   const localProgress: LocalProgressListeners = new Map();
   connection.onNotification('platform/llm/progress', (input: unknown) => {
