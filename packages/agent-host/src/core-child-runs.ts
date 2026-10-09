@@ -27,7 +27,11 @@ import {
 } from './child-runs.js';
 import { HostChildWorkQueue } from './child-work-queue.js';
 import { retainHostRunWork } from './core-run-lifecycle.js';
-import { type HostRunState, hasHostInteractionResponse } from './core-state.js';
+import {
+  type HostRunState,
+  type HostThreadGrants,
+  hasHostInteractionResponse,
+} from './core-state.js';
 import type { HostDelegation, HostPlatform, HostRunAdmission } from './ports.js';
 import type {
   HostChildDelivery,
@@ -195,6 +199,7 @@ function hostChildStatus(
 }
 
 export class HostChildRuns {
+  private readonly grantsByRoot = new Map<string, HostThreadGrants>();
   private readonly origins = new Map<string, HostChildOrigin>();
   /** Each child thread's invocation run: the first run its delegation started. */
   private readonly invocations = new Map<string, string>();
@@ -221,6 +226,18 @@ export class HostChildRuns {
   forget(threadId: string): void {
     this.origins.delete(threadId);
     this.invocations.delete(threadId);
+    this.grantsByRoot.delete(threadId);
+  }
+
+  /**
+   * The grants every run of `threadId`'s tree shares: its root thread's
+   * (ADR-0010), kept for this process only; replay never restores them.
+   */
+  grants(threadId: string): HostThreadGrants {
+    const root = this.rootThread(threadId);
+    const grants = this.grantsByRoot.get(root) ?? { categories: new Set(), tools: new Set() };
+    this.grantsByRoot.set(root, grants);
+    return grants;
   }
 
   /** Folds after HostCore's own fold, so a started run already exists. */
