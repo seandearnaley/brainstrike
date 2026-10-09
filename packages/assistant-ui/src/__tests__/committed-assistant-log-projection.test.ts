@@ -81,8 +81,8 @@ describe('rich committed-log presentation projection', () => {
     projection.acceptCommitted(rows.slice(requested + 1, response));
     expect(tool(projection).approval).toBe(pending);
     projection.acceptCommitted(rows.slice(response));
-    expect(tool(projection).approval).toEqual({ approved: true, id: pending?.id });
-    expect(tool(projection).approval?.id).not.toMatch(/^aitxt-/);
+    expect(tool(projection).approval).toMatchObject({ approved: true, id: pending?.id });
+    expect(tool(projection).approval?.id).toBe(rows[requested]?.event['interactionId']);
     const output = rows.find(({ event }) => event['type'] === 'effect.finished')?.event['output'];
     expect(tool(projection).result).toBe(output);
     expect(projection.getSnapshot().pendingInteractions).toEqual([]);
@@ -118,26 +118,35 @@ describe('rich committed-log presentation projection', () => {
   });
 
   it('merges SDK provider/child metadata independently of host tool input and result authority', () => {
+    const textOptions = { google: { signature: 'signature-1' }, openai: { traceId: 'trace-1' } };
     const withMetadata = rows.map((row) => {
       const chunk = row.event['chunk'] as { type?: string } | undefined;
-      const metadata =
-        chunk?.type === 'tool-call'
-          ? {
-              brainstrike: {
-                childThreadId: 'child-1',
-                toolId: 'sdk-cannot-replace-owner',
-                toolIdentity: 'sdk-cannot-replace-owner',
-              },
-              openai: { requestId: 'request-1' },
-            }
-          : chunk?.type === 'text-start'
-            ? { openai: { traceId: 'trace-1' } }
-            : chunk?.type === 'text-end'
-              ? { google: { signature: 'signature-1' } }
-              : undefined;
-      return metadata
-        ? { ...row, event: { ...row.event, chunk: { ...chunk, providerMetadata: metadata } } }
-        : row;
+      if (chunk?.type === 'tool-call') {
+        const metadata = {
+          brainstrike: {
+            childThreadId: 'child-1',
+            toolId: 'sdk-cannot-replace-owner',
+            toolIdentity: 'sdk-cannot-replace-owner',
+          },
+          openai: { requestId: 'request-1' },
+        };
+        return { ...row, event: { ...row.event, chunk: { ...chunk, providerMetadata: metadata } } };
+      }
+      if (row.event['type'] !== 'model.step') {
+        return row;
+      }
+      // A step's text and its provider options are committed in its `model.step` messages.
+      const messages = (row.event['messages'] as { content: unknown[]; role: string }[]).map(
+        (message) => ({
+          ...message,
+          content: message.content.map((part) =>
+            (part as { type?: string }).type === 'text'
+              ? { ...(part as object), providerOptions: textOptions }
+              : part
+          ),
+        })
+      );
+      return { ...row, event: { ...row.event, messages } };
     });
     const projection = projector();
     projection.acceptCommitted(withMetadata);
@@ -151,7 +160,7 @@ describe('rich committed-log presentation projection', () => {
     });
     expect(
       answer(projection).content.find((part) => part.type === 'text')?.providerMetadata
-    ).toEqual({ google: { signature: 'signature-1' }, openai: { traceId: 'trace-1' } });
+    ).toEqual(textOptions);
     const fresh = projector();
     for (const row of withMetadata) {
       fresh.acceptCommitted([row]);
@@ -169,11 +178,7 @@ describe('rich committed-log presentation projection', () => {
       identifyRun: () => ({ ...identity, metadata, parentMessageId: saved.id }),
       threadId,
     });
-    const text = rows.findIndex(
-      ({ event }) =>
-        event['type'] === 'stream.chunk' &&
-        (event['chunk'] as { type?: string })?.type === 'text-delta'
-    );
+    const text = rows.findLastIndex(({ event }) => event['type'] === 'model.step');
     projection.acceptCommitted(rows.slice(0, text));
     const before = tool(projection);
     const approval = before.approval;
@@ -195,20 +200,23 @@ describe('rich committed-log presentation projection', () => {
 
   it('keeps unknown provider/child chunks as data and closes interrupted streaming parts without creating identities', () => {
     const projection = projector();
-    const textStart = rows.findIndex(
+    const lastStep = rows.findLastIndex(
       ({ event }) =>
         event['type'] === 'stream.chunk' &&
-        (event['chunk'] as { type?: string })?.type === 'text-start'
+        (event['chunk'] as { type?: string })?.type === 'start-step'
     );
-    projection.acceptCommitted(rows.slice(0, textStart + 1));
+    projection.acceptCommitted(rows.slice(0, lastStep + 1));
+    // The open step streams live text that never commits before the host restarts.
+    projection.acceptLive(runId, { id: 'text-1', type: 'text-start' });
+    projection.acceptLive(runId, { id: 'text-1', text: 'Host run', type: 'text-delta' });
     const child = {
       childThreadId: 'child',
       parentRunId: runId,
       parentToolCallId: 'recorded-call-1',
     };
-    const next = rows[textStart];
+    const next = rows[lastStep];
     if (!next) {
-      throw new Error('Missing recorded text-start.');
+      throw new Error('Missing the recorded final step.');
     }
     projection.acceptCommitted([
       {
@@ -234,6 +242,7 @@ describe('rich committed-log presentation projection', () => {
     ).toMatchObject({ data: child });
     expect(content.find((part) => part.type === 'text')).toMatchObject({
       status: { reason: 'other', type: 'incomplete' },
+      text: 'Host run',
     });
     expect(answer(projection).status).toEqual({
       error: 'Host restarted',
