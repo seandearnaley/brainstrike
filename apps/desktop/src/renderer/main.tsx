@@ -2,6 +2,10 @@ import { AppReloadGate, startAppReloadRecovery } from '@brainstrike/app-shell/ap
 import { DiagnosticSinkBridge } from '@brainstrike/app-shell/diagnostics';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useLoggingPreferencesStore } from '@brainstrike/app-state/stores/logging-preferences-store';
+import {
+  PERMISSION_POLICY_STORE_VERSION,
+  provideHostPermissionPolicyPersistence,
+} from '@brainstrike/app-state/stores/permission-policy-store';
 import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import { resolveBootstrapTreeSitterLanguages } from '@brainstrike/chunking-worker';
 import { DbProvider } from '@brainstrike/db/react';
@@ -25,6 +29,7 @@ import { bindRuntimeLogRecord, createRuntimeLogBindings } from '@brainstrike/wor
 import { StrictMode, Suspense, useEffect } from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
+import { connectDesktopAgentHost } from './agent-host-client';
 import { McpTaskStatusE2eHarness } from './components/mcp-task-status-e2e-harness-lazy';
 import {
   type DesktopBridgeValidationResult,
@@ -32,6 +37,7 @@ import {
   validateDesktopBridgeContract,
 } from './desktop-bridge-contract';
 import { resolveDesktopRendererRole } from './desktop-renderer-role';
+import { hostPermissionPolicyPersistence } from './host-permission-policy';
 import './log-buffer';
 import './styles.css';
 import { ChunkingHostApp } from './components/chunking-host-app';
@@ -52,6 +58,13 @@ declare global {
 
 // Import layout component
 import RootLayoutContent from './components/root-layout-content';
+
+// BST-1930 stage e: this window's agent host keeps the permission policy the user saves.
+if (window.agentHost) {
+  provideHostPermissionPolicyPersistence(
+    hostPermissionPolicyPersistence(connectDesktopAgentHost, PERMISSION_POLICY_STORE_VERSION)
+  );
+}
 
 // Create renderer-specific adapters that use IPC
 const baseFileSystemAdapter = new ElectronRendererFileSystemAdapter();

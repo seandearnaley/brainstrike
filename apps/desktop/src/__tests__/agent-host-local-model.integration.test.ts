@@ -13,20 +13,17 @@ import {
   startAgentHost,
 } from '@brainstrike/agent-host';
 import { foldHostRuns } from '@brainstrike/agent-host/thread-view';
-import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { afterEach, expect, test, vi } from 'vitest';
 import {
   mainPlatformConnection,
   type PlatformMessagePort,
 } from '../agent-host-platform/connection';
 import { createHostPlatform } from '../agent-host-platform/desktop-node-platform';
-import {
-  type DesktopPlatformSelection,
-  serveDesktopPlatform,
-} from '../agent-host-platform/main-platform';
+import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
+import { capturedIntent, mainReads } from './fixtures/desktop-admission-reads';
 import { desktopAppPaths } from './fixtures/desktop-host-profile';
 
 const LOCAL_MODEL = 'onnx-community/gemma-4-E2B-it-ONNX';
@@ -49,40 +46,6 @@ class UtilityPort extends EventEmitter implements PlatformMessagePort {
     this.port.close();
   }
 }
-
-const selection: DesktopPlatformSelection = {
-  close: async () => undefined,
-  configuration: { model: LOCAL_MODEL, provider: 'local' },
-  contextWindow: 8192,
-  durableConfiguration: { model: LOCAL_MODEL, provider: 'local' },
-  freshWorkspaceRoots: async () => [],
-  inputTokenLimit: 6000,
-  maxSteps: 1,
-  memory: {
-    options: { lastMessages: 12, workingMemory: { enabled: false, scope: 'thread', template: '' } },
-    settings: {
-      observationalMemory: {
-        enabled: false,
-        messageTokens: 30_000,
-        modelTarget: 'auto',
-        observationTokens: 40_000,
-        retrievalMode: 'off',
-        scope: 'thread',
-      },
-      semanticRecall: {
-        embeddingModelTarget: null,
-        enabled: false,
-        messageRange: 2,
-        scope: 'resource',
-        topK: 5,
-      },
-    },
-  },
-  nativeRuntime: { provider: 'local', workspaceRoots: [] },
-  resourceId: 'local-model-fixture',
-  tools: {},
-  toolTimeoutMs: 5000,
-};
 
 /** Main's llm-host client (`createMainLlmHostClient`), scripted: what the hidden renderer would answer. */
 function scriptedInference() {
@@ -143,10 +106,9 @@ test('a host thread on the built-in local model generates through the hidden llm
   const mainPort = new UtilityPort(channel.port1);
   const nodePort = new UtilityPort(channel.port2);
   const mainOwner = serveDesktopPlatform(mainPlatformConnection(mainPort), {
+    admission: mainReads(),
     localLlm: inference,
     mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
-    readConfiguration: async () => selection,
-    readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
   });
   let host: AgentHost | undefined;
   let desktop: HostClient | undefined;
@@ -175,6 +137,11 @@ test('a host thread on the built-in local model generates through the hidden llm
     await ui.request('log/subscribe', { fromSeq: 0, threadId });
     await ui.request('run/start', {
       commandId: randomUUID(),
+      configuration: capturedIntent({
+        agentLoop: { maxSteps: 1 },
+        model: LOCAL_MODEL,
+        provider: 'local',
+      }),
       modelId: `local::${LOCAL_MODEL}`,
       prompt: 'Say hello locally.',
       threadId,

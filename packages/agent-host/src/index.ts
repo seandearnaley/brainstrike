@@ -67,6 +67,12 @@ export {
 } from './mcp-authority.js';
 export { materializeHostProviderModel } from './model-router-sdk.js';
 export {
+  type HostPermissionPolicyStore,
+  hostPermissionGate,
+  readHostPermissionPolicy,
+  writeHostPermissionPolicy,
+} from './permission-policy.js';
+export {
   type HostEnvFileFailure,
   type HostPlatformLaunchOptions,
   HostPlatformLaunchOptionsSchema,

@@ -6,13 +6,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
 import { HostCore, type HostPlatform } from '@brainstrike/agent-host';
-import {
-  DEFAULT_PERMISSION_POLICIES,
-  DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
-  DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-  DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
-} from '@brainstrike/assistant-contract';
-import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import { createHostCredentials } from '@brainstrike/host-capabilities/credentials';
 import { RootLock, StateStore } from '@brainstrike/state-store';
 import { expect, test, vi } from 'vitest';
@@ -21,14 +14,12 @@ import {
   type PlatformMessagePort,
 } from '../agent-host-platform/connection';
 import { createHostPlatform } from '../agent-host-platform/desktop-node-platform';
-import {
-  type DesktopPlatformSelection,
-  serveDesktopPlatform,
-} from '../agent-host-platform/main-platform';
+import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
 import { desktopCredentialStoreSelection } from '../secrets';
+import { capturedIntent, mainReads } from './fixtures/desktop-admission-reads';
 import { desktopAppPaths } from './fixtures/desktop-host-profile';
 
 /** Actual Node ports expose the same MessageEvent contract as the utility transport. */
@@ -65,6 +56,7 @@ test('actual Core binding commands reach the live Main owner over the private pl
       throw new Error('Retained pinned mount was revoked');
     }
   });
+  const released = vi.fn(async () => undefined);
   const validate = vi.fn<NonNullable<HostPlatform['validateWorkspaceBinding']>>(
     async ({ binding, signal }) => {
       signal.throwIfAborted();
@@ -74,44 +66,16 @@ test('actual Core binding commands reach the live Main owner over the private pl
     }
   );
   const capabilities = {
+    // Main lends the bound workspace for the run; the host revalidates and releases it.
+    admission: mainReads({
+      acquireWorkspace: async () => ({
+        close: released,
+        revalidate: revalidateRetained,
+        roots: [{ displayName: 'Catalog workspace', path: root, rootId: operatingRootId }],
+      }),
+    }),
     // Production's Main MCP stores; this scenario configures no MCP server.
     mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
-    readConfiguration: async (): Promise<DesktopPlatformSelection> => ({
-      close: async () => undefined,
-      configuration: { model: 'gpt-4o-mini', provider: 'openai' },
-      contextWindow: 128_000,
-      durableConfiguration: {},
-      freshWorkspaceRoots: async () => [],
-      inputTokenLimit: 24_000,
-      maxSteps: 5,
-      memory: {
-        options: {
-          lastMessages: DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
-          workingMemory: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
-        },
-        settings: {
-          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-          observationalMemory: {
-            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
-            enabled: false,
-          },
-          semanticRecall: {
-            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
-            enabled: false,
-          },
-        },
-      },
-      nativeRuntime: { provider: 'openai', workspaceRoots: [] },
-      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-      revalidateWorkspace: revalidateRetained,
-      tools: {},
-      toolTimeoutMs: 5000,
-      workspace: {
-        boundWorkspaceRootId: operatingRootId,
-        roots: [{ displayName: 'Catalog workspace', path: root, rootId: operatingRootId }],
-      },
-    }),
-    readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
     resolveProviderAuth: async () => ({
       apiKey: 'synthetic-main-binding-key',
       kind: 'api_key' as const,
@@ -169,7 +133,12 @@ test('actual Core binding commands reach the live Main owner over the private pl
       throw new Error('Production admission capability was not forwarded');
     }
     const admission = await admitRun({
-      modelId: 'gpt-4o-mini',
+      configuration: capturedIntent({
+        agentLoop: { maxSteps: 5 },
+        model: 'gpt-6-sol',
+        provider: 'openai',
+      }),
+      modelId: 'openai::gpt-6-sol',
       runId: `${threadId}-run`,
       signal: new AbortController().signal,
       threadId,
@@ -189,7 +158,9 @@ test('actual Core binding commands reach the live Main owner over the private pl
         throw new Error('Main validator was not forwarded');
       }
       const freshCount = validate.mock.calls.length;
-      // The admitting run's own check: Main revalidates the selection that run holds.
+      // The admission revalidated its borrow once, before the run.
+      expect(revalidateRetained).toHaveBeenCalledOnce();
+      // The admitting run's own check: the host revalidates the borrow that run holds.
       const runId = `${threadId}-run`;
       await validator({
         binding: request.patch,
@@ -197,7 +168,7 @@ test('actual Core binding commands reach the live Main owner over the private pl
         signal: new AbortController().signal,
         threadId,
       });
-      expect(revalidateRetained).toHaveBeenCalledOnce();
+      expect(revalidateRetained).toHaveBeenCalledTimes(2);
       expect(validate).toHaveBeenCalledTimes(freshCount);
       retainedRevoked = true;
       await expect(
@@ -211,10 +182,13 @@ test('actual Core binding commands reach the live Main owner over the private pl
         threadId,
       });
       expect(validate).toHaveBeenCalledTimes(freshCount + 1);
-      expect(revalidateRetained).toHaveBeenCalledTimes(2);
+      expect(revalidateRetained).toHaveBeenCalledTimes(3);
     } finally {
       await retireAdmission();
     }
+    // Retiring the run returns Main's borrow, once.
+    await retireAdmission();
+    expect(released).toHaveBeenCalledOnce();
   } finally {
     if (core) {
       await core.close();

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { updateSettingsTestOverrides } from '@brainstrike/e2e-test-utils/settings-test-overrides';
+import type { ConsoleMessage } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
@@ -230,9 +231,22 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     const tokenToggle = window.getByTestId('token-counting-accurate-toggle');
     await tokenToggle.click();
     await expect(tokenToggle).toHaveAttribute('aria-checked', 'false');
+    // A saved permission policy, which the agent host keeps (BST-1930 stage e).
+    await homePage.openSettings();
+    await settingsPage.openCategory(/Permissions/i, 'permissions');
+    await window.getByTestId('permission-policy-edit').selectOption('deny');
+    await expect(window.getByTestId('permission-policy-edit')).toHaveValue('deny');
 
     await openFactoryResetSettings(homePage, settingsPage);
     await overrideNextConfirm(window, true);
+    // A reset is an expected terminal retirement: the renderer logs no error through it.
+    const resetErrors: string[] = [];
+    const recordError = (message: ConsoleMessage): void => {
+      if (message.type() === 'error') {
+        resetErrors.push(message.text());
+      }
+    };
+    window.on('console', recordError);
     await window.getByTestId('factory-reset-button').click();
     await expect
       .poll(() => fs.existsSync(sentinelFile), {
@@ -249,6 +263,11 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
         localStorageValue: null,
         sessionStorageValue: null,
       });
+    // The reset ends with its replacement renderer ready; the retired one logged nothing wrong.
+    const { waitForAppReady: waitForResetRenderer } = await loadElectronHelpers();
+    await waitForResetRenderer(window);
+    window.off('console', recordError);
+    expect(resetErrors).toEqual([]);
 
     const restarted = await electronHarness.restart();
     const restartedWindow = restarted.window;
@@ -273,5 +292,9 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
       });
     expect(fs.existsSync(sentinelFile)).toBe(false);
     expect(fs.existsSync(diagnosticFile)).toBe(true);
+    // The reset cleared the saved policy with the host's state: the default applies again.
+    await restartedHomePage.openSettings();
+    await restartedSettingsPage.openCategory(/Permissions/i, 'permissions');
+    await expect(restartedWindow.getByTestId('permission-policy-edit')).toHaveValue('ask');
   });
 });
