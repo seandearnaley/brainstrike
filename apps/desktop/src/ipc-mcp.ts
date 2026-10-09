@@ -1,25 +1,24 @@
 import path from 'node:path';
-import { type McpHostSnapshot, parseMcpHostControlRequest } from '@brainstrike/assistant-contract';
+import type { McpHostSnapshot } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { dialog, ipcMain } from 'electron';
 import { mcpContract, mcpPathSelectionContract } from './ipc-domains/mcp.contract';
 import { attachMcpBridges, type McpBridgesRuntime } from './mcp/bridges';
 import { registerMcpContentIpc } from './mcp/content-ipc';
 import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
-import { notifyMcpStatusUpdated } from './mcp/lifecycle-control';
 import type { RemoteMcpRuntime } from './mcp/remote-runtime';
 import { createDesktopIpcRegistry, registerDomain } from './platform/desktop-ipc-registry';
 import type { Handlers } from './platform/ipc-contract';
 
 /**
- * Main's remaining MCP surfaces (BST-1930 c5a): status, lifecycle control,
- * content, Apps, Tasks and elicitation reach the host's runtime through the
- * private proxy until c5b-e make them public host methods. The host owns the
- * MCP config, extension dials, discovery and tool preferences; Main keeps only
- * the native config picker, which hands the chosen file to the host.
+ * Main's remaining MCP surfaces (BST-1930 c5b): content, Apps, Tasks and
+ * elicitation reach the host's runtime through the private proxy until c5c-e
+ * make them public host methods. The host owns the MCP config, extension
+ * dials, discovery, tool preferences, server status and lifecycle control;
+ * Main keeps the native config picker, which hands the chosen file to the
+ * host, and the preload's status read for MCP App resources (until c5d).
  */
 const logger = createLogger('DesktopMcpIpc');
-export const MCP_STATUS_UPDATED_EVENT = mcpContract.onServerStatusUpdated.channel;
 
 type McpIpcRuntime = Pick<RemoteMcpRuntime, 'host' | 'pickConfigPath'> & McpBridgesRuntime;
 type McpSettingsLifecycleRuntime = Pick<RemoteMcpRuntime, 'resetSettings' | 'resumeSettings'>;
@@ -120,11 +119,7 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpIpcRuntime }):
   mcpSurfacesOpen = true;
   const registry = createDesktopIpcRegistry({ ipcMain });
   const detachBridges = attachMcpBridges(runtime, registry);
-  const stopStatusWatch = runtime.host.watch({}, notifyMcpStatusUpdated);
   const handlers: Handlers<typeof mcpContract> = {
-    // The host's settings authority reloads discovery after a connect, disconnect or reauthorize.
-    controlServer: async (request) =>
-      structuredClone(await runtime.host.control(parseMcpHostControlRequest(request))),
     getServerStatusSnapshot: async (): Promise<McpHostSnapshot> =>
       structuredClone(runtime.host.snapshot()),
   };
@@ -141,7 +136,6 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpIpcRuntime }):
   registerMcpContentIpc(registry, runtime, mcpContentLifecycle);
   return () => {
     detachBridges();
-    stopStatusWatch();
     registry.unregisterAll();
   };
 }

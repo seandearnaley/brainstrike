@@ -12,10 +12,7 @@ import type {
   McpElicitationPresentationWire,
   McpElicitationRetiredWire,
   McpElicitationSettlement,
-  McpHostControlRequest,
-  McpHostServerSnapshot,
   McpHostSnapshot,
-  McpHostWatchEvent,
   McpTaskActionRequest,
   McpTaskActionResult,
   McpTaskListResult,
@@ -55,20 +52,17 @@ export type McpContentIpcResponse =
   | { readonly error: McpContentIpcFailure; readonly ok: false }
   | { readonly ok: true; readonly result: McpContentApplicationResult };
 
-/** Status and lifecycle control; the host owns MCP settings (`mcp/config/*` and `mcp/tools/*`). */
+/**
+ * Preload-internal: an MCP App resource read names its server's live
+ * generation from Main's status mirror. Renderers read status and run
+ * lifecycle control on the agent host (`mcp/status/read`, `mcp/server/control`,
+ * BST-1930 c5b); this read goes when App content moves to the host (c5d).
+ */
 export const mcpContract = {
-  controlServer: rawChannel<[request: McpHostControlRequest], McpHostServerSnapshot>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.lifecycleControl,
-    parseArgs: oneArg('MCP lifecycle control'),
-    roles: VISIBLE_UI,
-  }),
   getServerStatusSnapshot: rawChannel<[], McpHostSnapshot>({
     channel: DESKTOP_IPC_CHANNELS.mcp.statusGet,
     parseArgs: parseNoArgs,
     roles: VISIBLE_UI,
-  }),
-  onServerStatusUpdated: pushEvent<McpHostWatchEvent>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.statusUpdated,
   }),
 } as const satisfies Contract;
 
@@ -157,7 +151,6 @@ export const mcpTasksContract = {
   }),
 } as const satisfies Contract;
 
-export type McpContractBridge = Bridge<typeof mcpContract>;
 export type McpPathSelectionContractBridge = Bridge<typeof mcpPathSelectionContract>;
 export type McpContentContractBridge = Bridge<typeof mcpContentContract>;
 export type McpElicitationContractBridge = Bridge<typeof mcpElicitationContract>;
@@ -174,8 +167,7 @@ type McpContentResult<Type extends McpContentApplicationResult['type']> = Extrac
 >;
 
 /** Renderer-facing MCP shape after the preload's intentional compositions. */
-export type McpBridge = McpContractBridge &
-  McpPathSelectionContractBridge &
+export type McpBridge = McpPathSelectionContractBridge &
   McpElicitationContractBridge & {
     readonly apps?: McpAppsContractBridge & Pick<McpAppBridge, 'readResource'>;
     readonly complete: (

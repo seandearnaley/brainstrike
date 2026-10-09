@@ -544,10 +544,12 @@ contextBridge.exposeInMainWorld('agent', {
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.chat, messages, runtime),
 });
 
-// MCP Config API (desktop-only). The channel methods and subscriptions are
-// derived from pure contracts. `apps.readResource` stays a composed preload
-// operation: it resolves the live server generation before using the content
-// contract, so there is intentionally no dedicated IPC channel for it.
+// MCP content, Apps, Tasks and elicitation (desktop-only). The channel methods
+// and subscriptions are derived from pure contracts; MCP settings and status
+// belong to the agent host. `apps.readResource` stays a composed preload
+// operation: it resolves the live server generation (the preload-internal
+// status read) before using the content contract, so there is intentionally no
+// dedicated IPC channel for it.
 const mcpRootBridge = createIpcBridge(ipcRenderer, mcpContract);
 const mcpPathSelectionBridge = createIpcBridge(ipcRenderer, mcpPathSelectionContract);
 const mcpContentBridge = createIpcBridge(ipcRenderer, mcpContentContract);
@@ -555,7 +557,6 @@ const mcpElicitationBridge = createIpcBridge(ipcRenderer, mcpElicitationContract
 const mcpAppsBridge = createIpcBridge(ipcRenderer, mcpAppsContract);
 const mcpTasksBridge = createIpcBridge(ipcRenderer, mcpTasksContract);
 contextBridge.exposeInMainWorld('mcp', {
-  ...mcpRootBridge,
   ...mcpPathSelectionBridge,
   apps: {
     ...mcpAppsBridge,

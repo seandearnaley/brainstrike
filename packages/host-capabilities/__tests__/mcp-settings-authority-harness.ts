@@ -11,7 +11,6 @@ import {
   type McpHostOperation,
   type McpHostOperationResult,
   type McpHostServerSnapshot,
-  type McpHostSnapshot,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import { vi } from 'vitest';
@@ -22,6 +21,7 @@ import {
   type ResolvedMcpConfig,
 } from '../src/mcp/config-file.js';
 import { MCP_EXTENSION_PREFERENCES_SETTING } from '../src/mcp/extension-preferences.js';
+import { McpHostRevisionPublisher } from '../src/mcp/host-revision-publisher.js';
 import { McpSettingsAuthority } from '../src/mcp/settings-authority.js';
 
 type ListToolsResult = Extract<McpHostOperationResult, { type: 'tools/list' }>['result'];
@@ -39,12 +39,17 @@ export function stdioServer(name: string): Record<string, unknown> {
 }
 
 /**
- * The in-process runtime the authority commits to: config replacement mints a
- * snapshot revision, `tools/list` answers from `listTools`, and lifecycle
- * controls answer the configured server's snapshot unless a test overrides it.
+ * The in-process runtime the authority commits to: its status is the runtime's
+ * own revision publisher, config replacement publishes a new server set,
+ * `tools/list` answers from `listTools`, and lifecycle controls answer the
+ * configured server's snapshot unless a test overrides it.
  */
 function createRuntime(listTools: ListTools) {
-  let current: McpHostSnapshot = { revision: 0, servers: [] };
+  const publisher = new McpHostRevisionPublisher({
+    onDiagnostic: (_diagnostic, cause) => {
+      throw cause;
+    },
+  });
   let extensions: McpExtensionEnablement = MCP_EXTENSIONS_ENABLED;
   const invoke = vi.fn(async (operation: McpHostOperation): Promise<McpHostOperationResult> => {
     if (operation.type !== 'tools/list') {
@@ -53,23 +58,22 @@ function createRuntime(listTools: ListTools) {
     return { result: await listTools(operation.configuredServerId), type: 'tools/list' } as const;
   });
   const replaceResolvedConfig = vi.fn(async (config: ResolvedMcpConfig) => {
-    current = {
-      revision: current.revision + 1,
-      servers: config.servers.map((server) => ({
+    const generation = publisher.snapshot().revision + 1;
+    return publisher.publishConfigSet(
+      config.servers.map((server) => ({
         configuredProtocol: server.protocol,
         configuredServerId: parseConfiguredMcpServerId(server.name),
-        generation: current.revision + 1,
+        generation,
         state:
           server.startup === 'authentication-required' ? 'authentication-required' : 'disconnected',
         transport: server.transport,
-      })),
-    };
-    return current;
+      }))
+    );
   });
   const control = vi.fn(async (request: McpHostControlRequest): Promise<McpHostServerSnapshot> => {
-    const server = current.servers.find(
-      ({ configuredServerId }) => configuredServerId === request.configuredServerId
-    );
+    const server = publisher
+      .snapshot()
+      .servers.find(({ configuredServerId }) => configuredServerId === request.configuredServerId);
     if (!server) {
       throw new Error('Test MCP server is not configured');
     }
@@ -77,15 +81,20 @@ function createRuntime(listTools: ListTools) {
   });
   const setMcpExtensionPreferences = vi.fn(async (next: McpExtensionEnablement) => {
     extensions = next;
-    current = { ...current, revision: current.revision + 1 };
-    return current;
+    return publisher.snapshot();
   });
   return {
     control,
     invoke,
+    publisher,
     replaceResolvedConfig,
     runtime: {
-      host: { control, invoke },
+      host: {
+        control,
+        invoke,
+        snapshot: () => publisher.snapshot(),
+        watch: publisher.watch.bind(publisher),
+      },
       get mcpExtensionPreferences(): McpExtensionEnablement {
         return extensions;
       },
@@ -139,8 +148,16 @@ export async function createSettingsHarness(options: { listTools?: ListTools } =
     runtime: fake.runtime,
     userDataDir,
   });
+  // Settings facts land in order; status follows the runtime's own revisions.
   const events: McpSettingsEvent[] = [];
-  authority.subscribe((event) => events.push(event));
+  const statusEvents: Extract<McpSettingsEvent, { type: 'status' }>[] = [];
+  authority.subscribe((event) => {
+    if (event.type === 'status') {
+      statusEvents.push(event);
+      return;
+    }
+    events.push(event);
+  });
   const configPath = path.join(userDataDir, 'mcp', 'mcp.config.json');
   const preferencesPath = path.join(userDataDir, 'mcp', 'tool-preferences.json');
   return {
@@ -171,6 +188,7 @@ export async function createSettingsHarness(options: { listTools?: ListTools } =
       return JSON.parse(await readFile(preferencesPath, 'utf8'));
     },
     settings,
+    statusEvents,
     toolsEvents(): McpSettingsEvent[] {
       return events.filter(({ type }) => type === 'tools');
     },

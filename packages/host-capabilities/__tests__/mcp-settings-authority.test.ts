@@ -448,7 +448,7 @@ describe('MCP settings authority lifecycle control', () => {
 });
 
 describe('MCP settings authority shutdown and snapshot', () => {
-  it('answers the config status, dials and tools in one snapshot', async () => {
+  it('answers the config status, dials, server status and tools in one snapshot', async () => {
     const h = await setup({ listTools: async () => toolList('read') });
     await h.writeConfig([stdioServer('fs')]);
     await h.authority.start();
@@ -456,6 +456,7 @@ describe('MCP settings authority shutdown and snapshot', () => {
     await expect(h.authority.snapshot()).resolves.toEqual({
       config: expect.objectContaining({ exists: true, path: h.configPath }),
       extensions: { apps: true, tasks: true },
+      status: h.publisher.snapshot(),
       tools: { fs: [expect.objectContaining({ enabled: true, id: 'fs.read' })] },
     });
   });

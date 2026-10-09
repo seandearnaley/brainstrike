@@ -41,7 +41,7 @@ const MAX_MCP_CONFIG_TEXT_BYTES = 1_000_000;
 
 /** The in-process MCP runtime the settings commit to. */
 export interface McpSettingsRuntime {
-  readonly host: Pick<McpHostPort, 'control' | 'invoke'>;
+  readonly host: Pick<McpHostPort, 'control' | 'invoke' | 'snapshot' | 'watch'>;
   readonly mcpExtensionPreferences: McpExtensionEnablement;
   replaceResolvedConfig(config: ResolvedMcpConfig): Promise<McpHostSnapshot>;
   setMcpExtensionPreferences(preferences: McpExtensionEnablement): Promise<McpHostSnapshot>;
@@ -107,6 +107,8 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
   /** Unreadable preferences fail closed; only recovery or explicit reset reopens writes. */
   #toolPreferencesFault: McpToolPreferencesFault | null = null;
   readonly #listeners = new Set<(event: McpSettingsEvent) => void>();
+  /** The runtime's status watch, held while any subscriber listens. */
+  #unwatchStatus: null | (() => void) = null;
 
   constructor(private readonly options: McpSettingsAuthorityOptions) {}
 
@@ -130,8 +132,14 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
 
   subscribe(listener: (event: McpSettingsEvent) => void): () => void {
     this.#listeners.add(listener);
+    this.#unwatchStatus ??= this.options.runtime.host.watch({}, (status) =>
+      this.#emit({ status, type: 'status' })
+    );
     return () => {
       this.#listeners.delete(listener);
+      if (this.#listeners.size === 0) {
+        this.#stopStatusWatch();
+      }
     };
   }
 
@@ -140,8 +148,14 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     return {
       config,
       extensions: { ...this.options.runtime.mcpExtensionPreferences },
+      status: this.status(),
       tools: serializableTools(),
     };
+  }
+
+  /** The runtime's server status, at its current revision. */
+  status(): McpHostSnapshot {
+    return this.options.runtime.host.snapshot();
   }
 
   configStatus(): Promise<HostResults['mcp/config/status']> {
@@ -433,9 +447,15 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     this.#pendingFactoryResetSnapshot = null;
     this.#purgeProjection();
     this.#listeners.clear();
+    this.#stopStatusWatch();
     if (failures.length > 0) {
       throw new AggregateError(failures, 'MCP settings shutdown cleanup failed');
     }
+  }
+
+  #stopStatusWatch(): void {
+    this.#unwatchStatus?.();
+    this.#unwatchStatus = null;
   }
 
   #emit(event: McpSettingsEvent): void {

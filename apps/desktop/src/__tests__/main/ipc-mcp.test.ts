@@ -80,7 +80,7 @@ function createMainRuntime() {
   };
 }
 
-describe('Main MCP IPC (BST-1930 c5a)', () => {
+describe('Main MCP IPC (BST-1930 c5a-c5b)', () => {
   let handlers: Map<string, RegisteredHandler>;
   let runtime: ReturnType<typeof createMainRuntime>;
   let unregister: (() => void) | undefined;
@@ -110,40 +110,23 @@ describe('Main MCP IPC (BST-1930 c5a)', () => {
     unregister = undefined;
   });
 
-  it('serves status, lifecycle control and the picker, and no MCP settings', () => {
+  it('serves the picker and the preload status read, and no MCP settings, status push or control', () => {
     expect([...handlers.keys()]).toEqual(
-      expect.arrayContaining(['mcp:status:get', 'mcp:lifecycle:control', 'mcp:config:selectPath'])
+      expect.arrayContaining(['mcp:status:get', 'mcp:config:selectPath'])
     );
     for (const channel of handlers.keys()) {
-      expect(channel).not.toMatch(/^mcp:(tools|extensions):|^mcp:config:(?!selectPath$)/u);
+      expect(channel).not.toMatch(
+        /^mcp:(tools|extensions|lifecycle):|^mcp:config:(?!selectPath$)|^mcp:status:(?!get$)/u
+      );
     }
+    // The host's settings stream carries status (BST-1930 c5b); Main watches nothing for renderers.
+    expect(runtime.host.watch).not.toHaveBeenCalled();
   });
 
   it('answers a clone of the host runtime snapshot', async () => {
     const snapshot = await handler('mcp:status:get')(event());
     expect(snapshot).toEqual({ revision: 3, servers: [SERVER] });
     expect(snapshot).not.toBe(runtime.host.snapshot());
-  });
-
-  it('validates a lifecycle control before forwarding it to the host', async () => {
-    await expect(
-      handler('mcp:lifecycle:control')(event(), {
-        action: 'connect',
-        configuredServerId: SERVER_ID,
-      })
-    ).resolves.toEqual(SERVER);
-    expect(runtime.host.control).toHaveBeenCalledWith({
-      action: 'connect',
-      configuredServerId: SERVER_ID,
-    });
-
-    await expect(
-      handler('mcp:lifecycle:control')(event(), {
-        action: 'explode',
-        configuredServerId: SERVER_ID,
-      })
-    ).rejects.toThrow();
-    expect(runtime.host.control).toHaveBeenCalledTimes(1);
   });
 
   it('hands the natively picked file to the host and answers its selected path', async () => {
