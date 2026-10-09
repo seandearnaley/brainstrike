@@ -361,18 +361,26 @@ export async function bindHostRunAdmission(
   return admission;
 }
 
-export async function ensureHostRunAdmission(
-  platform: HostPlatform,
-  run: HostRunState
-): Promise<HostRunAdmission> {
-  const request: HostRunAdmissionRequest = {
+/** The request that reopens a committed run's selection from its snapshot. */
+export function hostRunReopenRequest(
+  run: Pick<HostRunState, 'modelId' | 'planMode' | 'snapshot' | 'threadId'>,
+  signal: AbortSignal
+): HostRunAdmissionRequest {
+  return {
     modelId: run.modelId,
     ...(run.planMode ? { planMode: true } : {}),
-    signal: run.controller.signal,
+    signal,
     ...(run.snapshot ? { snapshot: run.snapshot } : {}),
     ...(run.snapshot?.workspaceBinding ? { workspaceBinding: run.snapshot.workspaceBinding } : {}),
     threadId: run.threadId,
   };
+}
+
+export async function ensureHostRunAdmission(
+  platform: HostPlatform,
+  run: HostRunState
+): Promise<HostRunAdmission> {
+  const request = hostRunReopenRequest(run, run.controller.signal);
   if (run.admission) {
     await validateHostRunWorkspaceBinding(platform, request);
     return run.admission;
