@@ -215,6 +215,19 @@ export const HostChildOriginSchema = z.strictObject({
   turnId: Id,
 });
 export type HostChildOrigin = z.infer<typeof HostChildOriginSchema>;
+/**
+ * BST-1932: a child as its parent's sidebar shows it: a run in progress, a run
+ * waiting on a person's answer, or no run in progress.
+ */
+export const HostChildStatusSchema = z.enum(['working', 'needs-input', 'idle']);
+export type HostChildStatus = z.infer<typeof HostChildStatusSchema>;
+/**
+ * BST-1932: the host's notice that a thread's children changed status (a child
+ * run started, paused for a person, was answered or ended). A client re-reads
+ * `thread/children` for `threadId` only when told.
+ */
+export const HOST_CHILDREN_CHANGED = 'thread/children/changed';
+export const HostChildrenChangedSchema = z.strictObject(Thread);
 /** One settled background invocation delivered to its parent (BST-1932). */
 export const HostChildDeliveryEntrySchema = z.strictObject({
   childRunId: Id,
@@ -774,13 +787,14 @@ export const HOST_RESULT_SCHEMAS = {
   'run/verdict': z.strictObject({ accepted: z.literal(true) }),
   'thread/children': z.strictObject({
     // Delegation order: each child with the origin its thread.started committed,
-    // and its call sign and family colour, derived from the tree on every read.
+    // and its call sign, family colour and status, derived on every read.
     children: z.array(
       z.strictObject({
         ...Thread,
         callSign: z.string().min(1),
         color: z.string().min(1),
         origin: HostChildOriginSchema,
+        status: HostChildStatusSchema,
       })
     ),
   }),

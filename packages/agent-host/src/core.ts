@@ -275,7 +275,7 @@ export class HostCore {
 
   /** BST-1932: a thread's direct child threads, in delegation order, with their origins. */
   listChildren(threadId: string): HostResults['thread/children']['children'] {
-    return this.children.listed(threadId, this.threads, this.presentations);
+    return this.children.listed(threadId, this.threads, this.presentations, this.runs);
   }
 
   updateThread(params: HostParams<'thread/update'>): Promise<{ accepted: true }> {
