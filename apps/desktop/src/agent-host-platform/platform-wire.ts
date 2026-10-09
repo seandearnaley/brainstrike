@@ -22,6 +22,12 @@ import { QueryEmbeddingPayloadSchema, QueryEmbeddingResultSchema } from './retri
 
 const Id = z.string().min(1);
 const Decision = z.enum(PERMISSION_DECISIONS);
+/** ADR-0017: one native process the host started; `group` leaders are signalled as a whole group. */
+export const PlatformNativeChildSchema = z.strictObject({
+  group: z.boolean(),
+  pid: z.number().int().positive(),
+  start: z.string().min(1),
+});
 export const PlatformRunRequestSchema = z.strictObject({
   configuration: z.record(z.string(), z.json()).optional(),
   modelId: Id,
