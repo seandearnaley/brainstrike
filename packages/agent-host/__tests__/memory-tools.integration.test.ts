@@ -39,6 +39,7 @@ async function memoryToolHost(options: NativeOptions, models: MockLanguageModelV
       maxSteps: 3,
       memory: {
         native: { options },
+        observerModelId: 'openai::gpt-4.1-mini',
         recordPrompt: async () => undefined,
         resourceId: 'memory-tools-fixture',
       },

@@ -134,6 +134,8 @@ export const worker: AssistantPersonaDefinition = {
 
 /** Overrides for a fixture host: its personas, root policy and extra tools. */
 export interface ChildRunFixture {
+  /** Holds a batch's commit until it resolves, to observe the host between a reservation and its commit. */
+  readonly holdAppend?: (items: readonly AppendItem[]) => Promise<void>;
   /** The production run owner over the fixture's own store, as the host platform opens it. */
   readonly memory?: (store: StateStore) => HostPlatform['openRun'];
   /** The platform's run owner (Memory), opened with each run's context. */
@@ -261,10 +263,11 @@ export async function setupChildRunHost(
   const writer = (): { dead: boolean; port: HostEventStore } => {
     const state = { dead: false } as { dead: boolean; port: HostEventStore };
     state.port = {
-      append: (items, committed, durability) => {
+      append: async (items, committed, durability) => {
         if (state.dead) {
-          return Promise.reject(new Error('process crashed'));
+          throw new Error('process crashed');
         }
+        await fixture.holdAppend?.(items);
         batches.push([...items]);
         return store.append(items, committed, durability);
       },

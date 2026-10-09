@@ -19,7 +19,8 @@ export const globWorkspace = defineNativeTool({
   id: 'brainstrike.globWorkspace',
   inputSchema: providerCompatibleInputSchema(GlobWorkspaceInputSchema),
   kind: 'desktop',
+  localProvider: 'offered',
   returns:
     'Matching workspace-relative paths (each labelled with its root), self-bound to the tool output budget, with totals, a truncation flag, and a continuation hint',
-  surfaces: ['desktop', 'web', 'local'],
+  surfaces: ['desktop', 'web'],
 });

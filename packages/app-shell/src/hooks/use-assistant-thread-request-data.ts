@@ -1,5 +1,5 @@
 import { useAssistantSubagentPreferencesStore } from '@brainstrike/app-state/stores/assistant-subagent-preferences-store';
-import type { HookTrustRequest, RuntimeData } from '@brainstrike/assistant-contract';
+import type { RuntimeData } from '@brainstrike/assistant-contract';
 import type {
   RuntimeAssistantMemorySettings,
   RuntimeAssistantObservationalMemorySettings,
@@ -21,11 +21,6 @@ interface UseAssistantThreadRequestDataArgs {
    * fields, so callers pass a complete pair or nothing.
    */
   readonly experimentAssignment?: RuntimeData['experimentAssignment'];
-  /**
-   * Opt-in hook-trust attestation; only set on the desktop data-stream
-   * transport (web has no hook runner). The server re-hashes disk independently.
-   */
-  readonly hookTrustRequest?: HookTrustRequest | undefined;
   readonly hostedMemoryBackendAvailable: boolean;
   /**
    * The client's declared MAIN root (activeRootIds[0]); ordering hint for the
@@ -88,7 +83,6 @@ export function useAssistantThreadRequestData({
   enabledNativeToolIds,
   experimentAssignment,
   hostedMemoryBackendAvailable,
-  hookTrustRequest,
   mainRootId,
   mainRootPath,
   memoryOptions,
@@ -127,7 +121,6 @@ export function useAssistantThreadRequestData({
         ...(boundWorkspaceRootId ? { boundWorkspaceRootId } : {}),
         enabledNativeToolIds,
         ...(experimentAssignment ? { experimentAssignment } : {}),
-        hookTrustRequest,
         hostedMemoryBackendAvailable,
         ...(mainRootId ? { mainRootId } : {}),
         ...(mainRootPath ? { mainRootPath } : {}),
@@ -154,7 +147,6 @@ export function useAssistantThreadRequestData({
       boundWorkspaceRootId,
       enabledNativeToolIds,
       experimentAssignment,
-      hookTrustRequest,
       hostedMemoryBackendAvailable,
       mainRootId,
       mainRootPath,

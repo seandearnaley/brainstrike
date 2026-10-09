@@ -1,4 +1,4 @@
-import type { WebContents } from 'electron';
+import type { BrowserWindow, WebContents } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 interface LlmLifecycleStatus {
@@ -59,9 +59,19 @@ vi.mock('../renderer-host-lifecycle', () => ({
   }),
 }));
 
-const { mockVisibleWindow } = vi.hoisted(() => ({
+const { mockHiddenHostWindow, mockVisibleWindow } = vi.hoisted(() => ({
+  // A hidden runtime host's window: never a progress destination.
+  mockHiddenHostWindow: {
+    isDestroyed: vi.fn(() => false),
+    once: vi.fn(),
+    webContents: {
+      id: 6,
+      send: vi.fn(),
+    },
+  },
   mockVisibleWindow: {
     isDestroyed: vi.fn(() => false),
+    once: vi.fn(),
     webContents: {
       id: 5,
       send: vi.fn(),
@@ -71,7 +81,7 @@ const { mockVisibleWindow } = vi.hoisted(() => ({
 
 vi.mock('electron', () => ({
   BrowserWindow: {
-    getAllWindows: vi.fn(() => [mockVisibleWindow]),
+    getAllWindows: vi.fn(() => [mockVisibleWindow, mockHiddenHostWindow]),
   },
 }));
 
@@ -105,6 +115,7 @@ const { AssistantDataStreamSession, streamMastraAgent } = await import('@brainst
 import { createMainLlmHostClient } from '@brainstrike/assistant-service/ports';
 import { LlmHostManager } from '../llm-host-manager';
 import { assertLlmHostRequest } from '../llm-host-shared';
+import { assignWindowRole } from '../window-role';
 
 type TestableLlmHostManager = Omit<LlmHostManager, never> & {
   acceptResponseReport: (
@@ -1260,7 +1271,10 @@ describe('LlmHostManager', () => {
     it('broadcasts main-initiated loading progress to visible windows so the UI shows downloads', async () => {
       // Cold MEMORY-model warmups are triggered by the assistant server (main
       // process) with no renderer request in flight; without this broadcast
-      // the user stares at a silent spinner while gigabytes download.
+      // the user stares at a silent spinner while gigabytes download. The
+      // windows carry the roles createWindow and the host lifecycles assign.
+      assignWindowRole(mockVisibleWindow as unknown as BrowserWindow, 'visible-ui');
+      assignWindowRole(mockHiddenHostWindow as unknown as BrowserWindow, 'llm-host');
       const manager = new LlmHostManager() as unknown as TestableLlmHostManager;
 
       const warmupPromise = manager.warmupForMain('onnx-community/gemma-4-E2B-it-ONNX');
@@ -1307,6 +1321,7 @@ describe('LlmHostManager', () => {
           payload: expect.objectContaining({ kind: 'loading', progress: 100 }),
         })
       );
+      expect(mockHiddenHostWindow.webContents.send).not.toHaveBeenCalled();
     });
 
     it('does not broadcast renderer-initiated progress a second time', async () => {

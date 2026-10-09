@@ -30,6 +30,19 @@ export function resolveDesktopTestShard(
   return shard;
 }
 
+/**
+ * Integration files whose SQLite query child shares advanced (structured-clone)
+ * IPC with the test process, which needs Electron's V8 on both sides
+ * (docs/agents/agent-self-query/scoped-caller-profile.md). scripts/run-integration.mjs
+ * runs them in its Electron pass (ELECTRON_RUN_AS_NODE=1); every Node run leaves
+ * them to that pass, so the two passes partition the suite.
+ */
+export const ELECTRON_RUNTIME_TESTS = [
+  'src/__tests__/assistant-server/native-assistant-retrieval.integration.test.ts',
+  'src/__tests__/assistant-server/query-self-scoped-callers.integration.test.ts',
+];
+export const UNDER_ELECTRON = process.versions.electron !== undefined;
+
 const coverageEnabled =
   process.env['COVERAGE'] !== 'false' &&
   (process.env['CI'] === 'true' || process.env['COVERAGE'] === 'true');
@@ -226,6 +239,7 @@ export default defineConfig({
       '**/scripts/**', // Script helper tests use node:test directly.
       // Qualification owns node:test and Playwright runners (see its README).
       '**/qualification/**',
+      ...(UNDER_ELECTRON ? [] : ELECTRON_RUNTIME_TESTS),
     ],
     globals: true,
     // Desktop integration lanes build real PGlite instances inside beforeEach

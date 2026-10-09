@@ -12,6 +12,14 @@ import {
   type PendingHostApproval,
 } from './thread-view.js';
 
+/** How each committed interaction kind is answered at the prompt. */
+const INTERACTION_PROMPTS: Readonly<Record<PendingHostApproval['kind'], string>> = {
+  approval: 'Approve, deny, or stop? ',
+  network: 'Allow its network with JSON {"action":"allow"|"deny"}, or stop: ',
+  plan: 'Decide with JSON {"action":"approved"|"rejected","feedback":"optional text"}, or stop: ',
+  question: 'Answer with JSON {"answer":"text"} or {"answer":["choice"]}, or stop: ',
+};
+
 function errorText(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
 }
@@ -166,13 +174,7 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
     if (approval.interactionId !== displayedApproval) {
       displayedApproval = approval.interactionId;
       process.stderr.write(
-        `\n${approval.toolId} ${JSON.stringify(approval.input)}\n${
-          approval.kind === 'approval'
-            ? 'Approve, deny, or stop? '
-            : approval.kind === 'question'
-              ? 'Answer with JSON {"answer":"text"} or {"answer":["choice"]}, or stop: '
-              : 'Decide with JSON {"action":"approved"|"rejected","feedback":"optional text"}, or stop: '
-        }`
+        `\n${approval.toolId} ${JSON.stringify(approval.input)}\n${INTERACTION_PROMPTS[approval.kind]}`
       );
     }
   };

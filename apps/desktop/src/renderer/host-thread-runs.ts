@@ -71,7 +71,8 @@ function notificationFor(row: HostLogRow): RunNotificationEvent | undefined {
   if (event.type === 'interaction.requested') {
     return {
       decisionKey: event.interactionId,
-      ...(event.kind === 'approval' ? {} : { input: event.kind }),
+      // A network consent asks for approval, as a tool approval does.
+      ...(event.kind === 'question' || event.kind === 'plan' ? { input: event.kind } : {}),
       kind: 'toolApprovalRequired',
       runId: event.runId,
     };

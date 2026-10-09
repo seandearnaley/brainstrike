@@ -117,9 +117,219 @@ function applyChange(db, resourceId, change) {
   }
 }
 
+const THREAD_SECTION = /<thread id="([^"]+)">[\s\S]*?<\/thread>/gu;
+
+/**
+ * Mastra Memory 1.32.1 persists resource-scope observations as
+ * `<thread id="...">` sections joined by separators (ObservationStrategy
+ * wrapWithThreadTag/replaceOrAppendThreadSection); it exposes no public way to
+ * remove one thread's section. Drop that thread's sections, each with the
+ * separator before it (after it, for the first), and keep the rest unchanged.
+ * Returns the kept [start, end) ranges of `text` in order, or null when no
+ * section is the thread's. Known limit: with OM `obscureThreadIds` the tag
+ * holds a hash, not the thread ID, so such sections stay; nothing enables it.
+ * Remove when Memory offers a public resource-attribution editor.
+ * https://github.com/mastra-ai/mastra/tree/@mastra/memory@1.32.1/packages/memory
+ * @param {string} text @param {string} threadId
+ * @returns {{ start: number; end: number }[] | null} */
+function keptRanges(text, threadId) {
+  const sections = [...text.matchAll(THREAD_SECTION)].map((match) => ({
+    end: match.index + match[0].length,
+    owner: match[1],
+    start: match.index,
+  }));
+  if (sections.every((section) => section.owner !== threadId)) {
+    return null;
+  }
+  const kept = [];
+  let previousEnd = 0;
+  for (const section of sections) {
+    if (section.owner !== threadId) {
+      kept.push({ end: section.end, start: kept.length === 0 ? section.start : previousEnd });
+    }
+    previousEnd = section.end;
+  }
+  if (kept.length === 0) {
+    return [];
+  }
+  const lead = { end: sections[0]?.start ?? 0, start: 0 };
+  return [lead, ...kept, { end: text.length, start: previousEnd }];
+}
+
+/** @param {string} text @param {{ start: number; end: number }[]} ranges */
+function joinRanges(text, ranges) {
+  return ranges.map(({ end, start }) => text.slice(start, end)).join('');
+}
+
+/**
+ * Mastra activates a buffered reflection over the first
+ * `reflectedObservationLineCount` lines of the active observations. Count the
+ * lines of the detached text that hold what is left of that prefix.
+ * @param {string} before @param {string} after
+ * @param {{ start: number; end: number }[]} ranges @param {number} lines */
+function reflectedLinesAfter(before, after, ranges, lines) {
+  const prefix = before.split('\n').slice(0, lines).join('\n').length;
+  const left = ranges.reduce(
+    (sum, { end, start }) => sum + Math.max(0, Math.min(end, prefix) - start),
+    0
+  );
+  return left === 0 ? 0 : after.slice(0, left - 1).split('\n').length;
+}
+
+/**
+ * `key`'s text without the thread's sections, written to `detached`; null when
+ * none are its.
+ * @param {Record<string, unknown>} record @param {Record<string, unknown>} detached
+ * @param {string} key @param {string} threadId
+ * @returns {string | null} */
+function detachField(record, detached, key, threadId) {
+  const text = record[key];
+  const ranges = typeof text === 'string' ? keptRanges(text, threadId) : null;
+  if (!(typeof text === 'string' && ranges)) {
+    return null;
+  }
+  const after = joinRanges(text, ranges);
+  detached[key] = after;
+  return after;
+}
+
+/**
+ * The active observations and their counters. `bufferedReflectionInputTokens`
+ * is Mastra's own slice estimate (doAsyncBufferedReflection): the record's
+ * tokens per active line, times the reflected lines.
+ * @param {Record<string, unknown>} record @param {Record<string, unknown>} detached
+ * @param {string} threadId @param {import('./memory-types.js').ObservationTokenCounter} count */
+function detachActive(record, detached, threadId, count) {
+  const active = record['activeObservations'];
+  const ranges = typeof active === 'string' ? keptRanges(active, threadId) : null;
+  if (!(typeof active === 'string' && ranges)) {
+    return false;
+  }
+  const after = joinRanges(active, ranges);
+  const tokens = count(after);
+  detached['activeObservations'] = after;
+  detached['observationTokenCount'] = tokens;
+  const lines = record['reflectedObservationLineCount'];
+  if (typeof lines !== 'number') {
+    return true;
+  }
+  const reflected = reflectedLinesAfter(active, after, ranges, lines);
+  detached['reflectedObservationLineCount'] = reflected;
+  if (typeof record['bufferedReflectionInputTokens'] === 'number') {
+    detached['bufferedReflectionInputTokens'] = Math.round(
+      (tokens / after.split('\n').length) * reflected
+    );
+  }
+  return true;
+}
+
+/**
+ * The buffered reflection and its tokens. One left empty is cleared with its
+ * counters, as Mastra's swapBufferedReflectionToActive clears an activated
+ * one, so its lines stay active and unreflected.
+ * @param {Record<string, unknown>} record @param {Record<string, unknown>} detached
+ * @param {string} threadId @param {import('./memory-types.js').ObservationTokenCounter} count */
+function detachReflection(record, detached, threadId, count) {
+  const reflection = detachField(record, detached, 'bufferedReflection', threadId);
+  if (reflection === null) {
+    return false;
+  }
+  if (reflection !== '') {
+    detached['bufferedReflectionTokens'] = count(reflection);
+    return true;
+  }
+  for (const key of [
+    'bufferedReflection',
+    'bufferedReflectionTokens',
+    'bufferedReflectionInputTokens',
+    'reflectedObservationLineCount',
+  ]) {
+    delete detached[key];
+  }
+  return true;
+}
+
+/**
+ * The buffered chunks and each changed chunk's tokens.
+ * @param {Record<string, unknown>} record @param {Record<string, unknown>} detached
+ * @param {string} threadId @param {import('./memory-types.js').ObservationTokenCounter} count */
+function detachChunks(record, detached, threadId, count) {
+  const chunks = record['bufferedObservationChunks'];
+  if (!Array.isArray(chunks)) {
+    return false;
+  }
+  let changed = false;
+  detached['bufferedObservationChunks'] = chunks.flatMap(
+    /** @param {Record<string, unknown>} chunk */ (chunk) => {
+      const text = chunk['observations'];
+      const ranges = typeof text === 'string' ? keptRanges(text, threadId) : null;
+      if (!(typeof text === 'string' && ranges)) {
+        return [chunk];
+      }
+      changed = true;
+      // A buffered chunk that held only the deleted thread has nothing left to activate.
+      if (ranges.length === 0) {
+        return [];
+      }
+      const observations = joinRanges(text, ranges);
+      return [{ ...chunk, observations, tokenCount: count(observations) }];
+    }
+  );
+  return changed;
+}
+
+/**
+ * One shared observation record without `threadId`'s sections, or null when
+ * none are its. Each changed text's token field is recounted with Mastra OM's
+ * own counter, the one that set it; untouched texts keep their stored counts.
+ * @param {Record<string, unknown>} record @param {string} threadId
+ * @param {import('./memory-types.js').ObservationTokenCounter | undefined} countTokens
+ * @returns {Record<string, unknown> | null} */
+function detachRecord(record, threadId, countTokens) {
+  /** @param {string} text */
+  const count = (text) => {
+    if (!countTokens) {
+      throw new Error('Detaching thread observations requires the observation token counter');
+    }
+    return countTokens(text);
+  };
+  const detached = { ...record };
+  // In order: a reflection left empty clears the line count the active pass set.
+  const changed = [
+    detachActive(record, detached, threadId, count),
+    detachField(record, detached, 'bufferedObservations', threadId) !== null,
+    detachReflection(record, detached, threadId, count),
+    detachChunks(record, detached, threadId, count),
+  ];
+  return changed.includes(true) ? detached : null;
+}
+
+/** @param {import('better-sqlite3').Database} db @param {string} resourceId @param {string} threadId
+ * @param {import('./memory-types.js').ObservationTokenCounter | undefined} countTokens */
+function detachThreadObservations(db, resourceId, threadId, countTokens) {
+  const rows = /** @type {{ id: string; payload: string }[]} */ (
+    db
+      .prepare(
+        "SELECT id, payload FROM brainstrike_memory_entities WHERE resource_id=? AND thread_id IS NULL AND kind='observation'"
+      )
+      .all(resourceId)
+  );
+  for (const row of rows) {
+    const detached = detachRecord(JSON.parse(row.payload), threadId, countTokens);
+    if (detached) {
+      db.prepare('UPDATE brainstrike_memory_entities SET payload=? WHERE kind=? AND id=?').run(
+        JSON.stringify(detached),
+        'observation',
+        row.id
+      );
+    }
+  }
+}
+
 /** @param {import('better-sqlite3').Database} db
- * @param {Extract<import('./memory-types.js').MemoryDomainRequest,{operation:'purge-thread'}>} request */
-function purgeThread(db, request) {
+ * @param {Extract<import('./memory-types.js').MemoryDomainRequest,{operation:'purge-thread'}>} request
+ * @param {import('./memory-types.js').ObservationTokenCounter | undefined} countTokens */
+function purgeThread(db, request, countTokens) {
   id(request.threadId, 'thread ID');
   db.prepare('DELETE FROM brainstrike_memory_entities WHERE resource_id=? AND thread_id=?').run(
     request.resourceId,
@@ -131,53 +341,136 @@ function purgeThread(db, request) {
     db.prepare(
       'DELETE FROM brainstrike_memory_entities WHERE resource_id=? AND thread_id IS NULL'
     ).run(request.resourceId);
+  } else if (request.sharedResource === 'detach-thread') {
+    // Legacy kept shared resource memory when a thread was deleted. Working
+    // memory stays as it is; a shared observation record loses only the
+    // deleted thread's attributed sections, so every other thread's stay.
+    detachThreadObservations(db, request.resourceId, request.threadId, countTokens);
   } else if (request.sharedResource !== 'preserve') {
     throw new TypeError('Invalid shared memory purge policy');
   }
+}
+
+/** The settings key recording a resource's one legacy workspace-memory import (gap 17). */
+export const MEMORY_LEGACY_IMPORT_KEY = 'memory.legacy-import';
+
+/** @param {import('better-sqlite3').Database} db @param {string} resourceId
+ * @returns {import('./memory-types.js').MemoryJson} */
+function legacyImportMarker(db, resourceId) {
+  const value = db
+    .prepare('SELECT value FROM settings WHERE key = ?')
+    .pluck()
+    .get(`${MEMORY_LEGACY_IMPORT_KEY}:${resourceId}`);
+  return typeof value === 'string' ? JSON.parse(value) : null;
+}
+
+/**
+ * The desktop's legacy workspace memory, imported once with its completion
+ * marker in this transaction. Its working memory is written only when the host
+ * has no resource record yet; resource observations are never imported, only
+ * recorded in the marker.
+ * @param {import('better-sqlite3').Database} db
+ * @param {Extract<import('./memory-types.js').MemoryDomainRequest,{operation:'legacy-import'}>} request
+ * @returns {import('./memory-types.js').MemoryJson} */
+function legacyImport(db, request) {
+  const host = db
+    .prepare("SELECT 1 FROM brainstrike_memory_entities WHERE resource_id=? AND kind='resource'")
+    .get(request.resourceId);
+  let workingMemory = 'none';
+  if (host !== undefined) {
+    workingMemory = 'kept-host';
+  } else if (request.resource) {
+    putEntity(db, request.resourceId, {
+      id: request.resourceId,
+      kind: 'resource',
+      payload: request.resource,
+      threadId: null,
+    });
+    workingMemory = 'imported';
+  }
+  const marker = {
+    at: request.at,
+    resourceId: request.resourceId,
+    resourceObservations: request.resourceObservations,
+    workingMemory,
+  };
+  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(
+    `${MEMORY_LEGACY_IMPORT_KEY}:${request.resourceId}`,
+    JSON.stringify(marker)
+  );
+  return marker;
+}
+
+/**
+ * One mutation inside its transaction; returns a value for the snapshot, if any.
+ * @param {import('better-sqlite3').Database} db
+ * @param {Exclude<import('./memory-types.js').MemoryDomainRequest,{operation:'read'|'legacy-import-status'|'native'}>} request
+ * @param {import('./memory-types.js').ObservationTokenCounter | undefined} countTokens
+ * @returns {import('./memory-types.js').MemoryJson | undefined} */
+function mutate(db, request, countTokens) {
+  if (request.operation === 'commit') {
+    const current = snapshot(db, request.resourceId);
+    if (!(Number.isSafeInteger(request.expectedRevision) && request.expectedRevision >= 0)) {
+      throw new TypeError('Invalid memory revision');
+    }
+    if (current.revision !== request.expectedRevision) {
+      throw new MemoryRevisionConflictError(request.expectedRevision, current.revision);
+    }
+    for (const change of request.changes) {
+      applyChange(db, request.resourceId, change);
+    }
+  } else if (request.operation === 'purge-resource') {
+    db.prepare('DELETE FROM brainstrike_memory_entities WHERE resource_id=?').run(
+      request.resourceId
+    );
+  } else if (request.operation === 'purge-thread') {
+    purgeThread(db, request, countTokens);
+  } else if (request.operation === 'legacy-import') {
+    return legacyImport(db, request);
+  } else {
+    throw new TypeError('Unknown memory operation');
+  }
+  return;
 }
 
 /**
  * A native public operation is calculated on an isolated vendor projection.
  * Its complete delta commits iff the writer snapshot remains current. A
  * conflict fails visibly: no automatic retry, merge guess or partial write.
+ * `countTokens` is Mastra OM's observation token counter, which a
+ * `detach-thread` purge needs to recount the shared records it changes.
  * @param {import('better-sqlite3').Database} db
  * @param {import('./memory-types.js').MemoryDomainRequest} request
+ * @param {import('./memory-types.js').ObservationTokenCounter} [countTokens]
  * @returns {import('./memory-types.js').MemorySnapshot}
  */
-export function executeMemoryRequest(db, request) {
+export function executeMemoryRequest(db, request, countTokens) {
   id(request.resourceId, 'resource ID');
   return db.transaction(() => {
     assertOwnerThread(db, request.ownerThreadId);
     if (request.operation === 'read') {
       return snapshot(db, request.resourceId);
     }
+    if (request.operation === 'native') {
+      throw new TypeError('A native memory operation needs its calculator');
+    }
+    const imported =
+      request.operation === 'legacy-import' || request.operation === 'legacy-import-status'
+        ? legacyImportMarker(db, request.resourceId)
+        : null;
+    // A finished import is never repeated; its marker answers both requests.
+    if (request.operation === 'legacy-import-status' || imported !== null) {
+      return { ...snapshot(db, request.resourceId), value: imported };
+    }
     db.prepare(
       'INSERT INTO brainstrike_memory_scopes(resource_id,revision) VALUES(?,0) ON CONFLICT(resource_id) DO NOTHING'
     ).run(request.resourceId);
-    const current = snapshot(db, request.resourceId);
-    if (request.operation === 'commit') {
-      if (!(Number.isSafeInteger(request.expectedRevision) && request.expectedRevision >= 0)) {
-        throw new TypeError('Invalid memory revision');
-      }
-      if (current.revision !== request.expectedRevision) {
-        throw new MemoryRevisionConflictError(request.expectedRevision, current.revision);
-      }
-      for (const change of request.changes) {
-        applyChange(db, request.resourceId, change);
-      }
-    } else if (request.operation === 'purge-resource') {
-      db.prepare('DELETE FROM brainstrike_memory_entities WHERE resource_id=?').run(
-        request.resourceId
-      );
-    } else if (request.operation === 'purge-thread') {
-      purgeThread(db, request);
-    } else {
-      throw new TypeError('Unknown memory operation');
-    }
+    const value = mutate(db, request, countTokens);
     db.prepare('UPDATE brainstrike_memory_scopes SET revision=revision+1 WHERE resource_id=?').run(
       request.resourceId
     );
-    return snapshot(db, request.resourceId);
+    const after = snapshot(db, request.resourceId);
+    return value === undefined ? after : { ...after, value };
   })();
 }
 

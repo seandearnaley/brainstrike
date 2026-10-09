@@ -20,6 +20,30 @@
       "default": "./dist/native-tools/index.js"
     },
     "./platform": { "types": "./dist/platform.d.ts", "default": "./dist/platform.js" },
+    "./agent-ignore-guard": {
+      "types": "./dist/native-tools/agent-ignore-guard.d.ts",
+      "default": "./dist/native-tools/agent-ignore-guard.js"
+    },
+    "./extract-url-refusal": {
+      "types": "./dist/native-tools/extract-url-refusal.d.ts",
+      "default": "./dist/native-tools/extract-url-refusal.js"
+    },
+    "./grep-search-result-contract": {
+      "types": "./dist/native-tools/grep-search-result-contract.d.ts",
+      "default": "./dist/native-tools/grep-search-result-contract.js"
+    },
+    "./workspace-file-walk": {
+      "types": "./dist/native-tools/workspace-file-walk.d.ts",
+      "default": "./dist/native-tools/workspace-file-walk.js"
+    },
+    "./workspace-path": {
+      "types": "./dist/native-tools/workspace-path.d.ts",
+      "default": "./dist/native-tools/workspace-path.js"
+    },
+    "./workspace-text-file-reader": {
+      "types": "./dist/native-tools/workspace-text-file-reader.d.ts",
+      "default": "./dist/native-tools/workspace-text-file-reader.js"
+    },
     "./mcp/*": { "types": "./dist/mcp/*.d.ts", "default": "./dist/mcp/*.js" },
     "./openrouter-model-metadata": {
       "types": "./dist/openrouter-model-metadata.d.ts",

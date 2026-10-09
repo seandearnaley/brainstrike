@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   resolveCatalogEmbeddingPlan,
+  unpinnedCatalogEmbeddingPlan,
   validateCatalogEmbeddingWorkerPlan,
 } from '../inference-plan.js';
 
@@ -43,5 +44,23 @@ describe('canonical catalog local plans', () => {
     expect(
       resolveCatalogEmbeddingPlan({ dimensions: 384, modelId: catalog[0]!.id }, catalog[0]!).kind
     ).toBe('unavailable');
+  });
+});
+
+describe('the unpinned catalog load (legacy local recall)', () => {
+  it.each([
+    ['webgpu', 384, 'fp16'],
+    ['webgpu', 1024, 'fp16'],
+    ['wasm', 384, 'q4'],
+    ['wasm', 768, 'q4'],
+    ['wasm', 1024, 'fp32'],
+  ] as const)('%s at %i dimensions loads %s', (device, dimensions, dtype) => {
+    const model = { dimensions, id: 'Xenova/bge-small-en-v1.5' };
+    const plan = unpinnedCatalogEmbeddingPlan(model, device);
+    expect(plan).toEqual({ device, dimensions, dtype, modelId: model.id });
+    expect(resolveCatalogEmbeddingPlan(plan, model)).toMatchObject({
+      kind: 'ready',
+      profile: { dimensions, dtype, modelId: model.id },
+    });
   });
 });

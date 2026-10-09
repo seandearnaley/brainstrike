@@ -19,6 +19,7 @@ import {
 import { foldHostCanvases } from '@brainstrike/host-capabilities/canvas-state';
 import { createLogger } from '@brainstrike/logging';
 import { connectDesktopAgentHost } from './agent-host-client';
+import { HostThreadCanvases } from './host-thread-canvases';
 import { HostThreadLedger } from './host-thread-ledger';
 import { HostThreadRuns } from './host-thread-runs';
 
@@ -109,6 +110,7 @@ function bindingPatch(metadata: AssistantThreadMetadata): ThreadWorkspaceBinding
 
 export function createWindowThreadCapability(
   renderThread: (view: {
+    readonly canvases: HostThreadCanvases;
     readonly catalogLoaded: boolean;
     /** BST-1932: a child thread's call sign and family colour; absent for a top-level thread. */
     readonly child: { readonly callSign: string; readonly color: string } | undefined;
@@ -126,6 +128,7 @@ export function createWindowThreadCapability(
 } {
   const runs = new HostThreadRuns();
   const ledger = new HostThreadLedger();
+  const canvases = new HostThreadCanvases();
   const titleListeners = new Set<() => void>();
   const titleCommitted = (): void => {
     for (const listener of titleListeners) {
@@ -212,7 +215,7 @@ export function createWindowThreadCapability(
         throw new Error('This thread is not owned by the agent host');
       }
       return (await host.request('thread/children', { threadId })).children.map(
-        ({ callSign, color, origin, threadId: child }) => {
+        ({ callSign, color, origin, status, threadId: child }) => {
           threads.set(child, host);
           childViews.set(child, { callSign, color });
           return {
@@ -222,6 +225,7 @@ export function createWindowThreadCapability(
             parentRunId: origin.parentRunId,
             parentThreadId: origin.parentThreadId,
             persona: origin.persona,
+            status,
             threadId: child,
             toolCallId: origin.toolCallId,
           };
@@ -247,6 +251,7 @@ export function createWindowThreadCapability(
       ledger.delete(threadId);
       return true;
     },
+    isHostThread: (threadId) => threads.has(threadId),
     ledger,
     listThreads,
     ownsThread: async (threadId) => (await threadClient(threadId)) !== undefined,
@@ -274,6 +279,7 @@ export function createWindowThreadCapability(
     },
     renderThread: (threadId, _isVisible, onRunningChange, providerReadErrors) =>
       renderThread({
+        canvases,
         catalogLoaded,
         child: childViews.get(threadId),
         host: threads.get(threadId),
@@ -309,11 +315,32 @@ export function createWindowThreadCapability(
         parentRunId: child.origin.parentRunId,
         parentThreadId: child.origin.parentThreadId,
         persona: child.origin.persona,
+        status: child.status,
         threadId,
         toolCallId: child.origin.toolCallId,
       };
     },
     runs,
+    subscribeCanvases: canvases.subscribe,
+    // BST-1932: the host says which thread's children changed; nothing is polled.
+    subscribeChildren: (listener) => {
+      let active = true;
+      let release: (() => void) | undefined;
+      client().then(
+        (host) => {
+          if (active) {
+            release = host.onChildrenChanged(listener);
+          }
+        },
+        (error: unknown) => {
+          logger.error('Host child changes could not be followed', { error });
+        }
+      );
+      return () => {
+        active = false;
+        release?.();
+      };
+    },
     subscribeTitleChanges: (listener) => {
       titleListeners.add(listener);
       return () => titleListeners.delete(listener);

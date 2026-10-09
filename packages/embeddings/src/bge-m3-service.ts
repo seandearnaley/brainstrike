@@ -1,5 +1,6 @@
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { calculateCosineSimilarity } from './embedding-math.js';
+import { quantizesUnpinnedLoad } from './inference-plan.js';
 import { TransformersBackend } from './transformers-backend.js';
 import type {
   EmbeddingConfig,
@@ -79,8 +80,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
           }
         : modelConfigOrId;
 
-    // Determine if quantization should be used (768D or smaller models benefit from quantization)
-    const shouldQuantize = modelConfig.dimensions <= 768 && !modelConfig.quantized;
+    const shouldQuantize = quantizesUnpinnedLoad(modelConfig);
 
     const config: Partial<EmbeddingConfig> = {
       device: deviceOverride || this._config.device || 'webgpu',

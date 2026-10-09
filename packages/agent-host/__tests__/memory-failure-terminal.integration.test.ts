@@ -86,7 +86,12 @@ async function failureHost(memory: (run: number) => Memory) {
         configuration,
         durableConfiguration: { model: modelId, provider: 'openai' },
         maxSteps: 2,
-        memory: { ...memory(admitted++), recordPrompt: async () => undefined, resourceId },
+        memory: {
+          ...memory(admitted++),
+          observerModelId: 'openai::gpt-4.1-mini',
+          recordPrompt: async () => undefined,
+          resourceId,
+        },
         providerRequestContext: {
           inputTokenLimit: 50_000,
           provider: 'openai',

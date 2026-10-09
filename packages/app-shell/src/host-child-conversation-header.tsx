@@ -9,6 +9,7 @@ import type {
   AssistantThreadHostChild,
 } from './assistant-thread-host-context';
 import { ASSISTANT_THREAD_ICON_PRESENTATION } from './assistant-thread-presentation';
+import { focusHostChildOrigin } from './host-child-origins';
 import { openHostChildTab } from './open-host-child-tab';
 
 const logger = createLogger('HostChildConversationHeader');
@@ -100,9 +101,11 @@ export function HostChildConversationHeader({
   }
   const appearance = getDelegatedColorPresentation(child.color);
   const open = (threadId: string): void => {
+    // Returning to the parent puts focus back on the card that opened this child.
+    const returning = (): boolean => focusHostChildOrigin(child.threadId, threadId);
     const ancestor = ancestry?.trail.find((candidate) => candidate.threadId === threadId);
     if (ancestor) {
-      openHostChildTab(ancestor);
+      openHostChildTab(ancestor, returning);
       return;
     }
     if (!root) {
@@ -111,7 +114,9 @@ export function HostChildConversationHeader({
     }
     useAssistantThreadStore.getState().openThreadTab(root.resourceId, root.id);
     window.requestAnimationFrame(() => {
-      document.getElementById(`assistant-thread-tab-${root.id}`)?.focus();
+      if (!returning()) {
+        document.getElementById(`assistant-thread-tab-${root.id}`)?.focus();
+      }
     });
   };
   const operatingRoot = root?.metadata?.operatingRootDisplayName;

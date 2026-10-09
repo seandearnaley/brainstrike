@@ -3,11 +3,9 @@ import path from 'node:path';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import type { GrepMatch, LineMatcher } from '@brainstrike/db';
 import { collectGrepMatchesInContent } from '@brainstrike/db';
-import {
-  createAgentIgnoreGuard,
-  isWithinRoot,
-  walkWorkspaceRoot,
-} from '@brainstrike/host-capabilities/native-tools';
+import { createAgentIgnoreGuard } from '@brainstrike/host-capabilities/agent-ignore-guard';
+import { walkWorkspaceRoot } from '@brainstrike/host-capabilities/workspace-file-walk';
+import { isWithinRoot } from '@brainstrike/host-capabilities/workspace-path';
 import { createLogger } from '@brainstrike/logging';
 import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils';
 import { resolveScopedGrepFile } from './live-grep-files';

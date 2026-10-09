@@ -21,7 +21,8 @@ import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
 import { CommittedHostCheckpoints } from './committed-host-checkpoints';
 import { CommittedHostMcpInput } from './committed-host-mcp-input';
-import { respondToHostApproval } from './host-approval-response';
+import { CommittedHostVerdicts } from './committed-host-verdicts';
+import { respondToHostApproval, resumeHostInteraction } from './host-approval-response';
 import { HostTreeApprovals } from './host-tree-approvals';
 
 const logger = createLogger('CommittedHostConversation');
@@ -103,6 +104,8 @@ export interface CommittedHostConversation {
    */
   steer(): Promise<string | undefined>;
   readonly store: CommittedAssistantLogStore;
+  /** The thread's committed run verdicts, recorded through the host. */
+  readonly verdicts: CommittedHostVerdicts;
 }
 
 /** Construct alongside the attached client, outside React render. */
@@ -193,16 +196,7 @@ export function createCommittedHostConversation(options: {
         throw new Error('Approval has no unique committed interaction');
       }
       if (interaction.kind && interaction.kind !== 'approval') {
-        if (response.text === undefined) {
-          throw new Error('Human interaction requires its typed response');
-        }
-        await client.request('interaction/resume', {
-          commandId: crypto.randomUUID(),
-          interactionId: interaction.interactionId,
-          resumeData: z.json().parse(JSON.parse(response.text)),
-          runId: interaction.runId,
-          threadId,
-        });
+        await resumeHostInteraction(client, interaction, response);
         return;
       }
       // A grant option is committed by the host, which keeps it for the thread's tree.
@@ -274,5 +268,6 @@ export function createCommittedHostConversation(options: {
       return outcome === 'steering' ? runId : undefined;
     },
     store,
+    verdicts: new CommittedHostVerdicts(client, source, threadId),
   };
 }

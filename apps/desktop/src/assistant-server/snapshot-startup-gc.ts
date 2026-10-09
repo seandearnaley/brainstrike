@@ -15,6 +15,22 @@
  *     live root's shadow repo with NO ledger rows backing it (for that root)
  *     anchors objects the app can never resolve again; it is deleted. Refs
  *     are enumerated PER SHADOW REPO via `listSnapshotThreadIds`.
+ *     A host thread's turn snapshots are recorded in the host's committed
+ *     log, never the ledger, so its ref stays while the host lists the
+ *     thread; a deleted host thread's ref is residue. The host is asked once,
+ *     only when a ref has no ledger rows, and if it cannot answer every such
+ *     ref is kept and the failure reported (refusing beats guessing here too).
+ *  5. HOST RETENTION RING — a live host thread's chain keeps its newest
+ *     `turnRing` turn starts, trimmed per chain from shadow git alone
+ *     (`snapshot-chains.ts`), never from the host's log, whose committed
+ *     stream chunks make a boot-time read costly. A root used only in a
+ *     host thread's older turns therefore keeps up to the ring's turns of
+ *     its own, where the ledger's per-thread ring drops it; the per-chain
+ *     disk bound is the same. Since a prune rewrites the root's whole
+ *     shallow file, it lists every surviving unbacked chain's start (a
+ *     chain an earlier sweep cut included), and a root whose refs or chains
+ *     cannot all be read is not pruned at all. The rewind floor for host
+ *     threads arrives with host rewind.
  *  3. RETENTION RING (the plan's GC policy, trigger choice DOCUMENTED here):
  *     keep the newest {@link DEFAULT_SNAPSHOT_TURN_RING} turn brackets per
  *     thread; older ledger rows (including their interleaved `pre-revert`
@@ -70,6 +86,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
 import { resolveEarliestBatchTarget, resolveRewindRunRange } from './rewind-repository';
+import { hostChainBoundary, type SnapshotChainEntry } from './snapshot-chains';
 import { FAILED_SNAPSHOT_CAPTURE_OID, type SnapshotRepository } from './snapshot-repository';
 import type { ShadowRepoHandle, SnapshotService } from './snapshot-service';
 import {
@@ -100,6 +117,13 @@ export interface SnapshotStartupGcDeps {
   readonly isRootPathAccessible?: (path: string) => Promise<boolean>;
   /** Connected workspace roots (every `roots` row — disconnect ≠ delete). */
   readonly liveRoots: readonly { readonly path: string; readonly rootId: string }[];
+  /** The agent host's live thread ids, whose snapshot refs no ledger row backs. */
+  readonly readHostThreadIds: () => Promise<ReadonlySet<string>>;
+  /** A thread's snapshot chain in one root, newest first (`listThreadSnapshotChain`). */
+  readonly readThreadChain: (
+    handle: ShadowRepoHandle,
+    threadId: string
+  ) => Promise<readonly SnapshotChainEntry[]>;
   readonly snapshotRepository: SnapshotRepository;
   readonly snapshotService: SnapshotService;
   /** Ring override for tests; production uses the default. */
@@ -113,6 +137,8 @@ export interface SnapshotStartupGcReport {
   readonly failures: readonly string[];
   /** Root ids whose shadow repos were shallow-cut + gc'd this sweep. */
   readonly historyPrunedRoots: readonly string[];
+  /** Host chains cut to the retention ring this sweep. */
+  readonly hostRingTrimmed: readonly { readonly rootId: string; readonly threadId: string }[];
   /** Refs deleted because no ledger rows back them in that root. */
   readonly refOnlyPruned: readonly { readonly rootId: string; readonly threadId: string }[];
   /** Per-thread ring trims: how many ledger rows fell off the ring. */
@@ -131,6 +157,7 @@ export interface SnapshotStartupGcReport {
 interface GcAccumulator {
   readonly deadThreadsPruned: string[];
   readonly failures: string[];
+  readonly hostRingTrimmed: { rootId: string; threadId: string }[];
   readonly refOnlyPruned: { rootId: string; threadId: string }[];
   readonly ringTrimmed: { deletedRows: number; threadId: string }[];
   readonly skippedInaccessibleRoots: { path: string; rootId: string }[];
@@ -140,6 +167,34 @@ interface GcAccumulator {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** The host's live thread ids, or that the host could not list them. */
+type HostThreads =
+  | { readonly ids: ReadonlySet<string>; readonly kind: 'listed' }
+  | { readonly kind: 'unavailable' };
+
+/**
+ * The host's live thread ids, read once per sweep and only when a ref without
+ * ledger rows needs the answer.
+ */
+function hostThreadsReader(
+  deps: SnapshotStartupGcDeps,
+  accumulator: GcAccumulator
+): () => Promise<HostThreads> {
+  let read: Promise<HostThreads> | undefined;
+  return () => {
+    read ??= deps.readHostThreadIds().then(
+      (ids): HostThreads => ({ ids, kind: 'listed' }),
+      (error: unknown): HostThreads => {
+        accumulator.failures.push(
+          `host thread list unavailable, so unbacked snapshot refs were kept: ${describeError(error)}`
+        );
+        return { kind: 'unavailable' };
+      }
+    );
+    return read;
+  };
 }
 
 async function listSnapshotThreadIdsInLedger(db: EditCheckpointDatabase): Promise<string[]> {
@@ -355,11 +410,56 @@ async function survivingChainBoundaries(
   return byRoot;
 }
 
+/** A surviving ref no ledger row backs, and whether its chain is a live host thread's to trim. */
+interface UnbackedChain {
+  readonly threadId: string;
+  readonly trim: boolean;
+}
+
+/**
+ * Every unbacked chain's start for this root's prune: a live host thread's
+ * chain keeps its newest `ring` turns (a trim marks the root for
+ * reclamation), and a chain the host could not vouch for keeps its whole
+ * history. Undefined when a chain cannot be read: the root is then not
+ * pruned, since its shallow file must list every surviving chain's start.
+ */
+async function unbackedChainStarts(
+  deps: SnapshotStartupGcDeps,
+  accumulator: GcAccumulator,
+  handle: ShadowRepoHandle,
+  rootId: string,
+  unbacked: readonly UnbackedChain[],
+  ring: number
+): Promise<string[] | undefined> {
+  const starts: string[] = [];
+  for (const { threadId, trim } of unbacked) {
+    let chain: readonly SnapshotChainEntry[];
+    try {
+      chain = await deps.readThreadChain(handle, threadId);
+    } catch (error) {
+      accumulator.failures.push(
+        `snapshot chain unreadable for thread "${threadId}" in root "${rootId}", so the root was not pruned: ${describeError(error)}`
+      );
+      return;
+    }
+    const start = hostChainBoundary(chain, trim ? ring : Number.POSITIVE_INFINITY);
+    if (!start) {
+      continue;
+    }
+    starts.push(start.boundary);
+    if (start.trimmed) {
+      accumulator.hostRingTrimmed.push({ rootId, threadId });
+      accumulator.touchedRoots.add(rootId);
+    }
+  }
+  return starts;
+}
+
 /**
  * Ref-side reconciliation + history reclamation for one live root's shadow
- * repo: delete lineage refs that are dead-thread or row-less residue, then —
- * if this sweep touched the repo at all — shallow-cut at the surviving chain
- * boundaries and `git gc`.
+ * repo: delete lineage refs that are dead-thread or row-less residue, trim
+ * live host chains to the ring, then — if this sweep touched the repo at
+ * all — shallow-cut at every surviving chain's start and `git gc`.
  */
 async function reconcileRootRepo(
   deps: SnapshotStartupGcDeps,
@@ -368,7 +468,9 @@ async function reconcileRootRepo(
   root: { readonly path: string; readonly rootId: string },
   accessibleByRootId: ReadonlyMap<string, boolean>,
   liveThreadIds: ReadonlySet<string>,
-  boundariesByRoot: ReadonlyMap<string, ReadonlyMap<string, string>>
+  boundariesByRoot: ReadonlyMap<string, ReadonlyMap<string, string>>,
+  readHostThreads: () => Promise<HostThreads>,
+  ring: number
 ): Promise<void> {
   // An unreachable root path (deleted directory, unmounted volume, a stale
   // row like the 2026-08-07 "mock-project" residue) is an EXPECTED condition:
@@ -392,6 +494,7 @@ async function reconcileRootRepo(
     return;
   }
   const rootBoundaries = boundariesByRoot.get(root.rootId) ?? new Map<string, string>();
+  const unbacked: UnbackedChain[] = [];
   try {
     const refThreadIds = await deps.snapshotService.listSnapshotThreadIds(handle);
     for (const threadId of refThreadIds) {
@@ -399,20 +502,39 @@ async function reconcileRootRepo(
       if (liveThreadIds.has(threadId) && backedByRows) {
         continue;
       }
+      // A host thread's ref lives while the host lists the thread; unread, keep it.
+      const hostThreads = await readHostThreads();
+      if (hostThreads.kind === 'unavailable' || hostThreads.ids.has(threadId)) {
+        unbacked.push({ threadId, trim: hostThreads.kind === 'listed' });
+        continue;
+      }
       await deps.snapshotService.pruneThread(handle, threadId);
       accumulator.refOnlyPruned.push({ rootId: root.rootId, threadId });
       accumulator.touchedRoots.add(root.rootId);
     }
   } catch (error) {
+    // An incomplete inventory may miss a surviving chain's start: no prune.
     accumulator.failures.push(
       `ref reconciliation failed for root "${root.rootId}": ${describeError(error)}`
     );
+    return;
   }
-  if (!accumulator.touchedRoots.has(root.rootId)) {
+  const unbackedStarts = await unbackedChainStarts(
+    deps,
+    accumulator,
+    handle,
+    root.rootId,
+    unbacked,
+    ring
+  );
+  if (!(unbackedStarts && accumulator.touchedRoots.has(root.rootId))) {
     return;
   }
   try {
-    await deps.snapshotService.pruneHistory(handle, [...rootBoundaries.values()]);
+    await deps.snapshotService.pruneHistory(handle, [
+      ...rootBoundaries.values(),
+      ...unbackedStarts,
+    ]);
     historyPrunedRoots.push(root.rootId);
   } catch (error) {
     accumulator.failures.push(
@@ -428,6 +550,7 @@ export async function runSnapshotStartupGc(
   const accumulator: GcAccumulator = {
     deadThreadsPruned: [],
     failures: [],
+    hostRingTrimmed: [],
     refOnlyPruned: [],
     ringTrimmed: [],
     skippedInaccessibleRoots: [],
@@ -478,6 +601,7 @@ export async function runSnapshotStartupGc(
 
   // Chain boundaries AFTER trims/purges — they describe what must survive.
   const boundariesByRoot = await survivingChainBoundaries(deps.db);
+  const readHostThreads = hostThreadsReader(deps, accumulator);
   for (const root of deps.liveRoots) {
     await reconcileRootRepo(
       deps,
@@ -486,7 +610,9 @@ export async function runSnapshotStartupGc(
       root,
       accessibleByRootId,
       liveThreadIds,
-      boundariesByRoot
+      boundariesByRoot,
+      readHostThreads,
+      ring
     );
   }
 
@@ -494,6 +620,7 @@ export async function runSnapshotStartupGc(
     deadThreadsPruned: accumulator.deadThreadsPruned,
     failures: accumulator.failures,
     historyPrunedRoots,
+    hostRingTrimmed: accumulator.hostRingTrimmed,
     refOnlyPruned: accumulator.refOnlyPruned,
     ringTrimmed: accumulator.ringTrimmed,
     skippedInaccessibleRoots: accumulator.skippedInaccessibleRoots,

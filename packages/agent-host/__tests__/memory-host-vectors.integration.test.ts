@@ -82,6 +82,7 @@ async function vectorHost(
         maxSteps: 2,
         memory: {
           native: { options },
+          observerModelId: 'openai::gpt-4.1-mini',
           recordPrompt: async () => undefined,
           resourceId,
           vectors: { embedder, profile },

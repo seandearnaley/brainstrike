@@ -15,10 +15,10 @@ import {
   TOOL_SUSPEND_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-suspend';
 import { createLogger, redactSensitiveLogValue } from '@brainstrike/logging';
-import { Button, Checkbox } from '@brainstrike/ui';
+import { Button } from '@brainstrike/ui';
 import { getErrorMessage } from '@brainstrike/utils/error-utils';
 import { Check, Globe, ListChecks, MessageCircleQuestion, TriangleAlert, X } from 'lucide-react';
-import { type ReactNode, use, useCallback, useEffect, useId, useMemo, useState } from 'react';
+import { type ReactNode, use, useCallback, useEffect, useMemo, useState } from 'react';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { useApprovalOwnerMessages } from './approval-owner-thread-context';
 import { useAssistantDecisionRecoveryBlocked } from './assistant-decision-recovery-context';
@@ -26,6 +26,7 @@ import { submitDecisionOrQueue } from './decision-dispatch';
 import { useDecisionRoute } from './decision-route-context';
 import { followUpQueueKey, isDecisionQueued, useFollowUpQueueStore } from './follow-up-queue-store';
 import { useLiveDecisionTransport } from './live-decision-transport';
+import { NetworkDomainChecklist, tickDomain } from './network-domain-checklist';
 import { PlanModeExitContext, usePlanModeExit } from './plan-mode-exit-context';
 import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
 import { RediscoveredPauseLines } from './rediscovered-pause-lines';
@@ -732,13 +733,7 @@ function narrowNetworkSuspendPayload(value: unknown): readonly string[] | null {
   return domains as readonly string[];
 }
 
-/** "— any host ending in .example.com" for wildcards; exact hosts need no gloss. */
-function wildcardGloss(domain: string): string | null {
-  return domain.startsWith('*.') ? `— any host ending in ${domain.slice(1)}` : null;
-}
-
 function RunPythonNetworkNotice({ request }: { request: AssistantToolSuspendRequest }) {
-  const domainsFieldId = useId();
   const { locked, sendError, submit } = useSuspendResume(request);
   // Ticking state is LOCAL component state, never persisted, and resets if
   // the card remounts (design §3.3 point 3) — proportional friction is the
@@ -811,47 +806,12 @@ function RunPythonNetworkNotice({ request }: { request: AssistantToolSuspendRequ
       <p className="mt-1 text-foreground/90 text-xs">
         You said the code could run. Before it does, it needs your OK to connect out.
       </p>
-      <p className="mt-2 text-muted-foreground text-xs">It will be able to connect to:</p>
-      <div
-        className="mt-1 max-h-48 space-y-1.5 overflow-auto"
-        data-testid="run-python-network-domains"
-      >
-        {domains.map((domain) => (
-          <div className="flex items-start gap-2 text-xs" key={domain}>
-            <Checkbox
-              checked={ticked.has(domain)}
-              data-testid={`run-python-network-domain-${domain}`}
-              disabled={locked}
-              id={`${domainsFieldId}-${domain}`}
-              onCheckedChange={(checked) => {
-                setTicked((current) => {
-                  const next = new Set(current);
-                  if (checked === true) {
-                    next.add(domain);
-                  } else {
-                    next.delete(domain);
-                  }
-                  return next;
-                });
-              }}
-            />
-            <label className="min-w-0" htmlFor={`${domainsFieldId}-${domain}`}>
-              {/* Never truncate a domain with an ellipsis: pypi.org.evil.com
-                  clipped to pypi.org… is a lie. */}
-              <span className="break-all font-mono text-foreground/90">{domain}</span>
-              {wildcardGloss(domain) ? (
-                <span className="ml-1 text-muted-foreground">{wildcardGloss(domain)}</span>
-              ) : null}
-            </label>
-          </div>
-        ))}
-      </div>
-      <p className="mt-2 text-muted-foreground text-xs">
-        Nothing else. Every other address is blocked.
-      </p>
-      <p className="mt-1 text-foreground/90 text-xs">
-        Once it can connect, it can also send data out — including anything it read from your files.
-      </p>
+      <NetworkDomainChecklist
+        disabled={locked}
+        domains={domains}
+        onTick={(domain, checked) => setTicked((current) => tickDomain(current, domain, checked))}
+        ticked={ticked}
+      />
       <div className="mt-3 flex flex-wrap items-center gap-2">
         {/* Deny is FIRST in DOM and tab order, primary, and autofocused: a
             user clicking where Approve usually sits denies; Enter denies. */}

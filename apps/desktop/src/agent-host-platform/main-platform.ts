@@ -1,22 +1,27 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { LocalLlmHostProgress } from '@brainstrike/agent/local-llm';
 import type { LocalLlmHostClient, RuntimeData } from '@brainstrike/agent/provider-runtime';
-import {
-  canonicalToolInputJsonSchema,
-  type HostDelegation,
-  type HostPlatform,
-  type HostRunAdmissionRequest,
-  type HostTool,
-  validateCanonicalToolInput,
+import type {
+  HostDelegation,
+  HostPlatform,
+  HostRunAdmissionRequest,
+  HostRunIntentRequest,
 } from '@brainstrike/agent-host';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
-import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
+import type { PgliteLegacyMemory } from '@brainstrike/db';
+import {
+  type CancellationToken,
+  ErrorCodes,
+  type MessageConnection,
+  ResponseError,
+} from 'vscode-jsonrpc';
 import { z } from 'zod';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
-import { isHostExecutedNativeToolId } from './host-executed-tools';
 import { type HostToolServiceCapabilities, serveHostToolServices } from './host-tool-services';
+import { type DesktopWorkspaceSnapshots, serveHostTurnSnapshots } from './host-turn-snapshots';
+import { serveLegacyMemory } from './legacy-memory-main';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
 import type { DesktopMemoryVectorSelection } from './memory-vector-selection';
 import {
@@ -24,16 +29,16 @@ import {
   PlatformLocalGenerationResultSchema,
   PlatformLocalGenerationSchema,
   PlatformLocalWarmupSchema,
+  PlatformMemoryReadinessSchema,
   PlatformPolicySchema,
-  PlatformProgressSchema,
+  PlatformRunIntentSchema,
   PlatformRunRequestSchema,
   type PlatformSelection,
   PlatformSelectionSchema,
-  PlatformToolRequestSchema,
   PlatformWorkspaceBindingRequestSchema,
 } from './platform-wire';
 
-export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'delegation' | 'tools'> {
+export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'delegation'> {
   close(): Promise<void>;
   /** BST-1932: the personas and subagent limits this run may delegate with. */
   readonly delegation?: HostDelegation | undefined;
@@ -42,7 +47,6 @@ export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'deleg
   /** Main-only: an admitted local recall embedder's exact plan, never on the wire. */
   readonly localEmbedding?: DesktopMemoryVectorSelection['local'];
   revalidateWorkspace?(signal: AbortSignal): Promise<void>;
-  readonly tools: Readonly<Record<string, HostTool>>;
 }
 export interface DesktopPlatformCapabilities {
   /** Join Main-owned Root borrowers before Core releases its canonical writer. */
@@ -59,49 +63,32 @@ export interface DesktopPlatformCapabilities {
   /** The Node host always composes its MCP runtime, which reaches these Main stores. */
   readonly mcp: DesktopMcpPlatformCapabilities;
   readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopPlatformSelection>;
+  /** Gap 17: the profile's legacy workspace memory, read once for the host's import. */
+  readLegacyMemory(): Promise<PgliteLegacyMemory>;
+  /** thread/memory/read: the same preconditions `readConfiguration` starts with, nothing acquired. */
+  readMemoryReadiness?(
+    request: HostRunIntentRequest
+  ): Promise<z.input<typeof PlatformMemoryReadinessSchema>>;
   readPermissionPolicy(
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
   /** The live path of a mounted profile root; rejects an unknown root. */
   resolveWorkspaceRoot?(rootId: string): Promise<string>;
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
+  /** Legacy turns' shadow-git owner, which also snapshots each host run's turn. */
+  readonly workspaceSnapshots?: DesktopWorkspaceSnapshots;
 }
 
-async function describePlatformSelection(
-  captured: DesktopPlatformSelection
-): Promise<PlatformSelection> {
-  const tools = Object.fromEntries(
-    await Promise.all(
-      Object.entries(captured.tools).map(async ([name, tool]) => [
-        name,
-        {
-          description: tool.description,
-          identity: tool.identity,
-          inputSchema: await canonicalToolInputJsonSchema(tool.inputSchema),
-          ...(tool.interaction
-            ? {
-                interaction: {
-                  kind: tool.interaction.kind,
-                  resumeSchema: await canonicalToolInputJsonSchema(tool.interaction.resumeSchema),
-                },
-              }
-            : {}),
-          permissionToolId: tool.permissionToolId ?? name,
-          risk: tool.risk,
-          ...(tool.strict === undefined ? {} : { strict: tool.strict }),
-        },
-      ])
-    )
-  );
+/** The selection as it crosses to the host: Main-only fields stay behind. */
+function describePlatformSelection(captured: DesktopPlatformSelection): PlatformSelection {
   const {
     close: _close,
     freshWorkspaceRoots: _freshWorkspaceRoots,
     localEmbedding: _localEmbedding,
     revalidateWorkspace: _revalidateWorkspace,
-    tools: _tools,
     ...configuration
   } = captured;
-  return PlatformSelectionSchema.parse({ ...configuration, tools });
+  return PlatformSelectionSchema.parse(configuration);
 }
 
 async function rejectPlatformSelection(
@@ -126,10 +113,10 @@ interface DesktopSelectionOwner {
   readonly workspaceBinding?: HostRunAdmissionRequest['workspaceBinding'];
 }
 
-function desktopAdmissionRequest(
-  request: ReturnType<typeof PlatformRunRequestSchema.parse>,
+function desktopIntentRequest(
+  request: ReturnType<typeof PlatformRunIntentSchema.parse>,
   signal: AbortSignal
-): HostRunAdmissionRequest {
+): HostRunIntentRequest {
   return {
     ...(request.configuration ? { configuration: request.configuration } : {}),
     ...(request.snapshot ? { snapshot: request.snapshot } : {}),
@@ -142,6 +129,13 @@ function desktopAdmissionRequest(
   };
 }
 
+function desktopAdmissionRequest(
+  request: ReturnType<typeof PlatformRunRequestSchema.parse>,
+  signal: AbortSignal
+): HostRunAdmissionRequest {
+  return { ...desktopIntentRequest(request, signal), runId: request.runId };
+}
+
 /** One private connection borrows existing owners; it constructs no platform store. */
 export function serveDesktopPlatform(
   connection: MessageConnection,
@@ -152,6 +146,7 @@ export function serveDesktopPlatform(
   const controllers = new Set<AbortController>();
   const pending = new Set<Promise<unknown>>();
   const mcpStores = serveMainMcpStores(connection, capabilities.mcp);
+  const legacyMemory = serveLegacyMemory(connection, capabilities.readLegacyMemory);
   let closing: Promise<void> | undefined;
   const execute = <T>(
     token: CancellationToken,
@@ -167,7 +162,19 @@ export function serveDesktopPlatform(
     if (token.isCancellationRequested) {
       cancel();
     }
-    const task = Promise.resolve().then(() => work(controller.signal));
+    const task = Promise.resolve()
+      .then(() => work(controller.signal))
+      .catch((cause: unknown) => {
+        // vscode-jsonrpc reports a plain Error as "Request <method> failed with
+        // message: ..."; the host receives the platform's own message instead,
+        // a reason the composer can show (thread/memory/read).
+        throw cause instanceof ResponseError
+          ? cause
+          : new ResponseError(
+              ErrorCodes.InternalError,
+              cause instanceof Error ? cause.message : String(cause)
+            );
+      });
     pending.add(task);
     const settled = (): void => {
       subscription.dispose();
@@ -298,11 +305,33 @@ export function serveDesktopPlatform(
     })
   );
   serveHostToolServices(connection, execute, selection, capabilities.hostTools);
+  serveHostTurnSnapshots(
+    connection,
+    execute,
+    (threadId) => selection(threadId).freshWorkspaceRoots(),
+    capabilities.workspaceSnapshots
+  );
   connection.onRequest('platform/workspace/roots', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
       const { threadId } = z.strictObject({ threadId: z.string().min(1) }).parse(input);
       return CliWorkspaceRootsSchema.parse(await selection(threadId).freshWorkspaceRoots());
     })
+  );
+  // Read-only: no selection is registered, so it never conflicts with a run's.
+  connection.onRequest(
+    'platform/memory/readiness',
+    // The explicit result type keeps vscode-jsonrpc from narrowing the union to one member.
+    (input: unknown, token: CancellationToken): Promise<unknown> =>
+      execute(token, async (signal) => {
+        const read = capabilities.readMemoryReadiness;
+        if (!read) {
+          throw new Error('Desktop memory readiness is unavailable');
+        }
+        const request = PlatformRunIntentSchema.parse(input);
+        return PlatformMemoryReadinessSchema.parse(
+          await read(desktopIntentRequest(request, signal))
+        );
+      })
   );
   connection.onRequest('platform/admit', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
@@ -326,7 +355,7 @@ export function serveDesktopPlatform(
         captured = owner.selection;
         selections.set(request.threadId, owner);
         signal.throwIfAborted();
-        return await describePlatformSelection(captured);
+        return describePlatformSelection(captured);
       } catch (cause) {
         return await rejectPlatformSelection(
           captured,
@@ -350,87 +379,6 @@ export function serveDesktopPlatform(
       }
     })
   );
-  connection.onRequest(
-    'platform/validate',
-    (input: unknown, token: CancellationToken): Promise<unknown> =>
-      execute(token, async () => {
-        const request = z
-          .strictObject({
-            input: z.json(),
-            resume: z.boolean().optional(),
-            threadId: z.string().min(1),
-            toolId: z.string().min(1),
-          })
-          .parse(input);
-        const tool = selection(request.threadId).tools[request.toolId];
-        if (!tool) {
-          throw new Error('Platform validator is not admitted');
-        }
-        const schema = request.resume ? tool.interaction?.resumeSchema : tool.inputSchema;
-        if (!schema) {
-          throw new Error('Platform tool has no human interaction resume schema');
-        }
-        const result = await validateCanonicalToolInput(schema, request.input);
-        return result.success ? { success: true, value: z.json().parse(result.value) } : result;
-      })
-  );
-  connection.onRequest(
-    'platform/execute',
-    (input: unknown, token: CancellationToken): Promise<unknown> =>
-      execute(token, async (signal) => {
-        const request = PlatformToolRequestSchema.parse(input);
-        const tool = selection(request.threadId).tools[request.toolId];
-        if (!tool) {
-          throw new Error('Platform executor is not admitted');
-        }
-        if (isHostExecutedNativeToolId(tool.permissionToolId ?? request.toolId)) {
-          throw new Error('Host-executed native tools run in the agent host');
-        }
-        const output = await tool.execute(request.input, {
-          ...(request.resumeData === undefined ? {} : { resumeData: request.resumeData }),
-          runId: request.runId,
-          signal,
-          threadId: request.threadId,
-          toolCallId: request.toolCallId,
-          write: async (chunk) => {
-            await connection.sendRequest(
-              'platform/progress',
-              PlatformProgressSchema.parse({
-                chunk,
-                runId: request.runId,
-                threadId: request.threadId,
-                toolCallId: request.toolCallId,
-              })
-            );
-          },
-        });
-        return z.json().parse(output);
-      })
-  );
-  connection.onRequest('platform/project', (input: unknown, token: CancellationToken) =>
-    execute(token, async (): Promise<unknown> => {
-      const request = z
-        .strictObject({
-          input: z.json(),
-          output: z.json(),
-          threadId: z.string().min(1),
-          toolCallId: z.string().min(1),
-          toolId: z.string().min(1),
-        })
-        .parse(input);
-      const tool = selection(request.threadId).tools[request.toolId];
-      if (!tool) {
-        throw new Error('Platform projection is not admitted');
-      }
-      return (
-        (await tool.toModelOutput?.({
-          input: request.input,
-          output: request.output,
-          toolCallId: request.toolCallId,
-        })) ?? null
-      );
-    })
-  );
   const close = (): Promise<void> => {
     closing ??= Promise.resolve().then(async () => {
       for (const controller of controllers) {
@@ -440,6 +388,7 @@ export function serveDesktopPlatform(
         await Promise.allSettled([...pending]);
       }
       mcpStores.close();
+      legacyMemory.close();
       const results = await Promise.allSettled(
         [...selections.values()].map((value) => value.selection.close())
       );

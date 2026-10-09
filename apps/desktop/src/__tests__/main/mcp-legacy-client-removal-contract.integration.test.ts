@@ -1,6 +1,11 @@
 // @vitest-environment node
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  connectedStatus,
+  type McpDiscoveredTool,
+  mcpStatusErrorMessage,
+} from '@brainstrike/host-capabilities/mcp/types';
 import type * as esbuildTypes from 'esbuild';
 import esbuild from 'esbuild';
 import { describe, expect, it } from 'vitest';
@@ -88,11 +93,37 @@ describe('legacy desktop MCP client removal contract', () => {
   });
 
   it('preserves the shared status and discovered-tool helpers', () => {
-    const source = fs.readFileSync(path.join(sourceRoot, 'mcp/types.ts'), 'utf8');
-
-    expect(source).toContain('export interface McpDiscoveredTool');
-    expect(source).toContain('export function connectedStatus');
-    expect(source).toContain('export function mcpStatusErrorMessage');
+    // The helpers moved with the Node MCP host (host-capabilities); their behaviour is the contract.
+    const tool: McpDiscoveredTool = { description: 'Create an issue', inputSchema: {} };
+    expect(tool.description).toBe('Create an issue');
+    const base = {
+      configuredProtocol: 'auto',
+      name: 'linear',
+      transport: 'streamable-http',
+    } as const;
+    const facts = (era: 'modern' | undefined) => ({
+      getNegotiatedProtocolVersion: () => (era ? '2026-07-28' : undefined),
+      getProtocolEra: () => era,
+      getServerCapabilities: () => ({ resources: {}, tools: {} }),
+      getServerVersion: () => ({ name: 'linear-fixture', version: '1.0.0' }),
+    });
+    expect(connectedStatus(facts('modern'), base)).toEqual({
+      ...base,
+      negotiated: {
+        advertisedCapabilityIds: ['resources', 'tools'],
+        era: 'modern',
+        revision: '2026-07-28',
+        serverIdentity: { name: 'linear-fixture', version: '1.0.0' },
+      },
+      state: 'connected',
+    });
+    expect(connectedStatus(facts(undefined), base)).toEqual({
+      ...base,
+      error: 'Connected MCP client has no negotiated protocol facts',
+      state: 'error',
+    });
+    expect(mcpStatusErrorMessage({ status: 401 })).toBe('MCP connection failed (HTTP 401)');
+    expect(mcpStatusErrorMessage(new Error('socket hang up'))).toBe('MCP connection failed');
   });
 
   it('omits the legacy stack from the production Electron main bundle', async () => {

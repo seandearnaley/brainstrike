@@ -36,7 +36,7 @@ function modelPricing(provider: string, model: string) {
   );
   return definition?.type === 'llm' ? definition.pricing : undefined;
 }
-function capturedEffort(execution: ChildExecutionConfiguration): string {
+export function capturedEffort(execution: ChildExecutionConfiguration): string {
   const options = execution.providerOptions;
   switch (execution.provider) {
     case 'openai':

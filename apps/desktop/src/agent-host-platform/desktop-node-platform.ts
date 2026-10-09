@@ -8,15 +8,13 @@ import type {
 } from '@brainstrike/agent/provider-runtime';
 import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import {
-  canonicalToolModelOutput,
   createProductionHostPlatform,
   type HostPlatform,
   type HostPlatformLaunchOptions,
+  type HostRunAdmissionRequest,
+  type HostRunIntentRequest,
   type HostStartupContext,
-  type HostTool,
-  type HostToolContext,
   type ProductionHostRunConfiguration,
-  platformToolInputSchema,
 } from '@brainstrike/agent-host';
 import type {
   AssistantPersonaDefinition,
@@ -43,14 +41,16 @@ import { mainPlatformConnection } from './connection';
 import { desktopHostSharedTools } from './desktop-host-shared-tools';
 import { disposeHostTools, serveHostCommandSessions } from './host-tool-process';
 import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
+import { desktopMemoryPreconditions } from './memory-readiness';
 import { parentPlatformPort } from './parent-platform-port';
 import {
   PlatformEmbeddingResultSchema,
   PlatformLocalGenerationResultSchema,
   PlatformLocalProgressSchema,
+  PlatformMemoryReadinessSchema,
   PlatformPolicySchema,
-  PlatformProgressSchema,
   PlatformSelectionSchema,
+  PlatformTurnSnapshotResultSchema,
 } from './platform-wire';
 
 type PlatformSelection = z.output<typeof PlatformSelectionSchema>;
@@ -170,6 +170,23 @@ function platformDelegation(
 }
 
 /** Electron-free production entry: Node owns the model loop, Memory and committed log. */
+/** The wire request for one admission, shared by `platform/admit` and memory readiness. */
+function platformRunIntent(intent: HostRunIntentRequest): Record<string, unknown> {
+  return {
+    ...(intent.configuration ? { configuration: intent.configuration } : {}),
+    ...(intent.snapshot ? { snapshot: intent.snapshot } : {}),
+    ...(intent.workspaceBinding ? { workspaceBinding: intent.workspaceBinding } : {}),
+    modelId: intent.modelId,
+    ...(intent.planMode ? { planMode: true } : {}),
+    ...(intent.prompt === undefined ? {} : { prompt: intent.prompt }),
+    threadId: intent.threadId,
+  };
+}
+
+function platformRunRequest(admission: HostRunAdmissionRequest): Record<string, unknown> {
+  return { ...platformRunIntent(admission), runId: admission.runId };
+}
+
 export async function createHostPlatform(
   _options: HostStartOptions,
   startup: HostStartupContext,
@@ -184,7 +201,6 @@ export async function createHostPlatform(
     launch: platformOptions,
     startup,
   });
-  const executions = new Map<string, HostToolContext & { readonly toolId: string }>();
   // One host-lifetime registry; its handles are scoped to their thread.
   const readFileCursorRegistry = new ReadWorkspaceFileCursorRegistry();
   const request: PlatformRequest = async (method, input, signal) => {
@@ -199,14 +215,6 @@ export async function createHostPlatform(
       cancellation.dispose();
     }
   };
-  connection.onRequest('platform/progress', async (input: unknown) => {
-    const progress = PlatformProgressSchema.parse(input);
-    const context = executions.get(JSON.stringify([progress.runId, progress.toolCallId]));
-    if (!context || context.threadId !== progress.threadId) {
-      throw new Error('Platform progress has no admitted execution');
-    }
-    await context.write?.(progress.chunk);
-  });
   serveHostCommandSessions(connection);
   // ADR-0007: a borrowed local generation streams through Main's progress notifications.
   const localProgress: LocalProgressListeners = new Map();
@@ -222,15 +230,17 @@ export async function createHostPlatform(
   });
   // The desktop's one MCP runtime: host-thread MCP tools run here, beside Core.
   // Its servers connect after readiness, so bearer reads wait for a pending
-  // legacy import like every other credential use.
-  const mcpHost = await createDesktopNodeMcpHost(connection, request, startup, () =>
-    host.auth.secrets()
-  );
+  // legacy import like every other credential use. Its OAuth records live in
+  // this host's profile store, which Main never writes.
+  const mcpHost = await createDesktopNodeMcpHost(connection, request, startup, {
+    secrets: () => host.auth.secrets(),
+    store: () => host.credentials.store(),
+  });
   await startup.register(() => mcpHost.close());
   return createProductionHostPlatform({
     auth: host.auth,
     close: async () => {
-      // MCP cleanup still writes through Main's stores, so it joins before Main closes.
+      // The MCP runtime joins while Main's platform connection is still open.
       await mcpHost.close();
       // The language servers, command trees and command sessions this host spawned.
       await disposeHostTools();
@@ -244,15 +254,7 @@ export async function createHostPlatform(
     readConfiguration: async (admission) => {
       const response = await request(
         'platform/admit',
-        {
-          ...(admission.configuration ? { configuration: admission.configuration } : {}),
-          ...(admission.snapshot ? { snapshot: admission.snapshot } : {}),
-          ...(admission.workspaceBinding ? { workspaceBinding: admission.workspaceBinding } : {}),
-          modelId: admission.modelId,
-          ...(admission.planMode ? { planMode: true } : {}),
-          ...(admission.prompt === undefined ? {} : { prompt: admission.prompt }),
-          threadId: admission.threadId,
-        },
+        platformRunRequest(admission),
         admission.signal
       );
       const selected = await parsePlatformSelection(response, () =>
@@ -289,7 +291,8 @@ export async function createHostPlatform(
         }
         throw cause;
       }
-      const shared = desktopHostSharedTools({
+      // Every admitted tool runs here; Main executes none of them.
+      const tools = desktopHostSharedTools({
         appPaths: platformOptions?.appPaths,
         readFileCursorRegistry,
         request,
@@ -297,113 +300,22 @@ export async function createHostPlatform(
         selected,
         threadId: admission.threadId,
       });
-      const tools = Object.fromEntries(
-        Object.entries(selected.tools)
-          .filter(([name]) => !Object.hasOwn(shared, name))
-          .map(([name, descriptor]) => [
-            name,
-            {
-              description: descriptor.description,
-              identity: descriptor.identity,
-              ...(descriptor.interaction
-                ? {
-                    interaction: {
-                      kind: descriptor.interaction.kind,
-                      resumeSchema: platformToolInputSchema(
-                        descriptor.interaction.resumeSchema,
-                        async (input) =>
-                          z
-                            .discriminatedUnion('success', [
-                              z.strictObject({ success: z.literal(true), value: z.json() }),
-                              z.strictObject({ error: z.string(), success: z.literal(false) }),
-                            ])
-                            .parse(
-                              await request(
-                                'platform/validate',
-                                {
-                                  input: z.json().parse(input),
-                                  resume: true,
-                                  threadId: admission.threadId,
-                                  toolId: name,
-                                },
-                                admission.signal
-                              )
-                            )
-                      ),
-                    },
-                  }
-                : {}),
-              permissionToolId: descriptor.permissionToolId,
-              risk: descriptor.risk,
-              ...(descriptor.strict === undefined ? {} : { strict: descriptor.strict }),
-              execute: async (input: unknown, context: HostToolContext): Promise<unknown> => {
-                const address = JSON.stringify([context.runId, context.toolCallId]);
-                if (executions.has(address)) {
-                  throw new Error('Platform tool call is already executing');
-                }
-                executions.set(address, { ...context, toolId: name });
-                try {
-                  return await request(
-                    'platform/execute',
-                    {
-                      input: z.json().parse(input),
-                      ...(context.resumeData === undefined
-                        ? {}
-                        : { resumeData: z.json().parse(context.resumeData) }),
-                      runId: context.runId,
-                      threadId: context.threadId,
-                      toolCallId: context.toolCallId,
-                      toolId: name,
-                    },
-                    context.signal
-                  );
-                } finally {
-                  executions.delete(address);
-                }
-              },
-              inputSchema: platformToolInputSchema(descriptor.inputSchema, async (input) =>
-                z
-                  .discriminatedUnion('success', [
-                    z.strictObject({ success: z.literal(true), value: z.json() }),
-                    z.strictObject({ error: z.string(), success: z.literal(false) }),
-                  ])
-                  .parse(
-                    await request(
-                      'platform/validate',
-                      { input: z.json().parse(input), threadId: admission.threadId, toolId: name },
-                      admission.signal
-                    )
-                  )
-              ),
-              toModelOutput: async ({
-                input,
-                output,
-                toolCallId,
-              }: Parameters<NonNullable<HostTool['toModelOutput']>>[0]) => {
-                const projected = await request('platform/project', {
-                  input: z.json().parse(input),
-                  output: z.json().parse(output),
-                  threadId: admission.threadId,
-                  toolCallId,
-                  toolId: name,
-                });
-                return projected === undefined || projected === null
-                  ? { type: 'json' as const, value: z.json().parse(output) }
-                  : canonicalToolModelOutput(projected, toolCallId, name);
-              },
-            },
-          ])
-      );
-      Object.assign(tools, shared);
       // Global hooks run as configured; a root's project file runs only at the
       // hash the host trusted it at, and is reported, not run, otherwise.
       const hooks = createHostRunHooks({
         globalPath: getGlobalHooksPath(),
         maxHookTimeoutMs: selected.toolTimeoutMs,
-        roots: await trustedHookRoots(startup.store, selected.workspace?.roots ?? []),
+        // The run's admitted roots, bound or live: the roots its tools use.
+        roots: await trustedHookRoots(startup.store, selected.nativeRuntime.workspaceRoots),
         sessionId: admission.threadId,
       });
       return {
+        // Main's shadow-git owner brackets each run's turn for its Changes
+        // review. Unsignalled: a stopped run's turn still ends with snapshots.
+        captureTurnBoundary: async (boundary) =>
+          PlatformTurnSnapshotResultSchema.parse(
+            await request('platform/snapshot/capture', boundary)
+          ),
         childSystem: selected.childSystem,
         close: closeSelection,
         configuration,
@@ -425,6 +337,18 @@ export async function createHostPlatform(
         tools,
         toolTimeoutMs: selected.toolTimeoutMs,
       };
+    },
+    readLegacyMemory: () => request('platform/memory/legacy', {}),
+    // Main's admission preconditions, then the memory credentials, nothing acquired.
+    readMemoryPreconditions: async (admission) => {
+      const readiness = PlatformMemoryReadinessSchema.parse(
+        await request('platform/memory/readiness', platformRunIntent(admission), admission.signal)
+      );
+      return readiness.ready
+        ? await desktopMemoryPreconditions(readiness, (provider) =>
+            host.auth.resolveProviderAuth(provider, admission.origin)
+          )
+        : readiness;
     },
     // Main supplies the existing policy owner; Core remains the only gate.
     readPermissionPolicy: async (threadId) => {

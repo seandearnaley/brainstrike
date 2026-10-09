@@ -85,6 +85,7 @@ export function desktopHostSharedTools(options: {
     readFileCursorRegistry: options.readFileCursorRegistry,
     resolvedToolResultBudget: resolveScaledToolResultBudget(selected.contextWindow),
     runtime,
+    webExtract: { resolveApiKey: options.resolveTavilyApiKey },
     webSearch: { resolveApiKey: options.resolveTavilyApiKey },
   });
   const byCatalogId = new Map(
@@ -93,7 +94,9 @@ export function desktopHostSharedTools(options: {
   return Object.fromEntries(
     Object.entries(selected.tools).flatMap(([name, descriptor]) => {
       if (!isHostExecutedNativeToolId(descriptor.permissionToolId)) {
-        return [];
+        throw new Error(
+          `The agent host has no executor for admitted tool ${descriptor.permissionToolId}`
+        );
       }
       const tool = byCatalogId.get(descriptor.permissionToolId);
       if (!tool || tool.identity !== descriptor.identity || tool.risk !== descriptor.risk) {

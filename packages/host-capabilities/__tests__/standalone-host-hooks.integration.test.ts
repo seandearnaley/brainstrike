@@ -1,10 +1,12 @@
 /**
  * Lifecycle hooks on the CLI host (the real production bin): a global
  * PreToolUse hook blocks a tool the policy would ask about, through the same
- * approval gate, and the block's reason is committed with the call.
+ * approval gate, and the block's reason is committed with the call. A launch
+ * root's project hooks run only once `hooks trust` pins their reviewed hash.
  */
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,8 +64,11 @@ afterEach(async () => {
   }
 });
 
-/** A CLI host under a global hooks file, running the offline question fixture once. */
-async function runUnderHooks(hooks: Record<string, unknown>) {
+/** A started CLI host under an optional global hooks file and launch workspace root. */
+async function startCliHost(options: {
+  readonly hooks?: Record<string, unknown>;
+  readonly workspace?: string;
+}) {
   const dataRoot = await mkdtemp(join(tmpdir(), 'bs-m3-host-hooks-'));
   const home = await mkdtemp(join(tmpdir(), 'bs-m3-host-hooks-home-'));
   cleanup.push(() => rm(home, { force: true, recursive: true }));
@@ -79,22 +84,35 @@ async function runUnderHooks(hooks: Record<string, unknown>) {
     await removeFixtureRoot(dataRoot);
   });
   await mkdir(join(home, '.brainstrike'));
-  await writeFile(join(home, '.brainstrike', 'hooks.json'), JSON.stringify(hooks));
-  expect(await command(dataRoot, home, ['host', 'start'])).toMatchObject({ code: 0, stderr: '' });
-  const run = await command(dataRoot, home, [
-    'run',
-    'Use the recorded canonical human interaction.',
-    '--model',
-    'openai::gpt-6-sol',
-    '--json',
-    '--non-interactive',
-  ]);
-  const { runId, threadId } = z
-    .object({ runId: z.string(), threadId: z.string() })
-    .parse(JSON.parse(run.stdout.split('\n')[0] ?? ''));
-  const shown = await command(dataRoot, home, ['threads', 'show', '--thread', threadId]);
-  const { rows } = HOST_RESULT_SCHEMAS['thread/read'].parse(JSON.parse(shown.stdout));
-  return { code: run.code, rows, runId, stderr: run.stderr };
+  if (options.hooks) {
+    await writeFile(join(home, '.brainstrike', 'hooks.json'), JSON.stringify(options.hooks));
+  }
+  const cli = (args: readonly string[]) => command(dataRoot, home, args);
+  const workspace = options.workspace ? ['--workspace', options.workspace] : [];
+  expect(await cli(['host', 'start', ...workspace])).toMatchObject({ code: 0, stderr: '' });
+  /** One run of the offline question fixture in a new thread, with its committed rows. */
+  const run = async () => {
+    const result = await cli([
+      'run',
+      'Use the recorded canonical human interaction.',
+      '--model',
+      'openai::gpt-6-sol',
+      '--json',
+      '--non-interactive',
+    ]);
+    const { runId, threadId } = z
+      .object({ runId: z.string(), threadId: z.string() })
+      .parse(JSON.parse(result.stdout.split('\n')[0] ?? ''));
+    const shown = await cli(['threads', 'show', '--thread', threadId]);
+    const { rows } = HOST_RESULT_SCHEMAS['thread/read'].parse(JSON.parse(shown.stdout));
+    return { code: result.code, rows, runId, stderr: result.stderr };
+  };
+  return { cli, run };
+}
+
+/** A CLI host under a global hooks file, running the offline question fixture once. */
+async function runUnderHooks(hooks: Record<string, unknown>) {
+  return await (await startCliHost({ hooks })).run();
 }
 
 /** The question tool, blocked by a PreToolUse hook so the run completes instead of pausing. */
@@ -158,4 +176,39 @@ test('a UserPromptSubmit hook that blocks the prompt ends the CLI run with its r
     detail: 'The request was blocked by a hook: Prompts are paused',
     outcome: 'failed',
   });
+});
+
+test("a launch root's project hook runs on the CLI host only once hooks trust pins its hash", async () => {
+  const workspace = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-hooks-ws-')));
+  cleanup.push(() => rm(workspace, { force: true, recursive: true }));
+  const hooks = JSON.stringify({ PreToolUse: [blockQuestion] });
+  await mkdir(join(workspace, '.brainstrike'));
+  await writeFile(join(workspace, '.brainstrike', 'hooks.json'), hooks);
+  const sha256 = createHash('sha256').update(hooks).digest('hex');
+  const asked = (rows: readonly { readonly event: { readonly type: string } }[]) =>
+    rows.some(({ event }) => event.type === 'interaction.requested');
+  const host = await startCliHost({ workspace });
+
+  // Untrusted, the project file adds no hook: the question is asked.
+  const untrusted = await host.run();
+  expect(untrusted.code).toBe(2);
+  expect(asked(untrusted.rows)).toBe(true);
+
+  // Unattended, a trust needs the reviewed hash, and the host refuses a stale one.
+  const trust = (...args: string[]) => host.cli(['hooks', 'trust', workspace, ...args]);
+  const unreviewed = await trust('--non-interactive');
+  expect(unreviewed.code, unreviewed.stderr).toBe(2);
+  expect(unreviewed.stderr).toContain(`--sha256 ${sha256}`);
+  const stale = await trust('--sha256', '0'.repeat(64));
+  expect(stale.code).toBe(1);
+  expect(stale.stderr).toContain('changed since it was reviewed');
+
+  const trusted = await trust('--sha256', sha256);
+  expect(trusted).toMatchObject({ code: 0, stderr: '' });
+  expect(JSON.parse(trusted.stdout)).toEqual({ rootId: workspace, sha256, trusted: true });
+
+  // Trusted, the project hook blocks the question, so the run completes.
+  const blocked = await host.run();
+  expect(blocked.code, blocked.stderr).toBe(0);
+  expect(asked(blocked.rows)).toBe(false);
 });

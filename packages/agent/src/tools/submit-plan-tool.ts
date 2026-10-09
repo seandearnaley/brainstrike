@@ -3,6 +3,7 @@ import {
   type SubmitPlanDecision,
   type SubmitPlanPayload,
 } from '@brainstrike/assistant-contract';
+import { SubmitPlanResumeSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract/tool-metadata';
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
@@ -16,11 +17,6 @@ const SubmitPlanSuspendSchema = z.object({
   steps: z.array(z.object({ detail: z.string().optional(), title: z.string() })),
   title: z.string(),
   verification: z.string().optional(),
-});
-
-const SubmitPlanResumeSchema = z.object({
-  action: z.enum(['approved', 'rejected']),
-  feedback: z.string().optional(),
 });
 
 const SubmitPlanOutputSchema = z.object({

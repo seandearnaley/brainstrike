@@ -220,7 +220,7 @@ never used. Wiping the database alone is not enough.
   enumeration fallback to explicit Brainstrike names.
 - Re-default a live in-memory store, do not merely purge its storage. Why: the
   web path may not reload, so a purged-but-live store keeps serving pre-reset
-  values. `resetHookTrustStoreToDefaults` and its siblings are the shape; call
+  values. `resetWorktreeSetupConsentStoreToDefaults` and its siblings are the shape; call
   them from `clearBrowserStorage()`.
 - Dependency-free app-shell session stores share ONE resetter list,
   `APP_SHELL_SESSION_STORE_RESETTERS`; production registers each member

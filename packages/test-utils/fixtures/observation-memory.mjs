@@ -6,5 +6,6 @@ export const { Memory } = require('@mastra/memory');
 export const { InMemoryStore } = require('@mastra/core/storage');
 export const {
   parseObservationGroups,
+  TokenCounter,
   wrapInObservationGroup,
 } = require('@mastra/memory/processors');

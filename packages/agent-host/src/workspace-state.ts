@@ -113,6 +113,7 @@ export async function validateHostRunWorkspaceBinding(
   }
   await platform.validateWorkspaceBinding({
     binding,
+    runId: request.runId,
     signal: request.signal,
     threadId: request.threadId,
   });

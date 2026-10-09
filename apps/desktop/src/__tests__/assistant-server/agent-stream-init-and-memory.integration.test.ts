@@ -2,6 +2,7 @@ import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS, type RuntimeData } from '@br
 import { app } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { handleAssistantRequest } from '../../assistant-server';
+import { installDesktopHookApprovalReader } from '../../assistant-server/hooks/server-integration';
 import { resetDesktopMastraMemoryCacheForTests } from '../../assistant-server/mastra-memory';
 import {
   mockDesktopDatabase,
@@ -44,6 +45,9 @@ vi.mock('../../db-main', async () => (await mocks()).makeDbMainMock());
 const runRequest = createRunRequest(handleAssistantRequest);
 
 beforeEach(() => {
+  // Main installs the agent host's hook-trust reader before the server takes
+  // requests; this host trusts no root's project hooks.
+  installDesktopHookApprovalReader(async () => undefined);
   mockDesktopDatabase.exec.mockReset();
   mockDesktopDatabase.query.mockReset();
   // Default: workspace-roots enrichment (runs first on every assistant
@@ -64,7 +68,9 @@ afterEach(() => {
   resetDesktopMastraMemoryCacheForTests();
 }, 15_000);
 describe('agent-stream-init runtime composition and memory', () => {
-  it('passes the desktop MCP host outside serializable runtime data', async () => {
+  // BST-1930: the one MCP runtime serves agent-host threads; a legacy turn carries none,
+  // even with servers configured.
+  it('carries no MCP host, task tracking or config on a legacy turn', async () => {
     const { loadMcpConfig } = await import('../../mcp-loader');
     const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
     const { streamResponse } = await import('../../assistant-server/http');
@@ -111,10 +117,11 @@ describe('agent-stream-init runtime composition and memory', () => {
     const [, runtime, options] = (toAiSdkStyleStream as Mock).mock.calls[0] as [
       unknown,
       Record<string, unknown>,
-      { mcpHost?: unknown },
+      Record<string, unknown>,
     ];
     expect(runtime['mcpConfig']).toBeUndefined();
-    expect(options.mcpHost).toEqual(expect.any(Object));
+    expect(options).not.toHaveProperty('mcpHost');
+    expect(options).not.toHaveProperty('mcpTaskTracking');
   });
 
   it('injects the main-owned native search capability into request tools outside runtime data', async () => {
@@ -689,13 +696,9 @@ describe('agent-stream-init runtime composition and memory', () => {
         memory: expect.objectContaining({ resourceId: 'workspace-a', threadId: 'thread-1' }),
       }),
       {
-        // BST-1352: the resolved auth input rides the stream OPTIONS.
+        // BST-1352: the resolved auth input rides the stream OPTIONS. A legacy
+        // turn carries no MCP host or task tracking (BST-1930).
         authInput: { apiKey: 'test-api-key', kind: 'api_key' },
-        mcpHost: expect.any(Object),
-        // BST-1566: the process-local task host rides the stream options
-        // beside mcpHost; it opens the database only once a Tasks-capable
-        // server connects, which is why getDatabase stays at 3 calls above.
-        mcpTaskTracking: expect.any(Object),
         memory: mockPgliteMastraMemory,
         storage: mockPgliteMastraStorage,
       }

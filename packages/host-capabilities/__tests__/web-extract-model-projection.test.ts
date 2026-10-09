@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import {
   projectWebExtractModelOutput,
   WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS,
-} from '../../assistant-server/web-extract-model-projection';
+} from '../src/native-tools/web-extract-model-projection.js';
 
 function webExtractResult() {
   return {

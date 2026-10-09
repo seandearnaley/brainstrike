@@ -1,10 +1,9 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto';
-import { appendFileSync, createReadStream } from 'node:fs';
-import { copyFile, mkdir, mkdtemp, open, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { appendFileSync, createReadStream, realpathSync } from 'node:fs';
+import { copyFile, mkdir, open, readdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { createConnection } from 'node:net';
-import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost } from '@brainstrike/agent-host';
 import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/app-state/stores/assistant-preferences-store-version';
@@ -25,6 +24,7 @@ import {
   type ModelProviderRequest,
   startModelProviderShim,
 } from '../../e2e/utils/model-provider-shim';
+import { createDisposableAppProfile } from './helpers/disposable-app-profile';
 
 const desktop = resolve(import.meta.dirname, '../..');
 // Reuse the recorded public metadata fixture; no provider grant or inference.
@@ -65,12 +65,12 @@ async function providerPortRefused(baseUrl: string): Promise<boolean> {
 }
 
 async function qualifyVectorSearch(): Promise<void> {
-  const disposable = await mkdtemp(join(tmpdir(), 'brainstrike-m3-app-owned-vector-'));
+  const { evidence, root: disposable } = await createDisposableAppProfile(
+    'brainstrike-m3-app-owned-vector-'
+  );
   const profile = join(disposable, 'profiles/m3-vector-search');
-  const evidence = `${disposable}-evidence`;
   const workspace = join(disposable, 'workspace');
   await mkdir(profile, { recursive: true });
-  await mkdir(evidence);
   await mkdir(workspace);
   const searchLine = 'VECTORPROOF6724 SQLite readers isolate read-only queries from the writer.';
   await writeFile(join(workspace, 'vector-proof.md'), `# SQLite reader ownership\n${searchLine}\n`);
@@ -79,6 +79,7 @@ async function qualifyVectorSearch(): Promise<void> {
     '# Orchard maintenance\nApples grow in an orchard. Pruning trees makes the fruit harvest easier.\n'
   );
   const providerRequests: ModelProviderRequest[] = [];
+  const titleRequests: ModelProviderRequest[] = [];
   const blockedExternalRequests: string[] = [];
   const runtimeAssetRequests: { url: string; sha256: string }[] = [];
   let modelAssets: Awaited<ReturnType<typeof copyExistingModelCache>> = [];
@@ -109,6 +110,11 @@ async function qualifyVectorSearch(): Promise<void> {
     process.stderr.write(`${JSON.stringify({ at: new Date().toISOString(), phase })}\n`);
   };
   const model = await startModelProviderShim((request) => {
+    // The host titles a new thread from its first message, without tools.
+    if (request.toolNames.length === 0) {
+      titleRequests.push(request);
+      return { finalText: 'SQLite reader isolation' };
+    }
     providerRequests.push(request);
     // Hosted discovery defers both native retrieval tools: the model loads them first.
     if (!request.toolNames.includes('load_tool')) {
@@ -635,6 +641,7 @@ async function qualifyVectorSearch(): Promise<void> {
       ['brainstrike_queryEmbeddingSpace'],
       ['brainstrike_queryEmbeddingSpace', 'brainstrike_hybridSearch'],
     ]);
+    expect(titleRequests).toHaveLength(1);
     for (const message of followingRequests.flat()) {
       expect(message.content).toContain(searchLine);
       expect(message.content).toContain('unrelated-proof.md');
@@ -787,9 +794,6 @@ async function qualifyVectorSearch(): Promise<void> {
       )
     );
     process.stderr.write(`App-owned vector search evidence: ${evidence}\n`);
-    if (!failure && errors.length === 0) {
-      await rm(disposable, { recursive: true });
-    }
   }
   if (errors.length > 0) {
     throw new AggregateError(
@@ -907,10 +911,13 @@ interface InstalledRuntimeAsset {
 
 /** Deliver installed vendor bytes requested by the production worker without CDN egress. */
 async function existingOrtAssets(): Promise<ReadonlyMap<string, InstalledRuntimeAsset>> {
+  // The SDK's own dependencies sit beside its real path in pnpm's virtual store.
   const requireSdk = createRequire(
-    resolve(
-      desktop,
-      '../../packages/embedding-worker/node_modules/@huggingface/transformers/package.json'
+    realpathSync(
+      resolve(
+        desktop,
+        '../../packages/embedding-worker/node_modules/@huggingface/transformers/package.json'
+      )
     )
   );
   const packageRoot = resolve(dirname(requireSdk.resolve('onnxruntime-web')), '..');

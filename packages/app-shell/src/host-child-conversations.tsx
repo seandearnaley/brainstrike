@@ -12,6 +12,7 @@ import {
   type AssistantThreadHostChild,
   useAssistantThreadHost,
 } from './assistant-thread-host-context';
+import { rememberHostChildOrigin } from './host-child-origins';
 import { openHostChildTab } from './open-host-child-tab';
 
 const logger = createLogger('HostChildConversations');
@@ -125,7 +126,10 @@ export function HostChildConversations({
     [current, list, threadId]
   );
   const open = useCallback(
-    (childThreadId: string) => {
+    (childThreadId: string, origin?: HTMLElement) => {
+      if (origin) {
+        rememberHostChildOrigin(childThreadId, threadId, origin);
+      }
       const known = current?.find((child) => child.threadId === childThreadId);
       if (known) {
         openHostChildTab(known);

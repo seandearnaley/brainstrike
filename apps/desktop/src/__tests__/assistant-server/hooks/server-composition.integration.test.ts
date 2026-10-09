@@ -10,7 +10,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentMessage, RuntimeData, StreamChunk } from '@brainstrike/agent';
 import { createAssistantRunEvent } from '@brainstrike/agent';
-import { buildHookTrustRequest } from '@brainstrike/app-state/stores/hook-trust-store';
 import type {
   HookManager,
   HookRunEventInput,
@@ -21,7 +20,9 @@ import { createDesktopHookRunner } from '../../../assistant-server/hooks/hook-ru
 import {
   buildHookManager,
   deriveLastUserText,
+  installDesktopHookApprovalReader,
   makeHookBlockedStream,
+  prepareRequestHooks,
   withStopHook,
 } from '../../../assistant-server/hooks/server-integration';
 import { enrichRuntimeDataWithWorkspaceRoots } from '../../../assistant-server/workspace-roots';
@@ -102,7 +103,7 @@ describe('buildHookManager (roots + trust + config)', () => {
 
     // Untrusted (no approval) → hooks are skipped.
     const untrusted = buildHookManager({
-      hookTrustRequest: { approvals: [] },
+      approvedByRoot: new Map(),
       logger,
       runtimeData,
       sessionId: 's1',
@@ -111,9 +112,7 @@ describe('buildHookManager (roots + trust + config)', () => {
 
     // Approved with the matching hash → hooks load + block.
     const approved = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData,
       sessionId: 's1',
@@ -141,10 +140,10 @@ describe('buildHookManager (roots + trust + config)', () => {
     const file = join(dir, 'hooks.json');
     writeFileSync(file, bytes);
 
-    // The approval hash the renderer attests == the raw-byte hash.
+    // The hash the host trusts == the raw-byte hash.
     const approvedSha = sha256OfFile(file);
     const manager = buildHookManager({
-      hookTrustRequest: { approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: approvedSha }] },
+      approvedByRoot: new Map([['root-1', approvedSha]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -157,16 +156,10 @@ describe('buildHookManager (roots + trust + config)', () => {
     writeProjectHooks(tmpRoot, '{ invalid json');
     const events: HookRunEventInput[] = [];
     const manager = buildHookManager({
+      approvedByRoot: new Map([
+        ['root-1', sha256OfFile(join(tmpRoot, '.brainstrike', 'hooks.json'))],
+      ]),
       emitRunEvent: (e) => events.push(e),
-      hookTrustRequest: {
-        approvals: [
-          {
-            approvedAt: 1,
-            rootId: 'root-1',
-            sha256: sha256OfFile(join(tmpRoot, '.brainstrike', 'hooks.json')),
-          },
-        ],
-      },
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -176,49 +169,35 @@ describe('buildHookManager (roots + trust + config)', () => {
   });
 });
 
-// KILL CHAIN severing proof (renderer attestation-scoping ⇒ server execution).
-// This crosses the boundary: the renderer's `buildHookTrustRequest` (DB-id keyed,
-// scoped to mounted roots) feeds the server's `buildHookManager`. It proves that
-// disconnecting a root (mounted set no longer contains its DB id) SEVERS hook
-// execution server-side — the fail-open the review flagged, now closed.
-describe('attestation scoping severs execution on disconnect (kill chain)', () => {
-  it('runs an approved root while mounted, then stops running it once unmounted', () => {
+// The legacy server reads trust from the agent host, its one owner: it asks
+// only about the request's mounted roots (a disconnected root is not among
+// them), and a root's project hooks run only at the hash the host trusts.
+describe('prepareRequestHooks reads project hook trust from the agent host', () => {
+  it("runs a mounted root's hooks at the host-trusted hash, and none without it", async () => {
     const config = JSON.stringify({
       PreToolUse: [{ command: `echo '{"reason":"blocked"}'; exit 2`, type: 'command' }],
     });
     const file = writeProjectHooks(tmpRoot, config);
-    // The DB root id the SERVER resolves the root under (stable across re-add).
-    const runtimeData = runtimeWithRoot('db-1', tmpRoot);
-    // The renderer's persisted grant, keyed by that SAME DB id.
-    const store = {
-      approvalsByRootId: { 'db-1': { approvedAt: 1, sha256: sha256OfFile(file) } },
-    };
+    const asked: unknown[] = [];
+    installDesktopHookApprovalReader(async (root) => {
+      asked.push(root);
+      return root.rootId === 'db-1' ? sha256OfFile(file) : undefined;
+    });
 
-    // Mounted: attestation carries db-1 → server trusts + loads the hooks.
-    const mountedRequest = buildHookTrustRequest(store, {
-      mountedRootIds: new Set(['db-1']),
-    });
-    const trusted = buildHookManager({
-      hookTrustRequest: mountedRequest,
+    const trusted = await prepareRequestHooks({
       logger,
-      runtimeData,
-      sessionId: 's1',
+      runId: 'run-1',
+      runtimeData: runtimeWithRoot('db-1', tmpRoot),
     });
-    expect(trusted.hasHooks()).toBe(true);
+    expect(trusted.manager.hasHooks()).toBe(true);
+    expect(asked).toEqual([{ absPath: tmpRoot, rootId: 'db-1' }]);
 
-    // Disconnected: mounted set no longer contains db-1 → attestation is empty →
-    // the server finds no approval for the (still DB-live) root → hooks DON'T run.
-    const disconnectedRequest = buildHookTrustRequest(store, {
-      mountedRootIds: new Set(),
-    });
-    expect(disconnectedRequest.approvals).toEqual([]);
-    const severed = buildHookManager({
-      hookTrustRequest: disconnectedRequest,
+    const untrusted = await prepareRequestHooks({
       logger,
-      runtimeData,
-      sessionId: 's1',
+      runId: 'run-2',
+      runtimeData: runtimeWithRoot('db-2', tmpRoot),
     });
-    expect(severed.hasHooks()).toBe(false);
+    expect(untrusted.manager.hasHooks()).toBe(false);
   });
 });
 
@@ -239,9 +218,7 @@ describe('hooks primaryCwd follows the declared main root (roots[0] after reorde
       Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
     });
     const file = writeProjectHooks(rootA, config);
-    const trust = {
-      approvals: [{ approvedAt: 1, rootId: 'db-a', sha256: sha256OfFile(file) }],
-    };
+    const trust = new Map([['db-a', sha256OfFile(file)]]);
     const db = {
       query: vi.fn(async () => ({
         rows: [
@@ -253,7 +230,7 @@ describe('hooks primaryCwd follows the declared main root (roots[0] after reorde
 
     const runStopAndReadCwd = async (runtimeData: RuntimeData | undefined): Promise<string> => {
       const manager = buildHookManager({
-        hookTrustRequest: trust,
+        approvedByRoot: trust,
         logger,
         runtimeData,
         sessionId: 's1',
@@ -290,9 +267,7 @@ describe('withStopHook', () => {
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -323,9 +298,7 @@ describe('withStopHook', () => {
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -357,9 +330,7 @@ describe('withStopHook', () => {
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -400,9 +371,7 @@ describe('withStopHook', () => {
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -451,9 +420,7 @@ describe('withStopHook', () => {
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -484,9 +451,7 @@ describe('withStopHook', () => {
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -520,9 +485,7 @@ describe('withStopHook', () => {
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -558,9 +521,7 @@ describe('withStopHook', () => {
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -613,9 +574,7 @@ describe('withStopHook', () => {
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -649,10 +608,8 @@ describe('withStopHook', () => {
     const file = writeProjectHooks(tmpRoot, config);
     const events: HookRunEventInput[] = [];
     const manager = buildHookManager({
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       emitRunEvent: (e) => events.push(e),
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -697,9 +654,7 @@ describe('withStopHook', () => {
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -742,9 +697,7 @@ describe('withStopHook', () => {
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -768,9 +721,7 @@ describe('withStopHook', () => {
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',

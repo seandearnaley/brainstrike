@@ -5,11 +5,10 @@ import { z } from 'zod';
  * Private Main↔Node methods while the desktop's one MCP runtime lives in the
  * Node host (BST-1930 stage c1). Two interim groups, each with a removal point:
  *
- * - Node → Main `platform/mcp/*` store adapters: the decrypted config, Electron
- *   `shell.openExternal` and the safeStorage MCP OAuth records. Each goes when
- *   its store moves to Node (OAuth records to the shared credential store,
- *   host-owned config). Bearer references already live in the profile
- *   credential store Node reads directly, and Tasks in the host's StateStore.
+ * - Node → Main `platform/mcp/*` store adapters: the decrypted config and
+ *   Electron `shell.openExternal`. The config goes when it is host-owned.
+ *   Bearer references and OAuth records live in the profile credential store
+ *   the host owns, and Tasks in the host's StateStore.
  *   `platform/mcp/tasks/legacy` reads Main's PGlite Tasks rows once, for the
  *   host's import; it goes when PGlite leaves the desktop.
  * - Main → Node `mcp-runtime/*`: Main's renderer surfaces (settings, status,
@@ -17,10 +16,6 @@ import { z } from 'zod';
  *   the renderer calls public host-protocol methods instead.
  */
 export const MCP_STORE_METHODS = {
-  oauthClear: 'platform/mcp/oauth/clear',
-  oauthClearAll: 'platform/mcp/oauth/clear-all',
-  oauthRead: 'platform/mcp/oauth/read',
-  oauthWrite: 'platform/mcp/oauth/write',
   openExternal: 'platform/open-external',
   ready: 'platform/mcp/ready',
   state: 'platform/mcp/state',
@@ -49,12 +44,6 @@ export const MCP_RUNTIME_NOTIFICATIONS = {
   tasksChanged: 'mcp-runtime/tasks/changed',
   watch: 'mcp-runtime/watch',
 } as const;
-
-export const McpOAuthIdentitySchema = z.strictObject({
-  resourceUrl: z.string().min(1),
-  scopeKey: z.string(),
-  serverId: z.string().min(1),
-});
 
 /** One tool registry entry, exactly as `mcpToolRegistry.getAllTools()` publishes it. */
 export const McpToolRegistryStateSchema = z.record(

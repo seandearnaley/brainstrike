@@ -75,6 +75,16 @@ test('a host run’s approved file write is undone from its tool card, and stays
     await approve.click();
     await expect(region.getByText(REPLY)).toBeVisible({ timeout: 90_000 });
     expect(readFileSync(notes, 'utf8')).toBe(REWRITTEN);
+    // The reply streams before its run commits run.finished, and Core refuses a
+    // revert while the thread has an active run.
+    await expect
+      .poll(
+        async () => (await readAgentHostLog(electron.getUserDataDir())).typeCounts['run.finished'],
+        {
+          timeout: 30_000,
+        }
+      )
+      .toBe(1);
 
     // The tool card's existing Revert control is fed by the committed edit.
     const revert = region.getByTestId('checkpoint-revert');
