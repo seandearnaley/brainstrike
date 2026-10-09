@@ -4,9 +4,22 @@
  * (like a terminal) — a CSS-only auto-scroll, no imperative scrollTop effect.
  * `role="log"` marks it as a live region for assistive tech.
  */
-export function LiveShellOutputPane({ text, truncated }: { text: string; truncated: boolean }) {
+export function LiveShellOutputPane({
+  omittedBytes,
+  text,
+  truncated,
+}: {
+  omittedBytes?: number | undefined;
+  text: string;
+  truncated: boolean;
+}) {
   return (
     <div className="px-2.5 pb-1.5">
+      {omittedBytes ? (
+        <p className="pb-0.5 text-[10px] text-muted-foreground italic">
+          Earlier output not shown ({Math.ceil(omittedBytes / 1024)} KB)
+        </p>
+      ) : null}
       <div
         aria-label="Live command output"
         className="flex max-h-40 flex-col-reverse overflow-auto rounded bg-muted/50"

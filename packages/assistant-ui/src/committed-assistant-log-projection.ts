@@ -44,7 +44,7 @@ import {
 import { CommittedRewindHead, type CommittedRewindHeadMove } from './committed-rewind-head';
 import {
   committedStepParts,
-  liveStreamPart,
+  liveOverlayEntry,
   MODEL_STREAM_TYPES,
   mergeProviderMetadata,
   providerMetadata,
@@ -614,18 +614,11 @@ export class CommittedAssistantLogProjection {
    */
   acceptLive(runId: string, chunk: unknown): CommittedAssistantLogView {
     const run = this.runs.get(runId);
-    const live = record(chunk);
-    const type = live?.['type'];
-    if (!(run && live && run.stepOpen && !run.terminal && typeof type === 'string')) {
-      return this.view;
+    const entry = run?.stepOpen && !run.terminal ? liveOverlayEntry(run.step, chunk) : undefined;
+    if (run && entry) {
+      run.overlay.add(entry.key);
+      this.part(run, entry.key, entry.part);
     }
-    if (!MODEL_STREAM_TYPES.has(type)) {
-      return this.view;
-    }
-    const partType = type.startsWith('reasoning') ? 'reasoning' : 'text';
-    const key = `live:${JSON.stringify([run.step, partType, live['id'] ?? null])}`;
-    run.overlay.add(key);
-    this.part(run, key, (part) => liveStreamPart(part, type, live));
     return this.view;
   }
 
