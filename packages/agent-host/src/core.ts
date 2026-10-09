@@ -41,7 +41,7 @@ import {
 import { deleteHostThread } from './core-thread-deletion.js';
 import { readHostRow, storedHostEvent } from './event-storage.js';
 import { beginHostRun, foldHostHookContextEvent, hostRunTerminalEvents } from './hook-context.js';
-import { canonical, type Json, jsonValue } from './json-value.js';
+import { type Json, jsonValue } from './json-value.js';
 import { HostLogProjections } from './log-projections.js';
 import { HostMcpAppCalls } from './mcp-app-calls.js';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
@@ -422,7 +422,7 @@ export class HostCore {
     await this.append(threadId, [accepted, ...events], durability, beforePublish);
     this.commands.commit(params.commandId, {
       method,
-      payload: canonical(accepted.payload),
+      payload: accepted.payload,
       result,
       threadId,
     });
