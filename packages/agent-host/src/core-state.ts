@@ -394,9 +394,11 @@ export function foldHostRunMessages(
 /** Receipts use the caller's existing FULL publisher, with no queue/store of their own. */
 export function createHostRunContext(
   run: HostRunState,
-  publish: (threadId: string, events: readonly HostEvent[]) => Promise<unknown>
+  publish: (threadId: string, events: readonly HostEvent[]) => Promise<unknown>,
+  readCommittedRows: HostRunContext['readCommittedRows']
 ): HostRunContext {
   return {
+    readCommittedRows,
     recordObservationWithheld: async (reason) => {
       await publish(run.threadId, [{ reason, runId: run.id, type: 'memory.observation.withheld' }]);
     },
