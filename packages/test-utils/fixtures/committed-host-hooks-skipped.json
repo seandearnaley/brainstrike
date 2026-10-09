@@ -1,0 +1,541 @@
+[
+  {
+    "event": {
+      "commandId": "9421f9b0-fce6-4bb6-9514-867f4c85d196",
+      "method": "thread/start",
+      "payload": {
+        "commandId": "9421f9b0-fce6-4bb6-9514-867f4c85d196"
+      },
+      "result": {
+        "threadId": "4a542d54-46e2-4341-840d-6aa374797ce3"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 1,
+    "threadId": "4a542d54-46e2-4341-840d-6aa374797ce3",
+    "ts": 1791530384423
+  },
+  {
+    "event": {
+      "commandId": "9421f9b0-fce6-4bb6-9514-867f4c85d196",
+      "type": "thread.started"
+    },
+    "seq": 2,
+    "threadId": "4a542d54-46e2-4341-840d-6aa374797ce3",
+    "ts": 1791530384423
+  },
+  {
+    "event": {
+      "commandId": "cd27330f-eb78-43bf-b510-278257aaf87e",
+      "method": "run/start",
+      "payload": {
+        "commandId": "cd27330f-eb78-43bf-b510-278257aaf87e",
+        "threadId": "4a542d54-46e2-4341-840d-6aa374797ce3",
+        "modelId": "openai::gpt-6-sol",
+        "prompt": "Use the recorded canonical human interaction."
+      },
+      "result": {
+        "runId": "1ad03e2e-7fb7-41bc-9ddb-a012cd2d2191"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 3,
+    "threadId": "4a542d54-46e2-4341-840d-6aa374797ce3",
+    "ts": 1791530384442
+  },
+  {
+    "event": {
+      "type": "run.started",
+      "runId": "1ad03e2e-7fb7-41bc-9ddb-a012cd2d2191",
+      "modelId": "openai::gpt-6-sol",
+      "parentMessageId": null,
+      "prompt": "Use the recorded canonical human interaction.",
+      "snapshot": {
+        "configuration": {
+          "capabilities": {
+            "browserOAuth": "unavailable",
+            "configuredMcp": "unavailable",
+            "localInference": "unavailable",
+            "mcpAppUi": "text",
+            "nativeTools": {
+              "available": [
+                "brainstrike.askUser",
+                "brainstrike.submitPlan",
+                "brainstrike.readWorkspaceFile",
+                "brainstrike.readWorkspaceDirectory",
+                "brainstrike.writeWorkspaceFile",
+                "brainstrike.stringReplaceWorkspaceFile",
+                "brainstrike.deleteWorkspaceFile",
+                "brainstrike.renameWorkspaceFile",
+                "brainstrike.manageTaskList",
+                "brainstrike.manageCanvas",
+                "brainstrike.globWorkspace",
+                "brainstrike.findWorkspaceSymbol",
+                "brainstrike.readToolOutputArtifact"
+              ],
+              "remaining": "unavailable"
+            },
+            "skills": "unavailable",
+            "tasks": "unavailable",
+            "vectorMemory": "unavailable",
+            "workspaceInstructions": "unavailable"
+          },
+          "intent": {
+            "agentLoop": {
+              "inputTokenLimit": 869500,
+              "maxSteps": 100
+            },
+            "enabledNativeToolIds": [
+              "brainstrike.askUser",
+              "brainstrike.submitPlan",
+              "brainstrike.readWorkspaceFile",
+              "brainstrike.readWorkspaceDirectory",
+              "brainstrike.writeWorkspaceFile",
+              "brainstrike.stringReplaceWorkspaceFile",
+              "brainstrike.deleteWorkspaceFile",
+              "brainstrike.renameWorkspaceFile",
+              "brainstrike.manageTaskList",
+              "brainstrike.manageCanvas",
+              "brainstrike.globWorkspace",
+              "brainstrike.findWorkspaceSymbol",
+              "brainstrike.readToolOutputArtifact"
+            ],
+            "memoryOptions": {
+              "lastMessages": 40,
+              "workingMemory": {
+                "enabled": true,
+                "scope": "thread",
+                "template": "# Session\n- **Active task**:\n- **Workspace / roots**:\n\n# Decisions\n- (settled choices and why)\n\n# Open questions\n- (unresolved, needs the user)\n\n# Key paths\n- (files central to this task)\n"
+              }
+            },
+            "memorySettings": {
+              "observationalMemory": {
+                "enabled": false,
+                "messageTokens": 30000,
+                "modelTarget": "auto",
+                "observationTokens": 40000,
+                "retrievalMode": "off",
+                "scope": "thread"
+              },
+              "semanticRecall": {
+                "embeddingModelTarget": "openai/text-embedding-3-small",
+                "enabled": false,
+                "messageRange": 2,
+                "scope": "resource",
+                "topK": 5
+              }
+            },
+            "modelConfiguration": {
+              "model": "gpt-6-sol",
+              "provider": "openai"
+            },
+            "permissionPolicy": {
+              "policies": {
+                "edit": "ask",
+                "execute": "ask",
+                "mcp": "allow",
+                "read": "allow"
+              },
+              "yolo": false
+            },
+            "workspaceInstructionsPreference": {
+              "masterEnabled": false,
+              "oversizedOptInByRootId": {}
+            }
+          },
+          "workspaceRoots": [
+            {
+              "displayName": "bs-m3-record-skip-ws-7qg7nm",
+              "path": "/private/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/bs-m3-record-skip-ws-7qg7nm",
+              "rootId": "/private/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/bs-m3-record-skip-ws-7qg7nm"
+            }
+          ]
+        },
+        "maxSteps": 100,
+        "toolIdentities": {
+          "brainstrike_askUser": "brainstrike.askUser",
+          "brainstrike_submitPlan": "brainstrike.submitPlan",
+          "brainstrike_readWorkspaceFile": "brainstrike.readWorkspaceFile",
+          "brainstrike_readWorkspaceDirectory": "brainstrike.readWorkspaceDirectory",
+          "brainstrike_writeWorkspaceFile": "brainstrike.writeWorkspaceFile",
+          "brainstrike_stringReplaceWorkspaceFile": "brainstrike.stringReplaceWorkspaceFile",
+          "brainstrike_deleteWorkspaceFile": "brainstrike.deleteWorkspaceFile",
+          "brainstrike_renameWorkspaceFile": "brainstrike.renameWorkspaceFile",
+          "brainstrike_manageTaskList": "brainstrike.manageTaskList",
+          "brainstrike_manageCanvas": "brainstrike.manageCanvas",
+          "brainstrike_globWorkspace": "brainstrike.globWorkspace",
+          "brainstrike_findWorkspaceSymbol": "brainstrike.findWorkspaceSymbol",
+          "brainstrike_readToolOutputArtifact": "brainstrike.readToolOutputArtifact",
+          "updateWorkingMemory": "mastra-memory:update-working-memory",
+          "list_available_tools": "host-tool-discovery:list_available_tools",
+          "load_tool": "host-tool-discovery:load_tool",
+          "search_tools": "host-tool-discovery:search_tools"
+        }
+      }
+    },
+    "seq": 4,
+    "threadId": "4a542d54-46e2-4341-840d-6aa374797ce3",
+    "ts": 1791530384442
+  },
+  {
+    "event": {
+      "type": "hooks.skipped",
+      "runId": "1ad03e2e-7fb7-41bc-9ddb-a012cd2d2191",
+      "files": [
+        {
+          "detail": "not trusted",
+          "path": "/private/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/bs-m3-record-skip-ws-7qg7nm/.brainstrike/hooks.json",
+          "reason": "untrusted",
+          "rootId": "/private/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/bs-m3-record-skip-ws-7qg7nm",
+          "scope": "project"
+        }
+      ]
+    },
+    "seq": 5,
+    "threadId": "4a542d54-46e2-4341-840d-6aa374797ce3",
+    "ts": 1791530384447
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "1ad03e2e-7fb7-41bc-9ddb-a012cd2d2191",
+      "chunk": {
+        "type": "start"
+      }
+    },
+    "seq": 6,
+    "threadId": "4a542d54-46e2-4341-840d-6aa374797ce3",
+    "ts": 1791530384679
+  },
+  {
+    "event": {
+      "type": "provider.request.prepared",
+      "runId": "1ad03e2e-7fb7-41bc-9ddb-a012cd2d2191",
+      "accounting": {
+        "measurement": {
+          "mode": "declared-compatible-reference",
+          "tokenizer": "o200k_base"
+        },
+        "promptTokens": 631,
+        "removedMessages": 0,
+        "toolTokens": 3197,
+        "totalTokens": 3828,
+        "usedBackstop": false
+      },
+      "breakdown": {
+        "attachmentsCount": 0,
+        "historyMessagesTokens": 12,
+        "provenance": "heuristic",
+        "systemInstructionsTokens": 678,
+        "toolDefinitionsProvenance": "heuristic",
+        "toolDefinitionsTokens": 3197
+      },
+      "modelId": "gpt-6-sol",
+      "provider": "openai"
+    },
+    "seq": 7,
+    "threadId": "4a542d54-46e2-4341-840d-6aa374797ce3",
+    "ts": 1791530384766
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "1ad03e2e-7fb7-41bc-9ddb-a012cd2d2191",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": []
+      }
+    },
+    "seq": 8,
+    "threadId": "4a542d54-46e2-4341-840d-6aa374797ce3",
+    "ts": 1791530384783
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "1ad03e2e-7fb7-41bc-9ddb-a012cd2d2191",
+      "chunk": {
+        "type": "tool-input-start",
+        "id": "call_standalone_human_1",
+        "toolName": "brainstrike_askUser",
+        "dynamic": false
+      }
+    },
+    "seq": 9,
+    "threadId": "4a542d54-46e2-4341-840d-6aa374797ce3",
+    "ts": 1791530384786
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "1ad03e2e-7fb7-41bc-9ddb-a012cd2d2191",
+      "chunk": {
+        "type": "tool-input-delta",
+        "id": "call_standalone_human_1",
+        "delta": "{\"options\":[{\"label\":\"Local\"},{\"label\":\"Preview\"}],\"question\":\"Which environment?\",\"selectionMode\":\"multi_select\"}"
+      }
+    },
+    "seq": 10,
+    "threadId": "4a542d54-46e2-4341-840d-6aa374797ce3",
+    "ts": 1791530384786
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "1ad03e2e-7fb7-41bc-9ddb-a012cd2d2191",
+      "chunk": {
+        "type": "tool-input-end",
+        "id": "call_standalone_human_1"
+      }
+    },
+    "seq": 11,
+    "threadId": "4a542d54-46e2-4341-840d-6aa374797ce3",
+    "ts": 1791530384786
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "1ad03e2e-7fb7-41bc-9ddb-a012cd2d2191",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool-call",
+              "toolCallId": "call_standalone_human_1",
+              "toolName": "brainstrike_askUser",
+              "input": {
+                "options": [
+                  {
+                    "label": "Local"
+                  },
+                  {
+                    "label": "Preview"
+                  }
+                ],
+                "question": "Which environment?",
+                "selectionMode": "multi_select"
+              },
+              "providerOptions": {
+                "openai": {
+                  "itemId": "fc_standalone_human_1"
+                }
+              }
+            },
+            {
+              "type": "tool-approval-request",
+              "approvalId": "aitxt-pmqKsqEpOkcYJGT97gSsUbxd",
+              "toolCallId": "call_standalone_human_1"
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "openai.responses",
+        "modelId": "gpt-6-sol"
+      },
+      "stepNumber": 0,
+      "usage": {
+        "inputTokens": 42,
+        "inputTokenDetails": {
+          "noCacheTokens": 42,
+          "cacheReadTokens": 0
+        },
+        "outputTokens": 9,
+        "outputTokenDetails": {
+          "textTokens": 9,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 51,
+        "raw": {
+          "input_tokens": 42,
+          "output_tokens": 9
+        }
+      }
+    },
+    "seq": 12,
+    "threadId": "4a542d54-46e2-4341-840d-6aa374797ce3",
+    "ts": 1791530384789
+  },
+  {
+    "event": {
+      "type": "interaction.requested",
+      "runId": "1ad03e2e-7fb7-41bc-9ddb-a012cd2d2191",
+      "input": {
+        "options": [
+          {
+            "label": "Local"
+          },
+          {
+            "label": "Preview"
+          }
+        ],
+        "question": "Which environment?",
+        "selectionMode": "multi_select"
+      },
+      "toolCallId": "call_standalone_human_1",
+      "toolCatalogId": "brainstrike.askUser",
+      "toolId": "brainstrike_askUser",
+      "toolIdentity": "brainstrike.askUser",
+      "interactionId": "aitxt-pmqKsqEpOkcYJGT97gSsUbxd",
+      "kind": "question"
+    },
+    "seq": 13,
+    "threadId": "4a542d54-46e2-4341-840d-6aa374797ce3",
+    "ts": 1791530384789
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "1ad03e2e-7fb7-41bc-9ddb-a012cd2d2191",
+      "chunk": {
+        "type": "tool-call",
+        "toolCallId": "call_standalone_human_1",
+        "toolName": "brainstrike_askUser",
+        "input": {
+          "options": [
+            {
+              "label": "Local"
+            },
+            {
+              "label": "Preview"
+            }
+          ],
+          "question": "Which environment?",
+          "selectionMode": "multi_select"
+        },
+        "providerMetadata": {
+          "openai": {
+            "itemId": "fc_standalone_human_1"
+          }
+        }
+      }
+    },
+    "seq": 14,
+    "threadId": "4a542d54-46e2-4341-840d-6aa374797ce3",
+    "ts": 1791530384794
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "1ad03e2e-7fb7-41bc-9ddb-a012cd2d2191",
+      "chunk": {
+        "type": "tool-approval-request",
+        "approvalId": "aitxt-pmqKsqEpOkcYJGT97gSsUbxd",
+        "toolCall": {
+          "type": "tool-call",
+          "toolCallId": "call_standalone_human_1",
+          "toolName": "brainstrike_askUser",
+          "input": {
+            "options": [
+              {
+                "label": "Local"
+              },
+              {
+                "label": "Preview"
+              }
+            ],
+            "question": "Which environment?",
+            "selectionMode": "multi_select"
+          },
+          "providerMetadata": {
+            "openai": {
+              "itemId": "fc_standalone_human_1"
+            }
+          }
+        }
+      }
+    },
+    "seq": 15,
+    "threadId": "4a542d54-46e2-4341-840d-6aa374797ce3",
+    "ts": 1791530384794
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "1ad03e2e-7fb7-41bc-9ddb-a012cd2d2191",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "tool-calls",
+        "usage": {
+          "inputTokens": 42,
+          "inputTokenDetails": {
+            "noCacheTokens": 42,
+            "cacheReadTokens": 0
+          },
+          "outputTokens": 9,
+          "outputTokenDetails": {
+            "textTokens": 9,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 51,
+          "raw": {
+            "input_tokens": 42,
+            "output_tokens": 9
+          }
+        },
+        "performance": {
+          "stepTimeMs": 101.95095800000036,
+          "toolExecutionMs": {},
+          "responseTimeMs": 100.98070800000005,
+          "effectiveOutputTokensPerSecond": 89.12593482707604,
+          "outputTokensPerSecond": 3828.6337562981994,
+          "inputTokensPerSecond": 425.8339247693395,
+          "effectiveTotalTokensPerSecond": 505.0469640200975,
+          "timeToFirstOutputMs": 98.63000000000011,
+          "timeBetweenOutputChunksMs": {
+            "min": 0.9282080000002679,
+            "p10": 0.9282080000002679,
+            "median": 0.9282080000002679,
+            "avg": 0.9282080000002679,
+            "p90": 0.9282080000002679,
+            "max": 0.9282080000002679
+          }
+        },
+        "providerMetadata": {
+          "openai": {
+            "responseId": "resp_standalone_1"
+          }
+        },
+        "response": {
+          "id": "resp_standalone_1",
+          "timestamp": "2025-07-27T07:06:40.000Z",
+          "modelId": "gpt-6-sol",
+          "headers": {
+            "content-type": "text/event-stream"
+          }
+        }
+      }
+    },
+    "seq": 16,
+    "threadId": "4a542d54-46e2-4341-840d-6aa374797ce3",
+    "ts": 1791530384795
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "1ad03e2e-7fb7-41bc-9ddb-a012cd2d2191",
+      "chunk": {
+        "type": "finish",
+        "finishReason": "tool-calls",
+        "totalUsage": {
+          "inputTokens": 42,
+          "inputTokenDetails": {
+            "noCacheTokens": 42,
+            "cacheReadTokens": 0
+          },
+          "outputTokens": 9,
+          "outputTokenDetails": {
+            "textTokens": 9,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 51
+        }
+      }
+    },
+    "seq": 17,
+    "threadId": "4a542d54-46e2-4341-840d-6aa374797ce3",
+    "ts": 1791530384803
+  }
+]

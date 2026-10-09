@@ -8,12 +8,12 @@ import {
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   type AssistantRunEvent,
+  describeHookSkip,
   describeRunAttempt,
   PROVIDER_CALL_WARNING_RUN_EVENT_KIND,
   providerCallWarningDetail,
   providerCallWarningLabel,
   providerCallWarningMetadata,
-  type RunAttemptNoticeInput,
   readProviderCallWarning,
 } from '@brainstrike/assistant-contract';
 import {
@@ -32,6 +32,12 @@ import {
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { parsePartialJsonObject } from 'assistant-stream/utils';
 import { committedApprovalOptions } from './committed-approval-options';
+import {
+  readHookSkips,
+  readRunAttempt,
+  record,
+  requiredString,
+} from './committed-host-event-fields';
 import { HOST_CONTEXT_COMPACTED_DATA_NAME } from './compaction-summary-message';
 import type { ThreadTokenUsage } from './context-usage-store';
 
@@ -116,52 +122,6 @@ type ProjectedRunEvent = Pick<
   AssistantRunEvent,
   'detail' | 'kind' | 'label' | 'metadata' | 'status'
 >;
-
-const ATTEMPT_REASONS = new Set<unknown>([
-  'context-overflow',
-  'empty-response',
-  'provider-error',
-  'stalled',
-]);
-const ATTEMPT_REFUSALS = new Set<unknown>(['budget-exhausted', 'tool-parts', 'committed-output']);
-
-/** A committed host `run.attempt` row, read strictly like every other committed event. */
-function readRunAttempt(event: Readonly<Record<string, unknown>>): RunAttemptNoticeInput {
-  const { attempt, maxAttempts, reason, recovered, refusal } = event;
-  if (
-    typeof attempt !== 'number' ||
-    typeof maxAttempts !== 'number' ||
-    !ATTEMPT_REASONS.has(reason) ||
-    typeof recovered !== 'boolean' ||
-    (refusal !== undefined && !ATTEMPT_REFUSALS.has(refusal))
-  ) {
-    throw new Error('Committed run attempt has an unsupported shape.');
-  }
-  return {
-    attempt,
-    detail: requiredString(event, 'detail'),
-    maxAttempts,
-    reason: reason as RunAttemptNoticeInput['reason'],
-    recovered,
-    ...(refusal === undefined
-      ? {}
-      : { refusal: refusal as NonNullable<RunAttemptNoticeInput['refusal']> }),
-  };
-}
-
-function record(value: unknown): Readonly<Record<string, unknown>> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Readonly<Record<string, unknown>>)
-    : undefined;
-}
-
-function requiredString(value: Readonly<Record<string, unknown>>, key: string): string {
-  const field = value[key];
-  if (typeof field !== 'string' || !field) {
-    throw new Error(`Committed host event is missing ${key}.`);
-  }
-  return field;
-}
 
 /**
  * A committed `mcp.tools.unavailable` as the run timeline's always-visible
@@ -540,6 +500,20 @@ export class CommittedAssistantLogProjection {
     }
   }
 
+  /** Each hook file the run did not load, as an always-visible failed notice. */
+  private hookSkips(run: ProjectedRun, row: CommittedAssistantLogRow): void {
+    for (const [index, skip] of readHookSkips(row.event).entries()) {
+      const notice = describeHookSkip(skip, 'review it in Settings > Hooks');
+      this.runEvent(run, row, `hook-skip:${index}`, {
+        detail: notice.detail,
+        kind: 'hook.notice',
+        label: notice.label,
+        metadata: { path: skip.path, reason: skip.reason },
+        status: 'failed',
+      });
+    }
+  }
+
   private tool(
     run: ProjectedRun,
     input: Readonly<Record<string, unknown>>,
@@ -698,8 +672,9 @@ export class CommittedAssistantLogProjection {
 
   /**
    * A host event with no message part of its own: an attempt record becomes
-   * its run's attempt notice, a compaction its compaction-card part, a
-   * withheld memory reason thread view state, and anything else host-event data.
+   * its run's attempt notice, each skipped hook file a failed hook notice, a
+   * compaction its compaction-card part, a withheld memory reason thread view
+   * state, and anything else host-event data.
    */
   private other(run: ProjectedRun, row: CommittedAssistantLogRow): void {
     const event = row.event;
@@ -715,6 +690,10 @@ export class CommittedAssistantLogProjection {
     }
     if (event['type'] === 'run.attempt') {
       this.attempt(run, row);
+      return;
+    }
+    if (event['type'] === 'hooks.skipped') {
+      this.hookSkips(run, row);
       return;
     }
     if (event['type'] === 'context.compacted') {
