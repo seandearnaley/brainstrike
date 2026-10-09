@@ -1,4 +1,3 @@
-import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract';
 import { listEmbeddingModels } from '@brainstrike/assistant-contract/provider-metadata';
 import { z } from 'zod';
@@ -64,11 +63,10 @@ async function readLocalEmbeddingHostDevice(
 /**
  * The facts a host-composed run admission reads from Main (BST-1930 stage e):
  * the model catalog and live roots in Main's database, the live binding
- * authority, the worktree service, the saved policy and the embedding host.
+ * authority, the worktree service and the embedding host.
  */
 function desktopAdmissionReads(
   dependencies: DesktopHostToolServices,
-  readPersistedPolicy: (() => Promise<PermissionToolGateSnapshot | undefined>) | undefined,
   readCliOwnerIntent: DesktopCliOwnerIntentReader | undefined,
   workspaceAuthority: DesktopWorkspaceBindingAuthority | undefined,
   readLocalEmbeddingDevice: ((signal: AbortSignal) => Promise<'webgpu' | 'wasm'>) | undefined
@@ -123,7 +121,6 @@ function desktopAdmissionReads(
         readLocalDevice: () => readLocalEmbeddingHostDevice(readLocalEmbeddingDevice, signal),
       });
     },
-    persistedPolicy: async () => await readPersistedPolicy?.(),
     worktreesAvailable: async () => Boolean(dependencies.resolveWorktreeService?.()),
   };
 }
@@ -131,7 +128,6 @@ function desktopAdmissionReads(
 /** Lazy borrows: Root/New Thread never waits for indexing or credential initialization. */
 export function productionDesktopCapabilities(
   dependencies: DesktopHostToolServices,
-  readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>,
   readCliOwnerIntent?: DesktopCliOwnerIntentReader,
   workspaceAuthority?: DesktopWorkspaceBindingAuthority,
   readLocalEmbeddingDevice?: (signal: AbortSignal) => Promise<'webgpu' | 'wasm'>
@@ -139,7 +135,6 @@ export function productionDesktopCapabilities(
   return {
     admission: desktopAdmissionReads(
       dependencies,
-      readPersistedPolicy,
       readCliOwnerIntent,
       workspaceAuthority,
       readLocalEmbeddingDevice

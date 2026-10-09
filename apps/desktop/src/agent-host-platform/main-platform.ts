@@ -29,7 +29,6 @@ import {
   PlatformNativeChildSchema,
   PlatformObserverCandidatesResultSchema,
   PlatformObserverCandidatesSchema,
-  PlatformPersistedPolicyResultSchema,
   PlatformWorkspaceAcquireResultSchema,
   PlatformWorkspaceAcquireSchema,
   PlatformWorkspaceBindingRequestSchema,
@@ -280,15 +279,6 @@ export function serveDesktopPlatform(
         signal,
       });
       return null;
-    })
-  );
-  // The policy the user saved, if any; the host resolves a thread's policy from it.
-  connection.onRequest('platform/policy', (input: unknown, token: CancellationToken) =>
-    execute(token, async () => {
-      z.strictObject({}).parse(input);
-      return PlatformPersistedPolicyResultSchema.parse(
-        (await capabilities.admission.persistedPolicy()) ?? null
-      );
     })
   );
   serveAdmissionReads(connection, execute, capabilities.admission, leases);

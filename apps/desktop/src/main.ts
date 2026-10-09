@@ -22,17 +22,12 @@ import {
 import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
-import { z } from 'zod';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import { registerAgentHostClientIpc } from './agent-host-client-ipc';
 import { createAgentHostMainClient } from './agent-host-main-client';
 import { createDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
 import { DesktopWorkspaceBindingAuthority } from './agent-host-platform/desktop-workspace-binding';
 import { readEmbeddingHostDevice } from './agent-host-platform/memory-vector-selection';
-import {
-  PlatformPolicySchema,
-  platformPermissionPolicy,
-} from './agent-host-platform/platform-wire';
 import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
 import { createAgentHostPrivateClients } from './agent-host-private-clients';
 import { buildFileMenuTemplate } from './application-file-menu';
@@ -1034,18 +1029,6 @@ const nativeIndexActivation = createNativeIndexActivation({
             nativeIndexSearch,
             resolveForgeService: () => forgeService ?? null,
             resolveWorktreeService: () => worktreeService,
-          },
-          async () => {
-            const stored = await storage.getItem('permission-policy.v1');
-            if (!stored) {
-              return;
-            }
-            const envelope = z
-              .object({ state: PlatformPolicySchema.extend({ enforce: z.boolean() }) })
-              .parse(JSON.parse(stored));
-            const { enforce, ...input } = envelope.state;
-            const policy = platformPermissionPolicy(input);
-            return { ...policy, yolo: policy.yolo || !enforce };
           },
           undefined,
           workspace,

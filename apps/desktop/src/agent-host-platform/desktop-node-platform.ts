@@ -14,7 +14,9 @@ import {
   type HostPlatformLaunchOptions,
   type HostRunAdmissionRequest,
   type HostStartupContext,
+  hostPermissionGate,
   type ProductionHostRunConfiguration,
+  readHostPermissionPolicy,
 } from '@brainstrike/agent-host';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { SupportedProvider } from '@brainstrike/assistant-contract';
@@ -56,13 +58,11 @@ import {
   PlatformLocalProgressSchema,
   PlatformMemoryVectorsResultSchema,
   PlatformObserverCandidatesResultSchema,
-  PlatformPersistedPolicyResultSchema,
   PlatformRewindConflictsSchema,
   PlatformRewindOutcomesSchema,
   PlatformRewindPreviewResultSchema,
   PlatformTurnSnapshotResultSchema,
   PlatformWorkspaceAcquireResultSchema,
-  platformPermissionPolicy,
 } from './platform-wire';
 
 const logger = createLogger('DesktopNodePlatform');
@@ -235,10 +235,6 @@ export function mainAdmissionReads(request: PlatformRequest): DesktopAdmissionRe
         ? { profile: resolved.profile, ...(resolved.local ? { local: resolved.local } : {}) }
         : undefined;
     },
-    persistedPolicy: async () => {
-      const saved = PlatformPersistedPolicyResultSchema.parse(await request('platform/policy', {}));
-      return saved ? platformPermissionPolicy(saved) : undefined;
-    },
     worktreesAvailable: async (signal) =>
       z.boolean().parse(await request('platform/admission/worktrees', {}, signal)),
   };
@@ -320,8 +316,12 @@ export async function createHostPlatform(
   if (!userDataDir) {
     throw new Error('The desktop agent host needs its app paths for MCP settings');
   }
-  // BST-1930 stage e: each run's admission is composed here, from Main's reads.
-  const runAdmission = createDesktopRunAdmission(mainAdmissionReads(request));
+  // BST-1930 stage e: each run's admission is composed here, from Main's reads and
+  // the policy the user saved, which this host keeps in its StateStore.
+  const runAdmission = createDesktopRunAdmission(mainAdmissionReads(request), async () => {
+    const saved = await readHostPermissionPolicy(startup.store);
+    return saved ? hostPermissionGate(saved) : undefined;
+  });
   const mcpHost = await createDesktopNodeMcpHost({
     connection,
     credentials: {

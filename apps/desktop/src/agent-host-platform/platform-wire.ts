@@ -459,4 +459,3 @@ export const PlatformWorkspaceAcquireSchema = PlatformWorkspaceLeaseSchema.exten
 export const PlatformWorkspaceAcquireResultSchema = z.strictObject({
   roots: CliWorkspaceRootsSchema,
 });
-export const PlatformPersistedPolicyResultSchema = PlatformPolicySchema.nullable();

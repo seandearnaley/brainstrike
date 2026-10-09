@@ -55,8 +55,7 @@ type RuntimeWorkspaceRoots = NonNullable<RuntimeData['workspaceRoots']>;
 /**
  * What a desktop run's admission reads from the facts Main owns (BST-1930
  * stage e): the model catalog, live roots and their binding leases, the
- * worktree service, the persisted policy, and the recall embedder Main's
- * embedding host resolves. The agent host composes the admission from them;
+ * worktree service, and the recall embedder Main's embedding host resolves. The agent host composes the admission from them;
  * Main serves each read and holds no selection.
  */
 export interface DesktopAdmissionReads {
@@ -82,8 +81,6 @@ export interface DesktopAdmissionReads {
     settings: PlatformSelection['memory']['settings'],
     signal: AbortSignal
   ): Promise<DesktopMemoryVectorSelection | undefined>;
-  /** The permission policy the user saved, if any. */
-  persistedPolicy(): Promise<PermissionToolGateSnapshot | undefined>;
   /** Whether the desktop's worktree service is running. */
   worktreesAvailable(signal: AbortSignal): Promise<boolean>;
 }
@@ -380,13 +377,17 @@ function desktopNativeRuntime(
 }
 
 /** The desktop run admission the agent host composes from Main's reads. */
-export function createDesktopRunAdmission(reads: DesktopAdmissionReads): DesktopRunAdmission {
+export function createDesktopRunAdmission(
+  reads: DesktopAdmissionReads,
+  /** The policy the user saved, which the host keeps; undefined when none is saved. */
+  savedPolicy: () => Promise<PermissionToolGateSnapshot | undefined>
+): DesktopRunAdmission {
   const policies = new Map<string, PermissionToolGateSnapshot>();
   // A host thread's session grants are the host's own (permission.granted);
   // no renderer store reaches its decisions.
   const readHostPermissionPolicy = async (threadId?: string) => {
     const captured = threadId ? policies.get(threadId) : undefined;
-    const persisted = await reads.persistedPolicy();
+    const persisted = await savedPolicy();
     const { sessionGrants: _sessionGrants, ...policy } = platformPermissionPolicy(
       persisted ?? captured ?? { policies: DEFAULT_PERMISSION_POLICIES, yolo: false }
     );
@@ -400,12 +401,7 @@ export function createDesktopRunAdmission(reads: DesktopAdmissionReads): Desktop
   const readPreconditions = async (request: HostRunIntentRequest) => {
     request.signal.throwIfAborted();
     const catalog = await readDesktopCatalogSelection(reads, request.modelId, request.signal);
-    const intent = await readDesktopIntent(
-      request,
-      catalog,
-      () => reads.persistedPolicy(),
-      reads.cliOwnerIntent
-    );
+    const intent = await readDesktopIntent(request, catalog, savedPolicy, reads.cliOwnerIntent);
     const configuration = PlatformModelConfigurationSchema.parse(intent.modelConfiguration);
     if (configuration.provider !== catalog.provider || configuration.model !== catalog.model) {
       throw new Error('Captured settings do not belong to the selected catalog model');

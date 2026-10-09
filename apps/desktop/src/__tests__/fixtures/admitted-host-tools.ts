@@ -63,9 +63,9 @@ export async function admitHostTools(
     hostPort.close();
   };
   try {
-    const selected = await createDesktopRunAdmission(mainAdmissionReads(send)).readConfiguration(
-      request
-    );
+    // These scenarios save no permission policy: the run's captured intent decides.
+    const admission = createDesktopRunAdmission(mainAdmissionReads(send), async () => undefined);
+    const selected = await admission.readConfiguration(request);
     return {
       close: async () => {
         try {

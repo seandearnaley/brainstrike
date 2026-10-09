@@ -12,7 +12,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
-import type { HostPlatform } from '@brainstrike/agent-host';
+import { type HostPlatform, writeHostPermissionPolicy } from '@brainstrike/agent-host';
 import {
   DEFAULT_PERMISSION_POLICIES,
   DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
@@ -96,7 +96,6 @@ function mainReads(
       return [{ displayName: 'project', path: rootPath, rootId: 'project-root' }];
     },
     memoryVectors: async () => undefined,
-    persistedPolicy: async () => undefined,
     worktreesAvailable: async () => false,
   };
 }
@@ -200,6 +199,93 @@ test('the host admits each run from Main’s reads: the catalog decides, Main’
     if (store) {
       expect(RootLock.inspect(root)?.owner.released).toBe(true);
     }
+    await rm(root, { force: true, recursive: true });
+  }
+});
+
+/**
+ * BST-1930 stage e: the host's StateStore holds the policy the user saved, and
+ * the host's gate reads it there, before any run's captured intent. Main is
+ * never asked for a policy.
+ */
+test('the host gates tools by the policy saved in its own StateStore, not Main’s', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-m3-saved-policy-'));
+  const project = join(root, 'project');
+  await mkdir(project);
+  const channel = new MessageChannel();
+  const mainPort = new UtilityPort(channel.port1);
+  const nodePort = new UtilityPort(channel.port2);
+  const connection = mainPlatformConnection(mainPort);
+  const cleanup: (() => Promise<void>)[] = [];
+  const asked: string[] = [];
+  connection.onRequest('platform/policy', () => {
+    asked.push('platform/policy');
+    return null;
+  });
+  const main = serveDesktopPlatform(connection, {
+    admission: mainReads(project, { enabled: true }, []),
+    mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
+  });
+  let store: StateStore | undefined;
+  let platform: HostPlatform | undefined;
+  try {
+    store = await StateStore.open(root);
+    const credentialStore = desktopCredentialStoreSelection(root, true);
+    const settings = createHostCredentials({ selection: credentialStore });
+    await settings.secrets().saveKey('openai', 'synthetic-saved-policy-key');
+    await settings.close();
+    const saved = {
+      enforce: true,
+      perToolOverrides: { 'brainstrike.readWorkspaceFile': 'deny' as const },
+      policies: { edit: 'deny', execute: 'deny', mcp: 'ask', read: 'allow' } as const,
+      yolo: false,
+    };
+    await writeHostPermissionPolicy(store, saved);
+    expect(
+      installParentPlatformPort({ data: { event: 'platform-capabilities' }, ports: [nodePort] })
+    ).toBe(true);
+    platform = await createHostPlatform(
+      { lifetime: 'app', root },
+      {
+        register: async (close) => {
+          cleanup.push(close);
+        },
+        signal: new AbortController().signal,
+        store,
+      },
+      { appPaths: desktopAppPaths(root), credentialStore }
+    );
+    const gate = {
+      perToolOverrides: saved.perToolOverrides,
+      policies: saved.policies,
+      yolo: false,
+    };
+    // A thread with no run yet, and a run whose captured intent says otherwise.
+    await expect(platform.readPermissionPolicy('root-thread')).resolves.toEqual(gate);
+    const admitRun = platform.admitRun;
+    if (!admitRun) {
+      throw new Error('Production admission capability was not forwarded');
+    }
+    const admitted = await admitRun({
+      configuration: INTENT,
+      modelId: `${MODEL.provider}::${MODEL.model}`,
+      runId: 'saved-policy-run',
+      signal: new AbortController().signal,
+      threadId: 'root-thread',
+    });
+    await expect(platform.readPermissionPolicy('root-thread')).resolves.toEqual(gate);
+    await admitted.close?.();
+    expect(asked).toEqual([]);
+  } finally {
+    await platform?.close();
+    await main.close();
+    for (const close of cleanup.reverse()) {
+      await close();
+    }
+    connection.dispose();
+    mainPort.close();
+    nodePort.close();
+    await store?.close();
     await rm(root, { force: true, recursive: true });
   }
 });

@@ -55,8 +55,8 @@ export function capturedIntent(options: {
 
 /**
  * Main's reads for a scenario's profile (BST-1930 stage e): every catalog
- * model enabled, no observer candidates, no recall embedder, no roots, no
- * saved policy and no worktree service, unless the scenario says otherwise.
+ * model enabled, no observer candidates, no recall embedder, no roots and no
+ * worktree service, unless the scenario says otherwise.
  */
 export function mainReads(overrides: Partial<DesktopAdmissionReads> = {}): DesktopAdmissionReads {
   return {
@@ -65,7 +65,6 @@ export function mainReads(overrides: Partial<DesktopAdmissionReads> = {}): Deskt
     enabledObservers: async () => [],
     liveWorkspaceRoots: async () => [],
     memoryVectors: async () => undefined,
-    persistedPolicy: async () => undefined,
     worktreesAvailable: async () => false,
     ...overrides,
   };
@@ -80,7 +79,6 @@ export function noRunAdmission(): DesktopAdmissionReads {
     enabledObservers: refuse,
     liveWorkspaceRoots: refuse,
     memoryVectors: refuse,
-    persistedPolicy: async () => undefined,
     worktreesAvailable: refuse,
   };
 }
