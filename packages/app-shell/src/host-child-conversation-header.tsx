@@ -9,7 +9,7 @@ import type {
   AssistantThreadHostChild,
 } from './assistant-thread-host-context';
 import { ASSISTANT_THREAD_ICON_PRESENTATION } from './assistant-thread-presentation';
-import { openHostChildTab } from './host-child-conversations';
+import { openHostChildTab } from './open-host-child-tab';
 
 const logger = createLogger('HostChildConversationHeader');
 const Icon = ASSISTANT_THREAD_ICON_PRESENTATION.message.iconComponent;

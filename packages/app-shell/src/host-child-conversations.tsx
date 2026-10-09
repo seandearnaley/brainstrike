@@ -4,7 +4,6 @@ import {
   SubagentInvocationResolverContext,
   SubagentLiveInvocationContext,
 } from '@brainstrike/assistant-ui';
-import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { createLogger } from '@brainstrike/logging';
 import { isAgentColor } from '@brainstrike/types/agent-color';
 import { type ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
@@ -13,7 +12,7 @@ import {
   type AssistantThreadHostChild,
   useAssistantThreadHost,
 } from './assistant-thread-host-context';
-import { hostChildWorkspaceTabId } from './host-child-workspace-tab';
+import { openHostChildTab } from './open-host-child-tab';
 
 const logger = createLogger('HostChildConversations');
 
@@ -26,17 +25,6 @@ const invocationKey = (identity: Invocation): string =>
   JSON.stringify([identity.parentRuntimeRunId, identity.parentToolCallId]);
 
 const UNAVAILABLE = 'The delegated conversation is unavailable or belongs to another parent.';
-
-/** The child's workspace tab opens, then takes focus as the ordinary thread-tab shell does. */
-export function openHostChildTab(
-  child: Pick<AssistantThreadHostChild, 'persona' | 'threadId'>
-): void {
-  const appId = hostChildWorkspaceTabId({ persona: child.persona, threadId: child.threadId });
-  useWorkspaceTabSelectionStore.getState().openApp(appId);
-  window.requestAnimationFrame(() => {
-    document.getElementById(`workspace-app-tab-${appId}`)?.focus();
-  });
-}
 
 /**
  * BST-1932: a host thread's delegation cards reach their child threads through
