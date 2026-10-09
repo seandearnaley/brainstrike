@@ -1,5 +1,6 @@
 import {
   isProviderCredential,
+  McpAppOriginSchema,
   type OpenRouterModelMetadataSnapshot,
   type ProviderCredential,
   type ProviderVerificationSnapshot,
@@ -38,8 +39,9 @@ import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 // readiness for the next run), run_python's network consent (an
 // `interaction.requested` of kind `network`, answered by `interaction/resume`
 // with `{ action }` and, when the policy also asked, an approval grant), and a
-// run's turn snapshots for its Changes review (`workspace.snapshot.recorded`).
-// These additions are optional fields, new variants and new methods, so a v11
+// run's turn snapshots for its Changes review (`workspace.snapshot.recorded`),
+// and an MCP App's own tool calls (`mcp/app/admit`, `mcp/app/call`), which
+// Core decides under the owning thread's policy. These additions are optional fields, new variants and new methods, so a v11
 // reader that uses none of them sees nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
@@ -82,6 +84,13 @@ export const HostNetworkConsentSchema = z.strictObject({ action: z.enum(['allow'
 const RunVerdict = z.enum(['failed', 'mixed', 'succeeded']);
 const RunVerdictDetail = z.string().max(2000);
 const McpInput = { ...Run, interactionId: Id };
+/** An MCP App's own tool call: the app a committed tool result of the thread mounted. */
+const McpAppCall = {
+  ...Thread,
+  app: McpAppOriginSchema,
+  arguments: z.record(z.string(), z.json()),
+  toolName: Id,
+};
 export const HostMcpInputStatusSchema = z.enum([
   'requested',
   'accepted',
@@ -429,6 +438,10 @@ export const HOST_METHOD_SCHEMAS = {
   }),
   'log/subscribe': z.strictObject({ ...Thread, fromSeq: Seq }),
   'log/unsubscribe': z.strictObject(Thread),
+  /** Core's decision on an app's call under the thread's live policy; nothing runs. */
+  'mcp/app/admit': z.strictObject(McpAppCall),
+  /** Decided afresh, an asked call runs only `approved`, on the app's own server. */
+  'mcp/app/call': z.strictObject({ ...McpAppCall, approved: z.boolean() }),
   'mcp/input/read': z.strictObject(McpInput),
   'mcp/input/settle': z.strictObject({
     ...Command,
@@ -883,6 +896,11 @@ export const HOST_RESULT_SCHEMAS = {
   'interaction/resume': z.strictObject({ accepted: z.literal(true) }),
   'log/subscribe': z.strictObject({ rows: z.array(HostLogRowSchema) }),
   'log/unsubscribe': z.strictObject({ unsubscribed: z.literal(true) }),
+  'mcp/app/admit': z.strictObject({
+    decision: z.enum(['allow', 'ask']),
+    riskCategory: RiskCategory,
+  }),
+  'mcp/app/call': z.strictObject({ result: z.json() }),
   'mcp/input/read': z.strictObject({
     // Only a current private capability can supply this ephemeral presentation.
     presentation: z.json().optional(),
