@@ -182,6 +182,11 @@ export function foldHostRunEffect(
     if (ts !== undefined) {
       run?.outputCommittedAt.set(event.toolCallId, ts);
     }
+  } else if (event.type === 'workspace.snapshot.recorded' && event.boundary === 'turn-start') {
+    const run = runs.get(event.runId);
+    if (run) {
+      run.turnStart = event;
+    }
   } else if (event.type === 'run.finished') {
     const run = runs.get(event.runId);
     if (run) {
@@ -281,6 +286,8 @@ export interface HostRunState {
   readonly toolContexts: Map<string, string>;
   /** A follow-up typed into an idle child starts its own turn: its ID. */
   turnId?: string;
+  /** The run's committed turn-start snapshots: the roots its turn end snapshots. */
+  turnStart?: Extract<HostEvent, { type: 'workspace.snapshot.recorded' }>;
 }
 
 export function createHostRunState(
