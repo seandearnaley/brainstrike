@@ -27,6 +27,8 @@ export interface HostLeaseUtilityProcess {
   off(event: 'exit', listener: (code: number) => void): unknown;
   on(event: 'message', listener: (message: unknown) => void): unknown;
   once(event: 'exit', listener: (code: number) => void): unknown;
+  once(event: 'spawn', listener: () => void): unknown;
+  /** Electron reports it only once the utility has spawned. */
   readonly pid: number | undefined;
   postMessage(
     message: HostLeaseControl | { event: 'platform-capabilities' } | { event: 'client-port' },
@@ -242,7 +244,10 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
             // A lost host leaves its native processes to Main (ADR-0017).
             () => nativeChildren?.retire()
           );
-          ownedPid = child.handle.pid;
+          // Electron's utilityProcess has no pid until its spawn event.
+          child.handle.once('spawn', () => {
+            ownedPid = child.handle.pid;
+          });
           const ready = awaitReady(child, start.root, combined);
           ready.catch(() => undefined);
           await addFinalizer(scope, () => closeChild(child));
