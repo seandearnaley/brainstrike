@@ -45,6 +45,7 @@ import {
 import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
 import type { ForgeService } from './assistant-server/forge-service';
 import type { GitInventoryService } from './assistant-server/git-inventory-service';
+import { installDesktopHookApprovalReader } from './assistant-server/hooks/server-integration';
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
 import { readMainVerificationCredential } from './assistant-server/provider-credentials';
 import { execFileSnapshotGitRunner } from './assistant-server/snapshot-git';
@@ -1148,6 +1149,8 @@ const desktopHookTrust = createDesktopHookTrust({
   request: (method, params) => agentHostMainClient.request(method, params),
   storage,
 });
+// Legacy threads run project hooks at the same host-owned trust.
+installDesktopHookApprovalReader((root) => desktopHookTrust.approval(root));
 const agentHostClientIpc = registerAgentHostClientIpc(async () => {
   const attachment = await nativeIndexActivation.acquireProfile();
   await desktopHookTrust.imported();
