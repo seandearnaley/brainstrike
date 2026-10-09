@@ -56,6 +56,8 @@ export interface ProductionHostRunConfiguration {
   /** BST-1932: the personas and subagent limits this admission may delegate with. */
   readonly delegation?: HostDelegation | undefined;
   readonly durableConfiguration: HostRunSnapshot['configuration'];
+  /** The hook files the composition did not load; Core commits them visibly. */
+  readonly hookSkips?: HostRunAdmission['hookSkips'];
   /** The run's lifecycle hooks, when the composition loaded any. */
   readonly hooks?: HostRunHooks;
   /**
@@ -414,6 +416,7 @@ export async function createProductionHostPlatform(
           ...(discovery ? { discovery: discovery.discovery } : {}),
           // Like the legacy Memory default (`generateTitle: true`).
           generatesThreadTitle: true,
+          hookSkips: selected.hookSkips,
           hooks: selected.hooks,
           inputTokenLimit: selected.providerRequestContext.inputTokenLimit,
           model,
