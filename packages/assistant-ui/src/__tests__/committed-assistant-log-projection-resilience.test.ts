@@ -100,4 +100,66 @@ describe('committed host run resilience is visible in the thread', () => {
       type: 'incomplete',
     });
   });
+
+  it('an overflow recovery shows its compaction card and the attempt that continued after it', () => {
+    const threadId = rows[0]?.threadId ?? '';
+    const runId = runIds[1] ?? '';
+    const last = rows.findIndex(
+      ({ event }) => event['type'] === 'run.started' && event['runId'] === runId
+    );
+    const projection = new CommittedAssistantLogProjection({
+      identifyRun: (row) => ({
+        assistantMessageId: String(row.event['runId']),
+        createdAt: new Date('2026-10-08T12:00:00.000Z'),
+        parentMessageId: null,
+      }),
+      threadId,
+    });
+    projection.acceptCommitted(rows.slice(0, last + 1));
+    const seq = rows[last]?.seq ?? 0;
+    const summary =
+      'Deterministic fallback: dropped 1 earlier turns (2 messages) after a provider context-overflow error; no summarization model ran.';
+    // The exact rows the host commits when an overflow is recovered by compaction.
+    projection.acceptCommitted([
+      {
+        event: {
+          compactedRunIds: [runIds[0]],
+          kind: 'deterministic',
+          reason: 'context-overflow',
+          runId,
+          summary,
+          type: 'context.compacted',
+        },
+        seq: seq + 1,
+        threadId,
+      },
+      {
+        event: {
+          attempt: 1,
+          detail: "This model's maximum context length was exceeded.",
+          maxAttempts: 2,
+          reason: 'context-overflow',
+          recovered: true,
+          runId,
+          type: 'run.attempt',
+        },
+        seq: seq + 2,
+        threadId,
+      },
+    ]);
+    const message = projection
+      .getSnapshot()
+      .repository.messages.find(({ message: item }) => item.id === runId)?.message;
+    expect(message?.content.slice(0, 1)).toEqual([
+      {
+        data: { kind: 'deterministic', summary },
+        name: 'brainstrike.context-compacted',
+        type: 'data',
+      },
+    ]);
+    expect(runEvents(message?.content ?? []).map(({ kind }) => kind)).toEqual([
+      'run.stalled',
+      'run.resumed',
+    ]);
+  });
 });

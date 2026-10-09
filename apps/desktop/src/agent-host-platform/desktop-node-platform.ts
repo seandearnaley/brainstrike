@@ -22,10 +22,10 @@ import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assist
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
 import { createHostRunHooks, getGlobalHooksPath } from '@brainstrike/host-capabilities/hooks';
 import { createDesktopNodeMcpHost } from '@brainstrike/host-capabilities/mcp/desktop-node-mcp';
-import { MCP_STORE_METHODS } from '@brainstrike/host-capabilities/mcp/mcp-runtime-wire';
 import {
   forgetSharedNativeToolThread,
   ReadWorkspaceFileCursorRegistry,
+  selectHostProjectionRewrites,
 } from '@brainstrike/host-capabilities/native-tools';
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
@@ -34,6 +34,7 @@ import { disposeLiveChildProcesses } from '../assistant-server/execute-command-t
 import { disposeLspServers } from '../assistant-server/lsp-diagnostics';
 import { mainPlatformConnection } from './connection';
 import { desktopHostSharedTools } from './desktop-host-shared-tools';
+import { createRemoteLlmHostClient } from './llm-host-port';
 import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
 import { parentPlatformPort } from './parent-platform-port';
 import {
@@ -125,13 +126,10 @@ export async function createHostPlatform(
   const port = await parentPlatformPort();
   const connection = mainPlatformConnection(port);
   // The profile's one credential authority: the single writer, token holder and
-  // OAuth refresher. Main lends only its validated browser opener.
+  // OAuth refresher. Sign-in pages open through the requesting desktop client.
   const host = await createHostCapabilities({
     env: process.env,
     launch: platformOptions,
-    openExternal: async (url) => {
-      await request(MCP_STORE_METHODS.openExternal, { url });
-    },
     startup,
   });
   const executions = new Map<string, HostToolContext & { readonly toolId: string }>();
@@ -157,6 +155,9 @@ export async function createHostPlatform(
     }
     await context.write?.(progress.chunk);
   });
+  // ADR-0007: the built-in local model's inference stays in Main's hidden
+  // llm-host renderer; this host only relays each generation to it.
+  const localLlmHostClient = createRemoteLlmHostClient(connection);
   connection.listen();
   connection.onClose(() => connection.dispose());
   await startup.register(async () => {
@@ -181,6 +182,7 @@ export async function createHostPlatform(
       await request('platform/close', {});
     },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
+    localLlmHostClient,
     mcp: mcpHost.services.mcp,
     // Main admits every desktop run under the workspace memory resource.
     memoryResourceIds: [WORKSPACE_MEMORY_RESOURCE_ID],
@@ -235,6 +237,7 @@ export async function createHostPlatform(
       const shared = desktopHostSharedTools({
         readFileCursorRegistry,
         request,
+        resolveTavilyApiKey: host.resolveTavilyApiKey,
         selected,
         threadId: admission.threadId,
       });
@@ -386,6 +389,7 @@ export async function createHostPlatform(
         .string()
         .min(1)
         .parse(await request('platform/workspace/root', { rootId }, signal)),
+    selectProjectionRewrites: selectHostProjectionRewrites,
     startup,
     validateWorkspaceBinding: async ({ binding, signal, threadId }) => {
       z.strictObject({ accepted: z.literal(true) }).parse(

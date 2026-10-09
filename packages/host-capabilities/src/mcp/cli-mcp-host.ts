@@ -44,8 +44,9 @@ function refuseEncryptedValues(config: ResolvedMcpConfig): void {
 
 /**
  * The standalone host's MCP runtime, from the desktop's config JSON. Text Apps
- * only; MCP Tasks stay off until host-owned Tasks storage lands; browser OAuth
- * has no opener. Each refusal names itself instead of failing silently.
+ * only; MCP Tasks live in this host's StateStore and their input is answered
+ * with `mcp input settle`; browser OAuth has no opener. Each refusal names
+ * itself instead of failing silently.
  */
 export async function createCliMcpHost(options: {
   readonly configPath: string;
@@ -63,7 +64,7 @@ export async function createCliMcpHost(options: {
       listProviders: () => options.credentials.secrets().listProviders(),
     }),
     collectCombinedTools,
-    extensionPreferences: { apps: false, tasks: false },
+    extensionPreferences: { apps: false, tasks: true },
     mcpConfiguration: config,
     // The shared credential store holds OAuth records under their own accounts.
     oauthStore: createLazySafeStorageMcpOAuthStore(() =>

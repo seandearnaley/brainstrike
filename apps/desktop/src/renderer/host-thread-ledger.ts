@@ -85,6 +85,10 @@ class ThreadLedgerFold {
     } else if (event.type === 'memory.usage') {
       // Memory's own model calls cost under their own model, within the run.
       this.count(run, row, catalogModel(event.modelId), tokensOf(event.usage));
+    } else if (event.type === 'context.compacted' && event.usage !== undefined) {
+      // A compaction summarizer's side call, when one ran, costs like Memory's.
+      const model = event.modelId === undefined ? undefined : catalogModel(event.modelId);
+      this.count(run, row, model, tokensOf(event.usage));
     } else if (event.type === 'stream.chunk') {
       const chunk = z.object({ type: z.string() }).safeParse(event.chunk);
       if (chunk.success && chunk.data.type === 'tool-call') {

@@ -497,3 +497,55 @@ it('serves grep’s indexed half to an admitted thread only', async () => {
     h.destroy();
   }
 });
+
+it('serves the workspace index, retrieval catalog and query embedding to an admitted thread only', async () => {
+  const status = { kind: 'unavailable' as const, reason: 'fixture index is offline' };
+  const indexSearch = {
+    coverage: vi.fn(),
+    coverageBatch: vi.fn(),
+    grep: vi.fn(),
+    rebuild: vi.fn(),
+    search: vi.fn(),
+    status: vi.fn(async () => status),
+  };
+  const set = { dimensions: 384, distance: 'cosine', modelId: 'model', modelKey: 'local::model' };
+  const retrievalStore = {
+    embeddingSet: vi.fn(async () => set),
+    embeddingSpaces: vi.fn(async () => []),
+    fileRecords: vi.fn(async () => new Map()),
+  };
+  const queryEmbedding = vi.fn(async (_payload: unknown, signal: AbortSignal) => {
+    expect(signal).toBeInstanceOf(AbortSignal);
+    return [0.5, 0.25];
+  });
+  const h = harness(async () => selected({}), undefined, {
+    indexSearch,
+    queryEmbedding,
+    retrievalStore,
+  });
+  const statusRead = { request: {}, threadId: 'thread' };
+  try {
+    await expect(
+      h.client.sendRequest('desktop-read/index/status', statusRead)
+    ).rejects.toBeInstanceOf(Error);
+    expect(indexSearch.status).not.toHaveBeenCalled();
+    await admit(h.client);
+    await expect(h.client.sendRequest('desktop-read/index/status', statusRead)).resolves.toEqual(
+      status
+    );
+    await expect(
+      h.client.sendRequest('desktop-read/retrieval/embedding-set', {
+        request: { embeddingSetId: 'selected' },
+        threadId: 'thread',
+      })
+    ).resolves.toEqual(set);
+    expect(retrievalStore.embeddingSet).toHaveBeenCalledWith('selected');
+    const payload = { dimensions: 2, modelId: 'model', modelKey: 'local::model', query: 'marker' };
+    await expect(
+      h.client.sendRequest('platform/embedding/query', { request: payload, threadId: 'thread' })
+    ).resolves.toEqual([0.5, 0.25]);
+    expect(queryEmbedding).toHaveBeenCalledWith(payload, expect.any(AbortSignal));
+  } finally {
+    h.destroy();
+  }
+});

@@ -1,5 +1,5 @@
 import { ToolProjectionInputRejectedError } from '@brainstrike/agent';
-import type { GrepMatch } from '@brainstrike/db';
+import type { GrepMatch } from '@brainstrike/assistant-contract';
 
 export type GrepMatchSource = 'index' | 'live' | 'both';
 

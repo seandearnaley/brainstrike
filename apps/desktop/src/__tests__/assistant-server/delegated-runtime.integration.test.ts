@@ -25,11 +25,11 @@ import { BrainstrikeDataStreamRuntimeAdapter } from '@brainstrike/assistant-ui/d
 import { migrate, ToolOutputArtifactRepository, wasmLoader } from '@brainstrike/db';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import type { DbHandle } from '@brainstrike/db/react';
+import { createArtifactReaderModelProjection } from '@brainstrike/host-capabilities/native-tools';
 import type { PGlite } from '@electric-sql/pglite';
 import type { AssistantMessage } from 'assistant-stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { createArtifactReaderModelProjection } from '../../assistant-server/artifact-reader-model-projection';
 import { getDesktopMastraMemory } from '../../assistant-server/mastra-memory';
 import {
   observeDesktopAssistantRunEvents,

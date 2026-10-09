@@ -17,10 +17,13 @@ export function scriptedModel(toolId?: string): MockLanguageModelV4 {
 }
 
 export function scriptedToolSequence(
-  calls: readonly { readonly toolId: string; readonly input: unknown }[]
+  calls: readonly { readonly toolId: string; readonly input: unknown }[],
+  /** Every request, as the provider received it, when the test reads them. */
+  prompts?: Parameters<MockLanguageModelV4['doStream']>[0]['prompt'][]
 ): MockLanguageModelV4 {
   return new MockLanguageModelV4({
     doStream: async (options) => {
+      prompts?.push(options.prompt);
       const latestUser = options.prompt.findLastIndex((message) => message.role === 'user');
       const completed = new Set(
         options.prompt
@@ -84,6 +87,81 @@ export function parallelToolModel(toolId: string): MockLanguageModelV4 {
         ),
         { finishReason: { raw: 'tool_calls', unified: 'tool-calls' }, type: 'finish', usage },
       ];
+      return {
+        stream: simulateReadableStream({ chunkDelayInMs: null, chunks, initialDelayInMs: null }),
+      };
+    },
+  });
+}
+
+type Prompt = Parameters<MockLanguageModelV4['doStream']>[0]['prompt'];
+
+/** The latest result the model received for `toolCallId`. */
+export function scriptedToolResult(prompt: Prompt, toolCallId: string): unknown {
+  for (const message of [...prompt].reverse()) {
+    if (message.role !== 'tool') {
+      continue;
+    }
+    const part = message.content.find(
+      (item) => item.type === 'tool-result' && item.toolCallId === toolCallId
+    );
+    if (part?.type === 'tool-result') {
+      return part.output;
+    }
+  }
+  return;
+}
+
+function continuation(
+  output: unknown
+): { readonly input: unknown; readonly tool: string } | undefined {
+  const value =
+    output && typeof output === 'object' && 'value' in output ? output.value : undefined;
+  const next = value && typeof value === 'object' && 'next' in value ? value.next : undefined;
+  return next &&
+    typeof next === 'object' &&
+    'tool' in next &&
+    typeof next.tool === 'string' &&
+    'input' in next
+    ? { input: next.input, tool: next.tool }
+    : undefined;
+}
+
+/**
+ * Calls `toolId` once, then follows the continuation its result names (an
+ * artifact page's `next` tool and input) once, then answers. Every request is
+ * recorded in `prompts`, as the provider received it.
+ */
+export function scriptedCursorPaging(toolId: string, prompts: Prompt[]): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
+    doStream: async (options) => {
+      prompts.push(options.prompt);
+      const next =
+        prompts.length === 2
+          ? continuation(scriptedToolResult(options.prompt, 'paging-call-1'))
+          : undefined;
+      const call =
+        prompts.length === 1
+          ? { id: 'paging-call-1', input: {}, tool: toolId }
+          : next && { id: 'paging-call-2', input: next.input, tool: next.tool };
+      const chunks: Chunk[] = call
+        ? [
+            { type: 'stream-start', warnings: [] },
+            {
+              input: JSON.stringify(call.input),
+              toolCallId: call.id,
+              toolName: call.tool,
+              type: 'tool-call',
+            },
+            { finishReason: { raw: 'tool_calls', unified: 'tool-calls' }, type: 'finish', usage },
+          ]
+        : [
+            { type: 'stream-start', warnings: [] },
+            { id: 'text-1', type: 'text-start' },
+            { delta: 'Paged.', id: 'text-1', type: 'text-delta' },
+            { id: 'text-1', type: 'text-end' },
+            { finishReason: { raw: 'stop', unified: 'stop' }, type: 'finish', usage },
+          ];
       return {
         stream: simulateReadableStream({ chunkDelayInMs: null, chunks, initialDelayInMs: null }),
       };

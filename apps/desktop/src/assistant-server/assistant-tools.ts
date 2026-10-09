@@ -18,6 +18,7 @@ import {
   type MastraTools,
 } from './native-tool-executor-context';
 import { NATIVE_TOOL_EXECUTORS } from './native-tool-executors';
+import { resolveTavilyApiKeyFromKeychain } from './tavily-key';
 import { applyToolProjectionRewriteRecording } from './tool-projection-rewrite-repository';
 
 export type { DesktopAssistantToolDependencies } from './native-tool-executor-context';
@@ -42,13 +43,17 @@ export function buildDesktopAssistantTools(
   const context: DesktopToolBuildContext = {
     dependencies,
     isLocalProvider: isLocalProviderRuntime(runtimeData),
-    ports: dependencies.nativeToolPorts ?? legacyNativeToolPorts(runtimeData),
+    ports:
+      dependencies.nativeToolPorts ??
+      legacyNativeToolPorts(runtimeData, dependencies.toolOutputArtifactReader),
     readFileCursorRegistry:
       dependencies.readWorkspaceFileCursorRegistry ?? readWorkspaceFileCursorRegistry,
     resolveActiveDomainCharBudget: () =>
       getActiveToolResultBudget()?.domainModelResultCharBudget ?? resolvedDomainCharBudget,
     resolvedDomainCharBudget,
     runtimeData,
+    // Main still executes web search for legacy threads, keyed from Main's view.
+    webSearch: { resolveApiKey: resolveTavilyApiKeyFromKeychain, ...dependencies.webSearch },
   };
   const tools: MastraTools = {};
   for (const toolId of DESKTOP_NATIVE_TOOL_IDS) {

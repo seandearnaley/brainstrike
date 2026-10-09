@@ -1,5 +1,12 @@
+import type { MessageConnection } from 'vscode-jsonrpc';
 import type { HostAuthService, HostClientOrigin } from './ports.js';
-import type { HostMethod, HostParams } from './protocol.js';
+import {
+  CLIENT_OPEN_EXTERNAL,
+  ClientOpenExternalParamsSchema,
+  ClientOpenExternalResultSchema,
+  type HostMethod,
+  type HostParams,
+} from './protocol.js';
 
 export type HostMethodHandler = <M extends HostMethod>(
   method: M,
@@ -13,6 +20,7 @@ export type HostMethodHandler = <M extends HostMethod>(
  */
 export function bindHostAuthMethods(
   handle: HostMethodHandler,
+  connection: MessageConnection,
   auth: HostAuthService | undefined,
   origin: HostClientOrigin
 ): void {
@@ -33,7 +41,18 @@ export function bindHostAuthMethods(
     return { stored: true };
   });
   handle('auth/status', ({ provider }) => service().status(provider));
-  handle('auth/connect', ({ method, provider }) => service().connect(provider, method, origin));
+  // The requesting client opens the sign-in page: a UI action, never the host's.
+  const openOnClient = async (url: string): Promise<void> => {
+    ClientOpenExternalResultSchema.parse(
+      await connection.sendRequest(
+        CLIENT_OPEN_EXTERNAL,
+        ClientOpenExternalParamsSchema.parse({ url })
+      )
+    );
+  };
+  handle('auth/connect', ({ method, provider }) =>
+    service().connect(provider, method, origin, openOnClient)
+  );
   handle('auth/cancel', ({ provider }) => service().cancel(provider));
   handle('auth/disconnect', ({ provider }) => service().disconnect(provider));
   handle('auth/credential/set', async ({ account, credential }) => {

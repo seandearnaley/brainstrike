@@ -90,10 +90,11 @@ export function bindHostConnection(
       start: record.start,
     };
   });
-  bindHostAuthMethods(handle, auth, origin);
+  bindHostAuthMethods(handle, connection, auth, origin);
   bindHostProviderMethods(handle, providers, origin);
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));
+  handle('thread/children', (params) => ({ children: core.listChildren(params.threadId) }));
   handle('thread/delete', (params) => core.deleteThread(params));
   handle('thread/update', (params) => core.updateThread(params));
   handle('thread/read', async (params) => ({

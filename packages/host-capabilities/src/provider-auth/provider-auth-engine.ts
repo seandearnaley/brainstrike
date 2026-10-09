@@ -67,7 +67,8 @@ export interface ProviderAuthEngine {
   readonly getStatus: (providerId: string) => Promise<ProviderAuthStatus>;
   readonly start: (
     providerId: string,
-    method?: ProviderAuthStartMethod
+    method?: ProviderAuthStartMethod,
+    openExternal?: (url: string) => Promise<void>
   ) => Promise<ProviderAuthStatus>;
 }
 
@@ -162,7 +163,8 @@ export function createProviderAuthEngine(deps: ProviderAuthEngineDeps): Provider
 
   async function start(
     providerId: string,
-    method: ProviderAuthStartMethod = 'loopback'
+    method: ProviderAuthStartMethod = 'loopback',
+    openExternal: (url: string) => Promise<void> = deps.openExternal
   ): Promise<ProviderAuthStatus> {
     if (activeFlows.has(providerId)) {
       return { code: 'flow_already_active', state: 'error' };
@@ -208,7 +210,7 @@ export function createProviderAuthEngine(deps: ProviderAuthEngineDeps): Provider
           userCode: info.userCode,
           verificationUri: info.verificationUri,
         }),
-      openExternal: deps.openExternal,
+      openExternal,
       secrets: deps.secrets,
       ...(deps.sleep ? { sleep: deps.sleep } : {}),
       ...(deps.startLoopbackServerFn ? { startLoopbackServerFn: deps.startLoopbackServerFn } : {}),

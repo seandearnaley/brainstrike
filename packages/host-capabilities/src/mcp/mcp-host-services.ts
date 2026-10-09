@@ -37,7 +37,7 @@ export interface McpHostCollector<Collection extends AgentHostMcpCollection> {
   readonly attachElicitationPresenter: (presenter: McpElicitationPresenterAuthority) => () => void;
   /** Inject the existing collector, including Settings filters and result bounds. */
   readonly collectCombinedTools: (options: {
-    readonly durableArtifactSettlement: false;
+    readonly durableArtifactSettlement: true;
     readonly mcpClient: McpRuntimeClient | undefined;
     readonly mcpConfig: undefined;
     readonly sanitizedLocalTools: undefined;
@@ -209,7 +209,7 @@ export async function createMcpHostServices<Collection extends AgentHostMcpColle
         ensureOpen();
         const toolNameMap = new Map<string, string>();
         const collected = await options.collectCombinedTools({
-          durableArtifactSettlement: false,
+          durableArtifactSettlement: true,
           mcpClient: client,
           mcpConfig: undefined,
           sanitizedLocalTools: undefined,

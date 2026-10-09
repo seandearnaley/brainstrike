@@ -125,6 +125,10 @@ export {
   resolveAssistantRequestBodyLimitBytes,
 } from './assistant-request';
 export {
+  COMPACTION_SUMMARIZER_INSTRUCTIONS,
+  hasCompactionSummarySchema,
+} from './compaction-summary-schema';
+export {
   type AssistantResilienceConfig,
   DEFAULT_APPROVAL_STALE_MS,
   DEFAULT_STREAM_FIRST_OUTPUT_MS,
@@ -209,12 +213,10 @@ export {
 export {
   type AgenticCompactionSummary,
   AgenticCompactionSummarySchemaError,
-  COMPACTION_SUMMARIZER_INSTRUCTIONS,
   type CompactionMessage,
   collectCompactionToolCallIds,
   estimateCompactionMessageTokens,
   generateAgenticCompactionSummary,
-  hasCompactionSummarySchema,
   projectCompactionMessages,
   projectCompactionMessagesForSummarizer,
 } from './mastra/conversation-compaction';

@@ -13,6 +13,7 @@
  *     (path, line) dedupe across overlapping chunks, and bounded output.
  */
 
+import type { GrepMatch } from '@brainstrike/assistant-contract';
 import { createGrepLineMatcher, type LineMatcher } from '@brainstrike/utils/grep-line-matcher';
 
 export { createGrepLineMatcher, type LineMatcher } from '@brainstrike/utils/grep-line-matcher';
@@ -47,23 +48,7 @@ export interface GrepSearchOptions {
   rootIds?: readonly string[];
 }
 
-export interface GrepMatch {
-  after: string[];
-  before: string[];
-  /** 1-based last line of the containing chunk within its file. */
-  chunkEndLine?: number;
-  /** Owning chunk id (file_chunks.id). */
-  chunkId?: string;
-  /** 1-based first line of the containing chunk within its file. */
-  chunkStartLine?: number;
-  line: number;
-  lineText: string;
-  path: string;
-  /** Owning workspace root id; null for legacy/unrooted files. */
-  rootId?: string | null;
-  /** Owning workspace root display name; null when unrooted. */
-  rootName?: string | null;
-}
+export type { GrepMatch };
 
 export interface GrepSearchResult {
   /** Phase-1 candidate pool hit its limit — more files may contain matches. */
