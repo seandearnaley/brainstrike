@@ -3,16 +3,13 @@
  *
  * Lists the global hooks config path and each mounted root's project-hook
  * status (trusted / untrusted / changed / parse-error), with Approve (pinned to
- * the file's current SHA-256) and Revoke actions. The renderer only ATTESTS
- * approvals; the assistant server re-hashes disk on every request. Approval is
- * SHA-256-only in v1 — the panel does not yet render the file's contents; an
- * in-panel content view and full `hooks.json` editing are documented follow-ups.
+ * the file's current SHA-256) and Revoke actions. The agent host owns each
+ * approval: it re-hashes the file when approving and before every run, and the
+ * review reports the hash it trusts. Approval is SHA-256-only in v1 — the panel
+ * does not yet render the file's contents; an in-panel content view and full
+ * `hooks.json` editing are documented follow-ups.
  */
 
-import {
-  hookTrustSelectors,
-  useHookTrustStore,
-} from '@brainstrike/app-state/stores/hook-trust-store';
 import { createLogger } from '@brainstrike/logging';
 import {
   Badge,
@@ -34,12 +31,12 @@ export interface HookReviewRoot {
 }
 
 interface ProjectHooksReview {
+  /** The hash the agent host trusts this root's hooks at; absent when untrusted. */
+  readonly approvedSha256?: string;
   readonly content?: string;
   /**
-   * The DB `roots.id` main resolved for this root's path. The trust store is
-   * keyed by THIS id (stable across remove/re-add), not the ephemeral adapter
-   * id the panel fetches by. Absent when the path resolves to no mounted DB root
-   * (then the row cannot be trusted/approved — fail closed).
+   * The DB `roots.id` main resolved for this root's path. Absent when the path
+   * resolves to no mounted DB root (then the row cannot be approved — fail closed).
    */
   readonly dbRootId?: string;
   readonly error?: string;
@@ -55,6 +52,8 @@ interface HooksBridge {
     rootId: string,
     absPath: string
   ) => Promise<ProjectHooksReview>;
+  readonly trustProjectHooks: (absPath: string, sha256: string) => Promise<void>;
+  readonly untrustProjectHooks: (absPath: string) => Promise<void>;
 }
 
 function getHooksBridge(): HooksBridge | null {
@@ -81,10 +80,7 @@ type RootStatus =
   | 'parse-error'
   | 'error';
 
-function resolveStatus(
-  review: ProjectHooksReview | undefined,
-  approvedSha256: string | undefined
-): RootStatus {
+function resolveStatus(review: ProjectHooksReview | undefined): RootStatus {
   if (!review) {
     // Fetch still in flight: never render the security-meaningful "Untrusted"
     // badge as a placeholder — show a neutral checking state instead.
@@ -99,10 +95,10 @@ function resolveStatus(
   if (review.parseError) {
     return 'parse-error';
   }
-  if (!approvedSha256) {
+  if (!review.approvedSha256) {
     return 'untrusted';
   }
-  return approvedSha256 === review.sha256 ? 'trusted' : 'changed';
+  return review.approvedSha256 === review.sha256 ? 'trusted' : 'changed';
 }
 
 const STATUS_LABEL: Record<RootStatus, string> = {
@@ -127,23 +123,47 @@ const STATUS_VARIANT: Record<RootStatus, 'default' | 'secondary' | 'destructive'
 
 const EMPTY_ROOTS: readonly HookReviewRoot[] = [];
 
+const errorMessage = (error: unknown, fallback: string): string =>
+  error instanceof Error ? error.message : fallback;
+
+/**
+ * One root's on-disk review and host trust. A transport failure becomes a
+ * structured `error` review, so that ONE row renders "Unavailable".
+ */
+async function readReview(bridge: HooksBridge, root: HookReviewRoot): Promise<ProjectHooksReview> {
+  try {
+    return await bridge.getProjectHooksForReview(root.rootId, root.absPath);
+  } catch (error: unknown) {
+    // A wedged/broken bridge is hard to debug from the "Unavailable" badge
+    // alone — log the transport failure alongside the honest UI surfacing.
+    logger.warn('Failed to read project hooks for review', {
+      error: errorMessage(error, String(error)),
+      rootId: root.rootId,
+    });
+    return {
+      error: errorMessage(error, 'Failed to read project hooks'),
+      exists: false,
+      path: `${root.absPath}/.brainstrike/hooks.json`,
+      rootId: root.rootId,
+    };
+  }
+}
+
 export function HooksSettingsSection({
   roots = EMPTY_ROOTS,
   globalConfigPath = '~/.brainstrike/hooks.json',
 }: HooksSettingsSectionProps) {
-  const approvalsByRootId = useHookTrustStore(hookTrustSelectors.approvalsByRootId);
-  const approveRoot = useHookTrustStore((state) => state.approveRoot);
-  const revokeRoot = useHookTrustStore((state) => state.revokeRoot);
   const [reviews, setReviews] = useState<Record<string, ProjectHooksReview>>({});
+  const [actionErrors, setActionErrors] = useState<Record<string, string>>({});
+  const [busyRootId, setBusyRootId] = useState<string | null>(null);
 
-  // Fetch each root's on-disk review (content + hash) from the desktop bridge.
+  // Fetch each root's on-disk review and host trust from the desktop bridge.
   // Canonical data-fetch-in-effect: an `ignore` flag drops stale responses if the
   // roots change (or the panel unmounts) before a fetch resolves. Each root
   // SETTLES INDEPENDENTLY (per-row `setReviews` merge, not one `Promise.all`), so
   // a single slow/hung root never starves the others' status; a row with no
   // review yet renders a neutral "Checking…" state, never a placeholder
-  // "Untrusted". A per-root transport failure is converted to a structured
-  // `error` review so that ONE row renders "Unavailable".
+  // "Untrusted".
   useEffect(() => {
     const bridge = getHooksBridge();
     if (!bridge) {
@@ -154,37 +174,38 @@ export function HooksSettingsSection({
     // root's stale review is simply never shown (and adapter ids are fresh per
     // mount, so an id never recurs with a stale entry).
     for (const root of roots) {
-      bridge
-        .getProjectHooksForReview(root.rootId, root.absPath)
-        .then((review) => {
-          if (!ignore) {
-            setReviews((prev) => ({ ...prev, [root.rootId]: review }));
-          }
-        })
-        .catch((error: unknown) => {
-          // A wedged/broken bridge is hard to debug from the "Unavailable" badge
-          // alone — log the transport failure alongside the honest UI surfacing.
-          logger.warn('Failed to read project hooks for review', {
-            error: error instanceof Error ? error.message : String(error),
-            rootId: root.rootId,
-          });
-          if (!ignore) {
-            setReviews((prev) => ({
-              ...prev,
-              [root.rootId]: {
-                error: error instanceof Error ? error.message : 'Failed to read project hooks',
-                exists: false,
-                path: `${root.absPath}/.brainstrike/hooks.json`,
-                rootId: root.rootId,
-              },
-            }));
-          }
-        });
+      // readReview settles every failure into an `error` review; it never rejects.
+      void readReview(bridge, root).then((review) => {
+        if (!ignore) {
+          setReviews((prev) => ({ ...prev, [root.rootId]: review }));
+        }
+      });
     }
     return () => {
       ignore = true;
     };
   }, [roots]);
+
+  // Approve or revoke through the host, then show the row as the host now sees it.
+  const act = async (root: HookReviewRoot, change: (bridge: HooksBridge) => Promise<void>) => {
+    const bridge = getHooksBridge();
+    if (!bridge) {
+      return;
+    }
+    setBusyRootId(root.rootId);
+    try {
+      await change(bridge);
+      setActionErrors(({ [root.rootId]: _cleared, ...rest }) => rest);
+    } catch (error: unknown) {
+      setActionErrors((prev) => ({
+        ...prev,
+        [root.rootId]: errorMessage(error, 'The agent host refused the change'),
+      }));
+    }
+    const review = await readReview(bridge, root);
+    setReviews((prev) => ({ ...prev, [root.rootId]: review }));
+    setBusyRootId(null);
+  };
 
   return (
     <Card>
@@ -205,18 +226,13 @@ export function HooksSettingsSection({
           <ul className="space-y-3">
             {roots.map((root) => {
               const review = reviews[root.rootId];
-              // Trust is keyed by the DB root id (resolved by main), NOT the
-              // adapter id this row is fetched under — the two diverge after a
-              // remove→re-add, and keying by the adapter id is the fail-open the
-              // security spine must never allow.
-              const dbRootId = review?.dbRootId;
-              const approved = dbRootId ? approvalsByRootId[dbRootId] : undefined;
-              const status = resolveStatus(review, approved?.sha256);
+              const status = resolveStatus(review);
+              const actionError = actionErrors[root.rootId];
               const canApprove =
                 review?.exists === true &&
                 !review.parseError &&
                 Boolean(review.sha256) &&
-                Boolean(dbRootId);
+                Boolean(review.dbRootId);
               // While the review is in flight the row has NO actionable state, so
               // it renders no action control — same reasoning as the neutral
               // "Checking…" badge. A placeholder Approve button here would be a
@@ -226,6 +242,7 @@ export function HooksSettingsSection({
               // looks as though it was never touched.
               const showRevoke = status === 'trusted';
               const showApprove = status !== 'trusted' && status !== 'checking';
+              const busy = busyRootId === root.rootId;
               return (
                 <li
                   className="flex items-center justify-between gap-4 rounded-md border p-3"
@@ -240,16 +257,23 @@ export function HooksSettingsSection({
                     {review?.parseError ? (
                       <p className="text-destructive text-xs">{review.parseError}</p>
                     ) : null}
+                    {actionError ? (
+                      <p
+                        className="text-destructive text-xs"
+                        data-testid={`hooks-error-${root.rootId}`}
+                      >
+                        {actionError}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex items-center gap-2">
                     <Badge variant={STATUS_VARIANT[status]}>{STATUS_LABEL[status]}</Badge>
                     {showRevoke ? (
                       <Button
                         data-testid={`hooks-revoke-${root.rootId}`}
+                        disabled={busy}
                         onClick={() => {
-                          if (dbRootId) {
-                            revokeRoot(dbRootId);
-                          }
+                          void act(root, (bridge) => bridge.untrustProjectHooks(root.absPath));
                         }}
                         size="sm"
                         variant="outline"
@@ -260,10 +284,13 @@ export function HooksSettingsSection({
                     {showApprove ? (
                       <Button
                         data-testid={`hooks-approve-${root.rootId}`}
-                        disabled={!canApprove}
+                        disabled={busy || !canApprove}
                         onClick={() => {
-                          if (review?.sha256 && dbRootId) {
-                            approveRoot(dbRootId, review.sha256);
+                          const sha256 = review?.sha256;
+                          if (sha256) {
+                            void act(root, (bridge) =>
+                              bridge.trustProjectHooks(root.absPath, sha256)
+                            );
                           }
                         }}
                         size="sm"

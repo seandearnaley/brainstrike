@@ -42,11 +42,8 @@ import {
   recordHostConversationId,
 } from './core-state.js';
 import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-storage.js';
-import {
-  foldHostHookContextEvent,
-  hostRunTerminalEvents,
-  passHostPromptHooks,
-} from './hook-context.js';
+import { beginHostRun, foldHostHookContextEvent, hostRunTerminalEvents } from './hook-context.js';
+import type { HostHookTrustStore } from './hook-trust.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
 import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
@@ -99,10 +96,10 @@ import { HostThreadWorkspaceState } from './workspace-state.js';
 
 export { jsonValue } from './json-value.js';
 
-export type HostEventStore = Pick<
-  StateStore,
-  'append' | 'read' | 'root' | 'syncBoundary' | 'threads'
-> & { readonly deleteThread?: StateStore['deleteThread'] };
+export type HostEventStore = HostHookTrustStore &
+  Pick<StateStore, 'append' | 'read' | 'root' | 'syncBoundary' | 'threads'> & {
+    readonly deleteThread?: StateStore['deleteThread'];
+  };
 
 /** One writer, one admission queue, and one SDK loop per root run (ADR-0011/12/17). */
 export class HostCore {
@@ -555,7 +552,11 @@ export class HostCore {
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);
       recordHostConversationId(this.conversationIds, run.id);
-      run.task = this.beginRun(run, admission);
+      run.task = beginHostRun(run, admission, {
+        commit: (events) => this.append(run.threadId, events, 'full', this.foldRows),
+        fail: (detail) => this.finish(run, 'failed', detail),
+        loop: (model) => this.loop(run, model),
+      });
       // Stop/close joins this task; retain failures rather than leaking rejections.
       run.task.catch(() => undefined);
       return result;
@@ -964,16 +965,6 @@ export class HostCore {
         );
       }
     }).catch((cause: unknown) => reportHostChildWakeFailure(threadId, cause));
-  }
-
-  /** A fresh run's prompt passes its UserPromptSubmit hooks before the first step. */
-  private async beginRun(run: Run, admission: HostRunAdmission): Promise<void> {
-    const failure = await passHostPromptHooks(run, admission, (events) =>
-      this.append(run.threadId, events, 'full', this.foldRows)
-    );
-    await (failure === undefined
-      ? this.loop(run, admission.model)
-      : this.finish(run, 'failed', failure));
   }
 
   close(): Promise<void> {

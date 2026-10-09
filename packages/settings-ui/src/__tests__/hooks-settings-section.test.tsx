@@ -1,13 +1,10 @@
-import {
-  __resetHookTrustStoreForTests,
-  useHookTrustStore,
-} from '@brainstrike/app-state/stores/hook-trust-store';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const { HooksSettingsSection } = await import('../settings/system/hooks-settings-section');
 
 interface ProjectHooksReview {
+  approvedSha256?: string;
   content?: string;
   dbRootId?: string;
   error?: string;
@@ -20,27 +17,55 @@ interface ProjectHooksReview {
 
 const roots = [{ absPath: '/ws/a', displayName: 'Workspace A', rootId: 'root-a' }];
 
+const onDisk = (rootId: string, sha256: string): ProjectHooksReview => ({
+  content: '{}',
+  dbRootId: 'db-a',
+  exists: true,
+  path: '/ws/a/.brainstrike/hooks.json',
+  rootId,
+  sha256,
+});
+
 /**
- * The production bridge is `ipcRenderer.invoke` — a real IPC round-trip that
- * can NEVER settle within the caller's microtask checkpoint. Resolving on a
+ * Main's bridge over the agent host: a review reports the hash the host
+ * trusts the root at, and trust/untrust change it by the root's path. The
+ * production bridge is `ipcRenderer.invoke` — a real IPC round-trip that can
+ * NEVER settle within the caller's microtask checkpoint. Resolving on a
  * macrotask delivers that runtime shape: a row is guaranteed to render its
- * in-flight "Checking…" state at least once before the review lands, which is
- * exactly the interleaving CI hits and a `Promise.resolve()` fixture hides.
+ * in-flight "Checking…" state at least once before the review lands.
  */
-function mockBridge(review: ProjectHooksReview): void {
-  (window as Window & { hooks?: unknown }).hooks = {
-    getProjectHooksForReview: vi.fn(
-      () =>
-        new Promise<ProjectHooksReview>((resolve) => {
-          setTimeout(() => resolve(review), 0);
-        })
+function mockBridge(review: ProjectHooksReview, options: { refuse?: string } = {}) {
+  let approvedSha256: string | undefined = review.approvedSha256;
+  const later = <T,>(value: () => T): Promise<T> =>
+    new Promise((resolve) => {
+      setTimeout(() => resolve(value()), 0);
+    });
+  const bridge = {
+    getProjectHooksForReview: vi.fn((rootId: string) =>
+      later(() => {
+        const { approvedSha256: _initial, ...current } = review;
+        return approvedSha256 === undefined
+          ? { ...current, rootId }
+          : { ...current, approvedSha256, rootId };
+      })
+    ),
+    trustProjectHooks: vi.fn((_absPath: string, sha256: string) => {
+      if (options.refuse) {
+        return Promise.reject(new Error(options.refuse));
+      }
+      return later(() => {
+        approvedSha256 = sha256;
+      });
+    }),
+    untrustProjectHooks: vi.fn((_absPath: string) =>
+      later(() => {
+        approvedSha256 = undefined;
+      })
     ),
   };
+  (window as Window & { hooks?: unknown }).hooks = bridge;
+  return bridge;
 }
-
-beforeEach(() => {
-  __resetHookTrustStoreForTests();
-});
 
 afterEach(() => {
   Reflect.deleteProperty(window as Window & { hooks?: unknown }, 'hooks');
@@ -52,93 +77,67 @@ describe('HooksSettingsSection', () => {
     expect(screen.getByTestId('hooks-no-roots')).not.toBeNull();
   });
 
-  it('approves a root, keying the grant by the DB root id and pinning the hash', async () => {
-    mockBridge({
-      content: '{}',
-      dbRootId: 'db-a',
-      exists: true,
-      path: '/ws/a/.brainstrike/hooks.json',
-      rootId: 'root-a',
-      sha256: 'hash-1',
-    });
+  it('approves a root through the host at the reviewed hash, then shows it trusted', async () => {
+    const bridge = mockBridge(onDisk('root-a', 'hash-1'));
     render(<HooksSettingsSection roots={roots} />);
+    expect(await screen.findByText('Untrusted')).not.toBeNull();
 
-    const approve = await screen.findByTestId('hooks-approve-root-a');
-    fireEvent.click(approve);
+    fireEvent.click(await screen.findByTestId('hooks-approve-root-a'));
 
-    await waitFor(() => {
-      // Keyed by the server's DB root id, not the ephemeral adapter id.
-      expect(useHookTrustStore.getState().approvalsByRootId['db-a']?.sha256).toBe('hash-1');
-    });
-    expect(useHookTrustStore.getState().approvalsByRootId['root-a']).toBeUndefined();
-    // After approval the status becomes trusted → a Revoke button appears.
+    // After approval the host trusts the root → a Revoke button appears.
     expect(await screen.findByTestId('hooks-revoke-root-a')).not.toBeNull();
+    expect(screen.getByText('Trusted')).not.toBeNull();
+    expect(bridge.trustProjectHooks).toHaveBeenCalledWith('/ws/a', 'hash-1');
   });
 
-  it('revokes a trusted root by its DB root id', async () => {
-    useHookTrustStore.getState().approveRoot('db-a', 'hash-1');
-    mockBridge({
-      content: '{}',
-      dbRootId: 'db-a',
-      exists: true,
-      path: '/ws/a/.brainstrike/hooks.json',
-      rootId: 'root-a',
-      sha256: 'hash-1',
-    });
+  it('revokes a trusted root through the host', async () => {
+    const bridge = mockBridge({ ...onDisk('root-a', 'hash-1'), approvedSha256: 'hash-1' });
     render(<HooksSettingsSection roots={roots} />);
 
-    const revoke = await screen.findByTestId('hooks-revoke-root-a');
-    fireEvent.click(revoke);
+    fireEvent.click(await screen.findByTestId('hooks-revoke-root-a'));
 
-    await waitFor(() => {
-      expect(useHookTrustStore.getState().approvalsByRootId['db-a']).toBeUndefined();
-    });
+    expect(await screen.findByTestId('hooks-approve-root-a')).not.toBeNull();
+    expect(screen.getByText('Untrusted')).not.toBeNull();
+    expect(bridge.untrustProjectHooks).toHaveBeenCalledWith('/ws/a');
   });
 
-  // KILL CHAIN (remove→re-add): the re-added root gets a FRESH adapter id
-  // (`root-a2`) but path-matches the KEPT DB row (`db-a`). The panel MUST key
-  // status/approve/revoke by the review's `dbRootId`, so a prior approval shows
-  // as trusted and Revoke removes the LIVE grant the server matches on — not a
-  // dead adapter-id entry (the old fail-OPEN no-op).
-  it('reflects and revokes the live grant on a re-added root (adapter id diverged from DB id)', async () => {
-    // Grant persisted under the DB id from the first mount.
-    useHookTrustStore.getState().approveRoot('db-a', 'hash-1');
+  // A re-added root gets a FRESH adapter id (`root-a2`) but path-matches the
+  // KEPT DB row: Main reads the host's trust for that row, so a prior approval
+  // shows as trusted, and Revoke names the root by its path, never an id.
+  it('reflects and revokes the host trust on a re-added root (adapter id diverged from DB id)', async () => {
+    const bridge = mockBridge({ ...onDisk('root-a2', 'hash-1'), approvedSha256: 'hash-1' });
     const readdedRoots = [{ absPath: '/ws/a', displayName: 'Workspace A', rootId: 'root-a2' }];
-    mockBridge({
-      content: '{}',
-      dbRootId: 'db-a',
-      exists: true,
-      path: '/ws/a/.brainstrike/hooks.json',
-      rootId: 'root-a2',
-      sha256: 'hash-1',
-    });
     render(<HooksSettingsSection roots={readdedRoots} />);
 
-    // The re-added row (adapter id root-a2) reads the DB-keyed grant → Trusted.
-    const revoke = await screen.findByTestId('hooks-revoke-root-a2');
-    fireEvent.click(revoke);
+    fireEvent.click(await screen.findByTestId('hooks-revoke-root-a2'));
 
-    // Revoke removes the LIVE grant (db-a) — the exact entry the server attests.
     await waitFor(() => {
-      expect(useHookTrustStore.getState().approvalsByRootId['db-a']).toBeUndefined();
+      expect(bridge.untrustProjectHooks).toHaveBeenCalledWith('/ws/a');
     });
+    expect(await screen.findByTestId('hooks-approve-root-a2')).not.toBeNull();
   });
 
-  it('shows "changed" when the approved hash no longer matches disk', async () => {
-    useHookTrustStore.getState().approveRoot('db-a', 'old-hash');
-    mockBridge({
-      content: '{}',
-      dbRootId: 'db-a',
-      exists: true,
-      path: '/ws/a/.brainstrike/hooks.json',
-      rootId: 'root-a',
-      sha256: 'new-hash',
-    });
+  it('shows "changed" when the trusted hash no longer matches disk', async () => {
+    mockBridge({ ...onDisk('root-a', 'new-hash'), approvedSha256: 'old-hash' });
     render(<HooksSettingsSection roots={roots} />);
 
     expect(await screen.findByText(/Changed — re-approve/)).not.toBeNull();
     // A changed root offers Approve (to re-pin), not Revoke.
     expect(screen.getByTestId('hooks-approve-root-a')).not.toBeNull();
+  });
+
+  it('shows the host’s reason when it refuses an approval, and the root stays untrusted', async () => {
+    mockBridge(onDisk('root-a', 'hash-1'), {
+      refuse: '/ws/a/.brainstrike/hooks.json changed since it was reviewed; review it again',
+    });
+    render(<HooksSettingsSection roots={roots} />);
+
+    fireEvent.click(await screen.findByTestId('hooks-approve-root-a'));
+
+    expect((await screen.findByTestId('hooks-error-root-a')).textContent).toBe(
+      '/ws/a/.brainstrike/hooks.json changed since it was reviewed; review it again'
+    );
+    expect(screen.getByText('Untrusted')).not.toBeNull();
   });
 
   it('shows a neutral checking state while the review is in flight (never a placeholder "Untrusted")', async () => {
@@ -165,14 +164,7 @@ describe('HooksSettingsSection', () => {
     expect(screen.queryByTestId('hooks-approve-root-a')).toBeNull();
     expect(screen.queryByTestId('hooks-revoke-root-a')).toBeNull();
 
-    resolveReview({
-      content: '{}',
-      dbRootId: 'db-a',
-      exists: true,
-      path: '/ws/a/.brainstrike/hooks.json',
-      rootId: 'root-a',
-      sha256: 'hash-1',
-    });
+    resolveReview(onDisk('root-a', 'hash-1'));
     await screen.findByTestId('hooks-approve-root-a');
   });
 

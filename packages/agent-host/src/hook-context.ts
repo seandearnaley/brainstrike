@@ -143,7 +143,7 @@ export async function hostRunTerminalEvents(
  * instructions. Returns why the run must fail instead: a block, with the
  * hook's reason, or a failed gate.
  */
-export async function passHostPromptHooks(
+async function passHostPromptHooks(
   run: HostRunState,
   admission: HostRunAdmission,
   commit: (events: HostEvent[]) => Promise<unknown>
@@ -160,4 +160,18 @@ export async function passHostPromptHooks(
   } catch (cause) {
     return cause instanceof Error ? cause.message : String(cause);
   }
+}
+
+/** A fresh run starts past its UserPromptSubmit hooks: a block fails it, else its loop runs. */
+export async function beginHostRun(
+  run: HostRunState,
+  admission: HostRunAdmission,
+  steps: {
+    readonly commit: (events: HostEvent[]) => Promise<unknown>;
+    readonly fail: (detail: string) => Promise<void>;
+    readonly loop: (model: HostRunAdmission['model']) => Promise<void>;
+  }
+): Promise<void> {
+  const failure = await passHostPromptHooks(run, admission, steps.commit);
+  await (failure === undefined ? steps.loop(admission.model) : steps.fail(failure));
 }

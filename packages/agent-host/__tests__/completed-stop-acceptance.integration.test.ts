@@ -31,8 +31,11 @@ test.each(['before commit', 'after commit'] as const)(
         }
         return store.append(items, committed, durability);
       },
+      deleteSetting: (key) => store.deleteSetting(key),
+      getSetting: (key) => store.getSetting(key),
       read: (threadId, fromSeq) => store.read(threadId, fromSeq),
       root: store.root,
+      setSetting: (key, value) => store.setSetting(key, value),
       syncBoundary: (threadId) => store.syncBoundary(threadId),
       threads: () => store.threads(),
     };

@@ -1,5 +1,9 @@
 import { HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET } from '@brainstrike/agent';
-import type { HostRunHooks } from '@brainstrike/agent-host';
+import {
+  type HostHookTrustStore,
+  type HostRunHooks,
+  readHostHookApproval,
+} from '@brainstrike/agent-host';
 import { createLogger } from '@brainstrike/logging';
 import { loadHooksConfig } from './config.js';
 import { HookManager } from './manager.js';
@@ -22,6 +26,24 @@ export interface HostRunHooksOptions {
   }[];
   /** The hooks' `session_id`: the run's thread. */
   readonly sessionId: string;
+}
+
+/**
+ * A run's roots, each with the hash the host trusted its project hooks file at
+ * (none when untrusted). The loader still re-hashes the file on disk.
+ */
+export function trustedHookRoots(
+  trust: HostHookTrustStore,
+  roots: readonly { readonly path: string; readonly rootId: string }[]
+): Promise<HostRunHooksOptions['roots']> {
+  return Promise.all(
+    roots.map(async ({ path, rootId }) => {
+      const approvedSha256 = await readHostHookApproval(trust, { absPath: path, rootId });
+      return approvedSha256 === undefined
+        ? { absPath: path, rootId }
+        : { absPath: path, approvedSha256, rootId };
+    })
+  );
 }
 
 /**
