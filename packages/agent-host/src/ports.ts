@@ -240,7 +240,6 @@ export interface HostRunHooks {
   userPromptSubmit(prompt: string): Promise<HostUserPromptVerdict>;
 }
 
-/** One immutable selection retained across approval legs, never re-read from Settings. */
 /** One turn boundary of a run, for the platform's workspace snapshot owner. */
 export interface HostTurnBoundaryRequest {
   readonly boundary: 'turn-start' | 'turn-end';
@@ -250,6 +249,7 @@ export interface HostTurnBoundaryRequest {
   readonly threadId: string;
 }
 
+/** One immutable selection retained across approval legs, never re-read from Settings. */
 export interface HostRunAdmission {
   /**
    * Snapshot the run's workspace roots at a turn boundary, for its Changes
