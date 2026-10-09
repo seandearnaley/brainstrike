@@ -54,7 +54,7 @@ import { AgentSidebarPanel } from './agent-sidebar-panel';
 import { AgentWorkspaceLayout } from './agent-workspace-layout';
 import { createAppConfig } from './app-config';
 import { AppLayout } from './app-layout';
-import { AssistantChatPanel } from './assistant-chat-panel';
+import { AssistantChatPanel, AssistantProviderStatusProvider } from './assistant-chat-panel';
 import { WorkspaceCollectionSyncProvider } from './background-indexing/workspace-collection-sync-provider';
 import { buildWorkspaceApps } from './build-workspace-apps';
 import { useChangesNavigationStore } from './changes/changes-navigation-store';
@@ -525,66 +525,70 @@ const ExplorerAppSurface = memo(function ExplorerAppSurface({
           context from a common ancestor. */}
       <FileTreeWrapper nativeIndexSearch={nativeIndexSearch ?? null}>
         <MarkdownPreviewCapabilitiesProvider capabilities={markdownPreviewCapabilities}>
-          <DelegatedWorkspaceTabsProvider apps={workspaceApps}>
-            {/* Thread⇄workspace binding (BST-1268): snapshots the live stores
+          {/* One read of the host's provider status for the root panel and the
+              child conversations its workspace tabs render. */}
+          <AssistantProviderStatusProvider>
+            <DelegatedWorkspaceTabsProvider apps={workspaceApps}>
+              {/* Thread⇄workspace binding (BST-1268): snapshots the live stores
                 per thread and hydrates on switch. Inside FileTreeWrapper so it
                 reaches the file-explorer store; renders nothing. */}
-            <ThreadWorkspaceCoordinator />
-            {/* Registers the workspace strip with the tab chord router (BST-1842). */}
-            <WorkspaceTabChords focusRootRef={workspaceStripRootRef} />
-            {/* Grants are offered wherever an approval card can render: the root
+              <ThreadWorkspaceCoordinator />
+              {/* Registers the workspace strip with the tab chord router (BST-1842). */}
+              <WorkspaceTabChords focusRootRef={workspaceStripRootRef} />
+              {/* Grants are offered wherever an approval card can render: the root
                 chat panel AND the child conversation views under the workspace
                 (a child card without "Allow reads this session" forces a click
                 per read; BST-1723, 2026-09-14). */}
-            <ToolApprovalGrantProvider handlers={toolApprovalGrants}>
-              <AgentWorkspaceLayout
-                assistantContent={
-                  <AssistantChatPanel {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})} />
-                }
-                sidebarContent={
-                  <AgentSidebarPanel
-                    databaseContent={<DatabasePanel loadEmbeddingQueue={loadEmbeddingQueue} />}
-                    preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
-                    promptsContent={(isActive) => (
-                      <Suspense
-                        fallback={
-                          <div
-                            className="grid h-full place-items-center text-muted-foreground text-xs"
-                            data-testid="prompt-workbench-lazy-fallback"
-                            role="status"
-                          >
-                            Opening Prompt Workbench…
-                          </div>
-                        }
-                      >
-                        <ConnectedPromptManagerLazy
-                          loadEmbeddingQueue={loadEmbeddingQueue}
-                          suggestionsEnabled={visible && isActive}
-                        />
-                      </Suspense>
-                    )}
-                    threadsContent={<ThreadsPanel loadEmbeddingQueue={loadEmbeddingQueue} />}
-                  />
-                }
-                workspaceContent={
-                  <>
-                    {/* ⌘P quick-open + the open-file registration both mount INSIDE
+              <ToolApprovalGrantProvider handlers={toolApprovalGrants}>
+                <AgentWorkspaceLayout
+                  assistantContent={
+                    <AssistantChatPanel {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})} />
+                  }
+                  sidebarContent={
+                    <AgentSidebarPanel
+                      databaseContent={<DatabasePanel loadEmbeddingQueue={loadEmbeddingQueue} />}
+                      preloadDatabaseTabOnMount={preloadDatabaseTabOnMount}
+                      promptsContent={(isActive) => (
+                        <Suspense
+                          fallback={
+                            <div
+                              className="grid h-full place-items-center text-muted-foreground text-xs"
+                              data-testid="prompt-workbench-lazy-fallback"
+                              role="status"
+                            >
+                              Opening Prompt Workbench…
+                            </div>
+                          }
+                        >
+                          <ConnectedPromptManagerLazy
+                            loadEmbeddingQueue={loadEmbeddingQueue}
+                            suggestionsEnabled={visible && isActive}
+                          />
+                        </Suspense>
+                      )}
+                      threadsContent={<ThreadsPanel loadEmbeddingQueue={loadEmbeddingQueue} />}
+                    />
+                  }
+                  workspaceContent={
+                    <>
+                      {/* ⌘P quick-open + the open-file registration both mount INSIDE
                       the outer IdeLayout so they reach its IdeFileEditorContext;
                       the nested explorer layout inherits the same seam. */}
-                    <QuickOpenHost />
-                    <WorkspaceOpenFileBridge />
-                    <WorkspaceBody />
-                  </>
-                }
-                workspaceHeaderContent={
-                  // Layout-neutral (`contents`): the root chords restore focus into.
-                  <div className="contents" ref={workspaceStripRootRef}>
-                    <WorkspaceTabStrip />
-                  </div>
-                }
-              />
-            </ToolApprovalGrantProvider>
-          </DelegatedWorkspaceTabsProvider>
+                      <QuickOpenHost />
+                      <WorkspaceOpenFileBridge />
+                      <WorkspaceBody />
+                    </>
+                  }
+                  workspaceHeaderContent={
+                    // Layout-neutral (`contents`): the root chords restore focus into.
+                    <div className="contents" ref={workspaceStripRootRef}>
+                      <WorkspaceTabStrip />
+                    </div>
+                  }
+                />
+              </ToolApprovalGrantProvider>
+            </DelegatedWorkspaceTabsProvider>
+          </AssistantProviderStatusProvider>
         </MarkdownPreviewCapabilitiesProvider>
       </FileTreeWrapper>
     </div>
