@@ -20,6 +20,7 @@ import { z } from 'zod';
 import { createMcpHostToolAdapter } from './adapters/mcp.js';
 import type { HostMemory } from './adapters/memory.js';
 import { hostMemoryTools } from './adapters/memory-tools.js';
+import { readHostObservationState } from './adapters/observation-state.js';
 import {
   StateStoreHostMemory,
   type StateStoreHostMemoryOptions,
@@ -39,7 +40,7 @@ import type {
   HostRunHooks,
   HostTool,
 } from './ports.js';
-import type { HostRunSnapshot } from './protocol.js';
+import type { HostObserverAwaitingReason, HostRunSnapshot } from './protocol.js';
 import { prepareHostProviderTools } from './provider-schema-selection.js';
 import type { HostStartupContext } from './runtime.js';
 
@@ -66,6 +67,8 @@ export interface ProductionHostRunConfiguration {
     StateStoreHostMemoryOptions,
     'store' | 'providerRequestContext' | 'vectorBridge'
   > & {
+    /** Observational memory is on but waits for an observer this admission can run. */
+    readonly observerAwaiting?: HostObserverAwaitingReason;
     /** Recall/vector-OM embedder and its profile; the host's own state index stores the vectors. */
     readonly vectors?: {
       readonly embedder: NonNullable<StateStoreHostMemoryOptions['native']['embedder']>;
@@ -367,7 +370,7 @@ export async function createProductionHostPlatform(
           }
           return owner.memory;
         };
-        const { vectors, ...memory } = selected.memory;
+        const { observerAwaiting, vectors, ...memory } = selected.memory;
         const nativeMemory = (
           bridge: StateStoreMemoryVector | undefined,
           native: StateStoreHostMemoryOptions['native'] = memory.native
@@ -433,6 +436,8 @@ export async function createProductionHostPlatform(
               };
             },
           },
+          readObservation: (threadId) =>
+            readHostObservationState(options.startup.store, memory, observerAwaiting, threadId),
           snapshot: {
             configuration: selected.durableConfiguration,
             maxSteps: selected.maxSteps,
