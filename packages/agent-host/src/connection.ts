@@ -5,10 +5,12 @@ import { bindHostAuthMethods } from './auth-connection.js';
 import type { HostCore } from './core.js';
 import { hostChildStatusChanged } from './core-child-runs.js';
 import { bindHostHookTrustMethods } from './hook-trust.js';
+import { bindHostMcpPresentationMethods } from './mcp-presentation-connection.js';
 import { bindHostMcpSettingsMethods } from './mcp-settings-connection.js';
 import type {
   HostAuthService,
   HostClientOrigin,
+  HostMcpPresentationService,
   HostMcpSettingsService,
   HostProviderService,
 } from './ports.js';
@@ -31,6 +33,8 @@ export interface HostConnectionOptions {
   /** The platform's credential authority, where the host owns one. */
   readonly auth?: HostAuthService;
   readonly lifecycle?: HostConnectionLifecycle;
+  /** The desktop's MCP Tasks cards and server input, where the host presents them. */
+  readonly mcpPresentation?: HostMcpPresentationService;
   /** The desktop's MCP settings authority, where the host owns one. */
   readonly mcpSettings?: HostMcpSettingsService;
   /** The transport's client origin; the public socket is never the desktop. */
@@ -47,7 +51,14 @@ export function bindHostConnection(
   attached: () => void,
   options: HostConnectionOptions = {}
 ): () => void {
-  const { auth, lifecycle, mcpSettings, origin = 'public-socket', providers } = options;
+  const {
+    auth,
+    lifecycle,
+    mcpPresentation,
+    mcpSettings,
+    origin = 'public-socket',
+    providers,
+  } = options;
   let initialized = false;
   let disposed = false;
   const mcpClient = {
@@ -125,6 +136,7 @@ export function bindHostConnection(
   bindHostAuthMethods(handle, connection, auth, origin);
   bindHostProviderMethods(handle, providers, origin);
   disposables.push(bindHostMcpSettingsMethods(handle, connection, mcpSettings, origin));
+  disposables.push(bindHostMcpPresentationMethods(handle, connection, mcpPresentation, origin));
   bindHostHookTrustMethods(handle, core.store);
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));
