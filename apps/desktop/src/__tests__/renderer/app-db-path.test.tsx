@@ -77,6 +77,13 @@ vi.mock('../../renderer/components/root-layout-content', () => ({
 
 vi.mock('../../renderer/log-buffer', () => ({}));
 
+// Host transport is a browser-only boundary, unrelated to database routing.
+vi.mock('../../renderer/agent-host-client', () => ({
+  connectDesktopAgentHost: vi.fn(() => {
+    throw new Error('Unexpected host connection in database routing unit test');
+  }),
+}));
+
 beforeEach(() => {
   vi.clearAllMocks();
   const existing = document.getElementById('root');

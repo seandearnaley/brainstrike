@@ -66,6 +66,14 @@ vi.mock('../../renderer/components/llm-host-app', () => ({
 
 vi.mock('../../renderer/log-buffer', () => ({}));
 
+// The renderer transport uses vscode-jsonrpc's browser-only export. This Node
+// bootstrap suite does not connect a host; the desktop E2E covers that boundary.
+vi.mock('../../renderer/agent-host-client', () => ({
+  connectDesktopAgentHost: vi.fn(() => {
+    throw new Error('Unexpected host connection in renderer bootstrap unit test');
+  }),
+}));
+
 // Utility type guard for React elements
 function isReactElement(element: unknown): element is ReactElement {
   return typeof element === 'object' && element !== null && 'type' in element && 'props' in element;
