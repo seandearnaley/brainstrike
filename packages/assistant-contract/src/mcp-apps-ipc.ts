@@ -117,11 +117,12 @@ export interface McpAppBridge {
   releaseShell(request: McpAppShellReleaseRequest): Promise<void>;
 }
 
-/** The part of the bridge the visible-UI preload exposes; absent on web and hidden hosts. */
-export type McpAppShellBridge = Pick<
-  McpAppBridge,
-  'prepareShell' | 'readResource' | 'releaseShell'
->;
+/**
+ * The part of the bridge the visible-UI preload exposes, the app's shell;
+ * absent on web and hidden hosts. The app's document is read from the agent
+ * host (BST-1930 c5d).
+ */
+export type McpAppShellBridge = Pick<McpAppBridge, 'prepareShell' | 'releaseShell'>;
 
 /** Cheap discriminator probe shared by the persisted tool-result marker readers. */
 export function hasToolResultKind(value: unknown, kind: string): boolean {

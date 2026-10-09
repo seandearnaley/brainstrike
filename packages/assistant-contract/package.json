@@ -72,6 +72,11 @@
       "import": "./dist/local-llm-model-specs.js",
       "require": "./dist/local-llm-model-specs.js"
     },
+    "./mcp-host-status": {
+      "types": "./dist/mcp-host-status.d.ts",
+      "import": "./dist/mcp-host-status.js",
+      "require": "./dist/mcp-host-status.js"
+    },
     "./mcp-host-runtime": {
       "browser": null,
       "types": "./dist/mcp-host-runtime.d.ts",

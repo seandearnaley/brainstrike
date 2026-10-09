@@ -11,7 +11,6 @@ const origin = {
 } as const;
 const shell = {
   prepareShell: async () => ({ shellUrl: 'brainstrike-mcp-app://0/', token: '0'.repeat(32) }),
-  readResource: async () => '<!doctype html>',
   releaseShell: async () => undefined,
 };
 const request = {
@@ -63,5 +62,51 @@ describe('hostMcpAppBridge', () => {
 
   it('is null without the shell bridge', () => {
     expect(hostMcpAppBridge(hostClient().client, null)).toBeNull();
+  });
+
+  it("reads the app's document from the host's live generation of its server (BST-1930 c5d)", async () => {
+    const requests: { method: string; params: unknown }[] = [];
+    const contents = (mimeType: string) => ({
+      ok: true,
+      result: {
+        result: { contents: [{ mimeType, text: '<!doctype html>', uri: origin.resourceUri }] },
+        type: 'resources/read',
+      },
+    });
+    let mimeType: string = MCP_APPS_MIME_TYPE;
+    const client = {
+      request: async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        if (method === 'mcp/status/read') {
+          return { revision: 4, servers: [{ configuredServerId: 'counter', generation: 3 }] };
+        }
+        return contents(mimeType);
+      },
+    } as unknown as HostClient;
+    const bridge = hostMcpAppBridge(client, shell);
+
+    await expect(bridge?.readResource(origin)).resolves.toBe('<!doctype html>');
+    expect(requests).toEqual([
+      { method: 'mcp/status/read', params: {} },
+      {
+        method: 'mcp/content/read',
+        params: {
+          authority: { configuredServerId: 'counter', generation: 3 },
+          uri: origin.resourceUri,
+        },
+      },
+    ]);
+    mimeType = 'text/html';
+    await expect(bridge?.readResource(origin)).rejects.toThrow('MIME type must be');
+  });
+
+  it("refuses an app's document when its server has no live generation", async () => {
+    const client = {
+      request: async () => ({ revision: 1, servers: [] }),
+    } as unknown as HostClient;
+
+    await expect(hostMcpAppBridge(client, shell)?.readResource(origin)).rejects.toThrow(
+      'MCP Apps server "counter" has no live content authority'
+    );
   });
 });

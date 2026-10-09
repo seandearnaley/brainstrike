@@ -15,6 +15,7 @@ import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-
 import { z } from 'zod';
 import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.js';
+import { MCP_CONTENT_METHOD_SCHEMAS, MCP_CONTENT_RESULT_SCHEMAS } from './protocol-mcp-content.js';
 import {
   MCP_PRESENTATION_METHOD_SCHEMAS,
   MCP_PRESENTATION_RESULT_SCHEMAS,
@@ -40,6 +41,7 @@ import {
   WorkspaceRelativePath,
 } from './workspace-wire.js';
 
+export * from './protocol-mcp-content.js';
 export * from './protocol-mcp-presentation.js';
 export * from './protocol-mcp-settings.js';
 export * from './protocol-rewind.js';
@@ -80,11 +82,13 @@ export * from './workspace-wire.js';
 // control (`mcp/status/read`, `mcp/server/control`, the event's `status`
 // variant), and its MCP presentations (`mcp/tasks/list`, `mcp/tasks/act`,
 // `mcp/elicitation/settle`, `mcp/presentation/subscribe` and its
-// `mcp/presentation/event`), an MCP App's own tool calls (`mcp/app/admit`,
-// `mcp/app/call`), which Core decides under the owning thread's policy, and
-// `worktree.created` (a worktree a call's shell command made, which the
-// desktop adopted). These additions are optional fields, new variants and new
-// methods, so a v11 reader that uses none of them sees nothing new.
+// `mcp/presentation/event`), content browsing (`mcp/content/complete`,
+// `mcp/content/prompt`, `mcp/content/read`), an MCP App's own tool calls
+// (`mcp/app/admit`, `mcp/app/call`), which Core decides under the owning
+// thread's policy, and `worktree.created` (a worktree a call's shell command
+// made, which the desktop adopted). These additions are optional fields, new
+// variants and new methods, so a v11 reader that uses none of them sees
+// nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -357,6 +361,7 @@ export const ClientOpenExternalParamsSchema = z.strictObject({ url: z.url() });
 export const ClientOpenExternalResultSchema = z.strictObject({ opened: z.literal(true) });
 
 export const HOST_METHOD_SCHEMAS = {
+  ...MCP_CONTENT_METHOD_SCHEMAS,
   ...MCP_PRESENTATION_METHOD_SCHEMAS,
   ...MCP_SETTINGS_METHOD_SCHEMAS,
   // auth/* is secret-bearing: process-local, never in HostCommandLedger, the log
@@ -869,6 +874,7 @@ export const HostLogRowSchema = z.strictObject({
 });
 export type HostLogRow = z.infer<typeof HostLogRowSchema>;
 export const HOST_RESULT_SCHEMAS = {
+  ...MCP_CONTENT_RESULT_SCHEMAS,
   ...MCP_PRESENTATION_RESULT_SCHEMAS,
   ...MCP_SETTINGS_RESULT_SCHEMAS,
   'auth/cancel': HostAuthStatusSchema,

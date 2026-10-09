@@ -2,7 +2,6 @@ import path from 'node:path';
 import {
   type McpHostCloseReport,
   type McpHostServerSnapshot,
-  type McpHostSnapshot,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import { dialog, ipcMain } from 'electron';
@@ -58,7 +57,6 @@ function event(senderId = 1) {
 
 /** Main's view of the host's runtime: its proxy surfaces and the settings calls it forwards. */
 function createMainRuntime() {
-  const snapshot: McpHostSnapshot = { revision: 3, servers: [SERVER] };
   return {
     elicitationPresenter: {
       attach: vi.fn(() => vi.fn()),
@@ -70,7 +68,7 @@ function createMainRuntime() {
       control: vi.fn(async () => structuredClone(SERVER)),
       invoke: vi.fn(),
       replaceConfig: vi.fn(),
-      snapshot: vi.fn(() => snapshot),
+      snapshot: vi.fn(() => ({ revision: 3, servers: [SERVER] })),
       watch: vi.fn(() => vi.fn()),
     },
     pickConfigPath: vi.fn(async (picked: string) => ({ path: picked, success: true as const })),
@@ -80,7 +78,7 @@ function createMainRuntime() {
   };
 }
 
-describe('Main MCP IPC (BST-1930 c5a-c5b)', () => {
+describe('Main MCP IPC (BST-1930 c5a-c5d)', () => {
   let handlers: Map<string, RegisteredHandler>;
   let runtime: ReturnType<typeof createMainRuntime>;
   let unregister: (() => void) | undefined;
@@ -110,23 +108,15 @@ describe('Main MCP IPC (BST-1930 c5a-c5b)', () => {
     unregister = undefined;
   });
 
-  it('serves the picker and the preload status read, and no MCP settings, status push or control', () => {
-    expect([...handlers.keys()]).toEqual(
-      expect.arrayContaining(['mcp:status:get', 'mcp:config:selectPath'])
-    );
+  it('serves the picker, and no MCP settings, status, control or content', () => {
+    expect([...handlers.keys()]).toEqual(expect.arrayContaining(['mcp:config:selectPath']));
     for (const channel of handlers.keys()) {
       expect(channel).not.toMatch(
-        /^mcp:(tools|extensions|lifecycle):|^mcp:config:(?!selectPath$)|^mcp:status:(?!get$)/u
+        /^mcp:(tools|extensions|lifecycle|status|content):|^mcp:config:(?!selectPath$)/u
       );
     }
     // The host's settings stream carries status (BST-1930 c5b); Main watches nothing for renderers.
     expect(runtime.host.watch).not.toHaveBeenCalled();
-  });
-
-  it('answers a clone of the host runtime snapshot', async () => {
-    const snapshot = await handler('mcp:status:get')(event());
-    expect(snapshot).toEqual({ revision: 3, servers: [SERVER] });
-    expect(snapshot).not.toBe(runtime.host.snapshot());
   });
 
   it('hands the natively picked file to the host and answers its selected path', async () => {

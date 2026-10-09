@@ -17,6 +17,7 @@ const themeStorageAdapter: ThemeStorageAdapter = {
 // jsdom has no agent host: the window owns no host MCP settings.
 vi.mock('../../../../renderer/host-mcp-settings', () => ({
   resolveDesktopHostMcpSettings: () => null,
+  resolveDesktopMcpContent: () => null,
 }));
 
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({

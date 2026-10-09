@@ -154,6 +154,5 @@ describe('db:getUserDataPath IPC handler', () => {
     willQuitHandler();
 
     expect(ipcMain.removeHandler).toHaveBeenCalledWith('mcp:config:selectPath');
-    expect(ipcMain.removeHandler).toHaveBeenCalledWith('mcp:status:get');
   });
 });
