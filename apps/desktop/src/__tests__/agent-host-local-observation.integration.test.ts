@@ -24,6 +24,7 @@ import {
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { RemoteMcpRuntime } from '../mcp/remote-runtime';
+import { desktopAppPaths } from './fixtures/desktop-host-profile';
 
 /** Same public MessageEvent shape as the Electron utility port, backed by real Node ports. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -150,7 +151,7 @@ async function borrowedHost(
     // A disposable, empty credential file: no keychain or real credential is read.
     const credentialStore = { kind: 'file' as const, path: join(root, 'credentials.json') };
     host = await startAgentHost(options, (context) =>
-      createHostPlatform(options, context, { credentialStore })
+      createHostPlatform(options, context, { appPaths: desktopAppPaths(root), credentialStore })
     );
     client = await attachAgentHost(host.record);
   } catch (cause) {

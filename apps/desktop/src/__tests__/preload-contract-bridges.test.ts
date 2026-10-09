@@ -249,9 +249,9 @@ describe('preload contract-derived bridges', () => {
 
   it('routes MCP contract methods and subscriptions through their manifest channels', async () => {
     const mcp = exposedApi('mcp');
-    mockInvoke.mockResolvedValueOnce({ apps: true, tasks: true });
-    await expect(mcp['getExtensionPreferences']?.()).resolves.toEqual({ apps: true, tasks: true });
-    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.mcp.extensionsGet);
+    mockInvoke.mockResolvedValueOnce({ revision: 1, servers: [] });
+    await expect(mcp['getServerStatusSnapshot']?.()).resolves.toEqual({ revision: 1, servers: [] });
+    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.mcp.statusGet);
 
     const apps = mcp['apps'] as unknown as Record<string, (...args: unknown[]) => unknown>;
     mockInvoke.mockResolvedValueOnce({ preparationId: 'prep-1' });

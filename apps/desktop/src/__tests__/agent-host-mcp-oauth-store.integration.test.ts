@@ -29,6 +29,7 @@ import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { RemoteMcpRuntime } from '../mcp/remote-runtime';
+import { desktopAppPaths, writeDesktopMcpConfig } from './fixtures/desktop-host-profile';
 
 /** Same public MessageEvent shape as the Electron utility port, backed by real Node ports. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -100,18 +101,16 @@ test('the host reads its MCP OAuth records from the profile store and its reset 
   );
   await seeded.close();
   const mcpRuntime = new RemoteMcpRuntime();
-  await mcpRuntime.replaceResolvedConfig({
-    servers: [
-      {
-        auth: { type: 'oauth-user' },
-        name: configuredServerId,
-        protocol: '2026-07-28',
-        startup: 'authentication-required',
-        transport: 'streamable-http',
-        url: SERVER_URL,
-      },
-    ],
-  });
+  await writeDesktopMcpConfig(root, [
+    {
+      auth: { type: 'oauth-user' },
+      name: configuredServerId,
+      protocol: '2026-07-28',
+      startup: 'authentication-required',
+      transport: 'streamable-http',
+      url: SERVER_URL,
+    },
+  ]);
   const channel = new MessageChannel();
   const mainPort = new UtilityPort(channel.port1);
   const nodePort = new UtilityPort(channel.port2);
@@ -131,6 +130,7 @@ test('the host reads its MCP OAuth records from the profile store and its reset 
     const options = { lifetime: 'persistent' as const, root };
     host = await startAgentHost(options, (context) =>
       createHostPlatform(options, context, {
+        appPaths: desktopAppPaths(root),
         credentialStore: { kind: 'file', path: credentialsPath },
       })
     );

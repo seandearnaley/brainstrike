@@ -240,9 +240,19 @@ export async function createHostPlatform(
   // Its servers connect after readiness, so bearer reads wait for a pending
   // legacy import like every other credential use. Its OAuth records live in
   // this host's profile store, which Main never writes.
-  const mcpHost = await createDesktopNodeMcpHost(connection, request, startup, {
-    secrets: () => host.auth.secrets(),
-    store: () => host.credentials.store(),
+  const userDataDir = platformOptions?.appPaths?.userDataPath;
+  if (!userDataDir) {
+    throw new Error('The desktop agent host needs its app paths for MCP settings');
+  }
+  const mcpHost = await createDesktopNodeMcpHost({
+    connection,
+    credentials: {
+      secrets: () => host.auth.secrets(),
+      store: () => host.credentials.store(),
+    },
+    request,
+    startup,
+    userDataDir,
   });
   await startup.register(() => mcpHost.close());
   return createProductionHostPlatform({
@@ -256,6 +266,7 @@ export async function createHostPlatform(
     },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     mcp: mcpHost.services.mcp,
+    mcpSettings: mcpHost.settings,
     // Main admits every desktop run under the workspace memory resource.
     memoryResourceIds: [WORKSPACE_MEMORY_RESOURCE_ID],
     providers: host.providers,

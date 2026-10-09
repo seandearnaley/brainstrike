@@ -1,7 +1,7 @@
-import type { McpConfigStatus } from '../ipc-domains/mcp.contract';
-import type { LoadedMcpConfig } from '../mcp-loader';
+import type { McpConfigStatus } from '@brainstrike/agent-host/protocol';
+import type { LoadedMcpConfig } from './config-file.js';
 
-/** The renderer's view of a loaded MCP config: path, load state and server summaries. */
+/** Settings' view of a loaded MCP config: path, load state and server summaries. */
 export function toMcpConfigStatus(config: LoadedMcpConfig): McpConfigStatus {
   const status: McpConfigStatus = {
     exists: config.exists,

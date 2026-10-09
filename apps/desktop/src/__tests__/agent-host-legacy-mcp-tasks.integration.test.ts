@@ -28,6 +28,7 @@ import {
   startLab,
   TASKS_SERVER,
 } from './fixtures/agent-host-mcp-modern-harness';
+import { desktopAppPaths, writeDesktopMcpConfig } from './fixtures/desktop-host-profile';
 
 /** Same public MessageEvent shape as the Electron utility port, backed by real Node ports. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -121,17 +122,15 @@ test("the host imports Main's PGlite Tasks rows once, before its Tasks storage o
   );
   const lab = await startLab('tasks-reference', context.signal);
   const mcpRuntime = new RemoteMcpRuntime();
-  await mcpRuntime.replaceResolvedConfig({
-    servers: [
-      {
-        name: configuredServerId,
-        protocol: '2026-07-28',
-        startup: 'automatic',
-        transport: 'streamable-http',
-        url: lab.ready.endpoint,
-      },
-    ],
-  });
+  await writeDesktopMcpConfig(root, [
+    {
+      name: configuredServerId,
+      protocol: '2026-07-28',
+      startup: 'automatic',
+      transport: 'streamable-http',
+      url: lab.ready.endpoint,
+    },
+  ]);
   let legacyReads = 0;
   const capabilities = {
     ...createDesktopMcpPlatformCapabilities(mcpRuntime),
@@ -163,6 +162,7 @@ test("the host imports Main's PGlite Tasks rows once, before its Tasks storage o
     const options = { lifetime: 'persistent' as const, root };
     const host = await startAgentHost(options, (startup) =>
       createHostPlatform(options, startup, {
+        appPaths: desktopAppPaths(root),
         credentialStore: { kind: 'file', path: join(root, 'credentials.json') },
       })
     );

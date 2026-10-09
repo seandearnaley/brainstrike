@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseMcpConfig } from '../../mcp-loader';
+import { parseMcpConfig } from '../src/mcp/config-file.js';
 
 describe('MCP explicit HTTP authentication modes', () => {
   it('accepts explicit unauthenticated HTTP without secrets', () => {

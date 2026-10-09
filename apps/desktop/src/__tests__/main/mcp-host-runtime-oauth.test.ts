@@ -2,6 +2,7 @@ import {
   parseConfiguredMcpServerId,
   resolveMcpHostControlActions,
 } from '@brainstrike/assistant-contract';
+import type { ResolvedMcpServer } from '@brainstrike/host-capabilities/mcp/config-file';
 import { connectClient } from '@brainstrike/host-capabilities/mcp/host-connection';
 import { McpLifecycleFailure } from '@brainstrike/host-capabilities/mcp/lifecycle-errors';
 import {
@@ -12,7 +13,6 @@ import {
 } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopMcpHostRuntime, type ExplicitClient } from '../../mcp/host-runtime';
-import type { ResolvedMcpServer } from '../../mcp-loader';
 
 let runtime: ReturnType<typeof createDesktopMcpHostRuntime> | undefined;
 

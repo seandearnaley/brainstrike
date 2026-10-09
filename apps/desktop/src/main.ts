@@ -1701,13 +1701,7 @@ if (singleInstanceLockAcquired) {
         })
       );
       ipcDisposers.add('agent', registerAgentIpcHandlers());
-      ipcDisposers.add(
-        'mcp',
-        registerMcpIpcHandlers({
-          runtime: getDesktopMcpHostRuntime(),
-          settingsStore: getSettingsStore,
-        })
-      );
+      ipcDisposers.add('mcp', registerMcpIpcHandlers({ runtime: getDesktopMcpHostRuntime() }));
       ipcDisposers.add('runtime', registerRuntimeIpcHandlers());
       logger.debug('Ready-dependent IPC handlers registered successfully');
       // Kick off DB initialization (utilityProcess spawn + migrations) and the

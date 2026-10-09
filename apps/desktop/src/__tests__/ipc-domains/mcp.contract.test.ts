@@ -19,10 +19,10 @@ describe('MCP IPC contracts', () => {
     mcpTasksContract,
   ];
 
-  it('owns all 32 invokes and seven pushes in the desktop MCP manifest', () => {
+  it('owns all 14 invokes and four pushes in the desktop MCP manifest', () => {
     const specs = contracts.flatMap((contract) => Object.values(contract));
-    expect(specs.filter(({ kind }) => kind === 'invoke')).toHaveLength(32);
-    expect(specs.filter(({ kind }) => kind === 'push')).toHaveLength(7);
+    expect(specs.filter(({ kind }) => kind === 'invoke')).toHaveLength(14);
+    expect(specs.filter(({ kind }) => kind === 'push')).toHaveLength(4);
     expect(new Set(specs.map(({ channel }) => channel))).toEqual(
       new Set(Object.values(DESKTOP_IPC_CHANNELS.mcp))
     );
@@ -39,13 +39,18 @@ describe('MCP IPC contracts', () => {
     }
   });
 
-  it('rejects malformed primitive tuples before handlers run', () => {
-    expect(() => mcpContract.enableTools.parseArgs([['ok', 1]])).toThrow(
-      'MCP enable tools requires an array of strings'
-    );
-    expect(() => mcpContract.setPath.parseArgs([false])).toThrow(
-      'MCP config path requires a string or null'
-    );
-    expect(mcpContract.getConfig.parseArgs(['extra'])).toEqual([]);
+  it('rejects malformed tuples before handlers run', () => {
+    expect(() => mcpContract.controlServer.parseArgs([])).toThrow();
+    expect(mcpContract.getServerStatusSnapshot.parseArgs(['extra'])).toEqual([]);
+  });
+
+  // BST-1930 c5a: the agent host owns MCP config, extension dials and tool
+  // preferences; the renderer reaches them as host methods, never Main channels.
+  it('leaves MCP settings off the desktop IPC manifest', () => {
+    const channels = Object.values(DESKTOP_IPC_CHANNELS.mcp);
+    expect(channels.filter((channel) => /^mcp:(tools|extensions):/u.test(channel))).toEqual([]);
+    expect(channels.filter((channel) => channel.startsWith('mcp:config:'))).toEqual([
+      'mcp:config:selectPath',
+    ]);
   });
 });

@@ -13,10 +13,10 @@ export interface DesktopMcpPlatformCapabilities {
 }
 
 /**
- * Serve the Node MCP runtime's store adapters and bind Main's runtime proxy to
- * this host connection. The config adapter goes with host-owned config; the
- * opener stays a narrow adapter. The host owns its OAuth records and the Tasks
- * tables, and reads Main's legacy PGlite rows once to import them.
+ * Serve the Node MCP runtime's remaining Main adapters and bind Main's runtime
+ * proxy to this host connection. The opener stays a narrow adapter. The host
+ * owns its MCP settings, OAuth records and the Tasks tables, and reads Main's
+ * legacy PGlite rows once to import them.
  */
 export function serveMainMcpStores(
   connection: MessageConnection,
@@ -24,15 +24,11 @@ export function serveMainMcpStores(
 ): { close(): void } {
   const binding = capabilities.runtime.bind(connection);
   const handlers = [
-    connection.onRequest(MCP_STORE_METHODS.state, () =>
-      respond(() => capabilities.runtime.desiredState())
-    ),
     connection.onRequest(MCP_STORE_METHODS.ready, (input: unknown) =>
-      respond(() =>
-        binding.ready(
-          z.strictObject({ revision: z.number().int().nonnegative() }).parse(input).revision
-        )
-      )
+      respond(() => {
+        z.strictObject({}).parse(input);
+        return binding.ready();
+      })
     ),
     connection.onRequest(MCP_STORE_METHODS.openExternal, (input: unknown) =>
       respond(() => capabilities.openExternal(z.strictObject({ url: z.url() }).parse(input).url))

@@ -22,6 +22,7 @@ import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { RemoteMcpRuntime } from '../mcp/remote-runtime';
+import { desktopAppPaths } from './fixtures/desktop-host-profile';
 
 /** Same public MessageEvent shape as the Electron utility port, backed by real Node ports. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -101,6 +102,7 @@ test('a pending legacy import follows host readiness and releases held credentia
     // Readiness does not wait for the import.
     host = await startAgentHost(options, (context) =>
       createHostPlatform(options, context, {
+        appPaths: desktopAppPaths(root),
         credentialStore: { kind: 'file', path: credentialFile },
         legacyImportPending: true,
       })

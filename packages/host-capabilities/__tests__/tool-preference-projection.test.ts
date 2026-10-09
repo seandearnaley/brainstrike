@@ -8,16 +8,17 @@ const { loadToolPreferencesMock, saveToolPreferencesMock } = vi.hoisted(() => ({
 vi.mock('@brainstrike/agent', () => ({
   __esModule: true,
   loadToolPreferences: loadToolPreferencesMock,
-  mcpToolRegistry: { getAllTools: vi.fn(() => ({})) },
   saveToolPreferences: saveToolPreferencesMock,
 }));
 
-vi.mock('electron', () => ({
+vi.mock('@brainstrike/agent/mcp-client', () => ({
   __esModule: true,
-  app: { getPath: () => 'mock-user-data' },
+  mcpToolRegistry: { getAllTools: vi.fn(() => ({})) },
 }));
 
-import { loadToolPreferencesForProjection } from '../../mcp/tool-discovery';
+import { loadToolPreferencesForProjection } from '../src/mcp/tool-discovery.js';
+
+const USER_DATA = 'mock-user-data';
 
 const PREFS_PATH = 'mock-user-data/mcp/tool-preferences.json';
 
@@ -57,6 +58,7 @@ describe('loadToolPreferencesForProjection guards', () => {
     });
 
     const projection = await loadToolPreferencesForProjection(
+      USER_DATA,
       new Set(['some-server.read']),
       new Set()
     );
@@ -91,6 +93,7 @@ describe('loadToolPreferencesForProjection guards', () => {
     });
 
     const projection = await loadToolPreferencesForProjection(
+      USER_DATA,
       new Set(['live-server.read']),
       // A config that WOULD retire ids, had the read succeeded: every stored id
       // above belongs to a server absent from this set.
@@ -118,6 +121,7 @@ describe('loadToolPreferencesForProjection guards', () => {
     storedPreferences({ disabledTools: ['weird_id_no_prefix'], enabledTools: [] });
 
     const projection = await loadToolPreferencesForProjection(
+      USER_DATA,
       new Set(['weird_id_no_prefix']),
       new Set(['live-server'])
     );
@@ -147,7 +151,11 @@ describe('loadToolPreferencesForProjection guards', () => {
 
     // `foo.bar` was removed; `foo` remains. `foo.bar.write` could belong to
     // either, so it survives.
-    await loadToolPreferencesForProjection(new Set(['foo.read']), new Set(['foo', 'foo.baz']));
+    await loadToolPreferencesForProjection(
+      USER_DATA,
+      new Set(['foo.read']),
+      new Set(['foo', 'foo.baz'])
+    );
 
     expect(saveToolPreferencesMock).not.toHaveBeenCalled();
   });
@@ -157,7 +165,7 @@ describe('loadToolPreferencesForProjection guards', () => {
 
     // Server `foo` is gone. `foo.bar` is configured but is not a prefix of
     // `foo.tool`, so nothing configured can claim it.
-    await loadToolPreferencesForProjection(new Set(['foo.bar.w']), new Set(['foo.bar']));
+    await loadToolPreferencesForProjection(USER_DATA, new Set(['foo.bar.w']), new Set(['foo.bar']));
 
     expect(saveToolPreferencesMock).toHaveBeenCalledWith(
       'mock-user-data',

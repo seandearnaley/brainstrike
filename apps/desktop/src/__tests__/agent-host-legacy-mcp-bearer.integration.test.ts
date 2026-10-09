@@ -27,6 +27,7 @@ import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { RemoteMcpRuntime } from '../mcp/remote-runtime';
+import { desktopAppPaths, writeDesktopMcpConfig } from './fixtures/desktop-host-profile';
 
 /** Same public MessageEvent shape as the Electron utility port, backed by real Node ports. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -88,18 +89,16 @@ test('a legacy-only MCP bearer key authenticates its server on the first launch'
   const fixture = await startStatefulMcpHostServer();
   const reference = { id: randomUUID(), store: 'mcp-credentials' as const };
   const mcpRuntime = new RemoteMcpRuntime();
-  await mcpRuntime.replaceResolvedConfig({
-    servers: [
-      {
-        auth: { credential: reference, type: 'bearer' },
-        name: configuredServerId,
-        protocol: 'legacy',
-        startup: 'automatic',
-        transport: 'streamable-http',
-        url: fixture.url,
-      },
-    ],
-  });
+  await writeDesktopMcpConfig(root, [
+    {
+      auth: { credential: reference, type: 'bearer' },
+      name: configuredServerId,
+      protocol: 'legacy',
+      startup: 'automatic',
+      transport: 'streamable-http',
+      url: fixture.url,
+    },
+  ]);
   const channel = new MessageChannel();
   const mainPort = new UtilityPort(channel.port1);
   const nodePort = new UtilityPort(channel.port2);
@@ -119,6 +118,7 @@ test('a legacy-only MCP bearer key authenticates its server on the first launch'
     const options = { lifetime: 'persistent' as const, root };
     host = await startAgentHost(options, (context) =>
       createHostPlatform(options, context, {
+        appPaths: desktopAppPaths(root),
         credentialStore: { kind: 'file', path: join(root, 'credentials.json') },
         legacyImportPending: true,
       })

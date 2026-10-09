@@ -24,7 +24,6 @@ import { createRunRequest } from './_harness';
 // import inside stays lazy.
 const mocks = vi.hoisted(() => () => import('./_assistant-server-mocks'));
 vi.mock('../../assistant-server/http', async () => (await mocks()).makeAssistantServerHttpMock());
-vi.mock('../../mcp-loader', async () => (await mocks()).makeMcpLoaderMock());
 vi.mock('../../agent-client-loader', async () => (await mocks()).makeAgentClientLoaderMock());
 vi.mock('../../secrets', async () => (await mocks()).makeSecretsMock());
 vi.mock('@brainstrike/agent/hosted-web', async () => (await mocks()).makeHostedWebAgentMock());
@@ -64,25 +63,11 @@ afterEach(() => {
   resetDesktopMastraMemoryCacheForTests();
 }, 15_000);
 describe('agent-stream-init runtime composition and memory', () => {
-  // BST-1930: the one MCP runtime serves agent-host threads; a legacy turn carries none,
-  // even with servers configured.
+  // BST-1930: the one MCP runtime, and its config, serve agent-host threads; a legacy turn
+  // carries none.
   it('carries no MCP host, task tracking or config on a legacy turn', async () => {
-    const { loadMcpConfig } = await import('../../mcp-loader');
     const { toAiSdkStyleStream, convertAssistantUiMessages } = await import('@brainstrike/agent');
     const { streamResponse } = await import('../../assistant-server/http');
-
-    vi.mocked(loadMcpConfig).mockResolvedValueOnce({
-      config: {
-        servers: [
-          {
-            args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
-            command: 'npx',
-            name: 'filesystem',
-            transport: 'stdio',
-          },
-        ],
-      },
-    } as never);
 
     (convertAssistantUiMessages as Mock).mockReturnValueOnce([
       { parts: [{ text: 'Hello', type: 'text' }], role: 'user' },

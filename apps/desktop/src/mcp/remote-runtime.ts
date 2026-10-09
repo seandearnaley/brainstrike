@@ -1,9 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mcpToolRegistry } from '@brainstrike/agent';
 import {
-  MCP_EXTENSIONS_ENABLED,
   type McpElicitationSettlement,
-  type McpExtensionEnablement,
   type McpHostCloseReport,
   type McpHostPort,
   type McpHostProgress,
@@ -12,12 +10,10 @@ import {
   type McpTaskActionResult,
   type McpTaskListResult,
   type McpTaskPresentation,
-  parseMcpExtensionEnablement,
   parseMcpHostControlRequest,
   parseMcpHostOperation,
   parseMcpTaskPresentation,
 } from '@brainstrike/assistant-contract';
-import type { ResolvedMcpConfig } from '@brainstrike/assistant-contract/mcp-config';
 import { parseMcpHostOperationResult } from '@brainstrike/assistant-contract/mcp-host-runtime';
 import {
   type McpElicitationFinalizedEvent,
@@ -30,8 +26,9 @@ import {
   decodeMcpRuntimeError,
   MCP_RUNTIME_METHODS,
   MCP_RUNTIME_NOTIFICATIONS,
-  type McpDesiredState,
-  type McpToolRegistryState,
+  type McpToolRegistryMirrorTarget,
+  McpToolRegistryStateSchema,
+  mirrorMcpToolRegistryState,
 } from '@brainstrike/host-capabilities/mcp/mcp-runtime-wire';
 import { createLogger } from '@brainstrike/logging';
 import { CancellationTokenSource, type Disposable, type MessageConnection } from 'vscode-jsonrpc';
@@ -81,9 +78,10 @@ interface ReadyState {
 
 /**
  * Main's view of the desktop's one MCP runtime, which runs in the Node agent
- * host (BST-1930 c1). Settings, status, tasks, elicitation, Apps and content
- * keep their existing ports; every call reaches the Node runtime. Main owns no
- * MCP session, task authority or credential flow of its own.
+ * host (BST-1930 c1). Status, lifecycle control, tasks, elicitation, Apps and
+ * content keep their existing ports; every call reaches the Node runtime. Main
+ * owns no MCP session, task authority, settings or credential flow of its own:
+ * its tool registry is a mirror of the host's, for Main's remaining readers.
  */
 export class RemoteMcpRuntime {
   readonly host: McpHostPort;
@@ -106,9 +104,6 @@ export class RemoteMcpRuntime {
     settle(settlement: McpElicitationSettlement): Promise<void>;
   };
   #closed = false;
-  #config: ResolvedMcpConfig = { servers: [] };
-  #extensions: McpExtensionEnablement = MCP_EXTENSIONS_ENABLED;
-  #revision = 0;
   #ready: ReadyState | undefined;
   /** The Node runtime's own snapshot revision last mirrored; older events are ignored. */
   #nodeRevision = -1;
@@ -122,24 +117,12 @@ export class RemoteMcpRuntime {
   readonly #pendingPresentations = new Set<string>();
   readonly #finalizedObservers = new Set<(event: McpElicitationFinalizedEvent) => void>();
   readonly #progress = new Map<string, (progress: McpHostProgress) => void>();
-  readonly #readyListeners = new Set<() => void>();
-  readonly #unsubscribeRegistry: () => void;
 
-  constructor(
-    private readonly registry: Pick<
-      typeof mcpToolRegistry,
-      'getAllTools' | 'subscribe'
-    > = mcpToolRegistry
-  ) {
-    // Every Settings tool toggle reaches the runtime that filters host-run tools.
-    this.#unsubscribeRegistry = registry.subscribe(() => {
-      this.#revision += 1;
-      this.#pushTools();
-    });
+  /** `registry` is the instance Main's own readers use (the package root's). */
+  constructor(private readonly registry: McpToolRegistryMirrorTarget = mcpToolRegistry) {
     this.host = {
       close: async () => {
         this.#closed = true;
-        this.#unsubscribeRegistry();
         this.#detach();
         // Main closes nothing of the runtime: the Node host owns and joins it.
         return EMPTY_CLOSE_REPORT;
@@ -150,9 +133,7 @@ export class RemoteMcpRuntime {
         ),
       invoke: (operation, options) => this.#invoke(parseMcpHostOperation(operation), options),
       replaceConfig: () =>
-        Promise.reject(
-          new Error('Main replaces MCP configuration only through replaceResolvedConfig')
-        ),
+        Promise.reject(new Error('The agent host owns the desktop MCP configuration')),
       snapshot: () => this.#publisher.snapshot(),
       watch: (filter, listener) => this.#publisher.watch(filter, listener),
     };
@@ -219,45 +200,21 @@ export class RemoteMcpRuntime {
     };
   }
 
-  get mcpExtensionPreferences(): McpExtensionEnablement {
-    return this.#extensions;
+  /** Main's native picker chose an MCP config file: the host selects it. */
+  async pickConfigPath(path: string): Promise<{ readonly path: string; readonly success: true }> {
+    return z
+      .strictObject({ path: z.string(), success: z.literal(true) })
+      .parse(await this.#call(MCP_RUNTIME_METHODS.configPathPick, { path }));
   }
 
-  /** What the Node runtime must hold; Node pulls it at startup and reports the revision. */
-  desiredState(): McpDesiredState {
-    return {
-      config: structuredClone(this.#config) as McpDesiredState['config'],
-      extensionPreferences: { ...this.#extensions },
-      revision: this.#revision,
-      tools: this.#toolState(),
-    };
+  /** Factory reset: the host retires its MCP settings lifecycle and keeps a restore point. */
+  async resetSettings(): Promise<void> {
+    await this.#call(MCP_RUNTIME_METHODS.settingsReset, {});
   }
 
-  /** Main's config loader calls this after every load; the runtime commits it in Node. */
-  async replaceResolvedConfig(config: ResolvedMcpConfig): Promise<McpHostSnapshot> {
-    this.#config = structuredClone(config);
-    this.#revision += 1;
-    const ready = this.#ready;
-    if (!ready) {
-      return this.#publisher.snapshot();
-    }
-    const committed = snapshotOf(await this.#request(ready, MCP_RUNTIME_METHODS.config, config));
-    this.#mirror(committed);
-    return committed;
-  }
-
-  async setMcpExtensionPreferences(preferences: McpExtensionEnablement): Promise<McpHostSnapshot> {
-    this.#extensions = parseMcpExtensionEnablement(preferences);
-    this.#revision += 1;
-    const ready = this.#ready;
-    if (!ready) {
-      return this.#publisher.snapshot();
-    }
-    const committed = snapshotOf(
-      await this.#request(ready, MCP_RUNTIME_METHODS.extensions, this.#extensions)
-    );
-    this.#mirror(committed);
-    return committed;
+  /** After a factory reset: the host reopens its MCP settings, restoring them if it failed. */
+  async resumeSettings(outcome: 'failed' | 'succeeded'): Promise<void> {
+    await this.#call(MCP_RUNTIME_METHODS.settingsResume, { outcome });
   }
 
   /** Main reports nothing retired: the runtime and its cleanup live in the Node host. */
@@ -265,23 +222,20 @@ export class RemoteMcpRuntime {
     return EMPTY_CLOSE_REPORT;
   }
 
-  /** Called whenever the Node runtime becomes ready, so Settings re-runs discovery. */
-  onReady(listener: () => void): () => void {
-    this.#readyListeners.add(listener);
-    return () => {
-      this.#readyListeners.delete(listener);
-    };
-  }
-
   /**
    * Bind one Node host connection. Notifications are registered now; requests
-   * flow once Node reports `ready(revision)` after its runtime is composed.
+   * flow once Node reports `ready()` after its runtime is composed.
    */
   bind(connection: MessageConnection): {
     close(): void;
-    ready(revision: number): Promise<void>;
+    ready(): Promise<void>;
   } {
     const disposables: Disposable[] = [
+      connection.onNotification(MCP_RUNTIME_NOTIFICATIONS.tools, (input: unknown) => {
+        if (this.#ready?.connection === connection) {
+          mirrorMcpToolRegistryState(this.registry, McpToolRegistryStateSchema.parse(input));
+        }
+      }),
       connection.onNotification(MCP_RUNTIME_NOTIFICATIONS.watch, (event: unknown) => {
         if (this.#ready?.connection === connection) {
           this.#mirror(snapshotOf(event));
@@ -342,7 +296,7 @@ export class RemoteMcpRuntime {
           this.#detach();
         }
       },
-      ready: async (revision) => {
+      ready: async () => {
         if (!bound || this.#closed) {
           throw new McpRuntimeUnavailableError();
         }
@@ -353,49 +307,29 @@ export class RemoteMcpRuntime {
         try {
           const tasksVersion = this.#tasksVersion;
           const initial = z
-            .object({ snapshot: z.unknown(), tasks: z.array(z.unknown()) })
+            .object({
+              snapshot: z.unknown(),
+              tasks: z.array(z.unknown()),
+              tools: McpToolRegistryStateSchema,
+            })
             .parse(await this.#request(ready, MCP_RUNTIME_METHODS.snapshot, {}));
           if (this.#ready !== ready) {
             throw new McpRuntimeUnavailableError();
           }
           this.#mirror(snapshotOf(initial.snapshot));
+          mirrorMcpToolRegistryState(this.registry, initial.tools);
           if (tasksVersion === this.#tasksVersion) {
             this.#tasks = initial.tasks.map(parseMcpTaskPresentation);
           }
           this.#sendAttach();
-          if (revision < this.#revision) {
-            // Settings changed while the runtime was starting: converge on the latest state.
-            await this.#request(ready, MCP_RUNTIME_METHODS.extensions, this.#extensions);
-            this.#mirror(
-              snapshotOf(await this.#request(ready, MCP_RUNTIME_METHODS.config, this.#config))
-            );
-            await this.#request(ready, MCP_RUNTIME_METHODS.tools, this.#toolState());
-          }
         } catch (cause) {
           if (this.#ready === ready) {
             this.#detach();
           }
           throw cause;
         }
-        for (const listener of this.#readyListeners) {
-          listener();
-        }
       },
     };
-  }
-
-  #toolState(): McpToolRegistryState {
-    return structuredClone(this.registry.getAllTools()) as McpToolRegistryState;
-  }
-
-  #pushTools(): void {
-    const ready = this.#ready;
-    if (!ready) {
-      return;
-    }
-    void this.#request(ready, MCP_RUNTIME_METHODS.tools, this.#toolState()).catch(
-      (cause: unknown) => logger.error('MCP tool preferences did not reach the runtime', { cause })
-    );
   }
 
   #sendAttach(): void {
@@ -429,9 +363,10 @@ export class RemoteMcpRuntime {
   #detach(): void {
     this.#ready = undefined;
     this.#tasks = [];
-    // The runtime is gone: its servers are gone, and every local dialog is retired.
+    // The runtime is gone: its servers and tools are gone, and every local dialog is retired.
     this.#nodeRevision = -1;
     this.#publisher.publishConfigSet([]);
+    this.registry.clear();
     for (const id of this.#pendingPresentations) {
       this.#finalize({ code: 'mcp-elicitation-presenter-closed', id });
     }

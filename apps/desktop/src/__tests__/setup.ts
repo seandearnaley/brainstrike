@@ -302,7 +302,6 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
     })),
     isSupportedProvider: (provider: string) =>
       mockProviderDefinitions.some((entry) => entry.id === provider),
-    loadToolPreferences: vi.fn().mockResolvedValue({}),
     mcpToolRegistry: mockMcpToolRegistry,
     streamMastraAgent: vi.fn(async function* () {
       yield { type: 'finish', usage: { completionTokens: 1, promptTokens: 1 } };
