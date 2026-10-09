@@ -1,24 +1,21 @@
 /**
  * App-wide host for MCP elicitation consent (BST-1584).
  *
- * Subscribes to the desktop `window.mcp` elicitation bridge by capability
- * (the three bridge members must all exist; web has no preload and renders
- * nothing — there is no `isElectron()` check), queues presentations pushed by
- * desktop main (the presenter allows up to 32 pending), and shows exactly one
- * `McpElicitationDialog` at a time, oldest first. Settlement goes back through
- * `settleElicitation`; `onElicitationRetired` marks the visible request dead
- * (or silently drops a queued one that was never shown) so a dialog can never
- * wait on a request main has already finalized.
+ * Subscribes to the elicitation capability its host provides (the desktop's
+ * agent host, BST-1930 c5c; web provides none and renders nothing — there is
+ * no `isElectron()` check), queues the presentations it pushes (the presenter
+ * allows up to 32 pending), and shows exactly one `McpElicitationDialog` at a
+ * time, oldest first. Settlement goes back through `settleElicitation`;
+ * `onElicitationRetired` marks the visible request dead (or silently drops a
+ * queued one that was never shown) so a dialog can never wait on a request the
+ * host has already finalized.
  */
 import type {
   McpElicitationPresentationWire,
   McpTaskBridge,
 } from '@brainstrike/assistant-contract';
-import { useEffect, useReducer, useRef, useState } from 'react';
-import { resolveMcpElicitationBridge, resolveMcpTaskInputBridge } from './mcp-elicitation-bridge';
-
-export { resolveMcpTaskInputBridge } from './mcp-elicitation-bridge';
-
+import { useEffect, useReducer, useRef } from 'react';
+import { useMcpElicitationCapability } from './mcp-elicitation-capability';
 import { McpElicitationDialog } from './mcp-elicitation-dialog';
 
 interface HostState {
@@ -89,8 +86,7 @@ export function mcpTaskInputCanceller(
 }
 
 export function McpElicitationHost() {
-  const [bridge] = useState(() => resolveMcpElicitationBridge());
-  const [taskBridge] = useState(() => resolveMcpTaskInputBridge());
+  const { elicitation: bridge, tasks: taskBridge } = useMcpElicitationCapability();
   const [state, dispatch] = useReducer(hostReducer, EMPTY_STATE);
   const settledIds = useRef(new Set<string>());
 

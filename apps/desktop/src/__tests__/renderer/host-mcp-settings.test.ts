@@ -1,6 +1,6 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
-import type { McpSettingsEvent } from '@brainstrike/agent-host/protocol';
-import type { McpHostSnapshot } from '@brainstrike/assistant-contract';
+import type { McpPresentationEvent, McpSettingsEvent } from '@brainstrike/agent-host/protocol';
+import type { McpHostSnapshot, McpTaskPresentation } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
 import { createDesktopHostMcpSettings } from '../../renderer/host-mcp-settings';
 
@@ -9,19 +9,49 @@ vi.mock('../../renderer/agent-host-client', () => ({ connectDesktopAgentHost: vi
 
 const status = (revision: number): McpHostSnapshot => ({ revision, servers: [] });
 
-/** The window's host client: one `mcp/settings/event` listener and the subscribe answer. */
+const card = (taskId: string): McpTaskPresentation => ({
+  canCancel: true,
+  createdAt: '2026-10-09T00:00:00.000Z',
+  handle: {
+    authorityEpoch: '00000000-0000-7000-8000-000000000000',
+    principalId: 'principal-a',
+    resource: 'https://tasks.example.test',
+    serverId: 'fs',
+    taskId,
+  },
+  history: [{ at: '2026-10-09T00:00:00.000Z', status: 'working' }],
+  omittedHistoryEntries: 0,
+  recovery: 'live',
+  status: 'working',
+  statusMessage: null,
+  updatedAt: '2026-10-09T00:00:00.000Z',
+});
+
+/** The window's host client: one listener per stream and each stream's subscribe answer. */
 function fakeHost() {
   let push: ((event: McpSettingsEvent) => void) | undefined;
+  let pushPresentation: ((event: McpPresentationEvent) => void) | undefined;
   let answerSubscribe: (value: unknown) => void = () => undefined;
-  const request = vi.fn((method: string) =>
-    method === 'mcp/settings/subscribe'
-      ? new Promise((resolve) => {
-          answerSubscribe = resolve;
-        })
-      : Promise.resolve(status(9))
-  );
+  let answerPresentation: (value: unknown) => void = () => undefined;
+  const request = vi.fn((method: string) => {
+    if (method === 'mcp/settings/subscribe') {
+      return new Promise((resolve) => {
+        answerSubscribe = resolve;
+      });
+    }
+    if (method === 'mcp/presentation/subscribe') {
+      return new Promise((resolve) => {
+        answerPresentation = resolve;
+      });
+    }
+    return Promise.resolve(status(9));
+  });
   const host = {
     close: vi.fn(async () => undefined),
+    onMcpPresentation: vi.fn((listener: (event: McpPresentationEvent) => void) => {
+      pushPresentation = listener;
+      return () => undefined;
+    }),
     onMcpSettings: vi.fn((listener: (event: McpSettingsEvent) => void) => {
       push = listener;
       return () => undefined;
@@ -29,9 +59,11 @@ function fakeHost() {
     request,
   } as unknown as HostClient;
   return {
+    answerPresentation: (value: unknown) => answerPresentation(value),
     answerSubscribe: (value: unknown) => answerSubscribe(value),
     host,
     push: (event: McpSettingsEvent) => push?.(event),
+    pushPresentation: (event: McpPresentationEvent) => pushPresentation?.(event),
     request,
   };
 }
@@ -79,6 +111,61 @@ describe('desktop host MCP settings (BST-1930 c5b)', () => {
     expect(fake.request.mock.calls).toEqual([
       ['mcp/status/read', {}],
       ['mcp/server/control', { action: 'disconnect', configuredServerId: 'fs' }],
+    ]);
+  });
+});
+
+describe('desktop host MCP presentations (BST-1930 c5c)', () => {
+  it('opens the presentation stream once, apart from settings, and replays its current cards', async () => {
+    const fake = fakeHost();
+    const settings = createDesktopHostMcpSettings(async () => fake.host);
+    const first = vi.fn();
+    const second = vi.fn();
+    settings.subscribePresentation(first);
+    settings.subscribePresentation(second);
+    await vi.waitFor(() =>
+      expect(fake.request).toHaveBeenCalledWith('mcp/presentation/subscribe', {})
+    );
+
+    fake.pushPresentation({
+      code: 'mcp-elicitation-already-settled',
+      id: 'p1',
+      type: 'elicitation.retired',
+    });
+    fake.answerPresentation({ tasks: [card('a')] });
+
+    await vi.waitFor(() =>
+      expect(first.mock.calls).toEqual([
+        [{ code: 'mcp-elicitation-already-settled', id: 'p1', type: 'elicitation.retired' }],
+        [{ task: card('a'), type: 'task' }],
+      ])
+    );
+    expect(second.mock.calls).toEqual(first.mock.calls);
+    expect(fake.request.mock.calls.map(([method]) => method)).toEqual([
+      'mcp/presentation/subscribe',
+    ]);
+  });
+
+  it('runs task actions and answers server input as host requests', async () => {
+    const fake = fakeHost();
+    const settings = createDesktopHostMcpSettings(async () => fake.host);
+    const handle = card('a').handle;
+    const settlement = {
+      action: 'decline' as const,
+      configuredServerId: 'fs' as never,
+      generation: 2,
+      id: 'p1',
+      requestId: 'r1',
+    };
+
+    await settings.request('mcp/tasks/act', { action: 'cancel', handle });
+    await settings.request('mcp/tasks/list', {});
+    await settings.request('mcp/elicitation/settle', settlement);
+
+    expect(fake.request.mock.calls).toEqual([
+      ['mcp/tasks/act', { action: 'cancel', handle }],
+      ['mcp/tasks/list', {}],
+      ['mcp/elicitation/settle', settlement],
     ]);
   });
 });
