@@ -55,7 +55,7 @@ it('searches message text across the requested threads, with its role, run and a
     { prompt: 'What is the weather?', runId: 'run-2', type: 'prompt' },
     { runId: 'run-2', text: 'The release plan is unrelated to rain.', type: 'answer' },
   ]);
-  await f.port.catchUpState(['one', 'two']);
+  // No explicit catch-up: a search reads its threads' committed truth first.
 
   const hits = await f.port.searchState({
     limit: 10,

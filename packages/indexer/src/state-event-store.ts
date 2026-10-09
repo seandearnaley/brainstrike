@@ -426,6 +426,8 @@ export class StateEventStore {
     if (words.length === 0 || request.threadIds.length === 0) {
       return [];
     }
+    // Like the blob check, a search first catches up to its threads' committed truth.
+    this.catchUp(request.threadIds);
     return decoder(Schema.Array(stateSearchHitSchema))(
       this.db
         .prepare(
