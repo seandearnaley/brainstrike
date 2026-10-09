@@ -107,9 +107,9 @@ type LocalProgressListeners = Map<string, (progress: LocalLlmHostProgress) => vo
  * the generation.
  */
 function borrowedLocalInference(
+  /** Bound to the admission: each request names its selection. */
   request: PlatformRequest,
-  listeners: LocalProgressListeners,
-  threadId: string
+  listeners: LocalProgressListeners
 ): { readonly embedding: LocalEmbeddingHostClient; readonly llm: LocalLlmHostClient } {
   const borrow = async (
     method: string,
@@ -121,7 +121,7 @@ function borrowedLocalInference(
       listeners.set(requestId, options.onProgress);
     }
     try {
-      return await request(method, { ...input, requestId, threadId }, options.signal);
+      return await request(method, { ...input, requestId }, options.signal);
     } finally {
       listeners.delete(requestId);
     }
@@ -130,7 +130,7 @@ function borrowedLocalInference(
     embedding: {
       queryEmbedding: async ({ query }, options) =>
         PlatformEmbeddingResultSchema.parse(
-          await request('platform/embedding/query', { query, threadId }, options?.signal)
+          await request('platform/embedding/query', { query }, options?.signal)
         ),
     },
     llm: {
@@ -258,8 +258,16 @@ export async function createHostPlatform(
         admission.signal
       );
       const selected = await parsePlatformSelection(response, () =>
-        request('platform/release', { threadId: admission.threadId })
+        request('platform/release', { selectionRunId: admission.runId })
       );
+      // BST-1932: everything bound at this admission names Main's selection by the
+      // admitting run; a child borrowing the admission sends that same run.
+      const bound: PlatformRequest = (method, input, signal) =>
+        request(
+          method,
+          { ...z.record(z.string(), z.unknown()).parse(input), selectionRunId: admission.runId },
+          signal
+        );
       const configuration = desktopRuntimeConfiguration(selected);
       const provider = configuration.provider;
       let closing: Promise<void> | undefined;
@@ -273,10 +281,10 @@ export async function createHostPlatform(
         return host.auth.resolveProviderAuth(selectedProvider, admission.origin);
       };
       const closeSelection = (): Promise<void> =>
-        (closing ??= request('platform/release', { threadId: admission.threadId }).then(
+        (closing ??= request('platform/release', { selectionRunId: admission.runId }).then(
           () => undefined
         ));
-      const local = borrowedLocalInference(request, localProgress, admission.threadId);
+      const local = borrowedLocalInference(bound, localProgress);
       let memory: ProductionHostRunConfiguration['memory'];
       try {
         memory = await createDesktopHostMemoryConfiguration(selected, resolveAuth, {
@@ -295,7 +303,7 @@ export async function createHostPlatform(
       const tools = desktopHostSharedTools({
         appPaths: platformOptions?.appPaths,
         readFileCursorRegistry,
-        request,
+        request: bound,
         resolveTavilyApiKey: host.resolveTavilyApiKey,
         selected,
         threadId: admission.threadId,
@@ -314,7 +322,7 @@ export async function createHostPlatform(
         // review. Unsignalled: a stopped run's turn still ends with snapshots.
         captureTurnBoundary: async (boundary) =>
           PlatformTurnSnapshotResultSchema.parse(
-            await request('platform/snapshot/capture', boundary)
+            await bound('platform/snapshot/capture', boundary)
           ),
         childSystem: selected.childSystem,
         close: closeSelection,
@@ -372,9 +380,13 @@ export async function createHostPlatform(
         .parse(await request('platform/workspace/root', { rootId }, signal)),
     selectProjectionRewrites: selectHostProjectionRewrites,
     startup,
-    validateWorkspaceBinding: async ({ binding, signal, threadId }) => {
+    validateWorkspaceBinding: async ({ binding, runId, signal, threadId }) => {
       z.strictObject({ accepted: z.literal(true) }).parse(
-        await request('platform/workspace/validate', { binding, threadId }, signal)
+        await request(
+          'platform/workspace/validate',
+          { binding, ...(runId ? { selectionRunId: runId } : {}), threadId },
+          signal
+        )
       );
     },
   });

@@ -1,5 +1,20 @@
-import type { BrowserContext, Locator, Page } from '@playwright/test';
+import { type BrowserContext, expect, type Locator, type Page } from '@playwright/test';
 import { loadElectronHelpers } from './load-electron-helpers';
+
+/**
+ * Expands the activity in `region` unless it already is: activity is collapsed
+ * by default, and a delegation's card (its "Open … conversation" button) is inside it.
+ */
+export async function ensureActivityExpanded(region: Locator): Promise<void> {
+  const expand = region.getByRole('button', { exact: true, name: 'Expand activity' });
+  const collapse = region.getByRole('button', { exact: true, name: 'Collapse activity' });
+  await expect(expand.or(collapse)).toBeVisible();
+  if (await expand.count()) {
+    await expand.click();
+    return;
+  }
+  await expect(collapse).toBeVisible();
+}
 
 const isVerboseE2eLoggingEnabled = process.env['BRAINSTRIKE_E2E_VERBOSE'] === '1';
 

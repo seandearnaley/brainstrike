@@ -150,6 +150,8 @@ export type { SlashCommand } from './slash-commands';
 export {
   type DelegatedApprovalOwner,
   DelegatedApprovalOwnerContext,
+  type SubagentAnsweredApproval,
+  SubagentApprovalHistoryContext,
   SubagentConversationNavigationContext,
   type SubagentConversationPresentation,
   SubagentConversationPresentationContext,

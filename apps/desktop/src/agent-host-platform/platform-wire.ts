@@ -37,6 +37,8 @@ export const PlatformRunRequestSchema = z.strictObject({
 export const PlatformRunIntentSchema = PlatformRunRequestSchema.omit({ runId: true });
 export const PlatformWorkspaceBindingRequestSchema = z.strictObject({
   binding: ThreadWorkspaceBindingSchema,
+  /** The run being admitted, whose selection is revalidated; a binding update names none. */
+  selectionRunId: Id.optional(),
   threadId: Id,
 });
 export const PlatformPolicySchema = z.strictObject({
@@ -325,7 +327,7 @@ export const PlatformLocalGenerationSchema = z.strictObject({
     .exactOptional(),
   /** Correlates the generation's `platform/llm/progress` notifications. */
   requestId: z.uuid(),
-  threadId: Id,
+  selectionRunId: Id,
 });
 /** One cumulative progress snapshot of a borrowed local generation or warmup. */
 export const PlatformLocalProgressSchema = z.strictObject({
@@ -353,7 +355,7 @@ export const PlatformLocalGenerationResultSchema = z.strictObject({
 export const PlatformLocalWarmupSchema = z.strictObject({
   modelId: Id,
   requestId: z.uuid(),
-  threadId: Id,
+  selectionRunId: Id,
 });
 /**
  * The one relay to Main's hidden embedding host (ADR-0007) for an admitted
@@ -362,20 +364,27 @@ export const PlatformLocalWarmupSchema = z.strictObject({
  * payload the tool resolved from Main's catalog). Either answers the vector.
  */
 export const PlatformEmbeddingQuerySchema = z.union([
-  z.strictObject({ query: z.string(), threadId: Id }),
-  z.strictObject({ request: QueryEmbeddingPayloadSchema, threadId: Id }),
+  z.strictObject({ query: z.string(), selectionRunId: Id }),
+  z.strictObject({ request: QueryEmbeddingPayloadSchema, selectionRunId: Id, threadId: Id }),
 ]);
 export const PlatformEmbeddingResultSchema = QueryEmbeddingResultSchema;
 /**
  * A host run's turn boundary: its start snapshots the thread's admitted
  * roots; its end, after Main released the selection, the start's roots.
  */
+/** `selectionRunId` is the admitting run, whose selection's roots a turn start snapshots. */
 export const PlatformTurnSnapshotRequestSchema = z.discriminatedUnion('boundary', [
-  z.strictObject({ boundary: z.literal('turn-start'), runId: Id, threadId: Id }),
+  z.strictObject({
+    boundary: z.literal('turn-start'),
+    runId: Id,
+    selectionRunId: Id,
+    threadId: Id,
+  }),
   z.strictObject({
     boundary: z.literal('turn-end'),
     roots: z.array(HostTurnSnapshotRootSchema).min(1),
     runId: Id,
+    selectionRunId: Id,
     threadId: Id,
   }),
 ]);

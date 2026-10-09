@@ -2,7 +2,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { attachAgentHost, type HostClient } from '@brainstrike/agent-host/client';
-import type { HostLogRow } from '@brainstrike/agent-host/protocol';
+import type { HostChildStatus, HostLogRow, HostResults } from '@brainstrike/agent-host/protocol';
 import { foldHostRuns, type HostRunView } from '@brainstrike/agent-host/thread-view';
 import { decodeHostRecord } from '@brainstrike/host-lease';
 
@@ -115,52 +115,69 @@ export async function readAgentHostLog(userDataDir: string): Promise<AgentHostLo
   }
 }
 
+/** A thread's saved workspace (open tabs and selection) as the host keeps it; null before its first save. */
+export async function readHostThreadWorkspace(
+  userDataDir: string,
+  threadId: string
+): Promise<HostResults['thread/workspace/read']['snapshot']> {
+  const client = await attachAppHost(userDataDir);
+  try {
+    return (await client.request('thread/workspace/read', { threadId })).snapshot;
+  } finally {
+    await client.close();
+  }
+}
+
+/** Whether the host still holds a thread: a deleted thread's read is refused as unknown. */
+export async function hostThreadExists(userDataDir: string, threadId: string): Promise<boolean> {
+  const client = await attachAppHost(userDataDir);
+  try {
+    await client.request('thread/read', { fromSeq: 0, threadId });
+    return true;
+  } catch (error) {
+    if (error instanceof Error && /Unknown thread/u.test(error.message)) {
+      return false;
+    }
+    throw error;
+  } finally {
+    await client.close();
+  }
+}
+
 /** One committed thread of a delegation tree: its rows and the parent it was delegated from. */
 export interface HostThreadLog {
+  /** A child's call sign, family colour and status, as the host lists it under its parent. */
+  readonly child?: {
+    readonly callSign: string;
+    readonly color: string;
+    readonly status: HostChildStatus;
+  };
   readonly parentThreadId?: string;
   readonly rows: readonly HostLogRow[];
   readonly threadId: string;
 }
 
-/** The child thread a committed delegation result names, if any. */
-function delegatedChild(row: HostLogRow): string | undefined {
-  if (row.event.type !== 'effect.finished') {
-    return;
-  }
-  const output = row.event.output;
-  if (output === null || typeof output !== 'object' || Array.isArray(output)) {
-    return;
-  }
-  const child = output['childThreadId'];
-  return typeof child === 'string' ? child : undefined;
-}
-
 /**
- * BST-1932: every committed thread, top-level threads first and then each
- * child thread their delegation results name. Child threads never appear in
- * the thread list, so a parent's committed log is the way to reach them.
+ * BST-1932: every committed thread, top-level threads first and then, level by
+ * level, the children the host lists under each, running or settled. Child
+ * threads never appear in the thread list; `thread/children` reaches them.
  */
 export async function readHostThreadTree(userDataDir: string): Promise<readonly HostThreadLog[]> {
   const client = await attachAppHost(userDataDir);
   try {
     const { threads } = await client.request('thread/list', {});
-    const pending: { parentThreadId?: string; threadId: string }[] = threads.map(
-      ({ threadId }) => ({ threadId })
-    );
+    const pending: Omit<HostThreadLog, 'rows'>[] = threads.map(({ threadId }) => ({ threadId }));
     const logs: HostThreadLog[] = [];
-    const seen = new Set<string>();
     for (let next = pending.shift(); next; next = pending.shift()) {
-      if (seen.has(next.threadId)) {
-        continue;
-      }
-      seen.add(next.threadId);
       const { rows } = await client.request('thread/read', { fromSeq: 0, threadId: next.threadId });
       logs.push({ ...next, rows });
-      for (const row of rows) {
-        const child = delegatedChild(row);
-        if (child) {
-          pending.push({ parentThreadId: next.threadId, threadId: child });
-        }
+      const { children } = await client.request('thread/children', { threadId: next.threadId });
+      for (const { callSign, color, status, threadId } of children) {
+        pending.push({
+          child: { callSign, color, status },
+          parentThreadId: next.threadId,
+          threadId,
+        });
       }
     }
     return logs;
