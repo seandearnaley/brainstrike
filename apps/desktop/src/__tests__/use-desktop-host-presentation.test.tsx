@@ -1,4 +1,8 @@
 import type { useConfiguredAssistantProviders } from '@brainstrike/app-shell';
+import {
+  type AssistantThreadHostCapability,
+  AssistantThreadHostContext,
+} from '@brainstrike/app-shell/assistant-thread-host-context';
 import { McpToolsCapabilityProvider } from '@brainstrike/app-shell/mcp-tools-capability';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
@@ -6,6 +10,8 @@ import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/nat
 import {
   DESKTOP_NATIVE_TOOL_IDS,
   getProviderModelDefinitions,
+  type OpenRouterModelMetadataSnapshot,
+  parseOpenRouterModelMetadata,
 } from '@brainstrike/assistant-contract';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { act, renderHook, waitFor } from '@testing-library/react';
@@ -16,6 +22,8 @@ import {
   useDesktopHostPresentation,
 } from '../renderer/use-desktop-host-presentation';
 import type { HostThreadSelectionBinding } from '../renderer/use-host-thread-selection';
+// The recorded OpenRouter metadata the E2E shim serves: efforts low..max.
+import recorded from './fixtures/openrouter-sonnet-4-6-model-metadata.json';
 
 // The provider list is this hook's input (the shared discovery resource owns
 // it); slash commands and @-mentions need the explorer and file-system shells
@@ -374,6 +382,93 @@ describe('the host composer gates a send on the provider notice', () => {
     const { result } = renderHook(() => present());
     expect(result.current.disabledReason).toBeUndefined();
     expect(result.current.isComposerDisabled).toBeUndefined();
+  });
+});
+
+describe("the host composer's OpenRouter reasoning effort", () => {
+  const MODEL = 'anthropic/claude-sonnet-4.6';
+  const unused = (): never => {
+    throw new Error('Not used by the composer presentation');
+  };
+  /** A host that answers OpenRouter model reads with `read`, as the desktop host does. */
+  function withHost(read: (modelId: string) => Promise<OpenRouterModelMetadataSnapshot>) {
+    const host: AssistantThreadHostCapability = {
+      createThread: unused,
+      deleteThread: unused,
+      listThreads: unused,
+      ownsThread: unused,
+      providers: { readOpenRouterModel: read, readStatus: unused, verifyProvider: unused },
+      renameThread: unused,
+      renderThread: unused,
+      updateThreadBinding: unused,
+      workspaceRepository: unused,
+    };
+    return ({ children }: { readonly children: ReactNode }) => (
+      <AssistantThreadHostContext.Provider value={host}>
+        {children}
+      </AssistantThreadHostContext.Provider>
+    );
+  }
+  beforeEach(() => {
+    configured.current = { discoveryState: 'ready', providers: ['openrouter'] };
+    catalog.current = {
+      error: null,
+      loading: false,
+      rows: [{ id: MODEL, providerId: 'openrouter' }],
+    };
+    useAssistantPreferencesStore.setState({
+      providerSettings: {
+        ...preferences.providerSettings,
+        openrouter: { ...preferences.providerSettings.openrouter, reasoningEffort: 'max' },
+      },
+      selectedModel: `openrouter::${MODEL}`,
+    });
+  });
+
+  test('a saved Max effort waits for the model details instead of crashing, then applies', async () => {
+    const details = Promise.withResolvers<OpenRouterModelMetadataSnapshot>();
+    const { result } = renderHook(() => present(), { wrapper: withHost(() => details.promise) });
+    expect(result.current.disabledReason).toBe('Loading OpenRouter model details…');
+    expect(result.current.isComposerDisabled).toBe(true);
+
+    await act(async () => {
+      details.resolve({
+        freshness: 'live',
+        metadata: parseOpenRouterModelMetadata(recorded, MODEL, 0),
+      });
+      await details.promise;
+    });
+    expect(result.current.disabledReason).toBeUndefined();
+    expect(result.current.readConfiguration(null)).toMatchObject({
+      modelConfiguration: { providerOptions: { openrouter: { reasoning: { effort: 'max' } } } },
+    });
+  });
+
+  test('an effort the resolved model details do not support gates the send with a notice', async () => {
+    const metadata = parseOpenRouterModelMetadata(recorded, MODEL, 0);
+    const { reasoning } = metadata;
+    if (!reasoning) {
+      throw new Error('The recorded metadata declares no reasoning');
+    }
+    const snapshot: OpenRouterModelMetadataSnapshot = {
+      freshness: 'live',
+      metadata: {
+        ...metadata,
+        reasoning: {
+          ...reasoning,
+          supportedEfforts: reasoning.supportedEfforts?.filter((effort) => effort !== 'max'),
+        },
+      },
+    };
+    const { result } = renderHook(() => present(), {
+      wrapper: withHost(async () => snapshot),
+    });
+    await waitFor(() =>
+      expect(result.current.disabledReason).toMatch(
+        /^OpenRouter model ".+" does not support reasoning effort "max"\. Supported efforts: /u
+      )
+    );
+    expect(result.current.isComposerDisabled).toBe(true);
   });
 });
 

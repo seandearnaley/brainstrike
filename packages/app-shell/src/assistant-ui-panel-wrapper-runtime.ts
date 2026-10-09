@@ -1398,14 +1398,52 @@ export function buildEffectiveModelSettings(
 
 const openRouterLimitFormatter = new Intl.NumberFormat();
 
+/** The send's gate while an OpenRouter model's details load. */
+export const OPENROUTER_METADATA_LOADING_REASON = 'Loading OpenRouter model details…';
+
+/**
+ * The gate an OpenRouter lookup sets by its state and the chosen effort: the
+ * details still loading, or an effort the model cannot take. A failed lookup
+ * checks the effort against the catalog's own definition and says so.
+ */
+function openRouterLookupReason(
+  lookup: OpenRouterModelMetadataLookup,
+  effort: AssistantProviderSettings['reasoningEffort'],
+  modelId: string | undefined
+): string | undefined {
+  if (lookup.state === 'loading') {
+    return OPENROUTER_METADATA_LOADING_REASON;
+  }
+  if (!effort) {
+    return;
+  }
+  if (lookup.state === 'resolved') {
+    const { metadata } = lookup.snapshot;
+    return openRouterReasoningEffortIssue(metadata.id, effort, metadata);
+  }
+  const issue = modelId ? openRouterReasoningEffortIssue(modelId, effort, undefined) : undefined;
+  return issue && `${issue} OpenRouter model details could not load: ${lookup.message}`;
+}
+
+/**
+ * Why an OpenRouter send is gated by its model's details, or undefined. While
+ * the lookup loads the send waits, so provider options are never built from
+ * details that have not arrived. A chosen reasoning effort the model does not
+ * support is a notice here, never a throw while the composer renders.
+ */
 export function resolveOpenRouterMetadataDisabledReason(
   providerId: string | null | undefined,
   settings: AssistantProviderSettings | undefined,
   lookup: OpenRouterModelMetadataLookup | undefined,
-  modelSettings?: RuntimeData['modelSettings']
+  modelSettings?: RuntimeData['modelSettings'],
+  modelId?: string
 ): string | undefined {
-  if (!(providerId === 'openrouter' && lookup?.state === 'resolved')) {
+  if (!(providerId === 'openrouter' && lookup)) {
     return;
+  }
+  const lookupReason = openRouterLookupReason(lookup, settings?.reasoningEffort, modelId);
+  if (lookupReason !== undefined || lookup.state !== 'resolved') {
+    return lookupReason;
   }
   const configuredOutput = buildPositiveIntegerSetting(
     modelSettings?.maxOutputTokens ?? settings?.maxOutputTokens
@@ -1552,37 +1590,42 @@ function buildOpenAiOptions(
   ]);
 }
 
+/** Why an OpenRouter model cannot take a reasoning effort, or undefined when it can. */
+function openRouterReasoningEffortIssue(
+  modelName: string,
+  reasoningEffort: NonNullable<AssistantProviderSettings['reasoningEffort']>,
+  metadata: OpenRouterModelMetadata | undefined
+): string | undefined {
+  const model = getLlmModelDefinition('openrouter', modelName);
+  const label = model.label ?? model.id;
+  const reasoning =
+    metadata?.id === modelName && metadata.reasoning ? metadata.reasoning : model.reasoning;
+  if (!reasoning) {
+    return `OpenRouter model "${label}" does not declare support for reasoning effort "${reasoningEffort}".`;
+  }
+  if (reasoningEffort === 'none') {
+    return reasoning.mandatory
+      ? `OpenRouter model "${label}" does not support reasoning effort "${reasoningEffort}".`
+      : undefined;
+  }
+  const supportedEfforts = reasoning.supportedEfforts;
+  if (!supportedEfforts) {
+    return `OpenRouter model "${label}" does not declare support for reasoning effort "${reasoningEffort}".`;
+  }
+  if (!supportedEfforts.includes(reasoningEffort)) {
+    return `OpenRouter model "${label}" does not support reasoning effort "${reasoningEffort}". Supported efforts: ${supportedEfforts.join(', ')}.`;
+  }
+  return;
+}
+
 function assertOpenRouterReasoningEffortSupported(
   modelName: string,
   reasoningEffort: NonNullable<AssistantProviderSettings['reasoningEffort']>,
   metadata: OpenRouterModelMetadata | undefined
 ): void {
-  const model = getLlmModelDefinition('openrouter', modelName);
-  const reasoning =
-    metadata?.id === modelName && metadata.reasoning ? metadata.reasoning : model.reasoning;
-  if (!reasoning) {
-    throw new Error(
-      `OpenRouter model "${model.label ?? model.id}" does not declare support for reasoning effort "${reasoningEffort}".`
-    );
-  }
-  if (reasoningEffort === 'none') {
-    if (!reasoning.mandatory) {
-      return;
-    }
-    throw new Error(
-      `OpenRouter model "${model.label ?? model.id}" does not support reasoning effort "${reasoningEffort}".`
-    );
-  }
-  const supportedEfforts = reasoning.supportedEfforts;
-  if (!supportedEfforts) {
-    throw new Error(
-      `OpenRouter model "${model.label ?? model.id}" does not declare support for reasoning effort "${reasoningEffort}".`
-    );
-  }
-  if (!supportedEfforts.includes(reasoningEffort)) {
-    throw new Error(
-      `OpenRouter model "${model.label ?? model.id}" does not support reasoning effort "${reasoningEffort}". Supported efforts: ${supportedEfforts.join(', ')}.`
-    );
+  const issue = openRouterReasoningEffortIssue(modelName, reasoningEffort, metadata);
+  if (issue) {
+    throw new Error(issue);
   }
 }
 
