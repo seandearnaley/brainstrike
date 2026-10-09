@@ -57,6 +57,8 @@ export interface MemoryCalculation {
   readonly changes: readonly MemoryEntityChange[];
   readonly value: MemoryJson;
 }
+/** Mastra OM's observation token counter (`TokenCounter.countObservations`). */
+export type ObservationTokenCounter = (text: string) => number;
 export type MemoryNativeCalculator = (
   snapshot: MemorySnapshot,
   request: MemoryNativeRequest

@@ -131,7 +131,7 @@ test('held native calculation stays ahead of deletion; retired thread cannot rec
     indexer.close();
     await writeFile(
       heldModule,
-      `import { watch, existsSync } from 'node:fs';\nimport { writeFile } from 'node:fs/promises';\nimport { calculateMemoryMutation as native } from ${JSON.stringify(pathToFileURL(calculator).href)};\nexport async function calculateMemoryMutation(snapshot, request) {\n  await writeFile(${JSON.stringify(entered)}, 'entered');\n  const watcher = watch(${JSON.stringify(root)});\n  try { await new Promise(resolve => { const check = () => { if (existsSync(${JSON.stringify(release)})) resolve(); }; watcher.on('change', check); check(); }); } finally { watcher.close(); }\n  return native(snapshot, request);\n}\n`
+      `import { watch, existsSync } from 'node:fs';\nimport { writeFile } from 'node:fs/promises';\nimport { calculateMemoryMutation as native } from ${JSON.stringify(pathToFileURL(calculator).href)};\nexport { countObservationTokens } from ${JSON.stringify(pathToFileURL(calculator).href)};\nexport async function calculateMemoryMutation(snapshot, request) {\n  await writeFile(${JSON.stringify(entered)}, 'entered');\n  const watcher = watch(${JSON.stringify(root)});\n  try { await new Promise(resolve => { const check = () => { if (existsSync(${JSON.stringify(release)})) resolve(); }; watcher.on('change', check); check(); }); } finally { watcher.close(); }\n  return native(snapshot, request);\n}\n`
     );
     indexer = new TruthIndexer(root);
     store = await StateStore.open(root, { indexer, memoryCalculatorModule: heldModule });
