@@ -16,10 +16,14 @@ import {
   type HostRunSnapshot,
 } from './protocol.js';
 
-/** HostCore alone folds and writes accepted command records. */
+/**
+ * HostCore alone folds and writes accepted command records. The committed
+ * payload is canonicalized only when its command ID is submitted again, never
+ * for every command at open.
+ */
 export interface AcceptedCommand {
   readonly method: string;
-  readonly payload: string;
+  readonly payload: Json;
   readonly result: Json;
   readonly threadId: string;
 }
@@ -72,7 +76,8 @@ export class HostCommandLedger {
   ): Promise<T> {
     const payload = canonical(jsonValue(params));
     const attempt = this.attempts.get(params.commandId);
-    const previous = attempt ?? this.accepted.get(params.commandId);
+    const accepted = this.accepted.get(params.commandId);
+    const previous = attempt ?? (accepted && { ...accepted, payload: canonical(accepted.payload) });
     if (previous && (previous.method !== method || previous.payload !== payload)) {
       throw new Error('Command identity was reused with different input');
     }
@@ -407,7 +412,7 @@ export function foldHostAcceptedCommand(
 ): void {
   commands.commit(event.commandId, {
     method: event.method,
-    payload: canonical(event.payload),
+    payload: event.payload,
     result: event.result,
     threadId,
   });
