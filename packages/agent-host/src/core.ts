@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { BlobContent, StateStore } from '@brainstrike/state-store';
 import type { LanguageModel, ModelMessage } from 'ai';
 import { ApprovalInputReconstructionError } from './approval-input.js';
+import { acceptHostChildInput, takeHostChildInput } from './child-input.js';
 import { HostContextCompactions } from './context-compaction.js';
 import {
   type HostChildRunPort,
@@ -81,8 +82,8 @@ import {
   commitHostInteractionResponse,
   commitHostModelMessages,
   createHostApprovalResponses,
-  failedHostStartEvents,
   finishApprovedHostResults,
+  startHostNextRun,
 } from './run-continuation.js';
 import { userRunVerdict } from './run-verdicts.js';
 import { HostThreadPresentationState } from './thread-presentation-state.js';
@@ -817,7 +818,7 @@ export class HostCore {
       const plan = approvedHostPlan(run);
       if (plan) {
         await this.finish(run, 'completed');
-        await this.startApprovedPlanRun(run, plan);
+        await this.startNextRun(approvedHostPlanRunParams(run, plan), run.input?.origin);
         return;
       }
       if (run.steps >= admission.snapshot.maxSteps) {
@@ -847,6 +848,18 @@ export class HostCore {
       await this.accept(params.threadId, 'run/verdict', params, { accepted: true }, [event]);
       return { accepted: true } as const;
     });
+  }
+
+  /** BST-1932 (AT-09): a running child's active run ends after its step; the input runs next. */
+  input(params: HostParams<'run/input'>): Promise<{ accepted: true }> {
+    return this.command('run/input', params, () =>
+      acceptHostChildInput(
+        this.run(params.threadId, params.runId),
+        this.children.isChild(params.threadId),
+        params,
+        () => this.accept(params.threadId, 'run/input', params, { accepted: true }, [])
+      )
+    );
   }
 
   steer(params: HostParams<'run/steer'>): Promise<{ outcome: 'steering' | 'already-terminal' }> {
@@ -902,23 +915,19 @@ export class HostCore {
     return run.ownerClose;
   }
 
-  /**
-   * An approved plan ends its plan-mode run; the thread's next run carries it
-   * out without plan mode. A next run that cannot start is committed as failed,
-   * with its cause, so an approval never ends silently.
-   */
-  private async startApprovedPlanRun(
-    run: Run,
-    plan: { readonly feedback?: string }
-  ): Promise<void> {
-    const params = approvedHostPlanRunParams(run, plan);
-    try {
-      await this.startRun(params, run.input?.origin);
-    } catch (cause) {
-      const runId = randomUUID();
-      const events = failedHostStartEvents(this.runs.values(), params, runId, cause);
-      await this.accept(params.threadId, 'run/start', params, { runId }, events, this.foldRows);
-    }
+  private startNextRun(
+    params: HostParams<'run/start'>,
+    origin: HostClientOrigin | undefined,
+    refused?: Error
+  ): Promise<boolean> {
+    return startHostNextRun(
+      this.runs.values(),
+      params,
+      () => this.startRun(params, origin),
+      (runId, events) =>
+        this.accept(params.threadId, 'run/start', params, { runId }, events, this.foldRows),
+      refused
+    );
   }
 
   private finish(
@@ -943,10 +952,15 @@ export class HostCore {
           commit();
           this.foldRows(rows);
         })
-    ).then(() => {
+    ).then(async () => {
       this.presentations.settle(run);
       const parent = this.children.deliveryParent(run) ?? (run.origin ? undefined : run.threadId);
-      if (parent && wakes && !(this.closing || this.deletions.has(parent))) {
+      // BST-1932: a child's human input runs next; only that run reports to the parent.
+      const open = wakes && !(this.closing || this.deletions.has(run.threadId));
+      const input = takeHostChildInput(run, outcome, open);
+      const next =
+        input && (await this.startNextRun(input.params, run.input?.origin, input.refused));
+      if (parent && wakes && !next && !(this.closing || this.deletions.has(parent))) {
         this.wake(parent);
       }
     });
