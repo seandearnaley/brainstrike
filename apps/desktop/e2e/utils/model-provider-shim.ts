@@ -65,6 +65,11 @@ export interface ModelProviderScript {
   readonly finalText: string;
   /** For a selector that begins a new scripted stage in an existing model turn. */
   readonly ignorePriorToolResults?: true;
+  /**
+   * Fail a streaming turn mid-stream: the response opens, then the provider's
+   * own stream error event carries this message, as a provider outage does.
+   */
+  readonly streamError?: string;
   /** Omit for a response-only turn, including native background wakeups. */
   readonly toolCall?: ScriptedToolCall;
   /** Emit successive tool turns as each preceding stage's results arrive. */
@@ -616,6 +621,56 @@ function responsesTurn(
   };
 }
 
+/** Answer one decided turn on its wire, streaming or not. */
+async function writeTurn(
+  response: ServerResponse,
+  wire: ModelProviderWire,
+  turn: ResolvedTurn,
+  model: string,
+  stream: boolean | undefined,
+  script: ModelProviderScript
+): Promise<void> {
+  if (wire === 'responses') {
+    await writeResponsesTurn(response, turn, model, stream, script);
+    return;
+  }
+  if (stream !== true) {
+    writeJsonCompletion(response, turn);
+    return;
+  }
+  if ('finalText' in turn) {
+    await script.beforeFinalText;
+    writeStreamingFinalText(response, turn.finalText);
+    return;
+  }
+  await writeStreamingToolCall(response, turn.calls, script.beforeToolFinish);
+}
+
+/** A streaming turn that opens, then fails with the provider's own error event. */
+function writeStreamError(
+  response: ServerResponse,
+  wire: ModelProviderWire,
+  model: string,
+  message: string
+): void {
+  writeEventStreamHead(response);
+  if (wire === 'responses') {
+    const opened = responsesTurn({ finalText: '' }, model).response;
+    response.write(sseChunk({ response: opened, type: 'response.created' }));
+    response.end(
+      sseChunk({
+        code: 'server_error',
+        message,
+        param: null,
+        ['sequence_number']: 1,
+        type: 'error',
+      })
+    );
+    return;
+  }
+  response.end(sseChunk({ error: { code: 'server_error', message, type: 'server_error' } }));
+}
+
 async function writeResponsesTurn(
   response: ServerResponse,
   turn: ResolvedTurn,
@@ -871,6 +926,21 @@ export async function startModelProviderShim(
         requests.push(decided);
         const selectedScript =
           typeof activeScript === 'function' ? activeScript(decided) : activeScript;
+        if (selectedScript.streamError !== undefined && stream === true) {
+          transcript.push({
+            decision: 'stream-error',
+            requestIndex: requestOrdinal,
+            roles: messageRoles(items, wire),
+            toolResultCount,
+          });
+          writeStreamError(
+            response,
+            wire,
+            model ?? 'e2e-scripted-model',
+            selectedScript.streamError
+          );
+          return;
+        }
         const turn = resolveTurn(selectedScript, toolResultCount);
         transcript.push({
           decision:
@@ -881,26 +951,14 @@ export async function startModelProviderShim(
           roles: messageRoles(items, wire),
           toolResultCount,
         });
-        if (wire === 'responses') {
-          await writeResponsesTurn(
-            response,
-            turn,
-            model ?? 'e2e-scripted-model',
-            stream,
-            selectedScript
-          );
-          return;
-        }
-        if (stream !== true) {
-          writeJsonCompletion(response, turn);
-          return;
-        }
-        if ('finalText' in turn) {
-          await selectedScript.beforeFinalText;
-          writeStreamingFinalText(response, turn.finalText);
-          return;
-        }
-        await writeStreamingToolCall(response, turn.calls, selectedScript.beforeToolFinish);
+        await writeTurn(
+          response,
+          wire,
+          turn,
+          model ?? 'e2e-scripted-model',
+          stream,
+          selectedScript
+        );
       })
       .catch((error: unknown) => {
         const message = error instanceof Error ? error.message : String(error);
