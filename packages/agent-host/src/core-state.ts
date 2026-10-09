@@ -261,7 +261,8 @@ export interface HostRunState {
   /** When each output committed (its row time), for artifact retention. */
   readonly outputCommittedAt: Map<string, number>;
   readonly outputs: Map<string, Json>;
-  owner?: Promise<HostRunOwner | undefined>;
+  /** The run's open owner (its public Memory); released once its close joins. */
+  owner?: Promise<HostRunOwner | undefined> | undefined;
   ownerClose?: Promise<void>;
   /** The owner joined all of its work, but some failed: this run's failed outcome. */
   ownerFailure?: unknown;

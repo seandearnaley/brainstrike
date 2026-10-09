@@ -401,6 +401,9 @@ export async function closeHostRunResources(run: HostRunState): Promise<void> {
       'Run resource cleanup failed'
     );
   }
+  // Core keeps every run of the process; a joined owner (public Memory, its
+  // observational memory and their WebAssembly hashers) must not outlive it.
+  run.owner = undefined;
 }
 
 /**
