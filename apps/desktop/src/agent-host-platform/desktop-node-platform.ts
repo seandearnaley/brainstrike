@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { isDeepStrictEqual } from 'node:util';
 import type { LocalLlmHostProgress } from '@brainstrike/agent/local-llm';
 import type {
   LocalEmbeddingHostClient,
@@ -12,16 +13,14 @@ import {
   type HostPlatform,
   type HostPlatformLaunchOptions,
   type HostRunAdmissionRequest,
-  type HostRunIntentRequest,
   type HostStartupContext,
   type ProductionHostRunConfiguration,
 } from '@brainstrike/agent-host';
-import type {
-  AssistantPersonaDefinition,
-  SupportedProvider,
-} from '@brainstrike/assistant-contract';
+import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
+import type { SupportedProvider } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
+import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
 import {
   getGlobalHooksPath,
@@ -41,43 +40,35 @@ import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
 import { mainPlatformConnection } from './connection';
 import { desktopHostSharedTools } from './desktop-host-shared-tools';
+import {
+  createDesktopRunAdmission,
+  type DesktopAdmissionReads,
+  type DesktopRunSelection,
+} from './desktop-run-admission';
 import { disposeHostTools, serveHostCommandSessions } from './host-tool-process';
 import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
 import { desktopMemoryPreconditions } from './memory-readiness';
 import { parentPlatformPort } from './parent-platform-port';
 import {
+  PlatformCatalogModelResultSchema,
   PlatformEmbeddingResultSchema,
   PlatformLocalGenerationResultSchema,
   PlatformLocalProgressSchema,
-  PlatformMemoryReadinessSchema,
-  PlatformPolicySchema,
+  PlatformMemoryVectorsResultSchema,
+  PlatformObserverCandidatesResultSchema,
+  PlatformPersistedPolicyResultSchema,
   PlatformRewindConflictsSchema,
   PlatformRewindOutcomesSchema,
   PlatformRewindPreviewResultSchema,
-  PlatformSelectionSchema,
   PlatformTurnSnapshotResultSchema,
+  PlatformWorkspaceAcquireResultSchema,
+  platformPermissionPolicy,
 } from './platform-wire';
 
-type PlatformSelection = z.output<typeof PlatformSelectionSchema>;
 const logger = createLogger('DesktopNodePlatform');
 
-async function parsePlatformSelection(
-  response: unknown,
-  release: () => Promise<unknown>
-): Promise<PlatformSelection> {
-  try {
-    return PlatformSelectionSchema.parse(response);
-  } catch (cause) {
-    try {
-      await release();
-    } catch (cleanup) {
-      throw new AggregateError([cause, cleanup], 'Platform response and cleanup failed');
-    }
-    throw cause;
-  }
-}
 function desktopRuntimeConfiguration(
-  selected: PlatformSelection
+  selected: DesktopRunSelection
 ): RuntimeData & { readonly provider: SupportedProvider } {
   const provider = selected.configuration.provider;
   if (!isSupportedProvider(provider)) {
@@ -101,22 +92,48 @@ function desktopRuntimeConfiguration(
   };
 }
 
-type PlatformRequest = (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
+export type PlatformRequest = (
+  method: string,
+  input: unknown,
+  signal?: AbortSignal
+) => Promise<unknown>;
 
 /** Each borrowed generation's progress listener, keyed by its request id. */
-type LocalProgressListeners = Map<string, (progress: LocalLlmHostProgress) => void>;
+export type LocalProgressListeners = Map<string, (progress: LocalLlmHostProgress) => void>;
+
+/** The local chat model and observer an admission may run on Main's llm-host. */
+function admittedLocalModels(selected: DesktopRunSelection): ReadonlySet<string> {
+  const models = new Set<string>();
+  if (selected.configuration.provider === 'local') {
+    models.add(selected.configuration.model);
+  }
+  const observation = selected.memory.settings.observationalMemory;
+  const observer = observation.enabled
+    ? parseObservationalMemoryModelTarget(observation.modelTarget)
+    : undefined;
+  if (observer?.provider === 'local') {
+    models.add(observer.model);
+  }
+  return models;
+}
 
 /**
  * ADR-0007: Node never runs local inference. A thread's admitted local chat
  * model, observer and recall embedder borrow Main's hidden hosts; JSON-RPC
  * cancellation carries the caller's signal, and progress notifications stream
- * the generation.
+ * the generation. Only what this admission admitted may borrow them.
  */
-function borrowedLocalInference(
-  /** Bound to the admission: each request names its selection. */
+export function borrowedLocalInference(
   request: PlatformRequest,
-  listeners: LocalProgressListeners
+  listeners: LocalProgressListeners,
+  selected: DesktopRunSelection
 ): { readonly embedding: LocalEmbeddingHostClient; readonly llm: LocalLlmHostClient } {
+  const models = admittedLocalModels(selected);
+  const admitted = (modelId: string): void => {
+    if (!models.has(modelId)) {
+      throw new Error('Local generation is not part of this admitted thread selection');
+    }
+  };
   const borrow = async (
     method: string,
     input: Record<string, unknown>,
@@ -134,63 +151,97 @@ function borrowedLocalInference(
   };
   return {
     embedding: {
-      queryEmbedding: async ({ query }, options) =>
-        PlatformEmbeddingResultSchema.parse(
-          await request('platform/embedding/query', { query }, options?.signal)
-        ),
+      queryEmbedding: async ({ query }, options) => {
+        const local = selected.localEmbedding;
+        if (!local) {
+          throw new Error('Local embedding is not part of this admitted thread selection');
+        }
+        const { workerPlan } = local;
+        return PlatformEmbeddingResultSchema.parse(
+          await request(
+            'platform/embedding/query',
+            {
+              request: {
+                dimensions: workerPlan.dimensions,
+                inferencePlan: workerPlan,
+                modelId: workerPlan.modelId,
+                modelKey: local.modelKey,
+                query,
+              },
+            },
+            options?.signal
+          )
+        );
+      },
     },
     llm: {
-      generate: async (generation, options) =>
-        PlatformLocalGenerationResultSchema.parse(
+      generate: async (generation, options) => {
+        admitted(generation.modelId);
+        return PlatformLocalGenerationResultSchema.parse(
           await borrow('platform/llm/generate', { ...generation }, options)
-        ),
+        );
+      },
       warmup: async (modelId, options) => {
+        admitted(modelId);
         await borrow('platform/llm/warmup', { modelId }, options);
       },
     },
   };
 }
 
-type PlatformDelegation = NonNullable<z.output<typeof PlatformSelectionSchema>['delegation']>;
-
-/** A persona from Main's wire, without the absent optional fields zod reports as undefined. */
-function platformPersona(
-  persona: PlatformDelegation['personas'][number]
-): AssistantPersonaDefinition {
-  const { mode, model, source, ...required } = persona;
+/**
+ * BST-1930 stage e: Main's facts, read over the private connection for the
+ * host's run admission. A workspace borrow is Main's until the host releases
+ * the lease it named.
+ */
+export function mainAdmissionReads(request: PlatformRequest): DesktopAdmissionReads {
   return {
-    ...required,
-    ...(mode ? { mode } : {}),
-    ...(model ? { model } : {}),
-    ...(source ? { source } : {}),
+    acquireWorkspace: async ({ binding, signal, threadId }) => {
+      const leaseId = randomUUID();
+      const { roots } = PlatformWorkspaceAcquireResultSchema.parse(
+        await request(
+          'platform/admission/workspace/acquire',
+          { binding, leaseId, threadId },
+          signal
+        )
+      );
+      let closing: Promise<void> | undefined;
+      return {
+        close: () =>
+          (closing ??= request('platform/admission/workspace/release', { leaseId }).then(
+            () => undefined
+          )),
+        revalidate: async (revalidation) => {
+          await request('platform/admission/workspace/revalidate', { leaseId }, revalidation);
+        },
+        roots,
+      };
+    },
+    catalogModel: async (target, signal) =>
+      PlatformCatalogModelResultSchema.parse(
+        await request('platform/admission/catalog-model', target, signal)
+      ),
+    enabledObservers: async (candidates, signal) =>
+      PlatformObserverCandidatesResultSchema.parse(
+        await request('platform/admission/observers', { candidates }, signal)
+      ),
+    liveWorkspaceRoots: async (signal) =>
+      CliWorkspaceRootsSchema.parse(await request('platform/admission/roots', {}, signal)),
+    memoryVectors: async (settings, signal) => {
+      const resolved = PlatformMemoryVectorsResultSchema.parse(
+        await request('platform/admission/memory-vectors', { settings }, signal)
+      );
+      return resolved
+        ? { profile: resolved.profile, ...(resolved.local ? { local: resolved.local } : {}) }
+        : undefined;
+    },
+    persistedPolicy: async () => {
+      const saved = PlatformPersistedPolicyResultSchema.parse(await request('platform/policy', {}));
+      return saved ? platformPermissionPolicy(saved) : undefined;
+    },
+    worktreesAvailable: async (signal) =>
+      z.boolean().parse(await request('platform/admission/worktrees', {}, signal)),
   };
-}
-
-/** BST-1932: the delegation Main resolved for this run, if it may delegate. */
-function platformDelegation(
-  delegation: PlatformDelegation | undefined
-): ProductionHostRunConfiguration['delegation'] {
-  return delegation
-    ? { personas: delegation.personas.map(platformPersona), settings: delegation.settings }
-    : undefined;
-}
-
-/** Electron-free production entry: Node owns the model loop, Memory and committed log. */
-/** The wire request for one admission, shared by `platform/admit` and memory readiness. */
-function platformRunIntent(intent: HostRunIntentRequest): Record<string, unknown> {
-  return {
-    ...(intent.configuration ? { configuration: intent.configuration } : {}),
-    ...(intent.snapshot ? { snapshot: intent.snapshot } : {}),
-    ...(intent.workspaceBinding ? { workspaceBinding: intent.workspaceBinding } : {}),
-    modelId: intent.modelId,
-    ...(intent.planMode ? { planMode: true } : {}),
-    ...(intent.prompt === undefined ? {} : { prompt: intent.prompt }),
-    threadId: intent.threadId,
-  };
-}
-
-function platformRunRequest(admission: HostRunAdmissionRequest): Record<string, unknown> {
-  return { ...platformRunIntent(admission), runId: admission.runId };
 }
 
 export async function createHostPlatform(
@@ -209,6 +260,14 @@ export async function createHostPlatform(
   });
   // One host-lifetime registry; its handles are scoped to their thread.
   const readFileCursorRegistry = new ReadWorkspaceFileCursorRegistry();
+  // The runs this host admitted and the bindings they hold, for their own revalidation.
+  const admittedRuns = new Map<
+    string,
+    {
+      readonly binding?: HostRunAdmissionRequest['workspaceBinding'];
+      readonly selection: DesktopRunSelection;
+    }
+  >();
   const request: PlatformRequest = async (method, input, signal) => {
     signal?.throwIfAborted();
     const cancellation = new CancellationTokenSource();
@@ -261,6 +320,8 @@ export async function createHostPlatform(
   if (!userDataDir) {
     throw new Error('The desktop agent host needs its app paths for MCP settings');
   }
+  // BST-1930 stage e: each run's admission is composed here, from Main's reads.
+  const runAdmission = createDesktopRunAdmission(mainAdmissionReads(request));
   const mcpHost = await createDesktopNodeMcpHost({
     connection,
     credentials: {
@@ -290,22 +351,11 @@ export async function createHostPlatform(
     memoryResourceIds: [WORKSPACE_MEMORY_RESOURCE_ID],
     providers: host.providers,
     readConfiguration: async (admission) => {
-      const response = await request(
-        'platform/admit',
-        platformRunRequest(admission),
-        admission.signal
-      );
-      const selected = await parsePlatformSelection(response, () =>
-        request('platform/release', { selectionRunId: admission.runId })
-      );
-      // BST-1932: everything bound at this admission names Main's selection by the
-      // admitting run; a child borrowing the admission sends that same run.
-      const bound: PlatformRequest = (method, input, signal) =>
-        request(
-          method,
-          { ...z.record(z.string(), z.unknown()).parse(input), selectionRunId: admission.runId },
-          signal
-        );
+      const selected = await runAdmission.readConfiguration(admission);
+      admittedRuns.set(admission.runId, {
+        ...(admission.workspaceBinding ? { binding: admission.workspaceBinding } : {}),
+        selection: selected,
+      });
       const configuration = desktopRuntimeConfiguration(selected);
       const provider = configuration.provider;
       let closing: Promise<void> | undefined;
@@ -319,10 +369,13 @@ export async function createHostPlatform(
         return host.auth.resolveProviderAuth(selectedProvider, admission.origin);
       };
       const closeSelection = (): Promise<void> =>
-        (closing ??= request('platform/release', { selectionRunId: admission.runId }).then(
-          () => undefined
-        ));
-      const local = borrowedLocalInference(bound, localProgress);
+        (closing ??= (async () => {
+          if (admittedRuns.get(admission.runId)?.selection === selected) {
+            admittedRuns.delete(admission.runId);
+          }
+          await selected.close();
+        })());
+      const local = borrowedLocalInference(request, localProgress, selected);
       let memory: ProductionHostRunConfiguration['memory'];
       try {
         memory = await createDesktopHostMemoryConfiguration(selected, resolveAuth, {
@@ -340,8 +393,9 @@ export async function createHostPlatform(
       // Every admitted tool runs here; Main executes none of them.
       const tools = desktopHostSharedTools({
         appPaths: platformOptions?.appPaths,
+        freshRoots: () => selected.freshWorkspaceRoots(),
         readFileCursorRegistry,
-        request: bound,
+        request,
         resolveTavilyApiKey: host.resolveTavilyApiKey,
         selected,
         threadId: admission.threadId,
@@ -358,14 +412,26 @@ export async function createHostPlatform(
       return {
         // Main's shadow-git owner brackets each run's turn for its Changes
         // review. Unsignalled: a stopped run's turn still ends with snapshots.
+        // A turn starts on the roots this admission holds, revalidated.
         captureTurnBoundary: async (boundary) =>
           PlatformTurnSnapshotResultSchema.parse(
-            await bound('platform/snapshot/capture', boundary)
+            await request(
+              'platform/snapshot/capture',
+              boundary.boundary === 'turn-start'
+                ? {
+                    ...boundary,
+                    roots: (await selected.freshWorkspaceRoots()).map(({ path, rootId }) => ({
+                      rootId,
+                      rootPath: path,
+                    })),
+                  }
+                : boundary
+            )
           ),
         childSystem: selected.childSystem,
         close: closeSelection,
         configuration,
-        delegation: platformDelegation(selected.delegation),
+        delegation: selected.delegation,
         durableConfiguration: selected.durableConfiguration,
         // An admitted local chat model generates in Main's hidden llm-host.
         localLlmHostClient: local.llm,
@@ -386,29 +452,17 @@ export async function createHostPlatform(
         toolTimeoutMs: selected.toolTimeoutMs,
       };
     },
-    // Main's admission preconditions, then the memory credentials, nothing acquired.
+    // The admission's preconditions, then the memory credentials, nothing acquired.
     readMemoryPreconditions: async (admission) => {
-      const readiness = PlatformMemoryReadinessSchema.parse(
-        await request('platform/memory/readiness', platformRunIntent(admission), admission.signal)
-      );
+      const readiness = await runAdmission.readMemoryReadiness(admission);
       return readiness.ready
         ? await desktopMemoryPreconditions(readiness, (provider) =>
             host.auth.resolveProviderAuth(provider, admission.origin)
           )
         : readiness;
     },
-    // Main supplies the existing policy owner; Core remains the only gate.
-    readPermissionPolicy: async (threadId) => {
-      const policy = PlatformPolicySchema.parse(
-        await request('platform/policy', { ...(threadId ? { threadId } : {}) })
-      );
-      return {
-        policies: policy.policies,
-        yolo: policy.yolo,
-        ...(policy.perToolOverrides ? { perToolOverrides: policy.perToolOverrides } : {}),
-        ...(policy.sessionGrants ? { sessionGrants: policy.sessionGrants } : {}),
-      };
-    },
+    // The saved policy, else the admitted run's; Core remains the only gate.
+    readPermissionPolicy: (threadId) => runAdmission.readPermissionPolicy(threadId),
     resolveProviderAuth: async () => {
       throw new Error('Desktop provider auth requires an admitted thread selection');
     },
@@ -433,12 +487,15 @@ export async function createHostPlatform(
     selectProjectionRewrites: selectHostProjectionRewrites,
     startup,
     validateWorkspaceBinding: async ({ binding, runId, signal, threadId }) => {
+      // An admission's check revalidates the binding that run itself holds.
+      const admitted = runId ? admittedRuns.get(runId) : undefined;
+      if (admitted?.selection.revalidateWorkspace && isDeepStrictEqual(admitted.binding, binding)) {
+        await admitted.selection.revalidateWorkspace(signal);
+        signal.throwIfAborted();
+        return;
+      }
       z.strictObject({ accepted: z.literal(true) }).parse(
-        await request(
-          'platform/workspace/validate',
-          { binding, ...(runId ? { selectionRunId: runId } : {}), threadId },
-          signal
-        )
+        await request('platform/workspace/validate', { binding, threadId }, signal)
       );
     },
   });

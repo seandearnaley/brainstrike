@@ -7,8 +7,6 @@ import { join } from 'node:path';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
 import type { LocalLlmHostClient } from '@brainstrike/agent/provider-runtime';
 import { type AgentHost, attachAgentHost, startAgentHost } from '@brainstrike/agent-host';
-import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
-import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import type { CatalogEmbeddingWorkerPlan } from '@brainstrike/embeddings/inference-plan';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import {
@@ -16,14 +14,15 @@ import {
   type PlatformMessagePort,
 } from '../agent-host-platform/connection';
 import { createHostPlatform } from '../agent-host-platform/desktop-node-platform';
+import type { DesktopAdmissionReads } from '../agent-host-platform/desktop-run-admission';
 import {
   type DesktopPlatformCapabilities,
-  type DesktopPlatformSelection,
   serveDesktopPlatform,
 } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
+import { type CapturedIntent, capturedIntent, mainReads } from './fixtures/desktop-admission-reads';
 import { desktopAppPaths } from './fixtures/desktop-host-profile';
 
 /** Same public MessageEvent shape as the Electron utility port, backed by real Node ports. */
@@ -52,52 +51,37 @@ const embeddingPlan: CatalogEmbeddingWorkerPlan = {
   modelId: 'Xenova/all-MiniLM-L6-v2',
 };
 
-type Memory = DesktopPlatformSelection['memory'];
-const settings: Memory['settings'] = {
-  observationalMemory: {
-    enabled: false,
-    messageTokens: 30_000,
-    modelTarget: 'openai/gpt-4.1-mini',
-    observationTokens: 40_000,
-    retrievalMode: 'off',
-    scope: 'thread',
-  },
-  semanticRecall: {
-    embeddingModelTarget: null,
-    enabled: false,
-    messageRange: 0,
-    scope: 'resource',
-    topK: 1,
-  },
-};
+const MODEL = { model: 'gpt-6-sol', provider: 'openai' } as const;
+type MemoryIntent = NonNullable<Parameters<typeof capturedIntent>[0]['memorySettings']>;
 
-function selection(
-  threadId: string,
-  memory: Partial<Memory>,
-  local?: Pick<DesktopPlatformSelection, 'localEmbedding'>
-): DesktopPlatformSelection {
+/** The composer's captured intent: the chat model, its memory settings, one step. */
+function intent(memorySettings: MemoryIntent = {}): CapturedIntent {
+  return capturedIntent({ ...MODEL, agentLoop: { maxSteps: 1 }, memorySettings });
+}
+
+/** Main's reads, recording the catalog read every admission and readiness starts with. */
+function recordingReads(
+  overrides: Partial<DesktopAdmissionReads> = {}
+): DesktopAdmissionReads & { readonly admissions: number; readonly preconditions: number } {
+  const counts = { admissions: 0, preconditions: 0 };
+  const reads = mainReads(overrides);
   return {
-    close: async () => undefined,
-    configuration: { model: 'gpt-6-sol', provider: 'openai' },
-    contextWindow: 128_000,
-    durableConfiguration: { model: 'gpt-6-sol', provider: 'openai', threadId },
-    freshWorkspaceRoots: async () => [],
-    inputTokenLimit: 64_000,
-    maxSteps: 1,
-    memory: {
-      options: {
-        lastMessages: 4,
-        workingMemory: { enabled: false, scope: 'thread', template: '' },
-      },
-      settings,
-      ...memory,
+    ...reads,
+    get admissions() {
+      return counts.admissions;
     },
-    nativeRuntime: { provider: 'openai', workspaceRoots: [] },
-    // The desktop host acquires vectors for the workspace memory resource only.
-    resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-    tools: {},
-    toolTimeoutMs: 5000,
-    ...local,
+    catalogModel: (...args: Parameters<DesktopAdmissionReads['catalogModel']>) => {
+      counts.preconditions += 1;
+      return reads.catalogModel(...args);
+    },
+    get preconditions() {
+      return counts.preconditions;
+    },
+    // Only a run's admission reads the worktree service.
+    worktreesAvailable: (signal: AbortSignal) => {
+      counts.admissions += 1;
+      return reads.worktreesAvailable(signal);
+    },
   };
 }
 
@@ -118,9 +102,9 @@ afterEach(() => {
 
 /** Real Main platform and Node host over a private channel; only inference is faked. */
 async function borrowedHost(
-  admit: (threadId: string) => DesktopPlatformSelection,
+  admission: DesktopAdmissionReads,
   local: Pick<DesktopPlatformCapabilities, 'localEmbedding' | 'localLlm'>,
-  readiness?: NonNullable<DesktopPlatformCapabilities['readMemoryReadiness']>
+  captured: CapturedIntent
 ) {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-local-inference-'));
   const channel = new MessageChannel();
@@ -128,10 +112,8 @@ async function borrowedHost(
   const nodePort = new UtilityPort(channel.port2);
   const mainOwner = serveDesktopPlatform(mainPlatformConnection(mainPort), {
     ...local,
+    admission,
     mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
-    readConfiguration: async (request) => admit(request.threadId),
-    ...(readiness ? { readMemoryReadiness: readiness } : {}),
-    readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
   });
   let host: AgentHost | undefined;
   let client: Awaited<ReturnType<typeof attachAgentHost>> | undefined;
@@ -162,13 +144,18 @@ async function borrowedHost(
   return {
     close,
     /** Memory readiness for the thread's next run, as the composer reads it before Send. */
-    memory(threadId: string) {
-      return attached.request('thread/memory/read', { modelId: 'openai::gpt-6-sol', threadId });
+    memory(threadId: string, configuration: CapturedIntent = captured) {
+      return attached.request('thread/memory/read', {
+        configuration,
+        modelId: 'openai::gpt-6-sol',
+        threadId,
+      });
     },
     async run(prompt: string) {
       const { threadId } = await attached.request('thread/start', { commandId: randomUUID() });
       await attached.request('run/start', {
         commandId: randomUUID(),
+        configuration: captured,
         modelId: 'openai::gpt-6-sol',
         prompt,
         threadId,
@@ -204,33 +191,18 @@ test('a local observational-memory observer runs through Main’s borrowed local
     usage: { completionTokens: 9, promptTokens: 40, totalTokens: 49 },
   }));
   const warmup = vi.fn<LocalLlmHostClient['warmup']>(async () => undefined);
-  const admitted: string[] = [];
-  const observed = (threadId: string): DesktopPlatformSelection =>
-    selection(threadId, {
-      settings: {
-        ...settings,
-        observationalMemory: {
-          ...settings.observationalMemory,
-          enabled: true,
-          // The committed prompt alone crosses this threshold (buffering needs >= 1 token).
-          messageTokens: 5,
-          modelTarget: `local/${observerModel}`,
-        },
-      },
-    });
-  const readiness = vi.fn<NonNullable<DesktopPlatformCapabilities['readMemoryReadiness']>>(
-    async (request) => {
-      const { memory, resourceId } = observed(request.threadId);
-      return { memory, ready: true, resourceId };
-    }
-  );
+  const reads = recordingReads();
   const host = await borrowedHost(
-    (threadId) => {
-      admitted.push(threadId);
-      return observed(threadId);
-    },
+    reads,
     { localLlm: { generate, warmup } },
-    readiness
+    intent({
+      observationalMemory: {
+        enabled: true,
+        // The committed prompt alone crosses this threshold (buffering needs >= 1 token).
+        messageTokens: 5,
+        modelTarget: `local/${observerModel}`,
+      },
+    })
   );
   try {
     // Before any run: only the preconditions run, so no selection and no observer warmup.
@@ -239,11 +211,11 @@ test('a local observational-memory observer runs through Main’s borrowed local
       admission: { ready: true },
       observational: { record: null, state: 'active' },
     });
-    expect(readiness).toHaveBeenCalledTimes(1);
-    expect(admitted).toEqual([]);
+    expect(reads.preconditions).toBe(1);
+    expect(reads.admissions).toBe(0);
     expect(warmup).not.toHaveBeenCalled();
     const { events, threadId } = await host.run('My favourite colour is teal.');
-    expect(admitted).toEqual([threadId]);
+    expect(reads.admissions).toBe(1);
     // Cold loads are warmed before the run, as legacy did.
     expect(warmup.mock.calls[0]?.[0]).toBe(observerModel);
     expect(generate.mock.calls[0]?.[0].modelId).toBe(observerModel);
@@ -272,7 +244,7 @@ test('a local observational-memory observer runs through Main’s borrowed local
       },
     });
     expect(warmup.mock.calls.length).toBe(warmups);
-    expect(admitted).toEqual([threadId]);
+    expect(reads.admissions).toBe(1);
   } finally {
     await host.close();
   }
@@ -281,53 +253,62 @@ test('a local observational-memory observer runs through Main’s borrowed local
 test('thread/memory/read shows a waiting observer, a missing credential and Main’s reason', async () => {
   // No real credential is read: the observer's provider has none in this profile.
   vi.stubEnv('ANTHROPIC_API_KEY', '');
-  const admit = vi.fn((threadId: string) => selection(threadId, {}));
-  let next: Awaited<ReturnType<NonNullable<DesktopPlatformCapabilities['readMemoryReadiness']>>> = {
-    ready: false,
-    reason: 'unset',
-  };
+  const reads = recordingReads({
+    // Main resolves a recall embedder only for settings that use one; its host is down.
+    memoryVectors: async (settings) => {
+      if (settings.semanticRecall.enabled) {
+        throw new Error('The embedding host is not running.');
+      }
+      return;
+    },
+  });
   const host = await borrowedHost(
-    admit,
+    reads,
     { localLlm: { generate: vi.fn(), warmup: vi.fn() } },
-    async () => next
+    intent()
   );
   try {
     const threadId = await host.thread();
-    const { memory, resourceId } = selection(threadId, {});
-    next = {
-      memory: { ...memory, observerAwaiting: 'no-hosted-chat-provider' },
-      ready: true,
-      resourceId,
-    };
-    expect(await host.memory(threadId)).toEqual({
+    // Auto observes with the chat provider's own candidates; the catalog enables none.
+    expect(
+      await host.memory(
+        threadId,
+        intent({ observationalMemory: { enabled: true, modelTarget: 'auto' } })
+      )
+    ).toEqual({
       admission: { ready: true },
-      observational: { reason: 'no-hosted-chat-provider', state: 'awaiting-observer' },
+      observational: { reason: 'model-not-eligible', state: 'awaiting-observer' },
     });
-    const observation = { ...settings.observationalMemory, enabled: true };
-    next = {
-      memory: {
-        ...memory,
-        settings: {
-          ...settings,
-          observationalMemory: { ...observation, modelTarget: 'anthropic/claude-haiku-4-5' },
-        },
-      },
-      ready: true,
-      resourceId,
-    };
     // The credential resolution the run's observer makes, named as legacy names it.
-    expect(await host.memory(threadId)).toEqual({
+    expect(
+      await host.memory(
+        threadId,
+        intent({
+          observationalMemory: { enabled: true, modelTarget: 'anthropic/claude-haiku-4-5' },
+        })
+      )
+    ).toEqual({
       admission: {
         ready: false,
         reason:
           'Observational memory requires a configured Anthropic API key. Configure it in Settings → Providers, choose a keyless local observer, or turn observations off.',
       },
     });
-    next = { ready: false, reason: 'The embedding host is not running.' };
-    expect(await host.memory(threadId)).toEqual({
+    // Main's own reason: the recall embedder it would resolve is unavailable.
+    expect(
+      await host.memory(
+        threadId,
+        intent({
+          semanticRecall: {
+            embeddingModelTarget: `local/${embeddingPlan.modelId}`,
+            enabled: true,
+          },
+        })
+      )
+    ).toEqual({
       admission: { ready: false, reason: 'The embedding host is not running.' },
     });
-    expect(admit).not.toHaveBeenCalled();
+    expect(reads.admissions).toBe(0);
   } finally {
     await host.close();
   }
@@ -340,35 +321,24 @@ test('local recall queries Main’s borrowed embedding host with the admitted sa
     options?.signal?.throwIfAborted();
     return Array.from({ length: embeddingPlan.dimensions }, (_, index) => (index ? 0 : 1));
   });
+  const recall = {
+    semanticRecall: { embeddingModelTarget: `local/${embeddingPlan.modelId}`, enabled: true },
+  };
   const host = await borrowedHost(
-    (threadId) =>
-      selection(
-        threadId,
-        {
-          settings: {
-            ...settings,
-            semanticRecall: {
-              ...settings.semanticRecall,
-              embeddingModelTarget: `local/${embeddingPlan.modelId}`,
-              enabled: true,
-            },
-          },
-          vectorProfile: {
-            dimensions: embeddingPlan.dimensions,
-            distance: 'cosine',
-            dtype: embeddingPlan.dtype,
-            modelId: embeddingPlan.modelId,
-            provider: 'local',
-          },
+    recordingReads({
+      memoryVectors: async () => ({
+        local: { modelKey: `local::${embeddingPlan.modelId}`, workerPlan: embeddingPlan },
+        profile: {
+          dimensions: embeddingPlan.dimensions,
+          distance: 'cosine',
+          dtype: embeddingPlan.dtype,
+          modelId: embeddingPlan.modelId,
+          provider: 'local',
         },
-        {
-          localEmbedding: {
-            modelKey: `local::${embeddingPlan.modelId}`,
-            workerPlan: embeddingPlan,
-          },
-        }
-      ),
-    { localEmbedding: { queryEmbedding } }
+      }),
+    }),
+    { localEmbedding: { queryEmbedding } },
+    intent(recall)
   );
   try {
     await host.run('Which city did I mention?');

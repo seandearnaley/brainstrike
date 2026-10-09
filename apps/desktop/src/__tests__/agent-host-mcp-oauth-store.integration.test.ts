@@ -10,10 +10,7 @@ import {
   type HostClient,
   startAgentHost,
 } from '@brainstrike/agent-host';
-import {
-  DEFAULT_PERMISSION_POLICIES,
-  parseConfiguredMcpServerId,
-} from '@brainstrike/assistant-contract';
+import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { createHostCredentials } from '@brainstrike/host-capabilities/credentials';
 import {
   createMcpOAuthStoreIdentity,
@@ -29,6 +26,7 @@ import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
+import { noRunAdmission } from './fixtures/desktop-admission-reads';
 import { desktopAppPaths, writeDesktopMcpConfig } from './fixtures/desktop-host-profile';
 
 /** Same public MessageEvent shape as the Electron utility port, backed by real Node ports. */
@@ -114,12 +112,8 @@ test('the host reads its MCP OAuth records from the profile store and its reset 
   const mainPort = new UtilityPort(channel.port1);
   const nodePort = new UtilityPort(channel.port2);
   const mainOwner = serveDesktopPlatform(mainPlatformConnection(mainPort), {
+    admission: noRunAdmission(),
     mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
-    readConfiguration: async () => {
-      throw new Error('This scenario admits no run');
-    },
-    // Gap 17's import capability; this scenario reads no legacy memory.
-    readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
   });
   let host: AgentHost | undefined;
   let desktop: HostClient | undefined;

@@ -311,7 +311,7 @@ export function desktopHostToolExecutors(
 ): Readonly<Record<string, NativeToolExecutor>> {
   const retrievalRootsOnly = native.retrievalRootsOnly === true;
   const nativeIndexSearch = hostIndexSearch(request, threadId);
-  const embeddingHostManager = hostQueryEmbedding(request, threadId);
+  const embeddingHostManager = hostQueryEmbedding(request);
   const store = hostRetrievalStore(request, threadId);
   return {
     ...retrievalToolExecutors(({ runtimeData }) => ({

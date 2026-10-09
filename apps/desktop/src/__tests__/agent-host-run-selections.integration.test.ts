@@ -1,15 +1,14 @@
 // @vitest-environment node
 /**
- * BST-1932: Main keys each platform selection by the run it admitted. A child
- * borrowing its parent's admission reaches Main under that run (here, through
- * its turn-start snapshot of the admitted roots), the thread's next run (or a
- * follow-up admitted for its root) admits beside a held selection, and each
- * selection is released once. The recorded defect: AT-06's background worker
- * reached Main after its root run's selection, keyed by thread, was gone
- * ("Platform thread has no admitted capabilities").
+ * BST-1930 stage e: the agent host composes each run's admission from the
+ * facts Main reads for it, and Main holds no selection. The catalog decides
+ * whether a model may run; Main's live roots are what the run admits; a child
+ * borrowing its parent's admission snapshots those roots at its turn start,
+ * from the roots the host sends; and the thread's next run admits beside it.
+ * Main is never asked to admit (`platform/admit`).
  */
 import { EventEmitter } from 'node:events';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
@@ -20,7 +19,6 @@ import {
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
 } from '@brainstrike/assistant-contract';
-import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import { createHostCredentials } from '@brainstrike/host-capabilities/credentials';
 import { RootLock, StateStore } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
@@ -29,11 +27,10 @@ import {
   type PlatformMessagePort,
 } from '../agent-host-platform/connection';
 import { createHostPlatform } from '../agent-host-platform/desktop-node-platform';
-import {
-  type DesktopPlatformSelection,
-  serveDesktopPlatform,
-} from '../agent-host-platform/main-platform';
+import type { DesktopAdmissionReads } from '../agent-host-platform/desktop-run-admission';
+import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
+import { FAILED_SNAPSHOT_CAPTURE_OID } from '../assistant-server/snapshot-repository';
 import { createSnapshotService } from '../assistant-server/snapshot-service';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
@@ -58,48 +55,59 @@ class UtilityPort extends EventEmitter implements PlatformMessagePort {
   }
 }
 
-/** A selection whose admitted roots report the run each read was served for. */
-function selection(close: () => Promise<void>, served: () => void): DesktopPlatformSelection {
+const MODEL = { model: 'gpt-6-sol', provider: 'openai' } as const;
+
+/** The intent the composer captured: no native tools, memory off, nothing to scan. */
+const INTENT = {
+  enabledNativeToolIds: [],
+  memoryOptions: {
+    lastMessages: DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
+    workingMemory: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
+  },
+  memorySettings: {
+    ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
+    observationalMemory: {
+      ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
+      enabled: false,
+    },
+    semanticRecall: { ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall, enabled: false },
+  },
+  modelConfiguration: MODEL,
+  permissionPolicy: { policies: DEFAULT_PERMISSION_POLICIES, yolo: false },
+  skillsPreference: { disabledSkillKeys: [], masterEnabled: false },
+  workspaceInstructionsPreference: { masterEnabled: false, oversizedOptInByRootId: {} },
+};
+
+/** Main's reads for this profile: one live root and a catalog whose model the test toggles. */
+function mainReads(
+  rootPath: string,
+  catalog: { enabled: boolean },
+  reads: string[]
+): DesktopAdmissionReads {
   return {
-    close,
-    configuration: { model: 'gpt-4o-mini', provider: 'openai' },
-    contextWindow: 128_000,
-    durableConfiguration: {},
-    freshWorkspaceRoots: async () => {
-      served();
-      return [];
+    acquireWorkspace: () => Promise.reject(new Error('This scenario binds no workspace')),
+    catalogModel: async (target) => {
+      reads.push(`catalog:${target.provider}::${target.model}`);
+      return { isEnabled: catalog.enabled, providerId: target.provider };
     },
-    inputTokenLimit: 24_000,
-    maxSteps: 5,
-    memory: {
-      options: {
-        lastMessages: DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
-        workingMemory: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
-      },
-      settings: {
-        ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-        observationalMemory: {
-          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
-          enabled: false,
-        },
-        semanticRecall: {
-          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
-          enabled: false,
-        },
-      },
+    enabledObservers: async () => [],
+    liveWorkspaceRoots: async () => {
+      reads.push('roots');
+      return [{ displayName: 'project', path: rootPath, rootId: 'project-root' }];
     },
-    nativeRuntime: { provider: 'openai', workspaceRoots: [] },
-    resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-    tools: {},
-    toolTimeoutMs: 5000,
+    memoryVectors: async () => undefined,
+    persistedPolicy: async () => undefined,
+    worktreesAvailable: async () => false,
   };
 }
 
-test('Main keys each admission by its run: a borrowing child reaches the admitting run, the thread’s next run admits beside it, and each selection is released once', async () => {
+test('the host admits each run from Main’s reads: the catalog decides, Main’s live roots are admitted, a borrowing child snapshots them, and Main admits nothing', async () => {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-run-selections-'));
+  const project = join(root, 'project');
+  await mkdir(project);
   const snapshots = createSnapshotService({
     runner: async () => {
-      throw new Error('No admitted root is snapshotted in this scenario');
+      throw new Error('The shadow store is unavailable in this scenario');
     },
     snapshotsBaseDir: join(root, 'shadow'),
   });
@@ -108,20 +116,17 @@ test('Main keys each admission by its run: a borrowing child reaches the admitti
   const nodePort = new UtilityPort(channel.port2);
   const connection = mainPlatformConnection(mainPort);
   const cleanup: (() => Promise<void>)[] = [];
-  const releases: string[] = [];
-  const served: string[] = [];
+  const catalog = { enabled: false };
+  const reads: string[] = [];
+  const admitted: string[] = [];
+  connection.onRequest('platform/admit', () => {
+    admitted.push('platform/admit');
+    throw new Error('Main admits no run');
+  });
   const main = serveDesktopPlatform(connection, {
+    admission: mainReads(project, catalog, reads),
     // Production's Main MCP stores; this scenario configures no MCP server.
     mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
-    readConfiguration: async (request) =>
-      selection(
-        async () => {
-          releases.push(request.runId);
-        },
-        () => served.push(request.runId)
-      ),
-    // Gap 17's import capability; this proof reads no legacy memory.
-    readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
     workspaceSnapshots: () => snapshots,
   });
   let store: StateStore | undefined;
@@ -152,32 +157,36 @@ test('Main keys each admission by its run: a borrowing child reaches the admitti
     }
     const admit = (runId: string) =>
       admitRun({
-        modelId: 'gpt-4o-mini',
+        configuration: INTENT,
+        modelId: `${MODEL.provider}::${MODEL.model}`,
         runId,
         signal: new AbortController().signal,
         threadId: 'root-thread',
       });
+    // The catalog decides: a disabled model is refused before anything is admitted.
+    await expect(admit('refused-run')).rejects.toThrow('The selected catalog model is disabled');
+    expect(reads).toEqual(['catalog:openai::gpt-6-sol']);
+    catalog.enabled = true;
+
     const first = await admit('root-run-1');
+    expect(reads).toContain('roots');
     const capture = first.captureTurnBoundary;
     if (!capture) {
       throw new Error('The admission has no turn boundary capture');
     }
-    // A child borrowing the root run's admission starts its turn under its own run and thread.
+    // A child borrowing the root run's admission snapshots Main's live root at its turn start.
     const childTurn = () =>
       capture({ boundary: 'turn-start', runId: 'child-run', threadId: 'child-thread' });
-    expect(await childTurn()).toEqual([]);
-    expect(served).toEqual(['root-run-1']);
-    // The thread's next run, or a follow-up admitted for its root, admits beside it.
+    expect(await childTurn()).toEqual([
+      { commitOid: FAILED_SNAPSHOT_CAPTURE_OID, rootId: 'project-root', rootPath: project },
+    ]);
+    // The thread's next run admits beside it; closing either leaves the other serving.
     const second = await admit('root-run-2');
     await second.close?.();
-    expect(releases).toEqual(['root-run-2']);
-    // The first selection still serves its borrowers until it is released, once.
-    expect(await childTurn()).toEqual([]);
-    expect(served).toEqual(['root-run-1', 'root-run-1']);
+    expect(await childTurn()).toHaveLength(1);
     await first.close?.();
     await first.close?.();
-    expect(releases).toEqual(['root-run-2', 'root-run-1']);
-    await expect(childTurn()).rejects.toThrow('Platform run has no admitted capabilities');
+    expect(admitted).toEqual([]);
   } finally {
     await platform?.close();
     await main.close();

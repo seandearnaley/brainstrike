@@ -3,7 +3,6 @@ import {
   HOST_OBSERVER_AWAITING_REASONS,
   HostRewindConflictSchema,
   HostRewindFileOutcomeSchema,
-  HostRunSnapshotSchema,
   HostTurnSnapshotRootSchema,
   HostTurnSnapshotSchema,
 } from '@brainstrike/agent-host/protocol';
@@ -20,7 +19,11 @@ import {
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
 import { z } from 'zod';
-import { QueryEmbeddingPayloadSchema, QueryEmbeddingResultSchema } from './retrieval-wire';
+import {
+  InferencePlanSchema,
+  QueryEmbeddingPayloadSchema,
+  QueryEmbeddingResultSchema,
+} from './retrieval-wire';
 
 const Id = z.string().min(1);
 const Decision = z.enum(PERMISSION_DECISIONS);
@@ -30,23 +33,8 @@ export const PlatformNativeChildSchema = z.strictObject({
   pid: z.number().int().positive(),
   start: z.string().min(1),
 });
-export const PlatformRunRequestSchema = z.strictObject({
-  configuration: z.record(z.string(), z.json()).optional(),
-  modelId: Id,
-  planMode: z.literal(true).optional(),
-  prompt: z.string().optional(),
-  /** The run this admission is for (HostRunAdmissionRequest.runId). */
-  runId: Id,
-  snapshot: HostRunSnapshotSchema.optional(),
-  threadId: Id,
-  workspaceBinding: ThreadWorkspaceBindingSchema.optional(),
-});
-/** A run's intent before any run exists (thread/memory/read): the request without its run. */
-export const PlatformRunIntentSchema = PlatformRunRequestSchema.omit({ runId: true });
 export const PlatformWorkspaceBindingRequestSchema = z.strictObject({
   binding: ThreadWorkspaceBindingSchema,
-  /** The run being admitted, whose selection is revalidated; a binding update names none. */
-  selectionRunId: Id.optional(),
   threadId: Id,
 });
 export const PlatformPolicySchema = z.strictObject({
@@ -335,7 +323,6 @@ export const PlatformLocalGenerationSchema = z.strictObject({
     .exactOptional(),
   /** Correlates the generation's `platform/llm/progress` notifications. */
   requestId: z.uuid(),
-  selectionRunId: Id,
 });
 /** One cumulative progress snapshot of a borrowed local generation or warmup. */
 export const PlatformLocalProgressSchema = z.strictObject({
@@ -363,36 +350,32 @@ export const PlatformLocalGenerationResultSchema = z.strictObject({
 export const PlatformLocalWarmupSchema = z.strictObject({
   modelId: Id,
   requestId: z.uuid(),
-  selectionRunId: Id,
 });
 /**
- * The one relay to Main's hidden embedding host (ADR-0007) for an admitted
- * thread: its local recall (`query`; Main supplies the admitted saved plan,
- * which never crosses the wire) or a retrieval tool's query (`request`, the
- * payload the tool resolved from Main's catalog). Either answers the vector.
+ * The one relay to Main's hidden embedding host (ADR-0007): a retrieval tool's
+ * query, or an admitted local recall embedder's with its plan. The host's
+ * admission decides which; Main answers the vector.
  */
-export const PlatformEmbeddingQuerySchema = z.union([
-  z.strictObject({ query: z.string(), selectionRunId: Id }),
-  z.strictObject({ request: QueryEmbeddingPayloadSchema, selectionRunId: Id, threadId: Id }),
-]);
+export const PlatformEmbeddingQuerySchema = z.strictObject({
+  request: QueryEmbeddingPayloadSchema,
+});
 export const PlatformEmbeddingResultSchema = QueryEmbeddingResultSchema;
 /**
- * A host run's turn boundary: its start snapshots the thread's admitted
- * roots; its end, after Main released the selection, the start's roots.
+ * A host run's turn boundary, with the roots it snapshots: at its start the
+ * roots its admission holds, at its end the start's roots. The host's
+ * admission owns them; Main snapshots what it is sent.
  */
-/** `selectionRunId` is the admitting run, whose selection's roots a turn start snapshots. */
 export const PlatformTurnSnapshotRequestSchema = z.discriminatedUnion('boundary', [
   z.strictObject({
     boundary: z.literal('turn-start'),
+    roots: z.array(HostTurnSnapshotRootSchema),
     runId: Id,
-    selectionRunId: Id,
     threadId: Id,
   }),
   z.strictObject({
     boundary: z.literal('turn-end'),
     roots: z.array(HostTurnSnapshotRootSchema).min(1),
     runId: Id,
-    selectionRunId: Id,
     threadId: Id,
   }),
 ]);
@@ -439,8 +422,8 @@ export const PlatformAuthSchema = z.union([
 ]);
 export type PlatformSelection = z.output<typeof PlatformSelectionSchema>;
 /**
- * thread/memory/read: the admission's pure preconditions, evaluated by Main
- * with nothing acquired. Not ready carries what `platform/admit` fails with.
+ * thread/memory/read: the admission's pure preconditions, with nothing
+ * acquired. Not ready carries what the admission fails with.
  */
 export const PlatformMemoryReadinessSchema = z.union([
   z.strictObject({ ready: z.literal(false), reason: z.string().min(1) }),
@@ -450,3 +433,30 @@ export const PlatformMemoryReadinessSchema = z.union([
     resourceId: Id,
   }),
 ]);
+
+/** BST-1930 stage e: the reads Main serves the host's run admission. */
+export const PlatformCatalogModelSchema = z.strictObject({ model: Id, provider: Id });
+export const PlatformCatalogModelResultSchema = z
+  .strictObject({ isEnabled: z.boolean(), providerId: Id })
+  .nullable();
+export const PlatformObserverCandidatesSchema = z.strictObject({ candidates: z.array(Id) });
+export const PlatformObserverCandidatesResultSchema = z.array(Id);
+export const PlatformMemoryVectorsSchema = z.strictObject({
+  settings: PlatformMemorySettingsSchema,
+});
+export const PlatformMemoryVectorsResultSchema = z
+  .strictObject({
+    /** A local recall embedder's exact plan, sent back with each borrowed query. */
+    local: z.strictObject({ modelKey: Id, workerPlan: InferencePlanSchema.strict() }).optional(),
+    profile: PlatformVectorProfileSchema,
+  })
+  .nullable();
+export const PlatformWorkspaceLeaseSchema = z.strictObject({ leaseId: z.uuid() });
+export const PlatformWorkspaceAcquireSchema = PlatformWorkspaceLeaseSchema.extend({
+  binding: ThreadWorkspaceBindingSchema,
+  threadId: Id,
+});
+export const PlatformWorkspaceAcquireResultSchema = z.strictObject({
+  roots: CliWorkspaceRootsSchema,
+});
+export const PlatformPersistedPolicyResultSchema = PlatformPolicySchema.nullable();

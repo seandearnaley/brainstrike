@@ -2,17 +2,17 @@ import { EventEmitter } from 'node:events';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
 import type { HostRunAdmissionRequest, HostTool } from '@brainstrike/agent-host';
 import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
-import { z } from 'zod';
 import {
   mainPlatformConnection,
   type PlatformMessagePort,
 } from '../../agent-host-platform/connection';
 import { desktopHostSharedTools } from '../../agent-host-platform/desktop-host-shared-tools';
+import { mainAdmissionReads } from '../../agent-host-platform/desktop-node-platform';
+import { createDesktopRunAdmission } from '../../agent-host-platform/desktop-run-admission';
 import {
   type DesktopPlatformCapabilities,
   serveDesktopPlatform,
 } from '../../agent-host-platform/main-platform';
-import { PlatformSelectionSchema } from '../../agent-host-platform/platform-wire';
 import { createDesktopMcpPlatformCapabilities } from '../../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../../mcp/main-host-control';
 
@@ -35,9 +35,9 @@ export class UtilityPort extends EventEmitter implements PlatformMessagePort {
 }
 
 /**
- * A host thread's tools on the production path: Main admits the run over its
- * platform connection, and the agent host's shared tools execute the admitted
- * descriptors through Main's reads on that same connection.
+ * A host thread's tools on the production path: the host admits the run from
+ * Main's reads over its platform connection, and the host's shared tools
+ * execute the admitted descriptors through Main's reads on that connection.
  */
 export async function admitHostTools(
   capabilities: Omit<DesktopPlatformCapabilities, 'mcp'>,
@@ -53,48 +53,38 @@ export async function admitHostTools(
     mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
   });
   client.listen();
-  const close = async (): Promise<void> => {
-    try {
-      await client.sendRequest('platform/release', { selectionRunId: request.runId });
-    } finally {
-      await owner.close();
-      client.dispose();
-      server.dispose();
-      mainPort.close();
-      hostPort.close();
-    }
+  const send = (method: string, input: unknown): Promise<unknown> =>
+    client.sendRequest(method, input);
+  const release = async (): Promise<void> => {
+    await owner.close();
+    client.dispose();
+    server.dispose();
+    mainPort.close();
+    hostPort.close();
   };
   try {
-    const selected = PlatformSelectionSchema.parse(
-      await client.sendRequest('platform/admit', {
-        ...(request.configuration ? { configuration: request.configuration } : {}),
-        modelId: request.modelId,
-        ...(request.planMode ? { planMode: true } : {}),
-        runId: request.runId,
-        threadId: request.threadId,
-      })
+    const selected = await createDesktopRunAdmission(mainAdmissionReads(send)).readConfiguration(
+      request
     );
     return {
-      close,
+      close: async () => {
+        try {
+          await selected.close();
+        } finally {
+          await release();
+        }
+      },
       tools: desktopHostSharedTools({
+        freshRoots: () => selected.freshWorkspaceRoots(),
         readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
-        // As production binds it: every request names the admitting run's selection.
-        request: (method, input) =>
-          client.sendRequest(method, {
-            ...z.record(z.string(), z.unknown()).parse(input),
-            selectionRunId: request.runId,
-          }),
+        request: send,
         resolveTavilyApiKey: async () => undefined,
         selected,
         threadId: request.threadId,
       }),
     };
   } catch (cause) {
-    await owner.close();
-    client.dispose();
-    server.dispose();
-    mainPort.close();
-    hostPort.close();
+    await release();
     throw cause;
   }
 }

@@ -107,9 +107,9 @@ vi.mock(
 );
 
 import { PlatformClientConfigurationSchema } from '../agent-host-platform/platform-wire';
-import { productionDesktopCapabilities } from '../agent-host-platform/production-desktop-capabilities';
 // Recorded from these admissions through Main's tool builders, before Main stopped building tools.
 import recorded from './fixtures/admitted-tool-descriptors.json';
+import { desktopAdmission } from './fixtures/desktop-admission';
 
 let directory = '';
 
@@ -204,7 +204,7 @@ const ADMISSIONS = {
 test('Main describes each admission’s tools exactly as recorded from real admissions', async () => {
   const observed: Record<string, unknown> = {};
   for (const [name, admission] of Object.entries(ADMISSIONS)) {
-    const captured = await productionDesktopCapabilities({
+    const captured = await desktopAdmission({
       resolveForgeService: () => null,
       resolveWorktreeService: () => (admission.worktrees ? (worktreeService as never) : null),
     }).readConfiguration(admission.request);
@@ -218,7 +218,7 @@ test('Main describes each admission’s tools exactly as recorded from real admi
 });
 
 test('Main’s admission loads no tool executor code: it describes, the host executes', async () => {
-  const captured = await productionDesktopCapabilities({
+  const captured = await desktopAdmission({
     resolveForgeService: () => null,
     resolveWorktreeService: () => worktreeService as never,
   }).readConfiguration(ADMISSIONS.hosted.request);

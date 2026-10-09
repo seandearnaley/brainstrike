@@ -62,7 +62,7 @@ async function createObserverModel(
 
 /** Materialize public Memory options from the admitted, non-secret selection. */
 export async function createDesktopHostMemoryConfiguration(
-  selection: z.output<typeof PlatformSelectionSchema>,
+  selection: Pick<z.output<typeof PlatformSelectionSchema>, 'memory' | 'resourceId'>,
   resolveProviderAuth: (provider: string) => Promise<ProviderAuthInput | undefined>,
   local?: DesktopHostLocalInference
 ): Promise<ProductionHostRunConfiguration['memory']> {
