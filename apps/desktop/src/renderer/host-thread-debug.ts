@@ -12,6 +12,7 @@ import {
 } from '@brainstrike/app-shell';
 import type { DebugBundleBinding } from '@brainstrike/assistant-ui';
 import { z } from 'zod';
+import { readDesktopRunConfiguration } from './desktop-run-configuration';
 import { catalogModel, tokensOf } from './host-thread-ledger';
 import { STATUS_BY_OUTCOME } from './host-thread-runs';
 
@@ -22,13 +23,6 @@ type RunStarted = Extract<HostEvent, { type: 'run.started' }>;
 /** The legacy bundle's bounds: its newest 40 transcript messages and 500 timeline events. */
 const TRANSCRIPT_MESSAGES = 40;
 const TIMELINE_EVENTS = 500;
-
-/** What the run's captured configuration says about generation, when it was captured. */
-const CapturedModelConfigurationSchema = z.object({
-  modelConfiguration: z
-    .object({ modelSettings: z.json().optional(), providerOptions: z.json().optional() })
-    .optional(),
-});
 
 /** AI SDK response messages, as a model.step commits them. */
 const StepMessageSchema = z.object({ content: z.json(), role: z.string() });
@@ -75,10 +69,7 @@ function bundleRun(
   finished: HostLogRow | undefined
 ): BundleRun {
   const model = catalogModel(started.event.modelId);
-  const captured = CapturedModelConfigurationSchema.safeParse(
-    started.event.snapshot?.configuration ?? {}
-  );
-  const generation = captured.success ? captured.data.modelConfiguration : undefined;
+  const generation = readDesktopRunConfiguration(started.event)?.intent?.modelConfiguration;
   const outcome = finished?.event.type === 'run.finished' ? finished.event : undefined;
   return {
     completedAt: finished ? iso(finished) : null,
