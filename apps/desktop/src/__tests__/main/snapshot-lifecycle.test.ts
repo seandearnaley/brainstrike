@@ -53,6 +53,7 @@ function setup() {
       deadThreadsPruned: [],
       failures: [],
       historyPrunedRoots: [],
+      hostRingTrimmed: [],
       refOnlyPruned: [],
       ringTrimmed: [],
       skippedInaccessibleRoots: [],
@@ -85,6 +86,7 @@ describe('snapshot startup lifecycle', () => {
       db: database,
       liveRoots: [{ path: '/workspace', rootId: 'root-1' }],
       readHostThreadIds,
+      readThreadChain: expect.any(Function),
       snapshotRepository: expect.any(Object),
       snapshotService: service,
     });
@@ -127,6 +129,7 @@ describe('snapshot startup lifecycle', () => {
       deadThreadsPruned: [],
       failures: [failure],
       historyPrunedRoots: [],
+      hostRingTrimmed: [],
       refOnlyPruned: [],
       ringTrimmed: [],
       skippedInaccessibleRoots: ['/offline'],

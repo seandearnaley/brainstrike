@@ -1,5 +1,7 @@
 import type { createLogger } from '@brainstrike/logging';
 import type { EditCheckpointDatabase } from '../assistant-server/edit-checkpoint-journal';
+import { listThreadSnapshotChain } from '../assistant-server/snapshot-chains';
+import { execFileSnapshotGitRunner } from '../assistant-server/snapshot-git';
 import { createSnapshotRepository } from '../assistant-server/snapshot-repository';
 import type { SnapshotService } from '../assistant-server/snapshot-service';
 import { runSnapshotStartupGc } from '../assistant-server/snapshot-startup-gc';
@@ -78,6 +80,9 @@ export function startSnapshotStartupMaintenance({
         db: gcDatabase,
         liveRoots: rootRows.rows.map((row) => ({ path: row.path, rootId: row.id })),
         readHostThreadIds,
+        // Host chains are trimmed from the shadow repo itself, never the host's log.
+        readThreadChain: (handle, threadId) =>
+          listThreadSnapshotChain(execFileSnapshotGitRunner, handle, threadId),
         snapshotRepository: createSnapshotRepository(gcDatabase),
         snapshotService,
       });
@@ -95,6 +100,7 @@ export function startSnapshotStartupMaintenance({
         deadThreadsPruned: gcReport.deadThreadsPruned.length,
         failures: gcReport.failures.length,
         historyPrunedRoots: gcReport.historyPrunedRoots,
+        hostRingTrimmed: gcReport.hostRingTrimmed,
         refOnlyPruned: gcReport.refOnlyPruned.length,
         ringTrimmed: gcReport.ringTrimmed,
         skippedInaccessibleRoots: gcReport.skippedInaccessibleRoots.length,
