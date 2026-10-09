@@ -133,7 +133,10 @@ test.for([
         await expect(StateStore.open(root)).rejects.toBeInstanceOf(RootLockedError);
         await expect(core.close()).rejects.toBeInstanceOf(AggregateError);
       } else {
-        expect(deletion).toEqual({ status: 'fulfilled', value: { deleted: true } });
+        expect(deletion).toEqual({
+          status: 'fulfilled',
+          value: { deleted: true, threadIds: [threadId] },
+        });
         expect(erase).toHaveBeenCalledOnce();
         expect(await store.threads()).not.toContain(threadId);
       }

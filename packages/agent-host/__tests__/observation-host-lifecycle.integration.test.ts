@@ -480,7 +480,10 @@ test.each(['Stop', 'deletion', 'Root close'] as const)(
         expect(outcome).toEqual({ status: 'fulfilled', value: { outcome: 'stopped' } });
       }
       if (operation === 'deletion') {
-        expect(outcome).toEqual({ status: 'fulfilled', value: { deleted: true } });
+        expect(outcome).toEqual({
+          status: 'fulfilled',
+          value: { deleted: true, threadIds: [ids.threadId] },
+        });
         expect(await f.store?.threads()).not.toContain(ids.threadId);
       }
       await f.host.close();

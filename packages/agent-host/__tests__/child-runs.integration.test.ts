@@ -314,7 +314,11 @@ test('deleting a parent thread deletes its child threads through the same host d
     (await client.request('thread/read', { fromSeq: 0, threadId: child })).rows.length
   ).toBeGreaterThan(0);
 
-  expect(await client.request('thread/delete', { threadId })).toEqual({ deleted: true });
+  // The deletion names its whole subtree: the child, then the thread that delegated it.
+  expect(await client.request('thread/delete', { threadId })).toEqual({
+    deleted: true,
+    threadIds: [child, threadId],
+  });
   await expect(client.request('thread/read', { fromSeq: 0, threadId: child })).rejects.toThrow(
     'Unknown thread'
   );
