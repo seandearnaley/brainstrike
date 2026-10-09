@@ -1506,6 +1506,13 @@ if (singleInstanceLockAcquired) {
       const reportInitialNativeFailure = createNativeStartupFailureReporter((error) =>
         reportNativeIndexActivationError('Native index activation unavailable', error)
       );
+      // Threads use the profile even when search has no selected catalog. Start
+      // its existing owner before catalog discovery and renderer hydration.
+      void nativeIndexActivation
+        .acquireProfile()
+        .catch((error: unknown) =>
+          reportNativeIndexActivationError('Agent host profile unavailable', error)
+        );
       void nativeIndexActivation.acquire().catch(reportInitialNativeFailure);
       const nativeReaderStartup = observeNativeReaderStartup(
         nativeIndexActivation.acquireRead(),
