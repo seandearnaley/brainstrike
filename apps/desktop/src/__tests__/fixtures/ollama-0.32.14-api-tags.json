@@ -1,0 +1,134 @@
+{
+  "models": [
+    {
+      "name": "gemma4:31b",
+      "model": "gemma4:31b",
+      "modified_at": "2026-04-03T18:54:12.699337755-04:00",
+      "size": 19868981791,
+      "digest": "6316f0629137b426c9d9b853ffc4c8209589f30ee39aebede6285096c0ff47e7",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "gemma4",
+        "families": [
+          "gemma4"
+        ],
+        "parameter_size": "31.3B",
+        "quantization_level": "Q4_K_M"
+      },
+      "capabilities": [
+        "completion",
+        "tools",
+        "thinking"
+      ]
+    },
+    {
+      "name": "glm-4.7-flash:latest",
+      "model": "glm-4.7-flash:latest",
+      "modified_at": "2026-01-25T12:39:21.821174856-05:00",
+      "size": 19019270852,
+      "digest": "d1a8a26252f18b34301218d22abd2620a65b85ba4b78987842eb157e01321222",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "glm4moelite",
+        "families": [
+          "glm4moelite"
+        ],
+        "parameter_size": "29.9B",
+        "quantization_level": "Q4_K_M",
+        "context_length": 202752,
+        "embedding_length": 2048
+      },
+      "capabilities": [
+        "completion",
+        "tools",
+        "thinking"
+      ]
+    },
+    {
+      "name": "x/flux2-klein:9b",
+      "model": "x/flux2-klein:9b",
+      "modified_at": "2026-01-21T23:35:25.207626858-05:00",
+      "size": 11972505574,
+      "digest": "5fd79ad76b030bd49221204a77f9f724ee1fba9b02d2e924387eccb9e639ef8c",
+      "details": {
+        "parent_model": "",
+        "format": "safetensors",
+        "family": "",
+        "families": null,
+        "parameter_size": "",
+        "quantization_level": ""
+      },
+      "capabilities": [
+        "image"
+      ]
+    },
+    {
+      "name": "x/z-image-turbo:latest",
+      "model": "x/z-image-turbo:latest",
+      "modified_at": "2026-01-21T23:33:00.852216945-05:00",
+      "size": 12773500825,
+      "digest": "1053737ea587b4be349daf02eb9fd19ba76a6acd872c4b709854303147feda3d",
+      "details": {
+        "parent_model": "",
+        "format": "safetensors",
+        "family": "",
+        "families": null,
+        "parameter_size": "",
+        "quantization_level": ""
+      },
+      "capabilities": [
+        "image"
+      ]
+    },
+    {
+      "name": "lfm2.5-thinking:latest",
+      "model": "lfm2.5-thinking:latest",
+      "modified_at": "2026-01-21T23:16:12.931371073-05:00",
+      "size": 731163903,
+      "digest": "95bd9d45385f33bfe96d8b3651c8569e152f21f5bdb7c19894ffde650e9cf140",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "lfm2",
+        "families": [
+          "lfm2"
+        ],
+        "parameter_size": "1.2B",
+        "quantization_level": "Q4_K_M",
+        "context_length": 128000,
+        "embedding_length": 2048
+      },
+      "capabilities": [
+        "completion",
+        "tools",
+        "thinking"
+      ]
+    },
+    {
+      "name": "qwen3:30b",
+      "model": "qwen3:30b",
+      "modified_at": "2025-09-08T23:45:19.972359136-04:00",
+      "size": 18556699301,
+      "digest": "e50831eb2d919df6268f18bc3cec980d597ae27e98c3308f90a0ec4941b64f28",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "qwen3moe",
+        "families": [
+          "qwen3moe"
+        ],
+        "parameter_size": "30.5B",
+        "quantization_level": "Q4_K_M",
+        "context_length": 262144,
+        "embedding_length": 2048
+      },
+      "capabilities": [
+        "completion",
+        "tools",
+        "thinking"
+      ]
+    }
+  ]
+}

@@ -453,6 +453,14 @@ async function handle(m) {
         'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
       ).run(m['key'], m['value']);
       return {};
+    case 'getSetting':
+      return {
+        value: db.prepare('SELECT value FROM settings WHERE key = ?').pluck().get(m['key']) ?? null,
+      };
+    case 'deleteSetting':
+      return {
+        deleted: db.prepare('DELETE FROM settings WHERE key = ?').run(m['key']).changes > 0,
+      };
     case 'putBlob':
       putBlob(String(m['hash']), String(m['content']));
       return {};

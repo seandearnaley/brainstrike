@@ -35,6 +35,10 @@ export {
   committedApprovalOptions,
 } from './committed-approval-options';
 export {
+  CommittedApprovalStrip,
+  type CommittedPendingApproval,
+} from './committed-approval-strip';
+export {
   CommittedAssistantConversation,
   type CommittedAssistantConversationProps,
 } from './committed-assistant-conversation';
@@ -152,6 +156,7 @@ export {
   SubagentInvocationResolverContext,
   SubagentLiveInvocationContext,
 } from './subagent-conversation-navigation';
+export { personaLabelForToolName } from './subagent-persona-label';
 export {
   type ThreadMessageNavigation,
   ThreadMessageNavigationContext,

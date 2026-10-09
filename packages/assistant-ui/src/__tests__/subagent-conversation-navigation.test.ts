@@ -73,3 +73,28 @@ it('resolves the exact persisted native invocation across pending child history 
     readSubagentInvocationRun([event('native-parent', 'a'), event('wrong-parent', 'a')], 'a')
   ).toEqual({ error: 'Conflicting native invocation addresses.', kind: 'invalid' });
 });
+
+it('reads the agent host child thread from its delegation result and rejects a conflicting address', () => {
+  const started = { childThreadId: 'cedar', status: 'started', text: 'Background task started.' };
+  expect(readSubagentConversationAddress([], 'a', started)).toEqual({
+    kind: 'available',
+    threadId: 'cedar',
+  });
+  expect(readSubagentConversationAddress([], 'a', { ...started, childThreadId: '' }).kind).toBe(
+    'invalid'
+  );
+  expect(readSubagentConversationAddress([part('a', 'willow')], 'a', started)).toEqual({
+    error: 'Conflicting child conversation addresses.',
+    kind: 'invalid',
+  });
+});
+
+it('resolves an agent host invocation from the run its message answers', () => {
+  const host = { custom: { hostRunId: 'host-run' } };
+  expect(readSubagentInvocationRun([], 'a', host)).toEqual({
+    kind: 'available',
+    parentRuntimeRunId: 'host-run',
+  });
+  expect(readSubagentInvocationRun([], 'a', { custom: {} })).toEqual({ kind: 'unavailable' });
+  expect(readSubagentInvocationRun([], 'a', { custom: { hostRunId: '' } }).kind).toBe('invalid');
+});

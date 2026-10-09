@@ -4,6 +4,7 @@ import {
   buildCurrentDateNote,
   buildDefaultInstructions,
   buildLocalDefaultInstructions,
+  type DelegationPersonaSummary,
   filterToolsForPlanMode,
   formatSkillsCatalog,
   injectWorkspaceRootManifestContext,
@@ -37,9 +38,23 @@ export function desktopPlanModeTools<
   );
 }
 
+/** The root run's system text, and the host context a delegated child receives. */
+export interface DesktopHostSystemContext {
+  /** BST-1932: date, skills and injected workspace context, never the root's supervisor text. */
+  readonly childSystem?: string | undefined;
+  readonly system?: string | undefined;
+}
+
+function joinedSections(sections: readonly (string | null | undefined)[]): string | undefined {
+  const text = sections.filter((section): section is string => Boolean(section)).join('\n\n');
+  return text || undefined;
+}
+
 /** Existing readers and public vendor formatting; this creates no transcript or loop. */
 export async function readDesktopHostSystemContext(options: {
   readonly inputTokenLimit: number;
+  /** BST-1932: the personas the run may delegate to, named in the supervisor instructions. */
+  readonly personas?: readonly DelegationPersonaSummary[];
   /** Plan mode: the instructions say the run may only read and propose a plan. */
   readonly planMode: boolean;
   readonly readWorkspaceFile?: WorkspaceFileReader;
@@ -47,14 +62,21 @@ export async function readDesktopHostSystemContext(options: {
   readonly runtime: RuntimeData;
   readonly tools: Readonly<Record<string, HostTool>>;
   readonly workspaceSkills?: ScannedWorkspaceSkills;
-}): Promise<string | undefined> {
+}): Promise<DesktopHostSystemContext> {
   if (options.request.snapshot) {
-    // Recovery consumes the already committed text, without re-reading files.
-    return z.string().optional().parse(options.request.snapshot.configuration['system']);
+    // Recovery (and a wake) consumes the already committed text, without re-reading files.
+    const committed = options.request.snapshot.configuration;
+    const system = z.string().optional().parse(committed['system']);
+    const childSystem = z.string().optional().parse(committed['childSystem']);
+    return {
+      ...(childSystem === undefined ? {} : { childSystem }),
+      ...(system === undefined ? {} : { system }),
+    };
   }
   const names = new Map(
     Object.entries(options.tools).map(([name, tool]) => [name, tool.permissionToolId ?? name])
   );
+  const date = buildCurrentDateNote(new Date());
   const sections: (string | null)[] = [
     options.runtime.provider === 'local'
       ? buildLocalDefaultInstructions(names)
@@ -68,10 +90,14 @@ export async function readDesktopHostSystemContext(options: {
               provider: options.runtime.provider,
               tools: options.tools,
             }),
+          ...(options.personas?.length
+            ? { backgroundDelegation: true, personas: options.personas }
+            : {}),
         }),
-    buildCurrentDateNote(new Date()),
+    date,
     buildContextBudgetNote(options.inputTokenLimit),
   ];
+  const shared: (string | null)[] = [date];
   const skills = options.workspaceSkills;
   if (skills) {
     const entries = await Promise.all(
@@ -90,6 +116,7 @@ export async function readDesktopHostSystemContext(options: {
     );
     if (entries.length > 0) {
       sections.push(formatSkillsCatalog(entries));
+      shared.push(formatSkillsCatalog(entries));
     }
   }
   let messages: AgentMessage[] = [
@@ -107,13 +134,18 @@ export async function readDesktopHostSystemContext(options: {
   messages = await injectWorkspaceInstructionsContext(messages, options.runtime, readFile);
   // The legacy per-turn workspace topology: root selectors, main root and focused root.
   messages = injectWorkspaceRootManifestContext(messages, options.runtime);
-  sections.push(
-    ...messages
-      .filter((message) => message.role === 'system')
-      .map((message) =>
-        message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('')
-      )
-  );
+  const injected = messages
+    .filter((message) => message.role === 'system')
+    .map((message) =>
+      message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('')
+    );
   options.request.signal.throwIfAborted();
-  return sections.filter((section): section is string => Boolean(section)).join('\n\n');
+  const system = joinedSections([...sections, ...injected]);
+  const childSystem = options.personas?.length
+    ? joinedSections([...shared, ...injected])
+    : undefined;
+  return {
+    ...(childSystem === undefined ? {} : { childSystem }),
+    ...(system === undefined ? {} : { system }),
+  };
 }

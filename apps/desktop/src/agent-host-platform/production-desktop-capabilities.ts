@@ -2,7 +2,6 @@ import { homedir } from 'node:os';
 import { isDeepStrictEqual } from 'node:util';
 import {
   createAssistantSkillTools,
-  isSupportedProvider,
   type RuntimeData,
   resolveAssistantResilienceConfig,
   type ScopedToolOutputArtifactReader,
@@ -11,7 +10,12 @@ import {
   DEFAULT_AGENT_MAX_STEPS,
   resolveScaledToolResultBudget,
 } from '@brainstrike/agent/tool-runtime';
-import type { HostRunAdmissionRequest, HostTool, HostToolContext } from '@brainstrike/agent-host';
+import type {
+  HostDelegation,
+  HostRunAdmissionRequest,
+  HostTool,
+  HostToolContext,
+} from '@brainstrike/agent-host';
 import {
   CliWorkspaceRootsSchema,
   materializeCliWorkspaceIntent,
@@ -28,12 +32,15 @@ import {
   DESKTOP_NATIVE_TOOLS,
   deriveAgentLoopInputTokenLimit,
   findLlmModelDefinition,
+  findProviderDefinition,
   isPermissionDenied,
+  isSupportedProvider,
   NATIVE_TOOL_ID,
   resolveAutoObservationalMemoryModelTarget,
   resolveToolRiskCategory,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
+import { DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW } from '@brainstrike/assistant-contract/context-budget';
 import { listEmbeddingModels } from '@brainstrike/assistant-contract/provider-metadata';
 import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
@@ -47,17 +54,29 @@ import {
   buildDesktopAssistantTools,
   type DesktopAssistantToolDependencies,
 } from '../assistant-server/assistant-tools';
+import { mainBrowserToolRunner } from '../assistant-server/browser-agent-tools';
 import { pgliteGrepIndex } from '../assistant-server/grep-search-tool';
-import { prepareRequestSkills } from '../assistant-server/request-skills';
+import { mainDiagnosticsReader } from '../assistant-server/query-diagnostics-tool';
+import { mainQuerySelfRead } from '../assistant-server/query-self-tool';
+import {
+  type PreparedAdmittedSkills,
+  prepareAdmittedSkills,
+} from '../assistant-server/request-skills';
 import { pgliteRetrievalStore } from '../assistant-server/retrieval-store-pglite';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
+import { mainWorkspaceContextBroadcaster } from '../assistant-server/workspace-context-broadcast';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
 import {
   type DesktopWorktreeServices,
   desktopWorktreeToolDependencies,
 } from '../assistant-server/worktree-tool-dependencies';
 import { getDatabase } from '../db-main';
-import { desktopPlanModeTools, readDesktopHostSystemContext } from './desktop-host-context';
+import {
+  type DesktopHostSystemContext,
+  desktopPlanModeTools,
+  readDesktopHostSystemContext,
+} from './desktop-host-context';
+import { resolveDesktopHostDelegation } from './desktop-host-delegation';
 import type {
   DesktopWorkspaceBindingAuthority,
   DesktopWorkspaceBindingBorrow,
@@ -66,6 +85,7 @@ import type { DesktopShellCorrelation, HostToolServiceCapabilities } from './hos
 import type { DesktopPlatformCapabilities, DesktopPlatformSelection } from './main-platform';
 import { resolveDesktopMemoryVectors } from './memory-vector-selection';
 import {
+  PlatformAdmittedSkillSchema,
   PlatformClientConfigurationSchema,
   PlatformModelConfigurationSchema,
   PlatformWorkspaceContextSchema,
@@ -122,7 +142,7 @@ function desktopRetrievalScopeFields(
 function desktopDurableConfiguration(
   intent: z.output<typeof PlatformClientConfigurationSchema>,
   observerTarget: string | null,
-  system: string | undefined,
+  { childSystem, system }: DesktopHostSystemContext,
   cliWorkspaceRoots?: RuntimeData['workspaceRoots'],
   boundWorkspaceRoots?: RuntimeData['workspaceRoots']
 ): DesktopPlatformSelection['durableConfiguration'] {
@@ -133,6 +153,7 @@ function desktopDurableConfiguration(
         ...(cliWorkspaceRoots ? { cliWorkspaceRoots } : {}),
         ...(boundWorkspaceRoots ? { boundWorkspaceRoots } : {}),
         ...desktopSystemFields(system),
+        ...(childSystem === undefined ? {} : { childSystem }),
         memoryResolution: {
           observationalMemory: desktopObservationResolution(
             intent.memorySettings.observationalMemory.enabled,
@@ -169,6 +190,25 @@ function desktopObservationResolution(enabled: boolean, observerTarget: string |
   }
   return observerTarget === null ? 'waiting-for-eligible-model' : 'resolved';
 }
+/**
+ * Ollama and LM Studio models are discovered live from the local server: the
+ * picker offers exactly what the runtime lists, and neither the models table
+ * nor the static catalog holds them. A run on one is budgeted at the
+ * conservative window the picker declares for every discovered model.
+ */
+function localRuntimeModelDefinition(model: string): DesktopCatalogSelection['definition'] {
+  if (model.length === 0) {
+    throw new Error('The selected local runtime model has no id');
+  }
+  return {
+    contextWindow: DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW,
+    id: model,
+    supportsStreaming: true,
+    type: 'llm',
+    vision: 'unknown',
+  };
+}
+
 async function readDesktopCatalogSelection(
   db: Awaited<ReturnType<typeof getDatabase>>,
   modelId: string
@@ -178,6 +218,9 @@ async function readDesktopCatalogSelection(
   const model = modelId.slice(separator + 2);
   if (separator < 1 || !isSupportedProvider(provider)) {
     throw new Error('The selected model has no supported catalog identity');
+  }
+  if (findProviderDefinition(provider)?.runtime === 'local') {
+    return { definition: localRuntimeModelDefinition(model), model, provider };
   }
   // The UI composite is a selection key. The existing catalog owns the pair.
   const result = await db.query(
@@ -344,6 +387,8 @@ async function createDesktopNativeTools(
   request: HostRunAdmissionRequest,
   workspace?: DesktopWorkspaceBindingBorrow
 ): Promise<{
+  /** The enabled skills of the run's one scan, admitted to the host. */
+  readonly admittedSkills: readonly import('@brainstrike/agent').ScannedSkill[] | undefined;
   readonly freshRoots: () => Promise<NonNullable<RuntimeData['workspaceRoots']>>;
   /** Retrieval is admitted to the thread's own roots (a CLI selection or a binding). */
   readonly retrievalRootsOnly: boolean;
@@ -414,16 +459,12 @@ async function createDesktopNativeTools(
       : {}),
     ...(intent.skillsPreference ? { skillsPreference: intent.skillsPreference } : {}),
   };
-  if (selection && (intent.skillsPreference?.masterEnabled ?? true)) {
-    throw new Error('CLI Skills require an explicit existing home-tier read authority');
-  }
-  const { workspaceSkills } = selection
-    ? {}
-    : prepareRequestSkills({
-        fs: createSecureSkillsFs([...roots.map((root) => root.path), homedir()]),
-        homedir,
-        runtimeData: runtime,
-      });
+  const { skills: admittedSkills, workspaceSkills } = desktopRunSkills(
+    selection !== undefined,
+    intent,
+    runtime,
+    roots
+  );
   const skillTools = workspaceSkills ? createAssistantSkillTools(workspaceSkills) : {};
   const nativeBindings = Object.fromEntries(
     [
@@ -493,6 +534,7 @@ async function createDesktopNativeTools(
     ])
   );
   return {
+    admittedSkills,
     freshRoots,
     readWorkspaceFile,
     retrievalRootsOnly,
@@ -501,6 +543,26 @@ async function createDesktopNativeTools(
     tools,
     ...(workspaceSkills ? { workspaceSkills } : {}),
   };
+}
+
+/** A CLI selection runs without skills; otherwise one scan feeds the prompt and the host's skill tools. */
+function desktopRunSkills(
+  cliSelection: boolean,
+  intent: z.output<typeof PlatformClientConfigurationSchema>,
+  runtime: RuntimeData,
+  roots: readonly { readonly path: string }[]
+): PreparedAdmittedSkills {
+  if (!cliSelection) {
+    return prepareAdmittedSkills({
+      fs: createSecureSkillsFs([...roots.map((root) => root.path), homedir()]),
+      homedir,
+      runtimeData: runtime,
+    });
+  }
+  if (intent.skillsPreference?.masterEnabled ?? true) {
+    throw new Error('CLI Skills require an explicit existing home-tier read authority');
+  }
+  return {};
 }
 
 /** Main's tool services for host threads, resolved per run (the worktree services lazily). */
@@ -533,7 +595,8 @@ const HOST_EXECUTED_ARTIFACT_READER: ScopedToolOutputArtifactReader = {
 /** What the host's shared native tools need from this admission; roots come back per call. */
 function desktopNativeRuntime(
   runtime: RuntimeData,
-  retrievalRootsOnly: boolean
+  retrievalRootsOnly: boolean,
+  skills: readonly import('@brainstrike/agent').ScannedSkill[] | undefined
 ): DesktopPlatformSelection['nativeRuntime'] {
   if (typeof runtime.provider !== 'string' || !runtime.workspaceRoots) {
     throw new Error('Desktop admission has no native tool runtime');
@@ -544,6 +607,7 @@ function desktopNativeRuntime(
     ...(retrievalRootsOnly ? { retrievalRootsOnly: true as const } : {}),
     ...(runtime.selectionFilePaths ? { selectionFilePaths: [...runtime.selectionFilePaths] } : {}),
     ...(runtime.selectionFolderId ? { selectionFolderId: runtime.selectionFolderId } : {}),
+    ...(skills ? { skills: z.array(PlatformAdmittedSkillSchema).parse(skills) } : {}),
     ...(runtime.workspaceContext
       ? { workspaceContext: PlatformWorkspaceContextSchema.parse(runtime.workspaceContext) }
       : {}),
@@ -560,17 +624,17 @@ function desktopNativeRuntime(
 function desktopHostToolServices(
   dependencies: DesktopHostToolServices
 ): HostToolServiceCapabilities {
-  const embeddings = dependencies.embeddingHostManager;
   return {
     grepIndex: pgliteGrepIndex,
     ...(dependencies.nativeIndexSearch ? { indexSearch: dependencies.nativeIndexSearch } : {}),
-    ...(embeddings
-      ? {
-          queryEmbedding: (payload, signal) => embeddings.queryEmbedding(payload, { signal }),
-        }
-      : {}),
+    browser: mainBrowserToolRunner,
+    contextDelivery: mainWorkspaceContextBroadcaster,
+    diagnostics: mainDiagnosticsReader,
+    querySelf: mainQuerySelfRead(),
     retrievalStore: pgliteRetrievalStore(),
     shell: desktopShellCorrelation(dependencies),
+    worktrees: ({ runId, threadId }) =>
+      desktopWorktreeToolDependencies(dependencies, { runId, threadId }).worktreeTools,
   };
 }
 
@@ -621,6 +685,24 @@ function desktopShellCorrelation(services: DesktopWorktreeServices): DesktopShel
       const listed = await service.list();
       return listed.ok ? listed.value.map((entry) => entry.path) : null;
     },
+  };
+}
+
+/** BST-1932: the supervisor instructions name only the personas this run may delegate to. */
+function desktopPersonaFields(delegation: HostDelegation | undefined): {
+  readonly personas?: HostDelegation['personas'];
+} {
+  return delegation ? { personas: delegation.personas } : {};
+}
+
+/** BST-1932: the child context and personas a run delegates with, when it may delegate. */
+function desktopDelegationFields(
+  childSystem: string | undefined,
+  delegation: HostDelegation | undefined
+): Pick<DesktopPlatformSelection, 'childSystem' | 'delegation'> {
+  return {
+    ...(childSystem === undefined ? {} : { childSystem }),
+    ...(delegation ? { delegation } : {}),
   };
 }
 
@@ -693,10 +775,17 @@ export function productionDesktopCapabilities(
     };
     try {
       policies.set(request.threadId, permissionPolicy);
+      const delegation = resolveDesktopHostDelegation(
+        intent,
+        configuration.provider,
+        native.runtime.workspaceRoots ?? [],
+        request.planMode === true
+      );
       // The host never offers what the saved policy denies; the instructions never name it.
       const policy = await readHostPermissionPolicy(request.threadId);
-      const system = await readDesktopHostSystemContext({
+      const { childSystem, system } = await readDesktopHostSystemContext({
         inputTokenLimit,
+        ...desktopPersonaFields(delegation),
         ...desktopContextReaderFields(
           intent.cliWorkspace !== undefined || workspace !== undefined,
           native.readWorkspaceFile
@@ -719,10 +808,11 @@ export function productionDesktopCapabilities(
         durableConfiguration: desktopDurableConfiguration(
           intent,
           observerTarget,
-          system,
+          { childSystem, system },
           intent.cliWorkspace ? native.runtime.workspaceRoots : undefined,
           desktopWorkspaceRootObservation(workspace)
         ),
+        ...desktopDelegationFields(childSystem, delegation),
         freshWorkspaceRoots: native.freshRoots,
         inputTokenLimit,
         maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
@@ -732,7 +822,11 @@ export function productionDesktopCapabilities(
           ...(memoryVectors ? { vectorProfile: memoryVectors.profile } : {}),
         },
         ...(memoryVectors?.local ? { localEmbedding: memoryVectors.local } : {}),
-        nativeRuntime: desktopNativeRuntime(native.runtime, native.retrievalRootsOnly),
+        nativeRuntime: desktopNativeRuntime(
+          native.runtime,
+          native.retrievalRootsOnly,
+          native.admittedSkills
+        ),
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         ...desktopSystemFields(system),
         tools,

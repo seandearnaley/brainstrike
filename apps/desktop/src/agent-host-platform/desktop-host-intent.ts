@@ -27,6 +27,8 @@ export interface DesktopHostIntentCapture {
   readonly projection?: DesktopHostModelProjection | undefined;
   readonly selectionFolderId: string | null;
   readonly skillsPreference: RuntimeData['skillsPreference'];
+  /** BST-1932: the user's subagent preferences; absent leaves the run without delegation. */
+  readonly subagents?: DesktopHostIntent['subagents'];
   readonly threadDraft?:
     | Pick<AssistantThreadDraftRuntime, 'modelSettings' | 'providerOptions'>
     | undefined;
@@ -55,6 +57,7 @@ export function captureDesktopHostIntent(input: DesktopHostIntentCapture): Deskt
     ...(input.workspaceContext ? { workspaceContext: input.workspaceContext } : {}),
     ...(input.selectionFolderId ? { selectionFolderId: input.selectionFolderId } : {}),
     skillsPreference: input.skillsPreference,
+    ...(input.subagents ? { subagents: input.subagents } : {}),
     workspaceInstructionsPreference: input.workspaceInstructionsPreference,
   });
 }

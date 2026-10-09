@@ -2,8 +2,9 @@
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { HostRunAdmissionRequest, HostTool, HostToolContext } from '@brainstrike/agent-host';
+import type { HostRunAdmissionRequest } from '@brainstrike/agent-host';
 import { DEFAULT_PERMISSION_POLICIES, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW } from '@brainstrike/assistant-contract/context-budget';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 
@@ -12,7 +13,13 @@ const owner = vi.hoisted(() => ({
   credential: vi.fn(() => {
     throw new Error('Unexpected credential access in worktree tool control');
   }),
+  // The skills scan's home tier, kept inside the test's own directory.
+  home: '',
   query: vi.fn(),
+}));
+vi.mock('node:os', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:os')>()),
+  homedir: () => owner.home,
 }));
 vi.mock('@brainstrike/file-explorer-ui/preview', () => ({
   useWorkspaceContextCurationStore: { getState: () => ({ contextSnapshot: null }) },
@@ -26,6 +33,8 @@ vi.mock('../ipc-mcp', () => ({
 
 import { PlatformClientConfigurationSchema } from '../agent-host-platform/platform-wire';
 import { productionDesktopCapabilities } from '../agent-host-platform/production-desktop-capabilities';
+import lmStudioModels from './fixtures/lmstudio-v1-models.json';
+import ollamaTags from './fixtures/ollama-0.32.14-api-tags.json';
 
 const WORKTREE_TOOL_IDS = [NATIVE_TOOL_ID.listWorktrees, NATIVE_TOOL_ID.manageWorktree];
 let directory = '';
@@ -33,9 +42,11 @@ let directory = '';
 beforeEach(async () => {
   directory = await fs.realpath(await fs.mkdtemp(join(tmpdir(), 'bs-m3-worktree-tools-')));
   await fs.mkdir(join(directory, 'a'));
-  owner.query.mockImplementation(async (sql: string) => {
+  owner.home = join(directory, 'home');
+  await fs.mkdir(owner.home);
+  owner.query.mockImplementation(async (sql: string, params: readonly unknown[]) => {
     if (sql.includes('FROM models')) {
-      return { rows: [{ isEnabled: true, providerId: 'openai' }] };
+      return { rows: [{ isEnabled: true, providerId: params[1] }] };
     }
     if (sql.includes('FROM roots')) {
       return { rows: [{ displayName: 'A', id: 'root-a', path: join(directory, 'a') }] };
@@ -51,7 +62,11 @@ afterEach(async () => {
 
 function request(
   enabledNativeToolIds: readonly string[],
-  selection: Record<string, unknown> = {}
+  selection: Record<string, unknown> = {},
+  model: { readonly model: string; readonly provider: string } = {
+    model: 'gpt-6-sol',
+    provider: 'openai',
+  }
 ): HostRunAdmissionRequest {
   const configuration = PlatformClientConfigurationSchema.parse({
     ...selection,
@@ -78,35 +93,21 @@ function request(
         topK: 2,
       },
     },
-    modelConfiguration: { model: 'gpt-6-sol', provider: 'openai' },
+    modelConfiguration: model,
     permissionPolicy: { policies: DEFAULT_PERMISSION_POLICIES, yolo: false },
     skillsPreference: { disabledSkillKeys: [], masterEnabled: false },
+    ...selection,
     workspaceInstructionsPreference: { masterEnabled: false, oversizedOptInByRootId: {} },
   });
   return {
     configuration: z.record(z.string(), z.json()).parse(configuration),
-    modelId: 'openai::gpt-6-sol',
+    modelId: `${model.provider}::${model.model}`,
     signal: new AbortController().signal,
     threadId: 'host-thread',
   };
 }
 
-function admitted(tools: Record<string, HostTool>, toolId: string): HostTool {
-  const tool = Object.values(tools).find((candidate) => candidate.permissionToolId === toolId);
-  if (!tool) {
-    throw new Error(`${toolId} was not admitted`);
-  }
-  return tool;
-}
-
-const execution: HostToolContext = {
-  runId: 'host-run',
-  signal: new AbortController().signal,
-  threadId: 'host-thread',
-  toolCallId: 'worktree-call',
-};
-
-test('a host thread’s worktree tools run through Main’s worktree service under the host run identity', async () => {
+test('Main serves a host run’s worktree calls through its worktree service under the host run identity', async () => {
   const service = {
     archive: vi.fn(),
     create: vi.fn(async () => ({
@@ -118,33 +119,27 @@ test('a host thread’s worktree tools run through Main’s worktree service und
     })),
     list: vi.fn(async () => ({ ok: true as const, value: [] })),
   };
-  const captured = await productionDesktopCapabilities({
+  const worktrees = productionDesktopCapabilities({
     resolveForgeService: () => null,
     resolveWorktreeService: () => service as never,
-  }).readConfiguration(request(WORKTREE_TOOL_IDS));
-  try {
-    await expect(
-      admitted(captured.tools, NATIVE_TOOL_ID.listWorktrees).execute({}, execution)
-    ).resolves.toMatchObject({ worktrees: [] });
-    await expect(
-      admitted(captured.tools, NATIVE_TOOL_ID.manageWorktree).execute(
-        { action: 'create', branch: 'bs/fox', root: 'root-a' },
-        execution
-      )
-    ).resolves.toMatchObject({ action: 'create', worktreeId: 'wt-9' });
-    // Provenance comes from the host run, never from tool input.
-    expect(service.create).toHaveBeenCalledWith({
-      baseRef: 'HEAD',
-      branch: { name: 'bs/fox' },
-      createdBy: 'agent',
-      name: 'fox',
-      rootId: 'root-a',
-      runId: 'host-run',
-      threadId: 'host-thread',
-    });
-  } finally {
-    await captured.close();
+  }).hostTools?.worktrees?.({ runId: 'host-run', threadId: 'host-thread' });
+  if (!worktrees) {
+    throw new Error('Main served no worktree calls');
   }
+  await expect(worktrees.list()).resolves.toEqual({ ok: true, value: [] });
+  await expect(
+    worktrees.create({ baseRef: 'HEAD', branch: 'bs/fox', name: 'fox', rootId: 'root-a' })
+  ).resolves.toMatchObject({ ok: true, value: { worktree: { id: 'wt-9' } } });
+  // Provenance comes from the host run, never from tool input.
+  expect(service.create).toHaveBeenCalledWith({
+    baseRef: 'HEAD',
+    branch: { name: 'bs/fox' },
+    createdBy: 'agent',
+    name: 'fox',
+    rootId: 'root-a',
+    runId: 'host-run',
+    threadId: 'host-thread',
+  });
 });
 
 test('a host thread is not offered worktree tools while Main has no worktree service', async () => {
@@ -232,4 +227,77 @@ test('Main reconciles a host command’s worktrees under the host run’s identi
     })
   );
   expect(service.repositoryContextForRoot).toHaveBeenCalledWith('root-a');
+});
+
+test('Main admits one scan’s enabled skills to a host run, and none to the built-in local provider', async () => {
+  const skill = join(directory, 'a', '.brainstrike', 'skills', 'demo-skill');
+  await fs.mkdir(skill, { recursive: true });
+  await fs.writeFile(
+    join(skill, 'SKILL.md'),
+    '---\nname: demo-skill\ndescription: Says hello from a skill.\n---\nGreet the user.\n'
+  );
+  const skills = { skillsPreference: { disabledSkillKeys: [], masterEnabled: true } };
+  const admit = async (model: { readonly model: string; readonly provider: string }) => {
+    const captured = await productionDesktopCapabilities({}).readConfiguration(
+      request([], skills, model)
+    );
+    try {
+      return {
+        admitted: captured.nativeRuntime.skills?.map((entry) => entry.name),
+        tools: Object.values(captured.tools).map((tool) => tool.permissionToolId),
+      };
+    } finally {
+      await captured.close();
+    }
+  };
+
+  const hosted = await admit({ model: 'gpt-6-sol', provider: 'openai' });
+  expect(hosted.admitted).toEqual(['demo-skill']);
+  expect(hosted.tools).toEqual(expect.arrayContaining(['skill', 'skill_read', 'skill_search']));
+
+  const local = await admit({ model: 'onnx-community/gemma-4-E2B-it-ONNX', provider: 'local' });
+  expect(local.admitted).toBeUndefined();
+  expect(local.tools).not.toEqual(expect.arrayContaining(['skill']));
+  expect(local.tools.filter((id) => id?.startsWith('skill'))).toEqual([]);
+});
+
+// Recorded 2026-10-08 from a local Ollama 0.32.14 (`GET /api/tags`) and LM Studio (`GET /v1/models`).
+const OLLAMA_CHAT_MODELS = ollamaTags.models
+  .filter((model) => model.capabilities.includes('completion'))
+  .map((model) => model.name);
+const LM_STUDIO_CHAT_MODELS = lmStudioModels.data
+  .map((model) => model.id)
+  .filter((id) => !id.startsWith('text-embedding-'));
+
+test('a model the local Ollama or LM Studio runtime lists is admitted without a catalog row', async () => {
+  // Runtime-discovered models live in neither the models table nor the static catalog.
+  owner.query.mockImplementation(async (sql: string) => {
+    if (sql.includes('FROM models')) {
+      throw new Error('A local runtime model has no models row to read');
+    }
+    if (sql.includes('FROM roots')) {
+      return { rows: [{ displayName: 'A', id: 'root-a', path: join(directory, 'a') }] };
+    }
+    throw new Error('Unexpected owner query in local runtime admission');
+  });
+  expect(OLLAMA_CHAT_MODELS).toEqual(
+    expect.arrayContaining(['gemma4:31b', 'glm-4.7-flash:latest', 'qwen3:30b'])
+  );
+  for (const [provider, model] of [
+    ...OLLAMA_CHAT_MODELS.map((id) => ['ollama', id] as const),
+    ...LM_STUDIO_CHAT_MODELS.map((id) => ['lmstudio', id] as const),
+  ]) {
+    const captured = await productionDesktopCapabilities({}).readConfiguration(
+      request([], { agentLoop: { maxSteps: 3 } }, { model, provider })
+    );
+    try {
+      // Budgeted at the conservative window the picker declares for discovered models.
+      expect({ contextWindow: captured.contextWindow, model: captured.configuration }).toEqual({
+        contextWindow: DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW,
+        model: { model, provider },
+      });
+    } finally {
+      await captured.close();
+    }
+  }
 });

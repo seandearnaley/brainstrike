@@ -1,0 +1,30 @@
+{
+  "data": [
+    {
+      "id": "qwen/qwen3.8-27b",
+      "object": "model",
+      "owned_by": "organization_owner"
+    },
+    {
+      "id": "poolside/laguna-s-2.1",
+      "object": "model",
+      "owned_by": "organization_owner"
+    },
+    {
+      "id": "google/gemma-4-31b-qat",
+      "object": "model",
+      "owned_by": "organization_owner"
+    },
+    {
+      "id": "google/gemma-4-26b-a4b-qat",
+      "object": "model",
+      "owned_by": "organization_owner"
+    },
+    {
+      "id": "text-embedding-nomic-embed-text-v1.5",
+      "object": "model",
+      "owned_by": "organization_owner"
+    }
+  ],
+  "object": "list"
+}

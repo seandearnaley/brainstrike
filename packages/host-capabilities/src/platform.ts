@@ -38,7 +38,7 @@ import type { HostStartOptions } from '@brainstrike/host-lease';
 import { z } from 'zod';
 import { createHostCapabilities } from './capabilities.js';
 import { getGlobalHooksPath } from './hooks/config.js';
-import { createHostRunHooks } from './hooks/host-run-hooks.js';
+import { createHostRunHooks, trustedHookRoots } from './hooks/host-run-hooks.js';
 import {
   createSharedNativeHostTools,
   forgetSharedNativeToolThread,
@@ -279,12 +279,12 @@ export async function createHostPlatform(
       });
       const tools = { ...bindings.tools, ...workspaceTools };
       const toolTimeoutMs = resolveAssistantResilienceConfig().toolTimeoutMs;
-      // Global hooks run as configured; a launch root's project file stays
-      // untrusted (and is reported, not run) until the host owns its approval.
+      // Global hooks run as configured; a launch root's project file runs only
+      // at the hash the host trusted it at, and is reported, not run, otherwise.
       const hooks = createHostRunHooks({
         globalPath: getGlobalHooksPath(),
         maxHookTimeoutMs: toolTimeoutMs,
-        roots: workspaceRoots.map(({ path, rootId }) => ({ absPath: path, rootId })),
+        roots: await trustedHookRoots(startup.store, workspaceRoots),
         sessionId: request.threadId,
       });
       return {

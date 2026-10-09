@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import type { LocalLlmHostProgress } from '@brainstrike/agent/local-llm';
 import type {
   LocalEmbeddingHostClient,
   LocalLlmHostClient,
@@ -16,11 +18,18 @@ import {
   type ProductionHostRunConfiguration,
   platformToolInputSchema,
 } from '@brainstrike/agent-host';
-import type { SupportedProvider } from '@brainstrike/assistant-contract';
+import type {
+  AssistantPersonaDefinition,
+  SupportedProvider,
+} from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
-import { createHostRunHooks, getGlobalHooksPath } from '@brainstrike/host-capabilities/hooks';
+import {
+  createHostRunHooks,
+  getGlobalHooksPath,
+  trustedHookRoots,
+} from '@brainstrike/host-capabilities/hooks';
 import { createDesktopNodeMcpHost } from '@brainstrike/host-capabilities/mcp/desktop-node-mcp';
 import {
   forgetSharedNativeToolThread,
@@ -30,16 +39,15 @@ import {
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
-import { disposeLiveChildProcesses } from '../assistant-server/execute-command-tool';
-import { disposeLspServers } from '../assistant-server/lsp-diagnostics';
 import { mainPlatformConnection } from './connection';
 import { desktopHostSharedTools } from './desktop-host-shared-tools';
-import { createRemoteLlmHostClient } from './llm-host-port';
+import { disposeHostTools, serveHostCommandSessions } from './host-tool-process';
 import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
 import { parentPlatformPort } from './parent-platform-port';
 import {
-  PlatformLocalEmbeddingResultSchema,
+  PlatformEmbeddingResultSchema,
   PlatformLocalGenerationResultSchema,
+  PlatformLocalProgressSchema,
   PlatformPolicySchema,
   PlatformProgressSchema,
   PlatformSelectionSchema,
@@ -89,32 +97,76 @@ function desktopRuntimeConfiguration(
 
 type PlatformRequest = (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
 
+/** Each borrowed generation's progress listener, keyed by its request id. */
+type LocalProgressListeners = Map<string, (progress: LocalLlmHostProgress) => void>;
+
 /**
- * ADR-0007: Node never runs local inference. A thread's admitted local observer
- * and recall embedder borrow Main's hidden hosts; JSON-RPC cancellation carries
- * the caller's signal.
+ * ADR-0007: Node never runs local inference. A thread's admitted local chat
+ * model, observer and recall embedder borrow Main's hidden hosts; JSON-RPC
+ * cancellation carries the caller's signal, and progress notifications stream
+ * the generation.
  */
 function borrowedLocalInference(
   request: PlatformRequest,
+  listeners: LocalProgressListeners,
   threadId: string
 ): { readonly embedding: LocalEmbeddingHostClient; readonly llm: LocalLlmHostClient } {
+  const borrow = async (
+    method: string,
+    input: Record<string, unknown>,
+    options: { onProgress?: (progress: LocalLlmHostProgress) => void; signal?: AbortSignal } = {}
+  ): Promise<unknown> => {
+    const requestId = randomUUID();
+    if (options.onProgress) {
+      listeners.set(requestId, options.onProgress);
+    }
+    try {
+      return await request(method, { ...input, requestId, threadId }, options.signal);
+    } finally {
+      listeners.delete(requestId);
+    }
+  };
   return {
     embedding: {
       queryEmbedding: async ({ query }, options) =>
-        PlatformLocalEmbeddingResultSchema.parse(
+        PlatformEmbeddingResultSchema.parse(
           await request('platform/embedding/query', { query, threadId }, options?.signal)
-        ).embedding,
+        ),
     },
     llm: {
       generate: async (generation, options) =>
         PlatformLocalGenerationResultSchema.parse(
-          await request('platform/llm/generate', { ...generation, threadId }, options?.signal)
+          await borrow('platform/llm/generate', { ...generation }, options)
         ),
       warmup: async (modelId, options) => {
-        await request('platform/llm/warmup', { modelId, threadId }, options?.signal);
+        await borrow('platform/llm/warmup', { modelId }, options);
       },
     },
   };
+}
+
+type PlatformDelegation = NonNullable<z.output<typeof PlatformSelectionSchema>['delegation']>;
+
+/** A persona from Main's wire, without the absent optional fields zod reports as undefined. */
+function platformPersona(
+  persona: PlatformDelegation['personas'][number]
+): AssistantPersonaDefinition {
+  const { mode, model, source, ...required } = persona;
+  return {
+    ...required,
+    ...(mode ? { mode } : {}),
+    ...(model ? { model } : {}),
+    ...(source ? { source } : {}),
+  };
+}
+
+/** BST-1932: the delegation Main resolved for this run, if it may delegate. */
+function platformDelegation(
+  delegation: PlatformDelegation | undefined
+): ProductionHostRunConfiguration['delegation'] {
+  return delegation
+    ? { personas: delegation.personas.map(platformPersona), settings: delegation.settings }
+    : undefined;
 }
 
 /** Electron-free production entry: Node owns the model loop, Memory and committed log. */
@@ -155,9 +207,13 @@ export async function createHostPlatform(
     }
     await context.write?.(progress.chunk);
   });
-  // ADR-0007: the built-in local model's inference stays in Main's hidden
-  // llm-host renderer; this host only relays each generation to it.
-  const localLlmHostClient = createRemoteLlmHostClient(connection);
+  serveHostCommandSessions(connection);
+  // ADR-0007: a borrowed local generation streams through Main's progress notifications.
+  const localProgress: LocalProgressListeners = new Map();
+  connection.onNotification('platform/llm/progress', (input: unknown) => {
+    const { progress, requestId } = PlatformLocalProgressSchema.parse(input);
+    localProgress.get(requestId)?.(progress);
+  });
   connection.listen();
   connection.onClose(() => connection.dispose());
   await startup.register(async () => {
@@ -176,13 +232,11 @@ export async function createHostPlatform(
     close: async () => {
       // MCP cleanup still writes through Main's stores, so it joins before Main closes.
       await mcpHost.close();
-      // The language servers and command trees this host spawned.
-      await disposeLspServers();
-      disposeLiveChildProcesses();
+      // The language servers, command trees and command sessions this host spawned.
+      await disposeHostTools();
       await request('platform/close', {});
     },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
-    localLlmHostClient,
     mcp: mcpHost.services.mcp,
     // Main admits every desktop run under the workspace memory resource.
     memoryResourceIds: [WORKSPACE_MEMORY_RESOURCE_ID],
@@ -220,10 +274,11 @@ export async function createHostPlatform(
         (closing ??= request('platform/release', { threadId: admission.threadId }).then(
           () => undefined
         ));
+      const local = borrowedLocalInference(request, localProgress, admission.threadId);
       let memory: ProductionHostRunConfiguration['memory'];
       try {
         memory = await createDesktopHostMemoryConfiguration(selected, resolveAuth, {
-          ...borrowedLocalInference(request, admission.threadId),
+          ...local,
           signal: admission.signal,
         });
       } catch (cause) {
@@ -235,6 +290,7 @@ export async function createHostPlatform(
         throw cause;
       }
       const shared = desktopHostSharedTools({
+        appPaths: platformOptions?.appPaths,
         readFileCursorRegistry,
         request,
         resolveTavilyApiKey: host.resolveTavilyApiKey,
@@ -339,21 +395,22 @@ export async function createHostPlatform(
           ])
       );
       Object.assign(tools, shared);
-      // Global hooks run as configured; a root's project file stays untrusted
-      // (and is reported, not run) until the host owns its approval.
+      // Global hooks run as configured; a root's project file runs only at the
+      // hash the host trusted it at, and is reported, not run, otherwise.
       const hooks = createHostRunHooks({
         globalPath: getGlobalHooksPath(),
         maxHookTimeoutMs: selected.toolTimeoutMs,
-        roots: (selected.workspace?.roots ?? []).map((root) => ({
-          absPath: root.path,
-          rootId: root.rootId,
-        })),
+        roots: await trustedHookRoots(startup.store, selected.workspace?.roots ?? []),
         sessionId: admission.threadId,
       });
       return {
+        childSystem: selected.childSystem,
         close: closeSelection,
         configuration,
+        delegation: platformDelegation(selected.delegation),
         durableConfiguration: selected.durableConfiguration,
+        // An admitted local chat model generates in Main's hidden llm-host.
+        localLlmHostClient: local.llm,
         ...(hooks ? { hooks } : {}),
         ...(selected.system === undefined ? {} : { system: selected.system }),
         maxSteps: selected.maxSteps,

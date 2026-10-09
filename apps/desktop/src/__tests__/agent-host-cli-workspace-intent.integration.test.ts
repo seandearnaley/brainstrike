@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HostRunAdmissionRequest, HostTool, HostToolContext } from '@brainstrike/agent-host';
 import { HostRunSnapshotSchema } from '@brainstrike/agent-host/protocol';
-import { DEFAULT_PERMISSION_POLICIES, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import type {
   IndexerSearchResult,
   IndexerStatus,
@@ -87,6 +87,14 @@ vi.mock('@brainstrike/app-state/stores/permission-policy-store', () => ({
     enforce: renderer.enforce,
   }),
 }));
+vi.mock('@brainstrike/app-state/stores/subagent-personas-store', () => ({
+  useSubagentPersonasStore: { getState: () => renderer.intent().subagents },
+}));
+vi.mock('@brainstrike/app-state/stores/assistant-subagent-preferences-store', () => ({
+  useAssistantSubagentPreferencesStore: {
+    getState: () => ({ settings: renderer.intent().subagents?.settings }),
+  },
+}));
 vi.mock('@brainstrike/app-state/stores/skills-preferences-store', () => ({
   buildSkillsContextRequest: () => renderer.intent().skillsPreference,
   useSkillsPreferencesStore: { getState: () => ({}) },
@@ -120,9 +128,9 @@ vi.mock('@brainstrike/db', async (original) => ({
   },
 }));
 
-import { PlatformClientConfigurationSchema } from '../agent-host-platform/platform-wire';
 import { productionDesktopCapabilities } from '../agent-host-platform/production-desktop-capabilities';
 import { readDesktopHostConfiguration } from '../renderer/desktop-host-configuration';
+import { desktopHostIntentFixture as intent } from './fixtures/desktop-host-intent';
 
 const directories: string[] = [];
 let roots: { id: string; displayName: string; path: string }[] = [];
@@ -227,63 +235,6 @@ async function workspace() {
     await fs.writeFile(join(root.path, 'note.txt'), `Reference for ${root.displayName}.`);
   }
   return { a: roots[0]!.path, b: roots[1]!.path };
-}
-function intent() {
-  return PlatformClientConfigurationSchema.parse({
-    agentLoop: { inputTokenLimit: 7000, maxSteps: 3 },
-    enabledNativeToolIds: [],
-    memoryOptions: {
-      lastMessages: 1,
-      workingMemory: { enabled: false, scope: 'thread', template: 'Owner template' },
-    },
-    memorySettings: {
-      observationalMemory: {
-        enabled: false,
-        messageTokens: 1234,
-        modelTarget: 'auto',
-        observationTokens: 2345,
-        retrievalMode: 'messages',
-        scope: 'thread',
-      },
-      semanticRecall: {
-        embeddingModelTarget: null,
-        enabled: false,
-        messageRange: 0,
-        scope: 'thread',
-        topK: 2,
-      },
-    },
-    modelConfiguration: {
-      model: 'gpt-6-sol',
-      modelSettings: { maxOutputTokens: 97, temperature: 0.31 },
-      provider: 'openai',
-      providerOptions: { openai: { reasoningEffort: 'low' } },
-    },
-    permissionPolicy: {
-      perToolOverrides: { 'brainstrike.writeWorkspaceFile': 'deny' },
-      policies: DEFAULT_PERMISSION_POLICIES,
-      yolo: false,
-    },
-    skillsPreference: { disabledSkillKeys: [], masterEnabled: false },
-    workspaceContext: {
-      files: [
-        {
-          approxTokens: null,
-          outputApproxTokens: null,
-          path: 'note.txt',
-          ranges: [],
-          rootId: 'root-a',
-        },
-      ],
-      includeProjectTree: false,
-      projectTreeApproxTokens: null,
-      projectTreeTokenCountLoading: false,
-      selectedOutputApproxTokens: null,
-      selectedSourceApproxTokens: null,
-      tokenBudget: 321,
-    },
-    workspaceInstructionsPreference: { masterEnabled: false, oversizedOptInByRootId: {} },
-  });
 }
 function request(configuration: unknown): HostRunAdmissionRequest {
   return {

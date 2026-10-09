@@ -33,7 +33,9 @@ import { useSubagentPresentation } from './use-subagent-presentation';
 const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => {
   const liveInvocations = use(SubagentLiveInvocationContext);
   const invocationJson = useAuiState((state) =>
-    JSON.stringify(readSubagentInvocationRun(state.message.parts, props.toolCallId))
+    JSON.stringify(
+      readSubagentInvocationRun(state.message.parts, props.toolCallId, state.message.metadata)
+    )
   );
   const invocation = useMemo(
     () => JSON.parse(invocationJson) as SubagentInvocationRun,

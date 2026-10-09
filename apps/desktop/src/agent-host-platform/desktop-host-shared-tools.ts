@@ -7,7 +7,11 @@ import {
   type ReadWorkspaceFileCursorRegistry,
 } from '@brainstrike/host-capabilities/native-tools';
 import { getEditDiagnostics } from '../assistant-server/lsp-diagnostics';
-import { desktopHostToolExecutors, isHostExecutedNativeToolId } from './host-executed-tools';
+import {
+  desktopHostToolExecutors,
+  type HostAppPaths,
+  isHostExecutedNativeToolId,
+} from './host-executed-tools';
 import type { PlatformSelection } from './platform-wire';
 
 type AdmittedWorkspaceContext = NonNullable<PlatformSelection['nativeRuntime']['workspaceContext']>;
@@ -36,6 +40,8 @@ function runtimeWorkspaceContext({
  * admitted roots through `platform/workspace/roots`.
  */
 export function desktopHostSharedTools(options: {
+  /** The launching desktop app's facts (bundled runtimes); a standalone host has none. */
+  readonly appPaths?: HostAppPaths | undefined;
   readonly readFileCursorRegistry: ReadWorkspaceFileCursorRegistry;
   readonly request: (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
   /** The host's own Tavily key owner, never Main's view of the store. */
@@ -68,7 +74,8 @@ export function desktopHostSharedTools(options: {
     executors: desktopHostToolExecutors(
       options.request,
       options.threadId,
-      selected.nativeRuntime.retrievalRootsOnly === true
+      selected.nativeRuntime,
+      options.appPaths
     ),
     freshRoots: async (signal) =>
       CliWorkspaceRootsSchema.parse(
