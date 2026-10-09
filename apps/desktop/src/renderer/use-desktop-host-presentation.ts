@@ -11,6 +11,7 @@ import {
   useAssistantModelPickerConfig,
   useAssistantProviderDisabledReason,
   useAssistantSlashCommands,
+  useAssistantToolMenu,
   useComposerDraftChannel,
   useConfiguredAssistantProviders,
   useEnableModel,
@@ -55,6 +56,7 @@ type Presentation = Pick<
   | 'openRouterModelMetadataLookup'
   | 'effectiveInputBudget'
   | 'planMode'
+  | 'toolMenu'
 >;
 
 interface DesktopHostPresentation extends Presentation {
@@ -313,6 +315,11 @@ export function useDesktopHostPresentation(
     [planModeAvailable]
   );
   const onEnableModel = useEnableModel();
+  // Toggles write the native and MCP tool preferences the next send captures.
+  const { toolMenu } = useAssistantToolMenu({
+    runsMcpTools: true,
+    selectedProvider: selectedProvider ?? null,
+  });
   const contextWindow = metadata.modelDef?.contextWindow;
   // The legacy composer's gate: the selected model's vision decides.
   const attachmentsAvailability = resolveComposerAttachmentsAvailability({
@@ -339,6 +346,7 @@ export function useDesktopHostPresentation(
       picker.pickerModels.some((entry) => `${entry.providerId}::${entry.id}` === recent)
     ),
     slashCommands,
+    toolMenu,
     ...(metadata.agentLoopSettings?.inputTokenLimit
       ? { effectiveInputBudget: metadata.agentLoopSettings.inputTokenLimit }
       : {}),
