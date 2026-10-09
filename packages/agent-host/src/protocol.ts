@@ -29,6 +29,11 @@ import {
   REWIND_RESULT_SCHEMAS,
 } from './protocol-rewind.js';
 import { SEARCH_METHOD_SCHEMAS, SEARCH_RESULT_SCHEMAS } from './protocol-search.js';
+import {
+  SELECTION_EVENT_SCHEMAS,
+  SELECTION_METHOD_SCHEMAS,
+  SELECTION_RESULT_SCHEMAS,
+} from './protocol-selection.js';
 import { HostHookSkipSchema, HostImageAttachmentSchema } from './run-wire.js';
 import {
   HostEditBaselineSchema,
@@ -44,6 +49,7 @@ export * from './protocol-mcp-presentation.js';
 export * from './protocol-mcp-settings.js';
 export * from './protocol-rewind.js';
 export * from './protocol-search.js';
+export * from './protocol-selection.js';
 export * from './run-wire.js';
 export * from './workspace-wire.js';
 
@@ -506,6 +512,7 @@ export const HOST_METHOD_SCHEMAS = {
   'thread/read': z.strictObject({ ...Thread, fromSeq: Seq }),
   ...REWIND_METHOD_SCHEMAS,
   ...SEARCH_METHOD_SCHEMAS,
+  ...SELECTION_METHOD_SCHEMAS,
   'thread/start': z.strictObject(Command),
   'thread/update': z
     .strictObject({ ...Command, ...Thread, ...ThreadPresentation })
@@ -604,6 +611,7 @@ export const HostEventSchema = z.union([
   z.strictObject({ origin: HostChildOriginSchema, type: z.literal('thread.started') }),
   z.strictObject({ ...ThreadPresentation, type: z.literal('thread.updated') }),
   z.strictObject({ snapshot: WorkspaceSnapshotSchema, type: z.literal('workspace.updated') }),
+  ...SELECTION_EVENT_SCHEMAS,
   z.strictObject({
     commandId: Id,
     method: Id,
@@ -977,6 +985,7 @@ export const HOST_RESULT_SCHEMAS = {
   'thread/read': z.strictObject({ rows: z.array(HostLogRowSchema) }),
   ...REWIND_RESULT_SCHEMAS,
   ...SEARCH_RESULT_SCHEMAS,
+  ...SELECTION_RESULT_SCHEMAS,
   'thread/start': z.strictObject(Thread),
   'thread/update': z.strictObject({ accepted: z.literal(true) }),
   'thread/workspace/binding/read': z.strictObject({
