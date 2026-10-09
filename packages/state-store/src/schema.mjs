@@ -6,12 +6,14 @@
 //   run_sync      one marker per thread, committed synchronous=FULL at each step boundary (M0-A1)
 //   settings      app settings (M0-A2 src/host.ts STATE_DDL)
 //   purge_intent  a purge in progress, replayed at open after a crash (M0-A2 src/host.ts)
+// Version 6 adds `run_events.hydrate`: 0 keeps a row (a streamed text delta) out of the hydration read, which walks the
+// partial index of the rows that keep it.
 
 import { AUTHORITATIVE_SCHEMA } from './authoritative-schema.mjs';
 import { MCP_TASK_THREAD_SCHEMA } from './mcp-task-domain.mjs';
 import { MEMORY_SCHEMA } from './memory-domain.mjs';
 
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 const V1 = `
   CREATE TABLE IF NOT EXISTS run_events (
@@ -49,6 +51,10 @@ export const UPGRADES = [
     CHECK (json_valid(memory_resources) AND json_type(memory_resources) = 'array');
 `,
   MCP_TASK_THREAD_SCHEMA,
+  `
+  ALTER TABLE run_events ADD COLUMN hydrate INTEGER NOT NULL DEFAULT 1 CHECK (hydrate IN (0, 1));
+  CREATE INDEX run_events_hydrate ON run_events (thread_id, seq) WHERE hydrate = 1;
+`,
 ];
 
 /**

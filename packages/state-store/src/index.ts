@@ -67,6 +67,7 @@ export {
   BLOB_MIN_BYTES,
   BLOBS_DIR,
   type ExportedThread,
+  type HydrationThread,
   type IndexerPort,
   largeText,
   type Manifest,

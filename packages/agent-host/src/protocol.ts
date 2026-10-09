@@ -16,7 +16,7 @@ import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/th
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { z } from 'zod';
 import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
-import { HostLedgerThreadSchema } from './ledger-wire.js';
+import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.js';
 
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
 // and the explicit branch links they commit on `run.started`), thread
@@ -50,6 +50,8 @@ export const AGENT_HOST_PROTOCOL_VERSION = 11;
 const Id = z.string().min(1);
 const Command = { commandId: Id };
 const Thread = { threadId: Id };
+/** A time the state store recorded, in ms since the epoch. */
+const StoredTime = z.number().int().nonnegative();
 /** A committed thread title: trimmed, never blank. */
 const ThreadTitle = z.string().trim().min(1);
 /** A thread's committed presentation; each field is optional and set independently. */
@@ -934,7 +936,20 @@ export const HOST_RESULT_SCHEMAS = {
   }),
   'thread/list': z.strictObject({
     // Presentation fields never committed are absent.
-    threads: z.array(z.strictObject({ ...Thread, ...ThreadPresentation })),
+    threads: z.array(
+      z.strictObject({
+        ...Thread,
+        ...ThreadPresentation,
+        binding: ThreadWorkspaceBindingSchema.nullable(),
+        /** The store's first and latest append to the thread, in ms since the epoch. */
+        createdAt: StoredTime,
+        /** Why the thread's history cannot be read; such a thread never runs, but still deletes. */
+        damage: z.string().min(1).optional(),
+        /** Absent before the thread's first root run. */
+        latestRun: HostLatestRunSchema.optional(),
+        updatedAt: StoredTime,
+      })
+    ),
   }),
   // Not ready: the reason `run/start` would fail with; the observation needs an admission.
   'thread/memory/read': z.union([

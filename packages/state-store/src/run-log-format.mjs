@@ -34,6 +34,21 @@ export function withSeq(seq, body) {
   return `{"seq":${seq},${body.slice(1)}`;
 }
 
+/**
+ * The blob hashes a stored row may reference, without trusting the row: its parsed references when the payload still
+ * parses as an event, else every hash-shaped token in it. A row that failed its crc can name a blob nothing else does;
+ * over-collecting is safe, because a collected hash is unlinked only when no readable thread references it.
+ * @param {string} raw
+ * @returns {string[]}
+ */
+export function storedBlobRefs(raw) {
+  try {
+    return blobsOf(raw);
+  } catch {
+    return [...new Set(raw.match(/[a-f0-9]{64}/g) ?? [])];
+  }
+}
+
 /** What a purge leaves in place of the purged event: the seq stays, every byte of the old body goes. */
 export const TOMBSTONE_BODY = '{"type":"purged"}';
 

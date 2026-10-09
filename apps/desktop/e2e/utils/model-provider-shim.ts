@@ -12,7 +12,7 @@
  *   `${PROVIDER}_BASE_URL`) and openrouter-strict-content.ts's `buildUrl()`
  *   (`qwen/*`). Served wire: chat completions (`POST /chat/completions`). The
  *   OpenRouter model-metadata lookup (`GET /model/<provider>/<model>`) is served
- *   only for the one recorded fixture's exact model identity.
+ *   only for a recorded fixture's exact model identity.
  * - `OPENAI_BASE_URL`: `@ai-sdk/openai`'s `createOpenAI`. Served wire: the
  *   OpenAI Responses API (`POST /responses`).
  * - `ANTHROPIC_BASE_URL`: `@ai-sdk/anthropic`'s `createAnthropic`. No Anthropic
@@ -699,25 +699,41 @@ function parseRequestPath(url: string | undefined): {
   return { knob, route: `/${(knob ? rest : segments).join('/')}` };
 }
 
-/** The recorded OpenRouter model-metadata response (G1, #3543 6054095971). */
-const RECORDED_OPENROUTER_METADATA = new URL(
-  '../../src/__tests__/fixtures/openrouter-sonnet-4-6-model-metadata.json',
-  import.meta.url
-);
-let recordedMetadata: { readonly body: Buffer; readonly id: string } | undefined;
+/**
+ * Recorded public OpenRouter Models API responses, fetched without credentials:
+ * Claude Sonnet 4.6 (G1, #3543 6054095971) and GPT-5.6 Terra, one of the
+ * recommended coding models a new OpenRouter key enables.
+ */
+const RECORDED_OPENROUTER_METADATA = [
+  new URL(
+    '../../src/__tests__/fixtures/openrouter-sonnet-4-6-model-metadata.json',
+    import.meta.url
+  ),
+  new URL(
+    '../../src/__tests__/fixtures/openrouter-gpt-5-6-terra-model-metadata.json',
+    import.meta.url
+  ),
+];
+let recordedMetadata: ReadonlyMap<string, Buffer> | undefined;
 
-/** The fixture's own `data.id` is its only identity: it is never relabelled. */
-function readRecordedMetadata(): { readonly body: Buffer; readonly id: string } {
+/** Each fixture's own `data.id` is its only identity: none is ever relabelled. */
+function readRecordedMetadata(): ReadonlyMap<string, Buffer> {
   if (recordedMetadata) {
     return recordedMetadata;
   }
-  const body = readFileSync(RECORDED_OPENROUTER_METADATA);
-  const parsed: unknown = JSON.parse(body.toString('utf8'));
-  const id = isRecord(parsed) && isRecord(parsed['data']) ? parsed['data']['id'] : undefined;
-  if (typeof id !== 'string') {
-    throw new Error('The recorded OpenRouter metadata fixture has no data.id.');
+  const byId = new Map<string, Buffer>();
+  for (const fixture of RECORDED_OPENROUTER_METADATA) {
+    const body = readFileSync(fixture);
+    const parsed: unknown = JSON.parse(body.toString('utf8'));
+    const id = isRecord(parsed) && isRecord(parsed['data']) ? parsed['data']['id'] : undefined;
+    if (typeof id !== 'string') {
+      throw new Error(
+        `The recorded OpenRouter metadata fixture ${fixture.pathname} has no data.id.`
+      );
+    }
+    byId.set(id, body);
   }
-  recordedMetadata = { body, id };
+  recordedMetadata = byId;
   return recordedMetadata;
 }
 
@@ -823,15 +839,16 @@ export async function startModelProviderShim(
     };
     const metadataIdentity = openRouterMetadataIdentity(request.method, knob, route);
     if (metadataIdentity !== undefined) {
-      const recorded = readRecordedMetadata();
-      if (metadataIdentity !== recorded.id) {
+      const body =
+        metadataIdentity === null ? undefined : readRecordedMetadata().get(metadataIdentity);
+      if (!(metadataIdentity && body)) {
         refuse('unrecorded-model-metadata');
         return;
       }
-      servedMetadata.push(recorded.id);
+      servedMetadata.push(metadataIdentity);
       request.resume();
       response.writeHead(200, { 'Content-Type': 'application/json' });
-      response.end(recorded.body);
+      response.end(body);
       return;
     }
     const wire = wireForRoute(request.method, route);
