@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { StateMessageUpsert, StateMessageVectorPort } from '@brainstrike/indexer';
 import { RootLock, RootLockedError, StateStore } from '@brainstrike/state-store';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
+import type { HostResults } from '../src/protocol.js';
 import {
   deterministicEmbedding,
   failureReceipt,
@@ -220,7 +221,10 @@ test.each([
       // outcome, and the run, its thread and Root are released.
       expect(result).toEqual({
         status: 'fulfilled',
-        value: operation === 'Stop' ? { outcome: 'stopped' } : { deleted: true },
+        value:
+          operation === 'Stop'
+            ? { outcome: 'stopped' }
+            : { deleted: true, threadIds: [ids.threadId] },
       });
       expect(host.retained()).toBe(0);
       if (operation === 'Stop') {
@@ -344,7 +348,7 @@ test('Root deletion retires active Core embedding before canonical and native da
     realIndexer: true,
     semanticScope: 'thread',
   });
-  let deletion: ReturnType<typeof watched<{ deleted: true }>> | undefined;
+  let deletion: ReturnType<typeof watched<HostResults['thread/delete']>> | undefined;
   await qualification(
     async () => {
       const ids = await start(host);
@@ -359,7 +363,10 @@ test('Root deletion retires active Core embedding before canonical and native da
       expect(await host.store.read(ids.threadId)).toEqual(raw);
       await expect(StateStore.open(host.root)).rejects.toBeInstanceOf(RootLockedError);
       release.resolve();
-      expect(await deletion.result).toEqual({ status: 'fulfilled', value: { deleted: true } });
+      expect(await deletion.result).toEqual({
+        status: 'fulfilled',
+        value: { deleted: true, threadIds: [ids.threadId] },
+      });
       console.error(
         'Joined Root deletion receipt:',
         JSON.stringify({

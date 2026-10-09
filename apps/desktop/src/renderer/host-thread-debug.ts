@@ -1,4 +1,5 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
+import { readDesktopRunConfiguration } from '@brainstrike/agent-host/desktop-run-configuration';
 import type { HostEvent, HostLogRow } from '@brainstrike/agent-host/protocol';
 import {
   buildHostThreadDebugPack,
@@ -12,7 +13,6 @@ import {
 } from '@brainstrike/app-shell';
 import type { DebugBundleBinding } from '@brainstrike/assistant-ui';
 import { z } from 'zod';
-import { readDesktopRunConfiguration } from './desktop-run-configuration';
 import { catalogModel, observerCallModel, targetModel, tokensOf } from './host-thread-ledger';
 import { STATUS_BY_OUTCOME } from './host-thread-runs';
 
