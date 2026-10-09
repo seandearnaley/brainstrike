@@ -48,10 +48,12 @@ test('a host thread on the built-in local model answers through the llm-host sea
   const statusTexts = await page.evaluate(
     () => (window as unknown as { localModelStatusTexts: string[] }).localModelStatusTexts
   );
-  expect(
-    statusTexts.some((text) => text.includes('Loading model files') && text.includes('50%'))
-  ).toBe(true);
-  expect(statusTexts.some((text) => text.includes('Model loaded'))).toBe(true);
+  expect(statusTexts).toEqual(
+    expect.arrayContaining([
+      expect.stringMatching(/Loading model files.*50%/u),
+      expect.stringContaining('Model loaded'),
+    ])
+  );
   expect(modelProvider.requestCount()).toBe(0);
   expect(modelProvider.refusals()).toEqual([]);
 });
