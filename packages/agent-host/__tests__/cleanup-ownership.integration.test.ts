@@ -94,11 +94,13 @@ test('Stop fences and joins a physical child even when accepting the durable com
           : store.append(items, committed, durability),
       deleteSetting: (key) => store.deleteSetting(key),
       getSetting: (key) => store.getSetting(key),
-      read: (threadId, fromSeq) => store.read(threadId, fromSeq),
+      holdBlobGc: () => store.holdBlobGc(),
+      read: (threadId, fromSeq, limit, filter) => store.read(threadId, fromSeq, limit, filter),
       root: store.root,
       setSetting: (key, value) => store.setSetting(key, value),
       syncBoundary: (threadId) => store.syncBoundary(threadId),
       threads: () => store.threads(),
+      threadTimes: () => store.threadTimes(),
     },
     platform({
       readPermissionPolicy: () => ({
@@ -690,11 +692,13 @@ test('failed terminal append retains run admission and does not retry persistenc
     },
     deleteSetting: (key) => store.deleteSetting(key),
     getSetting: (key) => store.getSetting(key),
-    read: (threadId, fromSeq) => store.read(threadId, fromSeq),
+    holdBlobGc: () => store.holdBlobGc(),
+    read: (threadId, fromSeq, limit, filter) => store.read(threadId, fromSeq, limit, filter),
     root: store.root,
     setSetting: (key, value) => store.setSetting(key, value),
     syncBoundary: (threadId) => store.syncBoundary(threadId),
     threads: () => store.threads(),
+    threadTimes: () => store.threadTimes(),
   };
   const core = await HostCore.open(port, platform(), () => {
     active += 1;
@@ -760,7 +764,9 @@ test('held platform cleanup keeps the SQLite owner live through host shutdown', 
 test('rejected startup cleanup exposes and retains the durable owner instead of releasing it', async () => {
   const dataRoot = await root();
   const original = await StateStore.open(dataRoot);
-  await original.append([{ event: { type: 'thread.started' }, threadId: randomUUID() }]);
+  await original.append([
+    { event: { commandId: randomUUID(), type: 'thread.started' }, threadId: randomUUID() },
+  ]);
   await original.close();
   let owned: StateStore | undefined;
   try {
@@ -768,6 +774,10 @@ test('rejected startup cleanup exposes and retains the durable owner instead of 
       await startAgentHost(
         { lifetime: 'persistent', root: dataRoot },
         platform({
+          // Startup fails once Core holds the root: an unreadable thread no longer does.
+          attachMcpTaskOwner: () => {
+            throw new Error('MCP task owner refused');
+          },
           close: async () => {
             throw new Error('platform cleanup rejected');
           },
@@ -810,11 +820,13 @@ test('failed atomic terminal FULL commit keeps live and replay views running and
     },
     deleteSetting: (key) => store.deleteSetting(key),
     getSetting: (key) => store.getSetting(key),
-    read: (threadId, fromSeq) => store.read(threadId, fromSeq),
+    holdBlobGc: () => store.holdBlobGc(),
+    read: (threadId, fromSeq, limit, filter) => store.read(threadId, fromSeq, limit, filter),
     root: store.root,
     setSetting: (key, value) => store.setSetting(key, value),
     syncBoundary: (threadId) => store.syncBoundary(threadId),
     threads: () => store.threads(),
+    threadTimes: () => store.threadTimes(),
   };
   const core = await HostCore.open(port, platform(), () => {
     active += 1;
