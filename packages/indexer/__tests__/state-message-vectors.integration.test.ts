@@ -452,7 +452,7 @@ it('refuses schema8 and changed acquired resource grants while preserving files 
     ).rejects.toMatchObject({ code: 'rebuild-required' });
     expect(await readFile(f.options.dbPath)).toEqual(bytes);
     const restore = openConnection(f.options.dbPath);
-    restore.prepare('UPDATE index_metadata SET schema_version=11').run();
+    restore.prepare('UPDATE index_metadata SET schema_version=12').run();
     restore.close();
     await expect(
       openIndexer(

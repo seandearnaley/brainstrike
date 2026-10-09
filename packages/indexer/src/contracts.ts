@@ -128,6 +128,62 @@ export const stateSearchHitSchema = Schema.Struct({
   threadId: nonblank,
 });
 export type StateSearchHit = typeof stateSearchHitSchema.Type;
+/**
+ * The semantic arm: search rows of the requested threads that have no vector
+ * under `profile` for their current text, oldest first. The caller embeds
+ * `text` and returns each vector with its row's `sourceHash`.
+ */
+export const stateSearchPendingSchema = Schema.Struct({
+  limit: positive.check(Schema.isLessThanOrEqualTo(64)),
+  profile: vectorProfileSchema,
+  threadIds: Schema.Array(nonblank),
+});
+export type StateSearchPending = typeof stateSearchPendingSchema.Type;
+export const stateSearchPendingRowSchema = Schema.Struct({
+  seq: positive,
+  /** sha256 of `text`; a vector is stored only while its row still holds that text. */
+  sourceHash: hash,
+  text: nonblank,
+  threadId: nonblank,
+});
+export type StateSearchPendingRow = typeof stateSearchPendingRowSchema.Type;
+export const stateSearchVectorBatchSchema = Schema.Struct({
+  profile: vectorProfileSchema,
+  rows: Schema.Array(
+    Schema.Struct({
+      seq: positive,
+      sourceHash: hash,
+      threadId: nonblank,
+      vector: Schema.Array(Schema.Finite),
+    })
+  ),
+});
+export type StateSearchVectorBatch = typeof stateSearchVectorBatchSchema.Type;
+/** `stale` rows changed or disappeared after they were read; nothing was stored for them. */
+export const stateSearchVectorsResultSchema = Schema.Struct({
+  stale: nonnegative,
+  stored: nonnegative,
+});
+export type StateSearchVectorsResult = typeof stateSearchVectorsResultSchema.Type;
+export const stateSearchSimilarSchema = Schema.Struct({
+  limit: positive.check(Schema.isLessThanOrEqualTo(100)),
+  profile: vectorProfileSchema,
+  threadIds: Schema.Array(nonblank),
+  /** Minimum cosine similarity, as legacy thread search's vector arm. */
+  threshold: Schema.Finite.check(Schema.isBetween({ maximum: 1, minimum: -1 })),
+  vector: Schema.Array(Schema.Finite),
+});
+export type StateSearchSimilar = typeof stateSearchSimilarSchema.Type;
+export const stateSearchSimilarHitSchema = Schema.Struct({
+  role: Schema.Literals(['user', 'assistant']),
+  runId: nonblank,
+  /** Cosine similarity: higher is a better match. */
+  score: Schema.Finite,
+  seq: positive,
+  text: nonblank,
+  threadId: nonblank,
+});
+export type StateSearchSimilarHit = typeof stateSearchSimilarHitSchema.Type;
 export const stateHealthSchema = Schema.Struct({ indexerErrors: Schema.Array(Schema.String) });
 export const stateCountsSchema = Schema.Record(Schema.String, nonnegative);
 export const stateStatsSchema = Schema.Struct({

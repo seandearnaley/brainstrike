@@ -130,10 +130,12 @@ it('an upgraded schema 10 store projects search rows from the events it already 
   await f.port.catchUpState(['one']);
   await f.close();
   owned.splice(owned.indexOf(f.close), 1);
-  // The schema 10 layout: no search storage, everything else unchanged.
+  // The schema 10 layout: no search or search-vector storage, everything else unchanged.
   const db = openConnection(f.options.dbPath);
   try {
-    db.exec('DROP TABLE state_search_fts; DROP TABLE state_search_rows;');
+    db.exec(
+      'DROP TABLE state_search_vectors; DROP TABLE state_search_fts; DROP TABLE state_search_rows;'
+    );
     db.prepare('UPDATE index_metadata SET schema_version=10').run();
   } finally {
     db.close();
@@ -152,7 +154,7 @@ it('an upgraded schema 10 store projects search rows from the events it already 
   );
   const upgraded = openConnection(f.options.dbPath, { readonly: true });
   try {
-    expect(upgraded.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(11);
+    expect(upgraded.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(12);
   } finally {
     upgraded.close();
   }

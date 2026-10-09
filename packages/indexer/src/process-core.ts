@@ -19,6 +19,9 @@ import {
   stateObservationHitSchema,
   stateObservationPlanSchema,
   stateSearchHitSchema,
+  stateSearchPendingRowSchema,
+  stateSearchSimilarHitSchema,
+  stateSearchVectorsResultSchema,
   stateStatsSchema,
 } from './contracts.js';
 import { assertCoverageAuthorityBound, coverageAuthoritySchema } from './coverage-authority.js';
@@ -176,6 +179,27 @@ export async function runIndexerProcess(
               request.op,
               request.payload,
               decoder(Schema.Array(stateSearchHitSchema))
+            );
+            break;
+          case 'state-search-pending':
+            work = client.call(
+              request.op,
+              request.payload,
+              decoder(Schema.Array(stateSearchPendingRowSchema))
+            );
+            break;
+          case 'state-search-vectors':
+            work = client.call(
+              request.op,
+              request.payload,
+              decoder(stateSearchVectorsResultSchema)
+            );
+            break;
+          case 'state-search-similar':
+            work = client.call(
+              request.op,
+              request.payload,
+              decoder(Schema.Array(stateSearchSimilarHitSchema))
             );
             break;
           case 'state-rebuild':

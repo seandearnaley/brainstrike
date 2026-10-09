@@ -9,12 +9,18 @@ import {
   IndexerError,
   type StateProjectionStats,
   type StateSearchHit,
+  type StateSearchPendingRow,
   type StateSearchRow,
+  type StateSearchSimilarHit,
+  type StateSearchVectorsResult,
   stateEventIdentitySchema,
   stateGcSchema,
   stateMatchSchema,
   stateSearchHitSchema,
+  stateSearchPendingSchema,
   stateSearchSchema,
+  stateSearchSimilarSchema,
+  stateSearchVectorBatchSchema,
   stateStatsSchema,
   stateThreadsSchema,
 } from './contracts.js';
@@ -22,6 +28,7 @@ import { INDEX_SCHEMA_VERSION, type IndexSchemaVersion } from './index-metadata.
 import { StateMessageVectors } from './state-message-vectors.js';
 import { StateObservationVectors } from './state-observation-vectors.js';
 import type { StateProjection } from './state-projection.js';
+import { StateSearchVectors } from './state-search-vectors.js';
 
 const count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 const decodeCount = decoder(count);
@@ -83,6 +90,7 @@ export class StateEventStore {
       END;
       INSERT INTO state_events_fts(state_events_fts,rank) VALUES('secure-delete',1);
       ${searchDefinition}
+      ${StateSearchVectors.definition}
     `);
     StateMessageVectors.initialize(db);
     StateObservationVectors.initialize(db);
@@ -145,6 +153,7 @@ export class StateEventStore {
       ['state_search_rows', 'table', version >= 11],
       ['state_search_thread', 'index', version >= 11],
       ['state_search_fts', 'table', version >= 11],
+      ['state_search_vectors', 'table', version >= 12],
     ];
     const objects = decoder(
       Schema.Array(Schema.Struct({ name: Schema.String, sql: Schema.String, type: Schema.String }))
@@ -218,6 +227,9 @@ export class StateEventStore {
     if (version < 11) {
       db.exec(searchDefinition);
     }
+    if (version < 12) {
+      db.exec(StateSearchVectors.definition);
+    }
     StateMessageVectors.validateStorage(db);
   }
 
@@ -273,6 +285,7 @@ export class StateEventStore {
 
   readonly messages: StateMessageVectors;
   readonly observations: StateObservationVectors;
+  private readonly searchVectors: StateSearchVectors;
 
   constructor(
     private readonly db: Database.Database,
@@ -286,6 +299,7 @@ export class StateEventStore {
     this.truth = new SqliteReader(root);
     this.messages = new StateMessageVectors(db, this.truth, projection, options);
     this.observations = new StateObservationVectors(db, this.truth, projection, this.messages);
+    this.searchVectors = new StateSearchVectors(db);
     db.exec("INSERT INTO state_events_fts(state_events_fts,rank) VALUES('integrity-check',1)");
   }
 
@@ -439,6 +453,31 @@ export class StateEventStore {
         )
         .all(words.map(quote).join(' '), JSON.stringify(request.threadIds), request.limit)
     );
+  }
+
+  /** The semantic arm's backlog: rows of the threads, caught up, with no vector under the profile. */
+  searchPending(input: unknown): readonly StateSearchPendingRow[] {
+    const request = decoder(stateSearchPendingSchema)(input);
+    if (request.threadIds.length === 0) {
+      return [];
+    }
+    this.catchUp(request.threadIds);
+    return this.searchVectors.pending(request);
+  }
+
+  /** Vectors the caller computed for `searchPending` rows; a changed row's vector is not stored. */
+  putSearchVectors(input: unknown): StateSearchVectorsResult {
+    return this.searchVectors.put(decoder(stateSearchVectorBatchSchema)(input));
+  }
+
+  /** The semantic arm: the threads' rows nearest the query vector, caught up first like `search`. */
+  searchSimilar(input: unknown): readonly StateSearchSimilarHit[] {
+    const request = decoder(stateSearchSimilarSchema)(input);
+    if (request.threadIds.length === 0) {
+      return [];
+    }
+    this.catchUp(request.threadIds);
+    return this.searchVectors.similar(request);
   }
 
   recordFailure(error: unknown): void {

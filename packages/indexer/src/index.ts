@@ -28,6 +28,12 @@ import type {
   StateProjectionStats,
   StateSearch,
   StateSearchHit,
+  StateSearchPending,
+  StateSearchPendingRow,
+  StateSearchSimilar,
+  StateSearchSimilarHit,
+  StateSearchVectorBatch,
+  StateSearchVectorsResult,
 } from './contracts.js';
 import type { CoverageAuthorityPort } from './coverage-authority.js';
 import {
@@ -89,6 +95,12 @@ export type {
   StateProjectionStats,
   StateSearch,
   StateSearchHit,
+  StateSearchPending,
+  StateSearchPendingRow,
+  StateSearchSimilar,
+  StateSearchSimilarHit,
+  StateSearchVectorBatch,
+  StateSearchVectorsResult,
   TextFileCommit,
   VectorProfile,
 } from './contracts.js';
@@ -151,10 +163,16 @@ export interface StateIndexerPort {
   catchUpState(threads: readonly string[]): Promise<void>;
   dropStateThread(threadId: string): Promise<readonly string[]>;
   matchState(threadId: string, query: string): Promise<readonly number[]>;
+  /** Stores the caller's vectors for backlog rows whose text has not changed since. */
+  putStateSearchVectors(request: StateSearchVectorBatch): Promise<StateSearchVectorsResult>;
   rebuildState(threadId: string): Promise<void>;
   reindexState(threadId: string, seq: number): Promise<void>;
   /** Gap 10: committed conversation rows of the requested threads matching every query word. */
   searchState(request: StateSearch): Promise<readonly StateSearchHit[]>;
+  /** The semantic arm's backlog: rows with no vector under the profile, for the caller to embed. */
+  searchStatePending(request: StateSearchPending): Promise<readonly StateSearchPendingRow[]>;
+  /** The semantic arm: rows nearest the query vector under the profile, best first. */
+  searchStateSimilar(request: StateSearchSimilar): Promise<readonly StateSearchSimilarHit[]>;
   stateBlobCounts(
     threads: readonly string[],
     hashes: readonly string[]

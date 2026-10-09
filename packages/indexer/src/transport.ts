@@ -53,7 +53,13 @@ import {
   stateObservationQuerySchema,
   stateObservationUpsertSchema,
   stateSearchHitSchema,
+  stateSearchPendingRowSchema,
+  stateSearchPendingSchema,
   stateSearchSchema,
+  stateSearchSimilarHitSchema,
+  stateSearchSimilarSchema,
+  stateSearchVectorBatchSchema,
+  stateSearchVectorsResultSchema,
   stateStatsSchema,
   stateThreadsSchema,
   textCommitSchema,
@@ -401,6 +407,12 @@ export function createIndexerConnection(
         decoder(stateObservationPurgeSchema)(request),
         decoder(Schema.Boolean)
       ),
+    putStateSearchVectors: (request) =>
+      call(
+        'state-search-vectors',
+        decoder(stateSearchVectorBatchSchema)(request),
+        decoder(stateSearchVectorsResultSchema)
+      ),
     queryStateMessageVectors: async (request) =>
       call(
         'state-message-query',
@@ -451,6 +463,18 @@ export function createIndexerConnection(
         'state-search',
         decoder(stateSearchSchema)(request),
         decoder(Schema.Array(stateSearchHitSchema))
+      ),
+    searchStatePending: (request) =>
+      call(
+        'state-search-pending',
+        decoder(stateSearchPendingSchema)(request),
+        decoder(Schema.Array(stateSearchPendingRowSchema))
+      ),
+    searchStateSimilar: (request) =>
+      call(
+        'state-search-similar',
+        decoder(stateSearchSimilarSchema)(request),
+        decoder(Schema.Array(stateSearchSimilarHitSchema))
       ),
     stateBlobCounts: (threads, hashes) =>
       call(
