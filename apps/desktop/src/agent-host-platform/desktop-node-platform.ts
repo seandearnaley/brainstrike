@@ -24,8 +24,8 @@ import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-me
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
 import {
-  createHostRunHooks,
   getGlobalHooksPath,
+  loadHostRunHooks,
   trustedHookRoots,
 } from '@brainstrike/host-capabilities/hooks';
 import { createDesktopNodeMcpHost } from '@brainstrike/host-capabilities/mcp/desktop-node-mcp';
@@ -35,6 +35,8 @@ import {
   selectHostProjectionRewrites,
 } from '@brainstrike/host-capabilities/native-tools';
 import type { HostStartOptions } from '@brainstrike/host-lease';
+import { createLogger } from '@brainstrike/logging';
+import { type NativeChild, observeNativeChildren } from '@brainstrike/state-store/native-children';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
 import { mainPlatformConnection } from './connection';
@@ -49,11 +51,15 @@ import {
   PlatformLocalProgressSchema,
   PlatformMemoryReadinessSchema,
   PlatformPolicySchema,
+  PlatformRewindConflictsSchema,
+  PlatformRewindOutcomesSchema,
+  PlatformRewindPreviewResultSchema,
   PlatformSelectionSchema,
   PlatformTurnSnapshotResultSchema,
 } from './platform-wire';
 
 type PlatformSelection = z.output<typeof PlatformSelectionSchema>;
+const logger = createLogger('DesktopNodePlatform');
 
 async function parsePlatformSelection(
   response: unknown,
@@ -107,9 +113,9 @@ type LocalProgressListeners = Map<string, (progress: LocalLlmHostProgress) => vo
  * the generation.
  */
 function borrowedLocalInference(
+  /** Bound to the admission: each request names its selection. */
   request: PlatformRequest,
-  listeners: LocalProgressListeners,
-  threadId: string
+  listeners: LocalProgressListeners
 ): { readonly embedding: LocalEmbeddingHostClient; readonly llm: LocalLlmHostClient } {
   const borrow = async (
     method: string,
@@ -121,7 +127,7 @@ function borrowedLocalInference(
       listeners.set(requestId, options.onProgress);
     }
     try {
-      return await request(method, { ...input, requestId, threadId }, options.signal);
+      return await request(method, { ...input, requestId }, options.signal);
     } finally {
       listeners.delete(requestId);
     }
@@ -130,7 +136,7 @@ function borrowedLocalInference(
     embedding: {
       queryEmbedding: async ({ query }, options) =>
         PlatformEmbeddingResultSchema.parse(
-          await request('platform/embedding/query', { query, threadId }, options?.signal)
+          await request('platform/embedding/query', { query }, options?.signal)
         ),
     },
     llm: {
@@ -216,6 +222,25 @@ export async function createHostPlatform(
     }
   };
   serveHostCommandSessions(connection);
+  // ADR-0017: Main supervises the native processes this host starts, and ends their
+  // process groups if the host dies. Windows reports none: the host's kill-on-close Job
+  // ends them with it.
+  if (process.platform !== 'win32') {
+    const notify = (method: string, child: NativeChild): void => {
+      const failed = (cause: unknown): void =>
+        logger.error('Main did not learn of a native process', { cause, method, pid: child.pid });
+      try {
+        connection.sendNotification(method, child).catch(failed);
+      } catch (cause) {
+        failed(cause);
+      }
+    };
+    const unobserve = observeNativeChildren({
+      exited: (child) => notify('platform/native-child/exited', child),
+      started: (child) => notify('platform/native-child/started', child),
+    });
+    await startup.register(async () => unobserve());
+  }
   // ADR-0007: a borrowed local generation streams through Main's progress notifications.
   const localProgress: LocalProgressListeners = new Map();
   connection.onNotification('platform/llm/progress', (input: unknown) => {
@@ -232,9 +257,19 @@ export async function createHostPlatform(
   // Its servers connect after readiness, so bearer reads wait for a pending
   // legacy import like every other credential use. Its OAuth records live in
   // this host's profile store, which Main never writes.
-  const mcpHost = await createDesktopNodeMcpHost(connection, request, startup, {
-    secrets: () => host.auth.secrets(),
-    store: () => host.credentials.store(),
+  const userDataDir = platformOptions?.appPaths?.userDataPath;
+  if (!userDataDir) {
+    throw new Error('The desktop agent host needs its app paths for MCP settings');
+  }
+  const mcpHost = await createDesktopNodeMcpHost({
+    connection,
+    credentials: {
+      secrets: () => host.auth.secrets(),
+      store: () => host.credentials.store(),
+    },
+    request,
+    startup,
+    userDataDir,
   });
   await startup.register(() => mcpHost.close());
   return createProductionHostPlatform({
@@ -248,6 +283,8 @@ export async function createHostPlatform(
     },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     mcp: mcpHost.services.mcp,
+    mcpPresentation: mcpHost.presentation,
+    mcpSettings: mcpHost.settings,
     // Main admits every desktop run under the workspace memory resource.
     memoryResourceIds: [WORKSPACE_MEMORY_RESOURCE_ID],
     providers: host.providers,
@@ -258,8 +295,16 @@ export async function createHostPlatform(
         admission.signal
       );
       const selected = await parsePlatformSelection(response, () =>
-        request('platform/release', { threadId: admission.threadId })
+        request('platform/release', { selectionRunId: admission.runId })
       );
+      // BST-1932: everything bound at this admission names Main's selection by the
+      // admitting run; a child borrowing the admission sends that same run.
+      const bound: PlatformRequest = (method, input, signal) =>
+        request(
+          method,
+          { ...z.record(z.string(), z.unknown()).parse(input), selectionRunId: admission.runId },
+          signal
+        );
       const configuration = desktopRuntimeConfiguration(selected);
       const provider = configuration.provider;
       let closing: Promise<void> | undefined;
@@ -273,10 +318,10 @@ export async function createHostPlatform(
         return host.auth.resolveProviderAuth(selectedProvider, admission.origin);
       };
       const closeSelection = (): Promise<void> =>
-        (closing ??= request('platform/release', { threadId: admission.threadId }).then(
+        (closing ??= request('platform/release', { selectionRunId: admission.runId }).then(
           () => undefined
         ));
-      const local = borrowedLocalInference(request, localProgress, admission.threadId);
+      const local = borrowedLocalInference(bound, localProgress);
       let memory: ProductionHostRunConfiguration['memory'];
       try {
         memory = await createDesktopHostMemoryConfiguration(selected, resolveAuth, {
@@ -295,14 +340,14 @@ export async function createHostPlatform(
       const tools = desktopHostSharedTools({
         appPaths: platformOptions?.appPaths,
         readFileCursorRegistry,
-        request,
+        request: bound,
         resolveTavilyApiKey: host.resolveTavilyApiKey,
         selected,
         threadId: admission.threadId,
       });
       // Global hooks run as configured; a root's project file runs only at the
       // hash the host trusted it at, and is reported, not run, otherwise.
-      const hooks = createHostRunHooks({
+      const { hooks, skipped } = loadHostRunHooks({
         globalPath: getGlobalHooksPath(),
         maxHookTimeoutMs: selected.toolTimeoutMs,
         // The run's admitted roots, bound or live: the roots its tools use.
@@ -314,7 +359,7 @@ export async function createHostPlatform(
         // review. Unsignalled: a stopped run's turn still ends with snapshots.
         captureTurnBoundary: async (boundary) =>
           PlatformTurnSnapshotResultSchema.parse(
-            await request('platform/snapshot/capture', boundary)
+            await bound('platform/snapshot/capture', boundary)
           ),
         childSystem: selected.childSystem,
         close: closeSelection,
@@ -324,6 +369,8 @@ export async function createHostPlatform(
         // An admitted local chat model generates in Main's hidden llm-host.
         localLlmHostClient: local.llm,
         ...(hooks ? { hooks } : {}),
+        // Core commits the hook files this run did not load (`hooks.skipped`).
+        hookSkips: skipped,
         ...(selected.system === undefined ? {} : { system: selected.system }),
         maxSteps: selected.maxSteps,
         memory,
@@ -338,7 +385,6 @@ export async function createHostPlatform(
         toolTimeoutMs: selected.toolTimeoutMs,
       };
     },
-    readLegacyMemory: () => request('platform/memory/legacy', {}),
     // Main's admission preconditions, then the memory credentials, nothing acquired.
     readMemoryPreconditions: async (admission) => {
       const readiness = PlatformMemoryReadinessSchema.parse(
@@ -370,11 +416,28 @@ export async function createHostPlatform(
         .string()
         .min(1)
         .parse(await request('platform/workspace/root', { rootId }, signal)),
+    // Main's shadow-git owner restores a host thread's rewind and its redo.
+    rewindFiles: {
+      apply: async (input) =>
+        PlatformRewindOutcomesSchema.parse(await request('platform/rewind/apply', input)),
+      drift: async (input) =>
+        PlatformRewindConflictsSchema.parse(await request('platform/rewind/drift', input)),
+      preview: async (input) =>
+        PlatformRewindPreviewResultSchema.parse(await request('platform/rewind/preview', input)),
+      redo: async (input) =>
+        PlatformRewindOutcomesSchema.parse(await request('platform/rewind/redo', input)),
+      redoConflicts: async (input) =>
+        PlatformRewindConflictsSchema.parse(await request('platform/rewind/redo-conflicts', input)),
+    },
     selectProjectionRewrites: selectHostProjectionRewrites,
     startup,
-    validateWorkspaceBinding: async ({ binding, signal, threadId }) => {
+    validateWorkspaceBinding: async ({ binding, runId, signal, threadId }) => {
       z.strictObject({ accepted: z.literal(true) }).parse(
-        await request('platform/workspace/validate', { binding, threadId }, signal)
+        await request(
+          'platform/workspace/validate',
+          { binding, ...(runId ? { selectionRunId: runId } : {}), threadId },
+          signal
+        )
       );
     },
   });

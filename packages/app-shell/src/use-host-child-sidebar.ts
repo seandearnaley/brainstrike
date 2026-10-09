@@ -69,6 +69,71 @@ function selectedChildThread(): string | undefined {
   }
 }
 
+/**
+ * The panel's rows with each expanded host parent's children (or its loading,
+ * error or empty state) beneath it, recursively.
+ */
+function projectHostChildRows(
+  base: readonly ThreadPanelVisibleRow[],
+  expanded: ReadonlyMap<string, ExpandedParent>,
+  snapshot: HostChildSidebarSnapshot
+): ThreadPanelVisibleRow[] {
+  const rows: ThreadPanelVisibleRow[] = [];
+  const append = (parentId: string, parentColor: AgentColor | undefined): void => {
+    const parent = expanded.get(parentId);
+    if (!parent) {
+      return;
+    }
+    const state = (label: string, isError = false): void => {
+      rows.push({
+        depth: parent.depth + 1,
+        groupId: parent.groupId,
+        id: `delegated-state:${parentId}`,
+        isError,
+        kind: 'delegated-state',
+        label,
+        parentId,
+      });
+    };
+    const children = snapshot.children.get(parent.threadId);
+    if (children === undefined) {
+      state('Loading child conversations…');
+      return;
+    }
+    if (children instanceof Error) {
+      state(children.message, true);
+      return;
+    }
+    if (children.length === 0) {
+      state('No child conversations');
+      return;
+    }
+    for (const child of children) {
+      const id = hostChildWorkspaceTabId(child);
+      const row: DelegatedSidebarRow = {
+        child,
+        depth: parent.depth + 1,
+        groupId: parent.groupId,
+        id,
+        kind: 'host-child',
+        parentColor,
+        parentId,
+        unread: snapshot.unread.has(child.threadId),
+      };
+      rows.push(row);
+      append(id, isAgentColor(child.color) ? child.color : undefined);
+    }
+  };
+  for (const row of base) {
+    rows.push(row);
+    if (row.kind === 'thread') {
+      const color = row.thread.metadata?.color;
+      append(row.id, isAgentColor(color) ? color : undefined);
+    }
+  }
+  return rows;
+}
+
 const WORKSPACE_TAB_SELECTION: HostChildTabSelection = {
   current: selectedChildThread,
   subscribe: (listener) => useWorkspaceTabSelectionStore.subscribe(listener),
@@ -114,62 +179,8 @@ export function useHostChildSidebar() {
     [expanded, owns, snapshot, store]
   );
   const project = useCallback(
-    (base: readonly ThreadPanelVisibleRow[]): ThreadPanelVisibleRow[] => {
-      const rows: ThreadPanelVisibleRow[] = [];
-      const append = (parentId: string, parentColor: AgentColor | undefined): void => {
-        const parent = expanded.get(parentId);
-        if (!parent) {
-          return;
-        }
-        const state = (label: string, isError = false): void => {
-          rows.push({
-            depth: parent.depth + 1,
-            groupId: parent.groupId,
-            id: `delegated-state:${parentId}`,
-            isError,
-            kind: 'delegated-state',
-            label,
-            parentId,
-          });
-        };
-        const children = snapshot.children.get(parent.threadId);
-        if (children === undefined) {
-          state('Loading child conversations…');
-          return;
-        }
-        if (children instanceof Error) {
-          state(children.message, true);
-          return;
-        }
-        if (children.length === 0) {
-          state('No child conversations');
-          return;
-        }
-        for (const child of children) {
-          const id = hostChildWorkspaceTabId(child);
-          const row: DelegatedSidebarRow = {
-            child,
-            depth: parent.depth + 1,
-            groupId: parent.groupId,
-            id,
-            kind: 'host-child',
-            parentColor,
-            parentId,
-            unread: snapshot.unread.has(child.threadId),
-          };
-          rows.push(row);
-          append(id, isAgentColor(child.color) ? child.color : undefined);
-        }
-      };
-      for (const row of base) {
-        rows.push(row);
-        if (row.kind === 'thread') {
-          const color = row.thread.metadata?.color;
-          append(row.id, isAgentColor(color) ? color : undefined);
-        }
-      }
-      return rows;
-    },
+    (base: readonly ThreadPanelVisibleRow[]): ThreadPanelVisibleRow[] =>
+      projectHostChildRows(base, expanded, snapshot),
     [expanded, snapshot]
   );
   const expandedIds = useMemo(() => new Set(expanded.keys()), [expanded]);

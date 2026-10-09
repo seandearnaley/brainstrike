@@ -2,46 +2,40 @@ import { ResponseError } from 'vscode-jsonrpc';
 import { z } from 'zod';
 
 /**
- * Private Main↔Node methods while the desktop's one MCP runtime lives in the
- * Node host (BST-1930 stage c1). Two interim groups, each with a removal point:
+ * Private Main and Node methods while Main still serves renderer MCP surfaces
+ * (BST-1930 c1 interim). Two groups, each with a removal point:
  *
- * - Node → Main `platform/mcp/*` store adapters: the decrypted config and
- *   Electron `shell.openExternal`. The config goes when it is host-owned.
- *   Bearer references and OAuth records live in the profile credential store
- *   the host owns, and Tasks in the host's StateStore.
- *   `platform/mcp/tasks/legacy` reads Main's PGlite Tasks rows once, for the
- *   host's import; it goes when PGlite leaves the desktop.
- * - Main → Node `mcp-runtime/*`: Main's renderer surfaces (settings, status,
- *   tasks, elicitation, Apps, content) reach that runtime. They go in c5, when
- *   the renderer calls public host-protocol methods instead.
+ * - Node to Main `platform/*` adapters: Electron `shell.openExternal`, and the
+ *   readiness handshake that opens `mcp-runtime/*` to Main. The host owns its
+ *   MCP config, extension dials, tool preferences, credentials and Tasks.
+ * - Main to Node `mcp-runtime/*`: Main's remaining renderer surfaces (Apps,
+ *   their task tracking, content), the native config picker and factory reset
+ *   reach the host's runtime and settings authority. Status, lifecycle
+ *   control, Tasks cards and global elicitation are public host methods
+ *   (c5b-c5c); the rest go with c5d-e.
  */
 export const MCP_STORE_METHODS = {
   openExternal: 'platform/open-external',
   ready: 'platform/mcp/ready',
-  state: 'platform/mcp/state',
-  tasksLegacy: 'platform/mcp/tasks/legacy',
 } as const;
 
 export const MCP_RUNTIME_METHODS = {
-  config: 'mcp-runtime/config',
+  /** Main's native picker chose an MCP config file; the host selects it. */
+  configPathPick: 'mcp-runtime/config/path/pick',
   control: 'mcp-runtime/control',
-  elicitationAttach: 'mcp-runtime/elicitation/attach',
-  elicitationDetach: 'mcp-runtime/elicitation/detach',
-  elicitationSettle: 'mcp-runtime/elicitation/settle',
-  extensions: 'mcp-runtime/extensions',
   invoke: 'mcp-runtime/invoke',
+  /** Factory reset: retire the settings lifecycle and keep a restore point. */
+  settingsReset: 'mcp-runtime/settings/reset',
+  /** After a factory reset: reopen the settings lifecycle, restoring it if the reset failed. */
+  settingsResume: 'mcp-runtime/settings/resume',
   snapshot: 'mcp-runtime/snapshot',
-  tasksAct: 'mcp-runtime/tasks/act',
-  tasksList: 'mcp-runtime/tasks/list',
   tasksTrack: 'mcp-runtime/tasks/track',
-  tools: 'mcp-runtime/tools',
 } as const;
 
 export const MCP_RUNTIME_NOTIFICATIONS = {
-  elicitationFinalized: 'mcp-runtime/elicitation/finalized',
-  elicitationRequested: 'mcp-runtime/elicitation/requested',
   progress: 'mcp-runtime/progress',
-  tasksChanged: 'mcp-runtime/tasks/changed',
+  /** The host's tool registry changed; Main mirrors it for its remaining readers. */
+  tools: 'mcp-runtime/tools',
   watch: 'mcp-runtime/watch',
 } as const;
 
@@ -59,18 +53,44 @@ export const McpToolRegistryStateSchema = z.record(
 );
 export type McpToolRegistryState = z.infer<typeof McpToolRegistryStateSchema>;
 
-/**
- * Main's desired MCP state at one revision: the decrypted config, the global
- * extension dials and the Settings tool registry. Node reports the revision it
- * applied in `platform/mcp/ready`; Main pushes anything newer.
- */
-export const McpDesiredStateSchema = z.strictObject({
-  config: z.json(),
-  extensionPreferences: z.json(),
-  revision: z.number().int().nonnegative(),
-  tools: McpToolRegistryStateSchema,
-});
-export type McpDesiredState = z.infer<typeof McpDesiredStateSchema>;
+/** The registry calls a mirror makes; each `@brainstrike/agent` bundle has its own instance. */
+export interface McpToolRegistryMirrorTarget {
+  clear(): void;
+  disableTools(toolIds: string[]): void;
+  register(serverName: string, tools: Readonly<Record<string, McpRegistryMirrorTool>>): void;
+}
+
+interface McpRegistryMirrorTool {
+  readonly description?: string;
+  readonly inputSchema?: unknown;
+}
+
+/** Replace `registry` with exactly the host's published tool registry state. */
+export function mirrorMcpToolRegistryState(
+  registry: McpToolRegistryMirrorTarget,
+  state: McpToolRegistryState
+): void {
+  registry.clear();
+  const disabled: string[] = [];
+  for (const [serverName, tools] of Object.entries(state)) {
+    registry.register(
+      serverName,
+      Object.fromEntries(
+        tools.map((tool) => [
+          tool.id,
+          {
+            ...(tool.description === undefined ? {} : { description: tool.description }),
+            ...(tool.inputSchema === undefined ? {} : { inputSchema: tool.inputSchema }),
+          },
+        ])
+      )
+    );
+    disabled.push(...tools.filter((tool) => !tool.enabled).map((tool) => tool.id));
+  }
+  if (disabled.length > 0) {
+    registry.disableTools(disabled);
+  }
+}
 
 const ERROR_DATA = z.object({
   category: z.string().optional(),

@@ -334,6 +334,113 @@ test("a decision's live grant answers every sibling it now allows; the others st
   expect(cRows.some((row) => row.event.type === 'interaction.responded')).toBe(false);
 });
 
+test("a sibling's call decided before a session grant, but committed after it, is answered by that grant", async () => {
+  // B's provider streams its write, then holds the step open until A's grant lands:
+  // the call is decided "ask" before the grant and its pause commits after it.
+  const bCallSent = Promise.withResolvers<void>();
+  const releaseB = Promise.withResolvers<void>();
+  let policyReads = 0;
+  let readsBeforeB = 0;
+  const model = new MockLanguageModelV4({
+    doStream: async (call) => {
+      if (firstUser(call) === 'Fan out writes.') {
+        if (lastUser(call).includes(LEDGER)) {
+          return stream(text('Parent saw every write.'));
+        }
+        return stream(
+          answered(call as CallOptions)
+            ? text('Parent continues.')
+            : toolCalls([
+                ['agent-worker', { prompt: 'WRITE_A' }, 'w-a'],
+                ['agent-worker', { prompt: 'WRITE_B' }, 'w-b'],
+              ])
+        );
+      }
+      const task = firstUser(call);
+      if (answered(call as CallOptions)) {
+        return stream(text(`${task} done.`));
+      }
+      const [start, callChunk, finish] = toolCall(
+        'write_file',
+        { path: `${task}.txt` },
+        `${task}-call`
+      );
+      if (task !== 'WRITE_B' || !(start && callChunk && finish)) {
+        return stream(toolCall('write_file', { path: `${task}.txt` }, `${task}-call`));
+      }
+      return {
+        stream: new ReadableStream({
+          async start(controller) {
+            readsBeforeB = policyReads;
+            controller.enqueue(start);
+            controller.enqueue(callChunk);
+            bCallSent.resolve();
+            await releaseB.promise;
+            controller.enqueue(finish);
+            controller.close();
+          },
+        }),
+      };
+    },
+  });
+  const harness = await setupChildRunHost(model, cleanup, {
+    personas: [explorer, worker],
+    policy: () => {
+      policyReads += 1;
+      return {
+        policies: { ...DEFAULT_PERMISSION_POLICIES, edit: 'ask', read: 'allow' },
+        yolo: false,
+      };
+    },
+  });
+  try {
+    await harness.start('Fan out writes.');
+    await expect.poll(async () => (await childThreads(harness)).length).toBe(2);
+    const children = await childThreads(harness);
+    const prompts = await Promise.all(
+      children.map(async (threadId) => ({
+        prompt: (await harness.core().read(threadId, 0)).flatMap(({ event }) =>
+          event.type === 'run.started' ? [event.prompt] : []
+        )[0],
+        threadId,
+      }))
+    );
+    const aThread = prompts.find(({ prompt }) => prompt === 'WRITE_A')?.threadId;
+    const bThread = prompts.find(({ prompt }) => prompt === 'WRITE_B')?.threadId;
+    if (!(aThread && bThread)) {
+      throw new Error('Both writers must start');
+    }
+    const aPause = (await rowsUntil(harness, aThread, requested)).find(requested)?.event;
+    if (aPause?.type !== 'interaction.requested') {
+      throw new Error('A did not pause');
+    }
+    // B's write has streamed and been decided under the policy that still asks.
+    await bCallSent.promise;
+    await expect.poll(() => policyReads).toBeGreaterThan(readsBeforeB);
+    await harness.core().respond({
+      commandId: randomUUID(),
+      decision: 'approve',
+      grant: { category: 'edit', scope: 'session' },
+      interactionId: aPause.interactionId,
+      runId: aPause.runId,
+      threadId: aThread,
+    });
+    await expect.poll(() => harness.writes.length).toBe(1);
+    releaseB.resolve();
+    // No person answers B: the tree's grant allows its write once B's pause commits.
+    await expect.poll(() => harness.writes.length).toBe(2);
+    const bRows = await harness.core().read(bThread, 0);
+    const bPauses = bRows.filter(requested);
+    const bAnswers = bRows.filter(({ event }) => event.type === 'interaction.responded');
+    expect(bAnswers.map(({ event }) => event)).toEqual(
+      bPauses.map(() => expect.objectContaining({ by: 'policy', decision: 'approve' }))
+    );
+  } finally {
+    // A failed assertion must not hold B's provider stream open through cleanup.
+    releaseB.resolve();
+  }
+});
+
 test('children open the parent’s Memory on their own thread; a read-only child withholds working memory', async () => {
   const opened: { threadId: string; workingMemory: false | undefined }[] = [];
   const model = new MockLanguageModelV4({

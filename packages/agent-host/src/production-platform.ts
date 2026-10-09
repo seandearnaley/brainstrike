@@ -14,11 +14,10 @@ import {
 } from '@brainstrike/agent/provider-runtime';
 import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
-import type { VectorProfile } from '@brainstrike/indexer';
+import { decodeVectorProfile, type VectorProfile } from '@brainstrike/indexer';
 import type { LanguageModel, Tool } from 'ai';
 import { z } from 'zod';
 import { committedRunMessages, createHostToolDiscovery } from './adapters/host-tool-discovery.js';
-import { importLegacyMemory } from './adapters/legacy-memory-import.js';
 import { createMcpHostToolAdapter } from './adapters/mcp.js';
 import type { HostMemory } from './adapters/memory.js';
 import { hostMemoryTools } from './adapters/memory-tools.js';
@@ -63,6 +62,8 @@ export interface ProductionHostRunConfiguration {
   /** BST-1932: the personas and subagent limits this admission may delegate with. */
   readonly delegation?: HostDelegation | undefined;
   readonly durableConfiguration: HostRunSnapshot['configuration'];
+  /** The hook files the composition did not load; Core commits them visibly. */
+  readonly hookSkips?: HostRunAdmission['hookSkips'];
   /** The run's lifecycle hooks, when the composition loaded any. */
   readonly hooks?: HostRunHooks;
   /**
@@ -112,16 +113,15 @@ export interface ProductionHostPlatformOptions {
   readonly forgetThread?: HostPlatform['forgetThread'];
   /** Desktop platform selections already include the existing qualified MCP executors. */
   readonly mcp?: HostMcpRuntime;
+  /** The desktop's MCP Tasks cards and server input (BST-1930 c5c). */
+  readonly mcpPresentation?: HostPlatform['mcpPresentation'];
+  /** The desktop's MCP settings authority (BST-1930 c5a). */
+  readonly mcpSettings?: HostPlatform['mcpSettings'];
   /** Memory resources whose recall/observation vectors the host's state index stores. */
   readonly memoryResourceIds?: readonly string[];
   /** Provider reads from the same credential store. */
   readonly providers?: HostPlatform['providers'];
   readConfiguration(request: HostRunAdmissionRequest): Promise<ProductionHostRunConfiguration>;
-  /**
-   * Gap 17: the launching desktop's legacy workspace memory, read once from
-   * Main for the import before a run's Memory opens. The CLI has none.
-   */
-  readonly readLegacyMemory?: () => Promise<unknown>;
   /** thread/memory/read's preconditions; absent where the host has no composer. */
   readonly readMemoryPreconditions?: (
     request: HostRunIntentRequest
@@ -137,6 +137,8 @@ export interface ProductionHostPlatformOptions {
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
   /** The live root owner checkpoint revert revalidates against. */
   readonly resolveWorkspaceRoot?: HostPlatform['resolveWorkspaceRoot'];
+  /** The snapshot owner's rewind restores; absent where none exists (the CLI). */
+  readonly rewindFiles?: HostPlatform['rewindFiles'];
   /** The native-tool output rewrite policy (host-capabilities). */
   readonly selectProjectionRewrites?: HostPlatform['selectProjectionRewrites'];
   readonly startup: HostStartupContext;
@@ -297,22 +299,6 @@ export async function createProductionHostPlatform(
   const selections = new Set<() => Promise<void>>();
   let closing: Promise<void> | undefined;
   let stateIndex: Promise<HostStateIndex> | undefined;
-  // Gap 17: one legacy import per memory resource; a failed one is retried by the next admission.
-  const legacyImports = new Map<string, ReturnType<typeof importLegacyMemory>>();
-  const importLegacy = (resourceId: string): ReturnType<typeof importLegacyMemory> | undefined => {
-    const read = options.readLegacyMemory;
-    if (!read) {
-      return;
-    }
-    const pending =
-      legacyImports.get(resourceId) ??
-      importLegacyMemory(options.startup.store, resourceId, read).catch((cause: unknown) => {
-        legacyImports.delete(resourceId);
-        throw cause;
-      });
-    legacyImports.set(resourceId, pending);
-    return pending;
-  };
   const close = (): Promise<void> => {
     closing ??= (async () => {
       const joined = await Promise.allSettled([...selections].map((release) => release()));
@@ -434,8 +420,6 @@ export async function createProductionHostPlatform(
         if (closing) {
           throw new Error('Production host is closing');
         }
-        // Before any run of this admission opens its Memory.
-        const legacy = await importLegacy(selected.memory.resourceId);
         const provider = selected.configuration.provider ?? '';
         const auth = await admittedProviderAuth(options, selected, provider);
         const model = await admittedModel(options, selected, auth, request.signal);
@@ -493,7 +477,7 @@ export async function createProductionHostPlatform(
           ...(discovery ? { discovery: discovery.discovery } : {}),
           // Like the legacy Memory default (`generateTitle: true`).
           generatesThreadTitle: true,
-          ...(legacy?.resourceObservations ? { legacyObservationsWithheld: true as const } : {}),
+          hookSkips: selected.hookSkips,
           hooks: selected.hooks,
           inputTokenLimit: selected.providerRequestContext.inputTokenLimit,
           model,
@@ -566,13 +550,36 @@ export async function createProductionHostPlatform(
       : {}),
     ...productionMemoryReadiness(options),
     readPermissionPolicy: options.readPermissionPolicy,
+    ...(options.mcp ? { mcp: options.mcp } : {}),
+    searchState: (request) => index.search(request),
+    // The caller's profile is the index's to validate, as every vector profile is.
+    searchStateVectors: {
+      pending: (request) =>
+        index.searchVectors.searchStatePending({
+          ...request,
+          profile: decodeVectorProfile(request.profile),
+        }),
+      put: (request) =>
+        index.searchVectors.putStateSearchVectors({
+          profile: decodeVectorProfile(request.profile),
+          rows: request.rows,
+        }),
+      similar: (request) =>
+        index.searchVectors.searchStateSimilar({
+          ...request,
+          profile: decodeVectorProfile(request.profile),
+        }),
+    },
     ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
     ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),
+    ...(options.rewindFiles ? { rewindFiles: options.rewindFiles } : {}),
     ...(options.selectProjectionRewrites
       ? { selectProjectionRewrites: options.selectProjectionRewrites }
       : {}),
     stateIndexer: index.indexer,
     ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.mcpPresentation ? { mcpPresentation: options.mcpPresentation } : {}),
+    ...(options.mcpSettings ? { mcpSettings: options.mcpSettings } : {}),
     ...(options.providers ? { providers: options.providers } : {}),
   };
 }

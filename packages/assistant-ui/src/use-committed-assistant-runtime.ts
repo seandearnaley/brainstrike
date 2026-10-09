@@ -28,6 +28,26 @@ export interface CommittedAssistantRuntimeOptions {
   readonly store: CommittedAssistantStore;
 }
 
+type Repository = CommittedAssistantSnapshot['repository'];
+
+/** Every change that must hand the vendor a fresh envelope. */
+type EnvelopeInputs = readonly [
+  repository: Repository,
+  selectedHeadId: string | null | undefined,
+  connection: CommittedAssistantSnapshot['connection'],
+  error: CommittedAssistantSnapshot['error'],
+  resync: number,
+];
+
+function repositoryEnvelope(
+  repository: Repository,
+  selectedHeadId: string | null | undefined
+): Repository {
+  return selectedHeadId === undefined
+    ? { ...repository }
+    : { ...repository, headId: selectedHeadId };
+}
+
 /**
  * Bind the production surface to already committed, fully shaped vendor messages.
  * Using messageRepository avoids a converter copying tools/approval parts on every
@@ -92,13 +112,25 @@ export function useCommittedAssistantRuntime({
   // Branch/import can move the vendor's local head before a rejected command.
   // A fresh repository envelope forces its public snapshot path to adopt the
   // canonical fold again. Message/part/approval objects are never copied.
-  const repository = useMemo(
-    () =>
-      selectedHeadId === undefined
-        ? { ...snapshot.repository }
-        : { ...snapshot.repository, headId: selectedHeadId },
-    [snapshot.repository, snapshot.connection, snapshot.error, resync, selectedHeadId]
-  );
+  // The envelope's identity is the signal, so it is state rather than a memo:
+  // the React Compiler memoizes on what a body reads and would drop the
+  // connection, error and resync triggers, which the envelope never reads.
+  const inputs: EnvelopeInputs = [
+    snapshot.repository,
+    selectedHeadId,
+    snapshot.connection,
+    snapshot.error,
+    resync,
+  ];
+  const [published, publish] = useState(() => ({
+    inputs,
+    repository: repositoryEnvelope(snapshot.repository, selectedHeadId),
+  }));
+  let repository = published.repository;
+  if (inputs.some((input, index) => !Object.is(input, published.inputs[index]))) {
+    repository = repositoryEnvelope(snapshot.repository, selectedHeadId);
+    publish({ inputs, repository });
+  }
   return useExternalStoreRuntime<ThreadMessage>({
     ...ports,
     adapters,

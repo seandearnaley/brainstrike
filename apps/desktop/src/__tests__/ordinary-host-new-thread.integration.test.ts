@@ -198,6 +198,7 @@ test(
           },
           mcp: {
             authority: authority.host,
+            callAppTool: () => Promise.reject(new Error('This proof mounts no MCP App')),
             close: () => authority.host.close(),
             executableTools: async () => ({
               bindings: { [mcpName]: { configuredServerId, generation, tool: mcpTool } },

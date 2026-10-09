@@ -178,6 +178,11 @@
       "import": "./dist/shell-output.js",
       "require": "./dist/shell-output.js"
     },
+    "./tool-telemetry": {
+      "types": "./dist/tool-telemetry.d.ts",
+      "import": "./dist/tool-telemetry.js",
+      "require": "./dist/tool-telemetry.js"
+    },
     "./provider-auth": {
       "types": "./dist/provider-auth.d.ts",
       "import": "./dist/provider-auth.js",

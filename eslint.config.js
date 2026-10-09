@@ -110,11 +110,19 @@ export default [
     },
     rules: {
       ...compilerDiagnosticsAsWarnings,
-      // Deliberate stance: dependency-array linting is intentionally absent
-      // repo-wide. Biome's useExhaustiveDependencies is off for React dirs by
-      // design; the React Compiler (which memoizes without dependency arrays)
-      // and @jacobwolf/biome-unnecessary-effect are the compensating controls.
+      // The classic rule stays off: its missing-dependency reports would add a
+      // second, non-compiler opinion on the same arrays.
       'react-hooks/exhaustive-deps': 'off',
+      // The React Compiler memoizes useMemo/useCallback on what the body reads
+      // and silently drops listed dependencies the body never reads, so a
+      // "reload trigger" listed only there never re-runs anything in the
+      // shipped renderer (bc53cfbb8, BST-1977). This is the compiler's own
+      // check of manual memo dependencies against the ones it infers; it leaves
+      // effects alone, whose dependency arrays the compiler keeps as written.
+      // Biome's useExhaustiveDependencies cannot stand in: it also reports an
+      // effect's unread trigger, which is the fix for this bug, and it cannot
+      // be limited to unnecessary dependencies.
+      'react-hooks/memo-dependencies': 'warn',
       'react-hooks/rules-of-hooks': 'error',
       // Fast Refresh module-boundary contract (BST-1220, #2372). This ESLint rule
       // is the enforcer. react-doctor's own `only-export-components` is live (in

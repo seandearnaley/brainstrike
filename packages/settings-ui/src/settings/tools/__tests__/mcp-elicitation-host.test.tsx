@@ -9,7 +9,10 @@ import {
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { McpElicitationBridge } from '../mcp-elicitation-bridge';
+import {
+  type McpElicitationCapability,
+  McpElicitationCapabilityProvider,
+} from '../mcp-elicitation-capability';
 import { McpElicitationHost } from '../mcp-elicitation-host';
 
 const SERVER_ID = parseConfiguredMcpServerId('team.linear.prod');
@@ -36,8 +39,16 @@ const presentation = (id: string): McpElicitationPresentationWire => ({
   },
   requestedSchema: { properties: {}, type: 'object' },
 });
-type TestWindow = Window & { mcp?: Partial<McpElicitationBridge> | undefined };
-const testWindow = window as TestWindow;
+/** What the desktop provides from its agent host (BST-1930 c5c); web provides nothing. */
+let capability: McpElicitationCapability = { elicitation: null, tasks: null };
+
+function renderHost() {
+  return render(
+    <McpElicitationCapabilityProvider capability={capability}>
+      <McpElicitationHost />
+    </McpElicitationCapabilityProvider>
+  );
+}
 
 function installBridge() {
   let requested: ((value: McpElicitationPresentationWire) => void) | undefined;
@@ -55,7 +66,7 @@ function installBridge() {
     }),
     settleElicitation: vi.fn(async (_settlement: McpElicitationSettlement) => undefined),
   };
-  testWindow.mcp = bridge;
+  capability = { ...capability, elicitation: bridge };
   return {
     bridge,
     disposeRequested,
@@ -66,7 +77,7 @@ function installBridge() {
 }
 
 afterEach(() => {
-  testWindow.mcp = undefined;
+  capability = { elicitation: null, tasks: null };
   vi.restoreAllMocks();
 });
 
@@ -77,10 +88,11 @@ describe('McpElicitationHost', () => {
     const handle = TASK_HANDLE;
     const cancellation = Promise.withResolvers<McpTaskActionResult>();
     const actTask = vi.fn(() => cancellation.promise);
-    Object.assign(harness.bridge, {
+    capability = {
+      ...capability,
       tasks: { act: actTask, list: vi.fn(), onStatusChanged: vi.fn() },
-    });
-    render(<McpElicitationHost />);
+    };
+    renderHost();
     const request = presentation('pending');
     harness.request({ ...request, provenance: { ...request.provenance, taskHandle: handle } });
     await user.click(await screen.findByRole('button', { name: 'Cancel task' }));
@@ -123,10 +135,11 @@ describe('McpElicitationHost', () => {
         ok: false,
       })
       .mockResolvedValueOnce({ ok: true, task: { status: 'completed' } });
-    Object.assign(harness.bridge, {
+    capability = {
+      ...capability,
       tasks: { act: actTask, list: vi.fn(), onStatusChanged: vi.fn() },
-    });
-    render(<McpElicitationHost />);
+    };
+    renderHost();
     const request = presentation('pending');
     harness.request({ ...request, provenance: { ...request.provenance, taskHandle: TASK_HANDLE } });
     await user.click(await screen.findByRole('button', { name: 'Cancel task' }));
@@ -143,7 +156,7 @@ describe('McpElicitationHost', () => {
 
   it('visibly refuses task cancellation without the complete task capability', async () => {
     const harness = installBridge();
-    render(<McpElicitationHost />);
+    renderHost();
     const request = presentation('pending');
     harness.request({ ...request, provenance: { ...request.provenance, taskHandle: TASK_HANDLE } });
     await screen.findByText('Task cancellation is unavailable in this window.');
@@ -151,19 +164,17 @@ describe('McpElicitationHost', () => {
     expect(harness.bridge.settleElicitation).not.toHaveBeenCalled();
   });
 
-  it('renders nothing and subscribes to nothing without a complete bridge', () => {
-    const { container } = render(<McpElicitationHost />);
+  it('renders nothing and subscribes to nothing without the elicitation capability', () => {
+    const onStatusChanged = vi.fn(() => vi.fn());
+    capability = { elicitation: null, tasks: { act: vi.fn(), list: vi.fn(), onStatusChanged } };
+    const { container } = renderHost();
     expect(container).toBeEmptyDOMElement();
-
-    testWindow.mcp = { onElicitationRequested: vi.fn(() => vi.fn()) };
-    const partial = render(<McpElicitationHost />);
-    expect(partial.container).toBeEmptyDOMElement();
-    expect(testWindow.mcp.onElicitationRequested).not.toHaveBeenCalled();
+    expect(onStatusChanged).not.toHaveBeenCalled();
   });
 
   it('registers both listeners and disposes them on unmount', () => {
     const harness = installBridge();
-    const view = render(<McpElicitationHost />);
+    const view = renderHost();
     expect(harness.bridge.onElicitationRequested).toHaveBeenCalledWith(expect.any(Function));
     expect(harness.bridge.onElicitationRetired).toHaveBeenCalledWith(expect.any(Function));
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
@@ -175,7 +186,7 @@ describe('McpElicitationHost', () => {
   it('shows one presentation at a time, oldest first, and settles through the bridge', async () => {
     const user = userEvent.setup();
     const harness = installBridge();
-    render(<McpElicitationHost />);
+    renderHost();
     harness.request(presentation('first'));
     harness.request(presentation('second'));
     harness.request(presentation('first'));
@@ -214,7 +225,7 @@ describe('McpElicitationHost', () => {
   it('marks the visible request retired, drops unseen retired requests, and keeps failed settlements open', async () => {
     const user = userEvent.setup();
     const harness = installBridge();
-    render(<McpElicitationHost />);
+    renderHost();
     harness.request(presentation('visible'));
     harness.request(presentation('queued'));
     harness.request(presentation('later'));

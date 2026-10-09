@@ -55,6 +55,9 @@
       "path": "../mcp-tasks-extension"
     },
     {
+      "path": "../state-store"
+    },
+    {
       "path": "../utils"
     },
     {

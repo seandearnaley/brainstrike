@@ -17,14 +17,11 @@ import {
   acquireAssistantForegroundActivity,
   getAssistantForegroundActivitySnapshot,
 } from '../assistant-foreground-activity';
-import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
-import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
 import {
   changesetRefreshMock,
   delegatedPanelCallbacks,
   fileExplorerMocks,
   hasDesktopLlmHostMock,
-  loadTestLocalLlmBackend,
   type McpToolDescriptor,
   mockDb,
   NATIVE_TOOL_COUNT,
@@ -35,6 +32,7 @@ import {
   renderAssistantThreadPanel,
   type SelectionUpdateHandler,
   setMcpApi,
+  TestWrapperTree,
   testEnabledModels,
   useChangesetMock,
 } from './assistant-ui-panel-wrapper-test-support';
@@ -585,16 +583,7 @@ describe('AssistantUiPanelWrapper', () => {
 
     // Re-render component
     await act(async () => {
-      rerender(
-        <AssistantProviderSourceProvider
-          source={{
-            kind: 'authoritative',
-            providers: ['openai', 'anthropic', 'google'],
-          }}
-        >
-          <AssistantUiPanelWrapper loadLocalLlmBackend={loadTestLocalLlmBackend} />
-        </AssistantProviderSourceProvider>
-      );
+      rerender(<TestWrapperTree providers={['openai', 'anthropic', 'google']} />);
     });
 
     // Selection should persist - wait for re-render to complete
@@ -2065,11 +2054,7 @@ describe('AssistantUiPanelWrapper', () => {
 
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const { unmount } = render(
-      <AssistantProviderSourceProvider source={{ kind: 'authoritative', providers: ['openai'] }}>
-        <AssistantUiPanelWrapper loadLocalLlmBackend={loadTestLocalLlmBackend} />
-      </AssistantProviderSourceProvider>
-    );
+    const { unmount } = render(<TestWrapperTree providers={['openai']} />);
 
     unmount();
 

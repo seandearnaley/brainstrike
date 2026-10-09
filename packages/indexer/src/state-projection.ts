@@ -12,8 +12,10 @@ import {
   type StateMessageIdentity,
   type StateObservationGroup,
   type StateProjectionOptions,
+  type StateSearchRow,
   stateMessageIdentitySchema,
   stateObservationGroupSchema,
+  stateSearchRowSchema,
 } from './contracts.js';
 
 const callable = Schema.declare<(...args: readonly unknown[]) => unknown>(
@@ -32,6 +34,7 @@ const moduleSchema = Schema.Struct({
       validate: callable,
     })
   ),
+  search: Schema.optional(callable),
   text: callable,
 });
 const eventIdentity = Schema.StructWithRest(
@@ -42,6 +45,8 @@ const unreadable = Schema.Struct({ reason: Schema.String, type: Schema.Literal('
 
 export interface StateProjectionRow {
   readonly gap: string | null;
+  /** Gap 10: the event's searchable conversation row, when its producer projects one. */
+  readonly search: StateSearchRow;
   readonly seq: number;
   readonly text: string | null;
 }
@@ -139,12 +144,17 @@ export async function loadStateProjection(
       const event = decode(raw);
       const { seq, type } = decoder(eventIdentity)(event);
       if (type === 'purged') {
-        return { gap: null, seq, text: null };
+        return { gap: null, search: null, seq, text: null };
       }
       if (Schema.is(unreadable)(event)) {
-        return { gap: event.reason, seq, text: null };
+        return { gap: event.reason, search: null, seq, text: null };
       }
-      return { gap: null, seq, text: decoder(Schema.NullOr(Schema.String))(loaded.text(event)) };
+      return {
+        gap: null,
+        search: loaded.search ? decoder(stateSearchRowSchema)(loaded.search(event)) : null,
+        seq,
+        text: decoder(Schema.NullOr(Schema.String))(loaded.text(event)),
+      };
     },
     event: decode,
     identity: createHash('sha256')

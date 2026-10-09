@@ -139,9 +139,12 @@ const MEMORY_USAGE_KIND = {
   reflection: 'om-reflection',
 } as const satisfies Record<string, AssistantRunUsageKind>;
 
+/** A streamed chunk's kind; every committed chunk passes here, so the schema is built once. */
+const StreamedChunkSchema = z.object({ type: z.string() });
+
 /** A streamed tool call or tool error counts toward its run's tool totals. */
 function countToolChunk(run: RunFold, streamed: unknown): void {
-  const chunk = z.object({ type: z.string() }).safeParse(streamed);
+  const chunk = StreamedChunkSchema.safeParse(streamed);
   if (chunk.success && chunk.data.type === 'tool-call') {
     run.toolCallCount += 1;
   } else if (chunk.success && chunk.data.type === 'tool-error') {

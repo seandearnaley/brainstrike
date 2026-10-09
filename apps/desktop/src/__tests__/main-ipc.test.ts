@@ -153,7 +153,7 @@ describe('db:getUserDataPath IPC handler', () => {
 
     willQuitHandler();
 
-    expect(ipcMain.removeHandler).toHaveBeenCalledWith('mcp:config:get');
-    expect(ipcMain.removeHandler).toHaveBeenCalledWith('mcp:tools:getStats');
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith('mcp:config:selectPath');
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith('mcp:status:get');
   });
 });

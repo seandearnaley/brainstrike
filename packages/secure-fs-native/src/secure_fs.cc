@@ -57,6 +57,7 @@
 #else
 #include <dirent.h>
 #include <fcntl.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -1382,7 +1383,43 @@ class SecureRoot : public Napi::ObjectWrap<SecureRoot> {
   std::string canonical_path_;
 };
 
+// flock(2) LOCK_EX | LOCK_NB on a caller-owned descriptor: true when this open
+// file description now holds the exclusive lock, false when another holds it.
+// The lock belongs to the open file description, so every process that
+// inherited the descriptor keeps it until the last one closes or exits.
+// POSIX only: Windows byte-range locks die with the locking process.
+Napi::Value TryExclusiveFlock(const Napi::CallbackInfo& info) {
+  const Napi::Env env = info.Env();
+  if (info.Length() != 1 || !info[0].IsNumber() ||
+      !IsWholeNumberInRange(info[0].As<Napi::Number>().DoubleValue(), 0, INT_MAX)) {
+    throw Napi::TypeError::New(env, "tryExclusiveFlock expects one file descriptor");
+  }
+#ifdef _WIN32
+  const auto error = Napi::Error::New(env, "flock is not available on Windows");
+  error.Value().Set("code", "ENOTSUP");
+  throw error;
+#else
+  const int fd = static_cast<int>(info[0].As<Napi::Number>().DoubleValue());
+  for (;;) {
+    if (flock(fd, LOCK_EX | LOCK_NB) == 0) {
+      return Napi::Boolean::New(env, true);
+    }
+    const int code = errno;
+    if (code == EINTR) {
+      continue;
+    }
+    if (code == EWOULDBLOCK) {
+      return Napi::Boolean::New(env, false);
+    }
+    const auto error = Napi::Error::New(env, std::string("flock failed: ") + std::strerror(code));
+    error.Value().Set("errno", Napi::Number::New(env, code));
+    throw error;
+  }
+#endif
+}
+
 Napi::Object InitModule(Napi::Env env, Napi::Object exports) {
+  exports.Set("tryExclusiveFlock", Napi::Function::New(env, TryExclusiveFlock));
   return SecureRoot::Init(env, exports);
 }
 

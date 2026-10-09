@@ -85,7 +85,8 @@ export function MessageRewindAction({
           </Button>
         </TooltipTrigger>
         <TooltipContent>
-          Hides this message and everything after it, and can restore the files those turns changed.
+          Returns the conversation to before this message, and can restore the files those turns
+          changed.
         </TooltipContent>
       </Tooltip>
     </div>

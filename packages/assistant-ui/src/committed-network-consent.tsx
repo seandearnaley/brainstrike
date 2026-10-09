@@ -6,7 +6,8 @@ import { type ComponentProps, type ReactElement, type Ref, useState } from 'reac
 import { ApprovalPreview } from './approval-preview';
 import type { ApprovalPreviewSubject } from './approval-preview-policy';
 import { GRANT_OPTION_KINDS, grantsDescribable } from './committed-approval-options';
-import { NetworkDomainChecklist, tickDomain } from './network-domain-checklist';
+import { NetworkDomainChecklist } from './network-domain-checklist';
+import { tickDomain } from './network-domain-ticks';
 
 type ToolProps = ComponentProps<ToolCallMessagePartComponent>;
 

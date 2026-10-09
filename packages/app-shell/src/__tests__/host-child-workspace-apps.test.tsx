@@ -4,7 +4,7 @@ import {
   __resetWorkspaceTabSelectionStoreForTests,
   useWorkspaceTabSelectionStore,
 } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import {
   type AssistantThreadHostCapability,
@@ -97,4 +97,24 @@ it('shows the host refusal for a thread that is not a host child', async () => {
   renderTab(capability, 'explore');
   expect(await screen.findByRole('alert')).toHaveTextContent('Unknown thread');
   expect(capability.renderThread).not.toHaveBeenCalled();
+});
+
+it('forgets a closed tab’s resolution: the same address reopened asks its host again', async () => {
+  const resolve = vi
+    .fn<(threadId: string) => Promise<AssistantThreadHostChild>>()
+    .mockResolvedValueOnce(explorer)
+    .mockRejectedValueOnce(new Error('Unknown thread'));
+  const capability = host(resolve);
+  renderTab(capability, 'explore');
+  expect(await screen.findByText('child view child-1')).toBeVisible();
+  // A deleted parent closes the tab; the child is gone from its host.
+  const address = hostChildWorkspaceTabId({ persona: 'explore', threadId: 'child-1' });
+  act(() => {
+    useWorkspaceTabSelectionStore.getState().closeApp(address);
+  });
+  act(() => {
+    useWorkspaceTabSelectionStore.getState().openApp(address);
+  });
+  expect(await screen.findByRole('alert')).toHaveTextContent('Unknown thread');
+  expect(resolve).toHaveBeenCalledTimes(2);
 });

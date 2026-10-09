@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   MCP_TASK_PRESENTATION_HISTORY_LIMIT,
   McpTaskPresentationSchema,
+  parseMcpTaskActionResult,
   parseMcpTaskPresentation,
 } from '../mcp-task-presentation.js';
 
@@ -97,6 +98,37 @@ describe('MCP task presentation contract', () => {
         status: 'working',
         statusMessage: 'é'.repeat(3000),
         updatedAt: '2026-09-01T05:00:01.000Z',
+      })
+    ).toThrow();
+  });
+});
+
+describe('MCP task action results at a process boundary (BST-1930 c5c)', () => {
+  const task = {
+    canCancel: false,
+    createdAt: '2026-09-01T05:00:00.000Z',
+    handle: HANDLE,
+    history: [{ at: '2026-09-01T05:00:00.000Z', status: 'cancelled' }],
+    omittedHistoryEntries: 0,
+    recovery: 'live',
+    status: 'cancelled',
+    statusMessage: null,
+    updatedAt: '2026-09-01T05:00:01.000Z',
+  } as const;
+
+  it('keeps an action that succeeded with its task, or one that failed with its diagnostic', () => {
+    expect(parseMcpTaskActionResult({ ok: true, task })).toEqual({ ok: true, task });
+    const failed = { diagnostic: { code: 'stale_handle', message: 'Task is gone' }, ok: false };
+    expect(parseMcpTaskActionResult(failed)).toEqual(failed);
+  });
+
+  it('refuses an outcome that mixes the two', () => {
+    expect(() => parseMcpTaskActionResult({ ok: true })).toThrow();
+    expect(() =>
+      parseMcpTaskActionResult({
+        diagnostic: { code: 'stale_handle', message: 'Task is gone' },
+        ok: false,
+        task,
       })
     ).toThrow();
   });

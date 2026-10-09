@@ -6,12 +6,15 @@ import {
   type PermissionToolGateSnapshot,
   resolvePermissionDecision,
 } from '@brainstrike/assistant-contract';
-import { WEB_SEARCH_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
+import {
+  type ToolRiskCategory,
+  WEB_SEARCH_TOOL_ID,
+} from '@brainstrike/assistant-contract/tool-metadata';
 import { modelMessageSchema, type StepResult, type ToolSet } from 'ai';
 import { leaseHostAdmission } from './admission-lease.js';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import { withHostDelegationTools } from './child-runs.js';
-import type { HostRunState } from './core-state.js';
+import type { HostRunState, HostThreadGrants } from './core-state.js';
 import { defaultHostToolModelOutput, withHostToolHookContext } from './hook-context.js';
 import { canonical, jsonValue } from './json-value.js';
 import { McpAuthorityReconstructionError } from './mcp-authority.js';
@@ -144,52 +147,6 @@ export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmi
       )
     ),
   });
-}
-
-/**
- * Gap 17: the notice that the legacy profile's resource observations were not
- * imported. The committed event is the delivered fact, so it goes with the
- * first admitted run whose root log does not hold it yet.
- */
-export function hostLegacyObservationEvents(
-  admission: HostRunAdmission,
-  runId: string,
-  noticed: boolean
-): Extract<HostEvent, { type: 'memory.observation.withheld' }>[] {
-  return admission.legacyObservationsWithheld && !noticed
-    ? [{ reason: 'legacy-resource-observations', runId, type: 'memory.observation.withheld' }]
-    : [];
-}
-
-/** Whether a committed event is the gap 17 legacy-observations notice. */
-export function isHostLegacyObservationNotice(event: HostEvent): boolean {
-  return (
-    event.type === 'memory.observation.withheld' && event.reason === 'legacy-resource-observations'
-  );
-}
-
-/**
- * A run's start notices: unavailable MCP servers, and the legacy-observations
- * notice once per root. Serialized admission makes that check-then-append
- * commit it once; the committed event is the delivered fact.
- */
-export class HostRunStartNotices {
-  private legacyNoticed = false;
-
-  fold(event: HostEvent): void {
-    this.legacyNoticed ||= isHostLegacyObservationNotice(event);
-  }
-
-  forRun(admission: HostRunAdmission, runId: string): HostEvent[] {
-    return [
-      ...hostMcpUnavailableEvents(admission, runId),
-      ...hostLegacyObservationEvents(admission, runId, this.legacyNoticed),
-    ];
-  }
-
-  committed(admission: HostRunAdmission): void {
-    this.legacyNoticed ||= admission.legacyObservationsWithheld === true;
-  }
 }
 
 /** The run proceeds without each unavailable MCP server; its log names each one. */
@@ -606,21 +563,38 @@ async function hostToolDecision(
   const snapshot = run.admittedPolicy
     ? (intersectChildPermissionCeilings(run.admittedPolicy, live) ?? live)
     : live;
-  const permissionToolId = registered.permissionToolId ?? toolId;
-  if (isPermissionDenied(snapshot, registered.risk, permissionToolId)) {
+  return hostPolicyDecision(
+    snapshot,
+    run.grants,
+    registered.risk,
+    registered.permissionToolId ?? toolId
+  );
+}
+
+/**
+ * One tool's decision under the saved policy and its thread's grants: a deny
+ * (the tool's own, or its category's) wins, and the grants add to the rest.
+ * A model's call and an MCP App's own call of a tool are decided here alike.
+ */
+export function hostPolicyDecision(
+  policy: PermissionToolGateSnapshot,
+  grants: HostThreadGrants,
+  risk: ToolRiskCategory,
+  permissionToolId: string
+): 'allow' | 'ask' | 'deny' {
+  if (isPermissionDenied(policy, risk, permissionToolId)) {
     return 'deny';
   }
-  // The run's own committed grants add to the saved policy; deny already won.
   return resolvePermissionDecision({
     perToolOverrides: {
-      ...snapshot.perToolOverrides,
-      ...Object.fromEntries([...run.grants.tools].map((tool) => [tool, 'allow' as const])),
+      ...policy.perToolOverrides,
+      ...Object.fromEntries([...grants.tools].map((tool) => [tool, 'allow' as const])),
     },
-    policies: snapshot.policies,
-    riskCategory: registered.risk,
-    sessionGrants: new Set([...(snapshot.sessionGrants ?? []), ...run.grants.categories]),
+    policies: policy.policies,
+    riskCategory: risk,
+    sessionGrants: new Set([...(policy.sessionGrants ?? []), ...grants.categories]),
     toolId: permissionToolId,
-    yolo: snapshot.yolo,
+    yolo: policy.yolo,
   });
 }
 

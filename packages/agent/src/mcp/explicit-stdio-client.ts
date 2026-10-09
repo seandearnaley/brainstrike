@@ -1,3 +1,4 @@
+import { trackNativeChild } from '@brainstrike/state-store/native-children';
 import type { Client, ClientOptions, JSONObject } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import {
@@ -141,6 +142,8 @@ interface ActiveConnection {
   toolMetadataReady: boolean;
   toolMetadataRequest: Promise<ExplicitStdioMcpListToolsResult> | undefined;
   transport: StdioClientTransport;
+  /** Reports the server process's exit to the host's native-child supervisor, once. */
+  untrackProcess(): void;
 }
 
 interface NormalizedClientOptions {
@@ -524,6 +527,11 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     let connected = false;
     try {
       await connection.client.connect(connection.transport, options);
+      // The SDK's stdio transport cannot pass the Root's flock (an ADR-0017 limit); the
+      // host's native-child supervisor still learns the server process.
+      connection.untrackProcess = trackNativeChild(connection.transport.pid ?? undefined, {
+        group: false,
+      });
       await this.options.capabilityRuntime.afterConnect(connection.client, options?.signal);
       connected = true;
       if (this.closed) {
@@ -627,6 +635,7 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
       toolMetadataReady: false,
       toolMetadataRequest: undefined,
       transport,
+      untrackProcess: () => undefined,
     };
     client.onclose = () => this.invalidateConnection(connection);
     return connection;
@@ -637,6 +646,7 @@ export class ExplicitStdioMcpClient implements NegotiatedProtocolFacts {
     // `send()` never settles once the child's pipe is gone, and `listen()`
     // awaits it before it can handle its own closure rejection (BST-1600).
     connection.failInFlightSends(new Error(SEVERED_SEND_ERROR_MESSAGE));
+    connection.untrackProcess();
     if (connection.disconnected) {
       return;
     }

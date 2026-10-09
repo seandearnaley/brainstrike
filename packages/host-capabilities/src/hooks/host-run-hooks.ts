@@ -1,5 +1,6 @@
 import { HOOK_ADDITIONAL_CONTEXT_CHAR_BUDGET } from '@brainstrike/agent';
 import {
+  type HostHookSkip,
   type HostHookTrustStore,
   type HostRunHooks,
   readHostHookApproval,
@@ -53,6 +54,17 @@ export function trustedHookRoots(
  * never thrown. Returns undefined when no hook is configured.
  */
 export function createHostRunHooks(options: HostRunHooksOptions): HostRunHooks | undefined {
+  return loadHostRunHooks(options).hooks;
+}
+
+/**
+ * A run's hooks and, from the same load, the hook files it did not load and
+ * why, for Core to commit as `hooks.skipped` before any hook runs.
+ */
+export function loadHostRunHooks(options: HostRunHooksOptions): {
+  readonly hooks: HostRunHooks | undefined;
+  readonly skipped: readonly HostHookSkip[];
+} {
   const primaryCwd = options.roots[0]?.absPath ?? process.cwd();
   const load = loadHooksConfig({
     aggregateTimeoutMs: options.maxHookTimeoutMs,
@@ -72,10 +84,19 @@ export function createHostRunHooks(options: HostRunHooksOptions): HostRunHooks |
     sessionId: options.sessionId,
   });
   manager.reportConfigErrors();
+  const skipped = load.errors.map(
+    (error): HostHookSkip => ({
+      detail: error.message,
+      path: error.path,
+      reason: error.reason,
+      ...(error.rootId === undefined ? {} : { rootId: error.rootId }),
+      scope: error.scope,
+    })
+  );
   if (!manager.hasHooks()) {
-    return;
+    return { hooks: undefined, skipped };
   }
-  return {
+  const hooks: HostRunHooks = {
     matchesPreToolUse: (toolName) => manager.matchesPreToolUse(toolName),
     postToolUse: async ({ error, input, output, toolName }) => {
       const result = await manager.runPostToolUse({
@@ -112,6 +133,7 @@ export function createHostRunHooks(options: HostRunHooksOptions): HostRunHooks |
         : { blocked: false };
     },
   };
+  return { hooks, skipped };
 }
 
 /** PostToolUse context is bounded beside a tool result, as the legacy tool wrapper bounds it. */

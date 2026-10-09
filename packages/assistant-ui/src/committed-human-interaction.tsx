@@ -1,7 +1,7 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
 import { Button, Checkbox, Input } from '@brainstrike/ui';
 import { type ComponentProps, type ReactElement, type Ref, useId, useState } from 'react';
-import { usePlanModeExit } from './assistant-tool-suspend-notice';
+import { usePlanModeExit } from './plan-mode-exit-context';
 
 type ToolProps = ComponentProps<ToolCallMessagePartComponent>;
 function record(value: unknown): Record<string, unknown> {

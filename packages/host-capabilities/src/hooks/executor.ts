@@ -8,10 +8,11 @@
  * `decision` is ignored but the authoritative exit code still applies.
  */
 
-import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createCredentialIsolatedChildEnvironment } from '@brainstrike/assistant-contract/credential-child-environment';
 import type { ScopedLogger } from '@brainstrike/logging';
+import { spawnNativeChild } from '@brainstrike/state-store/native-children';
 import { type HookRunVerdict, scanStdoutForRunVerdict } from './run-verdict.js';
 import {
   DEFAULT_HOOK_TIMEOUT_MS,
@@ -87,7 +88,7 @@ const isWindows = process.platform === 'win32';
  * group), so `process.kill(-pid)` signals the whole group; the orphan dies and
  * the pipes close immediately.
  */
-function killHookTree(child: ReturnType<typeof spawn>): void {
+function killHookTree(child: ChildProcess): void {
   if (isWindows || typeof child.pid !== 'number') {
     child.kill('SIGKILL');
     return;
@@ -130,7 +131,8 @@ function executeHook(
         strippedCredentialCount,
       });
     }
-    const child = spawn(shell, shellArgs, {
+    // In the agent host the hook inherits the Root's flock (ADR-0017).
+    const child = spawnNativeChild(shell, shellArgs, {
       cwd: hook.source.cwd,
       // POSIX: own process group so the timeout can group-kill the whole tree
       // (see killHookTree). Windows has no process groups here.

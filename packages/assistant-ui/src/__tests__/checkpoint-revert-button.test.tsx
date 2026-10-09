@@ -80,9 +80,12 @@ function contextValue(
     entries: [entry],
     entriesByToolCallId: new Map([[TOOL_CALL_ID, entry]]),
     revertEntry,
+    revertRefusal: null,
     revertRun: vi.fn(),
   };
 }
+
+const ACTIVE_RUN_REFUSAL = 'Checkpoint revert is refused while the thread has an active run';
 
 describe('CheckpointRevertButton', () => {
   it('renders nothing when there is no provider (web / not desktop)', () => {
@@ -124,6 +127,31 @@ describe('CheckpointRevertButton', () => {
 
     fireEvent.click(screen.getByTestId('checkpoint-revert-anyway'));
     await waitFor(() => expect(revertEntry).toHaveBeenLastCalledWith('ckpt-1', { force: true }));
+  });
+
+  it('shows a refused revert as a readable error that clears on retry', async () => {
+    const revertEntry = vi
+      .fn<EditCheckpointContextValue['revertEntry']>()
+      .mockRejectedValue(new Error(ACTIVE_RUN_REFUSAL));
+    renderWithProvider(contextValue(makeEntry(), revertEntry));
+
+    fireEvent.click(screen.getByTestId('checkpoint-revert'));
+    fireEvent.click(screen.getByTestId('checkpoint-revert-confirm'));
+
+    expect(await screen.findByTestId('checkpoint-revert-error')).toHaveTextContent(
+      ACTIVE_RUN_REFUSAL
+    );
+    fireEvent.click(screen.getByTestId('checkpoint-revert-retry'));
+    expect(screen.queryByTestId('checkpoint-revert-error')).toBeNull();
+    expect(screen.getByTestId('checkpoint-revert-confirm')).toBeEnabled();
+  });
+
+  it('disables Revert while the provider refuses reverts', () => {
+    renderWithProvider({
+      ...contextValue(makeEntry(), vi.fn()),
+      revertRefusal: 'Edits can be reverted once the current run finishes.',
+    });
+    expect(screen.getByTestId('checkpoint-revert')).toBeDisabled();
   });
 
   it('shows a disabled "Reverted" label for an already-reverted entry', () => {

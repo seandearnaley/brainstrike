@@ -2,6 +2,7 @@ import { __resetAssistantPreferencesStoreForTests } from '@brainstrike/app-state
 import { __resetWorkspaceCollectionSyncStatusStoreForTests } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import {
   type LocalLlmBackendFactory,
+  type ProviderId,
   type SupportedProvider,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
@@ -20,6 +21,7 @@ import { __resetAssistantForegroundActivityForTests } from '../assistant-foregro
 import { AssistantUiPanelWrapper } from '../assistant-ui-panel-wrapper';
 import { AssistantProviderSourceProvider } from '../hooks/assistant-provider-source';
 import { __resetConfiguredAssistantProvidersForTests } from '../hooks/use-configured-assistant-providers';
+import { type McpToolsCapability, McpToolsCapabilityProvider } from '../mcp-tools-capability';
 
 export const NATIVE_TOOL_COUNT = WEB_NATIVE_TOOL_IDS.length;
 export const delegatedPanelCallbacks: {
@@ -1253,7 +1255,7 @@ afterEach(() => {
   __resetAssistantForegroundActivityForTests();
   __resetWorkspaceCollectionSyncStatusStoreForTests();
   Reflect.deleteProperty(window, 'tools');
-  Reflect.deleteProperty(window, 'mcp');
+  providedMcpTools = null;
   Reflect.deleteProperty(window, 'assistant');
   Reflect.deleteProperty(window, 'desktopLifecycle');
   Reflect.deleteProperty(window, '__brainstrikeAssistantRuntimeTestHooks__');
@@ -1279,14 +1281,16 @@ export const renderAssistantPanel = async (
   afterRender?: () => Promise<void>
 ) => {
   const renderResult = render(
-    <AssistantProviderSourceProvider
-      source={{ kind: 'authoritative', providers: providers as SupportedProvider[] }}
-    >
-      <AssistantUiPanelWrapper
-        loadLocalLlmBackend={loadTestLocalLlmBackend}
-        providerKeySources={[{ provider: 'openai', source: 'stored' }]}
-      />
-    </AssistantProviderSourceProvider>
+    <McpToolsCapabilityProvider capability={providedMcpTools}>
+      <AssistantProviderSourceProvider
+        source={{ kind: 'authoritative', providers: providers as SupportedProvider[] }}
+      >
+        <AssistantUiPanelWrapper
+          loadLocalLlmBackend={loadTestLocalLlmBackend}
+          providerKeySources={[{ provider: 'openai', source: 'stored' }]}
+        />
+      </AssistantProviderSourceProvider>
+    </McpToolsCapabilityProvider>
   );
 
   if (afterRender) {
@@ -1302,16 +1306,18 @@ export const renderAssistantThreadPanel = async (
   afterRender?: () => Promise<void>
 ) => {
   const renderResult = render(
-    <AssistantProviderSourceProvider
-      source={{ kind: 'authoritative', providers: providers as SupportedProvider[] }}
-    >
-      <AssistantUiPanelWrapper
-        loadLocalLlmBackend={loadTestLocalLlmBackend}
-        memoryResourceId="/tmp/test-workspace"
-        memoryThreadId={threadId}
-        providerKeySources={[{ provider: 'openai', source: 'stored' }]}
-      />
-    </AssistantProviderSourceProvider>
+    <McpToolsCapabilityProvider capability={providedMcpTools}>
+      <AssistantProviderSourceProvider
+        source={{ kind: 'authoritative', providers: providers as SupportedProvider[] }}
+      >
+        <AssistantUiPanelWrapper
+          loadLocalLlmBackend={loadTestLocalLlmBackend}
+          memoryResourceId="/tmp/test-workspace"
+          memoryThreadId={threadId}
+          providerKeySources={[{ provider: 'openai', source: 'stored' }]}
+        />
+      </AssistantProviderSourceProvider>
+    </McpToolsCapabilityProvider>
   );
 
   if (afterRender) {
@@ -1327,11 +1333,37 @@ export interface McpToolDescriptor {
   id: string;
 }
 
+/** The host's MCP tools behind the composer menu, as separately observable calls. */
 interface McpApi {
   disableTools?: (toolIds: string[]) => Promise<void>;
   enableTools?: (toolIds: string[]) => Promise<void>;
   listTools: () => Promise<Record<string, McpToolDescriptor[]>>;
   onToolsUpdated?: (callback: (tools: Record<string, McpToolDescriptor[]>) => void) => () => void;
+}
+
+/** What the next rendered panel's provider supplies; reset after each test. */
+let providedMcpTools: McpToolsCapability | null = null;
+
+/** Supplies the MCP tools `setMcpApi` installed to a directly rendered panel. */
+/** The wrapper with the host-provided MCP tools and an authoritative provider list. */
+export function TestWrapperTree({ providers }: { readonly providers: readonly ProviderId[] }) {
+  return (
+    <TestMcpToolsProvider>
+      <AssistantProviderSourceProvider
+        source={{ kind: 'authoritative', providers: [...providers] }}
+      >
+        <AssistantUiPanelWrapper loadLocalLlmBackend={loadTestLocalLlmBackend} />
+      </AssistantProviderSourceProvider>
+    </TestMcpToolsProvider>
+  );
+}
+
+export function TestMcpToolsProvider({ children }: { readonly children: ReactNode }) {
+  return (
+    <McpToolsCapabilityProvider capability={providedMcpTools}>
+      {children}
+    </McpToolsCapabilityProvider>
+  );
 }
 
 export const setMcpApi = (overrides: Partial<McpApi> = {}) => {
@@ -1342,7 +1374,13 @@ export const setMcpApi = (overrides: Partial<McpApi> = {}) => {
     onToolsUpdated: vi.fn().mockReturnValue(() => undefined),
     ...overrides,
   };
-  (window as typeof window & { mcp?: McpApi }).mcp = api;
+  providedMcpTools = {
+    list: () => api.listTools(),
+    setEnabled: async (toolIds, enabled) => {
+      await (enabled ? api.enableTools : api.disableTools)?.([...toolIds]);
+    },
+    subscribe: (listener) => api.onToolsUpdated?.(listener) ?? (() => undefined),
+  };
   return api;
 };
 

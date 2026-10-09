@@ -24,7 +24,7 @@
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "peerDependencies": {
-    "react": "^19.2.4"
+    "react": "^19.3.0"
   },
   "scripts": {
     "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",

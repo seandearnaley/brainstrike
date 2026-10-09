@@ -67,9 +67,12 @@ function firstBlockingFailureMessage(
 export function CheckpointTurnRevertControl({
   revertibleCount,
   onRevert,
+  refusal = null,
 }: {
   revertibleCount: number;
   onRevert: (force: boolean) => Promise<readonly AssistantCheckpointRevertRunResult[]>;
+  /** Non-null while reverts are refused (an active run): disabled, with this reason. */
+  refusal?: string | null;
 }): ReactElement {
   const [phase, setPhase] = useState<RevertPhase>('idle');
   const [failureMessage, setFailureMessage] = useState<string | null>(null);
@@ -101,7 +104,8 @@ export function CheckpointTurnRevertControl({
       // here we surface a visible failure instead of leaving the button dead in
       // 'reverting'.
       logger.error('Turn-level checkpoint revert failed', { error });
-      setFailureMessage(null);
+      // A refusal (e.g. the thread has an active run) carries its own reason.
+      setFailureMessage(error instanceof Error ? error.message : String(error));
       setPhase('failed');
     }
   };
@@ -186,21 +190,24 @@ export function CheckpointTurnRevertControl({
   return (
     <span className="flex items-center" data-testid="checkpoint-turn-revert-row">
       <Tooltip>
+        {/* A span trigger: a disabled button receives no pointer events. */}
         <TooltipTrigger asChild>
-          <Button
-            aria-label={label}
-            className="h-5 gap-1 px-1.5 text-[11px] text-muted-foreground"
-            data-testid="checkpoint-turn-revert"
-            disabled={phase === 'reverting'}
-            onClick={() => setPhase('confirm')}
-            size="sm"
-            variant="ghost"
-          >
-            <Undo2 className="size-3" />
-            Revert all edits
-          </Button>
+          <span>
+            <Button
+              aria-label={label}
+              className="h-5 gap-1 px-1.5 text-[11px] text-muted-foreground"
+              data-testid="checkpoint-turn-revert"
+              disabled={phase === 'reverting' || refusal !== null}
+              onClick={() => setPhase('confirm')}
+              size="sm"
+              variant="ghost"
+            >
+              <Undo2 className="size-3" />
+              Revert all edits
+            </Button>
+          </span>
         </TooltipTrigger>
-        <TooltipContent>{label}</TooltipContent>
+        <TooltipContent>{refusal ?? label}</TooltipContent>
       </Tooltip>
     </span>
   );
@@ -244,6 +251,7 @@ export function CheckpointTurnRevert(): ReactElement | null {
     <div className="mt-1 flex" data-testid="checkpoint-turn-revert-footer">
       <CheckpointTurnRevertControl
         onRevert={(force) => turn.revert({ force })}
+        refusal={turn.refusal}
         revertibleCount={turn.revertibleCount}
       />
     </div>

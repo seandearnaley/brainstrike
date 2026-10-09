@@ -169,7 +169,7 @@ test('tool calls and tool errors count as they commit, and again after a restart
   let core = await HostCore.open(store, platform, () => () => undefined);
   let threadId = '';
   let live: ReturnType<HostCore['readLedger']> | undefined;
-  let liveLatest: ReturnType<HostCore['readLatestRun']>;
+  let liveLatest: ReturnType<HostCore['listThreads']>[number]['latestRun'];
   try {
     ({ threadId } = await core.startThread({ commandId: randomUUID() }));
     const { runId } = await core.startRun({
@@ -195,7 +195,7 @@ test('tool calls and tool errors count as they commit, and again after a restart
     expect(chunkTypes.filter((type) => type === 'tool-call')).toHaveLength(2);
     expect(chunkTypes.filter((type) => type === 'tool-error')).toHaveLength(1);
     live = core.readLedger();
-    liveLatest = core.readLatestRun(threadId);
+    liveLatest = core.listThreads().find((entry) => entry.threadId === threadId)?.latestRun;
     const folded = foldedLog(rows);
     expect(live).toEqual({ threads: [{ threadId, ...folded.ledger }] });
     expect(live.threads[0]?.runs).toMatchObject([
@@ -212,7 +212,9 @@ test('tool calls and tool errors count as they commit, and again after a restart
   core = await HostCore.open(store, platform, () => () => undefined);
   try {
     expect(core.readLedger()).toEqual(live);
-    expect(core.readLatestRun(threadId)).toEqual(liveLatest);
+    expect(core.listThreads().find((entry) => entry.threadId === threadId)?.latestRun).toEqual(
+      liveLatest
+    );
   } finally {
     await core.close();
     await store.close();
