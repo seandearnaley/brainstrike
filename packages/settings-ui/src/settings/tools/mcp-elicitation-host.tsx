@@ -10,15 +10,13 @@
  * (or silently drops a queued one that was never shown) so a dialog can never
  * wait on a request main has already finalized.
  */
-import type {
-  McpElicitationPresentationWire,
-  McpTaskBridge,
-} from '@brainstrike/assistant-contract';
+import type { McpElicitationPresentationWire } from '@brainstrike/assistant-contract';
 import { useEffect, useReducer, useRef, useState } from 'react';
-import { resolveMcpElicitationBridge, resolveMcpTaskInputBridge } from './mcp-elicitation-bridge';
-
-export { resolveMcpTaskInputBridge } from './mcp-elicitation-bridge';
-
+import {
+  mcpTaskInputCanceller,
+  resolveMcpElicitationBridge,
+  resolveMcpTaskInputBridge,
+} from './mcp-elicitation-bridge';
 import { McpElicitationDialog } from './mcp-elicitation-dialog';
 
 interface HostState {
@@ -63,29 +61,6 @@ function hostReducer(state: HostState, action: HostAction): HostState {
     default:
       return state;
   }
-}
-
-/**
- * Cancels the task a task-bound input belongs to (tasks/cancel), which differs from
- * cancelling the input itself. Both MCP input presenters share it.
- */
-export function mcpTaskInputCanceller(
-  presentation: Pick<McpElicitationPresentationWire, 'provenance'>,
-  taskBridge: McpTaskBridge | null
-): (() => Promise<void>) | undefined {
-  const handle = presentation.provenance.taskHandle;
-  if (!(handle && taskBridge)) {
-    return;
-  }
-  return async () => {
-    const outcome = await taskBridge.act({ action: 'cancel', handle });
-    if (!outcome.ok) {
-      throw new Error(outcome.diagnostic.message);
-    }
-    if (outcome.task.status !== 'cancelled') {
-      throw new Error('MCP task cancellation did not observe a cancelled task.');
-    }
-  };
 }
 
 export function McpElicitationHost() {

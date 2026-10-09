@@ -1,9 +1,9 @@
 import type { McpElicitationPresentationWire } from '@brainstrike/assistant-contract';
-import { McpElicitationDialog } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-dialog';
 import {
   mcpTaskInputCanceller,
   resolveMcpTaskInputBridge,
-} from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-host';
+} from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-bridge';
+import { McpElicitationDialog } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-dialog';
 import { Button } from '@brainstrike/ui';
 import { type ReactElement, useState, useSyncExternalStore } from 'react';
 import type { CommittedHostMcpInput, CommittedMcpInputSnapshot } from './committed-host-mcp-input';
