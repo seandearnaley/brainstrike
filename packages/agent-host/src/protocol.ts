@@ -573,7 +573,12 @@ export const HostPromptBreakdownSchema = z.strictObject({
   toolDefinitionsProvenance: z.enum(['heuristic', 'measured']),
   toolDefinitionsTokens: z.number().int().nonnegative(),
 });
-export const HostEventSchema = z.union([
+/**
+ * Every committed event, routed by its `type`; each member validates its full
+ * shape. Two shapes that share a `type` are one member: the pipe's input
+ * carries the `type` the union routes on, and its output union picks the shape.
+ */
+export const HostEventSchema = z.discriminatedUnion('type', [
   z.strictObject({
     binding: ThreadWorkspaceBindingSchema,
     type: z.literal('workspace.binding.updated'),
@@ -600,8 +605,14 @@ export const HostEventSchema = z.union([
     serverId: Id,
     type: z.literal('mcp.tools.unavailable'),
   }),
-  z.strictObject({ commandId: Id, type: z.literal('thread.started') }),
-  z.strictObject({ origin: HostChildOriginSchema, type: z.literal('thread.started') }),
+  z
+    .looseObject({ type: z.literal('thread.started') })
+    .pipe(
+      z.union([
+        z.strictObject({ commandId: Id, type: z.literal('thread.started') }),
+        z.strictObject({ origin: HostChildOriginSchema, type: z.literal('thread.started') }),
+      ])
+    ),
   z.strictObject({ ...ThreadPresentation, type: z.literal('thread.updated') }),
   z.strictObject({ snapshot: WorkspaceSnapshotSchema, type: z.literal('workspace.updated') }),
   z.strictObject({
@@ -680,20 +691,24 @@ export const HostEventSchema = z.union([
     /** A permission approval's risk category, which its session grant names. */
     risk: RiskCategory.optional(),
   }),
-  z.strictObject({
-    type: z.literal('interaction.responded'),
-    ...RunFields,
-    /** BST-1932: the root's live policy, not a person, answered this approval. */
-    by: z.literal('policy').optional(),
-    decision: z.enum(['approve', 'deny']),
-    interactionId: Id,
-  }),
-  z.strictObject({
-    type: z.literal('interaction.responded'),
-    ...RunFields,
-    interactionId: Id,
-    resumeData: z.json(),
-  }),
+  z.looseObject({ type: z.literal('interaction.responded') }).pipe(
+    z.union([
+      z.strictObject({
+        type: z.literal('interaction.responded'),
+        ...RunFields,
+        /** BST-1932: the root's live policy, not a person, answered this approval. */
+        by: z.literal('policy').optional(),
+        decision: z.enum(['approve', 'deny']),
+        interactionId: Id,
+      }),
+      z.strictObject({
+        type: z.literal('interaction.responded'),
+        ...RunFields,
+        interactionId: Id,
+        resumeData: z.json(),
+      }),
+    ])
+  ),
   z.strictObject({ type: z.literal('effect.started'), ...Action }),
   z.strictObject({
     type: z.literal('effect.finished'),
