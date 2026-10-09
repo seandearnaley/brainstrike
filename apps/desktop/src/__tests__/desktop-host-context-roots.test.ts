@@ -11,23 +11,22 @@ const workspaceRoots = [
 
 /** The host run's composed instructions under `runtime`. */
 async function hostSystem(runtime: RuntimeData): Promise<string> {
-  return z.string().parse(
-    await readDesktopHostSystemContext({
-      inputTokenLimit: 100_000,
-      planMode: false,
-      readWorkspaceFile: async () => {
-        throw new Error('No workspace file is read by this run');
-      },
-      request: {
-        modelId: 'openai::gpt-6-sol',
-        prompt: 'Where am I working?',
-        signal: new AbortController().signal,
-        threadId: 'thread-roots',
-      },
-      runtime,
-      tools: {},
-    })
-  );
+  const { system } = await readDesktopHostSystemContext({
+    inputTokenLimit: 100_000,
+    planMode: false,
+    readWorkspaceFile: async () => {
+      throw new Error('No workspace file is read by this run');
+    },
+    request: {
+      modelId: 'openai::gpt-6-sol',
+      prompt: 'Where am I working?',
+      signal: new AbortController().signal,
+      threadId: 'thread-roots',
+    },
+    runtime,
+    tools: {},
+  });
+  return z.string().parse(system);
 }
 
 /** The legacy per-turn root manifest text for `runtime`. */

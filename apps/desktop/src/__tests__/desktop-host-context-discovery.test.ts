@@ -24,23 +24,22 @@ async function hostSystem(
   provider: string,
   tools: Readonly<Record<string, HostTool>>
 ): Promise<string> {
-  return z.string().parse(
-    await readDesktopHostSystemContext({
-      inputTokenLimit: 100_000,
-      planMode: false,
-      readWorkspaceFile: async () => {
-        throw new Error('No workspace file is read by this run');
-      },
-      request: {
-        modelId: `${provider}::gpt-6-sol`,
-        prompt: 'List the worktrees',
-        signal: new AbortController().signal,
-        threadId: 'thread-discovery',
-      },
-      runtime: { model: 'gpt-6-sol', provider, workspaceRoots: [] },
-      tools,
-    })
-  );
+  const { system } = await readDesktopHostSystemContext({
+    inputTokenLimit: 100_000,
+    planMode: false,
+    readWorkspaceFile: async () => {
+      throw new Error('No workspace file is read by this run');
+    },
+    request: {
+      modelId: `${provider}::gpt-6-sol`,
+      prompt: 'List the worktrees',
+      signal: new AbortController().signal,
+      threadId: 'thread-discovery',
+    },
+    runtime: { model: 'gpt-6-sol', provider, workspaceRoots: [] },
+    tools,
+  });
+  return z.string().parse(system);
 }
 
 function names(tools: Readonly<Record<string, HostTool>>): Map<string, string> {
