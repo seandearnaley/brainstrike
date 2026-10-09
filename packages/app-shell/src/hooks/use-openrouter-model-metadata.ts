@@ -114,8 +114,9 @@ export function useOpenRouterModelMetadata({
     };
   }, [lookup, selectedModelDef]);
   const disabledReason = useMemo(
-    () => resolveOpenRouterMetadataDisabledReason(providerId, settings, lookup, modelSettings),
-    [lookup, modelSettings, providerId, settings]
+    () =>
+      resolveOpenRouterMetadataDisabledReason(providerId, settings, lookup, modelSettings, modelId),
+    [lookup, modelId, modelSettings, providerId, settings]
   );
   const effectiveModelSettings = useMemo(
     () =>

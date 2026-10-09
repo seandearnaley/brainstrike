@@ -471,6 +471,11 @@ async function assertWorkerWrite(
           await expect(window.getByTestId('child-workspace-mode')).toContainText(
             path.basename(workspace)
           );
+          // The child's composer names the same shared folder, read-only: no picker.
+          await expect(child.getByTestId('workspace-bar-shared-folder')).toHaveText(
+            `Shared workspace: ${path.basename(workspace)}`
+          );
+          await expect(child.getByTestId('workspace-bar-folder-chip')).toHaveCount(0);
           await ensureActivityExpanded(child);
           await expect(child.getByTestId('checkpoint-revert')).toBeVisible();
         }

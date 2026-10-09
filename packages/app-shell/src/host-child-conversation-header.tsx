@@ -1,4 +1,4 @@
-import { type AssistantMemoryThread, useAssistantThreadStore } from '@brainstrike/assistant-data';
+import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { createLogger } from '@brainstrike/logging';
 import { getAgentColorStyles, isAgentColor } from '@brainstrike/types/agent-color';
 import { Breadcrumbs } from '@brainstrike/ui';
@@ -9,47 +9,13 @@ import type {
   AssistantThreadHostChild,
 } from './assistant-thread-host-context';
 import { ASSISTANT_THREAD_ICON_PRESENTATION } from './assistant-thread-presentation';
+import { findThread, type HostChildAncestry, loadHostChildAncestry } from './host-child-ancestry';
 import { focusHostChildOrigin } from './host-child-origins';
 import { openHostChildTab } from './open-host-child-tab';
 
 const logger = createLogger('HostChildConversationHeader');
 const Icon = ASSISTANT_THREAD_ICON_PRESENTATION.message.iconComponent;
 const MAIN_CONVERSATION = 'Main conversation';
-
-/** A child's delegation trail, outermost child first, ending with the child itself. */
-interface HostChildAncestry {
-  readonly rootThreadId: string;
-  readonly trail: readonly AssistantThreadHostChild[];
-}
-
-/** Each ancestor child resolves from its own committed origin, up to the top-level thread. */
-async function loadHostChildAncestry(
-  host: AssistantThreadHostCapability,
-  child: AssistantThreadHostChild
-): Promise<HostChildAncestry> {
-  if (!host.resolveChildThread) {
-    throw new Error('This child conversation is not owned by the agent host.');
-  }
-  const trail = [child];
-  let parentThreadId = child.parentThreadId;
-  for (let level = child.depth - 1; level > 0; level -= 1) {
-    const parent = await host.resolveChildThread(parentThreadId);
-    trail.unshift(parent);
-    parentThreadId = parent.parentThreadId;
-  }
-  return { rootThreadId: parentThreadId, trail };
-}
-
-function findThread(
-  threads: Readonly<Record<string, readonly AssistantMemoryThread[]>>,
-  threadId: string | undefined
-): AssistantMemoryThread | undefined {
-  return threadId === undefined
-    ? undefined
-    : Object.values(threads)
-        .flat()
-        .find((thread) => thread.id === threadId);
-}
 
 type Loaded =
   | { readonly ancestry: HostChildAncestry; readonly child: AssistantThreadHostChild }
