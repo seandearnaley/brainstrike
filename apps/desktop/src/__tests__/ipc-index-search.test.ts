@@ -66,7 +66,13 @@ it('preserves invalid observations as data while unrelated failures keep the can
     code: invalidation.code,
     kind: 'invalidated',
   });
-  dispose.push(registerIndexSearchIpcHandlers(cap));
+  dispose.push(
+    registerIndexSearchIpcHandlers(cap, {
+      rootsRegistered: async () => {
+        throw new Error('Unexpected root registration in read-only test');
+      },
+    })
+  );
   const bridge = createIpcBridge(
     {
       invoke: (channel, ...args) => {
@@ -93,7 +99,13 @@ it('preserves invalid observations as data while unrelated failures keep the can
 });
 it('uses the visible-ui authorized manifest and canonical preload result/error unwrap', async () => {
   const cap = capability();
-  dispose.push(registerIndexSearchIpcHandlers(cap));
+  dispose.push(
+    registerIndexSearchIpcHandlers(cap, {
+      rootsRegistered: async () => {
+        throw new Error('Unexpected root registration in read-only test');
+      },
+    })
+  );
   const bridge = createIpcBridge(
     {
       invoke: async (channel, ...args) => {
@@ -116,7 +128,13 @@ it('uses the visible-ui authorized manifest and canonical preload result/error u
 });
 it('rejects hidden, untracked and foreign-frame senders before payload parsing or capability calls', async () => {
   const cap = capability();
-  dispose.push(registerIndexSearchIpcHandlers(cap));
+  dispose.push(
+    registerIndexSearchIpcHandlers(cap, {
+      rootsRegistered: async () => {
+        throw new Error('Unexpected root registration in read-only test');
+      },
+    })
+  );
   const invoke = handler('coverage');
   await expect(invoke(createTrustedInvokeEvent('embedding-host'), null)).rejects.toThrow();
   await expect(
@@ -159,7 +177,13 @@ it('preserves explicit grep options and refuses incomplete or mixed vector profi
 
 it('parses every batch selector and preserves visible-ui authority and failure propagation', async () => {
   const cap = capability();
-  dispose.push(registerIndexSearchIpcHandlers(cap));
+  dispose.push(
+    registerIndexSearchIpcHandlers(cap, {
+      rootsRegistered: async () => {
+        throw new Error('Unexpected root registration in read-only test');
+      },
+    })
+  );
   const requests = [{ collectionId: 'collection', rootIds: [] }, { rootIds: ['root'] }];
   expect(indexSearchContract.coverageBatch.parseArgs([requests])).toEqual([requests]);
   expect(() => indexSearchContract.coverageBatch.parseArgs([[]])).toThrow('requires');
@@ -257,7 +281,13 @@ it('observes a retained startup failure as stable blocked data without logging a
       throw retained;
     },
   });
-  dispose.push(registerIndexSearchIpcHandlers(cap));
+  dispose.push(
+    registerIndexSearchIpcHandlers(cap, {
+      rootsRegistered: async () => {
+        throw new Error('Unexpected root registration in read-only test');
+      },
+    })
+  );
   const event = createTrustedInvokeEvent();
   for (let poll = 0; poll < 3; poll += 1) {
     await expect(handler('status')(event)).resolves.toMatchObject({
@@ -298,4 +328,39 @@ it.each([
   });
   await expect(cap.status()).rejects.toBe(failure);
   await expect(cap.coverageBatch([{ rootIds: ['root'] }])).rejects.toBe(failure);
+});
+
+it('accepts only an authorized no-argument registration notification and joins its acknowledgement', async () => {
+  const pending = Promise.withResolvers<void>();
+  const rootsRegistered = vi.fn(() => pending.promise);
+  dispose.push(registerIndexSearchIpcHandlers(capability(), { rootsRegistered }));
+  const invoke = handler('rootsRegistered');
+  await expect(invoke(createTrustedInvokeEvent('embedding-host'))).rejects.toThrow();
+  await expect(
+    invoke({ sender: { id: 78_123_456 }, senderFrame: createTrustedInvokeEvent().senderFrame })
+  ).rejects.toThrow();
+  await expect(invoke(createTrustedInvokeEvent(), { rootId: 'renderer-claim' })).rejects.toThrow();
+  expect(rootsRegistered).not.toHaveBeenCalled();
+  const settled = vi.fn();
+  const response = Promise.resolve(invoke(createTrustedInvokeEvent())).then(settled);
+  await vi.waitFor(() => expect(rootsRegistered).toHaveBeenCalledExactlyOnceWith());
+  expect(settled).not.toHaveBeenCalled();
+  pending.resolve();
+  await response;
+  expect(settled).toHaveBeenCalledWith({ ok: true, value: undefined });
+});
+
+it('preserves the canonical failure envelope for registration failures', async () => {
+  const failure = new Error('Root registration activation failed');
+  dispose.push(
+    registerIndexSearchIpcHandlers(capability(), {
+      rootsRegistered: vi.fn(async () => {
+        throw failure;
+      }),
+    })
+  );
+  await expect(handler('rootsRegistered')(createTrustedInvokeEvent())).resolves.toMatchObject({
+    error: { category: 'native-index', code: 'native-index-failed', message: failure.message },
+    ok: false,
+  });
 });
