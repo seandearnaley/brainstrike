@@ -5,7 +5,6 @@ import {
   type HostPlatform,
   type HostRunAdmissionRequest,
   type HostTool,
-  validateCanonicalToolInput,
 } from '@brainstrike/agent-host';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
@@ -13,7 +12,6 @@ import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-serv
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
-import { isHostExecutedNativeToolId } from './host-executed-tools';
 import { type HostToolServiceCapabilities, serveHostToolServices } from './host-tool-services';
 import { type DesktopLlmHostInference, serveLlmHostPort } from './llm-host-port';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
@@ -24,11 +22,9 @@ import {
   PlatformLocalGenerationSchema,
   PlatformLocalWarmupSchema,
   PlatformPolicySchema,
-  PlatformProgressSchema,
   PlatformRunRequestSchema,
   type PlatformSelection,
   PlatformSelectionSchema,
-  PlatformToolRequestSchema,
   PlatformWorkspaceBindingRequestSchema,
 } from './platform-wire';
 
@@ -322,87 +318,6 @@ export function serveDesktopPlatform(
         await captured.selection.close();
         selections.delete(threadId);
       }
-    })
-  );
-  connection.onRequest(
-    'platform/validate',
-    (input: unknown, token: CancellationToken): Promise<unknown> =>
-      execute(token, async () => {
-        const request = z
-          .strictObject({
-            input: z.json(),
-            resume: z.boolean().optional(),
-            threadId: z.string().min(1),
-            toolId: z.string().min(1),
-          })
-          .parse(input);
-        const tool = selection(request.threadId).tools[request.toolId];
-        if (!tool) {
-          throw new Error('Platform validator is not admitted');
-        }
-        const schema = request.resume ? tool.interaction?.resumeSchema : tool.inputSchema;
-        if (!schema) {
-          throw new Error('Platform tool has no human interaction resume schema');
-        }
-        const result = await validateCanonicalToolInput(schema, request.input);
-        return result.success ? { success: true, value: z.json().parse(result.value) } : result;
-      })
-  );
-  connection.onRequest(
-    'platform/execute',
-    (input: unknown, token: CancellationToken): Promise<unknown> =>
-      execute(token, async (signal) => {
-        const request = PlatformToolRequestSchema.parse(input);
-        const tool = selection(request.threadId).tools[request.toolId];
-        if (!tool) {
-          throw new Error('Platform executor is not admitted');
-        }
-        if (isHostExecutedNativeToolId(tool.permissionToolId ?? request.toolId)) {
-          throw new Error('Host-executed native tools run in the agent host');
-        }
-        const output = await tool.execute(request.input, {
-          ...(request.resumeData === undefined ? {} : { resumeData: request.resumeData }),
-          runId: request.runId,
-          signal,
-          threadId: request.threadId,
-          toolCallId: request.toolCallId,
-          write: async (chunk) => {
-            await connection.sendRequest(
-              'platform/progress',
-              PlatformProgressSchema.parse({
-                chunk,
-                runId: request.runId,
-                threadId: request.threadId,
-                toolCallId: request.toolCallId,
-              })
-            );
-          },
-        });
-        return z.json().parse(output);
-      })
-  );
-  connection.onRequest('platform/project', (input: unknown, token: CancellationToken) =>
-    execute(token, async (): Promise<unknown> => {
-      const request = z
-        .strictObject({
-          input: z.json(),
-          output: z.json(),
-          threadId: z.string().min(1),
-          toolCallId: z.string().min(1),
-          toolId: z.string().min(1),
-        })
-        .parse(input);
-      const tool = selection(request.threadId).tools[request.toolId];
-      if (!tool) {
-        throw new Error('Platform projection is not admitted');
-      }
-      return (
-        (await tool.toModelOutput?.({
-          input: request.input,
-          output: request.output,
-          toolCallId: request.toolCallId,
-        })) ?? null
-      );
     })
   );
   const close = (): Promise<void> => {
