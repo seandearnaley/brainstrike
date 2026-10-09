@@ -1,11 +1,9 @@
 // @vitest-environment node
 import { EventEmitter } from 'node:events';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
-import { canonicalToolInputSchema, type HostTool } from '@brainstrike/agent-host';
 import { DEFAULT_PERMISSION_POLICIES, ToolInputError } from '@brainstrike/assistant-contract';
 import { expect, it, vi } from 'vitest';
 import { CancellationTokenSource, type MessageConnection } from 'vscode-jsonrpc/node';
-import { z } from 'zod';
 import {
   mainPlatformConnection,
   type PlatformMessagePort,
@@ -36,7 +34,7 @@ class UtilityPort extends EventEmitter implements PlatformMessagePort {
   }
 }
 function selected(
-  tools: Readonly<Record<string, HostTool>>,
+  tools: DesktopPlatformSelection['tools'],
   close = vi.fn(async () => undefined)
 ): DesktopPlatformSelection {
   return {
@@ -290,16 +288,17 @@ it('an aborted admission joins the arriving selection and retains an independent
   }
 });
 
-it('failed schema projection releases the selection before an admission error returns', async () => {
+it('a selection the wire refuses releases before an admission error returns', async () => {
   const close = vi.fn(async () => undefined);
   const h = harness(async () =>
     selected(
       {
         tool: {
           description: 'fixture',
-          execute: async () => ({}),
-          identity: 'canonical',
-          inputSchema: canonicalToolInputSchema(z.object({ value: z.date() })),
+          // The wire's ids are nonempty: this descriptor cannot cross to the host.
+          identity: '',
+          inputSchema: { type: 'object' },
+          permissionToolId: 'tool',
           risk: 'read',
         },
       },

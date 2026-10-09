@@ -9,11 +9,7 @@ import {
   formatSkillsCatalog,
   injectWorkspaceRootManifestContext,
 } from '@brainstrike/agent/tool-runtime';
-import {
-  type HostRunIntentRequest,
-  type HostTool,
-  hostToolDiscoveryEnabled,
-} from '@brainstrike/agent-host';
+import { type HostRunIntentRequest, hostToolDiscoveryEnabled } from '@brainstrike/agent-host';
 import { isSupportedProvider, type ToolRiskCategory } from '@brainstrike/assistant-contract';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
@@ -60,7 +56,10 @@ export async function readDesktopHostSystemContext(options: {
   readonly readWorkspaceFile?: WorkspaceFileReader;
   readonly request: HostRunIntentRequest;
   readonly runtime: RuntimeData;
-  readonly tools: Readonly<Record<string, HostTool>>;
+  /** The admitted tools by provider name; the instructions name each by its catalog id. */
+  readonly tools: Readonly<
+    Record<string, { readonly description: string; readonly permissionToolId?: string }>
+  >;
   readonly workspaceSkills?: ScannedWorkspaceSkills;
 }): Promise<DesktopHostSystemContext> {
   if (options.request.snapshot) {

@@ -1,13 +1,11 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { LocalLlmHostProgress } from '@brainstrike/agent/local-llm';
 import type { LocalLlmHostClient, RuntimeData } from '@brainstrike/agent/provider-runtime';
-import {
-  canonicalToolInputJsonSchema,
-  type HostDelegation,
-  type HostPlatform,
-  type HostRunAdmissionRequest,
-  type HostRunIntentRequest,
-  type HostTool,
+import type {
+  HostDelegation,
+  HostPlatform,
+  HostRunAdmissionRequest,
+  HostRunIntentRequest,
 } from '@brainstrike/agent-host';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
@@ -39,7 +37,7 @@ import {
   PlatformWorkspaceBindingRequestSchema,
 } from './platform-wire';
 
-export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'delegation' | 'tools'> {
+export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'delegation'> {
   close(): Promise<void>;
   /** BST-1932: the personas and subagent limits this run may delegate with. */
   readonly delegation?: HostDelegation | undefined;
@@ -48,7 +46,6 @@ export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'deleg
   /** Main-only: an admitted local recall embedder's exact plan, never on the wire. */
   readonly localEmbedding?: DesktopMemoryVectorSelection['local'];
   revalidateWorkspace?(signal: AbortSignal): Promise<void>;
-  readonly tools: Readonly<Record<string, HostTool>>;
 }
 export interface DesktopPlatformCapabilities {
   /** Join Main-owned Root borrowers before Core releases its canonical writer. */
@@ -79,41 +76,16 @@ export interface DesktopPlatformCapabilities {
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
 }
 
-async function describePlatformSelection(
-  captured: DesktopPlatformSelection
-): Promise<PlatformSelection> {
-  const tools = Object.fromEntries(
-    await Promise.all(
-      Object.entries(captured.tools).map(async ([name, tool]) => [
-        name,
-        {
-          description: tool.description,
-          identity: tool.identity,
-          inputSchema: await canonicalToolInputJsonSchema(tool.inputSchema),
-          ...(tool.interaction
-            ? {
-                interaction: {
-                  kind: tool.interaction.kind,
-                  resumeSchema: await canonicalToolInputJsonSchema(tool.interaction.resumeSchema),
-                },
-              }
-            : {}),
-          permissionToolId: tool.permissionToolId ?? name,
-          risk: tool.risk,
-          ...(tool.strict === undefined ? {} : { strict: tool.strict }),
-        },
-      ])
-    )
-  );
+/** The selection as it crosses to the host: Main-only fields stay behind. */
+function describePlatformSelection(captured: DesktopPlatformSelection): PlatformSelection {
   const {
     close: _close,
     freshWorkspaceRoots: _freshWorkspaceRoots,
     localEmbedding: _localEmbedding,
     revalidateWorkspace: _revalidateWorkspace,
-    tools: _tools,
     ...configuration
   } = captured;
-  return PlatformSelectionSchema.parse({ ...configuration, tools });
+  return PlatformSelectionSchema.parse(configuration);
 }
 
 async function rejectPlatformSelection(
@@ -374,7 +346,7 @@ export function serveDesktopPlatform(
         captured = owner.selection;
         selections.set(request.threadId, owner);
         signal.throwIfAborted();
-        return await describePlatformSelection(captured);
+        return describePlatformSelection(captured);
       } catch (cause) {
         return await rejectPlatformSelection(
           captured,
