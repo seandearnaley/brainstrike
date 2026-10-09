@@ -80,6 +80,7 @@ function checkpointValue(
         .map((entry) => [entry.toolCallId as string, entry])
     ),
     revertEntry: vi.fn(),
+    revertRefusal: null,
     revertRun: vi.fn().mockResolvedValue({ outcomes: [], runId: 'run-1' }),
   };
 }

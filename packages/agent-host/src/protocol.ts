@@ -26,9 +26,25 @@ import {
   MCP_SETTINGS_METHOD_SCHEMAS,
   MCP_SETTINGS_RESULT_SCHEMAS,
 } from './protocol-mcp-settings.js';
+import {
+  REWIND_EVENT_SCHEMAS,
+  REWIND_METHOD_SCHEMAS,
+  REWIND_RESULT_SCHEMAS,
+} from './protocol-rewind.js';
+import {
+  HostEditBaselineSchema,
+  HostEditRevertOutcomeSchema,
+  HostFileIdentitySchema,
+  HostTurnSnapshotSchema,
+  HostWorkspaceEditOpSchema,
+  Sha256,
+  WorkspaceRelativePath,
+} from './workspace-wire.js';
 
 export * from './protocol-mcp-presentation.js';
 export * from './protocol-mcp-settings.js';
+export * from './protocol-rewind.js';
+export * from './workspace-wire.js';
 
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
 // and the explicit branch links they commit on `run.started`), thread
@@ -52,7 +68,11 @@ export * from './protocol-mcp-settings.js';
 // `interaction.requested` of kind `network`, answered by `interaction/resume`
 // with `{ action }` and, when the policy also asked, an approval grant), a
 // run's turn snapshots for its Changes review (`workspace.snapshot.recorded`),
-// `ledger/read` (every thread's runs and costed provider calls, as Core folds
+// restore to before a message (`thread/rewind/preview`, `thread/rewind`,
+// `thread/rewind/redo`; `thread.rewind.started`, `thread.rewound`,
+// `thread.rewind.redo.started`, `thread.rewind.redone`,
+// `thread.rewind.interrupted`), the hook files a run did not load
+// (`hooks.skipped`), `ledger/read` (every thread's runs and costed provider calls, as Core folds
 // them), the threads `thread/delete` deleted (`threadIds`), and the desktop's
 // MCP settings (`mcp/config/*`, `mcp/extensions/*`, `mcp/tools/*`,
 // `mcp/settings/subscribe` and its `mcp/settings/event`) with server status and
@@ -125,73 +145,19 @@ const McpContent = z.record(
   z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])
 );
 const Seq = z.number().int().nonnegative();
-const Sha256 = z.string().regex(/^[a-f0-9]{64}$/u);
-/** Root-relative POSIX path: no leading slash, no empty, `.` or `..` segment. */
-const WorkspaceRelativePath = z
-  .string()
-  .min(1)
-  .refine(
-    (value) =>
-      !value.startsWith('/') &&
-      value.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..'),
-    'Expected a normalized root-relative path'
-  );
-export const HOST_WORKSPACE_EDIT_OPS = ['write', 'string_replace', 'delete', 'rename'] as const;
-export const HostWorkspaceEditOpSchema = z.enum(HOST_WORKSPACE_EDIT_OPS);
-export type HostEditOp = (typeof HOST_WORKSPACE_EDIT_OPS)[number];
-/** A file's observed identity; content is never part of the client-visible event. */
-const HostFileIdentitySchema = z.strictObject({
-  existed: z.boolean(),
-  hash: Sha256.nullable(),
-  size: z.number().int().nonnegative().nullable(),
-});
 /**
- * A path's state before the run first changed it. Content lives in a
- * content-addressed StateStore blob that this event references (`blobRefs`).
+ * A hook file a run did not load, and why: untrusted (no trust), changed
+ * since its trust, unreadable, invalid, or a phase over its time budget.
  */
-export const HostEditBaselineSchema = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('absent'), path: WorkspaceRelativePath }),
-  z.strictObject({
-    blob: Sha256,
-    bytes: z.number().int().nonnegative(),
-    encoding: z.enum(['utf8', 'base64']),
-    hash: Sha256,
-    kind: z.literal('content'),
-    mode: z.number().int().nonnegative(),
-    path: WorkspaceRelativePath,
-  }),
-  z.strictObject({
-    kind: z.literal('unavailable'),
-    path: WorkspaceRelativePath,
-    reason: z.enum(['too_large', 'symlink', 'not_a_file']),
-  }),
-]);
-export type HostEditBaseline = z.infer<typeof HostEditBaselineSchema>;
-export const HostEditRevertOutcomeSchema = z.discriminatedUnion('status', [
-  z.strictObject({ entryId: Id, status: z.literal('reverted') }),
-  z.strictObject({
-    entryId: Id,
-    reason: z.string().min(1),
-    status: z.enum(['conflict', 'not_revertible']),
-  }),
-]);
-export type HostEditRevertOutcome = z.infer<typeof HostEditRevertOutcomeSchema>;
-/** A workspace root as a turn's snapshot names it: its durable ID and absolute path. */
-export const HostTurnSnapshotRootSchema = z.strictObject({
-  rootId: Id,
-  rootPath: z.string().min(1),
+export const HostHookSkipSchema = z.strictObject({
+  detail: z.string().min(1),
+  /** The file's absolute path, or the phase a budget disabled. */
+  path: z.string().min(1),
+  reason: z.enum(['untrusted', 'changed', 'unreadable', 'invalid', 'over-budget']),
+  rootId: Id.optional(),
+  scope: z.enum(['global', 'project']),
 });
-export type HostTurnSnapshotRoot = z.infer<typeof HostTurnSnapshotRootSchema>;
-/**
- * One root's snapshot at a turn boundary: the platform's snapshot commit. The
- * null object ID records a capture that failed for this root, so the turn's
- * Changes review fails visibly rather than showing part of its changes.
- */
-export const HostTurnSnapshotSchema = z.strictObject({
-  ...HostTurnSnapshotRootSchema.shape,
-  commitOid: z.string().regex(/^[0-9a-f]{40,64}$/),
-});
-export type HostTurnSnapshot = z.infer<typeof HostTurnSnapshotSchema>;
+export type HostHookSkip = z.infer<typeof HostHookSkipSchema>;
 /**
  * An image on a user message, as the composer encodes it: a base64 data URL.
  * Core admits it against the shared attachment contract's caps.
@@ -533,6 +499,7 @@ export const HOST_METHOD_SCHEMAS = {
     ...PlanMode,
   }),
   'thread/read': z.strictObject({ ...Thread, fromSeq: Seq }),
+  ...REWIND_METHOD_SCHEMAS,
   'thread/start': z.strictObject(Command),
   'thread/update': z
     .strictObject({ ...Command, ...Thread, ...ThreadPresentation })
@@ -848,6 +815,13 @@ export const HostEventSchema = z.union([
     failure: z.string().min(1).optional(),
     roots: z.array(HostTurnSnapshotSchema),
   }),
+  ...REWIND_EVENT_SCHEMAS,
+  /** The hook files this run did not load, committed before any hook runs. */
+  z.strictObject({
+    type: z.literal('hooks.skipped'),
+    ...RunFields,
+    files: z.array(HostHookSkipSchema).min(1),
+  }),
   /** Committed with the approval that granted it; the run's later decisions include it. */
   z.strictObject({ type: z.literal('permission.granted'), ...RunFields, grant: PermissionGrant }),
   /**
@@ -985,6 +959,7 @@ export const HOST_RESULT_SCHEMAS = {
     }),
   ]),
   'thread/read': z.strictObject({ rows: z.array(HostLogRowSchema) }),
+  ...REWIND_RESULT_SCHEMAS,
   'thread/start': z.strictObject(Thread),
   'thread/update': z.strictObject({ accepted: z.literal(true) }),
   'thread/workspace/binding/read': z.strictObject({

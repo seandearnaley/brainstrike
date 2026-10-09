@@ -63,6 +63,8 @@ export interface ProductionHostRunConfiguration {
   /** BST-1932: the personas and subagent limits this admission may delegate with. */
   readonly delegation?: HostDelegation | undefined;
   readonly durableConfiguration: HostRunSnapshot['configuration'];
+  /** The hook files the composition did not load; Core commits them visibly. */
+  readonly hookSkips?: HostRunAdmission['hookSkips'];
   /** The run's lifecycle hooks, when the composition loaded any. */
   readonly hooks?: HostRunHooks;
   /**
@@ -141,6 +143,8 @@ export interface ProductionHostPlatformOptions {
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
   /** The live root owner checkpoint revert revalidates against. */
   readonly resolveWorkspaceRoot?: HostPlatform['resolveWorkspaceRoot'];
+  /** The snapshot owner's rewind restores; absent where none exists (the CLI). */
+  readonly rewindFiles?: HostPlatform['rewindFiles'];
   /** The native-tool output rewrite policy (host-capabilities). */
   readonly selectProjectionRewrites?: HostPlatform['selectProjectionRewrites'];
   readonly startup: HostStartupContext;
@@ -497,6 +501,7 @@ export async function createProductionHostPlatform(
           ...(discovery ? { discovery: discovery.discovery } : {}),
           // Like the legacy Memory default (`generateTitle: true`).
           generatesThreadTitle: true,
+          hookSkips: selected.hookSkips,
           ...(legacy?.resourceObservations ? { legacyObservationsWithheld: true as const } : {}),
           hooks: selected.hooks,
           inputTokenLimit: selected.providerRequestContext.inputTokenLimit,
@@ -573,6 +578,7 @@ export async function createProductionHostPlatform(
     ...(options.mcp ? { mcp: options.mcp } : {}),
     ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
     ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),
+    ...(options.rewindFiles ? { rewindFiles: options.rewindFiles } : {}),
     ...(options.selectProjectionRewrites
       ? { selectProjectionRewrites: options.selectProjectionRewrites }
       : {}),

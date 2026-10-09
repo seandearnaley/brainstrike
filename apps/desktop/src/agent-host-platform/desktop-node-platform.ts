@@ -24,8 +24,8 @@ import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-me
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
 import {
-  createHostRunHooks,
   getGlobalHooksPath,
+  loadHostRunHooks,
   trustedHookRoots,
 } from '@brainstrike/host-capabilities/hooks';
 import { createDesktopNodeMcpHost } from '@brainstrike/host-capabilities/mcp/desktop-node-mcp';
@@ -51,6 +51,9 @@ import {
   PlatformLocalProgressSchema,
   PlatformMemoryReadinessSchema,
   PlatformPolicySchema,
+  PlatformRewindConflictsSchema,
+  PlatformRewindOutcomesSchema,
+  PlatformRewindPreviewResultSchema,
   PlatformSelectionSchema,
   PlatformTurnSnapshotResultSchema,
 } from './platform-wire';
@@ -336,7 +339,7 @@ export async function createHostPlatform(
       });
       // Global hooks run as configured; a root's project file runs only at the
       // hash the host trusted it at, and is reported, not run, otherwise.
-      const hooks = createHostRunHooks({
+      const { hooks, skipped } = loadHostRunHooks({
         globalPath: getGlobalHooksPath(),
         maxHookTimeoutMs: selected.toolTimeoutMs,
         // The run's admitted roots, bound or live: the roots its tools use.
@@ -358,6 +361,8 @@ export async function createHostPlatform(
         // An admitted local chat model generates in Main's hidden llm-host.
         localLlmHostClient: local.llm,
         ...(hooks ? { hooks } : {}),
+        // Core commits the hook files this run did not load (`hooks.skipped`).
+        hookSkips: skipped,
         ...(selected.system === undefined ? {} : { system: selected.system }),
         maxSteps: selected.maxSteps,
         memory,
@@ -404,6 +409,19 @@ export async function createHostPlatform(
         .string()
         .min(1)
         .parse(await request('platform/workspace/root', { rootId }, signal)),
+    // Main's shadow-git owner restores a host thread's rewind and its redo.
+    rewindFiles: {
+      apply: async (input) =>
+        PlatformRewindOutcomesSchema.parse(await request('platform/rewind/apply', input)),
+      drift: async (input) =>
+        PlatformRewindConflictsSchema.parse(await request('platform/rewind/drift', input)),
+      preview: async (input) =>
+        PlatformRewindPreviewResultSchema.parse(await request('platform/rewind/preview', input)),
+      redo: async (input) =>
+        PlatformRewindOutcomesSchema.parse(await request('platform/rewind/redo', input)),
+      redoConflicts: async (input) =>
+        PlatformRewindConflictsSchema.parse(await request('platform/rewind/redo-conflicts', input)),
+    },
     selectProjectionRewrites: selectHostProjectionRewrites,
     startup,
     validateWorkspaceBinding: async ({ binding, signal, threadId }) => {

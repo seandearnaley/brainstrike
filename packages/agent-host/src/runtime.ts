@@ -142,6 +142,9 @@ export async function startAgentHost(
       }
       return platform.resolveModel(modelId);
     },
+    get rewindFiles(): HostPlatform['rewindFiles'] {
+      return currentPlatform().rewindFiles;
+    },
     get tools(): HostPlatform['tools'] {
       return currentPlatform().tools;
     },

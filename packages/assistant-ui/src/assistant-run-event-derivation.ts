@@ -115,6 +115,9 @@ export function isAlwaysVisibleRunEvent(data: unknown): boolean {
     event.kind === 'compaction.failed' ||
     event.kind === 'delegation.budget.exhausted' ||
     event.kind === 'delegation.ledger' ||
+    // A hook file that did not load: its hooks silently not running is the
+    // degradation the row reports.
+    (event.kind === 'hook.notice' && event.status === 'failed') ||
     event.kind === 'mcp.tools.unavailable' ||
     event.kind === 'memory.observation.withheld' ||
     event.kind === 'provider.request.warned' ||

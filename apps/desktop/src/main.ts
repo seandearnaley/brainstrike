@@ -86,7 +86,7 @@ import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { getDesktopEnvironmentBootstrapResult } from './desktop-env';
 import { buildDesktopEnvBootstrapReport } from './desktop-env-report';
 import { serializeDesktopError } from './desktop-error-serialization';
-import { createDesktopHookTrust, loadDesktopRootPaths } from './desktop-hook-trust';
+import { createDesktopHookTrust } from './desktop-hook-trust';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import {
   createDesktopMaintenanceTriggerGraph,
@@ -1134,13 +1134,10 @@ const agentHostMainClient = createAgentHostMainClient(
     }
   }
 );
-// The host owns hook trust. Main imports the retired renderer approvals once,
-// and no visible client attaches, so no host run is admitted, before it settles.
-const desktopHookTrust = createDesktopHookTrust({
-  loadRootPaths: async () => loadDesktopRootPaths(await getDatabase()),
-  request: (method, params) => agentHostMainClient.request(method, params),
-  storage,
-});
+// The host owns hook trust.
+const desktopHookTrust = createDesktopHookTrust((method, params) =>
+  agentHostMainClient.request(method, params)
+);
 // Legacy threads run project hooks at the same host-owned trust.
 installDesktopHookApprovalReader((root) => desktopHookTrust.approval(root));
 // Host threads record their turn snapshots in the host's log, not the ledger;
@@ -1149,11 +1146,10 @@ const readHostThreadIds = async (): Promise<ReadonlySet<string>> =>
   new Set(
     (await agentHostMainClient.request('thread/list', {})).threads.map(({ threadId }) => threadId)
   );
-const agentHostClientIpc = registerAgentHostClientIpc(async () => {
-  const attachment = await nativeIndexActivation.acquireProfile();
-  await desktopHookTrust.imported();
-  return attachment;
-}, agentHostPrivateClients.open);
+const agentHostClientIpc = registerAgentHostClientIpc(
+  nativeIndexActivation.acquireProfile,
+  agentHostPrivateClients.open
+);
 ipcDisposers.add('agent-host-client', agentHostClientIpc.unregister);
 const nativeRootDataDeletion = createNativeRootDataDeletion({
   acquire: () => nativeIndexActivation.acquire(),

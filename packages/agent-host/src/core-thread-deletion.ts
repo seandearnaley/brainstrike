@@ -1,3 +1,5 @@
+import type { StateStore } from '@brainstrike/state-store';
+import type { HostChildRuns } from './core-child-runs.js';
 import {
   abortHostThreadRuns,
   assertHostAdmissionCleanup,
@@ -6,68 +8,76 @@ import {
 import type { HostRunState } from './core-state.js';
 import type { HostResults } from './protocol.js';
 
-type Deleted = Promise<HostResults['thread/delete']>;
+type Deletion = Promise<HostResults['thread/delete']>;
 
-/** The Core state one thread deletion reads and retires; Core stays its only writer. */
-export interface HostThreadDeletionPorts {
-  /** Core's admission queue: the deletion runs after it, and later admissions after the deletion. */
-  readonly admission: { get(): Promise<void>; set(next: Promise<void>): void };
-  readonly closeRunOwner: (run: HostRunState) => Promise<void>;
+/** Core's state one thread deletion uses; Core keeps the admission queue's tail. */
+export interface HostThreadDeletionContext {
+  readonly admission: Promise<void>;
+  readonly children: Pick<HostChildRuns, 'subtree'>;
+  closeRunOwner(run: HostRunState): Promise<void>;
   readonly closing: () => boolean;
-  readonly conversationIds: Set<string>;
-  readonly deletions: Map<string, Deleted>;
-  readonly erase: ((threadId: string) => Promise<unknown>) | undefined;
+  readonly deletions: Map<string, Deletion>;
+  readonly erase: StateStore['deleteThread'] | undefined;
   readonly failedAdmissions: ReadonlyMap<string, unknown>;
-  readonly finish: (run: HostRunState) => Promise<void>;
-  readonly forget: (threadId: string) => void;
+  finish(run: HostRunState): Promise<void>;
+  /** Drop a deleted thread's folded state, and a deleted run's. */
+  forgetRun(run: HostRunState): void;
+  forgetThread(threadId: string): void;
   readonly pendingAdmissions: ReadonlyMap<AbortController, string>;
-  readonly runs: Map<string, HostRunState>;
-  /** BST-1932: a thread with its child threads, deleted through this same path. */
-  readonly subtree: (threadId: string) => readonly string[];
+  /** The new admission tail: later commands queue behind the deletion. */
+  queue(tail: Promise<void>): void;
+  readonly runs: ReadonlyMap<string, HostRunState>;
   readonly threads: ReadonlySet<string>;
 }
 
-/** BST-1977: raw StateStore deletion cannot retire active Memory/provider work. */
-export function deleteHostThread(threadId: string, ports: HostThreadDeletionPorts): Deleted {
-  const existing = ports.deletions.get(threadId);
+/**
+ * BST-1977: raw StateStore deletion cannot retire active Memory/provider work,
+ * so a deletion queues behind admission, joins its runs' owners, then erases.
+ * BST-1932: a thread's child threads are deleted with it, through this same path.
+ */
+export function deleteHostThread(context: HostThreadDeletionContext, threadId: string): Deletion {
+  const existing = context.deletions.get(threadId);
   if (existing) {
     return existing;
   }
-  if (ports.closing()) {
+  if (context.closing()) {
     return Promise.reject(new Error('Host is closing'));
   }
-  if (!ports.threads.has(threadId)) {
+  if (!context.threads.has(threadId)) {
     return Promise.reject(new Error('Unknown thread'));
   }
-  const erase = ports.erase;
+  const { erase } = context;
   if (!erase) {
     return Promise.reject(new Error('The Root owner has no thread deletion capability'));
   }
-  const subtree = ports.subtree(threadId);
-  const deletion = ports.admission.get().then(async (): Deleted => {
-    if (ports.closing()) {
+  const subtree = context.children.subtree(threadId);
+  const deletion = context.admission.then(async (): Deletion => {
+    if (context.closing()) {
       throw new Error('Host is closing');
     }
-    for (const member of subtree) {
-      assertHostAdmissionCleanup(ports.failedAdmissions, member);
+    for (const id of subtree) {
+      assertHostAdmissionCleanup(context.failedAdmissions, id);
     }
-    const runs = [...ports.runs.values()].filter((run) => subtree.includes(run.threadId));
-    await joinHostThreadDeletion(runs, ports.closeRunOwner, ports.finish);
-    for (const member of subtree) {
-      await erase(member);
-      ports.forget(member);
+    const runs = [...context.runs.values()].filter((run) => subtree.includes(run.threadId));
+    await joinHostThreadDeletion(
+      runs,
+      (run) => context.closeRunOwner(run),
+      (run) => context.finish(run)
+    );
+    for (const id of subtree) {
+      await erase(id);
+      context.forgetThread(id);
     }
     for (const run of runs) {
-      ports.runs.delete(run.id);
-      ports.conversationIds.delete(run.id);
+      context.forgetRun(run);
     }
-    return { deleted: true, threadIds: [...subtree] };
+    return { deleted: true, threadIds: subtree };
   });
-  for (const member of subtree) {
-    ports.deletions.set(member, deletion);
-    abortHostThreadRuns(member, ports.pendingAdmissions, ports.runs.values());
+  for (const id of subtree) {
+    context.deletions.set(id, deletion);
+    abortHostThreadRuns(id, context.pendingAdmissions, context.runs.values());
   }
-  ports.admission.set(
+  context.queue(
     deletion.then(
       () => undefined,
       () => undefined

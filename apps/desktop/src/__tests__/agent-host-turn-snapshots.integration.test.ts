@@ -1,11 +1,11 @@
 // @vitest-environment node
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
-import type { HostRunAdmission } from '@brainstrike/agent-host';
+import type { HostPlatform, HostRunAdmission } from '@brainstrike/agent-host';
 import {
   DEFAULT_PERMISSION_POLICIES,
   DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
@@ -66,8 +66,10 @@ async function withAdmittedRun(
   body: (run: {
     readonly admission: HostRunAdmission;
     readonly capture: CaptureTurnBoundary;
+    readonly platform: HostPlatform;
     readonly threadId: string;
-  }) => Promise<void>
+  }) => Promise<void>,
+  resolveWorkspaceRoot?: DesktopPlatformCapabilities['resolveWorkspaceRoot']
 ): Promise<void> {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-turn-snapshots-'));
   const channel = new MessageChannel();
@@ -112,6 +114,7 @@ async function withAdmittedRun(
     readLegacyMemory: async () => ({ resource: null, resourceObservations: false }),
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
     ...(workspaceSnapshots ? { workspaceSnapshots } : {}),
+    ...(resolveWorkspaceRoot ? { resolveWorkspaceRoot } : {}),
   });
   let store: StateStore | undefined;
   let platform: Awaited<ReturnType<typeof createHostPlatform>> | undefined;
@@ -150,7 +153,7 @@ async function withAdmittedRun(
     if (!capture) {
       throw new Error('The desktop admission has no turn boundary capture');
     }
-    await body({ admission, capture, threadId });
+    await body({ admission, capture, platform, threadId });
   } finally {
     await platform?.close();
     await main.close();
@@ -263,5 +266,70 @@ test('a desktop host run without a snapshot owner fails its capture visibly', as
     });
   } finally {
     await rm(workspace, { force: true, recursive: true });
+  }
+});
+
+test('a desktop host rewind restores a turn over the private port, and its redo undoes it', async () => {
+  const workspace = await workspaceDirectory();
+  const snapshotsDir = await mkdtemp(join(tmpdir(), 'bs-m3-rewind-shadow-'));
+  const service = createSnapshotService({
+    runner: execFileSnapshotGitRunner,
+    snapshotsBaseDir: snapshotsDir,
+  });
+  const live = { path: workspace, rootId: 'live-root' };
+  try {
+    await withAdmittedRun(
+      [live],
+      () => service,
+      async (run) => {
+        const rewindFiles = run.platform.rewindFiles;
+        if (!rewindFiles) {
+          throw new Error('The desktop host platform has no rewind restore owner');
+        }
+        const [start] = await run.capture({
+          boundary: 'turn-start',
+          runId: randomUUID(),
+          threadId: run.threadId,
+        });
+        if (!start) {
+          throw new Error('The turn start captured no root');
+        }
+        await writeFile(join(workspace, 'src', 'a.txt'), 'after\n');
+        await writeFile(join(workspace, 'src', 'b.txt'), 'added\n');
+        await run.admission.close?.();
+
+        const targets = [start];
+        const { previewId } = await rewindFiles.preview({ targets, threadId: run.threadId });
+        expect(await rewindFiles.drift({ previewId, threadId: run.threadId })).toEqual([]);
+        const outcomes = await rewindFiles.apply({
+          previewId,
+          rewindId: 'rewind-1',
+          targets,
+          threadId: run.threadId,
+        });
+        expect(outcomes).toEqual(
+          expect.arrayContaining([
+            { path: 'src/a.txt', rootId: 'live-root', status: 'restored' },
+            { path: 'src/b.txt', rootId: 'live-root', status: 'deleted' },
+          ])
+        );
+        expect(await readFile(join(workspace, 'src', 'a.txt'), 'utf8')).toBe('before\n');
+
+        const redo = { rewindId: 'rewind-1', targets, threadId: run.threadId };
+        expect(await rewindFiles.redoConflicts(redo)).toEqual([]);
+        await rewindFiles.redo({ ...redo, acknowledged: [] });
+        expect(await readFile(join(workspace, 'src', 'a.txt'), 'utf8')).toBe('after\n');
+        expect(await readFile(join(workspace, 'src', 'b.txt'), 'utf8')).toBe('added\n');
+      },
+      async (rootId) => {
+        if (rootId !== live.rootId) {
+          throw new Error('The workspace root is no longer mounted');
+        }
+        return workspace;
+      }
+    );
+  } finally {
+    await rm(workspace, { force: true, recursive: true });
+    await rm(snapshotsDir, { force: true, recursive: true });
   }
 });

@@ -20,6 +20,7 @@ import {
 } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
+import { serveHostRewindFiles } from './host-rewind-files';
 import { type HostToolServiceCapabilities, serveHostToolServices } from './host-tool-services';
 import { type DesktopWorkspaceSnapshots, serveHostTurnSnapshots } from './host-turn-snapshots';
 import { serveLegacyMemory } from './legacy-memory-main';
@@ -324,6 +325,7 @@ export function serveDesktopPlatform(
     (threadId) => selection(threadId).freshWorkspaceRoots(),
     capabilities.workspaceSnapshots
   );
+  serveHostRewindFiles(connection, execute, capabilities);
   connection.onRequest('platform/workspace/roots', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
       const { threadId } = z.strictObject({ threadId: z.string().min(1) }).parse(input);

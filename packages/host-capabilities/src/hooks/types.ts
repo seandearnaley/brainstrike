@@ -59,6 +59,11 @@ export type LoadedHooksByEvent = Partial<Record<HookEventName, readonly LoadedHo
 export interface HookConfigError {
   readonly message: string;
   readonly path: string;
+  /**
+   * Why the file contributes no hooks: no trust, changed since its trust,
+   * unreadable, invalid, or a phase over its time budget.
+   */
+  readonly reason: 'changed' | 'invalid' | 'over-budget' | 'unreadable' | 'untrusted';
   readonly rootId?: string;
   readonly scope: 'global' | 'project';
 }

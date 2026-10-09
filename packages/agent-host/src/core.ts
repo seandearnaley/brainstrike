@@ -89,6 +89,7 @@ import {
 } from './run-continuation.js';
 import { userRunVerdict } from './run-verdicts.js';
 import { HostThreadPresentationState } from './thread-presentation-state.js';
+import { HostThreadRewinds } from './thread-rewind.js';
 import { HostToolRecords } from './tool-records.js';
 import { revertHostRunEdits } from './workspace-edits.js';
 import { HostThreadWorkspaceState } from './workspace-state.js';
@@ -163,6 +164,13 @@ export class HostCore {
   private readonly deletions = new Map<string, Promise<HostResults['thread/delete']>>();
   private admission: Promise<void> = Promise.resolve();
   private readonly startNotices = new HostRunStartNotices();
+  private readonly rewinds = new HostThreadRewinds({
+    accept: (threadId, method, params, result, events) =>
+      this.accept(threadId, method, params, result, events, this.foldRows, 'full'),
+    append: (threadId, events) => this.append(threadId, events, 'full', this.foldRows),
+    command: (method, params, perform) => this.command(method, params, perform),
+    owner: () => ({ pending: this.pendingAdmissions, platform: this.platform, runs: this.runs }),
+  });
   private closing = false;
   private closeTask?: Promise<void>;
 
@@ -189,6 +197,7 @@ export class HostCore {
         core.fold(hydrated);
       }
     }
+    await core.rewinds.recover();
     // BST-1930 c3: Core owns its recovered MCP tasks before any run can discover tools.
     platform.attachMcpTaskOwner?.(hostMcpTaskOwner(core.executionPorts()));
     for (const run of core.runs.values()) {
@@ -214,6 +223,7 @@ export class HostCore {
     this.rewrites.fold(row);
     this.presentations.fold(row);
     this.workspaces.fold(row);
+    this.rewinds.fold(row);
     const event = row.event;
     this.startNotices.fold(event);
     switch (event.type) {
@@ -404,28 +414,33 @@ export class HostCore {
     });
   }
 
-  /** BST-1977: raw StateStore deletion cannot retire active Memory/provider work. */
+  /** Thread deletion queues behind admission and joins its runs (`core-thread-deletion.ts`). */
   deleteThread(params: { readonly threadId: string }): Promise<HostResults['thread/delete']> {
-    return deleteHostThread(params.threadId, {
-      admission: {
-        get: () => this.admission,
-        set: (next) => {
-          this.admission = next;
+    const { admission, children, deletions, failedAdmissions, pendingAdmissions, runs } = this;
+    return deleteHostThread(
+      {
+        admission,
+        children,
+        closeRunOwner: (run) => this.closeRunOwner(run),
+        closing: () => this.closing,
+        deletions,
+        erase: this.store.deleteThread?.bind(this.store),
+        failedAdmissions,
+        finish: (run) => this.finish(run, 'stopped'),
+        forgetRun: (run) => {
+          this.runs.delete(run.id);
+          this.conversationIds.delete(run.id);
         },
+        forgetThread: (threadId) => this.forgetThread(threadId),
+        pendingAdmissions,
+        queue: (tail) => {
+          this.admission = tail;
+        },
+        runs,
+        threads: this.threads,
       },
-      closeRunOwner: (run) => this.closeRunOwner(run),
-      closing: () => this.closing,
-      conversationIds: this.conversationIds,
-      deletions: this.deletions,
-      erase: this.store.deleteThread?.bind(this.store),
-      failedAdmissions: this.failedAdmissions,
-      finish: (run) => this.finish(run, 'stopped'),
-      forget: (threadId) => this.forgetThread(threadId),
-      pendingAdmissions: this.pendingAdmissions,
-      runs: this.runs,
-      subtree: (threadId) => this.children.subtree(threadId),
-      threads: this.threads,
-    });
+      params.threadId
+    );
   }
 
   private forgetThread(threadId: string): void {
@@ -441,6 +456,7 @@ export class HostCore {
     this.records.forgetThread(threadId, this.platform);
     this.compactions.forgetThread(threadId);
     this.rewrites.forgetThread(threadId);
+    this.rewinds.forgetThread(threadId);
     this.ledger.forget(threadId);
     this.grants.delete(threadId);
   }
@@ -463,7 +479,7 @@ export class HostCore {
         'run/start',
         params,
         origin,
-        () => hostStartPosition(this.runs.values(), params),
+        () => hostStartPosition(this.runs.values(), this.rewinds.position(params)),
         record
       )
     );
@@ -691,6 +707,19 @@ export class HostCore {
       await this.accept(params.threadId, method, params, result, events, this.foldRows, 'full');
       return result;
     });
+  }
+
+  /** Restore to before a message (`thread-rewind.ts`): preview, rewind, and redo. */
+  previewRewind(params: HostParams<'thread/rewind/preview'>) {
+    return this.rewinds.preview(params);
+  }
+
+  rewind(params: HostParams<'thread/rewind'>): Promise<HostResults['thread/rewind']> {
+    return this.rewinds.rewind(params);
+  }
+
+  redoRewind(params: HostParams<'thread/rewind/redo'>): Promise<HostResults['thread/rewind/redo']> {
+    return this.rewinds.redo(params);
   }
 
   readMcpInput(input: HostParams<'mcp/input/read'>): Promise<HostResults['mcp/input/read']> {
@@ -930,7 +959,7 @@ export class HostCore {
       const wake = this.children.wakeParams(threadId, this.runs);
       if (wake) {
         await this.admitRun('wake', wake.params, wake.origin, () =>
-          hostStartPosition(this.runs.values(), wake.params)
+          hostStartPosition(this.runs.values(), this.rewinds.position(wake.params))
         );
       }
     }).catch((cause: unknown) => reportHostChildWakeFailure(threadId, cause));

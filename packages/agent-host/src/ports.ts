@@ -38,10 +38,13 @@ import type { HostAuthVerdict } from './auth-wire.js';
 import type {
   HostEditOp,
   HostEvent,
+  HostHookSkip,
   HostLoginCredential,
   HostObservationalMemoryState,
   HostParams,
   HostResults,
+  HostRewindConflict,
+  HostRewindFileOutcome,
   HostRunSnapshot,
   HostTurnSnapshot,
   HostTurnSnapshotRoot,
@@ -307,6 +310,8 @@ export interface HostRunAdmission {
   readonly discovery?: HostToolDiscovery | undefined;
   /** Title an untitled thread's first completed run through this run's model. */
   readonly generatesThreadTitle?: boolean;
+  /** The hook files the composition did not load for this run; Core commits them visibly. */
+  readonly hookSkips?: readonly HostHookSkip[] | undefined;
   /** Present only when the composition loaded at least one hook for this run. */
   readonly hooks?: HostRunHooks | undefined;
   /** The selected provider input budget; host compaction keeps requests inside it. */
@@ -541,6 +546,45 @@ export interface HostMcpPresentationService {
 }
 
 /** Credentials and process-local capabilities never become protocol payloads. */
+/**
+ * The platform's snapshot owner restores a thread's roots for a rewind
+ * (restore to before a message) and its redo. Core decides what to restore
+ * and commits each intent before any file changes; the owner fingerprints,
+ * restores and revalidates each root against its live owner.
+ */
+export interface HostRewindFiles {
+  /** Restore each root to its target snapshot, after a pre-revert snapshot keyed by `rewindId`. */
+  apply(request: {
+    readonly previewId: string;
+    readonly rewindId: string;
+    readonly targets: readonly HostTurnSnapshot[];
+    readonly threadId: string;
+  }): Promise<readonly HostRewindFileOutcome[]>;
+  /** The paths that changed since the preview; nothing changes. */
+  drift(request: {
+    readonly previewId: string;
+    readonly threadId: string;
+  }): Promise<readonly HostRewindConflict[]>;
+  /** Fingerprint the target roots' live files for a preview; nothing changes. */
+  preview(request: {
+    readonly targets: readonly HostTurnSnapshot[];
+    readonly threadId: string;
+  }): Promise<{ readonly previewId: string }>;
+  /** Restore each root's pre-revert snapshot for `rewindId`; acknowledged paths are forced. */
+  redo(request: {
+    readonly acknowledged: readonly HostRewindConflict[];
+    readonly rewindId: string;
+    readonly targets: readonly HostTurnSnapshot[];
+    readonly threadId: string;
+  }): Promise<readonly HostRewindFileOutcome[]>;
+  /** The paths that changed since the rewind restored them; nothing changes. */
+  redoConflicts(request: {
+    readonly rewindId: string;
+    readonly targets: readonly HostTurnSnapshot[];
+    readonly threadId: string;
+  }): Promise<readonly HostRewindConflict[]>;
+}
+
 export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
   /**
@@ -590,6 +634,8 @@ export interface HostPlatform {
     readonly rootId: string;
     readonly signal: AbortSignal;
   }): Promise<string>;
+  /** The snapshot owner's rewind restores; absent where none exists (the CLI). */
+  readonly rewindFiles?: HostRewindFiles | undefined;
   /** The native-tool output rewrite policy; Core commits what it selects. */
   selectProjectionRewrites?(
     request: HostProjectionRewriteRequest
