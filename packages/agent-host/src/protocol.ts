@@ -15,6 +15,8 @@ import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-
 import { z } from 'zod';
 import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.js';
+import { McpToolAuthoritySchema } from './mcp-authority-wire.js';
+import { MCP_CONTENT_METHOD_SCHEMAS, MCP_CONTENT_RESULT_SCHEMAS } from './protocol-mcp-content.js';
 import {
   MCP_PRESENTATION_METHOD_SCHEMAS,
   MCP_PRESENTATION_RESULT_SCHEMAS,
@@ -29,6 +31,11 @@ import {
   REWIND_RESULT_SCHEMAS,
 } from './protocol-rewind.js';
 import { SEARCH_METHOD_SCHEMAS, SEARCH_RESULT_SCHEMAS } from './protocol-search.js';
+import {
+  SELECTION_EVENT_SCHEMAS,
+  SELECTION_METHOD_SCHEMAS,
+  SELECTION_RESULT_SCHEMAS,
+} from './protocol-selection.js';
 import { HostHookSkipSchema, HostImageAttachmentSchema } from './run-wire.js';
 import {
   HostEditBaselineSchema,
@@ -40,10 +47,13 @@ import {
   WorkspaceRelativePath,
 } from './workspace-wire.js';
 
+export * from './mcp-authority-wire.js';
+export * from './protocol-mcp-content.js';
 export * from './protocol-mcp-presentation.js';
 export * from './protocol-mcp-settings.js';
 export * from './protocol-rewind.js';
 export * from './protocol-search.js';
+export * from './protocol-selection.js';
 export * from './run-wire.js';
 export * from './workspace-wire.js';
 
@@ -80,11 +90,13 @@ export * from './workspace-wire.js';
 // control (`mcp/status/read`, `mcp/server/control`, the event's `status`
 // variant), and its MCP presentations (`mcp/tasks/list`, `mcp/tasks/act`,
 // `mcp/elicitation/settle`, `mcp/presentation/subscribe` and its
-// `mcp/presentation/event`), an MCP App's own tool calls (`mcp/app/admit`,
-// `mcp/app/call`), which Core decides under the owning thread's policy, and
-// `worktree.created` (a worktree a call's shell command made, which the
-// desktop adopted). These additions are optional fields, new variants and new
-// methods, so a v11 reader that uses none of them sees nothing new.
+// `mcp/presentation/event`), content browsing (`mcp/content/complete`,
+// `mcp/content/prompt`, `mcp/content/read`), an MCP App's own tool calls
+// (`mcp/app/admit`, `mcp/app/call`), which Core decides under the owning
+// thread's policy, and `worktree.created` (a worktree a call's shell command
+// made, which the desktop adopted). These additions are optional fields, new
+// variants and new methods, so a v11 reader that uses none of them sees
+// nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -162,48 +174,6 @@ const Attachments = z
   .array(HostImageAttachmentSchema)
   .min(1)
   .max(ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE);
-const McpAuthorityBase = {
-  extensions: z.strictObject({ apps: z.boolean(), tasks: z.boolean() }),
-  protocol: z.enum(['legacy', 'auto', '2026-07-28']),
-  version: z.literal(1),
-};
-/** Supplied by the configured-server owner; private values have no durable surrogate. */
-export const McpToolAuthoritySchema = z.discriminatedUnion('kind', [
-  z.strictObject({
-    ...McpAuthorityBase,
-    auth: z.discriminatedUnion('type', [
-      z.strictObject({ type: z.literal('none') }),
-      z.strictObject({
-        credential: z.strictObject({ id: z.uuid(), store: z.literal('mcp-credentials') }),
-        principalComparison: z.literal('unavailable'),
-        type: z.literal('bearer'),
-      }),
-    ]),
-    destination: z.url(),
-    kind: z.literal('http'),
-    transport: z.enum(['streamable-http', 'sse']),
-  }),
-  z.strictObject({
-    ...McpAuthorityBase,
-    args: z.tuple([]),
-    command: Id,
-    cwd: Id,
-    kind: z.literal('stdio'),
-  }),
-  z.strictObject({
-    kind: z.literal('unavailable'),
-    reason: z.enum([
-      'private-stdio-arguments',
-      'private-stdio-environment',
-      'unresolved-stdio-command',
-      'private-http-headers',
-      'private-http-destination',
-      'oauth-principal-not-comparable',
-    ]),
-    version: z.literal(1),
-  }),
-]);
-export type McpToolAuthority = z.infer<typeof McpToolAuthoritySchema>;
 /**
  * BST-1932: a child thread's durable invocation identity, ancestry and owner.
  * The child threadId is the invocation ID; this origin commits in the same
@@ -365,6 +335,7 @@ export const ClientOpenExternalParamsSchema = z.strictObject({ url: z.url() });
 export const ClientOpenExternalResultSchema = z.strictObject({ opened: z.literal(true) });
 
 export const HOST_METHOD_SCHEMAS = {
+  ...MCP_CONTENT_METHOD_SCHEMAS,
   ...MCP_PRESENTATION_METHOD_SCHEMAS,
   ...MCP_SETTINGS_METHOD_SCHEMAS,
   // auth/* is secret-bearing: process-local, never in HostCommandLedger, the log
@@ -514,6 +485,7 @@ export const HOST_METHOD_SCHEMAS = {
   'thread/read': z.strictObject({ ...Thread, fromSeq: Seq }),
   ...REWIND_METHOD_SCHEMAS,
   ...SEARCH_METHOD_SCHEMAS,
+  ...SELECTION_METHOD_SCHEMAS,
   'thread/start': z.strictObject(Command),
   'thread/update': z
     .strictObject({ ...Command, ...Thread, ...ThreadPresentation })
@@ -581,7 +553,12 @@ export const HostPromptBreakdownSchema = z.strictObject({
   toolDefinitionsProvenance: z.enum(['heuristic', 'measured']),
   toolDefinitionsTokens: z.number().int().nonnegative(),
 });
-export const HostEventSchema = z.union([
+/**
+ * Every committed event, routed by its `type`; each member validates its full
+ * shape. Two shapes that share a `type` are one member: the pipe's input
+ * carries the `type` the union routes on, and its output union picks the shape.
+ */
+export const HostEventSchema = z.discriminatedUnion('type', [
   z.strictObject({
     binding: ThreadWorkspaceBindingSchema,
     type: z.literal('workspace.binding.updated'),
@@ -608,10 +585,17 @@ export const HostEventSchema = z.union([
     serverId: Id,
     type: z.literal('mcp.tools.unavailable'),
   }),
-  z.strictObject({ commandId: Id, type: z.literal('thread.started') }),
-  z.strictObject({ origin: HostChildOriginSchema, type: z.literal('thread.started') }),
+  z
+    .looseObject({ type: z.literal('thread.started') })
+    .pipe(
+      z.union([
+        z.strictObject({ commandId: Id, type: z.literal('thread.started') }),
+        z.strictObject({ origin: HostChildOriginSchema, type: z.literal('thread.started') }),
+      ])
+    ),
   z.strictObject({ ...ThreadPresentation, type: z.literal('thread.updated') }),
   z.strictObject({ snapshot: WorkspaceSnapshotSchema, type: z.literal('workspace.updated') }),
+  ...SELECTION_EVENT_SCHEMAS,
   z.strictObject({
     commandId: Id,
     method: Id,
@@ -688,20 +672,24 @@ export const HostEventSchema = z.union([
     /** A permission approval's risk category, which its session grant names. */
     risk: RiskCategory.optional(),
   }),
-  z.strictObject({
-    type: z.literal('interaction.responded'),
-    ...RunFields,
-    /** BST-1932: the root's live policy, not a person, answered this approval. */
-    by: z.literal('policy').optional(),
-    decision: z.enum(['approve', 'deny']),
-    interactionId: Id,
-  }),
-  z.strictObject({
-    type: z.literal('interaction.responded'),
-    ...RunFields,
-    interactionId: Id,
-    resumeData: z.json(),
-  }),
+  z.looseObject({ type: z.literal('interaction.responded') }).pipe(
+    z.union([
+      z.strictObject({
+        type: z.literal('interaction.responded'),
+        ...RunFields,
+        /** BST-1932: the root's live policy, not a person, answered this approval. */
+        by: z.literal('policy').optional(),
+        decision: z.enum(['approve', 'deny']),
+        interactionId: Id,
+      }),
+      z.strictObject({
+        type: z.literal('interaction.responded'),
+        ...RunFields,
+        interactionId: Id,
+        resumeData: z.json(),
+      }),
+    ])
+  ),
   z.strictObject({ type: z.literal('effect.started'), ...Action }),
   z.strictObject({
     type: z.literal('effect.finished'),
@@ -877,6 +865,7 @@ export const HostLogRowSchema = z.strictObject({
 });
 export type HostLogRow = z.infer<typeof HostLogRowSchema>;
 export const HOST_RESULT_SCHEMAS = {
+  ...MCP_CONTENT_RESULT_SCHEMAS,
   ...MCP_PRESENTATION_RESULT_SCHEMAS,
   ...MCP_SETTINGS_RESULT_SCHEMAS,
   'auth/cancel': HostAuthStatusSchema,
@@ -989,6 +978,7 @@ export const HOST_RESULT_SCHEMAS = {
   'thread/read': z.strictObject({ rows: z.array(HostLogRowSchema) }),
   ...REWIND_RESULT_SCHEMAS,
   ...SEARCH_RESULT_SCHEMAS,
+  ...SELECTION_RESULT_SCHEMAS,
   'thread/start': z.strictObject(Thread),
   'thread/update': z.strictObject({ accepted: z.literal(true) }),
   'thread/workspace/binding/read': z.strictObject({

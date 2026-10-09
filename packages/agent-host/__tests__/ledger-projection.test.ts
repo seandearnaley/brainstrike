@@ -332,23 +332,26 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
     ]);
   });
 
-  test("observer calls cost under the run's resolved observer target, never a local one", () => {
-    const costedSources = (observerTarget: string, modelId: string) => {
+  test("an observer call costs under the catalog id it commits, not its run's resolved target", () => {
+    const costedSources = (modelId: string) => {
       const at = rows.indexOf(first);
+      // The run still records the observer target its admission resolved.
       const observing = HostLogRowSchema.parse({
         ...first,
         event: {
           ...first.event,
           snapshot: {
             configuration: {
-              memoryResolution: { observationalMemory: 'resolved', observerTarget },
+              memoryResolution: {
+                observationalMemory: 'resolved',
+                observerTarget: 'openai/gpt-4.1-mini',
+              },
             },
             maxSteps: 12,
             toolIdentities: {},
           },
         },
       });
-      // The memory provider commits the SDK model's own id.
       const observation = {
         kind: 'observation',
         modelId,
@@ -367,20 +370,18 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
         )
       ).perModel.map(({ model, provider, runKind }) => [provider, model, runKind]);
     };
-    expect(costedSources('openai/gpt-4.1-mini', 'gpt-4.1-mini')).toEqual([
+    // Core commits the observer's catalog id (BST-1929).
+    expect(costedSources('openai::gpt-4.1-mini')).toEqual([
       ['openai', 'gpt-4.1-mini', 'om-observation'],
       ['openrouter', 'anthropic/claude-sonnet-4.6', 'chat'],
     ]);
-    expect(costedSources('openrouter/google/gemini-2.5-flash', 'google/gemini-2.5-flash')).toEqual([
-      ['openrouter', 'google/gemini-2.5-flash', 'om-observation'],
+    // An SDK model id, as rows committed before BST-1929 carry, names no
+    // provider: it is not costed, though it matches the run's resolved target.
+    expect(costedSources('gpt-4.1-mini')).toEqual([
       ['openrouter', 'anthropic/claude-sonnet-4.6', 'chat'],
     ]);
-    // A call naming another model than the target is not attributed to it.
-    expect(costedSources('openai/gpt-4.1-mini', 'gpt-4.1')).toEqual([
-      ['openrouter', 'anthropic/claude-sonnet-4.6', 'chat'],
-    ]);
-    // The built-in local model bills nothing.
-    expect(costedSources('local/gemma-4-e2b-it', 'gemma-4-e2b-it')).toEqual([
+    // The built-in local observer bills nothing.
+    expect(costedSources('local::gemma-4-e2b-it')).toEqual([
       ['openrouter', 'anthropic/claude-sonnet-4.6', 'chat'],
     ]);
   });

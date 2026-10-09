@@ -158,6 +158,16 @@ export class McpSettingsAuthority implements HostMcpSettingsService {
     return this.options.runtime.host.snapshot();
   }
 
+  /**
+   * Whether a content read may run (BST-1930 c5d): it waits out the config
+   * change in flight, never queues behind config operations, and is refused
+   * while a factory reset or shutdown holds the lifecycle.
+   */
+  async admitContent(): Promise<boolean> {
+    await this.#barrier;
+    return this.#lifecycleOpen;
+  }
+
   configStatus(): Promise<HostResults['mcp/config/status']> {
     return this.#trackOperation(async () => {
       this.#last = await this.options.configFile.load();

@@ -481,9 +481,10 @@ dials, so a stale or racing frame can never regain a permission or a download.
   admission whose server generation retired or server was removed, or a host
   that closed), malformed input, replay, release, supersession by a newer run
   of the thread, and WebContents destruction all fail closed.
-- `window.mcp.apps.readResource` uses the existing visible-UI-only,
-  generation-fenced `mcp:content:readResource` path and returns HTML only when
-  an exact `text/html;profile=mcp-app` MIME type and text body are present.
+- An MCP App's document is read through the agent host's desktop-only,
+  generation-fenced `mcp/content/read` method (public-socket clients are
+  refused) and is used only when an exact `text/html;profile=mcp-app` MIME type
+  and text body are present.
   `window.mcp.apps.prepareShell` / `releaseShell` are the visible-UI-only
   `mcp:apps:prepareShell` / `mcp:apps:releaseShell` channels (strict schemas;
   per-sender and per-document size limits fail closed). Hidden renderer

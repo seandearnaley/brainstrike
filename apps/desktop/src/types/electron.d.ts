@@ -1,8 +1,4 @@
 import type {
-  McpContentApplicationRequest,
-  McpContentApplicationResult,
-} from '@brainstrike/assistant-service/mcp-content-application-port';
-import type {
   WorkspaceIndexingIdleState,
   WorkspaceIndexingPowerSource,
   WorkspaceIndexingThermalState,
@@ -42,17 +38,6 @@ import type {
   VisibleChunkingHostBridge,
   VisibleEmbeddingHostBridge,
 } from './desktop-electron-api';
-
-// `mcp:content:*` (BST-1585): the renderer sends the verb payload plus
-// authority; main forces the operation type per channel.
-type McpContentBridgeRequest<Type extends McpContentApplicationRequest['type']> = Omit<
-  Extract<McpContentApplicationRequest, { type: Type }>,
-  'type'
->;
-type McpContentBridgeResult<Type extends McpContentApplicationResult['type']> = Extract<
-  McpContentApplicationResult,
-  { type: Type }
->;
 
 // Type definitions for the Electron API exposed via contextBridge
 declare global {

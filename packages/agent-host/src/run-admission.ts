@@ -14,7 +14,7 @@ import { modelMessageSchema, type StepResult, type ToolSet } from 'ai';
 import { leaseHostAdmission } from './admission-lease.js';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import { withHostDelegationTools } from './child-runs.js';
-import type { HostRunState, HostThreadGrants } from './core-state.js';
+import { createHostRunContext, type HostRunState, type HostThreadGrants } from './core-state.js';
 import { defaultHostToolModelOutput, withHostToolHookContext } from './hook-context.js';
 import { canonical, jsonValue } from './json-value.js';
 import { McpAuthorityReconstructionError } from './mcp-authority.js';
@@ -27,7 +27,7 @@ import type {
   HostRunIntentRequest,
   HostRunOwner,
 } from './ports.js';
-import type { HostEvent, HostRunSnapshot } from './protocol.js';
+import type { HostEvent } from './protocol.js';
 import { HostRunSnapshotSchema } from './protocol.js';
 import { createHostSdkTools } from './sdk-tools.js';
 import { settleHostToolOutputs } from './tool-artifacts.js';
@@ -173,9 +173,7 @@ export function hostRunIntentRequest(
   origin: HostClientOrigin | undefined,
   /** A command's user-written prompt; a wake (BST-1932) has none. */
   prompt: string | undefined,
-  signal: AbortSignal,
-  /** BST-1932: a wake continues its turn by reopening the run it follows. */
-  snapshot?: HostRunSnapshot
+  signal: AbortSignal
 ): Omit<HostRunIntentRequest, 'workspaceBinding'> {
   return {
     ...(params.configuration ? { configuration: params.configuration } : {}),
@@ -184,7 +182,6 @@ export function hostRunIntentRequest(
     ...(params.planMode ? { planMode: true } : {}),
     ...(prompt === undefined ? {} : { prompt }),
     signal,
-    ...(snapshot ? { snapshot } : {}),
     threadId: params.threadId,
   };
 }
@@ -194,10 +191,9 @@ export function hostRunCommandRequest(
   params: Parameters<typeof hostRunIntentRequest>[0] & { readonly runId: string },
   origin: HostClientOrigin | undefined,
   prompt: string | undefined,
-  signal: AbortSignal,
-  snapshot?: HostRunSnapshot
+  signal: AbortSignal
 ): Omit<HostRunAdmissionRequest, 'workspaceBinding'> {
-  return { ...hostRunIntentRequest(params, origin, prompt, signal, snapshot), runId: params.runId };
+  return { ...hostRunIntentRequest(params, origin, prompt, signal), runId: params.runId };
 }
 
 /** The platform's fixed default selection, for hosts without a per-run `admitRun`. */
@@ -310,6 +306,28 @@ async function rejectHostRunSelection(selected: HostRunAdmission, cause: unknown
   throw cause;
 }
 
+/**
+ * The run's owner (its public Memory), opened once over its admission. A run
+ * whose owner close has begun is never reopened: Core releases a joined owner.
+ */
+export function openHostRunOwner(
+  platform: HostPlatform,
+  run: HostRunState,
+  append: Parameters<typeof createHostRunContext>[1]
+): Promise<HostRunOwner | undefined> {
+  if (run.ownerClose) {
+    return Promise.reject(new Error('The run owner is already closed'));
+  }
+  run.owner ??= ensureHostRunAdmission(platform, run).then((admission) => {
+    const open = admission.openRun ?? platform.openRun?.bind(platform);
+    return open?.({
+      ...createHostRunContext(run, append),
+      ...(admission.workingMemory === false ? { workingMemory: false as const } : {}),
+    });
+  });
+  return run.owner;
+}
+
 /** The Core retains this promise; both owners are attempted even when one join fails. */
 export async function closeHostRunResources(run: HostRunState): Promise<void> {
   const joined = await Promise.allSettled([
@@ -355,6 +373,9 @@ export async function closeHostRunResources(run: HostRunState): Promise<void> {
       'Run resource cleanup failed'
     );
   }
+  // Core keeps every run of the process; a joined owner (public Memory, its
+  // observational memory and their WebAssembly hashers) must not outlive it.
+  run.owner = undefined;
 }
 
 /**

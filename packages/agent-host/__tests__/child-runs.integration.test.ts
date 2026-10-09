@@ -149,13 +149,15 @@ test('a foreground persona child runs in its own thread with narrowed tools and 
     output: { childThreadId, status: 'completed', text: 'Child found the notes.' },
   });
 
-  // One StateStore transaction holds the parent's effect and the child's origin and start.
+  // One StateStore transaction holds the parent's effect and the child's origin,
+  // selection (ADR-0019) and start.
   const commit = harness.batches.find((items) =>
     items.some((item) => item.threadId === childThreadId && item.event.type === 'thread.started')
   );
   expect(commit?.map((item) => [item.threadId, item.event.type])).toEqual([
     [harness.threadId, 'effect.started'],
     [childThreadId, 'thread.started'],
+    [childThreadId, 'thread.selection.updated'],
     [childThreadId, 'run.started'],
   ]);
 

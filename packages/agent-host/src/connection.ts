@@ -5,11 +5,13 @@ import { bindHostAuthMethods } from './auth-connection.js';
 import type { HostCore } from './core.js';
 import { hostChildStatusChanged } from './core-child-runs.js';
 import { bindHostHookTrustMethods } from './hook-trust.js';
+import { bindHostMcpContentMethods } from './mcp-content-connection.js';
 import { bindHostMcpPresentationMethods } from './mcp-presentation-connection.js';
 import { bindHostMcpSettingsMethods } from './mcp-settings-connection.js';
 import type {
   HostAuthService,
   HostClientOrigin,
+  HostMcpContentService,
   HostMcpPresentationService,
   HostMcpSettingsService,
   HostPlatform,
@@ -25,6 +27,7 @@ import {
 } from './protocol.js';
 import { bindHostProviderMethods } from './provider-connection.js';
 import {
+  coverageHostSearchVectors,
   pendingHostSearchVectors,
   putHostSearchVectors,
   searchHostThreads,
@@ -40,6 +43,8 @@ export interface HostConnectionOptions {
   /** The platform's credential authority, where the host owns one. */
   readonly auth?: HostAuthService;
   readonly lifecycle?: HostConnectionLifecycle;
+  /** The desktop's MCP content browsing, where the host serves it. */
+  readonly mcpContent?: HostMcpContentService;
   /** The desktop's MCP Tasks cards and server input, where the host presents them. */
   readonly mcpPresentation?: HostMcpPresentationService;
   /** The desktop's MCP settings authority, where the host owns one. */
@@ -65,6 +70,7 @@ export function bindHostConnection(
   const {
     auth,
     lifecycle,
+    mcpContent,
     mcpPresentation,
     mcpSettings,
     origin = 'public-socket',
@@ -166,6 +172,7 @@ export function bindHostConnection(
   bindHostProviderMethods(handle, providers, origin);
   disposables.push(bindHostMcpSettingsMethods(handle, connection, mcpSettings, origin));
   disposables.push(bindHostMcpPresentationMethods(handle, connection, mcpPresentation, origin));
+  bindHostMcpContentMethods(handle, mcpContent, origin);
   bindHostHookTrustMethods(handle, core.store);
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));
@@ -183,7 +190,12 @@ export function bindHostConnection(
   handle('thread/search/pending', (params) =>
     pendingHostSearchVectors(core, searchStateVectors, params)
   );
+  handle('thread/search/coverage', (params) =>
+    coverageHostSearchVectors(core, searchStateVectors, params)
+  );
   handle('thread/search/vectors', (params) => putHostSearchVectors(searchStateVectors, params));
+  handle('thread/selection/read', (params) => core.selections.read(params.threadId));
+  handle('thread/selection/set', (params) => core.selections.set(params));
   handle('thread/workspace/read', (params) => core.readWorkspace(params.threadId));
   handle('thread/workspace/set', (params) => core.setWorkspace(params));
   handle('thread/workspace/binding/read', (params) => core.readWorkspaceBinding(params.threadId));
@@ -194,9 +206,9 @@ export function bindHostConnection(
   handle('run/input', (params) => core.input(params));
   handle('run/stop', (params) => core.stop(params));
   handle('checkpoint/revert', (params) => core.revertCheckpoint(params));
-  handle('thread/rewind/preview', (params) => core.previewRewind(params));
-  handle('thread/rewind', (params) => core.rewind(params));
-  handle('thread/rewind/redo', (params) => core.redoRewind(params));
+  handle('thread/rewind/preview', (params) => core.rewinds.preview(params));
+  handle('thread/rewind', (params) => core.rewinds.rewind(params));
+  handle('thread/rewind/redo', (params) => core.rewinds.redo(params));
   handle('run/verdict', (params) => core.recordVerdict(params));
   handle('interaction/respond', (params) => core.respond(params));
   handle('interaction/resume', (params) => core.resume(params));

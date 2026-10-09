@@ -1,10 +1,12 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import type {
   McpAppBridge,
+  McpAppOrigin,
   McpAppPrepareRequest,
   McpAppShellBridge,
 } from '@brainstrike/assistant-contract';
 import { resolveMcpAppShellBridge } from './mcp-app-bridge';
+import { unwrapContent } from './mcp-content-outcome';
 
 interface Preparation {
   readonly approved: boolean;
@@ -13,8 +15,40 @@ interface Preparation {
 }
 
 /**
- * MCP Apps on a host thread. Main serves each app's shell and document; Core
- * admits and runs every tool call the app makes, under the thread's policy.
+ * An app's document, read from the agent host (BST-1930 c5d): the server's
+ * live generation from its status, then that generation's resource. Only a
+ * text body of the app's declared MIME type renders.
+ */
+async function readAppDocument(client: HostClient, origin: McpAppOrigin): Promise<string> {
+  const status = await client.request('mcp/status/read', {});
+  const server = status.servers.find(
+    ({ configuredServerId }) => configuredServerId === origin.serverId
+  );
+  if (!server) {
+    throw new Error(`MCP Apps server "${origin.serverId}" has no live content authority`);
+  }
+  const read = unwrapContent(
+    await client.request('mcp/content/read', {
+      authority: { configuredServerId: origin.serverId, generation: server.generation },
+      uri: origin.resourceUri,
+    })
+  );
+  const content = read.result.contents.find(({ uri }) => uri === origin.resourceUri);
+  if (!(content && 'text' in content) || typeof content.text !== 'string') {
+    throw new Error(`MCP Apps resource "${origin.resourceUri}" has no text content`);
+  }
+  if (content.mimeType !== origin.mimeType) {
+    throw new Error(
+      `MCP Apps resource "${origin.resourceUri}" MIME type must be "${origin.mimeType}"`
+    );
+  }
+  return content.text;
+}
+
+/**
+ * MCP Apps on a host thread. Main serves each app's shell, the host its
+ * document (c5d); Core admits and runs every tool call the app makes, under
+ * the thread's policy.
  * Core keeps no preparation: `prepare` asks it for the decision, and
  * `execute` sends the same call again with the user's answer, which Core
  * decides afresh. Releasing a call the host is still running (the app closed,
@@ -64,7 +98,7 @@ export function hostMcpAppBridge(
       return admitted;
     },
     prepareShell: (request) => shell.prepareShell(request),
-    readResource: (origin) => shell.readResource(origin),
+    readResource: (origin) => readAppDocument(client, origin),
     release: async ({ preparationId }) => {
       preparations.get(preparationId)?.controller.abort(new Error('MCP App tool call released'));
       preparations.delete(preparationId);

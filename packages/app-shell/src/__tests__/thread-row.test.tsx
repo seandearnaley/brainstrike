@@ -4,7 +4,7 @@ import {
 } from '@brainstrike/assistant-data';
 import { createTestActionRegistry } from '@brainstrike/context-actions';
 import type { ForgePrCacheEntry } from '@brainstrike/types';
-import { ActionRegistryProvider } from '@brainstrike/ui';
+import { ActionRegistryProvider, TooltipProvider } from '@brainstrike/ui';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -149,20 +149,40 @@ describe('thread row PR pill', () => {
 
 function renderRow(props: ThreadRowProps) {
   const actionRegistry = createTestActionRegistry();
-  const renderResult = render(
-    <ActionRegistryProvider registry={actionRegistry.registry}>
-      <ThreadRow {...props} />
-    </ActionRegistryProvider>
-  );
+  // The app shell's TooltipProvider wraps every row.
+  const renderResult = render(<ThreadRow {...props} />, {
+    wrapper: ({ children }) => (
+      <TooltipProvider>
+        <ActionRegistryProvider registry={actionRegistry.registry}>
+          {children}
+        </ActionRegistryProvider>
+      </TooltipProvider>
+    ),
+  });
   return { actionRegistry, ...renderResult };
 }
 
 describe('ThreadRow', () => {
+  it('marks a thread whose history cannot be read, with the reason on focus', async () => {
+    const reason = 'thread thread-row-test is damaged at seq 2: row crc mismatch';
+    renderRow(createProps({ thread: { ...THREAD, readFailure: reason } }));
+    const marker = screen.getByRole('button', {
+      name: `Review architecture: its history cannot be read. ${reason}`,
+    });
+    marker.focus();
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(reason);
+  });
+
+  it('marks nothing on a thread whose history reads', () => {
+    renderRow(createProps());
+    expect(screen.queryByTestId('thread-read-failure')).toBeNull();
+  });
+
   it('owns a rename draft across parent rerenders and submits the explicit row action', async () => {
     const user = userEvent.setup();
     const onRenameThread = vi.fn().mockResolvedValue(undefined);
     const props = createProps({ onRenameThread });
-    const { actionRegistry, rerender } = renderRow(props);
+    const { rerender } = renderRow(props);
 
     await user.click(screen.getByRole('button', { name: 'Thread actions Review architecture' }));
     await user.click(screen.getByRole('button', { name: 'Rename' }));
@@ -171,11 +191,7 @@ describe('ThreadRow', () => {
     await user.clear(input);
     await user.type(input, 'Keep this draft');
 
-    rerender(
-      <ActionRegistryProvider registry={actionRegistry.registry}>
-        <ThreadRow {...props} selected />
-      </ActionRegistryProvider>
-    );
+    rerender(<ThreadRow {...props} selected />);
 
     expect(screen.getByRole('textbox', { name: 'Thread title' })).toHaveValue('Keep this draft');
     await user.click(screen.getByRole('button', { name: 'Save thread title' }));
