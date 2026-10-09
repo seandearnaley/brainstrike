@@ -15,6 +15,7 @@ import type {
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { AssistantThreadSearchSemantic } from './assistant-thread-host-context';
 import {
+  combineThreadSearchCoverage,
   embedPendingHostSearchRows,
   type HostThreadSearchVectors,
   type ThreadSearchVectorProfile,
@@ -187,10 +188,40 @@ export function useThreadSearchController({
     if (!(repository && loadEmbeddingQueue)) {
       return;
     }
+    // The host's half needs the profile of the embedder that will run; an
+    // embedder that cannot start leaves it out, and the search shows semantic
+    // search unavailable with its reason.
+    let hostTarget:
+      | Promise<{ modelInfo: EmbeddingSetModelInfo; profile: ThreadSearchVectorProfile } | null>
+      | undefined;
+    const resolveHostTarget = () => {
+      hostTarget ??= (async () => {
+        if (!hostSearchVectors) {
+          return null;
+        }
+        try {
+          await loadEmbeddingQueue();
+          const modelInfo = await resolveModelInfo();
+          const { runtime } = await embedder.ensureEmbedderReady(modelInfo);
+          return { modelInfo, profile: threadSearchVectorProfile(modelInfo, runtime) };
+        } catch {
+          return null;
+        }
+      })();
+      return hostTarget;
+    };
+    /** The panel's one embedding progress: history's rows and the host's. */
+    const recordCoverage = async () => {
+      const history = await repository.getCoverage(resourceId);
+      const target = await resolveHostTarget();
+      const host =
+        target && hostSearchVectors ? await hostSearchVectors.coverage(target.profile) : null;
+      useThreadSearchStore.getState().recordCoverage(combineThreadSearchCoverage(history, host));
+      return history;
+    };
     const drainHistory = async (): Promise<void> => {
       for (let pass = 0; pass < MAX_EMBEDDING_PASSES_PER_DRAIN; pass += 1) {
-        const coverage = await repository.getCoverage(resourceId);
-        useThreadSearchStore.getState().recordCoverage(coverage);
+        const coverage = await recordCoverage();
         if (coverage.embeddableMessages <= coverage.embeddedMessages + coverage.erroredMessages) {
           return;
         }
@@ -215,7 +246,8 @@ export function useThreadSearchController({
     };
     // The host's backlog, after history's, at the same rows per pass.
     const drainHost = async (): Promise<void> => {
-      if (!hostSearchVectors) {
+      const target = await resolveHostTarget();
+      if (!(target && hostSearchVectors)) {
         return;
       }
       for (let pass = 0; pass < MAX_EMBEDDING_PASSES_PER_DRAIN; pass += 1) {
@@ -223,16 +255,14 @@ export function useThreadSearchController({
         if (recentFailure && Date.now() - recentFailure.at < THREAD_SEARCH_SEMANTIC_RETRY_MS) {
           return;
         }
-        await loadEmbeddingQueue();
-        const modelInfo = await resolveModelInfo();
-        const { runtime } = await embedder.ensureEmbedderReady(modelInfo);
         const embedded = await embedPendingHostSearchRows({
           embedder,
           host: hostSearchVectors,
           limit: EMBEDDING_PASS_LIMIT,
-          modelInfo,
-          profile: threadSearchVectorProfile(modelInfo, runtime),
+          modelInfo: target.modelInfo,
+          profile: target.profile,
         });
+        await recordCoverage();
         if (embedded === 0) {
           return;
         }

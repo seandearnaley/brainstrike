@@ -390,6 +390,8 @@ export function createWindowThreadCapability(
     },
     // The semantic arm's backlog, embedded by this renderer's search embedder.
     searchVectors: {
+      coverage: async (profile) =>
+        await (await client()).request('thread/search/coverage', { profile: { ...profile } }),
       pending: async (profile, limit) =>
         (
           await (
@@ -402,7 +404,9 @@ export function createWindowThreadCapability(
       put: async (profile, rows) =>
         await (await client()).request('thread/search/vectors', {
           profile: { ...profile },
-          rows: rows.map((row) => ({ ...row, vector: [...row.vector] })),
+          rows: rows.map((row) =>
+            'vector' in row ? { ...row, vector: [...row.vector] } : { ...row }
+          ),
         }),
     },
     subscribeCanvases: canvases.subscribe,

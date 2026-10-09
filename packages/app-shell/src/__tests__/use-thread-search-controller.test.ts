@@ -445,14 +445,23 @@ describe('useThreadSearchController', () => {
         { seq: 2, sourceHash: 'b'.repeat(64), text: 'host text two', threadId: 'host-thread' },
       ])
       .mockResolvedValue([]);
-    const put = vi.fn<HostThreadSearchVectors['put']>(async () => ({ stale: 0, stored: 2 }));
+    const put = vi.fn<HostThreadSearchVectors['put']>(async () => ({
+      failed: 0,
+      stale: 0,
+      stored: 2,
+    }));
+    // The host's half of the panel's embedding progress, read after each host pass.
+    const coverage = vi
+      .fn<HostThreadSearchVectors['coverage']>()
+      .mockResolvedValueOnce({ embedded: 0, errored: 0, rows: 2 })
+      .mockResolvedValue({ embedded: 2, errored: 0, rows: 2 });
     const embedder = createEmbedder();
     renderController(
       repository,
       embedder,
       vi.fn(async () => ({}) as never),
       undefined,
-      { pending, put }
+      { coverage, pending, put }
     );
 
     act(() => {
@@ -468,5 +477,14 @@ describe('useThreadSearchController', () => {
     ]);
     // The second pass found an empty backlog and stopped.
     expect(pending).toHaveBeenCalledTimes(2);
+    // History's coverage (none) and the host's rows are one progress.
+    expect(coverage).toHaveBeenCalledWith(VECTOR_PROFILE);
+    expect(useThreadSearchStore.getState().coverage).toEqual({
+      embeddableMessages: 2,
+      embeddedMessages: 2,
+      erroredMessages: 0,
+      indexedMessages: 2,
+      totalMessages: 2,
+    });
   });
 });

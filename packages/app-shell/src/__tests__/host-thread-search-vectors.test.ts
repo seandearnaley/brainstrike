@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  combineThreadSearchCoverage,
   embedPendingHostSearchRows,
   type HostThreadSearchVectors,
   threadSearchVectorProfile,
@@ -40,13 +41,14 @@ describe('threadSearchVectorProfile', () => {
 });
 
 describe('embedPendingHostSearchRows', () => {
-  it('stores the rows that embedded, then fails the pass for the one that did not', async () => {
+  it("hands back a row that failed with its error, as history's embedding_error, beside the rest", async () => {
     const host: HostThreadSearchVectors = {
+      coverage: vi.fn(),
       pending: vi.fn(async () => [
         { seq: 1, sourceHash: 'a'.repeat(64), text: 'first', threadId: 'host-thread' },
         { seq: 2, sourceHash: 'b'.repeat(64), text: 'broken', threadId: 'host-thread' },
       ]),
-      put: vi.fn(async () => ({ stale: 0, stored: 1 })),
+      put: vi.fn(async () => ({ failed: 1, stale: 0, stored: 1 })),
     };
     const embedder = {
       embedDocumentWithRecovery: vi.fn(async (_info: unknown, text: string) => {
@@ -59,12 +61,38 @@ describe('embedPendingHostSearchRows', () => {
     };
     const profile = threadSearchVectorProfile(LOCAL, 'wasm');
 
-    await expect(
-      embedPendingHostSearchRows({ embedder, host, limit: 16, modelInfo: LOCAL, profile })
-    ).rejects.toThrow('1 host thread messages failed to embed');
+    expect(
+      await embedPendingHostSearchRows({ embedder, host, limit: 16, modelInfo: LOCAL, profile })
+    ).toBe(2);
     expect(host.pending).toHaveBeenCalledWith(profile, 16);
     expect(host.put).toHaveBeenCalledWith(profile, [
       { seq: 1, sourceHash: 'a'.repeat(64), threadId: 'host-thread', vector: [1, 0] },
+      {
+        error: 'Host thread message host-thread#2 embedding failed: model unavailable',
+        seq: 2,
+        sourceHash: 'b'.repeat(64),
+        threadId: 'host-thread',
+      },
     ]);
+  });
+});
+
+describe('combineThreadSearchCoverage', () => {
+  it("adds the host's rows to history's, as one embedding progress", () => {
+    const history = {
+      embeddableMessages: 4,
+      embeddedMessages: 2,
+      erroredMessages: 1,
+      indexedMessages: 5,
+      totalMessages: 6,
+    };
+    expect(combineThreadSearchCoverage(history, { embedded: 3, errored: 1, rows: 10 })).toEqual({
+      embeddableMessages: 14,
+      embeddedMessages: 5,
+      erroredMessages: 2,
+      indexedMessages: 15,
+      totalMessages: 16,
+    });
+    expect(combineThreadSearchCoverage(history, null)).toBe(history);
   });
 });
