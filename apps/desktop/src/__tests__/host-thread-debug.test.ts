@@ -63,6 +63,8 @@ function recordedHost(): Pick<HostClient, 'request'> {
                     toolCallId: 'call-1',
                     turnId: 'turn-1',
                   },
+                  // Its parent run failed and nothing is running in it.
+                  status: 'idle',
                   threadId: childThreadId,
                 },
               ]

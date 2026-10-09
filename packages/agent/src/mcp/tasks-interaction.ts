@@ -47,8 +47,17 @@ export interface McpTaskInteractionClient {
   ): Promise<Result>;
 }
 
+/**
+ * The host's committed outcome of an answer to this input, from before this
+ * coordinator started (a host restart): `acknowledged` is final, `unknown` is
+ * fenced, and no outcome means nothing was ever sent.
+ */
+export type McpTaskCommittedInputOutcome = 'acknowledged' | 'unknown' | undefined;
+
 export interface McpTaskInteractionOptions {
   readonly client: McpTaskInteractionClient;
+  /** Read before a key is first presented; this coordinator's own memory covers later polls. */
+  readonly committedOutcome?: (taskId: string, inputKey: string) => McpTaskCommittedInputOutcome;
   readonly elicitation: McpTaskInteractionElicitationAuthority;
   readonly observationPort: McpTaskObservationPort;
   readonly scope: McpTaskScope;
@@ -166,6 +175,7 @@ function inputIdentity(taskId: string, inputKey: string): string {
 
 export class McpTaskInteraction {
   private readonly client: McpTaskInteractionClient;
+  private readonly committedOutcome: McpTaskInteractionOptions['committedOutcome'];
   private readonly cancellations = new Map<string, CancellationOperation>();
   private readonly controller = new AbortController();
   private readonly elicitation: McpTaskInteractionElicitationAuthority;
@@ -185,6 +195,7 @@ export class McpTaskInteraction {
 
   constructor(options: McpTaskInteractionOptions) {
     this.client = options.client;
+    this.committedOutcome = options.committedOutcome;
     this.elicitation = options.elicitation;
     this.observationPort = options.observationPort;
     this.scope = Object.freeze({ ...options.scope });
@@ -433,24 +444,11 @@ export class McpTaskInteraction {
         );
       }
     } else {
-      const controller = new AbortController();
-      const decision = this.resolveInput(taskId, inputKey, request, controller.signal);
-      const acknowledged = Promise.withResolvers<void>();
-      void acknowledged.promise.catch(() => undefined);
-      const created: InputOperation = {
-        acknowledged,
-        controller,
-        decision,
-        delivery: undefined,
-        fingerprint,
-        inputKey,
-        outcome: 'pending',
-        retired: false,
-        taskId,
-      };
-      operation = created;
+      const committed = this.committedOutcome?.(taskId, inputKey);
+      operation = committed
+        ? this.committedOperation(taskId, inputKey, fingerprint, committed)
+        : this.freshOperation(taskId, inputKey, request, fingerprint);
       this.inputs.set(identity, operation);
-      void decision.catch(() => undefined);
     }
     if (operation.outcome === 'acknowledged') {
       return;
@@ -481,6 +479,61 @@ export class McpTaskInteraction {
     operation.delivery = delivery;
     void delivery.catch(() => undefined);
     return await delivery;
+  }
+
+  private freshOperation(
+    taskId: string,
+    inputKey: string,
+    request: ElicitRequest,
+    fingerprint: string
+  ): InputOperation {
+    const controller = new AbortController();
+    const decision = this.resolveInput(taskId, inputKey, request, controller.signal);
+    const acknowledged = Promise.withResolvers<void>();
+    void acknowledged.promise.catch(() => undefined);
+    void decision.catch(() => undefined);
+    return {
+      acknowledged,
+      controller,
+      decision,
+      delivery: undefined,
+      fingerprint,
+      inputKey,
+      outcome: 'pending',
+      retired: false,
+      taskId,
+    };
+  }
+
+  /** An answer the host committed before this coordinator started: it is never sent again. */
+  private committedOperation(
+    taskId: string,
+    inputKey: string,
+    fingerprint: string,
+    outcome: 'acknowledged' | 'unknown'
+  ): InputOperation {
+    const acknowledged = Promise.withResolvers<void>();
+    void acknowledged.promise.catch(() => undefined);
+    if (outcome === 'acknowledged') {
+      acknowledged.resolve();
+    } else {
+      acknowledged.reject(new McpTaskInputDeliveryUnknownError(taskId, inputKey));
+    }
+    const decision = Promise.reject(
+      new Error(`MCP task "${taskId}" input "${inputKey}" was answered before this coordinator.`)
+    );
+    void decision.catch(() => undefined);
+    return {
+      acknowledged,
+      controller: new AbortController(),
+      decision,
+      delivery: undefined,
+      fingerprint,
+      inputKey,
+      outcome,
+      retired: false,
+      taskId,
+    };
   }
 
   private async resolveInput(

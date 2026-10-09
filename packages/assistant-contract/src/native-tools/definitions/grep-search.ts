@@ -15,7 +15,8 @@ export const grepSearch = defineNativeTool({
   id: 'brainstrike.grepSearch',
   inputSchema: providerCompatibleInputSchema(GrepSearchInputSchema),
   kind: 'desktop',
+  localProvider: 'offered',
   returns:
     "'files' mode: matching file paths with per-file match counts. 'content' mode: path, 1-based line, line text, and context lines. Both self-bound to the tool output budget with totals, truncation flags, and a continuation hint",
-  surfaces: ['desktop', 'web', 'local'],
+  surfaces: ['desktop', 'web'],
 });

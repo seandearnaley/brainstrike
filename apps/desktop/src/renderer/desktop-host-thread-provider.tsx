@@ -1,6 +1,7 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import {
   HostChildConversations,
+  HostChildToolbar,
   useAssistantRunNotifications,
   useBudgetGuardrailBinding,
 } from '@brainstrike/app-shell';
@@ -10,6 +11,7 @@ import {
   CommittedAssistantConversation,
   DebugBundleProvider,
   EditCheckpointProvider,
+  RunVerdictProvider,
 } from '@brainstrike/assistant-ui';
 import { useOptionalPGliteDatabase } from '@brainstrike/db/react';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell';
@@ -34,6 +36,7 @@ import { CommittedWorkspaceControls } from './committed-workspace-controls';
 import { readDesktopHostModel } from './desktop-host-configuration';
 import { createWindowThreadCapability } from './desktop-host-thread-capability';
 import { HostApprovalStrip } from './host-approval-strip';
+import { HostChildDetailsFold } from './host-child-details';
 import type { HostThreadCanvases } from './host-thread-canvases';
 import { createHostDebugBundleBinding } from './host-thread-debug';
 import type { HostThreadLedger } from './host-thread-ledger';
@@ -42,6 +45,7 @@ import {
   type ProviderReadErrors,
   useDesktopHostPresentation,
 } from './use-desktop-host-presentation';
+import { useHostLastTurn } from './use-host-last-turn';
 import { useHostThreadUsage } from './use-host-thread-usage';
 
 /** The existing checkpoint undo controls, fed from the thread's committed edits. */
@@ -60,6 +64,22 @@ function CommittedCheckpoints({
   return <EditCheckpointProvider value={value}>{children}</EditCheckpointProvider>;
 }
 
+/** The run verdict controls, fed from the thread's committed verdicts. */
+function CommittedVerdicts({
+  children,
+  verdicts,
+}: {
+  readonly children: ReactNode;
+  readonly verdicts: CommittedHostConversation['verdicts'];
+}): ReactElement {
+  const value = useSyncExternalStore(
+    verdicts.subscribe,
+    verdicts.getSnapshot,
+    verdicts.getSnapshot
+  );
+  return <RunVerdictProvider value={value}>{children}</RunVerdictProvider>;
+}
+
 /** Committed effects are where a delegation starts or settles a child thread. */
 function useCommittedEffectCount(conversation: CommittedHostConversation | undefined): number {
   const source = conversation?.source;
@@ -72,6 +92,30 @@ function useCommittedEffectCount(conversation: CommittedHostConversation | undef
   return useSyncExternalStore(source?.subscribe ?? NO_SUBSCRIPTION, read, read);
 }
 const NO_SUBSCRIPTION = (): (() => void) => () => undefined;
+
+/** BST-1932 (F15): a child's toolbar, live from its committed log. */
+function HostChildDetails({
+  source,
+}: {
+  readonly source: CommittedHostConversation['source'];
+}): ReactElement | null {
+  // A new source replays its log from the first row, so each source has its own fold.
+  const folds = useRef(new WeakMap<object, HostChildDetailsFold>());
+  const read = useCallback(() => {
+    let fold = folds.current.get(source);
+    if (!fold) {
+      fold = new HostChildDetailsFold();
+      folds.current.set(source, fold);
+    }
+    return fold.apply(source.getSnapshot().rows);
+  }, [source]);
+  const details = useSyncExternalStore(source.subscribe, read, read);
+  return details ? (
+    <div className="shrink-0 border-b px-2 py-1">
+      <HostChildToolbar details={details} />
+    </div>
+  ) : null;
+}
 
 function HostThread({
   agentColor,
@@ -130,6 +174,8 @@ function HostThread({
   // Badges and OS notifications read this view's committed run state.
   const { onRunNotification } = useAssistantRunNotifications();
   const effects = useCommittedEffectCount(conversation);
+  // The Changes surface's "Last Turn" follows this thread's committed runs.
+  useHostLastTurn(threadId, conversation?.source);
   useEffect(
     () =>
       conversation ? runs.observe(threadId, conversation.source, onRunNotification) : undefined,
@@ -166,29 +212,36 @@ function HostThread({
   }, [conversation]);
   return conversation ? (
     <div className="flex h-full min-h-0 flex-col">
+      {child ? <HostChildDetails key={threadId} source={conversation.source} /> : null}
       <div className="min-h-0 flex-1">
         <CommittedCheckpoints checkpoints={conversation.checkpoints}>
-          <BudgetGuardrailProvider value={budgetGuardrail}>
-            <DebugBundleProvider value={debugBundle}>
-              <HostChildConversations revision={effects} threadId={threadId}>
-                <CommittedAssistantConversation
-                  {...presentation}
-                  agentColor={agentColor}
-                  approvalStrip={
-                    <HostApprovalStrip client={client} tree={conversation.approvals} />
-                  }
-                  commands={conversation.commands}
-                  {...(cumulativeUsage ? { cumulativeUsage } : {})}
-                  label={label}
-                  onRunningChange={onRunningChange}
-                  onSendActiveInput={child ? conversation.sendInput : undefined}
-                  onSteerActiveRun={steer}
-                  store={conversation.store}
-                  workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
-                />
-              </HostChildConversations>
-            </DebugBundleProvider>
-          </BudgetGuardrailProvider>
+          <CommittedVerdicts verdicts={conversation.verdicts}>
+            <BudgetGuardrailProvider value={budgetGuardrail}>
+              <DebugBundleProvider value={debugBundle}>
+                <HostChildConversations revision={effects} threadId={threadId}>
+                  <CommittedAssistantConversation
+                    {...presentation}
+                    agentColor={agentColor}
+                    approvalStrip={
+                      <HostApprovalStrip
+                        client={client}
+                        self={child ? label : undefined}
+                        tree={conversation.approvals}
+                      />
+                    }
+                    commands={conversation.commands}
+                    {...(cumulativeUsage ? { cumulativeUsage } : {})}
+                    label={label}
+                    onRunningChange={onRunningChange}
+                    onSendActiveInput={child ? conversation.sendInput : undefined}
+                    onSteerActiveRun={steer}
+                    store={conversation.store}
+                    workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
+                  />
+                </HostChildConversations>
+              </DebugBundleProvider>
+            </BudgetGuardrailProvider>
+          </CommittedVerdicts>
         </CommittedCheckpoints>
       </div>
       {steeredRunId ? <SteeringStatus runId={steeredRunId} store={conversation.store} /> : null}

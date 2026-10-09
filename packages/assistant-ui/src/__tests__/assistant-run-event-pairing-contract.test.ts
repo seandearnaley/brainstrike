@@ -146,6 +146,9 @@ describe('explicit terminal pairing contract (non-.started kinds)', () => {
     'memory.history.loaded',
     'memory.observation.completed',
     'memory.observation.failed',
+    // Gap 17's legacy-observations notice: the host commits it once, and the
+    // projection shows it with `status: 'info'`, never `'running'`.
+    'memory.observation.withheld',
     'memory.reflection.completed',
     'memory.semantic.completed',
     'memory.working.loaded',

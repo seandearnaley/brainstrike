@@ -182,6 +182,11 @@ export function foldHostRunEffect(
     if (ts !== undefined) {
       run?.outputCommittedAt.set(event.toolCallId, ts);
     }
+  } else if (event.type === 'workspace.snapshot.recorded' && event.boundary === 'turn-start') {
+    const run = runs.get(event.runId);
+    if (run) {
+      run.turnStart = event;
+    }
   } else if (event.type === 'run.finished') {
     const run = runs.get(event.runId);
     if (run) {
@@ -219,6 +224,8 @@ export interface HostRunState {
   /** BST-1932: human input a running child takes; it starts the run after this one. */
   childInput?: HostParams<'run/start'> | undefined;
   completion?: Promise<void>;
+  /** Calls awaiting network consent this step, and whether the policy also asked to approve them. */
+  readonly consents: Map<string, { readonly approval: boolean }>;
   readonly controller: AbortController;
   /** Set when a child's execution deadline expired; it ends failed, not stopped. */
   deadline?: string;
@@ -283,6 +290,8 @@ export interface HostRunState {
   readonly toolContexts: Map<string, string>;
   /** A follow-up typed into an idle child starts its own turn: its ID. */
   turnId?: string;
+  /** The run's committed turn-start snapshots: the roots its turn end snapshots. */
+  turnStart?: Extract<HostEvent, { type: 'workspace.snapshot.recorded' }>;
 }
 
 export function createHostRunState(
@@ -298,6 +307,7 @@ export function createHostRunState(
     approvals: new Map(),
     branch,
     checkpointedResults: new Set(),
+    consents: new Map(),
     controller,
     effects: new Set(),
     grants,

@@ -30,7 +30,6 @@ import {
   createEmbeddingHostQueryEmbeddingResultReport,
   type EmbeddingHostInferenceRequest,
   type EmbeddingHostRuntimeMetadata,
-  type EmbeddingHostWorkerRuntimeMetadata,
 } from '../../embedding-host-shared';
 import {
   getEmbeddingHostBridge,
@@ -59,6 +58,12 @@ import {
   type QueryEmbeddingRuntimeOwner,
   runOwnedQueryEmbeddingInference,
 } from './embedding-host-query-owner';
+import {
+  createBackendMismatchError,
+  createEmbeddingRuntimeMetadata,
+  embeddingHostDevice,
+  withResolvedHostDevice,
+} from './embedding-host-runtime-metadata';
 import { startEmbeddingTelemetryReporter } from './embedding-telemetry-reporter';
 import { createEmbeddingWorkerConfig } from './embedding-worker-config';
 
@@ -154,30 +159,6 @@ function createFatalErrorHandler(
       lastError: message,
     });
   };
-}
-
-function createEmbeddingRuntimeMetadata(
-  selectedDevicePreference: EmbeddingDeviceType,
-  actualWorkerMetadata: EmbeddingHostWorkerRuntimeMetadata | null
-): EmbeddingHostRuntimeMetadata {
-  return {
-    actualWorkerMetadata,
-    backendMismatch:
-      actualWorkerMetadata !== null &&
-      (actualWorkerMetadata.device !== selectedDevicePreference ||
-        actualWorkerMetadata.fallbackApplied),
-    selectedDevicePreference,
-    telemetry: getEmbeddingTelemetrySnapshot(),
-  };
-}
-
-function createBackendMismatchError(metadata: EmbeddingHostRuntimeMetadata): string | null {
-  const actual = metadata.actualWorkerMetadata;
-  if (!(metadata.backendMismatch && actual)) {
-    return null;
-  }
-  const fallbackSuffix = actual.fallbackApplied ? ' with fallbackApplied=true' : '';
-  return `Embedding backend mismatch: selected ${metadata.selectedDevicePreference}, actual ${actual.device}${fallbackSuffix}.`;
 }
 
 function isRecoverableEmbeddingWorkerFatalError(message: string): boolean {
@@ -415,7 +396,8 @@ async function handleQueryEmbeddingRequest(options: {
             runtime.device;
           embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(
             selectedDevicePreference,
-            runtime
+            runtime,
+            embeddingHostDevice(embeddingRuntimeRef.current)
           );
           reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
             active: true,
@@ -545,7 +527,9 @@ async function startEmbeddingHostWorkerRuntime({
     await ensureEmbeddingQueueBootstrapLoaded();
     const hydratedPreferences = await resolveHydratedEmbeddingWorkerPreferences();
     const hydratedDevicePref = hydratedPreferences.devicePref;
-    embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(hydratedDevicePref, null);
+    embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(hydratedDevicePref, null, {
+      hostDevice: hydratedDevicePref,
+    });
     const workerConfig = createEmbeddingWorkerConfig(db, gate);
     const controller = await startEmbeddingWorker({
       ...workerConfig,
@@ -554,7 +538,11 @@ async function startEmbeddingHostWorkerRuntime({
       initializeLocalModelOnStart: false,
       onFatalError,
       onRuntimeMetadataChange: (metadata) => {
-        embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(hydratedDevicePref, metadata);
+        embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(
+          hydratedDevicePref,
+          metadata,
+          embeddingHostDevice(embeddingRuntimeRef.current)
+        );
         const backendMismatchError = createBackendMismatchError(embeddingRuntimeRef.current);
         if (backendMismatchError) {
           fatalErrorRef.current = backendMismatchError;
@@ -974,6 +962,20 @@ export function EmbeddingHostRuntime(): null {
             throw new Error('Embedding host database is unavailable for reset.');
           }
           await controls.reset(nextRuntimeId);
+        },
+        resolveDevice: async () => {
+          const current = embeddingRuntimeRef.current;
+          // Only the device an unpinned load uses; the worker keeps its own until restart.
+          const next = current
+            ? await withResolvedHostDevice(current, resolveHydratedVectorDevicePreference)
+            : null;
+          if (next && !disposed && embeddingRuntimeRef.current === current) {
+            embeddingRuntimeRef.current = next;
+            reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
+              active: activeRef.current,
+              embeddingRuntime: next,
+            });
+          }
         },
         stop: async () => {
           stoppedByCommandRef.current = true;

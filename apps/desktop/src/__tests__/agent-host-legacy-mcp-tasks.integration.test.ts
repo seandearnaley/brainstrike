@@ -150,6 +150,7 @@ test("the host imports Main's PGlite Tasks rows once, before its Tasks storage o
       readConfiguration: async () => {
         throw new Error('This scenario admits no run');
       },
+      readLegacyMemory: async () => ({ resource: null, resourceObservations: false }),
       readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
     });
     owned.push(async () => {

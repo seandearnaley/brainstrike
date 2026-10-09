@@ -484,6 +484,7 @@ describe('one Node adapter composition', () => {
     const admit = (modelId: string) =>
       platform.admitRun!({
         modelId,
+        runId: `owned-run-${modelId}`,
         signal: new AbortController().signal,
         threadId: 'owned-thread',
       });

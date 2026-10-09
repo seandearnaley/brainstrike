@@ -19,7 +19,7 @@
 // measures every file in one process.
 import path from 'node:path';
 import { defineConfig } from 'vitest/config';
-import baseConfig from './vitest.config.mts';
+import baseConfig, { ELECTRON_RUNTIME_TESTS, UNDER_ELECTRON } from './vitest.config.mts';
 
 const baseTest = baseConfig.test ?? {};
 
@@ -80,6 +80,7 @@ export default defineConfig({
     // __snapshots__/x.integration.test.ts.snap and try to LOAD them as test
     // modules. The pure lane's `*` exclude harmlessly drops such files; this
     // lane must not attempt to run them.
-    include: ['**/*.integration.test.?(c|m)[jt]s?(x)'],
+    // Under Electron (scripts/run-integration.mjs) only the files that need it run.
+    include: UNDER_ELECTRON ? ELECTRON_RUNTIME_TESTS : ['**/*.integration.test.?(c|m)[jt]s?(x)'],
   },
 });

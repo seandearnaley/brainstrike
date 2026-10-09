@@ -49,6 +49,10 @@ type SkillToolOf<Tools extends readonly NativeToolDefinition[]> = Extract<
   Tools[number],
   SkillNativeToolDefinition
 >;
+type LocalOfferedOf<Tools extends readonly NativeToolDefinition[]> = Extract<
+  DesktopToolOf<Tools>,
+  { readonly localProvider: 'offered' }
+>;
 type OnSurface<Tool, Surface extends NativeToolSurface> = Tool extends {
   readonly surfaces: readonly (infer Listed)[];
 }
@@ -70,7 +74,10 @@ export interface NativeToolRegistries<Tools extends readonly NativeToolDefinitio
   >;
   readonly ids: {
     readonly desktop: readonly DesktopToolOf<Tools>['id'][];
-    readonly local: readonly OnSurface<DesktopToolOf<Tools>, 'local'>['id'][];
+    /** Offered to a local run (`localProvider: 'offered'`). */
+    readonly local: readonly LocalOfferedOf<Tools>['id'][];
+    /** No local executor exists (`localProvider: 'unregistered'`). */
+    readonly localUnregistered: readonly DesktopToolOf<Tools>['id'][];
     readonly native: readonly IdOf<Tools>[];
     readonly nonDurableOutput: readonly DesktopToolOf<Tools>['id'][];
     readonly recencyPrunable: readonly IdOf<Tools>[];
@@ -182,8 +189,11 @@ export function deriveNativeToolRegistries<const Tools extends readonly NativeTo
     ids: {
       desktop: idsWhere(tools, isDesktop) as readonly DesktopToolOf<Tools>['id'][],
       local: Object.freeze(
-        desktopTools.filter((tool) => tool.surfaces.includes('local')).map((tool) => tool.id)
-      ) as readonly OnSurface<DesktopToolOf<Tools>, 'local'>['id'][],
+        desktopTools.filter((tool) => tool.localProvider === 'offered').map((tool) => tool.id)
+      ) as readonly LocalOfferedOf<Tools>['id'][],
+      localUnregistered: Object.freeze(
+        desktopTools.filter((tool) => tool.localProvider === 'unregistered').map((tool) => tool.id)
+      ) as readonly DesktopToolOf<Tools>['id'][],
       native: idsWhere(tools, () => true),
       nonDurableOutput: Object.freeze(
         desktopTools.filter((tool) => tool.nonDurableOutput === true).map((tool) => tool.id)

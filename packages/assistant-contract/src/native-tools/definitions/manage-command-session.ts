@@ -21,6 +21,7 @@ export const manageCommandSession = defineNativeTool({
   id: 'brainstrike.manageCommandSession',
   inputSchema: providerCompatibleInputSchema(ManageCommandSessionInputSchema),
   kind: 'desktop',
+  localProvider: 'unregistered',
   nonDurableOutput: true,
   returns:
     'Typed session state for start/stop/write, or an explicit removed result. Failures distinguish invalid input, unavailable roots, unknown/cross-root sessions, exited sessions, startup failure, and stop failure.',

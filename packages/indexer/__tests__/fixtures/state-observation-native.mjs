@@ -1,6 +1,7 @@
 import {
   InMemoryStore,
   Memory,
+  TokenCounter,
   wrapInObservationGroup,
 } from '@brainstrike/test-utils/fixtures/observation-memory';
 
@@ -129,4 +130,9 @@ export function groupText(text, groupId, threadId, scope) {
     groupId
   );
   return scope === 'thread' ? group : `<thread id="${threadId}">\n${group}\n</thread>`;
+}
+
+/** Mastra OM's own observation token count (`TokenCounter.countObservations`). @param {string} text */
+export function observationTokens(text) {
+  return new TokenCounter().countObservations(text);
 }

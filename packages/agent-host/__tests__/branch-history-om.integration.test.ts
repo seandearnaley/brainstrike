@@ -99,6 +99,7 @@ async function harness() {
             workingMemory: { enabled: false },
           },
         },
+        observerModelId: 'openai::gpt-4.1-mini',
         providerRequestContext: () => ({ inputTokenLimit: 30_000, provider: 'openai' }),
         recordObserverUsage: async () => undefined,
         recordPrompt: async () => undefined,

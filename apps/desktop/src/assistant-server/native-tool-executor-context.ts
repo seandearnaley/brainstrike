@@ -16,13 +16,13 @@ import type {
   NativeToolBuildContext,
   NativeToolPorts,
   ReadWorkspaceFileCursorRegistry,
+  WebExtractToolDependencies,
   WebSearchToolDependencies,
 } from '@brainstrike/host-capabilities/native-tools';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import type { CommandSessionManager } from './command-session-manager';
 import type { ShellCorrelationCapability } from './shell-worktree-correlation';
-import type { WebExtractToolDependencies } from './web-extract-tool';
 import type { WorktreeToolCapability } from './worktree-tools';
 
 export type MastraTools = NonNullable<RuntimeData['mastraTools']>;
@@ -63,7 +63,7 @@ export interface DesktopAssistantToolDependencies {
    * real keychain key and uses the real fetch.
    */
   /** Same injection seam as `webSearch`, for the webExtract tool. */
-  webExtract?: WebExtractToolDependencies | undefined;
+  webExtract?: Partial<WebExtractToolDependencies> | undefined;
   webSearch?: Partial<WebSearchToolDependencies> | undefined;
   /**
    * Request-scoped worktree capability (BST-1392). Built in

@@ -472,6 +472,7 @@ test.each(['same-reason', 'receipt'] as const)(
           },
           storage,
         },
+        observerModelId: 'openai::gpt-4.1-mini',
         recordObserverUsage: async () => {
           throw failure;
         },

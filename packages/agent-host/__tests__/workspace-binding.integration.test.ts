@@ -446,13 +446,16 @@ test('a root revoked while its existing admission is held cannot commit run acce
   const release = Promise.withResolvers<void>();
   let live = true;
   let closedSelections = 0;
+  const admittedRuns: string[] = [];
+  const validations: { runId: string | undefined; threadId: string }[] = [];
   let host: AgentHost | undefined;
   let client: HostClient | undefined;
   try {
     host = await startAgentHost(
       { lifetime: 'persistent', root },
       {
-        admitRun: async () => {
+        admitRun: async (request) => {
+          admittedRuns.push(request.runId);
           entered.resolve();
           await release.promise;
           return {
@@ -467,7 +470,8 @@ test('a root revoked while its existing admission is held cannot commit run acce
         },
         close: async () => undefined,
         readPermissionPolicy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false }),
-        validateWorkspaceBinding: async ({ signal }) => {
+        validateWorkspaceBinding: async ({ runId, signal, threadId }) => {
+          validations.push({ runId, threadId });
           signal.throwIfAborted();
           if (!live) {
             throw new Error('The existing captured root is unavailable');
@@ -496,6 +500,13 @@ test('a root revoked while its existing admission is held cannot commit run acce
     await refusal;
     expect(closedSelections).toBe(1);
     expect((await client.request('thread/read', { fromSeq: 0, threadId })).rows).toEqual(before);
+    // The binding update validates for the thread alone; both admission checks
+    // name the run being admitted, whose platform selection they revalidate.
+    expect(validations).toEqual([
+      { runId: undefined, threadId },
+      { runId: admittedRuns[0], threadId },
+      { runId: admittedRuns[0], threadId },
+    ]);
   } finally {
     release.resolve();
     await cleanup(client, host, root);

@@ -543,14 +543,13 @@ export interface AgentStreamCapabilities<
     readonly makeBlockedStream: (reason: string) => AsyncIterable<StreamChunk>;
     readonly prepare: (input: {
       readonly emitRunEvent: (event: K['hookEvent']) => void;
-      readonly hookTrustRequest: RuntimeData['hookTrustRequest'];
       readonly logger: ScopedLogger;
       readonly runId: string | undefined;
       readonly runtimeData: RuntimeData | undefined;
-    }) => {
+    }) => Promise<{
       readonly manager: K['hookManager'];
       readonly runner: RuntimeData['hookRunner'] | undefined;
-    };
+    }>;
     readonly runUserPromptSubmitGate: (
       manager: K['hookManager'],
       messages: AgentMessage[],
@@ -804,10 +803,8 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     permissionPolicy: _ignoredClientPermissionPolicy,
     permissionPolicyRequest,
     // Strip any client-supplied `hookRunner` for the same reason: it is the
-    // TRUSTED, server-built closure (below). The renderer only ATTESTS approved
-    // hashes via `hookTrustRequest`, which the server re-hashes against disk.
+    // TRUSTED, server-built closure (below), over the agent host's hook trust.
     hookRunner: _ignoredClientHookRunner,
-    hookTrustRequest,
     // Strip any client-supplied `personaProviderApiKeys`: pinned-persona keys
     // are server-resolved from the secrets bridge below — a client must never
     // inject credentials into the runtime.
@@ -864,9 +861,8 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     const queuedRunEvents: AssistantRunEvent[] = [];
     // TRUSTED server-built runner (never the client-supplied one, stripped above);
     // present iff valid hooks exist.
-    const { manager: hookManager, runner: hookRunner } = capabilities.hooks.prepare({
+    const { manager: hookManager, runner: hookRunner } = await capabilities.hooks.prepare({
       emitRunEvent: (event) => queuedRunEvents.push(capabilities.hooks.eventToAssistant(event)),
-      hookTrustRequest,
       logger,
       runId,
       runtimeData: trustedRuntimeData,

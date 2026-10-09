@@ -199,3 +199,27 @@ test('the discovery tools never ask for permission, as legacy, even when reads a
     events.filter((event) => event.type === 'effect.finished').map((event) => event.toolCallId)
   ).toEqual(['recorded-call-1', 'recorded-call-2', 'recorded-call-3']);
 });
+
+test('a deferred tool called before load_tool settles its run visibly, and never runs', async () => {
+  const unloaded = scriptedToolSequence([{ input: {}, toolId: DEFERRED }]);
+  const host = await discoveryHost([unloaded], {
+    policies: DEFAULT_PERMISSION_POLICIES,
+    yolo: false,
+  });
+
+  const events = await host.run('List the worktrees');
+  // The unloaded call fails as an unavailable tool, committed where the user sees it.
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      chunk: expect.objectContaining({
+        error: expect.stringContaining(`unavailable tool '${DEFERRED}'`),
+        toolCallId: 'recorded-call-1',
+        type: 'tool-error',
+      }),
+      type: 'stream.chunk',
+    })
+  );
+  expect(events.filter((event) => event.type.startsWith('effect.'))).toEqual([]);
+  // The model reads the failure and the run ends; it never waits on the call.
+  expect(events.at(-1)).toMatchObject({ outcome: 'completed', type: 'run.finished' });
+});

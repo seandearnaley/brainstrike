@@ -12,10 +12,12 @@ export {
   createAgentHostToolBindings,
 } from './adapters/canonical-tool-bindings.js';
 export { committedMemoryTranscript } from './adapters/committed-memory-transcript.js';
+export { hostToolDiscoveryEnabled } from './adapters/host-tool-discovery.js';
 export {
   createKeyringNativeBackend,
   type KeyringNativeBackend,
 } from './adapters/keyring-native-worker.js';
+export { importLegacyMemory } from './adapters/legacy-memory-import.js';
 export { createMcpHostToolAdapter } from './adapters/mcp.js';
 export {
   HostMemory,
@@ -24,6 +26,7 @@ export {
   type HostMemoryStep,
 } from './adapters/memory.js';
 export { StateStoreMemoryStorage } from './adapters/memory-storage.js';
+export type { HostObservationSource } from './adapters/observation-state.js';
 export {
   StateStoreHostMemory,
   type StateStoreHostMemoryOptions,
@@ -78,6 +81,7 @@ export {
 } from './process-entry.js';
 export {
   createProductionHostPlatform,
+  type HostMemoryPreconditions,
   type ProductionHostPlatformOptions,
   type ProductionHostRunConfiguration,
 } from './production-platform.js';

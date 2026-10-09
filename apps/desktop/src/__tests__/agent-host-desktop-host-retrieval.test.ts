@@ -277,6 +277,25 @@ test('the desktop host runs hybridSearch in its own process over Main’s index 
   expectOnlyReads(request);
 });
 
+test('hybridSearch without an explicit set searches the native index’s one authorized collection', async () => {
+  // Host runs carry no renderer-sent workspace-index set: the native index status names it.
+  const request = mainReads();
+  const output = await tool(hostTools(request), 'brainstrike_hybridSearch').execute(
+    { query: 'marker' },
+    execution()
+  );
+  expect(output).toMatchObject({
+    results: [expect.objectContaining({ filePath: 'a.txt', rootName: 'A' })],
+  });
+  // The default came from the index status's one authorized collection.
+  expect(request.mock.calls.map(([method]) => method)).toContain('desktop-read/index/status');
+  expect(request).toHaveBeenCalledWith('desktop-read/retrieval/embedding-set', {
+    request: { embeddingSetId: 'selected' },
+    threadId: 'host-thread',
+  });
+  expectOnlyReads(request);
+});
+
 test('the desktop host runs listEmbeddingSpaces in its own process over Main’s catalog read', async () => {
   const request = mainReads();
   const output = await tool(hostTools(request), 'brainstrike_listEmbeddingSpaces').execute(

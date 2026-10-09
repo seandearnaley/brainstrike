@@ -20,6 +20,7 @@ import {
   type McpHostConfig,
   type McpHostPort,
   type McpHostSnapshot,
+  type McpHostTaskOwner,
   parseConfiguredMcpServerId,
   parseMcpExtensionEnablement,
   parseMcpHostConfig,
@@ -174,6 +175,8 @@ export interface McpHostRuntimePlatform {
   readonly openExternal: (url: string) => Promise<void>;
   /** The host's one Tasks store (the StateStore on a host; PGlite only for the conformance client). */
   readonly openTaskStorage: () => Promise<McpTaskStorage>;
+  /** Core's ownership of the tasks its runs bound, once Core opens (BST-1930 c3). */
+  readonly taskOwner?: Promise<McpHostTaskOwner>;
 }
 
 export interface McpHostRuntimeDependencies {
@@ -373,6 +376,7 @@ export class McpHostRuntime {
         elicitationPresenter: this.elicitationPresenter,
         onInternalError: (code, cause) => this.reportInternalError(code, cause),
         openStorage: platform.openTaskStorage,
+        ...(platform.taskOwner ? { taskOwner: platform.taskOwner } : {}),
       });
     this.host = {
       close: async () => {

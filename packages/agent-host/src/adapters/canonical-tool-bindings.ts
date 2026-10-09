@@ -4,6 +4,7 @@ import {
   createSanitizedToolNameMap,
   type RuntimeData,
   resolveAssistantResilienceConfig,
+  resolveRunPythonExecutionContext,
   resolveToolGuardBudget,
   type ScaledToolResultBudget,
 } from '@brainstrike/agent/tool-runtime';
@@ -92,6 +93,14 @@ function canonicalInteraction(
   return Object.freeze({ kind, resumeSchema: canonicalToolInputSchema(source.resumeSchema) });
 }
 
+/** run_python's requested domains need a person per call (legacy Gate B). */
+function canonicalConsent(canonicalId: string): HostTool['consent'] {
+  if (canonicalId !== NATIVE_TOOL_ID.runPython) {
+    return undefined;
+  }
+  return (input) => (resolveRunPythonExecutionContext(input)?.allowedDomains.length ?? 0) > 0;
+}
+
 /**
  * Borrow the shipped executable schemas, executors and model-output pipeline.
  * Names use the existing provider sanitizer; decisions remain in HostCore.
@@ -133,7 +142,9 @@ export function createAgentHostToolBindings(options: {
     const project = source.toModelOutput;
     const strict = source.strict;
     const interaction = canonicalInteraction(source, canonicalId, binding.risk);
+    const consent = canonicalConsent(canonicalId);
     tools[name] = {
+      ...(consent ? { consent } : {}),
       description: source.description,
       execute: async (input: unknown, context: HostToolContext): Promise<unknown> =>
         await execute.call(source, input, createCanonicalToolContext(context, canonicalId)),

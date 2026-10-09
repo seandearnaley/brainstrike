@@ -1222,11 +1222,6 @@ if (shouldExposeBridge('hooks')) {
   contextBridge.exposeInMainWorld('hooks', {
     getProjectHooksForReview: (rootId: string, absPath: string) =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.hooks.getProjectHooksForReview, rootId, absPath),
-    // Maps mounted-root absolute paths → their DB `roots.id` so the assistant
-    // wrapper can SCOPE the hook-trust attestation to currently-mounted roots
-    // (a disconnected root's grant is never presented to the server).
-    resolveTrustedRootIds: (absPaths: readonly string[]) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.hooks.resolveTrustedRootIds, absPaths),
     trustProjectHooks: (absPath: string, sha256: string) =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.hooks.trustProjectHooks, absPath, sha256),
     untrustProjectHooks: (absPath: string) =>

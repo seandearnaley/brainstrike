@@ -86,3 +86,47 @@ export function resolveCatalogEmbeddingPlan(
     workerPlan,
   };
 }
+
+/**
+ * The dtype an unpinned load runs: WebGPU loads fp16, and WASM loads q4 when
+ * the load is quantized, otherwise fp32. TransformersBackend uses it for every
+ * load without an explicit dtype.
+ */
+export function unpinnedEmbeddingDType(
+  device: 'webgpu' | 'wasm',
+  quantized: boolean | undefined
+): EmbeddingDType {
+  if (device === 'webgpu') {
+    return 'fp16';
+  }
+  return quantized ? 'q4' : 'fp32';
+}
+
+/** An unpinned model load quantizes a model of 768 dimensions or fewer that is not already quantized. */
+export function quantizesUnpinnedLoad(model: {
+  readonly dimensions: number;
+  readonly quantized?: boolean | undefined;
+}): boolean {
+  return model.dimensions <= 768 && !model.quantized;
+}
+
+/**
+ * What the embedding host's unpinned catalog query loads (legacy local recall):
+ * the host's device and the dtype the rules above give a catalog model, which
+ * the host never loads as pre-quantized. Pinning it keeps every vector in one
+ * execution space.
+ */
+export function unpinnedCatalogEmbeddingPlan(
+  model: { readonly dimensions: number; readonly id: string },
+  device: 'webgpu' | 'wasm'
+): CatalogEmbeddingWorkerPlan {
+  return {
+    device,
+    dimensions: model.dimensions,
+    dtype: unpinnedEmbeddingDType(
+      device,
+      quantizesUnpinnedLoad({ dimensions: model.dimensions, quantized: false })
+    ),
+    modelId: model.id,
+  };
+}

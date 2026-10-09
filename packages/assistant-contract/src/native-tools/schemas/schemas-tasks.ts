@@ -77,6 +77,12 @@ export const SubmitPlanInputSchema = providerCompatibleInputSchema(
 
 export type SubmitPlanInput = z.infer<typeof SubmitPlanInputSchema>;
 
+/** submitPlan's resume: the person's decision, with optional feedback. */
+export const SubmitPlanResumeSchema = z.object({
+  action: z.enum(['approved', 'rejected']),
+  feedback: z.string().optional(),
+});
+
 // ============================================================================
 // Ask User Tool Schema (suspending tool)
 // ============================================================================
@@ -117,3 +123,17 @@ export const AskUserInputSchema = providerCompatibleInputSchema(
 );
 
 export type AskUserInput = z.infer<typeof AskUserInputSchema>;
+
+const AskUserAnswerSchema = z.union([z.string(), z.array(z.string())]);
+
+/**
+ * askUser's resume: the canonical `{answer}` envelope, an object so the
+ * resume transport can attach the 1.56+ `approved: true` rider when askUser is
+ * ask-gated, declared rather than left to zod's strip. The bare string or
+ * string[] arm is legacy compat for runs suspended before the envelope
+ * migration; remove it once no pre-migration snapshots can remain.
+ */
+export const AskUserResumeSchema = z.union([
+  z.object({ answer: AskUserAnswerSchema, approved: z.literal(true).optional() }),
+  AskUserAnswerSchema,
+]);

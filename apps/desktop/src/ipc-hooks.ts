@@ -13,7 +13,6 @@ import {
   getProjectHooksForReview,
   type ProjectHooksReview,
   resolveDbRootForPath,
-  resolveTrustedRootIds,
 } from './ipc-hooks-handlers';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
@@ -97,18 +96,6 @@ export function registerHooksIpcHandlers(
     VISIBLE_UI_POLICY,
     async (_event, absPath: unknown): Promise<void> => {
       await hookTrust.untrust((await containingDbRoot(getDb, absPath)).id);
-    }
-  );
-
-  registry.registerUnauthenticatedInvoke(
-    'hooks',
-    DESKTOP_IPC_CHANNELS.hooks.resolveTrustedRootIds,
-    UNAUTHENTICATED_SENDER_POLICY,
-    async (_event, absPaths: unknown) => {
-      const dbRoots = await loadDbRoots(getDb);
-      return resolveTrustedRootIds(absPaths, (path) =>
-        resolveDbRootForPath(path, dbRoots, realpathSync)
-      );
     }
   );
 
