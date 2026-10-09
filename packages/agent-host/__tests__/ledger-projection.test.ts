@@ -411,17 +411,19 @@ describe("a thread's latest root run", () => {
   };
 
   test('runs until its own finish; a recording without commit times invents no finish time', () => {
-    const open = approved.slice(0, indexOf(approved, 'run.finished'));
+    // The real recording, as a log whose rows carry no commit times.
+    const untimed = approved.map(({ ts: _ts, ...row }) => row);
+    const open = untimed.slice(0, indexOf(untimed, 'run.finished'));
     expect(latest(open)).toEqual({
       completedAt: null,
       needsInput: false,
       seq: open.findLast((row) => row.event.type === 'interaction.responded')?.seq,
       status: 'running',
     });
-    expect(latest(approved)).toEqual({
+    expect(latest(untimed)).toEqual({
       completedAt: null,
       needsInput: false,
-      seq: approved[indexOf(approved, 'run.finished')]?.seq,
+      seq: untimed[indexOf(untimed, 'run.finished')]?.seq,
       status: 'completed',
     });
   });

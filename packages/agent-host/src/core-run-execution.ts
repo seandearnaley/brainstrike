@@ -19,6 +19,7 @@ import type { HostRunState as Run } from './core-state.js';
 import { healInterruptedRunHistory } from './interrupted-history.js';
 import { jsonValue } from './json-value.js';
 import type { HostMcpInputState } from './mcp-input-state.js';
+import { HostStepPartial, isModelStreamTelemetry } from './model-stream-telemetry.js';
 import type { HostPlatform, HostRunAdmission, HostRunOwner, HostTool } from './ports.js';
 import {
   applyProjectionRewrites,
@@ -343,6 +344,8 @@ interface HostSdkAttempt {
   /** The leg's attempt budget; absent when the resilience config could not be read. */
   readonly maxAttempts: number | undefined;
   readonly outcome: HostRunOutcome;
+  /** The open step's observed text when the attempt ended before its `model.step` committed. */
+  readonly partial: ModelMessage | undefined;
 }
 
 /**
@@ -389,6 +392,15 @@ export async function runHostSdkLoop(
         continue;
       }
     }
+    // Legacy's abort finalization: a user's Stop or a terminal watchdog abort
+    // keeps the partial reply; a stall replaced by a new attempt does not.
+    if (ended.partial && !ports.closing() && (run.stopped || ended.outcome.stalled())) {
+      try {
+        await ports.commitMessages(run, [ended.partial]);
+      } catch (cause) {
+        ended.outcome.fail(cause);
+      }
+    }
     clearTimeout(deadline);
     await finishHostSdkLoop(
       run,
@@ -419,6 +431,7 @@ async function runHostSdkAttempt(
   let recordedInputLength = initialMessages.length;
   let historyPrepared = false;
   let compactionNote: string | undefined;
+  const partial = new HostStepPartial();
   try {
     // Strict: a malformed resilience setting fails this run visibly.
     const resilience = resolveAssistantResilienceConfig();
@@ -468,6 +481,8 @@ async function runHostSdkAttempt(
             throw new Error('Model step was not committed');
           }
           recordedInputLength += step.response.messages.length;
+          // The committed step owns its text from here on.
+          partial.clear();
           outcome.stepCommitted(step);
         } catch (cause) {
           checkpointFailure = cause;
@@ -558,6 +573,13 @@ async function runHostSdkAttempt(
     );
     for await (const chunk of watched) {
       outcome.observe(chunk);
+      // The model's text and reasoning go out live, uncommitted; the step's
+      // `model.step` owns them (ADR-0011 amendment).
+      if (isModelStreamTelemetry(chunk)) {
+        partial.observe(chunk);
+        ports.telemetry({ chunk: jsonValue(chunk), runId: run.id, threadId: run.threadId });
+        continue;
+      }
       await ports.append(run.threadId, [
         { chunk: jsonValue(chunk), runId: run.id, type: 'stream.chunk' },
       ]);
@@ -573,5 +595,5 @@ async function runHostSdkAttempt(
     // The abort that follows reaches the stream as its own error; keep the owner's.
     outcome.fail(ownerStepFailure);
   }
-  return { checkpointFailure, interrupted, maxAttempts, outcome };
+  return { checkpointFailure, interrupted, maxAttempts, outcome, partial: partial.message() };
 }

@@ -105,6 +105,21 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
 
   readonly getSnapshot = (): CommittedAssistantSnapshot => this.snapshot;
 
+  /**
+   * One uncommitted `run/telemetry` chunk from the owner: the model's live text
+   * and reasoning show in the open step until its committed parts replace them.
+   */
+  acceptTelemetry(runId: string, chunk: unknown): void {
+    const view = this.projection.acceptLive(runId, chunk);
+    if (view.repository === this.snapshot.repository) {
+      return;
+    }
+    this.snapshot = { ...this.snapshot, repository: view.repository };
+    for (const listener of this.listeners) {
+      listener();
+    }
+  }
+
   /** Committed run/interaction identities for owner command routing, never SDK aliases. */
   readonly getCommittedView = (): CommittedAssistantLogView => this.projection.getSnapshot();
 

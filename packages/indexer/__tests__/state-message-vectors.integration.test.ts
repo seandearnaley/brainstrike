@@ -614,6 +614,8 @@ it('accepts null text from real Core metadata across SQLite/vector reopen withou
         ]),
         seq: Schema.Int,
         threadId: Schema.String,
+        // A recording read back through `thread/read` carries each row's commit time.
+        ts: Schema.optional(Schema.Number),
       })
     )
   )(captured);
@@ -690,7 +692,15 @@ it('accepts null text from real Core metadata across SQLite/vector reopen withou
       }
     };
     await port.catchUpState([threadId]);
-    expect(await port.stateStats(threadId)).toEqual({ cursor: rows.length, docs: 1, gaps: [] });
+    // One document per prompt and per committed model message row, as the fixture projects them.
+    const documents = rows.filter((row) =>
+      ['run.started', 'model.step', 'model.messages'].includes(String(row.event['type']))
+    ).length;
+    expect(await port.stateStats(threadId)).toEqual({
+      cursor: rows.length,
+      docs: documents,
+      gaps: [],
+    });
     const nullMetadata = metadata.map((row) => ({ content: null, gap: null, seq: row.seq }));
     expect(readMetadata()).toEqual(nullMetadata);
     expect(await port.matchState(threadId, 'command')).toEqual([]);
@@ -718,7 +728,11 @@ it('accepts null text from real Core metadata across SQLite/vector reopen withou
     store = await StateStore.open(root, { indexer: createStateStoreIndexer(port) });
     expect((await store.read(threadId)).map((row) => row.raw)).toEqual(rawBefore);
     expect(readMetadata()).toEqual(nullMetadata);
-    expect(await port.stateStats(threadId)).toEqual({ cursor: rows.length, docs: 1, gaps: [] });
+    expect(await port.stateStats(threadId)).toEqual({
+      cursor: rows.length,
+      docs: documents,
+      gaps: [],
+    });
     expect(await port.queryStateMessageVectors({ ...query, scope: currentScope })).toEqual(before);
     await store.purge(threadId, started.seq);
     const db = openConnection(options.dbPath, { readonly: true });
