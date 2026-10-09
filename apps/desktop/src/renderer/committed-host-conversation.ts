@@ -7,6 +7,10 @@ import {
   type HostLogRow,
 } from '@brainstrike/agent-host/protocol';
 import { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
+import type {
+  AssistantChildAttachment,
+  AssistantChildInput,
+} from '@brainstrike/assistant-contract';
 import {
   type CommittedAssistantCommands,
   type CommittedAssistantLogRow,
@@ -27,6 +31,16 @@ const HostWakeStartSchema = z.object({
   delivery: z.object({ via: z.literal('wake') }),
   type: z.literal('run.started'),
 });
+
+/** A child input's image as the host's user-message attachment; anything else is refused. */
+function childImageAttachment(attachment: AssistantChildAttachment): HostImageAttachment {
+  return HostImageAttachmentSchema.parse({
+    data: attachment.data,
+    mediaType: attachment.mediaType.toLowerCase(),
+    name: attachment.filename,
+    type: 'image',
+  });
+}
 
 /** A composer image as the host's user-message attachment; anything else is refused. */
 function hostImageAttachment(
@@ -76,6 +90,11 @@ export interface CommittedHostConversation {
   close(): void;
   readonly commands: CommittedAssistantCommands;
   readonly mcpInput: CommittedHostMcpInput;
+  /**
+   * BST-1932: human input for this running child. The host ends the active run
+   * after its step in flight and starts the input as the child's next run.
+   */
+  sendInput(input: AssistantChildInput, signal: AbortSignal): Promise<void>;
   /** The thread's committed session; this conversation connects and releases it. */
   readonly source: CommittedThreadSession;
   /**
@@ -223,6 +242,24 @@ export function createCommittedHostConversation(options: {
     },
     commands,
     mcpInput,
+    sendInput: async (input, signal) => {
+      const runId = store.getCommittedView().activeRunId;
+      if (!runId) {
+        throw new Error('The child is not running');
+      }
+      signal.throwIfAborted();
+      // The input's own ID is the command: an unconfirmed retry repeats it exactly.
+      await client.request('run/input', {
+        ...(input.attachments?.length
+          ? { attachments: input.attachments.map(childImageAttachment) }
+          : {}),
+        commandId: input.id,
+        ...runSettings(),
+        prompt: input.text,
+        runId,
+        threadId,
+      });
+    },
     source,
     steer: async () => {
       const runId = store.getCommittedView().activeRunId;
