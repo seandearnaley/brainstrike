@@ -21,6 +21,7 @@ import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
+import { useMcpContentCapability } from '../mcp-content-capability';
 import { useMcpStatusCapability } from '../mcp-status-capability';
 import { resolveMcpPromptBridge } from './mcp-prompt-bridge';
 import { isMcpPromptEntryLive, type McpPromptEntry } from './mcp-prompt-catalog';
@@ -52,7 +53,8 @@ export function McpPromptComposerHost() {
   // mounts and a status capability its host provides once, so resolve it once
   // for the component's lifetime.
   const status = useMcpStatusCapability();
-  const [resolution] = useState(() => resolveMcpPromptBridge(status));
+  const content = useMcpContentCapability();
+  const [resolution] = useState(() => resolveMcpPromptBridge(status, content));
   const bridge = resolution.status === 'ready' ? resolution.bridge : null;
   const selection = useMcpPromptSelectionStore((state) => state.selection);
   const clear = useMcpPromptSelectionStore((state) => state.clear);

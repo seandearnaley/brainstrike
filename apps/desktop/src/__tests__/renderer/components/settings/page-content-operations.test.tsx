@@ -18,6 +18,14 @@ interface FakeHostMcpSettings {
 const hostMcpSettings = vi.hoisted((): { current: FakeHostMcpSettings | null } => ({
   current: null,
 }));
+interface FakeHostMcpContent {
+  readonly complete: Mock<(request: unknown) => Promise<unknown>>;
+  readonly getPrompt: Mock<(request: unknown) => Promise<unknown>>;
+  readonly readResource: Mock<(request: unknown) => Promise<unknown>>;
+}
+const hostMcpContent = vi.hoisted((): { current: FakeHostMcpContent | null } => ({
+  current: null,
+}));
 
 const setToolsEnabledMock = vi.hoisted(() => vi.fn());
 const resetToolsMock = vi.hoisted(() => vi.fn());
@@ -302,6 +310,7 @@ vi.mock('@brainstrike/app-state/stores/native-tool-preferences-store', () => ({
 
 vi.mock('../../../../renderer/host-mcp-settings', () => ({
   resolveDesktopHostMcpSettings: () => hostMcpSettings.current,
+  resolveDesktopMcpContent: () => hostMcpContent.current,
 }));
 
 vi.mock('../../../../renderer/components/settings/logging-settings', () => ({
@@ -313,9 +322,6 @@ interface DesktopTestWindow {
     url: string;
   };
   mcp?: {
-    complete?: (request: unknown) => Promise<unknown>;
-    getPrompt?: (request: unknown) => Promise<unknown>;
-    readResource?: (request: unknown) => Promise<unknown>;
     selectPath?: () => Promise<string | null>;
   };
 }
@@ -407,7 +413,8 @@ describe('desktop SettingsPageContent tool operations', () => {
 
     const desktopWindow = getDesktopWindow();
     desktopWindow.assistant = undefined;
-    desktopWindow.mcp = {
+    // BST-1930 c5d: content browsing comes from the agent host.
+    hostMcpContent.current = {
       complete: vi.fn(async () => ({
         result: { completion: { values: ['BST-1585'] } },
         type: 'completion/complete',
@@ -420,8 +427,8 @@ describe('desktop SettingsPageContent tool operations', () => {
         result: { contents: [{ text: '# BST-1585', uri: 'linear://issue/BST-1585' }] },
         type: 'resources/read',
       })),
-      selectPath: vi.fn(async () => '/tmp/selected.json'),
     };
+    desktopWindow.mcp = { selectPath: vi.fn(async () => '/tmp/selected.json') };
   });
 
   it('forwards tool preference reload to the agent host', async () => {
@@ -560,9 +567,9 @@ describe('desktop SettingsPageContent tool operations', () => {
     );
   });
 
-  it('forwards user-initiated MCP content browsing to the bridge verbs (BST-1585)', async () => {
+  it('forwards user-initiated MCP content browsing to the agent host (BST-1585)', async () => {
     const operations = await renderOperations();
-    const mcp = getDesktopWindow().mcp;
+    const mcp = hostMcpContent.current;
     const authority = { configuredServerId: parseConfiguredMcpServerId('local'), generation: 1 };
     const readRequest = { authority, uri: 'linear://issue/BST-1585' };
     await expect(operations.readMcpResource?.(readRequest)).resolves.toMatchObject({
@@ -585,15 +592,8 @@ describe('desktop SettingsPageContent tool operations', () => {
     expect(mcp?.complete).toHaveBeenCalledWith(completeRequest);
   });
 
-  it('omits MCP content browsing operations when the bridge lacks the verbs', async () => {
-    const desktopWindow = getDesktopWindow();
-    const {
-      complete: _complete,
-      getPrompt: _getPrompt,
-      readResource: _readResource,
-      ...rest
-    } = desktopWindow.mcp ?? {};
-    desktopWindow.mcp = rest;
+  it('omits MCP content browsing operations where the window has no agent host', async () => {
+    hostMcpContent.current = null;
     const operations = await renderOperations();
     expect(operations).not.toHaveProperty('readMcpResource');
     expect(operations).not.toHaveProperty('getMcpPrompt');

@@ -10,6 +10,7 @@ import { isChangesBridgeAvailable } from '@brainstrike/app-shell/changes/availab
 // `/git-panel`, which also re-exports GitPanel + @codemirror/merge) so the
 // startup check does not defeat the lazy code-split in git-page-content.tsx.
 import { isGitBridgeAvailable } from '@brainstrike/app-shell/git-panel/availability';
+import { McpContentCapabilityProvider } from '@brainstrike/app-shell/mcp-content-capability';
 import { McpStatusCapabilityProvider } from '@brainstrike/app-shell/mcp-status-capability';
 import { McpToolsCapabilityProvider } from '@brainstrike/app-shell/mcp-tools-capability';
 import { navigationItems } from '@brainstrike/app-shell/navigation';
@@ -44,6 +45,7 @@ import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, use
 import { registerDesktopEmbeddingRuntimeConfig } from '../create-embedding-queue';
 import { DesktopHostThreadProvider } from '../desktop-host-thread-provider';
 import {
+  resolveDesktopMcpContent,
   resolveDesktopMcpElicitationBridge,
   resolveDesktopMcpStatusCapability,
   resolveDesktopMcpTaskBridge,
@@ -150,6 +152,8 @@ export default function RootLayoutContent() {
   const mcpToolsCapability = useMemo(() => resolveDesktopMcpToolsCapability(), []);
   // ...and the server status the prompt affordances and MCP Apps follow.
   const mcpStatusCapability = useMemo(() => resolveDesktopMcpStatusCapability(), []);
+  // ...and the prompt content those affordances read.
+  const mcpContentCapability = useMemo(() => resolveDesktopMcpContent(), []);
   // Capability port (BST-1572): MCP Apps hosting comes from `window.mcp.apps`
   // when the visible-UI preload exposes it; `null` keeps app tool results on
   // the ordinary tool card with a visible note. Resolved once.
@@ -397,15 +401,17 @@ export default function RootLayoutContent() {
         <McpElicitationCapabilityProvider capability={mcpElicitationCapability}>
           <McpToolsCapabilityProvider capability={mcpToolsCapability}>
             <McpStatusCapabilityProvider capability={mcpStatusCapability}>
-              <McpAppsEnablementProvider isEnabled={mcpAppsEnabled}>
-                <McpAppBridgeProvider bridge={mcpAppBridge}>
-                  <ToolResultRendererProvider renderers={MCP_APP_TOOL_RESULT_RENDERERS}>
-                    <DesktopHostThreadProvider>
-                      <RootLayout {...sharedProps} />
-                    </DesktopHostThreadProvider>
-                  </ToolResultRendererProvider>
-                </McpAppBridgeProvider>
-              </McpAppsEnablementProvider>
+              <McpContentCapabilityProvider capability={mcpContentCapability}>
+                <McpAppsEnablementProvider isEnabled={mcpAppsEnabled}>
+                  <McpAppBridgeProvider bridge={mcpAppBridge}>
+                    <ToolResultRendererProvider renderers={MCP_APP_TOOL_RESULT_RENDERERS}>
+                      <DesktopHostThreadProvider>
+                        <RootLayout {...sharedProps} />
+                      </DesktopHostThreadProvider>
+                    </ToolResultRendererProvider>
+                  </McpAppBridgeProvider>
+                </McpAppsEnablementProvider>
+              </McpContentCapabilityProvider>
             </McpStatusCapabilityProvider>
           </McpToolsCapabilityProvider>
         </McpElicitationCapabilityProvider>
