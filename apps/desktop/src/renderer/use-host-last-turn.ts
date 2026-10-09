@@ -26,6 +26,8 @@ function newestRunId(rows: readonly HostLogRow[]): string | null {
   return null;
 }
 
+const NO_SUBSCRIPTION = (): (() => void) => () => undefined;
+
 function workspaceChangeCount(rows: readonly HostLogRow[]): number {
   return rows.filter(({ event }) => WORKSPACE_CHANGE_EVENTS.has(event.type)).length;
 }
@@ -36,17 +38,23 @@ function workspaceChangeCount(rows: readonly HostLogRow[]): number {
  * thread becomes active and as each run starts, so a viewer watches the new
  * turn fill in. Each committed change to a run's workspace asks a "Last Turn"
  * view of the thread to re-resolve; the shared follower gates on the active
- * thread and throttles exactly as it does for legacy threads.
+ * thread and throttles exactly as it does for legacy threads. Before the
+ * thread's committed session exists there is nothing to follow.
  */
-export function useHostLastTurn(threadId: string, source: HostLastTurnSource): void {
+export function useHostLastTurn(threadId: string, source: HostLastTurnSource | undefined): void {
+  const readLatestRunId = (): string | null =>
+    source ? newestRunId(source.getSnapshot().rows) : null;
   const latestRunId = useSyncExternalStore(
-    source.subscribe,
-    () => newestRunId(source.getSnapshot().rows),
-    () => newestRunId(source.getSnapshot().rows)
+    source?.subscribe ?? NO_SUBSCRIPTION,
+    readLatestRunId,
+    readLatestRunId
   );
   const { publishRun, refresh } = useLastTurnFollower(threadId, latestRunId);
   // Committed rows are the events: a new run publishes, a workspace change re-resolves.
   useEffect(() => {
+    if (!source) {
+      return;
+    }
     let run: string | null = null;
     let changes = 0;
     const observe = (): void => {

@@ -95,6 +95,13 @@ test('asks a Last Turn view to re-resolve on each committed workspace change, ne
   expect(follower.refresh).toHaveBeenCalledTimes(2);
 });
 
+test('a host thread view before its committed session exists follows nothing', () => {
+  renderHook(() => useHostLastTurn(THREAD, undefined));
+  expect(follower.activations.at(-1)).toBeNull();
+  expect(follower.publishRun).not.toHaveBeenCalled();
+  expect(follower.refresh).not.toHaveBeenCalled();
+});
+
 test('a thread with no committed run publishes none', () => {
   const log = committed([]);
   renderHook(() => useHostLastTurn(THREAD, log.source));
