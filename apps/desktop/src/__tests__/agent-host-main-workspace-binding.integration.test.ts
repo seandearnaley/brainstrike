@@ -110,7 +110,6 @@ test('actual Core binding commands reach the live Main owner over the private pl
         roots: [{ displayName: 'Catalog workspace', path: root, rootId: operatingRootId }],
       },
     }),
-    readLegacyMemory: async () => ({ resource: null, resourceObservations: false }),
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
     resolveProviderAuth: async () => ({
       apiKey: 'synthetic-main-binding-key',

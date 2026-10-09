@@ -298,11 +298,6 @@ export interface HostRunAdmission {
   readonly hooks?: HostRunHooks | undefined;
   /** The selected provider input budget; host compaction keeps requests inside it. */
   readonly inputTokenLimit?: number | undefined;
-  /**
-   * Gap 17: the legacy profile had resource observations, which were not
-   * imported. Core commits that notice once per root, with a run it admits.
-   */
-  readonly legacyObservationsWithheld?: true;
   readonly model: LanguageModel;
   /**
    * The resolved provider's own web search (Anthropic, OpenAI), built with the

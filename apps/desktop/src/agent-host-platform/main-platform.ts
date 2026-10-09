@@ -10,7 +10,6 @@ import type {
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
-import type { PgliteLegacyMemory } from '@brainstrike/db';
 import {
   type CancellationToken,
   ErrorCodes,
@@ -21,7 +20,6 @@ import { z } from 'zod';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { type HostToolServiceCapabilities, serveHostToolServices } from './host-tool-services';
 import { type DesktopWorkspaceSnapshots, serveHostTurnSnapshots } from './host-turn-snapshots';
-import { serveLegacyMemory } from './legacy-memory-main';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
 import type { DesktopMemoryVectorSelection } from './memory-vector-selection';
 import {
@@ -63,8 +61,6 @@ export interface DesktopPlatformCapabilities {
   /** The Node host always composes its MCP runtime, which reaches these Main stores. */
   readonly mcp: DesktopMcpPlatformCapabilities;
   readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopPlatformSelection>;
-  /** Gap 17: the profile's legacy workspace memory, read once for the host's import. */
-  readLegacyMemory(): Promise<PgliteLegacyMemory>;
   /** thread/memory/read: the same preconditions `readConfiguration` starts with, nothing acquired. */
   readMemoryReadiness?(
     request: HostRunIntentRequest
@@ -146,7 +142,6 @@ export function serveDesktopPlatform(
   const controllers = new Set<AbortController>();
   const pending = new Set<Promise<unknown>>();
   const mcpStores = serveMainMcpStores(connection, capabilities.mcp);
-  const legacyMemory = serveLegacyMemory(connection, capabilities.readLegacyMemory);
   let closing: Promise<void> | undefined;
   const execute = <T>(
     token: CancellationToken,
@@ -388,7 +383,6 @@ export function serveDesktopPlatform(
         await Promise.allSettled([...pending]);
       }
       mcpStores.close();
-      legacyMemory.close();
       const results = await Promise.allSettled(
         [...selections.values()].map((value) => value.selection.close())
       );

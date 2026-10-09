@@ -116,7 +116,6 @@ export function isAlwaysVisibleRunEvent(data: unknown): boolean {
     event.kind === 'delegation.budget.exhausted' ||
     event.kind === 'delegation.ledger' ||
     event.kind === 'mcp.tools.unavailable' ||
-    event.kind === 'memory.observation.withheld' ||
     event.kind === 'provider.request.warned' ||
     event.kind === 'run.failed' ||
     event.kind === 'run.cancelled' ||

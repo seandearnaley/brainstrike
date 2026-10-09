@@ -351,88 +351,6 @@ function purgeThread(db, request, countTokens) {
   }
 }
 
-/** The settings key recording a resource's one legacy workspace-memory import (gap 17). */
-export const MEMORY_LEGACY_IMPORT_KEY = 'memory.legacy-import';
-
-/** @param {import('better-sqlite3').Database} db @param {string} resourceId
- * @returns {import('./memory-types.js').MemoryJson} */
-function legacyImportMarker(db, resourceId) {
-  const value = db
-    .prepare('SELECT value FROM settings WHERE key = ?')
-    .pluck()
-    .get(`${MEMORY_LEGACY_IMPORT_KEY}:${resourceId}`);
-  return typeof value === 'string' ? JSON.parse(value) : null;
-}
-
-/**
- * The desktop's legacy workspace memory, imported once with its completion
- * marker in this transaction. Its working memory is written only when the host
- * has no resource record yet; resource observations are never imported, only
- * recorded in the marker.
- * @param {import('better-sqlite3').Database} db
- * @param {Extract<import('./memory-types.js').MemoryDomainRequest,{operation:'legacy-import'}>} request
- * @returns {import('./memory-types.js').MemoryJson} */
-function legacyImport(db, request) {
-  const host = db
-    .prepare("SELECT 1 FROM brainstrike_memory_entities WHERE resource_id=? AND kind='resource'")
-    .get(request.resourceId);
-  let workingMemory = 'none';
-  if (host !== undefined) {
-    workingMemory = 'kept-host';
-  } else if (request.resource) {
-    putEntity(db, request.resourceId, {
-      id: request.resourceId,
-      kind: 'resource',
-      payload: request.resource,
-      threadId: null,
-    });
-    workingMemory = 'imported';
-  }
-  const marker = {
-    at: request.at,
-    resourceId: request.resourceId,
-    resourceObservations: request.resourceObservations,
-    workingMemory,
-  };
-  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(
-    `${MEMORY_LEGACY_IMPORT_KEY}:${request.resourceId}`,
-    JSON.stringify(marker)
-  );
-  return marker;
-}
-
-/**
- * One mutation inside its transaction; returns a value for the snapshot, if any.
- * @param {import('better-sqlite3').Database} db
- * @param {Exclude<import('./memory-types.js').MemoryDomainRequest,{operation:'read'|'legacy-import-status'|'native'}>} request
- * @param {import('./memory-types.js').ObservationTokenCounter | undefined} countTokens
- * @returns {import('./memory-types.js').MemoryJson | undefined} */
-function mutate(db, request, countTokens) {
-  if (request.operation === 'commit') {
-    const current = snapshot(db, request.resourceId);
-    if (!(Number.isSafeInteger(request.expectedRevision) && request.expectedRevision >= 0)) {
-      throw new TypeError('Invalid memory revision');
-    }
-    if (current.revision !== request.expectedRevision) {
-      throw new MemoryRevisionConflictError(request.expectedRevision, current.revision);
-    }
-    for (const change of request.changes) {
-      applyChange(db, request.resourceId, change);
-    }
-  } else if (request.operation === 'purge-resource') {
-    db.prepare('DELETE FROM brainstrike_memory_entities WHERE resource_id=?').run(
-      request.resourceId
-    );
-  } else if (request.operation === 'purge-thread') {
-    purgeThread(db, request, countTokens);
-  } else if (request.operation === 'legacy-import') {
-    return legacyImport(db, request);
-  } else {
-    throw new TypeError('Unknown memory operation');
-  }
-  return;
-}
-
 /**
  * A native public operation is calculated on an isolated vendor projection.
  * Its complete delta commits iff the writer snapshot remains current. A
@@ -451,26 +369,33 @@ export function executeMemoryRequest(db, request, countTokens) {
     if (request.operation === 'read') {
       return snapshot(db, request.resourceId);
     }
-    if (request.operation === 'native') {
-      throw new TypeError('A native memory operation needs its calculator');
-    }
-    const imported =
-      request.operation === 'legacy-import' || request.operation === 'legacy-import-status'
-        ? legacyImportMarker(db, request.resourceId)
-        : null;
-    // A finished import is never repeated; its marker answers both requests.
-    if (request.operation === 'legacy-import-status' || imported !== null) {
-      return { ...snapshot(db, request.resourceId), value: imported };
-    }
     db.prepare(
       'INSERT INTO brainstrike_memory_scopes(resource_id,revision) VALUES(?,0) ON CONFLICT(resource_id) DO NOTHING'
     ).run(request.resourceId);
-    const value = mutate(db, request, countTokens);
+    const current = snapshot(db, request.resourceId);
+    if (request.operation === 'commit') {
+      if (!(Number.isSafeInteger(request.expectedRevision) && request.expectedRevision >= 0)) {
+        throw new TypeError('Invalid memory revision');
+      }
+      if (current.revision !== request.expectedRevision) {
+        throw new MemoryRevisionConflictError(request.expectedRevision, current.revision);
+      }
+      for (const change of request.changes) {
+        applyChange(db, request.resourceId, change);
+      }
+    } else if (request.operation === 'purge-resource') {
+      db.prepare('DELETE FROM brainstrike_memory_entities WHERE resource_id=?').run(
+        request.resourceId
+      );
+    } else if (request.operation === 'purge-thread') {
+      purgeThread(db, request, countTokens);
+    } else {
+      throw new TypeError('Unknown memory operation');
+    }
     db.prepare('UPDATE brainstrike_memory_scopes SET revision=revision+1 WHERE resource_id=?').run(
       request.resourceId
     );
-    const after = snapshot(db, request.resourceId);
-    return value === undefined ? after : { ...after, value };
+    return snapshot(db, request.resourceId);
   })();
 }
 

@@ -88,7 +88,6 @@ test('a pending legacy import follows host readiness and releases held credentia
     readConfiguration: async () => {
       throw new Error('This scenario admits no run');
     },
-    readLegacyMemory: async () => ({ resource: null, resourceObservations: false }),
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
   });
   let host: AgentHost | undefined;

@@ -46,7 +46,6 @@ export type {
   MemoryEntityChange,
   MemoryJson,
   MemoryJsonObject,
-  MemoryLegacyImport,
   MemoryNativeCalculator,
   MemoryNativeMethod,
   MemoryNativeRequest,
