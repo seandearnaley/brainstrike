@@ -115,6 +115,8 @@ it('forgets a closed tab’s resolution: the same address reopened asks its host
   act(() => {
     useWorkspaceTabSelectionStore.getState().openApp(address);
   });
+  // The reopened tab waits for the host's new answer, never showing the old child.
+  expect(screen.queryByText('child view child-1')).not.toBeInTheDocument();
   expect(await screen.findByRole('alert')).toHaveTextContent('Unknown thread');
   expect(resolve).toHaveBeenCalledTimes(2);
 });
