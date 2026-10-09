@@ -117,6 +117,82 @@ function applyChange(db, resourceId, change) {
   }
 }
 
+const THREAD_SECTION = /<thread id="([^"]+)">[\s\S]*?<\/thread>/gu;
+
+/**
+ * Mastra Memory 1.32.1 persists resource-scope observations as
+ * `<thread id="...">` sections joined by separators (ObservationStrategy
+ * wrapWithThreadTag/replaceOrAppendThreadSection); it exposes no public way to
+ * remove one thread's section. Drop that thread's sections, each with the
+ * separator before it (after it, for the first), and keep the rest unchanged.
+ * Remove when Memory offers a public resource-attribution editor.
+ * https://github.com/mastra-ai/mastra/tree/@mastra/memory@1.32.1/packages/memory
+ * @param {string} text @param {string} threadId */
+function withoutThreadSections(text, threadId) {
+  const sections = [];
+  let end = 0;
+  for (const match of text.matchAll(THREAD_SECTION)) {
+    sections.push({ before: text.slice(end, match.index), owner: match[1], text: match[0] });
+    end = match.index + match[0].length;
+  }
+  const kept = sections.filter((section) => section.owner !== threadId);
+  if (kept.length === sections.length) {
+    return text;
+  }
+  if (kept.length === 0) {
+    return '';
+  }
+  const [first, ...rest] = kept;
+  const lead = sections[0]?.before ?? '';
+  return [{ ...first, before: lead }, ...rest]
+    .map((section) => `${section.before}${section.text}`)
+    .join('')
+    .concat(text.slice(end));
+}
+
+/** @param {unknown} value @param {string} threadId */
+function detachText(value, threadId) {
+  return typeof value === 'string' ? withoutThreadSections(value, threadId) : value;
+}
+
+/** @param {import('better-sqlite3').Database} db @param {string} resourceId @param {string} threadId */
+function detachThreadObservations(db, resourceId, threadId) {
+  const rows = /** @type {{ id: string; payload: string }[]} */ (
+    db
+      .prepare(
+        "SELECT id, payload FROM brainstrike_memory_entities WHERE resource_id=? AND thread_id IS NULL AND kind='observation'"
+      )
+      .all(resourceId)
+  );
+  for (const row of rows) {
+    const payload = JSON.parse(row.payload);
+    const detached = {
+      ...payload,
+      activeObservations: detachText(payload.activeObservations, threadId),
+      bufferedObservations: detachText(payload.bufferedObservations, threadId),
+      bufferedReflection: detachText(payload.bufferedReflection, threadId),
+      ...(Array.isArray(payload.bufferedObservationChunks)
+        ? {
+            bufferedObservationChunks: payload.bufferedObservationChunks.flatMap(
+              /** @param {Record<string, unknown>} chunk */ (chunk) => {
+                const observations = detachText(chunk['observations'], threadId);
+                // A buffered chunk that held only the deleted thread has nothing left to activate.
+                return observations === '' && chunk['observations'] !== ''
+                  ? []
+                  : [{ ...chunk, observations }];
+              }
+            ),
+          }
+        : {}),
+    };
+    db.prepare('UPDATE brainstrike_memory_entities SET payload=? WHERE kind=? AND id=?').run(
+      JSON.stringify(detached),
+      'observation',
+      row.id
+    );
+  }
+}
+
 /** @param {import('better-sqlite3').Database} db
  * @param {Extract<import('./memory-types.js').MemoryDomainRequest,{operation:'purge-thread'}>} request */
 function purgeThread(db, request) {
@@ -131,13 +207,11 @@ function purgeThread(db, request) {
     db.prepare(
       'DELETE FROM brainstrike_memory_entities WHERE resource_id=? AND thread_id IS NULL'
     ).run(request.resourceId);
-  } else if (request.sharedResource === 'keep-working-memory') {
-    // Legacy kept resource working memory when a thread was deleted. A shared
-    // observation record still names the thread in its attributed sections,
-    // which the derived observation index can no longer authorize, so it goes.
-    db.prepare(
-      "DELETE FROM brainstrike_memory_entities WHERE resource_id=? AND thread_id IS NULL AND kind='observation'"
-    ).run(request.resourceId);
+  } else if (request.sharedResource === 'detach-thread') {
+    // Legacy kept shared resource memory when a thread was deleted. Working
+    // memory stays as it is; a shared observation record loses only the
+    // deleted thread's attributed sections, so every other thread's stay.
+    detachThreadObservations(db, request.resourceId, request.threadId);
   } else if (request.sharedResource !== 'preserve') {
     throw new TypeError('Invalid shared memory purge policy');
   }

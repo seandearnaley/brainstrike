@@ -140,6 +140,59 @@ describe('memory leaf on an isolated SQLite connection (not host qualification)'
     }
   });
 
+  test('detaching a deleted thread removes only its attributed sections and buffered chunks', () => {
+    const db = setup();
+    const section = (id: string, text: string): string =>
+      `<thread id="${id}">\nDate: Oct 7, 2026\n${text}\n</thread>`;
+    const boundary = '\n\n--- message boundary (2026-10-07T01:02:03.000Z) ---\n\n';
+    try {
+      commit(db, 0, [
+        thread,
+        resource,
+        {
+          ...observation,
+          payload: {
+            ...observation.payload,
+            activeObservations: [
+              section('thread', 'deleted first'),
+              section('other', 'kept one'),
+              section('thread', 'deleted middle'),
+              section('other', 'kept two'),
+            ].join(boundary),
+            bufferedObservationChunks: [
+              { messageIds: ['a'], observations: section('thread', 'deleted chunk') },
+              { messageIds: ['b'], observations: section('other', 'kept chunk') },
+            ],
+            bufferedObservations: null,
+          },
+        },
+      ]);
+      const detached = executeMemoryRequest(db, {
+        operation: 'purge-thread',
+        resourceId: 'resource',
+        sharedResource: 'detach-thread',
+        threadId: 'thread',
+      });
+      expect(detached.entities.map((entry) => entry.kind).sort()).toEqual([
+        'observation',
+        'resource',
+      ]);
+      expect(detached.entities.find((entry) => entry.kind === 'resource')).toEqual(resource);
+      expect(detached.entities.find((entry) => entry.kind === 'observation')?.payload).toEqual({
+        ...observation.payload,
+        activeObservations: [section('other', 'kept one'), section('other', 'kept two')].join(
+          boundary
+        ),
+        bufferedObservationChunks: [
+          { messageIds: ['b'], observations: section('other', 'kept chunk') },
+        ],
+        bufferedObservations: null,
+      });
+    } finally {
+      db.close();
+    }
+  });
+
   test('the leaf cannot move an identity across resource owners', () => {
     const db = setup();
     try {

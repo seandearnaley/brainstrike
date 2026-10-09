@@ -90,7 +90,7 @@ test('SIGKILL after truth erasure replays the retained resource policy before re
   }
 });
 
-test('deleting a thread keeps the shared working memory, as legacy; its own memory goes', async () => {
+test('deleting a thread keeps the shared working memory and observations, as legacy; its own memory goes', async () => {
   const root = freshDir('m3-memory-delete-keeps-wm');
   const indexer = new TruthIndexer(root);
   const store = await StateStore.open(root, { indexer, memoryCalculatorModule: calculator });
@@ -98,10 +98,20 @@ test('deleting a thread keeps the shared working memory, as legacy; its own memo
     await seedMemoryErasure(store);
     await store.deleteThread(threadId);
     const { entities } = await store.memory({ operation: 'read', resourceId });
-    expect(entities.map(({ id, kind, threadId: owner }) => ({ id, kind, owner }))).toEqual([
-      { id: resourceId, kind: 'resource', owner: null },
-    ]);
-    expect(entities[0]?.payload).toMatchObject({ workingMemory: MEMORY_ERASURE_SECRET });
+    expect(entities.map(({ id, kind, threadId: owner }) => ({ id, kind, owner }))).toEqual(
+      expect.arrayContaining([
+        { id: resourceId, kind: 'resource', owner: null },
+        { id: expect.any(String), kind: 'observation', owner: null },
+      ])
+    );
+    expect(entities).toHaveLength(2);
+    expect(entities.find(({ kind }) => kind === 'resource')?.payload).toMatchObject({
+      workingMemory: MEMORY_ERASURE_SECRET,
+    });
+    // This shared record holds no section attributed to the thread, so it is kept whole.
+    expect(entities.find(({ kind }) => kind === 'observation')?.payload).toMatchObject({
+      activeObservations: MEMORY_ERASURE_SECRET,
+    });
   } finally {
     await store.close();
     indexer.close();
@@ -153,11 +163,15 @@ test('held native calculation stays ahead of deletion; retired thread cannot rec
     await held;
     await deletion;
     // The held write committed ahead of the deletion; deleting the thread keeps
-    // the shared working memory, as legacy did, and erases the rest.
+    // the shared working memory and observations, as legacy did.
     const kept = (await store.memory({ operation: 'read', resourceId })).entities;
-    expect(kept.map(({ id, kind, threadId: owner }) => ({ id, kind, owner }))).toEqual([
-      { id: resourceId, kind: 'resource', owner: null },
-    ]);
+    expect(kept.map(({ kind, threadId: owner }) => ({ kind, owner }))).toEqual(
+      expect.arrayContaining([
+        { kind: 'resource', owner: null },
+        { kind: 'observation', owner: null },
+      ])
+    );
+    expect(kept).toHaveLength(2);
     await expect(
       store.memory({
         arguments: [{ resource: { id: resourceId, workingMemory: MEMORY_ERASURE_SECRET } }],

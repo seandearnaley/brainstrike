@@ -669,18 +669,18 @@ it(
         code: 'stale-observation-plan',
       });
       await write(f);
-      await write(f, neighbor);
+      const kept = await write(f, neighbor);
       await f.store.deleteThread('one');
-      expect(await byteFiles(f)).toEqual([]);
       await expect(f.port.queryStateObservationVectors(query)).rejects.toMatchObject({
         code: 'thread-not-authorized',
       });
+      // Deleting one thread keeps the other thread's shared group and vector.
       expect(
         await f.port.queryStateObservationVectors({
           ...query,
           scope: { ...scope, threadId: 'two' },
         })
-      ).toEqual([]);
+      ).toMatchObject([{ id: kept.ids[0] }]);
       await expect(
         f.port.upsertStateObservationVectors({ plan: late.plan, segments: late.segments })
       ).rejects.toThrow();
@@ -728,6 +728,43 @@ it(
         (row) => row.kind === 'observation'
       )
     ).toBe(false);
+  }),
+  getAdjustedTimeout('integration')
+);
+
+it(
+  "deleting one thread keeps the other thread's shared observations and their vectors",
+  qualification(async (owner) => {
+    const f = await fixture(owner, 'resource');
+    const neighbor = source('neighbor', 'two', 'Shared observation kept after the other delete.');
+    await f.native.active(
+      `${groupText(source().text, source().groupId, 'one', 'resource')}\n${groupText(neighbor.text, neighbor.groupId, 'two', 'resource')}`,
+      date
+    );
+    await f.persist();
+    await write(f);
+    const retained = await write(f, neighbor);
+    await f.store.deleteThread('one');
+    // The shared record keeps only the other thread's attributed section.
+    const shared = (await f.store.memory({ operation: 'read', resourceId: 'resource' })).entities
+      .filter((row) => row.kind === 'observation')
+      .map((row) => row.payload['activeObservations']);
+    expect(shared).toEqual([groupText(neighbor.text, neighbor.groupId, 'two', 'resource')]);
+    // Its vectors survive; the deleted thread's are gone with the thread.
+    expect(
+      await f.port.queryStateObservationVectors({ ...query, scope: { ...scope, threadId: 'two' } })
+    ).toMatchObject([{ id: retained.ids[0] }]);
+    await expect(f.port.queryStateObservationVectors(query)).rejects.toMatchObject({
+      code: 'thread-not-authorized',
+    });
+    const db = openConnection(f.options.dbPath, { readonly: true });
+    try {
+      expect(
+        db.prepare('SELECT DISTINCT thread_id FROM state_observation_vectors').pluck().all()
+      ).toEqual(['two']);
+    } finally {
+      db.close();
+    }
   }),
   getAdjustedTimeout('integration')
 );

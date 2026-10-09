@@ -222,7 +222,7 @@ function verifyBlobReferences(rows) {
 
 /** Resource identities are retained in the existing purge intent before FK deletion.
  * @param {string} threadId @param {number} seq
- * @param {'clear' | 'keep-working-memory'} sharedResource */
+ * @param {'clear' | 'detach-thread'} sharedResource */
 function eraseThreadMemory(threadId, seq, sharedResource) {
   const intent = /** @type {{ memory_resources:string } | undefined} */ (
     db
@@ -348,8 +348,8 @@ async function handle(m) {
     }
     case 'deleteThread': {
       const threadId = String(m['threadId']);
-      // Deleting a thread keeps the workspace working memory, as legacy did.
-      log.deleteThread(threadId, () => eraseThreadMemory(threadId, 0, 'keep-working-memory'));
+      // Deleting a thread keeps shared resource memory, as legacy did, minus its own sections.
+      log.deleteThread(threadId, () => eraseThreadMemory(threadId, 0, 'detach-thread'));
       return {};
     }
     case 'intentRecord': {

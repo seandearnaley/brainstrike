@@ -78,10 +78,10 @@ export type MemoryDomainRequest = (
       readonly resourceId: string;
       readonly threadId: string;
       /**
-       * The resource's shared records: erase all, keep all, or keep the
-       * working memory and erase the shared observations (thread deletion).
+       * The resource's shared records: erase all, keep all, or keep them and
+       * remove only the thread's attributed observation sections (thread deletion).
        */
-      readonly sharedResource: 'clear' | 'keep-working-memory' | 'preserve';
+      readonly sharedResource: 'clear' | 'detach-thread' | 'preserve';
     }
   | { readonly operation: 'purge-resource'; readonly resourceId: string }
 ) & { readonly ownerThreadId?: string };
