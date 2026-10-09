@@ -35,6 +35,7 @@ import {
   foldHostInteraction,
   foldHostRunEffect,
   HostCommandLedger,
+  HostRunMap,
   type HostRunState as Run,
   recordHostConversationId,
 } from './core-state.js';
@@ -149,7 +150,7 @@ export class HostCore {
       durability
     )
   );
-  private readonly runs = new Map<string, Run>();
+  private readonly runs = new HostRunMap();
   private readonly children = new HostChildRuns();
   private readonly admittedRuns = new Map<string, HostRunAdmissionCommand>();
   private readonly conversationIds = new Set<string>();
@@ -552,7 +553,7 @@ export class HostCore {
       controller.signal.throwIfAborted();
       release = this.retainRun();
       const { run, started } = admittedHostRun(
-        this.runs.values(),
+        this.runs.ofThread(params.threadId),
         {
           ...params,
           input: hostRunInput(params.configuration, origin),
