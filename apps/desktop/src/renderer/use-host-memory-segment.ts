@@ -85,18 +85,24 @@ async function readSegment(
  * Reads `thread/memory/read` with the request the next `run/start` would send:
  * when the thread opens, when the request it builds changes (model,
  * configuration, plan mode; compared by value, since the thread view's
- * callback changes identity on every render), when the memory settings
- * change, and after each committed memory call or run end. It never polls.
+ * callback changes identity on every render), when the enabled catalog that
+ * admission reads changes, when the memory settings change, and after each
+ * committed memory call or run end. It never polls.
  * While another notice already gates the send, the request cannot be built,
  * so nothing is read.
  */
 export function useHostMemorySegment(options: {
   readonly blocked: boolean;
+  /**
+   * The enabled catalog models admission reads, which the request does not
+   * carry: enabling the selected model must clear its gate.
+   */
+  readonly catalog: string;
   readonly client: Pick<HostClient, 'request'>;
   readonly readRequest: () => HostParams<'thread/memory/read'>;
   readonly source: HostMemoryRowSource | undefined;
 }): HostMemorySegment {
-  const { blocked, client, readRequest, source } = options;
+  const { blocked, catalog, client, readRequest, source } = options;
   const [segment, setSegment] = useState<HostMemorySegment>({});
   // Only the latest read may publish; an earlier answer is for older settings.
   const latest = useRef(0);
@@ -105,7 +111,7 @@ export function useHostMemorySegment(options: {
   const read = useCallback(
     (always: boolean): void => {
       const request = blocked ? undefined : readRequest();
-      const key = request === undefined ? undefined : JSON.stringify(request);
+      const key = request === undefined ? undefined : JSON.stringify([request, catalog]);
       if (!always && key === answered.current) {
         return;
       }
@@ -135,7 +141,7 @@ export function useHostMemorySegment(options: {
         }
       );
     },
-    [blocked, client, readRequest]
+    [blocked, catalog, client, readRequest]
   );
   // The thread opened, or the request or its gate may have changed.
   useEffect(() => {

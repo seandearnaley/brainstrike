@@ -23,6 +23,7 @@ import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assi
 import {
   findProviderDefinition,
   isSupportedProvider,
+  type OpenRouterModelMetadataLookup,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
@@ -34,7 +35,15 @@ import {
   type AssistantProviderSettingsUpdate,
   mergeAssistantProviderSettings,
 } from '@brainstrike/types';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  type Dispatch,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { readDesktopHostConfiguration } from './desktop-host-configuration';
 import { type EnabledCatalogModels, useEnabledCatalogModels } from './use-enabled-catalog-models';
 import type { HostThreadSelectionBinding } from './use-host-thread-selection';
@@ -69,6 +78,8 @@ type Presentation = Pick<
 >;
 
 interface DesktopHostPresentation extends Presentation {
+  /** The enabled catalog models admission reads, as one comparable key. */
+  readonly catalogKey: string;
   readConfiguration(selectionFolderId: string | null): Record<string, unknown>;
   /** The composer's `provider::model`: a pick, else the thread's selection (ADR-0019). */
   readModelId(): string;
@@ -80,11 +91,67 @@ interface DesktopHostPresentation extends Presentation {
 interface ComposerPick {
   readonly error?: string;
   readonly modelId: string;
-  readonly saving?: true;
 }
 
 function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** The send's gate, else a pick the host refused (ADR-0019). */
+function composerDisabledReason(
+  gate: string | undefined,
+  pickError: string | undefined
+): string | undefined {
+  if (gate !== undefined || pickError === undefined) {
+    return gate;
+  }
+  return `Could not save the model choice: ${pickError}`;
+}
+
+/** A pick is saved once nothing gates the send and the model's metadata is not loading. */
+function isPickSaveReady(
+  gate: string | undefined,
+  lookupState: OpenRouterModelMetadataLookup['state'] | undefined
+): boolean {
+  return gate === undefined && lookupState !== 'loading';
+}
+
+/**
+ * ADR-0019: saves a composer pick as the thread's selection once nothing gates
+ * the send, one save per pick. A newer pick replaces it; that save then
+ * settles nothing. State changes only in the save's own callbacks.
+ */
+function useSaveComposerPick({
+  pick,
+  readConfiguration,
+  readSelectionFolderId,
+  ready,
+  set,
+  setPick,
+}: {
+  readonly pick: ComposerPick | undefined;
+  readonly readConfiguration: (selectionFolderId: string | null) => Record<string, unknown>;
+  readonly readSelectionFolderId: () => string | null;
+  readonly ready: boolean;
+  readonly set: HostThreadSelectionBinding['set'];
+  readonly setPick: Dispatch<SetStateAction<ComposerPick | undefined>>;
+}): void {
+  const saving = useRef<ComposerPick | undefined>(undefined);
+  useEffect(() => {
+    if (!(pick && ready) || pick.error || saving.current === pick) {
+      return;
+    }
+    saving.current = pick;
+    Promise.resolve()
+      .then(() => set(pick.modelId, readConfiguration(readSelectionFolderId())))
+      .then(
+        () => setPick((current) => (current === pick ? undefined : current)),
+        (error: unknown) =>
+          setPick((current) =>
+            current === pick ? { error: errorText(error), modelId: pick.modelId } : current
+          )
+      );
+  }, [pick, readConfiguration, readSelectionFolderId, ready, set, setPick]);
 }
 
 /** The host status's per-provider credential read failures, keyed by provider. */
@@ -295,13 +362,10 @@ export function useDesktopHostPresentation(
     selectedProvider,
   });
   // The legacy panel's order: the provider notice, then OpenRouter metadata,
-  // then an invalid settings draft; then the thread's own selection.
-  const disabledReason =
-    providerNotice.blocking ??
-    metadata.reason ??
-    providerDraft.reason ??
-    host.error ??
-    (pick?.error ? `Could not save the model choice: ${pick.error}` : undefined);
+  // then an invalid settings draft; then the thread's own selection. A pick
+  // waits while one of these gates the send.
+  const gate = providerNotice.blocking ?? metadata.reason ?? providerDraft.reason ?? host.error;
+  const disabledReason = composerDisabledReason(gate, pick?.error);
   const readModelId = useCallback((): string => {
     if (!selectedModel) {
       throw new Error('Select a provider and model before sending');
@@ -341,29 +405,14 @@ export function useDesktopHostPresentation(
   );
   // ADR-0019: a pick becomes the thread's selection once its settings resolve,
   // so the CLI and a wake read the same choice the composer shows.
-  const { set } = host;
-  useEffect(() => {
-    if (!pick || pick.error || pick.saving || metadata.lookup?.state === 'loading') {
-      return;
-    }
-    let configuration: Record<string, unknown>;
-    try {
-      configuration = readConfiguration(readSelectionFolderId());
-    } catch (error) {
-      setPick({ error: errorText(error), modelId: pick.modelId });
-      return;
-    }
-    // A newer pick replaces this one; this save then settles nothing.
-    const saving: ComposerPick = { modelId: pick.modelId, saving: true };
-    setPick(saving);
-    set(saving.modelId, configuration).then(
-      () => setPick((current) => (current === saving ? undefined : current)),
-      (error: unknown) =>
-        setPick((current) =>
-          current === saving ? { error: errorText(error), modelId: saving.modelId } : current
-        )
-    );
-  }, [metadata.lookup?.state, pick, readConfiguration, readSelectionFolderId, set]);
+  useSaveComposerPick({
+    pick,
+    readConfiguration,
+    readSelectionFolderId,
+    ready: isPickSaveReady(gate, metadata.lookup?.state),
+    set: host.set,
+    setPick,
+  });
   const onModelChange = useCallback(
     (compositeKey: string): void => {
       handleModelChange(compositeKey);
@@ -433,6 +482,7 @@ export function useDesktopHostPresentation(
   });
   return {
     ...picker,
+    catalogKey: catalog.state === 'ready' ? [...catalog.keys].sort().join('\n') : catalog.state,
     composerDraftCommand: composerDraft.command,
     fileMentions,
     ...(localLoadingState ? { localLoadingState } : {}),
