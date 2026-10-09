@@ -668,3 +668,5 @@ export function authorize(allowed: ReadonlySet<string>, rootIds: readonly string
     }
   }
 }
+/** A caller's embedder identity, validated as the index validates every vector profile. */
+export const decodeVectorProfile: (input: unknown) => VectorProfile = decoder(vectorProfileSchema);

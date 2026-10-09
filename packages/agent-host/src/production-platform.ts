@@ -14,7 +14,7 @@ import {
 } from '@brainstrike/agent/provider-runtime';
 import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
-import type { VectorProfile } from '@brainstrike/indexer';
+import { decodeVectorProfile, type VectorProfile } from '@brainstrike/indexer';
 import type { LanguageModel, Tool } from 'ai';
 import { z } from 'zod';
 import { committedRunMessages, createHostToolDiscovery } from './adapters/host-tool-discovery.js';
@@ -542,6 +542,24 @@ export async function createProductionHostPlatform(
     ...productionMemoryReadiness(options),
     readPermissionPolicy: options.readPermissionPolicy,
     searchState: (request) => index.search(request),
+    // The caller's profile is the index's to validate, as every vector profile is.
+    searchStateVectors: {
+      pending: (request) =>
+        index.searchVectors.searchStatePending({
+          ...request,
+          profile: decodeVectorProfile(request.profile),
+        }),
+      put: (request) =>
+        index.searchVectors.putStateSearchVectors({
+          profile: decodeVectorProfile(request.profile),
+          rows: request.rows,
+        }),
+      similar: (request) =>
+        index.searchVectors.searchStateSimilar({
+          ...request,
+          profile: decodeVectorProfile(request.profile),
+        }),
+    },
     ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
     ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),
     ...(options.selectProjectionRewrites

@@ -1,9 +1,10 @@
 /**
- * Gap 10: lexical and title search over the host's threads, the host half of
- * the Threads panel's one fused list. The derived state index answers which
- * committed conversation rows match. Search covers every branch, so each
- * thread's committed selected path filters the hits at query time; a match on
- * a sibling branch is not shown. Titles come from the committed presentations.
+ * Gap 10: lexical, semantic and title search over the host's threads, the
+ * host half of the Threads panel's one fused list. The derived state index
+ * answers which committed conversation rows match, by words or by a query
+ * vector the caller embedded. Search covers every branch, so each thread's
+ * committed selected path filters the hits at query time; a match on a
+ * sibling branch is not shown. Titles come from the committed presentations.
  */
 import { committedRunIdentity } from './committed-identities.js';
 import type { HostCore } from './core.js';
@@ -12,6 +13,8 @@ import type { HostLogRow, HostParams, HostResults } from './protocol.js';
 /** Legacy `ThreadSearchService` pool sizes, per arm. */
 const MESSAGE_SOURCE_LIMIT = 50;
 const TITLE_SOURCE_LIMIT = 20;
+/** Legacy `ThreadSearchRepository`'s vector snippet length. */
+const SNIPPET_CHARS = 240;
 
 type HostThreadSearchCore = Pick<HostCore, 'listChildren' | 'listThreads' | 'read'>;
 
@@ -32,6 +35,37 @@ export type HostStateSearch = (request: {
   readonly query: string;
   readonly threadIds: readonly string[];
 }) => Promise<readonly HostStateSearchHit[]>;
+
+/** One row the derived state index found nearest a query vector (`searchStateSimilar`). */
+export interface HostStateSimilarHit {
+  readonly role: 'assistant' | 'user';
+  readonly runId: string;
+  /** Cosine similarity: higher is a better match. */
+  readonly score: number;
+  readonly seq: number;
+  readonly text: string;
+  readonly threadId: string;
+}
+
+/** The semantic arm's index operations; the profile is the caller's embedder identity. */
+export interface HostStateSearchVectors {
+  pending(request: {
+    readonly limit: number;
+    readonly profile: Readonly<Record<string, unknown>>;
+    readonly threadIds: readonly string[];
+  }): Promise<readonly HostResults['thread/search/pending']['rows'][number][]>;
+  put(request: {
+    readonly profile: Readonly<Record<string, unknown>>;
+    readonly rows: HostParams<'thread/search/vectors'>['rows'];
+  }): Promise<HostResults['thread/search/vectors']>;
+  similar(request: {
+    readonly limit: number;
+    readonly profile: Readonly<Record<string, unknown>>;
+    readonly threadIds: readonly string[];
+    readonly threshold: number;
+    readonly vector: readonly number[];
+  }): Promise<readonly HostStateSimilarHit[]>;
+}
 
 /** Every committed thread and the root it is listed under: a child resolves to its root. */
 function ownedThreads(core: HostThreadSearchCore): Map<string, string> {
@@ -109,21 +143,23 @@ function titleMatches(
     .slice(0, TITLE_SOURCE_LIMIT);
 }
 
-/** The host's message and title arms for one query, best first in each. */
-export async function searchHostThreads(
+type HostSearchMessage = HostResults['thread/search']['messages'][number];
+
+/**
+ * The index's hits as the messages the conversation renders, best first: each
+ * on its thread's committed selected path, a message once, at its best hit.
+ */
+async function selectedMessages(
   core: HostThreadSearchCore,
-  search: HostStateSearch | undefined,
-  params: HostParams<'thread/search'>
-): Promise<HostResults['thread/search']> {
-  if (!search) {
-    throw new Error("Thread search requires the host's state index");
-  }
-  const owned = ownedThreads(core);
-  const hits = await search({
-    limit: params.limit ?? MESSAGE_SOURCE_LIMIT,
-    query: params.query,
-    threadIds: [...owned.keys()],
-  });
+  owned: ReadonlyMap<string, string>,
+  hits: readonly {
+    readonly headline: string;
+    readonly role: 'assistant' | 'user';
+    readonly runId: string;
+    readonly seq: number;
+    readonly threadId: string;
+  }[]
+): Promise<HostSearchMessage[]> {
   const threads = new Map<
     string,
     { readonly path: ReturnType<typeof selectedPath>; readonly rows: HostLogRow[] }
@@ -138,7 +174,7 @@ export async function searchHostThreads(
     threads.set(threadId, read);
     return read;
   };
-  const messages: HostResults['thread/search']['messages'] = [];
+  const messages: HostSearchMessage[] = [];
   const seen = new Set<string>();
   for (const hit of hits) {
     const rootThreadId = owned.get(hit.threadId);
@@ -159,12 +195,73 @@ export async function searchHostThreads(
     seen.add(messageId);
     messages.push({
       createdAt: row.ts,
-      headline: hit.snippet,
+      headline: hit.headline,
       messageId,
       role: hit.role,
       rootThreadId,
       threadId: hit.threadId,
     });
   }
-  return { messages, titles: titleMatches(core, params.query) };
+  return messages;
+}
+
+/** The host's lexical, semantic and title arms for one query, best first in each. */
+export async function searchHostThreads(
+  core: HostThreadSearchCore,
+  search: HostStateSearch | undefined,
+  vectors: HostStateSearchVectors | undefined,
+  params: HostParams<'thread/search'>
+): Promise<HostResults['thread/search']> {
+  if (!search) {
+    throw new Error("Thread search requires the host's state index");
+  }
+  if (params.semantic && !vectors) {
+    throw new Error("Semantic thread search requires the host's state index vectors");
+  }
+  const owned = ownedThreads(core);
+  const threadIds = [...owned.keys()];
+  const limit = params.limit ?? MESSAGE_SOURCE_LIMIT;
+  const [hits, similar] = await Promise.all([
+    search({ limit, query: params.query, threadIds }),
+    params.semantic && vectors
+      ? vectors.similar({ ...params.semantic, limit, threadIds })
+      : Promise.resolve([]),
+  ]);
+  return {
+    messages: await selectedMessages(
+      core,
+      owned,
+      hits.map((hit) => ({ ...hit, headline: hit.snippet }))
+    ),
+    similar: await selectedMessages(
+      core,
+      owned,
+      similar.map((hit) => ({ ...hit, headline: hit.text.slice(0, SNIPPET_CHARS) }))
+    ),
+    titles: titleMatches(core, params.query),
+  };
+}
+
+/** The semantic arm's backlog over every host thread, for the caller's embedder. */
+export async function pendingHostSearchVectors(
+  core: HostThreadSearchCore,
+  vectors: HostStateSearchVectors | undefined,
+  params: HostParams<'thread/search/pending'>
+): Promise<HostResults['thread/search/pending']> {
+  if (!vectors) {
+    throw new Error("Semantic thread search requires the host's state index vectors");
+  }
+  const rows = await vectors.pending({ ...params, threadIds: [...ownedThreads(core).keys()] });
+  return { rows: [...rows] };
+}
+
+/** Stores the caller's vectors for backlog rows; a row that changed since is stale. */
+export async function putHostSearchVectors(
+  vectors: HostStateSearchVectors | undefined,
+  params: HostParams<'thread/search/vectors'>
+): Promise<HostResults['thread/search/vectors']> {
+  if (!vectors) {
+    throw new Error("Semantic thread search requires the host's state index vectors");
+  }
+  return await vectors.put(params);
 }

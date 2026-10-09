@@ -104,7 +104,7 @@ export type {
   TextFileCommit,
   VectorProfile,
 } from './contracts.js';
-export { IndexerError } from './contracts.js';
+export { decodeVectorProfile, IndexerError } from './contracts.js';
 export { vectorProfileHash } from './scope-authority.js';
 export type { StateMessageEvent, StateProducerDecoder } from './state-projection.js';
 export type { IndexerDeadlines } from './transport.js';
