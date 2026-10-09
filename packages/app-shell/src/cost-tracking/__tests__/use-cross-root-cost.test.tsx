@@ -180,4 +180,47 @@ describe('useCrossRootCost', () => {
     expect(result.current.error).toBeInstanceOf(Error);
     expect(result.current.rows).toEqual([]);
   });
+
+  it("lists the agent host's per-root usage beside the usage rows", () => {
+    usePGliteDatabaseMock.mockReturnValue({});
+    usePGliteLiveQueryMock.mockReturnValue({
+      error: null,
+      loading: false,
+      refresh: vi.fn(),
+      rows: [
+        {
+          billedCostUsd: '0.1',
+          estimatedInputTokens: '0',
+          estimatedOutputTokens: '0',
+          inputTokens: '1000',
+          model: 'gpt-5.2',
+          outputTokens: '100',
+          provider: 'openai',
+          rootDisplayName: 'Workspace A',
+          rootId: 'root-a',
+        },
+      ],
+    });
+    const hostRootUsage = [
+      {
+        estimatedCacheCreationTokens: 0,
+        estimatedCacheReadTokens: 0,
+        estimatedInputTokens: 40,
+        estimatedOutputTokens: 6,
+        inputTokens: 40,
+        model: 'anthropic/claude-sonnet-4.6',
+        outputTokens: 6,
+        provider: 'openrouter',
+        rootDisplayName: 'Workspace A',
+        rootId: 'root-a',
+      },
+    ];
+
+    const { result } = renderHook(() => useCrossRootCost(undefined, hostRootUsage));
+
+    expect(result.current.rows).toEqual([
+      expect.objectContaining({ inputTokens: 1000, rootId: 'root-a' }),
+      hostRootUsage[0],
+    ]);
+  });
 });

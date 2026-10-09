@@ -8,6 +8,7 @@ import type {
   AssistantThreadMetadata,
   AssistantThreadRepository,
   AssistantThreadRunStatus,
+  CrossRootUsageRow,
   RunLedgerRow,
   ThreadWorkspaceRepository,
 } from '@brainstrike/assistant-data';
@@ -25,6 +26,8 @@ export interface AssistantThreadHostRun {
 
 /** Cost views' share of the host: its committed runs and provider calls. */
 export interface AssistantThreadHostLedgerSnapshot {
+  /** Provider calls per (root, provider, model), in the cross-root aggregation's order. */
+  readonly rootUsage: readonly CrossRootUsageRow[];
   readonly runs: readonly RunLedgerRow[];
   readonly usage: readonly HostUsageRecord[];
 }
@@ -123,7 +126,7 @@ const NO_HOST_RUNS: ReadonlyMap<string, AssistantThreadHostRun> = new Map();
 const readNoHostRuns = (): ReadonlyMap<string, AssistantThreadHostRun> => NO_HOST_RUNS;
 const subscribeNoHostRuns = (): (() => void) => () => undefined;
 
-const NO_HOST_LEDGER: AssistantThreadHostLedgerSnapshot = { runs: [], usage: [] };
+const NO_HOST_LEDGER: AssistantThreadHostLedgerSnapshot = { rootUsage: [], runs: [], usage: [] };
 const readNoHostLedger = (): AssistantThreadHostLedgerSnapshot => NO_HOST_LEDGER;
 
 /** The host's committed runs and usage; empty where no host reports them (web). */

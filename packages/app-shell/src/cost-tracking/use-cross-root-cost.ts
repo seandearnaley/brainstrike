@@ -65,7 +65,13 @@ function mapLiveRows(rawRows: readonly Record<string, unknown>[]): MappedRows {
  * (CROSS_ROOT_USAGE_AGGREGATION_SQL + mapCrossRootUsageRow) so the aggregation
  * and the strict no-fabrication contract can never drift between the two paths.
  */
-export function useCrossRootCost(resourceIdOverride?: string | null): CrossRootCostState {
+const NO_HOST_ROOT_USAGE: readonly CrossRootUsageRow[] = [];
+
+/** `hostRootUsage`: agent-host threads' committed provider calls per root, listed beside. */
+export function useCrossRootCost(
+  resourceIdOverride?: string | null,
+  hostRootUsage: readonly CrossRootUsageRow[] = NO_HOST_ROOT_USAGE
+): CrossRootCostState {
   const database = usePGliteDatabase();
   // Gate on the SAME capability that gates the durable WRITE (the desktop
   // assistant backend), not the raw PGlite handle — web has a handle but never
@@ -82,7 +88,13 @@ export function useCrossRootCost(resourceIdOverride?: string | null): CrossRootC
     query: CROSS_ROOT_USAGE_AGGREGATION_SQL,
   });
 
-  const mapped = useMemo<MappedRows>(() => mapLiveRows(liveQuery.rows), [liveQuery.rows]);
+  const mapped = useMemo<MappedRows>(() => {
+    const history = mapLiveRows(liveQuery.rows);
+    // A malformed history row stays an error: host rows never stand in for it.
+    return history.error || hostRootUsage.length === 0
+      ? history
+      : { error: null, rows: [...history.rows, ...hostRootUsage] };
+  }, [hostRootUsage, liveQuery.rows]);
 
   return {
     available,

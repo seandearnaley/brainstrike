@@ -600,7 +600,7 @@ export function TaskLedgerPanel() {
   // Agent-host threads' committed runs list beside the run tables' rows.
   const { runs: hostRuns } = useAssistantThreadHostLedger();
   const ledger = useRunLedger(undefined, hostRuns);
-  const analytics = useLedgerAnalytics();
+  const analytics = useLedgerAnalytics(undefined, hostRuns);
   // Per-run cap (budget guardrails, display-only): flags over-cap runs.
   const perRunCapUsd = useAssistantBudgetPreferencesStore((state) => state.perRunCapUsd);
   const ledgerRefresh = ledger.refresh;

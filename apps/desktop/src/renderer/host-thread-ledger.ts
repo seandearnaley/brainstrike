@@ -5,6 +5,7 @@ import type {
 } from '@brainstrike/app-shell/assistant-thread-host-context';
 import type { AssistantRunUsageKind } from '@brainstrike/assistant-contract/run-usage';
 import type {
+  CrossRootUsageRow,
   RunLedgerRow,
   ThreadCumulativeUsage,
   ThreadModelUsageSubtotal,
@@ -57,15 +58,24 @@ export function catalogModel(modelId: string): CatalogModel | undefined {
     : undefined;
 }
 
+/** The run's bound workspace root at Send; null for a run bound to none (unattributed). */
+interface RunRoot {
+  readonly rootDisplayName: string | null;
+  readonly rootId: string | null;
+}
+
 interface RunFold {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   completedAt: number | null;
+  editCount: number;
   failedToolCallCount: number;
   inputTokens: number;
   readonly model: string;
   outputTokens: number;
   readonly provider: string;
+  revertedEditCount: number;
+  readonly root: RunRoot;
   readonly runId: string;
   readonly startedAt: number;
   status: RunLedgerRow['status'];
@@ -76,12 +86,24 @@ interface RunFold {
 /** The host records no provider-billed cost: every token is an estimate. */
 type CostedSubtotal = Required<Omit<ThreadModelUsageSubtotal, 'billedCostUsd'>>;
 type UsageSubtotal = { -readonly [Key in keyof CostedSubtotal]: CostedSubtotal[Key] };
+type CostedRootUsage = Required<Omit<CrossRootUsageRow, 'billedCostUsd'>>;
+type RootUsage = { -readonly [Key in keyof CostedRootUsage]: CostedRootUsage[Key] };
 
 /** The observer's calls are one source each; the observer names its own model. */
 const MEMORY_USAGE_KIND = {
   observation: 'om-observation',
   reflection: 'om-reflection',
 } as const satisfies Record<string, AssistantRunUsageKind>;
+
+/** A streamed tool call or tool error counts toward its run's tool totals. */
+function countToolChunk(run: RunFold, streamed: unknown): void {
+  const chunk = z.object({ type: z.string() }).safeParse(streamed);
+  if (chunk.success && chunk.data.type === 'tool-call') {
+    run.toolCallCount += 1;
+  } else if (chunk.success && chunk.data.type === 'tool-error') {
+    run.failedToolCallCount += 1;
+  }
+}
 
 /** One thread's committed log, folded incrementally from its first row. */
 class ThreadLedgerFold {
@@ -90,6 +112,11 @@ class ThreadLedgerFold {
   readonly usage: HostUsageRecord[] = [];
   /** Per (provider, model, source) subtotals: the meter's thread total. */
   readonly bySource = new Map<string, UsageSubtotal>();
+  /** Per (root, provider, model) subtotals: the cross-root cost view's share. */
+  readonly byRoot = new Map<string, RootUsage>();
+  /** Each committed edit's run, so a revert counts against the run that made it. */
+  private readonly editRuns = new Map<string, string>();
+  private readonly revertedEdits = new Set<string>();
   private usageSnapshot: ThreadCumulativeUsage | undefined;
 
   apply(row: HostLogRow): void {
@@ -117,15 +144,29 @@ class ThreadLedgerFold {
       const model = event.modelId === undefined ? undefined : catalogModel(event.modelId);
       this.count(run, row, model, tokensOf(event.usage), 'compaction-summary');
     } else if (event.type === 'stream.chunk') {
-      const chunk = z.object({ type: z.string() }).safeParse(event.chunk);
-      if (chunk.success && chunk.data.type === 'tool-call') {
-        run.toolCallCount += 1;
-      } else if (chunk.success && chunk.data.type === 'tool-error') {
-        run.failedToolCallCount += 1;
-      }
+      countToolChunk(run, event.chunk);
     } else if (event.type === 'run.finished') {
       run.status = STATUS_BY_OUTCOME[event.outcome];
       run.completedAt = row.ts ?? null;
+    } else if (event.type === 'workspace.edit.recorded') {
+      run.editCount += 1;
+      this.editRuns.set(event.entryId, event.runId);
+    } else if (event.type === 'workspace.edit.reverted') {
+      this.revert(event);
+    }
+  }
+
+  /** An entry reverted once counts once, against the run that made the edit. */
+  private revert(event: Extract<HostEvent, { type: 'workspace.edit.reverted' }>): void {
+    for (const outcome of event.outcomes) {
+      if (outcome.status !== 'reverted' || this.revertedEdits.has(outcome.entryId)) {
+        continue;
+      }
+      this.revertedEdits.add(outcome.entryId);
+      const editRun = this.runs.get(this.editRuns.get(outcome.entryId) ?? event.runId);
+      if (editRun) {
+        editRun.revertedEditCount += 1;
+      }
     }
   }
 
@@ -137,14 +178,21 @@ class ThreadLedgerFold {
       });
       return;
     }
+    const binding = event.snapshot?.workspaceBinding;
     this.runs.set(event.runId, {
       ...model,
       cacheReadTokens: 0,
       cacheWriteTokens: 0,
       completedAt: null,
+      editCount: 0,
       failedToolCallCount: 0,
       inputTokens: 0,
       outputTokens: 0,
+      revertedEditCount: 0,
+      root: {
+        rootDisplayName: binding?.operatingRootDisplayName ?? null,
+        rootId: binding?.operatingRootId ?? null,
+      },
       runId: event.runId,
       startedAt: row.ts,
       status: 'running',
@@ -182,6 +230,20 @@ class ThreadLedgerFold {
     subtotal.estimatedCacheCreationTokens += tokens.cacheWriteTokens;
     this.bySource.set(key, subtotal);
     this.usageSnapshot = undefined;
+    const rootKey = JSON.stringify([
+      run.root.rootId,
+      run.root.rootDisplayName,
+      model.provider,
+      model.model,
+    ]);
+    const rootUsage = this.byRoot.get(rootKey) ?? emptyRootUsage(run.root, model);
+    rootUsage.inputTokens += tokens.inputTokens;
+    rootUsage.outputTokens += tokens.outputTokens;
+    rootUsage.estimatedInputTokens += tokens.inputTokens;
+    rootUsage.estimatedOutputTokens += tokens.outputTokens;
+    rootUsage.estimatedCacheReadTokens += tokens.cacheReadTokens;
+    rootUsage.estimatedCacheCreationTokens += tokens.cacheWriteTokens;
+    this.byRoot.set(rootKey, rootUsage);
   }
 
   /**
@@ -199,6 +261,56 @@ class ThreadLedgerFold {
     }
     return this.usageSnapshot;
   }
+}
+
+function emptyRootUsage(root: RunRoot, model: CatalogModel): RootUsage {
+  return {
+    estimatedCacheCreationTokens: 0,
+    estimatedCacheReadTokens: 0,
+    estimatedInputTokens: 0,
+    estimatedOutputTokens: 0,
+    inputTokens: 0,
+    model: model.model,
+    outputTokens: 0,
+    provider: model.provider,
+    ...root,
+  };
+}
+
+/** The cross-root aggregation's order: unattributed first, then root, provider and model. */
+function compareRootUsage(left: CrossRootUsageRow, right: CrossRootUsageRow): number {
+  const keys = (row: CrossRootUsageRow) => [row.rootId, row.provider, row.model] as const;
+  const [a, b] = [keys(left), keys(right)];
+  for (let index = 0; index < a.length; index += 1) {
+    const [x, y] = [a[index] ?? null, b[index] ?? null];
+    if (x === y) {
+      continue;
+    }
+    if (x === null || y === null) {
+      return x === null ? -1 : 1;
+    }
+    return x < y ? -1 : 1;
+  }
+  return 0;
+}
+
+/** Every thread's per-root subtotals, summed per (root, provider, model). */
+function mergeRootUsage(folds: readonly ThreadLedgerFold[]): CrossRootUsageRow[] {
+  const merged = new Map<string, RootUsage>();
+  for (const [key, usage] of folds.flatMap((fold) => [...fold.byRoot])) {
+    const total = merged.get(key);
+    if (!total) {
+      merged.set(key, { ...usage });
+      continue;
+    }
+    total.inputTokens += usage.inputTokens;
+    total.outputTokens += usage.outputTokens;
+    total.estimatedInputTokens += usage.estimatedInputTokens;
+    total.estimatedOutputTokens += usage.estimatedOutputTokens;
+    total.estimatedCacheReadTokens += usage.estimatedCacheReadTokens;
+    total.estimatedCacheCreationTokens += usage.estimatedCacheCreationTokens;
+  }
+  return [...merged.values()].sort(compareRootUsage);
 }
 
 function emptySubtotal(model: CatalogModel, runKind: AssistantRunUsageKind): UsageSubtotal {
@@ -234,8 +346,7 @@ function ledgerRow(run: RunFold): RunLedgerRow {
   return {
     completedAt: run.completedAt === null ? null : new Date(run.completedAt),
     durationMs: run.completedAt === null ? null : run.completedAt - run.startedAt,
-    // The host log commits no edit facts before the in-host tools batch.
-    editCount: 0,
+    editCount: run.editCount,
     // The host records no provider-billed cost: every token is estimated.
     estimatedCacheCreationTokens: run.cacheWriteTokens,
     estimatedCacheReadTokens: run.cacheReadTokens,
@@ -249,7 +360,7 @@ function ledgerRow(run: RunFold): RunLedgerRow {
     outcomeVerdict: null,
     outputTokens: run.outputTokens,
     provider: run.provider,
-    revertedEditCount: 0,
+    revertedEditCount: run.revertedEditCount,
     runId: run.runId,
     startedAt: new Date(run.startedAt),
     status: run.status,
@@ -265,7 +376,7 @@ function ledgerRow(run: RunFold): RunLedgerRow {
  */
 export class HostThreadLedger implements AssistantThreadHostLedger {
   private readonly threads = new Map<string, ThreadLedgerFold>();
-  private snapshot: AssistantThreadHostLedgerSnapshot = { runs: [], usage: [] };
+  private snapshot: AssistantThreadHostLedgerSnapshot = { rootUsage: [], runs: [], usage: [] };
   private readonly listeners = new Set<() => void>();
 
   readonly getSnapshot = (): AssistantThreadHostLedgerSnapshot => this.snapshot;
@@ -328,6 +439,7 @@ export class HostThreadLedger implements AssistantThreadHostLedger {
   private publish(): void {
     const folds = [...this.threads.values()];
     this.snapshot = {
+      rootUsage: mergeRootUsage(folds),
       runs: folds.flatMap((fold) => [...fold.runs.values()].map(ledgerRow)),
       usage: folds.flatMap((fold) => fold.usage),
     };

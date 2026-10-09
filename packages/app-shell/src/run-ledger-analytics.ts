@@ -1,3 +1,4 @@
+import type { RunLedgerRow } from '@brainstrike/assistant-data';
 import type { DbHandle } from '@brainstrike/db/react';
 
 /**
@@ -229,4 +230,109 @@ export async function getModelComparison(
 
 function rejectString(value: unknown, fieldName: string): never {
   throw new Error(`Invalid ledger aggregate ${fieldName}: ${String(value)}`);
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The trend with the agent host's committed runs added. A host run carries no
+ * per-call run id here, so it buckets by the UTC day it started, on the same
+ * midnight-aligned day buckets as the usage rows. The host records no
+ * provider-billed cost, so all of its tokens are estimated.
+ */
+export function addHostRunsToTrend(
+  trend: readonly LedgerTrendPoint[],
+  hostRuns: readonly RunLedgerRow[]
+): LedgerTrendPoint[] {
+  const buckets = new Map<number, LedgerTrendPoint>(
+    trend.map((point) => [point.bucketStart.getTime(), point])
+  );
+  for (const run of hostRuns) {
+    const start = Math.floor(run.startedAt.getTime() / DAY_MS) * DAY_MS;
+    const point = buckets.get(start);
+    buckets.set(start, {
+      ...(point?.billedCostUsd === undefined ? {} : { billedCostUsd: point.billedCostUsd }),
+      bucketStart: point?.bucketStart ?? new Date(start),
+      estimatedInputTokens: (point?.estimatedInputTokens ?? 0) + run.estimatedInputTokens,
+      estimatedOutputTokens: (point?.estimatedOutputTokens ?? 0) + run.estimatedOutputTokens,
+      inputTokens: (point?.inputTokens ?? 0) + run.inputTokens,
+      outputTokens: (point?.outputTokens ?? 0) + run.outputTokens,
+      runCount: (point?.runCount ?? 0) + 1,
+    });
+  }
+  return [...buckets.values()].sort(
+    (left, right) => left.bucketStart.getTime() - right.bucketStart.getTime()
+  );
+}
+
+const NO_MODEL_COMPARISON: Omit<LedgerModelComparisonRow, 'model' | 'provider'> = {
+  avgDurationMs: null,
+  cancelledRunCount: 0,
+  completedRunCount: 0,
+  estimatedInputTokens: 0,
+  estimatedOutputTokens: 0,
+  failedRunCount: 0,
+  inputTokens: 0,
+  labeledFailedCount: 0,
+  labeledMixedCount: 0,
+  labeledSucceededCount: 0,
+  outputTokens: 0,
+  runCount: 0,
+};
+
+/** The mean over completed runs with one more timed completed run. */
+function averageWith(row: LedgerModelComparisonRow, durationMs: number): number {
+  const timed = row.avgDurationMs === null ? 0 : row.completedRunCount;
+  return Math.round(((row.avgDurationMs ?? 0) * timed + durationMs) / (timed + 1));
+}
+
+/** One more run in a model's comparison row. */
+function addRun(row: LedgerModelComparisonRow, run: RunLedgerRow): LedgerModelComparisonRow {
+  const completed = run.status === 'completed';
+  return {
+    ...row,
+    avgDurationMs:
+      completed && run.durationMs !== null ? averageWith(row, run.durationMs) : row.avgDurationMs,
+    cancelledRunCount: row.cancelledRunCount + (run.status === 'cancelled' ? 1 : 0),
+    completedRunCount: row.completedRunCount + (completed ? 1 : 0),
+    estimatedInputTokens: row.estimatedInputTokens + run.estimatedInputTokens,
+    estimatedOutputTokens: row.estimatedOutputTokens + run.estimatedOutputTokens,
+    failedRunCount: row.failedRunCount + (run.status === 'failed' ? 1 : 0),
+    inputTokens: row.inputTokens + run.inputTokens,
+    labeledFailedCount: row.labeledFailedCount + (run.outcomeVerdict === 'failed' ? 1 : 0),
+    labeledMixedCount: row.labeledMixedCount + (run.outcomeVerdict === 'mixed' ? 1 : 0),
+    labeledSucceededCount: row.labeledSucceededCount + (run.outcomeVerdict === 'succeeded' ? 1 : 0),
+    outputTokens: row.outputTokens + run.outputTokens,
+    runCount: row.runCount + 1,
+  };
+}
+
+function compareText(left: string, right: string): number {
+  if (left === right) {
+    return 0;
+  }
+  return left < right ? -1 : 1;
+}
+
+/** The model comparison with the agent host's committed runs added, in provider/model order. */
+export function addHostRunsToModelComparison(
+  models: readonly LedgerModelComparisonRow[],
+  hostRuns: readonly RunLedgerRow[]
+): LedgerModelComparisonRow[] {
+  const key = (provider: string, model: string): string => JSON.stringify([provider, model]);
+  const rows = new Map(models.map((row) => [key(row.provider, row.model), row]));
+  for (const run of hostRuns) {
+    const id = key(run.provider, run.model);
+    const row = rows.get(id) ?? {
+      ...NO_MODEL_COMPARISON,
+      model: run.model,
+      provider: run.provider,
+    };
+    rows.set(id, addRun(row, run));
+  }
+  return [...rows.values()].sort((left, right) =>
+    left.provider === right.provider
+      ? compareText(left.model, right.model)
+      : compareText(left.provider, right.provider)
+  );
 }
