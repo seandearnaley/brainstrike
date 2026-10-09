@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useWorkspaceSearchStore } from '../../core/workspace-search-store';
 import type { CollectionStatsRow } from '../collection-stats-query';
@@ -56,6 +56,23 @@ describe('SearchCollectionPicker readiness', () => {
       'Workspace Index'
     );
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  });
+
+  it('lets the user explicitly select a sole imported collection', async () => {
+    const imported = { ...managedRow, id: 'imported', name: 'Imported set', systemRole: null };
+    usePGliteLiveQueryMock.mockReturnValue({ rows: [imported] });
+    const onCollectionChange = vi.fn();
+    render(<SearchCollectionPicker onCollectionChange={onCollectionChange} />);
+
+    expect(useWorkspaceSearchStore.getState().collectionId).toBeNull();
+    const picker = screen.getByRole('combobox', { name: 'Search collection' });
+    expect(picker).toBeVisible();
+    fireEvent.keyDown(picker, { key: 'ArrowDown' });
+    const option = await screen.findByRole('option', { name: 'Imported set' });
+    fireEvent.keyDown(option, { key: 'Enter' });
+
+    expect(useWorkspaceSearchStore.getState().collectionId).toBe(imported.id);
+    expect(onCollectionChange).toHaveBeenCalledWith(imported.id);
   });
 
   it('replaces the ready quiet label with the named picker when more rows arrive', () => {

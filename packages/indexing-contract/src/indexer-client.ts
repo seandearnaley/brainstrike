@@ -166,6 +166,11 @@ export type IndexerCoverageBatch =
   | IndexerCoverageCurrentObservation
   | IndexerCoverageInvalidatedObservation
   | IndexerCoverageBlockedObservation;
+/** Desktop notification after canonical roots commit; Main alone resolves grants and IDs. */
+export interface IndexRootRegistrationCapability {
+  rootsRegistered(): Promise<void>;
+}
+
 export interface IndexSearchCapability {
   coverage(request: IndexerCoverageRequest): Promise<IndexerCoverage>;
   coverageBatch(requests: readonly IndexerCoverageRequest[]): Promise<IndexerCoverageBatch>;

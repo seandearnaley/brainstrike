@@ -93,7 +93,11 @@ const capability = createNativeScopedSearchCapability({
       port,
     }),
 });
-const unregister = registerIndexSearchIpcHandlers(capability);
+const unregister = registerIndexSearchIpcHandlers(capability, {
+  rootsRegistered: async () => {
+    throw new Error('Unexpected root registration in read-only test');
+  },
+});
 ipcMain.handle(DESKTOP_IPC_CHANNELS.embeddingHost.getStatus, () => ({
   active: false,
   lastError: null,
