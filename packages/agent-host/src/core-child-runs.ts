@@ -9,6 +9,7 @@ import {
 } from '@brainstrike/assistant-contract/personas';
 import { createLogger } from '@brainstrike/logging';
 import type { LanguageModel } from 'ai';
+import { borrowHostAdmission } from './admission-lease.js';
 import {
   describeHostChildContinuation,
   describeHostChildLedger,
@@ -502,6 +503,11 @@ export class HostChildRuns {
       this.origins.delete(prepared.threadId);
       release();
       throw cause;
+    }
+    // The committed child holds its parent's selection until the child settles.
+    const borrowed = borrowHostAdmission(request.admission.close);
+    if (borrowed && prepared.child.admission) {
+      prepared.child.admission = { ...prepared.child.admission, close: borrowed };
     }
     request.run.started.add(request.action.toolCallId);
     this.invocations.set(prepared.threadId, prepared.child.id);
