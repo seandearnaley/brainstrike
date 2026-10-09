@@ -2,13 +2,11 @@
 // shared unchanged through test-utils' public recorded fixture.
 // No private cross-package code/fixture imports or alternate wire decoder.
 
-import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
 import { TOOL_CALL_BLOCKED_MESSAGE } from '@brainstrike/assistant-contract/tool-approval';
 import recording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json';
 import granted from '@brainstrike/test-utils/fixtures/committed-host-granted-run.json';
 import hookBlocked from '@brainstrike/test-utils/fixtures/committed-host-hook-blocked.json';
 import { describe, expect, it } from 'vitest';
-import { isAlwaysVisibleRunEvent } from '../assistant-run-event-derivation';
 import { committedApprovalGrant, committedApprovalOptions } from '../committed-approval-options';
 import {
   CommittedAssistantLogProjection,
@@ -324,43 +322,6 @@ describe('rich committed-log presentation projection', () => {
       },
     ]);
     expect(projection.getSnapshot().observationWithheld).toBe('branched-thread');
-  });
-
-  it('shows the committed legacy-observations notice on its run, not as withheld thread memory', () => {
-    const projection = projector();
-    const last = rows.at(-1);
-    if (!last) {
-      throw new Error('Missing recorded rows.');
-    }
-    // The exact event the host commits once per root when legacy resource OM was not imported.
-    projection.acceptCommitted([
-      ...rows,
-      {
-        event: {
-          reason: 'legacy-resource-observations',
-          runId,
-          type: 'memory.observation.withheld',
-        },
-        seq: last.seq + 1,
-        threadId,
-      },
-    ]);
-    // The thread's OM line is untouched: the run's observations still work.
-    expect(projection.getSnapshot().observationWithheld).toBeUndefined();
-    const notices = answer(projection).content.flatMap((part) => {
-      const event = readAssistantRunEventDataPart(part);
-      return event?.kind === 'memory.observation.withheld' ? [event] : [];
-    });
-    expect(notices).toEqual([
-      expect.objectContaining({
-        id: `run-event-${threadId}-${last.seq + 1}`,
-        label: 'Earlier observations not imported',
-        metadata: { reason: 'legacy-resource-observations' },
-        runId,
-        status: 'info',
-      }),
-    ]);
-    expect(notices.every((event) => isAlwaysVisibleRunEvent(event))).toBe(true);
   });
 
   it('shows a committed deterministic compaction fallback as a compaction card part of its run', () => {

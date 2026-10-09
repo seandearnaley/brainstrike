@@ -11,7 +11,9 @@ import { expect, test } from 'vitest';
 test('ordinary failed startup retains its process and lease while a real root-writing descendant cannot join', async () => {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-startup-owner-'));
   const initial = await StateStore.open(root);
-  await initial.append([{ event: { type: 'thread.started' }, threadId: randomUUID() }]);
+  await initial.append([
+    { event: { commandId: randomUUID(), type: 'thread.started' }, threadId: randomUUID() },
+  ]);
   await initial.close();
   const modulePath = join(root, 'platform.mjs');
   const childProgram =
@@ -26,7 +28,7 @@ export async function createHostPlatform(options) {
   await new Promise((resolve,reject)=>{child.once('message',resolve);child.once('error',reject)});
   await writeFile(join(options.root,'owned-child-pid'),String(child.pid));
   child.disconnect();child.unref();
-  return {close:async()=>{throw new Error('physical child cleanup rejected')},maxSteps:3,tools:{},readPermissionPolicy:()=>({policies:{},yolo:false}),resolveModel:async()=>{throw new Error('startup never invokes a model')}};
+  return {attachMcpTaskOwner:()=>{throw new Error('MCP task owner refused')},close:async()=>{throw new Error('physical child cleanup rejected')},maxSteps:3,tools:{},readPermissionPolicy:()=>({policies:{},yolo:false}),resolveModel:async()=>{throw new Error('startup never invokes a model')}};
 }
 `
   );

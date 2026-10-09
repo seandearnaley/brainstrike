@@ -41,10 +41,6 @@ vi.mock('../../assistant-server/http', async () => {
   };
 });
 
-vi.mock('../../mcp-loader', () => ({
-  loadMcpConfig: vi.fn(() => Promise.resolve({ config: undefined })),
-}));
-
 const mockSecretsService = {
   deleteKey: vi.fn(),
   // BST-1352: the assistant POST path reads the TYPED credential.

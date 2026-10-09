@@ -212,6 +212,29 @@ async function executeRegisteredTool(
       retain: (work) => retainHostRunWork(run, work),
     }),
     runId: run.id,
+    // The shell's adopted worktrees arrive after the result; the run joins them.
+    shellWorktrees: (adopted) =>
+      retainHostRunWork(
+        run,
+        adopted.then(async (worktrees) => {
+          if (worktrees.length > 0) {
+            await ports.append(
+              run.threadId,
+              worktrees.map(({ branch, path, worktreeId }) => ({
+                branch,
+                path,
+                runId: run.id,
+                toolCallId: action.toolCallId,
+                type: 'worktree.created' as const,
+                via: 'shell' as const,
+                worktreeId,
+              })),
+              'full',
+              ports.foldRows
+            );
+          }
+        })
+      ),
     signal: run.controller.signal,
     threadId: run.threadId,
     toolCallId: action.toolCallId,

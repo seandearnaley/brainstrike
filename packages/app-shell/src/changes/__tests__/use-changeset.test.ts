@@ -14,8 +14,18 @@ import {
   useChangesLiveRefreshStore,
 } from '../changes-live-refresh-store';
 import { useChangesNavigationStore } from '../changes-navigation-store';
+import type { RewindPort } from '../rewind-port';
 import { useRewindStore } from '../rewind-store';
 import { RESOLVE_VIEW_TIMEOUT_MS, useChangeset } from '../use-changeset';
+
+/** A port no test here calls: the store only holds it. */
+const PORT: RewindPort = {
+  apply: () => Promise.reject(new Error('not used')),
+  conversation: 'hidden',
+  fileDiff: () => Promise.reject(new Error('not used')),
+  preview: () => Promise.reject(new Error('not used')),
+  redo: () => Promise.reject(new Error('not used')),
+};
 
 const CHANGESET: Changeset = { kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' };
 
@@ -538,9 +548,11 @@ describe('useChangeset — rewind invalidation', () => {
     await waitFor(() => expect(resolveView).toHaveBeenCalledTimes(1));
 
     act(() => {
-      useRewindStore
-        .getState()
-        .openRewind({ composerText: null, target: { messageId: 'msg-1', threadId: 'thread-1' } });
+      useRewindStore.getState().openRewind({
+        composerText: null,
+        port: PORT,
+        target: { messageId: 'msg-1', threadId: 'thread-1' },
+      });
       useRewindStore.getState().closeRewind();
     });
 

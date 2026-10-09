@@ -1,7 +1,6 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createKeyringCredentialStore } from '@brainstrike/agent-host/keyring-credentials';
 import { providerEnvKeys } from '@brainstrike/assistant-contract';
 import { afterEach, expect, test } from 'vitest';
 import {
@@ -9,9 +8,6 @@ import {
   createHostProviderAuth,
   HostCredentialStoreUnselectedError,
   HostCredentialsClosedError,
-  LegacySecretConflictError,
-  LegacySecretVerificationError,
-  migrateLegacySecrets,
 } from '../src/index.js';
 import { memoryCredentialBackend } from './fixtures/memory-credential-backend.js';
 
@@ -86,111 +82,4 @@ test('a selected private file store keeps the existing account and file shape', 
   const resolve = createHostProviderAuth({ credentials: reopened, env: {} });
   await expect(resolve('openai')).resolves.toEqual({ apiKey: 'file-fixture-key', kind: 'api_key' });
   await reopened.close();
-});
-
-function legacySource(entries: Record<string, string>) {
-  const calls: string[] = [];
-  let retired = false;
-  return {
-    calls,
-    get retired() {
-      return retired;
-    },
-    source: {
-      entries: async () => {
-        calls.push('entries');
-        return retired
-          ? []
-          : Object.entries(entries).map(([account, value]) => ({ account, value }));
-      },
-      retire: async () => {
-        calls.push('retire');
-        retired = true;
-      },
-    },
-  };
-}
-
-test('migration copies every account under its name, verifies, then retires the legacy store', async () => {
-  const memory = memoryCredentialBackend();
-  const destination = createKeyringCredentialStore({ backend: memory.backend, service: 'test' });
-  const legacy = legacySource({ [OAUTH_ACCOUNT]: 'oauth-record', openai: 'provider-envelope' });
-  await expect(migrateLegacySecrets({ destination, source: legacy.source })).resolves.toEqual({
-    alreadyPresent: 0,
-    migrated: 2,
-  });
-  expect(Object.fromEntries(memory.entries)).toEqual({
-    [OAUTH_ACCOUNT]: 'oauth-record',
-    openai: 'provider-envelope',
-  });
-  expect(legacy.calls).toEqual(['entries', 'retire']);
-  // One-time: a later pass finds nothing left to move and retires nothing.
-  await expect(migrateLegacySecrets({ destination, source: legacy.source })).resolves.toEqual({
-    alreadyPresent: 0,
-    migrated: 0,
-  });
-  expect(legacy.calls).toEqual(['entries', 'retire', 'entries']);
-  await destination.close();
-});
-
-test('an interrupted earlier pass is re-runnable: identical values count as present', async () => {
-  const memory = memoryCredentialBackend({ openai: 'provider-envelope' });
-  const destination = createKeyringCredentialStore({ backend: memory.backend, service: 'test' });
-  const legacy = legacySource({ anthropic: 'second', openai: 'provider-envelope' });
-  await expect(migrateLegacySecrets({ destination, source: legacy.source })).resolves.toEqual({
-    alreadyPresent: 1,
-    migrated: 1,
-  });
-  expect(legacy.retired).toBe(true);
-  await destination.close();
-});
-
-test('a conflicting destination value refuses before any write and keeps the legacy store', async () => {
-  const memory = memoryCredentialBackend({ openai: 'newer-keyring-value' });
-  const destination = createKeyringCredentialStore({ backend: memory.backend, service: 'test' });
-  const legacy = legacySource({ anthropic: 'unwritten', openai: 'legacy-value' });
-  const failure = migrateLegacySecrets({ destination, source: legacy.source });
-  await expect(failure).rejects.toBeInstanceOf(LegacySecretConflictError);
-  await expect(failure).rejects.toMatchObject({ accounts: ['openai'] });
-  expect(Object.fromEntries(memory.entries)).toEqual({ openai: 'newer-keyring-value' });
-  expect(legacy.retired).toBe(false);
-  await destination.close();
-});
-
-test('a value that does not read back keeps the legacy store', async () => {
-  const memory = memoryCredentialBackend();
-  const lossy = {
-    ...memory.backend,
-    createEntry: async (request: Parameters<typeof memory.backend.createEntry>[0]) => {
-      const entry = await memory.backend.createEntry(request);
-      return { ...entry, setPassword: async () => undefined };
-    },
-  };
-  const destination = createKeyringCredentialStore({ backend: lossy, service: 'test' });
-  const legacy = legacySource({ openai: 'legacy-value' });
-  await expect(migrateLegacySecrets({ destination, source: legacy.source })).rejects.toBeInstanceOf(
-    LegacySecretVerificationError
-  );
-  expect(legacy.retired).toBe(false);
-  await destination.close();
-});
-
-test('a legacy decrypt failure propagates and nothing is written or retired', async () => {
-  const memory = memoryCredentialBackend();
-  const destination = createKeyringCredentialStore({ backend: memory.backend, service: 'test' });
-  let retired = false;
-  await expect(
-    migrateLegacySecrets({
-      destination,
-      source: {
-        entries: () => Promise.reject(new Error('decrypt_failed')),
-        retire: async () => {
-          retired = true;
-        },
-      },
-    })
-  ).rejects.toThrow('decrypt_failed');
-  expect(memory.entries.size).toBe(0);
-  expect(retired).toBe(false);
-  await destination.close();
 });

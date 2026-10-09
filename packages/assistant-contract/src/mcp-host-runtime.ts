@@ -10,14 +10,23 @@ import {
   ReadResourceResultSchema,
 } from '@modelcontextprotocol/core';
 import { z } from 'zod';
+import { McpExtensionEnablementSchema } from './mcp-extensions.js';
 import type {
   McpHostCatalog,
   McpHostCatalogErrors,
   McpHostCloseReport,
   McpHostJsonValue,
   McpHostOperationResult,
+  McpHostServerSnapshot,
+  McpHostSnapshot,
 } from './mcp-host.js';
-import { MCP_HOST_CATALOG_SECTIONS, McpHostErrorSchema, McpResourceUriSchema } from './mcp-host.js';
+import {
+  ConfiguredMcpServerIdSchema,
+  MCP_HOST_CATALOG_SECTIONS,
+  MCP_HOST_DIAGNOSTIC_MAX_ENTRIES,
+  McpHostErrorSchema,
+  McpResourceUriSchema,
+} from './mcp-host.js';
 import type { McpNegotiatedStatus } from './mcp-status.js';
 
 const McpHostOperationResultEnvelopeSchema = z.discriminatedUnion('type', [
@@ -199,4 +208,79 @@ export function parseMcpNegotiatedStatus(value: unknown): McpNegotiatedStatus {
           },
         }),
   };
+}
+
+const McpHostAuthSnapshotSchema = z.discriminatedUnion('type', [
+  z.strictObject({ type: z.literal('none') }),
+  z.strictObject({
+    credentialState: z.enum(['malformed', 'missing', 'stored', 'unreadable']),
+    type: z.literal('bearer'),
+  }),
+  z.strictObject({
+    authorizationServer: z.string().optional(),
+    credentialState: z.enum(['missing', 'stored', 'unreadable']),
+    grantedScopes: z.array(z.string()),
+    lastSuccessfulConnectionAt: z.number().optional(),
+    requestedScopes: z.array(z.string()),
+    resourceUrl: z.string(),
+    type: z.literal('oauth-user'),
+  }),
+]);
+const McpHostServerSnapshotFields = {
+  auth: McpHostAuthSnapshotSchema.optional(),
+  configuredProtocol: z.enum(['2026-07-28', 'auto', 'legacy']),
+  configuredServerId: ConfiguredMcpServerIdSchema,
+  diagnostics: z
+    .array(
+      z.strictObject({
+        message: z.string(),
+        stream: z.literal('stderr'),
+        truncated: z.boolean(),
+      })
+    )
+    .max(MCP_HOST_DIAGNOSTIC_MAX_ENTRIES)
+    .optional(),
+  enabledTools: z.array(z.string()).optional(),
+  extensions: McpExtensionEnablementSchema.optional(),
+  generation: z.number().int().positive(),
+  transport: z.enum(['sse', 'stdio', 'streamable-http']),
+};
+const McpHostServerSnapshotSchema = z.discriminatedUnion('state', [
+  z.strictObject({
+    ...McpHostServerSnapshotFields,
+    state: z.enum([
+      'disconnected',
+      'connecting',
+      'authentication-required',
+      'authorizing',
+      'closing',
+    ]),
+  }),
+  z.strictObject({
+    ...McpHostServerSnapshotFields,
+    error: McpHostErrorSchema,
+    state: z.literal('error'),
+  }),
+  z.strictObject({
+    ...McpHostServerSnapshotFields,
+    catalog: McpHostCatalogSchema.optional(),
+    negotiated: McpNegotiatedStatusSchema,
+    state: z.literal('connected'),
+  }),
+]);
+const McpHostSnapshotSchema = z.strictObject({
+  revision: z.number().int().nonnegative(),
+  servers: z.array(McpHostServerSnapshotSchema),
+});
+
+/** One server's host status, as a client outside the runtime's process receives it. */
+export function parseMcpHostServerSnapshot(value: unknown): McpHostServerSnapshot {
+  assertStrictJson(value);
+  return McpHostServerSnapshotSchema.parse(value) as McpHostServerSnapshot;
+}
+
+/** The host's whole MCP status (a snapshot or a watch event), as a client outside its process receives it. */
+export function parseMcpHostSnapshot(value: unknown): McpHostSnapshot {
+  assertStrictJson(value);
+  return McpHostSnapshotSchema.parse(value) as McpHostSnapshot;
 }

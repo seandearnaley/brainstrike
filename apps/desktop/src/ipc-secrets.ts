@@ -1,7 +1,6 @@
 import type { SupportedProvider } from '@brainstrike/agent/client';
 import {
   findProviderDefinition,
-  isProviderCredential,
   MalformedCredentialError,
   type ProviderAuthMode,
   type ProviderCredential,
@@ -23,13 +22,7 @@ import {
   resolveProviderEnvCredential,
   storedAuthMode,
 } from './provider-api-key';
-import {
-  credentialStoredKeyFingerprint,
-  credentialToApiKey,
-  parseCredentialOrThrow,
-  SecretReadError,
-  type SecretsService,
-} from './secrets';
+import { credentialStoredKeyFingerprint, SecretReadError, type SecretsService } from './secrets';
 import { TAVILY_ENV_KEYS } from './tavily-env-keys';
 
 /**
@@ -54,40 +47,16 @@ const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 const TAVILY_SECRET_PROVIDER = 'tavily' as const;
 type DesktopProviderKeyId = SupportedProvider | typeof TAVILY_SECRET_PROVIDER;
 
+/**
+ * Test mode (E2E, unit) keeps env-configured providers out of the listing so
+ * the developer's own environment cannot leak into a run. Credentials
+ * themselves follow production's path: in E2E the profile store is the
+ * isolated file the host also reads (`desktopCredentialStoreSelection`).
+ */
 function isTestMode(): boolean {
   const electronTestEnv = process.env['ELECTRON_IS_E2E_TEST'];
   const nodeEnv = process.env['NODE_ENV'];
   return process.argv.includes('--test-mode') || electronTestEnv === 'true' || nodeEnv === 'test';
-}
-
-// In-memory storage for test mode. Values are stored exactly as the encrypted
-// store would hold them decrypted: bare strings for legacy saves,
-// JSON.stringify(credential) for typed saves — so the typed read path exercises
-// the SAME parseStoredCredential mapping as production (BST-1348).
-const testModeSecrets = new Map<string, string>();
-
-/**
- * Reads a test-mode value through the SAME credential mapping as the
- * production service (parseCredentialOrThrow — no duplicated interpretation):
- * null strictly for "not set", a typed SecretReadError for a
- * tagged-but-invalid value.
- */
-function readTestModeCredential(provider: string): ProviderCredential | null {
-  const raw = testModeSecrets.get(provider);
-  if (raw === undefined) {
-    return null;
-  }
-  return parseCredentialOrThrow(provider, raw);
-}
-
-/**
- * Clears test mode secrets. Should be called in test cleanup to prevent
- * module-level state leakage between test runs.
- */
-export function clearTestModeSecrets(): void {
-  if (isTestMode()) {
-    testModeSecrets.clear();
-  }
 }
 
 function isDesktopProviderKeyId(value: string): value is DesktopProviderKeyId {
@@ -104,7 +73,7 @@ function isDesktopProviderKeyId(value: string): value is DesktopProviderKeyId {
  */
 async function toStoredKeySource(
   provider: DesktopProviderKeyId,
-  readCredential: () => Promise<ProviderCredential | null> | ProviderCredential | null
+  readCredential: () => Promise<ProviderCredential | null>
 ): Promise<ProviderKeySource<DesktopProviderKeyId>> {
   let fingerprint: ReturnType<typeof credentialStoredKeyFingerprint>;
   // BST-1353 (PR #2525 finding 4): the WINNING auth mode has to ride this
@@ -125,34 +94,6 @@ async function toStoredKeySource(
   return fingerprint
     ? { ...authMode, metadata: fingerprint, provider, source: 'stored' }
     : { ...authMode, provider, source: 'stored' };
-}
-
-async function appendTestModeProviders(
-  target: Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>
-): Promise<void> {
-  const eligible: DesktopProviderKeyId[] = [];
-  for (const [provider, value] of testModeSecrets.entries()) {
-    const trimmedValue = typeof value === 'string' ? value.trim() : '';
-    if (trimmedValue.length === 0 || !isDesktopProviderKeyId(provider)) {
-      continue;
-    }
-    eligible.push(provider);
-  }
-  // Parallel for parity with the production listing path below.
-  const sources = await Promise.all(
-    eligible.map((provider) => toStoredKeySource(provider, () => readTestModeCredential(provider)))
-  );
-  for (const source of sources) {
-    target.set(source.provider, source);
-  }
-}
-
-function appendTestModeStoredProviderIds(target: Set<string>): void {
-  for (const [provider, value] of testModeSecrets.entries()) {
-    if (typeof value === 'string' && value.trim().length > 0) {
-      target.add(provider);
-    }
-  }
 }
 
 async function appendStoredProviders(
@@ -279,9 +220,9 @@ function throwEnvFileFailures(failures: readonly DesktopEnvLoadFailure[]): void 
  *
  * **Test Mode Behavior:**
  * When running in test mode (NODE_ENV=test, ELECTRON_IS_E2E_TEST=true, or --test-mode),
- * all secrets are stored in-memory and environment variables are IGNORED to prevent
- * test pollution from host environment. Call `clearTestModeSecrets()` in test cleanup
- * to prevent state leakage between test runs.
+ * secrets take production's path to the profile store (in E2E, the isolated file the
+ * host reads), and the listing IGNORES environment variables so the host environment
+ * cannot pollute a run.
  *
  * **Production Behavior:**
  * - Environment variables are checked first (via resolveProviderEnvKey)
@@ -312,17 +253,6 @@ export function registerSecretsIpcHandlers(
     { roles: ['visible-ui'] },
     async (_event, ...args: readonly unknown[]) => {
       const [provider, value] = decodeProviderValueArgs(args);
-      // In test mode, use in-memory storage — the api_key JSON ENVELOPE, for
-      // parity with the production single write path (saveKey → setCredential).
-      if (isTestMode()) {
-        const credential = { key: value, type: 'api_key' } as const;
-        if (!isProviderCredential(credential)) {
-          return { error: 'malformed_credential', ok: false } as const;
-        }
-        testModeSecrets.set(provider, JSON.stringify(credential));
-        return true;
-      }
-
       try {
         return await secrets.saveKey(provider, value);
       } catch (err) {
@@ -337,21 +267,7 @@ export function registerSecretsIpcHandlers(
     { roles: ['visible-ui'] },
     async (_event, ...args: readonly unknown[]) => {
       const [provider] = decodeProviderArgs(args);
-      // In test mode, check in-memory storage. Read through the SAME
-      // credential mapping + string projection as the production service
-      // (parseCredentialOrThrow / credentialToApiKey) so a typed variant
-      // surfaces the same typed failure instead of leaking a stringified
-      // credential (BST-1348).
-      if (isTestMode()) {
-        const credential = readTestModeCredential(provider);
-        if (credential === null) {
-          return null;
-        }
-        return credentialToApiKey(provider, credential);
-      }
-
-      const v = await secrets.getKey(provider);
-      return v;
+      return await secrets.getKey(provider);
     }
   );
 
@@ -361,16 +277,7 @@ export function registerSecretsIpcHandlers(
     { roles: ['visible-ui'] },
     async (_event, ...args: readonly unknown[]) => {
       const [provider, credential] = decodeProviderCredentialArgs(args);
-      // Single validation site: setCredential's guard. Test mode substitutes
-      // the same guard because no service backs it.
-      if (isTestMode()) {
-        if (!isProviderCredential(credential)) {
-          return { error: 'malformed_credential', ok: false } as const;
-        }
-        testModeSecrets.set(provider, JSON.stringify(credential));
-        return true;
-      }
-
+      // Single validation site: setCredential's guard.
       try {
         return await secrets.setCredential(provider, credential as ProviderCredential);
       } catch (err) {
@@ -387,9 +294,7 @@ export function registerSecretsIpcHandlers(
       const [provider] = decodeProviderArgs(args);
       // Failures are serialized as data — invoke drops custom error props.
       try {
-        const credential = isTestMode()
-          ? readTestModeCredential(provider)
-          : await secrets.getCredential(provider);
+        const credential = await secrets.getCredential(provider);
         return { credential, ok: true } as const;
       } catch (err) {
         if (err instanceof SecretReadError) {
@@ -406,12 +311,6 @@ export function registerSecretsIpcHandlers(
     { roles: ['visible-ui'] },
     async (_event, ...args: readonly unknown[]) => {
       const [provider] = decodeProviderArgs(args);
-      // In test mode, remove from in-memory storage
-      if (isTestMode()) {
-        testModeSecrets.delete(provider);
-        return true;
-      }
-
       return await secrets.deleteKey(provider);
     }
   );
@@ -423,10 +322,10 @@ export function registerSecretsIpcHandlers(
     async () => {
       throwEnvFileFailures(envFileFailures);
 
-      // In test mode, only use in-memory storage (ignore env vars)
+      // In test mode, only the profile store (ignore env vars)
       if (isTestMode()) {
         const providers = new Map<DesktopProviderKeyId, ProviderKeySource<DesktopProviderKeyId>>();
-        await appendTestModeProviders(providers);
+        await appendStoredProviders(providers, secrets);
         return Array.from(providers.values());
       }
 
@@ -447,12 +346,6 @@ export function registerSecretsIpcHandlers(
     DESKTOP_IPC_CHANNELS.secrets.listStored,
     { roles: ['visible-ui'] },
     async () => {
-      if (isTestMode()) {
-        const providers = new Set<string>();
-        appendTestModeStoredProviderIds(providers);
-        return Array.from(providers);
-      }
-
       const storedProviders = new Set<string>();
       const providers = await secrets.listProviders();
       for (const provider of providers) {
@@ -490,10 +383,7 @@ export function registerSecretsIpcHandlers(
         };
       }
 
-      if (isTestMode()) {
-        testModeSecrets.clear();
-      }
-      // Test mode also wipes the profile store: its disposable file holds the
+      // In test mode the profile store is the disposable file holding the
       // provider, OAuth-engine, MCP bearer and MCP OAuth entries. The host's
       // `auth/clear` behind it also drops the engine's and MCP's in-memory state.
       try {

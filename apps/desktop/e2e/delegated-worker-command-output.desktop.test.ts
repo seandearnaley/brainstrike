@@ -273,7 +273,8 @@ test('delegated command asks by default, then a per-tool grant streams output an
       await expect(toolCard.locator('pre').last()).toContainText('STREAM_STDERR_SECOND');
       await expect(root.getByRole('button', { exact: true, name: 'Send' })).toBeVisible();
       await expect(root.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
-      const completedRequests = provider.requestCount();
+      // A reload must not call the model; count generations, not metadata reads.
+      const completedRequests = provider.requests().length;
       await window.reload();
       await ensureAssistantShellVisible(window);
       await expect(
@@ -285,7 +286,7 @@ test('delegated command asks by default, then a per-tool grant streams output an
       await persistedToolCard.getByRole('button').first().click();
       await expect(persistedToolCard.locator('pre').last()).toContainText('STREAM_STDOUT_SECOND');
       await expect(persistedToolCard.locator('pre').last()).toContainText('STREAM_STDERR_SECOND');
-      expect(provider.requestCount()).toBe(completedRequests);
+      expect(provider.requests().length).toBe(completedRequests);
       await window.screenshot({ path: testInfo.outputPath('worker-command-result.png') });
     } catch (error) {
       failures.push(error);

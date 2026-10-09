@@ -40,7 +40,7 @@ export class UtilityPort extends EventEmitter implements PlatformMessagePort {
  * descriptors through Main's reads on that same connection.
  */
 export async function admitHostTools(
-  capabilities: Omit<DesktopPlatformCapabilities, 'mcp' | 'readLegacyMemory'>,
+  capabilities: Omit<DesktopPlatformCapabilities, 'mcp'>,
   request: HostRunAdmissionRequest
 ): Promise<{ readonly close: () => Promise<void>; readonly tools: Record<string, HostTool> }> {
   const channel = new MessageChannel();
@@ -51,7 +51,6 @@ export async function admitHostTools(
   const owner = serveDesktopPlatform(server, {
     ...capabilities,
     mcp: createDesktopMcpPlatformCapabilities(new RemoteMcpRuntime()),
-    readLegacyMemory: async () => ({ resource: null, resourceObservations: false }),
   });
   client.listen();
   const close = async (): Promise<void> => {

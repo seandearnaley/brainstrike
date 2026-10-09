@@ -74,11 +74,16 @@ export function createProfileAdmission<Attachment>(
       return attachment;
     },
     releaseRootForHost: async () => {
+      // A host that releases Root while Main's own retirement is already fenced (a start
+      // failing during app shutdown) must not turn that terminal fence into a reopenable one.
+      const underMainRetirement = fence.requested() && hostReleasedEpoch !== fence.epoch();
       const releasing = closeRootCapabilities();
       // closeRootCapabilities fences synchronously; record the epoch it opened.
       const epoch = fence.epoch();
       await releasing;
-      hostReleasedEpoch = epoch;
+      if (!underMainRetirement) {
+        hostReleasedEpoch = epoch;
+      }
     },
   };
 }

@@ -33,11 +33,12 @@ test.each(['before commit', 'after commit'] as const)(
       },
       deleteSetting: (key) => store.deleteSetting(key),
       getSetting: (key) => store.getSetting(key),
+      holdBlobGc: () => store.holdBlobGc(),
       read: (threadId, fromSeq) => store.read(threadId, fromSeq),
+      readHydration: () => store.readHydration(),
       root: store.root,
       setSetting: (key, value) => store.setSetting(key, value),
       syncBoundary: (threadId) => store.syncBoundary(threadId),
-      threads: () => store.threads(),
     };
     const core = await HostCore.open(
       port,

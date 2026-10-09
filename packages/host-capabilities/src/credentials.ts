@@ -102,12 +102,3 @@ export function createHostCredentials(options: HostCredentialsOptions): HostCred
     store: open,
   };
 }
-
-export {
-  LegacySecretConflictError,
-  type LegacySecretEntry,
-  type LegacySecretMigrationReport,
-  type LegacySecretSource,
-  LegacySecretVerificationError,
-  migrateLegacySecrets,
-} from './legacy-secret-migration.js';

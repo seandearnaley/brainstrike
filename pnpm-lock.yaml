@@ -1189,6 +1189,9 @@ importers:
       '@brainstrike/mcp-tasks-extension':
         specifier: workspace:*
         version: link:../mcp-tasks-extension
+      '@brainstrike/state-store':
+        specifier: workspace:*
+        version: link:../state-store
       '@brainstrike/tokenization':
         specifier: workspace:*
         version: link:../tokenization
@@ -1316,6 +1319,9 @@ importers:
       '@brainstrike/types':
         specifier: workspace:*
         version: link:../types
+      '@brainstrike/windows-job-native':
+        specifier: workspace:*
+        version: link:../windows-job-native
       '@mastra/core':
         specifier: 1.71.0
         version: 1.71.0(patch_hash=63d38ee3a5b865fe003d07bfe5847f9f9d2c6403b41bfb910b5e26344b12219b)(ai@7.0.126(zod@4.6.5))(express@5.2.1(supports-color@10.2.2))(rxjs@7.8.2)(supports-color@10.2.2)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)
@@ -2949,6 +2955,9 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.118
+      jsonc-parser:
+        specifier: ^3.3.1
+        version: 3.3.1
       minimatch:
         specifier: 'catalog:'
         version: 10.2.6
@@ -3587,6 +3596,9 @@ importers:
 
   packages/state-store:
     dependencies:
+      '@brainstrike/secure-fs-native':
+        specifier: workspace:*
+        version: link:../secure-fs-native
       better-sqlite3:
         specifier: 'catalog:'
         version: 13.0.3

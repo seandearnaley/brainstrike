@@ -128,14 +128,14 @@ function wakeHostRunBranch(
   };
 }
 
-/** A user message: its prompt alone, or its prompt followed by its images. */
+/** A user message: its prompt alone, or its prompt (when it has one) followed by its images. */
 function hostUserMessage(branch: HostRunBranch): UserModelMessage {
   if (!branch.attachments) {
     return { content: branch.prompt, role: 'user' };
   }
   return {
     content: [
-      { text: branch.prompt, type: 'text' },
+      ...(branch.prompt ? [{ text: branch.prompt, type: 'text' } as const] : []),
       ...branch.attachments.map(
         (attachment) =>
           ({ data: attachment.data, mediaType: attachment.mediaType, type: 'file' }) as const

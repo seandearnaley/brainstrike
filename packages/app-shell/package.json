@@ -62,6 +62,14 @@
       "types": "./dist/assistant-thread-host-context.d.ts",
       "import": "./dist/assistant-thread-host-context.js"
     },
+    "./mcp-status-capability": {
+      "types": "./dist/mcp-status-capability.d.ts",
+      "import": "./dist/mcp-status-capability.js"
+    },
+    "./mcp-tools-capability": {
+      "types": "./dist/mcp-tools-capability.d.ts",
+      "import": "./dist/mcp-tools-capability.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
@@ -187,7 +195,7 @@
   "main": "dist/index.js",
   "module": "dist/index.js",
   "peerDependencies": {
-    "react": "^19.2.4",
+    "react": "^19.3.0",
     "react-dom": "^19.2.4",
     "zustand": "^5"
   },

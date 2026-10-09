@@ -93,6 +93,10 @@ export type {
 } from './changeset-snapshot-targets';
 
 type SnapshotChangeset = Extract<Changeset, { kind: 'agent-run' | 'run-range' }>;
+type RunRange = Pick<
+  Extract<Changeset, { kind: 'run-range' }>,
+  'fromRunId' | 'threadId' | 'toRunId'
+>;
 
 export interface SnapshotRunAnchor {
   readonly completedAt: string | null;
@@ -590,24 +594,57 @@ export function createSnapshotChangesetResolver(
   }
 
   /**
-   * Resolve a `run-range` changeset: the FROM turn's start ↔ the TO turn's
-   * end, per root. A root mounted mid-range takes its first in-range start;
-   * a root unmounted mid-range takes its last in-range end. An open TO turn
-   * resolves to the live work-tree side when it is live in this process.
+   * A host thread's range is a rewind preview's: each root's restore point
+   * against the live work-tree. A range ending at a TO run is not resolved.
    */
-  async function resolveRunRangeTargets(changeset: {
-    readonly fromRunId: string;
-    readonly threadId: string;
-    readonly toRunId?: string | undefined;
-  }): Promise<GitResult<ResolvedTurnTargets>> {
-    const repo = await repository();
-    const rows = await repo.snapshotsForThread(changeset.threadId);
-    const brackets = resolveSnapshotTurnBrackets(rows);
-    if (brackets.length === 0) {
-      return snapshotMissingError(
-        `no workspace snapshots exist for thread "${changeset.threadId}" — this range predates the snapshot engine`
-      );
+  async function hostRangeTargets(
+    hostThreads: HostThreadTurns,
+    changeset: RunRange
+  ): Promise<GitResult<ResolvedTurnTargets>> {
+    if (changeset.toRunId !== undefined) {
+      return {
+        error: `run-range-unsupported: a host thread's run range resolves only to the live work-tree, so thread "${changeset.threadId}" has no range ending at run "${changeset.toRunId}".`,
+        ok: false,
+      };
     }
+    return await hostThreads.rangeTargetsOf(changeset.threadId, changeset.fromRunId);
+  }
+
+  /**
+   * Resolve a `run-range` changeset. A host thread's comes from the host's
+   * log (`hostRangeTargets`); a legacy thread's from the ledger's brackets.
+   */
+  async function resolveRunRangeTargets(
+    changeset: RunRange
+  ): Promise<GitResult<ResolvedTurnTargets>> {
+    // A known host thread's range comes from the host's log alone.
+    if (deps.hostThreads?.knows(changeset.threadId)) {
+      return await hostRangeTargets(deps.hostThreads, changeset);
+    }
+    const repo = await repository();
+    const brackets = resolveSnapshotTurnBrackets(await repo.snapshotsForThread(changeset.threadId));
+    if (brackets.length > 0) {
+      return await ledgerRangeTargets(changeset, brackets);
+    }
+    // A host thread records its turns in the host's log, never the ledger.
+    if (deps.hostThreads && (await deps.hostThreads.owns(changeset.threadId))) {
+      return await hostRangeTargets(deps.hostThreads, changeset);
+    }
+    return snapshotMissingError(
+      `no workspace snapshots exist for thread "${changeset.threadId}" — this range predates the snapshot engine`
+    );
+  }
+
+  /**
+   * A legacy `run-range`: the FROM turn's start ↔ the TO turn's end, per root.
+   * A root mounted mid-range takes its first in-range start; a root unmounted
+   * mid-range takes its last in-range end. An open TO turn resolves to the
+   * live work-tree side when it is live in this process.
+   */
+  async function ledgerRangeTargets(
+    changeset: RunRange,
+    brackets: readonly SnapshotTurnBracket[]
+  ): Promise<GitResult<ResolvedTurnTargets>> {
     const fromResult = await bracketForRangeAnchor(
       brackets,
       changeset.threadId,

@@ -4,6 +4,10 @@ export * from './app-config';
 export * from './app-layout';
 export * from './assistant-chat-panel';
 export {
+  type AssistantOperatingRootCandidate,
+  resolveAssistantOperatingRootBinding,
+} from './assistant-operating-root';
+export {
   buildAgentLoopSettings,
   buildAssistantMemoryOptions,
   buildDraftRuntimeForProvider,

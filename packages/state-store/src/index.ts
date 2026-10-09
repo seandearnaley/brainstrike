@@ -22,6 +22,7 @@ export {
   type LockOptions,
   type LockOwner,
   processStartTime,
+  type RootHolder,
   RootLock,
   RootLockedError,
 } from './lock.js';
@@ -32,8 +33,6 @@ export type {
   McpTaskIdentityWire,
   McpTaskInsertWire,
   McpTaskLeaseWire,
-  McpTaskLegacyAuthorityWire,
-  McpTaskLegacyTaskWire,
   McpTaskPatchWire,
   McpTaskScopeWire,
   McpTaskStatusWire,
@@ -46,12 +45,18 @@ export type {
   MemoryEntityChange,
   MemoryJson,
   MemoryJsonObject,
-  MemoryLegacyImport,
   MemoryNativeCalculator,
   MemoryNativeMethod,
   MemoryNativeRequest,
   MemorySnapshot,
 } from './memory-types.js';
+export {
+  type NativeChild,
+  type NativeChildObserver,
+  observeNativeChildren,
+  spawnNativeChild,
+  trackNativeChild,
+} from './native-children.js';
 export { blobsOf, TOMBSTONE_BODY, withSeq } from './run-log-format.mjs';
 export type { AppendItem, BlobContent, LogRow, RunEvent, ThreadStatus } from './run-log-types.js';
 export { SCHEMA_VERSION } from './schema.mjs';
@@ -67,6 +72,7 @@ export {
   BLOB_MIN_BYTES,
   BLOBS_DIR,
   type ExportedThread,
+  type HydrationThread,
   type IndexerPort,
   largeText,
   type Manifest,

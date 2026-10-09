@@ -9,6 +9,13 @@
 // `cp -R`, the export bundle) carries it, and the owner records the root's realpath. A lock from another host is refused unconditionally. A same-host lock copied from another root cannot be judged
 // by pid: the opener confirms the copied-root takeover explicitly.
 //
+// The record names the owner; on POSIX the Root itself is an flock(2) on `<root>/lock/root.flock`, taken right after a
+// generation is claimed and inherited by every native process the owner starts (`spawnNativeChild`). An flock belongs
+// to the open file description, so it outlives a crashed owner for as long as any descendant that inherited it lives:
+// a record is stale only when its pid is dead AND that flock is free (ADR-0017). A claim that finds the flock held is
+// withdrawn, so the earlier record stays newest. Windows has no inheritable lock; the host's Job Object ends its native
+// processes with it instead.
+//
 // Owner identity = { pid, start, host, root, token }. `start` is the OS-reported start time of `pid`, read the SAME way
 // for the owner (at acquisition) and for a checker, so the comparison is exact and defeats pid reuse:
 //   darwin/linux: `ps -o lstart= -p <pid>` with LC_ALL=C TZ=UTC (1 s resolution);
@@ -17,6 +24,7 @@ import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import {
   closeSync,
+  constants,
   fsyncSync,
   linkSync,
   mkdirSync,
@@ -29,6 +37,7 @@ import {
   unlinkSync,
   writeSync,
 } from 'node:fs';
+import { createRequire } from 'node:module';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { newRetryStats, type RetryStats, retrySharing } from './fs-retry.mjs';
@@ -42,12 +51,21 @@ export interface LockOwner {
   readonly token: string;
 }
 
+/** Who holds a refused Root: its live owner, or a surviving native process the named owner started. */
+export type RootHolder = 'owner' | 'native-tail';
+
 export class RootLockedError extends Error {
+  readonly holder: RootHolder;
   readonly owner: LockOwner;
 
-  constructor(owner: LockOwner) {
-    super(`data root is in use by pid ${owner.pid} on ${owner.host} (started ${owner.start})`);
+  constructor(owner: LockOwner, holder: RootHolder = 'owner') {
+    super(
+      holder === 'owner'
+        ? `data root is in use by pid ${owner.pid} on ${owner.host} (started ${owner.start})`
+        : `data root is still held by a native process that pid ${owner.pid} on ${owner.host} (started ${owner.start}) started`
+    );
     this.name = 'RootLockedError';
+    this.holder = holder;
     this.owner = owner;
   }
 }
@@ -150,6 +168,39 @@ function pidExists(pid: number): boolean {
   }
 }
 
+type FlockAddon = Pick<typeof import('@brainstrike/secure-fs-native'), 'tryExclusiveFlock'>;
+let flockAddon: FlockAddon | undefined;
+/** Loaded on first use, so processes that only read records or start times never load the native addon. */
+function tryExclusiveFlock(fd: number): boolean {
+  flockAddon ??= createRequire(import.meta.url)('@brainstrike/secure-fs-native') as FlockAddon;
+  return flockAddon.tryExclusiveFlock(fd);
+}
+
+const FLOCK_FILE = 'root.flock';
+
+/**
+ * POSIX: open the Root's flock file and take its exclusive lock; null when another open file description (a live
+ * owner, or a native process an earlier owner started) holds it. Windows: undefined, there is no inheritable lock.
+ */
+function holdRootFlock(dir: string): number | null | undefined {
+  if (process.platform === 'win32') {
+    return undefined;
+  }
+  const fd = openSync(join(dir, FLOCK_FILE), constants.O_RDWR | constants.O_CREAT, 0o600);
+  let held: boolean;
+  try {
+    held = tryExclusiveFlock(fd);
+  } catch (error) {
+    closeSync(fd);
+    throw error;
+  }
+  if (held) {
+    return fd;
+  }
+  closeSync(fd);
+  return null;
+}
+
 const GEN = /^g(\d{12})$/;
 const genName = (g: number): string => `g${String(g).padStart(12, '0')}`;
 const generations = (dir: string): number[] =>
@@ -214,6 +265,8 @@ export interface LockOptions {
   /** Asked only for a same-host lock copied from another root. Foreign host locks are always refused. */
   readonly onForeignLock?: (owner: LockOwner) => boolean | Promise<boolean>;
   readonly onStaleBroken?: (owner: LockOwner) => void;
+  /** The host's Root: every native process this process starts through `spawnNativeChild` inherits its flock. */
+  readonly shareWithNativeChildren?: boolean;
 }
 
 /**
@@ -268,14 +321,9 @@ function linkGeneration(dir: string, me: LockOwner, next: number): boolean {
 /**
  * Take generation `next`: false when another process holds it (re-list: it is live, or itself stale) or when a newer
  * generation appeared meanwhile (we raced on an old listing: our own file is dropped, a winner may already have deleted
- * it). On success, the older generations listed in `gens` are removed.
+ * it). The older generations stay until the Root's flock is held (`dropOlderGenerations`).
  */
-function claimGeneration(
-  dir: string,
-  me: LockOwner,
-  next: number,
-  gens: readonly number[]
-): boolean {
+function claimGeneration(dir: string, me: LockOwner, next: number): boolean {
   if (!linkGeneration(dir, me, next)) {
     return false;
   }
@@ -283,12 +331,60 @@ function claimGeneration(
     unlinkIfExists(join(dir, genName(next)));
     return false;
   }
+  return true;
+}
+
+function dropOlderGenerations(dir: string, next: number, gens: readonly number[]): void {
   for (const g of gens) {
     if (g < next) {
       unlinkIfExists(join(dir, genName(g)));
     }
   }
-  return true;
+}
+
+// A production host process holds one; a test process may run several in-process hosts, and `spawnNativeChild`
+// refuses to guess between held leases. Released leases stay until the next shared acquisition, so a late spawn after
+// the Root was released is refused rather than started outside it.
+const sharedLeases = new Set<RootLock>();
+
+/** The Root leases this process's native children inherit (`LockOptions.shareWithNativeChildren`). */
+export function sharedRootLeases(): readonly RootLock[] {
+  return [...sharedLeases];
+}
+
+function shareLease(lock: RootLock): void {
+  for (const shared of sharedLeases) {
+    if (shared.isReleased) {
+      sharedLeases.delete(shared);
+    }
+  }
+  sharedLeases.add(lock);
+}
+
+/**
+ * After claiming generation `next`, take the Root's flock. When a native process an earlier owner started still holds
+ * it, withdraw the claim so the earlier record (`previous`) stays newest and names who started that process.
+ */
+function holdClaimedRoot(
+  dir: string,
+  next: number,
+  previous: LockOwner | null
+): number | undefined {
+  let flock: number | null | undefined;
+  try {
+    flock = holdRootFlock(dir);
+  } catch (error) {
+    unlinkIfExists(join(dir, genName(next)));
+    throw error;
+  }
+  if (flock !== null) {
+    return flock;
+  }
+  unlinkIfExists(join(dir, genName(next)));
+  if (previous === null) {
+    throw new Error(`lock: ${dir} is flocked by a process without a lock record`);
+  }
+  throw new RootLockedError(previous, 'native-tail');
 }
 
 export class RootLock {
@@ -297,11 +393,46 @@ export class RootLock {
   readonly owner: LockOwner;
   private released = false;
   private readonly releaseStats = newRetryStats();
+  #flock: number | undefined;
 
-  private constructor(dir: string, gen: number, owner: LockOwner) {
+  private constructor(dir: string, gen: number, owner: LockOwner, flock: number | undefined) {
     this.dir = dir;
     this.gen = gen;
     this.owner = owner;
+    this.#flock = flock;
+  }
+
+  /**
+   * POSIX, while held: the descriptor whose flock a native child inherits as an extra stdio slot. Undefined on Windows
+   * and after release.
+   */
+  get inheritableFd(): number | undefined {
+    return this.released ? undefined : this.#flock;
+  }
+
+  /**
+   * POSIX: whether any process still holds this Root's flock. Main asks after its host has exited and the native
+   * process groups it registered were signalled; a held flock means a native process survives and the Root stays
+   * refused. Windows has no flock (its host's Job Object ends the native processes), so asking there throws.
+   */
+  static isFlockHeld(root: string): boolean {
+    if (process.platform === 'win32') {
+      throw new Error('lock: the Root flock is POSIX-only');
+    }
+    let fd: number;
+    try {
+      fd = openSync(join(RootLock.dirOf(root), FLOCK_FILE), constants.O_RDWR);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === 'ENOENT') {
+        return false;
+      }
+      throw e;
+    }
+    try {
+      return !tryExclusiveFlock(fd);
+    } finally {
+      closeSync(fd);
+    }
   }
 
   static dirOf(root: string): string {
@@ -347,9 +478,10 @@ export class RootLock {
       const gens = generations(dir);
       const top = gens.at(-1);
       let next = 0;
+      let cur: LockOwner | null = null;
       let broken: LockOwner | null = null;
       if (top !== undefined) {
-        const cur = readOwner(join(dir, genName(top)));
+        cur = readOwner(join(dir, genName(top)));
         if (cur === null) {
           continue; // dropped by a racing loser between list and read: re-list
         }
@@ -358,13 +490,19 @@ export class RootLock {
         }
         next = top + 1;
       }
-      if (!claimGeneration(dir, me, next, gens)) {
+      if (!claimGeneration(dir, me, next)) {
         continue;
       }
+      const flock = holdClaimedRoot(dir, next, cur);
+      dropOlderGenerations(dir, next, gens);
       if (broken) {
         opts.onStaleBroken?.(broken);
       }
-      return new RootLock(dir, next, me);
+      const lock = new RootLock(dir, next, me, flock);
+      if (opts.shareWithNativeChildren) {
+        shareLease(lock);
+      }
+      return lock;
     }
     throw new Error(`lock: could not acquire ${dir} after 100 attempts`);
   }
@@ -393,6 +531,15 @@ export class RootLock {
     }
     if (generations(this.dir).at(-1) !== this.gen) {
       throw new Error(`lock: ${path} was superseded at release`);
+    }
+  }
+
+  /** The record says released first; the flock frees once every native child that inherited it has exited too. */
+  #closeFlock(): void {
+    const flock = this.#flock;
+    this.#flock = undefined;
+    if (flock !== undefined) {
+      closeSync(flock);
     }
   }
 
@@ -434,6 +581,7 @@ export class RootLock {
         rename();
       }
       this.released = true;
+      this.#closeFlock();
     } catch (error) {
       const primary = error instanceof ReleaseAuthorityError ? error.cause : error;
       const failures: unknown[] = [primary];

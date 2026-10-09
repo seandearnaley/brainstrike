@@ -27,6 +27,7 @@ import {
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { RemoteMcpRuntime } from '../mcp/remote-runtime';
+import { desktopAppPaths } from './fixtures/desktop-host-profile';
 
 const LOCAL_MODEL = 'onnx-community/gemma-4-E2B-it-ONNX';
 const REPLY = 'Answered by the hidden llm-host renderer.';
@@ -145,7 +146,6 @@ test('a host thread on the built-in local model generates through the hidden llm
     localLlm: inference,
     mcp: createDesktopMcpPlatformCapabilities(new RemoteMcpRuntime()),
     readConfiguration: async () => selection,
-    readLegacyMemory: async () => ({ resource: null, resourceObservations: false }),
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
   });
   let host: AgentHost | undefined;
@@ -157,6 +157,7 @@ test('a host thread on the built-in local model generates through the hidden llm
     const options = { lifetime: 'persistent' as const, root };
     host = await startAgentHost(options, (context) =>
       createHostPlatform(options, context, {
+        appPaths: desktopAppPaths(root),
         credentialStore: { kind: 'file', path: join(root, 'credentials.json') },
       })
     );

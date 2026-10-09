@@ -19,6 +19,7 @@ import type {
 import type { ResolvedMcpConfig } from '@brainstrike/assistant-contract/mcp-config';
 import type { McpTaskStorage } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
+import { callMcpAppTool } from './app-tool-call.js';
 import type { McpBearerCredentialAuthority } from './bearer-credential.js';
 import type { McpElicitationPresenterAuthority } from './elicitation-presenter.js';
 import { type AgentHostMcpCollection, bindMcpTool } from './mcp-tool-binding.js';
@@ -274,6 +275,10 @@ export async function createMcpHostServices<Collection extends AgentHostMcpColle
     mcp: {
       attachTaskOwner: (owner) => taskOwner.resolve(owner),
       authority: runtime.host,
+      callAppTool: (call, signal) => {
+        ensureOpen();
+        return callMcpAppTool(runtime, call, signal);
+      },
       close,
       executableTools,
     },
