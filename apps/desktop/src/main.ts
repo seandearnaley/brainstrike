@@ -670,8 +670,10 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       'mcp-runtime': () => cleanupMcpRuntimeForShutdown(),
       'native-index': async () => {
         await agentHostMainClient.close();
-        await agentHostClientIpc.close();
+        // Fence profile admission before joining the renderer's in-flight host connect:
+        // a host start that fails during shutdown is then never retried as a second host.
         await nativeIndexActivation.close();
+        await agentHostClientIpc.close();
       },
       'parser-host': async () => {
         await parserHostManager.stop();
