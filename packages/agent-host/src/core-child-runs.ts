@@ -425,17 +425,20 @@ export class HostChildRuns {
       throw new Error('Unknown thread');
     }
     const root = this.rootThread(threadId);
+    // Only committed children: a delegation reserves its origin before its
+    // thread commits, and a reader of the listing opens the child's own log.
+    const committed = [...this.origins].filter(([child]) => threads.has(child));
     // Colours are allocated across the whole root tree, in creation order.
     const colors = hostChildColors(
       root,
       presentations.read(root).color,
-      [...this.origins].flatMap(([child, origin]) =>
+      committed.flatMap(([child, origin]) =>
         this.rootThread(child) === root
           ? [{ parentThreadId: origin.parentThreadId, threadId: child }]
           : []
       )
     );
-    return [...this.origins].flatMap(([child, origin]) => {
+    return committed.flatMap(([child, origin]) => {
       const color = colors.get(child);
       if (origin.parentThreadId !== threadId) {
         return [];
