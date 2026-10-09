@@ -315,7 +315,7 @@ it('a selection the wire refuses releases before an admission error returns', as
 });
 
 it('serves a host command’s worktree snapshot and completion to Main’s correlation, for an admitted thread only', async () => {
-  const completed = vi.fn();
+  const completed = vi.fn(async () => []);
   const h = harness(async () => selected({}), undefined, {
     shell: { completed, worktreePaths: async () => ['/repo/.worktrees/fox'] },
   });
@@ -337,7 +337,7 @@ it('serves a host command’s worktree snapshot and completion to Main’s corre
     // The admitting run reaches Main's selection; the completion itself is unchanged.
     await expect(
       h.client.sendRequest('platform/shell/completed', { ...completion, selectionRunId: 'run' })
-    ).resolves.toEqual({ accepted: true });
+    ).resolves.toEqual({ adopted: [] });
     expect(completed).toHaveBeenCalledWith(completion);
   } finally {
     h.destroy();

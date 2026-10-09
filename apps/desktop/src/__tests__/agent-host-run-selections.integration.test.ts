@@ -38,6 +38,7 @@ import { createSnapshotService } from '../assistant-server/snapshot-service';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { RemoteMcpRuntime } from '../mcp/remote-runtime';
 import { desktopCredentialStoreSelection } from '../secrets';
+import { desktopAppPaths } from './fixtures/desktop-host-profile';
 
 /** Actual Node ports expose the same MessageEvent contract as the utility transport. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -143,7 +144,7 @@ test('Main keys each admission by its run: a borrowing child reaches the admitti
         signal: new AbortController().signal,
         store,
       },
-      { credentialStore }
+      { appPaths: desktopAppPaths(root), credentialStore }
     );
     const admitRun = platform.admitRun;
     if (!admitRun) {
