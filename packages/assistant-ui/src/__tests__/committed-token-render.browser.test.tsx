@@ -6,6 +6,7 @@ import { render, screen, within } from '@testing-library/react';
 import { expect, onTestFinished, test } from 'vitest';
 import { CommittedAssistantConversation } from '../committed-assistant-conversation';
 import {
+  answerStepLength,
   instrumentation,
   measurePublication,
   RecordedCommittedSource,
@@ -16,8 +17,8 @@ import {
   rejectingNew,
   setActEnvironment,
   settleAnimations,
-  TEXT_ROW,
 } from './committed-assistant-browser-support';
+import { publishLiveText } from './committed-live-text-support';
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
 import './assistant-conversation-panel.browser.css';
@@ -31,9 +32,11 @@ import './assistant-conversation-panel.browser.css';
 test('a recorded token does not re-render the committed wrapper', async () => {
   const { baseline } = await recordedBaseline();
   const source = new RecordedCommittedSource();
-  source.publishPrefix(TEXT_ROW['text-start'] + 1);
+  source.publishPrefix(answerStepLength);
   const store = await recordedStore(source, baseline);
   onTestFinished(() => store.dispose());
+  // The answer's text part exists, still empty: its recorded live text-start.
+  publishLiveText(store, 'text-start');
   render(
     <TooltipProvider>
       <div style={{ height: 620, width: 900 }}>
@@ -54,10 +57,7 @@ test('a recorded token does not re-render the committed wrapper', async () => {
   onTestFinished(() => {
     setActEnvironment(previousActEnvironment);
   });
-  const token = await measurePublication(
-    () => source.publishPrefix(TEXT_ROW['text-delta'] + 1),
-    true
-  );
+  const token = await measurePublication(() => publishLiveText(store, 'text-delta'), true);
 
   // Non-vacuous: the walk saw the token render its own streaming row and
   // components outside any row.

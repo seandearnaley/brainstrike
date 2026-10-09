@@ -8,6 +8,8 @@ import { attachAgentHost, startAgentHost } from '../../dist/index.js';
 
 // Explicit recording from real SDK -> socket -> writer-worker SQLite -> replay.
 // This owned fixture uses a scripted model and never invokes a live provider.
+// The same run's live `run/telemetry` (the model's text stream, never
+// committed: ADR-0011 amendment) is recorded beside its committed rows.
 const root = await mkdtemp(join(tmpdir(), 'bs-m3-record-'));
 const host = await startAgentHost(
   { lifetime: 'persistent', root },
@@ -39,14 +41,28 @@ try {
   const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
   const finished = Promise.withResolvers();
   const responded = Promise.withResolvers();
+  const telemetry = [];
+  client.onTelemetry((received) => {
+    if (received.threadId === threadId) {
+      telemetry.push(received);
+    }
+  });
+  // The decision is answered once its step has committed, as a person answers
+  // the approval the view shows, so the row order never depends on a race.
+  let requested;
   client.onEvent((row) => {
     if (row.event.type === 'interaction.requested') {
+      requested = row.event;
+    }
+    if (requested && row.event.type === 'stream.chunk' && row.event.chunk?.type === 'finish-step') {
+      const { interactionId, runId } = requested;
+      requested = undefined;
       client
         .request('interaction/respond', {
           commandId: randomUUID(),
           decision: 'approve',
-          interactionId: row.event.interactionId,
-          runId: row.event.runId,
+          interactionId,
+          runId,
           threadId,
         })
         .then(responded.resolve, responded.reject);
@@ -70,7 +86,17 @@ try {
     ),
     `${JSON.stringify(rows, null, 2)}\n`
   );
-  process.stdout.write(`Recorded ${rows.length} committed rows\n`);
+  await writeFile(
+    new URL(
+      import.meta.resolve(
+        '@brainstrike/test-utils/fixtures/committed-approved-host-run-telemetry.json'
+      )
+    ),
+    `${JSON.stringify(telemetry, null, 2)}\n`
+  );
+  process.stdout.write(
+    `Recorded ${rows.length} committed rows and ${telemetry.length} telemetry chunks\n`
+  );
 } finally {
   await client.close();
   await host.close();

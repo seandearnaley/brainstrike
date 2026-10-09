@@ -21,6 +21,7 @@ import { useCommittedAssistantSelector } from '../use-committed-assistant-runtim
 import type { ToolResultRenderer } from '../use-tool-result-renderers';
 import {
   ATTRIBUTION_TRIALS,
+  answerStepLength,
   CHILD_THREAD_ID,
   captureUncaught,
   committedRows,
@@ -55,17 +56,16 @@ import {
   settleAnimations,
   settleFrames,
   TEXT_KINDS,
-  TEXT_ROW,
   TOOL_CARD_COMPONENTS,
   TRIALS,
   tabTo,
-  textStartLength,
   useReducedMotion,
   useViewport,
   watchUnchanged,
   ZERO_COUNTS,
 } from './committed-assistant-browser-support';
 import { PublishedConversation } from './committed-assistant-test-support';
+import { publishLiveText, TEXT_PUBLICATIONS } from './committed-live-text-support';
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
 import './assistant-conversation-panel.browser.css';
@@ -214,10 +214,6 @@ describe('same-thread connection changes', () => {
   );
 });
 
-/** Rows after text-start: the recorded token, text end, step/run finish. */
-const TEXT_PUBLICATIONS = committedRows
-  .slice(textStartLength)
-  .map((_, offset) => textStartLength + offset + 1);
 const READER_PANEL_HEIGHT = 300;
 /** A reading position needs real content above and below it. */
 const MIN_READER_OVERFLOW_PX = 48;
@@ -225,7 +221,7 @@ const MIN_READER_OVERFLOW_PX = 48;
 async function mountReader(width: number) {
   const { baseline } = await recordedBaseline();
   const source = new RecordedCommittedSource();
-  source.publishPrefix(textStartLength);
+  source.publishPrefix(answerStepLength);
   const store = await recordedStore(source, baseline);
   onTestFinished(() => store.dispose());
   const view = render(
@@ -260,7 +256,7 @@ describe('reading position', () => {
     async ({ width, reducedMotion }) => {
       await useViewport(width);
       await useReducedMotion(reducedMotion);
-      const { baseline, source, surface, view } = await mountReader(width);
+      const { baseline, source, store, surface, view } = await mountReader(width);
       const { viewport, ui } = surface;
       expect(getComputedStyle(viewport).scrollBehavior).toBe(reducedMotion ? 'auto' : 'smooth');
       const jump = ui.getByRole('button', { name: 'Scroll to latest messages' });
@@ -292,9 +288,9 @@ describe('reading position', () => {
       };
 
       const contentBefore = viewport.scrollHeight;
-      for (const length of TEXT_PUBLICATIONS) {
-        await act(async () => source.publishPrefix(length));
-        await expectReaderUndisturbed(`committed row ${length}`);
+      for (const publication of TEXT_PUBLICATIONS) {
+        await act(async () => publication.publish(source, store));
+        await expectReaderUndisturbed(publication.label);
       }
       expect(ui.getByText(COMPLETED_TEXT)).toBeInTheDocument();
       // Non-vacuous: the committed text really grew the transcript below the reader.
@@ -345,7 +341,7 @@ describe('reading position', () => {
     async ({ width, reducedMotion }) => {
       await useViewport(width);
       await useReducedMotion(reducedMotion);
-      const { source, surface } = await mountReader(width);
+      const { source, store, surface } = await mountReader(width);
       const { viewport, ui } = surface;
       const jump = ui.getByRole('button', { name: 'Scroll to latest messages' });
       const expectPinned = async (step: string): Promise<void> => {
@@ -360,11 +356,11 @@ describe('reading position', () => {
       };
       await expectPinned('opened');
       const contentBefore = viewport.scrollHeight;
-      for (const length of TEXT_PUBLICATIONS) {
+      for (const publication of TEXT_PUBLICATIONS) {
         const before = viewport.scrollHeight;
-        await act(async () => source.publishPrefix(length));
+        await act(async () => publication.publish(source, store));
         await expectPinned(
-          `committed row ${length} (scrollHeight ${before} → ${viewport.scrollHeight})`
+          `${publication.label} (scrollHeight ${before} → ${viewport.scrollHeight})`
         );
       }
       // Non-vacuous: following meant moving, because the committed text grew.
@@ -866,7 +862,7 @@ const MEASUREMENT_TIMEOUT_MS = (TRIALS + ATTRIBUTION_TRIALS) * 2 * getConfig().a
 /** One measured trial: the root over the recorded store beside an independent child. */
 const mountMeasuredTrial: MountTrial = async ({ baseline, firstChild, saved }) => {
   const source = new RecordedCommittedSource();
-  source.publishPrefix(TEXT_ROW['text-start']);
+  source.publishPrefix(answerStepLength);
   const store = await recordedStore(source, baseline);
   const childStore = new PublishedConversation(CHILD_THREAD_ID, [firstChild]);
   const counts: RenderCounts = { ...ZERO_COUNTS };
@@ -912,7 +908,7 @@ const mountMeasuredTrial: MountTrial = async ({ baseline, firstChild, saved }) =
     counts,
     promptRow,
     publishChild: (message) => childStore.replaceMessage(message),
-    publishRow: (length) => source.publishPrefix(length),
+    publishText: (kind) => publishLiveText(store, kind),
     savedRow,
     toolCard: root.ui.getByTestId('tool-fallback'),
     unmount: () => {

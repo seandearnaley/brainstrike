@@ -329,14 +329,17 @@ export function eventIndex(type: string): number {
   return rowIndex(({ event }) => event['type'] === type, type);
 }
 
-/** Index of the first recorded `stream.chunk` row carrying this chunk type. */
-export function chunkIndex(type: string): number {
-  return rowIndex(
+/** Index of the last recorded `stream.chunk` row carrying this chunk type. */
+function lastChunkIndex(type: string): number {
+  const index = committedRows.findLastIndex(
     ({ event }) =>
       event['type'] === 'stream.chunk' &&
-      (event['chunk'] as { readonly type?: unknown } | undefined)?.type === type,
-    `stream.chunk ${type}`
+      (event['chunk'] as { readonly type?: unknown } | undefined)?.type === type
   );
+  if (index < 0) {
+    throw new Error(`The committed recording has no stream.chunk ${type} row.`);
+  }
+  return index;
 }
 
 const started = committedRows[eventIndex('run.started')];
@@ -371,14 +374,16 @@ export const pendingApprovalLength = committedRows.findIndex(
 );
 /** The committed response suffix ends with the host's `interaction.responded`. */
 export const respondedLength = eventIndex('interaction.responded') + 1;
-/** Prefix through `text-start`: the answer's text part exists and is still empty. */
-export const textStartLength = chunkIndex('text-start') + 1;
-/** The recorded run's single text token. */
-export const tokenIndex = chunkIndex('text-delta');
+/**
+ * Prefix through the answer step's committed `start-step`: the run is active
+ * and its answer step open, with no text yet. The step's text then streams as
+ * live telemetry, and its `model.step` (the next row) commits it.
+ */
+export const answerStepLength = lastChunkIndex('start-step') + 1;
 if (
   pendingApprovalLength <= eventIndex('interaction.requested') ||
   respondedLength <= pendingApprovalLength ||
-  tokenIndex !== textStartLength ||
+  committedRows[answerStepLength]?.event['type'] !== 'model.step' ||
   recordedToolResult === undefined
 ) {
   throw new Error('The committed recording no longer has the expected publication order.');
@@ -695,11 +700,6 @@ export const TOOL_CARD_COMPONENTS = new Set([
   'ToolFallbackRow',
 ]);
 export type TextKind = (typeof TEXT_KINDS)[number];
-export const TEXT_ROW: Readonly<Record<TextKind, number>> = {
-  'text-delta': tokenIndex,
-  'text-end': tokenIndex + 1,
-  'text-start': tokenIndex - 1,
-};
 
 export interface PublicationTiming {
   readonly commits: number;
@@ -909,7 +909,8 @@ export interface TrialHandles {
   readonly counts: RenderCounts;
   readonly promptRow: HTMLElement;
   readonly publishChild: (message: ThreadMessage) => void;
-  readonly publishRow: (length: number) => void;
+  /** Deliver one recorded live text chunk to the trial's store. */
+  readonly publishText: (kind: TextKind) => void;
   readonly savedRow: HTMLElement;
   readonly toolCard: HTMLElement;
   readonly unmount: () => void;
@@ -926,7 +927,7 @@ export type MountTrial = (recorded: {
 /**
  * Mounts ATTRIBUTION_TRIALS walked trials then TRIALS timed trials. Each trial
  * delivers the child's recorded progress (root must not render), then the
- * recorded text-start, token and text-end rows, measuring each publication.
+ * recorded text-start, token and text-end telemetry, measuring each publication.
  */
 export async function measureRecordedTextPublications(
   mountTrial: MountTrial,
@@ -1013,7 +1014,7 @@ export async function measureRecordedTextPublications(
           const before = { ...counts };
           const toolCardBefore = views.toolCard;
           const timing = await measurePublication(
-            () => handles.publishRow(TEXT_ROW[kind] + 1),
+            () => handles.publishText(kind),
             attributeRenders
           );
           const unrelatedDom = unrelated.read();
