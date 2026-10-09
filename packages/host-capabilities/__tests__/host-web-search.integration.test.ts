@@ -210,8 +210,10 @@ test.for([
       );
     };
     // OpenRouter has no provider search, so the catalog tool runs in the host.
+    // Hosted discovery defers it: the model loads it, then calls it.
     const toolName = 'brainstrike_webSearch';
     const model = scriptedToolSequence([
+      { input: { toolName }, toolId: 'load_tool' },
       { input: { query: 'brainstrike host' }, toolId: toolName },
     ]);
     const { rows, webSearchName } = await startWebSearchHost({
@@ -224,7 +226,17 @@ test.for([
     });
     expect(webSearchName).toBe(toolName);
     expect(authorizations).toEqual([`Bearer ${expected}`]);
-    expect(rows.find(({ event }) => event.type === 'effect.finished')?.event).toMatchObject({
+    const search = rows.find(
+      ({ event }) => event.type === 'effect.started' && event.toolId === toolName
+    )?.event;
+    expect(
+      rows.find(
+        ({ event }) =>
+          event.type === 'effect.finished' &&
+          search?.type === 'effect.started' &&
+          event.toolCallId === search.toolCallId
+      )?.event
+    ).toMatchObject({
       output: { available: true, count: 1, results: [{ url: 'https://example.com/a' }] },
     });
     expect(JSON.stringify(rows)).not.toContain(expected);

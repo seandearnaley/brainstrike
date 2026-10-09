@@ -155,9 +155,13 @@ test('a host thread using the task list, a canvas, a file write and its undo wri
         }
         return name;
       };
+      // Hosted discovery defers the task list and canvas: the model loads them first.
+      const taskList = 'brainstrike_manageTaskList';
+      const canvas = 'brainstrike_manageCanvas';
       return {
         finalText: FINAL,
         toolCallStages: [
+          [{ arguments: { toolNames: [taskList, canvas] }, name: tool('load_tool') }],
           [
             {
               arguments: {
@@ -170,13 +174,13 @@ test('a host thread using the task list, a canvas, a file write and its undo wri
                   { activeForm: 'Writing the file', content: 'Write the file', status: 'pending' },
                 ],
               },
-              name: tool('manageTaskList'),
+              name: taskList,
             },
           ],
           [
             {
               arguments: { action: 'create', html: '<h1>Plan</h1>', title: 'Plan canvas' },
-              name: tool('manageCanvas'),
+              name: canvas,
             },
           ],
           [
@@ -224,7 +228,7 @@ test('a host thread using the task list, a canvas, a file write and its undo wri
     const afterUndo = await legacySnapshot(page);
     expect(changedTables(before, afterUndo), 'legacy rows written by the undo').toEqual({});
     const log = await readAgentHostLog(electron.getUserDataDir());
-    expect(log.typeCounts['effect.finished']).toBe(3);
+    expect(log.typeCounts['effect.finished']).toBe(4);
     expect(modelProvider.refusals()).toEqual([]);
   } finally {
     rmSync(root, { force: true, recursive: true });

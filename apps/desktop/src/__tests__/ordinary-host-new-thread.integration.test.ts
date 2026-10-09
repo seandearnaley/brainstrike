@@ -172,8 +172,10 @@ test(
       if (!(mcpName && mcpTool)) {
         throw new Error('The actual MCP executor has no host binding');
       }
+      // Hosted discovery defers the MCP tool: the model loads it before calling it.
       const model = scriptedToolSequence([
         { input: { text: 'ordinary native SQLite retrieval evidence' }, toolId: 'write_file' },
+        { input: { toolName: mcpName }, toolId: 'load_tool' },
         { input: {}, toolId: mcpName },
         { input: { query: 'retrieval' }, toolId: 'search_index' },
       ]);
@@ -200,7 +202,7 @@ test(
             return {
               configuration: { model: 'gpt-5.4', provider: 'openai' },
               durableConfiguration: { model: 'gpt-5.4', provider: 'openai' },
-              maxSteps: 4,
+              maxSteps: 5,
               memory: {
                 native: {
                   options: {
@@ -373,7 +375,7 @@ test(
       await page.screenshot({ path: join(evidence, 'ordinary-completed.png') });
       expect(await readFile(path, 'utf8')).toBe('ordinary native SQLite retrieval evidence');
       const committed = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
-      expect(committed.filter((row) => row.event.type === 'effect.finished')).toHaveLength(3);
+      expect(committed.filter((row) => row.event.type === 'effect.finished')).toHaveLength(4);
       expect(committed.findLast((row) => row.event.type === 'run.finished')?.event).toMatchObject({
         outcome: 'completed',
         type: 'run.finished',
