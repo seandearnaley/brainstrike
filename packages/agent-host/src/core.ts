@@ -30,7 +30,6 @@ import {
   stopHostRunTree,
 } from './core-run-lifecycle.js';
 import {
-  createHostRunContext,
   foldHostAcceptedCommand,
   foldHostInteraction,
   foldHostRunEffect,
@@ -63,6 +62,7 @@ import {
   ensureHostRunAdmission,
   hostMcpUnavailableEvents,
   hostRunCommandRequest,
+  openHostRunOwner,
 } from './run-admission.js';
 import {
   admittedHostRun,
@@ -898,14 +898,9 @@ export class HostCore {
   }
 
   private openRun(run: Run): Promise<HostRunOwner | undefined> {
-    run.owner ??= ensureHostRunAdmission(this.platform, run).then((admission) => {
-      const open = admission.openRun ?? this.platform.openRun?.bind(this.platform);
-      return open?.({
-        ...createHostRunContext(run, (threadId, events) => this.append(threadId, events, 'full')),
-        ...(admission.workingMemory === false ? { workingMemory: false as const } : {}),
-      });
-    });
-    return run.owner;
+    return openHostRunOwner(this.platform, run, (threadId, events) =>
+      this.append(threadId, events, 'full')
+    );
   }
 
   private closeRunOwner(run: Run): Promise<void> {
