@@ -24,7 +24,7 @@ import {
   type HostProjectionRewrites,
   prepareProjectionRewrites,
 } from './projection-rewrites.js';
-import type { HostEvent, HostLogRow } from './protocol.js';
+import type { HostEvent, HostLogRow, HostRunTelemetry } from './protocol.js';
 import {
   combineHostSystemContext,
   createAdmittedHostSdkTools,
@@ -94,6 +94,8 @@ export interface HostRunExecutionPorts {
   readonly rewrites: HostProjectionRewrites;
   readonly runs: ReadonlyMap<string, Run>;
   syncBoundary(threadId: string): Promise<void>;
+  /** Publish a running tool's live telemetry to the thread's subscribers; never committed. */
+  telemetry(telemetry: HostRunTelemetry): void;
 }
 
 /** Run one admitted tool effect under its exact permission decision, committing start and output. */
