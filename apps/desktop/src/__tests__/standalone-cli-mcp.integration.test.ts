@@ -115,12 +115,13 @@ async function refusedUrl(): Promise<string> {
 /** A started standalone host over `servers`, whose model calls the reachable reference tool. */
 async function startHost(servers: readonly Record<string, string>[]) {
   const dataRoot = await mkdtemp(join(tmpdir(), 'bs-c2-cli-mcp-'));
-  // The model calls the configured MCP tool, then answers. A turn without the
-  // tool (the title request) ends with a reply naming what was offered.
+  // Hosted discovery defers MCP tools: the model loads the configured MCP tool,
+  // calls it, then answers. A turn without discovery (the title request) ends
+  // with a reply naming what was offered.
   const shim: ModelProviderShim = await startModelProviderShim((request) =>
-    request.toolNames.includes(TOOL)
-      ? { finalText: FINAL, toolCall: { arguments: {}, name: TOOL } }
-      : { finalText: `No ${TOOL} offered: ${request.toolNames.join(', ')}` }
+    request.toolNames.includes('load_tool')
+      ? { deferredTool: true, finalText: FINAL, toolCall: { arguments: {}, name: TOOL } }
+      : { finalText: `No load_tool offered: ${request.toolNames.join(', ')}` }
   );
   const run = cli(dataRoot, {
     ...resolveProviderEgressEnvironment(shim, []),
@@ -173,11 +174,14 @@ async function runReferenceTool(run: Cli) {
     .object({ runId: z.string(), threadId: z.string() })
     .parse(JSON.parse(finished.stdout.split('\n')[0] ?? ''));
   const events = (await rows(run, threadId)).map((row) => row.event);
-  expect(events.find((event) => event.type === 'effect.started')).toMatchObject({
-    toolCatalogId: `${SERVER}.test_simple_text`,
-    toolId: TOOL,
-  });
-  const effect = events.find((event) => event.type === 'effect.finished');
+  const started = events.find((event) => event.type === 'effect.started' && event.toolId === TOOL);
+  expect(started).toMatchObject({ toolCatalogId: `${SERVER}.test_simple_text`, toolId: TOOL });
+  const effect = events.find(
+    (event) =>
+      event.type === 'effect.finished' &&
+      started?.type === 'effect.started' &&
+      event.toolCallId === started.toolCallId
+  );
   expect(JSON.stringify(effect)).toContain('This is a simple text response for testing.');
   expect(events.find((event) => event.type === 'run.finished')).toMatchObject({
     outcome: 'completed',

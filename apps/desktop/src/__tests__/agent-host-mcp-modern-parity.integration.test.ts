@@ -234,7 +234,10 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
       resultMetadata: null,
       status: 'input_required',
     });
-    expect(eventOf(log.rows(), 'effect.finished')).toBeUndefined();
+    const { toolCallId } = await log.effect();
+    expect(
+      eventOf(log.rows(), 'effect.finished', (event) => event.toolCallId === toolCallId)
+    ).toBeUndefined();
     expect(modern.presentations.items).toEqual([]);
     expect(modern.inputs.items).toEqual([input]);
     expect(modern.finalized.items).toEqual([
@@ -391,8 +394,12 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
 
     const second = await reopenAndRecover(first, lab, threadId);
     const reopened = (await second.client.request('thread/read', { fromSeq: 0, threadId })).rows;
-    expect(eventOf(reopened, 'effect.started')).toEqual(effect);
-    expect(eventOf(reopened, 'effect.finished')).toBeUndefined();
+    expect(eventOf(reopened, 'effect.started', (event) => event.toolId === effect.toolId)).toEqual(
+      effect
+    );
+    expect(
+      eventOf(reopened, 'effect.finished', (event) => event.toolCallId === effect.toolCallId)
+    ).toBeUndefined();
     expect(eventOf(reopened, 'run.finished')).toMatchObject({ outcome: 'interrupted', runId });
     const recovered = await firstOf({
       local: second.presentations.until((items) => items[0]),
@@ -583,7 +590,10 @@ describe('modern MCP host parity over the loopback lab (BST-1930, BST-1931)', ()
     });
     const { log, runId } = await startThreadRun(modern, 'Confirm through the legacy server');
     expect(await log.finished()).toMatchObject({ runId });
-    expect(eventOf(log.rows(), 'effect.finished')).toMatchObject({
+    const { toolCallId } = await log.effect();
+    expect(
+      eventOf(log.rows(), 'effect.finished', (event) => event.toolCallId === toolCallId)
+    ).toMatchObject({
       output: { error: { code: 'tool_failed', toolName: 'lab.legacy.elicit_confirm' }, ok: false },
     });
     expect(records).toContainEqual(

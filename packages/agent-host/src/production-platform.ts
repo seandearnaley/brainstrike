@@ -14,6 +14,7 @@ import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract
 import type { VectorProfile } from '@brainstrike/indexer';
 import type { LanguageModel } from 'ai';
 import { z } from 'zod';
+import { committedRunMessages, createHostToolDiscovery } from './adapters/host-tool-discovery.js';
 import { createMcpHostToolAdapter } from './adapters/mcp.js';
 import type { HostMemory } from './adapters/memory.js';
 import { hostMemoryTools } from './adapters/memory-tools.js';
@@ -315,13 +316,25 @@ export async function createProductionHostPlatform(
             runMemory
           )
         );
+        // Hosted providers defer tools behind the legacy catalog search, over this run's committed steps.
+        const discovery = await createHostToolDiscovery({
+          modelId: request.modelId,
+          provider: selected.providerRequestContext.provider,
+          readRunMessages: (run) =>
+            committedRunMessages(options.startup.store, selected.memory.resourceId, run),
+          tools: authoredTools,
+        });
         // One run-bound registry supplies SDK declarations and approval/restart
         // validation against the concrete resolved model, including MCP opt-out.
-        const tools = await prepareHostProviderTools(model, authoredTools);
+        const tools = await prepareHostProviderTools(
+          model,
+          discovery ? mergeToolCatalogs(authoredTools, discovery.tools) : authoredTools
+        );
         request.signal.throwIfAborted();
         const selection: HostRunAdmission = {
           close: release,
           configuration: selected.configuration,
+          ...(discovery ? { discovery: discovery.discovery } : {}),
           // Like the legacy Memory default (`generateTitle: true`).
           generatesThreadTitle: true,
           hooks: selected.hooks,
