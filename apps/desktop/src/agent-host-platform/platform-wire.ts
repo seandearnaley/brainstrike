@@ -340,3 +340,15 @@ export const PlatformAuthSchema = z.union([
   z.null(),
 ]);
 export type PlatformSelection = z.output<typeof PlatformSelectionSchema>;
+/**
+ * thread/memory/read: the admission's pure preconditions, evaluated by Main
+ * with nothing acquired. Not ready carries what `platform/admit` fails with.
+ */
+export const PlatformMemoryReadinessSchema = z.union([
+  z.strictObject({ ready: z.literal(false), reason: z.string().min(1) }),
+  z.strictObject({
+    memory: PlatformSelectionSchema.shape.memory,
+    ready: z.literal(true),
+    resourceId: Id,
+  }),
+]);

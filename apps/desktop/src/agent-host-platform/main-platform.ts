@@ -28,6 +28,7 @@ import {
   PlatformLocalGenerationResultSchema,
   PlatformLocalGenerationSchema,
   PlatformLocalWarmupSchema,
+  PlatformMemoryReadinessSchema,
   PlatformPolicySchema,
   PlatformProgressSchema,
   PlatformRunRequestSchema,
@@ -61,6 +62,10 @@ export interface DesktopPlatformCapabilities {
   /** The Node host always composes its MCP runtime, which reaches these Main stores. */
   readonly mcp: DesktopMcpPlatformCapabilities;
   readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopPlatformSelection>;
+  /** thread/memory/read: the same preconditions `readConfiguration` starts with, nothing acquired. */
+  readMemoryReadiness?(
+    request: HostRunAdmissionRequest
+  ): Promise<z.input<typeof PlatformMemoryReadinessSchema>>;
   readPermissionPolicy(
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
@@ -317,6 +322,22 @@ export function serveDesktopPlatform(
       const { threadId } = z.strictObject({ threadId: z.string().min(1) }).parse(input);
       return CliWorkspaceRootsSchema.parse(await selection(threadId).freshWorkspaceRoots());
     })
+  );
+  // Read-only: no selection is registered, so it never conflicts with a run's.
+  connection.onRequest(
+    'platform/memory/readiness',
+    // The explicit result type keeps vscode-jsonrpc from narrowing the union to one member.
+    (input: unknown, token: CancellationToken): Promise<unknown> =>
+      execute(token, async (signal) => {
+        const read = capabilities.readMemoryReadiness;
+        if (!read) {
+          throw new Error('Desktop memory readiness is unavailable');
+        }
+        const request = PlatformRunRequestSchema.parse(input);
+        return PlatformMemoryReadinessSchema.parse(
+          await read(desktopAdmissionRequest(request, signal))
+        );
+      })
   );
   connection.onRequest('platform/admit', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
