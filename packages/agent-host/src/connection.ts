@@ -4,9 +4,15 @@ import type { MessageConnection } from 'vscode-jsonrpc';
 import { bindHostAuthMethods } from './auth-connection.js';
 import type { HostCore } from './core.js';
 import { bindHostHookTrustMethods } from './hook-trust.js';
-import type { HostAuthService, HostClientOrigin, HostProviderService } from './ports.js';
+import type {
+  HostAuthService,
+  HostClientOrigin,
+  HostPlatform,
+  HostProviderService,
+} from './ports.js';
 import { type HostLogRow, type HostMethod, type HostParams, parseHostParams } from './protocol.js';
 import { bindHostProviderMethods } from './provider-connection.js';
+import { searchHostThreads } from './thread-search.js';
 
 export interface HostConnectionLifecycle {
   readonly closing: boolean;
@@ -22,6 +28,8 @@ export interface HostConnectionOptions {
   readonly origin?: HostClientOrigin;
   /** The platform's provider reads, where the host owns a credential store. */
   readonly providers?: HostProviderService;
+  /** Gap 10: the platform's state index search, where the host owns one. */
+  readonly searchState?: HostPlatform['searchState'];
 }
 
 /** All transports enter this same authenticated method dispatcher. */
@@ -32,7 +40,7 @@ export function bindHostConnection(
   attached: () => void,
   options: HostConnectionOptions = {}
 ): () => void {
-  const { auth, lifecycle, origin = 'public-socket', providers } = options;
+  const { auth, lifecycle, origin = 'public-socket', providers, searchState } = options;
   let initialized = false;
   let disposed = false;
   const mcpClient = {
@@ -112,6 +120,7 @@ export function bindHostConnection(
   handle('thread/read', async (params) => ({
     rows: await core.read(params.threadId, params.fromSeq),
   }));
+  handle('thread/search', (params) => searchHostThreads(core, searchState, params));
   handle('thread/workspace/read', (params) => core.readWorkspace(params.threadId));
   handle('thread/workspace/set', (params) => core.setWorkspace(params));
   handle('thread/workspace/binding/read', (params) => core.readWorkspaceBinding(params.threadId));

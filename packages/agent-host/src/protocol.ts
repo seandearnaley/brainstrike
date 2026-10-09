@@ -414,6 +414,11 @@ export const HOST_METHOD_SCHEMAS = {
   'thread/delete': z.strictObject(Thread),
   'thread/list': z.strictObject({}),
   'thread/read': z.strictObject({ ...Thread, fromSeq: Seq }),
+  /** Gap 10: the host's message and title arms for the Threads panel's fused search. */
+  'thread/search': z.strictObject({
+    limit: z.number().int().positive().max(100).optional(),
+    query: z.string().trim().min(1).max(500),
+  }),
   'thread/start': z.strictObject(Command),
   'thread/update': z
     .strictObject({ ...Command, ...Thread, ...ThreadPresentation })
@@ -822,6 +827,24 @@ export const HOST_RESULT_SCHEMAS = {
     threads: z.array(z.strictObject({ ...Thread, ...ThreadPresentation })),
   }),
   'thread/read': z.strictObject({ rows: z.array(HostLogRowSchema) }),
+  'thread/search': z.strictObject({
+    /** Best match first; each on its thread's committed selected path. */
+    messages: z.array(
+      z.strictObject({
+        createdAt: z.number().int().nonnegative(),
+        /** The matched text, each match in `<mark>`. */
+        headline: z.string(),
+        /** The id the conversation renders: the run's user message or its answer. */
+        messageId: Id,
+        role: z.enum(['assistant', 'user']),
+        /** A child thread's root; a root's own id. */
+        rootThreadId: Id,
+        threadId: Id,
+      })
+    ),
+    /** Root threads whose title holds every query word, most similar first. */
+    titles: z.array(z.strictObject({ similarity: z.number(), threadId: Id, title: ThreadTitle })),
+  }),
   'thread/start': z.strictObject(Thread),
   'thread/update': z.strictObject({ accepted: z.literal(true) }),
   'thread/workspace/binding/read': z.strictObject({

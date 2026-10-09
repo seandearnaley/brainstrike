@@ -41,6 +41,7 @@ import type {
   HostLoginCredential,
   HostRunSnapshot,
 } from './protocol.js';
+import type { HostStateSearch } from './thread-search.js';
 
 /** One committed tool-output overlay entry (the legacy ToolProjectionRewriteEntry). */
 export type HostProjectionRewrite = Extract<
@@ -456,6 +457,8 @@ export interface HostPlatform {
     readonly rootId: string;
     readonly signal: AbortSignal;
   }): Promise<string>;
+  /** Gap 10: the host's derived state index search, for `thread/search`. */
+  readonly searchState?: HostStateSearch;
   /** The native-tool output rewrite policy; Core commits what it selects. */
   selectProjectionRewrites?(
     request: HostProjectionRewriteRequest
