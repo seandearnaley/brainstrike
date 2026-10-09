@@ -34,9 +34,10 @@ import {
   type AssistantProviderSettingsUpdate,
   mergeAssistantProviderSettings,
 } from '@brainstrike/types';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { readDesktopHostConfiguration } from './desktop-host-configuration';
 import { type EnabledCatalogModels, useEnabledCatalogModels } from './use-enabled-catalog-models';
+import type { HostThreadSelectionBinding } from './use-host-thread-selection';
 
 type Presentation = Pick<
   CommittedAssistantConversationProps,
@@ -69,8 +70,21 @@ type Presentation = Pick<
 
 interface DesktopHostPresentation extends Presentation {
   readConfiguration(selectionFolderId: string | null): Record<string, unknown>;
+  /** The composer's `provider::model`: a pick, else the thread's selection (ADR-0019). */
+  readModelId(): string;
   /** Whether the next run starts in plan mode. */
   readPlanMode(): boolean;
+}
+
+/** A composer pick the host has not yet committed as the thread's selection (ADR-0019). */
+interface ComposerPick {
+  readonly error?: string;
+  readonly modelId: string;
+  readonly saving?: true;
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /** The host status's per-provider credential read failures, keyed by provider. */
@@ -161,6 +175,9 @@ function noticeProps(
 /** Existing picker/settings owners project controls; they own no assistant execution. */
 export function useDesktopHostPresentation(
   threadId: string,
+  /** ADR-0019: the host thread's run selection, the source of the composer's model. */
+  host: HostThreadSelectionBinding,
+  readSelectionFolderId: () => string | null,
   providerReadErrors?: ProviderReadErrors
 ): DesktopHostPresentation {
   useEnsureModelRegistry();
@@ -185,8 +202,11 @@ export function useDesktopHostPresentation(
   const drafts = useAssistantThreadStore((state) => state.draftRuntimeByThreadId);
   const setThreadDraftRuntime = useAssistantThreadStore((state) => state.setThreadDraftRuntime);
   const draft = drafts[threadId];
-  const selectedModel =
-    draft?.model && draft.provider ? `${draft.provider}::${draft.model}` : globalModel;
+  // A pick waits here until the host commits it as the thread's selection.
+  const [pick, setPick] = useState<ComposerPick>();
+  // ADR-0019: the host's selection, not renderer storage, names a host thread's
+  // model; a thread with none yet starts from the global default.
+  const selectedModel = pick?.modelId ?? host.selection?.modelId ?? globalModel;
   const providerId = selectedModel?.split('::')[0];
   const selectedProvider = providerId && isSupportedProvider(providerId) ? providerId : undefined;
   const model = selectedModel?.slice((selectedModel.indexOf('::') ?? -1) + 2);
@@ -275,8 +295,19 @@ export function useDesktopHostPresentation(
     selectedProvider,
   });
   // The legacy panel's order: the provider notice, then OpenRouter metadata,
-  // then an invalid settings draft.
-  const disabledReason = providerNotice.blocking ?? metadata.reason ?? providerDraft.reason;
+  // then an invalid settings draft; then the thread's own selection.
+  const disabledReason =
+    providerNotice.blocking ??
+    metadata.reason ??
+    providerDraft.reason ??
+    host.error ??
+    (pick?.error ? `Could not save the model choice: ${pick.error}` : undefined);
+  const readModelId = useCallback((): string => {
+    if (!selectedModel) {
+      throw new Error('Select a provider and model before sending');
+    }
+    return selectedModel;
+  }, [selectedModel]);
   const readConfiguration = useCallback(
     (selectionFolderId: string | null): Record<string, unknown> => {
       if (disabledReason) {
@@ -284,6 +315,7 @@ export function useDesktopHostPresentation(
       }
       return readDesktopHostConfiguration(
         threadId,
+        readModelId(),
         selectionFolderId,
         {
           agentLoop: metadata.agentLoopSettings,
@@ -302,9 +334,42 @@ export function useDesktopHostPresentation(
       metadata.modelSettings,
       model,
       providerOptions,
+      readModelId,
       selectedProvider,
       threadId,
     ]
+  );
+  // ADR-0019: a pick becomes the thread's selection once its settings resolve,
+  // so the CLI and a wake read the same choice the composer shows.
+  const { set } = host;
+  useEffect(() => {
+    if (!pick || pick.error || pick.saving || metadata.lookup?.state === 'loading') {
+      return;
+    }
+    let configuration: Record<string, unknown>;
+    try {
+      configuration = readConfiguration(readSelectionFolderId());
+    } catch (error) {
+      setPick({ error: errorText(error), modelId: pick.modelId });
+      return;
+    }
+    // A newer pick replaces this one; this save then settles nothing.
+    const saving: ComposerPick = { modelId: pick.modelId, saving: true };
+    setPick(saving);
+    set(saving.modelId, configuration).then(
+      () => setPick((current) => (current === saving ? undefined : current)),
+      (error: unknown) =>
+        setPick((current) =>
+          current === saving ? { error: errorText(error), modelId: saving.modelId } : current
+        )
+    );
+  }, [metadata.lookup?.state, pick, readConfiguration, readSelectionFolderId, set]);
+  const onModelChange = useCallback(
+    (compositeKey: string): void => {
+      handleModelChange(compositeKey);
+      setPick({ modelId: compositeKey });
+    },
+    [handleModelChange]
   );
   const onProviderSettingsChange = useCallback(
     (providerId: string, updates: AssistantProviderSettingsUpdate): void => {
@@ -315,7 +380,7 @@ export function useDesktopHostPresentation(
       const current = useAssistantThreadStore.getState().draftRuntimeByThreadId[threadId] ?? {};
       const settings = { ...providerSettings, ...current.providerSettings };
       settings[provider] = mergeAssistantProviderSettings(settings[provider], updates);
-      const active = current.provider ?? selectedProvider ?? provider;
+      const active = selectedProvider ?? current.provider ?? provider;
       if (!isSupportedProvider(active)) {
         throw new Error('Unsupported thread provider');
       }
@@ -327,7 +392,7 @@ export function useDesktopHostPresentation(
       setThreadDraftRuntime(threadId, {
         ...identity,
         ...buildDraftRuntimeForProvider({
-          model: current.model ?? model,
+          model: model ?? current.model,
           openRouterLookup: metadata.lookup,
           provider: active,
           providerSettingsMap: settings,
@@ -375,13 +440,14 @@ export function useDesktopHostPresentation(
     onComposerTextChange: composerDraft.onTextChange,
     onEnableModel,
     onFileMentionQueryChange: setFileMentionQuery,
-    onModelChange: handleModelChange,
+    onModelChange,
     onProviderSettingsChange,
     onProviderSettingsValidationChange: providerDraft.report,
     openRouterModelMetadataLookup: metadata.lookup,
     providerSettings: effective,
     ...(planMode ? { planMode } : {}),
     readConfiguration,
+    readModelId,
     readPlanMode,
     recentModels: recentModels.filter((recent) =>
       picker.pickerModels.some((entry) => `${entry.providerId}::${entry.id}` === recent)
