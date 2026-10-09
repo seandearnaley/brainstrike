@@ -163,12 +163,19 @@ export const HostRewindConflictSchema = z.strictObject({
 });
 export type HostRewindConflict = z.infer<typeof HostRewindConflictSchema>;
 /** One path's restore in a rewind or redo; a conflict or failure leaves it untouched. */
-export const HostRewindFileOutcomeSchema = z.strictObject({
-  detail: z.string().min(1).optional(),
-  path: WorkspaceRelativePath,
-  rootId: Id,
-  status: z.enum(['restored', 'deleted', 'conflict', 'failed', 'skipped-nested-repo']),
-});
+export const HostRewindFileOutcomeSchema = z.discriminatedUnion('status', [
+  z.strictObject({
+    path: WorkspaceRelativePath,
+    rootId: Id,
+    status: z.enum(['restored', 'deleted', 'skipped-nested-repo']),
+  }),
+  z.strictObject({
+    detail: z.string().min(1),
+    path: WorkspaceRelativePath,
+    rootId: Id,
+    status: z.enum(['conflict', 'failed']),
+  }),
+]);
 export type HostRewindFileOutcome = z.infer<typeof HostRewindFileOutcomeSchema>;
 const RewindMode = z.enum(['conversation-and-files', 'conversation-only']);
 const RewindTarget = {
