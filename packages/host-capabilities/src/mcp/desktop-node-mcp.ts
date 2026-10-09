@@ -127,7 +127,7 @@ export async function createDesktopNodeMcpHost(
   });
   let server: ReturnType<typeof serveMcpRuntimeToMain> | undefined;
   try {
-    server = serveMcpRuntimeToMain(connection, services.runtime, settings);
+    server = serveMcpRuntimeToMain(connection, settings);
     await request(MCP_STORE_METHODS.ready, {});
   } catch (cause) {
     server?.close();

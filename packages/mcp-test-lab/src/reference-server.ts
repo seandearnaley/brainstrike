@@ -43,24 +43,16 @@ export const ECHO_REFERENCE_CONTENT = Object.freeze({
   }),
 });
 
-function createBrainstrikeEchoReferenceServer(): McpServer {
-  const server = new McpServer({
-    name: 'brainstrike-sdk-v2-reference',
-    version: '2.0.0',
-  });
+/**
+ * The reference `elicit_confirm` tool: it asks the client to confirm `text`
+ * through form elicitation (the modern multi-round-trip result, or the legacy
+ * push request) before echoing it. `meta` lets a fixture attach an MCP App.
+ */
+export function registerElicitConfirmTool(
+  server: McpServer,
+  meta?: Readonly<Record<string, unknown>>
+): void {
   const echoSchema = z.strictObject({ text: z.string() });
-  server.registerTool(
-    'echo',
-    {
-      description: 'Echo a string through the official MCP TypeScript SDK v2 server.',
-      inputSchema: echoSchema,
-      outputSchema: echoSchema,
-    },
-    async ({ text }) => ({
-      content: [{ text, type: 'text' }],
-      structuredContent: { text },
-    })
-  );
   const elicitConfirmOutputSchema = z.strictObject({ confirmed: z.boolean(), text: z.string() });
   server.registerTool(
     'elicit_confirm',
@@ -69,6 +61,7 @@ function createBrainstrikeEchoReferenceServer(): McpServer {
         'Ask the connected client to confirm a string through MCP form elicitation before echoing it.',
       inputSchema: echoSchema,
       outputSchema: elicitConfirmOutputSchema,
+      ...(meta ? { _meta: meta } : {}),
     },
     async ({ text }, ctx) => {
       const requestedSchema: ElicitRequestFormParams['requestedSchema'] = {
@@ -112,6 +105,27 @@ function createBrainstrikeEchoReferenceServer(): McpServer {
       };
     }
   );
+}
+
+function createBrainstrikeEchoReferenceServer(): McpServer {
+  const server = new McpServer({
+    name: 'brainstrike-sdk-v2-reference',
+    version: '2.0.0',
+  });
+  const echoSchema = z.strictObject({ text: z.string() });
+  server.registerTool(
+    'echo',
+    {
+      description: 'Echo a string through the official MCP TypeScript SDK v2 server.',
+      inputSchema: echoSchema,
+      outputSchema: echoSchema,
+    },
+    async ({ text }) => ({
+      content: [{ text, type: 'text' }],
+      structuredContent: { text },
+    })
+  );
+  registerElicitConfirmTool(server);
   const { prompt, resource } = ECHO_REFERENCE_CONTENT;
   server.registerResource(
     resource.name,

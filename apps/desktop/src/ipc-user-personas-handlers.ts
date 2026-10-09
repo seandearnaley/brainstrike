@@ -114,12 +114,12 @@ export function createUserPersonasListHandler(): () => Promise<AssistantPersonas
     try {
       const [
         { getDatabase },
-        { mcpToolRegistry },
+        { getMainMcpHostControl },
         { resolveProviderCredential },
         { inspectPersonaAvailability },
       ] = await Promise.all([
         import('./db-main'),
-        import('@brainstrike/agent'),
+        import('./mcp/main-host-control'),
         import('./assistant-server/provider-credentials'),
         import('./assistant-server/persona-availability'),
       ]);
@@ -132,8 +132,9 @@ export function createUserPersonasListHandler(): () => Promise<AssistantPersonas
         providerId: string;
         type: string | null;
       }>(`SELECT id, provider_id AS "providerId", capabilities->>'type' AS type FROM models`);
+      // The host owns the MCP tools; Main reads them once per listing.
       const mcpTools = new Map(
-        Object.values(mcpToolRegistry.getAllTools())
+        Object.values(await getMainMcpHostControl().readTools())
           .flat()
           .map((tool) => [tool.id, tool.enabled])
       );

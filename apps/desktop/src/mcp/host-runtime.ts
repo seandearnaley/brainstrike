@@ -5,7 +5,6 @@ import {
 } from '@brainstrike/host-capabilities/mcp/node-host-runtime';
 import type { McpOAuthStore } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
 import { createDesktopMcpHostPlatform } from './desktop-host-platform';
-import { RemoteMcpRuntime } from './remote-runtime';
 
 export type { ExplicitClient } from '@brainstrike/host-capabilities/mcp/host-connection';
 
@@ -29,12 +28,3 @@ export class DesktopMcpHostRuntime extends McpHostRuntime {
 export const createDesktopMcpHostRuntime = (
   dependencies?: DesktopMcpHostRuntimeDependencies
 ): DesktopMcpHostRuntime => new DesktopMcpHostRuntime(dependencies);
-
-let singleton: RemoteMcpRuntime | undefined;
-/**
- * Main's view of the desktop's one MCP runtime, which the Node agent host owns
- * (BST-1930 c1). Main constructs no local runtime; only the conformance client
- * composes `DesktopMcpHostRuntime` in its own plain-Node process.
- */
-export const getDesktopMcpHostRuntime = (): RemoteMcpRuntime =>
-  (singleton ??= new RemoteMcpRuntime());

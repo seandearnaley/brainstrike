@@ -28,7 +28,7 @@ import { createHostPlatform } from '../agent-host-platform/desktop-node-platform
 import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
-import { RemoteMcpRuntime } from '../mcp/remote-runtime';
+import { MainMcpHostControl } from '../mcp/main-host-control';
 import { desktopAppPaths, writeDesktopMcpConfig } from './fixtures/desktop-host-profile';
 
 /** Same public MessageEvent shape as the Electron utility port, backed by real Node ports. */
@@ -72,11 +72,11 @@ const configuredServerId = parseConfiguredMcpServerId('fixture.oauth');
 const SERVER_URL = 'http://127.0.0.1:9/mcp';
 const ISSUER = 'https://auth.fixture.test';
 
-/** The OAuth credential state Main mirrors for Settings from the host's runtime. */
-function credentialState(runtime: RemoteMcpRuntime): string | undefined {
-  const server = runtime.host
-    .snapshot()
-    .servers.find((candidate) => candidate.configuredServerId === configuredServerId);
+/** The OAuth credential state Settings reads from the host's MCP status. */
+async function credentialState(desktop: HostClient): Promise<string | undefined> {
+  const server = (await desktop.request('mcp/status/read', {})).servers.find(
+    (candidate) => candidate.configuredServerId === configuredServerId
+  );
   return server?.auth?.type === 'oauth-user' ? server.auth.credentialState : undefined;
 }
 
@@ -100,7 +100,6 @@ test('the host reads its MCP OAuth records from the profile store and its reset 
     })
   );
   await seeded.close();
-  const mcpRuntime = new RemoteMcpRuntime();
   await writeDesktopMcpConfig(root, [
     {
       auth: { type: 'oauth-user' },
@@ -115,7 +114,7 @@ test('the host reads its MCP OAuth records from the profile store and its reset 
   const mainPort = new UtilityPort(channel.port1);
   const nodePort = new UtilityPort(channel.port2);
   const mainOwner = serveDesktopPlatform(mainPlatformConnection(mainPort), {
-    mcp: createDesktopMcpPlatformCapabilities(mcpRuntime),
+    mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
     readConfiguration: async () => {
       throw new Error('This scenario admits no run');
     },
@@ -136,8 +135,9 @@ test('the host reads its MCP OAuth records from the profile store and its reset 
       })
     );
     desktop = await desktopClient(host);
-    // Settings' status, mirrored from the host's first configuration, names the stored grant.
-    await expect.poll(() => credentialState(mcpRuntime), { timeout: 15_000 }).toBe('stored');
+    // Settings' status, from the host's first configuration, names the stored grant.
+    const client = desktop;
+    await expect.poll(() => credentialState(client), { timeout: 15_000 }).toBe('stored');
 
     await desktop.request('auth/clear', {});
     const file: unknown = JSON.parse(await readFile(credentialsPath, 'utf8'));

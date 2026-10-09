@@ -31,7 +31,7 @@ import { execFileSnapshotGitRunner } from '../assistant-server/snapshot-git';
 import { FAILED_SNAPSHOT_CAPTURE_OID } from '../assistant-server/snapshot-repository';
 import { createSnapshotService, type SnapshotService } from '../assistant-server/snapshot-service';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
-import { RemoteMcpRuntime } from '../mcp/remote-runtime';
+import { MainMcpHostControl } from '../mcp/main-host-control';
 import { desktopCredentialStoreSelection } from '../secrets';
 import { desktopAppPaths } from './fixtures/desktop-host-profile';
 
@@ -78,7 +78,7 @@ async function withAdmittedRun(
   const connection = mainPlatformConnection(mainPort);
   const cleanup: (() => Promise<void>)[] = [];
   const main = serveDesktopPlatform(connection, {
-    mcp: createDesktopMcpPlatformCapabilities(new RemoteMcpRuntime()),
+    mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
     readConfiguration: async (): Promise<DesktopPlatformSelection> => ({
       close: async () => undefined,
       configuration: { model: 'gpt-4o-mini', provider: 'openai' },

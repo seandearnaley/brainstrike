@@ -3,8 +3,7 @@ import { createLogger } from '@brainstrike/logging';
 import { dialog, ipcMain } from 'electron';
 import { mcpPathSelectionContract } from './ipc-domains/mcp.contract';
 import { attachMcpBridges } from './mcp/bridges';
-import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
-import type { RemoteMcpRuntime } from './mcp/remote-runtime';
+import { getMainMcpHostControl, type MainMcpHostControl } from './mcp/main-host-control';
 import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
 /**
@@ -15,8 +14,8 @@ import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
  */
 const logger = createLogger('DesktopMcpIpc');
 
-type McpIpcRuntime = Pick<RemoteMcpRuntime, 'pickConfigPath'>;
-type McpSettingsLifecycleRuntime = Pick<RemoteMcpRuntime, 'resetSettings' | 'resumeSettings'>;
+type McpIpcRuntime = Pick<MainMcpHostControl, 'pickConfigPath'>;
+type McpSettingsLifecycleRuntime = Pick<MainMcpHostControl, 'resetSettings' | 'resumeSettings'>;
 
 /** Closed across a factory reset; the picker refuses while it is. */
 let mcpSurfacesOpen = true;
@@ -68,25 +67,19 @@ function selectMcpConfigPath(runtime: McpIpcRuntime, senderId: number): Promise<
   return selection;
 }
 
-/** Main's shutdown step: the host owns and joins the runtime; Main detaches its proxy. */
+/** Main's shutdown step: the host owns and joins the runtime; Main closes its surfaces. */
 export async function cleanupMcpRuntimeForShutdown(
-  runtime: Pick<RemoteMcpRuntime, 'host'> = getDesktopMcpHostRuntime()
+  control: Pick<MainMcpHostControl, 'close'> = getMainMcpHostControl()
 ): Promise<void> {
   mcpSurfacesOpen = false;
   pendingConfigPathSelection = null;
-  const report = await runtime.host.close();
-  if (report.failures.length > 0) {
-    throw new AggregateError(report.failures, 'MCP runtime shutdown cleanup failed');
-  }
-  logger.info('MCP runtime shutdown cleanup completed', {
-    hostCloseReport: report,
-    legacyClientsClosed: true,
-  });
+  control.close();
+  logger.info('MCP surfaces closed for shutdown');
 }
 
 /** Factory reset: close Main's surfaces, then the host retires its MCP settings. */
 export async function resetMcpRuntimeForFactoryReset(
-  runtime: McpSettingsLifecycleRuntime = getDesktopMcpHostRuntime()
+  runtime: McpSettingsLifecycleRuntime = getMainMcpHostControl()
 ): Promise<void> {
   mcpSurfacesOpen = false;
   pendingConfigPathSelection = null;
@@ -95,7 +88,7 @@ export async function resetMcpRuntimeForFactoryReset(
 
 /** After a factory reset: the host reopens its settings (restoring them on failure), then Main's surfaces. */
 export async function resumeMcpRuntimeAfterFactoryReset(
-  runtime: McpSettingsLifecycleRuntime = getDesktopMcpHostRuntime(),
+  runtime: McpSettingsLifecycleRuntime = getMainMcpHostControl(),
   outcome: 'failed' | 'succeeded' = 'succeeded'
 ): Promise<void> {
   if (mcpSurfacesOpen) {

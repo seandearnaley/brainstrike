@@ -14,7 +14,7 @@ import {
 } from '../../agent-host-platform/main-platform';
 import { PlatformSelectionSchema } from '../../agent-host-platform/platform-wire';
 import { createDesktopMcpPlatformCapabilities } from '../../mcp/desktop-host-platform';
-import { RemoteMcpRuntime } from '../../mcp/remote-runtime';
+import { MainMcpHostControl } from '../../mcp/main-host-control';
 
 /** Real Node ports with the Electron utility port's public MessageEvent shape. */
 export class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -50,7 +50,7 @@ export async function admitHostTools(
   const client = mainPlatformConnection(hostPort);
   const owner = serveDesktopPlatform(server, {
     ...capabilities,
-    mcp: createDesktopMcpPlatformCapabilities(new RemoteMcpRuntime()),
+    mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
   });
   client.listen();
   const close = async (): Promise<void> => {
