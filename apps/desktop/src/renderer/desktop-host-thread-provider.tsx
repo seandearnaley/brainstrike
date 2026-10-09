@@ -2,6 +2,7 @@ import type { HostClient } from '@brainstrike/agent-host/browser';
 import {
   HostChildConversations,
   HostChildToolbar,
+  HostChildWorkspaceChip,
   useAssistantRunNotifications,
   useBudgetGuardrailBinding,
 } from '@brainstrike/app-shell';
@@ -293,7 +294,14 @@ function HostThread({
                         onSteerActiveRun={steer}
                         rewind={child ? null : rewind}
                         store={conversation.store}
-                        workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
+                        workspaceBar={
+                          // A child shares its root's folder: named, never changed here.
+                          child ? (
+                            <HostChildWorkspaceChip threadId={threadId} />
+                          ) : (
+                            <CommittedWorkspaceControls threadId={threadId} />
+                          )
+                        }
                       />
                     </HostChildConversations>
                   </HostApprovalHistoryProvider>
