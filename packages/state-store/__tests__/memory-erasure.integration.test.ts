@@ -90,6 +90,34 @@ test('SIGKILL after truth erasure replays the retained resource policy before re
   }
 });
 
+test('deleting a thread keeps the shared working memory and observations, as legacy; its own memory goes', async () => {
+  const root = freshDir('m3-memory-delete-keeps-wm');
+  const indexer = new TruthIndexer(root);
+  const store = await StateStore.open(root, { indexer, memoryCalculatorModule: calculator });
+  try {
+    await seedMemoryErasure(store);
+    await store.deleteThread(threadId);
+    const { entities } = await store.memory({ operation: 'read', resourceId });
+    expect(entities.map(({ id, kind, threadId: owner }) => ({ id, kind, owner }))).toEqual(
+      expect.arrayContaining([
+        { id: resourceId, kind: 'resource', owner: null },
+        { id: expect.any(String), kind: 'observation', owner: null },
+      ])
+    );
+    expect(entities).toHaveLength(2);
+    expect(entities.find(({ kind }) => kind === 'resource')?.payload).toMatchObject({
+      workingMemory: MEMORY_ERASURE_SECRET,
+    });
+    // This shared record holds no section attributed to the thread, so it is kept whole.
+    expect(entities.find(({ kind }) => kind === 'observation')?.payload).toMatchObject({
+      activeObservations: MEMORY_ERASURE_SECRET,
+    });
+  } finally {
+    await store.close();
+    indexer.close();
+  }
+});
+
 test('held native calculation stays ahead of deletion; retired thread cannot recreate resource WM', async () => {
   const root = freshDir('m3-memory-held');
   let indexer = new TruthIndexer(root);
@@ -103,7 +131,7 @@ test('held native calculation stays ahead of deletion; retired thread cannot rec
     indexer.close();
     await writeFile(
       heldModule,
-      `import { watch, existsSync } from 'node:fs';\nimport { writeFile } from 'node:fs/promises';\nimport { calculateMemoryMutation as native } from ${JSON.stringify(pathToFileURL(calculator).href)};\nexport async function calculateMemoryMutation(snapshot, request) {\n  await writeFile(${JSON.stringify(entered)}, 'entered');\n  const watcher = watch(${JSON.stringify(root)});\n  try { await new Promise(resolve => { const check = () => { if (existsSync(${JSON.stringify(release)})) resolve(); }; watcher.on('change', check); check(); }); } finally { watcher.close(); }\n  return native(snapshot, request);\n}\n`
+      `import { watch, existsSync } from 'node:fs';\nimport { writeFile } from 'node:fs/promises';\nimport { calculateMemoryMutation as native } from ${JSON.stringify(pathToFileURL(calculator).href)};\nexport { countObservationTokens } from ${JSON.stringify(pathToFileURL(calculator).href)};\nexport async function calculateMemoryMutation(snapshot, request) {\n  await writeFile(${JSON.stringify(entered)}, 'entered');\n  const watcher = watch(${JSON.stringify(root)});\n  try { await new Promise(resolve => { const check = () => { if (existsSync(${JSON.stringify(release)})) resolve(); }; watcher.on('change', check); check(); }); } finally { watcher.close(); }\n  return native(snapshot, request);\n}\n`
     );
     indexer = new TruthIndexer(root);
     store = await StateStore.open(root, { indexer, memoryCalculatorModule: heldModule });
@@ -134,7 +162,16 @@ test('held native calculation stays ahead of deletion; retired thread cannot rec
     await writeFile(release, 'release');
     await held;
     await deletion;
-    expect((await store.memory({ operation: 'read', resourceId })).entities).toEqual([]);
+    // The held write committed ahead of the deletion; deleting the thread keeps
+    // the shared working memory and observations, as legacy did.
+    const kept = (await store.memory({ operation: 'read', resourceId })).entities;
+    expect(kept.map(({ kind, threadId: owner }) => ({ kind, owner }))).toEqual(
+      expect.arrayContaining([
+        { kind: 'resource', owner: null },
+        { kind: 'observation', owner: null },
+      ])
+    );
+    expect(kept).toHaveLength(2);
     await expect(
       store.memory({
         arguments: [{ resource: { id: resourceId, workingMemory: MEMORY_ERASURE_SECRET } }],
@@ -144,7 +181,7 @@ test('held native calculation stays ahead of deletion; retired thread cannot rec
         resourceId,
       })
     ).rejects.toThrow(/retired/);
-    expect(byteSearch(root, MEMORY_ERASURE_SECRET).files[STATE_DB] ?? 0).toBe(0);
+    expect((await store.memory({ operation: 'read', resourceId })).entities).toEqual(kept);
     await store.reset();
     expect(existsSync(join(root, STATE_DB))).toBe(false);
   } finally {

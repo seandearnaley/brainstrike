@@ -268,11 +268,7 @@ test('CLI and Electron share an authenticated Node host, approved file action, r
       JSON.stringify((await client.request('thread/read', { fromSeq: 0, threadId })).rows, null, 2)
     );
   }
-  process.stderr.write(
-    `${JSON.stringify({ disclosure: await page.getByRole('button', { exact: true, name: 'Expand activity' }).boundingBox() })}\n`
-  );
-  await page.getByRole('button', { exact: true, name: 'Expand activity' }).click();
-  checkpoint('activity-expanded');
+  // A pending approval renders as its own card, outside any collapsed activity.
   await expect
     .poll(() => page.getByRole('button', { exact: true, name: 'Approve write_file' }).count())
     .toBe(1);

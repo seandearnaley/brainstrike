@@ -20,7 +20,8 @@ export const readWorkspaceFile = defineNativeTool({
   id: 'brainstrike.readWorkspaceFile',
   inputSchema: providerCompatibleInputSchema(ReadWorkspaceFileInputSchema),
   kind: 'desktop',
+  localProvider: 'offered',
   returns:
     'Line-numbered file page with exact source metadata, truncation status, and nextCursor (null when complete)',
-  surfaces: ['desktop', 'web', 'local'],
+  surfaces: ['desktop', 'web'],
 });

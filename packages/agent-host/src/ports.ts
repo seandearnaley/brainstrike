@@ -9,6 +9,7 @@ import type {
   McpElicitationSettlement,
   McpHostCloseReport,
   McpHostPort,
+  McpHostTaskOwner,
   OpenRouterModelMetadataSnapshot,
   PermissionToolGateSnapshot,
   ProviderAuthStartMethod,
@@ -40,6 +41,8 @@ import type {
   HostHookSkip,
   HostLegacyImport,
   HostLoginCredential,
+  HostObservationalMemoryState,
+  HostResults,
   HostRewindConflict,
   HostRewindFileOutcome,
   HostRunSnapshot,
@@ -299,6 +302,11 @@ export interface HostRunAdmission {
   readonly hooks?: HostRunHooks | undefined;
   /** The selected provider input budget; host compaction keeps requests inside it. */
   readonly inputTokenLimit?: number | undefined;
+  /**
+   * Gap 17: the legacy profile had resource observations, which were not
+   * imported. Core commits that notice once per root, with a run it admits.
+   */
+  readonly legacyObservationsWithheld?: true;
   readonly model: LanguageModel;
   /**
    * The resolved provider's own web search (Anthropic, OpenAI), built with the
@@ -308,6 +316,11 @@ export interface HostRunAdmission {
   readonly nativeWebSearch?: Tool;
   openRun?(context: HostRunContext): Promise<HostRunOwner>;
   readonly provider?: HostProviderPort;
+  /**
+   * Observational memory as this admission configures it, with the thread's
+   * committed record when it is on. Absent means off.
+   */
+  readObservation?(threadId: string): Promise<HostObservationalMemoryState>;
   readonly snapshot: HostRunSnapshot;
   readonly tools: Readonly<Record<string, HostTool>>;
   /** Configured MCP servers this run proceeds without; committed with `run.started`. */
@@ -362,6 +375,13 @@ export interface HostRunAdmissionRequest {
   /** Plan mode: admit only what reads and proposes a plan, and say so to the model. */
   readonly planMode?: true;
   readonly prompt?: string;
+  /**
+   * The run this admission is for, minted before admission and committed with
+   * its run.started (a reopen passes the committed run's). A platform keys what
+   * it binds at admission by it, so a child borrowing this admission and the
+   * thread's next run never share one platform selection.
+   */
+  readonly runId: string;
   readonly signal: AbortSignal;
   /** Reopen the committed selection, rejecting changed executors rather than substituting. */
   readonly snapshot?: HostRunSnapshot;
@@ -369,6 +389,12 @@ export interface HostRunAdmissionRequest {
   /** Core-owned immutable thread binding; the adapter must resolve its live IDs. */
   readonly workspaceBinding?: ThreadWorkspaceBinding;
 }
+
+/**
+ * What a run would be admitted with, before any run exists: an admission
+ * request without its run. thread/memory/read evaluates preconditions on it.
+ */
+export type HostRunIntentRequest = Omit<HostRunAdmissionRequest, 'runId'>;
 
 /** A configured MCP server whose tools a run proceeds without, and why. */
 export interface HostMcpUnavailableServer {
@@ -390,6 +416,8 @@ export interface HostMcpToolRequest {
   readonly toolTimeoutMs: number;
 }
 export interface HostMcpRuntime {
+  /** Core's ownership of its recovered tasks, supplied once when Core opens (BST-1930 c3). */
+  attachTaskOwner?(owner: McpHostTaskOwner): void;
   readonly authority: McpHostPort;
   close(): Promise<McpHostCloseReport>;
   executableTools(request: HostMcpToolRequest): Promise<HostMcpToolSelection>;
@@ -405,6 +433,12 @@ export interface HostDelegation {
 }
 
 export interface HostTool {
+  /**
+   * Whether this call's own input asks for network a person must allow, per
+   * call, before it executes (run_python's requested domains). Never remembered
+   * and never answered by a grant or policy.
+   */
+  readonly consent?: (input: unknown) => boolean;
   /**
    * A system note this tool contributes before each step, from its thread's
    * committed tool state (the legacy `<current-task-list>` re-injection).
@@ -487,6 +521,11 @@ export interface HostRewindFiles {
 
 export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
+  /**
+   * Core hands the MCP runtime its ownership of the durable tasks its runs
+   * bound, when it opens and before any run can discover MCP tools (BST-1930 c3).
+   */
+  attachMcpTaskOwner?(owner: McpHostTaskOwner): void;
   /** The host's credential authority; absent where the host owns no credential store. */
   readonly auth?: HostAuthService;
   close(): Promise<void>;
@@ -502,6 +541,15 @@ export interface HostPlatform {
   openRun?(context: HostRunContext): Promise<HostRunOwner>;
   /** Provider reads from the host's own store; absent where it owns none. */
   readonly providers?: HostProviderService;
+  /**
+   * thread/memory/read: the admission's pure preconditions for this request
+   * (no acquisition, MCP discovery or model warmup) and the observation they
+   * configure for `threadId`. Absent where the host has no composer.
+   */
+  readMemoryReadiness?(
+    request: HostRunIntentRequest,
+    threadId: string
+  ): Promise<HostResults['thread/memory/read']>;
   readPermissionPolicy(
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
@@ -525,6 +573,11 @@ export interface HostPlatform {
   readonly tools?: Readonly<Record<string, HostTool>> | undefined;
   validateWorkspaceBinding?(request: {
     readonly binding: ThreadWorkspaceBinding;
+    /**
+     * The run being admitted, when this checks an admission: the platform
+     * revalidates that run's selection. A binding update names no run.
+     */
+    readonly runId?: string;
     readonly signal: AbortSignal;
     readonly threadId: string;
   }): Promise<void>;

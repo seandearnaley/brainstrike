@@ -63,6 +63,8 @@ function recordedHost(): Pick<HostClient, 'request'> {
                     toolCallId: 'call-1',
                     turnId: 'turn-1',
                   },
+                  // Its parent run failed and nothing is running in it.
+                  status: 'idle',
                   threadId: childThreadId,
                 },
               ]
@@ -123,6 +125,39 @@ describe("a host thread's debug bundle, from its committed log", () => {
         provider: 'openrouter',
       }),
     ]);
+  });
+
+  test('the run configuration is the generation settings its Send captured', () => {
+    // The desktop's durable run configuration: the Send intent under `intent`.
+    const modelSettings = { maxOutputTokens: 733, temperature: 0.35 };
+    const providerOptions = { openrouter: { reasoning: { effort: 'low' } } };
+    const captured = rows.map((row) =>
+      row.event.type === 'run.started' && row.event.runId === failedRun
+        ? HostLogRowSchema.parse({
+            ...row,
+            event: {
+              ...row.event,
+              snapshot: {
+                configuration: {
+                  intent: {
+                    modelConfiguration: {
+                      model: 'anthropic/claude-sonnet-4.6',
+                      modelSettings,
+                      provider: 'openrouter',
+                      providerOptions,
+                    },
+                  },
+                  memoryResolution: { observationalMemory: 'disabled', observerTarget: null },
+                },
+                maxSteps: 12,
+                toolIdentities: {},
+              },
+            },
+          })
+        : row
+    );
+    const data = collectHostThreadDebugBundleData(captured, { runId: failedRun, threadId });
+    expect(data.run).toMatchObject({ modelSettings, providerOptions });
   });
 
   test('the Copy debug bundle formats it with the legacy bundle sections', async () => {

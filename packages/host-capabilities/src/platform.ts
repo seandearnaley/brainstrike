@@ -5,6 +5,7 @@ import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { buildModelSettingsOption } from '@brainstrike/agent/provider-request';
 import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
 import {
+  buildToolDiscoveryNote,
   DEFAULT_AGENT_MAX_STEPS,
   resolveAssistantResilienceConfig,
   resolveScaledToolResultBudget,
@@ -14,6 +15,7 @@ import {
   type HostPlatform,
   type HostPlatformLaunchOptions,
   type HostStartupContext,
+  hostToolDiscoveryEnabled,
   type ProductionHostRunConfiguration,
 } from '@brainstrike/agent-host';
 import {
@@ -142,6 +144,23 @@ function standaloneSystemPrompt(
   return `This standalone host supports the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob and symbol search, the task list, canvases and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. Content search, language-server inspection and shell tools, ${unavailableMcp}Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
 }
 
+/**
+ * The run's instructions: with the legacy discovery guidance when hosted
+ * discovery defers part of its catalog.
+ */
+function standaloneRunSystem(
+  system: string,
+  catalog: Parameters<typeof hostToolDiscoveryEnabled>[0]
+): string {
+  if (!hostToolDiscoveryEnabled(catalog)) {
+    return system;
+  }
+  const names = new Map(
+    Object.entries(catalog.tools).map(([name, tool]) => [name, tool.permissionToolId ?? name])
+  );
+  return `${system}\n\n${buildToolDiscoveryNote(names)}`;
+}
+
 /** Root and its canonical writer have already been acquired by startAgentHost. */
 export async function createHostPlatform(
   options: HostStartOptions,
@@ -258,6 +277,7 @@ export async function createHostPlatform(
         resolvedToolResultBudget,
         runtime: { ...configuration, workspaceRoots },
       });
+      const tools = { ...bindings.tools, ...workspaceTools };
       const toolTimeoutMs = resolveAssistantResilienceConfig().toolTimeoutMs;
       // Global hooks run as configured; a launch root's project file runs only
       // at the hash the host trusted it at, and is reported, not run, otherwise.
@@ -301,8 +321,12 @@ export async function createHostPlatform(
           runtimeData: configuration,
         },
         resolvedToolResultBudget,
-        system,
-        tools: { ...bindings.tools, ...workspaceTools },
+        system: standaloneRunSystem(system, {
+          modelId: request.modelId,
+          provider: catalog.provider,
+          tools,
+        }),
+        tools,
         toolTimeoutMs,
       };
     },

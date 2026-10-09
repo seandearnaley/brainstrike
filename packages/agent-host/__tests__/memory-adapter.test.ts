@@ -57,6 +57,7 @@ async function fixture(
       },
       storage,
     },
+    observerModelId: 'openai::gpt-4.1-mini',
     recordObserverUsage: async () => undefined,
     recordPrompt: async () => undefined,
     ...overrides,
@@ -152,7 +153,8 @@ test('adapter drives the public OM turn and foreground observation without vendo
     expect(receipts).toHaveLength(model.doStreamCalls.length);
     expect(receipts[0]).toMatchObject({
       kind: 'observation',
-      modelId: model.modelId,
+      // The observer's catalog id, which its usage is priced under.
+      modelId: 'openai::gpt-4.1-mini',
       usage: { inputTokens: 42, outputTokens: 9, totalTokens: 51 },
     });
   } finally {
@@ -486,7 +488,10 @@ test('final prompt receipt uses actual public SDK request and reported usage sur
     expect(promptReceipts[0]).toEqual(provider.doStreamCalls[0]);
     f.controller.abort();
     await f.adapter.recordObserverUsage({ kind: 'observation', modelId: provider.modelId, usage });
-    expect(usageReceipts).toEqual([{ kind: 'observation', modelId: provider.modelId, usage }]);
+    // The SDK's own model id is replaced by the observer's catalog id.
+    expect(usageReceipts).toEqual([
+      { kind: 'observation', modelId: 'openai::gpt-4.1-mini', usage },
+    ]);
     expect(usage.inputTokens).toBe(1);
     expect(usage.outputTokens).toBe(1);
   } finally {

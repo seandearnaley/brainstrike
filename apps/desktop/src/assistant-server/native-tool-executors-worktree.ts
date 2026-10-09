@@ -10,8 +10,8 @@ import type { MastraTool } from './native-tool-executor-context';
 import { buildWorktreeMastraTools, type WorktreeToolCapability } from './worktree-tools';
 
 /**
- * BST-1392. Both worktree ids are absent from LOCAL_DESKTOP_NATIVE_TOOL_IDS, and
- * the local-provider gate is what makes that exclusion real at runtime.
+ * BST-1392. Both worktree ids are `localProvider: 'unregistered'` in the
+ * catalog, so every fold skips them for the built-in local provider.
  */
 export function worktreeToolExecutors<Context extends NativeToolBuildContext>(
   capability: (context: Context) => WorktreeToolCapability | undefined
@@ -21,16 +21,12 @@ export function worktreeToolExecutors<Context extends NativeToolBuildContext>(
 } {
   return {
     [NATIVE_TOOL_ID.listWorktrees]: (context) =>
-      context.isLocalProvider
-        ? undefined
-        : buildWorktreeMastraTools(context.runtimeData, capability(context))[
-            NATIVE_TOOL_ID.listWorktrees
-          ],
+      buildWorktreeMastraTools(context.runtimeData, capability(context))[
+        NATIVE_TOOL_ID.listWorktrees
+      ],
     [NATIVE_TOOL_ID.manageWorktree]: (context) =>
-      context.isLocalProvider
-        ? undefined
-        : buildWorktreeMastraTools(context.runtimeData, capability(context))[
-            NATIVE_TOOL_ID.manageWorktree
-          ],
+      buildWorktreeMastraTools(context.runtimeData, capability(context))[
+        NATIVE_TOOL_ID.manageWorktree
+      ],
   };
 }

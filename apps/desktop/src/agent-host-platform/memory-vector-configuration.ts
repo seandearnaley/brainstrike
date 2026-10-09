@@ -5,6 +5,7 @@ import {
   type ProviderAuthInput,
 } from '@brainstrike/agent/provider-runtime';
 import type { ProductionHostRunConfiguration } from '@brainstrike/agent-host';
+import { requireMemoryApiKey } from './memory-readiness';
 import type { PlatformSelection } from './platform-wire';
 
 type MemoryConfiguration = ProductionHostRunConfiguration['memory'];
@@ -47,10 +48,11 @@ export async function createDesktopHostMemoryVectorConfiguration(
       resolveDimensions: async () => profile.dimensions,
     });
   } else {
-    const auth = await resolveProviderAuth(profile.provider);
-    if (auth?.kind !== 'api_key' || !auth.apiKey.trim()) {
-      throw new Error(`Semantic recall requires the resolved ${profile.provider} API credential`);
-    }
+    const auth = await requireMemoryApiKey(
+      'Semantic recall',
+      profile.provider,
+      resolveProviderAuth
+    );
     embedder = createEmbeddingProvider(profile.provider, auth.apiKey, profile.modelId);
   }
   return {

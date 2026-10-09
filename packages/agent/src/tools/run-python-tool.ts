@@ -506,11 +506,10 @@ async function passRunPythonGates(params: {
   readonly agentContext: RunPythonAgentContext | undefined;
   readonly requestedDomains: readonly string[];
   readonly resolveApprovalDecision: () => 'allow' | 'ask';
+  readonly resumeData: unknown;
 }): Promise<RunPythonGateOutcome> {
   const { agentContext, requestedDomains, resolveApprovalDecision } = params;
-  const resume = readRunPythonResume(
-    agentContext && 'resumeData' in agentContext ? agentContext.resumeData : undefined
-  );
+  const resume = readRunPythonResume(params.resumeData);
 
   let networkGranted = false;
   switch (resume.kind) {
@@ -650,6 +649,10 @@ export function createRunPythonTool(options: RunPythonToolOptions) {
         agentContext,
         requestedDomains,
         resolveApprovalDecision: options.resolveApprovalDecision,
+        // An agent run's resume (Mastra's Tool.execute moves it under
+        // `agent`); a call with no agent context reads the context's own
+        // `resumeData`, which is how the agent host answers a network consent.
+        resumeData: agentContext ? agentContext.resumeData : context?.resumeData,
       });
       if (gateOutcome.kind === 'suspended') {
         return;

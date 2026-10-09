@@ -41,7 +41,8 @@ function chainEntry(line: string, threadId: string): SnapshotChainEntry {
     !(
       metadata &&
       typeof metadata === 'object' &&
-      'kind' in metadata && typeof metadata.kind === 'string' &&
+      'kind' in metadata &&
+      typeof metadata.kind === 'string' &&
       SNAPSHOT_KINDS.has(metadata.kind) &&
       'threadId' in metadata &&
       metadata.threadId === threadId

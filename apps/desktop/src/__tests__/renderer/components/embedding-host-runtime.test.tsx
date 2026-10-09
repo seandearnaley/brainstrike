@@ -313,6 +313,40 @@ describe('EmbeddingHostRuntime', () => {
     );
   });
 
+  it('re-resolves only the host device on resolve-device; the worker keeps its device', async () => {
+    storeState.hasHydrated = true;
+    render(<EmbeddingHostRuntime />);
+    await waitFor(() =>
+      expect(reportStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          embeddingRuntime: expect.objectContaining({ hostDevice: 'webgpu' }),
+          state: 'running',
+        })
+      )
+    );
+    const commandListener = commandListenerRef.current;
+    if (!commandListener) {
+      throw new Error('Expected embedding host command listener to be registered.');
+    }
+    // The user picks WASM in the vector preferences; Main relays the change.
+    storeState.devicePref = 'wasm';
+    commandListener(createEmbeddingHostCommand('resolve-device', 'test-runtime'));
+    await waitFor(() =>
+      expect(reportStatusMock).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          embeddingRuntime: expect.objectContaining({ hostDevice: 'wasm' }),
+          state: 'running',
+        })
+      )
+    );
+    // The background worker keeps the device it started with until a restart.
+    expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
+    expect(startEmbeddingWorkerMock).toHaveBeenCalledWith(
+      expect.objectContaining({ device: 'webgpu' })
+    );
+    expect(stopMock).not.toHaveBeenCalled();
+  });
+
   it('restarts the WebGPU background worker after a fatal device-loss execution error', async () => {
     storeState.hasHydrated = true;
 
@@ -903,6 +937,28 @@ describe('native pinned hidden renderer query', () => {
     await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledTimes(3));
     expect(initializeMock).toHaveBeenCalledTimes(2);
     expect(disposeQueryEmbeddingServiceMock).toHaveBeenCalledTimes(1);
+  });
+  it('reports the device it resolved at start, which a pinned query never replaces', async () => {
+    const listener = await start();
+    await waitFor(() =>
+      expect(reportStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          embeddingRuntime: expect.objectContaining({ hostDevice: 'webgpu' }),
+          state: 'running',
+        })
+      )
+    );
+    generateQueryEmbeddingMock.mockResolvedValue(result());
+    listener(request(plan, 'pinned-wasm'));
+    await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledTimes(1));
+    expect(reportStatusMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        embeddingRuntime: expect.objectContaining({
+          hostDevice: 'webgpu',
+          selectedDevicePreference: 'wasm',
+        }),
+      })
+    );
   });
   it.each([
     undefined,

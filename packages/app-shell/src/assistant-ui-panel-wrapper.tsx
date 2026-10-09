@@ -7,7 +7,6 @@ import {
   useExperimentAssignmentPreferencesStore,
 } from '@brainstrike/app-state/stores/experiment-assignment-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
-import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import { useSelfImprovementSignalPreferencesStore } from '@brainstrike/app-state/stores/self-improvement-signal-preferences-store';
 import {
   buildSkillsContextRequest,
@@ -86,7 +85,6 @@ import {
 import { useChangeset } from './changes/use-changeset';
 import { useWrapperRewindWiring } from './changes/use-wrapper-rewind-wiring';
 import { DelegatedWorkspaceNavigation } from './delegated-workspace-navigation';
-import { useAssistantProviderSource } from './hooks/assistant-provider-source';
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
 import { useAssistantModelChange } from './hooks/use-assistant-model-change';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
@@ -103,7 +101,6 @@ import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
 import { useEnableModel } from './hooks/use-enable-model';
 import { useForgeBranchLookupActivation, useForgeRunEvents } from './hooks/use-forge-run-events';
 import { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
-import { useProviderModelDefaults } from './hooks/use-provider-model-defaults';
 import { useRunVerdictBinding } from './hooks/use-run-verdict';
 import { useSubagentPersonasRequest } from './hooks/use-subagent-personas-request';
 import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-path';
@@ -151,7 +148,6 @@ export function AssistantUiPanelWrapper({
   providerReadErrors,
   providerKeySources,
 }: AssistantUiPanelWrapperProps) {
-  const providerSource = useAssistantProviderSource();
   const setModel = useAssistantPreferencesStore((state) => state.setModel);
   const clearModel = useAssistantPreferencesStore((state) => state.clearModel);
   const getLocalRuntimeStatuses = useAssistantPreferencesStore(
@@ -182,9 +178,6 @@ export function AssistantUiPanelWrapper({
     (state) => state.semanticRecall
   );
 
-  // OpenRouter default initialization still keys its durable attempt on the
-  // same credential revision as provider discovery.
-  const secretsVersion = useSecretsStore((state) => state.secretsVersion);
   const {
     discoveryError: providerDiscoveryError,
     discoveryState: providerDiscoveryState,
@@ -201,14 +194,6 @@ export function AssistantUiPanelWrapper({
   const db = usePGliteDatabase();
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
-
-  useProviderModelDefaults(
-    configuredProviders,
-    db,
-    secretsVersion,
-    providerSource.kind === 'discovery',
-    providerReadErrors
-  );
 
   // Create a set of DB-enabled model IDs for quick lookup
   const registryEnabledModelIds = useMemo(() => {

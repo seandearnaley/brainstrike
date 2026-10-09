@@ -22,7 +22,7 @@ import { z } from 'zod';
 import { CommittedHostCheckpoints } from './committed-host-checkpoints';
 import { CommittedHostMcpInput } from './committed-host-mcp-input';
 import { CommittedHostVerdicts } from './committed-host-verdicts';
-import { respondToHostApproval } from './host-approval-response';
+import { respondToHostApproval, resumeHostInteraction } from './host-approval-response';
 import { HostTreeApprovals } from './host-tree-approvals';
 
 const logger = createLogger('CommittedHostConversation');
@@ -196,16 +196,7 @@ export function createCommittedHostConversation(options: {
         throw new Error('Approval has no unique committed interaction');
       }
       if (interaction.kind && interaction.kind !== 'approval') {
-        if (response.text === undefined) {
-          throw new Error('Human interaction requires its typed response');
-        }
-        await client.request('interaction/resume', {
-          commandId: crypto.randomUUID(),
-          interactionId: interaction.interactionId,
-          resumeData: z.json().parse(JSON.parse(response.text)),
-          runId: interaction.runId,
-          threadId,
-        });
+        await resumeHostInteraction(client, interaction, response);
         return;
       }
       // A grant option is committed by the host, which keeps it for the thread's tree.

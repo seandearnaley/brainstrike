@@ -35,7 +35,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { configureAssistantProvider, setupAssistantMock } from './utils/assistant-mock';
+import {
+  configureAssistantProvider,
+  enableAssistantCatalogModel,
+  setupAssistantMock,
+} from './utils/assistant-mock';
 import {
   createTempDirTracker,
   freshRepo as freshGitRepo,
@@ -52,6 +56,7 @@ const ROOT_ID = 'w5-worktree-map-root-00000000-0000-4000-8000-000000000013';
 // credential resolution reads this off process.env (BRAINSTRIKE_OPENROUTER_API_KEY,
 // see the file header) — it is never a real OpenRouter key.
 const MODEL_PROVIDER_SHIM_API_KEY = 'test-key-e2e';
+const OPENROUTER_MODEL = 'openrouter::openai/gpt-5.4';
 let managedDirectory: string;
 let modelProviderShim: ModelProviderShim | undefined;
 let previousOpenRouterBaseUrl: string | undefined;
@@ -240,6 +245,15 @@ async function sendPrompt(page: Page, prompt: string): Promise<void> {
   await expect(page.getByText(prompt).first()).toBeVisible({ timeout: 30_000 });
 }
 
+/** The host thread's approval card names the tool by its catalog id. */
+async function approveHostTool(page: Page, catalogId: string): Promise<void> {
+  const approve = page
+    .getByRole('region', { exact: true, name: 'Assistant' })
+    .getByRole('button', { exact: true, name: `Approve ${catalogId}` });
+  await expect(approve).toBeVisible({ timeout: 30_000 });
+  await approve.click();
+}
+
 async function configureRealOpenRouterAssistant(page: Page): Promise<void> {
   // The renderer-side secrets.saveKey call here drives the UI's own
   // "provider configured" / model-selection state; it does NOT reach the
@@ -247,8 +261,12 @@ async function configureRealOpenRouterAssistant(page: Page): Promise<void> {
   // header) — that comes from MODEL_PROVIDER_SHIM_API_KEY on process.env.
   await configureAssistantProvider(page, {
     apiKey: MODEL_PROVIDER_SHIM_API_KEY,
+    compositeModelKey: OPENROUTER_MODEL,
     provider: 'openrouter',
   });
+  // Host admission refuses a disabled catalog row, and the seed ships this one
+  // disabled; selecting it does not enable it.
+  await enableAssistantCatalogModel(page, OPENROUTER_MODEL);
 }
 
 test.beforeAll(() => {
@@ -560,9 +578,7 @@ test.describe('Worktree Map (desktop)', () => {
 
       const requestCountBefore = shim.requestCount();
       await sendPrompt(page, 'Create the scripted agent worktree.');
-      const notice = page.getByTestId('assistant-tool-approval-notice');
-      await expect(notice).toBeVisible({ timeout: 30_000 });
-      await notice.getByRole('button', { name: /Approve/u }).click();
+      await approveHostTool(page, 'brainstrike.manageWorktree');
       await expect(page.getByText('Created the worktree.').first()).toBeVisible({
         timeout: 90_000,
       });
@@ -618,9 +634,7 @@ test.describe('Worktree Map (desktop)', () => {
 
       const requestCountBefore = shim.requestCount();
       await sendPrompt(page, 'Create the scripted shell worktree.');
-      const notice = page.getByTestId('assistant-tool-approval-notice');
-      await expect(notice).toBeVisible({ timeout: 30_000 });
-      await notice.getByRole('button', { name: /Approve/u }).click();
+      await approveHostTool(page, 'brainstrike.executeCommand');
       await expect(page.getByText('Created the shell worktree.').first()).toBeVisible({
         timeout: 90_000,
       });

@@ -98,6 +98,57 @@ describe('TransformersBackend queue integration', () => {
   });
 
   it.each([
+    ['webgpu', 384],
+    ['wasm', 384],
+    ['wasm', 1024],
+  ] as const)(
+    'an unpinned %s catalog load at %i dimensions requests the shared unpinned dtype',
+    async (device, dimensions) => {
+      vi.stubGlobal('window', {});
+      vi.stubGlobal('Worker', class {});
+      vi.stubGlobal('navigator', { gpu: {} });
+      const { queue, add } = createQueueStub();
+      const model = 'Xenova/bge-small-en-v1.5';
+      const { unpinnedCatalogEmbeddingPlan } = await import('../inference-plan.js');
+      const { dtype } = unpinnedCatalogEmbeddingPlan({ dimensions, id: model }, device);
+      const result = createQueueResult('task', new Array<number>(dimensions).fill(0.1));
+      add.mockResolvedValueOnce({
+        ...result,
+        metadata: { ...result.metadata, device, dtype, model },
+      });
+      const { SimpleEmbeddingService } = await import('../bge-m3-service.js');
+      const { registerEmbeddingQueueFactory, resetEmbeddingQueueFactory } = await import(
+        '../runtime-config.js'
+      );
+      registerEmbeddingQueueFactory(() => queue);
+      const service = new SimpleEmbeddingService();
+      try {
+        // The embedding host's unpinned query load: a catalog model config, never pre-quantized.
+        await service.initializeWithModel(
+          {
+            description: '',
+            dimensions,
+            id: model,
+            name: model,
+            quantized: false,
+            tags: ['local'],
+          },
+          undefined,
+          device
+        );
+        await service.generateQueryEmbedding('hello');
+        expect(add).toHaveBeenCalledWith(
+          expect.objectContaining({ deviceHint: device, dtype, model }),
+          undefined
+        );
+      } finally {
+        await service.dispose();
+        resetEmbeddingQueueFactory();
+      }
+    }
+  );
+
+  it.each([
     { revision: undefined },
     { revision: 'main' },
     { model: 'other-model' },

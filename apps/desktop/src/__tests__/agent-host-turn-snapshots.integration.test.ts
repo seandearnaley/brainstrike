@@ -109,6 +109,8 @@ async function withAdmittedRun(
       tools: {},
       toolTimeoutMs: 5000,
     }),
+    // Gap 17's import capability; this proof reads no legacy memory.
+    readLegacyMemory: async () => ({ resource: null, resourceObservations: false }),
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
     ...(workspaceSnapshots ? { workspaceSnapshots } : {}),
     ...(resolveWorkspaceRoot ? { resolveWorkspaceRoot } : {}),
@@ -142,6 +144,7 @@ async function withAdmittedRun(
     const threadId = randomUUID();
     const admission = await admitRun({
       modelId: 'gpt-4o-mini',
+      runId: randomUUID(),
       signal: new AbortController().signal,
       threadId,
     });

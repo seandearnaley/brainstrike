@@ -17,3 +17,8 @@ export const OUTSIDE_FILE = guarded(
 export const OUTSIDE_CHUNK = guarded(
   'Native search returned a chunk outside the requested canonical scope or source metadata.'
 );
+/**
+ * A host retrieval whose Main read failed because Main serves no workspace
+ * index: the execution guard's failure (its cause is logged, never shown).
+ */
+export const INDEX_UNAVAILABLE = { error: { code: 'tool_failed' }, ok: false };

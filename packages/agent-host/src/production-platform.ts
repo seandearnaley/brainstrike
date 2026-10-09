@@ -18,9 +18,15 @@ import type { VectorProfile } from '@brainstrike/indexer';
 import type { LanguageModel, Tool } from 'ai';
 import { z } from 'zod';
 import { committedRunMessages, createHostToolDiscovery } from './adapters/host-tool-discovery.js';
+import { importLegacyMemory } from './adapters/legacy-memory-import.js';
 import { createMcpHostToolAdapter } from './adapters/mcp.js';
 import type { HostMemory } from './adapters/memory.js';
 import { hostMemoryTools } from './adapters/memory-tools.js';
+import {
+  type HostObservationSource,
+  nativeObservationSource,
+  readHostObservation,
+} from './adapters/observation-state.js';
 import {
   StateStoreHostMemory,
   type StateStoreHostMemoryOptions,
@@ -38,9 +44,10 @@ import type {
   HostRunAdmissionRequest,
   HostRunContext,
   HostRunHooks,
+  HostRunIntentRequest,
   HostTool,
 } from './ports.js';
-import type { HostRunSnapshot } from './protocol.js';
+import type { HostObserverAwaitingReason, HostRunSnapshot } from './protocol.js';
 import { prepareHostProviderTools } from './provider-schema-selection.js';
 import type { HostStartupContext } from './runtime.js';
 
@@ -71,6 +78,8 @@ export interface ProductionHostRunConfiguration {
     StateStoreHostMemoryOptions,
     'store' | 'providerRequestContext' | 'vectorBridge'
   > & {
+    /** Observational memory is on but waits for an observer this admission can run. */
+    readonly observerAwaiting?: HostObserverAwaitingReason;
     /** Recall/vector-OM embedder and its profile; the host's own state index stores the vectors. */
     readonly vectors?: {
       readonly embedder: NonNullable<StateStoreHostMemoryOptions['native']['embedder']>;
@@ -87,6 +96,16 @@ export interface ProductionHostRunConfiguration {
   readonly toolTimeoutMs: number;
 }
 
+/**
+ * The admission's pure preconditions for a request: the selection, observer
+ * resolution, recall-embedder plan and memory credentials `readConfiguration`
+ * itself checks first, with no acquisition. A failure is the reason
+ * `run/start` would fail with.
+ */
+export type HostMemoryPreconditions =
+  | { readonly ready: false; readonly reason: string }
+  | { readonly observation: HostObservationSource; readonly ready: true };
+
 export interface ProductionHostPlatformOptions {
   /** The host's credential authority, where this host owns a credential store. */
   readonly auth?: HostPlatform['auth'];
@@ -100,6 +119,15 @@ export interface ProductionHostPlatformOptions {
   /** Provider reads from the same credential store. */
   readonly providers?: HostPlatform['providers'];
   readConfiguration(request: HostRunAdmissionRequest): Promise<ProductionHostRunConfiguration>;
+  /**
+   * Gap 17: the launching desktop's legacy workspace memory, read once from
+   * Main for the import before a run's Memory opens. The CLI has none.
+   */
+  readonly readLegacyMemory?: () => Promise<unknown>;
+  /** thread/memory/read's preconditions; absent where the host has no composer. */
+  readonly readMemoryPreconditions?: (
+    request: HostRunIntentRequest
+  ) => Promise<HostMemoryPreconditions>;
   readPermissionPolicy(
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
@@ -146,6 +174,17 @@ function admittedNativeWebSearch(
   }
   const tool = createProviderNativeWebSearchTool(provider, auth) as unknown as Tool | undefined;
   return tool ? { nativeWebSearch: tool } : {};
+}
+
+/** The provider's auth: the admission's own resolver when it brings one, else the host's. */
+async function admittedProviderAuth(
+  options: Pick<ProductionHostPlatformOptions, 'resolveProviderAuth'>,
+  selected: Pick<ProductionHostRunConfiguration, 'resolveProviderAuth'>,
+  provider: string
+): Promise<ProviderAuthInput | undefined> {
+  return selected.resolveProviderAuth
+    ? await selected.resolveProviderAuth(provider)
+    : await options.resolveProviderAuth(provider);
 }
 
 /** The run's concrete model; a local one loads before admission returns, as the legacy stream did. */
@@ -229,6 +268,32 @@ export function hostRunMemoryOptions<Memory extends Pick<StateStoreHostMemoryOpt
   };
 }
 
+/** thread/memory/read: the preconditions, then the observation record they locate. */
+function productionMemoryReadiness(
+  options: Pick<ProductionHostPlatformOptions, 'readMemoryPreconditions' | 'startup'>
+): Pick<HostPlatform, 'readMemoryReadiness'> {
+  const read = options.readMemoryPreconditions;
+  if (!read) {
+    return {};
+  }
+  return {
+    readMemoryReadiness: async (request, threadId) => {
+      const preconditions = await read(request);
+      if (!preconditions.ready) {
+        return { admission: { ready: false, reason: preconditions.reason } };
+      }
+      return {
+        admission: { ready: true },
+        observational: await readHostObservation(
+          options.startup.store,
+          preconditions.observation,
+          threadId
+        ),
+      };
+    },
+  };
+}
+
 /** Node-only production composition; Core remains the sole dispatcher and event writer. */
 export async function createProductionHostPlatform(
   options: ProductionHostPlatformOptions
@@ -236,6 +301,22 @@ export async function createProductionHostPlatform(
   const selections = new Set<() => Promise<void>>();
   let closing: Promise<void> | undefined;
   let stateIndex: Promise<HostStateIndex> | undefined;
+  // Gap 17: one legacy import per memory resource; a failed one is retried by the next admission.
+  const legacyImports = new Map<string, ReturnType<typeof importLegacyMemory>>();
+  const importLegacy = (resourceId: string): ReturnType<typeof importLegacyMemory> | undefined => {
+    const read = options.readLegacyMemory;
+    if (!read) {
+      return;
+    }
+    const pending =
+      legacyImports.get(resourceId) ??
+      importLegacyMemory(options.startup.store, resourceId, read).catch((cause: unknown) => {
+        legacyImports.delete(resourceId);
+        throw cause;
+      });
+    legacyImports.set(resourceId, pending);
+    return pending;
+  };
   const close = (): Promise<void> => {
     closing ??= (async () => {
       const joined = await Promise.allSettled([...selections].map((release) => release()));
@@ -357,10 +438,10 @@ export async function createProductionHostPlatform(
         if (closing) {
           throw new Error('Production host is closing');
         }
+        // Before any run of this admission opens its Memory.
+        const legacy = await importLegacy(selected.memory.resourceId);
         const provider = selected.configuration.provider ?? '';
-        const auth = selected.resolveProviderAuth
-          ? await selected.resolveProviderAuth(provider)
-          : await options.resolveProviderAuth(provider);
+        const auth = await admittedProviderAuth(options, selected, provider);
         const model = await admittedModel(options, selected, auth, request.signal);
         request.signal.throwIfAborted();
         acquired = await acquireMcp(request, selected);
@@ -374,7 +455,7 @@ export async function createProductionHostPlatform(
           }
           return owner.memory;
         };
-        const { vectors, ...memory } = selected.memory;
+        const { observerAwaiting, vectors, ...memory } = selected.memory;
         const nativeMemory = (
           bridge: StateStoreMemoryVector | undefined,
           native: StateStoreHostMemoryOptions['native'] = memory.native
@@ -417,6 +498,7 @@ export async function createProductionHostPlatform(
           // Like the legacy Memory default (`generateTitle: true`).
           generatesThreadTitle: true,
           hookSkips: selected.hookSkips,
+          ...(legacy?.resourceObservations ? { legacyObservationsWithheld: true as const } : {}),
           hooks: selected.hooks,
           inputTokenLimit: selected.providerRequestContext.inputTokenLimit,
           model,
@@ -454,6 +536,12 @@ export async function createProductionHostPlatform(
               };
             },
           },
+          readObservation: (threadId) =>
+            readHostObservation(
+              options.startup.store,
+              nativeObservationSource(memory, observerAwaiting),
+              threadId
+            ),
           snapshot: {
             configuration: selected.durableConfiguration,
             maxSteps: selected.maxSteps,
@@ -478,6 +566,10 @@ export async function createProductionHostPlatform(
       }
     },
     close,
+    ...(options.mcp?.attachTaskOwner
+      ? { attachMcpTaskOwner: options.mcp.attachTaskOwner.bind(options.mcp) }
+      : {}),
+    ...productionMemoryReadiness(options),
     readPermissionPolicy: options.readPermissionPolicy,
     ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
     ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),

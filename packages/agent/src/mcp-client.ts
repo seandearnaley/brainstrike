@@ -126,6 +126,7 @@ export {
 export {
   McpTaskCancellationOutcomeError,
   type McpTaskCancellationResult,
+  type McpTaskCommittedInputOutcome,
   McpTaskInteraction,
   type McpTaskInteractionClient,
   type McpTaskInteractionElicitationAuthority,

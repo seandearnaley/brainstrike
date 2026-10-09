@@ -78,7 +78,7 @@ export function approvalDecisions(
 }
 
 /** The grant options: kept only when the preview can describe the call it would grant. */
-const GRANT_OPTION_KINDS = new Set(['allow-always', '_allow-session']);
+export const GRANT_OPTION_KINDS: ReadonlySet<string> = new Set(['allow-always', '_allow-session']);
 
 /** True when the approval preview can describe the call a grant would allow again. */
 export function grantsDescribable(subject: ApprovalPreviewSubject): boolean {

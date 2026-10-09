@@ -3,6 +3,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { generateUUID } from '@brainstrike/utils';
+import { unpinnedEmbeddingDType } from './inference-plan.js';
 import { parseModelSizeEstimateBytes } from './model-size-estimate.js';
 import { getRegisteredEmbeddingQueueFactory } from './runtime-config.js';
 import type {
@@ -235,16 +236,6 @@ export class TransformersBackend {
   private _revision: string | undefined;
   private _estimatedModelBytes: number | null = null;
 
-  private resolveDTypeForDevice(device: 'webgpu' | 'wasm', quantized?: boolean): EmbeddingDType {
-    if (device === 'webgpu') {
-      return 'fp16';
-    }
-    if (device === 'wasm') {
-      return quantized ? 'q4' : 'fp32';
-    }
-    throw new Error(`Unsupported embedding device "${device}".`);
-  }
-
   /**
    * Initialize the backend with a model configuration
    */
@@ -260,7 +251,7 @@ export class TransformersBackend {
     this._quantized = config.quantized;
     this._revision = config.revision;
     this._selectedDType =
-      config.dtype ?? this.resolveDTypeForDevice(this._selectedDevice, this._quantized);
+      config.dtype ?? unpinnedEmbeddingDType(this._selectedDevice, this._quantized);
     this._streamingWorkerUrl = config.streamingWorkerUrl ?? null;
     this._streamBatchSize = this.resolveStreamBatchSize(config.streamBatchSize);
     this._estimatedModelBytes = parseModelSizeEstimateBytes(config.modelConfig?.size);
@@ -536,7 +527,7 @@ export class TransformersBackend {
     if (!this._selectedDevice) {
       throw new Error('Embedding device not initialized.');
     }
-    return this._selectedDType ?? this.resolveDTypeForDevice(this._selectedDevice, this._quantized);
+    return this._selectedDType ?? unpinnedEmbeddingDType(this._selectedDevice, this._quantized);
   }
 
   /**
