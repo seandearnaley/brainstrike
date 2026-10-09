@@ -858,6 +858,9 @@ export class HostCore {
   }
 
   private openRun(run: Run): Promise<HostRunOwner | undefined> {
+    if (run.ownerClose) {
+      return Promise.reject(new Error('The run owner is already closed'));
+    }
     run.owner ??= ensureHostRunAdmission(this.platform, run).then((admission) => {
       const open = admission.openRun ?? this.platform.openRun?.bind(this.platform);
       return open?.({
