@@ -3,14 +3,35 @@
  * stores (`desktop-read/*`) and the worktree/forge correlation of host
  * commands. Each request is served only for a thread Main has admitted.
  */
+
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import type { GrepSearchOptions, GrepSearchResult } from '@brainstrike/db';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
+import type { GitResult } from '@brainstrike/types';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
+import type { BrowserToolRunner } from '../assistant-server/native-tool-executors-browser';
+import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-core';
+import { QUERY_SELF_ERROR_MESSAGES, type QuerySelfRead } from '../assistant-server/query-self-core';
 import type { RetrievalStore } from '../assistant-server/retrieval-store';
+import type { WorkspaceContextBroadcaster } from '../assistant-server/workspace-context-tools';
 import {
+  WORKTREE_TOOLS_UNAVAILABLE,
+  type WorktreeToolCapability,
+} from '../assistant-server/worktree-tools';
+import { attachHostCommandSessions } from './host-command-session-client';
+import {
+  BrowserNavigateRequestSchema,
+  BrowserPageTextRequestSchema,
+  BrowserReadPageRequestSchema,
+  ContextSelectionDeliveryRequestSchema,
+  ContextTapestryDeliveryRequestSchema,
+  DiagnosticsReadRequestSchema,
   GrepIndexRequestSchema,
   PlatformShellCompletedSchema,
+  QuerySelfReadRequestSchema,
+  WorktreeArchiveRequestSchema,
+  WorktreeCreateRequestSchema,
   WorktreePathsResultSchema,
 } from './host-tool-wire';
 import {
@@ -31,14 +52,27 @@ export interface DesktopShellCorrelation {
 
 /** The Main-owned stores and services the host's tools read through Main. */
 export interface HostToolServiceCapabilities {
+  /** The window-bound browser pane's reads, driven in Main for a host run. */
+  readonly browser?: BrowserToolRunner;
+  /** Delivery of a host run's validated context write-back to the visible windows. */
+  readonly contextDelivery?: WorkspaceContextBroadcaster;
+  /** The diagnostic events store, projected and scrubbed before a row leaves Main. */
+  readonly diagnostics?: DiagnosticsReader;
   /** grep's indexed half over Main's PGlite file chunks. */
   readonly grepIndex?: (options: GrepSearchOptions) => Promise<GrepSearchResult>;
   /** Main's workspace index (search, grep, coverage); it stays Main-owned in M3. */
   readonly indexSearch?: IndexSearchCapability;
+  /** querySelf's SQL: the sandboxed application role or the read-only index process. */
+  readonly querySelf?: QuerySelfRead;
   /** The retrieval catalog over Main's PGlite (embedding sets, file records, spaces). */
   readonly retrievalStore?: RetrievalStore;
   /** Worktree/forge correlation of host shell commands (BST-1392). */
   readonly shell?: DesktopShellCorrelation;
+  /** Main's worktree service for host-thread worktree tools, under the host run's identity. */
+  readonly worktrees?: (run: {
+    readonly runId: string | undefined;
+    readonly threadId: string;
+  }) => WorktreeToolCapability | undefined;
 }
 
 function required<T>(value: T | undefined, what: string): T {
@@ -48,10 +82,11 @@ function required<T>(value: T | undefined, what: string): T {
   return value;
 }
 
-type Execute = <T>(
+/** Main's cancellable execution; a result crosses as JSON that the host parses. */
+type Execute = (
   token: CancellationToken,
-  work: (signal: AbortSignal) => Promise<T>
-) => Promise<T>;
+  work: (signal: AbortSignal) => Promise<unknown>
+) => Promise<unknown>;
 
 /** Register Main's handlers; `admitted` throws for a thread without admitted capabilities. */
 export function serveHostToolServices(
@@ -83,8 +118,170 @@ export function serveHostToolServices(
       return await required(services?.grepIndex, 'grep index')(options);
     })
   );
+  // The Terminal panel reaches this host's command sessions over the same connection.
+  attachHostCommandSessions(connection);
   serveIndexReads(connection, execute, admitted, services);
+  serveWorktreeCalls(connection, execute, admitted, services);
+  serveBrowserCalls(connection, execute, admitted, services);
+  serveContextDelivery(connection, execute, admitted, services);
+  serveSelfInspectionReads(connection, execute, admitted, services);
   serveRetrievalReads(connection, execute, admitted, services);
+}
+
+/** Main's worktree service answers, or the stated reason it cannot in this session. */
+async function viaWorktrees<T>(
+  worktrees: WorktreeToolCapability | undefined,
+  call: (service: WorktreeToolCapability) => Promise<GitResult<T>>
+): Promise<GitResult<T>> {
+  return worktrees ? await call(worktrees) : { error: WORKTREE_TOOLS_UNAVAILABLE, ok: false };
+}
+
+/** `platform/worktree/*`: Main's worktree service for an admitted thread, until the ledger moves. */
+function serveWorktreeCalls(
+  connection: MessageConnection,
+  execute: Execute,
+  admitted: (threadId: string) => unknown,
+  services: HostToolServiceCapabilities | undefined
+): void {
+  connection.onRequest('platform/worktree/list', (input: unknown, token: CancellationToken) =>
+    execute(token, async () => {
+      const { threadId } = ThreadRequestSchema.parse(input);
+      admitted(threadId);
+      return await viaWorktrees(services?.worktrees?.({ runId: undefined, threadId }), (service) =>
+        service.list()
+      );
+    })
+  );
+  connection.onRequest('platform/worktree/create', (input: unknown, token: CancellationToken) =>
+    execute(token, async () => {
+      const { params, runId, threadId } = WorktreeCreateRequestSchema.parse(input);
+      admitted(threadId);
+      return await viaWorktrees(services?.worktrees?.({ runId, threadId }), (service) =>
+        service.create(params)
+      );
+    })
+  );
+  connection.onRequest('platform/worktree/archive', (input: unknown, token: CancellationToken) =>
+    execute(token, async () => {
+      const { params, runId, threadId } = WorktreeArchiveRequestSchema.parse(input);
+      admitted(threadId);
+      return await viaWorktrees(services?.worktrees?.({ runId, threadId }), (service) =>
+        service.archive(params)
+      );
+    })
+  );
+}
+
+/** `platform/browser/*`: the active pane, which only Main's window can drive. */
+function serveBrowserCalls(
+  connection: MessageConnection,
+  execute: Execute,
+  admitted: (threadId: string) => unknown,
+  services: HostToolServiceCapabilities | undefined
+): void {
+  connection.onRequest('platform/browser/navigate', (input: unknown, token: CancellationToken) =>
+    execute(token, async () => {
+      const request = BrowserNavigateRequestSchema.parse(input);
+      admitted(request.threadId);
+      return await required(services?.browser, 'browser pane').navigate(request.input);
+    })
+  );
+  connection.onRequest('platform/browser/read-page', (input: unknown, token: CancellationToken) =>
+    execute(token, async () => {
+      const request = BrowserReadPageRequestSchema.parse(input);
+      admitted(request.threadId);
+      return await required(services?.browser, 'browser pane').readPage(request.input);
+    })
+  );
+  connection.onRequest('platform/browser/page-text', (input: unknown, token: CancellationToken) =>
+    execute(token, async () => {
+      const request = BrowserPageTextRequestSchema.parse(input);
+      admitted(request.threadId);
+      return await required(services?.browser, 'browser pane').getPageText(request.input);
+    })
+  );
+}
+
+/** `platform/workspace-context/*`: only Main can reach the app windows. */
+function serveContextDelivery(
+  connection: MessageConnection,
+  execute: Execute,
+  admitted: (threadId: string) => unknown,
+  services: HostToolServiceCapabilities | undefined
+): void {
+  connection.onRequest(
+    'platform/workspace-context/selection',
+    (input: unknown, token: CancellationToken) =>
+      execute(token, async () => {
+        const { payload, threadId } = ContextSelectionDeliveryRequestSchema.parse(input);
+        admitted(threadId);
+        const delivery = required(services?.contextDelivery, 'window delivery');
+        return { notifiedWindowCount: await delivery.selection(payload) };
+      })
+  );
+  connection.onRequest(
+    'platform/workspace-context/tapestry',
+    (input: unknown, token: CancellationToken) =>
+      execute(token, async () => {
+        const { payload, threadId } = ContextTapestryDeliveryRequestSchema.parse(input);
+        admitted(threadId);
+        const delivery = required(services?.contextDelivery, 'window delivery');
+        return { notifiedWindowCount: await delivery.tapestry(payload) };
+      })
+  );
+}
+
+/** The model-facing outcome of Main's querySelf read; anything else (a cancelled index query) rejects. */
+async function querySelfOutcome(read: QuerySelfRead, ...args: Parameters<QuerySelfRead>) {
+  try {
+    return { ok: true as const, result: await read(...args) };
+  } catch (error) {
+    if (error instanceof ToolInputError) {
+      return { error: 'input' as const, message: error.message, ok: false as const };
+    }
+    if (error instanceof Error && error.message === QUERY_SELF_ERROR_MESSAGES.queryFailed) {
+      return { error: 'failed' as const, ok: false as const };
+    }
+    throw error;
+  }
+}
+
+/** `desktop-read/query-self` and `desktop-read/diagnostics/*`: Main's own databases. */
+function serveSelfInspectionReads(
+  connection: MessageConnection,
+  execute: Execute,
+  admitted: (threadId: string) => unknown,
+  services: HostToolServiceCapabilities | undefined
+): void {
+  connection.onRequest('desktop-read/query-self', (input: unknown, token: CancellationToken) =>
+    execute(token, async (signal) => {
+      const { request, threadId } = QuerySelfReadRequestSchema.parse(input);
+      admitted(threadId);
+      return await querySelfOutcome(
+        required(services?.querySelf, 'self-query read'),
+        request,
+        signal
+      );
+    })
+  );
+  connection.onRequest(
+    'desktop-read/diagnostics/events',
+    (input: unknown, token: CancellationToken) =>
+      execute(token, async () => {
+        const { filter, threadId } = DiagnosticsReadRequestSchema.parse(input);
+        admitted(threadId);
+        return await required(services?.diagnostics, 'diagnostics store').events(filter);
+      })
+  );
+  connection.onRequest(
+    'desktop-read/diagnostics/fingerprints',
+    (input: unknown, token: CancellationToken) =>
+      execute(token, async () => {
+        const { filter, threadId } = DiagnosticsReadRequestSchema.parse(input);
+        admitted(threadId);
+        return await required(services?.diagnostics, 'diagnostics store').fingerprints(filter);
+      })
+  );
 }
 
 /** `desktop-read/index/*`: Main's IndexSearchCapability, read for an admitted thread. */

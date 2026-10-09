@@ -271,7 +271,7 @@ let nextRecordingWindowId = 1;
  *
  * The listing-routed main -> renderer broadcasts iterate
  * `BrowserWindow.getAllWindows()` (`ipc-mcp.ts`, `mcp/lifecycle-control.ts`,
- * `ipc-domains/db-ipc.ts`, `assistant-server/workspace-context-tools.ts` and
+ * `ipc-domains/db-ipc.ts`, `assistant-server/workspace-context-broadcast.ts` and
  * eight sites in `main.ts`), and every one is a `for (const window of …)` loop.
  * That is not every send site in the app (BST-1624). `terminal-ipc-handlers.ts`
  * sends to a `WebContents` held in its own live-terminal registry, so it never

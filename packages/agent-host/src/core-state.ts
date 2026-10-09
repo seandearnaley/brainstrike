@@ -216,6 +216,8 @@ export interface HostRunState {
   readonly approvals: Map<string, PendingInteraction>;
   readonly branch: HostRunBranch;
   readonly checkpointedResults: Set<string>;
+  /** BST-1932: human input a running child takes; it starts the run after this one. */
+  childInput?: HostParams<'run/start'> | undefined;
   completion?: Promise<void>;
   readonly controller: AbortController;
   /** Set when a child's execution deadline expired; it ends failed, not stopped. */
@@ -262,6 +264,8 @@ export interface HostRunState {
   planMode?: true;
   /** A child's root thread, whose live permission policy governs its decisions. */
   policyThreadId?: string;
+  /** A UserPromptSubmit hook's committed context, part of the run's instructions. */
+  promptContext?: string;
   readonly rawInputs: Map<string, Json>;
   release?: (() => void) | undefined;
   readonly responses: Set<string>;
@@ -275,6 +279,8 @@ export interface HostRunState {
   task?: Promise<void>;
   terminal: boolean;
   readonly threadId: string;
+  /** PostToolUse hooks' committed context, read with each tool's result. */
+  readonly toolContexts: Map<string, string>;
   /** A follow-up typed into an idle child starts its own turn: its ID. */
   turnId?: string;
 }
@@ -314,6 +320,7 @@ export function createHostRunState(
     stopped: false,
     terminal: false,
     threadId,
+    toolContexts: new Map(),
   };
 }
 
@@ -329,7 +336,7 @@ export function foldHostAcceptedCommand(
     result: event.result,
     threadId,
   });
-  if (event.method !== 'run/stop' && event.method !== 'run/steer') {
+  if (event.method !== 'run/stop' && event.method !== 'run/steer' && event.method !== 'run/input') {
     return;
   }
   const params = HOST_METHOD_SCHEMAS[event.method].parse(event.payload);

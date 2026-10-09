@@ -198,6 +198,17 @@ export type HostPreToolUseVerdict =
   | { readonly blocked: false }
   | { readonly blocked: true; readonly reason: string };
 
+/** A fresh run's prompt, past its UserPromptSubmit hooks: blocked, or with added context. */
+export type HostUserPromptVerdict =
+  | { readonly blocked: true; readonly reason: string }
+  | { readonly additionalContext?: string; readonly blocked: false };
+
+/** A hook's run verdict, which the host commits as a `hook` label. */
+export interface HostHookRunVerdict {
+  readonly detail?: string;
+  readonly verdict: 'failed' | 'mixed' | 'succeeded';
+}
+
 /** The run's user-authored lifecycle hooks, from the composition's hooks configuration. */
 export interface HostRunHooks {
   /**
@@ -205,12 +216,44 @@ export interface HostRunHooks {
    * provider-executed tool never reaches the approval point where hooks run.
    */
   matchesPreToolUse(toolName: string): boolean;
+  /** After a tool ran: a hook may add context the model reads with that result. */
+  postToolUse(call: {
+    readonly error: boolean;
+    readonly input: unknown;
+    readonly output: unknown;
+    /** The tool's catalog ID, which hook matchers name. */
+    readonly toolName: string;
+  }): Promise<{ readonly additionalContext?: string }>;
   /** Before a tool the policy would allow or ask about: a hook may block it, with a reason. */
   preToolUse(call: {
     readonly input: unknown;
     /** The tool's catalog ID (`brainstrike.readWorkspaceFile`), which hook matchers name. */
     readonly toolName: string;
   }): Promise<HostPreToolUseVerdict>;
+  /** At the run's end, before its terminal row: a hook may label the run with a verdict. */
+  stop(end: {
+    /** The run's assistant text, tail-bounded, so a hook can grade the final answer. */
+    readonly assistantMessage?: string;
+    readonly reason: 'aborted' | 'complete' | 'error';
+  }): Promise<{ readonly verdict?: HostHookRunVerdict }>;
+  /** Before a fresh run's first step: a hook may block the prompt or add context for the run. */
+  userPromptSubmit(prompt: string): Promise<HostUserPromptVerdict>;
+}
+
+/**
+ * Hosted tool discovery (the legacy Mastra catalog search): a deferred tool
+ * stays off the model's surface until the run commits a `load_tool` for it.
+ */
+export interface HostToolDiscovery {
+  /** The tools the run's next step offers: eager, discovery and loaded, from its committed steps. */
+  activeTools(run: { readonly runId: string; readonly threadId: string }): Promise<string[]>;
+  /**
+   * Its own tools (`search_tools`, `load_tool`, `list_available_tools`). Like
+   * legacy's processor-added tools, which joined after the permission gate and
+   * so were never in its ask set, they are outside the permission catalog:
+   * no policy decision, no prompt and no lifecycle hook.
+   */
+  readonly toolIds: ReadonlySet<string>;
 }
 
 /** One immutable selection retained across approval legs, never re-read from Settings. */
@@ -226,6 +269,8 @@ export interface HostRunAdmission {
   readonly configuration: Readonly<RuntimeData>;
   /** Present when this run may delegate; its tools are already in `tools`. */
   readonly delegation?: HostDelegation | undefined;
+  /** Present when the run defers tools behind discovery; its tools include the discovery tools. */
+  readonly discovery?: HostToolDiscovery | undefined;
   /** Title an untitled thread's first completed run through this run's model. */
   readonly generatesThreadTitle?: boolean;
   /** Present only when the composition loaded at least one hook for this run. */

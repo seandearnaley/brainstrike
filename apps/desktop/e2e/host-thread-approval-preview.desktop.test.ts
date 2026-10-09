@@ -24,6 +24,8 @@ test('a host approval previews a command and run_python’s host-computed sandbo
           finalText: FINAL,
           toolCallStages: [
             [{ arguments: { command: COMMAND }, name: 'brainstrike_executeCommand' }],
+            // Hosted discovery defers run_python: the model loads it first.
+            [{ arguments: { toolName: 'brainstrike_runPython' }, name: 'load_tool' }],
             [{ arguments: { code: 'print("preview")' }, name: 'brainstrike_runPython' }],
           ],
         }

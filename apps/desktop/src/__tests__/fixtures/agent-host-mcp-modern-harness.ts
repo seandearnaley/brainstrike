@@ -373,7 +373,11 @@ export async function openModernHost(options: ModernHostOptions) {
   if (!toolId) {
     throw new Error('The canonical sanitizer produced no provider tool name');
   }
-  const model = scriptedToolSequence([{ input: options.toolInput ?? {}, toolId }]);
+  // Hosted discovery defers MCP tools: the model loads the tool, then calls it.
+  const model = scriptedToolSequence([
+    { input: { toolName: toolId }, toolId: 'load_tool' },
+    { input: options.toolInput ?? {}, toolId },
+  ]);
   // The local presenter listener: host-owned input must never reach it.
   const presentations = new Observed<McpElicitationPresentation>();
   const inputs = new Observed<PublicInput>();
@@ -543,7 +547,9 @@ export async function startThreadRun(modern: ModernHost, prompt: string) {
   const until = <R>(select: (rows: readonly HostLogRow[]) => R | undefined): Promise<R> =>
     rows.until(() => select(ordered()));
   const log = {
-    effect: () => until((items) => eventOf(items, 'effect.started')),
+    // The MCP tool's effect, not the load that preceded it.
+    effect: () =>
+      until((items) => eventOf(items, 'effect.started', (event) => event.toolId === modern.toolId)),
     finished: () => until((items) => eventOf(items, 'run.finished')),
     rows: ordered,
     until,

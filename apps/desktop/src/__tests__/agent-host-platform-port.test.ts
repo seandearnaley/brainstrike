@@ -7,7 +7,7 @@ import {
   platformToolInputSchema,
   validateCanonicalToolInput,
 } from '@brainstrike/agent-host';
-import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
+import { DEFAULT_PERMISSION_POLICIES, ToolInputError } from '@brainstrike/assistant-contract';
 import { expect, it, vi } from 'vitest';
 import { CancellationTokenSource, type MessageConnection } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
@@ -552,6 +552,152 @@ it('serves the workspace index, retrieval catalog and query embedding to an admi
       h.client.sendRequest('platform/embedding/query', { request: payload, threadId: 'thread' })
     ).resolves.toEqual([0.5, 0.25]);
     expect(queryEmbedding).toHaveBeenCalledWith(payload, expect.any(AbortSignal));
+  } finally {
+    h.destroy();
+  }
+});
+
+it('serves the worktree calls to an admitted thread only, under the calling run’s identity', async () => {
+  const created = {
+    ok: true as const,
+    value: {
+      setup: { reason: null, status: 'none' },
+      worktree: { branch: 'bs/fox', id: 'wt-9', path: '/managed/fox' },
+    },
+  };
+  const service = {
+    archive: vi.fn(),
+    create: vi.fn(async () => created),
+    list: vi.fn(async () => ({ ok: true as const, value: [] })),
+  };
+  const worktrees = vi.fn(() => service);
+  const h = harness(async () => selected({}), undefined, { worktrees });
+  const params = { baseRef: 'HEAD', branch: 'bs/fox', name: 'fox', rootId: 'root-a' };
+  try {
+    await expect(
+      h.client.sendRequest('platform/worktree/create', {
+        params,
+        runId: 'host-run',
+        threadId: 'thread',
+      })
+    ).rejects.toBeInstanceOf(Error);
+    expect(worktrees).not.toHaveBeenCalled();
+    await admit(h.client);
+    await expect(
+      h.client.sendRequest('platform/worktree/list', { threadId: 'thread' })
+    ).resolves.toEqual({ ok: true, value: [] });
+    await expect(
+      h.client.sendRequest('platform/worktree/create', {
+        params,
+        runId: 'host-run',
+        threadId: 'thread',
+      })
+    ).resolves.toEqual(created);
+    expect(worktrees).toHaveBeenLastCalledWith({ runId: 'host-run', threadId: 'thread' });
+    expect(service.create).toHaveBeenCalledWith(params);
+  } finally {
+    h.destroy();
+  }
+});
+
+it('drives the browser pane for an admitted thread only, re-parsing the tool input', async () => {
+  const browser = {
+    getPageText: vi.fn(),
+    navigate: vi.fn(async () => ({
+      ok: true as const,
+      title: 'Example',
+      url: 'https://example.com/',
+    })),
+    readPage: vi.fn(),
+  };
+  const h = harness(async () => selected({}), undefined, { browser });
+  const navigate = { input: { url: 'https://example.com' }, threadId: 'thread' };
+  try {
+    await expect(
+      h.client.sendRequest('platform/browser/navigate', navigate)
+    ).rejects.toBeInstanceOf(Error);
+    await admit(h.client);
+    await expect(h.client.sendRequest('platform/browser/navigate', navigate)).resolves.toEqual({
+      ok: true,
+      title: 'Example',
+      url: 'https://example.com/',
+    });
+    expect(browser.navigate).toHaveBeenCalledWith({ url: 'https://example.com' });
+    // A hallucinated parameter fails Main's strict catalog schema too.
+    await expect(
+      h.client.sendRequest('platform/browser/navigate', {
+        input: { url: 'https://example.com', wait: true },
+        threadId: 'thread',
+      })
+    ).rejects.toBeInstanceOf(Error);
+    expect(browser.navigate).toHaveBeenCalledOnce();
+  } finally {
+    h.destroy();
+  }
+});
+
+it('delivers a validated context write-back to the windows for an admitted thread only', async () => {
+  const contextDelivery = { selection: vi.fn(async () => 2), tapestry: vi.fn() };
+  const h = harness(async () => selected({}), undefined, { contextDelivery });
+  const delivery = {
+    payload: { filePaths: ['notes.txt'], folderId: 'folder-a', mode: 'add' },
+    threadId: 'thread',
+  };
+  try {
+    await expect(
+      h.client.sendRequest('platform/workspace-context/selection', delivery)
+    ).rejects.toBeInstanceOf(Error);
+    expect(contextDelivery.selection).not.toHaveBeenCalled();
+    await admit(h.client);
+    await expect(
+      h.client.sendRequest('platform/workspace-context/selection', delivery)
+    ).resolves.toEqual({ notifiedWindowCount: 2 });
+    expect(contextDelivery.selection).toHaveBeenCalledWith(delivery.payload);
+  } finally {
+    h.destroy();
+  }
+});
+
+it('serves querySelf’s SQL read and the diagnostics store to an admitted thread only', async () => {
+  const querySelf = vi.fn(async (read: { input: { sql?: string } }) => {
+    if (read.input.sql === 'SELEC 1') {
+      throw new ToolInputError('syntax error at or near "SELEC"');
+    }
+    return { analyzed: false, kind: 'plan' as const, plan: ['Result'], target: 'app' as const };
+  });
+  const diagnostics = { events: vi.fn(async () => []), fingerprints: vi.fn() };
+  const h = harness(async () => selected({}), undefined, { diagnostics, querySelf });
+  const read = (sql: string) => ({
+    request: { input: { mode: 'explain', sql, target: 'app' } },
+    threadId: 'thread',
+  });
+  try {
+    await expect(
+      h.client.sendRequest('desktop-read/query-self', read('SELECT 1'))
+    ).rejects.toBeInstanceOf(Error);
+    expect(querySelf).not.toHaveBeenCalled();
+    await admit(h.client);
+    await expect(
+      h.client.sendRequest('desktop-read/query-self', read('SELECT 1'))
+    ).resolves.toEqual({
+      ok: true,
+      result: { analyzed: false, kind: 'plan', plan: ['Result'], target: 'app' },
+    });
+    // An engine input error crosses as a model-correctable outcome, not a transport failure.
+    await expect(h.client.sendRequest('desktop-read/query-self', read('SELEC 1'))).resolves.toEqual(
+      {
+        error: 'input',
+        message: 'syntax error at or near "SELEC"',
+        ok: false,
+      }
+    );
+    await expect(
+      h.client.sendRequest('desktop-read/diagnostics/events', {
+        filter: { limit: 5 },
+        threadId: 'thread',
+      })
+    ).resolves.toEqual([]);
+    expect(diagnostics.events).toHaveBeenCalledWith({ limit: 5 });
   } finally {
     h.destroy();
   }

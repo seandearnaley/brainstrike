@@ -12,7 +12,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { IFileNode, RootDescriptor } from '@brainstrike/types';
 import { ipcMain } from 'electron';
-import { disposeDesktopCommandSessionsForRoot } from '../assistant-server/command-session-manager';
+import { disposeDesktopAndHostCommandSessionsForRoot } from '../agent-host-platform/host-command-session-client';
 import { evictLspServersForRoot } from '../assistant-server/lsp-diagnostics';
 import type { WorkspaceRootsQueryable } from '../assistant-server/workspace-roots';
 import {
@@ -318,7 +318,7 @@ export function registerFileSystemIpcHandlers(
 }
 
 export function createFileSystemIpcDomain({
-  disposeCommandSessionsForRoot = disposeDesktopCommandSessionsForRoot,
+  disposeCommandSessionsForRoot = disposeDesktopAndHostCommandSessionsForRoot,
   evictLspServersForRoot: evictLspServersForRootOverride,
   fileSystem,
   getRootsDatabase,

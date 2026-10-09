@@ -1,0 +1,28 @@
+{
+  "models": [
+    {
+      "name": "lfm2.5-thinking:latest",
+      "model": "lfm2.5-thinking:latest",
+      "modified_at": "2026-01-21T23:16:12.931371073-05:00",
+      "size": 731163903,
+      "digest": "95bd9d45385f33bfe96d8b3651c8569e152f21f5bdb7c19894ffde650e9cf140",
+      "details": {
+        "parent_model": "",
+        "format": "gguf",
+        "family": "lfm2",
+        "families": [
+          "lfm2"
+        ],
+        "parameter_size": "1.2B",
+        "quantization_level": "Q4_K_M",
+        "context_length": 128000,
+        "embedding_length": 2048
+      },
+      "capabilities": [
+        "completion",
+        "tools",
+        "thinking"
+      ]
+    }
+  ]
+}

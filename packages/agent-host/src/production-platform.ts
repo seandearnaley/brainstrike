@@ -17,6 +17,7 @@ import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract
 import type { VectorProfile } from '@brainstrike/indexer';
 import type { LanguageModel, Tool } from 'ai';
 import { z } from 'zod';
+import { committedRunMessages, createHostToolDiscovery } from './adapters/host-tool-discovery.js';
 import { createMcpHostToolAdapter } from './adapters/mcp.js';
 import type { HostMemory } from './adapters/memory.js';
 import { hostMemoryTools } from './adapters/memory-tools.js';
@@ -429,11 +430,20 @@ export async function createProductionHostPlatform(
             runMemory
           )
         );
+        const admittedTools = withHostDelegationTools(authoredTools, selected.delegation);
+        // Hosted providers defer tools behind the legacy catalog search, over this run's committed steps.
+        const discovery = await createHostToolDiscovery({
+          modelId: request.modelId,
+          provider: selected.providerRequestContext.provider,
+          readRunMessages: (run) =>
+            committedRunMessages(options.startup.store, selected.memory.resourceId, run),
+          tools: admittedTools,
+        });
         // One run-bound registry supplies SDK declarations and approval/restart
         // validation against the concrete resolved model, including MCP opt-out.
         const tools = await prepareHostProviderTools(
           model,
-          withHostDelegationTools(authoredTools, selected.delegation)
+          discovery ? mergeToolCatalogs(admittedTools, discovery.tools) : admittedTools
         );
         request.signal.throwIfAborted();
         const selection: HostRunAdmission = {
@@ -441,6 +451,7 @@ export async function createProductionHostPlatform(
           close: release,
           configuration: selected.configuration,
           delegation: selected.delegation,
+          ...(discovery ? { discovery: discovery.discovery } : {}),
           // Like the legacy Memory default (`generateTitle: true`).
           generatesThreadTitle: true,
           hooks: selected.hooks,

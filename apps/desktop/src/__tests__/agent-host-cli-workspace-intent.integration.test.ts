@@ -5,11 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HostRunAdmissionRequest, HostTool, HostToolContext } from '@brainstrike/agent-host';
 import { HostRunSnapshotSchema } from '@brainstrike/agent-host/protocol';
-import {
-  DEFAULT_PERMISSION_POLICIES,
-  NATIVE_TOOL_ID,
-  ToolInputError,
-} from '@brainstrike/assistant-contract';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import type {
   IndexerSearchResult,
   IndexerStatus,
@@ -21,6 +17,7 @@ import type {
   DesktopHostIntent,
   DesktopHostModelProjection,
 } from '../agent-host-platform/desktop-host-intent';
+import { OUTSIDE_CHUNK, OUTSIDE_FILE, UNAVAILABLE } from './fixtures/guarded-retrieval-refusals';
 
 // Observe existing owner boundaries. The actual Main adapter, context readers,
 // semantic/hybrid dispatch and native scope validation remain production code.
@@ -90,6 +87,14 @@ vi.mock('@brainstrike/app-state/stores/permission-policy-store', () => ({
     enforce: renderer.enforce,
   }),
 }));
+vi.mock('@brainstrike/app-state/stores/subagent-personas-store', () => ({
+  useSubagentPersonasStore: { getState: () => renderer.intent().subagents },
+}));
+vi.mock('@brainstrike/app-state/stores/assistant-subagent-preferences-store', () => ({
+  useAssistantSubagentPreferencesStore: {
+    getState: () => ({ settings: renderer.intent().subagents?.settings }),
+  },
+}));
 vi.mock('@brainstrike/app-state/stores/skills-preferences-store', () => ({
   buildSkillsContextRequest: () => renderer.intent().skillsPreference,
   useSkillsPreferencesStore: { getState: () => ({}) },
@@ -123,9 +128,9 @@ vi.mock('@brainstrike/db', async (original) => ({
   },
 }));
 
-import { PlatformClientConfigurationSchema } from '../agent-host-platform/platform-wire';
 import { productionDesktopCapabilities } from '../agent-host-platform/production-desktop-capabilities';
 import { readDesktopHostConfiguration } from '../renderer/desktop-host-configuration';
+import { desktopHostIntentFixture as intent } from './fixtures/desktop-host-intent';
 
 const directories: string[] = [];
 let roots: { id: string; displayName: string; path: string }[] = [];
@@ -230,63 +235,6 @@ async function workspace() {
     await fs.writeFile(join(root.path, 'note.txt'), `Reference for ${root.displayName}.`);
   }
   return { a: roots[0]!.path, b: roots[1]!.path };
-}
-function intent() {
-  return PlatformClientConfigurationSchema.parse({
-    agentLoop: { inputTokenLimit: 7000, maxSteps: 3 },
-    enabledNativeToolIds: [],
-    memoryOptions: {
-      lastMessages: 1,
-      workingMemory: { enabled: false, scope: 'thread', template: 'Owner template' },
-    },
-    memorySettings: {
-      observationalMemory: {
-        enabled: false,
-        messageTokens: 1234,
-        modelTarget: 'auto',
-        observationTokens: 2345,
-        retrievalMode: 'messages',
-        scope: 'thread',
-      },
-      semanticRecall: {
-        embeddingModelTarget: null,
-        enabled: false,
-        messageRange: 0,
-        scope: 'thread',
-        topK: 2,
-      },
-    },
-    modelConfiguration: {
-      model: 'gpt-6-sol',
-      modelSettings: { maxOutputTokens: 97, temperature: 0.31 },
-      provider: 'openai',
-      providerOptions: { openai: { reasoningEffort: 'low' } },
-    },
-    permissionPolicy: {
-      perToolOverrides: { 'brainstrike.writeWorkspaceFile': 'deny' },
-      policies: DEFAULT_PERMISSION_POLICIES,
-      yolo: false,
-    },
-    skillsPreference: { disabledSkillKeys: [], masterEnabled: false },
-    workspaceContext: {
-      files: [
-        {
-          approxTokens: null,
-          outputApproxTokens: null,
-          path: 'note.txt',
-          ranges: [],
-          rootId: 'root-a',
-        },
-      ],
-      includeProjectTree: false,
-      projectTreeApproxTokens: null,
-      projectTreeTokenCountLoading: false,
-      selectedOutputApproxTokens: null,
-      selectedSourceApproxTokens: null,
-      tokenBudget: 321,
-    },
-    workspaceInstructionsPreference: { masterEnabled: false, oversizedOptInByRootId: {} },
-  });
 }
 function request(configuration: unknown): HostRunAdmissionRequest {
   return {
@@ -693,7 +641,7 @@ test.each([
       const tool = admittedRetrieval(captured.tools, toolId);
       const result = tool.execute({ embeddingSetId: 'selected', query: 'marker' }, execution());
       if (selected.length === 0) {
-        await expect(result).rejects.toThrow('ERR_CLI_WORKSPACE_RETRIEVAL_UNAVAILABLE');
+        await expect(result).resolves.toMatchObject(UNAVAILABLE);
         expect(fixture.search).not.toHaveBeenCalled();
         expect(fixture.grep).not.toHaveBeenCalled();
         expect(fixture.coverageBatch).not.toHaveBeenCalled();
@@ -744,7 +692,7 @@ test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
           { embeddingSetId: 'selected', query: 'marker' },
           execution()
         )
-      ).rejects.toBeInstanceOf(ToolInputError);
+      ).resolves.toMatchObject(OUTSIDE_CHUNK);
       expect(fixture.search).toHaveBeenCalledWith(expect.objectContaining({ rootIds: ['root-a'] }));
     } finally {
       await captured.close();
@@ -778,7 +726,7 @@ test.each([
         execution()
       );
       if (selected.length === 0) {
-        await expect(result).rejects.toThrow('ERR_CLI_WORKSPACE_RETRIEVAL_UNAVAILABLE');
+        await expect(result).resolves.toMatchObject(UNAVAILABLE);
         expect(owner.query.mock.calls.some(([sql]) => String(sql).includes('embedding_sets'))).toBe(
           false
         );
@@ -845,7 +793,7 @@ test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
           { embeddingSetId: 'selected', query: 'marker' },
           execution()
         )
-      ).rejects.toBeInstanceOf(ToolInputError);
+      ).resolves.toMatchObject(OUTSIDE_FILE);
     } finally {
       await captured.close();
     }
@@ -915,7 +863,7 @@ test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
           { embeddingSetId: 'selected', query: 'marker' },
           execution()
         )
-      ).rejects.toBeInstanceOf(ToolInputError);
+      ).resolves.toMatchObject(OUTSIDE_FILE);
       expect(fixture.search).toHaveBeenCalled();
     } finally {
       await captured.close();

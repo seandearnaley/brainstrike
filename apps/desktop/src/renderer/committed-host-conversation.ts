@@ -4,21 +4,43 @@ import { committedRunIdentity } from '@brainstrike/agent-host/committed-identiti
 import {
   type HostImageAttachment,
   HostImageAttachmentSchema,
+  type HostLogRow,
 } from '@brainstrike/agent-host/protocol';
 import { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
-import { usePermissionPolicyStore } from '@brainstrike/app-state/stores/permission-policy-store';
+import type {
+  AssistantChildAttachment,
+  AssistantChildInput,
+} from '@brainstrike/assistant-contract';
 import {
-  type CommittedApprovalGrant,
   type CommittedAssistantCommands,
+  type CommittedAssistantLogRow,
   CommittedAssistantLogStore,
-  committedApprovalGrant,
+  type CommittedAssistantRunIdentity,
 } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
 import { CommittedHostCheckpoints } from './committed-host-checkpoints';
 import { CommittedHostMcpInput } from './committed-host-mcp-input';
+import { respondToHostApproval } from './host-approval-response';
+import { HostTreeApprovals } from './host-tree-approvals';
 
 const logger = createLogger('CommittedHostConversation');
+
+/** A committed run.started the host admitted to deliver child results (a wake). */
+const HostWakeStartSchema = z.object({
+  delivery: z.object({ via: z.literal('wake') }),
+  type: z.literal('run.started'),
+});
+
+/** A child input's image as the host's user-message attachment; anything else is refused. */
+function childImageAttachment(attachment: AssistantChildAttachment): HostImageAttachment {
+  return HostImageAttachmentSchema.parse({
+    data: attachment.data,
+    mediaType: attachment.mediaType.toLowerCase(),
+    name: attachment.filename,
+    type: 'image',
+  });
+}
 
 /** A composer image as the host's user-message attachment; anything else is refused. */
 function hostImageAttachment(
@@ -36,24 +58,43 @@ function hostImageAttachment(
   });
 }
 
-/**
- * "Always allow" also saves the per-tool override in the permission settings,
- * as the approval card's button does, until that write moves to the host's
- * settings owner. A session grant is the host's alone.
- */
-function keepToolOverride(grant: CommittedApprovalGrant): void {
-  if (grant.scope === 'tool') {
-    usePermissionPolicyStore.getState().setToolOverride(grant.toolId, 'allow');
+/** The desktop's message identities for a committed run, from its host's own identities. */
+export function committedConversationIdentity(
+  rows: readonly HostLogRow[],
+  row: CommittedAssistantLogRow
+): CommittedAssistantRunIdentity {
+  const runId = row.event['runId'];
+  if (typeof runId !== 'string') {
+    throw new Error('Committed conversation has no run identity');
   }
+  // The message names the host run it answers, for its delegation cards.
+  const identity = {
+    ...committedRunIdentity(rows, runId),
+    metadata: { custom: { hostRunId: runId } },
+  };
+  // BST-1932: a wake answers the host's child delivery, not a person; its
+  // ledger is model input, so the answer follows the run it woke behind.
+  if (HostWakeStartSchema.safeParse(row.event).success) {
+    const { userMessageId: _ledger, ...wake } = identity;
+    return wake;
+  }
+  return identity;
 }
 
 export interface CommittedHostConversation {
+  /** BST-1932: the approvals waiting in this thread and every thread delegated beneath it. */
+  readonly approvals: HostTreeApprovals;
   /** The thread's committed edit checkpoints, reverted through the host. */
   readonly checkpoints: CommittedHostCheckpoints;
   /** Release this view's subscription; the client/root host belongs to its caller. */
   close(): void;
   readonly commands: CommittedAssistantCommands;
   readonly mcpInput: CommittedHostMcpInput;
+  /**
+   * BST-1932: human input for this running child. The host ends the active run
+   * after its step in flight and starts the input as the child's next run.
+   */
+  sendInput(input: AssistantChildInput, signal: AbortSignal): Promise<void>;
   /** The thread's committed session; this conversation connects and releases it. */
   readonly source: CommittedThreadSession;
   /**
@@ -80,13 +121,7 @@ export function createCommittedHostConversation(options: {
   const source = new CommittedThreadSession(client, threadId);
   const mcpInput = new CommittedHostMcpInput(client, source, threadId);
   const store = new CommittedAssistantLogStore({
-    identifyRun: (row) => {
-      const runId = row.event['runId'];
-      if (typeof runId !== 'string') {
-        throw new Error('Committed conversation has no run identity');
-      }
-      return committedRunIdentity(source.getSnapshot().rows, runId);
-    },
+    identifyRun: (row) => committedConversationIdentity(source.getSnapshot().rows, row),
     source,
     threadId,
   });
@@ -170,19 +205,8 @@ export function createCommittedHostConversation(options: {
         });
         return;
       }
-      // A grant option is committed by the host, which keeps it for the thread.
-      const grant = committedApprovalGrant(response.optionId, interaction);
-      await client.request('interaction/respond', {
-        commandId: crypto.randomUUID(),
-        decision: response.approved ? 'approve' : 'deny',
-        ...(grant ? { grant } : {}),
-        interactionId: interaction.interactionId,
-        runId: interaction.runId,
-        threadId,
-      });
-      if (grant) {
-        keepToolOverride(grant);
-      }
+      // A grant option is committed by the host, which keeps it for the thread's tree.
+      await respondToHostApproval(client, interaction, response);
     },
     // Branch selection is client view state: the vendor already moved its own
     // head over the committed tree, and nothing is written to the host.
@@ -198,11 +222,16 @@ export function createCommittedHostConversation(options: {
       options.onTitleCommitted?.();
     }
   });
+  const approvals = new HostTreeApprovals(client, threadId, source);
   const disconnect = source.connect();
   return {
+    approvals,
     checkpoints: new CommittedHostCheckpoints(client, source, threadId),
     close: () => {
       unsubscribeTitles();
+      approvals.close().catch((error: unknown) => {
+        logger.error('Delegated approvals unsubscribe failed', { error, threadId });
+      });
       mcpInput.close();
       // The client outlives this view, so the unsubscribe is not joined here;
       // its refusal is reported, never swallowed.
@@ -213,6 +242,24 @@ export function createCommittedHostConversation(options: {
     },
     commands,
     mcpInput,
+    sendInput: async (input, signal) => {
+      const runId = store.getCommittedView().activeRunId;
+      if (!runId) {
+        throw new Error('The child is not running');
+      }
+      signal.throwIfAborted();
+      // The input's own ID is the command: an unconfirmed retry repeats it exactly.
+      await client.request('run/input', {
+        ...(input.attachments?.length
+          ? { attachments: input.attachments.map(childImageAttachment) }
+          : {}),
+        commandId: input.id,
+        ...runSettings(),
+        prompt: input.text,
+        runId,
+        threadId,
+      });
+    },
     source,
     steer: async () => {
       const runId = store.getCommittedView().activeRunId;
