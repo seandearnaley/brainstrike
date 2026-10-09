@@ -13,6 +13,7 @@ import type {
   AssistantThreadHostChild,
 } from '../assistant-thread-host-context';
 import { HostChildConversationHeader } from '../host-child-conversation-header';
+import { rememberHostChildOrigin } from '../host-child-origins';
 import { hostChildWorkspaceTabId } from '../host-child-workspace-tab';
 
 const refused = (): Promise<never> => Promise.reject(new Error('not used by a child header'));
@@ -132,4 +133,19 @@ it('shows why an ancestor could not be resolved', async () => {
   );
   expect(await screen.findByRole('alert')).toHaveTextContent('Unknown thread');
   expect(screen.queryByRole('navigation', { name: 'Conversation ancestry' })).toBeNull();
+});
+
+it('returning to the parent puts focus back on the card that opened the child', async () => {
+  const resolve = vi.fn(async () => worker);
+  render(
+    <>
+      <button type="button">Open Fern-a1b2c3 conversation</button>
+      <HostChildConversationHeader child={explorer} host={host(resolve)} />
+    </>
+  );
+  const card = screen.getByRole('button', { name: 'Open Fern-a1b2c3 conversation' });
+  rememberHostChildOrigin('grandchild-1', 'child-1', card);
+  const ancestry = await screen.findByRole('navigation', { name: 'Conversation ancestry' });
+  await userEvent.click(within(ancestry).getByRole('button', { name: 'Cedar-1a2b3c' }));
+  await vi.waitFor(() => expect(card).toHaveFocus());
 });

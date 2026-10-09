@@ -13,6 +13,7 @@ import {
   type AssistantThreadHostChild,
   useAssistantThreadHost,
 } from './assistant-thread-host-context';
+import { rememberHostChildOrigin } from './host-child-origins';
 import { hostChildWorkspaceTabId } from './host-child-workspace-tab';
 
 const logger = createLogger('HostChildConversations');
@@ -27,14 +28,20 @@ const invocationKey = (identity: Invocation): string =>
 
 const UNAVAILABLE = 'The delegated conversation is unavailable or belongs to another parent.';
 
-/** The child's workspace tab opens, then takes focus as the ordinary thread-tab shell does. */
+/**
+ * The child's workspace tab opens, then takes focus as the ordinary thread-tab
+ * shell does, unless `focus` puts it somewhere the person was before.
+ */
 export function openHostChildTab(
-  child: Pick<AssistantThreadHostChild, 'persona' | 'threadId'>
+  child: Pick<AssistantThreadHostChild, 'persona' | 'threadId'>,
+  focus?: () => boolean
 ): void {
   const appId = hostChildWorkspaceTabId({ persona: child.persona, threadId: child.threadId });
   useWorkspaceTabSelectionStore.getState().openApp(appId);
   window.requestAnimationFrame(() => {
-    document.getElementById(`workspace-app-tab-${appId}`)?.focus();
+    if (!focus?.()) {
+      document.getElementById(`workspace-app-tab-${appId}`)?.focus();
+    }
   });
 }
 
@@ -137,7 +144,10 @@ export function HostChildConversations({
     [current, list, threadId]
   );
   const open = useCallback(
-    (childThreadId: string) => {
+    (childThreadId: string, origin?: HTMLElement) => {
+      if (origin) {
+        rememberHostChildOrigin(childThreadId, threadId, origin);
+      }
       const known = current?.find((child) => child.threadId === childThreadId);
       if (known) {
         openHostChildTab(known);
