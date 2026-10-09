@@ -38,7 +38,6 @@ import type { HostAuthVerdict } from './auth-wire.js';
 import type {
   HostEditOp,
   HostEvent,
-  HostLegacyImport,
   HostLoginCredential,
   HostObservationalMemoryState,
   HostParams,
@@ -342,10 +341,6 @@ export interface HostAuthService {
   ): Promise<ProviderAuthStatus>;
   deleteCredential(account: string): Promise<boolean>;
   disconnect(provider: string): Promise<ProviderAuthStatus>;
-  /** Idempotent; settles every credential use a launch-declared pending import holds. */
-  importLegacy(
-    input: HostLegacyImport
-  ): Promise<{ readonly alreadyPresent: number; readonly migrated: number }>;
   /** A Settings-namespace entry under its existing account (provider, tool or MCP key). */
   setCredential(account: string, credential: HostLoginCredential): Promise<void>;
   status(provider: string): Promise<ProviderAuthStatus>;
