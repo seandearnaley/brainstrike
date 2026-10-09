@@ -1,3 +1,4 @@
+import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { parseMcpConfigValue } from '@brainstrike/assistant-contract/mcp-config';
 import {
   addLogListener,
@@ -14,6 +15,7 @@ import {
   type DesktopNodeMcpHostOptions,
 } from '../src/mcp/desktop-node-mcp.js';
 import { reportStdioFailureDiagnostics } from '../src/mcp/host-connection.js';
+import { McpHostRevisionPublisher } from '../src/mcp/host-revision-publisher.js';
 import * as hostServices from '../src/mcp/mcp-host-services.js';
 import { MCP_STORE_METHODS } from '../src/mcp/mcp-runtime-wire.js';
 import { reportLoopbackListenerBound } from '../src/mcp/oauth-client-registration.js';
@@ -191,6 +193,68 @@ function compositionOptions(
 }
 
 describe('desktop MCP composition receipts', () => {
+  it('retires Settings callbacks while the existing status stream remains owned by runtime shutdown', async () => {
+    const publisher = new McpHostRevisionPublisher({
+      onDiagnostic: (_diagnostic, cause) => {
+        throw cause;
+      },
+    });
+    const watch = vi.spyOn(publisher, 'watch');
+    const services = {
+      close: async () => ({ ...report, subscriptionsClosed: publisher.close() }),
+      runtime: {
+        host: { snapshot: () => publisher.snapshot(), watch: publisher.watch.bind(publisher) },
+      },
+    } as unknown as hostServices.McpHostServices;
+    const create = vi.spyOn(hostServices, 'createMcpHostServices').mockResolvedValue(services);
+    const start = vi.spyOn(McpSettingsAuthority.prototype, 'start').mockResolvedValue();
+    const request = vi.fn(async (_method: string, _payload: unknown) => undefined);
+    const host = await createDesktopNodeMcpHost(compositionOptions(request));
+    const first = vi.fn();
+    const second = vi.fn();
+    const server = {
+      configuredProtocol: '2026-07-28' as const,
+      configuredServerId: parseConfiguredMcpServerId('watch-lifetime'),
+      generation: 1,
+      state: 'disconnected' as const,
+      transport: 'stdio' as const,
+    };
+    try {
+      const stopFirst = host.settings.subscribe(first);
+      publisher.publishConfigSet([server]);
+      await Promise.resolve();
+      expect(first).toHaveBeenCalledOnce();
+      stopFirst();
+      publisher.publishConfigSet([]);
+      await Promise.resolve();
+      expect(first).toHaveBeenCalledOnce();
+      const stopSecond = host.settings.subscribe(second);
+      expect(watch).toHaveBeenCalledOnce();
+      publisher.publishConfigSet([server]);
+      await Promise.resolve();
+      expect(second).toHaveBeenCalledOnce();
+      stopSecond();
+      publisher.publishConfigSet([]);
+      const third = vi.fn();
+      const stopThird = host.settings.subscribe(third);
+      await Promise.resolve();
+      expect(third).not.toHaveBeenCalled(); // a queued revision predates this callback
+      stopThird();
+      await host.close();
+      expect(first).toHaveBeenCalledOnce();
+      expect(second).toHaveBeenCalledOnce();
+      expect(request.mock.calls[1]?.[1]).toEqual({
+        hostCloseReport: { ...report, subscriptionsClosed: 1 },
+        type: 'shutdown',
+      });
+      expect(publisher.close()).toBe(0);
+    } finally {
+      await host.close();
+      create.mockRestore();
+      start.mockRestore();
+    }
+  });
+
   it('joins physical shutdown and Main acknowledgement before returning, then unregisters the tap', async () => {
     const joined = Promise.withResolvers<typeof report>();
     const acknowledged = Promise.withResolvers<void>();

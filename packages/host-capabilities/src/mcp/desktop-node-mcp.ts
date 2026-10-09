@@ -2,7 +2,11 @@ import { collectCombinedTools } from '@brainstrike/agent/mcp-client';
 import type { HostStartupContext } from '@brainstrike/agent-host';
 import type { SecretsService } from '@brainstrike/agent-host/credential-contract';
 import { isMcpOAuthCredentialAccount } from '@brainstrike/agent-host/file-credentials';
-import type { McpHostCloseReport, McpHostSnapshot } from '@brainstrike/assistant-contract';
+import type {
+  McpHostCloseReport,
+  McpHostSnapshot,
+  McpHostWatchEvent,
+} from '@brainstrike/assistant-contract';
 import { addLogListener, createLogger, redactSensitiveLogValue } from '@brainstrike/logging';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { createSecretsMcpBearerCredentialAuthority } from './bearer-credential.js';
@@ -160,15 +164,30 @@ export async function createDesktopNodeMcpHost(
     ownsAccount: isMcpOAuthCredentialAccount,
     parseRecords,
   });
+  let statusListener:
+    | {
+        readonly listener: (event: McpHostWatchEvent) => void;
+        readonly registeredRevision: number;
+      }
+    | undefined;
+  let stopStatusWatch: (() => void) | undefined;
   // The runtime's last OAuth writes join before the reset registration goes.
   const closeServices = async (owned: McpHostServices) => {
     try {
       return await owned.close();
     } finally {
+      statusListener = undefined;
       try {
-        await oauthStore.join();
+        // Runtime shutdown owns the physical status stream, just as it owns
+        // the clients. Settings consumers retire their callbacks independently.
+        stopStatusWatch?.();
       } finally {
-        oauthStore.unregister();
+        stopStatusWatch = undefined;
+        try {
+          await oauthStore.join();
+        } finally {
+          oauthStore.unregister();
+        }
       }
     }
   };
@@ -213,7 +232,38 @@ export async function createDesktopNodeMcpHost(
     {
       configFile: createMcpConfigFile(userDataDir),
       extensionStore: startup.store,
-      runtime: services.runtime,
+      runtime: {
+        host: {
+          ...services.runtime.host,
+          watch: (filter, listener) => {
+            // The canonical Settings authority has one status callback. Keep
+            // its source stream under the desktop owner across detach/reopen,
+            // so host.close() retires and reports the actual subscription.
+            stopStatusWatch ??= services.runtime.host.watch(filter, (event) => {
+              const active = statusListener;
+              if (active && event.revision > active.registeredRevision) {
+                active.listener(event);
+              }
+            });
+            const registration = {
+              listener,
+              registeredRevision: services.runtime.host.snapshot().revision,
+            };
+            statusListener = registration;
+            return () => {
+              if (statusListener === registration) {
+                statusListener = undefined;
+              }
+            };
+          },
+        },
+        get mcpExtensionPreferences() {
+          return services.runtime.mcpExtensionPreferences;
+        },
+        replaceResolvedConfig: (config) => services.runtime.replaceResolvedConfig(config),
+        setMcpExtensionPreferences: (preferences) =>
+          services.runtime.setMcpExtensionPreferences(preferences),
+      },
       userDataDir,
     },
     () =>
