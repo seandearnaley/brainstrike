@@ -554,6 +554,11 @@ export async function createProductionHostPlatform(
     searchState: (request) => index.search(request),
     // The caller's profile is the index's to validate, as every vector profile is.
     searchStateVectors: {
+      coverage: (request) =>
+        index.searchVectors.searchStateCoverage({
+          ...request,
+          profile: decodeVectorProfile(request.profile),
+        }),
       pending: (request) =>
         index.searchVectors.searchStatePending({
           ...request,

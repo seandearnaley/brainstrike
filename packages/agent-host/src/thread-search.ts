@@ -49,6 +49,10 @@ export interface HostStateSimilarHit {
 
 /** The semantic arm's index operations; the profile is the caller's embedder identity. */
 export interface HostStateSearchVectors {
+  coverage(request: {
+    readonly profile: Readonly<Record<string, unknown>>;
+    readonly threadIds: readonly string[];
+  }): Promise<HostResults['thread/search/coverage']>;
   pending(request: {
     readonly limit: number;
     readonly profile: Readonly<Record<string, unknown>>;
@@ -253,6 +257,18 @@ export async function pendingHostSearchVectors(
   }
   const rows = await vectors.pending({ ...params, threadIds: [...ownedThreads(core).keys()] });
   return { rows: [...rows] };
+}
+
+/** The semantic arm's coverage of every host thread, for the panel's embedding progress. */
+export async function coverageHostSearchVectors(
+  core: HostThreadSearchCore,
+  vectors: HostStateSearchVectors | undefined,
+  params: HostParams<'thread/search/coverage'>
+): Promise<HostResults['thread/search/coverage']> {
+  if (!vectors) {
+    throw new Error("Semantic thread search requires the host's state index vectors");
+  }
+  return await vectors.coverage({ ...params, threadIds: [...ownedThreads(core).keys()] });
 }
 
 /** Stores the caller's vectors for backlog rows; a row that changed since is stale. */
