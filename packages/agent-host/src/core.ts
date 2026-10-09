@@ -41,6 +41,11 @@ import {
   recordHostConversationId,
 } from './core-state.js';
 import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-storage.js';
+import {
+  foldHostHookContextEvent,
+  hostRunTerminalEvents,
+  passHostPromptHooks,
+} from './hook-context.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
 import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
@@ -214,6 +219,9 @@ export class HostCore {
       case 'interaction.requested':
       case 'interaction.responded':
         foldHostInteraction(this.runs, event);
+        break;
+      case 'hook.context':
+        foldHostHookContextEvent(this.runs, event);
         break;
       default:
         foldHostRunEffect(this.runs, event, row.ts);
@@ -555,7 +563,7 @@ export class HostCore {
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);
       recordHostConversationId(this.conversationIds, run.id);
-      run.task = this.loop(run, admission.model);
+      run.task = this.beginRun(run, admission);
       // Stop/close joins this task; retain failures rather than leaking rejections.
       run.task.catch(() => undefined);
       return result;
@@ -938,8 +946,8 @@ export class HostCore {
       (owned) =>
         titling ? titling.then(() => this.closeRunOwner(owned)) : this.closeRunOwner(owned),
       () => this.read(run.threadId, 0),
-      (event, commit) =>
-        this.append(run.threadId, [event], 'full', (rows) => {
+      async (event, commit) =>
+        this.append(run.threadId, await hostRunTerminalEvents(run, event), 'full', (rows) => {
           commit();
           this.foldRows(rows);
         })
@@ -962,6 +970,16 @@ export class HostCore {
         );
       }
     }).catch((cause: unknown) => reportHostChildWakeFailure(threadId, cause));
+  }
+
+  /** A fresh run's prompt passes its UserPromptSubmit hooks before the first step. */
+  private async beginRun(run: Run, admission: HostRunAdmission): Promise<void> {
+    const failure = await passHostPromptHooks(run, admission, (events) =>
+      this.append(run.threadId, events, 'full', this.foldRows)
+    );
+    await (failure === undefined
+      ? this.loop(run, admission.model)
+      : this.finish(run, 'failed', failure));
   }
 
   close(): Promise<void> {

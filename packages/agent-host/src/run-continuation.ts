@@ -10,6 +10,7 @@ import {
   type HostRunState as Run,
 } from './core-state.js';
 import { executableInputSchema } from './executable-input-schema.js';
+import { defaultHostToolModelOutput, withHostToolHookContext } from './hook-context.js';
 import { jsonValue } from './json-value.js';
 import type { HostPlatform } from './ports.js';
 import type { HostEvent, HostLogRow, HostParams, HostPermissionGrant } from './protocol.js';
@@ -270,11 +271,11 @@ async function modelResult(
 ): Promise<ToolContent[number]> {
   const project = hostRunTools(run)[toolId]?.toModelOutput;
   return {
-    output: project
-      ? await project({ input, output, toolCallId })
-      : typeof output === 'string'
-        ? { type: 'text', value: output }
-        : { type: 'json', value: jsonValue(output) },
+    // A PostToolUse hook's committed context is read beside the tool's result.
+    output: withHostToolHookContext(
+      project ? await project({ input, output, toolCallId }) : defaultHostToolModelOutput(output),
+      run.toolContexts.get(toolCallId)
+    ),
     toolCallId,
     toolName: toolId,
     type: 'tool-result',
