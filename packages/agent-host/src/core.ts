@@ -138,7 +138,7 @@ export class HostCore {
   private readonly grants = new Map<string, HostThreadGrants>();
   private readonly admittedRuns = new Map<string, HostRunAdmissionCommand>();
   private readonly conversationIds = new Set<string>();
-  private readonly listeners = new Set<(row: HostLogRow) => void>();
+  private readonly listeners = new Set<(row: HostLogRow, parentThreadId?: string) => void>();
   private readonly pendingAdmissions = new Map<AbortController, string>();
   private readonly failedAdmissions = new Map<string, unknown>();
   private readonly deletions = new Map<string, Promise<{ deleted: true }>>();
@@ -255,13 +255,13 @@ export class HostCore {
     beforePublish?.(rows);
     for (const row of rows) {
       for (const listener of this.listeners) {
-        listener(row);
+        listener(row, this.children.parentOf(row.threadId));
       }
     }
     return rows;
   }
 
-  onCommitted(listener: (row: HostLogRow) => void): () => void {
+  onCommitted(listener: (row: HostLogRow, parentThreadId?: string) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
