@@ -46,6 +46,7 @@ import type {
   HostTurnSnapshot,
   HostTurnSnapshotRoot,
 } from './protocol.js';
+import type { McpPresentationEvent } from './protocol-mcp-presentation.js';
 import type { McpSettingsEvent } from './protocol-mcp-settings.js';
 
 /** One committed tool-output overlay entry (the legacy ToolProjectionRewriteEntry). */
@@ -505,6 +506,20 @@ export interface HostMcpSettingsService {
   ): Promise<HostResults['mcp/config/write']>;
 }
 
+/**
+ * The desktop's MCP presentations (BST-1930 c5c): durable Tasks status cards
+ * and their actions, and server input no run owns. Its windows read, answer
+ * and follow them; only one presenter shows server input, and it stays
+ * attached once a window first follows it.
+ */
+export interface HostMcpPresentationService {
+  act(request: HostParams<'mcp/tasks/act'>): Promise<HostResults['mcp/tasks/act']>;
+  settle(settlement: HostParams<'mcp/elicitation/settle'>): Promise<void>;
+  /** Every later task change and server input; the returned function stops them. */
+  subscribe(listener: (event: McpPresentationEvent) => void): () => void;
+  tasks(): HostResults['mcp/tasks/list'];
+}
+
 /** Credentials and process-local capabilities never become protocol payloads. */
 export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
@@ -524,6 +539,8 @@ export interface HostPlatform {
   readonly generatesThreadTitles?: boolean | undefined;
   /** Supplied by the existing run configuration, not a second host default. */
   readonly maxSteps?: number | undefined;
+  /** The desktop's MCP Tasks cards and server input; absent where no window presents them. */
+  readonly mcpPresentation?: HostMcpPresentationService;
   /** The desktop's MCP settings authority; absent where the host owns no MCP config. */
   readonly mcpSettings?: HostMcpSettingsService;
   /** Run-scoped construction; cached shared memory must not capture a run signal. */
