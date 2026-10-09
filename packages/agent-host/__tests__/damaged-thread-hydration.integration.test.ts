@@ -15,8 +15,10 @@ import { createStateStoreIndexer, openIndexer } from '@brainstrike/indexer';
 import { BLOBS_DIR, STATE_DB, StateStore, ThreadDamagedError } from '@brainstrike/state-store';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
+import { attachAgentHost } from '../src/client.js';
 import { HostCore } from '../src/core.js';
 import type { HostPlatform } from '../src/ports.js';
+import { startAgentHost } from '../src/runtime.js';
 import {
   blocked,
   childThreads,
@@ -283,5 +285,41 @@ test('a thread with a crc-damaged row opens damaged, deletes with its blobs, and
   await openDamaged(seeded);
   for (const hash of seeded.blobs) {
     expect(existsSync(join(seeded.root, BLOBS_DIR, hash))).toBe(false);
+  }
+});
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+}
+
+test('a client opening a damaged thread reads the refusal as the host wrote it', async () => {
+  const seeded = await seededRoot('client');
+  for (const hash of seeded.blobs) {
+    await rm(join(seeded.root, BLOBS_DIR, hash), { force: true });
+  }
+  const host = await startAgentHost({ lifetime: 'persistent', root: seeded.root }, platform);
+  const client = await attachAgentHost(host.record);
+  try {
+    const { threads } = await client.request('thread/list', {});
+    const damage = threads.find(({ threadId }) => threadId === seeded.damaged)?.damage;
+    expect(damage).toMatch(/\S/u);
+    // The text a user sees: the host's refusal, never the transport's wrapper around it.
+    const exactly = (text: string) => new RegExp(`^${escapeRegExp(text)}$`, 'u');
+    for (const method of ['thread/read', 'log/subscribe'] as const) {
+      await expect(
+        client.request(method, { fromSeq: 0, threadId: seeded.damaged })
+      ).rejects.toThrow(exactly(`This thread's history cannot be read: ${damage}`));
+    }
+    await expect(
+      client.request('run/start', {
+        commandId: randomUUID(),
+        modelId: 'scripted',
+        prompt: 'Run anyway.',
+        threadId: seeded.damaged,
+      })
+    ).rejects.toThrow(exactly(`This thread's history cannot be read, so it cannot run: ${damage}`));
+  } finally {
+    await client.close();
+    await host.close();
   }
 });

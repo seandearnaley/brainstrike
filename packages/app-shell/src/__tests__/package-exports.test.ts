@@ -28,6 +28,7 @@ describe('@brainstrike/app-shell package contract', () => {
         './forge/availability',
         './git-panel',
         './git-panel/availability',
+        './mcp-content-capability',
         './mcp-status-capability',
         './mcp-tools-capability',
         './navigation',

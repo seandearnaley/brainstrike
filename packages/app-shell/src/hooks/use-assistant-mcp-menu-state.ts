@@ -5,7 +5,7 @@ import {
   type McpAction,
   mcpReducer,
 } from '../assistant-ui-panel-wrapper-runtime';
-import { useMcpToolsCapability } from '../mcp-tools-capability';
+import { useMcpToolsCapability } from '../use-mcp-tools-capability';
 
 /** Shown wherever the legacy composer lists MCP tools it can no longer run. */
 export const MCP_LEGACY_THREAD_NOTICE = 'MCP tools are available in new threads';

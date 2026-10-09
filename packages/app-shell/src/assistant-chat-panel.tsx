@@ -8,19 +8,18 @@ import {
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
 import { AssistantLinkCapabilitiesProvider } from '@brainstrike/assistant-ui/assistant-link-capabilities-provider';
-import { type ReactElement, useMemo } from 'react';
+import { type ReactElement, type ReactNode, useMemo } from 'react';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { AssistantProviderModelDefaults } from './assistant-provider-model-defaults';
 import { AssistantUiPanelWrapperLazy } from './assistant-ui-panel-wrapper-lazy';
-import {
-  type AssistantProviderSource,
-  AssistantProviderSourceProvider,
-} from './hooks/assistant-provider-source';
-import type {
-  AssistantAvailabilityStatus,
-  AssistantProviderReadError,
-} from './hooks/use-assistant-availability';
+import { AssistantProviderSourceProvider } from './hooks/assistant-provider-source';
+import type { AssistantProviderReadError } from './hooks/use-assistant-availability';
 import { useAssistantAvailabilityWithLocal } from './hooks/use-assistant-availability-with-local';
+import {
+  AssistantProviderStatusContext,
+  useAssistantProviderStatus,
+  useAssistantStatusProviderSource,
+} from './hooks/use-assistant-provider-status';
 import { useHostAssistantStatusFetcher } from './hooks/use-host-assistant-status-fetcher';
 import { useAssistantLinkCapabilitiesValue } from './use-assistant-link-capabilities';
 
@@ -28,8 +27,22 @@ export interface AssistantChatPanelProps {
   readonly loadLocalLlmBackend?: LocalLlmBackendFactory;
 }
 
-export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelProps): ReactElement {
+/**
+ * Reads the host's assistant availability once, for the root panel and the
+ * child conversation surfaces beside it, so every composer under it gates on
+ * the providers the host has configured.
+ */
+export function AssistantProviderStatusProvider({
+  children,
+}: {
+  readonly children: ReactNode;
+}): ReactElement {
   const status = useAssistantAvailabilityWithLocal(useHostAssistantStatusFetcher());
+  return <AssistantProviderStatusContext value={status}>{children}</AssistantProviderStatusContext>;
+}
+
+export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelProps): ReactElement {
+  const status = useAssistantProviderStatus();
   const fixedProviderModelsResolution = useMemo<FixedProviderModelsResolution>(() => {
     if (!(status.state === 'enabled' && status.provider && status.model)) {
       return { state: 'not-required' };
@@ -40,10 +53,7 @@ export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelPr
     fixedProviderModelsResolution.state === 'ready'
       ? fixedProviderModelsResolution.models
       : undefined;
-  const providerSource = useMemo<AssistantProviderSource>(
-    () => resolveAssistantProviderSource(status),
-    [status]
-  );
+  const providerSource = useAssistantStatusProviderSource();
   const providerReadErrors = useMemo(
     () =>
       status.state === 'enabled' && status.providerErrors
@@ -112,21 +122,6 @@ export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelPr
       </div>
     </div>
   );
-}
-
-function resolveAssistantProviderSource(
-  status: AssistantAvailabilityStatus
-): AssistantProviderSource {
-  if (status.state === 'enabled' && status.provider && status.model) {
-    return {
-      kind: 'authoritative',
-      providers: status.providers ?? [status.provider],
-    };
-  }
-  if (status.state === 'enabled' && status.providers) {
-    return { kind: 'discovery', seeds: status.providers };
-  }
-  return { kind: 'discovery' };
 }
 
 type FixedProviderModelsResolution =

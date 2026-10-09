@@ -217,11 +217,17 @@ export const HostChildrenChangedSchema = z.strictObject(Thread);
  * which names its `toolCallId`, or the model's text and reasoning stream,
  * which names none. The committed tool result and `model.step` messages own
  * that content; a reload shows them and no telemetry.
+ *
+ * Each stream's chunks are numbered by `ordinal`, from 0: a tool call's, or a
+ * run's text and reasoning. A `log/subscribe` result replays the thread's
+ * running calls and open steps, so a view that opens mid-call shows what it
+ * missed and skips any ordinal it already applied.
  */
 export const HOST_RUN_TELEMETRY = 'run/telemetry';
 export const HostRunTelemetrySchema = z.strictObject({
   ...Thread,
   chunk: z.json(),
+  ordinal: z.number().int().nonnegative().optional(),
   runId: Id,
   toolCallId: Id.optional(),
 });
@@ -899,7 +905,11 @@ export const HOST_RESULT_SCHEMAS = {
   'interaction/respond': z.strictObject({ accepted: z.literal(true) }),
   'interaction/resume': z.strictObject({ accepted: z.literal(true) }),
   'ledger/read': z.strictObject({ threads: z.array(HostLedgerThreadSchema) }),
-  'log/subscribe': z.strictObject({ rows: z.array(HostLogRowSchema) }),
+  'log/subscribe': z.strictObject({
+    rows: z.array(HostLogRowSchema),
+    /** The thread's running calls and open steps, replayed over `rows` (ADR-0011 amendment). */
+    telemetry: z.array(HostRunTelemetrySchema),
+  }),
   'log/unsubscribe': z.strictObject({ unsubscribed: z.literal(true) }),
   'mcp/app/admit': z.strictObject({
     decision: z.enum(['allow', 'ask']),

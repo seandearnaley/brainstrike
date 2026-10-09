@@ -128,18 +128,24 @@ export function useHostChildWorkspaceApps(): readonly WorkspaceApp[] {
   // Each address resolves once per host; a later host's answer replaces it.
   const requested = useRef(new Map<string, AssistantThreadHostCapability | undefined>());
   const currentHost = useRef(host);
+  // A closed tab's answer is forgotten when it closes: its address reopened asks the host again.
+  useEffect(
+    () =>
+      useWorkspaceTabSelectionStore.subscribe(({ openAppIds }) => {
+        const open = new Set(openAppIds);
+        for (const id of [...requested.current.keys()].filter((known) => !open.has(known))) {
+          requested.current.delete(id);
+        }
+        setResolutions((previous) =>
+          [...previous.keys()].every((id) => open.has(id))
+            ? previous
+            : new Map([...previous].filter(([id]) => open.has(id)))
+        );
+      }),
+    []
+  );
   useEffect(() => {
     currentHost.current = host;
-    // A closed tab's answer is forgotten: its address reopened asks the host again.
-    const open = new Set(addresses.map(({ id }) => id));
-    for (const id of [...requested.current.keys()].filter((known) => !open.has(known))) {
-      requested.current.delete(id);
-    }
-    setResolutions((previous) =>
-      [...previous.keys()].every((id) => open.has(id))
-        ? previous
-        : new Map([...previous].filter(([id]) => open.has(id)))
-    );
     for (const { id, tab } of addresses) {
       if (
         tab instanceof Error ||

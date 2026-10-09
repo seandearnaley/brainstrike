@@ -14,7 +14,7 @@ import {
 } from '@brainstrike/host-lease';
 import { ForeignLockError, RootLock, RootLockedError } from '@brainstrike/state-store';
 import { Effect, Exit, Scope } from 'effect';
-import { type MessagePortMain, utilityProcess } from 'electron';
+import { MessageChannelMain, type MessagePortMain, utilityProcess } from 'electron';
 import {
   createHostNativeChildren,
   type HostNativeChildren,
@@ -31,7 +31,11 @@ export interface HostLeaseUtilityProcess {
   /** Electron reports it only once the utility has spawned. */
   readonly pid: number | undefined;
   postMessage(
-    message: HostLeaseControl | { event: 'platform-capabilities' } | { event: 'client-port' },
+    message:
+      | HostLeaseControl
+      | { event: 'platform-capabilities' }
+      | { event: 'client-port' }
+      | { event: 'lifetime' },
     transfer?: readonly MessagePortMain[]
   ): void;
 }
@@ -43,6 +47,11 @@ export interface DesktopHostLeaseOptions {
   readonly closeTimeoutMs?: number;
   readonly entryPath?: string;
   readonly fork?: HostLeaseFork;
+  /** The owned host's lifetime channel (ADR-0017); Main keeps `port1`. Defaults to a new channel. */
+  readonly lifetimeChannel?: () => {
+    readonly port1: MessagePortMain;
+    readonly port2: MessagePortMain;
+  };
   /** A ready child this lease spawned; only it can receive private client ports. */
   readonly onChildReady?: (child: DesktopHostChild) => void;
   /**
@@ -162,6 +171,21 @@ async function closeChild(child: OwnedChild): Promise<void> {
 function addFinalizer(scope: Scope.Closeable, release: () => Promise<void>): Promise<void> {
   return runAtPromiseBoundary(Scope.addFinalizer(scope, Effect.promise(release)));
 }
+/**
+ * ADR-0017: a host forked by the app dies with the app. The host gets one end of a lifetime channel
+ * and closes when it closes; Main closes its end only after closeChild has joined the host's exit
+ * (this finalizer is added first, so it runs after that join). While the host runs, its end closes
+ * only when Main lets it go or Main's process dies.
+ */
+async function ownLifetime(
+  scope: Scope.Closeable,
+  options: DesktopHostLeaseOptions,
+  child: OwnedChild
+): Promise<void> {
+  const channel = (options.lifetimeChannel ?? (() => new MessageChannelMain()))();
+  await addFinalizer(scope, async () => channel.port1.close());
+  child.handle.postMessage({ event: 'lifetime' }, [channel.port2]);
+}
 /** The platform an owned host borrows, and Main's supervisor of its native processes (ADR-0017). */
 async function ownPlatform(
   scope: Scope.Closeable,
@@ -250,6 +274,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           });
           const ready = awaitReady(child, start.root, combined);
           ready.catch(() => undefined);
+          await ownLifetime(scope, options, child);
           await addFinalizer(scope, () => closeChild(child));
           if (platform) {
             child.handle.postMessage({ event: 'platform-capabilities' }, [platform.port]);

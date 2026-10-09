@@ -87,6 +87,7 @@ import {
   startHostNextRun,
 } from './run-continuation.js';
 import { userRunVerdict } from './run-verdicts.js';
+import { HostTelemetryReplay } from './telemetry-replay.js';
 import { type HostEventStore, HostThreadCatalog } from './thread-catalog.js';
 import { HostThreadPresentationState } from './thread-presentation-state.js';
 import { HostThreadRewinds } from './thread-rewind.js';
@@ -163,7 +164,8 @@ export class HostCore {
   private readonly admittedRuns = new Map<string, HostRunAdmissionCommand>();
   private readonly conversationIds = new Set<string>();
   private readonly listeners = new Set<(row: HostLogRow, parentThreadId?: string) => void>();
-  private readonly telemetryListeners = new Set<(telemetry: HostRunTelemetry) => void>();
+  /** Live telemetry: its listeners, and the replay a late subscriber receives. */
+  readonly liveTelemetry = new HostTelemetryReplay();
   private readonly pendingAdmissions = new Map<AbortController, string>();
   private readonly failedAdmissions = new Map<string, unknown>();
   private readonly deletions = new Map<string, Promise<HostResults['thread/delete']>>();
@@ -296,6 +298,7 @@ export class HostCore {
     for (const row of rows) {
       this.projections.apply(row);
       this.selections.fold(row);
+      this.liveTelemetry.committed(row);
       for (const listener of this.listeners) {
         listener(row, this.children.parentOf(row.threadId));
       }
@@ -310,21 +313,15 @@ export class HostCore {
 
   /** A running tool's live telemetry, published to listeners and never committed. */
   onTelemetry(listener: (telemetry: HostRunTelemetry) => void): () => void {
-    this.telemetryListeners.add(listener);
-    return () => this.telemetryListeners.delete(listener);
+    return this.liveTelemetry.subscribe(listener);
   }
 
   /** Top-level threads with the facts Core already holds: presentation, store dates, damage, binding, latest run. */
   listThreads(): HostResults['thread/list']['threads'] {
-    return this.children.topLevel(this.threads).map((threadId) => {
-      const latestRun = this.projections.ledger.readLatestRun(threadId);
-      return {
-        threadId,
-        ...this.presentations.read(threadId),
-        ...this.catalog.entry(threadId),
-        ...this.workspaces.readBinding(this.threads, threadId),
-        ...(latestRun ? { latestRun } : {}),
-      };
+    return this.catalog.list(this.children.topLevel(this.threads), {
+      binding: (threadId) => this.workspaces.readBinding(this.threads, threadId),
+      latestRun: (threadId) => this.projections.ledger.readLatestRun(threadId),
+      presentation: (threadId) => this.presentations.read(threadId),
     });
   }
 
@@ -649,11 +646,7 @@ export class HostCore {
       rewrites: this.rewrites,
       runs: this.runs,
       syncBoundary: (threadId) => this.store.syncBoundary(threadId),
-      telemetry: (telemetry) => {
-        for (const listener of this.telemetryListeners) {
-          listener(telemetry);
-        }
-      },
+      telemetry: (telemetry) => this.liveTelemetry.publish(telemetry),
     };
   }
 
@@ -993,7 +986,7 @@ export class HostCore {
       runs: () => [...this.runs.values()],
     });
     this.listeners.clear();
-    this.telemetryListeners.clear();
+    this.liveTelemetry.clear();
     reportRetiredHostOutcomes(outcomes);
   }
 }

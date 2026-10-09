@@ -108,7 +108,7 @@ app
         assert(guard?.isReleased === true, 'Renderer replacement preceded guard release');
         events.push('renderer');
       },
-      logger: { error: () => undefined },
+      logger: { error: () => undefined, info: () => undefined },
       prepareDatabaseProfileReset: async () => {
         guard = await prepareDatabaseProfileReset({
           retireProfileOwner: async () => {
@@ -162,7 +162,7 @@ app
       waitForDatabaseWorkSchedulerIdle: async () => {
         events.push('idle');
       },
-    });
+    }).reset;
     const first = await run();
     const retained = guard?.isReleased === false;
     const result = mode === 'storage-failure' ? await run() : first;

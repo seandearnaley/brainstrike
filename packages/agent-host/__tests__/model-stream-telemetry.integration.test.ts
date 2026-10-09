@@ -105,6 +105,44 @@ test('a run commits no text rows while its subscribers receive the text live', a
   expect(foldHostRuns(rows)[0]?.text).toBe('Host run completed.');
 });
 
+test("a view that opens a running thread is replayed the open step's text", async () => {
+  const partial = 'REPLAYED_PARTIAL_4417 ';
+  const client = await connected(scriptedPartialThenHeld(partial));
+  const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+  const live: string[] = [];
+  client.onTelemetry(({ chunk }) => {
+    const { text, type } = chunk as { text?: string; type: string };
+    if (type === 'text-delta' && text) {
+      live.push(text);
+    }
+  });
+  await client.request('log/subscribe', { fromSeq: 0, threadId });
+  const { runId } = await client.request('run/start', {
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Answer slowly',
+    threadId,
+  });
+  await expect.poll(() => live.join('')).toBe(partial);
+
+  const host = hosts.at(-1);
+  if (!host) {
+    throw new Error('The host is not running');
+  }
+  const late = await attachAgentHost(host.record);
+  clients.push(late);
+  const opened = await late.request('log/subscribe', { fromSeq: 0, threadId });
+  expect(opened.telemetry).toEqual([
+    { chunk: { id: 'text-1', type: 'text-start' }, ordinal: 0, runId, threadId },
+    { chunk: { id: 'text-1', text: partial, type: 'text-delta' }, ordinal: 1, runId, threadId },
+  ]);
+
+  await client.request('run/stop', { commandId: randomUUID(), runId, threadId });
+  await settled(client, threadId);
+  // The partial committed with the Stop: a view opened now is replayed nothing.
+  expect((await late.request('log/subscribe', { fromSeq: 0, threadId })).telemetry).toEqual([]);
+});
+
 test('a Stop mid-step keeps the partial text in the committed run', async () => {
   const partial = 'PARTIAL_ANSWER_1723 ';
   const client = await connected(scriptedPartialThenHeld(partial));

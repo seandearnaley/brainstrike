@@ -5,6 +5,7 @@ import {
   lstat,
   mkdir,
   readFile,
+  realpath,
   rename,
   rm,
   rmdir,
@@ -56,6 +57,23 @@ const ABSENT: Identity = { existed: false, hash: null, size: null };
 
 function baselineKey(rootId: string, relativePath: string): string {
   return `${rootId}\0${relativePath}`;
+}
+
+/**
+ * Whether the live root owner's path names the folder an edit recorded. The
+ * owner keeps the path the person picked, which may reach the folder through a
+ * symlink (macOS: /var/folders is /private/var/folders); a folder that is gone
+ * or moved is not the same root.
+ */
+async function isSameRootFolder(live: string, recorded: string): Promise<boolean> {
+  if (path.resolve(live) === recorded) {
+    return true;
+  }
+  const [liveFolder, recordedFolder] = await Promise.all([
+    realpath(live).catch(() => undefined),
+    realpath(recorded).catch(() => undefined),
+  ]);
+  return liveFolder !== undefined && liveFolder === recordedFolder;
 }
 
 /** Root-relative POSIX path of `absolutePath`, refusing anything outside `rootPath`. */
@@ -537,7 +555,7 @@ export class HostWorkspaceEdits {
       roots.set(entry.rootId, resolved);
     }
     const live = await resolved;
-    if (live instanceof Error || path.resolve(live) !== entry.rootPath) {
+    if (live instanceof Error || !(await isSameRootFolder(live, entry.rootPath))) {
       return refuse(
         'not_revertible',
         'Its workspace folder is no longer connected at the same location. Re-open the folder and try again.'

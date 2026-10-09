@@ -2,7 +2,9 @@
 // Quitting the app while its agent host utility is still starting must not start
 // another one. Shutdown fences profile admission before it joins the renderer's
 // in-flight host connect; otherwise that connect's failed start was retried and a
-// second host utility spawned during shutdown.
+// second host utility spawned during shutdown. It also fences that admission
+// before Main's MCP control closes: the starting host's MCP handshake was refused
+// ("MCP is unavailable") when the control closed first.
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -69,6 +71,12 @@ test('quitting while the agent host is starting spawns no second host utility', 
       join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
   });
   const main = app.process();
+  let output = '';
+  const capture = (chunk: Buffer): void => {
+    output += chunk.toString('utf8');
+  };
+  main.stdout?.on('data', capture);
+  main.stderr?.on('data', capture);
   const exited = new Promise<void>((done) => {
     if (main.exitCode !== null || main.signalCode !== null) {
       done();
@@ -108,6 +116,7 @@ test('quitting while the agent host is starting spawns no second host utility', 
     }
     await exited;
     expect([...spawned]).toHaveLength(1);
+    expect(output).not.toContain('MCP is unavailable');
   } finally {
     await app.close();
   }

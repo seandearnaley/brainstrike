@@ -26,7 +26,7 @@ import {
 } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
-import { RemoteMcpRuntime } from '../mcp/remote-runtime';
+import { MainMcpHostControl } from '../mcp/main-host-control';
 import { desktopAppPaths } from './fixtures/desktop-host-profile';
 
 /** The shipped Codex endpoints (descriptors/openai-codex), matched as recorded. */
@@ -158,7 +158,7 @@ test('a desktop run and the legacy verifier share the host refresher without rep
   });
   await seed.close();
   const mainOwner = serveDesktopPlatform(mainPlatformConnection(mainPort), {
-    mcp: createDesktopMcpPlatformCapabilities(new RemoteMcpRuntime()),
+    mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
     readConfiguration: async () => selection,
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
   });

@@ -27,7 +27,7 @@ import {
 } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
-import { RemoteMcpRuntime } from '../mcp/remote-runtime';
+import { MainMcpHostControl } from '../mcp/main-host-control';
 import { desktopCredentialStoreSelection } from '../secrets';
 import { desktopAppPaths } from './fixtures/desktop-host-profile';
 
@@ -75,7 +75,7 @@ test('actual Core binding commands reach the live Main owner over the private pl
   );
   const capabilities = {
     // Production's Main MCP stores; this scenario configures no MCP server.
-    mcp: createDesktopMcpPlatformCapabilities(new RemoteMcpRuntime()),
+    mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
     readConfiguration: async (): Promise<DesktopPlatformSelection> => ({
       close: async () => undefined,
       configuration: { model: 'gpt-4o-mini', provider: 'openai' },

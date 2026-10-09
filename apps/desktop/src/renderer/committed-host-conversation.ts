@@ -167,13 +167,12 @@ export function createCommittedHostConversation(
     source,
     threadId,
   });
-  // A tool's live output and the model's live text and reasoning; each consumer
-  // takes only its own chunk types.
-  const releaseTelemetry = client.onTelemetry((telemetry) => {
-    if (telemetry.threadId === threadId) {
-      liveShellOutputs.accept(telemetry.chunk);
-      store.acceptTelemetry(telemetry.runId, telemetry.chunk);
-    }
+  // A tool's live output and the model's live text and reasoning, from the
+  // session: its subscription's replay over the rows, then each live chunk
+  // once. Each consumer takes only its own chunk types.
+  const releaseTelemetry = source.onTelemetry((telemetry) => {
+    liveShellOutputs.accept(telemetry.chunk);
+    store.acceptTelemetry(telemetry.runId, telemetry.chunk);
   });
   const runSettings = () => hostRunSettings(options);
   // A send, a send from a selected branch, and an edit all start a new user

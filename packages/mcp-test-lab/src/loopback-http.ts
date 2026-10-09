@@ -148,7 +148,7 @@ function handlerFailureResponse(error: unknown): Response {
   return Response.json({ error: 'mcp_lab_handler_error', message }, { status: 500 });
 }
 
-function asNodeIncomingMessage(request: IncomingMessage): NodeIncomingMessageLike {
+export function asNodeIncomingMessage(request: IncomingMessage): NodeIncomingMessageLike {
   return {
     [Symbol.asyncIterator]() {
       return request[Symbol.asyncIterator]();

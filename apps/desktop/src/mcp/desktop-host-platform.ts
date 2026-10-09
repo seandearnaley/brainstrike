@@ -9,8 +9,8 @@ import {
   type McpOAuthStore,
 } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
 import type { DesktopMcpPlatformCapabilities } from '../agent-host-platform/mcp-main-stores';
+import type { MainMcpHostControl } from './main-host-control';
 import { openExternalWithElectron } from './open-external';
-import type { RemoteMcpRuntime } from './remote-runtime';
 
 export interface DesktopMcpHostPlatformDependencies {
   readonly bearerCredentialAuthority?: McpBearerCredentialAuthority;
@@ -73,10 +73,10 @@ export function createDesktopMcpHostPlatform(
  * profile store the host owns, Tasks in its StateStore.
  */
 export function createDesktopMcpPlatformCapabilities(
-  runtime: RemoteMcpRuntime
+  control: MainMcpHostControl
 ): DesktopMcpPlatformCapabilities {
   return {
+    control,
     openExternal: openExternalWithElectron,
-    runtime,
   };
 }

@@ -295,7 +295,12 @@ test.for([false, true])(
           providerOptions: { openai: { reasoningEffort: 'high' } },
         }
       : undefined;
-    const captured = readDesktopHostConfiguration('owner-thread', 'root-a', projection);
+    const captured = readDesktopHostConfiguration(
+      'owner-thread',
+      'openai::gpt-6-sol',
+      'root-a',
+      projection
+    );
     expect(captured).toEqual({
       ...original,
       agentLoop: projection?.agentLoop ?? original.agentLoop,

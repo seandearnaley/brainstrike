@@ -142,6 +142,12 @@ export const utilityProcess = {
   fork: makeFn(),
 };
 
+/** An inert MessagePortMain pair: a unit test never transfers it to a real process. */
+export class MessageChannelMain {
+  readonly port1 = { close: noop, off: makeFn(), on: makeFn(), postMessage: noop, start: noop };
+  readonly port2 = { close: noop, off: makeFn(), on: makeFn(), postMessage: noop, start: noop };
+}
+
 const electron = {
   app,
   BrowserWindow,
@@ -151,6 +157,7 @@ const electron = {
   ipcMain,
   ipcRenderer,
   Menu,
+  MessageChannelMain,
   powerMonitor,
   powerSaveBlocker,
   safeStorage,

@@ -39,7 +39,13 @@ it('captures an effort only the model metadata declares, under that metadata', (
     snapshot: { freshness: 'live', metadata: parseOpenRouterModelMetadata(recorded, MODEL, 0) },
     state: 'resolved',
   };
-  const captured = readDesktopHostConfiguration('effort-thread', null, undefined, lookup);
+  const captured = readDesktopHostConfiguration(
+    'effort-thread',
+    `openrouter::${MODEL}`,
+    null,
+    undefined,
+    lookup
+  );
   expect(captured).toMatchObject({
     modelConfiguration: {
       model: MODEL,

@@ -36,6 +36,7 @@ export { useHostAssistantStatusFetcher } from './hooks/use-host-assistant-status
 export { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
 export { HostChildConversations } from './host-child-conversations';
 export { HostChildToolbar, type HostChildToolbarDetails } from './host-child-toolbar';
+export { HostChildWorkspaceChip } from './host-child-workspace-chip';
 export * from './navigation';
 export { openHostChildTab } from './open-host-child-tab';
 export * from './page-wrapper';

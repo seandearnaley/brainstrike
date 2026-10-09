@@ -23,6 +23,7 @@ import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assi
 import {
   findProviderDefinition,
   isSupportedProvider,
+  type OpenRouterModelMetadataLookup,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
@@ -34,9 +35,18 @@ import {
   type AssistantProviderSettingsUpdate,
   mergeAssistantProviderSettings,
 } from '@brainstrike/types';
-import { useCallback, useMemo, useState } from 'react';
+import {
+  type Dispatch,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { readDesktopHostConfiguration } from './desktop-host-configuration';
 import { type EnabledCatalogModels, useEnabledCatalogModels } from './use-enabled-catalog-models';
+import type { HostThreadSelectionBinding } from './use-host-thread-selection';
 
 type Presentation = Pick<
   CommittedAssistantConversationProps,
@@ -68,9 +78,92 @@ type Presentation = Pick<
 >;
 
 interface DesktopHostPresentation extends Presentation {
+  /** The enabled catalog models admission reads, as one comparable key. */
+  readonly catalogKey: string;
   readConfiguration(selectionFolderId: string | null): Record<string, unknown>;
+  /** The composer's `provider::model`: a pick, else the thread's selection (ADR-0019). */
+  readModelId(): string;
   /** Whether the next run starts in plan mode. */
   readPlanMode(): boolean;
+}
+
+/** A composer pick the host has not yet committed as the thread's selection (ADR-0019). */
+interface ComposerPick {
+  readonly error?: string;
+  readonly modelId: string;
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * ADR-0019: a pick the host has not yet committed, else the host's selection,
+ * not renderer storage; a thread with none yet starts from the global default.
+ */
+function composerModel(
+  pick: string | undefined,
+  selection: string | undefined,
+  globalModel: string | null | undefined
+): string | null | undefined {
+  return pick ?? selection ?? globalModel;
+}
+
+/** The send's gate, else a pick the host refused (ADR-0019). */
+function composerDisabledReason(
+  gate: string | undefined,
+  pickError: string | undefined
+): string | undefined {
+  if (gate !== undefined || pickError === undefined) {
+    return gate;
+  }
+  return `Could not save the model choice: ${pickError}`;
+}
+
+/** A pick is saved once nothing invalidates the selection and its model's details have loaded. */
+function isPickSaveReady(
+  gate: string | undefined,
+  lookupState: OpenRouterModelMetadataLookup['state'] | undefined
+): boolean {
+  return gate === undefined && lookupState !== 'loading';
+}
+
+/**
+ * ADR-0019: saves a composer pick as the thread's selection once nothing gates
+ * the send, one save per pick. A newer pick replaces it; that save then
+ * settles nothing. State changes only in the save's own callbacks.
+ */
+function useSaveComposerPick({
+  pick,
+  readConfiguration,
+  readSelectionFolderId,
+  ready,
+  set,
+  setPick,
+}: {
+  readonly pick: ComposerPick | undefined;
+  readonly readConfiguration: (selectionFolderId: string | null) => Record<string, unknown>;
+  readonly readSelectionFolderId: () => string | null;
+  readonly ready: boolean;
+  readonly set: HostThreadSelectionBinding['set'];
+  readonly setPick: Dispatch<SetStateAction<ComposerPick | undefined>>;
+}): void {
+  const saving = useRef<ComposerPick | undefined>(undefined);
+  useEffect(() => {
+    if (!(pick && ready) || pick.error || saving.current === pick) {
+      return;
+    }
+    saving.current = pick;
+    Promise.resolve()
+      .then(() => set(pick.modelId, readConfiguration(readSelectionFolderId())))
+      .then(
+        () => setPick((current) => (current === pick ? undefined : current)),
+        (error: unknown) =>
+          setPick((current) =>
+            current === pick ? { error: errorText(error), modelId: pick.modelId } : current
+          )
+      );
+  }, [pick, readConfiguration, readSelectionFolderId, ready, set, setPick]);
 }
 
 /** The host status's per-provider credential read failures, keyed by provider. */
@@ -161,6 +254,9 @@ function noticeProps(
 /** Existing picker/settings owners project controls; they own no assistant execution. */
 export function useDesktopHostPresentation(
   threadId: string,
+  /** ADR-0019: the host thread's run selection, the source of the composer's model. */
+  host: HostThreadSelectionBinding,
+  readSelectionFolderId: () => string | null,
   providerReadErrors?: ProviderReadErrors
 ): DesktopHostPresentation {
   useEnsureModelRegistry();
@@ -185,8 +281,9 @@ export function useDesktopHostPresentation(
   const drafts = useAssistantThreadStore((state) => state.draftRuntimeByThreadId);
   const setThreadDraftRuntime = useAssistantThreadStore((state) => state.setThreadDraftRuntime);
   const draft = drafts[threadId];
-  const selectedModel =
-    draft?.model && draft.provider ? `${draft.provider}::${draft.model}` : globalModel;
+  // A pick waits here until the host commits it as the thread's selection.
+  const [pick, setPick] = useState<ComposerPick>();
+  const selectedModel = composerModel(pick?.modelId, host.selection?.modelId, globalModel);
   const providerId = selectedModel?.split('::')[0];
   const selectedProvider = providerId && isSupportedProvider(providerId) ? providerId : undefined;
   const model = selectedModel?.slice((selectedModel.indexOf('::') ?? -1) + 2);
@@ -274,16 +371,25 @@ export function useDesktopHostPresentation(
     selectedModel,
     selectedProvider,
   });
+  // ADR-0019: saving a pick is not sending. Only what makes the selection itself
+  // invalid holds its save; OpenRouter details gate the send alone.
+  const selectionGate = providerNotice.blocking ?? providerDraft.reason ?? host.error;
   // The legacy panel's order: the provider notice, then OpenRouter metadata,
-  // then an invalid settings draft.
-  const disabledReason = providerNotice.blocking ?? metadata.reason ?? providerDraft.reason;
-  const readConfiguration = useCallback(
-    (selectionFolderId: string | null): Record<string, unknown> => {
-      if (disabledReason) {
-        throw new Error(disabledReason);
-      }
-      return readDesktopHostConfiguration(
+  // then an invalid settings draft; then the thread's own selection.
+  const gate = providerNotice.blocking ?? metadata.reason ?? selectionGate;
+  const disabledReason = composerDisabledReason(gate, pick?.error);
+  const readModelId = useCallback((): string => {
+    if (!selectedModel) {
+      throw new Error('Select a provider and model before sending');
+    }
+    return selectedModel;
+  }, [selectedModel]);
+  // The configuration a send captures, whatever gates the send.
+  const captureConfiguration = useCallback(
+    (selectionFolderId: string | null): Record<string, unknown> =>
+      readDesktopHostConfiguration(
         threadId,
+        readModelId(),
         selectionFolderId,
         {
           agentLoop: metadata.agentLoopSettings,
@@ -293,18 +399,43 @@ export function useDesktopHostPresentation(
           providerOptions,
         },
         metadata.lookup
-      );
-    },
+      ),
     [
-      disabledReason,
       metadata.agentLoopSettings,
       metadata.lookup,
       metadata.modelSettings,
       model,
       providerOptions,
+      readModelId,
       selectedProvider,
       threadId,
     ]
+  );
+  const readConfiguration = useCallback(
+    (selectionFolderId: string | null): Record<string, unknown> => {
+      if (disabledReason) {
+        throw new Error(disabledReason);
+      }
+      return captureConfiguration(selectionFolderId);
+    },
+    [captureConfiguration, disabledReason]
+  );
+  // ADR-0019: a pick becomes the thread's selection once its own settings
+  // resolve, so the CLI and a wake read the same choice the composer shows.
+  useSaveComposerPick({
+    pick,
+    readConfiguration: captureConfiguration,
+    readSelectionFolderId,
+    ready: isPickSaveReady(selectionGate, metadata.lookup?.state),
+    set: host.set,
+    setPick,
+  });
+  const onModelChange = useCallback(
+    (compositeKey: string): void => {
+      handleModelChange(compositeKey);
+      setPick({ modelId: compositeKey });
+    },
+    [handleModelChange]
   );
   const onProviderSettingsChange = useCallback(
     (providerId: string, updates: AssistantProviderSettingsUpdate): void => {
@@ -315,7 +446,7 @@ export function useDesktopHostPresentation(
       const current = useAssistantThreadStore.getState().draftRuntimeByThreadId[threadId] ?? {};
       const settings = { ...providerSettings, ...current.providerSettings };
       settings[provider] = mergeAssistantProviderSettings(settings[provider], updates);
-      const active = current.provider ?? selectedProvider ?? provider;
+      const active = selectedProvider ?? current.provider ?? provider;
       if (!isSupportedProvider(active)) {
         throw new Error('Unsupported thread provider');
       }
@@ -327,7 +458,7 @@ export function useDesktopHostPresentation(
       setThreadDraftRuntime(threadId, {
         ...identity,
         ...buildDraftRuntimeForProvider({
-          model: current.model ?? model,
+          model: model ?? current.model,
           openRouterLookup: metadata.lookup,
           provider: active,
           providerSettingsMap: settings,
@@ -368,6 +499,7 @@ export function useDesktopHostPresentation(
   });
   return {
     ...picker,
+    catalogKey: catalog.state === 'ready' ? [...catalog.keys].sort().join('\n') : catalog.state,
     composerDraftCommand: composerDraft.command,
     fileMentions,
     ...(localLoadingState ? { localLoadingState } : {}),
@@ -375,13 +507,14 @@ export function useDesktopHostPresentation(
     onComposerTextChange: composerDraft.onTextChange,
     onEnableModel,
     onFileMentionQueryChange: setFileMentionQuery,
-    onModelChange: handleModelChange,
+    onModelChange,
     onProviderSettingsChange,
     onProviderSettingsValidationChange: providerDraft.report,
     openRouterModelMetadataLookup: metadata.lookup,
     providerSettings: effective,
     ...(planMode ? { planMode } : {}),
     readConfiguration,
+    readModelId,
     readPlanMode,
     recentModels: recentModels.filter((recent) =>
       picker.pickerModels.some((entry) => `${entry.providerId}::${entry.id}` === recent)

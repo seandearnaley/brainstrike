@@ -27,7 +27,7 @@ import { createHostPlatform } from '../agent-host-platform/desktop-node-platform
 import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
-import { RemoteMcpRuntime } from '../mcp/remote-runtime';
+import { MainMcpHostControl } from '../mcp/main-host-control';
 import { desktopAppPaths, writeDesktopMcpConfig } from './fixtures/desktop-host-profile';
 
 /** Same public MessageEvent shape as the Electron utility port, backed by real Node ports. */
@@ -83,7 +83,7 @@ test('the desktop client reads, follows and controls MCP server status on the ag
 }, async () => {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-mcp-status-'));
   const fixture = await startStatefulMcpHostServer();
-  const mcpRuntime = new RemoteMcpRuntime();
+  const mainControl = new MainMcpHostControl();
   await writeDesktopMcpConfig(root, [
     {
       name: configuredServerId,
@@ -97,7 +97,7 @@ test('the desktop client reads, follows and controls MCP server status on the ag
   const mainPort = new UtilityPort(channel.port1);
   const nodePort = new UtilityPort(channel.port2);
   const mainOwner = serveDesktopPlatform(mainPlatformConnection(mainPort), {
-    mcp: createDesktopMcpPlatformCapabilities(mcpRuntime),
+    mcp: createDesktopMcpPlatformCapabilities(mainControl),
     readConfiguration: async () => {
       throw new Error('This scenario admits no run');
     },
@@ -145,6 +145,14 @@ test('the desktop client reads, follows and controls MCP server status on the ag
         state: 'connected',
       }),
     ]);
+    // Main reads the host's discovered tools once, for persona availability (BST-1930 c5e).
+    await expect
+      .poll(async () =>
+        Object.values(await mainControl.readTools())
+          .flat()
+          .map(({ id }) => id)
+      )
+      .toContainEqual(expect.stringContaining('host_lifecycle_probe'));
     // The subscription answered a revision and pushes every later one: the
     // connect lands in one or the other, whichever it raced.
     await expect

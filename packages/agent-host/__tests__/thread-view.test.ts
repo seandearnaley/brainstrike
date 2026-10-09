@@ -3,7 +3,7 @@ import recording from '@brainstrike/test-utils/fixtures/committed-approved-host-
 };
 import { expect, test } from 'vitest';
 import { z } from 'zod';
-import { HostLogRowSchema } from '../src/protocol.js';
+import { HostLogRowSchema, type HostRunTelemetry } from '../src/protocol.js';
 import { CommittedThreadSession, CommittedThreadView, foldHostRuns } from '../src/thread-view.js';
 
 const rows = z.array(HostLogRowSchema).parse(recording);
@@ -54,14 +54,16 @@ test('another thread cannot enter the selected committed view', () => {
 type SessionClient = ConstructorParameters<typeof CommittedThreadSession>[0];
 type Row = (typeof rows)[number];
 
-/** The session's actual client surface: the live row feed, requests and closure. */
+/** The session's actual client surface: the live row and telemetry feeds, requests and closure. */
 function replayClient(): {
   readonly client: SessionClient;
   readonly live: (row: Row) => void;
-  readonly replay: PromiseWithResolvers<{ rows: Row[] }>;
+  readonly replay: PromiseWithResolvers<{ rows: Row[]; telemetry: HostRunTelemetry[] }>;
+  readonly telemetry: (received: HostRunTelemetry) => void;
 } {
   const listeners = new Set<(row: Row) => void>();
-  const replay = Promise.withResolvers<{ rows: Row[] }>();
+  const telemetryListeners = new Set<(received: HostRunTelemetry) => void>();
+  const replay = Promise.withResolvers<{ rows: Row[]; telemetry: HostRunTelemetry[] }>();
   const request = (method: string): Promise<unknown> =>
     method === 'log/subscribe' ? replay.promise : Promise.resolve({ unsubscribed: true });
   const client: SessionClient = {
@@ -69,6 +71,10 @@ function replayClient(): {
     onEvent: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    onTelemetry: (listener) => {
+      telemetryListeners.add(listener);
+      return () => telemetryListeners.delete(listener);
     },
     request: request as SessionClient['request'],
   };
@@ -80,6 +86,11 @@ function replayClient(): {
       }
     },
     replay,
+    telemetry: (received) => {
+      for (const listener of telemetryListeners) {
+        listener(received);
+      }
+    },
   };
 }
 
@@ -96,7 +107,7 @@ test('a session is loading until its replay arrives, and names the replayed boun
   // Committed after the replay's read: it is live, though it arrives first.
   live(tail);
   expect(session.getSnapshot().rows).toEqual([]);
-  replay.resolve({ rows: replayed });
+  replay.resolve({ rows: replayed, telemetry: [] });
   await replay.promise;
   await Promise.resolve();
   expect(session.getSnapshot()).toMatchObject({
@@ -119,4 +130,59 @@ test('a refused replay ends loading with its error and no replayed boundary', as
     isLoading: false,
     replayedThrough: undefined,
   });
+});
+
+test("a session applies its subscription's replayed telemetry over the rows, then each live chunk once", async () => {
+  const { client, replay, telemetry } = replayClient();
+  const started = rows.find(({ event }) => event.type === 'run.started')?.event;
+  const runId = started?.type === 'run.started' ? started.runId : '';
+  const slice = (ordinal: number): HostRunTelemetry => ({
+    chunk: {
+      chunk: `line ${ordinal}\n`,
+      stream: 'stdout',
+      toolCallId: 'call-1',
+      type: 'brainstrike.shell-output.chunk',
+    },
+    ordinal,
+    runId,
+    threadId,
+    toolCallId: 'call-1',
+  });
+  const marker: HostRunTelemetry = {
+    chunk: {
+      omittedBytes: 64,
+      resumesAt: 1,
+      toolCallId: 'call-1',
+      type: 'brainstrike.telemetry.omitted',
+    },
+    runId,
+    threadId,
+    toolCallId: 'call-1',
+  };
+  const session = new CommittedThreadSession(client, threadId);
+  const delivered: { readonly received: HostRunTelemetry; readonly rows: number }[] = [];
+  session.onTelemetry((received) =>
+    delivered.push({ received, rows: session.getSnapshot().rows.length })
+  );
+  const disconnect = session.connect();
+  // Sent before the subscription's result arrives: one the replay also holds,
+  // and one published after the replay was taken.
+  telemetry(slice(2));
+  telemetry(slice(3));
+  telemetry({ ...slice(9), threadId: 'other-thread' });
+  expect(delivered).toEqual([]);
+  replay.resolve({ rows, telemetry: [marker, slice(1), slice(2)] });
+  await replay.promise;
+  await Promise.resolve();
+  telemetry(slice(3));
+  telemetry(slice(4));
+  // A later replay's marker for output this view already has is not shown again.
+  telemetry(marker);
+  expect(delivered).toEqual(
+    [marker, slice(1), slice(2), slice(3), slice(4)].map((received) => ({
+      received,
+      rows: rows.length,
+    }))
+  );
+  disconnect();
 });

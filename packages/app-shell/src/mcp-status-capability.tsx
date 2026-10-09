@@ -1,18 +1,7 @@
-import type { McpHostSnapshot } from '@brainstrike/assistant-contract';
-import { createContext, type ReactElement, type ReactNode, useContext } from 'react';
+import type { ReactElement, ReactNode } from 'react';
+import { type McpStatusCapability, McpStatusCapabilityContext } from './use-mcp-status-capability';
 
-/**
- * The MCP runtime's server status, as the composer's prompt affordances read
- * and follow it. The desktop's agent host owns it (BST-1930 c5b); a host
- * without MCP provides none.
- */
-export interface McpStatusCapability {
-  read(): Promise<McpHostSnapshot>;
-  /** Every later status revision, each a whole snapshot. */
-  subscribe(listener: (status: McpHostSnapshot) => void): () => void;
-}
-
-const McpStatusCapabilityContext = createContext<McpStatusCapability | null>(null);
+export type { McpStatusCapability } from './use-mcp-status-capability';
 
 export interface McpStatusCapabilityProviderProps {
   readonly capability: McpStatusCapability | null;
@@ -29,8 +18,4 @@ export function McpStatusCapabilityProvider({
       {children}
     </McpStatusCapabilityContext.Provider>
   );
-}
-
-export function useMcpStatusCapability(): McpStatusCapability | null {
-  return useContext(McpStatusCapabilityContext);
 }

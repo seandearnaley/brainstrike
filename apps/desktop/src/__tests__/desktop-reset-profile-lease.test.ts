@@ -43,7 +43,7 @@ describe('desktop reset profile ownership', () => {
     return createDesktopFactoryResetHandler({
       cleanupLiveSubscriptionsForShutdown: async () => undefined,
       completeSuccessfulReset: state.renderer,
-      logger: { error: vi.fn() },
+      logger: { error: vi.fn(), info: vi.fn() },
       prepareDatabaseProfileReset: state.prepare,
       resetLocalDatabase: state.reset,
       resetPersistentStorageAfterDataDeletion: state.storage,
@@ -53,7 +53,7 @@ describe('desktop reset profile ownership', () => {
       },
       userDataPath: '/userData',
       waitForDatabaseWorkSchedulerIdle: async () => undefined,
-    });
+    }).reset;
   }
 
   function performProfileReset() {

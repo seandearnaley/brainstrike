@@ -99,6 +99,20 @@ test('a host command’s output streams live, then its committed result takes ov
     .poll(() => Object.values(live.getSnapshot()))
     .toEqual([{ text: 'STREAM_STDOUT_FIRST\n', truncated: false }]);
 
+  // A view opened mid-command (a child's tab, say) is replayed what it missed.
+  const opened = createCommittedHostConversation({ client, modelId: 'scripted', threadId });
+  cleanups.push(async () => {
+    opened.close();
+    await client.request('thread/list', {});
+  });
+  await expect
+    .poll(() => Object.values(opened.store.liveShellOutputs?.getSnapshot() ?? {}))
+    .toEqual([{ text: 'STREAM_STDOUT_FIRST\n', truncated: false }]);
+  // The first view already had that output: the replay does not repeat it.
+  expect(Object.values(live.getSnapshot())).toEqual([
+    { text: 'STREAM_STDOUT_FIRST\n', truncated: false },
+  ]);
+
   finish.resolve();
   await expect
     .poll(() => view.source.getSnapshot().rows.some(({ event }) => event.type === 'run.finished'))

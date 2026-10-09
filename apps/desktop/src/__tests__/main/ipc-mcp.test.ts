@@ -1,9 +1,4 @@
 import path from 'node:path';
-import {
-  type McpHostCloseReport,
-  type McpHostServerSnapshot,
-  parseConfiguredMcpServerId,
-} from '@brainstrike/assistant-contract';
 import { dialog, ipcMain } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as mcpIpc from '../../ipc-mcp';
@@ -31,50 +26,17 @@ vi.mock('electron', () => ({
   },
 }));
 
-const SERVER_ID = parseConfiguredMcpServerId('fs');
-const SERVER: McpHostServerSnapshot = {
-  configuredProtocol: 'legacy',
-  configuredServerId: SERVER_ID,
-  generation: 1,
-  negotiated: { era: 'legacy', revision: '2025-06-18' },
-  state: 'connected',
-  transport: 'stdio',
-};
-const CLEAN_CLOSE: McpHostCloseReport = {
-  callbacksClosed: 0,
-  childProcessesClosed: 0,
-  clientsClosed: 0,
-  failures: [],
-  loopbackPortsClosed: 0,
-  probesClosed: 0,
-  requestsSettled: 0,
-  subscriptionsClosed: 0,
-};
-
 function event(senderId = 1) {
   return { sender: { id: senderId }, senderFrame: createAllowlistedSenderFrame() };
 }
 
-/** Main's view of the host's runtime: its proxy surfaces and the settings calls it forwards. */
+/** Main's MCP host control: the picker hand-off, the factory reset and shutdown. */
 function createMainRuntime() {
   return {
-    elicitationPresenter: {
-      attach: vi.fn(() => vi.fn()),
-      observeFinalized: vi.fn(() => vi.fn()),
-      settle: vi.fn(),
-    },
-    host: {
-      close: vi.fn(async () => CLEAN_CLOSE),
-      control: vi.fn(async () => structuredClone(SERVER)),
-      invoke: vi.fn(),
-      replaceConfig: vi.fn(),
-      snapshot: vi.fn(() => ({ revision: 3, servers: [SERVER] })),
-      watch: vi.fn(() => vi.fn()),
-    },
+    close: vi.fn(),
     pickConfigPath: vi.fn(async (picked: string) => ({ path: picked, success: true as const })),
     resetSettings: vi.fn(async () => undefined),
     resumeSettings: vi.fn(async () => undefined),
-    taskHost: { act: vi.fn(), list: vi.fn(() => ({ tasks: [] })), subscribe: vi.fn(() => vi.fn()) },
   };
 }
 
@@ -115,8 +77,6 @@ describe('Main MCP IPC (BST-1930 c5a-c5d)', () => {
         /^mcp:(tools|extensions|lifecycle|status|content):|^mcp:config:(?!selectPath$)/u
       );
     }
-    // The host's settings stream carries status (BST-1930 c5b); Main watches nothing for renderers.
-    expect(runtime.host.watch).not.toHaveBeenCalled();
   });
 
   it('hands the natively picked file to the host and answers its selected path', async () => {
@@ -186,16 +146,12 @@ describe('Main MCP IPC (BST-1930 c5a-c5d)', () => {
     );
   });
 
-  it('detaches its runtime proxy at shutdown and reports close failures', async () => {
+  it('closes the picker and its host control at shutdown', async () => {
     await mcpIpc.cleanupMcpRuntimeForShutdown(runtime);
-    expect(runtime.host.close).toHaveBeenCalledTimes(1);
 
-    runtime.host.close.mockResolvedValueOnce({
-      ...CLEAN_CLOSE,
-      failures: [{ category: 'transport', code: 'mcp-close-failed', message: 'stuck' }],
-    });
-    await expect(mcpIpc.cleanupMcpRuntimeForShutdown(runtime)).rejects.toThrow(
-      'MCP runtime shutdown cleanup failed'
+    expect(runtime.close).toHaveBeenCalledTimes(1);
+    await expect(handler('mcp:config:selectPath')(event())).rejects.toThrow(
+      'MCP settings are closed for a factory reset'
     );
   });
 });

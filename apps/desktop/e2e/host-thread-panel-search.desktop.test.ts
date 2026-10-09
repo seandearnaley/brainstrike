@@ -1,9 +1,12 @@
 /**
  * Desktop E2E (gap 10): the Threads panel search finds agent-host threads by
  * their content and by their title, fused with history threads into one list.
+ * The host's semantic arm also answers, once the backlog drain has embedded
+ * the host's rows; the search runs after that, so its rows are deterministic.
  */
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import { readHostSearchVectorCounts } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
@@ -49,6 +52,7 @@ async function seedHistoryMessage(page: Page, threadId: string, text: string): P
 }
 
 test('the Threads panel finds host threads by content and title, in one list with history', async ({
+  electron,
   modelProvider,
   window: page,
 }) => {
@@ -99,22 +103,41 @@ test('the Threads panel finds host threads by content and title, in one list wit
   await send('Hello there.', TITLE_MATCH);
 
   await openThreadsPanel(page);
-  await page.getByRole('combobox', { name: 'Search threads' }).fill(WORD);
+  const search = page.getByRole('combobox', { name: 'Search threads' });
+  // Any search starts the backlog drain, which embeds history's rows and then
+  // the host's. Search for the word only once the host holds a vector for each
+  // of its four messages, so the semantic arm answers from all of them.
+  await search.fill('zinnia');
+  await expect
+    .poll(() => readHostSearchVectorCounts(electron.getUserDataDir()), { timeout: 120_000 })
+    .toEqual({ rows: 4, vectors: 4 });
+  await search.fill(WORD);
   const results = page.getByTestId('thread-search-result');
-  await expect(results).toHaveCount(3, { timeout: 30_000 });
-  // One fused list whose owners are peers: history's best content match, the
-  // host's best content match, then the host's title match, all ranked first.
-  await expect(results.nth(0)).toContainText(HISTORY_TITLE);
-  await expect(results.nth(0).getByTestId('thread-search-match')).toContainText(WORD);
-  await expect(results.nth(1)).toContainText(CONTENT_TITLE);
-  await expect(results.nth(1).getByTestId('thread-search-match')).toContainText(
-    `Plan the ${WORD} garden.`
-  );
-  await expect(results.nth(2)).toContainText(TITLE_MATCH);
-  await expect(results.nth(2).getByTestId('thread-search-match')).toHaveCount(0);
+  await expect(page.getByTestId('thread-search-semantic-unavailable')).toHaveCount(0);
+  // One fused list whose owners are peers. History's content match and the
+  // host's content match each mark the word they matched.
+  const historyMatch = results.filter({ hasText: HISTORY_TITLE }).filter({
+    hasText: `Water the ${WORD} beds at dawn`,
+  });
+  await expect(historyMatch).toHaveCount(1, { timeout: 30_000 });
+  await expect(historyMatch.locator('mark')).toHaveText([WORD]);
+  const contentMatch = results
+    .filter({ hasText: CONTENT_TITLE })
+    .filter({ hasText: `Plan the ${WORD} garden.` });
+  await expect(contentMatch).toHaveCount(1);
+  await expect(contentMatch.locator('mark')).toHaveText([WORD]);
+  // The host thread whose title alone holds the word is listed.
+  await expect(results.filter({ hasText: TITLE_MATCH }).first()).toBeVisible();
+  // The host's semantic arm answers too: the reply shares no word with the
+  // query, so nothing in its row is marked. (At the shipped 0.35 threshold
+  // the embedder ranks even "Noted." near "marigold"; history's arm uses the
+  // same threshold.)
+  const semanticMatch = results.filter({ hasText: CONTENT_TITLE }).filter({ hasText: REPLY });
+  await expect(semanticMatch).toHaveCount(1);
+  await expect(semanticMatch.locator('mark')).toHaveCount(0);
 
   // A host result opens its thread.
-  await results.nth(1).click();
+  await contentMatch.click();
   await expect(strip.getByRole('tab', { name: CONTENT_TITLE, selected: true })).toBeVisible({
     timeout: 30_000,
   });

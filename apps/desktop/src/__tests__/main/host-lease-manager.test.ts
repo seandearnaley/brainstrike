@@ -16,7 +16,8 @@ class Child extends EventEmitter {
   exitOnClose = true;
   postMessage(message: unknown): void {
     this.posts.push(message);
-    if (this.exitOnClose) {
+    // Only the close control ends the utility; the lifetime port arrives at spawn.
+    if (this.exitOnClose && JSON.stringify(message) === '{"method":"close"}') {
       queueMicrotask(() => this.exit(0));
     }
   }
@@ -98,7 +99,7 @@ describe('desktop host lease ownership', () => {
     expect(await first).toBe(attachment);
     await owner.close();
     expect(fork).toHaveBeenCalledTimes(1);
-    expect(child.posts).toEqual([{ method: 'close' }]);
+    expect(child.posts).toEqual([{ event: 'lifetime' }, { method: 'close' }]);
     expect(child.pid).toBeUndefined();
     expect(child.kill).not.toHaveBeenCalled();
     expect(attachment.close).toHaveBeenCalledTimes(1);
@@ -123,7 +124,7 @@ describe('desktop host lease ownership', () => {
     await vi.waitFor(() => expect(child.listenerCount('message')).toBe(1));
     await owner.close();
     await rejected;
-    expect(child.posts).toEqual([{ method: 'close' }]);
+    expect(child.posts).toEqual([{ event: 'lifetime' }, { method: 'close' }]);
     expect(child.listenerCount('message')).toBe(0);
     expect(child.listenerCount('exit')).toBe(0);
   });
@@ -138,7 +139,7 @@ describe('desktop host lease ownership', () => {
       root,
     });
     await expect(owner.acquire()).rejects.toThrow();
-    expect(child.posts).toEqual([{ method: 'close' }]);
+    expect(child.posts).toEqual([{ event: 'lifetime' }, { method: 'close' }]);
     expect(child.pid).toBeUndefined();
   });
   it('reports a nonzero owned exit and refuses later acquisition', async () => {
@@ -155,7 +156,7 @@ describe('desktop host lease ownership', () => {
     });
     await owner.acquire();
     const closing = owner.close();
-    await vi.waitFor(() => expect(child.posts).toHaveLength(1));
+    await vi.waitFor(() => expect(child.posts).toContainEqual({ method: 'close' }));
     child.exit(7);
     await expect(closing).rejects.toThrow('7');
     await expect(owner.acquire()).rejects.toThrow('closing');
@@ -190,6 +191,32 @@ describe('desktop host lease ownership', () => {
     // Once that host has exited, its release is complete rather than a stale deadline failure.
     await expect(owner.close()).resolves.toBeUndefined();
     expect(child.kill).not.toHaveBeenCalled();
+  });
+  it('gives the host its lifetime port at spawn and lets go of it only after the host exited', async () => {
+    const { createDesktopHostLease } = await import('../../host-lease-manager');
+    const child = new Child();
+    child.exitOnClose = false;
+    const order: string[] = [];
+    const owner = createDesktopHostLease({
+      fork: () => {
+        queueMicrotask(() => child.emit('message', { event: 'ready' }));
+        return child;
+      },
+      lifetimeChannel: () => ({
+        port1: { close: () => order.push('lifetime released') } as unknown as MessagePortMain,
+        port2: {} as MessagePortMain,
+      }),
+      root,
+    });
+    await owner.acquire();
+    expect(child.posts).toEqual([{ event: 'lifetime' }]);
+    const closing = owner.close();
+    await vi.waitFor(() => expect(child.posts).toContainEqual({ method: 'close' }));
+    expect(order).toEqual([]);
+    order.push('host exited');
+    child.exit(0);
+    await closing;
+    expect(order).toEqual(['host exited', 'lifetime released']);
   });
   it('names the utility pid Electron reports at spawn in a close timeout', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');

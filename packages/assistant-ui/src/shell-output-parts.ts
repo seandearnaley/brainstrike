@@ -2,6 +2,11 @@ import { SHELL_OUTPUT_DATA_NAME } from '@brainstrike/assistant-contract';
 
 /** Accumulated live output for one running shell command. */
 export interface ShellOutputAccumulation {
+  /**
+   * Bytes of the command's earliest output a host replay no longer held when
+   * this view opened mid-command (ADR-0011 amendment); absent when none.
+   */
+  readonly omittedBytes?: number;
   /** stdout + stderr interleaved in emission order. */
   readonly text: string;
   /** True once the streaming cap was hit (further output was not streamed). */

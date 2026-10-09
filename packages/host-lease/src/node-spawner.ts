@@ -107,6 +107,13 @@ export function createNodeHostSpawner(options: NodeSpawnerOptions = {}): HostSpa
             child.kill('SIGTERM');
           });
         }
+        if (ready && startOptions.lifetime === 'app') {
+          // ADR-0017: an app host lives exactly as long as this channel, which closes when this
+          // process dies. Unref'd, it never keeps the launcher alive.
+          child.channel?.unref();
+          child.unref();
+          return;
+        }
         await disconnect(child);
       }
     );

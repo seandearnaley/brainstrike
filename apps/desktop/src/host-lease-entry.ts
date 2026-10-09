@@ -6,6 +6,7 @@ import {
 } from '@brainstrike/host-lease';
 import { ForeignLockError, RootLockedError } from '@brainstrike/state-store';
 import { decodeHostLeaseControl, decodeHostLeaseParentMessage } from './host-lease-control';
+import { installHostLifetimePort } from './host-lifetime-port';
 
 async function main(): Promise<void> {
   const parent = process.parentPort;
@@ -24,6 +25,9 @@ async function main(): Promise<void> {
   };
   const message = (input: unknown): void => {
     try {
+      if (installHostLifetimePort(input, stop)) {
+        return;
+      }
       decodeHostLeaseControl(decodeHostLeaseParentMessage(input).data);
       stop();
     } catch (cause) {
