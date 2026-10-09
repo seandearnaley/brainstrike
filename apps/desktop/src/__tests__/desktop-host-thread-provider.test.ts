@@ -147,7 +147,8 @@ test('deleting a thread drops every thread Core deleted with it from the runs an
     new Set([firstThread, child])
   );
   expect(capability.runs.getSnapshot().get(firstThread)?.status).toBe('completed');
-  expect(await capability.deleteThread(firstThread)).toBe(true);
+  // Core deletes the child with its parent, children first, and names both.
+  expect(await capability.deleteThread(firstThread)).toEqual([child, firstThread]);
   expect(capability.ledger.getSnapshot()).toEqual({ rootUsage: [], runs: [], usage: [] });
   expect(capability.runs.getSnapshot().has(firstThread)).toBe(false);
   expect(capability.renderThread(firstThread, true)).toBeUndefined();
