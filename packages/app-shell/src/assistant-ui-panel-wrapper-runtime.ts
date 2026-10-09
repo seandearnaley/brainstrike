@@ -11,7 +11,6 @@ import {
   findLlmModelDefinition,
   type GoogleProviderOptions,
   getLlmModelDefinition,
-  type HookTrustRequest,
   LOCAL_DESKTOP_NATIVE_TOOL_IDS,
   type LocalProviderOptions,
   listProviderLlmModels,
@@ -552,7 +551,6 @@ export function buildAssistantRequestData(args: {
   /** Durable thread-scoped operating root, validated by the desktop server. */
   boundWorkspaceRootId?: string | undefined;
   enabledNativeToolIds: readonly string[];
-  hookTrustRequest?: HookTrustRequest | undefined;
   hostedMemoryBackendAvailable: boolean;
   /**
    * The client's declared MAIN root (activeRootIds[0]) — an ordering hint for
@@ -709,7 +707,6 @@ export function buildAssistantRequestData(args: {
 
 interface OptInRequestFields {
   experimentAssignment?: RuntimeData['experimentAssignment'];
-  hookTrustRequest?: HookTrustRequest | undefined;
   planMode?: boolean;
   requestedReasoningEffort?: RuntimeData['requestedReasoningEffort'];
   selfImprovementSignalPreference?: RuntimeData['selfImprovementSignalPreference'];
@@ -728,10 +725,6 @@ function attachOptInRequestFields(data: Record<string, unknown>, fields: OptInRe
   // when resolved provider options carry a catalog-selected wire effort.
   if (fields.requestedReasoningEffort) {
     data['requestedReasoningEffort'] = fields.requestedReasoningEffort;
-  }
-  // Hook-trust attestation: only on the data-stream transport; server re-hashes disk.
-  if (fields.hookTrustRequest) {
-    data['hookTrustRequest'] = fields.hookTrustRequest;
   }
   // Plan mode is presence-means-on: only send `true`, never a `false` residue.
   if (fields.planMode) {

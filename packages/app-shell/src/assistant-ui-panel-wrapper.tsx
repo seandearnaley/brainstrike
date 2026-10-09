@@ -6,11 +6,6 @@ import {
   buildExperimentAssignmentRequest,
   useExperimentAssignmentPreferencesStore,
 } from '@brainstrike/app-state/stores/experiment-assignment-preferences-store';
-import {
-  buildHookTrustRequest,
-  hookTrustSelectors,
-  useHookTrustStore,
-} from '@brainstrike/app-state/stores/hook-trust-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
@@ -131,7 +126,6 @@ import { useAssistantThreadTitleSync } from './use-assistant-thread-title-sync';
 import { useComposerDraftChannel } from './use-composer-draft-channel';
 import { useAssistantPanelThreadScope } from './use-delegated-conversation-root';
 import { useFileMentions } from './use-file-mentions';
-import { useHookTrustScope } from './use-hook-trust-scope';
 import { useObservationalMemoryRow } from './use-om-segment-row';
 import { WorkspaceBarHost } from './workspace-bar/workspace-bar-host';
 
@@ -780,32 +774,6 @@ export function AssistantUiPanelWrapper({
   // run. See `assistant-ui-panel-wrapper-store-subscription.test.tsx` and the
   // "permission-policy freshness at the request-composition seam" suite.
 
-  // Hook-trust attestation (desktop hooks). Subscribe to the persisted approvals
-  // so the wire snapshot stays in sync; the server independently re-hashes disk.
-  // Scoped to the desktop data-stream transport (web has no hook runner). The
-  // renderer never runs hooks — it only ATTESTS approved hashes.
-  //
-  // The store is keyed by DB `roots.id`; the attestation is SCOPED to the
-  // currently-mounted roots' DB ids (resolved in main from the mounted paths) so
-  // a DISCONNECTED root's grant is never presented to the server. Until the scope
-  // resolves — or if the resolver bridge is absent — we attest NOTHING (fail
-  // closed): a stale grant must never leak, and a brief scope-resolution window
-  // is the safe direction.
-  const hookApprovalsByRootId = useHookTrustStore(hookTrustSelectors.approvalsByRootId);
-  const mountedTrustRootIds = useHookTrustScope({
-    enabled: localChatTransport === 'data-stream',
-    rootDescriptors,
-  });
-  const hookTrustRequest = useMemo(() => {
-    if (localChatTransport !== 'data-stream') {
-      return;
-    }
-    return buildHookTrustRequest(
-      { approvalsByRootId: hookApprovalsByRootId },
-      { mountedRootIds: mountedTrustRootIds ?? new Set<string>() }
-    );
-  }, [localChatTransport, hookApprovalsByRootId, mountedTrustRootIds]);
-
   // Image attachments: every HOSTED provider routes through the data-stream
   // server path (desktop assistant server AND the web /api/assistant route
   // share the same image-aware conversion), so only the text-only built-in
@@ -916,7 +884,6 @@ export function AssistantUiPanelWrapper({
       : {}),
     enabledNativeToolIds,
     experimentAssignment,
-    hookTrustRequest,
     hostedMemoryBackendAvailable,
     mainRootId,
     mainRootPath,
