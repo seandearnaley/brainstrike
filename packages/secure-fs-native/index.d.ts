@@ -37,3 +37,13 @@ export class SecureRoot {
   readPrivateFileAsync(relativePath: string): Promise<PrivateReadResult>;
   writePrivateFileAsync(relativePath: string, content: Buffer): Promise<void>;
 }
+
+/**
+ * flock(2) `LOCK_EX | LOCK_NB` on a descriptor the caller owns. Returns true
+ * when its open file description now holds the exclusive lock and false when
+ * another description holds it; any other failure throws. Every process that
+ * inherited the descriptor shares the lock until the last copy closes or its
+ * process exits, so never unlock a shared descriptor: close it instead.
+ * POSIX only; throws `ENOTSUP` on Windows.
+ */
+export function tryExclusiveFlock(fd: number): boolean;
