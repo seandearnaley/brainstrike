@@ -62,7 +62,9 @@ function renderTab(capability: AssistantThreadHostCapability, persona: 'explore'
 const explorer: AssistantThreadHostChild = {
   callSign: 'Cedar-1a2b3c',
   color: 'family:2000:730',
+  depth: 1,
   parentRunId: 'parent-run',
+  parentThreadId: 'root-1',
   persona: 'explore',
   threadId: 'child-1',
   toolCallId: 'call-1',
@@ -74,6 +76,8 @@ it('names, tints and mounts a restored child tab only after its host resolves th
   expect(await screen.findByText('child view child-1')).toBeVisible();
   const tab = screen.getByRole('region', { name: 'Cedar-1a2b3c' });
   expect(tab).toHaveAttribute('data-agent-color', 'family:2000:730');
+  // The child's own header names it above its conversation.
+  expect(screen.getByRole('heading', { name: 'Cedar-1a2b3c' })).toBeVisible();
   expect(capability.renderThread).toHaveBeenCalledWith('child-1', true);
 });
 

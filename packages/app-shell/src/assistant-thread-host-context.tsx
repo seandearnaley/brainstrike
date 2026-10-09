@@ -67,8 +67,12 @@ export interface AssistantThreadHostChild {
   readonly callSign: string;
   /** The child's family colour, as the host derives it from the tree. */
   readonly color: string;
+  /** Delegation depth: 1 for a top-level thread's own child. */
+  readonly depth: number;
   /** The parent run whose tool call started this child. */
   readonly parentRunId: string;
+  /** The thread that delegated this child. */
+  readonly parentThreadId: string;
   readonly persona: string;
   readonly threadId: string;
   readonly toolCallId: string;

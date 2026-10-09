@@ -13,6 +13,7 @@ import {
 import { CHILD_PROVIDER_SOURCE } from './delegated-child-conversation-panel';
 import { Failure } from './delegated-workspace-child-view';
 import { AssistantProviderSourceProvider } from './hooks/assistant-provider-source';
+import { HostChildConversationHeader } from './host-child-conversation-header';
 import { type HostChildWorkspaceTab, readHostChildWorkspaceTab } from './host-child-workspace-tab';
 import { useAssistantLinkCapabilitiesValue } from './use-assistant-link-capabilities';
 
@@ -88,7 +89,12 @@ function hostChildApp(
       placement: 'dynamic',
       render: () => (
         <HostChildSurface>
-          {host.renderThread(tab.threadId, true) ?? <Failure error={new Error(NOT_HOSTED)} />}
+          <div className="flex h-full min-h-0 flex-col">
+            <HostChildConversationHeader child={child} host={host} />
+            <div className="min-h-0 flex-1">
+              {host.renderThread(tab.threadId, true) ?? <Failure error={new Error(NOT_HOSTED)} />}
+            </div>
+          </div>
         </HostChildSurface>
       ),
       tabAppearance: tabAppearance(child.color),
