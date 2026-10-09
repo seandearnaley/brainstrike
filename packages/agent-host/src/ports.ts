@@ -9,6 +9,7 @@ import type {
   McpElicitationSettlement,
   McpHostCloseReport,
   McpHostPort,
+  McpHostTaskOwner,
   OpenRouterModelMetadataSnapshot,
   PermissionToolGateSnapshot,
   ProviderAuthStartMethod,
@@ -373,6 +374,8 @@ export interface HostMcpToolRequest {
   readonly toolTimeoutMs: number;
 }
 export interface HostMcpRuntime {
+  /** Core's ownership of its recovered tasks, supplied once when Core opens (BST-1930 c3). */
+  attachTaskOwner?(owner: McpHostTaskOwner): void;
   readonly authority: McpHostPort;
   close(): Promise<McpHostCloseReport>;
   executableTools(request: HostMcpToolRequest): Promise<HostMcpToolSelection>;
@@ -431,6 +434,11 @@ export interface HostProviderService {
 /** Credentials and process-local capabilities never become protocol payloads. */
 export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
+  /**
+   * Core hands the MCP runtime its ownership of the durable tasks its runs
+   * bound, when it opens and before any run can discover MCP tools (BST-1930 c3).
+   */
+  attachMcpTaskOwner?(owner: McpHostTaskOwner): void;
   /** The host's credential authority; absent where the host owns no credential store. */
   readonly auth?: HostAuthService;
   close(): Promise<void>;
