@@ -10,7 +10,7 @@ import {
 import { createDelegatedConversationRepository } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
-import { type ReactNode, useCallback, useMemo, useSyncExternalStore } from 'react';
+import { type ReactNode, useCallback, useMemo, useState, useSyncExternalStore } from 'react';
 import { getDelegatedColorPresentation } from './agent-color-presentation';
 import {
   getDelegatedColorRevision,
@@ -27,6 +27,60 @@ const origins = new WeakMap<
   DelegatedConversationRoot,
   Map<string, { readonly element: WeakRef<HTMLElement>; readonly parentThreadId: string }>
 >();
+
+type ResolverInputs = readonly [
+  db: ReturnType<typeof usePGliteDatabase>,
+  ownerResourceId: string,
+  rootThreadId: string | undefined,
+  currentThreadId: string | undefined,
+  colorRevision: number,
+];
+
+/**
+ * One color revision's presentation and approval-owner resolvers. Consumers key
+ * their caches by resolver identity, so late results from a previous revision
+ * cannot restore an old presentation.
+ */
+function createColorResolvers([
+  db,
+  ownerResourceId,
+  rootThreadId,
+  currentThreadId,
+]: ResolverInputs) {
+  return {
+    approvalOwner: async (
+      approval: AssistantToolApprovalRequest
+    ): Promise<ApprovalOwner | undefined> => {
+      if (!(db && rootThreadId)) {
+        return undefined;
+      }
+      return resolveApprovalOwner(
+        createDelegatedConversationRepository(db),
+        { ownerResourceId, rootThreadId },
+        currentThreadId ?? rootThreadId,
+        approval
+      );
+    },
+    presentation: async (threadId: string) => {
+      if (!(db && rootThreadId)) {
+        throw new Error('The owning workspace is unavailable.');
+      }
+      const node = await loadDelegatedWorkspaceNode(createDelegatedConversationRepository(db), {
+        ownerResourceId,
+        rootThreadId,
+        threadId,
+      });
+      if (node.parentThreadId !== (currentThreadId ?? rootThreadId)) {
+        throw new Error('The child conversation belongs to another parent.');
+      }
+      return {
+        colorId: node.color,
+        displayName: node.displayName,
+        markClassName: getDelegatedColorPresentation(node.color).markClassName,
+      };
+    },
+  };
+}
 
 /** Both main and child cards use the existing workspace's singleton tab action. */
 export function DelegatedWorkspaceNavigation({
@@ -100,45 +154,28 @@ export function DelegatedWorkspaceNavigation({
     },
     [db, ownerResourceId, rootThreadId, currentThreadId]
   );
-  // Consumers invalidate cached identity when this resolver changes. The color
-  // revision deliberately changes its identity after a committed color refresh.
-  const presentation = useCallback(
-    async (threadId: string) => {
-      if (!(db && rootThreadId)) {
-        throw new Error('The owning workspace is unavailable.');
-      }
-      const node = await loadDelegatedWorkspaceNode(createDelegatedConversationRepository(db), {
-        ownerResourceId,
-        rootThreadId,
-        threadId,
-      });
-      if (node.parentThreadId !== (currentThreadId ?? rootThreadId)) {
-        throw new Error('The child conversation belongs to another parent.');
-      }
-      return {
-        colorId: node.color,
-        displayName: node.displayName,
-        markClassName: getDelegatedColorPresentation(node.color).markClassName,
-      };
-    },
-    [db, ownerResourceId, rootThreadId, currentThreadId, colorRevision]
-  );
-  // Approval-owner consumers also key their cache by resolver identity so late
-  // results from a previous color revision cannot restore the old presentation.
-  const approvalOwner = useCallback(
-    async (approval: AssistantToolApprovalRequest): Promise<ApprovalOwner | undefined> => {
-      if (!(db && rootThreadId)) {
-        return undefined;
-      }
-      return resolveApprovalOwner(
-        createDelegatedConversationRepository(db),
-        { ownerResourceId, rootThreadId },
-        currentThreadId ?? rootThreadId,
-        approval
-      );
-    },
-    [db, ownerResourceId, rootThreadId, currentThreadId, colorRevision]
-  );
+  // Consumers drop a cached result when a resolver's identity changes, and a
+  // committed color refresh must change it. So the resolvers are state, minted
+  // again when an input or the color revision changes (React's "adjust state
+  // when a prop changes"). Memoized callbacks would never see the revision: the
+  // React Compiler keys a callback on what its body reads.
+  const resolverInputs: ResolverInputs = [
+    db,
+    ownerResourceId,
+    rootThreadId,
+    currentThreadId,
+    colorRevision,
+  ];
+  const [minted, setMinted] = useState(() => ({
+    inputs: resolverInputs,
+    resolvers: createColorResolvers(resolverInputs),
+  }));
+  let { resolvers } = minted;
+  if (resolverInputs.some((input, index) => !Object.is(input, minted.inputs[index]))) {
+    resolvers = createColorResolvers(resolverInputs);
+    setMinted({ inputs: resolverInputs, resolvers });
+  }
+  const { approvalOwner, presentation } = resolvers;
   const open = useCallback(
     (threadId: string, origin?: HTMLElement) => {
       if (!(rootThreadId && root)) {

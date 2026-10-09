@@ -3,7 +3,7 @@ import type { CSSProperties, ReactElement } from 'react';
 import { getDelegatedColorPresentation } from './agent-color-presentation';
 import { ASSISTANT_THREAD_ICON_PRESENTATION } from './assistant-thread-presentation';
 import type { DelegatedSidebarRow } from './delegated-sidebar-rows';
-import { openHostChildTab } from './host-child-conversations';
+import { openHostChildTab } from './open-host-child-tab';
 
 const Icon = ASSISTANT_THREAD_ICON_PRESENTATION.message.iconComponent;
 const STATUS_LABEL = { idle: 'Child', 'needs-input': 'Needs input', working: 'Working' } as const;

@@ -22,4 +22,5 @@ export type {
   SqliteRows,
   SqliteValue,
 } from './protocol.js';
+export { SqliteRuntimeRefusedError } from './runtime-refusal.js';
 export { type QueryUtilityProcess, spawnUtilityQueryProcess } from './utility-process.js';
