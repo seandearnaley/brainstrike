@@ -34,8 +34,11 @@ import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 // `run.started` delivers, an approval the root's policy answered, and
 // `thread/children` (a thread's direct children), lifecycle hook context
 // (`hook.context`), host-owned project hook trust (`hooks/trust`,
-// `hooks/trust/read`, `hooks/untrust`) and a run's turn snapshots for its
-// Changes review (`workspace.snapshot.recorded`). These additions are optional fields,
+// `hooks/trust/read`, `hooks/untrust`), a run's turn snapshots for its
+// Changes review (`workspace.snapshot.recorded`), and restore to before a
+// message (`thread/rewind/preview`, `thread/rewind`, `thread/rewind/redo`;
+// `thread.rewind.started`, `thread.rewound`, `thread.rewind.redo.started`,
+// `thread.rewind.redone`, `thread.rewind.interrupted`). These additions are optional fields,
 // new variants and new methods, so a v11 reader that uses none of them sees
 // nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
@@ -153,6 +156,26 @@ export const HostTurnSnapshotSchema = z.strictObject({
   commitOid: z.string().regex(/^[0-9a-f]{40,64}$/),
 });
 export type HostTurnSnapshot = z.infer<typeof HostTurnSnapshotSchema>;
+/** A path whose files changed after a rewind's preview (or, for a redo, after the rewind). */
+export const HostRewindConflictSchema = z.strictObject({
+  path: WorkspaceRelativePath,
+  rootId: Id,
+});
+export type HostRewindConflict = z.infer<typeof HostRewindConflictSchema>;
+/** One path's restore in a rewind or redo; a conflict or failure leaves it untouched. */
+export const HostRewindFileOutcomeSchema = z.strictObject({
+  detail: z.string().min(1).optional(),
+  path: WorkspaceRelativePath,
+  rootId: Id,
+  status: z.enum(['restored', 'deleted', 'conflict', 'failed', 'skipped-nested-repo']),
+});
+export type HostRewindFileOutcome = z.infer<typeof HostRewindFileOutcomeSchema>;
+const RewindMode = z.enum(['conversation-and-files', 'conversation-only']);
+const RewindTarget = {
+  ...Thread,
+  /** The committed user message to restore to before: its run/start command ID. */
+  messageId: Id,
+};
 /**
  * An image on a user message, as the composer encodes it: a base64 data URL.
  * Core admits it against the shared attachment contract's caps.
@@ -431,6 +454,30 @@ export const HOST_METHOD_SCHEMAS = {
   'thread/delete': z.strictObject(Thread),
   'thread/list': z.strictObject({}),
   'thread/read': z.strictObject({ ...Thread, fromSeq: Seq }),
+  /**
+   * Restore to before a committed user message: the conversation returns to
+   * the run it followed, and (files mode) every root to its state at that
+   * message's turn start. Refused while the thread has an active run; a host
+   * with no snapshot owner refuses files mode.
+   */
+  'thread/rewind': z.strictObject({
+    ...Command,
+    ...RewindTarget,
+    /** Restore even the paths that changed after the preview. */
+    acknowledgeConflicts: z.boolean().optional(),
+    mode: RewindMode,
+    /** The files preview this rewind binds to; required in files mode. */
+    previewId: Id.optional(),
+  }),
+  /** What a rewind to before a message would change; nothing is committed. */
+  'thread/rewind/preview': z.strictObject(RewindTarget),
+  /** Undo the thread's newest rewind while no run has started since it. */
+  'thread/rewind/redo': z.strictObject({
+    ...Command,
+    ...Thread,
+    acknowledgeConflicts: z.boolean().optional(),
+    rewindId: Id,
+  }),
   'thread/start': z.strictObject(Command),
   'thread/update': z
     .strictObject({ ...Command, ...Thread, ...ThreadPresentation })
@@ -742,6 +789,44 @@ export const HostEventSchema = z.union([
     failure: z.string().min(1).optional(),
     roots: z.array(HostTurnSnapshotSchema),
   }),
+  /**
+   * A rewind's intent, committed before any file changes: the conversation
+   * returns to `headId` (the run the target message followed; null is the
+   * thread root), and files mode restores every root to the target's turn.
+   */
+  z.strictObject({
+    commandId: Id,
+    headId: Id.nullable(),
+    messageId: Id,
+    mode: RewindMode,
+    rewindId: Id,
+    runId: Id,
+    type: z.literal('thread.rewind.started'),
+  }),
+  /** The rewind's outcome; files mode lists each path's restore. */
+  z.strictObject({
+    outcomes: z.array(HostRewindFileOutcomeSchema),
+    rewindId: Id,
+    type: z.literal('thread.rewound'),
+  }),
+  /** A redo's intent, committed before any file changes. */
+  z.strictObject({ commandId: Id, rewindId: Id, type: z.literal('thread.rewind.redo.started') }),
+  /** The redo's outcome: the conversation and files return to before the rewind. */
+  z.strictObject({
+    outcomes: z.array(HostRewindFileOutcomeSchema),
+    rewindId: Id,
+    type: z.literal('thread.rewind.redone'),
+  }),
+  /**
+   * A started rewind or redo with no outcome: files may be partly restored.
+   * A rewind still counts as applied, and its redo stays available.
+   */
+  z.strictObject({
+    detail: z.string().min(1).optional(),
+    phase: z.enum(['rewind', 'redo']),
+    rewindId: Id,
+    type: z.literal('thread.rewind.interrupted'),
+  }),
   /** Committed with the approval that granted it; the run's later decisions include it. */
   z.strictObject({ type: z.literal('permission.granted'), ...RunFields, grant: PermissionGrant }),
   /**
@@ -847,6 +932,43 @@ export const HOST_RESULT_SCHEMAS = {
     threads: z.array(z.strictObject({ ...Thread, ...ThreadPresentation })),
   }),
   'thread/read': z.strictObject({ rows: z.array(HostLogRowSchema) }),
+  'thread/rewind': z.discriminatedUnion('status', [
+    z.strictObject({
+      outcomes: z.array(HostRewindFileOutcomeSchema),
+      rewindId: Id,
+      status: z.literal('rewound'),
+    }),
+    z.strictObject({ detail: z.string().min(1), rewindId: Id, status: z.literal('interrupted') }),
+    /** Nothing was committed: these paths changed after the preview. */
+    z.strictObject({
+      conflicts: z.array(HostRewindConflictSchema).min(1),
+      status: z.literal('conflicts'),
+    }),
+  ]),
+  'thread/rewind/preview': z.strictObject({
+    files: z.discriminatedUnion('available', [
+      z.strictObject({
+        available: z.literal(true),
+        previewId: Id,
+        /** Each root and the snapshot it is restored to. */
+        roots: z.array(HostTurnSnapshotSchema),
+      }),
+      z.strictObject({ available: z.literal(false), reason: z.string().min(1) }),
+    ]),
+    /** The run the conversation returns to; null is the thread root. */
+    headId: Id.nullable(),
+    /** The runs leaving the conversation, oldest first: the target message's run first. */
+    runIds: z.array(Id).min(1),
+  }),
+  'thread/rewind/redo': z.discriminatedUnion('status', [
+    z.strictObject({ outcomes: z.array(HostRewindFileOutcomeSchema), status: z.literal('redone') }),
+    z.strictObject({ detail: z.string().min(1), status: z.literal('interrupted') }),
+    /** Nothing was committed: these paths changed after the rewind. */
+    z.strictObject({
+      conflicts: z.array(HostRewindConflictSchema).min(1),
+      status: z.literal('conflicts'),
+    }),
+  ]),
   'thread/start': z.strictObject(Thread),
   'thread/update': z.strictObject({ accepted: z.literal(true) }),
   'thread/workspace/binding/read': z.strictObject({
