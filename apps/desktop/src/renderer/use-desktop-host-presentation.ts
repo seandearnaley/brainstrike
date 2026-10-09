@@ -97,6 +97,18 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * ADR-0019: a pick the host has not yet committed, else the host's selection,
+ * not renderer storage; a thread with none yet starts from the global default.
+ */
+function composerModel(
+  pick: string | undefined,
+  selection: string | undefined,
+  globalModel: string | null | undefined
+): string | null | undefined {
+  return pick ?? selection ?? globalModel;
+}
+
 /** The send's gate, else a pick the host refused (ADR-0019). */
 function composerDisabledReason(
   gate: string | undefined,
@@ -108,7 +120,7 @@ function composerDisabledReason(
   return `Could not save the model choice: ${pickError}`;
 }
 
-/** A pick is saved once nothing gates the send and the model's metadata is not loading. */
+/** A pick is saved once nothing invalidates the selection and its model's details have loaded. */
 function isPickSaveReady(
   gate: string | undefined,
   lookupState: OpenRouterModelMetadataLookup['state'] | undefined
@@ -271,9 +283,7 @@ export function useDesktopHostPresentation(
   const draft = drafts[threadId];
   // A pick waits here until the host commits it as the thread's selection.
   const [pick, setPick] = useState<ComposerPick>();
-  // ADR-0019: the host's selection, not renderer storage, names a host thread's
-  // model; a thread with none yet starts from the global default.
-  const selectedModel = pick?.modelId ?? host.selection?.modelId ?? globalModel;
+  const selectedModel = composerModel(pick?.modelId, host.selection?.modelId, globalModel);
   const providerId = selectedModel?.split('::')[0];
   const selectedProvider = providerId && isSupportedProvider(providerId) ? providerId : undefined;
   const model = selectedModel?.slice((selectedModel.indexOf('::') ?? -1) + 2);
@@ -361,10 +371,12 @@ export function useDesktopHostPresentation(
     selectedModel,
     selectedProvider,
   });
+  // ADR-0019: saving a pick is not sending. Only what makes the selection itself
+  // invalid holds its save; OpenRouter details gate the send alone.
+  const selectionGate = providerNotice.blocking ?? providerDraft.reason ?? host.error;
   // The legacy panel's order: the provider notice, then OpenRouter metadata,
-  // then an invalid settings draft; then the thread's own selection. A pick
-  // waits while one of these gates the send.
-  const gate = providerNotice.blocking ?? metadata.reason ?? providerDraft.reason ?? host.error;
+  // then an invalid settings draft; then the thread's own selection.
+  const gate = providerNotice.blocking ?? metadata.reason ?? selectionGate;
   const disabledReason = composerDisabledReason(gate, pick?.error);
   const readModelId = useCallback((): string => {
     if (!selectedModel) {
@@ -372,12 +384,10 @@ export function useDesktopHostPresentation(
     }
     return selectedModel;
   }, [selectedModel]);
-  const readConfiguration = useCallback(
-    (selectionFolderId: string | null): Record<string, unknown> => {
-      if (disabledReason) {
-        throw new Error(disabledReason);
-      }
-      return readDesktopHostConfiguration(
+  // The configuration a send captures, whatever gates the send.
+  const captureConfiguration = useCallback(
+    (selectionFolderId: string | null): Record<string, unknown> =>
+      readDesktopHostConfiguration(
         threadId,
         readModelId(),
         selectionFolderId,
@@ -389,10 +399,8 @@ export function useDesktopHostPresentation(
           providerOptions,
         },
         metadata.lookup
-      );
-    },
+      ),
     [
-      disabledReason,
       metadata.agentLoopSettings,
       metadata.lookup,
       metadata.modelSettings,
@@ -403,13 +411,22 @@ export function useDesktopHostPresentation(
       threadId,
     ]
   );
-  // ADR-0019: a pick becomes the thread's selection once its settings resolve,
-  // so the CLI and a wake read the same choice the composer shows.
+  const readConfiguration = useCallback(
+    (selectionFolderId: string | null): Record<string, unknown> => {
+      if (disabledReason) {
+        throw new Error(disabledReason);
+      }
+      return captureConfiguration(selectionFolderId);
+    },
+    [captureConfiguration, disabledReason]
+  );
+  // ADR-0019: a pick becomes the thread's selection once its own settings
+  // resolve, so the CLI and a wake read the same choice the composer shows.
   useSaveComposerPick({
     pick,
-    readConfiguration,
+    readConfiguration: captureConfiguration,
     readSelectionFolderId,
-    ready: isPickSaveReady(gate, metadata.lookup?.state),
+    ready: isPickSaveReady(selectionGate, metadata.lookup?.state),
     set: host.set,
     setPick,
   });

@@ -470,6 +470,35 @@ describe("the host composer's OpenRouter reasoning effort", () => {
     );
     expect(result.current.isComposerDisabled).toBe(true);
   });
+
+  test('a pick saves once its model details resolve, though a send gate still stands', async () => {
+    // The configured input limit exceeds the model's budget: a gate on sending only.
+    useAssistantPreferencesStore.setState({
+      providerSettings: {
+        ...preferences.providerSettings,
+        openrouter: { ...preferences.providerSettings.openrouter, agentInputTokenLimit: 9_000_000 },
+      },
+    });
+    const snapshot: OpenRouterModelMetadataSnapshot = {
+      freshness: 'live',
+      metadata: parseOpenRouterModelMetadata(recorded, MODEL, 0),
+    };
+    // The host's selection, as the binding reads it back once a pick commits.
+    let committed = { modelId: 'openai::gpt-6-sol' };
+    const set = vi.fn(async (modelId: string) => {
+      committed = { modelId };
+    });
+    const { result } = renderHook(() => present(undefined, { selection: committed, set }), {
+      wrapper: withHost(async () => snapshot),
+    });
+    act(() => result.current.onModelChange?.(`openrouter::${MODEL}`));
+    await waitFor(() => expect(set).toHaveBeenCalledTimes(1));
+    expect(set).toHaveBeenCalledWith(
+      `openrouter::${MODEL}`,
+      expect.objectContaining({ modelConfiguration: expect.objectContaining({ model: MODEL }) })
+    );
+    expect(result.current.disabledReason).toMatch(/^Configured input limit /u);
+  });
 });
 
 describe("the host composer's Tools menu", () => {

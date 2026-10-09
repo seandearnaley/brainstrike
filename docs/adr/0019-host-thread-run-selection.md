@@ -43,3 +43,10 @@ and the desktop also had no shared answer to "which model does this thread run o
 - A pick made while children run changes the model of the wake that answers them.
   The children keep their own admitted selection.
 - Core folds one more fact per thread.
+- Saving a pick is separate from send readiness. Only what makes the selection
+  itself invalid holds the save: the provider not configured, an invalid
+  settings draft, or the host's selection read failing. Send-only gates never
+  hold it.
+- Known limit: a pick saves once its model's details have loaded, so its effort
+  keeps its provider options. A reload in that sub-second window loses the pick.
+  Saving it without its settings would store a configuration a run cannot use.

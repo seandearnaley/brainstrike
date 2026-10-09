@@ -1,8 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { setupAssistantMock } from './utils/assistant-mock';
+import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const FIRST_PROMPT = 'Trigger a stream failure';
@@ -43,16 +42,21 @@ async function sendPrompt(window: Page, prompt: string): Promise<void> {
 
 test.describe('Assistant stream error recovery (desktop)', () => {
   test.beforeEach(async ({ window }) => {
-    const { mockFileSystemOperations } = await loadElectronHelpers();
-    await mockFileSystemOperations(window);
     await ensureMockWorkspaceOpen(window);
+    await configureAssistantProvider(window);
   });
 
-  test('thread recovers to a terminal state after a stream error', async ({ window }) => {
-    await setupAssistantMock(window, {
-      errorMessage: STREAM_ERROR_MESSAGE,
-      variant: 'stream-error',
-    });
+  test('thread recovers to a terminal state after a stream error', async ({
+    modelProvider,
+    window,
+  }) => {
+    // A new thread runs on the agent host, which calls the provider itself:
+    // the provider's stream opens, then fails with its own error event.
+    modelProvider.setScript(({ requestBody }) =>
+      (requestBody as { stream?: unknown }).stream === true
+        ? { finalText: '', streamError: STREAM_ERROR_MESSAGE }
+        : { finalText: 'Stream failure check' }
+    );
     await openAssistantChat(window);
     await sendPrompt(window, FIRST_PROMPT);
 

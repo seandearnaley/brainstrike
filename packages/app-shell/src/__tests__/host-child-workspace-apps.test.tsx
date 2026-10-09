@@ -11,6 +11,9 @@ import {
   type AssistantThreadHostChild,
   AssistantThreadHostContext,
 } from '../assistant-thread-host-context';
+import { useAssistantProviderSource } from '../hooks/assistant-provider-source';
+import type { AssistantAvailabilityStatus } from '../hooks/use-assistant-availability';
+import { AssistantProviderStatusContext } from '../hooks/use-assistant-provider-status';
 import { hostChildWorkspaceTabId } from '../host-child-workspace-tab';
 import { useHostChildWorkspaceApps } from '../use-host-child-workspace-apps';
 
@@ -48,14 +51,33 @@ function ChildApp() {
   );
 }
 
-function renderTab(capability: AssistantThreadHostCapability, persona: 'explore' | 'worker') {
+/** The host's availability as `host/status` reports an env-only OpenRouter key. */
+const hostStatus: AssistantAvailabilityStatus = {
+  providers: ['openrouter', 'local'],
+  state: 'enabled',
+};
+
+function renderTab(
+  capability: AssistantThreadHostCapability,
+  persona: 'explore' | 'worker',
+  status: AssistantAvailabilityStatus = hostStatus
+) {
   useWorkspaceTabSelectionStore
     .getState()
     .openApp(hostChildWorkspaceTabId({ persona, threadId: 'child-1' }));
   render(
     <AssistantThreadHostContext.Provider value={capability}>
-      <ChildApp />
+      <AssistantProviderStatusContext value={status}>
+        <ChildApp />
+      </AssistantProviderStatusContext>
     </AssistantThreadHostContext.Provider>
+  );
+}
+
+/** What a child composer's provider discovery starts from. */
+function ProviderSourceProbe() {
+  return (
+    <output aria-label="provider source">{JSON.stringify(useAssistantProviderSource())}</output>
   );
 }
 
@@ -119,4 +141,17 @@ it('forgets a closed tab’s resolution: the same address reopened asks its host
   expect(screen.queryByText('child view child-1')).not.toBeInTheDocument();
   expect(await screen.findByRole('alert')).toHaveTextContent('Unknown thread');
   expect(resolve).toHaveBeenCalledTimes(2);
+});
+
+it('seeds the child composer with the providers the host status reports, as the root panel is', async () => {
+  const capability = {
+    ...host(async () => explorer),
+    renderThread: vi.fn(() => <ProviderSourceProbe />),
+  };
+  renderTab(capability, 'explore');
+  const source = await screen.findByRole('status', { name: 'provider source' });
+  expect(JSON.parse(source.textContent ?? '')).toEqual({
+    kind: 'discovery',
+    seeds: ['openrouter', 'local'],
+  });
 });

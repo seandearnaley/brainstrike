@@ -8,6 +8,7 @@ import {
   rename,
   rm,
   stat,
+  symlink,
   unlink,
   writeFile,
 } from 'node:fs/promises';
@@ -491,6 +492,27 @@ test('an oversized prior file and a moved root refuse with their reasons, leavin
       verdict: 'failed',
     },
   ]);
+});
+
+test('a root the live owner names through a symlink is the same folder, and reverts', async () => {
+  const state = await fixture();
+  await writeFile(join(state.workspace, 'note.txt'), 'note v0');
+  const { client } = await open(state);
+  const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+  const { runId } = await editRun(state, client, threadId, [
+    { content: 'note v1', op: 'write', path: 'note.txt' },
+  ]);
+  // The owner keeps the path the person picked (macOS: /var/folders → /private/var/folders).
+  const link = join(state.dataRoot, 'workspace-link');
+  await symlink(state.workspace, link);
+  state.liveRoot = link;
+  const reverted = await client.request('checkpoint/revert', {
+    commandId: randomUUID(),
+    runId,
+    threadId,
+  });
+  expect(reverted.outcomes.map(({ status }) => status)).toEqual(['reverted']);
+  expect(await readFile(join(state.workspace, 'note.txt'), 'utf8')).toBe('note v0');
 });
 
 test('revert refuses without a live root owner, and for an unknown run', async () => {

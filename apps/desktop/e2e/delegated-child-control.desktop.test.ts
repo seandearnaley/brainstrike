@@ -6,7 +6,7 @@ import path from 'node:path';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { readHostThreadTree } from './utils/agent-host-log';
+import { readHostThreadTree, withAppHost } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import {
   ensureActivityExpanded,
@@ -133,6 +133,24 @@ test('approves the exact reloaded child through the shared workspace @smoke', as
     await expect(terra).toBeVisible();
     await terra.click();
     await expect(root.getByTestId('composer-model-menu-trigger')).toContainText('GPT-5.6 Terra');
+    // ADR-0019: the host commits the pick as the root thread's selection while the
+    // root's run is still paused on its child, so the reload below reads it back.
+    const rootThread = (await readHostThreadTree(electron.getUserDataDir())).find(
+      ({ parentThreadId }) => parentThreadId === undefined
+    );
+    if (!rootThread) {
+      throw new Error('The host committed no root thread');
+    }
+    await expect
+      .poll(async () =>
+        withAppHost(electron.getUserDataDir(), async (client) => {
+          const { selection } = await client.request('thread/selection/read', {
+            threadId: rootThread.threadId,
+          });
+          return selection?.modelId;
+        })
+      )
+      .toBe('openrouter::openai/gpt-5.6-terra');
     const pausedRequests = modelCalls();
     await window.reload();
     await configureAssistantProvider(window, {

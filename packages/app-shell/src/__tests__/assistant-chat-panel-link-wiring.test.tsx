@@ -44,7 +44,9 @@ const setPlatform = (bridge: Partial<PlatformBridge> | undefined) => {
   (window as unknown as { platform?: Partial<PlatformBridge> | undefined }).platform = bridge;
 };
 
-const { AssistantChatPanel } = await import('../assistant-chat-panel');
+const { AssistantChatPanel, AssistantProviderStatusProvider } = await import(
+  '../assistant-chat-panel'
+);
 
 describe('AssistantChatPanel link seam wiring', () => {
   afterEach(() => {
@@ -53,7 +55,7 @@ describe('AssistantChatPanel link seam wiring', () => {
   });
 
   it('provides the link seam to the panel subtree', () => {
-    render(<AssistantChatPanel />);
+    render(<AssistantChatPanel />, { wrapper: AssistantProviderStatusProvider });
 
     expect(screen.getByRole('button', { name: 'seam-present' })).toBeInTheDocument();
   });
@@ -66,7 +68,7 @@ describe('AssistantChatPanel link seam wiring', () => {
       showItemInFolder: vi.fn(),
     });
 
-    render(<AssistantChatPanel />);
+    render(<AssistantChatPanel />, { wrapper: AssistantProviderStatusProvider });
     await userEvent.click(screen.getByRole('button', { name: 'seam-present' }));
 
     expect(openExternal).toHaveBeenCalledWith('https://example.com/docs');
