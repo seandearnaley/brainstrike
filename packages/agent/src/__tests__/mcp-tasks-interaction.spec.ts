@@ -19,6 +19,7 @@ import {
   McpTaskInteraction,
   type McpTaskInteractionClient,
   type McpTaskInteractionElicitationContext,
+  type McpTaskInteractionOptions,
 } from '../mcp/tasks-interaction.js';
 import { McpTaskObservationError, McpTaskObservationPort } from '../mcp/tasks-observation.js';
 
@@ -161,7 +162,8 @@ function createRecordedInteraction(
   handle: (
     request: ElicitRequest,
     context: McpTaskInteractionElicitationContext
-  ) => Promise<ElicitResult>
+  ) => Promise<ElicitResult>,
+  committedOutcome?: McpTaskInteractionOptions['committedOutcome']
 ) {
   const consumerErrors: unknown[] = [];
   const observationPort = new McpTaskObservationPort({
@@ -170,6 +172,7 @@ function createRecordedInteraction(
   observationPort.attachAuthority({ wake: vi.fn() });
   const interaction = new McpTaskInteraction({
     client: fake.client,
+    ...(committedOutcome ? { committedOutcome } : {}),
     elicitation: { form: true, handle, url: false },
     observationPort,
     scope,
@@ -424,6 +427,67 @@ describe('McpTaskInteraction', () => {
       expect.objectContaining({ code: ProtocolErrorCode.InternalError, name: 'ProtocolError' }),
       expect.objectContaining({ name: 'McpTaskInputDeliveryUnknownError' }),
     ]);
+    await interaction.close();
+  });
+
+  // BST-1930 c3 (S1): a coordinator that starts after a restart has no memory of earlier
+  // answers; the host's committed outcome stands in for it before anything is presented.
+  it('keeps a committed unknown answer fenced after a restart: never presented or resent', async () => {
+    const fake = createClient();
+    const handle = vi.fn(async (): Promise<ElicitResult> => approved);
+    const committed = vi.fn(() => 'unknown' as const);
+    const { consumerErrors, interaction, observationPort } = createRecordedInteraction(
+      fake,
+      handle,
+      committed
+    );
+    await interaction.start(['task-1']);
+    await observationPort.publish(inputRequiredTask('task-1'));
+    await observationPort.publish(inputRequiredTask('task-1'));
+    expect(committed).toHaveBeenCalledWith('task-1', 'approval');
+    expect(handle).not.toHaveBeenCalled();
+    expect(fake.requestExtension).not.toHaveBeenCalled();
+    expect(consumerErrors).toEqual([
+      expect.objectContaining({
+        message:
+          'MCP task "task-1" input "approval" has an unknown delivery outcome; it is not resent.',
+        name: 'McpTaskInputDeliveryUnknownError',
+      }),
+      expect.objectContaining({ name: 'McpTaskInputDeliveryUnknownError' }),
+    ]);
+    await interaction.close();
+  });
+
+  it('keeps a committed acknowledgement final after a restart: never presented or resent', async () => {
+    const fake = createClient();
+    const handle = vi.fn(async (): Promise<ElicitResult> => approved);
+    const { consumerErrors, interaction, observationPort } = createRecordedInteraction(
+      fake,
+      handle,
+      () => 'acknowledged'
+    );
+    await interaction.start(['task-1']);
+    await observationPort.publish(inputRequiredTask('task-1'));
+    await expect(interaction.acknowledgement('task-1', 'approval')).resolves.toBeUndefined();
+    expect(handle).not.toHaveBeenCalled();
+    expect(fake.requestExtension).not.toHaveBeenCalled();
+    expect(consumerErrors).toEqual([]);
+    await interaction.close();
+  });
+
+  it('presents an input with no committed outcome afresh', async () => {
+    const fake = createClient();
+    const handle = vi.fn(async (): Promise<ElicitResult> => approved);
+    const { consumerErrors, interaction, observationPort } = createRecordedInteraction(
+      fake,
+      handle,
+      () => undefined
+    );
+    await interaction.start(['task-1']);
+    await observationPort.publish(inputRequiredTask('task-1'));
+    expect(handle).toHaveBeenCalledOnce();
+    expect(fake.requestExtension).toHaveBeenCalledOnce();
+    expect(consumerErrors).toEqual([]);
     await interaction.close();
   });
 
