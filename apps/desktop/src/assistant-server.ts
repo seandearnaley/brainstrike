@@ -155,7 +155,7 @@ interface DesktopAgentStreamKinds {
   database: DesktopDatabase;
   embeddingHost: Pick<EmbeddingHostManager, 'queryEmbedding'>;
   hookEvent: Parameters<typeof hookRunEventToAssistant>[0];
-  hookManager: ReturnType<typeof prepareRequestHooks>['manager'];
+  hookManager: Awaited<ReturnType<typeof prepareRequestHooks>>['manager'];
   hookVerdict: HookRunVerdict;
   personaScan: ReturnType<typeof scanUserPersonas>;
   scanFilesystem: ReturnType<typeof createNodeFsScanDeps>;

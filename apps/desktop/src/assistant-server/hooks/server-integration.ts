@@ -113,7 +113,7 @@ export interface PrepareRequestHooksInput {
  * the TRUSTED server-side runner (present iff valid hooks exist). Keeps the
  * branching out of `initializeAgentStream`.
  */
-export function prepareRequestHooks(input: PrepareRequestHooksInput): RequestHooks {
+export async function prepareRequestHooks(input: PrepareRequestHooksInput): Promise<RequestHooks> {
   const sessionId = input.runtimeData?.memory?.threadId ?? input.runId ?? 'no-session';
   const manager = buildHookManager({
     hookTrustRequest: input.hookTrustRequest,

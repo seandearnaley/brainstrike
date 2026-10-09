@@ -547,10 +547,10 @@ export interface AgentStreamCapabilities<
       readonly logger: ScopedLogger;
       readonly runId: string | undefined;
       readonly runtimeData: RuntimeData | undefined;
-    }) => {
+    }) => Promise<{
       readonly manager: K['hookManager'];
       readonly runner: RuntimeData['hookRunner'] | undefined;
-    };
+    }>;
     readonly runUserPromptSubmitGate: (
       manager: K['hookManager'],
       messages: AgentMessage[],
@@ -864,7 +864,7 @@ export async function initializeAgentStream<K extends AgentStreamCapabilityKinds
     const queuedRunEvents: AssistantRunEvent[] = [];
     // TRUSTED server-built runner (never the client-supplied one, stripped above);
     // present iff valid hooks exist.
-    const { manager: hookManager, runner: hookRunner } = capabilities.hooks.prepare({
+    const { manager: hookManager, runner: hookRunner } = await capabilities.hooks.prepare({
       emitRunEvent: (event) => queuedRunEvents.push(capabilities.hooks.eventToAssistant(event)),
       hookTrustRequest,
       logger,
