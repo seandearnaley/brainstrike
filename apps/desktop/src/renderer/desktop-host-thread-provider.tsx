@@ -36,6 +36,7 @@ import { readDesktopHostModel } from './desktop-host-configuration';
 import { createWindowThreadCapability } from './desktop-host-thread-capability';
 import { HostApprovalStrip } from './host-approval-strip';
 import { HostChildDetailsFold } from './host-child-details';
+import type { HostThreadCanvases } from './host-thread-canvases';
 import { createHostDebugBundleBinding } from './host-thread-debug';
 import type { HostThreadLedger } from './host-thread-ledger';
 import type { HostThreadRuns } from './host-thread-runs';
@@ -100,6 +101,7 @@ function HostChildDetails({
 
 function HostThread({
   agentColor,
+  canvases,
   child,
   client,
   label,
@@ -112,6 +114,7 @@ function HostThread({
 }: {
   /** BST-1932: a child's view is tinted with its family colour. */
   readonly agentColor: string | undefined;
+  readonly canvases: HostThreadCanvases;
   /** BST-1932: a delegated child's view, which sends input to the child while it runs. */
   readonly child: boolean;
   readonly client: HostClient;
@@ -162,6 +165,11 @@ function HostThread({
   useEffect(
     () => (conversation ? ledger.observe(threadId, conversation.source) : undefined),
     [conversation, ledger, threadId]
+  );
+  // The Canvas panel re-reads when this view's run commits a canvas version.
+  useEffect(
+    () => (conversation ? canvases.observe(threadId, conversation.source) : undefined),
+    [canvases, conversation, threadId]
   );
   // The meter's thread total and cost: the same committed provider calls.
   const cumulativeUsage = useHostThreadUsage(ledger, threadId);
@@ -245,6 +253,7 @@ function SteeringStatus({
 // One lazy client capability per actual renderer frame, independent of React replay.
 const windowThreadCapability = createWindowThreadCapability(
   ({
+    canvases,
     catalogLoaded,
     child,
     host,
@@ -263,6 +272,7 @@ const windowThreadCapability = createWindowThreadCapability(
     return host ? (
       <HostThread
         agentColor={child?.color}
+        canvases={canvases}
         child={child !== undefined}
         client={host}
         // A child's region is named by its call sign, like its workspace tab.

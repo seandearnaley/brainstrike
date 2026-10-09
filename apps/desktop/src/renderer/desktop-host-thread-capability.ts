@@ -19,6 +19,7 @@ import {
 import { foldHostCanvases } from '@brainstrike/host-capabilities/canvas-state';
 import { createLogger } from '@brainstrike/logging';
 import { connectDesktopAgentHost } from './agent-host-client';
+import { HostThreadCanvases } from './host-thread-canvases';
 import { HostThreadLedger } from './host-thread-ledger';
 import { HostThreadRuns } from './host-thread-runs';
 
@@ -109,6 +110,7 @@ function bindingPatch(metadata: AssistantThreadMetadata): ThreadWorkspaceBinding
 
 export function createWindowThreadCapability(
   renderThread: (view: {
+    readonly canvases: HostThreadCanvases;
     readonly catalogLoaded: boolean;
     /** BST-1932: a child thread's call sign and family colour; absent for a top-level thread. */
     readonly child: { readonly callSign: string; readonly color: string } | undefined;
@@ -126,6 +128,7 @@ export function createWindowThreadCapability(
 } {
   const runs = new HostThreadRuns();
   const ledger = new HostThreadLedger();
+  const canvases = new HostThreadCanvases();
   const titleListeners = new Set<() => void>();
   const titleCommitted = (): void => {
     for (const listener of titleListeners) {
@@ -276,6 +279,7 @@ export function createWindowThreadCapability(
     },
     renderThread: (threadId, _isVisible, onRunningChange, providerReadErrors) =>
       renderThread({
+        canvases,
         catalogLoaded,
         child: childViews.get(threadId),
         host: threads.get(threadId),
@@ -317,6 +321,7 @@ export function createWindowThreadCapability(
       };
     },
     runs,
+    subscribeCanvases: canvases.subscribe,
     // BST-1932: the host says which thread's children changed; nothing is polled.
     subscribeChildren: (listener) => {
       let active = true;

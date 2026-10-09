@@ -8,6 +8,7 @@ import type {
   AssistantThreadMetadata,
   AssistantThreadRepository,
   AssistantThreadRunStatus,
+  CrossRootUsageRow,
   RunLedgerRow,
   ThreadWorkspaceRepository,
 } from '@brainstrike/assistant-data';
@@ -25,6 +26,8 @@ export interface AssistantThreadHostRun {
 
 /** Cost views' share of the host: its committed runs and provider calls. */
 export interface AssistantThreadHostLedgerSnapshot {
+  /** Provider calls per (root, provider, model), in the cross-root aggregation's order. */
+  readonly rootUsage: readonly CrossRootUsageRow[];
   readonly runs: readonly RunLedgerRow[];
   readonly usage: readonly HostUsageRecord[];
 }
@@ -133,6 +136,12 @@ export interface AssistantThreadHostCapability {
   /** Omitted by a host that reports no run state; its threads then show none. */
   readonly runs?: AssistantThreadHostRuns;
   /**
+   * Called when an owned thread commits a canvas version while a view of it
+   * is mounted, so a canvas reader re-reads through `readCanvases`. Omitted by
+   * a host without live canvases. Returns the unsubscribe.
+   */
+  subscribeCanvases?(threadId: string, listener: () => void): () => void;
+  /**
    * BST-1932: told the thread whose children changed status, when the host
    * says so; a host without delegation omits it.
    */
@@ -157,7 +166,7 @@ const NO_HOST_RUNS: ReadonlyMap<string, AssistantThreadHostRun> = new Map();
 const readNoHostRuns = (): ReadonlyMap<string, AssistantThreadHostRun> => NO_HOST_RUNS;
 const subscribeNoHostRuns = (): (() => void) => () => undefined;
 
-const NO_HOST_LEDGER: AssistantThreadHostLedgerSnapshot = { runs: [], usage: [] };
+const NO_HOST_LEDGER: AssistantThreadHostLedgerSnapshot = { rootUsage: [], runs: [], usage: [] };
 const readNoHostLedger = (): AssistantThreadHostLedgerSnapshot => NO_HOST_LEDGER;
 
 /** The host's committed runs and usage; empty where no host reports them (web). */

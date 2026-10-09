@@ -1,10 +1,13 @@
 import {
   hasDurableAssistantUsageCapability,
+  type RunLedgerRow,
   resolveAssistantMemoryResourceId,
 } from '@brainstrike/assistant-data';
 import { usePGliteDatabase } from '@brainstrike/db/react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  addHostRunsToModelComparison,
+  addHostRunsToTrend,
   getLedgerCostTrend,
   getModelComparison,
   type LedgerModelComparisonRow,
@@ -40,8 +43,13 @@ interface AnalyticsData {
 }
 
 const INITIAL_DATA: AnalyticsData = { error: null, loading: false, models: [], trend: [] };
+const NO_HOST_RUNS: readonly RunLedgerRow[] = [];
 
-export function useLedgerAnalytics(resourceIdOverride?: string | null): LedgerAnalyticsState {
+/** `hostRuns`: agent-host threads' committed runs, counted beside the run tables' rows. */
+export function useLedgerAnalytics(
+  resourceIdOverride?: string | null,
+  hostRuns: readonly RunLedgerRow[] = NO_HOST_RUNS
+): LedgerAnalyticsState {
   const database = usePGliteDatabase();
   const available = database !== null && hasDurableAssistantUsageCapability();
   const resourceId = resolveAssistantMemoryResourceId(resourceIdOverride);
@@ -87,5 +95,18 @@ export function useLedgerAnalytics(resourceIdOverride?: string | null): LedgerAn
     };
   }, [refresh]);
 
-  return { available, ...data, refresh };
+  // A failed history read stays an error: host runs never stand in for it.
+  const combined = useMemo<AnalyticsData>(
+    () =>
+      data.error || hostRuns.length === 0
+        ? data
+        : {
+            ...data,
+            models: addHostRunsToModelComparison(data.models, hostRuns),
+            trend: addHostRunsToTrend(data.trend, hostRuns),
+          },
+    [data, hostRuns]
+  );
+
+  return { available, ...combined, refresh };
 }

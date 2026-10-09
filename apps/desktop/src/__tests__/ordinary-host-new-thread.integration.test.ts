@@ -1,8 +1,6 @@
 // @vitest-environment node
 import { execFile } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import {
@@ -23,6 +21,7 @@ import {
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
+import { createHostCapabilities } from '@brainstrike/host-capabilities';
 import { McpHostRuntime } from '@brainstrike/host-capabilities/mcp/node-host-runtime';
 import { openIndexer } from '@brainstrike/indexer';
 import { RootLock } from '@brainstrike/state-store';
@@ -32,6 +31,7 @@ import { expect, test } from 'vitest';
 import { z } from 'zod';
 import { ensureAssistantShellVisible } from '../../e2e/utils/layout-helpers';
 import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
+import { createDisposableAppProfile } from './helpers/disposable-app-profile';
 
 const execute = promisify(execFile);
 const repository = resolve(import.meta.dirname, '../../../..');
@@ -78,11 +78,11 @@ test(
         `${JSON.stringify({ elapsedMs: Math.round(performance.now() - started), phase })}\n`
       );
     };
-    const disposable = await mkdtemp(join(tmpdir(), 'brainstrike-m3-ordinary-'));
+    const { evidence, root: disposable } = await createDisposableAppProfile(
+      'brainstrike-m3-ordinary-'
+    );
     const profile = join(disposable, 'profiles', 'm3-owned');
     await mkdir(profile, { recursive: true });
-    const evidence = join('/tmp', `brainstrike-m3-ordinary-evidence-${randomUUID()}`);
-    await mkdir(evidence, { recursive: true });
     const path = join(profile, 'permitted.txt');
     const server = await startStatefulMcpHostServer();
     // No OAuth/bearer/Tasks operation is configured for this first connected slice.
@@ -179,8 +179,16 @@ test(
         { input: {}, toolId: mcpName },
         { input: { query: 'retrieval' }, toolId: 'search_index' },
       ]);
-      host = await startAgentHost({ lifetime: 'persistent', root: profile }, (startup) =>
-        createProductionHostPlatform({
+      host = await startAgentHost({ lifetime: 'persistent', root: profile }, async (startup) => {
+        // The desktop reads assistant availability from the attached host, so
+        // this host answers it as every production host does: its provider
+        // services over a disposable credential file and the fixture key.
+        const capabilities = await createHostCapabilities({
+          env: { OPENAI_API_KEY: 'owned-fixture-key' },
+          launch: { credentialStore: { kind: 'file', path: join(profile, 'credentials.json') } },
+          startup,
+        });
+        return await createProductionHostPlatform({
           close: async () => {
             // The index writer must physically join before this host releases its root.
             await indexer.close();
@@ -197,6 +205,7 @@ test(
               unavailable: [],
             }),
           },
+          providers: capabilities.providers,
           readConfiguration: async (request) => {
             expect(request.modelId).toBe('openai::gpt-5.4');
             return {
@@ -261,8 +270,8 @@ test(
           resolveModel: async () => model,
           resolveProviderAuth: async () => undefined,
           startup,
-        })
-      );
+        });
+      });
       client = await attachAgentHost(host.record);
       checkpoint('plain-node-production-host-ready');
       const env: Record<string, string> = {};
@@ -340,26 +349,31 @@ test(
       checkpoint('ordinary-new-thread-committed');
       await input.fill('Write the owned file, call MCP, and search its SQLite index.');
       await input.press('Enter');
+      // Admission (MCP discovery, memory resolution) and the first model step
+      // take seconds, not the poll's one-second default.
       await expect
-        .poll(async () =>
-          (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.some(
-            (row) => row.event.type === 'interaction.requested'
-          )
+        .poll(
+          async () =>
+            (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.some(
+              (row) => row.event.type === 'interaction.requested'
+            ),
+          { timeout: 30_000 }
         )
         .toBe(true);
       await expect(access(path)).rejects.toThrow();
-      await page.getByRole('button', { exact: true, name: 'Expand activity' }).first().click();
+      // A pending approval renders as its own card, outside any collapsed activity.
       await page.getByRole('button', { exact: true, name: 'Approve write_file' }).click();
       await expect
         .poll(
           async () =>
             (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.filter(
               (row) => row.event.type === 'interaction.requested'
-            ).length
+            ).length,
+          { timeout: 30_000 }
         )
         .toBe(2);
-      await panel.getByRole('button', { exact: true, name: 'Expand activity' }).last().click();
-      await page.getByRole('button', { exact: true, name: `Approve ${mcpName}` }).click();
+      // The approval card names the tool by its catalog id, not the model-facing name.
+      await page.getByRole('button', { exact: true, name: `Approve ${mcpId}` }).click();
       await page.getByText('Host run completed.', { exact: true }).waitFor();
       const result = await execute(process.execPath, [
         join(repository, 'packages/agent-host/dist/cli.js'),
@@ -530,18 +544,12 @@ test(
         })
       );
       checkpoint(`cleanup-evidence:${evidence}`);
-      if (failed.length > 0 || remainingAppPids.length > 0 || (owner && !owner.released)) {
-        cleanupFailures.push(...failed.map((result) => result.reason));
-        if (owner && !owner.released) {
-          cleanupFailures.push(new Error('Ordinary qualification retained its root'));
-        }
-        if (remainingAppPids.length > 0) {
-          cleanupFailures.push(
-            new Error('Ordinary qualification retained owned Electron processes')
-          );
-        }
-      } else {
-        await rm(disposable, { force: true, recursive: true });
+      cleanupFailures.push(...failed.map((result) => result.reason));
+      if (owner && !owner.released) {
+        cleanupFailures.push(new Error('Ordinary qualification retained its root'));
+      }
+      if (remainingAppPids.length > 0) {
+        cleanupFailures.push(new Error('Ordinary qualification retained owned Electron processes'));
       }
     }
     if (cleanupFailures.length > 0) {

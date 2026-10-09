@@ -1,7 +1,6 @@
 // @vitest-environment node
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost } from '@brainstrike/agent-host';
 import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/app-state/stores/assistant-preferences-store-version';
@@ -20,6 +19,7 @@ import {
   type ModelProviderRequest,
   startModelProviderShim,
 } from '../../e2e/utils/model-provider-shim';
+import { createDisposableAppProfile } from './helpers/disposable-app-profile';
 
 const desktop = resolve(import.meta.dirname, '../..');
 // Reuse the recorded public metadata fixture; no provider grant or inference.
@@ -66,12 +66,12 @@ async function providerPortRefused(baseUrl: string): Promise<boolean> {
 }
 
 async function qualifyOrdinarySearch(fault: 'none' | 'mcp-setup-failure'): Promise<void> {
-  const disposable = await mkdtemp(join(tmpdir(), 'brainstrike-m3-app-owned-search-'));
+  const { evidence, root: disposable } = await createDisposableAppProfile(
+    'brainstrike-m3-app-owned-search-'
+  );
   const profile = join(disposable, 'profiles/m3-search');
-  const evidence = `${disposable}-evidence`;
   const workspace = join(disposable, 'workspace');
   await mkdir(profile, { recursive: true });
-  await mkdir(evidence);
   await mkdir(workspace);
   const searchLine = 'FRESH_ROOT_SEARCH_SENTINEL_6724 is only in this selected file.';
   await writeFile(
@@ -431,9 +431,6 @@ async function qualifyOrdinarySearch(fault: 'none' | 'mcp-setup-failure'): Promi
       )
     );
     process.stderr.write(`App-owned search evidence: ${evidence}\n`);
-    if (!failure && errors.length === 0) {
-      await rm(disposable, { recursive: true });
-    }
   }
   if (errors.length > 0) {
     throw new AggregateError(
@@ -450,7 +447,6 @@ async function qualifyOrdinarySearch(fault: 'none' | 'mcp-setup-failure'): Promi
     expect(application).toBeUndefined();
     expect(providerRequests).toHaveLength(0);
     expect(RootLock.inspect(profile)).toBeNull();
-    await rm(disposable, { recursive: true });
     checkpoint('expected-mcp-setup-failure-provider-cleanup-completed');
     return;
   }
