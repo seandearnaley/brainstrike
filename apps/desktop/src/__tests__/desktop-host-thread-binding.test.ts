@@ -67,6 +67,7 @@ function fixture() {
     closed: Promise.resolve(),
     onChildrenChanged: vi.fn(() => () => undefined),
     onEvent: vi.fn(() => () => undefined),
+    onTelemetry: vi.fn(() => () => undefined),
     record: {
       endpoint: '/tmp/recorded-host-fixture',
       hostVersion: '0.1.0',
