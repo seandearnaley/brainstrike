@@ -311,6 +311,15 @@ setInterval(() => {}, 1000);
         })
         .toBe(true);
       checkpoint('ordinary-assistant-visible');
+      // The startup thread is already open and visible; New Thread's own thread
+      // is the one that was not there before the click.
+      const threadsBeforeClick = new Set(
+        await page.evaluate(() =>
+          [...document.querySelectorAll('[data-testid^="assistant-thread-panel-"]')].map((panel) =>
+            panel.getAttribute('data-testid')?.slice('assistant-thread-panel-'.length)
+          )
+        )
+      );
       await page.getByTestId('assistant-new-thread-button').click();
       checkpoint('ordinary-new-thread-clicked');
       const record = decodeHostRecord(
@@ -328,8 +337,11 @@ setInterval(() => {}, 1000);
         .poll(async () => {
           const catalog = await client?.request('thread/list', {});
           const candidate = catalog?.threads.at(-1)?.threadId;
+          // Visible means New Thread's createThread has made it the active tab;
+          // a raw draft write and reload before then is overwritten by that call.
           if (
             candidate &&
+            !threadsBeforeClick.has(candidate) &&
             (await page.getByTestId(`assistant-thread-panel-${candidate}`).isVisible())
           ) {
             discoveredThreadId = candidate;
