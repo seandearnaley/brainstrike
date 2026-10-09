@@ -125,27 +125,6 @@ export async function seedPausedWorkspace(
   });
 }
 
-export async function readWorkspaceIndexSetId(page: Page): Promise<string> {
-  let setId: string | null = null;
-  await expect
-    .poll(
-      async () => {
-        const rows = await queryDb(
-          page,
-          `SELECT id FROM embedding_sets WHERE system_role = 'workspace-index'`
-        );
-        setId = rows.length === 1 && typeof rows[0]?.['id'] === 'string' ? rows[0]['id'] : null;
-        return setId;
-      },
-      { message: 'Expected exactly one Workspace Index embedding set.', timeout: 60_000 }
-    )
-    .not.toBeNull();
-  if (setId === null) {
-    throw new Error('Workspace Index embedding set id is unresolved.');
-  }
-  return setId;
-}
-
 /** A thread with a `running` run row: the chat-path write needs a parent run, as during a real turn. */
 export async function seedRunningChatRun(page: Page): Promise<string> {
   const threadId = 'foreground-latency-benchmark-thread';
