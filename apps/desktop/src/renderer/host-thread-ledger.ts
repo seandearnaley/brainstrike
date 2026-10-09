@@ -34,7 +34,7 @@ type Tokens = Pick<
 >;
 
 /** Unreported token counts are counted as none, as the legacy usage writer does. */
-function tokensOf(usage: unknown): Tokens {
+export function tokensOf(usage: unknown): Tokens {
   const parsed = CommittedUsageSchema.parse(usage);
   return {
     cacheReadTokens: parsed.inputTokenDetails?.cacheReadTokens ?? 0,
@@ -50,7 +50,7 @@ interface CatalogModel {
 }
 
 /** A host run's `provider::model` catalog id, as desktop and the CLI admit it. */
-function catalogModel(modelId: string): { model: string; provider: string } | undefined {
+export function catalogModel(modelId: string): CatalogModel | undefined {
   const separator = modelId.indexOf('::');
   return separator > 0
     ? { model: modelId.slice(separator + 2), provider: modelId.slice(0, separator) }
