@@ -98,8 +98,9 @@ export async function qualifyOrdinaryAppIndexedText(
   };
   const model = await startModelProviderShim((request) => {
     providerRequests.push(request);
-    if (!request.toolNames.includes('brainstrike_querySelf')) {
-      throw new Error('The ordinary default catalog did not admit querySelf');
+    // Hosted discovery defers querySelf: the model loads it first.
+    if (!request.toolNames.includes('load_tool')) {
+      throw new Error('The ordinary default catalog did not install hosted tool discovery');
     }
     if (!workspaceRootId) {
       throw new Error('The ordinary workspace has no authoritative root identity');
@@ -107,6 +108,7 @@ export async function qualifyOrdinaryAppIndexedText(
     return {
       finalText: 'The selected indexed SQLite text result was received.',
       toolCallStages: [
+        [{ arguments: { toolName: 'brainstrike_querySelf' }, name: 'load_tool' }],
         [{ arguments: { mode: 'listTables', target: 'index' }, name: 'brainstrike_querySelf' }],
         [
           {

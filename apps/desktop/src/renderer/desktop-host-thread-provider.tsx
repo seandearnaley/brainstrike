@@ -1,13 +1,19 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
-import { useAssistantRunNotifications, useBudgetGuardrailBinding } from '@brainstrike/app-shell';
+import {
+  HostChildConversations,
+  useAssistantRunNotifications,
+  useBudgetGuardrailBinding,
+} from '@brainstrike/app-shell';
 import { AssistantThreadHostContext } from '@brainstrike/app-shell/assistant-thread-host-context';
 import {
   BudgetGuardrailProvider,
   ChangesReviewProvider,
   CommittedAssistantConversation,
+  DebugBundleProvider,
   EditCheckpointProvider,
   RunVerdictProvider,
 } from '@brainstrike/assistant-ui';
+import { useOptionalPGliteDatabase } from '@brainstrike/db/react';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell';
 import {
   type ReactElement,
@@ -15,6 +21,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -28,9 +35,15 @@ import { CommittedHostMcpInputView } from './committed-host-mcp-input-view';
 import { CommittedWorkspaceControls } from './committed-workspace-controls';
 import { readDesktopHostModel } from './desktop-host-configuration';
 import { createWindowThreadCapability } from './desktop-host-thread-capability';
+import { HostApprovalStrip } from './host-approval-strip';
+import { createHostDebugBundleBinding } from './host-thread-debug';
 import type { HostThreadLedger } from './host-thread-ledger';
 import type { HostThreadRuns } from './host-thread-runs';
-import { useDesktopHostPresentation } from './use-desktop-host-presentation';
+import {
+  type ProviderReadErrors,
+  useDesktopHostPresentation,
+} from './use-desktop-host-presentation';
+import { useHostThreadUsage } from './use-host-thread-usage';
 
 /** The existing checkpoint undo controls, fed from the thread's committed edits. */
 function CommittedCheckpoints({
@@ -64,23 +77,49 @@ function CommittedVerdicts({
   return <RunVerdictProvider value={value}>{children}</RunVerdictProvider>;
 }
 
+/** Committed effects are where a delegation starts or settles a child thread. */
+function useCommittedEffectCount(conversation: CommittedHostConversation | undefined): number {
+  const source = conversation?.source;
+  const read = (): number =>
+    source
+      ?.getSnapshot()
+      .rows.filter(
+        ({ event }) => event.type === 'effect.started' || event.type === 'effect.finished'
+      ).length ?? 0;
+  return useSyncExternalStore(source?.subscribe ?? NO_SUBSCRIPTION, read, read);
+}
+const NO_SUBSCRIPTION = (): (() => void) => () => undefined;
+
 function HostThread({
+  agentColor,
+  child,
   client,
+  label,
   ledger,
   onRunningChange,
   onTitleCommitted,
+  providerReadErrors,
   runs,
   threadId,
 }: {
+  /** BST-1932: a child's view is tinted with its family colour. */
+  readonly agentColor: string | undefined;
+  /** BST-1932: a delegated child's view, which sends input to the child while it runs. */
+  readonly child: boolean;
   readonly client: HostClient;
+  readonly label: string;
   readonly ledger: HostThreadLedger;
   readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
   readonly onTitleCommitted: () => void;
+  readonly providerReadErrors: ProviderReadErrors | undefined;
   readonly runs: HostThreadRuns;
   readonly threadId: string;
 }): ReactElement {
   const explorer = useFileExplorerStoreContext();
-  const { readConfiguration, readPlanMode, ...presentation } = useDesktopHostPresentation(threadId);
+  const { readConfiguration, readPlanMode, ...presentation } = useDesktopHostPresentation(
+    threadId,
+    providerReadErrors
+  );
   const configuration = useRef(readConfiguration);
   const planMode = useRef(readPlanMode);
   useLayoutEffect(() => {
@@ -105,6 +144,7 @@ function HostThread({
   }, [client, explorer, onTitleCommitted, threadId]);
   // Badges and OS notifications read this view's committed run state.
   const { onRunNotification } = useAssistantRunNotifications();
+  const effects = useCommittedEffectCount(conversation);
   useEffect(
     () =>
       conversation ? runs.observe(threadId, conversation.source, onRunNotification) : undefined,
@@ -115,8 +155,17 @@ function HostThread({
     () => (conversation ? ledger.observe(threadId, conversation.source) : undefined),
     [conversation, ledger, threadId]
   );
+  // The meter's thread total and cost: the same committed provider calls.
+  const cumulativeUsage = useHostThreadUsage(ledger, threadId);
   // The composer's last-24h budget burn-down and send gate, host usage included.
   const budgetGuardrail = useBudgetGuardrailBinding();
+  // Debug pack and Copy debug bundle, built from the host's committed log on
+  // request; correlated diagnostics come from the renderer's diagnostic store.
+  const diagnostics = useOptionalPGliteDatabase();
+  const debugBundle = useMemo(
+    () => (diagnostics ? createHostDebugBundleBinding(client, threadId, diagnostics) : null),
+    [client, diagnostics, threadId]
+  );
   // Steer (BST-588): the queue holds the message at its front while Core ends
   // the run after its step in flight; the message then starts the next turn.
   const [steeredRunId, setSteeredRunId] = useState<string>();
@@ -134,15 +183,25 @@ function HostThread({
                 Changes review until a run's changeset resolves (gap 3). */}
             <ChangesReviewProvider value={null}>
               <BudgetGuardrailProvider value={budgetGuardrail}>
-                <CommittedAssistantConversation
-                  {...presentation}
-                  commands={conversation.commands}
-                  label="Assistant"
-                  onRunningChange={onRunningChange}
-                  onSteerActiveRun={steer}
-                  store={conversation.store}
-                  workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
-                />
+                <DebugBundleProvider value={debugBundle}>
+                  <HostChildConversations revision={effects} threadId={threadId}>
+                    <CommittedAssistantConversation
+                      {...presentation}
+                      agentColor={agentColor}
+                      approvalStrip={
+                        <HostApprovalStrip client={client} tree={conversation.approvals} />
+                      }
+                      commands={conversation.commands}
+                      {...(cumulativeUsage ? { cumulativeUsage } : {})}
+                      label={label}
+                      onRunningChange={onRunningChange}
+                      onSendActiveInput={child ? conversation.sendInput : undefined}
+                      onSteerActiveRun={steer}
+                      store={conversation.store}
+                      workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
+                    />
+                  </HostChildConversations>
+                </DebugBundleProvider>
               </BudgetGuardrailProvider>
             </ChangesReviewProvider>
           </CommittedVerdicts>
@@ -178,7 +237,17 @@ function SteeringStatus({
 
 // One lazy client capability per actual renderer frame, independent of React replay.
 const windowThreadCapability = createWindowThreadCapability(
-  ({ catalogLoaded, host, ledger, onRunningChange, onTitleCommitted, runs, threadId }) => {
+  ({
+    catalogLoaded,
+    child,
+    host,
+    ledger,
+    onRunningChange,
+    onTitleCommitted,
+    providerReadErrors,
+    runs,
+    threadId,
+  }) => {
     // Persisted tabs render before catalog hydration. The observed legacy
     // Mastra initialization for these SQLite-owned IDs must not claim them.
     if (!(host || catalogLoaded)) {
@@ -186,10 +255,15 @@ const windowThreadCapability = createWindowThreadCapability(
     }
     return host ? (
       <HostThread
+        agentColor={child?.color}
+        child={child !== undefined}
         client={host}
+        // A child's region is named by its call sign, like its workspace tab.
+        label={child?.callSign ?? 'Assistant'}
         ledger={ledger}
         onRunningChange={onRunningChange}
         onTitleCommitted={onTitleCommitted}
+        providerReadErrors={providerReadErrors}
         runs={runs}
         threadId={threadId}
       />

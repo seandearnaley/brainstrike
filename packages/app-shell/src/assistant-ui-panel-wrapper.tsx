@@ -7,8 +7,6 @@ import {
   useExperimentAssignmentPreferencesStore,
 } from '@brainstrike/app-state/stores/experiment-assignment-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
-import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
-import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import { useSelfImprovementSignalPreferencesStore } from '@brainstrike/app-state/stores/self-improvement-signal-preferences-store';
 import {
@@ -22,14 +20,12 @@ import {
   isSupportedProvider,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
-import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
 import {
   hasDurableAssistantUsageCapability,
   useAssistantThreadStore,
 } from '@brainstrike/assistant-data';
 import {
   type AssistantProviderSettingsUpdate,
-  type AssistantToolMenuItem,
   AssistantUiPanel,
   BudgetGuardrailProvider,
   DebugBundleProvider,
@@ -54,10 +50,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AssistantDecisionProviders } from './assistant-decision-providers';
 import { type OmMeterState, resolveOmMeterState } from './assistant-om-segment';
 import { subscribeAssistantToolUpdates } from './assistant-panel/tool-update-subscriptions';
-import {
-  hasDesktopRuntimeBridge,
-  useAssistantExecutionControls,
-} from './assistant-panel/use-assistant-execution-controls';
+import { useAssistantExecutionControls } from './assistant-panel/use-assistant-execution-controls';
 import { useAssistantUsageLedger } from './assistant-panel/use-assistant-usage-ledger';
 import { useModelSelectionReconcile } from './assistant-panel/use-model-selection-reconcile';
 import { useTerminalRunHandlers } from './assistant-panel/use-terminal-run-handlers';
@@ -77,20 +70,16 @@ import {
   buildProviderOptionsWhenReady,
   copyProviderSettingsMap,
   type FixedProviderModels,
-  formatToolLabel,
   getEnabledBuiltInLocalModelIds,
   getRuntimeProviderLlmModels,
-  getToolDescription,
   type LlmProviderModelDefinition,
   type LocalRuntimeProviderId,
-  resolveAdvertisedNativeToolIds,
   resolveAssistantMemoryDisabledReason,
   resolveComposerAttachmentsAvailability,
   resolveEffectiveObservationalMemorySettings,
   resolveHostedMemoryBackendAvailable,
   resolveModelNameFromComposite,
   resolveProviderFromComposite,
-  toLocalRuntimeInputSchema,
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';
@@ -99,7 +88,6 @@ import { useWrapperRewindWiring } from './changes/use-wrapper-rewind-wiring';
 import { DelegatedWorkspaceNavigation } from './delegated-workspace-navigation';
 import { useAssistantProviderSource } from './hooks/assistant-provider-source';
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
-import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
 import { useAssistantModelChange } from './hooks/use-assistant-model-change';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
 import { useAssistantProviderDisabledReason } from './hooks/use-assistant-provider-disabled-reason';
@@ -107,6 +95,7 @@ import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-life
 import { useAssistantThreadRepositories } from './hooks/use-assistant-thread-repositories';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
 import { useAssistantThreadRootBinding } from './hooks/use-assistant-thread-root-binding';
+import { useAssistantToolMenu } from './hooks/use-assistant-tool-menu';
 import { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
 import { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';
 import { useDebugBundleBinding } from './hooks/use-debug-bundle';
@@ -192,8 +181,6 @@ export function AssistantUiPanelWrapper({
   const semanticRecallSettings = useAssistantMemoryPreferencesStore(
     (state) => state.semanticRecall
   );
-  const nativeToolStates = useNativeToolPreferencesStore((state) => state.toolStates);
-  const setNativeToolEnabled = useNativeToolPreferencesStore((state) => state.setToolEnabled);
 
   // OpenRouter default initialization still keys its durable attempt on the
   // same credential revision as provider discovery.
@@ -214,7 +201,6 @@ export function AssistantUiPanelWrapper({
   const db = usePGliteDatabase();
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
-  const openSettings = usePanelLayoutStore((state) => state.openSettings);
 
   useProviderModelDefaults(
     configuredProviders,
@@ -590,45 +576,10 @@ export function AssistantUiPanelWrapper({
     [handleSelectionUpdate, handleTapestryUpdate]
   );
 
-  const nativeToolIds = resolveAdvertisedNativeToolIds({
-    desktopBridgeAvailable: hasDesktopRuntimeBridge(),
+  // Legacy threads no longer run MCP tools (BST-1930); the menu lists them disabled.
+  const { enabledNativeToolIds, toolMenu } = useAssistantToolMenu({
+    runsMcpTools: false,
     selectedProvider,
-  });
-  const nativeToolItems = useMemo<AssistantToolMenuItem[]>(
-    () =>
-      nativeToolIds.map((toolId) => {
-        const metadata = NATIVE_TOOL_DEFAULTS[toolId];
-        const category =
-          typeof (metadata as { category?: unknown }).category === 'string'
-            ? (metadata as { category: string }).category
-            : undefined;
-        const inputSchema = toLocalRuntimeInputSchema(toolId);
-
-        return {
-          description: getToolDescription(toolId),
-          enabled: typeof nativeToolStates[toolId] === 'boolean' ? nativeToolStates[toolId] : true,
-          group: 'Native Tools',
-          id: toolId,
-          label: formatToolLabel(toolId),
-          source: 'native',
-          ...(inputSchema ? { inputSchema } : {}),
-          isLocalRuntimeRunnable: true,
-          ...(category ? { category } : {}),
-        };
-      }),
-    [nativeToolIds, nativeToolStates]
-  );
-  const handleOpenToolSettings = useCallback(() => {
-    openSettings();
-    if (typeof window !== 'undefined') {
-      window.location.hash = '#settings/ai-tools';
-    }
-  }, [openSettings]);
-
-  const { enabledNativeToolIds, toolMenu } = useAssistantMcpMenuState({
-    nativeToolItems,
-    onOpenToolSettings: handleOpenToolSettings,
-    setNativeToolEnabled,
   });
 
   const workspaceRootPath = rootDirectoryHandle?.path ?? null;

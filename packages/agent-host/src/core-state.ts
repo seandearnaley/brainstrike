@@ -221,6 +221,8 @@ export interface HostRunState {
   readonly approvals: Map<string, PendingInteraction>;
   readonly branch: HostRunBranch;
   readonly checkpointedResults: Set<string>;
+  /** BST-1932: human input a running child takes; it starts the run after this one. */
+  childInput?: HostParams<'run/start'> | undefined;
   completion?: Promise<void>;
   readonly controller: AbortController;
   /** Set when a child's execution deadline expired; it ends failed, not stopped. */
@@ -341,7 +343,7 @@ export function foldHostAcceptedCommand(
     result: event.result,
     threadId,
   });
-  if (event.method !== 'run/stop' && event.method !== 'run/steer') {
+  if (event.method !== 'run/stop' && event.method !== 'run/steer' && event.method !== 'run/input') {
     return;
   }
   const params = HOST_METHOD_SCHEMAS[event.method].parse(event.payload);

@@ -5,7 +5,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
-import type { LocalLlmHostGenerateRequest } from '@brainstrike/agent/local-llm';
+import type { LocalLlmHostClient, LocalLlmHostGenerateRequest } from '@brainstrike/agent/local-llm';
 import {
   type AgentHost,
   authenticateHostClient,
@@ -19,7 +19,6 @@ import {
   type PlatformMessagePort,
 } from '../agent-host-platform/connection';
 import { createHostPlatform } from '../agent-host-platform/desktop-node-platform';
-import type { DesktopLlmHostInference } from '../agent-host-platform/llm-host-port';
 import {
   type DesktopPlatformSelection,
   serveDesktopPlatform,
@@ -83,12 +82,12 @@ const selection: DesktopPlatformSelection = {
   toolTimeoutMs: 5000,
 };
 
-/** Main's hidden-host manager surface, scripted: what the llm-host renderer would answer. */
+/** Main's llm-host client (`createMainLlmHostClient`), scripted: what the hidden renderer would answer. */
 function scriptedInference() {
   const warmed: string[] = [];
   const generated: LocalLlmHostGenerateRequest[] = [];
-  const inference: DesktopLlmHostInference = {
-    generateForMain: vi.fn(async (payload, options) => {
+  const inference: LocalLlmHostClient = {
+    generate: vi.fn<LocalLlmHostClient['generate']>(async (payload, options = {}) => {
       generated.push(payload);
       // Cumulative snapshots, as the renderer reports them while generating.
       options.onProgress?.({ kind: 'text', text: REPLY.slice(0, 10) });
@@ -99,7 +98,7 @@ function scriptedInference() {
         usage: { completionTokens: 8, promptTokens: 21, totalTokens: 29 },
       };
     }),
-    warmupForMain: vi.fn(async (modelId) => {
+    warmup: vi.fn<LocalLlmHostClient['warmup']>(async (modelId) => {
       warmed.push(modelId);
     }),
   };
@@ -142,7 +141,7 @@ test('a host thread on the built-in local model generates through the hidden llm
   const mainPort = new UtilityPort(channel.port1);
   const nodePort = new UtilityPort(channel.port2);
   const mainOwner = serveDesktopPlatform(mainPlatformConnection(mainPort), {
-    llmHost: inference,
+    localLlm: inference,
     mcp: createDesktopMcpPlatformCapabilities(new RemoteMcpRuntime()),
     readConfiguration: async () => selection,
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
@@ -181,7 +180,18 @@ test('a host thread on the built-in local model generates through the hidden llm
     expect(generated.length).toBeGreaterThan(0);
     expect(generated[0]).toMatchObject({ modelId: LOCAL_MODEL });
     const rows = (await ui.request('thread/read', { fromSeq: 0, threadId })).rows;
-    expect(JSON.stringify(rows)).toContain(REPLY);
+    // The renderer's progress snapshots streamed as the run's own text deltas.
+    const deltas = rows.flatMap(({ event }) =>
+      event.type === 'stream.chunk' &&
+      typeof event.chunk === 'object' &&
+      event.chunk !== null &&
+      !Array.isArray(event.chunk) &&
+      event.chunk['type'] === 'text-delta'
+        ? [event.chunk['text']]
+        : []
+    );
+    expect(deltas[0]).toBe(REPLY.slice(0, 10));
+    expect(deltas.join('')).toBe(REPLY);
     expect(egress).not.toHaveBeenCalled();
   } finally {
     await desktop?.close();

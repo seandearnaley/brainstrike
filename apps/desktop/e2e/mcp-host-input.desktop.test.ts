@@ -78,12 +78,16 @@ test('a host-run MCP server input is presented once and answered once through Co
   try {
     await configureServer(page, server.url);
     await enableModel(page);
-    modelProvider.setScript((request) => {
-      const name = request.toolNames.find((tool) => tool.endsWith('start_task'));
-      return name
-        ? { finalText: FINAL_TEXT, toolCall: { arguments: {}, name } }
-        : { finalText: `No start_task tool offered: ${request.toolNames.join(', ')}` };
-    });
+    // Hosted discovery defers MCP tools: the shim loads the tool, then calls it.
+    modelProvider.setScript((request) =>
+      request.toolNames.includes('load_tool')
+        ? {
+            deferredTool: true,
+            finalText: FINAL_TEXT,
+            toolCall: { arguments: {}, name: `${SERVER_ID}_start_task` },
+          }
+        : { finalText: `No load_tool offered: ${request.toolNames.join(', ')}` }
+    );
     await ensureAssistantShellVisible(page);
     const region = page.getByRole('region', { exact: true, name: 'Assistant' });
     await region.getByRole('textbox', { name: 'Message input' }).fill('Start the input task.');

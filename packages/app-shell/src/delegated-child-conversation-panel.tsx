@@ -90,7 +90,8 @@ function parseAdmittedPersona(value: unknown) {
   return parsed.success ? readAdmittedPersonaConfiguration(value) : undefined;
 }
 
-const CHILD_PROVIDER_SOURCE: AssistantProviderSource = { kind: 'discovery' };
+/** A child conversation's composer discovers its providers like the desktop root's. */
+export const CHILD_PROVIDER_SOURCE: AssistantProviderSource = { kind: 'discovery' };
 const EMPTY_SETTINGS: AssistantProviderSettingsMap = {};
 function CapableChildPanel({
   insights,

@@ -11,7 +11,7 @@ import type {
   SqliteValue,
 } from '@brainstrike/sqlite-query';
 import type { IndexCallerRead } from '../native-caller-query';
-import { type QuerySelfResult, shapeQuerySelfRows } from './query-self-tool';
+import { type QuerySelfResult, shapeQuerySelfRows } from './query-self-core';
 
 interface IndexLensInvocation {
   paramSpecs?: readonly LensParamSpec[];

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { ToolRiskCategory } from '@brainstrike/assistant-contract';
 import { asSchema, type ModelMessage, modelMessageSchema, type ToolContent } from 'ai';
 import { z } from 'zod';
-import { validateApprovalInput } from './approval-input.js';
+import { ApprovalInputReconstructionError, validateApprovalInput } from './approval-input.js';
 import {
   applyHostPermissionGrant,
   hasHostInteractionResponse,
@@ -147,6 +147,31 @@ export function approvedHostPlanRunParams(
   };
 }
 
+/**
+ * The thread's next run, started by the host: an approved plan carried out,
+ * or a child's human input (BST-1932). A next run that cannot start is
+ * committed as failed, with its cause, so it never ends silently.
+ */
+export async function startHostNextRun(
+  runs: Iterable<Run>,
+  params: HostParams<'run/start'>,
+  start: () => Promise<unknown>,
+  commitFailed: (runId: string, events: readonly HostEvent[]) => Promise<void>,
+  refused?: Error
+): Promise<boolean> {
+  try {
+    if (refused) {
+      throw refused;
+    }
+    await start();
+    return true;
+  } catch (cause) {
+    const runId = randomUUID();
+    await commitFailed(runId, failedHostStartEvents(runs, params, runId, cause));
+    return false;
+  }
+}
+
 /** A next run that could not start, committed as started then failed with its cause. */
 export function failedHostStartEvents(
   runs: Iterable<Run>,
@@ -163,6 +188,22 @@ export function failedHostStartEvents(
       type: 'run.finished',
     },
   ];
+}
+
+/** A continuation that threw ends its run: stopped, interrupted on lost approval input, or failed. */
+export function hostContinuationFailure(
+  run: Run,
+  cause: unknown
+): {
+  readonly detail: string;
+  readonly outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome'];
+} {
+  const outcome = run.stopped
+    ? 'stopped'
+    : cause instanceof ApprovalInputReconstructionError
+      ? 'interrupted'
+      : 'failed';
+  return { detail: cause instanceof Error ? cause.message : String(cause), outcome };
 }
 
 /** A grant names exactly the approved call's own risk category or tool, never another. */

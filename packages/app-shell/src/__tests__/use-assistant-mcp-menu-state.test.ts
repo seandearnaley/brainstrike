@@ -56,6 +56,7 @@ describe('useAssistantMcpMenuState', () => {
       useAssistantMcpMenuState({
         nativeToolItems,
         onOpenToolSettings: vi.fn(),
+        runsMcpTools: false,
         setNativeToolEnabled: vi.fn(),
       })
     );
@@ -79,6 +80,35 @@ describe('useAssistantMcpMenuState', () => {
     expect(result.current.toolMenu.onRefresh).toBeTypeOf('function');
   });
 
+  it('lists MCP tools as runnable toggles where the thread runs them', async () => {
+    setMcpApi({
+      listTools: vi.fn().mockResolvedValue({
+        'mcp-server': [
+          { description: 'Test MCP tool', enabled: true, id: 'mcp.tool' },
+          { enabled: false, id: 'mcp.off' },
+        ],
+      }),
+    });
+
+    const { result } = renderHook(() =>
+      useAssistantMcpMenuState({
+        nativeToolItems,
+        onOpenToolSettings: vi.fn(),
+        runsMcpTools: true,
+        setNativeToolEnabled: vi.fn(),
+      })
+    );
+
+    await waitFor(() => {
+      expect(result.current.toolMenu.items).toHaveLength(3);
+    });
+    const tool = result.current.toolMenu.items.find((item) => item.id === 'mcp.tool');
+    expect(tool).toMatchObject({ description: 'Test MCP tool', enabled: true, source: 'mcp' });
+    expect(tool?.disabled).toBeUndefined();
+    // Every listed tool runs, so every one counts.
+    expect(result.current.toolMenu.summary).toBe('2 of 3 enabled');
+  });
+
   it('toggles native tools locally and MCP tools over the bridge before reloading', async () => {
     const setNativeToolEnabled = vi.fn();
     const mcpApi = setMcpApi({
@@ -96,6 +126,7 @@ describe('useAssistantMcpMenuState', () => {
       useAssistantMcpMenuState({
         nativeToolItems,
         onOpenToolSettings: vi.fn(),
+        runsMcpTools: false,
         setNativeToolEnabled,
       })
     );
@@ -138,6 +169,7 @@ describe('useAssistantMcpMenuState', () => {
       useAssistantMcpMenuState({
         nativeToolItems,
         onOpenToolSettings: vi.fn(),
+        runsMcpTools: false,
         setNativeToolEnabled: vi.fn(),
       })
     );
@@ -178,6 +210,7 @@ describe('useAssistantMcpMenuState', () => {
       useAssistantMcpMenuState({
         nativeToolItems,
         onOpenToolSettings,
+        runsMcpTools: false,
         setNativeToolEnabled: vi.fn(),
       })
     );

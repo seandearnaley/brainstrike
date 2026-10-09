@@ -79,6 +79,7 @@ describe('persisted configured MCP authority', () => {
         throw new Error('Owned stdio commands were not prepared');
       }
       let proveLiveCommand = change === 'inherited-path';
+      let probe: string | undefined;
       const openPlatform = async (command: string) => {
         const services = await createAgentHostAdapterServicesFactory(fixtureCapabilities)({
           appUi: 'text',
@@ -125,6 +126,7 @@ describe('persisted configured MCP authority', () => {
         if (!name) {
           throw new Error('Real stdio fixture did not publish a tool');
         }
+        probe = name;
         return createProductionHostPlatform({
           close: services.close,
           mcp: services.mcp,
@@ -146,7 +148,12 @@ describe('persisted configured MCP authority', () => {
             policies: { ...DEFAULT_PERMISSION_POLICIES, mcp: 'ask' },
             yolo: false,
           }),
-          resolveModel: async () => scriptedToolSequence([{ input: {}, toolId: name }]),
+          // Hosted discovery defers MCP tools: the model loads the probe, then calls it.
+          resolveModel: async () =>
+            scriptedToolSequence([
+              { input: { toolName: name }, toolId: 'load_tool' },
+              { input: {}, toolId: name },
+            ]),
           resolveProviderAuth: async () => undefined,
           startup: { ...startup, store },
         });
@@ -231,7 +238,9 @@ describe('persisted configured MCP authority', () => {
               : 'configuration-changed',
         });
         expect(
-          (await core.read(threadId, 0)).filter(({ event }) => event.type === 'effect.started')
+          (await core.read(threadId, 0)).filter(
+            ({ event }) => event.type === 'effect.started' && event.toolId === probe
+          )
         ).toHaveLength(0);
         await core.close();
         expect(() => process.kill(replacementPid, 0)).toThrow();
@@ -353,7 +362,12 @@ describe('persisted configured MCP authority', () => {
             policies: { ...DEFAULT_PERMISSION_POLICIES, mcp: 'ask' },
             yolo: false,
           }),
-          resolveModel: async () => scriptedToolSequence([{ input: {}, toolId: name }]),
+          // Hosted discovery defers MCP tools: the model loads the probe, then calls it.
+          resolveModel: async () =>
+            scriptedToolSequence([
+              { input: { toolName: name }, toolId: 'load_tool' },
+              { input: {}, toolId: name },
+            ]),
           resolveProviderAuth: async () => undefined,
           startup: { ...startup, store },
         });

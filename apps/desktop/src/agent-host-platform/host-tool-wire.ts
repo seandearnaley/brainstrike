@@ -5,6 +5,13 @@
  * Optional fields are exact (`exactOptional`), matching the store types under
  * `exactOptionalPropertyTypes`.
  */
+import { NATIVE_TOOL_INPUT_SCHEMAS } from '@brainstrike/agent';
+import {
+  LENS_PARAM_TYPES,
+  NATIVE_TOOL_ID,
+  QUERY_SELF_TARGETS,
+} from '@brainstrike/assistant-contract';
+import { TAPESTRY_COLOR_NAMES } from '@brainstrike/types';
 import { z } from 'zod';
 
 const Id = z.string().min(1);
@@ -62,3 +69,258 @@ export const GrepIndexResultSchema = z.strictObject({
   totalMatches: z.number().int().nonnegative(),
   truncated: z.boolean(),
 });
+
+const GitError = z.object({ error: z.string(), ok: z.literal(false) });
+function gitResult<T extends z.ZodType>(value: T) {
+  return z.discriminatedUnion('ok', [z.object({ ok: z.literal(true), value }), GitError]);
+}
+
+export const WorktreeListResultSchema = gitResult(
+  z.array(
+    z.object({
+      branch: z.string().nullable(),
+      detached: z.boolean(),
+      disabledReason: z.string().nullable(),
+      externalTool: z.string().nullable(),
+      id: z.string().nullable(),
+      managed: z.boolean(),
+      name: z.string(),
+      path: z.string(),
+      primary: z.boolean(),
+      provenance: z.string(),
+      repoCommonDir: z.string(),
+      repositoryRoot: z.string(),
+      rootId: z.string().nullable(),
+      usable: z.boolean(),
+    })
+  )
+);
+
+export const WorktreeCreateResultSchema = gitResult(
+  z.object({
+    setup: z.object({ reason: z.string().nullable(), status: z.string() }),
+    worktree: z.object({ branch: z.string().nullable(), id: z.string(), path: z.string() }),
+  })
+);
+
+export const WorktreeArchiveResultSchema = gitResult(
+  z.object({ snapshotRef: z.string(), worktree: z.object({ id: z.string() }) })
+);
+
+export const WorktreeCreateRequestSchema = z.strictObject({
+  params: z.strictObject({
+    baseRef: z.string().min(1),
+    branch: z.string().min(1),
+    name: z.string().min(1),
+    rootId: Id,
+  }),
+  runId: Id.exactOptional(),
+  threadId: Id,
+});
+
+export const WorktreeArchiveRequestSchema = z.strictObject({
+  params: z.strictObject({ force: z.boolean().exactOptional(), worktreeId: Id }),
+  runId: Id.exactOptional(),
+  threadId: Id,
+});
+
+const BrowserFailure = z.object({
+  error: z.enum([
+    'blocked_url',
+    'browser_unavailable',
+    'driver_failed',
+    'load_failed',
+    'load_timeout',
+    'navigate_failed',
+  ]),
+  hint: z.string(),
+  ok: z.literal(false),
+});
+function browserResult<T extends z.ZodRawShape>(shape: T) {
+  return z.discriminatedUnion('ok', [z.object({ ok: z.literal(true), ...shape }), BrowserFailure]);
+}
+
+export const BrowserNavigateResultSchema = browserResult({ title: z.string(), url: z.string() });
+export const BrowserReadPageResultSchema = browserResult({
+  tree: z.string(),
+  truncated: z.boolean(),
+});
+export const BrowserPageTextResultSchema = browserResult({
+  text: z.string(),
+  truncated: z.boolean(),
+});
+
+/** Main re-parses the tool input with the catalog schema the host parsed it with. */
+export const BrowserNavigateRequestSchema = z.strictObject({
+  input: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserNavigate],
+  threadId: Id,
+});
+export const BrowserReadPageRequestSchema = z.strictObject({
+  input: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserReadPage],
+  threadId: Id,
+});
+export const BrowserPageTextRequestSchema = z.strictObject({
+  input: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserGetPageText],
+  threadId: Id,
+});
+
+const ContextTarget = {
+  folderId: z.string().min(1),
+  rootId: Id.exactOptional(),
+  rootPath: z.string().min(1).exactOptional(),
+};
+
+/** A validated selection write-back, delivered by Main to the visible windows. */
+export const ContextSelectionDeliveryRequestSchema = z.strictObject({
+  payload: z.strictObject({
+    ...ContextTarget,
+    filePaths: z.array(z.string().min(1)),
+    mode: z.enum(['replace', 'add', 'remove']),
+  }),
+  threadId: Id,
+});
+
+export const ContextTapestryDeliveryRequestSchema = z.strictObject({
+  payload: z.strictObject({
+    ...ContextTarget,
+    mode: z.enum(['replace', 'add', 'clear']),
+    updates: z.array(
+      z.strictObject({
+        path: z.string().min(1),
+        ranges: z.array(
+          z.strictObject({
+            color: z.enum(TAPESTRY_COLOR_NAMES).exactOptional(),
+            endLine: z.number().int().positive(),
+            isActive: z.boolean().exactOptional(),
+            startLine: z.number().int().positive(),
+          })
+        ),
+      })
+    ),
+  }),
+  threadId: Id,
+});
+
+export const ContextDeliveryResultSchema = z.object({ notifiedWindowCount: z.number().int() });
+
+/** A querySelf SQL read: the parsed catalog input plus a lens the host resolved from its roots. */
+export const QuerySelfReadRequestSchema = z.strictObject({
+  request: z.strictObject({
+    input: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.querySelf],
+    invocation: z
+      .strictObject({
+        paramSpecs: z.array(
+          z.strictObject({
+            description: z.string(),
+            name: z.string().min(1),
+            type: z.enum(LENS_PARAM_TYPES),
+          })
+        ),
+        params: z.array(z.union([z.string(), z.number(), z.boolean()])),
+        requirement: z
+          .strictObject({ kind: z.literal('caller-vectors'), seedParam: z.string().min(1) })
+          .exactOptional(),
+        sql: z.string().min(1),
+      })
+      .exactOptional(),
+  }),
+  threadId: Id,
+});
+
+const QuerySelfTarget = z.enum(QUERY_SELF_TARGETS);
+
+/** Main's read outcome: a result, the engine's model-correctable message, or the generic failure. */
+export const QuerySelfReadResultSchema = z.union([
+  z.object({
+    ok: z.literal(true),
+    result: z.discriminatedUnion('kind', [
+      z.object({
+        columns: z.array(z.string()),
+        estimatedCost: z.number().exactOptional(),
+        hint: z.string().exactOptional(),
+        kind: z.literal('rows'),
+        rowCount: z.number().int(),
+        rows: z.array(z.object({ cells: z.array(z.string()) })),
+        target: QuerySelfTarget,
+        truncated: z.boolean(),
+      }),
+      z.object({
+        kind: z.literal('tables'),
+        tables: z.array(z.object({ estimatedRows: z.number().nullable(), name: z.string() })),
+        target: QuerySelfTarget,
+        truncated: z.boolean().exactOptional(),
+      }),
+      z.object({
+        columns: z.array(
+          z.object({ dataType: z.string(), name: z.string(), nullable: z.boolean() })
+        ),
+        kind: z.literal('columns'),
+        table: z.string(),
+        target: QuerySelfTarget,
+        truncated: z.boolean().exactOptional(),
+      }),
+      z.object({
+        analyzed: z.boolean(),
+        kind: z.literal('plan'),
+        plan: z.array(z.string()),
+        target: QuerySelfTarget,
+      }),
+    ]),
+  }),
+  z.object({ error: z.literal('input'), message: z.string(), ok: z.literal(false) }),
+  z.object({ error: z.literal('failed'), ok: z.literal(false) }),
+]);
+
+const Severity = z.enum(['warn', 'error', 'fatal']);
+
+export const DiagnosticsReadRequestSchema = z.strictObject({
+  filter: z.strictObject({
+    fingerprint: z.string().min(1).exactOptional(),
+    limit: z.number().int().min(1).max(200).exactOptional(),
+    runId: z.string().min(1).exactOptional(),
+    severity: Severity.exactOptional(),
+    sinceMs: z.number().exactOptional(),
+    threadId: z.string().min(1).exactOptional(),
+    untilMs: z.number().exactOptional(),
+  }),
+  threadId: Id,
+});
+
+export const DiagnosticEventItemsSchema = z.array(
+  z.object({
+    causeChainJson: z.string().nullable(),
+    causeChainTruncated: z.boolean(),
+    code: z.string().nullable(),
+    contextJson: z.string().nullable(),
+    contextTruncated: z.boolean(),
+    fingerprint: z.string(),
+    id: z.string(),
+    message: z.string(),
+    messageTruncated: z.boolean(),
+    occurredAt: z.number(),
+    resourceId: z.string().nullable(),
+    rootId: z.string().nullable(),
+    runId: z.string().nullable(),
+    scope: z.string().nullable(),
+    sessionId: z.string(),
+    severity: Severity,
+    source: z.string(),
+    stack: z.string().nullable(),
+    stackTruncated: z.boolean(),
+    threadId: z.string().nullable(),
+  })
+);
+
+export const DiagnosticFingerprintItemsSchema = z.array(
+  z.object({
+    code: z.string().nullable(),
+    count: z.number(),
+    fingerprint: z.string(),
+    firstSeenMs: z.number(),
+    lastSeenMs: z.number(),
+    latestMessage: z.string(),
+    latestMessageTruncated: z.boolean(),
+    severity: Severity,
+    source: z.string(),
+  })
+);

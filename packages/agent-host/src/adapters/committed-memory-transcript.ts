@@ -1,5 +1,10 @@
 import { type MastraDBMessage, MessageList } from '@mastra/core/agent';
-import { modelMessageSchema } from 'ai';
+import {
+  type ModelMessage,
+  modelMessageSchema,
+  type ToolApprovalRequest,
+  type ToolApprovalResponse,
+} from 'ai';
 import { committedRowAddress, committedRunIdentity } from '../committed-identities.js';
 import type { HostLogRow } from '../protocol.js';
 
@@ -26,11 +31,84 @@ function committedModelMetadata(
   return { modelId: model.modelId, provider: model.provider };
 }
 
+/**
+ * Workaround for @mastra/core 1.71.0 MessageList: converting a tool message
+ * that carries an approval response before its tool result appends the
+ * `approval-responded` part after the result's part
+ * (dist/message-list-DxPv9dgd.js 9506–9522), and merging then overwrites the call's
+ * `result` state with `approval-responded` (10768–10775), although its own
+ * ranking puts `result` above it (11725). Every host call the policy allows
+ * carries the SDK's automatic approval pair, so each would read as unanswered,
+ * and Mastra's tool search, which counts only `result`, would load nothing.
+ * Only those automatic `allow` pairs are left out of the conversion; the log
+ * keeps them, and a user-answered approval converts as committed.
+ * Remove when Mastra keeps `result` over `approval-responded` in this merge.
+ */
+function automaticAllowApprovals(segments: readonly (readonly ModelMessage[])[]): Set<string> {
+  const parts = segments.flat().flatMap(approvalParts);
+  const allowed = new Set(
+    parts.flatMap((part) =>
+      part.type === 'tool-approval-response' && part.approved ? [part.approvalId] : []
+    )
+  );
+  return new Set(
+    parts.flatMap((part) =>
+      part.type === 'tool-approval-request' &&
+      part.isAutomatic === true &&
+      allowed.has(part.approvalId)
+        ? [part.approvalId]
+        : []
+    )
+  );
+}
+
+function approvalParts(message: ModelMessage): (ToolApprovalRequest | ToolApprovalResponse)[] {
+  if (message.role === 'assistant' && typeof message.content !== 'string') {
+    return message.content.filter(
+      (part): part is ToolApprovalRequest => part.type === 'tool-approval-request'
+    );
+  }
+  if (message.role === 'tool') {
+    return message.content.filter(
+      (part): part is ToolApprovalResponse => part.type === 'tool-approval-response'
+    );
+  }
+  return [];
+}
+
+function withoutApprovals(message: ModelMessage, approvals: ReadonlySet<string>): ModelMessage {
+  if (message.role === 'assistant' && typeof message.content !== 'string') {
+    return {
+      ...message,
+      content: message.content.filter(
+        (part) => !(part.type === 'tool-approval-request' && approvals.has(part.approvalId))
+      ),
+    };
+  }
+  if (message.role === 'tool') {
+    return {
+      ...message,
+      content: message.content.filter(
+        (part) => !(part.type === 'tool-approval-response' && approvals.has(part.approvalId))
+      ),
+    };
+  }
+  return message;
+}
+
 /** Immutable native segments address existing rows; there is no message-ID writer. */
 export function committedMemoryTranscript(
   rows: readonly HostLogRow[],
   resourceId: string
 ): MastraDBMessage[] {
+  const committed = new Map(
+    rows.flatMap((row): [HostLogRow, ModelMessage[]][] =>
+      row.event.type === 'model.step' || row.event.type === 'model.messages'
+        ? [[row, row.event.messages.map((message) => modelMessageSchema.parse(message))]]
+        : []
+    )
+  );
+  const automaticAllows = automaticAllowApprovals([...committed.values()]);
   const messages: MastraDBMessage[] = [];
   const ids = new Set<string>();
   const append = (message: MastraDBMessage): void => {
@@ -88,11 +166,15 @@ export function committedMemoryTranscript(
       // Conversion borrows preceding calls to recover result arguments. A
       // later approval/result row never updates the earlier call segment.
       native.add(structuredClone(previous), 'memory');
-      event.messages.forEach((message, index) => {
+      const converted = (committed.get(row) ?? [])
+        .map((message) => withoutApprovals(message, automaticAllows))
+        // A message that held only an automatic approval has nothing left to convert.
+        .filter((message) => typeof message.content === 'string' || message.content.length > 0);
+      converted.forEach((message, index) => {
         native.add(
           [
             {
-              ...modelMessageSchema.parse(message),
+              ...message,
               id,
               metadata: { createdAt: new Date(row.ts as number), ...modelMetadata },
             },
