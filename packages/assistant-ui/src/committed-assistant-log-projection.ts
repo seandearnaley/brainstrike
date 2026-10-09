@@ -21,6 +21,10 @@ import {
   parseAssistantContextBreakdown,
 } from '@brainstrike/assistant-contract/context-breakdown';
 import {
+  readShellOutputStreamPart,
+  SHELL_OUTPUT_DATA_NAME,
+} from '@brainstrike/assistant-contract/shell-output';
+import {
   createDeclinedToolCallResult,
   isCodeExecutionApprovalContext,
   TOOL_CALL_BLOCKED_MESSAGE,
@@ -751,6 +755,12 @@ export class CommittedAssistantLogProjection {
     const type = chunk['type'];
     if ((type === 'data' || type === 'aui-data') && typeof chunk['name'] === 'string') {
       this.data(run, row, chunk['data'], chunk['name']);
+      return;
+    }
+    // A command's live output, as its tool writer committed it (BST-1932, AT-07).
+    const shellOutput = readShellOutputStreamPart(chunk);
+    if (shellOutput) {
+      this.data(run, row, shellOutput, SHELL_OUTPUT_DATA_NAME);
       return;
     }
     if (type === 'tool-approval-response') {
