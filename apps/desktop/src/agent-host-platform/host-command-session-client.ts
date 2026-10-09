@@ -6,7 +6,9 @@
 
 import type { MessageConnection } from 'vscode-jsonrpc';
 import type { z } from 'zod';
+import { disposeDesktopCommandSessionsForRoot } from '../assistant-server/command-session-manager';
 import {
+  HostCommandSessionDisposeRootResultSchema,
   HostCommandSessionDoneResultSchema,
   type HostCommandSessionIdentitySchema,
   type HostCommandSessionListRequestSchema,
@@ -17,6 +19,7 @@ import {
 } from './command-session-wire';
 
 export interface HostCommandSessionClient {
+  readonly disposeRoot: (rootId: string) => Promise<number>;
   readonly list: (
     params: z.input<typeof HostCommandSessionListRequestSchema>
   ) => Promise<z.output<typeof HostCommandSessionListResultSchema>>;
@@ -43,6 +46,10 @@ export function hostCommandSessions(): HostCommandSessionClient | undefined {
 
 export function attachHostCommandSessions(connection: MessageConnection): void {
   const client: HostCommandSessionClient = {
+    disposeRoot: async (rootId) =>
+      HostCommandSessionDisposeRootResultSchema.parse(
+        await connection.sendRequest('host/command-sessions/dispose-root', { rootId })
+      ).disposed,
     list: async (params) =>
       HostCommandSessionListResultSchema.parse(
         await connection.sendRequest('host/command-sessions/list', params)
@@ -70,4 +77,14 @@ export function attachHostCommandSessions(connection: MessageConnection): void {
       attached = undefined;
     }
   });
+}
+
+/**
+ * A disconnected root's command sessions: Main's own, then the connected
+ * agent host's, as legacy disconnect stopped every session in the root.
+ */
+export async function disposeDesktopAndHostCommandSessionsForRoot(rootId: string): Promise<number> {
+  const main = await disposeDesktopCommandSessionsForRoot(rootId);
+  const host = attached ? await attached.disposeRoot(rootId) : 0;
+  return main + host;
 }

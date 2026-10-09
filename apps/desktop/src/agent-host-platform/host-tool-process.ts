@@ -48,6 +48,14 @@ export function serveHostCommandSessions(connection: MessageConnection): void {
   connection.onRequest('host/command-sessions/remove', (input: unknown): unknown =>
     handlers.remove(HostCommandSessionIdentitySchema.parse(input))
   );
+  // A root disconnected in Main stops and forgets this host's sessions there.
+  connection.onRequest(
+    'host/command-sessions/dispose-root',
+    async (input: unknown): Promise<unknown> => {
+      const { rootId } = HostCommandSessionListRequestSchema.parse(input);
+      return { disposed: await hostCommandSessionManager().disposeRoot(rootId) };
+    }
+  );
 }
 
 /** The language servers, command trees and command sessions this host spawned. */
