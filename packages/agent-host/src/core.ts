@@ -89,6 +89,7 @@ import { userRunVerdict } from './run-verdicts.js';
 import { type HostEventStore, HostThreadCatalog } from './thread-catalog.js';
 import { HostThreadPresentationState } from './thread-presentation-state.js';
 import { HostThreadRewinds } from './thread-rewind.js';
+import { HostThreadSelections } from './thread-selection-state.js';
 import { HostToolRecords } from './tool-records.js';
 import { revertHostRunEdits } from './workspace-edits.js';
 import { HostThreadWorkspaceState } from './workspace-state.js';
@@ -149,6 +150,13 @@ export class HostCore {
       durability
     )
   );
+  /** ADR-0019: each thread's run selection, folded from every committed row like the ledger. */
+  readonly selections = new HostThreadSelections({
+    accept: (threadId, method, params, result, events) =>
+      this.accept(threadId, method, params, result, events),
+    command: (method, params, perform) => this.command(method, params, perform),
+    threads: this.threads,
+  });
   private readonly runs = new Map<string, Run>();
   private readonly children = new HostChildRuns();
   private readonly admittedRuns = new Map<string, HostRunAdmissionCommand>();
@@ -159,7 +167,8 @@ export class HostCore {
   private readonly failedAdmissions = new Map<string, unknown>();
   private readonly deletions = new Map<string, Promise<HostResults['thread/delete']>>();
   private admission: Promise<void> = Promise.resolve();
-  private readonly rewinds = new HostThreadRewinds({
+  /** Restore to before a message (`thread-rewind.ts`): preview, rewind, and redo. */
+  readonly rewinds = new HostThreadRewinds({
     accept: (threadId, method, params, result, events) =>
       this.accept(threadId, method, params, result, events, this.foldRows, 'full'),
     append: (threadId, events) => this.append(threadId, events, 'full', this.foldRows),
@@ -186,6 +195,7 @@ export class HostCore {
     onAcquired?.(core);
     await core.catalog.hydrate(store, core.threads, (row) => {
       core.ledger.apply(row);
+      core.selections.fold(row);
       core.fold(row);
     });
     await core.rewinds.recover();
@@ -284,6 +294,7 @@ export class HostCore {
     beforePublish?.(rows);
     for (const row of rows) {
       this.ledger.apply(row);
+      this.selections.fold(row);
       for (const listener of this.listeners) {
         listener(row, this.children.parentOf(row.threadId));
       }
@@ -457,6 +468,7 @@ export class HostCore {
     this.children.forget(threadId);
     this.presentations.forget(threadId);
     this.workspaces.forget(threadId);
+    this.selections.forget(threadId);
     this.mcpInputs.forgetThread(threadId);
     this.records.forgetThread(threadId, this.platform);
     this.compactions.forgetThread(threadId);
@@ -531,14 +543,13 @@ export class HostCore {
     // Admission is for this run: platforms key its selection by the run's ID.
     const runId = randomUUID();
     try {
-      const wake = method === 'wake' ? this.children.wakeSelection(params, this.runs) : undefined;
+      // ADR-0019: a wake admits fresh from the thread's selection, with no user prompt.
       admission = await acquireHostRunAdmission(this.platform, {
         ...hostRunCommandRequest(
           { ...params, runId, threadId: root },
           origin,
-          wake ? undefined : selected.prompt,
-          controller.signal,
-          wake
+          method === 'wake' ? undefined : selected.prompt,
+          controller.signal
         ),
         ...this.workspaces.admissionBinding(root),
       });
@@ -578,9 +589,12 @@ export class HostCore {
       const result = { runId: run.id };
       const unavailable = hostMcpUnavailableEvents(admission, run.id);
       // A wake has no client command: its run.started records the delivery it answers.
+      // A run command's differing pair becomes the thread's selection (ADR-0019).
+      const chosen = method === 'wake' ? [] : this.selections.changes(params);
+      const events = [...chosen, started, ...unavailable];
       await (method === 'wake'
-        ? this.append(params.threadId, [started, ...unavailable])
-        : this.accept(params.threadId, method, record, result, [started, ...unavailable]));
+        ? this.append(params.threadId, events)
+        : this.accept(params.threadId, method, record, result, events));
       this.children.recordDelivery(started.delivery);
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);
@@ -735,19 +749,6 @@ export class HostCore {
       await this.accept(params.threadId, method, params, result, events, this.foldRows, 'full');
       return result;
     });
-  }
-
-  /** Restore to before a message (`thread-rewind.ts`): preview, rewind, and redo. */
-  previewRewind(params: HostParams<'thread/rewind/preview'>) {
-    return this.rewinds.preview(params);
-  }
-
-  rewind(params: HostParams<'thread/rewind'>): Promise<HostResults['thread/rewind']> {
-    return this.rewinds.rewind(params);
-  }
-
-  redoRewind(params: HostParams<'thread/rewind/redo'>): Promise<HostResults['thread/rewind/redo']> {
-    return this.rewinds.redo(params);
   }
 
   readMcpInput(input: HostParams<'mcp/input/read'>): Promise<HostResults['mcp/input/read']> {
@@ -967,7 +968,7 @@ export class HostCore {
   /** B10/B14 (ADR-0010): an idle, unparked parent wakes once per batch of settled children. */
   private wake(threadId: string): void {
     this.admit(threadId, async () => {
-      const wake = this.children.wakeParams(threadId, this.runs);
+      const wake = this.children.wakeParams(threadId, this.runs, this.selections);
       if (wake) {
         await this.admitRun('wake', wake.params, wake.origin, () =>
           hostStartPosition(this.runs.values(), this.rewinds.position(wake.params))

@@ -142,12 +142,14 @@ test('background children return at once and wake an idle parent once, batched, 
   expect(delivered).toContain('Beta outcome.');
   expect(delivered).not.toContain('Background task started.');
   expect(runsOf(settled)).toHaveLength(2);
-  // The wake continues the turn: it reopens the committed selection of the run
-  // it follows, never that selection posing as a client's configuration.
+  // ADR-0019: the wake admits fresh from the thread's run selection, which the
+  // turn's run/start committed, with no user prompt and no reopened snapshot.
   const wakeRequest = requests.at(-1);
   expect(requests).toHaveLength(2);
+  expect(wakeRequest).toMatchObject({ modelId: 'scripted' });
   expect(wakeRequest?.configuration).toBeUndefined();
-  expect(wakeRequest?.snapshot).toEqual(runsOf(settled)[0]?.snapshot);
+  expect(wakeRequest?.prompt).toBeUndefined();
+  expect(wakeRequest?.snapshot).toBeUndefined();
 
   for (const threadId of await childThreads(harness)) {
     expect((await harness.core().read(threadId, 0))[0]?.event).toMatchObject({
