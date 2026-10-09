@@ -63,7 +63,10 @@ import type {
 } from './desktop-workspace-binding';
 import type { DesktopShellCorrelation, HostToolServiceCapabilities } from './host-tool-services';
 import type { DesktopPlatformCapabilities, DesktopPlatformSelection } from './main-platform';
-import { resolveDesktopMemoryVectors } from './memory-vector-selection';
+import {
+  type DesktopMemoryVectorSelection,
+  resolveDesktopMemoryVectors,
+} from './memory-vector-selection';
 import {
   PlatformClientConfigurationSchema,
   PlatformModelConfigurationSchema,
@@ -279,6 +282,23 @@ function resolveDesktopMemorySettings(
         : { ...observation, modelTarget: observerTarget },
   };
   return { memorySettings, observerTarget };
+}
+
+/** The admitted Memory selection; observations wait when 'auto' found no candidate. */
+function desktopMemorySelection(
+  intent: z.output<typeof PlatformClientConfigurationSchema>,
+  settings: z.output<typeof PlatformClientConfigurationSchema>['memorySettings'],
+  observerTarget: string | null,
+  vectors: DesktopMemoryVectorSelection | undefined
+): DesktopPlatformSelection['memory'] {
+  return {
+    ...(intent.memorySettings.observationalMemory.enabled && observerTarget === null
+      ? { observerAwaiting: 'no-hosted-chat-provider' as const }
+      : {}),
+    options: intent.memoryOptions,
+    settings,
+    ...(vectors ? { vectorProfile: vectors.profile } : {}),
+  };
 }
 
 /** Catalog dimensions of the recall embedder: hosted from the registry, local from the DB catalog. */
@@ -720,11 +740,7 @@ export function productionDesktopCapabilities(
         freshWorkspaceRoots: native.freshRoots,
         inputTokenLimit,
         maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
-        memory: {
-          options: intent.memoryOptions,
-          settings: memorySettings,
-          ...(memoryVectors ? { vectorProfile: memoryVectors.profile } : {}),
-        },
+        memory: desktopMemorySelection(intent, memorySettings, observerTarget, memoryVectors),
         ...(memoryVectors?.local ? { localEmbedding: memoryVectors.local } : {}),
         nativeRuntime: desktopNativeRuntime(native.runtime, native.retrievalRootsOnly),
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,

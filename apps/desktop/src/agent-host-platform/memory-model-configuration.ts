@@ -103,6 +103,9 @@ export async function createDesktopHostMemoryConfiguration(
       },
     },
     ...(observerModelId === undefined ? {} : { observerModelId }),
+    ...(selection.memory.observerAwaiting
+      ? { observerAwaiting: selection.memory.observerAwaiting }
+      : {}),
     recordPrompt: async () => undefined,
     resourceId: selection.resourceId,
     ...(vectorConfiguration.vectors ? { vectors: vectorConfiguration.vectors } : {}),

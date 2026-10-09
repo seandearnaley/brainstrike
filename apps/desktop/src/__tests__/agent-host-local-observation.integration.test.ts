@@ -154,6 +154,10 @@ async function borrowedHost(
   const attached = client;
   return {
     close,
+    /** Memory readiness for the thread's next run, as the composer reads it before Send. */
+    memory(threadId: string) {
+      return attached.request('thread/memory/read', { modelId: 'openai::gpt-6-sol', threadId });
+    },
     async run(prompt: string) {
       const { threadId } = await attached.request('thread/start', { commandId: randomUUID() });
       await attached.request('run/start', {
@@ -175,6 +179,9 @@ async function borrowedHost(
         )
         .toBe(true);
       return { events, threadId };
+    },
+    async thread() {
+      return (await attached.request('thread/start', { commandId: randomUUID() })).threadId;
     },
   };
 }
@@ -223,6 +230,45 @@ test('a local observational-memory observer runs through Main’s borrowed local
         type: 'memory.usage',
       })
     );
+    // The meter's memory segment reads the committed observation record before the next send.
+    // The one observation above is 7 tokens, active and nothing pending.
+    expect(await host.memory(threadId)).toEqual({
+      admission: { ready: true },
+      observational: {
+        record: {
+          bufferedObservationTokens: 0,
+          messageTokenThreshold: 5,
+          observationTokenCount: 7,
+          pendingMessageTokens: 0,
+          totalTokensObserved: 7,
+        },
+        state: 'active',
+      },
+    });
+  } finally {
+    await host.close();
+  }
+});
+
+test('thread/memory/read shows a waiting observer, then the admission failure, before Send', async () => {
+  let failure: string | undefined;
+  const host = await borrowedHost(
+    (threadId) => {
+      if (failure) {
+        throw new Error(failure);
+      }
+      return selection(threadId, { observerAwaiting: 'no-hosted-chat-provider' });
+    },
+    { localLlm: { generate: vi.fn(), warmup: vi.fn() } }
+  );
+  try {
+    const threadId = await host.thread();
+    expect(await host.memory(threadId)).toEqual({
+      admission: { ready: true },
+      observational: { reason: 'no-hosted-chat-provider', state: 'awaiting-observer' },
+    });
+    failure = 'The embedding host is not running.';
+    expect(await host.memory(threadId)).toEqual({ admission: { ready: false, reason: failure } });
   } finally {
     await host.close();
   }
