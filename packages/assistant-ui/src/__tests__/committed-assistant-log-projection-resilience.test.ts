@@ -71,6 +71,13 @@ describe('committed host run resilience is visible in the thread', () => {
         label: 'Continuing after a stall',
         status: 'info',
       },
+      // The completed run's terminal event, as the legacy stream ends a run.
+      {
+        detail: undefined,
+        kind: 'run.finished',
+        label: 'Assistant run completed',
+        status: 'completed',
+      },
     ]);
     const texts = message.content.flatMap((part) =>
       part.type === 'text' ? [{ status: part.status, text: part.text }] : []
