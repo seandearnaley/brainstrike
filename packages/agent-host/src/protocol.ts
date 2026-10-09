@@ -16,6 +16,7 @@ import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/th
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { z } from 'zod';
 import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
+import { HostLedgerThreadSchema } from './ledger-wire.js';
 
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
 // and the explicit branch links they commit on `run.started`), thread
@@ -37,10 +38,11 @@ import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 // `hooks/trust/read`, `hooks/untrust`), `thread/memory/read` (memory
 // readiness for the next run), run_python's network consent (an
 // `interaction.requested` of kind `network`, answered by `interaction/resume`
-// with `{ action }` and, when the policy also asked, an approval grant), and a
-// run's turn snapshots for its Changes review (`workspace.snapshot.recorded`).
-// These additions are optional fields, new variants and new methods, so a v11
-// reader that uses none of them sees nothing new.
+// with `{ action }` and, when the policy also asked, an approval grant), a
+// run's turn snapshots for its Changes review (`workspace.snapshot.recorded`),
+// and `ledger/read` (every thread's runs and costed provider calls, as Core
+// folds them). These additions are optional fields, new variants and new
+// methods, so a v11 reader that uses none of them sees nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -427,6 +429,8 @@ export const HOST_METHOD_SCHEMAS = {
     interactionId: Id,
     resumeData: z.json(),
   }),
+  /** Every thread's runs and costed provider calls, as Core folds its committed log. */
+  'ledger/read': z.strictObject({}),
   'log/subscribe': z.strictObject({ ...Thread, fromSeq: Seq }),
   'log/unsubscribe': z.strictObject(Thread),
   'mcp/input/read': z.strictObject(McpInput),
@@ -881,6 +885,7 @@ export const HOST_RESULT_SCHEMAS = {
   }),
   'interaction/respond': z.strictObject({ accepted: z.literal(true) }),
   'interaction/resume': z.strictObject({ accepted: z.literal(true) }),
+  'ledger/read': z.strictObject({ threads: z.array(HostLedgerThreadSchema) }),
   'log/subscribe': z.strictObject({ rows: z.array(HostLogRowSchema) }),
   'log/unsubscribe': z.strictObject({ unsubscribed: z.literal(true) }),
   'mcp/input/read': z.strictObject({
