@@ -29,7 +29,8 @@ type VersionSelection = number | 'latest';
  * documents, rendered through the sandboxed CanvasFrame with a version
  * stepper. All writes flow through the `brainstrike.manageCanvas` tool; this
  * panel re-queries when `canvasRefreshNonce` bumps (a manageCanvas completion
- * on the edit-activity stream) or the active thread changes.
+ * on the edit-activity stream, or a host thread's committed canvas version) or
+ * the active thread changes.
  *
  * SELECTION MODEL (React Doctor `no-adjust-state-on-prop-change`): the
  * selected canvas is `focusedCanvasId` in the Changes navigation store
@@ -48,6 +49,13 @@ export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
   // across simultaneously-mounted open threads).
   const threadId = useActiveAssistantThreadId() ?? undefined;
   const refreshNonce = useChangesNavigationStore((state) => state.canvasRefreshNonce);
+  const requestCanvasRefresh = useChangesNavigationStore((state) => state.requestCanvasRefresh);
+  // A host-owned thread's canvases change as its runs commit versions; the
+  // host signals each one and the panel re-reads, like a manageCanvas completion.
+  useEffect(
+    () => (threadId ? host?.subscribeCanvases?.(threadId, requestCanvasRefresh) : undefined),
+    [host, requestCanvasRefresh, threadId]
+  );
 
   const [summaries, setSummaries] = useState<readonly CanvasPanelSummary[]>([]);
   // One owner for "which canvas" (store): the canvas:// chip and this picker

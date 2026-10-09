@@ -29,6 +29,7 @@ import { CommittedHostMcpInputView } from './committed-host-mcp-input-view';
 import { CommittedWorkspaceControls } from './committed-workspace-controls';
 import { readDesktopHostModel } from './desktop-host-configuration';
 import { createWindowThreadCapability } from './desktop-host-thread-capability';
+import type { HostThreadCanvases } from './host-thread-canvases';
 import { createHostDebugBundleBinding } from './host-thread-debug';
 import type { HostThreadLedger } from './host-thread-ledger';
 import type { HostThreadRuns } from './host-thread-runs';
@@ -55,6 +56,7 @@ function CommittedCheckpoints({
 }
 
 function HostThread({
+  canvases,
   client,
   ledger,
   onRunningChange,
@@ -63,6 +65,7 @@ function HostThread({
   runs,
   threadId,
 }: {
+  readonly canvases: HostThreadCanvases;
   readonly client: HostClient;
   readonly ledger: HostThreadLedger;
   readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
@@ -109,6 +112,11 @@ function HostThread({
   useEffect(
     () => (conversation ? ledger.observe(threadId, conversation.source) : undefined),
     [conversation, ledger, threadId]
+  );
+  // The Canvas panel re-reads when this view's run commits a canvas version.
+  useEffect(
+    () => (conversation ? canvases.observe(threadId, conversation.source) : undefined),
+    [canvases, conversation, threadId]
   );
   // The meter's thread total and cost: the same committed provider calls.
   const cumulativeUsage = useHostThreadUsage(ledger, threadId);
@@ -180,6 +188,7 @@ function SteeringStatus({
 // One lazy client capability per actual renderer frame, independent of React replay.
 const windowThreadCapability = createWindowThreadCapability(
   ({
+    canvases,
     catalogLoaded,
     host,
     ledger,
@@ -196,6 +205,7 @@ const windowThreadCapability = createWindowThreadCapability(
     }
     return host ? (
       <HostThread
+        canvases={canvases}
         client={host}
         ledger={ledger}
         onRunningChange={onRunningChange}

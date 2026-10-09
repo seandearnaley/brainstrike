@@ -97,6 +97,12 @@ export interface AssistantThreadHostCapability {
   ): ReactNode | undefined;
   /** Omitted by a host that reports no run state; its threads then show none. */
   readonly runs?: AssistantThreadHostRuns;
+  /**
+   * Called when an owned thread commits a canvas version while a view of it
+   * is mounted, so a canvas reader re-reads through `readCanvases`. Omitted by
+   * a host without live canvases. Returns the unsubscribe.
+   */
+  subscribeCanvases?(threadId: string, listener: () => void): () => void;
   /** Called when a host thread's committed title changes; a host without live titles omits it. */
   subscribeTitleChanges?(listener: () => void): () => void;
   /**

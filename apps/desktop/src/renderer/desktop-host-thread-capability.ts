@@ -19,6 +19,7 @@ import {
 import { foldHostCanvases } from '@brainstrike/host-capabilities/canvas-state';
 import { createLogger } from '@brainstrike/logging';
 import { connectDesktopAgentHost } from './agent-host-client';
+import { HostThreadCanvases } from './host-thread-canvases';
 import { HostThreadLedger } from './host-thread-ledger';
 import { HostThreadRuns } from './host-thread-runs';
 
@@ -109,6 +110,7 @@ function bindingPatch(metadata: AssistantThreadMetadata): ThreadWorkspaceBinding
 
 export function createWindowThreadCapability(
   renderThread: (view: {
+    readonly canvases: HostThreadCanvases;
     readonly catalogLoaded: boolean;
     readonly host: HostClient | undefined;
     readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
@@ -124,6 +126,7 @@ export function createWindowThreadCapability(
 } {
   const runs = new HostThreadRuns();
   const ledger = new HostThreadLedger();
+  const canvases = new HostThreadCanvases();
   const titleListeners = new Set<() => void>();
   const titleCommitted = (): void => {
     for (const listener of titleListeners) {
@@ -248,6 +251,7 @@ export function createWindowThreadCapability(
     },
     renderThread: (threadId, _isVisible, onRunningChange, providerReadErrors) =>
       renderThread({
+        canvases,
         catalogLoaded,
         host: threads.get(threadId),
         ledger,
@@ -258,6 +262,7 @@ export function createWindowThreadCapability(
         threadId,
       }),
     runs,
+    subscribeCanvases: canvases.subscribe,
     subscribeTitleChanges: (listener) => {
       titleListeners.add(listener);
       return () => titleListeners.delete(listener);
