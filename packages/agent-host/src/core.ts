@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { BlobContent, StateStore } from '@brainstrike/state-store';
 import type { LanguageModel, ModelMessage } from 'ai';
 import { ApprovalInputReconstructionError } from './approval-input.js';
+import { HostContextCompactions } from './context-compaction.js';
 import {
   type HostChildRunPort,
   HostChildRuns,
@@ -43,6 +44,7 @@ import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-sto
 import { canonical, type Json, jsonValue } from './json-value.js';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
 import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
+import { HostProjectionRewrites } from './projection-rewrites.js';
 import {
   type HostEvent,
   type HostLogRow,
@@ -53,6 +55,7 @@ import {
 import { finishHostRunWithProviderBilling } from './provider-billing-diagnostics.js';
 import {
   acquireHostRunAdmission,
+  bindHostRunAdmission,
   closeHostRunResources,
   ensureHostRunAdmission,
   hostMcpUnavailableEvents,
@@ -73,10 +76,12 @@ import {
 
 import {
   approvedHostPlan,
+  approvedHostPlanRunParams,
   approveHostRunByPolicy,
   commitHostInteractionResponse,
   commitHostModelMessages,
   createHostApprovalResponses,
+  failedHostStartEvents,
   finishApprovedHostResults,
 } from './run-continuation.js';
 import { userRunVerdict } from './run-verdicts.js';
@@ -97,6 +102,8 @@ export class HostCore {
   private readonly commands = new HostCommandLedger();
   private readonly mcpInputs = new HostMcpInputState();
   private readonly records = new HostToolRecords();
+  private readonly compactions = new HostContextCompactions();
+  private readonly rewrites = new HostProjectionRewrites();
   private readonly threads = new Set<string>();
   private readonly presentations = new HostThreadPresentationState({
     admit: (threadId, perform) => this.admit(threadId, perform),
@@ -178,6 +185,8 @@ export class HostCore {
   private fold(row: HostLogRow): void {
     this.mcpInputs.fold(row);
     this.records.fold(row);
+    this.compactions.fold(row);
+    this.rewrites.fold(row);
     this.presentations.fold(row);
     this.workspaces.fold(row);
     const event = row.event;
@@ -207,7 +216,7 @@ export class HostCore {
         foldHostInteraction(this.runs, event);
         break;
       default:
-        foldHostRunEffect(this.runs, event);
+        foldHostRunEffect(this.runs, event, row.ts);
         break;
     }
     this.children.fold(row, this.runs);
@@ -431,6 +440,8 @@ export class HostCore {
     this.workspaces.forget(threadId);
     this.mcpInputs.forgetThread(threadId);
     this.records.forgetThread(threadId, this.platform);
+    this.compactions.forgetThread(threadId);
+    this.rewrites.forgetThread(threadId);
     this.grants.delete(threadId);
   }
 
@@ -528,7 +539,7 @@ export class HostCore {
         admission.snapshot,
         controller
       );
-      run.admission = admission;
+      await bindHostRunAdmission(this.platform, run, admission);
       child.adopt(run);
       if (this.conversationIds.has(run.id) || run.id === params.commandId) {
         throw new Error('Generated run collides with a committed conversation identity');
@@ -571,6 +582,7 @@ export class HostCore {
       armDeadline: (run) => this.children.armDeadline(run),
       closing: () => this.closing,
       commitMessages: (run, messages) => this.commitMessages(run, messages),
+      compactions: this.compactions,
       delegate: async (run, action, input) =>
         this.children.delegate(
           { action, admission: await ensureHostRunAdmission(this.platform, run), input, run },
@@ -585,6 +597,7 @@ export class HostCore {
       platform: this.platform,
       records: this.records,
       retired: (threadId) => this.closing || this.deletions.has(threadId),
+      rewrites: this.rewrites,
       runs: this.runs,
       syncBoundary: (threadId) => this.store.syncBoundary(threadId),
     };
@@ -898,39 +911,13 @@ export class HostCore {
     run: Run,
     plan: { readonly feedback?: string }
   ): Promise<void> {
-    const params: HostParams<'run/start'> = {
-      commandId: randomUUID(),
-      ...(run.input?.configuration ? { configuration: run.input.configuration } : {}),
-      modelId: run.modelId,
-      parentMessageId: run.id,
-      prompt: plan.feedback ? `Approved the plan.\n\n${plan.feedback}` : 'Approved the plan.',
-      threadId: run.threadId,
-    };
+    const params = approvedHostPlanRunParams(run, plan);
     try {
       await this.startRun(params, run.input?.origin);
     } catch (cause) {
       const runId = randomUUID();
-      await this.accept(
-        params.threadId,
-        'run/start',
-        params,
-        { runId },
-        [
-          {
-            ...hostStartPosition(this.runs.values(), params),
-            modelId: params.modelId,
-            runId,
-            type: 'run.started',
-          },
-          {
-            detail: cause instanceof Error ? cause.message : String(cause),
-            outcome: 'failed',
-            runId,
-            type: 'run.finished',
-          },
-        ],
-        this.foldRows
-      );
+      const events = failedHostStartEvents(this.runs.values(), params, runId, cause);
+      await this.accept(params.threadId, 'run/start', params, { runId }, events, this.foldRows);
     }
   }
 

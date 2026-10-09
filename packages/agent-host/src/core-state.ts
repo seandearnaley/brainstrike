@@ -1,5 +1,5 @@
 import type { PermissionToolGateSnapshot, ToolRiskCategory } from '@brainstrike/assistant-contract';
-import type { ModelMessage } from 'ai';
+import type { ModelMessage, Tool } from 'ai';
 import { recordRawToolInputs } from './approval-input.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import type { HostMcpInputPersistenceError } from './mcp-input-state.js';
@@ -167,11 +167,21 @@ export function foldHostInteraction(
   }
 }
 /** Folds a committed effect or terminal into its run; other events are not run effects. */
-export function foldHostRunEffect(runs: ReadonlyMap<string, HostRunState>, event: HostEvent): void {
+export function foldHostRunEffect(
+  runs: ReadonlyMap<string, HostRunState>,
+  event: HostEvent,
+  ts: number | undefined
+): void {
   if (event.type === 'effect.started') {
-    runs.get(event.runId)?.started.add(event.toolCallId);
+    const run = runs.get(event.runId);
+    run?.started.add(event.toolCallId);
+    run?.effectTools.set(event.toolCallId, event.toolCatalogId ?? event.toolId);
   } else if (event.type === 'effect.finished') {
-    runs.get(event.runId)?.outputs.set(event.toolCallId, event.output);
+    const run = runs.get(event.runId);
+    run?.outputs.set(event.toolCallId, event.output);
+    if (ts !== undefined) {
+      run?.outputCommittedAt.set(event.toolCallId, ts);
+    }
   } else if (event.type === 'run.finished') {
     const run = runs.get(event.runId);
     if (run) {
@@ -213,6 +223,8 @@ export interface HostRunState {
   /** The committed run.finished detail, once terminal. */
   detail?: string;
   readonly effects: Set<Promise<unknown>>;
+  /** The tool each committed effect ran, by call: catalog id, else provider name. */
+  readonly effectTools: Map<string, string>;
   /** Its thread's grants for this host process, shared with the thread's other runs. */
   readonly grants: HostThreadGrants;
   readonly id: string;
@@ -228,9 +240,17 @@ export interface HostRunState {
   /** This run's own committed model messages, after its user message. */
   readonly messages: ModelMessage[];
   readonly modelId: string;
+  /**
+   * The provider's web search standing in for the catalog tool, fixed when the
+   * run was admitted: only when that tool resolved to `allow` and no approval
+   * of it is in flight. It has no execute, so steps re-check the live policy.
+   */
+  nativeWebSearch?: { readonly tool: Tool; readonly toolId: string } | undefined;
   /** BST-1932: present on every run of a child thread. */
   origin?: HostChildOrigin;
   outcome?: Extract<HostEvent, { type: 'run.finished' }>['outcome'];
+  /** When each output committed (its row time), for artifact retention. */
+  readonly outputCommittedAt: Map<string, number>;
   readonly outputs: Map<string, Json>;
   owner?: Promise<HostRunOwner | undefined>;
   ownerClose?: Promise<void>;
@@ -281,6 +301,8 @@ export function createHostRunState(
     messages: [],
     modelId,
     ...(snapshot ? { snapshot } : {}),
+    effectTools: new Map(),
+    outputCommittedAt: new Map(),
     outputs: new Map(),
     paused: false,
     permits: new Map(),

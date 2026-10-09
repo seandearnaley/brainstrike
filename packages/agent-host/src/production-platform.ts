@@ -1,3 +1,4 @@
+import type { LocalLlmHostClient } from '@brainstrike/agent/local-llm';
 import {
   buildGenerationProviderOptionsOption,
   buildModelSettingsOption,
@@ -5,14 +6,16 @@ import {
 } from '@brainstrike/agent/provider-request';
 import {
   createProvider,
+  createProviderNativeWebSearchTool,
   type ProviderAuthInput,
+  providerSupportsNativeWebSearch,
   type RuntimeData,
   resolveRuntimeConfiguration,
 } from '@brainstrike/agent/provider-runtime';
 import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import type { VectorProfile } from '@brainstrike/indexer';
-import type { LanguageModel } from 'ai';
+import type { LanguageModel, Tool } from 'ai';
 import { z } from 'zod';
 import { createMcpHostToolAdapter } from './adapters/mcp.js';
 import type { HostMemory } from './adapters/memory.js';
@@ -79,6 +82,12 @@ export interface ProductionHostPlatformOptions {
   close(): Promise<void>;
   /** Purge process-local caches of a deleted thread. */
   readonly forgetThread?: HostPlatform['forgetThread'];
+  /**
+   * The launching desktop's hidden-renderer inference for the built-in `local`
+   * provider (ADR-0007: models never load in a host process). The CLI has none
+   * and refuses that provider before admission.
+   */
+  readonly localLlmHostClient?: LocalLlmHostClient;
   /** Desktop platform selections already include the existing qualified MCP executors. */
   readonly mcp?: HostMcpRuntime;
   /** Memory resources whose recall/observation vectors the host's state index stores. */
@@ -97,22 +106,55 @@ export interface ProductionHostPlatformOptions {
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
   /** The live root owner checkpoint revert revalidates against. */
   readonly resolveWorkspaceRoot?: HostPlatform['resolveWorkspaceRoot'];
+  /** The native-tool output rewrite policy (host-capabilities). */
+  readonly selectProjectionRewrites?: HostPlatform['selectProjectionRewrites'];
   readonly startup: HostStartupContext;
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
 }
 
 function rootModel(
   configuration: RuntimeData,
-  auth: ProviderAuthInput | undefined
+  auth: ProviderAuthInput | undefined,
+  localLlmHostClient: LocalLlmHostClient | undefined
 ): Exclude<LanguageModel, string> {
   const selected = resolveRuntimeConfiguration(configuration, auth);
   const model = createProvider(
     selected.provider,
     selected.authInput,
     selected.runtime.model,
-    selected.runtime
+    selected.provider === 'local' && localLlmHostClient
+      ? { ...selected.runtime, localLlmHostClient }
+      : selected.runtime
   );
   return materializeHostProviderModel(model);
+}
+
+/** The provider's own web search, built with the chat model's auth; Core decides its use. */
+function admittedNativeWebSearch(
+  provider: string,
+  auth: ProviderAuthInput | undefined
+): { readonly nativeWebSearch?: Tool } {
+  if (!providerSupportsNativeWebSearch(provider)) {
+    return {};
+  }
+  const tool = createProviderNativeWebSearchTool(provider, auth) as unknown as Tool | undefined;
+  return tool ? { nativeWebSearch: tool } : {};
+}
+
+/** The run's concrete model; a local one loads before admission returns, as the legacy stream did. */
+async function admittedModel(
+  options: Pick<ProductionHostPlatformOptions, 'localLlmHostClient' | 'resolveModel'>,
+  configuration: RuntimeData,
+  auth: ProviderAuthInput | undefined,
+  signal: AbortSignal
+): Promise<Exclude<LanguageModel, string>> {
+  const localModel = configuration.provider === 'local' ? configuration.model : undefined;
+  if (localModel && options.localLlmHostClient) {
+    await options.localLlmHostClient.warmup(localModel, { signal });
+  }
+  return options.resolveModel
+    ? await options.resolveModel(configuration, auth)
+    : rootModel(configuration, auth, options.localLlmHostClient);
 }
 
 function unavailableMcpServers(
@@ -311,9 +353,7 @@ export async function createProductionHostPlatform(
         const auth = selected.resolveProviderAuth
           ? await selected.resolveProviderAuth(provider)
           : await options.resolveProviderAuth(provider);
-        const model = options.resolveModel
-          ? await options.resolveModel(selected.configuration, auth)
-          : rootModel(selected.configuration, auth);
+        const model = await admittedModel(options, selected.configuration, auth, request.signal);
         request.signal.throwIfAborted();
         acquired = await acquireMcp(request, selected);
         // BST-1932: a delegated child opens its own run on this admission, so
@@ -356,7 +396,9 @@ export async function createProductionHostPlatform(
           // Like the legacy Memory default (`generateTitle: true`).
           generatesThreadTitle: true,
           hooks: selected.hooks,
+          inputTokenLimit: selected.providerRequestContext.inputTokenLimit,
           model,
+          ...admittedNativeWebSearch(provider, auth),
           openRun: (context) => {
             const bridge = runVectorBridge(selected, context.threadId, context.signal);
             const runOptions = hostRunMemoryOptions(memory, context);
@@ -417,6 +459,9 @@ export async function createProductionHostPlatform(
     readPermissionPolicy: options.readPermissionPolicy,
     ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
     ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),
+    ...(options.selectProjectionRewrites
+      ? { selectProjectionRewrites: options.selectProjectionRewrites }
+      : {}),
     stateIndexer: index.indexer,
     ...(options.auth ? { auth: options.auth } : {}),
     ...(options.providers ? { providers: options.providers } : {}),

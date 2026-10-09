@@ -192,6 +192,8 @@ export const PlatformClientConfigurationSchema = z.strictObject({
 export const PlatformNativeRuntimeSchema = z.strictObject({
   boundWorkspaceRootId: Id.optional(),
   provider: Id,
+  /** Main admitted retrieval to the thread's own roots (a CLI selection or a binding). */
+  retrievalRootsOnly: z.literal(true).optional(),
   /** The focused root's curated files, for the host's workspace-context reads. */
   selectionFilePaths: z.array(z.string()).optional(),
   selectionFolderId: Id.optional(),

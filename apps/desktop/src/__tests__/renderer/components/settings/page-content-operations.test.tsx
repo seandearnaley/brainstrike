@@ -143,6 +143,7 @@ vi.mock('@brainstrike/app-shell/diagnostics', () => ({
 
 vi.mock('@brainstrike/app-shell', () => ({
   useAssistantAvailability: () => assistantAvailability.current,
+  useHostAssistantStatusFetcher: () => undefined,
   // The Provider Hub takes the probe as an injected plain FUNCTION — app-shell
   // depends on settings-ui, so it cannot be imported there, and a hook may not
   // be passed as a value.

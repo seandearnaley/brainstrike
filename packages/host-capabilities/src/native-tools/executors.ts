@@ -13,15 +13,22 @@ import {
   type ManageTaskListInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
   normalizeManageCanvasInput,
+  type ReadToolOutputArtifactCursorInput,
   type ReadWorkspaceDirectoryInput,
   type ReadWorkspaceFileInput,
   type RenameWorkspaceFileInput,
   type RuntimeData,
   readToolExecutionThreadId,
   type StringReplaceWorkspaceFileInput,
+  type WebSearchInput,
   type WriteWorkspaceFileInput,
 } from '@brainstrike/agent';
+import {
+  readToolOutputArtifact,
+  type ScopedToolOutputArtifactReader,
+} from '@brainstrike/agent/tool-runtime';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
+import { createArtifactReaderModelProjection } from './artifact-reader-model-projection.js';
 import { SEARCH_NATIVE_TOOL_EXECUTORS } from './executors-search.js';
 import {
   runDeleteWorkspaceFile,
@@ -43,6 +50,8 @@ import {
   type ToolExecuteContext,
   type ToolExecuteInput,
 } from './tool-execute-support.js';
+import { projectWebSearchModelOutput } from './web-search-model-projection.js';
+import { runWebSearch, type WebSearchToolDependencies } from './web-search-tool.js';
 import { readStateScope } from './workspace-file-staleness.js';
 
 export type MastraTools = NonNullable<RuntimeData['mastraTools']>;
@@ -50,6 +59,11 @@ export type MastraTool = MastraTools[string];
 
 /** The thread-scoped stores and edit owner one request's shared tools write through. */
 export interface NativeToolPorts {
+  /**
+   * This request's durable tool-output artifacts; absent when it settles none,
+   * and the artifact reader then omits itself.
+   */
+  readonly artifactReader: ScopedToolOutputArtifactReader | undefined;
   /** Absent without an active thread; the tool then reports `no_active_thread`. */
   readonly canvas: CanvasStore | undefined;
   readonly fileMutations: FileMutationPorts;
@@ -71,6 +85,8 @@ export interface NativeToolBuildContext {
   readonly resolveActiveDomainCharBudget: () => number;
   readonly resolvedDomainCharBudget: number;
   readonly runtimeData: RuntimeData | undefined;
+  /** The process's Tavily key owner; absent omits web search for the request. */
+  readonly webSearch?: WebSearchToolDependencies | undefined;
 }
 
 export const SHARED_NATIVE_TOOL_IDS = [
@@ -80,11 +96,13 @@ export const SHARED_NATIVE_TOOL_IDS = [
   NATIVE_TOOL_ID.globWorkspace,
   NATIVE_TOOL_ID.manageCanvas,
   NATIVE_TOOL_ID.manageTaskList,
+  NATIVE_TOOL_ID.readToolOutputArtifact,
   NATIVE_TOOL_ID.readWorkspaceDirectory,
   NATIVE_TOOL_ID.readWorkspaceFile,
   NATIVE_TOOL_ID.renameWorkspaceFile,
   NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
   NATIVE_TOOL_ID.submitPlan,
+  NATIVE_TOOL_ID.webSearch,
   NATIVE_TOOL_ID.writeWorkspaceFile,
 ] as const;
 export type SharedNativeToolId = (typeof SHARED_NATIVE_TOOL_IDS)[number];
@@ -135,6 +153,30 @@ export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
     toModelOutput: (output: unknown) =>
       projectReadWorkspaceFileModelOutput(output, resolveActiveDomainCharBudget()),
   }),
+  [NATIVE_TOOL_ID.readToolOutputArtifact]: ({ ports, resolveActiveDomainCharBudget }) => {
+    const reader = ports.artifactReader;
+    if (!reader) {
+      return;
+    }
+    return {
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.readToolOutputArtifact],
+      execute: async (input: ToolExecuteInput<ReadToolOutputArtifactCursorInput>) => {
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readToolOutputArtifact],
+          input
+        );
+        try {
+          return await readToolOutputArtifact({ ...resolvedInput, mode: 'cursor' }, { reader });
+        } catch (error) {
+          logToolFailure('readToolOutputArtifact failed', error, resolvedInput);
+          throw error;
+        }
+      },
+      id: NATIVE_TOOL_ID.readToolOutputArtifact,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readToolOutputArtifact],
+      toModelOutput: createArtifactReaderModelProjection(resolveActiveDomainCharBudget),
+    };
+  },
   [NATIVE_TOOL_ID.readWorkspaceDirectory]: ({ runtimeData }) => ({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.readWorkspaceDirectory],
     execute: async (input: ToolExecuteInput<ReadWorkspaceDirectoryInput>) => {
@@ -321,4 +363,29 @@ export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
           id: NATIVE_TOOL_ID.manageTaskList,
           inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageTaskList],
         },
+  // Tavily-backed; the key resolves in the executing process and never
+  // reaches the model. A provider-native search replaces this entry only at
+  // run admission, where the permission decision is known (run-admission.ts).
+  [NATIVE_TOOL_ID.webSearch]: ({ resolveActiveDomainCharBudget, webSearch }) =>
+    webSearch
+      ? {
+          description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.webSearch],
+          execute: async (input: ToolExecuteInput<WebSearchInput>) => {
+            const resolvedInput = parseToolExecuteInput(
+              NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webSearch],
+              input
+            );
+            try {
+              return await runWebSearch(resolvedInput, webSearch);
+            } catch (error) {
+              logToolFailure('webSearch failed', error, resolvedInput);
+              throw error;
+            }
+          },
+          id: NATIVE_TOOL_ID.webSearch,
+          inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webSearch],
+          toModelOutput: (output: unknown) =>
+            projectWebSearchModelOutput(output, resolveActiveDomainCharBudget()),
+        }
+      : undefined,
 };

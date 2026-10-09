@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
+import { hasCompactionSummarySchema } from '../compaction-summary-schema';
 import {
   estimateCompactionMessageTokens,
   generateAgenticCompactionSummary,
-  hasCompactionSummarySchema,
   projectCompactionMessagesForSummarizer,
 } from '../mastra/conversation-compaction';
 

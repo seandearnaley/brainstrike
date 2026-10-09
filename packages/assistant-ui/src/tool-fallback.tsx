@@ -1,10 +1,9 @@
 import type { ToolCallMessagePartComponent } from '@assistant-ui/react';
-import { Button } from '@brainstrike/ui';
 import { useCallback, useId, useMemo, useRef, useState } from 'react';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
-import { approvalDecisions } from './committed-approval-options';
 import { CommittedHumanInteraction } from './committed-human-interaction';
+import { ToolApprovalDecision } from './tool-approval-decision';
 import { useRememberedToolArguments } from './tool-argument-context';
 import { shouldUseRememberedToolArguments, type ToolArguments } from './tool-arguments';
 import { useToolDurationMs } from './tool-duration-context';
@@ -60,7 +59,6 @@ function useDisplayToolArguments(
  *   a decline, a stopped run_python) — muted, never destructive chrome
  * - `failed`: shows the error message inline in red under the row
  */
-
 export const ToolFallback: ToolCallMessagePartComponent = (props) => {
   const {
     toolCallId,
@@ -85,8 +83,6 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
   // toggles this card — so switching to Developer auto-expands already-rendered
   // cards (and Compact re-collapses them), while an explicit toggle still wins.
   const [userCollapsed, setUserCollapsed] = useState<boolean | null>(null);
-  const [responding, setResponding] = useState(false);
-  const [approvalError, setApprovalError] = useState<string>();
   const isCollapsed = userCollapsed ?? !policy.defaultExpanded;
   const detailsId = useId();
 
@@ -166,52 +162,7 @@ export const ToolFallback: ToolCallMessagePartComponent = (props) => {
         toolName={toolName}
       />
       <CommittedHumanInteraction decisionRef={decisionRef} tool={props} />
-      {props.approval &&
-      props.approval.approved === undefined &&
-      props.approval.resolution === undefined &&
-      (props.approval.display ?? 'decision') === 'decision' &&
-      !props.approval.allowFreeform ? (
-        <fieldset
-          aria-label={`Tool approval ${toolName}`}
-          className="flex flex-col gap-2 px-3 pb-3"
-          ref={decisionRef}
-        >
-          <div className="flex flex-wrap gap-2">
-            {approvalDecisions(props.approval.options).map(({ approved, label, optionId }) => (
-              <Button
-                aria-disabled={responding || undefined}
-                aria-label={`${label} ${toolName}`}
-                className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
-                key={optionId ?? String(approved)}
-                // aria-disabled, not `disabled`: a disabled button drops the
-                // keyboard focus it holds. While the decision is pending the
-                // pressed control keeps focus and the guard refuses a repeat.
-                onClick={() => {
-                  if (responding) {
-                    return;
-                  }
-                  setResponding(true);
-                  setApprovalError(undefined);
-                  // The public runtime routes the exact committed interaction.
-                  // Only the host's publication resolves or removes this card.
-                  void props
-                    .respondToApproval(
-                      optionId === undefined ? { approved } : { approved, optionId }
-                    )
-                    .catch((cause: unknown) => {
-                      setApprovalError(cause instanceof Error ? cause.message : String(cause));
-                      setResponding(false);
-                    });
-                }}
-                variant={optionId === undefined && approved ? 'default' : 'outline'}
-              >
-                {label}
-              </Button>
-            ))}
-          </div>
-          {approvalError === undefined ? null : <p role="alert">{approvalError}</p>}
-        </fieldset>
-      ) : null}
+      <ToolApprovalDecision decisionRef={decisionRef} tool={props} />
       <ToolFallbackBody
         argsText={displayArgsText}
         collapsed={isCollapsed}

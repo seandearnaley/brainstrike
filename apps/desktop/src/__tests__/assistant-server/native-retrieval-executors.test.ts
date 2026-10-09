@@ -10,14 +10,17 @@ const calls = vi.hoisted(() => ({
   hybrid: vi.fn().mockResolvedValue({}),
   semantic: vi.fn().mockResolvedValue({}),
 }));
-vi.mock('../../assistant-server/retrieval-tool', async (original) => ({
-  ...(await original<typeof import('../../assistant-server/retrieval-tool')>()),
-  runQueryEmbeddingSpace: calls.semantic,
+// The executors run the shared retrieval cores; Main supplies its own PGlite store.
+vi.mock('../../assistant-server/retrieval-core', async (original) => ({
+  ...(await original<typeof import('../../assistant-server/retrieval-core')>()),
+  runQueryEmbeddingSpaceWith: calls.semantic,
 }));
-vi.mock('../../assistant-server/hybrid-search-tool', async (original) => ({
-  ...(await original<typeof import('../../assistant-server/hybrid-search-tool')>()),
-  runHybridSearch: calls.hybrid,
+vi.mock('../../assistant-server/hybrid-search-core', async (original) => ({
+  ...(await original<typeof import('../../assistant-server/hybrid-search-core')>()),
+  runHybridSearchWith: calls.hybrid,
 }));
+/** The cores take (input, runtime, dependencies, store, signal). */
+const SIGNAL_ARG = 4;
 const capability: IndexSearchCapability = {
   coverage: vi.fn(),
   coverageBatch: vi.fn(async () => {
@@ -63,7 +66,7 @@ it.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch] as con
       toolId === NATIVE_TOOL_ID.queryEmbeddingSpace ? calls.semantic : calls.hybrid
     ).mock.calls.at(-1);
     expect(call?.[2]).toEqual({ embeddingHostManager, nativeIndexSearch: capability });
-    expect(call?.[3]).toBe(signal);
+    expect(call?.[SIGNAL_ARG]).toBe(signal);
   }
 );
 it.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch] as const)(
@@ -78,7 +81,7 @@ it.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch] as con
       const call = (
         toolId === NATIVE_TOOL_ID.queryEmbeddingSpace ? calls.semantic : calls.hybrid
       ).mock.calls.at(-1);
-      const signal = call?.[3] as AbortSignal;
+      const signal = call?.[SIGNAL_ARG] as AbortSignal;
       expect(signal.aborted).toBe(false);
       const reason = new Error('guard expired');
       deadline.abort(reason);

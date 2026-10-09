@@ -240,6 +240,7 @@ test('real bin runs the explicit canonical model through production HTTP, commit
               'brainstrike.manageCanvas',
               'brainstrike.globWorkspace',
               'brainstrike.findWorkspaceSymbol',
+              'brainstrike.readToolOutputArtifact',
             ],
             remaining: 'unavailable',
           },
@@ -530,6 +531,8 @@ test.each([
   ['unknown-provider::model', 'explicit canonical provider::model'],
   ['openai::not-in-canonical-catalog', 'canonical runtime catalog definition'],
   ['ollama::llama3.2', 'unavailable headless local-runtime capability'],
+  // The built-in model runs only in the desktop's hidden llm-host renderer (ADR-0007).
+  ['local::onnx-community/gemma-4-E2B-it-ONNX', 'unavailable headless local-runtime capability'],
 ])('real bin explicitly rejects unavailable model selection %s', async (model, reason) => {
   const dataRoot = await root();
   const http: OfflineHttp = { mode: 'complete', receipt: join(dataRoot, 'offline-receipt.jsonl') };

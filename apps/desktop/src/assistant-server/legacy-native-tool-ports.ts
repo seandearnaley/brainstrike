@@ -58,13 +58,17 @@ function journalEditTracker(
 }
 
 /** Legacy (Main-executed) threads keep their PGlite journal, index maintenance and stores. */
-export function legacyNativeToolPorts(runtimeData: RuntimeData | undefined): NativeToolPorts {
+export function legacyNativeToolPorts(
+  runtimeData: RuntimeData | undefined,
+  artifactReader?: NativeToolPorts['artifactReader']
+): NativeToolPorts {
   const memory = runtimeData?.memory;
   const thread =
     memory?.threadId && memory.resourceId
       ? { resourceId: memory.resourceId, threadId: memory.threadId }
       : undefined;
   return {
+    artifactReader,
     canvas: thread ? createDesktopCanvasStore(thread) : undefined,
     fileMutations: {
       diagnostics: (args) => getEditDiagnostics(args),

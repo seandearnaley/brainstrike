@@ -80,14 +80,7 @@ function ReviewedApproval({ approval }: { readonly approval: CommittedPendingApp
         ) : null}
         <span className="font-medium">{approval.toolName}</span>
       </div>
-      <ApprovalPreview
-        approval={{
-          args: approval.args,
-          runId: approval.runId,
-          toolCallId: approval.toolCallId,
-          toolName: approval.toolName,
-        }}
-      />
+      <ApprovalPreview approval={{ args: approval.args, toolName: approval.toolName }} />
       <div className="flex flex-wrap gap-2">
         {approvalDecisions(approval.risk ? committedApprovalOptions(approval.risk) : undefined).map(
           (decision) => (

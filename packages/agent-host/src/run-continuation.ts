@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { ToolRiskCategory } from '@brainstrike/assistant-contract';
 import { asSchema, type ModelMessage, modelMessageSchema, type ToolContent } from 'ai';
 import { z } from 'zod';
@@ -13,6 +14,7 @@ import { jsonValue } from './json-value.js';
 import type { HostPlatform } from './ports.js';
 import type { HostEvent, HostLogRow, HostParams, HostPermissionGrant } from './protocol.js';
 import { ensureHostRunAdmission, hostRunToolDecision, hostRunTools } from './run-admission.js';
+import { hostStartPosition } from './run-branch.js';
 
 type Action = Extract<HostEvent, { type: 'effect.started' }>;
 type Interaction = Extract<HostEvent, { type: 'interaction.requested' }>;
@@ -127,6 +129,39 @@ export function approvedHostPlan(run: Run): { readonly feedback?: string } | und
     }
   }
   return;
+}
+
+/** The follow-up `run/start` an approved plan continues with, out of plan mode. */
+export function approvedHostPlanRunParams(
+  run: Run,
+  plan: { readonly feedback?: string }
+): HostParams<'run/start'> {
+  return {
+    commandId: randomUUID(),
+    ...(run.input?.configuration ? { configuration: run.input.configuration } : {}),
+    modelId: run.modelId,
+    parentMessageId: run.id,
+    prompt: plan.feedback ? `Approved the plan.\n\n${plan.feedback}` : 'Approved the plan.',
+    threadId: run.threadId,
+  };
+}
+
+/** A next run that could not start, committed as started then failed with its cause. */
+export function failedHostStartEvents(
+  runs: Iterable<Run>,
+  params: HostParams<'run/start'>,
+  runId: string,
+  cause: unknown
+): HostEvent[] {
+  return [
+    { ...hostStartPosition(runs, params), modelId: params.modelId, runId, type: 'run.started' },
+    {
+      detail: cause instanceof Error ? cause.message : String(cause),
+      outcome: 'failed',
+      runId,
+      type: 'run.finished',
+    },
+  ];
 }
 
 /** A grant names exactly the approved call's own risk category or tool, never another. */

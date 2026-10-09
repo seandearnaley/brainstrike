@@ -268,6 +268,14 @@ export type HostLegacyImport = z.infer<typeof HostLegacyImportSchema>;
 
 const Provider = { provider: Id };
 
+/**
+ * Host -> client: a UI action only the connected desktop client performs. The
+ * one external opener for every host feature (OAuth sign-in, MCP authorization).
+ */
+export const CLIENT_OPEN_EXTERNAL = 'client/open-external';
+export const ClientOpenExternalParamsSchema = z.strictObject({ url: z.url() });
+export const ClientOpenExternalResultSchema = z.strictObject({ opened: z.literal(true) });
+
 export const HOST_METHOD_SCHEMAS = {
   // auth/* is secret-bearing: process-local, never in HostCommandLedger, the log
   // or diagnostics. The host is the single writer and token holder.
@@ -532,6 +540,13 @@ export const HostEventSchema = z.union([
   z.strictObject({
     type: z.literal('interaction.requested'),
     ...Action,
+    /**
+     * A code-execution approval's host-computed sandbox facts (reach, scratch
+     * folder, reads, timeout), which the tool's arguments cannot carry. Shape:
+     * assistant-contract's CodeExecutionApprovalContext; a consumer validates
+     * it with isCodeExecutionApprovalContext before showing it.
+     */
+    executionContext: z.json().optional(),
     interactionId: Id,
     kind: z.enum(['approval', 'question', 'plan']),
     /** A permission approval's risk category, which its session grant names. */
@@ -576,7 +591,7 @@ export const HostEventSchema = z.union([
     attempt: z.number().int().positive(),
     detail: z.string().min(1),
     maxAttempts: z.number().int().positive(),
-    reason: z.enum(['stalled', 'provider-error', 'empty-response']),
+    reason: z.enum(['stalled', 'provider-error', 'empty-response', 'context-overflow']),
     recovered: z.boolean(),
     refusal: z.enum(['budget-exhausted', 'tool-parts', 'committed-output']).optional(),
     /** A stall's breadcrumb: which silence fired and how far the stream got. */
@@ -587,6 +602,48 @@ export const HostEventSchema = z.union([
         phase: z.enum(['awaiting-output', 'reasoning', 'streaming', 'tool-executing']),
       })
       .optional(),
+  }),
+  /**
+   * Host-committed tool-output overlay (the legacy ToolProjectionRewriteEntry):
+   * a later request replaces each call's result with its marker. A supersession
+   * applies only while its superseding call is in the same request.
+   */
+  z.strictObject({
+    type: z.literal('tool.projection.rewritten'),
+    ...RunFields,
+    rewrites: z
+      .array(
+        z.union([
+          z.strictObject({
+            kind: z.literal('prune'),
+            markerText: z.string().regex(/\S/),
+            supersededByToolCallId: z.null(),
+            toolCallId: Id,
+          }),
+          z.strictObject({
+            kind: z.literal('supersession'),
+            markerText: z.string().regex(/\S/),
+            supersededByToolCallId: Id,
+            toolCallId: Id,
+          }),
+        ])
+      )
+      .min(1),
+  }),
+  /**
+   * Host-committed overlay from the run that made it: later requests replace
+   * these turns with `summary`. When a summarizer model ran, `modelId` and
+   * `usage` are its side-call receipt, in `memory.usage`'s shape.
+   */
+  z.strictObject({
+    type: z.literal('context.compacted'),
+    ...RunFields,
+    compactedRunIds: z.array(Id).min(1),
+    kind: z.enum(['agentic', 'deterministic']),
+    modelId: Id.optional(),
+    reason: z.enum(['pre-request', 'context-overflow']),
+    summary: z.string().min(1),
+    usage: z.json().optional(),
   }),
   z.strictObject({
     type: z.literal('workspace.edit.recorded'),

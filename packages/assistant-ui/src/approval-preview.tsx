@@ -1,10 +1,11 @@
-import type {
-  AssistantToolApprovalRequest,
-  CodeExecutionApprovalContext,
-} from '@brainstrike/assistant-contract/tool-approval';
+import type { CodeExecutionApprovalContext } from '@brainstrike/assistant-contract/tool-approval';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { Badge, CodeSurface, DiffView } from '@brainstrike/ui';
-import { narrowRunPythonArgs, readRunPythonExecutionContext } from './approval-preview-policy';
+import {
+  type ApprovalPreviewSubject,
+  narrowRunPythonArgs,
+  readRunPythonExecutionContext,
+} from './approval-preview-policy';
 import { formatRunDuration } from './run-python-result-model';
 
 /**
@@ -325,7 +326,7 @@ function RunPythonFactRows({ context }: { context: CodeExecutionApprovalContext 
  * in both cases the parent has already suppressed the grant buttons via
  * `resolveApprovalPreviewPolicy`.
  */
-function RunPythonPreview({ approval }: { approval: AssistantToolApprovalRequest }) {
+function RunPythonPreview({ approval }: { approval: ApprovalPreviewSubject }) {
   const parsed = narrowRunPythonArgs(approval.args);
   const context = readRunPythonExecutionContext(approval);
   if (!parsed) {
@@ -608,7 +609,7 @@ export function ApprovalPreview({
   approval,
   showOtherArguments = false,
 }: {
-  approval: AssistantToolApprovalRequest;
+  approval: ApprovalPreviewSubject;
   showOtherArguments?: boolean;
 }) {
   const { args, toolName } = approval;

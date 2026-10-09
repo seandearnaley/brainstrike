@@ -13,6 +13,7 @@ import {
   type CommittedAssistantLogRow,
   type CommittedAssistantRunIdentity,
 } from '../committed-assistant-log-projection';
+import { HOST_CONTEXT_COMPACTED_DATA_NAME } from '../compaction-summary-message';
 import { recordedMessage } from './committed-assistant-test-support';
 
 const rows: readonly CommittedAssistantLogRow[] = recording;
@@ -314,6 +315,37 @@ describe('rich committed-log presentation projection', () => {
     expect(projection.getSnapshot().observationWithheld).toBe('branched-thread');
   });
 
+  it('shows a committed deterministic compaction fallback as a compaction card part of its run', () => {
+    const projection = projector();
+    projection.acceptCommitted(rows);
+    const last = rows.at(-1);
+    if (!last) {
+      throw new Error('Missing recorded rows.');
+    }
+    const summary =
+      'Deterministic fallback: dropped 3 earlier turns (6 messages) after an agentic summarizer failure; no summarization model ran.';
+    // The exact event the host commits when its summarizer fails past the trigger.
+    projection.acceptCommitted([
+      {
+        event: {
+          compactedRunIds: ['earlier-run'],
+          kind: 'deterministic',
+          reason: 'pre-request',
+          runId,
+          summary,
+          type: 'context.compacted',
+        },
+        seq: last.seq + 1,
+        threadId,
+      },
+    ]);
+    expect(answer(projection).content.at(-1)).toEqual({
+      data: { kind: 'deterministic', summary },
+      name: HOST_CONTEXT_COMPACTED_DATA_NAME,
+      type: 'data',
+    });
+  });
+
   it('offers a permission approval’s grants and maps the chosen one to the call’s category or tool', () => {
     // Recorded from a real host run: the first edit was approved with a session grant.
     const run: readonly CommittedAssistantLogRow[] = granted;
@@ -356,5 +388,30 @@ describe('rich committed-log presentation projection', () => {
     expect(second?.approval).toBeUndefined();
     expect(second?.result).toEqual(expect.objectContaining({ path: expect.any(String) }));
     expect(projection.getSnapshot().pendingInteractions).toEqual([]);
+  });
+  it('carries a committed approval’s host execution context to its tool card', () => {
+    const executionContext = {
+      allowedDomains: [],
+      allowRead: [],
+      allowWrite: [],
+      defaultReadAccess: 'permissive',
+      executorKind: 'fence',
+      language: 'python',
+      policyFingerprint: 'fingerprint',
+      scratchParentDir: '/tmp',
+      timeoutMs: 30_000,
+    };
+    // The host commits it on interaction.requested for a run_python approval.
+    const withContext = rows.map((row) =>
+      row.event['type'] === 'interaction.requested'
+        ? { ...row, event: { ...row.event, executionContext } }
+        : row
+    );
+    const projection = projector();
+    projection.acceptCommitted(withContext);
+    expect(tool(projection).providerMetadata?.['brainstrike']).toMatchObject({ executionContext });
+    const plain = projector();
+    plain.acceptCommitted(rows);
+    expect(tool(plain).providerMetadata?.['brainstrike']?.['executionContext']).toBeUndefined();
   });
 });

@@ -2,6 +2,7 @@ import type { LanguageModel, LanguageModelMiddleware } from 'ai';
 import { streamText, wrapLanguageModel } from 'ai';
 import { MockLanguageModelV4 } from 'ai/test';
 import type { HostRunContext, HostRunOwner } from '../../src/ports.js';
+import { HostRunOwnerFailure } from '../../src/run-admission.js';
 
 type StreamResult = Awaited<ReturnType<MockLanguageModelV4['doStream']>>;
 type Chunk = StreamResult['stream'] extends ReadableStream<infer Value> ? Value : never;
@@ -117,7 +118,8 @@ export class MemoryProviderOwnershipFixture implements HostRunOwner {
         result.status === 'rejected' ? [result.reason] : []
       );
       if (failures.length > 0) {
-        throw new AggregateError(failures, 'Owned observer cleanup failed');
+        // Every leaf joined: the failures are the run's outcome, not a leak.
+        throw new HostRunOwnerFailure(failures, 'Owned observer cleanup failed');
       }
     })();
     return this.closing;

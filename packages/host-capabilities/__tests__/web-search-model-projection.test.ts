@@ -1,6 +1,6 @@
 import { MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET } from '@brainstrike/agent';
 import { describe, expect, it } from 'vitest';
-import { projectWebSearchModelOutput } from '../../assistant-server/web-search-model-projection';
+import { projectWebSearchModelOutput } from '../src/native-tools/web-search-model-projection.js';
 
 function serializedChars(value: unknown): number {
   return JSON.stringify(value).length;

@@ -1,5 +1,11 @@
 import { authenticateHostClient, type HostClient } from '@brainstrike/agent-host';
-import type { HostMethod, HostParams, HostResults } from '@brainstrike/agent-host/protocol';
+import {
+  CLIENT_OPEN_EXTERNAL,
+  ClientOpenExternalParamsSchema,
+  type HostMethod,
+  type HostParams,
+  type HostResults,
+} from '@brainstrike/agent-host/protocol';
 import type { HostAttachment } from '@brainstrike/host-lease';
 import type { MessagePortMain } from 'electron';
 import { mainPlatformConnection } from './agent-host-platform/connection';
@@ -12,13 +18,15 @@ export interface AgentHostMainClient {
 /**
  * Main's own client of the host this app launched, on a private port: the
  * desktop origin. Settings credential writes, provider sign-in and subscription
- * verification reach the profile's single credential owner through it. A host
+ * verification reach the profile's single credential owner through it, and it
+ * answers the host's `client/open-external` with the validated opener. A host
  * the app only attached to (a CLI `host start`) hands out no private port, so
  * these requests refuse there.
  */
 export function createAgentHostMainClient(
   acquireProfile: () => Promise<HostAttachment>,
-  openPrivateClientPort: () => MessagePortMain | undefined
+  openPrivateClientPort: () => MessagePortMain | undefined,
+  openExternal: (url: string) => Promise<void>
 ): AgentHostMainClient {
   let current: Promise<HostClient> | undefined;
   const connect = async (): Promise<HostClient> => {
@@ -31,6 +39,10 @@ export function createAgentHostMainClient(
     }
     const closed = new Promise<void>((resolve) => port.once('close', () => resolve()));
     const connection = mainPlatformConnection(port);
+    connection.onRequest(CLIENT_OPEN_EXTERNAL, async (input: unknown) => {
+      await openExternal(ClientOpenExternalParamsSchema.parse(input).url);
+      return { opened: true };
+    });
     // A closed port rejects pending requests instead of leaving them unanswered.
     void closed.then(() => connection.dispose());
     return await authenticateHostClient(
