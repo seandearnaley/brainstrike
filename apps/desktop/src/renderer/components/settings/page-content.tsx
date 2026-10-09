@@ -58,6 +58,7 @@ import { useMemo } from 'react';
 import {
   type DesktopHostMcpSettings,
   resolveDesktopHostMcpSettings,
+  resolveDesktopMcpContent,
 } from '../../host-mcp-settings';
 import { DesktopLoggingSettings } from './logging-settings';
 import { useWorktreeSettings } from './use-worktree-settings';
@@ -204,14 +205,18 @@ export default function SettingsPageContent() {
   // The agent host owns the MCP config, extension dials, tool preferences,
   // server status and lifecycle control; a window without the host has none.
   const mcpSettings = useMemo(() => resolveDesktopHostMcpSettings(), []);
+  // BST-1585: user-initiated MCP content browsing comes from the agent host
+  // (BST-1930 c5d); web has none, so the Settings affordance is absent.
+  const mcpContent = useMemo(() => resolveDesktopMcpContent(), []);
   // Create non-executing tool catalog and MCP configuration operations.
   const toolOperations = useMemo(() => {
     return {
-      // BST-1585: user-initiated MCP content browsing is capability-gated on
-      // the bridge methods; web omits them, so the Settings affordance is absent.
-      ...(window.mcp?.complete && {
+      ...(mcpContent && {
         completeMcpContent: async (request: McpCompleteRequest) =>
-          await window.mcp.complete(request),
+          await mcpContent.complete(request),
+        getMcpPrompt: async (request: McpGetPromptRequest) => await mcpContent.getPrompt(request),
+        readMcpResource: async (request: McpReadResourceRequest) =>
+          await mcpContent.readResource(request),
       }),
       ...(mcpSettings && {
         controlMcpServer: async (request: McpHostControlRequest) =>
@@ -238,13 +243,6 @@ export default function SettingsPageContent() {
               listener(event.status);
             }
           }),
-      }),
-      ...(window.mcp?.getPrompt && {
-        getMcpPrompt: async (request: McpGetPromptRequest) => await window.mcp.getPrompt(request),
-      }),
-      ...(window.mcp?.readResource && {
-        readMcpResource: async (request: McpReadResourceRequest) =>
-          await window.mcp.readResource(request),
       }),
       disableTools: async (ids: string[]) => {
         const nativeToolIds = ids.filter((id) => isNativeTool(id));
@@ -402,7 +400,7 @@ export default function SettingsPageContent() {
         };
       },
     };
-  }, [mcpSettings]);
+  }, [mcpContent, mcpSettings]);
 
   const categories = useMemo<SettingsCategory[]>(() => {
     const diagnosticsCategory = createSystemDiagnosticsSettingsCategory();

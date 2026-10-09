@@ -16,6 +16,7 @@ import {
 } from '../src/production-platform.js';
 import type { HostEvent, HostLogRow } from '../src/protocol.js';
 import { HOST_THREAD_TITLE_INSTRUCTIONS } from '../src/thread-presentation-state.js';
+import { foldHostRuns } from '../src/thread-view.js';
 import {
   anthropicMessageJson,
   anthropicMessagesText,
@@ -326,18 +327,10 @@ function preparedReceipts(rows: readonly HostLogRow[]): number {
   return rows.filter((row) => row.event.type === 'provider.request.prepared').length;
 }
 
+/** The committed answer: `model.step` text, never text deltas (ADR-0011 amendment). */
 function committedText(rows: readonly HostLogRow[]): string {
-  return rows
-    .flatMap((row) =>
-      row.event.type === 'stream.chunk' &&
-      typeof row.event.chunk === 'object' &&
-      row.event.chunk !== null &&
-      !Array.isArray(row.event.chunk) &&
-      row.event.chunk['type'] === 'text-delta' &&
-      typeof row.event.chunk['text'] === 'string'
-        ? [row.event.chunk['text']]
-        : []
-    )
+  return foldHostRuns(rows)
+    .map((run) => run.text)
     .join('');
 }
 

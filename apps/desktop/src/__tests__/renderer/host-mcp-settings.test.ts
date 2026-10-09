@@ -2,7 +2,11 @@ import type { HostClient } from '@brainstrike/agent-host/browser';
 import type { McpPresentationEvent, McpSettingsEvent } from '@brainstrike/agent-host/protocol';
 import type { McpHostSnapshot, McpTaskPresentation } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
-import { createDesktopHostMcpSettings } from '../../renderer/host-mcp-settings';
+import { connectDesktopAgentHost } from '../../renderer/agent-host-client';
+import {
+  createDesktopHostMcpSettings,
+  resolveDesktopMcpContent,
+} from '../../renderer/host-mcp-settings';
 
 // The window's real connector loads the browser JSON-RPC transport; each test injects its host.
 vi.mock('../../renderer/agent-host-client', () => ({ connectDesktopAgentHost: vi.fn() }));
@@ -166,6 +170,47 @@ describe('desktop host MCP presentations (BST-1930 c5c)', () => {
       ['mcp/tasks/act', { action: 'cancel', handle }],
       ['mcp/tasks/list', {}],
       ['mcp/elicitation/settle', settlement],
+    ]);
+  });
+});
+
+describe('desktop host MCP content (BST-1930 c5d)', () => {
+  it("returns a verb's result, and turns a refusal into an Error carrying only the taxonomy", async () => {
+    const request = vi.fn(async (method: string) =>
+      method === 'mcp/content/read'
+        ? { ok: true, result: { result: { contents: [] }, type: 'resources/read' } }
+        : {
+            error: {
+              category: 'generation-retired',
+              code: 'mcp_content_generation_retired',
+              message: 'MCP content generation retired',
+            },
+            ok: false,
+          }
+    );
+    vi.mocked(connectDesktopAgentHost).mockResolvedValue({
+      close: vi.fn(async () => undefined),
+      onMcpPresentation: vi.fn(() => () => undefined),
+      onMcpSettings: vi.fn(() => () => undefined),
+      request,
+    } as unknown as HostClient);
+    Object.assign(window, { agentHost: { connect: vi.fn() } });
+    const content = resolveDesktopMcpContent();
+    const authority = { configuredServerId: 'fs', generation: 2 };
+
+    await expect(content?.readResource({ authority, uri: 'ui://x' })).resolves.toEqual({
+      result: { contents: [] },
+      type: 'resources/read',
+    });
+    await expect(content?.getPrompt({ authority, name: 'review' })).rejects.toMatchObject({
+      category: 'generation-retired',
+      code: 'mcp_content_generation_retired',
+      message:
+        'MCP content generation retired (generation-retired · mcp_content_generation_retired)',
+    });
+    expect(request.mock.calls).toEqual([
+      ['mcp/content/read', { authority, uri: 'ui://x' }],
+      ['mcp/content/prompt', { authority, name: 'review' }],
     ]);
   });
 });

@@ -17,6 +17,7 @@ vi.mock('@brainstrike/ui', async (importOriginal) => ({
 }));
 
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
+import { type McpContentCapability, McpContentCapabilityProvider } from '../mcp-content-capability';
 import { selectMcpPromptEntries } from '../mcp-prompts/mcp-prompt-catalog';
 import { McpPromptComposerHost } from '../mcp-prompts/mcp-prompt-host';
 import { useMcpPromptSelectionStore } from '../mcp-prompts/mcp-prompt-selection-store';
@@ -26,11 +27,15 @@ type StatusListener = (event: McpHostSnapshot) => void;
 const listeners = new Set<StatusListener>();
 /** The agent host's MCP status the desktop provides (BST-1930 c5b); `null` like web. */
 let status: McpStatusCapability | null = null;
+/** The agent host's prompt content the desktop provides (BST-1930 c5d); `null` like web. */
+let content: McpContentCapability | null = null;
 
 function renderHost() {
   return render(
     <McpStatusCapabilityProvider capability={status}>
-      <McpPromptComposerHost />
+      <McpContentCapabilityProvider capability={content}>
+        <McpPromptComposerHost />
+      </McpContentCapabilityProvider>
     </McpStatusCapabilityProvider>
   );
 }
@@ -89,10 +94,10 @@ function installBridge(
       return () => listeners.delete(listener);
     },
   };
-  (window as unknown as { mcp?: unknown }).mcp = {
+  content = {
     complete: bridge.complete,
     getPrompt: bridge.getPrompt,
-  };
+  } as unknown as McpContentCapability;
   status = { read: bridge.getServerStatusSnapshot, subscribe: bridge.onServerStatusUpdated };
   return bridge;
 }
@@ -158,11 +163,11 @@ beforeEach(() => {
   useMcpPromptSelectionStore.getState().clear();
   listeners.clear();
   status = null;
+  content = null;
   toastSpy.mockClear();
 });
 
 afterEach(() => {
-  (window as unknown as { mcp?: unknown }).mcp = undefined;
   vi.restoreAllMocks();
 });
 
@@ -304,10 +309,11 @@ describe('McpPromptComposerHost', () => {
     expect(screen.getByRole('button', { name: 'Insert prompt' })).toBeDisabled();
   });
   it('surfaces a malformed desktop bridge instead of vanishing like web', async () => {
-    // Some but not all content members: a packaging defect, not an unsupported
-    // runtime. Without this the user watches the capability disappear with the
-    // same empty surface web shows, and no actionable error.
-    (window as unknown as { mcp?: unknown }).mcp = { getPrompt: vi.fn() };
+    // Status without content: a packaging defect, not an unsupported runtime.
+    // Without this the user watches the capability disappear with the same
+    // empty surface web shows, and no actionable error.
+    installBridge([{ name: 'review' }]);
+    content = null;
 
     const { container } = renderHost();
 
@@ -323,7 +329,7 @@ describe('McpPromptComposerHost', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it('surfaces content members without the host status as a malformed bridge', async () => {
+  it('surfaces content without the host status as a malformed bridge', async () => {
     installBridge([{ name: 'review' }]);
     status = null;
 
@@ -342,8 +348,6 @@ describe('McpPromptComposerHost', () => {
   });
 
   it('says nothing when the runtime legitimately has no prompt bridge', async () => {
-    (window as unknown as { mcp?: unknown }).mcp = { listServers: vi.fn() };
-
     renderHost();
 
     await waitFor(() => expect(toastSpy).not.toHaveBeenCalled());

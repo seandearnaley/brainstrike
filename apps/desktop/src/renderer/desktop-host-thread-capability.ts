@@ -352,22 +352,62 @@ export function createWindowThreadCapability(
     runs,
     // Gap 10: the host's own arms for the Threads panel's fused search. A matched
     // child is the host's too, so its result can open through this client.
-    searchThreads: async (query) => {
+    searchThreads: async (query, semantic) => {
       const host = await client();
-      const { messages, titles } = await host.request('thread/search', { query });
-      for (const { threadId } of [...messages, ...titles]) {
+      const { messages, similar, titles } = await host.request('thread/search', {
+        query,
+        ...(semantic
+          ? {
+              semantic: {
+                profile: { ...semantic.profile },
+                threshold: semantic.threshold,
+                vector: [...semantic.vector],
+              },
+            }
+          : {}),
+      });
+      for (const { threadId } of [...messages, ...similar, ...titles]) {
         threads.set(threadId, host);
       }
+      const armMessage = ({
+        createdAt,
+        headline,
+        messageId,
+        role,
+        threadId,
+      }: (typeof messages)[number]) => ({
+        headline,
+        messageCreatedAt: new Date(createdAt),
+        messageId,
+        role,
+        threadId,
+      });
       return {
-        messages: messages.map(({ createdAt, headline, messageId, role, threadId }) => ({
-          headline,
-          messageCreatedAt: new Date(createdAt),
-          messageId,
-          role,
-          threadId,
-        })),
+        messages: messages.map(armMessage),
+        similarMessages: similar.map(armMessage),
         titles,
       };
+    },
+    // The semantic arm's backlog, embedded by this renderer's search embedder.
+    searchVectors: {
+      coverage: async (profile) =>
+        await (await client()).request('thread/search/coverage', { profile: { ...profile } }),
+      pending: async (profile, limit) =>
+        (
+          await (
+            await client()
+          ).request('thread/search/pending', {
+            limit,
+            profile: { ...profile },
+          })
+        ).rows,
+      put: async (profile, rows) =>
+        await (await client()).request('thread/search/vectors', {
+          profile: { ...profile },
+          rows: rows.map((row) =>
+            'vector' in row ? { ...row, vector: [...row.vector] } : { ...row }
+          ),
+        }),
     },
     subscribeCanvases: canvases.subscribe,
     // BST-1932: the host says which thread's children changed; nothing is polled.

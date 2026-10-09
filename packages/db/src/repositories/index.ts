@@ -136,7 +136,10 @@ export {
   type ThreadDebugDatabase,
   type ThreadDebugSnapshot,
 } from './thread-debug-snapshot.js';
-export { ThreadSearchRepository } from './thread-search-repository.js';
+export {
+  THREAD_SEARCH_VECTOR_THRESHOLD,
+  ThreadSearchRepository,
+} from './thread-search-repository.js';
 export {
   type PurgeExpiredToolOutputArtifactsOptions,
   type ReadToolOutputArtifactRangeInput,

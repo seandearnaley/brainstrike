@@ -200,3 +200,23 @@ export function scriptedDelegation(
     },
   });
 }
+
+/** Streams a partial answer, then holds its step open until the run is aborted (a user's Stop). */
+export function scriptedPartialThenHeld(partial: string): MockLanguageModelV4 {
+  return new MockLanguageModelV4({
+    doStream: async ({ abortSignal }) => ({
+      stream: new ReadableStream<Chunk>({
+        start(controller) {
+          controller.enqueue({ type: 'stream-start', warnings: [] });
+          controller.enqueue({ id: 'text-1', type: 'text-start' });
+          controller.enqueue({ delta: partial, id: 'text-1', type: 'text-delta' });
+          abortSignal?.addEventListener(
+            'abort',
+            () => controller.error(abortSignal.reason ?? new Error('aborted')),
+            { once: true }
+          );
+        },
+      }),
+    }),
+  });
+}

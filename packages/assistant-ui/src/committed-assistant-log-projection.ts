@@ -42,6 +42,15 @@ import {
   worktreeCreatedNotice,
 } from './committed-host-event-readers';
 import { CommittedRewindHead, type CommittedRewindHeadMove } from './committed-rewind-head';
+import {
+  committedStepParts,
+  liveStreamPart,
+  MODEL_STREAM_TYPES,
+  mergeProviderMetadata,
+  providerMetadata,
+  withIndexedPart,
+  withoutIndexedPart,
+} from './committed-step-text';
 import { HOST_CONTEXT_COMPACTED_DATA_NAME } from './compaction-summary-message';
 import type { ThreadTokenUsage } from './context-usage-store';
 
@@ -117,9 +126,13 @@ interface ProjectedRun {
   /** A refused call's reason, from its approval response, until its denial settles it. */
   readonly denialReasons: Map<string, string>;
   readonly messageId: string;
+  /** Keys of the open step's live text and reasoning overlay parts. */
+  readonly overlay: Set<string>;
   readonly partIndexes: Map<string, number>;
   readonly runId: string;
   step: number;
+  /** A step started and neither its `model.step` nor a Stop's partial committed yet. */
+  stepOpen: boolean;
   terminal: boolean;
   /** Distinct provider warnings shown for this run: one fact, one row. */
   readonly warnings: Set<string>;
@@ -129,37 +142,6 @@ type ProjectedRunEvent = Pick<
   AssistantRunEvent,
   'detail' | 'kind' | 'label' | 'metadata' | 'status'
 >;
-
-function providerMetadata(value: unknown): ToolPart['providerMetadata'] {
-  const providers = record(value);
-  if (!providers || Object.values(providers).some((entry) => !record(entry))) {
-    return undefined;
-  }
-  // The owner has already validated JSON at the public HostLogRow boundary.
-  return providers as ToolPart['providerMetadata'];
-}
-
-function mergeProviderMetadata(
-  previous: ToolPart['providerMetadata'],
-  incoming: ToolPart['providerMetadata'],
-  ownership?: NonNullable<ToolPart['providerMetadata']>[string]
-): ToolPart['providerMetadata'] {
-  const additions = ownership
-    ? { ...incoming, brainstrike: { ...incoming?.['brainstrike'], ...ownership } }
-    : incoming;
-  if (!additions) {
-    return previous;
-  }
-  let next = previous;
-  for (const [namespace, fields] of Object.entries(additions)) {
-    const before = previous?.[namespace];
-    if (Object.entries(fields).every(([key, value]) => before?.[key] === value)) {
-      continue;
-    }
-    next = { ...next, [namespace]: { ...before, ...fields } };
-  }
-  return next;
-}
 
 function toolOwnership(
   prior: ToolPart | undefined,
@@ -572,10 +554,15 @@ export class CommittedAssistantLogProjection {
       parentId = identity.userMessageId;
     } else if (identity.userMessageId) {
       const attachments = committedAttachments(row.event, identity.userMessageId);
+      // An image sent without text commits an empty prompt beside its images.
+      const prompt = row.event['prompt'];
+      if (typeof prompt !== 'string' || !(prompt || attachments?.length)) {
+        throw new Error('Committed host event is missing prompt.');
+      }
       const user = fromThreadMessageLike(
         {
           ...(attachments ? { attachments } : {}),
-          content: [{ text: requiredString(row.event, 'prompt'), type: 'text' }],
+          content: prompt ? [{ text: prompt, type: 'text' }] : [],
           createdAt: identity.createdAt,
           id: identity.userMessageId,
           metadata: identity.metadata,
@@ -606,9 +593,11 @@ export class CommittedAssistantLogProjection {
       createdAt: identity.createdAt,
       denialReasons: new Map(),
       messageId: message.id,
+      overlay: new Set(),
       partIndexes: new Map(),
       runId,
       step: 0,
+      stepOpen: false,
       terminal: false,
       warnings: new Set(),
     });
@@ -622,29 +611,62 @@ export class CommittedAssistantLogProjection {
     };
   }
 
-  private textPart(
-    run: ProjectedRun,
-    type: string,
-    chunk: Readonly<Record<string, unknown>>
-  ): void {
+  /**
+   * The open step's live text and reasoning, from uncommitted `run/telemetry`.
+   * It shows while the step streams and is replaced by the step's committed
+   * parts at its `model.step` (or a Stop's partial). Text is never folded from
+   * deltas into the committed transcript (ADR-0011 amendment).
+   */
+  acceptLive(runId: string, chunk: unknown): CommittedAssistantLogView {
+    const run = this.runs.get(runId);
+    const live = record(chunk);
+    const type = live?.['type'];
+    if (!(run && live && run.stepOpen && !run.terminal && typeof type === 'string')) {
+      return this.view;
+    }
+    if (!MODEL_STREAM_TYPES.has(type)) {
+      return this.view;
+    }
     const partType = type.startsWith('reasoning') ? 'reasoning' : 'text';
-    const key = JSON.stringify([run.step, partType, chunk['id'] ?? null]);
-    this.part(run, key, (part) => {
-      const prior = part?.type === partType ? part : undefined;
-      const delta = typeof chunk['text'] === 'string' ? chunk['text'] : '';
-      const metadata = mergeProviderMetadata(
-        prior?.providerMetadata,
-        providerMetadata(chunk['providerMetadata'])
-      );
-      return {
-        ...prior,
-        type: partType,
-        ...(metadata ? { providerMetadata: metadata } : {}),
-        status: type.endsWith('-end')
-          ? { type: 'complete' }
-          : (prior?.status ?? { type: 'running' }),
-        text: (prior?.text ?? '') + (type.endsWith('-delta') ? delta : ''),
-      };
+    const key = `live:${JSON.stringify([run.step, partType, live['id'] ?? null])}`;
+    run.overlay.add(key);
+    this.part(run, key, (part) => liveStreamPart(part, type, live));
+    return this.view;
+  }
+
+  /**
+   * The open step's committed text and reasoning, from its `model.step`
+   * messages or a Stop's partial `model.messages`. The live overlay is dropped
+   * here, never on the next `start-step`. Each committed part sits before the
+   * tool call that follows it in its assistant message, so a reload keeps the
+   * model's order.
+   */
+  private commitStepText(run: ProjectedRun, messages: unknown): void {
+    run.stepOpen = false;
+    for (const key of run.overlay) {
+      this.removePart(run, key);
+    }
+    run.overlay.clear();
+    committedStepParts(messages).forEach(({ anchor, part }, index) => {
+      this.insertPart(run, JSON.stringify([run.step, part.type, index]), part, anchor);
+    });
+  }
+
+  /** Remove one of the run's parts and close the gap in its part indexes. */
+  private removePart(run: ProjectedRun, key: string): void {
+    const message = this.message(run);
+    const content = withoutIndexedPart(message.content, run.partIndexes, key);
+    if (content) {
+      this.put({ ...message, content: [...content] });
+    }
+  }
+
+  /** Insert a part before an existing anchor part, or append it when the anchor is absent. */
+  private insertPart(run: ProjectedRun, key: string, part: Part, anchor?: string): void {
+    const message = this.message(run);
+    this.put({
+      ...message,
+      content: [...withIndexedPart(message.content, run.partIndexes, key, part, anchor)],
     });
   }
 
@@ -722,16 +744,10 @@ export class CommittedAssistantLogProjection {
     }
     if (type === 'start-step') {
       run.step += 1;
+      run.stepOpen = true;
       this.warned(run, row, chunk['warnings']);
-    } else if (
-      type === 'text-start' ||
-      type === 'text-delta' ||
-      type === 'text-end' ||
-      type === 'reasoning-start' ||
-      type === 'reasoning-delta' ||
-      type === 'reasoning-end'
-    ) {
-      this.textPart(run, type, chunk);
+    } else if (typeof type === 'string' && MODEL_STREAM_TYPES.has(type)) {
+      // A log written before text became telemetry: its `model.step` owns the text.
       return;
     } else if (type === 'tool-input-start') {
       this.tool(run, { ...chunk, toolCallId: chunk['id'] });
@@ -940,7 +956,12 @@ export class CommittedAssistantLogProjection {
       ) {
         this.view = { ...this.view, contextUsage: { inputTokens, outputTokens } };
       }
+      this.commitStepText(run, event['messages']);
       this.data(run, row, event, 'brainstrike.host-event');
+    } else if (event['type'] === 'model.messages' && run.stepOpen) {
+      // Only a Stop's partial reply commits assistant text inside an open step.
+      this.commitStepText(run, event['messages']);
+      this.other(run, row);
     } else if (event['type'] === 'interaction.requested') {
       this.request(run, row, event, event['runId']);
     } else if (event['type'] === 'interaction.responded') {

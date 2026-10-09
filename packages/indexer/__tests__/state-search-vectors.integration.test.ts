@@ -94,7 +94,7 @@ it('embeds the backlog once, then finds the nearest rows of the requested thread
         vector: vectors[index] ?? [],
       })),
     })
-  ).toEqual({ stale: 0, stored: 3 });
+  ).toEqual({ failed: 0, stale: 0, stored: 3 });
   expect(
     await f.port.searchStatePending({ limit: 10, profile, threadIds: ['one', 'two'] })
   ).toEqual([]);
@@ -150,7 +150,7 @@ it('stores no vector for a row whose text changed, and a deleted thread takes it
         },
       ],
     })
-  ).toEqual({ stale: 1, stored: 1 });
+  ).toEqual({ failed: 0, stale: 1, stored: 1 });
   expect(
     (await f.port.searchStatePending({ limit: 10, profile, threadIds: ['one', 'two'] })).map(
       ({ threadId }) => threadId
@@ -190,16 +190,16 @@ it('rejects a vector whose dimensions disagree with its profile, storing none of
   );
 });
 
-it('an upgraded schema 11 store gains search-vector storage, with its rows as the backlog', async () => {
+it('an upgraded schema 11 store gains search-vector and failure storage, with its rows as the backlog', async () => {
   const f = await fixture();
   await f.append('one', [{ prompt: 'Rocket launch notes', runId: 'run-1', type: 'prompt' }]);
   await f.port.catchUpState(['one']);
   await f.close();
   owned.splice(owned.indexOf(f.close), 1);
-  // The schema 11 layout: search rows, no search vectors.
+  // The schema 11 layout: search rows, no search vectors or failures.
   const db = openConnection(f.options.dbPath);
   try {
-    db.exec('DROP TABLE state_search_vectors;');
+    db.exec('DROP TABLE state_search_vector_failures; DROP TABLE state_search_vectors;');
     db.prepare('UPDATE index_metadata SET schema_version=11').run();
   } finally {
     db.close();
@@ -213,8 +213,54 @@ it('an upgraded schema 11 store gains search-vector storage, with its rows as th
   ).toEqual([{ seq: 1, text: 'Rocket launch notes' }]);
   const upgraded = openConnection(f.options.dbPath, { readonly: true });
   try {
-    expect(upgraded.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(12);
+    expect(upgraded.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(13);
   } finally {
     upgraded.close();
   }
+});
+
+it('records a row that failed to embed as errored, out of the backlog, until a vector clears it', async () => {
+  const f = await fixture();
+  await f.append('one', [
+    { prompt: 'Garden notes', runId: 'run-1', type: 'prompt' },
+    { runId: 'run-1', text: 'Invoice notes', type: 'answer' },
+  ]);
+  const [first, second] = await f.port.searchStatePending({
+    limit: 10,
+    profile,
+    threadIds: ['one'],
+  });
+  expect(
+    await f.port.putStateSearchVectors({
+      profile,
+      rows: [
+        { ...key(first), error: 'model unavailable' },
+        { ...key(second), vector: axis(2) },
+      ],
+    })
+  ).toEqual({ failed: 1, stale: 0, stored: 1 });
+  // The failed row is errored, not pending, as legacy's embedding_error is.
+  expect(await f.port.searchStateCoverage({ profile, threadIds: ['one'] })).toEqual({
+    embedded: 1,
+    errored: 1,
+    rows: 2,
+  });
+  expect(await f.port.searchStatePending({ limit: 10, profile, threadIds: ['one'] })).toEqual([]);
+  // Another profile has no failure and no vector.
+  expect(
+    await f.port.searchStateCoverage({
+      profile: { ...profile, modelId: 'another-model' },
+      threadIds: ['one'],
+    })
+  ).toEqual({ embedded: 0, errored: 0, rows: 2 });
+
+  // A later vector for the row clears its failure.
+  expect(
+    await f.port.putStateSearchVectors({ profile, rows: [{ ...key(first), vector: axis(1) }] })
+  ).toEqual({ failed: 0, stale: 0, stored: 1 });
+  expect(await f.port.searchStateCoverage({ profile, threadIds: ['one'] })).toEqual({
+    embedded: 2,
+    errored: 0,
+    rows: 2,
+  });
 });

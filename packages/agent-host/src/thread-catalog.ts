@@ -1,5 +1,5 @@
 import type { HydrationThread, LogRow, StateStore } from '@brainstrike/state-store';
-import { readHostRow } from './event-storage.js';
+import { readHostRow, readHostThreadHistory } from './event-storage.js';
 import type { HostHookTrustStore } from './hook-trust.js';
 import type { HostLogRow } from './protocol.js';
 
@@ -115,6 +115,20 @@ export class HostThreadCatalog {
     }
     const damage = this.damaged.get(threadId);
     return damage === undefined ? times : { ...times, damage };
+  }
+
+  /** A thread's committed history; a damaged thread refuses with the reason its listing names. */
+  readHistory(
+    store: HostEventStore,
+    threads: ReadonlySet<string>,
+    threadId: string,
+    fromSeq: number
+  ): Promise<HostLogRow[]> {
+    const damage = this.damaged.get(threadId);
+    if (damage !== undefined) {
+      return Promise.reject(new Error(`This thread's history cannot be read: ${damage}`));
+    }
+    return readHostThreadHistory(store, threads, threadId, fromSeq);
   }
 
   assertRunnable(threadId: string): void {

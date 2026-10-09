@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { HostCore } from '../src/core.js';
 import type { HostPlatform } from '../src/ports.js';
 import type { HostEvent, HostLogRow } from '../src/protocol.js';
+import { foldHostRuns } from '../src/thread-view.js';
 
 type Chunk =
   Awaited<ReturnType<MockLanguageModelV4['doStream']>>['stream'] extends ReadableStream<infer C>
@@ -174,16 +175,7 @@ test.each([
     );
     expect(terminal.outcome).toBe('failed');
     expect(terminal.detail).toBe(detail);
-    expect(
-      rows.some(
-        (row) =>
-          row.event.type === 'stream.chunk' &&
-          typeof row.event.chunk === 'object' &&
-          row.event.chunk !== null &&
-          !Array.isArray(row.event.chunk) &&
-          row.event.chunk['type'] === 'text-delta' &&
-          row.event.chunk['text'] === 'Partial answer'
-      )
-    ).toBe(true);
+    // The ended step's committed `model.step` keeps the partial text.
+    expect(foldHostRuns(rows)[0]?.text).toBe('Partial answer');
   }
 );

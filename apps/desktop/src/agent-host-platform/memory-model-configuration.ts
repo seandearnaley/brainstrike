@@ -42,7 +42,7 @@ async function createObserverModel(
     );
   }
   const auth = await requireMemoryApiKey(
-    'Observational Memory',
+    'observational-memory',
     target.provider,
     resolveProviderAuth
   );

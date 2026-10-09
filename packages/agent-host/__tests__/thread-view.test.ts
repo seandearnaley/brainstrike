@@ -14,21 +14,9 @@ if (!threadId) {
 
 test('recorded approved host run folds into completed output with no open approval', () => {
   const [run] = foldHostRuns(rows);
-  const text = rows
-    .flatMap(({ event }) => {
-      if (
-        event.type !== 'stream.chunk' ||
-        !event.chunk ||
-        typeof event.chunk !== 'object' ||
-        Array.isArray(event.chunk)
-      ) {
-        return [];
-      }
-      return event.chunk['type'] === 'text-delta' ? [event.chunk['text']] : [];
-    })
-    .join('');
   expect(run?.status).toBe('completed');
-  expect(run?.text).toBe(text);
+  // The recorded final step's committed `model.step` text; no text delta is committed.
+  expect(run?.text).toBe('Host run completed.');
   expect(run?.approvals).toEqual([]);
   expect(run?.results).toEqual(
     rows.map((row) => row.event).filter((item) => item.type === 'effect.finished')

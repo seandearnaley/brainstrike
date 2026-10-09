@@ -315,9 +315,13 @@ test('thread/memory/read shows a waiting observer, a missing credential and Main
       ready: true,
       resourceId,
     };
-    // The credential resolution the run's observer makes, with its own reason.
+    // The credential resolution the run's observer makes, named as legacy names it.
     expect(await host.memory(threadId)).toEqual({
-      admission: { ready: false, reason: 'The selected provider has no configured credential' },
+      admission: {
+        ready: false,
+        reason:
+          'Observational memory requires a configured Anthropic API key. Configure it in Settings → Providers, choose a keyless local observer, or turn observations off.',
+      },
     });
     next = { ready: false, reason: 'The embedding host is not running.' };
     expect(await host.memory(threadId)).toEqual({

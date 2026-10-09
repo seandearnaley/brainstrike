@@ -92,14 +92,14 @@ test('a rewind restores files to the message’s turn start, and the next messag
   const first = await finishedRun(core, threadId, 'First');
   const second = await finishedRun(core, threadId, 'Second');
 
-  const preview = await core.previewRewind({ messageId: second.messageId, threadId });
+  const preview = await core.rewinds.preview({ messageId: second.messageId, threadId });
   expect(preview.files).toEqual({
     available: true,
     fromRunId: second.runId,
     previewId: 'preview-1',
     roots: [{ ...ROOT, commitOid: oid('2') }],
   });
-  const rewound = await core.rewind({
+  const rewound = await core.rewinds.rewind({
     commandId: randomUUID(),
     messageId: second.messageId,
     mode: 'conversation-and-files',
@@ -134,8 +134,8 @@ test('a rewind the host stopped inside is committed as interrupted when the host
   const opened = await openCore(root, files);
   const { threadId } = await opened.core.startThread({ commandId: randomUUID() });
   const { messageId } = await finishedRun(opened.core, threadId, 'First');
-  await opened.core.previewRewind({ messageId, threadId });
-  void opened.core
+  await opened.core.rewinds.preview({ messageId, threadId });
+  void opened.core.rewinds
     .rewind({
       commandId: randomUUID(),
       messageId,

@@ -49,7 +49,11 @@ import {
 import type { ThreadBranchInfo } from './hooks/use-thread-branch-by-root-path';
 import { ThreadColorFamilyPreview } from './thread-color-family-preview';
 import { ThreadIdentityMark } from './thread-identity-mark';
-import { ThreadExpandedDetails, ThreadMetadataBadges } from './thread-row-metadata';
+import {
+  ThreadExpandedDetails,
+  ThreadMetadataBadges,
+  ThreadReadFailureMarker,
+} from './thread-row-metadata';
 import { ThreadRowDndShell } from './threads-panel-dnd-elements';
 
 function getThreadIconId(thread: AssistantMemoryThread): AssistantThreadIconId {
@@ -733,6 +737,7 @@ function ThreadRowDisplay({
           </div>
         </button>
         <div className="-mr-px flex shrink-0 items-center gap-0.5">
+          <ThreadReadFailureMarker reason={thread.readFailure} title={thread.title} />
           <Button
             aria-label={`${expanded ? 'Hide' : 'Show'} thread details ${thread.title}`}
             className={THREAD_CONTROL_ACTION_CLASS_NAME}

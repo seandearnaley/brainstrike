@@ -1,8 +1,8 @@
 /**
- * Core commits a streamed chunk that no hydration fold reads (text deltas and
- * the step framing around them) with the store's hydrate mark off, so a
- * restart's open never reads it; the tool chunks the ledger counts stay
- * marked, and thread/read still returns every committed row.
+ * Core commits a streamed chunk that no hydration fold reads (the step framing)
+ * with the store's hydrate mark off, so a restart's open never reads it; the
+ * tool chunks the ledger counts stay marked, and thread/read still returns
+ * every committed row. Text deltas are run telemetry and never commit.
  */
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -55,7 +55,7 @@ const chunkType = ({ event }: HostLogRow): string | undefined =>
     ? z.object({ type: z.string() }).parse(event.chunk).type
     : undefined;
 
-test('a text chunk commits outside the hydration read; tool chunks and every other row stay in it', async () => {
+test('a step chunk commits outside the hydration read; tool chunks and every other row stay in it', async () => {
   const root = await mkdtemp(join(tmpdir(), 'bs-hydration-mark-'));
   roots.push(root);
   let store = await StateStore.open(root);
@@ -94,7 +94,8 @@ test('a text chunk commits outside the hydration read; tool chunks and every oth
   db.close();
   const markOf = (type: string | undefined) =>
     rows.filter((row) => chunkType(row) === type).map((row) => marks.get(row.seq));
-  expect(markOf('text-delta')).toEqual([0]);
+  expect(markOf('text-delta')).toEqual([]);
+  expect(markOf('start-step')).toEqual([0, 0]);
   expect(markOf('tool-call')).toEqual([1]);
   expect(markOf(undefined).every((mark) => mark === 1)).toBe(true);
 
