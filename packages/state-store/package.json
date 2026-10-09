@@ -22,6 +22,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./native-children": {
+      "types": "./dist/native-children.d.ts",
+      "default": "./dist/native-children.js"
     }
   },
   "files": [
