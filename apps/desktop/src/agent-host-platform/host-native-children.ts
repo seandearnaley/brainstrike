@@ -62,34 +62,46 @@ function remains(child: NativeChild): boolean {
 export function createHostNativeChildren(root: string): HostNativeChildren {
   const children = new Map<string, NativeChild>();
   const key = (child: NativeChild): string => `${child.pid}:${child.start}`;
+  // Signal failures outside the close (the utility's exit event, the grace timer) surface there.
+  const failures: unknown[] = [];
+  const signalAll = (name: NodeJS.Signals): void => {
+    for (const child of children.values()) {
+      try {
+        signal(child, name);
+      } catch (cause) {
+        failures.push(cause);
+      }
+    }
+  };
   let grace: NodeJS.Timeout | undefined;
   return {
     close: async () => {
       clearTimeout(grace);
       const signalled = [...children.values()];
-      for (const child of signalled) {
-        signal(child, 'SIGKILL');
-      }
+      signalAll('SIGKILL');
       while (signalled.some(remains)) {
         await delay(JOIN_POLL_MS, undefined, { ref: false });
       }
       children.clear();
       if (process.platform !== 'win32' && RootLock.isFlockHeld(root)) {
-        throw new Error(`The Root ${root} is still held by a native process its host started`);
+        failures.push(
+          new Error(`The Root ${root} is still held by a native process its host started`)
+        );
+      }
+      const failed = failures.splice(0);
+      if (failed.length === 1) {
+        throw failed[0];
+      }
+      if (failed.length > 1) {
+        throw new AggregateError(failed, 'The lost host’s native processes did not end');
       }
     },
     exited: (child) => {
       children.delete(key(child));
     },
     retire: () => {
-      for (const child of children.values()) {
-        signal(child, 'SIGTERM');
-      }
-      grace ??= setTimeout(() => {
-        for (const child of children.values()) {
-          signal(child, 'SIGKILL');
-        }
-      }, KILL_GRACE_MS);
+      signalAll('SIGTERM');
+      grace ??= setTimeout(() => signalAll('SIGKILL'), KILL_GRACE_MS);
       grace.unref();
     },
     started: (child) => {

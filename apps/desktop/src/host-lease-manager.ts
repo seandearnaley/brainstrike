@@ -89,10 +89,10 @@ function ownChild(handle: HostLeaseUtilityProcess, lost: () => void): OwnedChild
     exited: completion.promise,
     exitListener: (code) => {
       child.exitCode = code;
+      completion.resolve(code);
       if (!child.closing) {
         lost();
       }
-      completion.resolve(code);
     },
     handle,
     ready: false,
