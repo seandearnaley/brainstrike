@@ -4,7 +4,12 @@
 // Both command names delegate to the same parser, client and exit-code owner.
 // The product executable composes the Core CLI with this package's platform.
 import { existsSync } from 'node:fs';
+import { enableCompileCache } from 'node:module';
 import { fileURLToPath } from 'node:url';
+
+// Node's on-disk compile cache, on before the CLI's module graph loads.
+// https://nodejs.org/api/module.html#moduleenablecompilecachecachedir
+enableCompileCache();
 
 const platformModule = fileURLToPath(new URL('../dist/platform.js', import.meta.url));
 if (existsSync(platformModule)) {
