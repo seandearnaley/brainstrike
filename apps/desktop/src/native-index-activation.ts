@@ -54,6 +54,7 @@ import {
   readNativeIndexSettings,
   readNativeManagedCollectionId,
 } from './native-index-settings';
+import { NativeIndexSetupRequiredError as SetupRequired } from './native-index-setup-required';
 import { createNativeSourceInventory } from './native-index-source-inventory';
 import {
   joinNativeSourceRetirement,
@@ -902,6 +903,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
               'Invalid native settings retained cleanup ownership.'
             );
           }
+          lastError = terminalEpoch === epoch ? error : lastError; // reads report it (setupRequired)
           throw error;
         }
       );
@@ -963,6 +965,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         : Promise.resolve(null),
     runtime,
     settingsReads,
+    setupRequired: () => (closed && lastError instanceof SetupRequired ? lastError : undefined),
   });
   return {
     acquire,
