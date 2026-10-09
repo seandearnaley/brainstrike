@@ -197,6 +197,34 @@ describe('the meter reads the host memory state the next send would admit', () =
     await waitFor(() => expect(request).toHaveBeenCalledTimes(3));
   });
 
+  test('a change to the enabled model catalog re-reads an answer the catalog decided', async () => {
+    // Read while the catalog was reloading, before the selected model was enabled.
+    const disabled: MemoryRead = {
+      admission: { ready: false, reason: 'The selected catalog model is disabled' },
+    };
+    const { client, request } = hostClient(disabled, ACTIVE);
+    const view = renderHook(
+      ({ catalogRevision }: { catalogRevision: string }) =>
+        useHostMemorySegment({
+          blocked: false,
+          catalogRevision,
+          client,
+          readRequest,
+          source: undefined,
+        }),
+      { initialProps: { catalogRevision: 'loading' } }
+    );
+    await waitFor(() =>
+      expect(view.result.current).toEqual({
+        admissionReason: 'The selected catalog model is disabled',
+      })
+    );
+    // The catalog settles with the model enabled; the request itself is unchanged.
+    view.rerender({ catalogRevision: 'openai::gpt-6-sol' });
+    await waitFor(() => expect(view.result.current.omSegment).toMatchObject({ kind: 'stats' }));
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
   test('a re-render that builds an equal request reads nothing more', async () => {
     const { client, request } = hostClient(ACTIVE, ACTIVE);
     // The thread view's request callback changes identity on every render.

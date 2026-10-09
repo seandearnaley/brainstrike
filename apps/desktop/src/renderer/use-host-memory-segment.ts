@@ -86,17 +86,21 @@ async function readSegment(
  * when the thread opens, when the request it builds changes (model,
  * configuration, plan mode; compared by value, since the thread view's
  * callback changes identity on every render), when the memory settings
- * change, and after each committed memory call or run end. It never polls.
+ * change, when the enabled model catalog changes (admission reads it, and a
+ * read made while the catalog reloaded may answer for an older catalog), and
+ * after each committed memory call or run end. It never polls.
  * While another notice already gates the send, the request cannot be built,
  * so nothing is read.
  */
 export function useHostMemorySegment(options: {
   readonly blocked: boolean;
+  /** The enabled model catalog the composer sees; a change re-reads the answer. */
+  readonly catalogRevision?: string;
   readonly client: Pick<HostClient, 'request'>;
   readonly readRequest: () => HostParams<'thread/memory/read'>;
   readonly source: HostMemoryRowSource | undefined;
 }): HostMemorySegment {
-  const { blocked, client, readRequest, source } = options;
+  const { blocked, catalogRevision, client, readRequest, source } = options;
   const [segment, setSegment] = useState<HostMemorySegment>({});
   // Only the latest read may publish; an earlier answer is for older settings.
   const latest = useRef(0);
@@ -148,6 +152,15 @@ export function useHostMemorySegment(options: {
     },
     []
   );
+  // The catalog admission reads changed: an answer it decided may be stale.
+  const catalogSeen = useRef(catalogRevision);
+  useEffect(() => {
+    if (catalogSeen.current === catalogRevision) {
+      return;
+    }
+    catalogSeen.current = catalogRevision;
+    read(true);
+  }, [catalogRevision, read]);
   // Memory settings are captured from their store at call time.
   useEffect(() => useAssistantMemoryPreferencesStore.subscribe(() => read(true)), [read]);
   // Each committed memory call or run end changes what Memory holds.

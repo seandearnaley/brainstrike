@@ -46,3 +46,8 @@ export function useEnabledCatalogModels(): EnabledCatalogModels {
     }
   }, [database, live.error, live.loading, live.rows]);
 }
+
+/** The catalog's identity for re-reads: its state, or its enabled keys in order. */
+export function enabledCatalogRevision(catalog: EnabledCatalogModels): string {
+  return catalog.state === 'ready' ? [...catalog.keys].sort().join('\n') : catalog.state;
+}
