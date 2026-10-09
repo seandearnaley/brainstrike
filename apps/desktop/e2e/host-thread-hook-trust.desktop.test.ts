@@ -95,11 +95,18 @@ test('a project hook runs on a host thread only after it is approved in Settings
   await ensureMockWorkspaceOpen(window);
   await configureAssistantProvider(window);
 
-  // Untrusted: the project file adds no hook, so the read runs.
+  // Untrusted: the project file adds no hook, so the read runs, and the run
+  // names the file it skipped with its remedy at default detail.
   scriptRead(modelProvider, 'The first read finished.');
   await send(window, 'Read notes.txt', 'The first read finished.');
   expect(lastFollowUp(modelProvider)).toContain('trust notes');
   expect(lastFollowUp(modelProvider)).not.toContain(REASON);
+  const panel = window.getByRole('region', { exact: true, name: 'Assistant' });
+  const skipped = panel.getByText('Project hooks not trusted', { exact: true });
+  await expect(skipped).toHaveCount(1);
+  await expect(
+    panel.getByText('/.brainstrike/hooks.json: not trusted — review it in Settings > Hooks')
+  ).toBeVisible();
 
   // Settings shows the root untrusted until it is approved through the host.
   const hooks = await hooksSettings(window);
@@ -112,7 +119,8 @@ test('a project hook runs on a host thread only after it is approved in Settings
   scriptRead(modelProvider, 'The second read was blocked.');
   await send(window, 'Read notes.txt again', 'The second read was blocked.');
   expect(lastFollowUp(modelProvider)).toContain(REASON);
-  const panel = window.getByRole('region', { exact: true, name: 'Assistant' });
+  // Trusted, the run skips nothing: only the first turn's notice remains.
+  await expect(skipped).toHaveCount(1);
   await panel.getByRole('button', { exact: true, name: 'Expand activity' }).last().click();
   const card = panel.getByTestId('tool-fallback').last();
   await card.getByRole('button', { expanded: false }).click();
