@@ -243,13 +243,16 @@ export function createWindowThreadCapability(
       const host = await client();
       const catalog = await host.request('thread/list', {});
       if (!catalog.threads.some((thread) => thread.threadId === threadId)) {
-        return false;
+        return;
       }
-      await host.request('thread/delete', { threadId });
-      threads.delete(threadId);
-      runs.delete(threadId);
-      ledger.delete(threadId);
-      return true;
+      // The host deletes the thread with every child thread under it, children first.
+      const { threadIds } = await host.request('thread/delete', { threadId });
+      for (const deleted of threadIds) {
+        threads.delete(deleted);
+        runs.delete(deleted);
+        ledger.delete(deleted);
+      }
+      return threadIds;
     },
     isHostThread: (threadId) => threads.has(threadId),
     ledger,

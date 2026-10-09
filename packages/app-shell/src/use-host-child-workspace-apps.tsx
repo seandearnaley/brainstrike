@@ -145,6 +145,16 @@ export function useHostChildWorkspaceApps(): readonly WorkspaceApp[] {
   const currentHost = useRef(host);
   useEffect(() => {
     currentHost.current = host;
+    // A closed tab's answer is forgotten: its address reopened asks the host again.
+    const open = new Set(addresses.map(({ id }) => id));
+    for (const id of [...requested.current.keys()].filter((known) => !open.has(known))) {
+      requested.current.delete(id);
+    }
+    setResolutions((previous) =>
+      [...previous.keys()].every((id) => open.has(id))
+        ? previous
+        : new Map([...previous].filter(([id]) => open.has(id)))
+    );
     for (const { id, tab } of addresses) {
       if (
         tab instanceof Error ||

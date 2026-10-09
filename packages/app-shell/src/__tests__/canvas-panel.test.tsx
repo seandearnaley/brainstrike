@@ -243,7 +243,7 @@ describe('CanvasPanel', () => {
     });
     const host: AssistantThreadHostCapability = {
       createThread: vi.fn(),
-      deleteThread: vi.fn(async () => false),
+      deleteThread: vi.fn(async () => undefined),
       listThreads: vi.fn(async () => []),
       ownsThread: vi.fn(async () => true),
       readCanvases: vi.fn(async () => new Map([['canvas-1', [...versions]]])),
