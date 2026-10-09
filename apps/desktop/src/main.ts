@@ -9,7 +9,6 @@ import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract
 import { createMainLlmHostClient } from '@brainstrike/assistant-service/ports';
 import { recoverInterruptedDimensionIndexMaintenanceAtStartup } from '@brainstrike/db';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
-import { purgeMcpOAuthRuntimeState } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
 import { clearReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import { createProviderVerificationService } from '@brainstrike/host-capabilities/provider-verification';
 import type { ProfileResetLease } from '@brainstrike/host-lease';
@@ -1679,7 +1678,8 @@ if (singleInstanceLockAcquired) {
       logger.debug('Setting up IPC handlers that require app readiness...');
       // Settings reads the profile store directly and writes through the host,
       // the single credential writer. Its `auth/clear` also drops the sign-in
-      // engine's in-memory rotated-token overlay (BST-1356).
+      // engine's in-memory rotated-token overlay (BST-1356) and the host's MCP
+      // OAuth records with their live providers.
       const secretsService = createDesktopSettingsSecrets({
         clear: async () => (await agentHostMainClient.request('auth/clear', {})).cleared,
         deleteCredential: async (account) =>
@@ -1692,9 +1692,6 @@ if (singleInstanceLockAcquired) {
         'secrets',
         registerSecretsIpcHandlers(secretsService, {
           envFileFailures: desktopEnvLoadResult.failures,
-          onClearAll: async () => {
-            await purgeMcpOAuthRuntimeState();
-          },
           // Projected per invoke from the RECORDED bootstrap result — loading is
           // never re-run (initializeDesktopEnvironment throws on double-init).
           readEnvBootstrapReport: () =>

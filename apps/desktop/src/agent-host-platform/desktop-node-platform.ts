@@ -230,15 +230,17 @@ export async function createHostPlatform(
   });
   // The desktop's one MCP runtime: host-thread MCP tools run here, beside Core.
   // Its servers connect after readiness, so bearer reads wait for a pending
-  // legacy import like every other credential use.
-  const mcpHost = await createDesktopNodeMcpHost(connection, request, startup, () =>
-    host.auth.secrets()
-  );
+  // legacy import like every other credential use. Its OAuth records live in
+  // this host's profile store, which Main never writes.
+  const mcpHost = await createDesktopNodeMcpHost(connection, request, startup, {
+    secrets: () => host.auth.secrets(),
+    store: () => host.credentials.store(),
+  });
   await startup.register(() => mcpHost.close());
   return createProductionHostPlatform({
     auth: host.auth,
     close: async () => {
-      // MCP cleanup still writes through Main's stores, so it joins before Main closes.
+      // The MCP runtime joins while Main's platform connection is still open.
       await mcpHost.close();
       // The language servers, command trees and command sessions this host spawned.
       await disposeHostTools();
