@@ -168,7 +168,13 @@ describe("a host thread's debug bundle, from its committed log", () => {
     expect(bundle).toContain('- status: failed');
     expect(bundle).toContain(`- error: ${STALL}`);
     expect(bundle).toContain('- runtime_kind: agent-host');
-    expect(bundle).toContain('### Event 25 — run.attempt / refused');
+    const refused = rows.find(
+      ({ event }) => event.type === 'run.attempt' && event.runId === failedRun
+    );
+    if (!refused) {
+      throw new Error('The recorded failed run has no refused attempt');
+    }
+    expect(bundle).toContain(`### Event ${refused.seq} — run.attempt / refused`);
   });
 
   test('the thread pack holds the root and delegated child logs with their manifest', async () => {
