@@ -421,6 +421,7 @@ function renderCheckpointCard(status: ComponentProps<typeof ToolFallback>['statu
     entries: [entry],
     entriesByToolCallId: new Map([['call-write', entry]]),
     revertEntry: vi.fn(),
+    revertRefusal: null,
     revertRun: vi.fn(),
   };
   render(
