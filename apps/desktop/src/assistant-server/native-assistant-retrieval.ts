@@ -12,7 +12,7 @@ import {
   NATIVE_SEARCH_FINAL_LIMIT,
 } from '@brainstrike/workspace-search/core';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
-import type { EmbeddingSetRow } from './retrieval-tool';
+import type { EmbeddingSetRow } from './retrieval-store';
 
 interface NativeAssistantRequest {
   admittedWorkspaceRootIds?: readonly string[] | undefined;

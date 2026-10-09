@@ -1,5 +1,5 @@
 import type { BlobContent } from '@brainstrike/state-store';
-import type { HostPlatform, HostToolContext } from './ports.js';
+import type { HostPlatform, HostToolContext, HostToolState } from './ports.js';
 import type { HostEvent, HostLogRow } from './protocol.js';
 import { HostToolStates } from './tool-state.js';
 import { HostWorkspaceEdits, hostEditScope } from './workspace-edits.js';
@@ -19,6 +19,11 @@ export class HostToolRecords {
     this.edits.forgetThread(threadId);
     this.states.forgetThread(threadId);
     platform.forgetThread?.(threadId);
+  }
+
+  /** A read-only view of a thread's committed tool state, for per-step notes. */
+  stateView(threadId: string): Pick<HostToolState, 'entries' | 'read'> {
+    return this.states.view(threadId);
   }
 
   /** The Core-owned edit and state capabilities of one dispatched execution. */

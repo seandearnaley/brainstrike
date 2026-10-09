@@ -10,7 +10,7 @@ import {
   type HostTool,
   type HostToolContext,
 } from '@brainstrike/agent-host';
-import { resolveToolRiskCategory } from '@brainstrike/assistant-contract';
+import { NATIVE_TOOL_ID, resolveToolRiskCategory } from '@brainstrike/assistant-contract';
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import {
@@ -22,10 +22,11 @@ import {
   SHARED_NATIVE_TOOL_IDS,
   type SharedNativeToolId,
 } from './executors.js';
-import { hostCanvasStore, hostTaskListStore } from './host-stores.js';
+import { hostCanvasStore, hostTaskListNote, hostTaskListStore } from './host-stores.js';
 import type { FileMutationPorts } from './ports.js';
 import type { ReadWorkspaceFileCursorRegistry } from './read-workspace-file-cursor-registry.js';
 import { resetToolCallLoopGuards } from './tool-call-loop-guards.js';
+import type { WebSearchToolDependencies } from './web-search-tool.js';
 
 /**
  * Purge a deleted thread's process-local tool state: its read cursors, its
@@ -67,6 +68,8 @@ export interface SharedNativeHostToolsOptions {
   readonly resolvedToolResultBudget: ScaledToolResultBudget;
   /** The admitted request runtime, without per-execution memory identity. */
   readonly runtime: RuntimeData;
+  /** This process's Tavily key owner; required when web search is admitted. */
+  readonly webSearch?: WebSearchToolDependencies;
 }
 
 function unavailableAtAdmission(): never {
@@ -83,6 +86,7 @@ function executionPorts(
     throw new Error('Core supplied no edit or state capability to a shared native tool');
   }
   return {
+    artifactReader: context.artifacts,
     canvas: hostCanvasStore(state),
     fileMutations: { ...(diagnostics ? { diagnostics } : {}), edits: () => edits },
     taskList: hostTaskListStore(state),
@@ -113,6 +117,7 @@ export function createSharedNativeHostTools(
         getActiveToolResultBudget()?.domainModelResultCharBudget ?? budget,
       resolvedDomainCharBudget: budget,
       runtimeData,
+      webSearch: options.webSearch,
     };
     const tools: MastraTools = {};
     for (const id of options.ids) {
@@ -138,6 +143,8 @@ export function createSharedNativeHostTools(
     });
   };
   const admitted = bind(options.runtime, {
+    // The reader is admitted; Core supplies the thread's reader to each call.
+    artifactReader: { readRange: unavailableAtAdmission },
     canvas: undefined,
     fileMutations: { edits: unavailableAtAdmission },
     taskList: undefined,
@@ -154,6 +161,7 @@ export function createSharedNativeHostTools(
     }
     tools[name] = {
       ...tool,
+      ...(id === NATIVE_TOOL_ID.manageTaskList ? { contextNote: hostTaskListNote } : {}),
       execute: async (input: unknown, context: HostToolContext): Promise<unknown> => {
         context.signal.throwIfAborted();
         const roots = options.freshRoots

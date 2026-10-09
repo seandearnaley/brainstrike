@@ -49,6 +49,29 @@ export function hostRunExitError(run: HostRunView): HostCliExitError | undefined
   );
 }
 
+/** The run's oldest MCP input with neither a committed answer intent nor a settlement. */
+function pendingMcpInput(
+  rows: readonly HostLogRow[],
+  runId: string | undefined
+): string | undefined {
+  const answered = new Set<string>();
+  for (const { event } of rows) {
+    if (event.type === 'mcp.input.intent' || event.type === 'mcp.input.settled') {
+      answered.add(event.interactionId);
+    }
+  }
+  for (const { event } of rows) {
+    if (
+      event.type === 'mcp.input.requested' &&
+      event.runId === runId &&
+      !answered.has(event.interactionId)
+    ) {
+      return event.interactionId;
+    }
+  }
+  return;
+}
+
 function displayRow(
   row: HostLogRow,
   output: HostCliOutput,
@@ -101,6 +124,7 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
   let responding: Promise<void> | undefined;
   let stopping: Promise<void> | undefined;
   let displayedApproval: string | undefined;
+  let displayedMcpInput: string | undefined;
   let pending: PendingHostApproval | undefined;
   let stopRequested = false;
   let connectionClosed = false;
@@ -152,6 +176,25 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
       );
     }
   };
+  // An MCP server's input is answered with `mcp input read/settle`, from any terminal.
+  const showMcpInput = (interactionId: string): void => {
+    const settle = `mcp input settle --thread ${threadId} --run ${runId} --interaction ${interactionId}`;
+    if (!terminal) {
+      finish(
+        new HostCliExitError(
+          `Run awaits MCP input; read it with mcp input read, then answer: ${settle} --action accept|decline|cancel [--content <json>]`,
+          2
+        )
+      );
+      return;
+    }
+    if (interactionId !== displayedMcpInput) {
+      displayedMcpInput = interactionId;
+      process.stderr.write(
+        `\nMCP input requested. Read it with mcp input read, then answer from another terminal: ${settle} --action accept|decline|cancel [--content <json>]\n`
+      );
+    }
+  };
   const update = (): void => {
     if (!(initialized && !finished)) {
       return;
@@ -164,6 +207,10 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
     pending = run?.approvals[0];
     if (pending) {
       showApproval(pending);
+    }
+    const input = run?.status === 'running' ? pendingMcpInput(rows, runId) : undefined;
+    if (input) {
+      showMcpInput(input);
     }
     if (run && run.status !== 'running') {
       finish(hostRunExitError(run));

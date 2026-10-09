@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { ToolRiskCategory } from '@brainstrike/assistant-contract';
 import { asSchema, type ModelMessage, modelMessageSchema, type ToolContent } from 'ai';
 import { z } from 'zod';
@@ -13,6 +14,7 @@ import { jsonValue } from './json-value.js';
 import type { HostPlatform } from './ports.js';
 import type { HostEvent, HostLogRow, HostParams, HostPermissionGrant } from './protocol.js';
 import { ensureHostRunAdmission, hostRunToolDecision, hostRunTools } from './run-admission.js';
+import { hostStartPosition } from './run-branch.js';
 
 type Action = Extract<HostEvent, { type: 'effect.started' }>;
 type Interaction = Extract<HostEvent, { type: 'interaction.requested' }>;
@@ -129,6 +131,39 @@ export function approvedHostPlan(run: Run): { readonly feedback?: string } | und
   return;
 }
 
+/** The follow-up `run/start` an approved plan continues with, out of plan mode. */
+export function approvedHostPlanRunParams(
+  run: Run,
+  plan: { readonly feedback?: string }
+): HostParams<'run/start'> {
+  return {
+    commandId: randomUUID(),
+    ...(run.input?.configuration ? { configuration: run.input.configuration } : {}),
+    modelId: run.modelId,
+    parentMessageId: run.id,
+    prompt: plan.feedback ? `Approved the plan.\n\n${plan.feedback}` : 'Approved the plan.',
+    threadId: run.threadId,
+  };
+}
+
+/** A next run that could not start, committed as started then failed with its cause. */
+export function failedHostStartEvents(
+  runs: Iterable<Run>,
+  params: HostParams<'run/start'>,
+  runId: string,
+  cause: unknown
+): HostEvent[] {
+  return [
+    { ...hostStartPosition(runs, params), modelId: params.modelId, runId, type: 'run.started' },
+    {
+      detail: cause instanceof Error ? cause.message : String(cause),
+      outcome: 'failed',
+      runId,
+      type: 'run.finished',
+    },
+  ];
+}
+
 /** A grant names exactly the approved call's own risk category or tool, never another. */
 function assertHostGrantMatchesCall(
   grant: HostPermissionGrant,
@@ -140,6 +175,50 @@ function assertHostGrantMatchesCall(
   if (decision !== 'approve' || !matches) {
     throw new Error('Permission grant does not match the approved call');
   }
+}
+
+/**
+ * ADR-0010 (AT-03, AT-22): after a decision lands, a still-pending approval the
+ * root's live policy now allows (a session grant, a per-tool allow) is answered
+ * by that policy, recorded as such, and its run continues. Anything the policy
+ * still asks about waits for a person (BST-1932).
+ */
+export async function approveHostRunByPolicy(
+  run: Run,
+  platform: HostPlatform,
+  interactionId: string,
+  append: (events: readonly HostEvent[]) => Promise<unknown>,
+  continueRun: () => Promise<void>
+): Promise<void> {
+  const pending = run.approvals.get(interactionId);
+  if (
+    run.terminal ||
+    !pending ||
+    pending.event.kind !== 'approval' ||
+    hasHostInteractionResponse(pending) ||
+    (await hostRunToolDecision(platform, run, pending.event.toolId)) !== 'allow'
+  ) {
+    return;
+  }
+  await commitHostInteractionResponse(
+    run,
+    platform,
+    {
+      commandId: interactionId,
+      decision: 'approve',
+      interactionId,
+      runId: run.id,
+      threadId: run.threadId,
+    },
+    async (events) => {
+      await append(
+        events.map((event) =>
+          event.type === 'interaction.responded' ? { ...event, by: 'policy' as const } : event
+        )
+      );
+    },
+    continueRun
+  );
 }
 
 // Continuation calculations reuse Core's owned run and dispatch; no log writer lives here.

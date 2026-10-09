@@ -5,6 +5,7 @@ import {
   ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE,
   MASTRA_MEMORY_TABLES,
 } from '@brainstrike/assistant-contract/mastra-memory-schema';
+import type { PersistedToolInvocation } from '@brainstrike/host-capabilities/native-tools';
 
 export interface ProjectionRewriteDatabaseTransaction {
   readonly query: <T = Record<string, unknown>>(
@@ -21,13 +22,7 @@ export interface ProjectionRewriteDatabase extends ProjectionRewriteDatabaseTran
 
 export type ProjectionRewriteDatabaseProvider = () => Promise<ProjectionRewriteDatabase>;
 
-export interface PersistedToolInvocation {
-  readonly args: Record<string, unknown>;
-  readonly modelOutput: unknown;
-  readonly result: unknown;
-  readonly toolCallId: string;
-  readonly toolName: string;
-}
+export type { PersistedToolInvocation };
 
 export interface PriorInvocationScan {
   readonly currentTurnToolCallIds: ReadonlySet<string>;

@@ -45,7 +45,34 @@ export interface McpTaskPatchWire {
   readonly terminal: boolean;
 }
 
+/** A desktop PGlite authority row, timestamps as ISO text, imported once. */
+export interface McpTaskLegacyAuthorityWire extends McpTaskLeaseWire {
+  readonly createdAt: string;
+  readonly retiredAt: string | null;
+  readonly updatedAt: string;
+}
+
+/** A desktop PGlite task row: JSON columns as text, timestamps as ISO text; it has no thread. */
+export interface McpTaskLegacyTaskWire extends McpTaskIdentityWire {
+  readonly blockedDiagnostic: string | null;
+  readonly createdAt: string;
+  readonly history: string;
+  readonly inputMetadata: string | null;
+  readonly resultMetadata: string | null;
+  readonly status: McpTaskStatusWire;
+  readonly statusMessage: string | null;
+  readonly terminalAt: string | null;
+  readonly updatedAt: string;
+}
+
 export type McpTaskDomainRequest =
+  | {
+      readonly at: string;
+      readonly authorities: readonly McpTaskLegacyAuthorityWire[];
+      readonly operation: 'legacy-import';
+      readonly tasks: readonly McpTaskLegacyTaskWire[];
+    }
+  | { readonly operation: 'legacy-import-status' }
   | {
       readonly at: string;
       /** Caller-minted UUIDv7, used only when a new authority is created. */

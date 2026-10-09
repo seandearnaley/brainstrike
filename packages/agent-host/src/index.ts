@@ -33,6 +33,7 @@ export {
   type HostAuthVerdict,
   HostAuthVerdictSchema,
 } from './auth-wire.js';
+export { hostChildCallSign } from './child-presentation.js';
 export {
   type HostCliDefaults,
   type HostCliOutput,

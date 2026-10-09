@@ -7,13 +7,13 @@ import {
   providerEnvKeys,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
-import { TAVILY_ENV_KEYS } from '@brainstrike/assistant-contract/tavily-env-keys';
+import { createTavilyKeyResolver } from './native-tools/web-search-tool.js';
 import {
   createOpenRouterModelMetadataService,
   requireOpenRouterModelId,
 } from './openrouter-model-metadata.js';
 import type { HostAuthority } from './provider-auth/host-authority.js';
-import { createProviderCredentialReader, normalizeSecretValue } from './provider-credentials.js';
+import { createProviderCredentialReader } from './provider-credentials.js';
 import { readProviderStatus } from './provider-status.js';
 import {
   createProviderVerificationService,
@@ -45,15 +45,10 @@ export function createHostProviderServices(
     { getCredential: (provider) => secrets().getCredential(provider) },
     options.env
   );
-  const readTavilyKey = async (): Promise<string | undefined> => {
-    for (const name of TAVILY_ENV_KEYS) {
-      const value = normalizeSecretValue(options.env[name]);
-      if (value) {
-        return value;
-      }
-    }
-    return normalizeSecretValue(await secrets().getKey(TAVILY_SECRET_PROVIDER));
-  };
+  // The same reader as host-executed web search: env first, then the gated store.
+  const readTavilyKey = createTavilyKeyResolver(options.env, (account) =>
+    secrets().getKey(account)
+  );
   const fetchImpl = options.fetchImpl ? { fetchImpl: options.fetchImpl } : {};
   const verification = createProviderVerificationService({
     ...fetchImpl,

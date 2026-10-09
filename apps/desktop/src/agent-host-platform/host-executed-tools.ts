@@ -9,7 +9,9 @@ import type { GrepIndexSearch } from '../assistant-server/grep-search-core';
 import { CONTEXT_TOOL_EXECUTORS } from '../assistant-server/native-tool-executors-context';
 import { grepSearchExecutor } from '../assistant-server/native-tool-executors-grep';
 import { INSPECTION_TOOL_EXECUTORS } from '../assistant-server/native-tool-executors-inspection';
+import { retrievalToolExecutors } from '../assistant-server/native-tool-executors-retrieval';
 import { executeCommandExecutor } from '../assistant-server/native-tool-executors-shell';
+import { hostIndexSearch, hostQueryEmbedding, hostRetrievalStore } from './host-retrieval-clients';
 import { GrepIndexResultSchema, WorktreePathsResultSchema } from './host-tool-wire';
 
 const logger = createLogger('DesktopHostTools');
@@ -20,6 +22,9 @@ const DESKTOP_HOST_TOOL_IDS: ReadonlySet<string> = new Set([
   ...Object.keys(INSPECTION_TOOL_EXECUTORS),
   NATIVE_TOOL_ID.executeCommand,
   NATIVE_TOOL_ID.grepSearch,
+  NATIVE_TOOL_ID.hybridSearch,
+  NATIVE_TOOL_ID.listEmbeddingSpaces,
+  NATIVE_TOOL_ID.queryEmbeddingSpace,
 ]);
 
 /** Main admits these but never executes them for a host thread. */
@@ -89,9 +94,28 @@ function hostGrepIndex(request: MainRequest, threadId: string): GrepIndexSearch 
 /** The desktop host's own executors, bound to its Main connection and thread. */
 export function desktopHostToolExecutors(
   request: MainRequest,
-  threadId: string
+  threadId: string,
+  /** Main admitted retrieval to the thread's own roots (a CLI selection or a workspace binding). */
+  retrievalRootsOnly: boolean
 ): Readonly<Record<string, NativeToolExecutor>> {
+  const nativeIndexSearch = hostIndexSearch(request, threadId);
+  const embeddingHostManager = hostQueryEmbedding(request, threadId);
+  const store = hostRetrievalStore(request, threadId);
   return {
+    ...retrievalToolExecutors(({ runtimeData }) => ({
+      dependencies: {
+        ...(retrievalRootsOnly
+          ? {
+              admittedWorkspaceRootIds: (runtimeData?.workspaceRoots ?? []).map(
+                (root) => root.rootId
+              ),
+            }
+          : {}),
+        embeddingHostManager,
+        nativeIndexSearch,
+      },
+      store,
+    })),
     ...CONTEXT_TOOL_EXECUTORS,
     ...INSPECTION_TOOL_EXECUTORS,
     [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor(hostGrepIndex(request, threadId)),

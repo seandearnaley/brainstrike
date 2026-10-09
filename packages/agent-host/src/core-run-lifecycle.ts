@@ -1,8 +1,55 @@
-import type { HostRunState } from './core-state.js';
+import { type HostRunState, hasHostInteractionResponse } from './core-state.js';
 import { HostMcpInputPersistenceError } from './mcp-input-state.js';
 import type { HostRunAdmission } from './ports.js';
 import type { HostEvent } from './protocol.js';
 import { HostRunAdmissionCleanupError } from './run-admission.js';
+
+/** What a committed, non-terminal run becomes when a host starts (ADR-0010). */
+export type HostRunRecovery =
+  | { readonly kind: 'await-decision' | 'continue' }
+  | {
+      readonly detail?: string;
+      readonly kind: 'finish';
+      readonly outcome: 'interrupted' | 'stopped';
+    };
+
+/**
+ * ADR-0010: top-level decisions survive a restart; a child's do not, so a
+ * child run and any interaction it waits on are interrupted (BST-1932). Q-2:
+ * a recovery finish never wakes a parent; its results reach the next user turn.
+ */
+export function recoverHostRun(run: HostRunState): HostRunRecovery | undefined {
+  if (run.terminal) {
+    return;
+  }
+  if (run.origin) {
+    return {
+      detail: 'Host restarted; child runs are not resumed',
+      kind: 'finish',
+      outcome: 'interrupted',
+    };
+  }
+  if (run.stopped) {
+    return { kind: 'finish', outcome: 'stopped' };
+  }
+  if ([...run.started].some((id) => !(run.outputs.has(id) || run.checkpointedResults.has(id)))) {
+    return {
+      detail: 'Host restarted with an uncertain external effect; it was not replayed',
+      kind: 'finish',
+      outcome: 'interrupted',
+    };
+  }
+  if (run.approvals.size === 0) {
+    return {
+      detail: 'Host restarted outside a committed decision boundary',
+      kind: 'finish',
+      outcome: 'interrupted',
+    };
+  }
+  return [...run.approvals.values()].every(hasHostInteractionResponse)
+    ? { kind: 'continue' }
+    : { kind: 'await-decision' };
+}
 
 /**
  * Commit a run/steer, then end the run after its step in flight (the SDK
@@ -16,6 +63,61 @@ export async function steerHostRun(
   await accept(result);
   run.steered ||= result.outcome === 'steering';
   return result;
+}
+
+/**
+ * run/stop: commit the intent, then join the physical stop. A repeated Stop
+ * observes the same joined completion, including its failure.
+ */
+export async function acceptHostRunStop(
+  run: HostRunState,
+  accept: (result: { outcome: 'stopped' | 'already-terminal' }) => Promise<void>,
+  join: () => Promise<void>
+): Promise<{ outcome: 'stopped' | 'already-terminal' }> {
+  const result = {
+    outcome: run.terminal ? ('already-terminal' as const) : ('stopped' as const),
+  };
+  if (run.stopAcceptance) {
+    await join();
+    await run.stopAcceptance;
+    return result;
+  }
+  const acceptance = Promise.withResolvers<void>();
+  run.stopAcceptance = acceptance.promise;
+  acceptance.promise.catch(() => undefined);
+  run.stopped = true;
+  run.controller.abort(new Error('Run stopped by user'));
+  try {
+    await accept(result);
+    acceptance.resolve();
+    run.stopAcceptance = undefined;
+  } catch (cause) {
+    acceptance.reject(cause);
+    const cleanup = await Promise.allSettled([join()]);
+    const failure = cleanup[0];
+    if (failure?.status === 'rejected' && failure.reason !== cause) {
+      throw new AggregateError([cause, failure.reason], 'Stop persistence and cleanup failed');
+    }
+    throw cause;
+  }
+  await join();
+  return result;
+}
+
+/** Join every settled outcome, failing with all of the failures rather than the first. */
+export async function joinAllHostWork(
+  work: readonly Promise<unknown>[],
+  message: string
+): Promise<void> {
+  const failures = (await Promise.allSettled(work))
+    .filter((result) => result.status === 'rejected')
+    .map((result) => result.reason);
+  if (failures.length === 1) {
+    throw failures[0];
+  }
+  if (failures.length > 1) {
+    throw new AggregateError(failures, message);
+  }
 }
 
 /** Calculations over Core's one admission tail; queued cancellation starts no work. */
@@ -304,6 +406,11 @@ export async function finishHostSdkLoop(
       (closing && run.approvals.size > 0))
   ) {
     await Promise.allSettled([...run.effects]);
+    return;
+  }
+  if (run.deadline !== undefined && !run.stopped && !closing) {
+    // BST-1932: an expired child deadline is a failure, never a user stop (G19).
+    await finish('failed', run.deadline);
     return;
   }
   await finish(joinedSdkOutcome(run, closing, failed, interrupted), failed);

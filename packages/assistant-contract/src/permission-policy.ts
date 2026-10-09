@@ -223,3 +223,18 @@ export function resolvePermissionDecision(input: PermissionDecisionInput): Permi
   }
   return policy;
 }
+
+/**
+ * ADR-0010: an explicit deny — the tool's own override, or its category's
+ * policy — outranks a session grant and YOLO. A denied tool is neither
+ * offered to the model nor run.
+ */
+export function isPermissionDenied(
+  snapshot: Pick<PermissionToolGateSnapshot, 'perToolOverrides' | 'policies'>,
+  riskCategory: ToolRiskCategory,
+  toolId: string
+): boolean {
+  return (
+    snapshot.perToolOverrides?.[toolId] === 'deny' || snapshot.policies[riskCategory] === 'deny'
+  );
+}

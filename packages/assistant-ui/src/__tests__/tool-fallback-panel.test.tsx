@@ -515,3 +515,69 @@ describe('a committed permission approval', () => {
     expect(respondToApproval).toHaveBeenCalledWith({ approved: false, optionId: 'deny' });
   });
 });
+
+describe('a committed approval preview', () => {
+  const pendingTool = (toolName: string, args: Readonly<Record<string, string>>) => ({
+    addResult: () => {},
+    approval: { id: 'approval-1', options: committedApprovalOptions('execute') },
+    args,
+    argsText: JSON.stringify(args),
+    part: {},
+    respondToApproval: () => Promise.resolve(),
+    resume: () => {},
+    status: { reason: 'interrupt' as const, type: 'requires-action' as const },
+    toolCallId: 'preview-call',
+    toolName,
+    type: 'tool-call' as const,
+  });
+  // The host-computed facts a run_python approval commits (BST-1070's shape).
+  const executionContext = {
+    allowedDomains: [],
+    allowRead: [],
+    allowWrite: [],
+    defaultReadAccess: 'permissive',
+    executorKind: 'fence',
+    language: 'python',
+    policyFingerprint: 'fingerprint',
+    scratchParentDir: '/tmp',
+    timeoutMs: 30_000,
+  };
+
+  it('shows the exact command and its working directory before a command runs', () => {
+    wrap(
+      <ToolFallback
+        {...pendingTool('brainstrike.executeCommand', { command: 'echo preview', cwd: 'src' })}
+      />
+    );
+    expect(screen.getByTestId('approval-command-code')).toHaveTextContent('echo preview');
+    expect(screen.getByTestId('approval-command-cwd')).toHaveTextContent('src');
+  });
+
+  it('shows a run_python call’s host-computed sandbox facts and keeps its grants', () => {
+    wrap(
+      <ToolFallback
+        {...pendingTool('brainstrike.runPython', { code: 'print(1)' })}
+        providerMetadata={{ brainstrike: { executionContext } }}
+      />
+    );
+    expect(screen.getByTestId('approval-run-python-internet')).toHaveTextContent(
+      'No internet access'
+    );
+    expect(screen.getByTestId('approval-run-python-write')).toHaveTextContent('/tmp');
+    expect(
+      screen.getByRole('button', { name: 'Always allow brainstrike.runPython' })
+    ).toBeInTheDocument();
+  });
+
+  it('offers no grant for a run_python call whose sandbox facts are missing', () => {
+    wrap(<ToolFallback {...pendingTool('brainstrike.runPython', { code: 'print(1)' })} />);
+    expect(screen.getByTestId('approval-run-python-context-missing')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Approve brainstrike.runPython' })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Always allow brainstrike.runPython' })).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Allow commands this session brainstrike.runPython' })
+    ).toBeNull();
+  });
+});

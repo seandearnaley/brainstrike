@@ -27,6 +27,7 @@ import { createDesktopNodeMcpHost } from '@brainstrike/host-capabilities/mcp/des
 import {
   forgetSharedNativeToolThread,
   ReadWorkspaceFileCursorRegistry,
+  selectHostProjectionRewrites,
 } from '@brainstrike/host-capabilities/native-tools';
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
@@ -261,6 +262,7 @@ export async function createHostPlatform(
       const shared = desktopHostSharedTools({
         readFileCursorRegistry,
         request,
+        resolveTavilyApiKey: host.resolveTavilyApiKey,
         selected,
         threadId: admission.threadId,
       });
@@ -414,6 +416,7 @@ export async function createHostPlatform(
         .string()
         .min(1)
         .parse(await request('platform/workspace/root', { rootId }, signal)),
+    selectProjectionRewrites: selectHostProjectionRewrites,
     startup,
     validateWorkspaceBinding: async ({ binding, signal, threadId }) => {
       z.strictObject({ accepted: z.literal(true) }).parse(
