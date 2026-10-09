@@ -11,9 +11,11 @@ import { join } from 'node:path';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { StateStore } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
+import { attachAgentHost } from '../src/client.js';
 import { HostCore } from '../src/core.js';
 import type { HostPlatform, HostRewindFiles } from '../src/ports.js';
 import type { HostEvent } from '../src/protocol.js';
+import { startAgentHost } from '../src/runtime.js';
 import { scriptedModel } from './fixtures/scripted-model.js';
 
 const cleanup: (() => Promise<void>)[] = [];
@@ -158,4 +160,40 @@ test('a rewind the host stopped inside is committed as interrupted when the host
   expect(types(rows)).toEqual(['thread.rewind.started', 'thread.rewind.interrupted']);
   expect(rows.at(-1)?.event).toMatchObject({ phase: 'rewind', type: 'thread.rewind.interrupted' });
   restore.reject(new Error('the stopped host never restores'));
+});
+
+test('a started host lends Core its platform’s snapshot owner, so a client preview can restore files', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-m3-rewind-runtime-'));
+  cleanup.push(() => rm(root, { force: true, recursive: true }));
+  const files: HostRewindFiles = {
+    apply: async () => [],
+    drift: async () => [],
+    preview: async () => ({ previewId: 'preview-1' }),
+    redo: async () => [],
+    redoConflicts: async () => [],
+  };
+  const host = await startAgentHost({ lifetime: 'persistent', root }, platform(files));
+  cleanup.push(() => host.close());
+  const client = await attachAgentHost(host.record);
+  cleanup.push(() => client.close());
+  const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+  const messageId = randomUUID();
+  const { runId } = await client.request('run/start', {
+    commandId: messageId,
+    modelId: 'scripted',
+    prompt: 'First',
+    threadId,
+  });
+  await expect
+    .poll(async () =>
+      (await client.request('thread/read', { fromSeq: 0, threadId })).rows.some(
+        ({ event }) => event.type === 'run.finished' && event.runId === runId
+      )
+    )
+    .toBe(true);
+  await expect(
+    client.request('thread/rewind/preview', { messageId, threadId })
+  ).resolves.toMatchObject({
+    files: { available: true, fromRunId: runId, previewId: 'preview-1' },
+  });
 });

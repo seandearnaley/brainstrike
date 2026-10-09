@@ -563,7 +563,7 @@ export interface HostPlatform {
     readonly signal: AbortSignal;
   }): Promise<string>;
   /** The snapshot owner's rewind restores; absent where none exists (the CLI). */
-  readonly rewindFiles?: HostRewindFiles;
+  readonly rewindFiles?: HostRewindFiles | undefined;
   /** The native-tool output rewrite policy; Core commits what it selects. */
   selectProjectionRewrites?(
     request: HostProjectionRewriteRequest
