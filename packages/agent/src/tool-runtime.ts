@@ -9,6 +9,7 @@ export {
   buildCurrentTaskListNote,
   buildDefaultInstructions,
   buildLocalDefaultInstructions,
+  buildToolDiscoveryNote,
 } from './mastra/default-instructions';
 export { LIST_AVAILABLE_TOOLS_ID } from './mastra/deferred-tool-catalog';
 export { filterToolsForPlanMode } from './mastra/plan-mode-tool-gate';

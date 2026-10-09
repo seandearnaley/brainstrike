@@ -549,6 +549,18 @@ function buildToolDiscoveryInstruction(
 }
 
 /**
+ * The deferred-capability guidance on its own, for a host that composes its
+ * own instructions around a run whose tools discovery defers.
+ */
+export function buildToolDiscoveryNote(toolNameMap: ReadonlyMap<string, string>): string {
+  return buildToolDiscoveryInstruction(
+    resolveModelFacingToolNames(toolNameMap),
+    true,
+    new Set(toolNameMap.values())
+  );
+}
+
+/**
  * Skills guidance — emitted ONLY when the `skill` tool is registered this run
  * (the SkillsProcessor injects the actual `<available_skills>` metadata block
  * per turn; this line teaches the workflow around it). Empty string otherwise
