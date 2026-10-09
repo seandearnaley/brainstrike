@@ -1,5 +1,6 @@
 import {
   createThreadSearchService,
+  THREAD_SEARCH_VECTOR_THRESHOLD,
   type ThreadSearchExtraArms,
   type ThreadSearchRepository,
   type ThreadSearchService,
@@ -7,8 +8,18 @@ import {
 } from '@brainstrike/db';
 import type { buildLocalEmbeddingModelConfigMap } from '@brainstrike/db-explorer/embedding-models';
 import type { QueueAdapter } from '@brainstrike/queue';
-import type { EmbeddingSetModelInfo } from '@brainstrike/vector-management';
+import type {
+  EmbeddingSetModelInfo,
+  UseSearchEmbedderResult,
+} from '@brainstrike/vector-management';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+import type { AssistantThreadSearchSemantic } from './assistant-thread-host-context';
+import {
+  embedPendingHostSearchRows,
+  type HostThreadSearchVectors,
+  type ThreadSearchVectorProfile,
+  threadSearchVectorProfile,
+} from './host-thread-search-vectors';
 import { resolveSingletonProfileModelInfo } from './prompt-embedding-model-info';
 import {
   embedPendingThreadMessages,
@@ -51,13 +62,18 @@ const MAX_EMBEDDING_PASSES_PER_DRAIN = 50;
 export const THREAD_SEARCH_SEMANTIC_RETRY_MS = 60_000;
 
 export interface UseThreadSearchControllerOptions {
-  readonly embedder: ThreadSearchEmbedder;
+  /** `ensureEmbedderReady` names the runtime, so the profile, of the embedder that ran. */
+  readonly embedder: ThreadSearchEmbedder & Pick<UseSearchEmbedderResult, 'ensureEmbedderReady'>;
+  /** The thread host's semantic-arm backlog, drained beside history's at the same cadence. */
+  readonly hostSearchVectors?: HostThreadSearchVectors | undefined;
   readonly loadEmbeddingQueue: (() => Promise<QueueAdapter>) | null;
   readonly localModelConfigMap: ReturnType<typeof buildLocalEmbeddingModelConfigMap>;
   readonly repository: ThreadSearchControllerRepository | null;
   readonly resourceId: string;
   /** Gap 10: the thread host's own arms for a query, fused into the same list. */
-  readonly searchHost?: ((query: string) => Promise<ThreadSearchExtraArms>) | undefined;
+  readonly searchHost?:
+    | ((query: string, semantic?: AssistantThreadSearchSemantic) => Promise<ThreadSearchExtraArms>)
+    | undefined;
 }
 
 export interface ThreadSearchController {
@@ -84,6 +100,7 @@ function toThreadSearchErrorMessage(error: unknown): string {
  */
 export function useThreadSearchController({
   embedder,
+  hostSearchVectors,
   loadEmbeddingQueue,
   localModelConfigMap,
   repository,
@@ -115,7 +132,11 @@ export function useThreadSearchController({
     async (
       trimmedQuery: string
     ): Promise<
-      | { embedding: readonly number[]; semantic: ThreadSearchSemanticState }
+      | {
+          embedding: readonly number[];
+          profile: ThreadSearchVectorProfile;
+          semantic: ThreadSearchSemanticState;
+        }
       | { embedding: null; semantic: ThreadSearchSemanticState }
     > => {
       const recentFailure = semanticFailureRef.current;
@@ -134,9 +155,15 @@ export function useThreadSearchController({
         await loadEmbeddingQueue();
         const modelInfo = await resolveModelInfo();
         const embedding = await embedder.embedQueryWithRecovery(modelInfo, trimmedQuery);
+        // The cached embedder that just ran names the profile its vectors belong to.
+        const { runtime } = await embedder.ensureEmbedderReady(modelInfo);
         semanticFailureRef.current = null;
         lastSemanticSuccessAtRef.current = Date.now();
-        return { embedding, semantic: { kind: 'used' } };
+        return {
+          embedding,
+          profile: threadSearchVectorProfile(modelInfo, runtime),
+          semantic: { kind: 'used' },
+        };
       } catch (error) {
         const reason = toThreadSearchErrorMessage(error);
         // A slow superseded failure must not blind later searches to a
@@ -160,32 +187,61 @@ export function useThreadSearchController({
     if (!(repository && loadEmbeddingQueue)) {
       return;
     }
+    const drainHistory = async (): Promise<void> => {
+      for (let pass = 0; pass < MAX_EMBEDDING_PASSES_PER_DRAIN; pass += 1) {
+        const coverage = await repository.getCoverage(resourceId);
+        useThreadSearchStore.getState().recordCoverage(coverage);
+        if (coverage.embeddableMessages <= coverage.embeddedMessages + coverage.erroredMessages) {
+          return;
+        }
+        const recentFailure = semanticFailureRef.current;
+        if (recentFailure && Date.now() - recentFailure.at < THREAD_SEARCH_SEMANTIC_RETRY_MS) {
+          // A broken embedder would fail per row; wait out the retry window.
+          return;
+        }
+        await loadEmbeddingQueue();
+        const modelInfo = await resolveModelInfo();
+        const outcomes = await embedPendingThreadMessages({
+          embedder,
+          limit: EMBEDDING_PASS_LIMIT,
+          modelInfo,
+          repository,
+          resourceId,
+        });
+        if (outcomes.length === 0) {
+          return;
+        }
+      }
+    };
+    // The host's backlog, after history's, at the same rows per pass.
+    const drainHost = async (): Promise<void> => {
+      if (!hostSearchVectors) {
+        return;
+      }
+      for (let pass = 0; pass < MAX_EMBEDDING_PASSES_PER_DRAIN; pass += 1) {
+        const recentFailure = semanticFailureRef.current;
+        if (recentFailure && Date.now() - recentFailure.at < THREAD_SEARCH_SEMANTIC_RETRY_MS) {
+          return;
+        }
+        await loadEmbeddingQueue();
+        const modelInfo = await resolveModelInfo();
+        const { runtime } = await embedder.ensureEmbedderReady(modelInfo);
+        const embedded = await embedPendingHostSearchRows({
+          embedder,
+          host: hostSearchVectors,
+          limit: EMBEDDING_PASS_LIMIT,
+          modelInfo,
+          profile: threadSearchVectorProfile(modelInfo, runtime),
+        });
+        if (embedded === 0) {
+          return;
+        }
+      }
+    };
     const execute = async (): Promise<void> => {
       try {
-        for (let pass = 0; pass < MAX_EMBEDDING_PASSES_PER_DRAIN; pass += 1) {
-          const coverage = await repository.getCoverage(resourceId);
-          useThreadSearchStore.getState().recordCoverage(coverage);
-          if (coverage.embeddableMessages <= coverage.embeddedMessages + coverage.erroredMessages) {
-            return;
-          }
-          const recentFailure = semanticFailureRef.current;
-          if (recentFailure && Date.now() - recentFailure.at < THREAD_SEARCH_SEMANTIC_RETRY_MS) {
-            // A broken embedder would fail per row; wait out the retry window.
-            return;
-          }
-          await loadEmbeddingQueue();
-          const modelInfo = await resolveModelInfo();
-          const outcomes = await embedPendingThreadMessages({
-            embedder,
-            limit: EMBEDDING_PASS_LIMIT,
-            modelInfo,
-            repository,
-            resourceId,
-          });
-          if (outcomes.length === 0) {
-            return;
-          }
-        }
+        await drainHistory();
+        await drainHost();
       } catch {
         // Backlog embedding is opportunistic; failures surface per-search via
         // the semantic `unavailable` reason, and per-row via embedding_error.
@@ -195,7 +251,7 @@ export function useThreadSearchController({
       execute,
       execute
     );
-  }, [embedder, loadEmbeddingQueue, repository, resolveModelInfo, resourceId]);
+  }, [embedder, hostSearchVectors, loadEmbeddingQueue, repository, resolveModelInfo, resourceId]);
 
   const runSearch = useCallback(
     (rawQuery: string) => {
@@ -205,9 +261,6 @@ export function useThreadSearchController({
         return;
       }
       const generation = store.beginSearch();
-      // The host's arms run beside history's sync; their failure fails this search.
-      const hostArms = searchHost?.(trimmed);
-      hostArms?.catch(() => undefined);
       void (async () => {
         try {
           // Incremental sync first: every statement is bounded, so the single
@@ -234,12 +287,24 @@ export function useThreadSearchController({
             await syncRun;
           }
           drainEmbeddingBacklog();
-          const { embedding, semantic } = await resolveQueryEmbedding(trimmed);
+          const query = await resolveQueryEmbedding(trimmed);
+          // The host's arms take the same query vector; their failure fails this search.
+          const hostArms = await searchHost?.(
+            trimmed,
+            query.embedding === null
+              ? undefined
+              : {
+                  profile: query.profile,
+                  threshold: THREAD_SEARCH_VECTOR_THRESHOLD,
+                  vector: query.embedding,
+                }
+          );
           const response = await service.searchThreads(trimmed, {
-            ...(hostArms ? { extraArms: await hostArms } : {}),
-            queryEmbedding: embedding,
+            ...(hostArms ? { extraArms: hostArms } : {}),
+            queryEmbedding: query.embedding,
             resourceId,
           });
+          const { semantic } = query;
           useThreadSearchStore.getState().resolveResults(response.results, semantic, generation);
         } catch (error) {
           useThreadSearchStore.getState().failSearch(toThreadSearchErrorMessage(error), generation);

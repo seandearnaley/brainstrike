@@ -45,7 +45,7 @@ export interface ThreadSearchServiceRepository {
   ) => Promise<ThreadTitleMatch[]>;
 }
 
-/** One lexical message match from another owner's arm, best first in its list. */
+/** One message match from another owner's arm, best first in its list. */
 export interface ThreadSearchArmMessage {
   readonly headline: string | null;
   readonly messageCreatedAt: Date;
@@ -60,7 +60,10 @@ export interface ThreadSearchArmMessage {
  * repository's, so its content and title lists are peers of ours at thread level.
  */
 export interface ThreadSearchExtraArms {
+  /** Its lexical arm. */
   readonly messages: readonly ThreadSearchArmMessage[];
+  /** Its semantic arm, when the query embedding reached it; fused per message with `messages`. */
+  readonly similarMessages?: readonly ThreadSearchArmMessage[];
   readonly titles: readonly ThreadTitleMatch[];
 }
 
@@ -250,8 +253,8 @@ export class ThreadSearchService {
       }
     }
 
-    // The other owner's messages are already one ranked lexical arm.
-    const extraContent = groupExtraMessages(extraArms?.messages ?? [], ftsWeight, rrfK);
+    // The other owner's lexical and semantic arms, fused per message as ours are.
+    const extraContent = groupExtraMessages(extraArms, { ftsWeight, rrfK, vectorWeight });
     for (const [threadId, matches] of extraContent) {
       matchesByThreadId.set(threadId, matches);
     }
@@ -306,33 +309,53 @@ export class ThreadSearchService {
   }
 }
 
-/** Another owner's ranked messages grouped by thread, in its order, scored by their own rank. */
+/**
+ * Another owner's two ranked message arms fused per message id, as level 1
+ * fuses ours, then grouped by thread in fused order (best first).
+ */
 function groupExtraMessages(
-  messages: readonly ThreadSearchArmMessage[],
-  weight: number,
-  rrfK: number | undefined
+  extraArms: ThreadSearchExtraArms | undefined,
+  options: {
+    readonly ftsWeight: number;
+    readonly rrfK: number | undefined;
+    readonly vectorWeight: number;
+  }
 ): Map<string, ThreadMessageMatchResult[]> {
-  const scores = new Map(
-    fuseRankedLists(
-      [
-        createRankedList(
-          messages.map((match, index) => ({ id: match.messageId, score: messages.length - index })),
-          'extra-fts',
-          { weight }
-        ),
-      ],
-      rrfK === undefined ? {} : { k: rrfK }
-    ).map((fused) => [fused.id, fused.rrfScore])
+  const lexical = extraArms?.messages ?? [];
+  const semantic = extraArms?.similarMessages ?? [];
+  const ranked = (matches: readonly ThreadSearchArmMessage[]) =>
+    matches.map((match, index) => ({ id: match.messageId, score: matches.length - index }));
+  const fused = fuseRankedLists(
+    [
+      createRankedList(ranked(lexical), 'extra-fts', { weight: options.ftsWeight }),
+      createRankedList(ranked(semantic), 'extra-vector', { weight: options.vectorWeight }),
+    ],
+    options.rrfK === undefined ? {} : { k: options.rrfK }
   );
+  const lexicalById = new Map(lexical.map((match) => [match.messageId, match]));
+  const semanticById = new Map(semantic.map((match) => [match.messageId, match]));
   const grouped = new Map<string, ThreadMessageMatchResult[]>();
-  for (const match of messages) {
+  for (const { id, rrfScore } of fused) {
+    const lexicalMatch = lexicalById.get(id);
+    const semanticMatch = semanticById.get(id);
+    const match = lexicalMatch ?? semanticMatch;
+    if (!match) {
+      continue;
+    }
+    const sources: ThreadMessageMatchSource[] = [];
+    if (lexicalMatch) {
+      sources.push('fts');
+    }
+    if (semanticMatch) {
+      sources.push('vector');
+    }
     const result: ThreadMessageMatchResult = {
       headline: match.headline,
       messageCreatedAt: match.messageCreatedAt,
-      messageId: match.messageId,
+      messageId: id,
       role: match.role,
-      rrfScore: scores.get(match.messageId) ?? 0,
-      sources: ['fts'],
+      rrfScore,
+      sources,
     };
     grouped.set(match.threadId, [...(grouped.get(match.threadId) ?? []), result]);
   }

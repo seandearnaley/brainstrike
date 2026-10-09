@@ -17,6 +17,10 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../embeddings/src/runtime-config.ts'),
       },
       {
+        find: '@brainstrike/embeddings/inference-plan',
+        replacement: path.resolve(import.meta.dirname, '../embeddings/src/inference-plan.ts'),
+      },
+      {
         find: '@brainstrike/embeddings/provider-core',
         replacement: path.resolve(import.meta.dirname, '../embeddings/src/provider-core.ts'),
       },

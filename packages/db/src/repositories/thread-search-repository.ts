@@ -59,7 +59,8 @@ const LIVE_THREAD_WINDOW_MS = 120_000;
  * the "could not be embedded" state forever on immutable assistant history.
  */
 const EMBEDDING_ERROR_RETRY_MS = 300_000;
-const DEFAULT_VECTOR_THRESHOLD = 0.35;
+/** The vector arm's minimum cosine similarity, for every owner's thread search. */
+export const THREAD_SEARCH_VECTOR_THRESHOLD = 0.35;
 /** Bound on extracted text per message; search-relevant prose fits well under it. */
 const MAX_CONTENT_TEXT_CHARS = 8000;
 const SNIPPET_CHARS = 240;
@@ -526,7 +527,7 @@ export class ThreadSearchRepository {
     options: ThreadMessageVectorOptions
   ): Promise<ThreadMessageVectorMatch[]> {
     requirePositiveInteger(options.limit, 'limit');
-    const threshold = options.threshold ?? DEFAULT_VECTOR_THRESHOLD;
+    const threshold = options.threshold ?? THREAD_SEARCH_VECTOR_THRESHOLD;
     if (!Number.isFinite(threshold) || threshold < -1 || threshold > 1) {
       throw new Error(
         'Thread search similarity threshold must be a finite value between -1 and 1.'
