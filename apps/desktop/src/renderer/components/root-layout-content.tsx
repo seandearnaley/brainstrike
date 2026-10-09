@@ -27,11 +27,7 @@ import { ToolResultRendererProvider } from '@brainstrike/assistant-ui/tool-resul
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { TokenCacheProvider } from '@brainstrike/file-explorer-ui/indexing';
 import { createLogger } from '@brainstrike/logging';
-import {
-  McpAppBridgeProvider,
-  McpAppsEnablementProvider,
-  mcpAppToolResultRenderer,
-} from '@brainstrike/mcp-app-host-ui';
+import { McpAppsEnablementProvider, mcpAppToolResultRenderer } from '@brainstrike/mcp-app-host-ui';
 // Capability check from the dependency-light `availability` subpath (NOT
 // `/panel`) so the startup check does not defeat the lazy code-split in
 // `@brainstrike/app-shell/notes-page-content`.
@@ -40,7 +36,6 @@ import { GitBranch, Globe, NotebookPen } from 'lucide-react';
 import { type ReactElement, type ReactNode, useCallback, useEffect, useMemo, useRef } from 'react';
 import { registerDesktopEmbeddingRuntimeConfig } from '../create-embedding-queue';
 import { DesktopHostThreadProvider } from '../desktop-host-thread-provider';
-import { resolveMcpAppBridge } from '../mcp-app-bridge';
 import { resolveMcpTaskBridge } from '../mcp-task-bridge';
 import { useMcpAppsEnablement } from '../use-mcp-apps-enablement';
 // Task A's changes-page-content.tsx exports this by name (not default,
@@ -133,10 +128,6 @@ export default function RootLayoutContent() {
   // cards comes from `window.mcp.tasks` when the preload exposes it; `null`
   // keeps the cards on their persisted snapshot with a visible note. Resolved once.
   const mcpTaskBridge = useMemo(() => resolveMcpTaskBridge(), []);
-  // Capability port (BST-1572): MCP Apps hosting comes from `window.mcp.apps`
-  // when the visible-UI preload exposes it; `null` keeps app tool results on
-  // the ordinary tool card with a visible note. Resolved once.
-  const mcpAppBridge = useMemo(() => resolveMcpAppBridge(), []);
   const mcpAppsEnabled = useMcpAppsEnablement();
   const navigationConfig = useMemo<NavigationItem[]>(() => {
     const items = [...navigationItems];
@@ -378,13 +369,11 @@ export default function RootLayoutContent() {
     <TokenCacheWrapper>
       <McpTaskBridgeProvider bridge={mcpTaskBridge}>
         <McpAppsEnablementProvider isEnabled={mcpAppsEnabled}>
-          <McpAppBridgeProvider bridge={mcpAppBridge}>
-            <ToolResultRendererProvider renderers={MCP_APP_TOOL_RESULT_RENDERERS}>
-              <DesktopHostThreadProvider>
-                <RootLayout {...sharedProps} />
-              </DesktopHostThreadProvider>
-            </ToolResultRendererProvider>
-          </McpAppBridgeProvider>
+          <ToolResultRendererProvider renderers={MCP_APP_TOOL_RESULT_RENDERERS}>
+            <DesktopHostThreadProvider>
+              <RootLayout {...sharedProps} />
+            </DesktopHostThreadProvider>
+          </ToolResultRendererProvider>
         </McpAppsEnablementProvider>
       </McpTaskBridgeProvider>
     </TokenCacheWrapper>
