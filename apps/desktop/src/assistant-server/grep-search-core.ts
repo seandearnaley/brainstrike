@@ -18,7 +18,7 @@ import {
   type LabeledGrepMatch,
   type ModelFacingGrepMatch,
   parseGrepToolResult,
-} from '@brainstrike/host-capabilities/native-tools';
+} from '@brainstrike/host-capabilities/grep-search-result-contract';
 import { createLogger } from '@brainstrike/logging';
 import { resolveGrepFilePaths } from './grep-file-paths';
 import { resolveZeroMatchProbeNote, type ZeroMatchProbeCount } from './grep-zero-match-probes';

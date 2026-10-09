@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { StateStoreHostMemoryOptions } from '../src/adapters/state-store-host-memory.js';
 import type { HostLogRow } from '../src/protocol.js';
 import {
+  ACCOUNTING_OBSERVER_CATALOG_ID,
   AccountingFixtureDiagnostics,
   finalPromptAccountingHost,
   HISTORY_FACT,
@@ -109,7 +110,8 @@ test('actual production final-prompt accounting includes public observations and
     expect(usage.length).toBeGreaterThan(0);
     expect(
       usage.every(
-        (row) => row.event.type === 'memory.usage' && row.event.modelId === f.observer.modelId
+        (row) =>
+          row.event.type === 'memory.usage' && row.event.modelId === ACCOUNTING_OBSERVER_CATALOG_ID
       )
     ).toBe(true);
     expect(usage.map((row) => row.event)).toContainEqual(

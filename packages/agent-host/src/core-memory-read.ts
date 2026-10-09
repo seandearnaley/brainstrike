@@ -2,12 +2,12 @@ import type { HostChildRuns } from './core-child-runs.js';
 import type { HostRunState } from './core-state.js';
 import type { HostClientOrigin, HostPlatform, HostRunAdmissionRequest } from './ports.js';
 import type { HostParams, HostResults } from './protocol.js';
-import { hostRunCommandRequest, hostRunReopenRequest } from './run-admission.js';
+import { hostRunIntentRequest, hostRunReopenRequest } from './run-admission.js';
 
 type MemoryRead = HostResults['thread/memory/read'];
 type ActiveRun = Pick<
   HostRunState,
-  'admission' | 'modelId' | 'planMode' | 'snapshot' | 'terminal' | 'threadId'
+  'admission' | 'id' | 'modelId' | 'planMode' | 'snapshot' | 'terminal' | 'threadId'
 >;
 
 /** Core's state one read uses. A read takes no command queue slot and acquires nothing. */
@@ -58,7 +58,7 @@ export async function readHostThreadMemory(
   const request = active
     ? hostRunReopenRequest(active, signal)
     : {
-        ...hostRunCommandRequest({ ...params, threadId: root }, context.origin, undefined, signal),
+        ...hostRunIntentRequest({ ...params, threadId: root }, context.origin, undefined, signal),
         ...context.workspaces.admissionBinding(root),
       };
   return await platform.readMemoryReadiness(request, params.threadId);

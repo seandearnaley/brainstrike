@@ -5,7 +5,6 @@ import { TOOL_CALL_BLOCKED_MESSAGE } from '@brainstrike/assistant-contract/tool-
 import { expect, test } from './fixtures/electron-fixture';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const REASON = 'Workspace reads are disabled by a global hook';
@@ -13,6 +12,8 @@ const REASON = 'Workspace reads are disabled by a global hook';
 // The global hooks file is `$HOME/.brainstrike/hooks.json`; this spec's app
 // (Main and its host) gets a private HOME holding one PreToolUse hook.
 const home = mkdtempSync(join(tmpdir(), 'bs-e2e-host-hooks-home-'));
+// A real workspace root: global hooks run in the main root, so it must exist on disk.
+const workspace = mkdtempSync(join(tmpdir(), 'bs-e2e-host-hooks-root-'));
 mkdirSync(join(home, '.brainstrike'));
 writeFileSync(
   join(home, '.brainstrike', 'hooks.json'),
@@ -27,16 +28,17 @@ writeFileSync(
   })
 );
 
-test.use({ electronEnv: { HOME: home } });
-test.afterAll(() => rmSync(home, { force: true, recursive: true }));
+test.use({ electronEnv: { BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace, HOME: home } });
+test.afterAll(() => {
+  rmSync(home, { force: true, recursive: true });
+  rmSync(workspace, { force: true, recursive: true });
+});
 
 /** A global PreToolUse hook blocks an allowed tool on a host thread, and its reason reaches the model. */
 test('a global PreToolUse hook blocks a host tool call with its reason', async ({
   modelProvider,
   window,
 }) => {
-  const { mockFileSystemOperations } = await loadElectronHelpers();
-  await mockFileSystemOperations(window);
   await ensureMockWorkspaceOpen(window);
   await configureAssistantProvider(window);
   modelProvider.setScript(({ requestBody, toolNames }) =>

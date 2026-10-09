@@ -12,10 +12,12 @@ export {
   createAgentHostToolBindings,
 } from './adapters/canonical-tool-bindings.js';
 export { committedMemoryTranscript } from './adapters/committed-memory-transcript.js';
+export { hostToolDiscoveryEnabled } from './adapters/host-tool-discovery.js';
 export {
   createKeyringNativeBackend,
   type KeyringNativeBackend,
 } from './adapters/keyring-native-worker.js';
+export { importLegacyMemory } from './adapters/legacy-memory-import.js';
 export { createMcpHostToolAdapter } from './adapters/mcp.js';
 export {
   HostMemory,

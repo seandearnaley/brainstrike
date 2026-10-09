@@ -107,6 +107,7 @@ test('a legacy-only MCP bearer key authenticates its server on the first launch'
     readConfiguration: async () => {
       throw new Error('This scenario admits no run');
     },
+    readLegacyMemory: async () => ({ resource: null, resourceObservations: false }),
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
   });
   let host: AgentHost | undefined;

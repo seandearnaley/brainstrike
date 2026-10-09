@@ -394,11 +394,9 @@ test.each(['Stop', 'deletion', 'Root close'] as const)(
           expect(await f.store?.threads()).not.toContain(ids.threadId);
           expect(await f.store?.threads()).toContain(survivingThread);
         }
-        if (operation === 'deletion') {
-          expect(before).toEqual([]);
-        } else {
-          expect(before.map(({ id }) => id)).toEqual(f.writes[0]?.ids);
-        }
+        // The written group belongs to the surviving sibling: deleting the other
+        // thread detaches only that thread's sections, so this vector stays.
+        expect(before.map(({ id }) => id)).toEqual(f.writes[0]?.ids);
         await f.host.close();
       }
       expect(RootLock.inspect(f.root)?.owner.released).toBe(true);

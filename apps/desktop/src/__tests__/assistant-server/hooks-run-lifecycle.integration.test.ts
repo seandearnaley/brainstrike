@@ -26,6 +26,7 @@ import {
   buildHookManager,
   finalizeHookedStream,
   hookRunEventToAssistant,
+  installDesktopHookApprovalReader,
 } from '../../assistant-server/hooks/server-integration';
 import { resetDesktopMastraMemoryCacheForTests } from '../../assistant-server/mastra-memory';
 import { observeDesktopAssistantRunEvents } from '../../assistant-server/run-persistence';
@@ -112,10 +113,8 @@ describe('tool-lifecycle hooks P2 (Stop notice + blocked-run status)', () => {
       const runId = 'run-A';
       const queuedRunEvents: AssistantRunEvent[] = [];
       const manager = buildHookManager({
+        approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
         emitRunEvent: (event) => queuedRunEvents.push(hookRunEventToAssistant(event)),
-        hookTrustRequest: {
-          approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-        },
         logger: desktopAssistantServerLogger,
         runtimeData: {
           provider: 'openai',
@@ -189,13 +188,14 @@ describe('tool-lifecycle hooks P2 (Stop notice + blocked-run status)', () => {
             }
           : { rows: [] }
       );
+      // The agent host trusts this root's hooks file at its current hash.
+      installDesktopHookApprovalReader(async (root) =>
+        root.rootId === 'root-1' && root.absPath === tmp ? sha256OfFile(file) : undefined
+      );
 
       await runRequest({
         body: JSON.stringify({
           data: {
-            hookTrustRequest: {
-              approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-            },
             memory: {
               // OM enabled-by-default resolves a provider model target; disable
               // it so run-scoped memory constructs from the mock alone.

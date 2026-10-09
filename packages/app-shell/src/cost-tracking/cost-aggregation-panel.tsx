@@ -4,6 +4,7 @@ import { formatTokenCount, formatUsdCost } from '@brainstrike/tokenization';
 import { Badge, Card, CardContent, CardDescription, CardHeader, CardTitle } from '@brainstrike/ui';
 import { Coins, Loader2 } from 'lucide-react';
 import { useMemo } from 'react';
+import { useAssistantThreadHostLedger } from '../assistant-thread-host-context';
 import { type CrossRootCostState, useCrossRootCost } from './use-cross-root-cost';
 
 function costLabel(row: CrossRootCostRow): string {
@@ -123,6 +124,8 @@ function CostAggregationRows({ costRows, error, hasRows, loading }: CostAggregat
 
 /** Live cost panel — wires the reactive cross-root usage query to the view. */
 export function CostAggregationPanel() {
-  const state = useCrossRootCost();
+  // Agent-host threads' committed provider calls count beside the usage rows.
+  const { rootUsage } = useAssistantThreadHostLedger();
+  const state = useCrossRootCost(undefined, rootUsage);
   return <CostAggregationPanelView state={state} />;
 }

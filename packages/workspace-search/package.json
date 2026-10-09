@@ -21,8 +21,8 @@
     "@types/react": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "happy-dom": "catalog:",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },

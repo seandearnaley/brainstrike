@@ -2,7 +2,9 @@ import type { HostAttachment, HostRecord } from '@brainstrike/host-lease';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import {
   AGENT_HOST_PROTOCOL_VERSION,
+  HOST_CHILDREN_CHANGED,
   HOST_RESULT_SCHEMAS,
+  HostChildrenChangedSchema,
   type HostLogRow,
   HostLogRowSchema,
   type HostMethod,
@@ -15,6 +17,8 @@ import {
 } from './protocol.js';
 
 export interface HostClient extends HostAttachment {
+  /** BST-1932: told the thread whose children changed status; re-read `thread/children`. */
+  onChildrenChanged(listener: (threadId: string) => void): () => void;
   onEvent(listener: (row: HostLogRow) => void): () => void;
   /** MCP settings changes, after this client's `mcp/settings/subscribe`. */
   onMcpSettings(listener: (event: McpSettingsEvent) => void): () => void;
@@ -29,6 +33,7 @@ export async function authenticateHostClient(
 ): Promise<HostClient> {
   const listeners = new Set<(row: HostLogRow) => void>();
   const settingsListeners = new Set<(event: McpSettingsEvent) => void>();
+  const childListeners = new Set<(threadId: string) => void>();
   const closeConnection = async (): Promise<void> => {
     const failures: unknown[] = [];
     try {
@@ -38,6 +43,7 @@ export async function authenticateHostClient(
     }
     listeners.clear();
     settingsListeners.clear();
+    childListeners.clear();
     try {
       await closeTransport();
     } catch (cause) {
@@ -54,6 +60,12 @@ export async function authenticateHostClient(
     const row = HostLogRowSchema.parse(input);
     for (const listener of listeners) {
       listener(row);
+    }
+  });
+  connection.onNotification(HOST_CHILDREN_CHANGED, (input: unknown) => {
+    const { threadId } = HostChildrenChangedSchema.parse(input);
+    for (const listener of childListeners) {
+      listener(threadId);
     }
   });
   connection.onNotification(MCP_SETTINGS_EVENT, (input: unknown) => {
@@ -90,6 +102,10 @@ export async function authenticateHostClient(
   return {
     close: closeConnection,
     closed: transportClosed,
+    onChildrenChanged: (listener) => {
+      childListeners.add(listener);
+      return () => childListeners.delete(listener);
+    },
     onEvent: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);

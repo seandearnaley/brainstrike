@@ -63,7 +63,7 @@ import {
   bindHostRunAdmission,
   closeHostRunResources,
   ensureHostRunAdmission,
-  hostMcpUnavailableEvents,
+  HostRunStartNotices,
   hostRunCommandRequest,
 } from './run-admission.js';
 import {
@@ -75,6 +75,7 @@ import {
   type HostRunAdmissionCommand,
   type HostRunPosition,
   hostRegeneratePosition,
+  hostRunInput,
   hostStartCommandRecord,
   hostStartPosition,
 } from './run-branch.js';
@@ -143,11 +144,12 @@ export class HostCore {
   private readonly grants = new Map<string, HostThreadGrants>();
   private readonly admittedRuns = new Map<string, HostRunAdmissionCommand>();
   private readonly conversationIds = new Set<string>();
-  private readonly listeners = new Set<(row: HostLogRow) => void>();
+  private readonly listeners = new Set<(row: HostLogRow, parentThreadId?: string) => void>();
   private readonly pendingAdmissions = new Map<AbortController, string>();
   private readonly failedAdmissions = new Map<string, unknown>();
   private readonly deletions = new Map<string, Promise<{ deleted: true }>>();
   private admission: Promise<void> = Promise.resolve();
+  private readonly startNotices = new HostRunStartNotices();
   private closing = false;
   private closeTask?: Promise<void>;
 
@@ -198,6 +200,7 @@ export class HostCore {
     this.presentations.fold(row);
     this.workspaces.fold(row);
     const event = row.event;
+    this.startNotices.fold(event);
     switch (event.type) {
       case 'command.accepted':
         foldHostAcceptedCommand(this.commands, this.runs, event, row.threadId);
@@ -265,27 +268,24 @@ export class HostCore {
     beforePublish?.(rows);
     for (const row of rows) {
       for (const listener of this.listeners) {
-        listener(row);
+        listener(row, this.children.parentOf(row.threadId));
       }
     }
     return rows;
   }
 
-  onCommitted(listener: (row: HostLogRow) => void): () => void {
+  onCommitted(listener: (row: HostLogRow, parentThreadId?: string) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
-  /** Child threads are reached through their parent, never listed as top-level threads. */
   listThreads(): HostResults['thread/list']['threads'] {
-    return [...this.threads]
-      .filter((threadId) => !this.children.isChild(threadId))
-      .map((threadId) => ({ threadId, ...this.presentations.read(threadId) }));
+    return this.children.topLevel(this.threads, this.presentations);
   }
 
   /** BST-1932: a thread's direct child threads, in delegation order, with their origins. */
   listChildren(threadId: string): HostResults['thread/children']['children'] {
-    return this.children.listed(threadId, this.threads, this.presentations);
+    return this.children.listed(threadId, this.threads, this.presentations, this.runs);
   }
 
   updateThread(params: HostParams<'thread/update'>): Promise<{ accepted: true }> {
@@ -508,11 +508,13 @@ export class HostCore {
     let release: (() => void) | undefined;
     // BST-1932: a child thread's run is admitted for its root, then narrowed.
     const root = this.children.rootThread(params.threadId);
+    // Admission is for this run: platforms key its selection by the run's ID.
+    const runId = randomUUID();
     try {
       const wake = method === 'wake' ? this.children.wakeSelection(params, this.runs) : undefined;
       admission = await acquireHostRunAdmission(this.platform, {
         ...hostRunCommandRequest(
-          { ...params, threadId: root },
+          { ...params, runId, threadId: root },
           origin,
           wake ? undefined : selected.prompt,
           controller.signal,
@@ -533,12 +535,9 @@ export class HostCore {
         this.runs.values(),
         {
           ...params,
-          input: {
-            ...(params.configuration ? { configuration: params.configuration } : {}),
-            ...(origin ? { origin } : {}),
-          },
+          input: hostRunInput(params.configuration, origin),
           method,
-          runId: randomUUID(),
+          runId,
         },
         hostDeliveryPosition(
           method,
@@ -557,11 +556,12 @@ export class HostCore {
       }
       run.release = release;
       const result = { runId: run.id };
-      const unavailable = hostMcpUnavailableEvents(admission, run.id);
+      const notices = this.startNotices.forRun(admission, run.id);
       // A wake has no client command: its run.started records the delivery it answers.
       await (method === 'wake'
-        ? this.append(params.threadId, [started, ...unavailable])
-        : this.accept(params.threadId, method, record, result, [started, ...unavailable]));
+        ? this.append(params.threadId, [started, ...notices])
+        : this.accept(params.threadId, method, record, result, [started, ...notices]));
+      this.startNotices.committed(admission);
       this.children.recordDelivery(started.delivery);
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);

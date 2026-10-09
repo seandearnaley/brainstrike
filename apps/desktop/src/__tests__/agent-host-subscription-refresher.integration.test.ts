@@ -160,6 +160,7 @@ test('a desktop run and the legacy verifier share the host refresher without rep
   const mainOwner = serveDesktopPlatform(mainPlatformConnection(mainPort), {
     mcp: createDesktopMcpPlatformCapabilities(new RemoteMcpRuntime()),
     readConfiguration: async () => selection,
+    readLegacyMemory: async () => ({ resource: null, resourceObservations: false }),
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
   });
   let host: AgentHost | undefined;

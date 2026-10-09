@@ -7,7 +7,6 @@ import { resetExperimentAssignmentPreferencesStoreToDefaults } from './stores/ex
 import { resetExplorerColumnSizesStoreToDefault } from './stores/explorer-column-sizes-store';
 import { resetExplorerColumnVisibilityStoreToDefault } from './stores/explorer-column-visibility-store';
 import { resetExplorerSortStateStoreToDefault } from './stores/explorer-sort-state-store';
-import { resetHookTrustStoreToDefaults } from './stores/hook-trust-store';
 import { resetNotificationPreferencesStoreToDefaults } from './stores/notification-preferences-store';
 import { resetPermissionPolicyStoreToDefaults } from './stores/permission-policy-store';
 import { resetSelfImprovementSignalPreferencesStoreToDefaults } from './stores/self-improvement-signal-preferences-store';
@@ -440,11 +439,6 @@ function clearBrowserStorage(): void {
     'notification preferences store',
     resetNotificationPreferencesStoreToDefaults
   );
-
-  // Hook-trust approvals are persisted AND security-sensitive: a factory reset
-  // must forget every per-root project-hook approval so a re-mounted repo's
-  // hooks require fresh review (FACTORY RESET CONTRACT + hooks security spine).
-  resetLiveStoreSafely('hook trust store', resetHookTrustStoreToDefaults);
 
   // Repository-script approvals and denials are security-sensitive local
   // decisions. A fresh start must require a new choice for every repository.

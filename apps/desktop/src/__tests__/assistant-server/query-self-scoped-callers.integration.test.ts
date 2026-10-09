@@ -26,6 +26,12 @@ it('returns caller rows through querySelf after scoped publication with global T
   if (!(writer && executable)) {
     throw new Error('Explicit qualified Node writer and Electron reader are required.');
   }
+  // The forked query host speaks advanced (structured-clone) IPC, so this parent must run on the
+  // same Electron V8 (docs/agents/agent-self-query/scoped-caller-profile.md); under another
+  // runtime every reply fails as "Unable to deserialize cloned data".
+  if (process.versions['electron'] === undefined) {
+    throw new Error('Run this proof under the qualified Electron with ELECTRON_RUN_AS_NODE=1.');
+  }
   const databasePath = resolve(directory, 'index.sqlite');
   const seeded = spawnSync(
     writer,

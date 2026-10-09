@@ -23,15 +23,22 @@ export type NativeToolSurface =
   /** The Electron desktop assistant server (every desktop tool). */
   | 'desktop'
   /** The Hosted Web assistant (no local PGlite/PTY/browser-pane/worktree hosts). */
-  | 'web'
-  /**
-   * The built-in on-device model's eager-core-only surface. Deliberately a
-   * separately qualified product contract, not "every critical tool":
-   * `askUser`/`submitPlan` are critical but the local provider does not
-   * register their suspend/resume implementations, and `writeWorkspaceFile`
-   * stays out even though it is critical for hosted small-model reachability.
-   */
-  | 'local';
+  | 'web';
+
+/**
+ * A desktop tool under the built-in on-device model, the one record of that
+ * fact for the renderer's offer, Main's admitted descriptors and every
+ * executor fold:
+ * - `offered`: a local run is offered the tool. The eager-core-only surface is
+ *   a separately qualified product contract, not "every critical tool":
+ *   `writeWorkspaceFile` stays out even though it is critical for hosted
+ *   small-model reachability.
+ * - `unregistered`: no local executor exists (the WebGPU prefill budget cannot
+ *   afford it, or it needs suspend/resume the local provider does not
+ *   register), so a local run never has the tool.
+ * Absent: a local executor exists, but a local run is not offered the tool.
+ */
+export type NativeToolLocalProvider = 'offered' | 'unregistered';
 
 /**
  * Provider-facing deferred groups. Each namespace stays below ten functions so
@@ -178,6 +185,8 @@ export interface DesktopNativeToolDefinition<
   In extends ProviderCompatibleInputSchema = ProviderCompatibleInputSchema,
 > extends NativeToolDefinitionBase<Id, In> {
   readonly kind: 'desktop';
+  /** The tool under the built-in on-device model; see {@link NativeToolLocalProvider}. */
+  readonly localProvider?: NativeToolLocalProvider;
   /** Every surface that registers the tool; `desktop` is implied and listed for symmetry. */
   readonly surfaces: readonly NativeToolSurface[];
 }
@@ -245,7 +254,7 @@ function assertExecutionBudget(definition: NativeToolDefinition): void {
  *   (`tool-risk.ts`) — a potentially dangerous tool is never silently bucketed;
  * - a deferred tool without a discovery namespace, or a critical tool with
  *   one, throws {@link InvalidNativeToolDefinitionError};
- * - a desktop tool must list the `desktop` surface, and `local` implies `desktop`;
+ * - a desktop tool must list the `desktop` surface;
  * - a deferred desktop tool must declare a `discovery.family` (otherwise it is
  *   behind `search_tools` with no advertised capability).
  * - a declared executionBudget must be two positive integers with defaultMs <= maxMs.

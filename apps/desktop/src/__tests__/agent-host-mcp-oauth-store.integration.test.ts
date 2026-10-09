@@ -119,6 +119,8 @@ test('the host reads its MCP OAuth records from the profile store and its reset 
     readConfiguration: async () => {
       throw new Error('This scenario admits no run');
     },
+    // Gap 17's import capability; this scenario reads no legacy memory.
+    readLegacyMemory: async () => ({ resource: null, resourceObservations: false }),
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
   });
   let host: AgentHost | undefined;

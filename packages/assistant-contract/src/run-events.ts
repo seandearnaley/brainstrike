@@ -63,6 +63,10 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   // an unrecognized chunk.
   'memory.observation.failed',
   'memory.observation.started',
+  // Gap 17: a host thread's notice, committed once per root, that the legacy
+  // profile's resource observations were not imported. Standalone breadcrumb,
+  // status 'info', and always visible: nothing else tells the user.
+  'memory.observation.withheld',
   'memory.reflection.completed',
   'memory.reflection.started',
   'memory.semantic.completed',

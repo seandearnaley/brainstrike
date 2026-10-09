@@ -1,4 +1,5 @@
 import type { AgentColor } from '@brainstrike/types/agent-color';
+import type { AssistantThreadHostChild } from './assistant-thread-host-context';
 import type { ChildNode } from './delegated-workspace-node';
 import { delegatedWorkspaceTabId } from './delegated-workspace-tab';
 import type { ThreadPanelVisibleRow } from './thread-panel-visible-rows';
@@ -32,6 +33,13 @@ export type DelegatedSidebarRow = {
       readonly label: string;
       readonly isError: boolean;
       readonly moreFor?: string;
+    }
+  | {
+      /** BST-1932: an agent host child, read from the host, never from history. */
+      readonly kind: 'host-child';
+      readonly child: AssistantThreadHostChild;
+      readonly parentColor?: AgentColor | undefined;
+      readonly unread: boolean;
     }
 );
 export const DELEGATED_SIDEBAR_PAGE_SIZE = 50;
