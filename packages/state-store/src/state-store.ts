@@ -750,6 +750,13 @@ export class StateStore implements MemoryDomainPort {
     if (hashes.length === 0) {
       return [];
     }
+    // Held: the counts are taken at release. A holder may hold threads the indexer cannot yet read.
+    if (this.gcHolds > 0) {
+      for (const h of hashes) {
+        this.deferredGc.add(h);
+      }
+      return [];
+    }
     const counts = await indexer.gcCheck(await this.okThreads(), hashes);
     // A damaged thread is outside the verified count, yet its rows still name blobs (RunLog.damagedBlobRefs).
     const held = new Set((await this.call({ op: 'damagedBlobRefs' }))['hashes'] as string[]);
@@ -759,14 +766,9 @@ export class StateStore implements MemoryDomainPort {
       if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) {
         throw new Error(`indexer returned an invalid reference count for blob ${h}`);
       }
-      if (count !== 0 || held.has(h)) {
-        continue;
+      if (count === 0 && !held.has(h)) {
+        unlink.push(h);
       }
-      if (this.gcHolds > 0) {
-        this.deferredGc.add(h);
-        continue;
-      }
-      unlink.push(h);
     }
     if (unlink.length === 0) {
       return [];
@@ -777,7 +779,10 @@ export class StateStore implements MemoryDomainPort {
   async deleteThread(threadId: string): Promise<string[]> {
     const indexer = this.requireIndexer('thread delete');
     return this.run(async () => {
-      await indexer.catchUp(await this.okThreads());
+      // A held collection counts at release, so nothing needs the indexer current now.
+      if (this.gcHolds === 0) {
+        await indexer.catchUp(await this.okThreads());
+      }
       // Stored references, verified or not: a thread whose rows failed verification still deletes.
       const hashes = (await this.call({ op: 'storedBlobRefs', threadId }))['hashes'] as string[];
       const intent = await this.call({
