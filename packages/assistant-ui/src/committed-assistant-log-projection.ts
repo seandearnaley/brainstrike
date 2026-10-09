@@ -32,6 +32,7 @@ import {
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { parsePartialJsonObject } from 'assistant-stream/utils';
 import { committedApprovalOptions } from './committed-approval-options';
+import { legacyObservationsNotice } from './committed-legacy-observations-notice';
 import { HOST_CONTEXT_COMPACTED_DATA_NAME } from './compaction-summary-message';
 import type { ThreadTokenUsage } from './context-usage-store';
 
@@ -734,6 +735,15 @@ export class CommittedAssistantLogProjection {
     }
     if (event['type'] !== 'memory.observation.withheld') {
       this.data(run, row, event, 'brainstrike.host-event');
+      return;
+    }
+    if (event['reason'] === 'legacy-resource-observations') {
+      const notice = legacyObservationsNotice(
+        row,
+        requiredString(event, 'runId'),
+        this.message(run).createdAt.toISOString()
+      );
+      this.data(run, row, notice, ASSISTANT_RUN_EVENT_DATA_NAME);
       return;
     }
     if (event['reason'] !== 'branched-thread') {
