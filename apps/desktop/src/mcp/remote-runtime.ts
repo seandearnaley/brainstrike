@@ -1,26 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { mcpToolRegistry } from '@brainstrike/agent';
 import {
-  type McpElicitationSettlement,
   type McpHostCloseReport,
   type McpHostPort,
   type McpHostProgress,
   type McpHostServerSnapshot,
   type McpHostSnapshot,
-  type McpTaskActionResult,
-  type McpTaskListResult,
   type McpTaskPresentation,
   parseMcpHostControlRequest,
   parseMcpHostOperation,
   parseMcpTaskPresentation,
 } from '@brainstrike/assistant-contract';
 import { parseMcpHostOperationResult } from '@brainstrike/assistant-contract/mcp-host-runtime';
-import {
-  type McpElicitationFinalizedEvent,
-  type McpElicitationPresentation,
-  McpElicitationPresenterError,
-  type McpElicitationPresenterErrorCode,
-} from '@brainstrike/host-capabilities/mcp/elicitation-presenter';
 import { McpHostRevisionPublisher } from '@brainstrike/host-capabilities/mcp/host-revision-publisher';
 import {
   decodeMcpRuntimeError,
@@ -78,17 +69,16 @@ interface ReadyState {
 
 /**
  * Main's view of the desktop's one MCP runtime, which runs in the Node agent
- * host (BST-1930 c1). Status, lifecycle control, tasks, elicitation, Apps and
- * content keep their existing ports; every call reaches the Node runtime. Main
- * owns no MCP session, task authority, settings or credential flow of its own:
- * its tool registry is a mirror of the host's, for Main's remaining readers.
+ * host (BST-1930 c1). Apps, their task tracking and content keep their
+ * existing ports until c5d; every call reaches the Node runtime. Renderers
+ * reach settings, status, control, Tasks cards and global elicitation as host
+ * methods. Main owns no MCP session, task authority, settings or credential
+ * flow of its own: its tool registry is a mirror of the host's, for Main's
+ * remaining readers.
  */
 export class RemoteMcpRuntime {
   readonly host: McpHostPort;
   readonly taskHost: {
-    act(input: unknown): Promise<McpTaskActionResult>;
-    list(): McpTaskListResult;
-    subscribe(listener: (task: McpTaskPresentation) => void): () => void;
     track(
       request: {
         readonly configuredServerId: string;
@@ -98,24 +88,13 @@ export class RemoteMcpRuntime {
       signal?: AbortSignal
     ): Promise<McpTaskPresentation>;
   };
-  readonly elicitationPresenter: {
-    attach(listener: (presentation: McpElicitationPresentation) => void): () => void;
-    observeFinalized(observer: (event: McpElicitationFinalizedEvent) => void): () => void;
-    settle(settlement: McpElicitationSettlement): Promise<void>;
-  };
   #closed = false;
   #ready: ReadyState | undefined;
   /** The Node runtime's own snapshot revision last mirrored; older events are ignored. */
   #nodeRevision = -1;
-  #tasksVersion = 0;
   readonly #publisher = new McpHostRevisionPublisher({
     onDiagnostic: ({ code }, cause) => logger.error('MCP status mirror failure', { cause, code }),
   });
-  #tasks: McpTaskPresentation[] = [];
-  readonly #taskListeners = new Set<(task: McpTaskPresentation) => void>();
-  #presentationListener: ((presentation: McpElicitationPresentation) => void) | undefined;
-  readonly #pendingPresentations = new Set<string>();
-  readonly #finalizedObservers = new Set<(event: McpElicitationFinalizedEvent) => void>();
   readonly #progress = new Map<string, (progress: McpHostProgress) => void>();
 
   /** `registry` is the instance Main's own readers use (the package root's). */
@@ -138,15 +117,6 @@ export class RemoteMcpRuntime {
       watch: (filter, listener) => this.#publisher.watch(filter, listener),
     };
     this.taskHost = {
-      act: async (input) =>
-        (await this.#call(MCP_RUNTIME_METHODS.tasksAct, input)) as McpTaskActionResult,
-      list: () => ({ tasks: structuredClone(this.#tasks) }),
-      subscribe: (listener) => {
-        this.#taskListeners.add(listener);
-        return () => {
-          this.#taskListeners.delete(listener);
-        };
-      },
       track: async (request, signal) =>
         parseMcpTaskPresentation(
           await this.#call(
@@ -159,44 +129,6 @@ export class RemoteMcpRuntime {
             signal
           )
         ),
-    };
-    this.elicitationPresenter = {
-      attach: (listener) => {
-        if (this.#presentationListener) {
-          throw new McpElicitationPresenterError('mcp-elicitation-presenter-unavailable');
-        }
-        this.#presentationListener = listener;
-        this.#sendAttach();
-        return () => {
-          if (this.#presentationListener !== listener) {
-            return;
-          }
-          this.#presentationListener = undefined;
-          const ready = this.#ready;
-          if (ready) {
-            void this.#request(ready, MCP_RUNTIME_METHODS.elicitationDetach, {}).catch(
-              (cause: unknown) => logger.warn('MCP presenter detach failed', { cause })
-            );
-          }
-        };
-      },
-      observeFinalized: (observer) => {
-        this.#finalizedObservers.add(observer);
-        return () => {
-          this.#finalizedObservers.delete(observer);
-        };
-      },
-      settle: async (settlement) => {
-        try {
-          await this.#call(MCP_RUNTIME_METHODS.elicitationSettle, settlement);
-        } catch (cause) {
-          const code = (cause as { code?: unknown }).code;
-          if (typeof code === 'string' && code.startsWith('mcp-elicitation-')) {
-            throw new McpElicitationPresenterError(code as McpElicitationPresenterErrorCode);
-          }
-          throw cause;
-        }
-      },
     };
   }
 
@@ -241,42 +173,6 @@ export class RemoteMcpRuntime {
           this.#mirror(snapshotOf(event));
         }
       }),
-      connection.onNotification(MCP_RUNTIME_NOTIFICATIONS.tasksChanged, (input: unknown) => {
-        if (this.#ready?.connection !== connection) {
-          return;
-        }
-        const event = z.object({ task: z.unknown(), tasks: z.array(z.unknown()) }).parse(input);
-        this.#tasksVersion += 1;
-        this.#tasks = event.tasks.map(parseMcpTaskPresentation);
-        const task = parseMcpTaskPresentation(event.task);
-        for (const listener of this.#taskListeners) {
-          listener(structuredClone(task));
-        }
-      }),
-      connection.onNotification(
-        MCP_RUNTIME_NOTIFICATIONS.elicitationRequested,
-        (input: unknown) => {
-          if (this.#ready?.connection !== connection) {
-            return;
-          }
-          const presentation = input as McpElicitationPresentation;
-          z.object({ id: z.string().min(1) }).parse(presentation);
-          this.#pendingPresentations.add(presentation.id);
-          this.#presentationListener?.(presentation);
-        }
-      ),
-      connection.onNotification(
-        MCP_RUNTIME_NOTIFICATIONS.elicitationFinalized,
-        (input: unknown) => {
-          if (this.#ready?.connection !== connection) {
-            return;
-          }
-          const event = input as McpElicitationFinalizedEvent;
-          z.object({ code: z.string(), id: z.string() }).parse(event);
-          this.#pendingPresentations.delete(event.id);
-          this.#finalize(event);
-        }
-      ),
       connection.onNotification(MCP_RUNTIME_NOTIFICATIONS.progress, (input: unknown) => {
         const event = z.object({ invocationId: z.string(), progress: z.unknown() }).parse(input);
         this.#progress.get(event.invocationId)?.(event.progress as McpHostProgress);
@@ -305,23 +201,14 @@ export class RemoteMcpRuntime {
         const ready: ReadyState = { connection };
         this.#ready = ready;
         try {
-          const tasksVersion = this.#tasksVersion;
           const initial = z
-            .object({
-              snapshot: z.unknown(),
-              tasks: z.array(z.unknown()),
-              tools: McpToolRegistryStateSchema,
-            })
+            .object({ snapshot: z.unknown(), tools: McpToolRegistryStateSchema })
             .parse(await this.#request(ready, MCP_RUNTIME_METHODS.snapshot, {}));
           if (this.#ready !== ready) {
             throw new McpRuntimeUnavailableError();
           }
           this.#mirror(snapshotOf(initial.snapshot));
           mirrorMcpToolRegistryState(this.registry, initial.tools);
-          if (tasksVersion === this.#tasksVersion) {
-            this.#tasks = initial.tasks.map(parseMcpTaskPresentation);
-          }
-          this.#sendAttach();
         } catch (cause) {
           if (this.#ready === ready) {
             this.#detach();
@@ -332,16 +219,6 @@ export class RemoteMcpRuntime {
     };
   }
 
-  #sendAttach(): void {
-    const ready = this.#ready;
-    if (!(ready && this.#presentationListener)) {
-      return;
-    }
-    void this.#request(ready, MCP_RUNTIME_METHODS.elicitationAttach, {}).catch((cause: unknown) =>
-      logger.error('MCP presenter attach failed', { cause })
-    );
-  }
-
   #mirror(snapshot: McpHostSnapshot): void {
     if (snapshot.revision <= this.#nodeRevision) {
       return;
@@ -350,27 +227,12 @@ export class RemoteMcpRuntime {
     this.#publisher.publishConfigSet(snapshot.servers.map(serverOf));
   }
 
-  #finalize(event: McpElicitationFinalizedEvent): void {
-    for (const observer of this.#finalizedObservers) {
-      try {
-        observer(structuredClone(event));
-      } catch (cause) {
-        logger.warn('MCP finalized observer failed', { cause });
-      }
-    }
-  }
-
   #detach(): void {
     this.#ready = undefined;
-    this.#tasks = [];
-    // The runtime is gone: its servers and tools are gone, and every local dialog is retired.
+    // The runtime is gone: its servers and tools are gone.
     this.#nodeRevision = -1;
     this.#publisher.publishConfigSet([]);
     this.registry.clear();
-    for (const id of this.#pendingPresentations) {
-      this.#finalize({ code: 'mcp-elicitation-presenter-closed', id });
-    }
-    this.#pendingPresentations.clear();
   }
 
   async #call(method: string, params: unknown, signal?: AbortSignal): Promise<unknown> {

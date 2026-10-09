@@ -1,9 +1,5 @@
 import { readMcpCreatedTaskResult } from '@brainstrike/agent';
-import {
-  parseMcpElicitationSettlement,
-  parseMcpHostControlRequest,
-  parseMcpHostOperation,
-} from '@brainstrike/assistant-contract';
+import { parseMcpHostControlRequest, parseMcpHostOperation } from '@brainstrike/assistant-contract';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import { MCP_RUNTIME_METHODS, MCP_RUNTIME_NOTIFICATIONS, respond } from './mcp-runtime-wire.js';
@@ -32,18 +28,11 @@ export function serveMcpRuntimeToMain(
   settings: McpSettingsAuthority
 ): { close(): void } {
   const invocations = new Map<string, () => void>();
-  let detachElicitation: (() => void) | undefined;
   const notify = (method: string, payload: unknown): void => {
     // Main may already be gone during shutdown; the runtime does not depend on delivery.
     void connection.sendNotification(method, payload).catch(() => undefined);
   };
   const unwatch = runtime.host.watch({}, (event) => notify(MCP_RUNTIME_NOTIFICATIONS.watch, event));
-  const unsubscribeTasks = runtime.taskHost.subscribe((task) =>
-    notify(MCP_RUNTIME_NOTIFICATIONS.tasksChanged, { task, tasks: runtime.taskHost.list().tasks })
-  );
-  const unobserveFinalized = runtime.elicitationPresenter.observeFinalized((event) =>
-    notify(MCP_RUNTIME_NOTIFICATIONS.elicitationFinalized, event)
-  );
   const unsubscribeSettings = settings.subscribe((event) => {
     if (event.type === 'tools') {
       notify(MCP_RUNTIME_NOTIFICATIONS.tools, event.tools);
@@ -54,7 +43,6 @@ export function serveMcpRuntimeToMain(
       respond(async () => ({
         extensionPreferences: runtime.mcpExtensionPreferences,
         snapshot: runtime.host.snapshot(),
-        tasks: runtime.taskHost.list().tasks,
         tools: await settings.tools(),
       }))
     ),
@@ -95,12 +83,6 @@ export function serveMcpRuntimeToMain(
         }
       })
     ),
-    connection.onRequest(MCP_RUNTIME_METHODS.tasksList, () =>
-      respond(() => runtime.taskHost.list())
-    ),
-    connection.onRequest(MCP_RUNTIME_METHODS.tasksAct, (input: unknown) =>
-      respond(() => runtime.taskHost.act(input))
-    ),
     connection.onRequest(
       MCP_RUNTIME_METHODS.tasksTrack,
       (input: unknown, token: CancellationToken) =>
@@ -132,28 +114,6 @@ export function serveMcpRuntimeToMain(
           }
         })
     ),
-    connection.onRequest(MCP_RUNTIME_METHODS.elicitationAttach, () =>
-      respond(() => {
-        if (detachElicitation) {
-          throw new Error('Main already presents local MCP input');
-        }
-        detachElicitation = runtime.elicitationPresenter.attach((presentation) =>
-          notify(MCP_RUNTIME_NOTIFICATIONS.elicitationRequested, presentation)
-        );
-      })
-    ),
-    connection.onRequest(MCP_RUNTIME_METHODS.elicitationDetach, () =>
-      respond(() => {
-        const detach = detachElicitation;
-        detachElicitation = undefined;
-        detach?.();
-      })
-    ),
-    connection.onRequest(MCP_RUNTIME_METHODS.elicitationSettle, (input: unknown) =>
-      respond(() => {
-        runtime.elicitationPresenter.settle(parseMcpElicitationSettlement(input));
-      })
-    ),
   ];
   return {
     close: () => {
@@ -161,11 +121,7 @@ export function serveMcpRuntimeToMain(
         dispose();
       }
       invocations.clear();
-      detachElicitation?.();
-      detachElicitation = undefined;
-      unobserveFinalized();
       unsubscribeSettings();
-      unsubscribeTasks();
       unwatch();
       for (const handler of handlers) {
         handler.dispose();

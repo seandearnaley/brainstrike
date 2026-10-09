@@ -13,12 +13,7 @@ import {
 import { forgeContract } from '../ipc-domains/forge.contract';
 import { gitContract } from '../ipc-domains/git.contract';
 import { indexSearchContract } from '../ipc-domains/index-search.contract';
-import {
-  mcpAppsContract,
-  mcpElicitationContract,
-  mcpPathSelectionContract,
-  mcpTasksContract,
-} from '../ipc-domains/mcp.contract';
+import { mcpAppsContract, mcpPathSelectionContract } from '../ipc-domains/mcp.contract';
 import { notesVaultContract } from '../ipc-domains/notes-vault.contract';
 import { skillsContract } from '../ipc-domains/skills.contract';
 import {
@@ -225,28 +220,24 @@ describe('preload contract-derived bridges', () => {
     }
   );
 
-  it('exposes the composed MCP bridge with contract-derived root, Apps and Tasks keys', () => {
+  it('exposes the composed MCP bridge with contract-derived root and Apps keys', () => {
     const mcp = exposedApi('mcp');
-    // Server status and lifecycle control are agent-host methods (BST-1930 c5b).
+    // Server status, lifecycle control, Tasks cards and global server input
+    // are agent-host methods (BST-1930 c5b-c5c).
     const expectedRootKeys = new Set([
       ...Object.keys(mcpPathSelectionContract),
-      ...Object.keys(mcpElicitationContract),
       'apps',
       'complete',
       'getPrompt',
       'readResource',
-      'tasks',
     ]);
     expect(new Set(Object.keys(mcp))).toEqual(expectedRootKeys);
     expect(Object.keys(mcp['apps'] as object).sort()).toEqual(
       [...Object.keys(mcpAppsContract), 'readResource'].sort()
     );
-    expect(Object.keys(mcp['tasks'] as object).sort()).toEqual(
-      Object.keys(mcpTasksContract).sort()
-    );
   });
 
-  it('routes MCP contract methods and subscriptions through their manifest channels', async () => {
+  it('routes MCP contract methods through their manifest channels', async () => {
     const mcp = exposedApi('mcp');
     const apps = mcp['apps'] as unknown as Record<string, (...args: unknown[]) => unknown>;
     mockInvoke.mockResolvedValueOnce({ preparationId: 'prep-1' });
@@ -255,22 +246,11 @@ describe('preload contract-derived bridges', () => {
       preparationId: 'prep-1',
     });
 
-    const tasks = mcp['tasks'] as unknown as Record<string, (...args: unknown[]) => unknown>;
-    mockInvoke.mockResolvedValueOnce({ tasks: [] });
-    await tasks['list']?.();
-    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.mcp.taskList);
-
-    const listener = vi.fn();
-    const unsubscribe = mcp['onElicitationRequested']?.(listener) as () => void;
-    expect(mockElectron.ipcRenderer.on).toHaveBeenCalledWith(
-      DESKTOP_IPC_CHANNELS.mcp.elicitationRequested,
-      expect.any(Function)
-    );
-    unsubscribe();
-    expect(mockElectron.ipcRenderer.removeListener).toHaveBeenCalledWith(
-      DESKTOP_IPC_CHANNELS.mcp.elicitationRequested,
-      expect.any(Function)
-    );
+    mockInvoke.mockResolvedValueOnce(undefined);
+    await apps['release']?.({ preparationId: 'prep-1' });
+    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.mcp.appsRelease, {
+      preparationId: 'prep-1',
+    });
   });
 
   it("reads an MCP App resource against the server's live generation from Main's status", async () => {

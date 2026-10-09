@@ -8,10 +8,11 @@ import { z } from 'zod';
  * - Node to Main `platform/*` adapters: Electron `shell.openExternal`, and the
  *   readiness handshake that opens `mcp-runtime/*` to Main. The host owns its
  *   MCP config, extension dials, tool preferences, credentials and Tasks.
- * - Main to Node `mcp-runtime/*`: Main's remaining renderer surfaces (status,
- *   lifecycle control, tasks, elicitation, Apps, content), the native config
- *   picker and factory reset reach the host's runtime and settings authority.
- *   They go with c5b-e, when the renderer calls public host methods instead.
+ * - Main to Node `mcp-runtime/*`: Main's remaining renderer surfaces (Apps,
+ *   their task tracking, content), the native config picker and factory reset
+ *   reach the host's runtime and settings authority. Status, lifecycle
+ *   control, Tasks cards and global elicitation are public host methods
+ *   (c5b-c5c); the rest go with c5d-e.
  */
 export const MCP_STORE_METHODS = {
   openExternal: 'platform/open-external',
@@ -22,25 +23,17 @@ export const MCP_RUNTIME_METHODS = {
   /** Main's native picker chose an MCP config file; the host selects it. */
   configPathPick: 'mcp-runtime/config/path/pick',
   control: 'mcp-runtime/control',
-  elicitationAttach: 'mcp-runtime/elicitation/attach',
-  elicitationDetach: 'mcp-runtime/elicitation/detach',
-  elicitationSettle: 'mcp-runtime/elicitation/settle',
   invoke: 'mcp-runtime/invoke',
   /** Factory reset: retire the settings lifecycle and keep a restore point. */
   settingsReset: 'mcp-runtime/settings/reset',
   /** After a factory reset: reopen the settings lifecycle, restoring it if the reset failed. */
   settingsResume: 'mcp-runtime/settings/resume',
   snapshot: 'mcp-runtime/snapshot',
-  tasksAct: 'mcp-runtime/tasks/act',
-  tasksList: 'mcp-runtime/tasks/list',
   tasksTrack: 'mcp-runtime/tasks/track',
 } as const;
 
 export const MCP_RUNTIME_NOTIFICATIONS = {
-  elicitationFinalized: 'mcp-runtime/elicitation/finalized',
-  elicitationRequested: 'mcp-runtime/elicitation/requested',
   progress: 'mcp-runtime/progress',
-  tasksChanged: 'mcp-runtime/tasks/changed',
   /** The host's tool registry changed; Main mirrors it for its remaining readers. */
   tools: 'mcp-runtime/tools',
   watch: 'mcp-runtime/watch',

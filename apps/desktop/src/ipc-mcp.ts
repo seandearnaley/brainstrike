@@ -3,7 +3,7 @@ import type { McpHostSnapshot } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { dialog, ipcMain } from 'electron';
 import { mcpContract, mcpPathSelectionContract } from './ipc-domains/mcp.contract';
-import { attachMcpBridges, type McpBridgesRuntime } from './mcp/bridges';
+import { attachMcpBridges } from './mcp/bridges';
 import { registerMcpContentIpc } from './mcp/content-ipc';
 import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import type { RemoteMcpRuntime } from './mcp/remote-runtime';
@@ -11,16 +11,16 @@ import { createDesktopIpcRegistry, registerDomain } from './platform/desktop-ipc
 import type { Handlers } from './platform/ipc-contract';
 
 /**
- * Main's remaining MCP surfaces (BST-1930 c5b): content, Apps, Tasks and
- * elicitation reach the host's runtime through the private proxy until c5c-e
- * make them public host methods. The host owns the MCP config, extension
- * dials, discovery, tool preferences, server status and lifecycle control;
- * Main keeps the native config picker, which hands the chosen file to the
- * host, and the preload's status read for MCP App resources (until c5d).
+ * Main's remaining MCP surfaces (BST-1930 c5c): content and Apps reach the
+ * host's runtime through the private proxy until c5d makes them public host
+ * methods. The host owns the MCP config, extension dials, discovery, tool
+ * preferences, server status, lifecycle control, Tasks cards and global server
+ * input; Main keeps the native config picker, which hands the chosen file to
+ * the host, and the preload's status read for MCP App resources (until c5d).
  */
 const logger = createLogger('DesktopMcpIpc');
 
-type McpIpcRuntime = Pick<RemoteMcpRuntime, 'host' | 'pickConfigPath'> & McpBridgesRuntime;
+type McpIpcRuntime = Pick<RemoteMcpRuntime, 'host' | 'pickConfigPath'>;
 type McpSettingsLifecycleRuntime = Pick<RemoteMcpRuntime, 'resetSettings' | 'resumeSettings'>;
 
 /** Closed across a factory reset; content and the picker refuse while it is. */
@@ -118,7 +118,7 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpIpcRuntime }):
   logger.debug('Registering MCP IPC handlers');
   mcpSurfacesOpen = true;
   const registry = createDesktopIpcRegistry({ ipcMain });
-  const detachBridges = attachMcpBridges(runtime, registry);
+  attachMcpBridges(registry);
   const handlers: Handlers<typeof mcpContract> = {
     getServerStatusSnapshot: async (): Promise<McpHostSnapshot> =>
       structuredClone(runtime.host.snapshot()),
@@ -135,7 +135,6 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpIpcRuntime }):
   registerDomain(registry, 'mcp', mcpContract, handlers);
   registerMcpContentIpc(registry, runtime, mcpContentLifecycle);
   return () => {
-    detachBridges();
     registry.unregisterAll();
   };
 }
