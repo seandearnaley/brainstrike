@@ -354,9 +354,10 @@ export async function openGuiInput(client: HostClient, threadId: string) {
   const session = new CommittedThreadSession(client, threadId);
   const disconnect = session.connect();
   const gui = new CommittedHostMcpInput(client, session, threadId);
+  // The session's contract: an owner joins `log/unsubscribe` before the client closes.
   owned.push(async () => {
     gui.close();
-    disconnect();
+    await disconnect();
   });
   const snapshots = new Observed<ReturnType<CommittedHostMcpInput['getSnapshot']>>();
   gui.subscribe(() => snapshots.push(gui.getSnapshot()));

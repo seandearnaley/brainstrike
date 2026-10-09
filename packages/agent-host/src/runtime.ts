@@ -52,6 +52,9 @@ function bindAcquiredPlatform(owned: HostPlatform, acquired: HostPlatform): void
   if (acquired.admitRun) {
     owned.admitRun = acquired.admitRun.bind(acquired);
   }
+  if (acquired.attachMcpTaskOwner) {
+    owned.attachMcpTaskOwner = acquired.attachMcpTaskOwner.bind(acquired);
+  }
   if (acquired.forgetThread) {
     owned.forgetThread = acquired.forgetThread.bind(acquired);
   }
