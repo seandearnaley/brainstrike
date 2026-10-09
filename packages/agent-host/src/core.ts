@@ -46,6 +46,8 @@ import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-sto
 import { beginHostRun, foldHostHookContextEvent, hostRunTerminalEvents } from './hook-context.js';
 import type { HostHookTrustStore } from './hook-trust.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
+import { HostLedgerProjection } from './ledger-projection.js';
+import type { HostLatestRun } from './ledger-wire.js';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
 import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
 import { HostProjectionRewrites } from './projection-rewrites.js';
@@ -106,6 +108,8 @@ export class HostCore {
   private readonly records = new HostToolRecords();
   private readonly compactions = new HostContextCompactions();
   private readonly rewrites = new HostProjectionRewrites();
+  /** Cost views and the thread list: every committed row, folded once. */
+  private readonly ledger = new HostLedgerProjection();
   private readonly threads = new Set<string>();
   private readonly presentations = new HostThreadPresentationState({
     admit: (threadId, perform) => this.admit(threadId, perform),
@@ -166,7 +170,9 @@ export class HostCore {
     for (const threadId of await store.threads()) {
       core.threads.add(threadId);
       for (const row of await store.read(threadId)) {
-        core.fold(await readHostRow(store, row));
+        const hydrated = await readHostRow(store, row);
+        core.ledger.apply(hydrated);
+        core.fold(hydrated);
       }
     }
     // BST-1930 c3: Core owns its recovered MCP tasks before any run can discover tools.
@@ -262,6 +268,7 @@ export class HostCore {
     const rows = await Promise.all(committed.map((row) => readHostRow(this.store, row)));
     beforePublish?.(rows);
     for (const row of rows) {
+      this.ledger.apply(row);
       for (const listener of this.listeners) {
         listener(row, this.children.parentOf(row.threadId));
       }
@@ -276,6 +283,16 @@ export class HostCore {
 
   listThreads(): HostResults['thread/list']['threads'] {
     return this.children.topLevel(this.threads, this.presentations);
+  }
+
+  /** Every thread's runs and costed provider calls, folded from its committed log. */
+  readLedger(): HostResults['ledger/read'] {
+    return this.ledger.read();
+  }
+
+  /** The thread's latest root run; undefined before its first run starts. */
+  readLatestRun(threadId: string): HostLatestRun | undefined {
+    return this.ledger.readLatestRun(threadId);
   }
 
   /** BST-1932: a thread's direct child threads, in delegation order, with their origins. */
@@ -438,6 +455,7 @@ export class HostCore {
     this.records.forgetThread(threadId, this.platform);
     this.compactions.forgetThread(threadId);
     this.rewrites.forgetThread(threadId);
+    this.ledger.forget(threadId);
     this.grants.delete(threadId);
   }
 
