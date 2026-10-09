@@ -692,6 +692,31 @@ it('revokes old read authority when new saved execution choices are invalid', as
   await activation.close();
 });
 
+it('keeps the setup requirement as the read refusal after a reconfiguration finds no choices', async () => {
+  const { activation, storage } = fixture();
+  // No search mode is chosen in Search & Indexing.
+  const saved = JSON.parse(await storage.getItem()) as { state: Record<string, unknown> };
+  saved.state['nativeIndexMode'] = null;
+  storage.getItem.mockResolvedValue(JSON.stringify(saved));
+  await activation.acquire().catch(() => undefined);
+  // Mounting a workspace root reconfigures; the saved choices are still missing.
+  await expect(activation.reconfigure()).rejects.toThrow(NativeIndexSetupRequiredError);
+  // Composed as Main composes it for the index-search IPC domain.
+  const capability = createNativeScopedSearchCapability({
+    openQuery: unused,
+    rebuild: unused,
+    withRead: activation.withRead,
+  });
+  const setup = 'Choose a search mode in Search & Indexing settings.';
+  await expect(capability.status()).resolves.toEqual({
+    kind: 'unavailable',
+    phase: 'setup-required',
+    reason: setup,
+  });
+  await expect(capability.coverageBatch([{ rootIds: ['root'] }])).rejects.toThrow(setup);
+  await activation.close();
+});
+
 it('fences reads and joins a held settings read before terminal retirement acknowledges', async () => {
   mocks.manager.attachCanonicalCollection.mockImplementation(
     async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
