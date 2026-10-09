@@ -1,3 +1,4 @@
+import { readDesktopRunConfiguration } from '@brainstrike/agent-host/desktop-run-configuration';
 import type { HostEvent, HostLogRow } from '@brainstrike/agent-host/protocol';
 import type {
   AssistantThreadHostLedger,
@@ -13,7 +14,6 @@ import type {
 import type { HostUsageRecord } from '@brainstrike/assistant-data/cost-tracking';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
-import { readDesktopRunConfiguration } from './desktop-run-configuration';
 import { type CommittedHostRunSource, STATUS_BY_OUTCOME } from './host-thread-runs';
 
 const logger = createLogger('HostThreadLedger');
