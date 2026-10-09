@@ -65,6 +65,7 @@ function useCommittedEffectCount(conversation: CommittedHostConversation | undef
 const NO_SUBSCRIPTION = (): (() => void) => () => undefined;
 
 function HostThread({
+  child,
   client,
   label,
   ledger,
@@ -73,6 +74,8 @@ function HostThread({
   runs,
   threadId,
 }: {
+  /** BST-1932: a delegated child's view, which sends input to the child while it runs. */
+  readonly child: boolean;
   readonly client: HostClient;
   readonly label: string;
   readonly ledger: HostThreadLedger;
@@ -140,6 +143,7 @@ function HostThread({
                 commands={conversation.commands}
                 label={label}
                 onRunningChange={onRunningChange}
+                onSendActiveInput={child ? conversation.sendInput : undefined}
                 onSteerActiveRun={steer}
                 store={conversation.store}
                 workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
@@ -195,6 +199,7 @@ const windowThreadCapability = createWindowThreadCapability(
     }
     return host ? (
       <HostThread
+        child={childCallSign !== undefined}
         client={host}
         // A child's region is named by its call sign, like its workspace tab.
         label={childCallSign ?? 'Assistant'}
