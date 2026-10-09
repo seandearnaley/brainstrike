@@ -148,6 +148,28 @@ export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmi
   });
 }
 
+/**
+ * Gap 17: the notice that the legacy profile's resource observations were not
+ * imported. The committed event is the delivered fact, so it goes with the
+ * first admitted run whose root log does not hold it yet.
+ */
+export function hostLegacyObservationEvents(
+  admission: HostRunAdmission,
+  runId: string,
+  noticed: boolean
+): Extract<HostEvent, { type: 'memory.observation.withheld' }>[] {
+  return admission.legacyObservationsWithheld && !noticed
+    ? [{ reason: 'legacy-resource-observations', runId, type: 'memory.observation.withheld' }]
+    : [];
+}
+
+/** Whether a committed event is the gap 17 legacy-observations notice. */
+export function isHostLegacyObservationNotice(event: HostEvent): boolean {
+  return (
+    event.type === 'memory.observation.withheld' && event.reason === 'legacy-resource-observations'
+  );
+}
+
 /** The run proceeds without each unavailable MCP server; its log names each one. */
 export function hostMcpUnavailableEvents(
   admission: HostRunAdmission,

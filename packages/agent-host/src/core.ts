@@ -61,8 +61,10 @@ import {
   bindHostRunAdmission,
   closeHostRunResources,
   ensureHostRunAdmission,
+  hostLegacyObservationEvents,
   hostMcpUnavailableEvents,
   hostRunCommandRequest,
+  isHostLegacyObservationNotice,
 } from './run-admission.js';
 import {
   admittedHostRun,
@@ -146,6 +148,8 @@ export class HostCore {
   private readonly failedAdmissions = new Map<string, unknown>();
   private readonly deletions = new Map<string, Promise<{ deleted: true }>>();
   private admission: Promise<void> = Promise.resolve();
+  /** Gap 17: the root's log holds the legacy-observations notice. */
+  private legacyObservationsNoticed = false;
   private closing = false;
   private closeTask?: Promise<void>;
 
@@ -194,6 +198,7 @@ export class HostCore {
     this.presentations.fold(row);
     this.workspaces.fold(row);
     const event = row.event;
+    this.legacyObservationsNoticed ||= isHostLegacyObservationNotice(event);
     switch (event.type) {
       case 'command.accepted':
         foldHostAcceptedCommand(this.commands, this.runs, event, row.threadId);
@@ -543,11 +548,14 @@ export class HostCore {
       }
       run.release = release;
       const result = { runId: run.id };
-      const unavailable = hostMcpUnavailableEvents(admission, run.id);
+      // Serialized admission makes the legacy notice's check-then-append commit it once.
+      const legacy = hostLegacyObservationEvents(admission, run.id, this.legacyObservationsNoticed);
+      const notices = [...hostMcpUnavailableEvents(admission, run.id), ...legacy];
       // A wake has no client command: its run.started records the delivery it answers.
       await (method === 'wake'
-        ? this.append(params.threadId, [started, ...unavailable])
-        : this.accept(params.threadId, method, record, result, [started, ...unavailable]));
+        ? this.append(params.threadId, [started, ...notices])
+        : this.accept(params.threadId, method, record, result, [started, ...notices]));
+      this.legacyObservationsNoticed ||= admission.legacyObservationsWithheld === true;
       this.children.recordDelivery(started.delivery);
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);
