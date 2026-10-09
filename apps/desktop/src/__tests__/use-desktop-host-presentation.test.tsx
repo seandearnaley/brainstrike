@@ -24,12 +24,36 @@ vi.mock('@brainstrike/app-shell', async (importOriginal) => ({
   useConfiguredAssistantProviders: () => configured.current,
   useFileMentions: () => ({ fileMentions: [] }),
 }));
+// The catalog rows host admission reads (`models`), as the live query returns them.
+interface CatalogRead {
+  error: Error | null;
+  loading: boolean;
+  rows: { id: string; providerId: string }[];
+}
+const catalog = vi.hoisted((): { current: CatalogRead } => ({
+  current: { error: null, loading: false, rows: [] },
+}));
+// The renderer's open database; its `models` reads go through the live query below.
+const DATABASE = { kind: 'database' } as const;
+const database = vi.hoisted((): { current: unknown } => ({ current: null }));
+vi.mock('@brainstrike/db/react', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/db/react')>()),
+  usePGliteDatabase: () => database.current,
+  usePGliteLiveQuery: (options: { query: string }) => {
+    if (!options.query.includes('FROM models')) {
+      throw new Error(`Unexpected live query: ${options.query}`);
+    }
+    return { ...catalog.current, refresh: async () => undefined };
+  },
+}));
 
 const THREAD = 'host-thread-presentation';
 const openAiModel = getProviderModelDefinitions('openai').find((model) => model.type === 'llm');
-if (!openAiModel) {
-  throw new Error('The provider catalog lists no OpenAI chat model');
+const localModel = getProviderModelDefinitions('local').find((model) => model.type === 'llm');
+if (!(openAiModel && localModel)) {
+  throw new Error('The provider catalog lists no OpenAI or built-in local chat model');
 }
+/** A renderer registry row: the Settings cache, not what admission reads. */
 const registryRow = (isEnabled: boolean) => ({
   bestFor: null,
   capabilities: { type: 'llm' as const },
@@ -43,12 +67,60 @@ const registryRow = (isEnabled: boolean) => ({
   sortOrder: 0,
   tagline: null,
 });
+const enabledOpenAi = { id: openAiModel.id, providerId: 'openai' };
+const OLLAMA_MODEL = 'lfm2.5-thinking:latest';
+/** The local runtime catalog as the renderer probes it: Ollama available with one chat model. */
+function discoverOllama(): void {
+  const checkedAt = Date.now();
+  const endpoint = 'http://127.0.0.1:11434';
+  const available = { checkedAt, endpoint, latencyMs: 3, state: 'available' } as const;
+  const notRunning = { checkedAt, message: 'Not running', state: 'unavailable' } as const;
+  useAssistantPreferencesStore.setState({
+    getLocalRuntimeModels: async () => ({
+      lmstudio: {
+        availability: notRunning,
+        checkedAt,
+        message: 'Not running',
+        runtime: 'lmstudio',
+        state: 'failed',
+      },
+      ollama: {
+        availability: available,
+        checkedAt,
+        endpoint,
+        freshness: 'live',
+        models: [
+          {
+            capabilities: { embeddings: 'unsupported', llm: true, vision: 'unknown' },
+            capabilitySource: 'inferred',
+            dimensionsKnown: { state: 'not_applicable' },
+            displayName: OLLAMA_MODEL,
+            endpoint,
+            freshness: 'live',
+            modelId: OLLAMA_MODEL,
+            modelKey: OLLAMA_MODEL,
+            providerId: 'ollama',
+            runtime: 'ollama',
+            source: 'ollama_api_tags',
+          },
+        ],
+        runtime: 'ollama',
+        source: 'ollama_api_tags',
+        state: 'loaded_non_empty',
+      },
+    }),
+    getLocalRuntimeStatuses: async () => ({ lmstudio: notRunning, ollama: available }),
+  });
+}
 
 const preferences = useAssistantPreferencesStore.getState();
 const registry = useModelRegistryStore.getState();
 const threads = useAssistantThreadStore.getState();
 
 beforeEach(() => {
+  database.current = DATABASE;
+  // The registry cache counts as loaded, so its loader never reads the stand-in database.
+  useModelRegistryStore.setState({ hasLoaded: true });
   useAssistantPreferencesStore.setState({ selectedModel: `openai::${openAiModel.id}` });
 });
 
@@ -57,6 +129,9 @@ afterEach(() => {
   useModelRegistryStore.setState(registry, true);
   useAssistantThreadStore.setState(threads, true);
   configured.current = { discoveryState: 'ready', providers: [] };
+  catalog.current = { error: null, loading: false, rows: [] };
+  database.current = null;
+  Reflect.deleteProperty(navigator, 'gpu');
 });
 
 describe('the host composer gates a send on the provider notice', () => {
@@ -71,27 +146,88 @@ describe('the host composer gates a send on the provider notice', () => {
     );
   });
 
-  test('a connected provider with no enabled model', () => {
+  test('a connected provider with no model the catalog enables, whatever the registry cache says', () => {
     configured.current = { discoveryState: 'ready', providers: ['openai'] };
-    useModelRegistryStore.setState({ models: [registryRow(false)] });
+    useModelRegistryStore.setState({ models: [registryRow(true)] });
     const { result } = renderHook(() => useDesktopHostPresentation(THREAD));
     expect(result.current.disabledReason).toBe('Enable at least one model for OpenAI to continue.');
     expect(result.current.isComposerDisabled).toBe(true);
   });
 
-  test('an unavailable local runtime', () => {
+  test('a model the catalog enables opens the composer though the registry cache is stale', () => {
     configured.current = { discoveryState: 'ready', providers: ['openai'] };
-    useAssistantPreferencesStore.setState({ selectedModel: 'ollama::llama3.2' });
+    useModelRegistryStore.setState({ models: [registryRow(false)] });
+    catalog.current = { error: null, loading: false, rows: [enabledOpenAi] };
+    const { result } = renderHook(() => useDesktopHostPresentation(THREAD));
+    expect(result.current.disabledReason).toBeUndefined();
+    expect(result.current.isComposerDisabled).toBeUndefined();
+    expect(
+      result.current.pickerModels?.map(({ id, providerId }) => `${providerId}::${id}`)
+    ).toEqual([`openai::${openAiModel.id}`]);
+  });
+
+  test('the built-in local model is enabled by its catalog row, as admission reads it', () => {
+    Object.defineProperty(navigator, 'gpu', { configurable: true, value: {} });
+    configured.current = { discoveryState: 'ready', providers: ['local'] };
+    useAssistantPreferencesStore.setState({ selectedModel: `local::${localModel.id}` });
+    catalog.current = {
+      error: null,
+      loading: false,
+      rows: [{ id: localModel.id, providerId: 'local' }],
+    };
+    const { result } = renderHook(() => useDesktopHostPresentation(THREAD));
+    expect(result.current.disabledReason).toBeUndefined();
+    expect(result.current.isComposerDisabled).toBeUndefined();
+  });
+
+  test('a dynamically discovered Ollama model sends without any catalog row', async () => {
+    configured.current = { discoveryState: 'ready', providers: ['ollama'] };
+    discoverOllama();
+    useAssistantPreferencesStore.setState({ selectedModel: `ollama::${OLLAMA_MODEL}` });
+    const { result } = renderHook(() => useDesktopHostPresentation(THREAD));
+    await waitFor(() => {
+      expect(result.current.pickerModels?.some(({ id }) => id === OLLAMA_MODEL)).toBe(true);
+    });
+    expect(result.current.disabledReason).toBeUndefined();
+    expect(result.current.isComposerDisabled).toBeUndefined();
+  });
+
+  test('a local runtime discovery has not confirmed is named but never gates the send admission accepts', () => {
+    configured.current = { discoveryState: 'ready', providers: ['openai'] };
+    useAssistantPreferencesStore.setState({ selectedModel: `ollama::${OLLAMA_MODEL}` });
     const { result } = renderHook(() => useDesktopHostPresentation(THREAD));
     expect(result.current.disabledReason).toBe(
       'The selected local runtime is currently unavailable.'
     );
-    expect(result.current.isComposerDisabled).toBe(true);
+    expect(result.current.isComposerDisabled).toBeUndefined();
+  });
+
+  test('a catalog still loading names nothing, and a failed catalog read gates the send', () => {
+    configured.current = { discoveryState: 'ready', providers: ['openai'] };
+    database.current = null;
+    const noDatabase = renderHook(() => useDesktopHostPresentation(THREAD));
+    expect(noDatabase.result.current.disabledReason).toBeUndefined();
+    noDatabase.unmount();
+    database.current = DATABASE;
+    catalog.current = { error: null, loading: true, rows: [] };
+    const loading = renderHook(() => useDesktopHostPresentation(THREAD));
+    expect(loading.result.current.disabledReason).toBeUndefined();
+    loading.unmount();
+    catalog.current = {
+      error: new Error('relation "models" does not exist'),
+      loading: false,
+      rows: [],
+    };
+    const failed = renderHook(() => useDesktopHostPresentation(THREAD));
+    expect(failed.result.current.disabledReason).toBe(
+      'Could not read the enabled models: relation "models" does not exist'
+    );
+    expect(failed.result.current.isComposerDisabled).toBe(true);
   });
 
   test("the host status's credential read failure for the selected provider", () => {
     configured.current = { discoveryState: 'ready', providers: ['openai', 'anthropic'] };
-    useModelRegistryStore.setState({ models: [registryRow(true)] });
+    catalog.current = { error: null, loading: false, rows: [enabledOpenAi] };
     const { result } = renderHook(() =>
       useDesktopHostPresentation(THREAD, { openai: 'The OpenAI key could not be read.' })
     );
@@ -114,7 +250,7 @@ describe('the host composer gates a send on the provider notice', () => {
       discoveryState: 'error',
       providers: ['openai'],
     };
-    useModelRegistryStore.setState({ models: [registryRow(true)] });
+    catalog.current = { error: null, loading: false, rows: [enabledOpenAi] };
     const { result } = renderHook(() => useDesktopHostPresentation(THREAD));
     expect(result.current.disabledReason).toBe(
       'Could not refresh available providers: probe failed'
@@ -124,7 +260,7 @@ describe('the host composer gates a send on the provider notice', () => {
 
   test('a ready provider and model leave the composer open', () => {
     configured.current = { discoveryState: 'ready', providers: ['openai'] };
-    useModelRegistryStore.setState({ models: [registryRow(true)] });
+    catalog.current = { error: null, loading: false, rows: [enabledOpenAi] };
     const { result } = renderHook(() => useDesktopHostPresentation(THREAD));
     expect(result.current.disabledReason).toBeUndefined();
     expect(result.current.isComposerDisabled).toBeUndefined();
@@ -143,7 +279,7 @@ describe("the host composer's Tools menu", () => {
   };
   beforeEach(() => {
     configured.current = { discoveryState: 'ready', providers: ['openai'] };
-    useModelRegistryStore.setState({ models: [registryRow(true)] });
+    catalog.current = { error: null, loading: false, rows: [enabledOpenAi] };
     // The desktop shell's lifecycle bridge: desktop native tools are offered.
     Object.defineProperty(window, 'desktopLifecycle', { configurable: true, value: {} });
     mcp.disableTools.mockResolvedValue(undefined);
