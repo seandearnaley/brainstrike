@@ -16,7 +16,7 @@ import {
 import type { McpServerActorClientFactory } from '@brainstrike/host-capabilities/mcp/server-actor';
 import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createDesktopMcpHostRuntime, getDesktopMcpHostRuntime } from '../../mcp/host-runtime';
+import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import { openExternalWithElectron } from '../../mcp/open-external';
 
 const REF = '00000000-0000-4000-8000-000000000001';
@@ -981,6 +981,5 @@ describe('DesktopMcpHostRuntime', () => {
     listing.resolve({ tools: [] });
     await expect(invocation).rejects.toMatchObject({ category: 'generation-retired' });
     await expect(closing).resolves.toMatchObject({ requestsSettled: 0 });
-    expect(getDesktopMcpHostRuntime()).toBe(getDesktopMcpHostRuntime());
   });
 });

@@ -200,7 +200,7 @@ import { registerMainPlatformIpcHandlers } from './main-platform-ipc';
 import { isMainProcessHealthDegraded } from './main-process-health-log-level';
 import { getMcpAppShellRegistry, registerMcpAppShellProtocol } from './mcp/apps-shell-protocol';
 import { createDesktopMcpPlatformCapabilities } from './mcp/desktop-host-platform';
-import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
+import { getMainMcpHostControl } from './mcp/main-host-control';
 import { createNativeCallerRead } from './native-caller-query';
 import { createNativeIndexActivation } from './native-index-activation';
 import { reportNativeIndexActivationError as reportNativeIndexFailure } from './native-index-activation-error';
@@ -805,20 +805,15 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     if (outcome === 'succeeded') {
       await nativeIndexActivation.resume();
     }
-    await resumeMcpRuntimeAfterFactoryReset(getDesktopMcpHostRuntime(), outcome);
+    await resumeMcpRuntimeAfterFactoryReset(getMainMcpHostControl(), outcome);
   },
   runtimes: [
     { name: 'native-index-sources', stop: () => nativeIndexActivation.stopSources() },
     {
       name: 'mcp-runtime',
       stop: async () => {
-        const runtime = getDesktopMcpHostRuntime();
-        await resetMcpRuntimeForFactoryReset(runtime);
-        logger.info('MCP runtime reset cleanup completed', {
-          hostCloseReport: runtime.retiredCleanupReport(),
-          legacyClientsClosed: true,
-          snapshot: runtime.host.snapshot(),
-        });
+        await resetMcpRuntimeForFactoryReset(getMainMcpHostControl());
+        logger.info('MCP settings retired for the factory reset');
       },
     },
     { name: 'embedding-host', stop: () => embeddingHostManager.stop() },
@@ -1076,7 +1071,7 @@ const nativeIndexActivation = createNativeIndexActivation({
         // llm-host (an isolated E2E launch may script it instead of downloading the model).
         localLlm: createMainLlmHostClient(createE2eScriptedLlmHost() ?? llmHostManager),
         // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
-        mcp: createDesktopMcpPlatformCapabilities(getDesktopMcpHostRuntime()),
+        mcp: createDesktopMcpPlatformCapabilities(getMainMcpHostControl()),
         // ADR-0017: the host reports its native processes; Main ends them if it dies.
         nativeChildren,
         // BST-1977: host runs' turns snapshot through legacy turns' one shadow-git owner.
@@ -1688,7 +1683,7 @@ if (singleInstanceLockAcquired) {
         })
       );
       ipcDisposers.add('agent', registerAgentIpcHandlers());
-      ipcDisposers.add('mcp', registerMcpIpcHandlers({ runtime: getDesktopMcpHostRuntime() }));
+      ipcDisposers.add('mcp', registerMcpIpcHandlers({ runtime: getMainMcpHostControl() }));
       ipcDisposers.add('runtime', registerRuntimeIpcHandlers());
       logger.debug('Ready-dependent IPC handlers registered successfully');
       // Kick off DB initialization (utilityProcess spawn + migrations) and the
