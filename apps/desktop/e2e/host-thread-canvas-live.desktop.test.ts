@@ -60,16 +60,17 @@ test('an open Canvas panel shows the canvas a host run commits, without a thread
       if (!drawing) {
         return { finalText: FIRST_REPLY };
       }
-      const canvas = request.toolNames.find((tool) => tool.endsWith('manageCanvas'));
-      return canvas
+      // Hosted discovery defers manageCanvas: the model loads it, then calls it.
+      return request.toolNames.includes('load_tool')
         ? {
+            deferredTool: true,
             finalText: SECOND_REPLY,
             toolCall: {
               arguments: { action: 'create', html: CANVAS_HTML, title: CANVAS_TITLE },
-              name: canvas,
+              name: 'brainstrike_manageCanvas',
             },
           }
-        : { finalText: `Missing manageCanvas: ${request.toolNames.join(', ')}` };
+        : { finalText: `Missing load_tool: ${request.toolNames.join(', ')}` };
     });
     await ensureAssistantShellVisible(page);
     const region = page.getByRole('region', { exact: true, name: 'Assistant' });
