@@ -28,7 +28,9 @@ const invocationKey = (identity: Invocation): string =>
 const UNAVAILABLE = 'The delegated conversation is unavailable or belongs to another parent.';
 
 /** The child's workspace tab opens, then takes focus as the ordinary thread-tab shell does. */
-function openChildTab(child: AssistantThreadHostChild): void {
+export function openHostChildTab(
+  child: Pick<AssistantThreadHostChild, 'persona' | 'threadId'>
+): void {
   const appId = hostChildWorkspaceTabId({ persona: child.persona, threadId: child.threadId });
   useWorkspaceTabSelectionStore.getState().openApp(appId);
   window.requestAnimationFrame(() => {
@@ -138,7 +140,7 @@ export function HostChildConversations({
     (childThreadId: string) => {
       const known = current?.find((child) => child.threadId === childThreadId);
       if (known) {
-        openChildTab(known);
+        openHostChildTab(known);
         return;
       }
       // The card can read a result before this view's listing catches up.
@@ -148,7 +150,7 @@ export function HostChildConversations({
           if (!child) {
             throw new Error(UNAVAILABLE);
           }
-          openChildTab(child);
+          openHostChildTab(child);
         })
         .catch((error: unknown) => {
           logger.error('Host child conversation could not be opened', {

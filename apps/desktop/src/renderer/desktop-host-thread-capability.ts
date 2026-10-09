@@ -110,8 +110,8 @@ function bindingPatch(metadata: AssistantThreadMetadata): ThreadWorkspaceBinding
 export function createWindowThreadCapability(
   renderThread: (view: {
     readonly catalogLoaded: boolean;
-    /** BST-1932: a child thread's call sign; absent for a top-level thread. */
-    readonly childCallSign: string | undefined;
+    /** BST-1932: a child thread's call sign and family colour; absent for a top-level thread. */
+    readonly child: { readonly callSign: string; readonly color: string } | undefined;
     readonly host: HostClient | undefined;
     readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
     readonly onTitleCommitted: () => void;
@@ -136,7 +136,7 @@ export function createWindowThreadCapability(
   let closing: Promise<void> | undefined;
   let catalogLoaded = false;
   const threads = new Map<string, HostClient>();
-  const childCallSigns = new Map<string, string>();
+  const childViews = new Map<string, { readonly callSign: string; readonly color: string }>();
   const close = (): Promise<void> => {
     const admitted = connecting;
     closing ??= (async () => {
@@ -214,11 +214,13 @@ export function createWindowThreadCapability(
       return (await host.request('thread/children', { threadId })).children.map(
         ({ callSign, color, origin, threadId: child }) => {
           threads.set(child, host);
-          childCallSigns.set(child, callSign);
+          childViews.set(child, { callSign, color });
           return {
             callSign,
             color,
+            depth: origin.depth,
             parentRunId: origin.parentRunId,
+            parentThreadId: origin.parentThreadId,
             persona: origin.persona,
             threadId: child,
             toolCallId: origin.toolCallId,
@@ -273,7 +275,7 @@ export function createWindowThreadCapability(
     renderThread: (threadId, _isVisible, onRunningChange, providerReadErrors) =>
       renderThread({
         catalogLoaded,
-        childCallSign: childCallSigns.get(threadId),
+        child: childViews.get(threadId),
         host: threads.get(threadId),
         ledger,
         onRunningChange,
@@ -299,11 +301,13 @@ export function createWindowThreadCapability(
         throw new Error('The child conversation is missing or does not belong to this workspace.');
       }
       threads.set(threadId, host);
-      childCallSigns.set(threadId, child.callSign);
+      childViews.set(threadId, { callSign: child.callSign, color: child.color });
       return {
         callSign: child.callSign,
         color: child.color,
+        depth: child.origin.depth,
         parentRunId: child.origin.parentRunId,
+        parentThreadId: child.origin.parentThreadId,
         persona: child.origin.persona,
         threadId,
         toolCallId: child.origin.toolCallId,

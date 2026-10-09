@@ -69,6 +69,7 @@ function useCommittedEffectCount(conversation: CommittedHostConversation | undef
 const NO_SUBSCRIPTION = (): (() => void) => () => undefined;
 
 function HostThread({
+  agentColor,
   child,
   client,
   label,
@@ -79,6 +80,8 @@ function HostThread({
   runs,
   threadId,
 }: {
+  /** BST-1932: a child's view is tinted with its family colour. */
+  readonly agentColor: string | undefined;
   /** BST-1932: a delegated child's view, which sends input to the child while it runs. */
   readonly child: boolean;
   readonly client: HostClient;
@@ -150,6 +153,7 @@ function HostThread({
             <HostChildConversations revision={effects} threadId={threadId}>
               <CommittedAssistantConversation
                 {...presentation}
+                agentColor={agentColor}
                 approvalStrip={<HostApprovalStrip client={client} tree={conversation.approvals} />}
                 commands={conversation.commands}
                 {...(cumulativeUsage ? { cumulativeUsage } : {})}
@@ -196,7 +200,7 @@ function SteeringStatus({
 const windowThreadCapability = createWindowThreadCapability(
   ({
     catalogLoaded,
-    childCallSign,
+    child,
     host,
     ledger,
     onRunningChange,
@@ -212,10 +216,11 @@ const windowThreadCapability = createWindowThreadCapability(
     }
     return host ? (
       <HostThread
-        child={childCallSign !== undefined}
+        agentColor={child?.color}
+        child={child !== undefined}
         client={host}
         // A child's region is named by its call sign, like its workspace tab.
-        label={childCallSign ?? 'Assistant'}
+        label={child?.callSign ?? 'Assistant'}
         ledger={ledger}
         onRunningChange={onRunningChange}
         onTitleCommitted={onTitleCommitted}
