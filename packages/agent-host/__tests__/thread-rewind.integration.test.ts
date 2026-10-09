@@ -93,6 +93,7 @@ test('a rewind restores files to the message’s turn start, and the next messag
   const preview = await core.previewRewind({ messageId: second.messageId, threadId });
   expect(preview.files).toEqual({
     available: true,
+    fromRunId: second.runId,
     previewId: 'preview-1',
     roots: [{ ...ROOT, commitOid: oid('2') }],
   });

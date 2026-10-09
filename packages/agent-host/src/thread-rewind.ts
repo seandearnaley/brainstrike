@@ -75,7 +75,9 @@ export interface HostThreadRewindPorts {
 }
 
 interface RewindTarget {
-  readonly files: { readonly reason: string } | { readonly targets: HostTurnSnapshot[] };
+  readonly files:
+    | { readonly reason: string }
+    | { readonly fromRunId: string; readonly targets: HostTurnSnapshot[] };
   readonly headId: string | null;
   readonly runId: string;
   readonly runIds: string[];
@@ -108,7 +110,7 @@ function restorePoints(
   const failed = [...targets.values()].find((root) => FAILED_CAPTURE_OID.test(root.commitOid));
   return failed
     ? { reason: `The workspace snapshot of root "${failed.rootId}" failed when it was taken` }
-    : { targets: [...targets.values()] };
+    : { fromRunId: first.id, targets: [...targets.values()] };
 }
 
 export class HostThreadRewinds {
@@ -198,7 +200,12 @@ export class HostThreadRewinds {
         targets: target.files.targets,
         threadId: params.threadId,
       });
-      files = { available: true, previewId, roots: target.files.targets };
+      files = {
+        available: true,
+        fromRunId: target.files.fromRunId,
+        previewId,
+        roots: target.files.targets,
+      };
     }
     return { files, headId: target.headId, runIds: target.runIds };
   }

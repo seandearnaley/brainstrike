@@ -1066,6 +1066,12 @@ export const HOST_RESULT_SCHEMAS = {
     files: z.discriminatedUnion('available', [
       z.strictObject({
         available: z.literal(true),
+        /**
+         * The run whose turn start the restore points begin at: the earliest
+         * run answering the target message. A root first seen later restores
+         * to its first turn start after it.
+         */
+        fromRunId: Id,
         previewId: Id,
         /** Each root and the snapshot it is restored to. */
         roots: z.array(HostTurnSnapshotSchema),

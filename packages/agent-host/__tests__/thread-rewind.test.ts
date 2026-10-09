@@ -129,6 +129,7 @@ describe('restore to before a message', () => {
     expect(preview).toEqual({
       files: {
         available: true,
+        fromRunId: 'run-2',
         previewId: 'preview-1',
         // Root B, first seen later, restores to its first turn start after the target.
         roots: [
