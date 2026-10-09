@@ -26,8 +26,11 @@ the named peers. Doing it from M3 costs about two to three more weeks.
   answer.
 - One host per data root. The host takes the data-root lock and writes
   `<dataRoot>/host.json` (pid, start time, endpoint, token, protocol and host
-  versions; mode 0600 in a 0700 directory). A stale record is taken over; a live but
-  unreachable host is refused by pid and never killed.
+  versions; mode 0600 in a 0700 directory). A record is stale only when its pid is
+  dead AND the Root's flock is free, and only a stale record is taken over. A live
+  pid, or a held flock from a surviving native process, is refused; a live but
+  unreachable host is refused by pid and never killed. See "Native processes hold
+  the Root" below.
 - Platform services come through `HostPlatform` adapters: secret store (keyring),
   browser opener, embedding port, notifier, indexer port and an explicit data root.
   The host bundle has no runtime `electron` imports.
@@ -91,6 +94,48 @@ Root released. The requesting transport remains only through the actual JSON-RPC
 response write; the host's `closed` Promise also joins its final socket/server
 close. Failed cleanup reports an error and retains Root. This lifecycle operation
 creates no durable thread command and does not use a PID-kill fallback.
+
+### Native processes hold the Root
+
+Amended 9 October 2026. Since `d18fa2ec4` the host itself runs `executeCommand`, so a
+command's parent is the host. In the ordinary utility-loss case a SIGKILLed utility
+left its command running, reparented to pid 1. The lock judged only the record's
+pid, so a contender took the Root while that command still ran, and nothing ended
+the command. An OS check showed the primitive that fits: an flock(2) belongs to its
+open file description, so a descendant that inherited the descriptor keeps it after
+its holder is SIGKILLed, and it frees when the last such process exits.
+
+- On POSIX the Root is also an exclusive flock on `<dataRoot>/lock/root.flock`, taken
+  right after a generation is claimed (`tryExclusiveFlock` in `secure-fs-native`).
+  A claim that finds it held is withdrawn, so the earlier record stays newest, and
+  the refusal names that owner as having started the surviving process.
+- Every native process the host starts goes through one helper,
+  `spawnNativeChild`, which passes the Root's descriptor as an extra stdio slot.
+  A host whose Root was released refuses further spawns.
+- Desktop Main supervises its host's native processes. The host reports each
+  process's pid, start time and process group over the platform connection. When
+  the utility exits unexpectedly, Main sends SIGTERM to each live group, then
+  SIGKILL after the executor's own 2,000 ms grace. Main's lease close succeeds only
+  after those groups are gone and the Root's flock is free.
+- A CLI-started host has no supervisor: its surviving native processes keep the
+  Root refused until they exit.
+- Windows has no inheritable lock. The host puts itself in a kill-on-close Job
+  Object (`windows-job-native` `initialize()`) before it starts any native process,
+  so its native processes end with it.
+
+Known limits. None of these holds the Root's flock; Main's registry still ends each
+one after its host dies.
+
+- A descendant that closes its inherited descriptors (a daemon-style
+  double fork or `closefrom`) no longer holds the Root.
+- Command sessions: node-pty 1.1.0 spawns with `POSIX_SPAWN_CLOEXEC_DEFAULT` and
+  duplicates only the pty into fds 0-2 (`node-pty/src/unix/pty.cc` lines 703-750).
+  When the host dies, the pty hangs up (SIGHUP).
+- stdio MCP servers: the SDK's `StdioClientTransport` spawns with stdio
+  `[pipe, pipe, stderr]` (`@modelcontextprotocol/client` 2.1.0, `dist/stdio.mjs`
+  lines 79-83). When the host dies, the server's stdin reaches EOF.
+- Short `execFile` calls (git, ripgrep): `execFile` takes no stdio option. They are
+  bounded by their own timeouts.
 
 ## Consequences
 

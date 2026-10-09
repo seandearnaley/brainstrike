@@ -22,6 +22,7 @@ export {
   type LockOptions,
   type LockOwner,
   processStartTime,
+  type RootHolder,
   RootLock,
   RootLockedError,
 } from './lock.js';
@@ -52,6 +53,13 @@ export type {
   MemoryNativeRequest,
   MemorySnapshot,
 } from './memory-types.js';
+export {
+  type NativeChild,
+  type NativeChildObserver,
+  observeNativeChildren,
+  spawnNativeChild,
+  trackNativeChild,
+} from './native-children.js';
 export { blobsOf, TOMBSTONE_BODY, withSeq } from './run-log-format.mjs';
 export type { AppendItem, BlobContent, LogRow, RunEvent, ThreadStatus } from './run-log-types.js';
 export { SCHEMA_VERSION } from './schema.mjs';

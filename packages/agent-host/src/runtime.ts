@@ -211,6 +211,8 @@ export async function startAgentHost(
               memoryCalculatorModule: createRequire(import.meta.url).resolve(
                 '@brainstrike/agent-host/memory-storage-calculator'
               ),
+              // ADR-0017: the native processes this host starts inherit its Root.
+              shareWithNativeChildren: true,
               startup: {
                 acquire: async (acquired) => {
                   signal.throwIfAborted();
