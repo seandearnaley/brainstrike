@@ -221,8 +221,9 @@ function verifyBlobReferences(rows) {
 }
 
 /** Resource identities are retained in the existing purge intent before FK deletion.
- * @param {string} threadId @param {number} seq */
-function eraseThreadMemory(threadId, seq) {
+ * @param {string} threadId @param {number} seq
+ * @param {'clear' | 'keep-working-memory'} sharedResource */
+function eraseThreadMemory(threadId, seq, sharedResource) {
   const intent = /** @type {{ memory_resources:string } | undefined} */ (
     db
       .prepare('SELECT memory_resources FROM purge_intent WHERE thread_id=? AND seq=?')
@@ -235,7 +236,7 @@ function eraseThreadMemory(threadId, seq) {
     executeMemoryRequest(db, {
       operation: 'purge-thread',
       resourceId,
-      sharedResource: 'clear',
+      sharedResource,
       threadId,
     });
   }
@@ -339,14 +340,16 @@ async function handle(m) {
       const threadId = String(m['threadId']);
       const seq = Number(m['seq']);
       log.purge(threadId, seq, String(m['tombstone']), () => {
-        eraseThreadMemory(threadId, seq);
+        // A purge erases what the thread may have contributed to shared memory.
+        eraseThreadMemory(threadId, seq, 'clear');
         kill?.();
       });
       return {};
     }
     case 'deleteThread': {
       const threadId = String(m['threadId']);
-      log.deleteThread(threadId, () => eraseThreadMemory(threadId, 0));
+      // Deleting a thread keeps the workspace working memory, as legacy did.
+      log.deleteThread(threadId, () => eraseThreadMemory(threadId, 0, 'keep-working-memory'));
       return {};
     }
     case 'intentRecord': {

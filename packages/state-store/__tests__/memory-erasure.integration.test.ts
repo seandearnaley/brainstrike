@@ -90,6 +90,24 @@ test('SIGKILL after truth erasure replays the retained resource policy before re
   }
 });
 
+test('deleting a thread keeps the shared working memory, as legacy; its own memory goes', async () => {
+  const root = freshDir('m3-memory-delete-keeps-wm');
+  const indexer = new TruthIndexer(root);
+  const store = await StateStore.open(root, { indexer, memoryCalculatorModule: calculator });
+  try {
+    await seedMemoryErasure(store);
+    await store.deleteThread(threadId);
+    const { entities } = await store.memory({ operation: 'read', resourceId });
+    expect(entities.map(({ id, kind, threadId: owner }) => ({ id, kind, owner }))).toEqual([
+      { id: resourceId, kind: 'resource', owner: null },
+    ]);
+    expect(entities[0]?.payload).toMatchObject({ workingMemory: MEMORY_ERASURE_SECRET });
+  } finally {
+    await store.close();
+    indexer.close();
+  }
+});
+
 test('held native calculation stays ahead of deletion; retired thread cannot recreate resource WM', async () => {
   const root = freshDir('m3-memory-held');
   let indexer = new TruthIndexer(root);
@@ -134,7 +152,12 @@ test('held native calculation stays ahead of deletion; retired thread cannot rec
     await writeFile(release, 'release');
     await held;
     await deletion;
-    expect((await store.memory({ operation: 'read', resourceId })).entities).toEqual([]);
+    // The held write committed ahead of the deletion; deleting the thread keeps
+    // the shared working memory, as legacy did, and erases the rest.
+    const kept = (await store.memory({ operation: 'read', resourceId })).entities;
+    expect(kept.map(({ id, kind, threadId: owner }) => ({ id, kind, owner }))).toEqual([
+      { id: resourceId, kind: 'resource', owner: null },
+    ]);
     await expect(
       store.memory({
         arguments: [{ resource: { id: resourceId, workingMemory: MEMORY_ERASURE_SECRET } }],
@@ -144,7 +167,7 @@ test('held native calculation stays ahead of deletion; retired thread cannot rec
         resourceId,
       })
     ).rejects.toThrow(/retired/);
-    expect(byteSearch(root, MEMORY_ERASURE_SECRET).files[STATE_DB] ?? 0).toBe(0);
+    expect((await store.memory({ operation: 'read', resourceId })).entities).toEqual(kept);
     await store.reset();
     expect(existsSync(join(root, STATE_DB))).toBe(false);
   } finally {

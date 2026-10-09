@@ -77,7 +77,11 @@ export type MemoryDomainRequest = (
       readonly operation: 'purge-thread';
       readonly resourceId: string;
       readonly threadId: string;
-      readonly sharedResource: 'clear' | 'preserve';
+      /**
+       * The resource's shared records: erase all, keep all, or keep the
+       * working memory and erase the shared observations (thread deletion).
+       */
+      readonly sharedResource: 'clear' | 'keep-working-memory' | 'preserve';
     }
   | { readonly operation: 'purge-resource'; readonly resourceId: string }
 ) & { readonly ownerThreadId?: string };

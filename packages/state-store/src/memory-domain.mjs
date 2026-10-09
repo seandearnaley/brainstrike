@@ -131,6 +131,13 @@ function purgeThread(db, request) {
     db.prepare(
       'DELETE FROM brainstrike_memory_entities WHERE resource_id=? AND thread_id IS NULL'
     ).run(request.resourceId);
+  } else if (request.sharedResource === 'keep-working-memory') {
+    // Legacy kept resource working memory when a thread was deleted. A shared
+    // observation record still names the thread in its attributed sections,
+    // which the derived observation index can no longer authorize, so it goes.
+    db.prepare(
+      "DELETE FROM brainstrike_memory_entities WHERE resource_id=? AND thread_id IS NULL AND kind='observation'"
+    ).run(request.resourceId);
   } else if (request.sharedResource !== 'preserve') {
     throw new TypeError('Invalid shared memory purge policy');
   }
