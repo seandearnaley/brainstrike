@@ -33,6 +33,7 @@ import { parsePartialJsonObject } from 'assistant-stream/utils';
 import { committedApprovalOptions } from './committed-approval-options';
 import {
   committedAttachments,
+  committedStreamData,
   mcpToolsUnavailableNotice,
   readHookSkips,
   readRunAttempt,
@@ -711,8 +712,9 @@ export class CommittedAssistantLogProjection {
       return;
     }
     const type = chunk['type'];
-    if ((type === 'data' || type === 'aui-data') && typeof chunk['name'] === 'string') {
-      this.data(run, row, chunk['data'], chunk['name']);
+    const named = committedStreamData(chunk);
+    if (named) {
+      this.data(run, row, named.data, named.name);
       return;
     }
     if (type === 'tool-approval-response') {

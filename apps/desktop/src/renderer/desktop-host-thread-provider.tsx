@@ -39,6 +39,7 @@ import { readDesktopHostModel } from './desktop-host-configuration';
 import { createWindowThreadCapability } from './desktop-host-thread-capability';
 import { HostApprovalStrip } from './host-approval-strip';
 import { HostChildDetailsFold } from './host-child-details';
+import { HostApprovalHistoryProvider } from './host-child-tree-notices';
 import { hostMcpAppBridge } from './host-mcp-app-bridge';
 import type { HostThreadCanvases } from './host-thread-canvases';
 import { createHostDebugBundleBinding } from './host-thread-debug';
@@ -244,28 +245,30 @@ function HostThread({
             <CommittedVerdicts verdicts={conversation.verdicts}>
               <BudgetGuardrailProvider value={budgetGuardrail}>
                 <DebugBundleProvider value={debugBundle}>
-                  <HostChildConversations revision={effects} threadId={threadId}>
-                    <CommittedAssistantConversation
-                      {...presentation}
-                      agentColor={agentColor}
-                      approvalStrip={
-                        <HostApprovalStrip
-                          client={client}
-                          self={child ? label : undefined}
-                          tree={conversation.approvals}
-                        />
-                      }
-                      commands={conversation.commands}
-                      {...(cumulativeUsage ? { cumulativeUsage } : {})}
-                      label={label}
-                      onRunningChange={onRunningChange}
-                      onSendActiveInput={child ? conversation.sendInput : undefined}
-                      onSteerActiveRun={steer}
-                      rewind={child ? null : rewind}
-                      store={conversation.store}
-                      workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
-                    />
-                  </HostChildConversations>
+                  <HostApprovalHistoryProvider tree={conversation.approvals}>
+                    <HostChildConversations revision={effects} threadId={threadId}>
+                      <CommittedAssistantConversation
+                        {...presentation}
+                        agentColor={agentColor}
+                        approvalStrip={
+                          <HostApprovalStrip
+                            client={client}
+                            self={child ? label : undefined}
+                            tree={conversation.approvals}
+                          />
+                        }
+                        commands={conversation.commands}
+                        {...(cumulativeUsage ? { cumulativeUsage } : {})}
+                        label={label}
+                        onRunningChange={onRunningChange}
+                        onSendActiveInput={child ? conversation.sendInput : undefined}
+                        onSteerActiveRun={steer}
+                        rewind={child ? null : rewind}
+                        store={conversation.store}
+                        workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
+                      />
+                    </HostChildConversations>
+                  </HostApprovalHistoryProvider>
                 </DebugBundleProvider>
               </BudgetGuardrailProvider>
             </CommittedVerdicts>

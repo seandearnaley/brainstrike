@@ -158,6 +158,7 @@ async function admit(client: MessageConnection): Promise<unknown> {
 
 const LIST_TABLES = {
   request: { input: { mode: 'listTables', target: 'app' } },
+  selectionRunId: 'run',
   threadId: 'thread',
 };
 
@@ -320,23 +321,24 @@ it('serves a host command’s worktree snapshot and completion to Main’s corre
   });
   try {
     await expect(
-      h.client.sendRequest('platform/worktree/paths', { threadId: 'thread' })
+      h.client.sendRequest('platform/worktree/paths', { selectionRunId: 'run', threadId: 'thread' })
     ).rejects.toBeInstanceOf(Error);
     await admit(h.client);
     await expect(
-      h.client.sendRequest('platform/worktree/paths', { threadId: 'thread' })
+      h.client.sendRequest('platform/worktree/paths', { selectionRunId: 'run', threadId: 'thread' })
     ).resolves.toEqual({ paths: ['/repo/.worktrees/fox'] });
-    const input = {
+    const completion = {
       command: 'git worktree add ../fox',
       precedingWorktreePaths: ['/repo/.worktrees/fox'],
       rootId: 'root-a',
       runId: 'host-run',
       threadId: 'thread',
     };
-    await expect(h.client.sendRequest('platform/shell/completed', input)).resolves.toEqual({
-      accepted: true,
-    });
-    expect(completed).toHaveBeenCalledWith(input);
+    // The admitting run reaches Main's selection; the completion itself is unchanged.
+    await expect(
+      h.client.sendRequest('platform/shell/completed', { ...completion, selectionRunId: 'run' })
+    ).resolves.toEqual({ accepted: true });
+    expect(completed).toHaveBeenCalledWith(completion);
   } finally {
     h.destroy();
   }
@@ -353,7 +355,11 @@ it('serves grep’s indexed half to an admitted thread only', async () => {
   };
   const grepIndex = vi.fn(async () => result);
   const h = harness(async () => selected({}), undefined, { grepIndex });
-  const request = { options: { maxResults: 5, pattern: 'needle' }, threadId: 'thread' };
+  const request = {
+    options: { maxResults: 5, pattern: 'needle' },
+    selectionRunId: 'run',
+    threadId: 'thread',
+  };
   try {
     await expect(h.client.sendRequest('desktop-read/grep-index', request)).rejects.toBeInstanceOf(
       Error
@@ -397,7 +403,7 @@ it('serves the workspace index, retrieval catalog and query embedding to an admi
         await queryEmbedding(payload, options?.signal ?? new AbortController().signal),
     }
   );
-  const statusRead = { request: {}, threadId: 'thread' };
+  const statusRead = { request: {}, selectionRunId: 'run', threadId: 'thread' };
   try {
     await expect(
       h.client.sendRequest('desktop-read/index/status', statusRead)
@@ -410,13 +416,18 @@ it('serves the workspace index, retrieval catalog and query embedding to an admi
     await expect(
       h.client.sendRequest('desktop-read/retrieval/embedding-set', {
         request: { embeddingSetId: 'selected' },
+        selectionRunId: 'run',
         threadId: 'thread',
       })
     ).resolves.toEqual(set);
     expect(retrievalStore.embeddingSet).toHaveBeenCalledWith('selected');
     const payload = { dimensions: 2, modelId: 'model', modelKey: 'local::model', query: 'marker' };
     await expect(
-      h.client.sendRequest('platform/embedding/query', { request: payload, threadId: 'thread' })
+      h.client.sendRequest('platform/embedding/query', {
+        request: payload,
+        selectionRunId: 'run',
+        threadId: 'thread',
+      })
     ).resolves.toEqual([0.5, 0.25]);
     expect(queryEmbedding).toHaveBeenCalledWith(payload, expect.any(AbortSignal));
   } finally {
@@ -445,18 +456,20 @@ it('serves the worktree calls to an admitted thread only, under the calling run�
       h.client.sendRequest('platform/worktree/create', {
         params,
         runId: 'host-run',
+        selectionRunId: 'run',
         threadId: 'thread',
       })
     ).rejects.toBeInstanceOf(Error);
     expect(worktrees).not.toHaveBeenCalled();
     await admit(h.client);
     await expect(
-      h.client.sendRequest('platform/worktree/list', { threadId: 'thread' })
+      h.client.sendRequest('platform/worktree/list', { selectionRunId: 'run', threadId: 'thread' })
     ).resolves.toEqual({ ok: true, value: [] });
     await expect(
       h.client.sendRequest('platform/worktree/create', {
         params,
         runId: 'host-run',
+        selectionRunId: 'run',
         threadId: 'thread',
       })
     ).resolves.toEqual(created);
@@ -478,7 +491,11 @@ it('drives the browser pane for an admitted thread only, re-parsing the tool inp
     readPage: vi.fn(),
   };
   const h = harness(async () => selected({}), undefined, { browser });
-  const navigate = { input: { url: 'https://example.com' }, threadId: 'thread' };
+  const navigate = {
+    input: { url: 'https://example.com' },
+    selectionRunId: 'run',
+    threadId: 'thread',
+  };
   try {
     await expect(
       h.client.sendRequest('platform/browser/navigate', navigate)
@@ -494,6 +511,7 @@ it('drives the browser pane for an admitted thread only, re-parsing the tool inp
     await expect(
       h.client.sendRequest('platform/browser/navigate', {
         input: { url: 'https://example.com', wait: true },
+        selectionRunId: 'run',
         threadId: 'thread',
       })
     ).rejects.toBeInstanceOf(Error);
@@ -508,6 +526,7 @@ it('delivers a validated context write-back to the windows for an admitted threa
   const h = harness(async () => selected({}), undefined, { contextDelivery });
   const delivery = {
     payload: { filePaths: ['notes.txt'], folderId: 'folder-a', mode: 'add' },
+    selectionRunId: 'run',
     threadId: 'thread',
   };
   try {
@@ -536,6 +555,7 @@ it('serves querySelf’s SQL read and the diagnostics store to an admitted threa
   const h = harness(async () => selected({}), undefined, { diagnostics, querySelf });
   const read = (sql: string) => ({
     request: { input: { mode: 'explain', sql, target: 'app' } },
+    selectionRunId: 'run',
     threadId: 'thread',
   });
   try {
@@ -561,6 +581,7 @@ it('serves querySelf’s SQL read and the diagnostics store to an admitted threa
     await expect(
       h.client.sendRequest('desktop-read/diagnostics/events', {
         filter: { limit: 5 },
+        selectionRunId: 'run',
         threadId: 'thread',
       })
     ).resolves.toEqual([]);

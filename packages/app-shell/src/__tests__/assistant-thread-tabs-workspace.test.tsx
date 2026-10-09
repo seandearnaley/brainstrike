@@ -104,7 +104,7 @@ describe('AssistantThreadTabsWorkspace', () => {
     ));
     const host: AssistantThreadHostCapability = {
       createThread: vi.fn(),
-      deleteThread: vi.fn(async () => false),
+      deleteThread: vi.fn(async () => undefined),
       listThreads: vi.fn(async () => []),
       ownsThread: vi.fn(async () => false),
       renameThread: vi.fn(),

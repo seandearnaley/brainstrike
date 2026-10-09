@@ -20,7 +20,11 @@ import { toolStepStateFor } from './activity-trace-model';
 import { agentColorStyle } from './agent-color-style';
 import { resolveToolDisplayPolicy } from './assistant-detail-level';
 import { useAssistantDetailLevel } from './assistant-detail-level-context';
-import type { SubagentConversationPresentation } from './subagent-conversation-navigation';
+import { SubagentApprovalHistory } from './subagent-approval-history';
+import type {
+  SubagentAnsweredApproval,
+  SubagentConversationPresentation,
+} from './subagent-conversation-navigation';
 import { personaLabelForToolName } from './subagent-persona-label';
 import {
   mergeSubagentToolRows,
@@ -40,6 +44,8 @@ export type SubagentCardProps = Pick<
   /** In-flight child rows from live `subagent.tool.*` events (see SUBAGENTS). */
   liveRows?: readonly SubAgentToolRow[];
   presentation?: SubagentConversationPresentation;
+  /** BST-1932 (AT-07): the child's answered approvals, shown as its history. */
+  approvalHistory?: readonly SubagentAnsweredApproval[];
   task?: string;
   onOpenConversation?: (event: MouseEvent<HTMLButtonElement>) => void;
   navigationError?: string;
@@ -192,6 +198,7 @@ function SubagentPresentationError({
 }
 
 const EMPTY_LIVE_ROWS: readonly SubAgentToolRow[] = [];
+const EMPTY_APPROVAL_HISTORY: readonly SubagentAnsweredApproval[] = [];
 
 /**
  * Collapsed card for a subagent delegation (`agent-<key>`) tool part. Status
@@ -202,6 +209,7 @@ const EMPTY_LIVE_ROWS: readonly SubAgentToolRow[] = [];
  * (they belong to this card).
  */
 export const SubagentExecutionCard = ({
+  approvalHistory = EMPTY_APPROVAL_HISTORY,
   isError = false,
   toolName,
   toolCallId,
@@ -266,6 +274,7 @@ export const SubagentExecutionCard = ({
           : {})}
       />
       <SubagentTaskSummary label={label} presentation={presentation} task={task} />
+      <SubagentApprovalHistory approvals={approvalHistory} colorId={presentation?.colorId} />
       {navigationError ? (
         <p className="border-border border-t px-3 py-2 text-destructive text-xs" role="alert">
           {navigationError}

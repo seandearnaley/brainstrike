@@ -30,3 +30,32 @@ export interface AssistantShellOutputPart {
    */
   readonly truncated?: boolean;
 }
+
+/**
+ * The `type` of the chunk a command writes through its tool writer's `custom`,
+ * which forwards it verbatim: the legacy stream mapper and the host's committed
+ * `stream.chunk` rows both carry this wire shape.
+ */
+export const SHELL_OUTPUT_STREAM_PART_TYPE = 'brainstrike.shell-output.chunk';
+
+/**
+ * The slice a {@link SHELL_OUTPUT_STREAM_PART_TYPE} chunk carries, or undefined
+ * when it names no tool call, pipe or text: a slice that cannot be attributed
+ * is never rendered against a card.
+ */
+export function readShellOutputStreamPart(value: unknown): AssistantShellOutputPart | undefined {
+  if (!value || typeof value !== 'object') {
+    return;
+  }
+  const { chunk, stream, toolCallId, truncated, type } = value as Record<string, unknown>;
+  if (
+    type !== SHELL_OUTPUT_STREAM_PART_TYPE ||
+    typeof chunk !== 'string' ||
+    !(stream === 'stdout' || stream === 'stderr') ||
+    typeof toolCallId !== 'string' ||
+    toolCallId === ''
+  ) {
+    return;
+  }
+  return { chunk, stream, toolCallId, ...(truncated === true ? { truncated: true } : {}) };
+}

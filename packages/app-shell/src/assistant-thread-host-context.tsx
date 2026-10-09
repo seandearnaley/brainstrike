@@ -14,8 +14,10 @@ import type {
 } from '@brainstrike/assistant-data';
 import type { HostUsageRecord } from '@brainstrike/assistant-data/cost-tracking';
 import type { ThreadSearchExtraArms } from '@brainstrike/db';
+import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { createContext, type ReactNode, useContext, useSyncExternalStore } from 'react';
 import type { RewindPort } from './changes/rewind-port';
+import { readHostChildWorkspaceTab } from './host-child-workspace-tab';
 
 /** A host thread's latest committed root run, read as the thread badges read a run row. */
 export interface AssistantThreadHostRun {
@@ -94,8 +96,12 @@ export interface AssistantThreadHostCapability {
    */
   childThreads?(threadId: string): Promise<readonly AssistantThreadHostChild[]>;
   createThread(resourceId: string): Promise<AssistantMemoryThread>;
-  /** True only for an identity owned and physically deleted by this host. */
-  deleteThread(threadId: string): Promise<boolean>;
+  /**
+   * For an identity this host owns: the threads it physically deleted, the
+   * thread and every child thread under it, children first. Undefined for an
+   * identity it does not own, which stays with history.
+   */
+  deleteThread(threadId: string): Promise<readonly string[] | undefined>;
   /**
    * BST-1932: true for a thread this host listed in its catalog, so the threads
    * panel reads its children from the host; a host without delegation omits it.
@@ -197,6 +203,22 @@ export function useAssistantThreadHostRuns(): ReadonlyMap<string, AssistantThrea
   return useSyncExternalStore(runs?.subscribe ?? subscribeNoHostRuns, read, read);
 }
 
+/**
+ * BST-1932: a deleted host thread takes its child threads with it, so their
+ * open workspace tabs close, as legacy's did with their root's workspace.
+ */
+function closeDeletedChildTabs(threadIds: readonly string[]): void {
+  const deleted = new Set(threadIds);
+  const workspace = useWorkspaceTabSelectionStore.getState();
+  const closing = workspace.openAppIds.filter((appId) => {
+    const tab = readHostChildWorkspaceTab(appId);
+    return tab !== undefined && deleted.has(tab.threadId);
+  });
+  if (closing.length > 0) {
+    workspace.closeApps(closing);
+  }
+}
+
 /** Keep old history in its existing repository and read new roots from their actual owner. */
 export function withAssistantThreadHost<Repository extends AssistantThreadRepository>(
   repository: Repository,
@@ -206,9 +228,12 @@ export function withAssistantThreadHost<Repository extends AssistantThreadReposi
     return repository;
   }
   const deleteThread = async (threadId: string): Promise<void> => {
-    if (!(await host.deleteThread(threadId))) {
+    const deleted = await host.deleteThread(threadId);
+    if (!deleted) {
       await repository.deleteThread(threadId);
+      return;
     }
+    closeDeletedChildTabs(deleted);
   };
   const deleteHistoryThreads = repository.deleteThreads?.bind(repository);
   // A host identity has no history row: a history write would update nothing
@@ -245,7 +270,10 @@ export function withAssistantThreadHost<Repository extends AssistantThreadReposi
           deleteThreads: async (threadIds: readonly string[]): Promise<void> => {
             const history: string[] = [];
             for (const threadId of threadIds) {
-              if (!(await host.deleteThread(threadId))) {
+              const deleted = await host.deleteThread(threadId);
+              if (deleted) {
+                closeDeletedChildTabs(deleted);
+              } else {
                 history.push(threadId);
               }
             }

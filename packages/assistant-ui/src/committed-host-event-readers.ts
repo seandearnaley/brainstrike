@@ -4,6 +4,10 @@ import type {
   HookSkipNoticeInput,
   RunAttemptNoticeInput,
 } from '@brainstrike/assistant-contract';
+import {
+  readShellOutputStreamPart,
+  SHELL_OUTPUT_DATA_NAME,
+} from '@brainstrike/assistant-contract/shell-output';
 
 /**
  * Readers of committed host events the log projection maps onto the thread:
@@ -173,4 +177,16 @@ export function readHookSkips(
       reason: file['reason'] as HookSkipNoticeInput['reason'],
     };
   });
+}
+
+/** A committed stream chunk's data part: a named data chunk, or a shell-output slice. */
+export function committedStreamData(
+  chunk: Readonly<Record<string, unknown>>
+): { readonly data: unknown; readonly name: string } | undefined {
+  const type = chunk['type'];
+  if ((type === 'data' || type === 'aui-data') && typeof chunk['name'] === 'string') {
+    return { data: chunk['data'], name: chunk['name'] };
+  }
+  const shellOutput = readShellOutputStreamPart(chunk);
+  return shellOutput ? { data: shellOutput, name: SHELL_OUTPUT_DATA_NAME } : undefined;
 }

@@ -35,7 +35,6 @@ import {
   foldHostInteraction,
   foldHostRunEffect,
   HostCommandLedger,
-  type HostThreadGrants,
   type HostRunState as Run,
   recordHostConversationId,
 } from './core-state.js';
@@ -115,7 +114,7 @@ export class HostCore {
         this.deletions,
         this.failedAdmissions
       ),
-    grants: (threadId) => this.threadGrants(threadId),
+    grants: (threadId) => this.children.grants(threadId),
     platform: () => this.platform,
     read: (threadId) => this.read(threadId, 0),
     rootThread: (threadId) => this.children.rootThread(threadId),
@@ -154,8 +153,6 @@ export class HostCore {
   );
   private readonly runs = new Map<string, Run>();
   private readonly children = new HostChildRuns();
-  /** Each thread's approval grants, for this process only; replay never restores them. */
-  private readonly grants = new Map<string, HostThreadGrants>();
   private readonly admittedRuns = new Map<string, HostRunAdmissionCommand>();
   private readonly conversationIds = new Set<string>();
   private readonly listeners = new Set<(row: HostLogRow, parentThreadId?: string) => void>();
@@ -237,7 +234,7 @@ export class HostCore {
           this.runs,
           row.threadId,
           event,
-          this.threadGrants(this.children.rootThread(row.threadId)),
+          this.children.grants(row.threadId),
           (threadId) => this.children.isChild(threadId)
         );
         break;
@@ -456,7 +453,6 @@ export class HostCore {
     this.rewrites.forgetThread(threadId);
     this.rewinds.forgetThread(threadId);
     this.ledger.forget(threadId);
-    this.grants.delete(threadId);
   }
 
   startThread(params: HostParams<'thread/start'>): Promise<{ threadId: string }> {
@@ -558,7 +554,7 @@ export class HostCore {
           selected,
           this.children.pending(params.threadId, this.runs, admission.delegation, method !== 'wake')
         ),
-        this.threadGrants(root),
+        this.children.grants(root),
         admission.snapshot,
         controller
       );
@@ -676,8 +672,27 @@ export class HostCore {
     return effect;
   }
 
-  private loop(run: Run, model: LanguageModel): Promise<void> {
-    return runHostSdkLoop(this.executionPorts(), run, model);
+  private async loop(run: Run, model: LanguageModel): Promise<void> {
+    await runHostSdkLoop(this.executionPorts(), run, model);
+    // A call decided before a tree grant can pause after it: the grant answers it too.
+    if (run.paused && !run.terminal) {
+      this.releaseTreeGrants(run.threadId);
+    }
+  }
+
+  /** ADR-0010: every pending approval of the tree that the root's policy and grants now allow. */
+  private releaseTreeGrants(threadId: string): void {
+    this.children.releaseGranted(threadId, this.runs, (sibling, interactionId) =>
+      this.admit(sibling.threadId, () =>
+        approveHostRunByPolicy(
+          sibling,
+          this.platform,
+          interactionId,
+          (events) => this.append(sibling.threadId, events),
+          () => this.continueRun(sibling)
+        )
+      )
+    );
   }
 
   private run(threadId: string, runId: string): Run {
@@ -764,12 +779,6 @@ export class HostCore {
     this.mcpInputs.releaseClient(client);
   }
 
-  private threadGrants(threadId: string): HostThreadGrants {
-    const grants = this.grants.get(threadId) ?? { categories: new Set(), tools: new Set() };
-    this.grants.set(threadId, grants);
-    return grants;
-  }
-
   respond(params: HostParams<'interaction/respond'>): Promise<{ accepted: true }> {
     return this.answer('interaction/respond', params);
   }
@@ -791,18 +800,7 @@ export class HostCore {
         (events) => this.accept(params.threadId, method, params, { accepted: true }, events),
         () => this.continueRun(run())
       );
-      // ADR-0010: every pending approval of the tree the root's policy now allows.
-      this.children.releaseGranted(params.threadId, this.runs, (sibling, interactionId) =>
-        this.admit(sibling.threadId, () =>
-          approveHostRunByPolicy(
-            sibling,
-            this.platform,
-            interactionId,
-            (events) => this.append(sibling.threadId, events),
-            () => this.continueRun(sibling)
-          )
-        )
-      );
+      this.releaseTreeGrants(params.threadId);
       return answered;
     });
   }

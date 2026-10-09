@@ -8,9 +8,14 @@ import { expect, test } from './fixtures/electron-fixture';
 import type { ElectronHarness } from './fixtures/electron-harness';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
+import { readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
-import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { startModelProviderShim } from './utils/model-provider-shim';
+import {
+  ensureActivityExpanded,
+  ensureAssistantShellVisible,
+  ensureMockWorkspaceOpen,
+} from './utils/layout-helpers';
+import { type ModelProviderShim, startModelProviderShim } from './utils/model-provider-shim';
 
 async function waitForOwnedExit(process: ChildProcess | undefined): Promise<void> {
   if (!process || process.exitCode !== null || process.signalCode !== null) {
@@ -57,15 +62,81 @@ test('worker attributes an allowed write without a preceding human pause @smoke'
   await assertWorkerWrite(electron, testInfo, { autoApprove: true, decision: 'Approve' });
 });
 
-async function ensureActivityExpanded(region: Locator): Promise<void> {
-  const expand = region.getByRole('button', { exact: true, name: 'Expand activity' });
-  const collapse = region.getByRole('button', { exact: true, name: 'Collapse activity' });
-  await expect(expand.or(collapse)).toBeVisible();
-  if (await expand.count()) {
-    await expand.click();
-    return;
+/** How each child thread's runs ended, as the agent host committed them. */
+async function childOutcomes(userDataDir: string): Promise<readonly string[]> {
+  return (await readHostThreadTree(userDataDir))
+    .filter(({ parentThreadId }) => parentThreadId !== undefined)
+    .flatMap(({ rows }) =>
+      rows.flatMap(({ event }) => (event.type === 'run.finished' ? [event.outcome] : []))
+    );
+}
+
+/** The root thread's committed runs: the delivery each answered, and how it ended. */
+async function rootRuns(userDataDir: string) {
+  const rows =
+    (await readHostThreadTree(userDataDir)).find(
+      ({ parentThreadId }) => parentThreadId === undefined
+    )?.rows ?? [];
+  return rows.flatMap(({ event }) =>
+    event.type === 'run.started'
+      ? [
+          {
+            outcome:
+              rows.flatMap(({ event: later }) =>
+                later.type === 'run.finished' && later.runId === event.runId ? [later.outcome] : []
+              )[0] ?? 'running',
+            states: event.delivery?.entries.map(({ state }) => state) ?? [],
+            via: event.delivery?.via ?? 'command',
+          },
+        ]
+      : []
+  );
+}
+
+/**
+ * ADR-0010 (case 4, an ADR-mandated behaviour change): "A pending child
+ * approval does not survive a restart; it shows as interrupted." Nothing is
+ * written, and the parent reads the child's outcome once, on its next turn.
+ */
+async function expectChildInterruptedByRestart(options: {
+  readonly approvalName: string;
+  readonly child: Locator;
+  readonly outputPath: string;
+  readonly provider: ModelProviderShim;
+  readonly root: Locator;
+  readonly userDataDir: string;
+}): Promise<void> {
+  const { approvalName, child, outputPath, provider, root, userDataDir } = options;
+  // The restarted app publishes its host record once its host is up; until then
+  // the read's failure is the polled value, so a host that never returns still fails.
+  await expect
+    .poll(() => childOutcomes(userDataDir).catch((error: unknown) => String(error)), {
+      timeout: 30_000,
+    })
+    .toEqual(['interrupted']);
+  // The reopened child shows its conversation, with no approval left to answer.
+  await expect(child.getByText(/WORKER_LEVEL_1/u).first()).toBeVisible();
+  await expect(child.getByRole('button', { exact: true, name: approvalName })).toHaveCount(0);
+  await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+  provider.setScript({ finalText: 'PARENT_READ_INTERRUPTED_CHILD_1721' });
+  const answer = root.getByText('PARENT_READ_INTERRUPTED_CHILD_1721', { exact: true });
+  for (const [turn, prompt] of ['Continue after the restart.', 'And once more.'].entries()) {
+    await root.getByRole('textbox', { name: 'Message input' }).fill(prompt);
+    await root.getByRole('button', { exact: true, name: 'Send' }).click();
+    await expect(answer).toHaveCount(turn + 1);
   }
-  await expect(collapse).toBeVisible();
+  // Delivered once: the next turn carries it, and the turn after carries nothing.
+  expect(
+    (await rootRuns(userDataDir))
+      .filter(({ via }) => via !== 'command')
+      .map(({ states, via }) => ({ states, via }))
+  ).toEqual([{ states: ['failed'], via: 'next-turn' }]);
+  expect(
+    provider
+      .transcript()
+      .filter((entry) => entry.decision === 'tool:brainstrike_writeWorkspaceFile')
+  ).toHaveLength(1);
+  await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
 }
 
 async function assertWorkerWrite(
@@ -174,6 +245,9 @@ async function assertWorkerWrite(
       },
     };
   });
+  // A reload must not call the model. The host child view reads the provider's
+  // model metadata on mount, which is not a model call, so count generations.
+  const modelCalls = (): number => provider.requests().length;
   const environment = {
     BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace,
     BRAINSTRIKE_OPENROUTER_API_KEY: 'isolated-worker-write-key',
@@ -233,6 +307,8 @@ async function assertWorkerWrite(
         const currentName = (await selectedTab.innerText()).trim();
         const current = window.getByRole('region', { exact: true, name: currentName });
         await expect(current.getByText('Waiting for approval', { exact: true })).toHaveCount(0);
+        // Activity is collapsed by default; the running delegation's card is inside it.
+        await ensureActivityExpanded(current);
         await current.getByRole('button', { name: /Open .* conversation/ }).click();
         await expect(selectedTab).not.toHaveText(currentName);
         await expect(selectedTab).toBeFocused();
@@ -252,7 +328,7 @@ async function assertWorkerWrite(
       let child = window.getByRole('region', { exact: true, name: childName });
       if (!autoApprove) {
         await expect(child.getByRole('button', { exact: true, name: approvalName })).toBeVisible();
-        const pendingRequests = provider.requestCount();
+        const pendingRequests = modelCalls();
         if (restartHost) {
           const oldProcessId = (await electron.ensureContext()).app.process().pid;
           const stoppedProcess = ownedProcess;
@@ -275,11 +351,24 @@ async function assertWorkerWrite(
         });
         await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
         await ensureAssistantShellVisible(window);
-        await expect(child.getByRole('button', { exact: true, name: approvalName })).toBeVisible();
-        expect(provider.requestCount()).toBe(pendingRequests);
-        await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+        if (!restartHost) {
+          await expect(
+            child.getByRole('button', { exact: true, name: approvalName })
+          ).toBeVisible();
+          expect(modelCalls()).toBe(pendingRequests);
+          await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
+        }
       }
-      if (decision === 'Stop') {
+      if (restartHost) {
+        await expectChildInterruptedByRestart({
+          approvalName,
+          child,
+          outputPath,
+          provider,
+          root,
+          userDataDir: electron.getUserDataDir(),
+        });
+      } else if (decision === 'Stop') {
         await child.getByRole('button', { exact: true, name: 'Stop' }).click();
         await expect(
           child.getByRole('button', { exact: true, name: approvalName })
@@ -291,6 +380,16 @@ async function assertWorkerWrite(
         await window
           .getByRole('button', { exact: true, includeHidden: true, name: `Close ${childName}` })
           .click();
+        // A cancelled background child wakes its parent once, as the shipped
+        // assistant did (packages/agent/src/mastra/background-idle-loop.ts:38-46 on
+        // main ed97957e0); that turn settles before the next answer is scripted.
+        const stoppedRuns = [
+          { outcome: 'completed', states: [], via: 'command' },
+          { outcome: 'completed', states: ['cancelled'], via: 'wake' },
+        ];
+        await expect
+          .poll(() => rootRuns(electron.getUserDataDir()), { timeout: 30_000 })
+          .toEqual(stoppedRuns);
         provider.setScript({ finalText: 'PARENT_REMAINS_USABLE_AFTER_CHILD_STOP_1723' });
         await root
           .getByRole('textbox', { name: 'Message input' })
@@ -300,7 +399,11 @@ async function assertWorkerWrite(
           root.getByText('PARENT_REMAINS_USABLE_AFTER_CHILD_STOP_1723', { exact: true })
         ).toBeVisible();
         await expect(root.getByRole('button', { exact: true, name: 'Send' })).toBeVisible();
-        const afterStop = provider.requestCount();
+        // The user's turn carries no second delivery of the stopped child.
+        await expect
+          .poll(() => rootRuns(electron.getUserDataDir()))
+          .toEqual([...stoppedRuns, { outcome: 'completed', states: [], via: 'command' }]);
+        const afterStop = modelCalls();
         await window.reload();
         await ensureAssistantShellVisible(window);
         await root.getByRole('button', { exact: true, name: 'Expand activity' }).first().click();
@@ -311,28 +414,9 @@ async function assertWorkerWrite(
         await expect(
           child.getByRole('button', { exact: true, name: approvalName })
         ).not.toBeVisible();
-        await expect
-          .poll(async () =>
-            window.evaluate(async () => {
-              const api = (
-                globalThis as {
-                  electronAPI?: {
-                    db?: { query?: (sql: string) => Promise<{ rows: { status: string }[] }> };
-                  };
-                }
-              ).electronAPI;
-              if (!api?.db?.query) {
-                throw new Error('Missing database API');
-              }
-              return (
-                await api.db.query(
-                  'SELECT run.status FROM brainstrike_assistant_thread_runs run JOIN brainstrike_delegated_conversations child ON child.thread_id = run.thread_id WHERE child.parent_thread_id IS NOT NULL'
-                )
-              ).rows.map((row) => row.status);
-            })
-          )
-          .toEqual(['cancelled']);
-        expect(provider.requestCount()).toBe(afterStop);
+        // The host committed the child's run as stopped.
+        await expect.poll(() => childOutcomes(electron.getUserDataDir())).toEqual(['stopped']);
+        expect(modelCalls()).toBe(afterStop);
         await expect(readFile(outputPath, 'utf8')).rejects.toMatchObject({ code: 'ENOENT' });
       } else {
         if (!autoApprove) {
@@ -369,30 +453,19 @@ async function assertWorkerWrite(
             .transcript()
             .filter((entry) => entry.decision === 'tool:brainstrike_writeWorkspaceFile')
         ).toHaveLength(1);
-        const checkpoints = await window.evaluate(async () => {
-          const api = (
-            globalThis as typeof globalThis & {
-              electronAPI?: {
-                db?: {
-                  query?: (
-                    sql: string
-                  ) => Promise<{ rows: Array<{ childName: string | null; owned: boolean }> }>;
-                };
-              };
-            }
-          ).electronAPI;
-          if (!api?.db?.query) {
-            throw new Error('Native database bridge unavailable');
+        // The write's recorded edit belongs to the child that made it, in that child's own run.
+        const checkpoints = (await readHostThreadTree(electron.getUserDataDir())).flatMap(
+          ({ child: listed, rows }) => {
+            const runIds = new Set(
+              rows.flatMap(({ event }) => (event.type === 'run.started' ? [event.runId] : []))
+            );
+            return rows.flatMap(({ event }) =>
+              event.type === 'workspace.edit.recorded' && event.path === 'worker-output.txt'
+                ? [{ childName: listed?.callSign ?? null, owned: runIds.has(event.runId) }]
+                : []
+            );
           }
-          return (
-            await api.db.query(`SELECT child.display_name AS "childName",
-          (run.thread_id = checkpoint.thread_id AND run.resource_id = checkpoint.resource_id) AS owned
-          FROM brainstrike_assistant_edit_checkpoints checkpoint
-          JOIN brainstrike_assistant_thread_runs run ON run.id = checkpoint.run_id
-          LEFT JOIN brainstrike_delegated_conversations child ON child.thread_id = checkpoint.thread_id
-          WHERE checkpoint.path = 'worker-output.txt'`)
-          ).rows;
-        });
+        );
         expect(checkpoints).toEqual(decision === 'Approve' ? [{ childName, owned: true }] : []);
         if (autoApprove) {
           await expect(window.getByTestId('child-workspace-mode')).toContainText(
@@ -401,7 +474,7 @@ async function assertWorkerWrite(
           await ensureActivityExpanded(child);
           await expect(child.getByTestId('checkpoint-revert')).toBeVisible();
         }
-        const completedRequests = provider.requestCount();
+        const completedRequests = modelCalls();
         let writtenMtime: number | undefined;
         if (decision === 'Approve') {
           expect(await readFile(outputPath, 'utf8')).toBe(content);
@@ -417,7 +490,7 @@ async function assertWorkerWrite(
         await window.reload();
         await ensureAssistantShellVisible(window);
         await expect(root.getByText(parentResult, { exact: true })).toBeVisible();
-        expect(provider.requestCount()).toBe(completedRequests);
+        expect(modelCalls()).toBe(completedRequests);
         if (decision === 'Approve') {
           expect(await readFile(outputPath, 'utf8')).toBe(content);
           expect((await stat(outputPath)).mtimeMs).toBe(writtenMtime);
@@ -476,7 +549,7 @@ async function assertWorkerWrite(
               .getByRole('region', { exact: true, name: secondName })
               .getByText('SECOND_CHILD_READ_1725', { exact: true })
           ).toBeVisible();
-          const afterSecond = provider.requestCount();
+          const afterSecond = modelCalls();
           await window.getByRole('tab', { exact: true, name: secondName }).hover();
           await window
             .getByRole('button', { exact: true, includeHidden: true, name: `Close ${secondName}` })
@@ -492,7 +565,7 @@ async function assertWorkerWrite(
           await expect(
             window.getByRole('tab', { exact: true, name: firstChildName })
           ).toBeVisible();
-          expect(provider.requestCount()).toBe(afterSecond);
+          expect(modelCalls()).toBe(afterSecond);
           expect((await stat(outputPath)).mtimeMs).toBe(writtenMtime);
         }
         if (autoApprove) {
@@ -501,7 +574,7 @@ async function assertWorkerWrite(
           await expect(selectedTab).toHaveText(childName);
           await expect(child.getByText(childResult, { exact: true })).toBeVisible();
           await ensureActivityExpanded(child);
-          const requestsBeforeRestore = provider.requestCount();
+          const requestsBeforeRestore = modelCalls();
           const userPath = path.join(workspace, 'user-note.txt');
           await writeFile(userPath, 'Independent user edit\n');
           await child.getByTestId('checkpoint-revert').click();
@@ -514,7 +587,7 @@ async function assertWorkerWrite(
           await expect(child.getByText(childResult, { exact: true })).toBeVisible();
           await ensureActivityExpanded(child);
           await expect(child.getByTestId('checkpoint-reverted')).toBeVisible();
-          expect(provider.requestCount()).toBe(requestsBeforeRestore);
+          expect(modelCalls()).toBe(requestsBeforeRestore);
         }
       }
       await window.screenshot({
@@ -530,33 +603,11 @@ async function assertWorkerWrite(
             testInfo.outputPath('worker-write-failure.txt'),
             await window.locator('body').innerText()
           ),
-        async () => {
-          const state = await window.evaluate(async () => {
-            const api = (
-              globalThis as {
-                electronAPI?: { db?: { query?: (sql: string) => Promise<{ rows: unknown[] }> } };
-              }
-            ).electronAPI;
-            if (!api?.db?.query) {
-              throw new Error('Missing diagnostic database API');
-            }
-            return {
-              events: await api.db.query(
-                'SELECT run_id, thread_id, kind, metadata, occurred_at FROM brainstrike_assistant_run_events ORDER BY occurred_at'
-              ),
-              messages: await api.db.query(
-                'SELECT id, role, content, "createdAt", thread_id FROM mastra_messages ORDER BY "createdAt"'
-              ),
-              runs: await api.db.query(
-                'SELECT id, thread_id, turn_message_id, status, started_at FROM brainstrike_assistant_thread_runs ORDER BY started_at'
-              ),
-            };
-          });
-          await writeFile(
-            testInfo.outputPath('worker-database-diagnostic.json'),
-            JSON.stringify(state, null, 2)
-          );
-        },
+        async () =>
+          writeFile(
+            testInfo.outputPath('worker-host-tree-diagnostic.json'),
+            JSON.stringify(await readHostThreadTree(electron.getUserDataDir()), null, 2)
+          ),
         async () =>
           testInfo.attach('worker-write-failure', {
             body: await window.locator('body').innerText(),
@@ -584,8 +635,9 @@ async function assertWorkerWrite(
       async () => {
         await Promise.all([waitForOwnedExit(ownedProcess), electron.dispose()]);
         if (ownedProcess) {
-          expect(ownedProcess.exitCode).toBe(0);
-          expect(ownedProcess.signalCode).toBeNull();
+          // Soft: a clean exit is required, but its failure never hides the body's.
+          expect.soft(ownedProcess.exitCode).toBe(0);
+          expect.soft(ownedProcess.signalCode).toBeNull();
         }
       },
       async () => provider.close(),
