@@ -1,6 +1,10 @@
 import type { ToolApprovalOption } from '@assistant-ui/react';
 import type { ToolRiskCategory } from '@brainstrike/assistant-contract/tool-metadata';
 import { RISK_CATEGORY_GRANT_NOUN } from './approval-notice-status';
+import {
+  type ApprovalPreviewSubject,
+  resolveApprovalPreviewPolicy,
+} from './approval-preview-policy';
 
 /** A permission grant answered with a host approval (the host's `interaction/respond` grant). */
 export type CommittedApprovalGrant =
@@ -71,4 +75,22 @@ export function approvalDecisions(
     label: option.label ?? option.id,
     optionId: option.id,
   }));
+}
+
+/** The grant options: kept only when the preview can describe the call it would grant. */
+const GRANT_OPTION_KINDS = new Set(['allow-always', '_allow-session']);
+
+/** True when the approval preview can describe the call a grant would allow again. */
+export function grantsDescribable(subject: ApprovalPreviewSubject): boolean {
+  return resolveApprovalPreviewPolicy(subject)?.suppressGrants !== true;
+}
+
+/** A pending call's options: a code-execution call the preview cannot describe offers no grant. */
+export function describableApprovalOptions(
+  options: readonly ToolApprovalOption[] | undefined,
+  subject: ApprovalPreviewSubject
+): readonly ToolApprovalOption[] | undefined {
+  return grantsDescribable(subject)
+    ? options
+    : options?.filter((option) => !GRANT_OPTION_KINDS.has(option.kind));
 }

@@ -7,11 +7,14 @@ import {
   RISK_CATEGORY_GRANT_NOUN_SINGULAR,
 } from './approval-notice-status';
 import { ApprovalPreview } from './approval-preview';
+import type { ApprovalPreviewSubject } from './approval-preview-policy';
 import {
   type ApprovalDecision,
   approvalDecisions,
   COMMITTED_SESSION_GRANT_OPTION,
   committedApprovalOptions,
+  describableApprovalOptions,
+  grantsDescribable,
 } from './committed-approval-options';
 
 /** One committed approval still waiting in a host thread or one of its delegated children. */
@@ -38,6 +41,10 @@ function countLabel(category: ToolRiskCategory, count: number): string {
 
 function errorText(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause);
+}
+
+function previewSubject(approval: CommittedPendingApproval): ApprovalPreviewSubject {
+  return { args: approval.args, toolName: approval.toolName };
 }
 
 /** The approvals of each category, in the order they wait. */
@@ -80,23 +87,26 @@ function ReviewedApproval({ approval }: { readonly approval: CommittedPendingApp
         ) : null}
         <span className="font-medium">{approval.toolName}</span>
       </div>
-      <ApprovalPreview approval={{ args: approval.args, toolName: approval.toolName }} />
+      <ApprovalPreview approval={previewSubject(approval)} />
       <div className="flex flex-wrap gap-2">
-        {approvalDecisions(approval.risk ? committedApprovalOptions(approval.risk) : undefined).map(
-          (decision) => (
-            <Button
-              aria-disabled={responding || undefined}
-              aria-label={`${decision.label} ${approval.toolName}`}
-              className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
-              key={decision.optionId ?? String(decision.approved)}
-              onClick={() => decide(decision)}
-              size="sm"
-              variant={decision.optionId === undefined && decision.approved ? 'default' : 'outline'}
-            >
-              {decision.label}
-            </Button>
+        {approvalDecisions(
+          describableApprovalOptions(
+            approval.risk ? committedApprovalOptions(approval.risk) : undefined,
+            previewSubject(approval)
           )
-        )}
+        ).map((decision) => (
+          <Button
+            aria-disabled={responding || undefined}
+            aria-label={`${decision.label} ${approval.toolName}`}
+            className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+            key={decision.optionId ?? String(decision.approved)}
+            onClick={() => decide(decision)}
+            size="sm"
+            variant={decision.optionId === undefined && decision.approved ? 'default' : 'outline'}
+          >
+            {decision.label}
+          </Button>
+        ))}
       </div>
       {error === undefined ? null : <p role="alert">{error}</p>}
     </fieldset>
@@ -169,9 +179,9 @@ function CommittedApprovalReview({
  * BST-1932: the approvals strip of a host thread at its composer. It counts
  * the approvals waiting in the thread and its delegated children by risk
  * category; one click grants a category for the session and answers the
- * first waiting approval of it, and the host answers the rest of the tree
- * that its policy now allows. Review lists every waiting approval with the
- * decisions its card offers.
+ * first waiting approval of it whose preview can describe the call, and the
+ * host answers the rest of the tree that its policy now allows. Review lists
+ * every waiting approval with the decisions its card offers.
  */
 export function CommittedApprovalStrip({
   approvals,
@@ -184,10 +194,10 @@ export function CommittedApprovalStrip({
   if (approvals.length === 0 && !reviewOpen) {
     return null;
   }
-  const grant = (category: ToolRiskCategory, first: CommittedPendingApproval): void => {
+  const grant = (category: ToolRiskCategory, grantable: CommittedPendingApproval): void => {
     setGranting((current) => new Set(current).add(category));
     setError(undefined);
-    first
+    grantable
       .respond({ approved: true, optionId: COMMITTED_SESSION_GRANT_OPTION })
       .catch((cause: unknown) => setError(errorText(cause)))
       .finally(() =>
@@ -216,30 +226,31 @@ export function CommittedApprovalStrip({
         onOpenChange={setReviewOpen}
         open={reviewOpen}
       />
-      {[...byCategory(approvals)].map(([category, waiting]) => (
-        <span className="bs-approval-strip-category" key={category}>
-          <span data-testid={`approval-strip-count-${category}`}>
-            {countLabel(category, waiting.length)}
+      {[...byCategory(approvals)].map(([category, waiting]) => {
+        // A grant answers through a call its preview can describe.
+        const grantable = waiting.find((approval) => grantsDescribable(previewSubject(approval)));
+        return (
+          <span className="bs-approval-strip-category" key={category}>
+            <span data-testid={`approval-strip-count-${category}`}>
+              {countLabel(category, waiting.length)}
+            </span>
+            {grantable ? (
+              <button
+                aria-label={`Allow ${RISK_CATEGORY_GRANT_NOUN[category]} this session for the ${waiting.length} waiting ${waiting.length === 1 ? 'approval' : 'approvals'}`}
+                className="bs-approval-strip-grant"
+                data-testid={`approval-strip-grant-${category}`}
+                disabled={granting.has(category)}
+                onClick={() => grant(category, grantable)}
+                title={`Allow all ${RISK_CATEGORY_GRANT_NOUN[category]} for this session and answer the waiting ${RISK_CATEGORY_GRANT_NOUN[category]}`}
+                type="button"
+              >
+                <Timer aria-hidden="true" className="size-3" />
+                Allow {RISK_CATEGORY_GRANT_NOUN[category]} this session
+              </button>
+            ) : null}
           </span>
-          <button
-            aria-label={`Allow ${RISK_CATEGORY_GRANT_NOUN[category]} this session for the ${waiting.length} waiting ${waiting.length === 1 ? 'approval' : 'approvals'}`}
-            className="bs-approval-strip-grant"
-            data-testid={`approval-strip-grant-${category}`}
-            disabled={granting.has(category)}
-            onClick={() => {
-              const first = waiting[0];
-              if (first) {
-                grant(category, first);
-              }
-            }}
-            title={`Allow all ${RISK_CATEGORY_GRANT_NOUN[category]} for this session and answer the waiting ${RISK_CATEGORY_GRANT_NOUN[category]}`}
-            type="button"
-          >
-            <Timer aria-hidden="true" className="size-3" />
-            Allow {RISK_CATEGORY_GRANT_NOUN[category]} this session
-          </button>
-        </span>
-      ))}
+        );
+      })}
       {error === undefined ? null : <span role="alert">{error}</span>}
     </div>
   );

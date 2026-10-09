@@ -83,6 +83,24 @@ describe('CommittedApprovalStrip', () => {
     });
   });
 
+  it('never grants through a code-execution call its preview cannot describe', async () => {
+    const opaque: CommittedPendingApproval = {
+      ...pending(1, 'execute'),
+      args: { code: 'print(1)' },
+      toolName: 'brainstrike.runPython',
+    };
+    render(<CommittedApprovalStrip approvals={[opaque]} />);
+    expect(screen.getByTestId('approval-strip-count-execute')).toHaveTextContent('1 command');
+    expect(screen.queryByTestId('approval-strip-grant-execute')).toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Review 1 pending approval' }));
+    const review = screen.getByRole('dialog', { name: 'Pending approvals' });
+    expect(
+      within(review)
+        .getAllByRole('button', { name: /brainstrike\.runPython$/u })
+        .map((button) => button.getAttribute('aria-label'))
+    ).toEqual(['Approve brainstrike.runPython', 'Decline brainstrike.runPython']);
+  });
+
   it('shows a refused decision and lets the person decide again', async () => {
     const refused = pending(1, 'read');
     vi.mocked(refused.respond).mockRejectedValueOnce(new Error('Approval was already answered'));
