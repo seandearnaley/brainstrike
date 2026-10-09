@@ -31,6 +31,7 @@ import {
   BrainstrikeThinkingMark,
 } from './assistant-thinking-indicator';
 import { ShellOutputProvider } from './shell-output-context';
+import { createShellOutputAccumulator } from './shell-output-parts';
 import { isSubagentDelegationToolName } from './subagent-tool-cards';
 import { CHAIN_OF_THOUGHT_TOOL_COMPONENTS, TodoProgress } from './todo-progress';
 import { ToolDurationProvider } from './tool-duration-context';
@@ -429,6 +430,14 @@ export function AssistantActivityParts(): ReactNode {
   const trailingGroupHoldsActivity = useAuiState((state) =>
     trailingGroupHasActivity(state.message.parts)
   );
+  // A standalone tool card (an approval-bearing call, BST-1977) streams its live
+  // shell output from the same message parts a group's cards read (BST-1932, AT-07).
+  const messageId = useAuiState((state) => (state.message as { id?: string }).id ?? '');
+  const accumulateShellOutputs = useMemo(() => createShellOutputAccumulator(), [messageId]);
+  const shellOutputs = useMemo(
+    () => accumulateShellOutputs(messageParts),
+    [accumulateShellOutputs, messageParts]
+  );
   return (
     <MessagePrimitive.GroupedParts<ActivityGroupKey>
       groupBy={groupAssistantActivityPart}
@@ -456,9 +465,11 @@ export function AssistantActivityParts(): ReactNode {
               return null;
             }
             return (
-              <ActivityPartLayout>
-                {part.toolUI ?? <ActivityToolPart {...part} />}
-              </ActivityPartLayout>
+              <ShellOutputProvider outputs={shellOutputs}>
+                <ActivityPartLayout>
+                  {part.toolUI ?? <ActivityToolPart {...part} />}
+                </ActivityPartLayout>
+              </ShellOutputProvider>
             );
           case 'data':
             return part.dataRendererUI;
