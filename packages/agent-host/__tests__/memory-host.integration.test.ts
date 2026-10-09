@@ -95,6 +95,7 @@ test.each([
               workingMemory: { enabled: true, scope: 'thread' },
             },
           },
+          observerModelId: 'openai::gpt-4.1-mini',
           providerRequestContext: () => ({ inputTokenLimit: 30_000, provider: 'openai' }),
           recordObserverUsage: async (_identity, receipt) => {
             receipts.push(receipt);
@@ -262,7 +263,8 @@ test.each([
         expect(usageRows.every((row) => row.seq < (committed.at(-1)?.seq ?? 0))).toBe(true);
         expect(usageRows[0]?.event).toMatchObject({
           kind: 'observation',
-          modelId: observer.modelId,
+          // Priced under the observer's catalog id, not the SDK model id.
+          modelId: 'openai::gpt-4.1-mini',
           runId,
           usage: { inputTokens: 42, outputTokens: 9, totalTokens: 51 },
         });

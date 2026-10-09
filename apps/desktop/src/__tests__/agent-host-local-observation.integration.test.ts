@@ -215,8 +215,13 @@ test('a local observational-memory observer runs through Main’s borrowed local
     // Cold loads are warmed before the run, as legacy did.
     expect(warmup.mock.calls[0]?.[0]).toBe(observerModel);
     expect(generate.mock.calls[0]?.[0].modelId).toBe(observerModel);
+    // The observer's usage is attributed to its catalog model, so it can be priced.
     expect(events).toContainEqual(
-      expect.objectContaining({ kind: 'observation', modelId: observerModel, type: 'memory.usage' })
+      expect.objectContaining({
+        kind: 'observation',
+        modelId: `local::${observerModel}`,
+        type: 'memory.usage',
+      })
     );
   } finally {
     await host.close();
