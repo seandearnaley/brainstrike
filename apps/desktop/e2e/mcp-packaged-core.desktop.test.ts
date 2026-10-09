@@ -491,7 +491,7 @@ async function executeAssistantTool(
   await expect(input).toBeVisible({ timeout: 30_000 });
   await input.fill('Run the packaged modern MCP proof.');
   await page.getByRole('button', { exact: true, name: 'Send' }).click();
-  const approval = page.getByRole('group', { exact: true, name: 'Tool approval legacy_echo' });
+  const approval = page.getByRole('group', { exact: true, name: 'Tool approval legacy.echo' });
   const completed = page.getByText('Packaged MCP tool completed.').first();
   const approvalVisible = approval
     .waitFor({ state: 'visible', timeout: 45_000 })
@@ -512,11 +512,11 @@ async function executeAssistantTool(
       `MCP tool bypassed approval or failed before suspension:\n${await describeAssistantState(page, modelProvider)}`
     );
   }
-  await approval.getByRole('button', { exact: true, name: 'Approve legacy_echo' }).click();
+  await approval.getByRole('button', { exact: true, name: 'Approve legacy.echo' }).click();
   await expect(completed).toBeVisible({ timeout: 90_000 });
   // Committed approval cards retain answered history outside the activity
   // disclosure. Require the actual tool row to settle before reading its result.
-  const toolCard = page.getByTestId('tool-fallback').filter({ hasText: 'legacy_echo' }).last();
+  const toolCard = page.getByTestId('tool-fallback').filter({ hasText: 'legacy.echo' }).last();
   await expect(toolCard.getByTestId('activity-step-row')).toHaveAttribute('data-state', 'done');
   await expect(toolCard.getByRole('img', { name: 'Completed' })).toBeVisible();
   // The accessible name leads with the visible tool and payload. Match the
@@ -543,7 +543,7 @@ async function executeElicitationTool(
   await input.fill('Run the packaged MCP elicitation proof.');
   await page.getByRole('button', { exact: true, name: 'Send' }).click();
   // Target this tool's public approval rather than another card in history.
-  const approve = page.getByRole('button', { exact: true, name: 'Approve oauth_elicit_confirm' });
+  const approve = page.getByRole('button', { exact: true, name: 'Approve oauth.elicit_confirm' });
   await approve.waitFor({ state: 'visible', timeout: 90_000 });
   await approve.click();
   const dialog = page.getByTestId('mcp-elicitation-dialog');
@@ -564,7 +564,7 @@ async function executeElicitationTool(
   });
   const toolCard = page
     .getByTestId('tool-fallback')
-    .filter({ hasText: 'oauth_elicit_confirm' })
+    .filter({ hasText: 'oauth.elicit_confirm' })
     .last();
   await expect(toolCard.getByTestId('activity-step-row')).toHaveAttribute('data-state', 'done');
   await expect(toolCard.getByRole('img', { name: 'Completed' })).toBeVisible();
