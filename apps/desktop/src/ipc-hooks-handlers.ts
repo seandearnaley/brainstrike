@@ -105,31 +105,6 @@ export function resolveDbRootForPath(
   return best;
 }
 
-/**
- * Map each supplied mounted-root absolute path to its DB `roots.id`. Paths that
- * resolve to no mounted DB root are dropped (never invented). Used by the
- * attestation-scoping path so the renderer attests only currently-mounted roots.
- */
-export function resolveTrustedRootIds(
-  absPaths: unknown,
-  resolveDbRoot: (absPath: string) => DbRootLite | null
-): Array<{ dbRootId: string; path: string }> {
-  if (!Array.isArray(absPaths)) {
-    return [];
-  }
-  const results: Array<{ dbRootId: string; path: string }> = [];
-  for (const raw of absPaths) {
-    if (typeof raw !== 'string' || raw.trim().length === 0 || !isAbsolute(raw.trim())) {
-      continue;
-    }
-    const dbRoot = resolveDbRoot(raw.trim());
-    if (dbRoot) {
-      results.push({ dbRootId: dbRoot.id, path: raw });
-    }
-  }
-  return results;
-}
-
 export function getProjectHooksForReview(
   rootId: unknown,
   absPath: unknown,

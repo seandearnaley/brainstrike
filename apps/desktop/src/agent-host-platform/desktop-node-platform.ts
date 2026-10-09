@@ -408,7 +408,8 @@ export async function createHostPlatform(
       const hooks = createHostRunHooks({
         globalPath: getGlobalHooksPath(),
         maxHookTimeoutMs: selected.toolTimeoutMs,
-        roots: await trustedHookRoots(startup.store, selected.workspace?.roots ?? []),
+        // The run's admitted roots, bound or live: the roots its tools use.
+        roots: await trustedHookRoots(startup.store, selected.nativeRuntime.workspaceRoots),
         sessionId: admission.threadId,
       });
       return {

@@ -119,10 +119,6 @@
       "types": "./dist/stores/explorer-sort-state-store.d.ts",
       "import": "./dist/stores/explorer-sort-state-store.js"
     },
-    "./stores/hook-trust-store": {
-      "types": "./dist/stores/hook-trust-store.d.ts",
-      "import": "./dist/stores/hook-trust-store.js"
-    },
     "./stores/import-settings-store": {
       "types": "./dist/stores/import-settings-store.d.ts",
       "import": "./dist/stores/import-settings-store.js"
