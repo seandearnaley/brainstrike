@@ -46,11 +46,16 @@ try {
     }
   };
   const rewind = (messageId) =>
-    core.rewind({ commandId: randomUUID(), messageId, mode: 'conversation-only', threadId });
+    core.rewinds.rewind({
+      commandId: randomUUID(),
+      messageId,
+      mode: 'conversation-only',
+      threadId,
+    });
   await run('First message.');
   const second = await run('Second message.');
   const { rewindId } = await rewind(second);
-  await core.redoRewind({ commandId: randomUUID(), rewindId, threadId });
+  await core.rewinds.redo({ commandId: randomUUID(), rewindId, threadId });
   await rewind(second);
   await run('Third message, after the rewind.');
   await writeFile(output, `${JSON.stringify(await core.read(threadId, 0), null, 2)}\n`);

@@ -27,7 +27,7 @@ import type {
   HostRunIntentRequest,
   HostRunOwner,
 } from './ports.js';
-import type { HostEvent, HostRunSnapshot } from './protocol.js';
+import type { HostEvent } from './protocol.js';
 import { HostRunSnapshotSchema } from './protocol.js';
 import { createHostSdkTools } from './sdk-tools.js';
 import { settleHostToolOutputs } from './tool-artifacts.js';
@@ -173,9 +173,7 @@ export function hostRunIntentRequest(
   origin: HostClientOrigin | undefined,
   /** A command's user-written prompt; a wake (BST-1932) has none. */
   prompt: string | undefined,
-  signal: AbortSignal,
-  /** BST-1932: a wake continues its turn by reopening the run it follows. */
-  snapshot?: HostRunSnapshot
+  signal: AbortSignal
 ): Omit<HostRunIntentRequest, 'workspaceBinding'> {
   return {
     ...(params.configuration ? { configuration: params.configuration } : {}),
@@ -184,7 +182,6 @@ export function hostRunIntentRequest(
     ...(params.planMode ? { planMode: true } : {}),
     ...(prompt === undefined ? {} : { prompt }),
     signal,
-    ...(snapshot ? { snapshot } : {}),
     threadId: params.threadId,
   };
 }
@@ -194,10 +191,9 @@ export function hostRunCommandRequest(
   params: Parameters<typeof hostRunIntentRequest>[0] & { readonly runId: string },
   origin: HostClientOrigin | undefined,
   prompt: string | undefined,
-  signal: AbortSignal,
-  snapshot?: HostRunSnapshot
+  signal: AbortSignal
 ): Omit<HostRunAdmissionRequest, 'workspaceBinding'> {
-  return { ...hostRunIntentRequest(params, origin, prompt, signal, snapshot), runId: params.runId };
+  return { ...hostRunIntentRequest(params, origin, prompt, signal), runId: params.runId };
 }
 
 /** The platform's fixed default selection, for hosts without a per-run `admitRun`. */

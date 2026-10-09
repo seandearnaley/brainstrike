@@ -572,10 +572,15 @@ export class CommittedAssistantLogProjection {
       parentId = identity.userMessageId;
     } else if (identity.userMessageId) {
       const attachments = committedAttachments(row.event, identity.userMessageId);
+      // An image sent without text commits an empty prompt beside its images.
+      const prompt = row.event['prompt'];
+      if (typeof prompt !== 'string' || !(prompt || attachments?.length)) {
+        throw new Error('Committed host event is missing prompt.');
+      }
       const user = fromThreadMessageLike(
         {
           ...(attachments ? { attachments } : {}),
-          content: [{ text: requiredString(row.event, 'prompt'), type: 'text' }],
+          content: prompt ? [{ text: prompt, type: 'text' }] : [],
           createdAt: identity.createdAt,
           id: identity.userMessageId,
           metadata: identity.metadata,
