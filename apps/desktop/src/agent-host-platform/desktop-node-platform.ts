@@ -426,6 +426,7 @@ export async function createHostPlatform(
         toolTimeoutMs: selected.toolTimeoutMs,
       };
     },
+    readLegacyMemory: () => request('platform/memory/legacy', {}),
     // Main supplies the existing policy owner; Core remains the only gate.
     readPermissionPolicy: async (threadId) => {
       const policy = PlatformPolicySchema.parse(

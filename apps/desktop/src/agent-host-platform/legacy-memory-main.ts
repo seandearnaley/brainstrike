@@ -10,7 +10,7 @@ import { z } from 'zod';
 export const LEGACY_MEMORY_METHOD = 'platform/memory/legacy';
 
 /** Main's PGlite workspace memory: legacy read only the workspace resource. */
-async function readMainLegacyMemory(): Promise<PgliteLegacyMemory> {
+export async function readMainLegacyMemory(): Promise<PgliteLegacyMemory> {
   const { getDatabase } = await import('../db-main');
   const database = await getDatabase();
   return await readPgliteLegacyMemory(
@@ -22,7 +22,7 @@ async function readMainLegacyMemory(): Promise<PgliteLegacyMemory> {
 /** Serve the host's one legacy memory read on its private platform connection. */
 export function serveLegacyMemory(
   connection: MessageConnection,
-  read: () => Promise<PgliteLegacyMemory> = readMainLegacyMemory
+  read: () => Promise<PgliteLegacyMemory>
 ): { close(): void } {
   const handler = connection.onRequest(LEGACY_MEMORY_METHOD, async (input: unknown) => {
     z.strictObject({}).parse(input);

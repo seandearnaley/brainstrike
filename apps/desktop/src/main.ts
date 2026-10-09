@@ -29,6 +29,7 @@ import { registerAgentHostClientIpc } from './agent-host-client-ipc';
 import { createAgentHostMainClient } from './agent-host-main-client';
 import { createDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
 import { DesktopWorkspaceBindingAuthority } from './agent-host-platform/desktop-workspace-binding';
+import { readMainLegacyMemory } from './agent-host-platform/legacy-memory-main';
 import {
   PlatformPolicySchema,
   platformPermissionPolicy,
@@ -1088,6 +1089,8 @@ const nativeIndexActivation = createNativeIndexActivation({
         localLlm: createMainLlmHostClient(createE2eScriptedLlmHost() ?? llmHostManager),
         // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
         mcp: createDesktopMcpPlatformCapabilities(getDesktopMcpHostRuntime()),
+        // Gap 17: the host imports the profile's legacy workspace memory once.
+        readLegacyMemory: readMainLegacyMemory,
       });
     },
     platformModule: resolveBundledSiblingPath(
