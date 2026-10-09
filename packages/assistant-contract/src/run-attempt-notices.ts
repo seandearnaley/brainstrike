@@ -9,7 +9,7 @@ export interface RunAttemptNoticeInput {
   readonly attempt: number;
   readonly detail: string;
   readonly maxAttempts: number;
-  readonly reason: 'stalled' | 'provider-error' | 'empty-response';
+  readonly reason: 'stalled' | 'provider-error' | 'empty-response' | 'context-overflow';
   readonly recovered: boolean;
   readonly refusal?: 'budget-exhausted' | 'tool-parts' | 'committed-output' | undefined;
 }
@@ -27,12 +27,14 @@ export interface RunAttemptNotice {
 }
 
 const ENDED_LABELS: Readonly<Record<RunAttemptNoticeInput['reason'], string>> = {
+  'context-overflow': 'Provider context overflowed',
   'empty-response': 'Model returned an empty response',
   'provider-error': 'Provider request failed',
   stalled: 'Model stream stalled',
 };
 
 const RESUMED_LABELS: Readonly<Record<RunAttemptNoticeInput['reason'], string>> = {
+  'context-overflow': 'Continuing after compaction',
   'empty-response': 'Continuing after an empty response',
   'provider-error': 'Continuing after a provider error',
   stalled: 'Continuing after a stall',

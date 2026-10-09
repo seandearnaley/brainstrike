@@ -7,7 +7,7 @@ import { createProviderApiKeyReader } from '@brainstrike/assistant-service/provi
 import { inspectProviderKeys, readProviderCredential } from '../provider-api-key';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { respondToSecretReadError } from './secret-error-responses';
-import { resolveTavilyApiKeyFromKeychain, TAVILY_SECRET_PROVIDER } from './web-search-tool';
+import { TAVILY_SECRET_PROVIDER } from './tavily-key';
 
 /**
  * Typed credential reader (BST-1352): the desktop implementation of the
@@ -56,15 +56,18 @@ export async function resolveProviderApiKey(provider: string): Promise<string | 
   return await providerApiKeyReader(provider);
 }
 
-/** Main's legacy verification reader: env, then Main's read-only view of the profile store. */
+/**
+ * Main's legacy verification reader: env, then Main's read-only view of the
+ * profile store. Tavily verifies only in the host (`providers/verify`), from
+ * the host's own store; Main's Tavily reader serves web extract alone.
+ */
 export async function readMainVerificationCredential(
   providerId: string
 ): Promise<ProviderCredential | undefined> {
-  if (providerId !== TAVILY_SECRET_PROVIDER) {
-    return await resolveProviderCredential(providerId);
+  if (providerId === TAVILY_SECRET_PROVIDER) {
+    throw new Error('Tavily verification runs in the host, from its own credential store');
   }
-  const key = await resolveTavilyApiKeyFromKeychain();
-  return key === undefined ? undefined : { key, type: 'api_key' };
+  return await resolveProviderCredential(providerId);
 }
 
 export async function collectAvailableProviders(): Promise<{

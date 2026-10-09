@@ -11,10 +11,11 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
 import { HOST_RESULT_SCHEMAS, type HostLogRow } from '@brainstrike/agent-host/protocol';
 import { decodeHostRecord } from '@brainstrike/host-lease';
-import { processStartTime, RootLock } from '@brainstrike/state-store';
+import { processStartTime, RootLock, STATE_DB } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import type { McpLabSession } from '../../../../packages/mcp-test-lab/dist/index.js';
@@ -31,7 +32,7 @@ const bin = join(
 );
 const lab: {
   startMcpLabScenario(
-    id: 'legacy-reference' | 'modern-reference',
+    id: 'legacy-reference' | 'modern-reference' | 'tasks-reference',
     options: { readonly execution: 'loopback' }
   ): Promise<McpLabSession>;
 } = await import(
@@ -89,7 +90,9 @@ async function rows(run: Cli, threadId: string): Promise<HostLogRow[]> {
   return HOST_RESULT_SCHEMAS['thread/read'].parse(JSON.parse(shown.stdout)).rows;
 }
 
-async function labUrl(id: 'legacy-reference' | 'modern-reference'): Promise<string> {
+async function labUrl(
+  id: 'legacy-reference' | 'modern-reference' | 'tasks-reference'
+): Promise<string> {
   const session = await lab.startMcpLabScenario(id, { execution: 'loopback' });
   cleanup.push(async () => {
     await session.close();
@@ -112,15 +115,15 @@ async function refusedUrl(): Promise<string> {
   return `http://127.0.0.1:${address.port}/mcp`;
 }
 
-/** A started standalone host over `servers`, whose model calls the reachable reference tool. */
-async function startHost(servers: readonly Record<string, string>[]) {
+/** A started standalone host over `servers`, whose model calls `tool` once. */
+async function startHost(servers: readonly Record<string, string>[], tool = TOOL) {
   const dataRoot = await mkdtemp(join(tmpdir(), 'bs-c2-cli-mcp-'));
   // The model calls the configured MCP tool, then answers. A turn without the
   // tool (the title request) ends with a reply naming what was offered.
   const shim: ModelProviderShim = await startModelProviderShim((request) =>
-    request.toolNames.includes(TOOL)
-      ? { finalText: FINAL, toolCall: { arguments: {}, name: TOOL } }
-      : { finalText: `No ${TOOL} offered: ${request.toolNames.join(', ')}` }
+    request.toolNames.includes(tool)
+      ? { finalText: FINAL, toolCall: { arguments: {}, name: tool } }
+      : { finalText: `No ${tool} offered: ${request.toolNames.join(', ')}` }
   );
   const run = cli(dataRoot, {
     ...resolveProviderEgressEnvironment(shim, []),
@@ -155,7 +158,7 @@ async function startHost(servers: readonly Record<string, string>[]) {
     code: 0,
     stderr: '',
   });
-  return { mcpConfig, run, shim };
+  return { dataRoot, mcpConfig, run, shim };
 }
 
 /** One completed `run --json` over the reference tool; its committed events. */
@@ -198,7 +201,7 @@ test('a standalone host composes --mcp-config servers and runs their tools', asy
   expect(events.find((event) => event.type === 'run.started')).toMatchObject({
     runId,
     snapshot: {
-      configuration: { capabilities: { configuredMcp: 'available', tasks: 'unavailable' } },
+      configuration: { capabilities: { configuredMcp: 'available', tasks: 'available' } },
     },
   });
   expect(events.some((event) => event.type === 'mcp.tools.unavailable')).toBe(false);
@@ -247,4 +250,95 @@ test('a run skips each unavailable MCP server visibly and keeps the reachable on
   expect(shown.code, shown.stderr).toBe(0);
   expect(shown.stderr).toContain('MCP server down unavailable:');
   expect(shown.stderr).toContain('MCP server mismatched unavailable:');
+});
+
+// Eight CLI processes and one host: each process start costs seconds on a loaded machine.
+test('a standalone host runs an MCP Task to its input, and the CLI settles it', {
+  timeout: 60_000,
+}, async () => {
+  const tasksServer = 'tasks';
+  const { dataRoot, run, shim } = await startHost(
+    [{ name: tasksServer, url: await labUrl('tasks-reference') }],
+    `${tasksServer}_start_task`
+  );
+
+  // A non-interactive run stops at the committed input and names how to answer it.
+  const started = await run([
+    'run',
+    'Start the reference task.',
+    '--model',
+    MODEL,
+    '--json',
+    '--non-interactive',
+  ]);
+  expect(started.code, started.stderr).toBe(2);
+  const { runId, threadId } = z
+    .object({ runId: z.string(), threadId: z.string() })
+    .parse(JSON.parse(started.stdout.split('\n')[0] ?? ''));
+  const requested = (await rows(run, threadId))
+    .map((row) => row.event)
+    .find((event) => event.type === 'mcp.input.requested');
+  expect(requested).toMatchObject({
+    configuredServerId: tasksServer,
+    mode: 'form',
+    runId,
+    taskId: expect.any(String),
+  });
+  const interactionId = requested && 'interactionId' in requested ? requested.interactionId : '';
+  const address = ['--thread', threadId, '--run', runId, '--interaction', interactionId];
+  expect(started.stderr).toContain(`mcp input settle ${address.join(' ')}`);
+
+  const read = await run(['mcp', 'input', 'read', ...address]);
+  expect(read.code, read.stderr).toBe(0);
+  expect(HOST_RESULT_SCHEMAS['mcp/input/read'].parse(JSON.parse(read.stdout))).toMatchObject({
+    presentation: { message: 'Approve the reference task?', mode: 'form' },
+    status: 'requested',
+  });
+  const settled = await run([
+    'mcp',
+    'input',
+    'settle',
+    ...address,
+    '--action',
+    'accept',
+    '--content',
+    JSON.stringify({ approved: true }),
+  ]);
+  expect(settled.code, settled.stderr).toBe(0);
+
+  const finished = await run([
+    'attach',
+    '--thread',
+    threadId,
+    '--run',
+    runId,
+    '--non-interactive',
+    '--json',
+  ]);
+  expect(finished.code, finished.stderr).toBe(0);
+  const events = (await rows(run, threadId)).map((row) => row.event);
+  expect(events.find((event) => event.type === 'run.started')).toMatchObject({
+    snapshot: { configuration: { capabilities: { tasks: 'available' } } },
+  });
+  expect(events.find((event) => event.type === 'mcp.input.settled')).toMatchObject({
+    interactionId,
+    status: 'remote-acknowledged',
+  });
+  expect(events.find((event) => event.type === 'effect.finished')).toMatchObject({
+    output: { kind: 'mcp-task', task: { recovery: 'terminal', status: 'completed' } },
+  });
+  expect(events.find((event) => event.type === 'run.finished')).toMatchObject({
+    outcome: 'completed',
+  });
+  expect(shim.refusals()).toEqual([]);
+
+  // The task row lives in the host's StateStore, bound to the thread whose run created it.
+  const db = new DatabaseSync(join(dataRoot, STATE_DB), { readOnly: true });
+  try {
+    expect(
+      db.prepare('SELECT server_id, status, thread_id FROM brainstrike_mcp_tasks').all()
+    ).toEqual([{ server_id: tasksServer, status: 'completed', thread_id: threadId }]);
+  } finally {
+    db.close();
+  }
 });

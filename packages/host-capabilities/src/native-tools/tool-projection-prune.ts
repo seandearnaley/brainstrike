@@ -9,7 +9,7 @@ import {
   type NativeToolId,
   RECENCY_PRUNABLE_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
-import { stableNormalizedArgsKey } from '@brainstrike/host-capabilities/native-tools';
+import { stableNormalizedArgsKey } from './tool-call-loop-guards.js';
 
 /** Newest estimated tool-result tokens that recency pruning must preserve. */
 export const TOOL_PROJECTION_PRUNE_PROTECT_WINDOW_TOKENS = 40_000;

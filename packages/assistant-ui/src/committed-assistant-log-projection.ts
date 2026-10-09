@@ -32,6 +32,7 @@ import {
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { parsePartialJsonObject } from 'assistant-stream/utils';
 import { committedApprovalOptions } from './committed-approval-options';
+import { HOST_CONTEXT_COMPACTED_DATA_NAME } from './compaction-summary-message';
 import type { ThreadTokenUsage } from './context-usage-store';
 
 /** Structural consumer boundary for the owner's validated HostLogRow, not a wire schema. */
@@ -116,7 +117,12 @@ type ProjectedRunEvent = Pick<
   'detail' | 'kind' | 'label' | 'metadata' | 'status'
 >;
 
-const ATTEMPT_REASONS = new Set<unknown>(['stalled', 'provider-error', 'empty-response']);
+const ATTEMPT_REASONS = new Set<unknown>([
+  'context-overflow',
+  'empty-response',
+  'provider-error',
+  'stalled',
+]);
 const ATTEMPT_REFUSALS = new Set<unknown>(['budget-exhausted', 'tool-parts', 'committed-output']);
 
 /** A committed host `run.attempt` row, read strictly like every other committed event. */
@@ -691,8 +697,9 @@ export class CommittedAssistantLogProjection {
   }
 
   /**
-   * A host event with no message part of its own: a withheld memory reason
-   * becomes thread view state, anything else stays as host-event data.
+   * A host event with no message part of its own: an attempt record becomes
+   * its run's attempt notice, a compaction its compaction-card part, a
+   * withheld memory reason thread view state, and anything else host-event data.
    */
   private other(run: ProjectedRun, row: CommittedAssistantLogRow): void {
     const event = row.event;
@@ -708,6 +715,15 @@ export class CommittedAssistantLogProjection {
     }
     if (event['type'] === 'run.attempt') {
       this.attempt(run, row);
+      return;
+    }
+    if (event['type'] === 'context.compacted') {
+      const kind = event['kind'];
+      if (kind !== 'agentic' && kind !== 'deterministic') {
+        throw new Error('Committed compaction has an unsupported kind.');
+      }
+      const summary = requiredString(event, 'summary');
+      this.data(run, row, { kind, summary }, HOST_CONTEXT_COMPACTED_DATA_NAME);
       return;
     }
     if (event['type'] === 'provider.request.prepared' && event['breakdown'] !== undefined) {

@@ -38,6 +38,8 @@ function runtimeWorkspaceContext({
 export function desktopHostSharedTools(options: {
   readonly readFileCursorRegistry: ReadWorkspaceFileCursorRegistry;
   readonly request: (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
+  /** The host's own Tavily key owner, never Main's view of the store. */
+  readonly resolveTavilyApiKey: () => Promise<string | undefined>;
   readonly selected: PlatformSelection;
   readonly threadId: string;
 }): Record<string, HostTool> {
@@ -63,7 +65,11 @@ export function desktopHostSharedTools(options: {
   };
   const local = createSharedNativeHostTools({
     diagnostics: (args) => getEditDiagnostics(args),
-    executors: desktopHostToolExecutors(options.request, options.threadId),
+    executors: desktopHostToolExecutors(
+      options.request,
+      options.threadId,
+      selected.nativeRuntime.retrievalRootsOnly === true
+    ),
     freshRoots: async (signal) =>
       CliWorkspaceRootsSchema.parse(
         await options.request('platform/workspace/roots', { threadId: options.threadId }, signal)
@@ -72,6 +78,7 @@ export function desktopHostSharedTools(options: {
     readFileCursorRegistry: options.readFileCursorRegistry,
     resolvedToolResultBudget: resolveScaledToolResultBudget(selected.contextWindow),
     runtime,
+    webSearch: { resolveApiKey: options.resolveTavilyApiKey },
   });
   const byCatalogId = new Map(
     Object.values(local).map((tool) => [tool.permissionToolId, tool] as const)

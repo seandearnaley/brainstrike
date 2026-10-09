@@ -1,9 +1,12 @@
 import type { ToolContent } from 'ai';
+import type { HostRunState } from './core-state.js';
 import { jsonValue } from './json-value.js';
+import type { HostRunAdmission } from './ports.js';
 import type { HostEvent } from './protocol.js';
 
 type HostToolResultOutput = Extract<ToolContent[number], { type: 'tool-result' }>['output'];
 type HookContextEvent = Extract<HostEvent, { type: 'hook.context' }>;
+type RunFinishedEvent = Extract<HostEvent, { type: 'run.finished' }>;
 
 /**
  * Bound on the assistant text handed to Stop hooks: the tail, because an
@@ -61,9 +64,7 @@ export function withHostToolHookContext(
 }
 
 /** How a run's end reads to a Stop hook. */
-export function hostStopReason(
-  outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome']
-): 'aborted' | 'complete' | 'error' {
+function hostStopReason(outcome: RunFinishedEvent['outcome']): 'aborted' | 'complete' | 'error' {
   if (outcome === 'completed') {
     return 'complete';
   }
@@ -71,7 +72,7 @@ export function hostStopReason(
 }
 
 /** The run's own assistant text across its steps, tail-bounded, for its Stop hooks. */
-export function hostRunAssistantTail(
+function hostRunAssistantTail(
   messages: readonly { readonly content: unknown; readonly role: string }[]
 ): string | undefined {
   const steps = messages.flatMap((message) => {
@@ -92,4 +93,71 @@ export function hostRunAssistantTail(
   });
   const tail = steps.join('\n').slice(-STOP_ASSISTANT_MESSAGE_TAIL_CHARS);
   return tail.length > 0 ? tail : undefined;
+}
+
+/** Live and replayed hook context rows apply to their committed run. */
+export function foldHostHookContextEvent(
+  runs: ReadonlyMap<string, HostRunState>,
+  event: HookContextEvent
+): void {
+  const run = runs.get(event.runId);
+  if (!run) {
+    throw new Error('Hook context references an unknown run');
+  }
+  foldHostHookContext(run, event);
+}
+
+/**
+ * A run's terminal rows: its Stop hooks see how it ended, and a verdict they
+ * report labels the run in the same append as `run.finished`, never after it.
+ */
+export async function hostRunTerminalEvents(
+  run: HostRunState,
+  finished: RunFinishedEvent
+): Promise<HostEvent[]> {
+  const hooks = run.admission?.hooks;
+  if (!hooks) {
+    return [finished];
+  }
+  const assistantMessage = hostRunAssistantTail(run.messages);
+  const { verdict } = await hooks.stop({
+    ...(assistantMessage === undefined ? {} : { assistantMessage }),
+    reason: hostStopReason(finished.outcome),
+  });
+  if (!verdict) {
+    return [finished];
+  }
+  const label: HostEvent = {
+    ...(verdict.detail === undefined ? {} : { detail: verdict.detail }),
+    runId: run.id,
+    source: 'hook',
+    type: 'run.verdict',
+    verdict: verdict.verdict,
+  };
+  return [label, finished];
+}
+
+/**
+ * A fresh run's prompt passes its UserPromptSubmit hooks before the first
+ * step. Added context is committed, so recovery keeps it, and joins the run's
+ * instructions. Returns why the run must fail instead: a block, with the
+ * hook's reason, or a failed gate.
+ */
+export async function passHostPromptHooks(
+  run: HostRunState,
+  admission: HostRunAdmission,
+  commit: (events: HostEvent[]) => Promise<unknown>
+): Promise<string | undefined> {
+  try {
+    const gate = await admission.hooks?.userPromptSubmit(run.branch.prompt);
+    if (gate?.blocked) {
+      return `The request was blocked by a hook: ${gate.reason}`;
+    }
+    if (gate?.additionalContext) {
+      await commit([{ context: gate.additionalContext, runId: run.id, type: 'hook.context' }]);
+    }
+    return;
+  } catch (cause) {
+    return cause instanceof Error ? cause.message : String(cause);
+  }
 }

@@ -15,6 +15,7 @@ import { z } from 'zod';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { isHostExecutedNativeToolId } from './host-executed-tools';
 import { type HostToolServiceCapabilities, serveHostToolServices } from './host-tool-services';
+import { type DesktopLlmHostInference, serveLlmHostPort } from './llm-host-port';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
 import type { DesktopMemoryVectorSelection } from './memory-vector-selection';
 import {
@@ -45,6 +46,8 @@ export interface DesktopPlatformCapabilities {
   closeRootCapabilities?(): Promise<void>;
   /** Main-owned stores and services the agent host's own tools read (cap-tools). */
   readonly hostTools?: HostToolServiceCapabilities;
+  /** The hidden llm-host renderer's inference, for the host's built-in local model. */
+  readonly llmHost?: DesktopLlmHostInference;
   /** ADR-0007: Main's hidden embedding host, borrowed by a thread's admitted local recall. */
   readonly localEmbedding?: Pick<EmbeddingHostManager, 'queryEmbedding'>;
   /** ADR-0007: Main's hidden llm-host, borrowed by a thread's admitted local observer. */
@@ -145,6 +148,9 @@ export function serveDesktopPlatform(
   const controllers = new Set<AbortController>();
   const pending = new Set<Promise<unknown>>();
   const mcpStores = serveMainMcpStores(connection, capabilities.mcp);
+  const llmHost = capabilities.llmHost
+    ? serveLlmHostPort(connection, capabilities.llmHost)
+    : undefined;
   let closing: Promise<void> | undefined;
   const execute = <T>(
     token: CancellationToken,
@@ -408,6 +414,7 @@ export function serveDesktopPlatform(
         await Promise.allSettled([...pending]);
       }
       mcpStores.close();
+      llmHost?.dispose();
       const results = await Promise.allSettled(
         [...selections.values()].map((value) => value.selection.close())
       );

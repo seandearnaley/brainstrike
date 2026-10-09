@@ -119,6 +119,11 @@ export class HookManager {
     }
   }
 
+  /** Whether any PreToolUse hook would run for this tool. */
+  matchesPreToolUse(toolName: string): boolean {
+    return this.hooksFor('PreToolUse').some((hook) => matchesTool(hook, toolName));
+  }
+
   async runPreToolUse(toolName: string, toolInput: unknown): Promise<HookEventResult> {
     const hooks = this.hooksFor('PreToolUse').filter((hook) => matchesTool(hook, toolName));
     const result = await runHooksForEvent(

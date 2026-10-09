@@ -1,6 +1,7 @@
 import {
   isToolOutputArtifactReference,
   TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES,
+  TOOL_OUTPUT_ARTIFACT_RETENTION_MS,
   type ToolOutputArtifactFormat,
   type ToolOutputArtifactReference,
 } from '@brainstrike/assistant-contract/tool-output-artifact';
@@ -9,10 +10,11 @@ const TABLE = 'brainstrike_assistant_tool_output_artifacts';
 const OWNER_ID_MAX_BYTES = 512;
 const DEFAULT_PURGE_LIMIT = 500;
 const MAX_PURGE_LIMIT = 10_000;
+
+export { TOOL_OUTPUT_ARTIFACT_RETENTION_MS };
+
 const TEXT_ENCODER = new TextEncoder();
 const HEX_BYTES = Array.from({ length: 256 }, (_, byte) => byte.toString(16).padStart(2, '0'));
-
-export const TOOL_OUTPUT_ARTIFACT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type ToolOutputArtifactStorageOperation = 'purge' | 'read' | 'store';
 
