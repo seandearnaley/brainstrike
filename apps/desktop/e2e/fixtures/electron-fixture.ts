@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -47,12 +47,18 @@ export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
       testInfo.retry
     );
 
+    // The folder "Add Folder to Workspace" mounts: real and disposable, because
+    // Main validates a host thread's bound root on disk.
+    const workspaceRoot = await realpath(
+      await mkdtemp(path.join(os.tmpdir(), 'brainstrike-e2e-workspace-'))
+    );
     const harness = new ElectronHarness(
       testInfo,
       undefined,
       userDataDir,
       electronEnv,
-      modelProvider
+      modelProvider,
+      workspaceRoot
     );
     try {
       await use(harness);
@@ -61,6 +67,7 @@ export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
         await harness.dispose();
       } finally {
         await removeElectronUserDataDir(userDataDir);
+        await rm(workspaceRoot, { force: true, recursive: true });
       }
     }
   },
