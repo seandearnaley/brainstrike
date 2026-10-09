@@ -6,6 +6,7 @@ import {
   buildLocalDefaultInstructions,
   filterToolsForPlanMode,
   formatSkillsCatalog,
+  injectWorkspaceRootManifestContext,
 } from '@brainstrike/agent/tool-runtime';
 import {
   type HostRunAdmissionRequest,
@@ -104,6 +105,8 @@ export async function readDesktopHostSystemContext(options: {
   messages = await injectReferencedFilesContext(messages, options.runtime, readFile);
   messages = await injectActivatedSkillsContext(messages, skills);
   messages = await injectWorkspaceInstructionsContext(messages, options.runtime, readFile);
+  // The legacy per-turn workspace topology: root selectors, main root and focused root.
+  messages = injectWorkspaceRootManifestContext(messages, options.runtime);
   sections.push(
     ...messages
       .filter((message) => message.role === 'system')
