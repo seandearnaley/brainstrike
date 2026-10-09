@@ -333,9 +333,18 @@ async function handle(m) {
       return { checkpoint, t0, t1: clock() };
     }
     case 'read': {
-      const r = log.readFrom(String(m['threadId']), Number(m['fromSeq']), Number(m['limit']));
+      const keep = /** @type {readonly string[] | undefined} */ (m['keepChunkTypes']);
+      const r = keep
+        ? log.readHydration(String(m['threadId']), Number(m['fromSeq']), keep)
+        : log.readFrom(String(m['threadId']), Number(m['fromSeq']), Number(m['limit']));
       return { damage: r.damage ? errorReply(r.damage) : null, rows: r.rows };
     }
+    case 'threadTimes':
+      return { threads: log.threadTimes() };
+    case 'storedBlobRefs':
+      return { hashes: log.storedBlobRefs(String(m['threadId'])) };
+    case 'damagedBlobRefs':
+      return { hashes: log.damagedBlobRefs() };
     case 'readAll':
       return readAll();
     case 'status':

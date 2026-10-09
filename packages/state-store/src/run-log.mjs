@@ -4,7 +4,7 @@
 // (the batch append and the step-boundary op). It runs only inside the writer worker (src/writer-worker.mjs), except in
 // tests that time it on a connection of their own.
 
-import { crcOf, verified, withSeq } from './run-log-format.mjs';
+import { crcOf, storedBlobRefs, verified, withSeq } from './run-log-format.mjs';
 import { checkpointTruncate } from './sqlite-checkpoint.mjs';
 
 /** @typedef {import('better-sqlite3').Database} Db */
@@ -231,6 +231,118 @@ export class RunLog {
       return { damage: new ThreadDamage(id, s.atSeq, s.error), rows };
     }
     return { damage: null, rows };
+  }
+
+  /**
+   * Verified rows from `fromSeq` minus the `stream.chunk` rows a hydrating reader does not fold: a chunk row is kept
+   * when its inline `chunk.type` is one of `keepChunkTypes`, when it is spooled (no inline chunk: the reader decides
+   * after decoding), or when its payload no longer parses (so its crc check reports it). Contiguity comes from the seq
+   * index alone, so a skipped row is never read; every returned row is crc-verified. Skipped rows are not verified, so
+   * this read never marks the thread `ok`: a full read or the first append still verifies every row.
+   * @param {string} id
+   * @param {number} fromSeq
+   * @param {readonly string[]} keepChunkTypes
+   * @returns {{ rows: Row[]; damage: ThreadDamage | null }}
+   */
+  readHydration(id, fromSeq, keepChunkTypes) {
+    const from = Math.max(1, fromSeq);
+    const cached = this.st.get(id);
+    if (cached?.kind === 'damaged' && from >= cached.atSeq) {
+      return { damage: new ThreadDamage(id, cached.atSeq, cached.error), rows: [] };
+    }
+    const span = /** @type {{ n: number; lo: number | null; hi: number | null }} */ (
+      this.db
+        .prepare(
+          'SELECT count(*) AS n, min(seq) AS lo, max(seq) AS hi FROM run_events WHERE thread_id = ?'
+        )
+        .get(id)
+    );
+    if (span.n > 0 && (span.lo !== 1 || span.hi !== span.n)) {
+      // A real gap: the full verification finds where it starts.
+      this.st.delete(id);
+      return this.readFrom(id, from, Number.MAX_SAFE_INTEGER);
+    }
+    const last = cached?.kind === 'damaged' ? cached.atSeq - 1 : (span.hi ?? 0);
+    /** @type {Row[]} */
+    const rows = [];
+    try {
+      const it = /** @type {IterableIterator<Row>} */ (
+        this.db
+          .prepare(
+            `SELECT seq, payload, crc, raw_count AS rawCount, created_at AS ts FROM run_events
+             WHERE thread_id = ? AND seq >= ? AND seq <= ? AND NOT (
+               type = 'stream.chunk' AND json_valid(payload) AND json_extract(payload, '$.blob') IS NULL
+               AND COALESCE(json_extract(payload, '$.chunk.type'), '') NOT IN (SELECT value FROM json_each(?))
+             ) ORDER BY seq`
+          )
+          .iterate(id, from, last, JSON.stringify(keepChunkTypes))
+      );
+      for (const r of it) {
+        if (!verified(r)) {
+          /** @type {ThreadStatus} */
+          const d = { atSeq: r.seq, error: 'row crc mismatch', kind: 'damaged' };
+          this.st.set(id, d);
+          return { damage: new ThreadDamage(id, r.seq, d.error), rows };
+        }
+        rows.push(r);
+      }
+    } catch (e) {
+      if (!isCorrupt(e)) {
+        throw e;
+      }
+      const at = (rows.at(-1)?.seq ?? from - 1) + 1;
+      const error = String(/** @type {Error} */ (e).message);
+      this.st.set(id, { atSeq: at, error, kind: 'damaged' });
+      return { damage: new ThreadDamage(id, at, error), rows };
+    }
+    if (cached?.kind === 'damaged') {
+      return { damage: new ThreadDamage(id, cached.atSeq, cached.error), rows };
+    }
+    return { damage: null, rows };
+  }
+
+  /**
+   * Every thread's first and latest append time, from the `threads` row the append maintains. A damaged thread keeps
+   * honest times: no payload is read.
+   * @returns {Array<{ threadId: string; createdAt: number; updatedAt: number }>}
+   */
+  threadTimes() {
+    return /** @type {Array<{ threadId: string; createdAt: number; updatedAt: number }>} */ (
+      this.db
+        .prepare(
+          'SELECT id AS threadId, created_at AS createdAt, updated_at AS updatedAt FROM threads ORDER BY id'
+        )
+        .all()
+    );
+  }
+
+  /**
+   * The blob hashes a thread's stored rows may reference, verified or not (see storedBlobRefs).
+   * @param {string} id
+   * @returns {string[]}
+   */
+  storedBlobRefs(id) {
+    const rows = /** @type {Array<{ payload: string }>} */ (
+      this.db.prepare('SELECT payload FROM run_events WHERE thread_id = ? ORDER BY seq').all(id)
+    );
+    return [...new Set(rows.flatMap((r) => storedBlobRefs(r.payload)))];
+  }
+
+  /**
+   * Blob hashes held by threads whose rows failed verification. Their references are invisible to a verified
+   * reference count, so collection must keep them.
+   * @returns {string[]}
+   */
+  damagedBlobRefs() {
+    const held = new Set();
+    for (const id of this.threads()) {
+      if (this.status(id).kind === 'damaged') {
+        for (const hash of this.storedBlobRefs(id)) {
+          held.add(hash);
+        }
+      }
+    }
+    return /** @type {string[]} */ ([...held]);
   }
 
   /**

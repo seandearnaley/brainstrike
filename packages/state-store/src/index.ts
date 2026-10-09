@@ -67,6 +67,7 @@ export {
   BLOB_MIN_BYTES,
   BLOBS_DIR,
   type ExportedThread,
+  type HydrationReadFilter,
   type IndexerPort,
   largeText,
   type Manifest,
@@ -83,6 +84,7 @@ export {
   type StoreSettings,
   type SyncSpan,
   sha256Hex,
+  type ThreadTimes,
   type WriteSpan,
 } from './state-store.js';
 export { assertNotSyncedRoot, type SyncEnv, SyncedRootError } from './sync-roots.js';
