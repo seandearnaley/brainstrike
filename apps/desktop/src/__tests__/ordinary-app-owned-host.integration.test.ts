@@ -24,6 +24,11 @@ import {
   startModelProviderShim,
 } from '../../e2e/utils/model-provider-shim';
 import { createDisposableAppProfile } from './helpers/disposable-app-profile';
+import {
+  committedShellSlices,
+  liveStdoutSlices,
+  watchThreadTelemetry,
+} from './helpers/live-command-output';
 
 const desktop = resolve(import.meta.dirname, '../..');
 // A send's admission (MCP discovery, memory resolution) and each model step
@@ -613,6 +618,11 @@ setInterval(() => {}, 1000);
           };
         })
       );
+      if (!client) {
+        throw new Error('The host client is not attached');
+      }
+      // The command's live output is run telemetry, watched where it lives.
+      const live = await watchThreadTelemetry(client, threadId);
       await input.fill('Start the owned command, then stop it.');
       await input.press('Enter');
       await expect
@@ -650,25 +660,25 @@ setInterval(() => {}, 1000);
       if (!commandOwner) {
         throw new Error('The actual native command did not record its process identity');
       }
+      const commandRows = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
+      const commandEffect = commandRows.findLast(
+        ({ event }) =>
+          event.type === 'effect.started' &&
+          (event.toolCatalogId ?? event.toolId) === 'brainstrike.executeCommand'
+      )?.event;
+      if (commandEffect?.type !== 'effect.started') {
+        throw new Error('The approved command has no committed effect');
+      }
       await expect
         .poll(
-          async () =>
-            (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.some(
-              ({ event }) =>
-                event.type === 'stream.chunk' &&
-                z
-                  .object({
-                    chunk: z.literal('owned command started\n'),
-                    stream: z.literal('stdout'),
-                    toolCallId: z.string().min(1),
-                    type: z.literal('brainstrike.shell-output.chunk'),
-                  })
-                  .safeParse(event.chunk).success
-            ),
+          () => liveStdoutSlices(live.received, commandEffect, 'owned command started\n'),
           RUN_PROGRESS_POLL
         )
-        .toBe(true);
-      checkpoint('ordinary-command-live-output-committed');
+        .toBe(1);
+      live.release();
+      const committedSlices = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
+      expect(committedShellSlices(committedSlices)).toEqual([]);
+      checkpoint('ordinary-command-live-output-streamed');
       // Neither long-lived owner is the command's to stop: the app, nor the
       // host that spawns the command directly and outlives the stop.
       const commandPids = [commandOwner.pid, commandOwner.ppid].filter(
@@ -756,6 +766,14 @@ setInterval(() => {}, 1000);
             event.outcome === 'stopped'
         )
       ).toBe(true);
+      // A command stopped mid-run commits no tool result, so nothing committed
+      // keeps its live slice (legacy likewise dropped a call that never completed).
+      expect(
+        stopped.filter(
+          ({ event }) =>
+            event.type === 'effect.finished' && event.toolCallId === commandEffect.toolCallId
+        )
+      ).toEqual([]);
       await writeFile(
         join(evidence, 'native-command-cleanup.json'),
         JSON.stringify(
