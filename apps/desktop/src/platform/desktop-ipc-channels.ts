@@ -235,13 +235,7 @@ export const DESKTOP_IPC_CHANNELS = {
     contentComplete: 'mcp:content:complete',
     contentGetPrompt: 'mcp:content:getPrompt',
     contentReadResource: 'mcp:content:readResource',
-    elicitationRequested: 'mcp:elicitation:requested',
-    elicitationRetired: 'mcp:elicitation:retired',
-    elicitationSettle: 'mcp:elicitation:settle',
     statusGet: 'mcp:status:get',
-    taskAct: 'mcp:task:act',
-    taskList: 'mcp:task:list',
-    taskStatusChanged: 'mcp:task:status-changed',
   },
   notesVault: {
     // One-way main→renderer push: a watched vault directory changed. Pushed to

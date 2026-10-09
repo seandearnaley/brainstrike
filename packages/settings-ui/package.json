@@ -96,6 +96,10 @@
       "types": "./dist/settings/tools/index.d.ts",
       "import": "./dist/settings/tools/index.js"
     },
+    "./settings/tools/mcp-elicitation-capability": {
+      "types": "./dist/settings/tools/mcp-elicitation-capability.d.ts",
+      "import": "./dist/settings/tools/mcp-elicitation-capability.js"
+    },
     "./settings/tools/mcp-elicitation-dialog": {
       "types": "./dist/settings/tools/mcp-elicitation-dialog.d.ts",
       "import": "./dist/settings/tools/mcp-elicitation-dialog.js"

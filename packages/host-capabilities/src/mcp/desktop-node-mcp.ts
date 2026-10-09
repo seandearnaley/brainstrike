@@ -15,6 +15,7 @@ import { createMcpHostServices, type McpHostServices } from './mcp-host-services
 import { serveMcpRuntimeToMain } from './mcp-runtime-server.js';
 import { MCP_STORE_METHODS } from './mcp-runtime-wire.js';
 import { identityKey, parseRecords } from './oauth-client-provider.js';
+import { McpPresentationService } from './presentation-service.js';
 import { McpSettingsAuthority } from './settings-authority.js';
 import { stateStoreMcpTaskStorage } from './state-store-task-storage.js';
 
@@ -42,6 +43,8 @@ export interface DesktopNodeMcpHostOptions {
 
 export interface DesktopNodeMcpHost {
   close(): Promise<void>;
+  /** The desktop windows' MCP Tasks cards and server input. */
+  readonly presentation: McpPresentationService;
   readonly services: McpHostServices;
   /** The profile's MCP settings: config file, extension dials and tool preferences. */
   readonly settings: McpSettingsAuthority;
@@ -114,12 +117,14 @@ export async function createDesktopNodeMcpHost(
     runtime: services.runtime,
     userDataDir,
   });
+  const presentation = new McpPresentationService(services.runtime);
   let server: ReturnType<typeof serveMcpRuntimeToMain> | undefined;
   try {
     server = serveMcpRuntimeToMain(connection, services.runtime, settings);
     await request(MCP_STORE_METHODS.ready, {});
   } catch (cause) {
     server?.close();
+    presentation.close();
     try {
       await settings.close();
       await closeServices(services);
@@ -138,6 +143,7 @@ export async function createDesktopNodeMcpHost(
     close: () =>
       (closing ??= (async () => {
         server?.close();
+        presentation.close();
         const failures: unknown[] = [];
         try {
           await settings.close();
@@ -150,6 +156,7 @@ export async function createDesktopNodeMcpHost(
           throw new AggregateError(failures, 'Desktop MCP host cleanup failed');
         }
       })()),
+    presentation,
     services,
     settings,
   };

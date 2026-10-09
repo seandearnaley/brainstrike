@@ -10,7 +10,10 @@ import {
   type HostMethod,
   type HostParams,
   type HostResults,
+  MCP_PRESENTATION_EVENT,
   MCP_SETTINGS_EVENT,
+  type McpPresentationEvent,
+  McpPresentationEventSchema,
   type McpSettingsEvent,
   McpSettingsEventSchema,
   parseHostParams,
@@ -20,6 +23,8 @@ export interface HostClient extends HostAttachment {
   /** BST-1932: told the thread whose children changed status; re-read `thread/children`. */
   onChildrenChanged(listener: (threadId: string) => void): () => void;
   onEvent(listener: (row: HostLogRow) => void): () => void;
+  /** MCP task changes and server input, after this client's `mcp/presentation/subscribe`. */
+  onMcpPresentation(listener: (event: McpPresentationEvent) => void): () => void;
   /** MCP settings changes, after this client's `mcp/settings/subscribe`. */
   onMcpSettings(listener: (event: McpSettingsEvent) => void): () => void;
   request<M extends HostMethod>(method: M, params: HostParams<M>): Promise<HostResults[M]>;
@@ -33,6 +38,7 @@ export async function authenticateHostClient(
 ): Promise<HostClient> {
   const listeners = new Set<(row: HostLogRow) => void>();
   const settingsListeners = new Set<(event: McpSettingsEvent) => void>();
+  const presentationListeners = new Set<(event: McpPresentationEvent) => void>();
   const childListeners = new Set<(threadId: string) => void>();
   const closeConnection = async (): Promise<void> => {
     const failures: unknown[] = [];
@@ -43,6 +49,7 @@ export async function authenticateHostClient(
     }
     listeners.clear();
     settingsListeners.clear();
+    presentationListeners.clear();
     childListeners.clear();
     try {
       await closeTransport();
@@ -71,6 +78,12 @@ export async function authenticateHostClient(
   connection.onNotification(MCP_SETTINGS_EVENT, (input: unknown) => {
     const event = McpSettingsEventSchema.parse(input);
     for (const listener of settingsListeners) {
+      listener(event);
+    }
+  });
+  connection.onNotification(MCP_PRESENTATION_EVENT, (input: unknown) => {
+    const event = McpPresentationEventSchema.parse(input);
+    for (const listener of presentationListeners) {
       listener(event);
     }
   });
@@ -109,6 +122,10 @@ export async function authenticateHostClient(
     onEvent: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    onMcpPresentation: (listener) => {
+      presentationListeners.add(listener);
+      return () => presentationListeners.delete(listener);
     },
     onMcpSettings: (listener) => {
       settingsListeners.add(listener);

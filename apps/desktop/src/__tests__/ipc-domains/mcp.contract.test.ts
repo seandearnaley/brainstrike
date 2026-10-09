@@ -3,26 +3,17 @@ import {
   mcpAppsContract,
   mcpContentContract,
   mcpContract,
-  mcpElicitationContract,
   mcpPathSelectionContract,
-  mcpTasksContract,
 } from '../../ipc-domains/mcp.contract';
 import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
 
 describe('MCP IPC contracts', () => {
-  const contracts = [
-    mcpContract,
-    mcpPathSelectionContract,
-    mcpContentContract,
-    mcpElicitationContract,
-    mcpAppsContract,
-    mcpTasksContract,
-  ];
+  const contracts = [mcpContract, mcpPathSelectionContract, mcpContentContract, mcpAppsContract];
 
-  it('owns all 13 invokes and three pushes in the desktop MCP manifest', () => {
+  it('owns all 10 invokes and no pushes in the desktop MCP manifest', () => {
     const specs = contracts.flatMap((contract) => Object.values(contract));
-    expect(specs.filter(({ kind }) => kind === 'invoke')).toHaveLength(13);
-    expect(specs.filter(({ kind }) => kind === 'push')).toHaveLength(3);
+    expect(specs.filter(({ kind }) => kind === 'invoke')).toHaveLength(10);
+    expect(specs.filter(({ kind }) => kind === 'push')).toHaveLength(0);
     expect(new Set(specs.map(({ channel }) => channel))).toEqual(
       new Set(Object.values(DESKTOP_IPC_CHANNELS.mcp))
     );
@@ -61,5 +52,11 @@ describe('MCP IPC contracts', () => {
     expect(channels.filter((channel) => /^mcp:(lifecycle|status):/u.test(channel))).toEqual([
       'mcp:status:get',
     ]);
+  });
+
+  // BST-1930 c5c: Tasks cards and global server input are host methods too.
+  it('leaves MCP Tasks and elicitation channels off the desktop IPC manifest', () => {
+    const channels = Object.values(DESKTOP_IPC_CHANNELS.mcp);
+    expect(channels.filter((channel) => /^mcp:(task|elicitation):/u.test(channel))).toEqual([]);
   });
 });

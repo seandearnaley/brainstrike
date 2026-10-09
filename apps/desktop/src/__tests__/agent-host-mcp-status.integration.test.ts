@@ -166,8 +166,19 @@ test('the desktop client reads, follows and controls MCP server status on the ag
     const revisions = statusEvents.map(({ revision }) => revision);
     expect(revisions).toEqual([...revisions].sort((left, right) => left - right));
 
-    // A public-socket client reaches no desktop MCP status or control.
+    // The same client follows the host's MCP presentations (BST-1930 c5c): no
+    // task card yet, and a malformed card action is refused before the task host.
+    await expect(client.request('mcp/presentation/subscribe', {})).resolves.toEqual({ tasks: [] });
+    await expect(client.request('mcp/tasks/list', {})).resolves.toEqual({ tasks: [] });
+    await expect(
+      client.request('mcp/tasks/act', { action: 'explode', handle: {} } as never)
+    ).rejects.toThrow();
+
+    // A public-socket client reaches no desktop MCP status, control or presentations.
     cli = await hostClient(host, 'public-socket');
+    await expect(cli.request('mcp/tasks/list', {})).rejects.toThrow(
+      "MCP presentations are available only to the desktop's private client"
+    );
     await expect(cli.request('mcp/status/read', {})).rejects.toThrow(
       "MCP settings are available only to the desktop's private client"
     );

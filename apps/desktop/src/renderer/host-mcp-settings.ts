@@ -3,30 +3,36 @@ import type {
   HostMethod,
   HostParams,
   HostResults,
+  McpPresentationEvent,
   McpSettingsEvent,
 } from '@brainstrike/agent-host/protocol';
 import type { McpStatusCapability } from '@brainstrike/app-shell/mcp-status-capability';
 import type { McpToolsCapability } from '@brainstrike/app-shell/mcp-tools-capability';
+import type { McpTaskBridge } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
+import type { McpElicitationBridge } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-capability';
 import { connectDesktopAgentHost } from './agent-host-client';
 
 const logger = createLogger('DesktopHostMcpSettings');
 
-/** The host methods that read and change the desktop's MCP settings and server status. */
+/** The host methods behind the desktop's MCP settings, server status and presentations. */
 export type DesktopMcpSettingsMethod = Extract<
   HostMethod,
   | `mcp/config/${string}`
+  | `mcp/elicitation/${string}`
   | `mcp/extensions/${string}`
   | `mcp/server/${string}`
   | `mcp/status/${string}`
+  | `mcp/tasks/${string}`
   | `mcp/tools/${string}`
 >;
 
 /**
  * The desktop profile's MCP settings (BST-1930 c5a): the agent host owns the
- * config file, extension dials, tool preferences, and the runtime's server
- * status and lifecycle control (c5b); this window reads and changes them over
- * its own host client, and hears each change once subscribed.
+ * config file, extension dials, tool preferences, the runtime's server status
+ * and lifecycle control (c5b), and its Tasks cards and global server input
+ * (c5c); this window reads, changes and answers them over its own host client,
+ * and hears each change once subscribed.
  */
 export interface DesktopHostMcpSettings {
   request<M extends DesktopMcpSettingsMethod>(
@@ -34,6 +40,43 @@ export interface DesktopHostMcpSettings {
     params: HostParams<M>
   ): Promise<HostResults[M]>;
   subscribe(listener: (event: McpSettingsEvent) => void): () => void;
+  /** Task changes and server input; this window's presenter follows them once. */
+  subscribePresentation(listener: (event: McpPresentationEvent) => void): () => void;
+}
+
+/** One host stream: listeners join it, and the first one opens it on the host. */
+function hostStream<E>(label: string, open: (dispatch: (event: E) => void) => Promise<void>) {
+  let opening: Promise<void> | undefined;
+  const listeners = new Set<(event: E) => void>();
+  const dispatch = (event: E): void => {
+    for (const listener of [...listeners]) {
+      listener(event);
+    }
+  };
+  const openOnce = (): void => {
+    if (opening) {
+      return;
+    }
+    const attempt = open(dispatch);
+    opening = attempt;
+    attempt.catch((error: unknown) => {
+      // Each surface reports its own read failures; the next listener retries the stream.
+      logger.error(`${label} subscription failed`, { error });
+      if (opening === attempt) {
+        opening = undefined;
+      }
+    });
+  };
+  return {
+    dispatch,
+    subscribe: (listener: (event: E) => void): (() => void) => {
+      listeners.add(listener);
+      openOnce();
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+  };
 }
 
 let windowSettings: DesktopHostMcpSettings | undefined;
@@ -47,22 +90,16 @@ export function resolveDesktopHostMcpSettings(): DesktopHostMcpSettings | null {
   return windowSettings;
 }
 
-/** One host client and one settings subscription for this window; the frame owns them. */
+/** One host client and one subscription per stream for this window; the frame owns them. */
 export function createDesktopHostMcpSettings(
   connect: () => Promise<HostClient>
 ): DesktopHostMcpSettings {
   let connecting: Promise<HostClient> | undefined;
-  let subscribing: Promise<void> | undefined;
-  const listeners = new Set<(event: McpSettingsEvent) => void>();
-  const dispatch = (event: McpSettingsEvent): void => {
-    for (const listener of [...listeners]) {
-      listener(event);
-    }
-  };
   const client = (): Promise<HostClient> => {
     if (!connecting) {
       const attempt = connect().then((host) => {
-        host.onMcpSettings(dispatch);
+        host.onMcpSettings(settings.dispatch);
+        host.onMcpPresentation(presentation.dispatch);
         return host;
       });
       connecting = attempt;
@@ -84,34 +121,23 @@ export function createDesktopHostMcpSettings(
     }
     return connecting;
   };
-  const subscribeOnce = (): void => {
-    if (subscribing) {
-      return;
+  const settings = hostStream<McpSettingsEvent>('MCP settings', async (dispatch) => {
+    const { status } = await (await client()).request('mcp/settings/subscribe', {});
+    // A status revision the stream started after reaches the listeners that
+    // were waiting on it; each reader keeps only newer revisions.
+    dispatch({ status, type: 'status' });
+  });
+  const presentation = hostStream<McpPresentationEvent>('MCP presentation', async (dispatch) => {
+    const { tasks } = await (await client()).request('mcp/presentation/subscribe', {});
+    // Cards that changed before the stream started reach the listeners waiting on it.
+    for (const task of tasks) {
+      dispatch({ task, type: 'task' });
     }
-    const attempt = client().then(async (host) => {
-      const { status } = await host.request('mcp/settings/subscribe', {});
-      // A status revision the stream started after reaches the listeners that
-      // were waiting on it; each reader keeps only newer revisions.
-      dispatch({ status, type: 'status' });
-    });
-    subscribing = attempt;
-    attempt.catch((error: unknown) => {
-      // Settings reports its own read failures; the next subscriber retries the stream.
-      logger.error('MCP settings subscription failed', { error });
-      if (subscribing === attempt) {
-        subscribing = undefined;
-      }
-    });
-  };
+  });
   return {
     request: async (method, params) => await (await client()).request(method, params),
-    subscribe: (listener) => {
-      listeners.add(listener);
-      subscribeOnce();
-      return () => {
-        listeners.delete(listener);
-      };
-    },
+    subscribe: settings.subscribe,
+    subscribePresentation: presentation.subscribe,
   };
 }
 
@@ -149,5 +175,48 @@ export function resolveDesktopMcpStatusCapability(): McpStatusCapability | null 
           listener(event.status);
         }
       }),
+  };
+}
+
+/** Live MCP task cards and their recover and cancel actions, from the agent host. */
+export function resolveDesktopMcpTaskBridge(): McpTaskBridge | null {
+  const settings = resolveDesktopHostMcpSettings();
+  if (!settings) {
+    return null;
+  }
+  return {
+    act: (request) => settings.request('mcp/tasks/act', request),
+    list: () => settings.request('mcp/tasks/list', {}),
+    onStatusChanged: (listener) =>
+      settings.subscribePresentation((event) => {
+        if (event.type === 'task') {
+          listener({ task: event.task });
+        }
+      }),
+  };
+}
+
+/** Server input no run owns, presented and answered through the agent host. */
+export function resolveDesktopMcpElicitationBridge(): McpElicitationBridge | null {
+  const settings = resolveDesktopHostMcpSettings();
+  if (!settings) {
+    return null;
+  }
+  return {
+    onElicitationRequested: (listener) =>
+      settings.subscribePresentation((event) => {
+        if (event.type === 'elicitation.requested') {
+          listener(event.presentation);
+        }
+      }),
+    onElicitationRetired: (listener) =>
+      settings.subscribePresentation((event) => {
+        if (event.type === 'elicitation.retired') {
+          listener({ code: event.code, id: event.id });
+        }
+      }),
+    settleElicitation: async (settlement) => {
+      await settings.request('mcp/elicitation/settle', settlement);
+    },
   };
 }

@@ -280,6 +280,7 @@ export async function createHostPlatform(
     },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     mcp: mcpHost.services.mcp,
+    mcpPresentation: mcpHost.presentation,
     mcpSettings: mcpHost.settings,
     // Main admits every desktop run under the workspace memory resource.
     memoryResourceIds: [WORKSPACE_MEMORY_RESOURCE_ID],

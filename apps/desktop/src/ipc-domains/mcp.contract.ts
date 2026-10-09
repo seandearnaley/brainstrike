@@ -9,14 +9,7 @@ import type {
   McpAppShellPrepareRequest,
   McpAppShellPrepareResult,
   McpAppShellReleaseRequest,
-  McpElicitationPresentationWire,
-  McpElicitationRetiredWire,
-  McpElicitationSettlement,
   McpHostSnapshot,
-  McpTaskActionRequest,
-  McpTaskActionResult,
-  McpTaskListResult,
-  McpTaskStatusChangedEvent,
 } from '@brainstrike/assistant-contract';
 import type {
   McpContentApplicationError,
@@ -24,13 +17,7 @@ import type {
   McpContentApplicationResult,
 } from '@brainstrike/assistant-service/mcp-content-application-port';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
-import {
-  type Bridge,
-  type Contract,
-  parseNoArgs,
-  pushEvent,
-  rawChannel,
-} from '../platform/ipc-contract';
+import { type Bridge, type Contract, parseNoArgs, rawChannel } from '../platform/ipc-contract';
 import { assertArgCount } from './contract-args';
 
 const VISIBLE_UI = ['visible-ui'] as const;
@@ -93,20 +80,6 @@ export const mcpContentContract = {
   }),
 } as const satisfies Contract;
 
-export const mcpElicitationContract = {
-  onElicitationRequested: pushEvent<McpElicitationPresentationWire>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.elicitationRequested,
-  }),
-  onElicitationRetired: pushEvent<McpElicitationRetiredWire>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.elicitationRetired,
-  }),
-  settleElicitation: rawChannel<[settlement: McpElicitationSettlement], void>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.elicitationSettle,
-    parseArgs: oneArg('MCP elicitation settlement'),
-    roles: VISIBLE_UI,
-  }),
-} as const satisfies Contract;
-
 export const mcpAppsContract = {
   execute: rawChannel<[request: McpAppExecuteRequest], McpAppExecuteResult>({
     channel: DESKTOP_IPC_CHANNELS.mcp.appsExecute,
@@ -135,27 +108,9 @@ export const mcpAppsContract = {
   }),
 } as const satisfies Contract;
 
-export const mcpTasksContract = {
-  act: rawChannel<[request: McpTaskActionRequest], McpTaskActionResult>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.taskAct,
-    parseArgs: oneArg('MCP task action'),
-    roles: VISIBLE_UI,
-  }),
-  list: rawChannel<[], McpTaskListResult>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.taskList,
-    parseArgs: parseNoArgs,
-    roles: VISIBLE_UI,
-  }),
-  onStatusChanged: pushEvent<McpTaskStatusChangedEvent>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.taskStatusChanged,
-  }),
-} as const satisfies Contract;
-
 export type McpPathSelectionContractBridge = Bridge<typeof mcpPathSelectionContract>;
 export type McpContentContractBridge = Bridge<typeof mcpContentContract>;
-export type McpElicitationContractBridge = Bridge<typeof mcpElicitationContract>;
 export type McpAppsContractBridge = Bridge<typeof mcpAppsContract>;
-export type McpTasksContractBridge = Bridge<typeof mcpTasksContract>;
 
 type McpContentRequest<Type extends McpContentApplicationRequest['type']> = Omit<
   Extract<McpContentApplicationRequest, { type: Type }>,
@@ -167,17 +122,15 @@ type McpContentResult<Type extends McpContentApplicationResult['type']> = Extrac
 >;
 
 /** Renderer-facing MCP shape after the preload's intentional compositions. */
-export type McpBridge = McpPathSelectionContractBridge &
-  McpElicitationContractBridge & {
-    readonly apps?: McpAppsContractBridge & Pick<McpAppBridge, 'readResource'>;
-    readonly complete: (
-      request: McpContentRequest<'completion/complete'>
-    ) => Promise<McpContentResult<'completion/complete'>>;
-    readonly getPrompt: (
-      request: McpContentRequest<'prompts/get'>
-    ) => Promise<McpContentResult<'prompts/get'>>;
-    readonly readResource: (
-      request: McpContentRequest<'resources/read'>
-    ) => Promise<McpContentResult<'resources/read'>>;
-    readonly tasks?: McpTasksContractBridge;
-  };
+export type McpBridge = McpPathSelectionContractBridge & {
+  readonly apps?: McpAppsContractBridge & Pick<McpAppBridge, 'readResource'>;
+  readonly complete: (
+    request: McpContentRequest<'completion/complete'>
+  ) => Promise<McpContentResult<'completion/complete'>>;
+  readonly getPrompt: (
+    request: McpContentRequest<'prompts/get'>
+  ) => Promise<McpContentResult<'prompts/get'>>;
+  readonly readResource: (
+    request: McpContentRequest<'resources/read'>
+  ) => Promise<McpContentResult<'resources/read'>>;
+};

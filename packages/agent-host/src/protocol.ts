@@ -18,10 +18,15 @@ import { z } from 'zod';
 import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 import { HostLedgerThreadSchema } from './ledger-wire.js';
 import {
+  MCP_PRESENTATION_METHOD_SCHEMAS,
+  MCP_PRESENTATION_RESULT_SCHEMAS,
+} from './protocol-mcp-presentation.js';
+import {
   MCP_SETTINGS_METHOD_SCHEMAS,
   MCP_SETTINGS_RESULT_SCHEMAS,
 } from './protocol-mcp-settings.js';
 
+export * from './protocol-mcp-presentation.js';
 export * from './protocol-mcp-settings.js';
 
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
@@ -51,8 +56,10 @@ export * from './protocol-mcp-settings.js';
 // MCP settings (`mcp/config/*`, `mcp/extensions/*`, `mcp/tools/*`,
 // `mcp/settings/subscribe` and its `mcp/settings/event`) with server status and
 // control (`mcp/status/read`, `mcp/server/control`, the event's `status`
-// variant). These additions are optional fields, new variants and new methods,
-// so a v11 reader that uses none of them sees nothing new.
+// variant), and its MCP presentations (`mcp/tasks/list`, `mcp/tasks/act`,
+// `mcp/elicitation/settle`, `mcp/presentation/subscribe` and its
+// `mcp/presentation/event`). These additions are optional fields, new variants
+// and new methods, so a v11 reader that uses none of them sees nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -372,6 +379,7 @@ export const ClientOpenExternalParamsSchema = z.strictObject({ url: z.url() });
 export const ClientOpenExternalResultSchema = z.strictObject({ opened: z.literal(true) });
 
 export const HOST_METHOD_SCHEMAS = {
+  ...MCP_PRESENTATION_METHOD_SCHEMAS,
   ...MCP_SETTINGS_METHOD_SCHEMAS,
   // auth/* is secret-bearing: process-local, never in HostCommandLedger, the log
   // or diagnostics. The host is the single writer and token holder.
@@ -856,6 +864,7 @@ export const HostLogRowSchema = z.strictObject({
 });
 export type HostLogRow = z.infer<typeof HostLogRowSchema>;
 export const HOST_RESULT_SCHEMAS = {
+  ...MCP_PRESENTATION_RESULT_SCHEMAS,
   ...MCP_SETTINGS_RESULT_SCHEMAS,
   'auth/cancel': HostAuthStatusSchema,
   'auth/clear': z.strictObject({ cleared: z.boolean() }),

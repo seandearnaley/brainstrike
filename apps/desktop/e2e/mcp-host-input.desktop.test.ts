@@ -1,4 +1,3 @@
-import { type McpTaskBridge, parseMcpTaskListResult } from '@brainstrike/assistant-contract';
 import type { Locator, Page, TestInfo } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import type { ElectronHarness } from './fixtures/electron-harness';
@@ -40,18 +39,6 @@ async function configureServer(page: Page, url: string): Promise<void> {
     timeout: 60_000,
   });
   await page.keyboard.press('Escape');
-}
-
-/** The renderer's Tasks list, read through the production bridge. */
-async function readTasks(page: Page) {
-  const raw = await page.evaluate(async () => {
-    const host = window as Window & { mcp?: { tasks?: Pick<McpTaskBridge, 'list'> } };
-    if (!host.mcp?.tasks) {
-      throw new Error('Production MCP task read bridge is unavailable');
-    }
-    return await host.mcp.tasks.list();
-  });
-  return parseMcpTaskListResult(raw).tasks;
 }
 
 async function enableModel(page: Page): Promise<void> {
@@ -158,11 +145,6 @@ test('a host-run MCP server input is presented once and answered once through Co
     expect(await readCommittedRuns(electron.getUserDataDir(), stored?.threadId ?? '')).toHaveLength(
       1
     );
-    // The Tasks list the renderer reads is the same runtime's task.
-    const tasks = await readTasks(page);
-    expect(tasks).toHaveLength(1);
-    expect(tasks[0]).toMatchObject({ recovery: 'live', status: 'input_required' });
-
     await dialog.getByRole('checkbox', { name: /approved/i }).check();
     await dialog.getByRole('button', { name: /^Accept and send input/u }).click();
     await expect(dialog).toBeHidden({ timeout: 30_000 });
