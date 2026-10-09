@@ -16,6 +16,12 @@ import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/th
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { z } from 'zod';
 import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
+import {
+  MCP_SETTINGS_METHOD_SCHEMAS,
+  MCP_SETTINGS_RESULT_SCHEMAS,
+} from './protocol-mcp-settings.js';
+
+export * from './protocol-mcp-settings.js';
 
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
 // and the explicit branch links they commit on `run.started`), thread
@@ -34,8 +40,10 @@ import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 // `run.started` delivers, an approval the root's policy answered, and
 // `thread/children` (a thread's direct children), lifecycle hook context
 // (`hook.context`), host-owned project hook trust (`hooks/trust`,
-// `hooks/trust/read`, `hooks/untrust`) and `thread/memory/read` (memory
-// readiness for the next run). These additions are optional fields, new
+// `hooks/trust/read`, `hooks/untrust`), `thread/memory/read` (memory
+// readiness for the next run) and the desktop's MCP settings (`mcp/config/*`,
+// `mcp/extensions/*`, `mcp/tools/*`, `mcp/settings/subscribe` and its
+// `mcp/settings/event`). These additions are optional fields, new
 // variants and new methods, so a v11 reader that uses none of them sees
 // nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
@@ -325,6 +333,7 @@ export const ClientOpenExternalParamsSchema = z.strictObject({ url: z.url() });
 export const ClientOpenExternalResultSchema = z.strictObject({ opened: z.literal(true) });
 
 export const HOST_METHOD_SCHEMAS = {
+  ...MCP_SETTINGS_METHOD_SCHEMAS,
   // auth/* is secret-bearing: process-local, never in HostCommandLedger, the log
   // or diagnostics. The host is the single writer and token holder.
   'auth/cancel': z.strictObject(Provider),
@@ -789,6 +798,7 @@ export const HostLogRowSchema = z.strictObject({
 });
 export type HostLogRow = z.infer<typeof HostLogRowSchema>;
 export const HOST_RESULT_SCHEMAS = {
+  ...MCP_SETTINGS_RESULT_SCHEMAS,
   'auth/cancel': HostAuthStatusSchema,
   'auth/clear': z.strictObject({ cleared: z.boolean() }),
   'auth/connect': HostAuthStatusSchema,
