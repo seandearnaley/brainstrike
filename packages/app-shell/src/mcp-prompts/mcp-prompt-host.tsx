@@ -21,7 +21,7 @@ import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
-import { useMcpContentCapability } from '../mcp-content-capability';
+import { useMcpContentCapability } from '../use-mcp-content-capability';
 import { useMcpStatusCapability } from '../use-mcp-status-capability';
 import { resolveMcpPromptBridge } from './mcp-prompt-bridge';
 import { isMcpPromptEntryLive, type McpPromptEntry } from './mcp-prompt-catalog';

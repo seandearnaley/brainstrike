@@ -1,23 +1,10 @@
-import { createContext, type ReactElement, type ReactNode, useContext } from 'react';
-import type {
-  McpPromptCompleteRequest,
-  McpPromptCompleteResult,
-  McpPromptGetRequest,
-  McpPromptGetResult,
-} from './mcp-prompts/mcp-prompt-bridge';
+import type { ReactElement, ReactNode } from 'react';
+import {
+  type McpContentCapability,
+  McpContentCapabilityContext,
+} from './use-mcp-content-capability';
 
-/**
- * MCP content the composer's prompt affordances read: a prompt's messages and
- * an argument's completions, from one connected server generation. The
- * desktop's agent host serves it (BST-1930 c5d); a host without MCP provides
- * none.
- */
-export interface McpContentCapability {
-  complete(request: McpPromptCompleteRequest): Promise<McpPromptCompleteResult>;
-  getPrompt(request: McpPromptGetRequest): Promise<McpPromptGetResult>;
-}
-
-const McpContentCapabilityContext = createContext<McpContentCapability | null>(null);
+export type { McpContentCapability } from './use-mcp-content-capability';
 
 export interface McpContentCapabilityProviderProps {
   readonly capability: McpContentCapability | null;
@@ -34,8 +21,4 @@ export function McpContentCapabilityProvider({
       {children}
     </McpContentCapabilityContext.Provider>
   );
-}
-
-export function useMcpContentCapability(): McpContentCapability | null {
-  return useContext(McpContentCapabilityContext);
 }

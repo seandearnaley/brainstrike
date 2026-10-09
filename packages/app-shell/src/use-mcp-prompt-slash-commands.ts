@@ -21,11 +21,11 @@ import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
-import { useMcpContentCapability } from './mcp-content-capability';
 import { resolveMcpPromptBridge } from './mcp-prompts/mcp-prompt-bridge';
 import { type McpPromptEntry, selectMcpPromptEntries } from './mcp-prompts/mcp-prompt-catalog';
 import { useMcpPromptSelectionStore } from './mcp-prompts/mcp-prompt-selection-store';
 import { splitComposerTrigger } from './mcp-prompts/mcp-prompt-text';
+import { useMcpContentCapability } from './use-mcp-content-capability';
 import { useMcpStatusCapability } from './use-mcp-status-capability';
 
 const logger = createLogger('McpPromptSlashCommands');
