@@ -37,6 +37,7 @@ import type { HostAuthVerdict } from './auth-wire.js';
 import type {
   HostEditOp,
   HostEvent,
+  HostHookSkip,
   HostLegacyImport,
   HostLoginCredential,
   HostRewindConflict,
@@ -292,6 +293,8 @@ export interface HostRunAdmission {
   readonly discovery?: HostToolDiscovery | undefined;
   /** Title an untitled thread's first completed run through this run's model. */
   readonly generatesThreadTitle?: boolean;
+  /** The hook files the composition did not load for this run; Core commits them visibly. */
+  readonly hookSkips?: readonly HostHookSkip[] | undefined;
   /** Present only when the composition loaded at least one hook for this run. */
   readonly hooks?: HostRunHooks | undefined;
   /** The selected provider input budget; host compaction keeps requests inside it. */
