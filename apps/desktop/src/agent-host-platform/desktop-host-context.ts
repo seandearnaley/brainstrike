@@ -7,8 +7,12 @@ import {
   filterToolsForPlanMode,
   formatSkillsCatalog,
 } from '@brainstrike/agent/tool-runtime';
-import type { HostRunAdmissionRequest, HostTool } from '@brainstrike/agent-host';
-import type { ToolRiskCategory } from '@brainstrike/assistant-contract';
+import {
+  type HostRunAdmissionRequest,
+  type HostTool,
+  hostToolDiscoveryEnabled,
+} from '@brainstrike/agent-host';
+import { isSupportedProvider, type ToolRiskCategory } from '@brainstrike/assistant-contract';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
@@ -53,7 +57,17 @@ export async function readDesktopHostSystemContext(options: {
   const sections: (string | null)[] = [
     options.runtime.provider === 'local'
       ? buildLocalDefaultInstructions(names)
-      : buildDefaultInstructions(names, { planMode: options.planMode }),
+      : buildDefaultInstructions(names, {
+          planMode: options.planMode,
+          // The same gate the admission uses to defer these tools behind discovery.
+          toolDiscoveryEnabled:
+            isSupportedProvider(options.runtime.provider) &&
+            hostToolDiscoveryEnabled({
+              modelId: options.request.modelId,
+              provider: options.runtime.provider,
+              tools: options.tools,
+            }),
+        }),
     buildCurrentDateNote(new Date()),
     buildContextBudgetNote(options.inputTokenLimit),
   ];
