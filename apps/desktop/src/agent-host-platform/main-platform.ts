@@ -11,7 +11,12 @@ import {
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
-import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
+import {
+  type CancellationToken,
+  ErrorCodes,
+  type MessageConnection,
+  ResponseError,
+} from 'vscode-jsonrpc';
 import { z } from 'zod';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { isHostExecutedNativeToolId } from './host-executed-tools';
@@ -164,7 +169,19 @@ export function serveDesktopPlatform(
     if (token.isCancellationRequested) {
       cancel();
     }
-    const task = Promise.resolve().then(() => work(controller.signal));
+    const task = Promise.resolve()
+      .then(() => work(controller.signal))
+      .catch((cause: unknown) => {
+        // vscode-jsonrpc reports a plain Error as "Request <method> failed with
+        // message: ..."; the host receives the platform's own message instead,
+        // a reason the composer can show (thread/memory/read).
+        throw cause instanceof ResponseError
+          ? cause
+          : new ResponseError(
+              ErrorCodes.InternalError,
+              cause instanceof Error ? cause.message : String(cause)
+            );
+      });
     pending.add(task);
     const settled = (): void => {
       subscription.dispose();
