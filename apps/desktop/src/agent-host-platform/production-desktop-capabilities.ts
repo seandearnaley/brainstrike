@@ -733,7 +733,7 @@ export function productionDesktopCapabilities(
   readCliOwnerIntent?: DesktopCliOwnerIntentReader,
   workspaceAuthority?: DesktopWorkspaceBindingAuthority,
   readLocalEmbeddingDevice?: (signal: AbortSignal) => Promise<'webgpu' | 'wasm'>
-): Omit<DesktopPlatformCapabilities, 'mcp'> {
+): Omit<DesktopPlatformCapabilities, 'mcp' | 'readLegacyMemory'> {
   const policies = new Map<string, PermissionToolGateSnapshot>();
   // A host thread's session grants are the host's own (permission.granted);
   // no renderer store reaches its decisions.

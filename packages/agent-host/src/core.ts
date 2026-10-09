@@ -62,7 +62,7 @@ import {
   bindHostRunAdmission,
   closeHostRunResources,
   ensureHostRunAdmission,
-  hostMcpUnavailableEvents,
+  HostRunStartNotices,
   hostRunCommandRequest,
 } from './run-admission.js';
 import {
@@ -147,6 +147,7 @@ export class HostCore {
   private readonly failedAdmissions = new Map<string, unknown>();
   private readonly deletions = new Map<string, Promise<{ deleted: true }>>();
   private admission: Promise<void> = Promise.resolve();
+  private readonly startNotices = new HostRunStartNotices();
   private closing = false;
   private closeTask?: Promise<void>;
 
@@ -195,6 +196,7 @@ export class HostCore {
     this.presentations.fold(row);
     this.workspaces.fold(row);
     const event = row.event;
+    this.startNotices.fold(event);
     switch (event.type) {
       case 'command.accepted':
         foldHostAcceptedCommand(this.commands, this.runs, event, row.threadId);
@@ -273,11 +275,8 @@ export class HostCore {
     return () => this.listeners.delete(listener);
   }
 
-  /** Child threads are reached through their parent, never listed as top-level threads. */
   listThreads(): HostResults['thread/list']['threads'] {
-    return [...this.threads]
-      .filter((threadId) => !this.children.isChild(threadId))
-      .map((threadId) => ({ threadId, ...this.presentations.read(threadId) }));
+    return this.children.topLevel(this.threads, this.presentations);
   }
 
   /** BST-1932: a thread's direct child threads, in delegation order, with their origins. */
@@ -554,11 +553,12 @@ export class HostCore {
       }
       run.release = release;
       const result = { runId: run.id };
-      const unavailable = hostMcpUnavailableEvents(admission, run.id);
+      const notices = this.startNotices.forRun(admission, run.id);
       // A wake has no client command: its run.started records the delivery it answers.
       await (method === 'wake'
-        ? this.append(params.threadId, [started, ...unavailable])
-        : this.accept(params.threadId, method, record, result, [started, ...unavailable]));
+        ? this.append(params.threadId, [started, ...notices])
+        : this.accept(params.threadId, method, record, result, [started, ...notices]));
+      this.startNotices.committed(admission);
       this.children.recordDelivery(started.delivery);
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);

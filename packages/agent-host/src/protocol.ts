@@ -622,11 +622,15 @@ export const HostEventSchema = z.union([
     modelId: Id,
     usage: z.json(),
   }),
-  /** OM keeps one merged text per thread, so a branched thread's run receives none. */
+  /**
+   * OM keeps one merged text per thread, so a branched thread's run receives
+   * none. Gap 17: the legacy profile's resource observations were not
+   * imported; that notice is committed once per root.
+   */
   z.strictObject({
     type: z.literal('memory.observation.withheld'),
     ...RunFields,
-    reason: z.literal('branched-thread'),
+    reason: z.enum(['branched-thread', 'legacy-resource-observations']),
   }),
   z.strictObject({
     type: z.literal('provider.request.prepared'),

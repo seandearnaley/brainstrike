@@ -435,6 +435,7 @@ export async function createHostPlatform(
         toolTimeoutMs: selected.toolTimeoutMs,
       };
     },
+    readLegacyMemory: () => request('platform/memory/legacy', {}),
     // Main's admission preconditions, then the memory credentials, nothing acquired.
     readMemoryPreconditions: async (admission) => {
       const readiness = PlatformMemoryReadinessSchema.parse(

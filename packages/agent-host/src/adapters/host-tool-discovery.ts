@@ -81,26 +81,20 @@ function discoveryHostTool<TInput>(
   };
 }
 
-/**
- * The legacy hosted discovery (`prepareHostedToolDiscovery`) over a run's
- * admitted tools: the same eager/deferred split, the same Brainstrike shell
- * around Mastra's processor, and its loaded set derived from the run's
- * committed messages. Undefined for a local runtime or when nothing defers.
- */
-export async function createHostToolDiscovery(options: {
+/** A run's admitted tools under its provider and model. */
+interface HostDiscoveryCatalog {
   readonly modelId: string;
   readonly provider: ProviderId;
-  readonly readRunMessages: (run: HostRunKey) => Promise<readonly MastraDBMessage[]>;
   readonly tools: Readonly<Record<string, HostTool>>;
-}): Promise<
-  | { readonly discovery: HostToolDiscovery; readonly tools: Readonly<Record<string, HostTool>> }
-  | undefined
-> {
-  const adapter = resolveHostedToolDiscoveryAdapter(options.provider, options.modelId);
+}
+
+/** The legacy hosted split; undefined for a local runtime or when nothing defers. */
+function hostDiscoverySplit(catalog: HostDiscoveryCatalog) {
+  const adapter = resolveHostedToolDiscoveryAdapter(catalog.provider, catalog.modelId);
   if (!adapter) {
     return;
   }
-  const entries = Object.entries(options.tools);
+  const entries = Object.entries(catalog.tools);
   const toolNameMap = new Map(entries.map(([name, tool]) => [name, tool.permissionToolId ?? name]));
   const surface = resolveToolDiscoverySurface({
     adapter,
@@ -111,9 +105,36 @@ export async function createHostToolDiscovery(options: {
     localToolIds: new Set(entries.flatMap(([name, tool]) => (tool.mcpBinding ? [] : [name]))),
     toolNameMap,
   });
-  if (Object.keys(surface.deferredTools).length === 0) {
+  return Object.keys(surface.deferredTools).length > 0 ? { surface, toolNameMap } : undefined;
+}
+
+/**
+ * Whether a run's admission defers these tools behind hosted discovery, so
+ * its instructions teach discovery (legacy `toolDiscoveryEnabled`).
+ */
+export function hostToolDiscoveryEnabled(catalog: HostDiscoveryCatalog): boolean {
+  return hostDiscoverySplit(catalog) !== undefined;
+}
+
+/**
+ * The legacy hosted discovery (`prepareHostedToolDiscovery`) over a run's
+ * admitted tools: the same eager/deferred split, the same Brainstrike shell
+ * around Mastra's processor, and its loaded set derived from the run's
+ * committed messages. Undefined for a local runtime or when nothing defers.
+ */
+export async function createHostToolDiscovery(
+  options: HostDiscoveryCatalog & {
+    readonly readRunMessages: (run: HostRunKey) => Promise<readonly MastraDBMessage[]>;
+  }
+): Promise<
+  | { readonly discovery: HostToolDiscovery; readonly tools: Readonly<Record<string, HostTool>> }
+  | undefined
+> {
+  const split = hostDiscoverySplit(options);
+  if (!split) {
     return;
   }
+  const { surface, toolNameMap } = split;
   // As legacy: required by the step arguments, never consulted by the context store.
   const model = createListingOnlyModel();
   const processor = new BrainstrikeToolSearchProcessor({

@@ -18,6 +18,7 @@ import type { VectorProfile } from '@brainstrike/indexer';
 import type { LanguageModel, Tool } from 'ai';
 import { z } from 'zod';
 import { committedRunMessages, createHostToolDiscovery } from './adapters/host-tool-discovery.js';
+import { importLegacyMemory } from './adapters/legacy-memory-import.js';
 import { createMcpHostToolAdapter } from './adapters/mcp.js';
 import type { HostMemory } from './adapters/memory.js';
 import { hostMemoryTools } from './adapters/memory-tools.js';
@@ -113,6 +114,11 @@ export interface ProductionHostPlatformOptions {
   /** Provider reads from the same credential store. */
   readonly providers?: HostPlatform['providers'];
   readConfiguration(request: HostRunAdmissionRequest): Promise<ProductionHostRunConfiguration>;
+  /**
+   * Gap 17: the launching desktop's legacy workspace memory, read once from
+   * Main for the import before a run's Memory opens. The CLI has none.
+   */
+  readonly readLegacyMemory?: () => Promise<unknown>;
   /** thread/memory/read's preconditions; absent where the host has no composer. */
   readonly readMemoryPreconditions?: (
     request: HostRunAdmissionRequest
@@ -277,6 +283,22 @@ export async function createProductionHostPlatform(
   const selections = new Set<() => Promise<void>>();
   let closing: Promise<void> | undefined;
   let stateIndex: Promise<HostStateIndex> | undefined;
+  // Gap 17: one legacy import per memory resource; a failed one is retried by the next admission.
+  const legacyImports = new Map<string, ReturnType<typeof importLegacyMemory>>();
+  const importLegacy = (resourceId: string): ReturnType<typeof importLegacyMemory> | undefined => {
+    const read = options.readLegacyMemory;
+    if (!read) {
+      return;
+    }
+    const pending =
+      legacyImports.get(resourceId) ??
+      importLegacyMemory(options.startup.store, resourceId, read).catch((cause: unknown) => {
+        legacyImports.delete(resourceId);
+        throw cause;
+      });
+    legacyImports.set(resourceId, pending);
+    return pending;
+  };
   const close = (): Promise<void> => {
     closing ??= (async () => {
       const joined = await Promise.allSettled([...selections].map((release) => release()));
@@ -398,6 +420,8 @@ export async function createProductionHostPlatform(
         if (closing) {
           throw new Error('Production host is closing');
         }
+        // Before any run of this admission opens its Memory.
+        const legacy = await importLegacy(selected.memory.resourceId);
         const provider = selected.configuration.provider ?? '';
         const auth = selected.resolveProviderAuth
           ? await selected.resolveProviderAuth(provider)
@@ -454,6 +478,7 @@ export async function createProductionHostPlatform(
           ...(discovery ? { discovery: discovery.discovery } : {}),
           // Like the legacy Memory default (`generateTitle: true`).
           generatesThreadTitle: true,
+          ...(legacy?.resourceObservations ? { legacyObservationsWithheld: true as const } : {}),
           hooks: selected.hooks,
           inputTokenLimit: selected.providerRequestContext.inputTokenLimit,
           model,
