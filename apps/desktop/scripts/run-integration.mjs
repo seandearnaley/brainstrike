@@ -38,7 +38,7 @@ function dedicatedTransformersCache() {
   }
   if (origins.length === 0) {
     console.warn(
-      `No dedicated transformers cache in ${root}: the ordinary vector-search proof will fail until one is provisioned.`
+      `No dedicated transformers cache in ${root}: the ordinary vector-search proof fails until \`pnpm --filter @brainstrike/desktop provision:test-model-cache\` provisions it.`
     );
     return;
   }

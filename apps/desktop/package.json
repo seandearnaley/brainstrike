@@ -234,6 +234,7 @@
     "lint:fix": "biome check . --write",
     "pack": "pnpm build && electron-builder --dir",
     "postinstall": "node scripts/chmod-pty-spawn-helper.mjs",
+    "provision:test-model-cache": "node scripts/provision-test-model-cache.mjs",
     "start": "node scripts/fetch-python-runtime.mjs --platform=host && pnpm build && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
     "start:dev": "pnpm dev:main && electron . --no-sandbox --brainstrike-desktop-launch-mode=built",
     "test": "vitest run --pool=forks --maxWorkers=1 --no-file-parallelism --exclude \"**/*.integration.test.*\"",

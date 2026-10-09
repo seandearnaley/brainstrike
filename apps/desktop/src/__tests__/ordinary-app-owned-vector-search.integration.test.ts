@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { createHash } from 'node:crypto';
-import { appendFileSync, createReadStream } from 'node:fs';
+import { appendFileSync, createReadStream, realpathSync } from 'node:fs';
 import { copyFile, mkdir, mkdtemp, open, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { createConnection } from 'node:net';
@@ -79,6 +79,7 @@ async function qualifyVectorSearch(): Promise<void> {
     '# Orchard maintenance\nApples grow in an orchard. Pruning trees makes the fruit harvest easier.\n'
   );
   const providerRequests: ModelProviderRequest[] = [];
+  const titleRequests: ModelProviderRequest[] = [];
   const blockedExternalRequests: string[] = [];
   const runtimeAssetRequests: { url: string; sha256: string }[] = [];
   let modelAssets: Awaited<ReturnType<typeof copyExistingModelCache>> = [];
@@ -109,6 +110,11 @@ async function qualifyVectorSearch(): Promise<void> {
     process.stderr.write(`${JSON.stringify({ at: new Date().toISOString(), phase })}\n`);
   };
   const model = await startModelProviderShim((request) => {
+    // The host titles a new thread from its first message, without tools.
+    if (request.toolNames.length === 0) {
+      titleRequests.push(request);
+      return { finalText: 'SQLite reader isolation' };
+    }
     providerRequests.push(request);
     // Hosted discovery defers both native retrieval tools: the model loads them first.
     if (!request.toolNames.includes('load_tool')) {
@@ -635,6 +641,7 @@ async function qualifyVectorSearch(): Promise<void> {
       ['brainstrike_queryEmbeddingSpace'],
       ['brainstrike_queryEmbeddingSpace', 'brainstrike_hybridSearch'],
     ]);
+    expect(titleRequests).toHaveLength(1);
     for (const message of followingRequests.flat()) {
       expect(message.content).toContain(searchLine);
       expect(message.content).toContain('unrelated-proof.md');
@@ -907,10 +914,13 @@ interface InstalledRuntimeAsset {
 
 /** Deliver installed vendor bytes requested by the production worker without CDN egress. */
 async function existingOrtAssets(): Promise<ReadonlyMap<string, InstalledRuntimeAsset>> {
+  // The SDK's own dependencies sit beside its real path in pnpm's virtual store.
   const requireSdk = createRequire(
-    resolve(
-      desktop,
-      '../../packages/embedding-worker/node_modules/@huggingface/transformers/package.json'
+    realpathSync(
+      resolve(
+        desktop,
+        '../../packages/embedding-worker/node_modules/@huggingface/transformers/package.json'
+      )
     )
   );
   const packageRoot = resolve(dirname(requireSdk.resolve('onnxruntime-web')), '..');
