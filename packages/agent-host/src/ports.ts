@@ -46,7 +46,7 @@ import type {
   HostTurnSnapshot,
   HostTurnSnapshotRoot,
 } from './protocol.js';
-import type { HostStateSearch } from './thread-search.js';
+import type { HostStateSearch, HostStateSearchVectors } from './thread-search.js';
 
 /** One committed tool-output overlay entry (the legacy ToolProjectionRewriteEntry). */
 export type HostProjectionRewrite = Extract<
@@ -516,6 +516,8 @@ export interface HostPlatform {
   }): Promise<string>;
   /** Gap 10: the host's derived state index search, for `thread/search`. */
   readonly searchState?: HostStateSearch;
+  /** The semantic arm's index operations, for `thread/search` and its backlog methods. */
+  readonly searchStateVectors?: HostStateSearchVectors;
   /** The native-tool output rewrite policy; Core commits what it selects. */
   selectProjectionRewrites?(
     request: HostProjectionRewriteRequest
