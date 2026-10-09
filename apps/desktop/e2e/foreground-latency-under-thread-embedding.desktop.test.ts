@@ -41,6 +41,11 @@ import { createThreadMessageCorpus, type ThreadMessageCorpus } from './utils/thr
  * renderer embedder), and the same probes as the index-build benchmark measure
  * the foreground idle and while every seeded message is embedded.
  *
+ * The search embedder is the renderer's local model on the preferred device
+ * (`createLocalEmbedder`'s runtime is that preference; it has no fallback), so
+ * the configured device is the device that ran, or every row errors and the
+ * run is invalid.
+ *
  * It REPORTS; it does not gate on the numbers. It fails only when the run
  * cannot produce valid numbers. See docs/performance/foreground-latency-under-index-build.md.
  */
@@ -78,12 +83,6 @@ interface EmbeddingCounts {
   readonly embedded: number;
   readonly errored: number;
   readonly indexed: number;
-}
-
-interface EmbeddingWorker {
-  readonly device: string | null;
-  readonly dtype: string | null;
-  readonly fallbackApplied: boolean | null;
 }
 
 /** History threads and their messages, in the shape Mastra persists, under the workspace resource. */
@@ -138,38 +137,6 @@ async function readEmbeddingCounts(page: Page): Promise<EmbeddingCounts> {
     embedded: Number(row?.['embedded'] ?? 0),
     errored: Number(row?.['errored'] ?? 0),
     indexed: Number(row?.['indexed'] ?? 0),
-  };
-}
-
-/** The embedding host's worker as it actually ran (device, dtype, fallback). */
-async function readEmbeddingWorker(page: Page): Promise<EmbeddingWorker> {
-  const summary = await page.evaluate(async () => {
-    const api = (
-      window as Window & {
-        __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: { summary: () => Promise<Record<string, unknown>> };
-      }
-    ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__;
-    if (!api) {
-      throw new Error('Workspace Index debug API is unavailable.');
-    }
-    return await api.summary();
-  });
-  const host = summary['embeddingHostStatus'] as {
-    status?: {
-      embeddingRuntime?: {
-        actualWorkerMetadata?: {
-          device?: string;
-          dtype?: string;
-          fallbackApplied?: boolean;
-        } | null;
-      };
-    };
-  };
-  const worker = host?.status?.embeddingRuntime?.actualWorkerMetadata ?? null;
-  return {
-    device: worker?.device ?? null,
-    dtype: worker?.dtype ?? null,
-    fallbackApplied: worker?.fallbackApplied ?? null,
   };
 }
 
@@ -278,7 +245,6 @@ test.describe('Foreground latency under thread message embedding', () => {
         }
         const loadedMain = await stopMainLoadedPhase(electronApp.app);
         const loadedRenderer = await readRendererWindows(page, loadedWindows);
-        const worker = await readEmbeddingWorker(page);
 
         // ---- validity: refuse to report numbers that cannot mean anything ----
         const idleRendererMetrics = rendererMetrics(idleRenderer);
@@ -309,11 +275,6 @@ test.describe('Foreground latency under thread message embedding', () => {
         }
         if (counts.errored > 0) {
           invalidReasons.push(`${counts.errored} messages failed to embed`);
-        }
-        if (worker.device !== device || worker.fallbackApplied !== false) {
-          invalidReasons.push(
-            `embedding ran on ${worker.device} (fallbackApplied=${worker.fallbackApplied}), not the configured ${device}`
-          );
         }
 
         const idle = mainMetrics(idleMain);
@@ -346,7 +307,6 @@ test.describe('Foreground latency under thread message embedding', () => {
             counts,
             elapsedMs: drainElapsedMs,
             rowsPerSecond: round3(counts.embedded / (drainElapsedMs / 1000)),
-            worker,
           },
           environment: { ...environment, loadAverageAtEnd: os.loadavg().map(round3) },
           invalidReasons,
@@ -375,7 +335,7 @@ test.describe('Foreground latency under thread message embedding', () => {
         console.log(
           [
             `[thread-embedding-latency] ${evidence.status} — evidence: ${evidencePath}`,
-            `drain: ${counts.embedded}/${counts.embeddable} messages in ${drainElapsedMs} ms = ${evidence.drain.rowsPerSecond} rows/s on ${worker.device}`,
+            `drain: ${counts.embedded}/${counts.embeddable} messages in ${drainElapsedMs} ms = ${evidence.drain.rowsPerSecond} rows/s on ${device}`,
             `renderer idle: frame gap p95=${idleRendererMetrics.frameGapMs.p95} max=${idleRendererMetrics.frameGapMs.max}, long tasks=${idleRendererMetrics.longTasks.count}`,
             `renderer loaded: frame gap p95=${loadedRendererMetrics.frameGapMs.p95} max=${loadedRendererMetrics.frameGapMs.max}, long tasks=${loadedRendererMetrics.longTasks.count} (${loadedRendererMetrics.longTasks.totalMs} ms)`,
             `main event-loop lag idle p95=${idle.eventLoopLagMs.p95} max=${idle.eventLoopLagMs.max}; loaded p95=${loaded.eventLoopLagMs.p95} max=${loaded.eventLoopLagMs.max}`,

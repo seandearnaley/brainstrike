@@ -209,6 +209,13 @@ test.describe('Foreground latency under a full index build', () => {
           device,
           'foreground-latency-benchmark-seeded'
         );
+        await page.waitForFunction(
+          () =>
+            typeof (window as Window & { __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: unknown })
+              .__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ === 'object',
+          undefined,
+          { timeout: 60_000 }
+        );
         const embeddingSetId = await readWorkspaceIndexSetId(page);
         const chatRunId = await seedRunningChatRun(page);
 
