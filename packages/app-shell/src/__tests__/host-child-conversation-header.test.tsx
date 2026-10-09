@@ -40,6 +40,7 @@ const worker: AssistantThreadHostChild = {
   parentRunId: 'root-run',
   parentThreadId: 'root-1',
   persona: 'worker',
+  status: 'idle',
   threadId: 'child-1',
   toolCallId: 'call-1',
 };
@@ -50,6 +51,7 @@ const explorer: AssistantThreadHostChild = {
   parentRunId: 'child-run',
   parentThreadId: 'child-1',
   persona: 'explore',
+  status: 'idle',
   threadId: 'grandchild-1',
   toolCallId: 'call-2',
 };
