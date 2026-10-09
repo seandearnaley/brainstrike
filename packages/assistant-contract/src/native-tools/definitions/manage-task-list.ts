@@ -28,6 +28,7 @@ export const manageTaskList = defineNativeTool({
   id: 'brainstrike.manageTaskList',
   inputSchema: providerCompatibleInputSchema(ManageTaskListInputSchema),
   kind: 'desktop',
+  localProvider: 'unregistered',
   returns:
     'The stored tasks (with stable server-assigned ids) and a summary of counts by status (total, completed, inProgress, pending)',
   surfaces: ['desktop', 'web'],

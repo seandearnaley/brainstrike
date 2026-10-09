@@ -16,6 +16,7 @@ export const browserNavigate = defineNativeTool({
   id: 'brainstrike.browserNavigate',
   inputSchema: providerCompatibleInputSchema(BrowserNavigateInputSchema),
   kind: 'desktop',
+  localProvider: 'unregistered',
   returns: 'The final url and page title after the load settles',
   surfaces: ['desktop'],
 });

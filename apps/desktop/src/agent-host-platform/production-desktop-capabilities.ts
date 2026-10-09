@@ -35,8 +35,8 @@ import {
   findProviderDefinition,
   isPermissionDenied,
   isSupportedProvider,
+  listAutoObservationalMemoryCandidates,
   NATIVE_TOOL_ID,
-  resolveAutoObservationalMemoryModelTarget,
   resolveToolRiskCategory,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
@@ -53,17 +53,11 @@ import {
   buildDesktopAssistantTools,
   type DesktopAssistantToolDependencies,
 } from '../assistant-server/assistant-tools';
-import { mainBrowserToolRunner } from '../assistant-server/browser-agent-tools';
-import { pgliteGrepIndex } from '../assistant-server/grep-search-tool';
-import { mainDiagnosticsReader } from '../assistant-server/query-diagnostics-tool';
-import { mainQuerySelfRead } from '../assistant-server/query-self-tool';
 import {
   type PreparedAdmittedSkills,
   prepareAdmittedSkills,
 } from '../assistant-server/request-skills';
-import { pgliteRetrievalStore } from '../assistant-server/retrieval-store-pglite';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
-import { mainWorkspaceContextBroadcaster } from '../assistant-server/workspace-context-broadcast';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
 import {
   type DesktopWorktreeServices,
@@ -76,21 +70,19 @@ import {
   readDesktopHostSystemContext,
 } from './desktop-host-context';
 import { resolveDesktopHostDelegation } from './desktop-host-delegation';
+import { desktopHostToolServices, desktopNativeRuntime } from './desktop-host-tool-runtime';
 import type {
   DesktopWorkspaceBindingAuthority,
   DesktopWorkspaceBindingBorrow,
 } from './desktop-workspace-binding';
-import type { DesktopShellCorrelation, HostToolServiceCapabilities } from './host-tool-services';
 import type { DesktopPlatformCapabilities, DesktopPlatformSelection } from './main-platform';
 import {
   type DesktopMemoryVectorSelection,
   resolveDesktopMemoryVectors,
 } from './memory-vector-selection';
 import {
-  PlatformAdmittedSkillSchema,
   PlatformClientConfigurationSchema,
   PlatformModelConfigurationSchema,
-  PlatformWorkspaceContextSchema,
   platformPermissionPolicy,
 } from './platform-wire';
 
@@ -302,20 +294,70 @@ async function readDesktopIntent(
   );
 }
 
-function resolveDesktopMemorySettings(
+/** The chat provider's own auto-observer candidates, in preference order (never another provider). */
+function autoObserverCandidates(provider: string): readonly string[] {
+  return listAutoObservationalMemoryCandidates({
+    chatProvider: provider,
+    providersWithKeys: [provider],
+  });
+}
+
+/**
+ * The auto-observer candidates the model catalog has enabled: provider and
+ * model rows enabled and the model an LLM, the gate the memory settings
+ * dropdown applies (main's resolveEffectiveObservationalMemorySettings).
+ */
+async function readEnabledObserverCandidates(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  candidates: readonly string[]
+): Promise<ReadonlySet<string>> {
+  if (candidates.length === 0) {
+    return new Set();
+  }
+  const pairs = candidates.map((candidate) => {
+    const separator = candidate.indexOf('/');
+    return { modelId: candidate.slice(separator + 1), provider: candidate.slice(0, separator) };
+  });
+  const result = await db.query(
+    `SELECT m.provider_id AS "providerId", m.id AS "modelId"
+       FROM models m JOIN providers p ON p.id = m.provider_id
+      WHERE p.is_enabled = true AND m.is_enabled = true
+        AND (m.capabilities::jsonb)->>'type' = 'llm'
+        AND m.provider_id = ANY($1) AND m.id = ANY($2)`,
+    [[...new Set(pairs.map((pair) => pair.provider))], pairs.map((pair) => pair.modelId)]
+  );
+  const rows = z
+    .array(z.strictObject({ modelId: z.string(), providerId: z.string() }))
+    .parse(result.rows);
+  return new Set(rows.map((row) => `${row.providerId}/${row.modelId}`));
+}
+
+/** A disabled observer resolves no target, so the catalog is read only for an enabled auto one. */
+function readEnabledObservers(
+  db: Awaited<ReturnType<typeof getDatabase>>,
   intent: z.output<typeof PlatformClientConfigurationSchema>,
   provider: string
+): Promise<ReadonlySet<string>> {
+  const observation = intent.memorySettings.observationalMemory;
+  return observation.enabled && observation.modelTarget === 'auto'
+    ? readEnabledObserverCandidates(db, autoObserverCandidates(provider))
+    : Promise.resolve(new Set());
+}
+
+function resolveDesktopMemorySettings(
+  intent: z.output<typeof PlatformClientConfigurationSchema>,
+  provider: string,
+  enabledObservers: ReadonlySet<string>
 ): {
   memorySettings: z.output<typeof PlatformClientConfigurationSchema>['memorySettings'];
   observerTarget: string | null;
 } {
   const observation = intent.memorySettings.observationalMemory;
+  // Auto picks the first enabled candidate of the chat provider; none waits, disabled.
   const observerTarget =
     observation.modelTarget === 'auto'
-      ? resolveAutoObservationalMemoryModelTarget({
-          chatProvider: provider,
-          providersWithKeys: [provider],
-        })
+      ? (autoObserverCandidates(provider).find((candidate) => enabledObservers.has(candidate)) ??
+        null)
       : observation.modelTarget;
   const memorySettings = {
     ...intent.memorySettings,
@@ -611,52 +653,6 @@ const HOST_EXECUTED_ARTIFACT_READER: ScopedToolOutputArtifactReader = {
   },
 };
 
-/** What the host's shared native tools need from this admission; roots come back per call. */
-function desktopNativeRuntime(
-  runtime: RuntimeData,
-  retrievalRootsOnly: boolean,
-  skills: readonly import('@brainstrike/agent').ScannedSkill[] | undefined
-): DesktopPlatformSelection['nativeRuntime'] {
-  if (typeof runtime.provider !== 'string' || !runtime.workspaceRoots) {
-    throw new Error('Desktop admission has no native tool runtime');
-  }
-  return {
-    ...(runtime.boundWorkspaceRootId ? { boundWorkspaceRootId: runtime.boundWorkspaceRootId } : {}),
-    provider: runtime.provider,
-    ...(retrievalRootsOnly ? { retrievalRootsOnly: true as const } : {}),
-    ...(runtime.selectionFilePaths ? { selectionFilePaths: [...runtime.selectionFilePaths] } : {}),
-    ...(runtime.selectionFolderId ? { selectionFolderId: runtime.selectionFolderId } : {}),
-    ...(skills ? { skills: z.array(PlatformAdmittedSkillSchema).parse(skills) } : {}),
-    ...(runtime.workspaceContext
-      ? { workspaceContext: PlatformWorkspaceContextSchema.parse(runtime.workspaceContext) }
-      : {}),
-    ...(runtime.workspaceRootPath ? { workspaceRootPath: runtime.workspaceRootPath } : {}),
-    workspaceRoots: runtime.workspaceRoots.map(({ displayName, path, rootId }) => ({
-      displayName,
-      path,
-      rootId,
-    })),
-  };
-}
-
-/** The Main-owned stores and services host threads' own tools read through Main. */
-function desktopHostToolServices(
-  dependencies: DesktopHostToolServices
-): HostToolServiceCapabilities {
-  return {
-    grepIndex: pgliteGrepIndex,
-    ...(dependencies.nativeIndexSearch ? { indexSearch: dependencies.nativeIndexSearch } : {}),
-    browser: mainBrowserToolRunner,
-    contextDelivery: mainWorkspaceContextBroadcaster,
-    diagnostics: mainDiagnosticsReader,
-    querySelf: mainQuerySelfRead(),
-    retrievalStore: pgliteRetrievalStore(),
-    shell: desktopShellCorrelation(dependencies),
-    worktrees: ({ runId, threadId }) =>
-      desktopWorktreeToolDependencies(dependencies, { runId, threadId }).worktreeTools,
-  };
-}
-
 /** Plan mode admits only the plan-mode tool set; the built-in local provider has no plan mode. */
 function desktopRunTools(
   tools: Readonly<Record<string, HostTool>>,
@@ -680,32 +676,6 @@ async function readLocalEmbeddingHostDevice(
     throw new Error('Local Memory vectors require the embedding host');
   }
   return await read(signal);
-}
-
-/** Main's worktree/forge correlation of host commands, over the same services as legacy threads. */
-function desktopShellCorrelation(services: DesktopWorktreeServices): DesktopShellCorrelation {
-  return {
-    completed: ({ command, precedingWorktreePaths, rootId, runId, threadId }) => {
-      desktopWorktreeToolDependencies(services, {
-        runId,
-        threadId,
-      }).shellCorrelation?.onCommandCompleted({
-        command,
-        precedingWorktreePaths: precedingWorktreePaths
-          ? new Set(precedingWorktreePaths)
-          : undefined,
-        rootId,
-      });
-    },
-    worktreePaths: async () => {
-      const service = services.resolveWorktreeService?.();
-      if (!service) {
-        return null;
-      }
-      const listed = await service.list();
-      return listed.ok ? listed.value.map((entry) => entry.path) : null;
-    },
-  };
 }
 
 /** BST-1932: the supervisor instructions name only the personas this run may delegate to. */
@@ -767,7 +737,8 @@ export function productionDesktopCapabilities(
     const inputTokenLimit = desktopInputTokenLimit(catalog.definition, intent, configuration);
     const { memorySettings, observerTarget } = resolveDesktopMemorySettings(
       intent,
-      configuration.provider
+      configuration.provider,
+      await readEnabledObservers(db, intent, configuration.provider)
     );
     const memoryVectors = await resolveDesktopMemoryVectors(memorySettings, {
       readDimensions: (provider, modelId) => readEmbeddingDimensions(db, provider, modelId),

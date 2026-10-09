@@ -1,9 +1,6 @@
 import type { WebExtractInput } from '@brainstrike/agent';
 import { WEB_EXTRACT_TOOL_ID } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/logging';
-import { getSecretsService } from '../secrets';
-import { TAVILY_ENV_KEYS } from '../tavily-env-keys';
-import { TAVILY_SECRET_PROVIDER } from './tavily-key';
 
 const logger = createLogger('AssistantWebExtractTool');
 
@@ -11,8 +8,7 @@ const logger = createLogger('AssistantWebExtractTool');
 // desktop registry and every other consumer agree on the id.
 export { WEB_EXTRACT_TOOL_ID };
 
-// Env vars come from `tavily-env-keys.ts` — the SAME credential webSearch
-// uses; Tavily /extract shares the account.
+// The same Tavily credential webSearch uses; Tavily /extract shares the account.
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const TAVILY_EXTRACT_URL = 'https://api.tavily.com/extract';
@@ -62,8 +58,11 @@ export interface WebExtractToolResult {
 export interface WebExtractToolDependencies {
   /** The fetch implementation (defaults to global fetch). */
   fetchImpl?: typeof fetch;
-  /** Resolves the Tavily API key (env → keychain). Returns undefined when unset. */
-  resolveApiKey?: () => Promise<string | undefined>;
+  /**
+   * Resolves the Tavily API key (env first, then the process's credential
+   * store). Returns undefined when unset. Each process supplies its own owner.
+   */
+  resolveApiKey: () => Promise<string | undefined>;
   /** Network timeout in ms (default 15000 — extraction is slower than search). */
   timeoutMs?: number;
 }
@@ -74,28 +73,6 @@ interface TavilyExtractApiResponse {
   failed_results?: Array<{ url?: unknown; error?: unknown }>;
   // biome-ignore lint/style/useNamingConvention: Tavily API wire field
   results?: Array<{ url?: unknown; raw_content?: unknown }>;
-}
-
-function readTavilyEnvKey(): string | undefined {
-  for (const envKey of TAVILY_ENV_KEYS) {
-    const value = process.env[envKey];
-    if (typeof value === 'string' && value.trim().length > 0) {
-      return value.trim();
-    }
-  }
-  return;
-}
-
-/** Env first, then the encrypted keychain — resolved server-side ONLY (the key
- * authenticates the Tavily request and is never returned to model/renderer). */
-async function resolveTavilyApiKeyFromKeychain(): Promise<string | undefined> {
-  const envKey = readTavilyEnvKey();
-  if (envKey) {
-    return envKey;
-  }
-  const stored = await getSecretsService().getKey(TAVILY_SECRET_PROVIDER);
-  const normalized = typeof stored === 'string' ? stored.trim() : '';
-  return normalized.length > 0 ? normalized : undefined;
 }
 
 /** RFC1918/loopback/link-local/unspecified IPv4, from a dotted-quad literal. */
@@ -249,9 +226,9 @@ function normalizeExtractPayload(
  */
 export async function runWebExtract(
   input: WebExtractInput,
-  dependencies: WebExtractToolDependencies = {}
+  dependencies: WebExtractToolDependencies
 ): Promise<WebExtractToolResult> {
-  const resolveApiKey = dependencies.resolveApiKey ?? resolveTavilyApiKeyFromKeychain;
+  const resolveApiKey = dependencies.resolveApiKey;
   const fetchImpl = dependencies.fetchImpl ?? fetch;
   const timeoutMs = dependencies.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 

@@ -34,10 +34,12 @@ import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 // `run.started` delivers, an approval the root's policy answered, and
 // `thread/children` (a thread's direct children), lifecycle hook context
 // (`hook.context`), host-owned project hook trust (`hooks/trust`,
-// `hooks/trust/read`, `hooks/untrust`) and `thread/memory/read` (memory
-// readiness for the next run). These additions are optional fields, new
-// variants and new methods, so a v11 reader that uses none of them sees
-// nothing new.
+// `hooks/trust/read`, `hooks/untrust`), `thread/memory/read` (memory
+// readiness for the next run), and run_python's network consent: an
+// `interaction.requested` of kind `network`, answered by `interaction/resume`
+// with `{ action }` and, when the policy also asked, an approval grant. These
+// additions are optional fields, new variants and new methods, so a v11 reader
+// that uses none of them sees nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -69,6 +71,12 @@ const PermissionGrant = z.discriminatedUnion('scope', [
   z.strictObject({ scope: z.literal('tool'), toolId: Id }),
 ]);
 export type HostPermissionGrant = z.infer<typeof PermissionGrant>;
+
+/**
+ * The answer to a `network` interaction: allow lets this one call reach its
+ * requested domains; deny settles it unrun (run_python's `network_denied`).
+ */
+export const HostNetworkConsentSchema = z.strictObject({ action: z.enum(['allow', 'deny']) });
 /** Task Ledger run labels (brainstrike_assistant_run_outcomes verdict/source). */
 const RunVerdict = z.enum(['failed', 'mixed', 'succeeded']);
 const RunVerdictDetail = z.string().max(2000);
@@ -397,6 +405,8 @@ export const HOST_METHOD_SCHEMAS = {
   'interaction/resume': z.strictObject({
     ...Command,
     ...Run,
+    /** Only a network consent that also stood in for an approval carries one. */
+    grant: PermissionGrant.optional(),
     interactionId: Id,
     resumeData: z.json(),
   }),
@@ -652,7 +662,7 @@ export const HostEventSchema = z.union([
      */
     executionContext: z.json().optional(),
     interactionId: Id,
-    kind: z.enum(['approval', 'question', 'plan']),
+    kind: z.enum(['approval', 'question', 'plan', 'network']),
     /** A permission approval's risk category, which its session grant names. */
     risk: RiskCategory.optional(),
   }),

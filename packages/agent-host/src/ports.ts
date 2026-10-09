@@ -394,6 +394,12 @@ export interface HostDelegation {
 
 export interface HostTool {
   /**
+   * Whether this call's own input asks for network a person must allow, per
+   * call, before it executes (run_python's requested domains). Never remembered
+   * and never answered by a grant or policy.
+   */
+  readonly consent?: (input: unknown) => boolean;
+  /**
    * A system note this tool contributes before each step, from its thread's
    * committed tool state (the legacy `<current-task-list>` re-injection).
    */

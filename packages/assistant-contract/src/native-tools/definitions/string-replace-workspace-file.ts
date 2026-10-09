@@ -17,7 +17,8 @@ export const stringReplaceWorkspaceFile = defineNativeTool({
   id: 'brainstrike.stringReplaceWorkspaceFile',
   inputSchema: providerCompatibleInputSchema(StringReplaceWorkspaceFileInputSchema),
   kind: 'desktop',
+  localProvider: 'offered',
   returns:
     'Edit result: the normalized workspace path, bytesWritten, matchType (which cascade branch matched), and replaced: true',
-  surfaces: ['desktop', 'web', 'local'],
+  surfaces: ['desktop', 'web'],
 });

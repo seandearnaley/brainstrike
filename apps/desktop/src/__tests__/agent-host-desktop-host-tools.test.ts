@@ -813,3 +813,47 @@ test('a run on the built-in local provider is admitted without workspace skills'
     })
   ).toThrow('No host executor is registered for native tool skill');
 });
+
+test('the desktop host runs webExtract with its own Tavily key owner, refusing internal URLs before any key read', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-extract-')));
+  directories.push(root);
+  const request = vi.fn(async (method: string) => {
+    if (method !== 'platform/workspace/roots') {
+      throw new Error(`Unexpected Main request ${method}`);
+    }
+    return [{ displayName: 'A', path: root, rootId: 'root-a' }];
+  });
+  const resolveTavilyApiKey = vi.fn(async () => 'tvly-host-key');
+  const selected = selection(root);
+  selected.tools['brainstrike_webExtract'] = {
+    description: 'Extract pages',
+    identity: NATIVE_TOOL_ID.webExtract,
+    inputSchema: { type: 'object' },
+    permissionToolId: NATIVE_TOOL_ID.webExtract,
+    risk: 'read',
+  };
+  const tool = desktopHostSharedTools({
+    readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
+    request,
+    resolveTavilyApiKey,
+    selected,
+    threadId: 'host-thread',
+  })['brainstrike_webExtract'];
+  if (!tool) {
+    throw new Error('webExtract was not built for the host');
+  }
+  // The egress guard refuses an internal URL in the host, before the key or the network.
+  await expect(
+    tool.execute({ urls: ['http://127.0.0.1:8080/admin'] }, execution())
+  ).resolves.toMatchObject({
+    available: true,
+    count: 0,
+    failed: [
+      { reason: expect.stringMatching(/private\/loopback/), url: 'http://127.0.0.1:8080/admin' },
+    ],
+  });
+  expect(resolveTavilyApiKey).not.toHaveBeenCalled();
+  expect(new Set(request.mock.calls.map(([method]) => method))).toEqual(
+    new Set(['platform/workspace/roots'])
+  );
+});

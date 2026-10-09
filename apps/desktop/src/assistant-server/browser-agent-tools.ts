@@ -17,6 +17,7 @@ import type {
   BrowserNavigateInput,
   BrowserReadPageInput,
 } from '@brainstrike/agent';
+import { refuseExtractUrl } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import type { AccessibilitySnapshot } from '../browser/accessibility-snapshot';
 import type { BrowserDriver } from '../browser/browser-driver';
@@ -27,7 +28,6 @@ import {
   normalizeUrl,
 } from '../browser/browser-view-manager';
 import type { BrowserToolRunner } from './native-tool-executors-browser';
-import { refuseExtractUrl } from './web-extract-tool';
 
 const logger = createLogger('BrowserAgentTools');
 

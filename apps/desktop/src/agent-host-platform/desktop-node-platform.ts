@@ -8,16 +8,12 @@ import type {
 } from '@brainstrike/agent/provider-runtime';
 import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import {
-  canonicalToolModelOutput,
   createProductionHostPlatform,
   type HostPlatform,
   type HostPlatformLaunchOptions,
   type HostRunAdmissionRequest,
   type HostStartupContext,
-  type HostTool,
-  type HostToolContext,
   type ProductionHostRunConfiguration,
-  platformToolInputSchema,
 } from '@brainstrike/agent-host';
 import type {
   AssistantPersonaDefinition,
@@ -52,7 +48,6 @@ import {
   PlatformLocalProgressSchema,
   PlatformMemoryReadinessSchema,
   PlatformPolicySchema,
-  PlatformProgressSchema,
   PlatformSelectionSchema,
 } from './platform-wire';
 
@@ -200,7 +195,6 @@ export async function createHostPlatform(
     launch: platformOptions,
     startup,
   });
-  const executions = new Map<string, HostToolContext & { readonly toolId: string }>();
   // One host-lifetime registry; its handles are scoped to their thread.
   const readFileCursorRegistry = new ReadWorkspaceFileCursorRegistry();
   const request: PlatformRequest = async (method, input, signal) => {
@@ -215,14 +209,6 @@ export async function createHostPlatform(
       cancellation.dispose();
     }
   };
-  connection.onRequest('platform/progress', async (input: unknown) => {
-    const progress = PlatformProgressSchema.parse(input);
-    const context = executions.get(JSON.stringify([progress.runId, progress.toolCallId]));
-    if (!context || context.threadId !== progress.threadId) {
-      throw new Error('Platform progress has no admitted execution');
-    }
-    await context.write?.(progress.chunk);
-  });
   serveHostCommandSessions(connection);
   // ADR-0007: a borrowed local generation streams through Main's progress notifications.
   const localProgress: LocalProgressListeners = new Map();
@@ -297,7 +283,8 @@ export async function createHostPlatform(
         }
         throw cause;
       }
-      const shared = desktopHostSharedTools({
+      // Every admitted tool runs here; Main executes none of them.
+      const tools = desktopHostSharedTools({
         appPaths: platformOptions?.appPaths,
         readFileCursorRegistry,
         request,
@@ -305,104 +292,6 @@ export async function createHostPlatform(
         selected,
         threadId: admission.threadId,
       });
-      const tools = Object.fromEntries(
-        Object.entries(selected.tools)
-          .filter(([name]) => !Object.hasOwn(shared, name))
-          .map(([name, descriptor]) => [
-            name,
-            {
-              description: descriptor.description,
-              identity: descriptor.identity,
-              ...(descriptor.interaction
-                ? {
-                    interaction: {
-                      kind: descriptor.interaction.kind,
-                      resumeSchema: platformToolInputSchema(
-                        descriptor.interaction.resumeSchema,
-                        async (input) =>
-                          z
-                            .discriminatedUnion('success', [
-                              z.strictObject({ success: z.literal(true), value: z.json() }),
-                              z.strictObject({ error: z.string(), success: z.literal(false) }),
-                            ])
-                            .parse(
-                              await request(
-                                'platform/validate',
-                                {
-                                  input: z.json().parse(input),
-                                  resume: true,
-                                  threadId: admission.threadId,
-                                  toolId: name,
-                                },
-                                admission.signal
-                              )
-                            )
-                      ),
-                    },
-                  }
-                : {}),
-              permissionToolId: descriptor.permissionToolId,
-              risk: descriptor.risk,
-              ...(descriptor.strict === undefined ? {} : { strict: descriptor.strict }),
-              execute: async (input: unknown, context: HostToolContext): Promise<unknown> => {
-                const address = JSON.stringify([context.runId, context.toolCallId]);
-                if (executions.has(address)) {
-                  throw new Error('Platform tool call is already executing');
-                }
-                executions.set(address, { ...context, toolId: name });
-                try {
-                  return await request(
-                    'platform/execute',
-                    {
-                      input: z.json().parse(input),
-                      ...(context.resumeData === undefined
-                        ? {}
-                        : { resumeData: z.json().parse(context.resumeData) }),
-                      runId: context.runId,
-                      threadId: context.threadId,
-                      toolCallId: context.toolCallId,
-                      toolId: name,
-                    },
-                    context.signal
-                  );
-                } finally {
-                  executions.delete(address);
-                }
-              },
-              inputSchema: platformToolInputSchema(descriptor.inputSchema, async (input) =>
-                z
-                  .discriminatedUnion('success', [
-                    z.strictObject({ success: z.literal(true), value: z.json() }),
-                    z.strictObject({ error: z.string(), success: z.literal(false) }),
-                  ])
-                  .parse(
-                    await request(
-                      'platform/validate',
-                      { input: z.json().parse(input), threadId: admission.threadId, toolId: name },
-                      admission.signal
-                    )
-                  )
-              ),
-              toModelOutput: async ({
-                input,
-                output,
-                toolCallId,
-              }: Parameters<NonNullable<HostTool['toModelOutput']>>[0]) => {
-                const projected = await request('platform/project', {
-                  input: z.json().parse(input),
-                  output: z.json().parse(output),
-                  threadId: admission.threadId,
-                  toolCallId,
-                  toolId: name,
-                });
-                return projected === undefined || projected === null
-                  ? { type: 'json' as const, value: z.json().parse(output) }
-                  : canonicalToolModelOutput(projected, toolCallId, name);
-              },
-            },
-          ])
-      );
-      Object.assign(tools, shared);
       // Global hooks run as configured; a root's project file runs only at the
       // hash the host trusted it at, and is reported, not run, otherwise.
       const hooks = createHostRunHooks({

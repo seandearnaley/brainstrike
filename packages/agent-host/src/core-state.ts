@@ -219,6 +219,8 @@ export interface HostRunState {
   /** BST-1932: human input a running child takes; it starts the run after this one. */
   childInput?: HostParams<'run/start'> | undefined;
   completion?: Promise<void>;
+  /** Calls awaiting network consent this step, and whether the policy also asked to approve them. */
+  readonly consents: Map<string, { readonly approval: boolean }>;
   readonly controller: AbortController;
   /** Set when a child's execution deadline expired; it ends failed, not stopped. */
   deadline?: string;
@@ -298,6 +300,7 @@ export function createHostRunState(
     approvals: new Map(),
     branch,
     checkpointedResults: new Set(),
+    consents: new Map(),
     controller,
     effects: new Set(),
     grants,

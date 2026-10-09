@@ -41,8 +41,8 @@ export interface BrowserToolRunner {
 }
 
 /**
- * Omitted for the built-in local provider (same WebGPU-prefill reasoning as
- * the task-list tool and the plan-mode gate).
+ * All three are `localProvider: 'unregistered'` in the catalog, so every fold
+ * skips them for the built-in local provider.
  */
 export function browserToolExecutors(runner: BrowserToolRunner): {
   readonly [NATIVE_TOOL_ID.browserGetPageText]: NativeToolExecutor;
@@ -50,62 +50,38 @@ export function browserToolExecutors(runner: BrowserToolRunner): {
   readonly [NATIVE_TOOL_ID.browserReadPage]: NativeToolExecutor;
 } {
   return {
-    [NATIVE_TOOL_ID.browserGetPageText]: ({ isLocalProvider }) =>
-      isLocalProvider
-        ? undefined
-        : {
-            description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.browserGetPageText],
-            execute: (
-              input: ToolExecuteInput<BrowserGetPageTextInput>,
-              options?: ToolExecuteContext
-            ) =>
-              runner.getPageText(
-                parseToolExecuteInput(
-                  NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserGetPageText],
-                  input
-                ),
-                resolveGuardedToolSignal(options)
-              ),
-            id: NATIVE_TOOL_ID.browserGetPageText,
-            inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserGetPageText],
-          },
-    [NATIVE_TOOL_ID.browserNavigate]: ({ isLocalProvider }) =>
-      isLocalProvider
-        ? undefined
-        : {
-            description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.browserNavigate],
-            execute: (
-              input: ToolExecuteInput<BrowserNavigateInput>,
-              options?: ToolExecuteContext
-            ) =>
-              runner.navigate(
-                parseToolExecuteInput(
-                  NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserNavigate],
-                  input
-                ),
-                resolveGuardedToolSignal(options)
-              ),
-            id: NATIVE_TOOL_ID.browserNavigate,
-            inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserNavigate],
-          },
-    [NATIVE_TOOL_ID.browserReadPage]: ({ isLocalProvider }) =>
-      isLocalProvider
-        ? undefined
-        : {
-            description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.browserReadPage],
-            execute: (
-              input: ToolExecuteInput<BrowserReadPageInput>,
-              options?: ToolExecuteContext
-            ) =>
-              runner.readPage(
-                parseToolExecuteInput(
-                  NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserReadPage],
-                  input
-                ),
-                resolveGuardedToolSignal(options)
-              ),
-            id: NATIVE_TOOL_ID.browserReadPage,
-            inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserReadPage],
-          },
+    [NATIVE_TOOL_ID.browserGetPageText]: () => ({
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.browserGetPageText],
+      execute: (input: ToolExecuteInput<BrowserGetPageTextInput>, options?: ToolExecuteContext) =>
+        runner.getPageText(
+          parseToolExecuteInput(
+            NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserGetPageText],
+            input
+          ),
+          resolveGuardedToolSignal(options)
+        ),
+      id: NATIVE_TOOL_ID.browserGetPageText,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserGetPageText],
+    }),
+    [NATIVE_TOOL_ID.browserNavigate]: () => ({
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.browserNavigate],
+      execute: (input: ToolExecuteInput<BrowserNavigateInput>, options?: ToolExecuteContext) =>
+        runner.navigate(
+          parseToolExecuteInput(NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserNavigate], input),
+          resolveGuardedToolSignal(options)
+        ),
+      id: NATIVE_TOOL_ID.browserNavigate,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserNavigate],
+    }),
+    [NATIVE_TOOL_ID.browserReadPage]: () => ({
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.browserReadPage],
+      execute: (input: ToolExecuteInput<BrowserReadPageInput>, options?: ToolExecuteContext) =>
+        runner.readPage(
+          parseToolExecuteInput(NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserReadPage], input),
+          resolveGuardedToolSignal(options)
+        ),
+      id: NATIVE_TOOL_ID.browserReadPage,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.browserReadPage],
+    }),
   };
 }

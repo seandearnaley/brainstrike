@@ -24,8 +24,8 @@ import {
 } from '../canonical-utility-parent';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
-import { NativeCoverageObservationInvalidatedError } from '../native-coverage-observation-invalidated';
 import { createNativeIndexActivation } from '../native-index-activation';
+import { NativeIndexBlockedError } from '../native-index-blocked';
 import {
   createNativeScopedSearchCapability,
   type NativeSearchAuthority,
@@ -646,7 +646,9 @@ it.each([false, true])(
       });
       await updating;
       await vi.waitFor(() => expect(test.onError).toHaveBeenCalled());
-      await expect(test.activation.acquireRead()).rejects.toThrow('Canonical native scan failed');
+      const blocked = await test.activation.acquireRead().catch((error: unknown) => error);
+      expect(blocked).toBeInstanceOf(NativeIndexBlockedError);
+      expect(blocked).toHaveProperty('cause', test.onError.mock.calls.at(-1)?.[1]);
       expect(test.manifests).toEqual([[], ['retained-0']]);
     } finally {
       await test.close();
@@ -715,7 +717,7 @@ it.each([false, true])(
         errors: [expect.objectContaining({ message: 'independent writer failure' })],
         message: 'genuine verification failure',
       });
-      await expect(test.activation.acquireRead()).rejects.toThrow('Canonical native scan failed');
+      await expect(test.activation.acquireRead()).rejects.toBe(test.onError.mock.calls[0]?.[1]);
       expect(test.manifests).toEqual([[], ['retained-0']]);
       test.expectReadiness(test.activation.getReadiness(), [
         { generation: 2, mutationRevision: 2, scanComplete: false, scope },
@@ -916,8 +918,11 @@ it.each([false, true])(
           totals: { chunks: 0, indexedFiles: 0 },
         });
       } else {
-        expect(observation).toBeInstanceOf(NativeCoverageObservationInvalidatedError);
-        expect(observation).toHaveProperty('code', 'native-coverage-observation-invalidated');
+        expect(observation).toMatchObject({
+          storeId: beforeStore,
+          totals: { chunks: 0, indexedFiles: 0, missingVectors: 0, vectors: 0 },
+          vectorCoverageComplete: false,
+        });
         const currentNative = await test.native.coverageAuthority();
         expect(currentNative).toEqual(beforeNative);
         expect(before?.readiness).toEqual([

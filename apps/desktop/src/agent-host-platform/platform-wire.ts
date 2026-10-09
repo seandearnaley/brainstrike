@@ -33,14 +33,6 @@ export const PlatformWorkspaceBindingRequestSchema = z.strictObject({
   binding: ThreadWorkspaceBindingSchema,
   threadId: Id,
 });
-export const PlatformToolRequestSchema = z.strictObject({
-  input: z.json(),
-  resumeData: z.json().optional(),
-  runId: Id,
-  threadId: Id,
-  toolCallId: Id,
-  toolId: Id,
-});
 export const PlatformPolicySchema = z.strictObject({
   perToolOverrides: z.record(z.string(), Decision).optional(),
   policies: z.strictObject({ edit: Decision, execute: Decision, mcp: Decision, read: Decision }),
@@ -278,12 +270,6 @@ export const PlatformSelectionSchema = z.strictObject({
       roots: CliWorkspaceRootsSchema,
     })
     .optional(),
-});
-export const PlatformProgressSchema = z.strictObject({
-  chunk: z.json(),
-  runId: Id,
-  threadId: Id,
-  toolCallId: Id,
 });
 /**
  * ADR-0007: local generation runs in Main's hidden llm-host; the host only borrows it.
