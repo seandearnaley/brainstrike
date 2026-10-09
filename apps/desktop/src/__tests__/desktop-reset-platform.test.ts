@@ -486,4 +486,37 @@ describe('createDesktopFactoryResetHandler', () => {
     });
     expect(resetDesktopApplicationDataMock).not.toHaveBeenCalled();
   });
+
+  it('stays busy until a reset in flight has reopened what it retired (BST-1930)', async () => {
+    const replacement = Promise.withResolvers<void>();
+    const resumeAfterReset = vi.fn(async () => undefined);
+    const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
+    const handleReset = createDesktopFactoryResetHandler({
+      cleanupLiveSubscriptionsForShutdown: vi.fn(async () => undefined),
+      completeSuccessfulReset: () => replacement.promise,
+      logger: { error: vi.fn(), info: vi.fn() },
+      resetLocalDatabase: vi.fn(async () => undefined),
+      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
+      resumeAfterReset,
+      runtimes: [],
+      runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
+      userDataPath: '/mock/userData',
+      waitForDatabaseWorkSchedulerIdle: vi.fn(async () => undefined),
+    });
+    await handleReset.idle();
+
+    const reset = handleReset.reset();
+    await vi.waitFor(() => expect(resetDesktopApplicationDataMock).toHaveBeenCalledOnce());
+    let idle = false;
+    const waiting = handleReset.idle().then(() => {
+      idle = true;
+    });
+    await Promise.resolve();
+    expect(idle).toBe(false);
+    replacement.resolve();
+
+    await waiting;
+    expect(resumeAfterReset).toHaveBeenCalledWith('succeeded');
+    await expect(reset).resolves.toEqual({ success: true });
+  });
 });

@@ -158,12 +158,13 @@ test('the desktop host runs lspInspect in its own process, revalidating roots th
   directories.push(root);
   await writeFile(join(root, 'notes.txt'), 'hello world\n');
   const request = vi.fn(async (method: string) => {
-    if (method !== 'platform/workspace/roots') {
+    if (method !== 'admission/fresh-roots') {
       throw new Error(`Unexpected Main request ${method}`);
     }
     return [{ displayName: 'A', path: root, rootId: 'root-a' }];
   });
   const tools = desktopHostSharedTools({
+    freshRoots: () => request('admission/fresh-roots'),
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     // These cases build no web search; the host's Tavily owner is never read.
@@ -181,8 +182,8 @@ test('the desktop host runs lspInspect in its own process, revalidating roots th
     tool.execute({ line: 1, match: '<<<hello', path: 'notes.txt' }, context)
   ).resolves.toMatchObject({ available: false, reason: 'unsupported-language' });
   expect(request.mock.calls.map(([method]) => method)).toEqual([
-    'platform/workspace/roots',
-    'platform/workspace/roots',
+    'admission/fresh-roots',
+    'admission/fresh-roots',
   ]);
 });
 
@@ -191,12 +192,13 @@ test('the desktop host reads the curated context selection in its own process', 
   directories.push(root);
   await writeFile(join(root, 'notes.txt'), 'curated notes\n');
   const request = vi.fn(async (method: string) => {
-    if (method !== 'platform/workspace/roots') {
+    if (method !== 'admission/fresh-roots') {
       throw new Error(`Unexpected Main request ${method}`);
     }
     return [{ displayName: 'A', path: root, rootId: 'root-a' }];
   });
   const tools = desktopHostSharedTools({
+    freshRoots: () => request('admission/fresh-roots'),
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     // These cases build no web search; the host's Tavily owner is never read.
@@ -231,8 +233,8 @@ test('the desktop host reads the curated context selection in its own process', 
   const output = await tool.execute({}, execution());
   expect(JSON.stringify(output)).toContain('curated notes');
   expect(request.mock.calls.map(([method]) => method)).toEqual([
-    'platform/workspace/roots',
-    'platform/workspace/roots',
+    'admission/fresh-roots',
+    'admission/fresh-roots',
   ]);
 });
 
@@ -241,7 +243,7 @@ test('the desktop host runs executeCommand in its own process and correlates wor
   directories.push(root);
   const request = vi.fn(async (method: string, _input: unknown) => {
     switch (method) {
-      case 'platform/workspace/roots':
+      case 'admission/fresh-roots':
         return [{ displayName: 'A', path: root, rootId: 'root-a' }];
       case 'platform/worktree/paths':
         return { paths: ['/repo/.worktrees/fox'] };
@@ -252,6 +254,7 @@ test('the desktop host runs executeCommand in its own process and correlates wor
     }
   });
   const tools = desktopHostSharedTools({
+    freshRoots: () => request('admission/fresh-roots', {}),
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     // These cases build no web search; the host's Tavily owner is never read.
@@ -268,8 +271,8 @@ test('the desktop host runs executeCommand in its own process and correlates wor
     tool.execute({ command: 'printf host-ran', cwd: '.' }, execution())
   ).resolves.toMatchObject({ exitCode: 0, stdout: 'host-ran' });
   expect(request.mock.calls.map(([method]) => method)).toEqual([
-    'platform/workspace/roots',
-    'platform/workspace/roots',
+    'admission/fresh-roots',
+    'admission/fresh-roots',
   ]);
 
   // A worktree-shaped command snapshots Main's paths first, then reports its completion.
@@ -314,7 +317,7 @@ test('the desktop host greps in its own process, reading only the indexed half f
   };
   const request = vi.fn(async (method: string, _input: unknown) => {
     switch (method) {
-      case 'platform/workspace/roots':
+      case 'admission/fresh-roots':
         return [{ displayName: 'A', path: root, rootId: 'root-a' }];
       case 'desktop-read/grep-index':
         return indexed;
@@ -323,6 +326,7 @@ test('the desktop host greps in its own process, reading only the indexed half f
     }
   });
   const tools = desktopHostSharedTools({
+    freshRoots: () => request('admission/fresh-roots', {}),
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     // These cases build no web search; the host's Tavily owner is never read.
@@ -348,7 +352,7 @@ test('the desktop host greps in its own process, reading only the indexed half f
     threadId: 'host-thread',
   });
   expect(new Set(request.mock.calls.map(([method]) => method))).toEqual(
-    new Set(['platform/workspace/roots', 'desktop-read/grep-index'])
+    new Set(['admission/fresh-roots', 'desktop-read/grep-index'])
   );
 });
 
@@ -412,7 +416,7 @@ test('the desktop host runs the worktree tools in its own process over Main’s 
   };
   const request = vi.fn(async (method: string, _input: unknown) => {
     switch (method) {
-      case 'platform/workspace/roots':
+      case 'admission/fresh-roots':
         return [{ displayName: 'A', path: root, rootId: 'root-a' }];
       case 'platform/worktree/list':
         return listed;
@@ -423,6 +427,7 @@ test('the desktop host runs the worktree tools in its own process over Main’s 
     }
   });
   const tools = desktopHostSharedTools({
+    freshRoots: () => request('admission/fresh-roots', {}),
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
@@ -476,7 +481,7 @@ test('the desktop host runs the browser tools, asking Main to drive the window-b
   directories.push(root);
   const request = vi.fn(async (method: string, _input: unknown, _signal?: AbortSignal) => {
     switch (method) {
-      case 'platform/workspace/roots':
+      case 'admission/fresh-roots':
         return [{ displayName: 'A', path: root, rootId: 'root-a' }];
       case 'platform/browser/navigate':
         return { ok: true, title: 'Example', url: 'https://example.com/' };
@@ -491,6 +496,7 @@ test('the desktop host runs the browser tools, asking Main to drive the window-b
     }
   });
   const tools = desktopHostSharedTools({
+    freshRoots: () => request('admission/fresh-roots', {}),
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
@@ -531,7 +537,7 @@ test('the desktop host validates a context selection in its own process and asks
   await writeFile(join(root, 'notes.txt'), 'notes\n');
   const request = vi.fn(async (method: string, _input: unknown) => {
     switch (method) {
-      case 'platform/workspace/roots':
+      case 'admission/fresh-roots':
         return [{ displayName: 'A', path: root, rootId: 'root-a' }];
       case 'platform/workspace-context/selection':
         return { notifiedWindowCount: 1 };
@@ -540,6 +546,7 @@ test('the desktop host validates a context selection in its own process and asks
     }
   });
   const tools = desktopHostSharedTools({
+    freshRoots: () => request('admission/fresh-roots', {}),
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
@@ -593,7 +600,7 @@ test('the desktop host runs querySelf and queryDiagnostics, reading only Main’
   };
   const request = vi.fn(async (method: string, input: unknown, _signal?: AbortSignal) => {
     switch (method) {
-      case 'platform/workspace/roots':
+      case 'admission/fresh-roots':
         return [{ displayName: 'A', path: root, rootId: 'root-a' }];
       case 'desktop-read/query-self': {
         const sql = (input as { request: { input: { sql?: string } } }).request.input.sql;
@@ -618,6 +625,7 @@ test('the desktop host runs querySelf and queryDiagnostics, reading only Main’
     }
   });
   const tools = desktopHostSharedTools({
+    freshRoots: () => request('admission/fresh-roots', {}),
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
@@ -665,7 +673,7 @@ test('the desktop host runs run_python against the bundled runtime its launch ap
   const userDataPath = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-user-data-')));
   directories.push(root, resourcesPath, userDataPath);
   const request = vi.fn(async (method: string) => {
-    if (method !== 'platform/workspace/roots') {
+    if (method !== 'admission/fresh-roots') {
       throw new Error(`Unexpected Main request ${method}`);
     }
     return [{ displayName: 'A', path: root, rootId: 'root-a' }];
@@ -680,6 +688,7 @@ test('the desktop host runs run_python against the bundled runtime its launch ap
   };
   const tools = desktopHostSharedTools({
     appPaths: { isPackaged: true, resourcesPath, userDataPath },
+    freshRoots: () => request('admission/fresh-roots'),
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
@@ -696,7 +705,7 @@ test('the desktop host runs run_python against the bundled runtime its launch ap
   expect(output).toMatchObject({ kind: 'unavailable', reason: 'interpreter_unavailable' });
   expect(JSON.stringify(output)).toContain(join(resourcesPath, 'python-runtime', 'manifest.json'));
   expect(new Set(request.mock.calls.map(([method]) => method))).toEqual(
-    new Set(['platform/workspace/roots'])
+    new Set(['admission/fresh-roots'])
   );
 });
 
@@ -733,7 +742,7 @@ test('the desktop host activates, reads and runs the skills Main admitted, readi
   const { skills } = admitSkills(root, home, 'openai');
   expect(skills?.map((skill) => skill.name)).toEqual(['demo-skill']);
   const request = vi.fn(async (method: string) => {
-    if (method !== 'platform/workspace/roots') {
+    if (method !== 'admission/fresh-roots') {
       throw new Error(`Unexpected Main request ${method}`);
     }
     return [{ displayName: 'A', path: root, rootId: 'root-a' }];
@@ -754,6 +763,7 @@ test('the desktop host activates, reads and runs the skills Main admitted, readi
   }
   const tools = desktopHostSharedTools({
     appPaths: { isPackaged: true, resourcesPath: home, userDataPath: home },
+    freshRoots: () => request('admission/fresh-roots'),
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
@@ -787,7 +797,7 @@ test('the desktop host activates, reads and runs the skills Main admitted, readi
     )
   ).resolves.toMatchObject({ exitCode: 0, stdout: 'hello-from-skill' });
   expect(new Set(request.mock.calls.map(([method]) => method))).toEqual(
-    new Set(['platform/workspace/roots'])
+    new Set(['admission/fresh-roots'])
   );
 });
 
@@ -805,6 +815,7 @@ test('a run on the built-in local provider is admitted without workspace skills'
   };
   expect(() =>
     desktopHostSharedTools({
+      freshRoots: vi.fn(),
       readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
       request: vi.fn(),
       resolveTavilyApiKey: async () => undefined,
@@ -818,7 +829,7 @@ test('the desktop host runs webExtract with its own Tavily key owner, refusing i
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-extract-')));
   directories.push(root);
   const request = vi.fn(async (method: string) => {
-    if (method !== 'platform/workspace/roots') {
+    if (method !== 'admission/fresh-roots') {
       throw new Error(`Unexpected Main request ${method}`);
     }
     return [{ displayName: 'A', path: root, rootId: 'root-a' }];
@@ -833,6 +844,7 @@ test('the desktop host runs webExtract with its own Tavily key owner, refusing i
     risk: 'read',
   };
   const tool = desktopHostSharedTools({
+    freshRoots: () => request('admission/fresh-roots'),
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey,
@@ -854,6 +866,6 @@ test('the desktop host runs webExtract with its own Tavily key owner, refusing i
   });
   expect(resolveTavilyApiKey).not.toHaveBeenCalled();
   expect(new Set(request.mock.calls.map(([method]) => method))).toEqual(
-    new Set(['platform/workspace/roots'])
+    new Set(['admission/fresh-roots'])
   );
 });

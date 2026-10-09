@@ -1,15 +1,7 @@
-import { isDeepStrictEqual } from 'node:util';
 import type { LocalLlmHostProgress } from '@brainstrike/agent/local-llm';
-import type { LocalLlmHostClient, RuntimeData } from '@brainstrike/agent/provider-runtime';
-import type {
-  HostDelegation,
-  HostPlatform,
-  HostRunAdmissionRequest,
-  HostRunIntentRequest,
-} from '@brainstrike/agent-host';
+import type { LocalLlmHostClient } from '@brainstrike/agent/provider-runtime';
+import type { HostPlatform } from '@brainstrike/agent-host';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
-import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
-import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import type { NativeChildObserver } from '@brainstrike/state-store/native-children';
 import {
   type CancellationToken,
@@ -19,37 +11,36 @@ import {
 } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
+import type { DesktopAdmissionReads } from './desktop-run-admission';
+import type { DesktopWorkspaceBindingBorrow } from './desktop-workspace-binding';
 import { serveHostRewindFiles } from './host-rewind-files';
 import { type HostToolServiceCapabilities, serveHostToolServices } from './host-tool-services';
 import { type DesktopWorkspaceSnapshots, serveHostTurnSnapshots } from './host-turn-snapshots';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
-import type { DesktopMemoryVectorSelection } from './memory-vector-selection';
 import {
+  PlatformCatalogModelResultSchema,
+  PlatformCatalogModelSchema,
   PlatformEmbeddingQuerySchema,
   PlatformLocalGenerationResultSchema,
   PlatformLocalGenerationSchema,
   PlatformLocalWarmupSchema,
-  PlatformMemoryReadinessSchema,
+  PlatformMemoryVectorsResultSchema,
+  PlatformMemoryVectorsSchema,
   PlatformNativeChildSchema,
-  PlatformPolicySchema,
-  PlatformRunIntentSchema,
-  PlatformRunRequestSchema,
-  type PlatformSelection,
-  PlatformSelectionSchema,
+  PlatformObserverCandidatesResultSchema,
+  PlatformObserverCandidatesSchema,
+  PlatformWorkspaceAcquireResultSchema,
+  PlatformWorkspaceAcquireSchema,
   PlatformWorkspaceBindingRequestSchema,
+  PlatformWorkspaceLeaseSchema,
 } from './platform-wire';
 
-export interface DesktopPlatformSelection extends Omit<PlatformSelection, 'delegation'> {
-  close(): Promise<void>;
-  /** BST-1932: the personas and subagent limits this run may delegate with. */
-  readonly delegation?: HostDelegation | undefined;
-  /** The admitted roots revalidated against their live owners, for the host's shared tools. */
-  freshWorkspaceRoots(): Promise<NonNullable<RuntimeData['workspaceRoots']>>;
-  /** Main-only: an admitted local recall embedder's exact plan, never on the wire. */
-  readonly localEmbedding?: DesktopMemoryVectorSelection['local'];
-  revalidateWorkspace?(signal: AbortSignal): Promise<void>;
-}
 export interface DesktopPlatformCapabilities {
+  /**
+   * BST-1930 stage e: the facts the agent host composes each run's admission
+   * from. Main serves the reads and holds no selection.
+   */
+  readonly admission: DesktopAdmissionReads;
   /** Join Main-owned Root borrowers before Core releases its canonical writer. */
   closeRootCapabilities?(): Promise<void>;
   /** Main-owned stores and services the agent host's own tools read (cap-tools). */
@@ -65,14 +56,6 @@ export interface DesktopPlatformCapabilities {
   readonly mcp: DesktopMcpPlatformCapabilities;
   /** ADR-0017: Main's supervisor of the native processes the host reports starting. */
   readonly nativeChildren?: NativeChildObserver;
-  readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopPlatformSelection>;
-  /** thread/memory/read: the same preconditions `readConfiguration` starts with, nothing acquired. */
-  readMemoryReadiness?(
-    request: HostRunIntentRequest
-  ): Promise<z.input<typeof PlatformMemoryReadinessSchema>>;
-  readPermissionPolicy(
-    threadId?: string
-  ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
   /** The live path of a mounted profile root; rejects an unknown root. */
   resolveWorkspaceRoot?(rootId: string): Promise<string>;
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
@@ -80,61 +63,119 @@ export interface DesktopPlatformCapabilities {
   readonly workspaceSnapshots?: DesktopWorkspaceSnapshots;
 }
 
-/** The selection as it crosses to the host: Main-only fields stay behind. */
-function describePlatformSelection(captured: DesktopPlatformSelection): PlatformSelection {
-  const {
-    close: _close,
-    freshWorkspaceRoots: _freshWorkspaceRoots,
-    localEmbedding: _localEmbedding,
-    revalidateWorkspace: _revalidateWorkspace,
-    ...configuration
-  } = captured;
-  return PlatformSelectionSchema.parse(configuration);
-}
+type Execute = <T>(
+  token: CancellationToken,
+  work: (signal: AbortSignal) => Promise<T>
+) => Promise<T>;
 
-async function rejectPlatformSelection(
-  captured: DesktopPlatformSelection | undefined,
-  onClosed: () => void,
-  cause: unknown
-): Promise<never> {
-  if (captured) {
-    try {
-      await captured.close();
-      onClosed();
-    } catch (cleanup) {
-      throw new AggregateError([cause, cleanup], 'Platform admission and cleanup failed');
+/**
+ * BST-1930 stage e: the reads a host-composed admission makes of Main's facts.
+ * A workspace borrow is held under the lease id the host chose, until the host
+ * releases it or the connection closes.
+ */
+function serveAdmissionReads(
+  connection: MessageConnection,
+  execute: Execute,
+  reads: DesktopAdmissionReads,
+  leases: Map<string, DesktopWorkspaceBindingBorrow>
+): void {
+  const lease = (input: unknown): DesktopWorkspaceBindingBorrow => {
+    const borrowed = leases.get(PlatformWorkspaceLeaseSchema.parse(input).leaseId);
+    if (!borrowed) {
+      throw new Error('The workspace lease is not held');
     }
-  }
-  throw cause;
-}
-
-interface DesktopSelectionOwner {
-  closing?: Promise<void>;
-  readonly selection: DesktopPlatformSelection;
-  readonly workspaceBinding?: HostRunAdmissionRequest['workspaceBinding'];
-}
-
-function desktopIntentRequest(
-  request: ReturnType<typeof PlatformRunIntentSchema.parse>,
-  signal: AbortSignal
-): HostRunIntentRequest {
-  return {
-    ...(request.configuration ? { configuration: request.configuration } : {}),
-    ...(request.snapshot ? { snapshot: request.snapshot } : {}),
-    ...(request.workspaceBinding ? { workspaceBinding: request.workspaceBinding } : {}),
-    modelId: request.modelId,
-    ...(request.planMode ? { planMode: true } : {}),
-    ...(request.prompt === undefined ? {} : { prompt: request.prompt }),
-    signal,
-    threadId: request.threadId,
+    return borrowed;
   };
-}
-
-function desktopAdmissionRequest(
-  request: ReturnType<typeof PlatformRunRequestSchema.parse>,
-  signal: AbortSignal
-): HostRunAdmissionRequest {
-  return { ...desktopIntentRequest(request, signal), runId: request.runId };
+  connection.onRequest(
+    'platform/admission/catalog-model',
+    (input: unknown, token: CancellationToken) =>
+      execute(token, async (signal) =>
+        PlatformCatalogModelResultSchema.parse(
+          await reads.catalogModel(PlatformCatalogModelSchema.parse(input), signal)
+        )
+      )
+  );
+  connection.onRequest('platform/admission/observers', (input: unknown, token: CancellationToken) =>
+    execute(token, async (signal) =>
+      PlatformObserverCandidatesResultSchema.parse(
+        await reads.enabledObservers(
+          PlatformObserverCandidatesSchema.parse(input).candidates,
+          signal
+        )
+      )
+    )
+  );
+  connection.onRequest(
+    'platform/admission/memory-vectors',
+    (input: unknown, token: CancellationToken) =>
+      execute(token, async (signal) =>
+        PlatformMemoryVectorsResultSchema.parse(
+          (await reads.memoryVectors(PlatformMemoryVectorsSchema.parse(input).settings, signal)) ??
+            null
+        )
+      )
+  );
+  connection.onRequest('platform/admission/roots', (input: unknown, token: CancellationToken) =>
+    execute(token, async (signal) => {
+      z.strictObject({}).parse(input);
+      return CliWorkspaceRootsSchema.parse(await reads.liveWorkspaceRoots(signal));
+    })
+  );
+  connection.onRequest(
+    'platform/admission/worktrees',
+    // The explicit result type keeps vscode-jsonrpc from narrowing it to a boolean literal.
+    (input: unknown, token: CancellationToken): Promise<unknown> =>
+      execute(token, async (signal) => {
+        z.strictObject({}).parse(input);
+        return z.boolean().parse(await reads.worktreesAvailable(signal));
+      })
+  );
+  connection.onRequest(
+    'platform/admission/workspace/acquire',
+    (input: unknown, token: CancellationToken) =>
+      execute(token, async (signal) => {
+        const { binding, leaseId, threadId } = PlatformWorkspaceAcquireSchema.parse(input);
+        if (leases.has(leaseId)) {
+          throw new Error('The workspace lease is already held');
+        }
+        const borrowed = await reads.acquireWorkspace({ binding, signal, threadId });
+        try {
+          // A borrow the host stopped waiting for, or whose roots cannot cross, is returned.
+          signal.throwIfAborted();
+          const acquired = PlatformWorkspaceAcquireResultSchema.parse({
+            roots: [...borrowed.roots],
+          });
+          leases.set(leaseId, borrowed);
+          return acquired;
+        } catch (cause) {
+          try {
+            await borrowed.close();
+          } catch (cleanup) {
+            throw new AggregateError([cause, cleanup], 'Workspace acquisition and cleanup failed');
+          }
+          throw cause;
+        }
+      })
+  );
+  connection.onRequest(
+    'platform/admission/workspace/revalidate',
+    (input: unknown, token: CancellationToken) =>
+      execute(token, async (signal) => {
+        await lease(input).revalidate(signal);
+        return null;
+      })
+  );
+  connection.onRequest(
+    'platform/admission/workspace/release',
+    (input: unknown, token: CancellationToken) =>
+      execute(token, async () => {
+        const { leaseId } = PlatformWorkspaceLeaseSchema.parse(input);
+        const borrowed = leases.get(leaseId);
+        leases.delete(leaseId);
+        await borrowed?.close();
+        return null;
+      })
+  );
 }
 
 /** One private connection borrows existing owners; it constructs no platform store. */
@@ -142,8 +183,8 @@ export function serveDesktopPlatform(
   connection: MessageConnection,
   capabilities: DesktopPlatformCapabilities
 ): { close(): Promise<void> } {
-  const selections = new Map<string, DesktopSelectionOwner>();
-  const admissions = new Set<string>();
+  // The host's workspace borrows for its admitted runs, by the lease id it chose.
+  const leases = new Map<string, DesktopWorkspaceBindingBorrow>();
   const controllers = new Set<AbortController>();
   const pending = new Set<Promise<unknown>>();
   const mcpStores = serveMainMcpStores(connection, capabilities.mcp);
@@ -193,31 +234,8 @@ export function serveDesktopPlatform(
     task.then(settled, settled);
     return task;
   };
-  // BST-1932: keyed by the run each selection admitted, so a child borrowing its
-  // parent's admission names that run, and the thread's next run has its own.
-  const selection = (selectionRunId: string): DesktopPlatformSelection => {
-    const value = selections.get(selectionRunId);
-    if (!value || value.closing) {
-      throw new Error('Platform run has no admitted capabilities');
-    }
-    return value.selection;
-  };
-  // Only the admitted selection's own local chat model or observer may borrow the llm-host.
-  const localModel = (selectionRunId: string, modelId: string): LocalLlmHostClient => {
-    const admitted = selection(selectionRunId);
-    const observation = admitted.memory.settings.observationalMemory;
-    const observer = observation.enabled
-      ? parseObservationalMemoryModelTarget(observation.modelTarget)
-      : undefined;
-    const chat = admitted.configuration;
-    if (
-      !(
-        (chat.provider === 'local' && chat.model === modelId) ||
-        (observer?.provider === 'local' && observer.model === modelId)
-      )
-    ) {
-      throw new Error('Local generation is not part of this admitted thread selection');
-    }
+  // ADR-0007: the host decides which admitted model may borrow the llm-host.
+  const localLlm = (): LocalLlmHostClient => {
     if (!capabilities.localLlm) {
       throw new Error('This desktop has no local LLM host for the admitted local model');
     }
@@ -233,10 +251,9 @@ export function serveDesktopPlatform(
     };
   connection.onRequest('platform/llm/generate', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
-      const { requestId, selectionRunId, ...generation } =
-        PlatformLocalGenerationSchema.parse(input);
+      const { requestId, ...generation } = PlatformLocalGenerationSchema.parse(input);
       return PlatformLocalGenerationResultSchema.parse(
-        await localModel(selectionRunId, generation.modelId).generate(generation, {
+        await localLlm().generate(generation, {
           onProgress: relayProgress(requestId),
           signal,
         })
@@ -245,69 +262,37 @@ export function serveDesktopPlatform(
   );
   connection.onRequest('platform/embedding/query', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
-      const parsed = PlatformEmbeddingQuerySchema.parse(input);
-      const admitted = selection(parsed.selectionRunId);
+      const { request } = PlatformEmbeddingQuerySchema.parse(input);
       const embeddings = capabilities.localEmbedding;
       if (!embeddings) {
         throw new Error('This desktop has no embedding host for host threads');
       }
-      if ('request' in parsed) {
-        // A retrieval tool's query, for a thread with admitted capabilities.
-        return await embeddings.queryEmbedding(parsed.request, { signal });
-      }
-      const local = admitted.localEmbedding;
-      if (!local) {
-        throw new Error('Local embedding is not part of this admitted thread selection');
-      }
-      const { workerPlan } = local;
-      return await embeddings.queryEmbedding(
-        {
-          dimensions: workerPlan.dimensions,
-          inferencePlan: workerPlan,
-          modelId: workerPlan.modelId,
-          modelKey: local.modelKey,
-          query: parsed.query,
-        },
-        { signal }
-      );
+      // A retrieval tool's query or an admitted local recall embedder's, as the host sent it.
+      return await embeddings.queryEmbedding(request, { signal });
     })
   );
   connection.onRequest('platform/llm/warmup', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
-      const { modelId, requestId, selectionRunId } = PlatformLocalWarmupSchema.parse(input);
-      await localModel(selectionRunId, modelId).warmup(modelId, {
+      const { modelId, requestId } = PlatformLocalWarmupSchema.parse(input);
+      await localLlm().warmup(modelId, {
         onProgress: relayProgress(requestId),
         signal,
       });
       return null;
     })
   );
-  connection.onRequest('platform/policy', (input: unknown, token: CancellationToken) =>
-    execute(token, async () => {
-      const { threadId } = z.strictObject({ threadId: z.string().min(1).optional() }).parse(input);
-      return PlatformPolicySchema.parse(await capabilities.readPermissionPolicy(threadId));
-    })
-  );
+  serveAdmissionReads(connection, execute, capabilities.admission, leases);
   connection.onRequest('platform/workspace/validate', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
       const request = PlatformWorkspaceBindingRequestSchema.parse(input);
       if (!capabilities.validateWorkspaceBinding) {
         throw new Error('Desktop has no live workspace binding owner');
       }
-      // An admission's check revalidates that run's own selection when it is held.
-      const captured = request.selectionRunId ? selections.get(request.selectionRunId) : undefined;
-      if (
-        captured?.selection.revalidateWorkspace &&
-        isDeepStrictEqual(captured.workspaceBinding, request.binding)
-      ) {
-        await captured.selection.revalidateWorkspace(signal);
-      } else {
-        await capabilities.validateWorkspaceBinding({
-          binding: request.binding,
-          signal,
-          threadId: request.threadId,
-        });
-      }
+      await capabilities.validateWorkspaceBinding({
+        binding: request.binding,
+        signal,
+        threadId: request.threadId,
+      });
       signal.throwIfAborted();
       return { accepted: true };
     })
@@ -321,84 +306,9 @@ export function serveDesktopPlatform(
       return await capabilities.resolveWorkspaceRoot(rootId);
     })
   );
-  serveHostToolServices(connection, execute, selection, capabilities.hostTools);
-  serveHostTurnSnapshots(
-    connection,
-    execute,
-    (selectionRunId) => selection(selectionRunId).freshWorkspaceRoots(),
-    capabilities.workspaceSnapshots
-  );
+  serveHostToolServices(connection, execute, capabilities.hostTools);
+  serveHostTurnSnapshots(connection, execute, capabilities.workspaceSnapshots);
   serveHostRewindFiles(connection, execute, capabilities);
-  connection.onRequest('platform/workspace/roots', (input: unknown, token: CancellationToken) =>
-    execute(token, async () => {
-      const { selectionRunId } = z
-        .strictObject({ selectionRunId: z.string().min(1), threadId: z.string().min(1) })
-        .parse(input);
-      return CliWorkspaceRootsSchema.parse(await selection(selectionRunId).freshWorkspaceRoots());
-    })
-  );
-  // Read-only: no selection is registered, so it never conflicts with a run's.
-  connection.onRequest(
-    'platform/memory/readiness',
-    // The explicit result type keeps vscode-jsonrpc from narrowing the union to one member.
-    (input: unknown, token: CancellationToken): Promise<unknown> =>
-      execute(token, async (signal) => {
-        const read = capabilities.readMemoryReadiness;
-        if (!read) {
-          throw new Error('Desktop memory readiness is unavailable');
-        }
-        const request = PlatformRunIntentSchema.parse(input);
-        return PlatformMemoryReadinessSchema.parse(
-          await read(desktopIntentRequest(request, signal))
-        );
-      })
-  );
-  connection.onRequest('platform/admit', (input: unknown, token: CancellationToken) =>
-    execute(token, async (signal) => {
-      const request = PlatformRunRequestSchema.parse(input);
-      if (selections.has(request.runId) || admissions.has(request.runId)) {
-        throw new Error('Platform run already owns a selection');
-      }
-      admissions.add(request.runId);
-      let captured: DesktopPlatformSelection | undefined;
-      try {
-        const borrowed = await capabilities.readConfiguration(
-          desktopAdmissionRequest(request, signal)
-        );
-        const owner: DesktopSelectionOwner = {
-          ...(request.workspaceBinding ? { workspaceBinding: request.workspaceBinding } : {}),
-          selection: {
-            ...borrowed,
-            close: () => (owner.closing ??= borrowed.close()),
-          },
-        };
-        captured = owner.selection;
-        selections.set(request.runId, owner);
-        signal.throwIfAborted();
-        return describePlatformSelection(captured);
-      } catch (cause) {
-        return await rejectPlatformSelection(
-          captured,
-          () => {
-            selections.delete(request.runId);
-          },
-          cause
-        );
-      } finally {
-        admissions.delete(request.runId);
-      }
-    })
-  );
-  connection.onRequest('platform/release', (input: unknown, token: CancellationToken) =>
-    execute(token, async () => {
-      const { selectionRunId } = z.strictObject({ selectionRunId: z.string().min(1) }).parse(input);
-      const captured = selections.get(selectionRunId);
-      if (captured) {
-        await captured.selection.close();
-        selections.delete(selectionRunId);
-      }
-    })
-  );
   const close = (): Promise<void> => {
     closing ??= Promise.resolve().then(async () => {
       for (const controller of controllers) {
@@ -408,9 +318,7 @@ export function serveDesktopPlatform(
         await Promise.allSettled([...pending]);
       }
       mcpStores.close();
-      const results = await Promise.allSettled(
-        [...selections.values()].map((value) => value.selection.close())
-      );
+      const results = await Promise.allSettled([...leases.values()].map((lease) => lease.close()));
       const root = await Promise.allSettled([
         Promise.resolve().then(() => capabilities.closeRootCapabilities?.()),
       ]);
@@ -420,7 +328,7 @@ export function serveDesktopPlatform(
       if (failures.length > 0) {
         throw new AggregateError(failures, 'Desktop platform capability cleanup failed');
       }
-      selections.clear();
+      leases.clear();
     });
     return closing;
   };

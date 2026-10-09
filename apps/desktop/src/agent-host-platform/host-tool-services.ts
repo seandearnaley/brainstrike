@@ -1,7 +1,8 @@
 /**
  * Main's side of the agent host's own tools: narrow typed reads of Main-owned
  * stores (`desktop-read/*`) and the worktree/forge correlation of host
- * commands. Each request is served only for a thread Main has admitted.
+ * commands. The agent host's admission decides which tools a run calls
+ * (BST-1930 stage e); each request's own schema parses it here.
  */
 
 import { ToolInputError } from '@brainstrike/assistant-contract';
@@ -92,29 +93,15 @@ type Execute = (
   work: (signal: AbortSignal) => Promise<unknown>
 ) => Promise<unknown>;
 
-/** A request's admitting run is checked first; the request's own schema parses the rest. */
-type Admit = (input: unknown) => unknown;
-
-const SelectionScopeSchema = z.looseObject({ selectionRunId: z.string().min(1) });
-
-/**
- * Register Main's handlers. Every request names the run whose admission holds
- * it (`selectionRunId`); `admitted` throws for a run without admitted capabilities.
- */
+/** Register Main's handlers for the agent host's own tools. */
 export function serveHostToolServices(
   connection: MessageConnection,
   execute: Execute,
-  admitted: (selectionRunId: string) => unknown,
   services: HostToolServiceCapabilities | undefined
 ): void {
-  const admit: Admit = (input) => {
-    const { selectionRunId, ...request } = SelectionScopeSchema.parse(input);
-    admitted(selectionRunId);
-    return request;
-  };
   connection.onRequest('platform/worktree/paths', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      ThreadRequestSchema.parse(admit(input));
+      ThreadRequestSchema.parse(input);
       return WorktreePathsResultSchema.parse({
         paths: services?.shell ? await services.shell.worktreePaths() : null,
       });
@@ -122,7 +109,7 @@ export function serveHostToolServices(
   );
   connection.onRequest('platform/shell/completed', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const completed = PlatformShellCompletedSchema.parse(admit(input));
+      const completed = PlatformShellCompletedSchema.parse(input);
       return PlatformShellCompletedResultSchema.parse({
         adopted: services?.shell ? await services.shell.completed(completed) : [],
       });
@@ -130,18 +117,18 @@ export function serveHostToolServices(
   );
   connection.onRequest('desktop-read/grep-index', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const { options } = GrepIndexRequestSchema.parse(admit(input));
+      const { options } = GrepIndexRequestSchema.parse(input);
       return await required(services?.grepIndex, 'grep index')(options);
     })
   );
   // The Terminal panel reaches this host's command sessions over the same connection.
   attachHostCommandSessions(connection);
-  serveIndexReads(connection, execute, admit, services);
-  serveWorktreeCalls(connection, execute, admit, services);
-  serveBrowserCalls(connection, execute, admit, services);
-  serveContextDelivery(connection, execute, admit, services);
-  serveSelfInspectionReads(connection, execute, admit, services);
-  serveRetrievalReads(connection, execute, admit, services);
+  serveIndexReads(connection, execute, services);
+  serveWorktreeCalls(connection, execute, services);
+  serveBrowserCalls(connection, execute, services);
+  serveContextDelivery(connection, execute, services);
+  serveSelfInspectionReads(connection, execute, services);
+  serveRetrievalReads(connection, execute, services);
 }
 
 /** Main's worktree service answers, or the stated reason it cannot in this session. */
@@ -152,16 +139,15 @@ async function viaWorktrees<T>(
   return worktrees ? await call(worktrees) : { error: WORKTREE_TOOLS_UNAVAILABLE, ok: false };
 }
 
-/** `platform/worktree/*`: Main's worktree service for an admitted thread, until the ledger moves. */
+/** `platform/worktree/*`: Main's worktree service for a host thread, until the ledger moves. */
 function serveWorktreeCalls(
   connection: MessageConnection,
   execute: Execute,
-  admit: Admit,
   services: HostToolServiceCapabilities | undefined
 ): void {
   connection.onRequest('platform/worktree/list', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const { threadId } = ThreadRequestSchema.parse(admit(input));
+      const { threadId } = ThreadRequestSchema.parse(input);
       return await viaWorktrees(services?.worktrees?.({ runId: undefined, threadId }), (service) =>
         service.list()
       );
@@ -169,7 +155,7 @@ function serveWorktreeCalls(
   );
   connection.onRequest('platform/worktree/create', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const { params, runId, threadId } = WorktreeCreateRequestSchema.parse(admit(input));
+      const { params, runId, threadId } = WorktreeCreateRequestSchema.parse(input);
       return await viaWorktrees(services?.worktrees?.({ runId, threadId }), (service) =>
         service.create(params)
       );
@@ -177,7 +163,7 @@ function serveWorktreeCalls(
   );
   connection.onRequest('platform/worktree/archive', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const { params, runId, threadId } = WorktreeArchiveRequestSchema.parse(admit(input));
+      const { params, runId, threadId } = WorktreeArchiveRequestSchema.parse(input);
       return await viaWorktrees(services?.worktrees?.({ runId, threadId }), (service) =>
         service.archive(params)
       );
@@ -189,24 +175,23 @@ function serveWorktreeCalls(
 function serveBrowserCalls(
   connection: MessageConnection,
   execute: Execute,
-  admit: Admit,
   services: HostToolServiceCapabilities | undefined
 ): void {
   connection.onRequest('platform/browser/navigate', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const request = BrowserNavigateRequestSchema.parse(admit(input));
+      const request = BrowserNavigateRequestSchema.parse(input);
       return await required(services?.browser, 'browser pane').navigate(request.input);
     })
   );
   connection.onRequest('platform/browser/read-page', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const request = BrowserReadPageRequestSchema.parse(admit(input));
+      const request = BrowserReadPageRequestSchema.parse(input);
       return await required(services?.browser, 'browser pane').readPage(request.input);
     })
   );
   connection.onRequest('platform/browser/page-text', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const request = BrowserPageTextRequestSchema.parse(admit(input));
+      const request = BrowserPageTextRequestSchema.parse(input);
       return await required(services?.browser, 'browser pane').getPageText(request.input);
     })
   );
@@ -216,14 +201,13 @@ function serveBrowserCalls(
 function serveContextDelivery(
   connection: MessageConnection,
   execute: Execute,
-  admit: Admit,
   services: HostToolServiceCapabilities | undefined
 ): void {
   connection.onRequest(
     'platform/workspace-context/selection',
     (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
-        const { payload } = ContextSelectionDeliveryRequestSchema.parse(admit(input));
+        const { payload } = ContextSelectionDeliveryRequestSchema.parse(input);
         const delivery = required(services?.contextDelivery, 'window delivery');
         return { notifiedWindowCount: await delivery.selection(payload) };
       })
@@ -232,7 +216,7 @@ function serveContextDelivery(
     'platform/workspace-context/tapestry',
     (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
-        const { payload } = ContextTapestryDeliveryRequestSchema.parse(admit(input));
+        const { payload } = ContextTapestryDeliveryRequestSchema.parse(input);
         const delivery = required(services?.contextDelivery, 'window delivery');
         return { notifiedWindowCount: await delivery.tapestry(payload) };
       })
@@ -258,12 +242,11 @@ async function querySelfOutcome(read: QuerySelfRead, ...args: Parameters<QuerySe
 function serveSelfInspectionReads(
   connection: MessageConnection,
   execute: Execute,
-  admit: Admit,
   services: HostToolServiceCapabilities | undefined
 ): void {
   connection.onRequest('desktop-read/query-self', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
-      const { request } = QuerySelfReadRequestSchema.parse(admit(input));
+      const { request } = QuerySelfReadRequestSchema.parse(input);
       return await querySelfOutcome(
         required(services?.querySelf, 'self-query read'),
         request,
@@ -275,7 +258,7 @@ function serveSelfInspectionReads(
     'desktop-read/diagnostics/events',
     (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
-        const { filter } = DiagnosticsReadRequestSchema.parse(admit(input));
+        const { filter } = DiagnosticsReadRequestSchema.parse(input);
         return await required(services?.diagnostics, 'diagnostics store').events(filter);
       })
   );
@@ -283,17 +266,16 @@ function serveSelfInspectionReads(
     'desktop-read/diagnostics/fingerprints',
     (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
-        const { filter } = DiagnosticsReadRequestSchema.parse(admit(input));
+        const { filter } = DiagnosticsReadRequestSchema.parse(input);
         return await required(services?.diagnostics, 'diagnostics store').fingerprints(filter);
       })
   );
 }
 
-/** `desktop-read/index/*`: Main's IndexSearchCapability, read for an admitted thread. */
+/** `desktop-read/index/*`: Main's IndexSearchCapability, read for a host thread. */
 function serveIndexReads(
   connection: MessageConnection,
   execute: Execute,
-  admit: Admit,
   services: HostToolServiceCapabilities | undefined
 ): void {
   const index = () => required(services?.indexSearch, 'workspace index');
@@ -305,7 +287,7 @@ function serveIndexReads(
   ): void => {
     connection.onRequest(method, (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
-        const { request } = parse(admit(input));
+        const { request } = parse(input);
         return await perform(request);
       })
     );
@@ -337,11 +319,10 @@ function serveIndexReads(
   );
 }
 
-/** `desktop-read/retrieval/*` and the renderer query embedding, for an admitted thread. */
+/** `desktop-read/retrieval/*` and the renderer query embedding, for a host thread. */
 function serveRetrievalReads(
   connection: MessageConnection,
   execute: Execute,
-  admit: Admit,
   services: HostToolServiceCapabilities | undefined
 ): void {
   const store = () => required(services?.retrievalStore, 'retrieval catalog');
@@ -351,7 +332,7 @@ function serveRetrievalReads(
       execute(token, async () => {
         const { request } = threadScoped(
           z.strictObject({ embeddingSetId: z.string().min(1) })
-        ).parse(admit(input));
+        ).parse(input);
         return await store().embeddingSet(request.embeddingSetId);
       })
   );
@@ -360,7 +341,7 @@ function serveRetrievalReads(
     (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
         const { request } = threadScoped(z.strictObject({ ids: z.array(z.string().min(1)) })).parse(
-          admit(input)
+          input
         );
         return [...(await store().fileRecords(request.ids)).values()];
       })
@@ -370,7 +351,7 @@ function serveRetrievalReads(
     (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
         const { request } = threadScoped(z.strictObject({ includeStats: z.boolean() })).parse(
-          admit(input)
+          input
         );
         return await store().embeddingSpaces(request);
       })

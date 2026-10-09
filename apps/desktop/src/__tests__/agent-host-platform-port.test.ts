@@ -1,20 +1,22 @@
 // @vitest-environment node
+import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
-import { DEFAULT_PERMISSION_POLICIES, ToolInputError } from '@brainstrike/assistant-contract';
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import { expect, it, vi } from 'vitest';
 import { CancellationTokenSource, type MessageConnection } from 'vscode-jsonrpc/node';
 import {
   mainPlatformConnection,
   type PlatformMessagePort,
 } from '../agent-host-platform/connection';
+import type { DesktopAdmissionReads } from '../agent-host-platform/desktop-run-admission';
 import {
   type DesktopPlatformCapabilities,
-  type DesktopPlatformSelection,
   serveDesktopPlatform,
 } from '../agent-host-platform/main-platform';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
+import { mainReads } from './fixtures/desktop-admission-reads';
 
 /** Real Node ports with the Electron utility port's public MessageEvent shape. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -33,49 +35,17 @@ class UtilityPort extends EventEmitter implements PlatformMessagePort {
     this.port.close();
   }
 }
-function selected(
-  tools: DesktopPlatformSelection['tools'],
-  close = vi.fn(async () => undefined)
-): DesktopPlatformSelection {
-  return {
-    close,
-    configuration: { model: 'fixture', provider: 'openai' },
-    contextWindow: 32_000,
-    durableConfiguration: {},
-    freshWorkspaceRoots: async () => [],
-    inputTokenLimit: 24_000,
-    maxSteps: 5,
-    memory: {
-      options: {
-        lastMessages: 12,
-        workingMemory: { enabled: false, scope: 'thread', template: '' },
-      },
-      settings: {
-        observationalMemory: {
-          enabled: false,
-          messageTokens: 30_000,
-          modelTarget: 'auto',
-          observationTokens: 40_000,
-          retrievalMode: 'off',
-          scope: 'thread',
-        },
-        semanticRecall: {
-          embeddingModelTarget: null,
-          enabled: false,
-          messageRange: 2,
-          scope: 'resource',
-          topK: 5,
-        },
-      },
-    },
-    nativeRuntime: { provider: 'openai', workspaceRoots: [] },
-    resourceId: 'workspace',
-    tools,
-    toolTimeoutMs: 5000,
-  };
+/** Main lends a thread's bound workspace under the lease the host names. */
+function lending(
+  close = vi.fn(async () => undefined),
+  roots: Awaited<ReturnType<DesktopAdmissionReads['acquireWorkspace']>>['roots'] = []
+): DesktopAdmissionReads {
+  return mainReads({
+    acquireWorkspace: async () => ({ close, revalidate: async () => undefined, roots }),
+  });
 }
 function harness(
-  readConfiguration: DesktopPlatformCapabilities['readConfiguration'],
+  admission: DesktopAdmissionReads,
   closeRootCapabilities?: DesktopPlatformCapabilities['closeRootCapabilities'],
   hostTools?: DesktopPlatformCapabilities['hostTools'],
   localEmbedding?: DesktopPlatformCapabilities['localEmbedding']
@@ -86,10 +56,9 @@ function harness(
   const server = mainPlatformConnection(first);
   const client = mainPlatformConnection(second);
   const owner = serveDesktopPlatform(server, {
+    admission,
     mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
     ...(closeRootCapabilities ? { closeRootCapabilities } : {}),
-    readConfiguration,
-    readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
     ...(hostTools ? { hostTools } : {}),
     ...(localEmbedding ? { localEmbedding } : {}),
   });
@@ -122,7 +91,7 @@ it.each([false, true])(
         throw failure;
       }
     });
-    const f = harness(async () => selected({}), closeRoot);
+    const f = harness(mainReads(), closeRoot);
     try {
       let acknowledged = false;
       const closing = f.client.sendRequest('platform/close', {}).then(() => {
@@ -148,17 +117,21 @@ it.each([false, true])(
   }
 );
 
-async function admit(client: MessageConnection): Promise<unknown> {
-  return client.sendRequest('platform/admit', {
-    modelId: 'openai::fixture',
-    runId: 'run',
-    threadId: 'thread',
-  });
+const BINDING = { operatingRootDisplayName: 'Bound', operatingRootId: 'root-bound' };
+
+/** The host borrows a thread's bound workspace for a run. */
+async function acquire(
+  client: MessageConnection,
+  token?: CancellationTokenSource['token']
+): Promise<unknown> {
+  const params = { binding: BINDING, leaseId: randomUUID(), threadId: 'thread' };
+  return token
+    ? client.sendRequest('platform/admission/workspace/acquire', params, token)
+    : client.sendRequest('platform/admission/workspace/acquire', params);
 }
 
 const LIST_TABLES = {
   request: { input: { mode: 'listTables', target: 'app' } },
-  selectionRunId: 'run',
   threadId: 'thread',
 };
 
@@ -177,17 +150,15 @@ function heldRead(tail: Promise<void>) {
   return { entered: entered.promise, querySelf };
 }
 
-it('utility loss aborts an in-flight Main read and joins its physical tail before releasing the selection', async () => {
+it('utility loss aborts an in-flight Main read and joins its physical tail before returning the workspace lease', async () => {
   const physicalTail = Promise.withResolvers<void>();
   const serverClosed = Promise.withResolvers<void>();
   const release = vi.fn(async () => undefined);
   const read = heldRead(physicalTail.promise);
-  const h = harness(async () => selected({}, release), undefined, {
-    querySelf: read.querySelf,
-  });
+  const h = harness(lending(release), undefined, { querySelf: read.querySelf });
   h.server.onClose(() => serverClosed.resolve());
   try {
-    await admit(h.client);
+    await acquire(h.client);
     const reading = h.client.sendRequest('desktop-read/query-self', LIST_TABLES);
     reading.catch(() => undefined);
     const signal = await read.entered;
@@ -216,11 +187,11 @@ it('cancellation and close wait for an in-flight Main read’s physical tail bef
   const joined = Promise.withResolvers<void>();
   const close = vi.fn(async () => undefined);
   const read = heldRead(joined.promise);
-  const h = harness(async () => selected({}, close), undefined, { querySelf: read.querySelf });
+  const h = harness(lending(close), undefined, { querySelf: read.querySelf });
   const cancellation = new CancellationTokenSource();
   let settled = false;
   try {
-    await admit(h.client);
+    await acquire(h.client);
     const reading = h.client.sendRequest(
       'desktop-read/query-self',
       LIST_TABLES,
@@ -247,39 +218,38 @@ it('cancellation and close wait for an in-flight Main read’s physical tail bef
   }
 });
 
-it('an aborted admission joins the arriving selection and retains an independent cleanup failure', async () => {
-  const entered = Promise.withResolvers<void>();
+it('an aborted acquisition returns the arriving borrow and keeps its cleanup failure', async () => {
+  const entered = Promise.withResolvers<AbortSignal>();
   const release = Promise.withResolvers<void>();
   const cleanup = new Error('fixture cleanup failure');
   const close = vi.fn(async () => {
     throw cleanup;
   });
-  const h = harness(async () => {
-    entered.resolve();
-    await release.promise;
-    return selected({}, close);
-  });
+  const h = harness(
+    mainReads({
+      acquireWorkspace: async ({ signal }) => {
+        entered.resolve(signal);
+        await release.promise;
+        return { close, revalidate: async () => undefined, roots: [] };
+      },
+    })
+  );
   const cancellation = new CancellationTokenSource();
   try {
-    const admitted = h.client.sendRequest(
-      'platform/admit',
-      { modelId: 'openai::fixture', runId: 'run', threadId: 'thread' },
-      cancellation.token
-    );
-    admitted.catch(() => undefined);
-    await entered.promise;
+    const acquired = acquire(h.client, cancellation.token);
+    acquired.catch(() => undefined);
+    const signal = await entered.promise;
     cancellation.cancel();
-    const closing = h.owner.close();
-    closing.catch(() => undefined);
+    // Main learns the host stopped waiting while the borrow is still arriving.
+    await vi.waitFor(() => expect(signal.aborted).toBe(true));
     expect(close).not.toHaveBeenCalled();
     release.resolve();
-    await expect(admitted).rejects.toBeInstanceOf(Error);
-    const failure = await closing.catch((cause: unknown) => cause);
-    expect(failure).toBeInstanceOf(AggregateError);
-    if (!(failure instanceof AggregateError)) {
-      throw new Error('Expected retained failure');
-    }
-    expect(failure.errors).toContain(cleanup);
+    const failure = await acquired.catch((cause: unknown) => cause);
+    expect(failure).toBeInstanceOf(Error);
+    expect(String(failure)).toContain('Workspace acquisition and cleanup failed');
+    expect(close).toHaveBeenCalledTimes(1);
+    // The refused borrow is not held: closing Main returns nothing twice.
+    await h.owner.close();
     expect(close).toHaveBeenCalledTimes(1);
   } finally {
     release.resolve();
@@ -288,44 +258,28 @@ it('an aborted admission joins the arriving selection and retains an independent
   }
 });
 
-it('a selection the wire refuses releases before an admission error returns', async () => {
+it('a borrow whose roots cannot cross the wire is returned before the acquisition fails', async () => {
   const close = vi.fn(async () => undefined);
-  const h = harness(async () =>
-    selected(
-      {
-        tool: {
-          description: 'fixture',
-          // The wire's ids are nonempty: this descriptor cannot cross to the host.
-          identity: '',
-          inputSchema: { type: 'object' },
-          permissionToolId: 'tool',
-          risk: 'read',
-        },
-      },
-      close
-    )
-  );
+  // The wire's root ids are nonempty: this root cannot cross to the host.
+  const h = harness(lending(close, [{ displayName: 'Bound', path: '/bound', rootId: '' }]));
   try {
-    await expect(admit(h.client)).rejects.toBeInstanceOf(Error);
+    await expect(acquire(h.client)).rejects.toBeInstanceOf(Error);
     expect(close).toHaveBeenCalledTimes(1);
     await h.owner.close();
+    expect(close).toHaveBeenCalledTimes(1);
   } finally {
     h.destroy();
   }
 });
 
-it('serves a host command’s worktree snapshot and completion to Main’s correlation, for an admitted thread only', async () => {
+it('serves a host command’s worktree snapshot and completion to Main’s correlation', async () => {
   const completed = vi.fn(async () => []);
-  const h = harness(async () => selected({}), undefined, {
+  const h = harness(mainReads(), undefined, {
     shell: { completed, worktreePaths: async () => ['/repo/.worktrees/fox'] },
   });
   try {
     await expect(
-      h.client.sendRequest('platform/worktree/paths', { selectionRunId: 'run', threadId: 'thread' })
-    ).rejects.toBeInstanceOf(Error);
-    await admit(h.client);
-    await expect(
-      h.client.sendRequest('platform/worktree/paths', { selectionRunId: 'run', threadId: 'thread' })
+      h.client.sendRequest('platform/worktree/paths', { threadId: 'thread' })
     ).resolves.toEqual({ paths: ['/repo/.worktrees/fox'] });
     const completion = {
       command: 'git worktree add ../fox',
@@ -334,9 +288,8 @@ it('serves a host command’s worktree snapshot and completion to Main’s corre
       runId: 'host-run',
       threadId: 'thread',
     };
-    // The admitting run reaches Main's selection; the completion itself is unchanged.
     await expect(
-      h.client.sendRequest('platform/shell/completed', { ...completion, selectionRunId: 'run' })
+      h.client.sendRequest('platform/shell/completed', { ...completion })
     ).resolves.toEqual({ adopted: [] });
     expect(completed).toHaveBeenCalledWith(completion);
   } finally {
@@ -344,7 +297,7 @@ it('serves a host command’s worktree snapshot and completion to Main’s corre
   }
 });
 
-it('serves grep’s indexed half to an admitted thread only', async () => {
+it('serves grep’s indexed half to the host', async () => {
   const result = {
     candidatesTruncated: false,
     matches: [],
@@ -354,18 +307,12 @@ it('serves grep’s indexed half to an admitted thread only', async () => {
     truncated: false,
   };
   const grepIndex = vi.fn(async () => result);
-  const h = harness(async () => selected({}), undefined, { grepIndex });
+  const h = harness(mainReads(), undefined, { grepIndex });
   const request = {
     options: { maxResults: 5, pattern: 'needle' },
-    selectionRunId: 'run',
     threadId: 'thread',
   };
   try {
-    await expect(h.client.sendRequest('desktop-read/grep-index', request)).rejects.toBeInstanceOf(
-      Error
-    );
-    expect(grepIndex).not.toHaveBeenCalled();
-    await admit(h.client);
     await expect(h.client.sendRequest('desktop-read/grep-index', request)).resolves.toEqual(result);
     expect(grepIndex).toHaveBeenCalledWith({ maxResults: 5, pattern: 'needle' });
   } finally {
@@ -373,7 +320,7 @@ it('serves grep’s indexed half to an admitted thread only', async () => {
   }
 });
 
-it('serves the workspace index, retrieval catalog and query embedding to an admitted thread only', async () => {
+it('serves the workspace index, retrieval catalog and query embedding to the host', async () => {
   const status = { kind: 'unavailable' as const, reason: 'fixture index is offline' };
   const indexSearch = {
     coverage: vi.fn(),
@@ -394,7 +341,7 @@ it('serves the workspace index, retrieval catalog and query embedding to an admi
     return [0.5, 0.25];
   });
   const h = harness(
-    async () => selected({}),
+    mainReads(),
     undefined,
     { indexSearch, retrievalStore },
     // Main's one embedding host relay serves the retrieval tools' queries too.
@@ -403,31 +350,21 @@ it('serves the workspace index, retrieval catalog and query embedding to an admi
         await queryEmbedding(payload, options?.signal ?? new AbortController().signal),
     }
   );
-  const statusRead = { request: {}, selectionRunId: 'run', threadId: 'thread' };
+  const statusRead = { request: {}, threadId: 'thread' };
   try {
-    await expect(
-      h.client.sendRequest('desktop-read/index/status', statusRead)
-    ).rejects.toBeInstanceOf(Error);
-    expect(indexSearch.status).not.toHaveBeenCalled();
-    await admit(h.client);
     await expect(h.client.sendRequest('desktop-read/index/status', statusRead)).resolves.toEqual(
       status
     );
     await expect(
       h.client.sendRequest('desktop-read/retrieval/embedding-set', {
         request: { embeddingSetId: 'selected' },
-        selectionRunId: 'run',
         threadId: 'thread',
       })
     ).resolves.toEqual(set);
     expect(retrievalStore.embeddingSet).toHaveBeenCalledWith('selected');
     const payload = { dimensions: 2, modelId: 'model', modelKey: 'local::model', query: 'marker' };
     await expect(
-      h.client.sendRequest('platform/embedding/query', {
-        request: payload,
-        selectionRunId: 'run',
-        threadId: 'thread',
-      })
+      h.client.sendRequest('platform/embedding/query', { request: payload })
     ).resolves.toEqual([0.5, 0.25]);
     expect(queryEmbedding).toHaveBeenCalledWith(payload, expect.any(AbortSignal));
   } finally {
@@ -435,7 +372,7 @@ it('serves the workspace index, retrieval catalog and query embedding to an admi
   }
 });
 
-it('serves the worktree calls to an admitted thread only, under the calling run’s identity', async () => {
+it('serves the worktree calls under the calling run’s identity', async () => {
   const created = {
     ok: true as const,
     value: {
@@ -449,27 +386,16 @@ it('serves the worktree calls to an admitted thread only, under the calling run�
     list: vi.fn(async () => ({ ok: true as const, value: [] })),
   };
   const worktrees = vi.fn(() => service);
-  const h = harness(async () => selected({}), undefined, { worktrees });
+  const h = harness(mainReads(), undefined, { worktrees });
   const params = { baseRef: 'HEAD', branch: 'bs/fox', name: 'fox', rootId: 'root-a' };
   try {
     await expect(
-      h.client.sendRequest('platform/worktree/create', {
-        params,
-        runId: 'host-run',
-        selectionRunId: 'run',
-        threadId: 'thread',
-      })
-    ).rejects.toBeInstanceOf(Error);
-    expect(worktrees).not.toHaveBeenCalled();
-    await admit(h.client);
-    await expect(
-      h.client.sendRequest('platform/worktree/list', { selectionRunId: 'run', threadId: 'thread' })
+      h.client.sendRequest('platform/worktree/list', { threadId: 'thread' })
     ).resolves.toEqual({ ok: true, value: [] });
     await expect(
       h.client.sendRequest('platform/worktree/create', {
         params,
         runId: 'host-run',
-        selectionRunId: 'run',
         threadId: 'thread',
       })
     ).resolves.toEqual(created);
@@ -480,7 +406,7 @@ it('serves the worktree calls to an admitted thread only, under the calling run�
   }
 });
 
-it('drives the browser pane for an admitted thread only, re-parsing the tool input', async () => {
+it('drives the browser pane, re-parsing the tool input', async () => {
   const browser = {
     getPageText: vi.fn(),
     navigate: vi.fn(async () => ({
@@ -490,17 +416,12 @@ it('drives the browser pane for an admitted thread only, re-parsing the tool inp
     })),
     readPage: vi.fn(),
   };
-  const h = harness(async () => selected({}), undefined, { browser });
+  const h = harness(mainReads(), undefined, { browser });
   const navigate = {
     input: { url: 'https://example.com' },
-    selectionRunId: 'run',
     threadId: 'thread',
   };
   try {
-    await expect(
-      h.client.sendRequest('platform/browser/navigate', navigate)
-    ).rejects.toBeInstanceOf(Error);
-    await admit(h.client);
     await expect(h.client.sendRequest('platform/browser/navigate', navigate)).resolves.toEqual({
       ok: true,
       title: 'Example',
@@ -511,7 +432,6 @@ it('drives the browser pane for an admitted thread only, re-parsing the tool inp
     await expect(
       h.client.sendRequest('platform/browser/navigate', {
         input: { url: 'https://example.com', wait: true },
-        selectionRunId: 'run',
         threadId: 'thread',
       })
     ).rejects.toBeInstanceOf(Error);
@@ -521,20 +441,14 @@ it('drives the browser pane for an admitted thread only, re-parsing the tool inp
   }
 });
 
-it('delivers a validated context write-back to the windows for an admitted thread only', async () => {
+it('delivers a validated context write-back to the windows', async () => {
   const contextDelivery = { selection: vi.fn(async () => 2), tapestry: vi.fn() };
-  const h = harness(async () => selected({}), undefined, { contextDelivery });
+  const h = harness(mainReads(), undefined, { contextDelivery });
   const delivery = {
     payload: { filePaths: ['notes.txt'], folderId: 'folder-a', mode: 'add' },
-    selectionRunId: 'run',
     threadId: 'thread',
   };
   try {
-    await expect(
-      h.client.sendRequest('platform/workspace-context/selection', delivery)
-    ).rejects.toBeInstanceOf(Error);
-    expect(contextDelivery.selection).not.toHaveBeenCalled();
-    await admit(h.client);
     await expect(
       h.client.sendRequest('platform/workspace-context/selection', delivery)
     ).resolves.toEqual({ notifiedWindowCount: 2 });
@@ -544,7 +458,7 @@ it('delivers a validated context write-back to the windows for an admitted threa
   }
 });
 
-it('serves querySelf’s SQL read and the diagnostics store to an admitted thread only', async () => {
+it('serves querySelf’s SQL read and the diagnostics store to the host', async () => {
   const querySelf = vi.fn(async (read: { input: { sql?: string } }) => {
     if (read.input.sql === 'SELEC 1') {
       throw new ToolInputError('syntax error at or near "SELEC"');
@@ -552,18 +466,12 @@ it('serves querySelf’s SQL read and the diagnostics store to an admitted threa
     return { analyzed: false, kind: 'plan' as const, plan: ['Result'], target: 'app' as const };
   });
   const diagnostics = { events: vi.fn(async () => []), fingerprints: vi.fn() };
-  const h = harness(async () => selected({}), undefined, { diagnostics, querySelf });
+  const h = harness(mainReads(), undefined, { diagnostics, querySelf });
   const read = (sql: string) => ({
     request: { input: { mode: 'explain', sql, target: 'app' } },
-    selectionRunId: 'run',
     threadId: 'thread',
   });
   try {
-    await expect(
-      h.client.sendRequest('desktop-read/query-self', read('SELECT 1'))
-    ).rejects.toBeInstanceOf(Error);
-    expect(querySelf).not.toHaveBeenCalled();
-    await admit(h.client);
     await expect(
       h.client.sendRequest('desktop-read/query-self', read('SELECT 1'))
     ).resolves.toEqual({
@@ -581,7 +489,6 @@ it('serves querySelf’s SQL read and the diagnostics store to an admitted threa
     await expect(
       h.client.sendRequest('desktop-read/diagnostics/events', {
         filter: { limit: 5 },
-        selectionRunId: 'run',
         threadId: 'thread',
       })
     ).resolves.toEqual([]);
