@@ -99,12 +99,16 @@ test('a host run proceeds past an unreachable MCP server and names it in the run
     }
     await configureServers(page, reference.endpoint.url.href, await refusedUrl());
     await enableModel(page);
-    modelProvider.setScript((request) => {
-      const name = request.toolNames.find((tool) => tool.endsWith('test_simple_text'));
-      return name
-        ? { finalText: FINAL_TEXT, toolCall: { arguments: {}, name } }
-        : { finalText: `No test_simple_text tool offered: ${request.toolNames.join(', ')}` };
-    });
+    // Hosted discovery defers MCP tools: the shim loads the tool, then calls it.
+    modelProvider.setScript((request) =>
+      request.toolNames.includes('load_tool')
+        ? {
+            deferredTool: true,
+            finalText: FINAL_TEXT,
+            toolCall: { arguments: {}, name: `${REACHABLE}_test_simple_text` },
+          }
+        : { finalText: `No load_tool offered: ${request.toolNames.join(', ')}` }
+    );
     await ensureAssistantShellVisible(page);
     const region = page.getByRole('region', { exact: true, name: 'Assistant' });
     await region.getByRole('textbox', { name: 'Message input' }).fill('Call the reference server.');

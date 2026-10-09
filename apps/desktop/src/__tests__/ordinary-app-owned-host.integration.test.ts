@@ -2,6 +2,7 @@
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { createSanitizedToolNameMap } from '@brainstrike/agent';
 import { startStatefulMcpHostServer } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
 import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost } from '@brainstrike/agent-host';
 import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/app-state/stores/assistant-preferences-store-version';
@@ -105,9 +106,10 @@ setInterval(() => {}, 1000);
     const model = await startModelProviderShim(
       withObserver((request) => {
         providerRequests.push(request);
-        const mcp = request.toolNames.find((name) => name.endsWith('_host_lifecycle_probe'));
-        if (!mcp) {
-          throw new Error('The default catalog did not include the configured MCP executor');
+        // Hosted discovery defers the configured MCP probe and the context reader.
+        const [mcp] = createSanitizedToolNameMap(['owned-mcp.host_lifecycle_probe']).keys();
+        if (!(mcp && request.toolNames.includes('load_tool'))) {
+          throw new Error('The default catalog did not install hosted tool discovery');
         }
         if (!workspaceRootId) {
           throw new Error('The ordinary workspace has no authoritative root identity');
@@ -123,6 +125,12 @@ setInterval(() => {}, 1000);
                   root: workspaceRootId,
                 },
                 name: 'brainstrike_writeWorkspaceFile',
+              },
+            ],
+            [
+              {
+                arguments: { toolNames: [mcp, 'brainstrike_listWorkspaceContext'] },
+                name: 'load_tool',
               },
             ],
             [{ arguments: {}, name: mcp }],
@@ -414,7 +422,7 @@ setInterval(() => {}, 1000);
       );
       let committed = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
       expect(committed.some(({ event }) => event.type === 'thread.started')).toBe(true);
-      expect(committed.filter(({ event }) => event.type === 'effect.finished')).toHaveLength(3);
+      expect(committed.filter(({ event }) => event.type === 'effect.finished')).toHaveLength(4);
       const started = committed.find(({ event }) => event.type === 'run.started')?.event;
       if (started?.type !== 'run.started') {
         throw new Error('Default tool run has no committed start');

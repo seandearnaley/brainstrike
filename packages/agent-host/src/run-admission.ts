@@ -11,6 +11,7 @@ import { modelMessageSchema, type StepResult, type ToolSet } from 'ai';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import { withHostDelegationTools } from './child-runs.js';
 import type { HostRunState } from './core-state.js';
+import { defaultHostToolModelOutput, withHostToolHookContext } from './hook-context.js';
 import { canonical, jsonValue } from './json-value.js';
 import { McpAuthorityReconstructionError } from './mcp-authority.js';
 import type {
@@ -28,23 +29,24 @@ import { settleHostToolOutputs } from './tool-artifacts.js';
 import { bindHostRunWorkspace, validateHostRunWorkspaceBinding } from './workspace-state.js';
 
 /** Provider instructions and public Memory context share the same SDK system input. */
-export function combineHostSystemContext(
-  provider: string | undefined,
-  memory: string | undefined
-): { readonly system?: string } {
-  const sections = [provider, memory].filter((section): section is string => Boolean(section));
+export function combineHostSystemContext(...context: readonly (string | undefined)[]): {
+  readonly system?: string;
+} {
+  const sections = context.filter((section): section is string => Boolean(section));
   return sections.length > 0 ? { system: sections.join('\n\n') } : {};
 }
 
 export function prepareHostProviderStep(
   provider: HostPreparedModelRequest,
   memorySystem: string | undefined,
-  owner: HostRunOwner | undefined
+  owner: HostRunOwner | undefined,
+  hookContext?: string
 ): HostPreparedModelRequest {
   return {
     ...provider,
     model: owner?.prepareHostModel?.(provider.model) ?? provider.model,
-    ...combineHostSystemContext(provider.system, memorySystem),
+    // A UserPromptSubmit hook's context joins the run's instructions.
+    ...combineHostSystemContext(provider.system, memorySystem, hookContext),
   };
 }
 
@@ -431,10 +433,25 @@ export async function hostStepActiveTools(
   platform: HostPlatform
 ): Promise<string[] | undefined> {
   const native = run.nativeWebSearch;
-  if (!native || (await hostRunToolDecision(platform, run, native.toolId)) === 'allow') {
-    return;
+  const nativeAllowed =
+    native !== undefined && (await hostRunToolDecision(platform, run, native.toolId)) === 'allow';
+  // Hosted discovery: a deferred tool is offered only after this run committed its load.
+  const discovered = await run.admission?.discovery?.activeTools({
+    runId: run.id,
+    threadId: run.threadId,
+  });
+  if (!discovered) {
+    return !native || nativeAllowed
+      ? undefined
+      : Object.keys(hostRunTools(run)).filter((id) => id !== native.toolId);
   }
-  return Object.keys(hostRunTools(run)).filter((id) => id !== native.toolId);
+  if (!native) {
+    return discovered;
+  }
+  // Legacy keeps the provider's own web search on the initial surface
+  // (resolveToolDiscoverySurface); it leaves once it no longer resolves to allow.
+  const surface = discovered.filter((id) => id !== native.toolId);
+  return nativeAllowed ? [...surface, native.toolId] : surface;
 }
 
 export function hostRunTools(run: HostRunState): HostRunAdmission['tools'] {
@@ -480,6 +497,14 @@ export function hostStepInteractions(
   });
 }
 
+/**
+ * Discovery's own tools sit outside the permission catalog: legacy added them
+ * after its permission gate, so its ask set never held them (approval-gate.ts).
+ */
+function isHostDiscoveryTool(run: HostRunState, toolId: string): boolean {
+  return run.admission?.discovery?.toolIds.has(toolId) === true;
+}
+
 /** Keep revocation live while taking risk and executor identity from admission. */
 export function hostRunToolDecision(
   platform: HostPlatform,
@@ -499,6 +524,9 @@ async function hostToolDecision(
   const registered = tools[toolId];
   if (!registered) {
     throw new Error('Tool is not registered');
+  }
+  if (isHostDiscoveryTool(run, toolId)) {
+    return 'allow';
   }
   // BST-1932: spawning never asks; every effect inside the child passes this gate itself.
   if (registered.delegation) {
@@ -548,6 +576,14 @@ export function createAdmittedHostSdkTools(
       }
       return dispatch(action, input);
     },
+    // A PostToolUse hook's committed context is read beside the tool's result.
+    modelOutput: async (id, options) => {
+      const project = hostRunTools(run)[id]?.toModelOutput;
+      return withHostToolHookContext(
+        project ? await project(options) : defaultHostToolModelOutput(options.output),
+        run.toolContexts.get(options.toolCallId)
+      );
+    },
     tools: hostRunTools(run),
   });
   const native = run.nativeWebSearch;
@@ -581,6 +617,11 @@ export async function decideHostSdkApproval(
     toolIdentity: registered.identity,
     type: 'effect.started',
   };
+  // No policy decision, prompt or hook for discovery's own tools, as legacy.
+  if (isHostDiscoveryTool(run, call.toolName)) {
+    run.permits.set(call.toolCallId, action);
+    return 'approved';
+  }
   const decision = await hostRunToolDecision(platform, run, call.toolName);
   run.controller.signal.throwIfAborted();
   const prior = [...run.approvals.values()].find(

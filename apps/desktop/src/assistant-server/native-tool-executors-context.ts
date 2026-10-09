@@ -7,6 +7,8 @@ import {
   type ListWorkspaceContextInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
   type ReadWorkspaceContextInput,
+  type UpdateWorkspaceContextSelectionInput,
+  type UpdateWorkspaceTapestrySelectionsInput,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import {
@@ -17,6 +19,11 @@ import {
 } from '@brainstrike/host-capabilities/native-tools';
 import { projectListWorkspaceContextModelOutput } from './workspace-context-model-projection';
 import { runListWorkspaceContext, runReadWorkspaceContext } from './workspace-context-read-tools';
+import {
+  runUpdateWorkspaceContextSelection,
+  runUpdateWorkspaceTapestrySelections,
+  type WorkspaceContextBroadcaster,
+} from './workspace-context-tools';
 
 export const CONTEXT_TOOL_EXECUTORS: {
   readonly [NATIVE_TOOL_ID.listWorkspaceContext]: NativeToolExecutor;
@@ -59,3 +66,50 @@ export const CONTEXT_TOOL_EXECUTORS: {
     inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceContext],
   }),
 };
+
+/** The selection write-backs: validated here, delivered to the windows by `broadcaster`. */
+export function contextWriteExecutors(broadcaster: WorkspaceContextBroadcaster): {
+  readonly [NATIVE_TOOL_ID.updateWorkspaceContextSelection]: NativeToolExecutor;
+  readonly [NATIVE_TOOL_ID.updateWorkspaceTapestrySelections]: NativeToolExecutor;
+} {
+  return {
+    [NATIVE_TOOL_ID.updateWorkspaceContextSelection]: ({ runtimeData }) => ({
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.updateWorkspaceContextSelection],
+      execute: async (input: ToolExecuteInput<UpdateWorkspaceContextSelectionInput>) => {
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.updateWorkspaceContextSelection],
+          input
+        );
+        try {
+          return await runUpdateWorkspaceContextSelection(resolvedInput, runtimeData, broadcaster);
+        } catch (error) {
+          logToolFailure('updateWorkspaceContextSelection failed', error, resolvedInput);
+          throw error;
+        }
+      },
+      id: NATIVE_TOOL_ID.updateWorkspaceContextSelection,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.updateWorkspaceContextSelection],
+    }),
+    [NATIVE_TOOL_ID.updateWorkspaceTapestrySelections]: ({ runtimeData }) => ({
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.updateWorkspaceTapestrySelections],
+      execute: async (input: ToolExecuteInput<UpdateWorkspaceTapestrySelectionsInput>) => {
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.updateWorkspaceTapestrySelections],
+          input
+        );
+        try {
+          return await runUpdateWorkspaceTapestrySelections(
+            resolvedInput,
+            runtimeData,
+            broadcaster
+          );
+        } catch (error) {
+          logToolFailure('updateWorkspaceTapestrySelections failed', error, resolvedInput);
+          throw error;
+        }
+      },
+      id: NATIVE_TOOL_ID.updateWorkspaceTapestrySelections,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.updateWorkspaceTapestrySelections],
+    }),
+  };
+}

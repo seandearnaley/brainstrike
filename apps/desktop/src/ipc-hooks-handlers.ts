@@ -32,6 +32,8 @@ export interface DbRootLite {
 }
 
 export interface ProjectHooksReview {
+  /** The hash the host trusts this root's hooks at, when it trusts them at this path. */
+  readonly approvedSha256?: string;
   readonly content?: string;
   readonly dbRootId?: string;
   readonly error?: string;

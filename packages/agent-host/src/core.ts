@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { BlobContent, StateStore } from '@brainstrike/state-store';
 import type { LanguageModel, ModelMessage } from 'ai';
-import { ApprovalInputReconstructionError } from './approval-input.js';
+import { acceptHostChildInput, takeHostChildInput } from './child-input.js';
 import { HostContextCompactions } from './context-compaction.js';
 import {
   type HostChildRunPort,
@@ -20,7 +20,7 @@ import {
   abortHostThreadRuns,
   acceptHostRunStop,
   assertHostAdmissionCleanup,
-  joinAllHostWork,
+  assertHostCommandAdmissible,
   joinHostRunOwner,
   joinHostThreadDeletion,
   queueHostAdmission,
@@ -28,6 +28,7 @@ import {
   rejectHostRunAdmission,
   retainHostRunWork,
   steerHostRun,
+  stopHostRunTree,
 } from './core-run-lifecycle.js';
 import {
   createHostRunContext,
@@ -41,6 +42,8 @@ import {
   recordHostConversationId,
 } from './core-state.js';
 import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-storage.js';
+import { beginHostRun, foldHostHookContextEvent, hostRunTerminalEvents } from './hook-context.js';
+import type { HostHookTrustStore } from './hook-trust.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
 import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
@@ -81,8 +84,9 @@ import {
   commitHostInteractionResponse,
   commitHostModelMessages,
   createHostApprovalResponses,
-  failedHostStartEvents,
   finishApprovedHostResults,
+  hostContinuationFailure,
+  startHostNextRun,
 } from './run-continuation.js';
 import { userRunVerdict } from './run-verdicts.js';
 import { HostThreadPresentationState } from './thread-presentation-state.js';
@@ -92,10 +96,10 @@ import { HostThreadWorkspaceState } from './workspace-state.js';
 
 export { jsonValue } from './json-value.js';
 
-export type HostEventStore = Pick<
-  StateStore,
-  'append' | 'read' | 'root' | 'syncBoundary' | 'threads'
-> & { readonly deleteThread?: StateStore['deleteThread'] };
+export type HostEventStore = HostHookTrustStore &
+  Pick<StateStore, 'append' | 'read' | 'root' | 'syncBoundary' | 'threads'> & {
+    readonly deleteThread?: StateStore['deleteThread'];
+  };
 
 /** One writer, one admission queue, and one SDK loop per root run (ADR-0011/12/17). */
 export class HostCore {
@@ -215,6 +219,9 @@ export class HostCore {
       case 'interaction.responded':
         foldHostInteraction(this.runs, event);
         break;
+      case 'hook.context':
+        foldHostHookContextEvent(this.runs, event);
+        break;
       default:
         foldHostRunEffect(this.runs, event, row.ts);
         break;
@@ -326,18 +333,8 @@ export class HostCore {
     const queued = queueHostAdmission(
       this.admission,
       () => {
-        if (this.closing) {
-          throw new Error('Host is closing');
-        }
-        if (threadId) {
-          if (!this.threads.has(threadId)) {
-            throw new Error('Unknown thread');
-          }
-          if (this.deletions.has(threadId)) {
-            throw new Error('Thread deletion has closed command admission');
-          }
-          assertHostAdmissionCleanup(this.failedAdmissions, threadId);
-        }
+        const { closing, deletions, failedAdmissions, threads } = this;
+        assertHostCommandAdmissible(threadId, closing, threads, deletions, failedAdmissions);
         return perform();
       },
       signal
@@ -555,7 +552,11 @@ export class HostCore {
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);
       recordHostConversationId(this.conversationIds, run.id);
-      run.task = this.loop(run, admission.model);
+      run.task = beginHostRun(run, admission, {
+        commit: (events) => this.append(run.threadId, events, 'full', this.foldRows),
+        fail: (detail) => this.finish(run, 'failed', detail),
+        loop: (model) => this.loop(run, model),
+      });
       // Stop/close joins this task; retain failures rather than leaking rejections.
       run.task.catch(() => undefined);
       return result;
@@ -817,7 +818,7 @@ export class HostCore {
       const plan = approvedHostPlan(run);
       if (plan) {
         await this.finish(run, 'completed');
-        await this.startApprovedPlanRun(run, plan);
+        await this.startNextRun(approvedHostPlanRunParams(run, plan), run.input?.origin);
         return;
       }
       if (run.steps >= admission.snapshot.maxSteps) {
@@ -829,15 +830,8 @@ export class HostCore {
       if (run.completion) {
         throw cause;
       }
-      await this.finish(
-        run,
-        run.stopped
-          ? 'stopped'
-          : cause instanceof ApprovalInputReconstructionError
-            ? 'interrupted'
-            : 'failed',
-        cause instanceof Error ? cause.message : String(cause)
-      );
+      const failed = hostContinuationFailure(run, cause);
+      await this.finish(run, failed.outcome, failed.detail);
     }
   }
 
@@ -849,6 +843,18 @@ export class HostCore {
     });
   }
 
+  /** BST-1932 (AT-09): a running child's active run ends after its step; the input runs next. */
+  input(params: HostParams<'run/input'>): Promise<{ accepted: true }> {
+    return this.command('run/input', params, () =>
+      acceptHostChildInput(
+        this.run(params.threadId, params.runId),
+        this.children.isChild(params.threadId),
+        params,
+        () => this.accept(params.threadId, 'run/input', params, { accepted: true }, [])
+      )
+    );
+  }
+
   steer(params: HostParams<'run/steer'>): Promise<{ outcome: 'steering' | 'already-terminal' }> {
     return this.command('run/steer', params, () =>
       steerHostRun(this.run(params.threadId, params.runId), (result) =>
@@ -858,15 +864,11 @@ export class HostCore {
   }
 
   stop(params: HostParams<'run/stop'>): Promise<{ outcome: 'stopped' | 'already-terminal' }> {
-    const join = async (): Promise<void> => {
+    const join = (): Promise<void> => {
       const run = this.run(params.threadId, params.runId);
-      const reason = new Error('Run stopped by user');
       // BST-1932: a root Stop ends its turn's children, foreground and background.
       const stopped = [run, ...this.children.turnChildren(run, this.runs)];
-      await joinAllHostWork(
-        stopped.map((owned) => this.stopRun(owned, reason)),
-        'Stop cleanup failed'
-      );
+      return stopHostRunTree(stopped, (owned, reason) => this.stopRun(owned, reason));
     };
     return this.command(
       'run/stop',
@@ -902,23 +904,19 @@ export class HostCore {
     return run.ownerClose;
   }
 
-  /**
-   * An approved plan ends its plan-mode run; the thread's next run carries it
-   * out without plan mode. A next run that cannot start is committed as failed,
-   * with its cause, so an approval never ends silently.
-   */
-  private async startApprovedPlanRun(
-    run: Run,
-    plan: { readonly feedback?: string }
-  ): Promise<void> {
-    const params = approvedHostPlanRunParams(run, plan);
-    try {
-      await this.startRun(params, run.input?.origin);
-    } catch (cause) {
-      const runId = randomUUID();
-      const events = failedHostStartEvents(this.runs.values(), params, runId, cause);
-      await this.accept(params.threadId, 'run/start', params, { runId }, events, this.foldRows);
-    }
+  private startNextRun(
+    params: HostParams<'run/start'>,
+    origin: HostClientOrigin | undefined,
+    refused?: Error
+  ): Promise<boolean> {
+    return startHostNextRun(
+      this.runs.values(),
+      params,
+      () => this.startRun(params, origin),
+      (runId, events) =>
+        this.accept(params.threadId, 'run/start', params, { runId }, events, this.foldRows),
+      refused
+    );
   }
 
   private finish(
@@ -938,15 +936,20 @@ export class HostCore {
       (owned) =>
         titling ? titling.then(() => this.closeRunOwner(owned)) : this.closeRunOwner(owned),
       () => this.read(run.threadId, 0),
-      (event, commit) =>
-        this.append(run.threadId, [event], 'full', (rows) => {
+      async (event, commit) =>
+        this.append(run.threadId, await hostRunTerminalEvents(run, event), 'full', (rows) => {
           commit();
           this.foldRows(rows);
         })
-    ).then(() => {
+    ).then(async () => {
       this.presentations.settle(run);
       const parent = this.children.deliveryParent(run) ?? (run.origin ? undefined : run.threadId);
-      if (parent && wakes && !(this.closing || this.deletions.has(parent))) {
+      // BST-1932: a child's human input runs next; only that run reports to the parent.
+      const open = wakes && !(this.closing || this.deletions.has(run.threadId));
+      const input = takeHostChildInput(run, outcome, open);
+      const next =
+        input && (await this.startNextRun(input.params, run.input?.origin, input.refused));
+      if (parent && wakes && !next && !(this.closing || this.deletions.has(parent))) {
         this.wake(parent);
       }
     });

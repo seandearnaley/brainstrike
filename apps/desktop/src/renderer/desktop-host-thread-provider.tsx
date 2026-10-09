@@ -1,5 +1,9 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
-import { useAssistantRunNotifications, useBudgetGuardrailBinding } from '@brainstrike/app-shell';
+import {
+  HostChildConversations,
+  useAssistantRunNotifications,
+  useBudgetGuardrailBinding,
+} from '@brainstrike/app-shell';
 import { AssistantThreadHostContext } from '@brainstrike/app-shell/assistant-thread-host-context';
 import {
   BudgetGuardrailProvider,
@@ -29,6 +33,7 @@ import { CommittedHostMcpInputView } from './committed-host-mcp-input-view';
 import { CommittedWorkspaceControls } from './committed-workspace-controls';
 import { readDesktopHostModel } from './desktop-host-configuration';
 import { createWindowThreadCapability } from './desktop-host-thread-capability';
+import { HostApprovalStrip } from './host-approval-strip';
 import type { HostThreadCanvases } from './host-thread-canvases';
 import { createHostDebugBundleBinding } from './host-thread-debug';
 import type { HostThreadLedger } from './host-thread-ledger';
@@ -55,9 +60,25 @@ function CommittedCheckpoints({
   return <EditCheckpointProvider value={value}>{children}</EditCheckpointProvider>;
 }
 
+/** Committed effects are where a delegation starts or settles a child thread. */
+function useCommittedEffectCount(conversation: CommittedHostConversation | undefined): number {
+  const source = conversation?.source;
+  const read = (): number =>
+    source
+      ?.getSnapshot()
+      .rows.filter(
+        ({ event }) => event.type === 'effect.started' || event.type === 'effect.finished'
+      ).length ?? 0;
+  return useSyncExternalStore(source?.subscribe ?? NO_SUBSCRIPTION, read, read);
+}
+const NO_SUBSCRIPTION = (): (() => void) => () => undefined;
+
 function HostThread({
+  agentColor,
   canvases,
+  child,
   client,
+  label,
   ledger,
   onRunningChange,
   onTitleCommitted,
@@ -65,8 +86,13 @@ function HostThread({
   runs,
   threadId,
 }: {
+  /** BST-1932: a child's view is tinted with its family colour. */
+  readonly agentColor: string | undefined;
   readonly canvases: HostThreadCanvases;
+  /** BST-1932: a delegated child's view, which sends input to the child while it runs. */
+  readonly child: boolean;
   readonly client: HostClient;
+  readonly label: string;
   readonly ledger: HostThreadLedger;
   readonly onRunningChange: ((threadId: string, running: boolean) => void) | undefined;
   readonly onTitleCommitted: () => void;
@@ -103,6 +129,7 @@ function HostThread({
   }, [client, explorer, onTitleCommitted, threadId]);
   // Badges and OS notifications read this view's committed run state.
   const { onRunNotification } = useAssistantRunNotifications();
+  const effects = useCommittedEffectCount(conversation);
   useEffect(
     () =>
       conversation ? runs.observe(threadId, conversation.source, onRunNotification) : undefined,
@@ -143,16 +170,23 @@ function HostThread({
         <CommittedCheckpoints checkpoints={conversation.checkpoints}>
           <BudgetGuardrailProvider value={budgetGuardrail}>
             <DebugBundleProvider value={debugBundle}>
-              <CommittedAssistantConversation
-                {...presentation}
-                commands={conversation.commands}
-                {...(cumulativeUsage ? { cumulativeUsage } : {})}
-                label="Assistant"
-                onRunningChange={onRunningChange}
-                onSteerActiveRun={steer}
-                store={conversation.store}
-                workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
-              />
+              <HostChildConversations revision={effects} threadId={threadId}>
+                <CommittedAssistantConversation
+                  {...presentation}
+                  agentColor={agentColor}
+                  approvalStrip={
+                    <HostApprovalStrip client={client} tree={conversation.approvals} />
+                  }
+                  commands={conversation.commands}
+                  {...(cumulativeUsage ? { cumulativeUsage } : {})}
+                  label={label}
+                  onRunningChange={onRunningChange}
+                  onSendActiveInput={child ? conversation.sendInput : undefined}
+                  onSteerActiveRun={steer}
+                  store={conversation.store}
+                  workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
+                />
+              </HostChildConversations>
             </DebugBundleProvider>
           </BudgetGuardrailProvider>
         </CommittedCheckpoints>
@@ -190,6 +224,7 @@ const windowThreadCapability = createWindowThreadCapability(
   ({
     canvases,
     catalogLoaded,
+    child,
     host,
     ledger,
     onRunningChange,
@@ -205,8 +240,12 @@ const windowThreadCapability = createWindowThreadCapability(
     }
     return host ? (
       <HostThread
+        agentColor={child?.color}
         canvases={canvases}
+        child={child !== undefined}
         client={host}
+        // A child's region is named by its call sign, like its workspace tab.
+        label={child?.callSign ?? 'Assistant'}
         ledger={ledger}
         onRunningChange={onRunningChange}
         onTitleCommitted={onTitleCommitted}

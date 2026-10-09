@@ -62,7 +62,8 @@ afterEach(async () => {
   }
 });
 
-test('a global PreToolUse hook blocks a tool on the CLI host, with its reason committed', async () => {
+/** A CLI host under a global hooks file, running the offline question fixture once. */
+async function runUnderHooks(hooks: Record<string, unknown>) {
   const dataRoot = await mkdtemp(join(tmpdir(), 'bs-m3-host-hooks-'));
   const home = await mkdtemp(join(tmpdir(), 'bs-m3-host-hooks-home-'));
   cleanup.push(() => rm(home, { force: true, recursive: true }));
@@ -78,18 +79,7 @@ test('a global PreToolUse hook blocks a tool on the CLI host, with its reason co
     await removeFixtureRoot(dataRoot);
   });
   await mkdir(join(home, '.brainstrike'));
-  await writeFile(
-    join(home, '.brainstrike', 'hooks.json'),
-    JSON.stringify({
-      PreToolUse: [
-        {
-          command: `echo '{"decision":"block","reason":"${REASON}"}'; exit 2`,
-          matcher: { tool_name: 'askUser' },
-          type: 'command',
-        },
-      ],
-    })
-  );
+  await writeFile(join(home, '.brainstrike', 'hooks.json'), JSON.stringify(hooks));
   expect(await command(dataRoot, home, ['host', 'start'])).toMatchObject({ code: 0, stderr: '' });
   const run = await command(dataRoot, home, [
     'run',
@@ -99,13 +89,25 @@ test('a global PreToolUse hook blocks a tool on the CLI host, with its reason co
     '--json',
     '--non-interactive',
   ]);
-  // The blocked question is never asked: the run completes instead of pausing.
-  expect(run.code, run.stderr).toBe(0);
-  const { threadId } = z
+  const { runId, threadId } = z
     .object({ runId: z.string(), threadId: z.string() })
     .parse(JSON.parse(run.stdout.split('\n')[0] ?? ''));
   const shown = await command(dataRoot, home, ['threads', 'show', '--thread', threadId]);
   const { rows } = HOST_RESULT_SCHEMAS['thread/read'].parse(JSON.parse(shown.stdout));
+  return { code: run.code, rows, runId, stderr: run.stderr };
+}
+
+/** The question tool, blocked by a PreToolUse hook so the run completes instead of pausing. */
+const blockQuestion = {
+  command: `echo '{"decision":"block","reason":"${REASON}"}'; exit 2`,
+  matcher: { tool_name: 'askUser' },
+  type: 'command',
+};
+
+test('a global PreToolUse hook blocks a tool on the CLI host, with its reason committed', async () => {
+  const { code, rows, stderr } = await runUnderHooks({ PreToolUse: [blockQuestion] });
+  // The blocked question is never asked: the run completes instead of pausing.
+  expect(code, stderr).toBe(0);
   expect(rows.some(({ event }) => event.type === 'interaction.requested')).toBe(false);
   expect(rows.some(({ event }) => event.type === 'effect.started')).toBe(false);
   const responses = rows.flatMap(({ event }) =>
@@ -118,4 +120,42 @@ test('a global PreToolUse hook blocks a tool on the CLI host, with its reason co
       : []
   );
   expect(responses).toEqual([expect.objectContaining({ approved: false, reason: REASON })]);
+});
+
+test('a Stop hook’s verdict labels the CLI run with a committed hook verdict', async () => {
+  const { rows, runId } = await runUnderHooks({
+    PreToolUse: [blockQuestion],
+    Stop: [
+      {
+        command: `echo '{"brainstrikeRunVerdict":{"verdict":"succeeded","detail":"Graded"}}'`,
+        type: 'command',
+      },
+    ],
+  });
+  const events = rows.map(({ event }) => event);
+  const types = events.map((event) => event.type);
+  expect(types.indexOf('run.verdict')).toBe(types.indexOf('run.finished') - 1);
+  expect(events.find((event) => event.type === 'run.verdict')).toEqual({
+    detail: 'Graded',
+    runId,
+    source: 'hook',
+    type: 'run.verdict',
+    verdict: 'succeeded',
+  });
+});
+
+test('a UserPromptSubmit hook that blocks the prompt ends the CLI run with its reason', async () => {
+  const { rows } = await runUnderHooks({
+    UserPromptSubmit: [
+      {
+        command: `echo '{"decision":"block","reason":"Prompts are paused"}'; exit 2`,
+        type: 'command',
+      },
+    ],
+  });
+  expect(rows.some(({ event }) => event.type === 'model.step')).toBe(false);
+  expect(rows.find(({ event }) => event.type === 'run.finished')?.event).toMatchObject({
+    detail: 'The request was blocked by a hook: Prompts are paused',
+    outcome: 'failed',
+  });
 });

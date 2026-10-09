@@ -1,0 +1,36 @@
+/**
+ * listWorktrees and manageWorktree over a caller-supplied worktree capability:
+ * Main passes its worktree service, the desktop agent host passes Main's
+ * narrow worktree calls until the worktree ledger is a host fact. This module
+ * must not import Electron: the host bundle loads it.
+ */
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import type { NativeToolBuildContext } from '@brainstrike/host-capabilities/native-tools';
+import type { MastraTool } from './native-tool-executor-context';
+import { buildWorktreeMastraTools, type WorktreeToolCapability } from './worktree-tools';
+
+/**
+ * BST-1392. Both worktree ids are absent from LOCAL_DESKTOP_NATIVE_TOOL_IDS, and
+ * the local-provider gate is what makes that exclusion real at runtime.
+ */
+export function worktreeToolExecutors<Context extends NativeToolBuildContext>(
+  capability: (context: Context) => WorktreeToolCapability | undefined
+): {
+  readonly [NATIVE_TOOL_ID.listWorktrees]: (context: Context) => MastraTool | undefined;
+  readonly [NATIVE_TOOL_ID.manageWorktree]: (context: Context) => MastraTool | undefined;
+} {
+  return {
+    [NATIVE_TOOL_ID.listWorktrees]: (context) =>
+      context.isLocalProvider
+        ? undefined
+        : buildWorktreeMastraTools(context.runtimeData, capability(context))[
+            NATIVE_TOOL_ID.listWorktrees
+          ],
+    [NATIVE_TOOL_ID.manageWorktree]: (context) =>
+      context.isLocalProvider
+        ? undefined
+        : buildWorktreeMastraTools(context.runtimeData, capability(context))[
+            NATIVE_TOOL_ID.manageWorktree
+          ],
+  };
+}

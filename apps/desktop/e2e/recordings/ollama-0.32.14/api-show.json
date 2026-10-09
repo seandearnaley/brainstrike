@@ -1,0 +1,18 @@
+{
+  "capabilities": [
+    "completion",
+    "tools",
+    "thinking"
+  ],
+  "details": {
+    "parent_model": "",
+    "format": "gguf",
+    "family": "lfm2",
+    "families": [
+      "lfm2"
+    ],
+    "parameter_size": "1.2B",
+    "quantization_level": "Q4_K_M"
+  },
+  "modified_at": "2026-01-21T23:16:12.931371073-05:00"
+}

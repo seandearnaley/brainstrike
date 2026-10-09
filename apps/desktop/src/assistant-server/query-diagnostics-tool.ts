@@ -1,16 +1,18 @@
-import { fitItemsToCharBudget, type QueryDiagnosticsInput } from '@brainstrike/agent';
-import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
-import {
-  type DiagnosticEventsQueryFilter,
-  DiagnosticEventsRepository,
-  type DiagnosticFingerprintGroup,
-} from '@brainstrike/db';
+import type { QueryDiagnosticsInput } from '@brainstrike/agent';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { DiagnosticEventsRepository, type DiagnosticFingerprintGroup } from '@brainstrike/db';
 import { type DiagnosticEvent, scrubLikelySecretValues } from '@brainstrike/utils/diagnostics';
 import { getDatabase } from '../db-main';
+import {
+  type DiagnosticsReader,
+  type QueryDiagnosticEventItem,
+  type QueryDiagnosticFingerprintItem,
+  type QueryDiagnosticsResult,
+  runQueryDiagnosticsWith,
+} from './query-diagnostics-core';
 
 export const QUERY_DIAGNOSTICS_TOOL_ID = NATIVE_TOOL_ID.queryDiagnostics;
 
-const DEFAULT_QUERY_LIMIT = 50;
 const MAX_MESSAGE_CHARS = 1000;
 const MAX_STACK_CHARS = 1500;
 const MAX_STRUCTURED_FIELD_CHARS = 1500;
@@ -19,55 +21,6 @@ interface TruncatedText {
   text: string;
   truncated: boolean;
 }
-
-export interface QueryDiagnosticEventItem {
-  causeChainJson: string | null;
-  causeChainTruncated: boolean;
-  code: string | null;
-  contextJson: string | null;
-  contextTruncated: boolean;
-  fingerprint: string;
-  id: string;
-  message: string;
-  messageTruncated: boolean;
-  occurredAt: number;
-  resourceId: string | null;
-  rootId: string | null;
-  runId: string | null;
-  scope: string | null;
-  sessionId: string;
-  severity: DiagnosticEvent['severity'];
-  source: string;
-  stack: string | null;
-  stackTruncated: boolean;
-  threadId: string | null;
-}
-
-export interface QueryDiagnosticFingerprintItem extends DiagnosticFingerprintGroup {
-  latestMessageTruncated: boolean;
-}
-
-interface QueryDiagnosticsResultBase {
-  hint?: string;
-  requestedLimit: number;
-  returned: number;
-  totalMatchedWithinCap: number;
-  truncated: boolean;
-}
-
-export interface QueryDiagnosticEventsResult extends QueryDiagnosticsResultBase {
-  items: QueryDiagnosticEventItem[];
-  kind: 'events';
-}
-
-export interface QueryDiagnosticFingerprintsResult extends QueryDiagnosticsResultBase {
-  items: QueryDiagnosticFingerprintItem[];
-  kind: 'fingerprints';
-}
-
-export type QueryDiagnosticsResult =
-  | QueryDiagnosticEventsResult
-  | QueryDiagnosticFingerprintsResult;
 
 function truncateText(value: string, maxChars: number): TruncatedText {
   if (value.length <= maxChars) {
@@ -132,85 +85,20 @@ function scrubProjectedItems<TItem>(items: readonly TItem[]): TItem[] {
   return JSON.parse(scrubLikelySecretValues(serialized).text) as TItem[];
 }
 
-function toFilter(input: QueryDiagnosticsInput): DiagnosticEventsQueryFilter {
-  const parseBound = (label: string, value: string | undefined): number | undefined => {
-    if (value === undefined) {
-      return;
-    }
-    const parsed = Date.parse(value);
-    if (Number.isNaN(parsed)) {
-      throw new ToolInputError(`${label} must be a valid ISO-8601 timestamp`);
-    }
-    return parsed;
-  };
-  const sinceMs = parseBound('since', input.since);
-  const untilMs = parseBound('until', input.until);
-  if (sinceMs !== undefined && untilMs !== undefined && sinceMs > untilMs) {
-    throw new ToolInputError('since must be earlier than or equal to until');
-  }
-  return {
-    ...(input.fingerprint === undefined ? {} : { fingerprint: input.fingerprint }),
-    limit: input.limit ?? DEFAULT_QUERY_LIMIT,
-    ...(input.runId === undefined ? {} : { runId: input.runId }),
-    ...(input.severity === undefined ? {} : { severity: input.severity }),
-    ...(sinceMs === undefined ? {} : { sinceMs }),
-    ...(input.threadId === undefined ? {} : { threadId: input.threadId }),
-    ...(untilMs === undefined ? {} : { untilMs }),
-  };
-}
-
-function fitResult<TItem>(
-  kind: QueryDiagnosticsResult['kind'],
-  items: readonly TItem[],
-  requestedLimit: number
-): QueryDiagnosticsResult {
-  const capReached = items.length === requestedLimit;
-  const build = (kept: TItem[]): QueryDiagnosticsResult => {
-    const outputTruncated = kept.length < items.length;
-    const truncated = capReached || outputTruncated;
-    return {
-      ...(truncated
-        ? {
-            hint: outputTruncated
-              ? `Showing ${kept.length} of ${items.length} matched ${kind} (output budget).${
-                  capReached
-                    ? ` The ${requestedLimit}-${kind === 'events' ? 'row' : 'group'} cap was also reached, so more may match.`
-                    : ''
-                } Narrow the filters or lower the limit.`
-              : `The ${requestedLimit}-${kind === 'events' ? 'row' : 'group'} cap was reached; more diagnostics may match. Narrow the filters.`,
-          }
-        : {}),
-      items: kept,
-      kind,
-      requestedLimit,
-      returned: kept.length,
-      totalMatchedWithinCap: items.length,
-      truncated,
-    } as QueryDiagnosticsResult;
-  };
-  return fitItemsToCharBudget(items, build).result;
-}
-
-export async function runQueryDiagnostics(
-  input: QueryDiagnosticsInput
-): Promise<QueryDiagnosticsResult> {
-  const filter = toFilter(input);
-  const requestedLimit = filter.limit ?? DEFAULT_QUERY_LIMIT;
-  const repository = new DiagnosticEventsRepository(await getDatabase());
-
-  if (input.mode === 'events') {
+/** Main's diagnostic events store, projected and scrubbed before any row leaves it. */
+export const mainDiagnosticsReader: DiagnosticsReader = {
+  events: async (filter) => {
+    const repository = new DiagnosticEventsRepository(await getDatabase());
     const events = await repository.queryEvents(filter);
-    return fitResult(
-      'events',
-      scrubProjectedItems(events.map((event) => projectEvent(event))),
-      requestedLimit
-    );
-  }
+    return scrubProjectedItems(events.map((event) => projectEvent(event)));
+  },
+  fingerprints: async (filter) => {
+    const repository = new DiagnosticEventsRepository(await getDatabase());
+    const groups = await repository.queryFingerprintGroups(filter);
+    return scrubProjectedItems(groups.map((group) => projectFingerprintGroup(group)));
+  },
+};
 
-  const groups = await repository.queryFingerprintGroups(filter);
-  return fitResult(
-    'fingerprints',
-    scrubProjectedItems(groups.map((group) => projectFingerprintGroup(group))),
-    requestedLimit
-  );
+export function runQueryDiagnostics(input: QueryDiagnosticsInput): Promise<QueryDiagnosticsResult> {
+  return runQueryDiagnosticsWith(input, mainDiagnosticsReader);
 }

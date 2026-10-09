@@ -1215,8 +1215,9 @@ if (shouldExposeBridge('browser')) {
 }
 
 // Hooks trust-review bridge (desktop). Capability-gated: the Hooks settings
-// panel reads a project root's `.brainstrike/hooks.json` (content + sha256) to
-// display before the user approves it. The server remains the trust authority.
+// panel reads a project root's `.brainstrike/hooks.json` (content + sha256 and
+// the host's trust) to display before the user approves it. The agent host owns
+// the trust and re-hashes the file on every approval and every run.
 if (shouldExposeBridge('hooks')) {
   contextBridge.exposeInMainWorld('hooks', {
     getProjectHooksForReview: (rootId: string, absPath: string) =>
@@ -1226,6 +1227,10 @@ if (shouldExposeBridge('hooks')) {
     // (a disconnected root's grant is never presented to the server).
     resolveTrustedRootIds: (absPaths: readonly string[]) =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.hooks.resolveTrustedRootIds, absPaths),
+    trustProjectHooks: (absPath: string, sha256: string) =>
+      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.hooks.trustProjectHooks, absPath, sha256),
+    untrustProjectHooks: (absPath: string) =>
+      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.hooks.untrustProjectHooks, absPath),
   });
 }
 

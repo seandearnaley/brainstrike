@@ -3,6 +3,7 @@ import type { HostRecord } from '@brainstrike/host-lease';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { bindHostAuthMethods } from './auth-connection.js';
 import type { HostCore } from './core.js';
+import { bindHostHookTrustMethods } from './hook-trust.js';
 import type { HostAuthService, HostClientOrigin, HostProviderService } from './ports.js';
 import { type HostLogRow, type HostMethod, type HostParams, parseHostParams } from './protocol.js';
 import { bindHostProviderMethods } from './provider-connection.js';
@@ -39,10 +40,20 @@ export function bindHostConnection(
       return disposed;
     },
   };
-  const subscriptions = new Map<string, number>();
+  // Each view of a thread holds its own subscription: the connection sends a
+  // thread's rows until the last of its views unsubscribes (BST-1932).
+  const subscriptions = new Map<string, { readonly fromSeq: number; readonly views: number }>();
+  const unsubscribe = (threadId: string): void => {
+    const current = subscriptions.get(threadId);
+    if (current && current.views > 1) {
+      subscriptions.set(threadId, { ...current, views: current.views - 1 });
+      return;
+    }
+    subscriptions.delete(threadId);
+  };
   const disposables: Array<{ dispose(): void }> = [];
   const release = core.onCommitted((row: HostLogRow) => {
-    const from = subscriptions.get(row.threadId);
+    const from = subscriptions.get(row.threadId)?.fromSeq;
     if (from !== undefined && row.seq > from && !disposed) {
       connection.sendNotification('log/event', row).catch(() => connection.dispose());
     }
@@ -92,6 +103,7 @@ export function bindHostConnection(
   });
   bindHostAuthMethods(handle, connection, auth, origin);
   bindHostProviderMethods(handle, providers, origin);
+  bindHostHookTrustMethods(handle, core.store);
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));
   handle('thread/children', (params) => ({ children: core.listChildren(params.threadId) }));
@@ -107,6 +119,7 @@ export function bindHostConnection(
   handle('run/start', (params) => core.startRun(params, origin));
   handle('run/regenerate', (params) => core.regenerateRun(params, origin));
   handle('run/steer', (params) => core.steer(params));
+  handle('run/input', (params) => core.input(params));
   handle('run/stop', (params) => core.stop(params));
   handle('checkpoint/revert', (params) => core.revertCheckpoint(params));
   handle('run/verdict', (params) => core.recordVerdict(params));
@@ -116,16 +129,20 @@ export function bindHostConnection(
   handle('mcp/input/stage', (params) => core.stageMcpInput(params, mcpClient));
   handle('mcp/input/settle', (params) => core.settleMcpInput(params, mcpClient));
   handle('log/subscribe', async (params) => {
-    subscriptions.set(params.threadId, params.fromSeq);
+    const current = subscriptions.get(params.threadId);
+    subscriptions.set(params.threadId, {
+      fromSeq: Math.min(current?.fromSeq ?? params.fromSeq, params.fromSeq),
+      views: (current?.views ?? 0) + 1,
+    });
     try {
       return { rows: await core.read(params.threadId, params.fromSeq) };
     } catch (cause) {
-      subscriptions.delete(params.threadId);
+      unsubscribe(params.threadId);
       throw cause;
     }
   });
   handle('log/unsubscribe', (params) => {
-    subscriptions.delete(params.threadId);
+    unsubscribe(params.threadId);
     return { unsubscribed: true };
   });
   const close = (): void => {

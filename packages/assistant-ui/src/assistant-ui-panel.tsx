@@ -839,6 +839,7 @@ const DataStreamRuntimeChat = ({
  * Extracted to avoid duplication between local and data stream runtimes.
  */
 export const ChatThreadUI = ({
+  approvalStrip,
   isVisible = true,
   composerDraftCommand,
   contextWindow,
@@ -878,6 +879,11 @@ export const ChatThreadUI = ({
   threadKey,
   toolMenu,
 }: {
+  /**
+   * BST-1932: a committed host thread's approvals strip, which counts its
+   * delegated children's approvals too; absent → the thread's own strip only.
+   */
+  approvalStrip?: ReactNode | undefined;
   isVisible?: boolean;
   composerDraftCommand?: ComposerDraftCommand | undefined;
   contextWindow?: number | undefined;
@@ -1046,6 +1052,7 @@ export const ChatThreadUI = ({
                   {localLoadingState && <LocalModelStatus state={localLoadingState} />}
                   <FollowUpQueueChips threadKey={threadKey} />
                   <ApprovalQueueStrip key={threadKey} />
+                  {approvalStrip ?? null}
                   <ComposerPrimitive.Root
                     className="aui-composer-root"
                     onSubmitCapture={onThreadRunStart}

@@ -1,4 +1,5 @@
 import { resolveAssistantResilienceConfig } from '@brainstrike/agent/provider-runtime';
+import { isGuardedToolError } from '@brainstrike/assistant-contract';
 import type { BlobContent } from '@brainstrike/state-store';
 import { type LanguageModel, type ModelMessage, stepCountIs, streamText } from 'ai';
 import {
@@ -130,7 +131,40 @@ export async function executeHostAction(
   if (finished?.ts !== undefined) {
     run.outputCommittedAt.set(action.toolCallId, finished.ts);
   }
+  await commitPostToolUseContext(ports, run, action, registered, input, output);
   return output;
+}
+
+/** A PostToolUse hook's context is committed before the model reads the result. */
+async function commitPostToolUseContext(
+  ports: HostRunExecutionPorts,
+  run: Run,
+  action: HostRunAction,
+  registered: HostTool,
+  input: unknown,
+  output: unknown
+): Promise<void> {
+  const post = await run.admission?.hooks?.postToolUse({
+    error: isGuardedToolError(output),
+    input,
+    output,
+    toolName: registered.permissionToolId ?? action.toolId,
+  });
+  if (post?.additionalContext) {
+    await ports.append(
+      run.threadId,
+      [
+        {
+          context: post.additionalContext,
+          runId: run.id,
+          toolCallId: action.toolCallId,
+          type: 'hook.context',
+        },
+      ],
+      'full',
+      ports.foldRows
+    );
+  }
 }
 
 /** Commit the effect's start, then run its registered executor under its run's context. */
@@ -455,7 +489,8 @@ async function runHostSdkAttempt(
         if (!admission.provider) {
           return {
             messages: memory?.messages ?? prepared,
-            ...(system ? { system } : {}),
+            // A UserPromptSubmit hook's context joins the run's instructions.
+            ...combineHostSystemContext(system, run.promptContext),
             ...gated,
           };
         }
@@ -467,7 +502,10 @@ async function runHostSdkAttempt(
           // BST-1932: a child reserves its last step for a tool-free summary.
           stepNumber: run.steps,
         });
-        return { ...prepareHostProviderStep(provider, system, owner), ...gated };
+        return {
+          ...prepareHostProviderStep(provider, system, owner, run.promptContext),
+          ...gated,
+        };
       },
       // A committed run/steer ends the run after the step in flight (BST-588).
       stopWhen: [stepCountIs(admission.snapshot.maxSteps - run.steps), () => run.steered],

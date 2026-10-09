@@ -141,6 +141,8 @@ export interface ChildRunFixture {
   readonly personas?: readonly AssistantPersonaDefinition[];
   /** The live root policy for `threadId`; defaults to read and edit allowed. */
   readonly policy?: HostPlatform['readPermissionPolicy'];
+  /** What `read_file` does; it returns the fixture notes at once by default. */
+  readonly readFile?: () => Promise<unknown>;
   readonly settings?: Partial<RuntimeSubagentSettings>;
 }
 
@@ -178,7 +180,7 @@ export function fixturePlatform(
       ask_user: askUserTool,
       read_file: {
         description: 'Read a workspace file',
-        execute: async () => ({ content: NOTES }),
+        execute: fixture.readFile ?? (async () => ({ content: NOTES })),
         identity: 'native-read-generation-1',
         inputSchema: z.object({ path: z.string() }),
         risk: 'read',
@@ -266,8 +268,11 @@ export async function setupChildRunHost(
         batches.push([...items]);
         return store.append(items, committed, durability);
       },
+      deleteSetting: (key) => store.deleteSetting(key),
+      getSetting: (key) => store.getSetting(key),
       read: (threadId, fromSeq) => store.read(threadId, fromSeq),
       root: store.root,
+      setSetting: (key, value) => store.setSetting(key, value),
       syncBoundary: (threadId) => store.syncBoundary(threadId),
       threads: () => store.threads(),
     };

@@ -20,30 +20,62 @@ import {
   type ToolExecuteInput,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
-import type {
-  GitResult,
-  WorktreeArchiveResult,
-  WorktreeCreateResult,
-  WorktreeListEntry,
-} from '@brainstrike/types';
+import type { GitResult } from '@brainstrike/types';
 import { resolveWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('WorktreeTools');
 
-const UNAVAILABLE = 'Worktree management is not available in this session.';
+export const WORKTREE_TOOLS_UNAVAILABLE = 'Worktree management is not available in this session.';
 
+/** The fields of a git-inventory entry (`WorktreeListEntry`) the tools read. */
+export interface WorktreeToolListEntry {
+  readonly branch: string | null;
+  readonly detached: boolean;
+  readonly disabledReason: string | null;
+  readonly externalTool: string | null;
+  readonly id: string | null;
+  readonly managed: boolean;
+  readonly name: string;
+  readonly path: string;
+  readonly primary: boolean;
+  readonly provenance: string;
+  readonly repoCommonDir: string;
+  readonly repositoryRoot: string;
+  readonly rootId: string | null;
+  readonly usable: boolean;
+}
+
+/** The fields of `WorktreeCreateResult` the tools read. */
+export interface WorktreeToolCreateResult {
+  readonly setup: { readonly reason: string | null; readonly status: string };
+  readonly worktree: { readonly branch: string | null; readonly id: string; readonly path: string };
+}
+
+/** The fields of `WorktreeArchiveResult` the tools read. */
+export interface WorktreeToolArchiveResult {
+  readonly snapshotRef: string;
+  readonly worktree: { readonly id: string };
+}
+
+export interface WorktreeArchiveParams {
+  readonly force?: boolean;
+  readonly worktreeId: string;
+}
+
+export interface WorktreeCreateParams {
+  readonly baseRef: string;
+  readonly branch: string;
+  readonly name: string;
+  readonly rootId: string;
+}
+
+/** Main's worktree service, narrowed to what the tools read; the agent host reaches it over RPC. */
 export interface WorktreeToolCapability {
-  readonly archive: (params: {
-    readonly force?: boolean;
-    readonly worktreeId: string;
-  }) => Promise<GitResult<WorktreeArchiveResult>>;
-  readonly create: (params: {
-    readonly baseRef: string;
-    readonly branch: string;
-    readonly name: string;
-    readonly rootId: string;
-  }) => Promise<GitResult<WorktreeCreateResult>>;
-  readonly list: () => Promise<GitResult<readonly WorktreeListEntry[]>>;
+  readonly archive: (
+    params: WorktreeArchiveParams
+  ) => Promise<GitResult<WorktreeToolArchiveResult>>;
+  readonly create: (params: WorktreeCreateParams) => Promise<GitResult<WorktreeToolCreateResult>>;
+  readonly list: () => Promise<GitResult<readonly WorktreeToolListEntry[]>>;
 }
 
 export interface ListedWorktree {
@@ -82,12 +114,12 @@ export type ManageWorktreeToolResult =
 
 function requireCapability(capability: WorktreeToolCapability | undefined): WorktreeToolCapability {
   if (!capability) {
-    throw new Error(UNAVAILABLE);
+    throw new Error(WORKTREE_TOOLS_UNAVAILABLE);
   }
   return capability;
 }
 
-function project(entry: WorktreeListEntry): ListedWorktree {
+function project(entry: WorktreeToolListEntry): ListedWorktree {
   return {
     branch: entry.branch,
     detached: entry.detached,

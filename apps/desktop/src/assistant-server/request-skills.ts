@@ -17,9 +17,11 @@
 
 import type {
   RuntimeData,
+  ScannedSkill,
   ScannedWorkspaceSkills,
   SkillContentDeps,
   SkillScanDeps,
+  SkillScanResult,
   SkillScanRoot,
 } from '@brainstrike/agent';
 import { createScannedWorkspaceSkills, MAX_SKILL_FILE_BYTES, scanSkills } from '@brainstrike/agent';
@@ -73,15 +75,20 @@ export interface PreparedRequestSkills {
   readonly workspaceSkills?: ScannedWorkspaceSkills;
 }
 
-/** Resolve the per-request skills engine from runtime data + preference. */
-export function prepareRequestSkills(params: PrepareRequestSkillsParams): PreparedRequestSkills {
+interface RequestSkillSet {
+  readonly isEnabled: (skill: ScannedSkill) => boolean;
+  readonly scan: () => SkillScanResult;
+}
+
+/** The request's skill scan and enabled filter, or undefined when skills are off. */
+function requestSkillSet(params: PrepareRequestSkillsParams): RequestSkillSet | undefined {
   const { fs, homedir, runtimeData } = params;
   if (runtimeData?.provider === 'local') {
-    return {};
+    return;
   }
   const preference = readSkillsPreference(runtimeData?.skillsPreference);
   if (!preference.masterEnabled) {
-    return {};
+    return;
   }
   const disabledKeys = new Set(preference.disabledSkillKeys);
   const roots: SkillScanRoot[] = (runtimeData?.workspaceRoots ?? [])
@@ -95,10 +102,54 @@ export function prepareRequestSkills(params: PrepareRequestSkillsParams): Prepar
     listDir: fs.listDir,
     readFile: (absFile) => fs.readFileText(absFile, MAX_SKILL_FILE_BYTES),
   };
-  const workspaceSkills = createScannedWorkspaceSkills({
-    deps: fs,
+  return {
     isEnabled: (skill) => !disabledKeys.has(skill.preferenceKey),
     scan: () => scanSkills({ homeDir, roots }, scanDeps),
+  };
+}
+
+/** Resolve the per-request skills engine from runtime data + preference. */
+export function prepareRequestSkills(params: PrepareRequestSkillsParams): PreparedRequestSkills {
+  const set = requestSkillSet(params);
+  return set ? { workspaceSkills: createScannedWorkspaceSkills({ deps: params.fs, ...set }) } : {};
+}
+
+export interface PreparedAdmittedSkills extends PreparedRequestSkills {
+  /** The enabled skills of the run's one scan, admitted to the desktop agent host. */
+  readonly skills?: readonly ScannedSkill[];
+}
+
+/**
+ * One scan for a host run: Main's prompt engine reads it, and its enabled
+ * skills (paths, frontmatter and SKILL.md instructions) are what the agent
+ * host's skill tools may activate.
+ */
+export function prepareAdmittedSkills(params: PrepareRequestSkillsParams): PreparedAdmittedSkills {
+  const set = requestSkillSet(params);
+  if (!set) {
+    return {};
+  }
+  const scanned = set.scan();
+  return {
+    skills: scanned.skills.filter(set.isEnabled),
+    workspaceSkills: createScannedWorkspaceSkills({
+      deps: params.fs,
+      isEnabled: set.isEnabled,
+      scan: () => scanned,
+    }),
+  };
+}
+
+/**
+ * The agent host's engine over the admitted skills: it never scans; it reads
+ * their references, scripts and assets through its own secure fs.
+ */
+export function admittedWorkspaceSkills(
+  skills: readonly ScannedSkill[],
+  fs: SkillContentDeps
+): ScannedWorkspaceSkills {
+  return createScannedWorkspaceSkills({
+    deps: fs,
+    scan: () => ({ entries: skills.map((skill) => ({ skill, status: 'ok' as const })), skills }),
   });
-  return { workspaceSkills };
 }
