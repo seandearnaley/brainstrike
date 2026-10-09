@@ -170,7 +170,13 @@ function HostThread({
               <CommittedAssistantConversation
                 {...presentation}
                 agentColor={agentColor}
-                approvalStrip={<HostApprovalStrip client={client} tree={conversation.approvals} />}
+                approvalStrip={
+                  <HostApprovalStrip
+                    client={client}
+                    self={child ? label : undefined}
+                    tree={conversation.approvals}
+                  />
+                }
                 commands={conversation.commands}
                 label={label}
                 onRunningChange={onRunningChange}
