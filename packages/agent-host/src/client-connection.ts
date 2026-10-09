@@ -1,5 +1,5 @@
 import type { HostAttachment, HostRecord } from '@brainstrike/host-lease';
-import type { MessageConnection } from 'vscode-jsonrpc';
+import { CancellationTokenSource, type MessageConnection } from 'vscode-jsonrpc';
 import {
   AGENT_HOST_PROTOCOL_VERSION,
   HOST_CHILDREN_CHANGED,
@@ -17,7 +17,12 @@ export interface HostClient extends HostAttachment {
   /** BST-1932: told the thread whose children changed status; re-read `thread/children`. */
   onChildrenChanged(listener: (threadId: string) => void): () => void;
   onEvent(listener: (row: HostLogRow) => void): () => void;
-  request<M extends HostMethod>(method: M, params: HostParams<M>): Promise<HostResults[M]>;
+  /** An abort sends the request's JSON-RPC cancellation; the host settles it. */
+  request<M extends HostMethod>(
+    method: M,
+    params: HostParams<M>,
+    signal?: AbortSignal
+  ): Promise<HostResults[M]>;
 }
 /** Browser-safe connection; the private lease record comes from the owning launcher. */
 export async function authenticateHostClient(
@@ -100,10 +105,27 @@ export async function authenticateHostClient(
     record,
     request: async <M extends HostMethod>(
       method: M,
-      params: HostParams<M>
-    ): Promise<HostResults[M]> =>
-      HOST_RESULT_SCHEMAS[method].parse(
-        await connection.sendRequest(method, parseHostParams(method, params))
-      ) as HostResults[M],
+      params: HostParams<M>,
+      signal?: AbortSignal
+    ): Promise<HostResults[M]> => {
+      const parsed = parseHostParams(method, params);
+      if (!signal) {
+        return HOST_RESULT_SCHEMAS[method].parse(
+          await connection.sendRequest(method, parsed)
+        ) as HostResults[M];
+      }
+      signal.throwIfAborted();
+      const cancellation = new CancellationTokenSource();
+      const cancel = (): void => cancellation.cancel();
+      signal.addEventListener('abort', cancel, { once: true });
+      try {
+        return HOST_RESULT_SCHEMAS[method].parse(
+          await connection.sendRequest(method, parsed, cancellation.token)
+        ) as HostResults[M];
+      } finally {
+        signal.removeEventListener('abort', cancel);
+        cancellation.dispose();
+      }
+    },
   };
 }
