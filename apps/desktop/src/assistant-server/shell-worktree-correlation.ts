@@ -19,7 +19,7 @@
  */
 import { scanShellCommandForGitSignals } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
-import type { GitResult } from '@brainstrike/types';
+import type { GitResult, ManagedWorktreeRow } from '@brainstrike/types';
 import type { WorktreeShellReconcileResult } from './worktree-adopt';
 
 const logger = createLogger('ShellWorktreeCorrelation');
@@ -32,35 +32,45 @@ export interface ShellCorrelationCapability {
   }) => void;
 }
 
+/** The correlation's outcome: the worktrees the ledger adopted from this command. */
+export interface ShellWorktreeCorrelation extends ShellCorrelationCapability {
+  /** Never rejects: a refused or failed reconcile is logged and adopts nothing. */
+  readonly onCommandCompleted: (
+    input: Parameters<ShellCorrelationCapability['onCommandCompleted']>[0]
+  ) => Promise<readonly ManagedWorktreeRow[]>;
+}
+
 export function createShellCorrelation(deps: {
   readonly forgeRefresh: (rootId: string) => void;
   readonly reconcile: (
     rootId: string,
     precedingWorktreePaths: ReadonlySet<string> | undefined
   ) => Promise<GitResult<WorktreeShellReconcileResult>>;
-}): ShellCorrelationCapability {
+}): ShellWorktreeCorrelation {
   return {
     onCommandCompleted: ({ command, precedingWorktreePaths, rootId }) => {
       const signals = scanShellCommandForGitSignals(command);
-      if (signals.touchedWorktrees) {
-        void deps
-          .reconcile(rootId, precedingWorktreePaths)
-          .then((result) => {
-            if (result.ok) {
-              logger.info('shell worktree reconcile completed', {
-                adopted: result.value.adopted.length,
-                likelyMoves: result.value.likelyMoves.length,
-                rootId,
-                vanished: result.value.vanishedLedgerIds.length,
-              });
-              return;
-            }
-            logger.warn('shell worktree reconcile refused', { reason: result.error, rootId });
-          })
-          .catch((error: unknown) => {
-            logger.error('shell worktree reconcile threw', { error, rootId });
-          });
-      }
+      const adopted = signals.touchedWorktrees
+        ? deps
+            .reconcile(rootId, precedingWorktreePaths)
+            .then((result): readonly ManagedWorktreeRow[] => {
+              if (result.ok) {
+                logger.info('shell worktree reconcile completed', {
+                  adopted: result.value.adopted.length,
+                  likelyMoves: result.value.likelyMoves.length,
+                  rootId,
+                  vanished: result.value.vanishedLedgerIds.length,
+                });
+                return result.value.adopted;
+              }
+              logger.warn('shell worktree reconcile refused', { reason: result.error, rootId });
+              return [];
+            })
+            .catch((error: unknown): readonly ManagedWorktreeRow[] => {
+              logger.error('shell worktree reconcile threw', { error, rootId });
+              return [];
+            })
+        : Promise.resolve([]);
       if (signals.createdPullRequest) {
         try {
           deps.forgeRefresh(rootId);
@@ -68,6 +78,7 @@ export function createShellCorrelation(deps: {
           logger.error('shell forge refresh threw', { error, rootId });
         }
       }
+      return adopted;
     },
   };
 }

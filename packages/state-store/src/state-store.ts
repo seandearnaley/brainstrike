@@ -32,15 +32,25 @@ import {
   type Mode,
   type Unreadable,
 } from './event-schema.js';
-import { type LockOptions, RootLock } from './lock.js';
+import { RootLock } from './lock.js';
 import type { McpTaskDomainReply, McpTaskDomainRequest } from './mcp-task-types.js';
 import type { MemoryDomainPort, MemoryDomainRequest, MemorySnapshot } from './memory-types.js';
 import { blobsOf, TOMBSTONE_BODY, withSeq } from './run-log-format.mjs';
 import type { AppendItem, BlobContent, LogRow, RunEvent, ThreadStatus } from './run-log-types.js';
 import { openRo, vacuumInto } from './sqlite.js';
-import { CheckpointBlockedError } from './sqlite-checkpoint.mjs';
 import { readAll, SqliteReader } from './sqlite-reader.js';
+import type {
+  ExportedThread,
+  HydrationThread,
+  IndexerPort,
+  Manifest,
+  PurgeReport,
+  StateStoreOptions,
+  StoreSettings,
+  SyncSpan,
+} from './state-store-types.js';
 import { assertNotSyncedRoot } from './sync-roots.js';
+import { errorOf, logRowOf, type WorkerRow } from './worker-reply.js';
 
 export const STATE_DB = 'state.db';
 export const BLOBS_DIR = 'blobs';
@@ -53,6 +63,20 @@ export const STORE_ENTRIES: readonly string[] = [
 ];
 
 /** Text of this size or more is stored as a content-addressed blob; the event keeps a preview and the hash. */
+export type {
+  CheckpointRow,
+  ExportedThread,
+  HydrationThread,
+  IndexerPort,
+  Manifest,
+  PurgeReport,
+  StateStoreHooks,
+  StateStoreOptions,
+  StoreSettings,
+  SyncSpan,
+  WriteSpan,
+} from './state-store-types.js';
+
 export const BLOB_MIN_BYTES = 12 * 1024;
 export const PREVIEW_CHARS = 2048;
 
@@ -82,25 +106,6 @@ export function largeText(output: string): {
   };
 }
 
-/**
- * The indexer's side of purge and thread delete (M0-A2 src/indexer-client.ts requests). The derived store re-derives a
- * purged event and owns the blob reference counts; its one serial queue orders a purge's re-index after any pass that
- * read the old event.
- */
-export interface IndexerPort {
-  catchUp(threads: readonly string[]): Promise<void>;
-  /** Drop everything derived from the thread; returns the blob hashes it referenced. */
-  dropThread(threadId: string): Promise<readonly string[]>;
-  /** Reference counts of `hashes` after catching up with every thread in `threads`. */
-  gcCheck(
-    threads: readonly string[],
-    hashes: readonly string[]
-  ): Promise<Readonly<Record<string, number>>>;
-  reindex(threadId: string, seq: number): Promise<void>;
-  /** Close every handle the indexer holds on the data root (factory reset). */
-  reset(): Promise<void>;
-}
-
 /** Trusted host composition after writer readiness, before interrupted purge replay. */
 export interface StateStoreStartupOwner {
   acquire(store: StateStore): Promise<IndexerPort | undefined>;
@@ -116,86 +121,6 @@ export class StateStoreStartupError extends AggregateError {
   ) {
     super(causes, 'State startup cleanup failed; durable root ownership is retained');
   }
-}
-
-export interface StateStoreHooks {
-  readonly exportAfterSnapshot?: () => Promise<void>;
-  readonly exportBeforeBlobs?: () => Promise<void>;
-  readonly purgeAfterTruth?: () => void;
-}
-
-export interface CheckpointRow {
-  readonly busy: number;
-  readonly checkpointed: number;
-  readonly log: number;
-}
-
-export interface WriteSpan {
-  /** uv_hrtime clock (ms), worker side: one NORMAL commit. */
-  readonly t0: number;
-  readonly t1: number;
-}
-
-export interface SyncSpan extends WriteSpan {
-  readonly checkpoint: { readonly before: CheckpointRow; readonly after: CheckpointRow } | null;
-  readonly kind: 'FULL commit' | 'checkpoint(PASSIVE)+FULL commit';
-  readonly thread: string;
-}
-
-export interface StateStoreOptions extends LockOptions {
-  /** busy_timeout of the writer, which bounds how long a purge waits on a reader pinning the WAL. Default 5000. */
-  readonly busyTimeoutMs?: number;
-  /** WAL frames at which a step boundary checkpoints (PASSIVE) first. Default 1000, SQLite's autocheckpoint size. */
-  readonly checkpointPages?: number;
-  /** Crash-test seam: SIGKILL this process inside the purge transaction. */
-  readonly crashTestHooks?: { readonly purgeInTxn?: 'sigkill' };
-  /** F_FULLFSYNC syncs. Default: on macOS. */
-  readonly fullfsync?: boolean;
-  /** Home directory for the synced-root rule (tests point it at a fake home). */
-  readonly home?: string;
-  readonly hooks?: StateStoreHooks;
-  /** Required by purge, thread delete and the replay of an interrupted purge. */
-  readonly indexer?: IndexerPort;
-  /** Trusted host composition only; never supplied in a client memory request. */
-  readonly memoryCalculatorModule?: string;
-  readonly onSyncSpan?: (span: SyncSpan) => void;
-  readonly onWriteSpan?: (span: WriteSpan) => void;
-  readonly startup?: StateStoreStartupOwner;
-  /** 'sqlite-auto' is the kernel-sync probe's negative control only: it checkpoints inside streaming commits. */
-  readonly walCheckpoint?: 'boundary' | 'sqlite-auto';
-}
-
-export interface StoreSettings {
-  readonly fullfsync: number;
-  readonly journalMode: string;
-  readonly secureDelete: number;
-  readonly sqliteVersion: string;
-  readonly synchronous: number;
-  readonly walAutocheckpoint: number;
-}
-
-export interface PurgeReport {
-  readonly blobsDeleted: readonly string[];
-  readonly derivedMs: number;
-  readonly gcMs: number;
-  readonly ms: number;
-  readonly truthMs: number;
-}
-
-export interface ExportedThread {
-  readonly threadId: string;
-  readonly watermark: number;
-}
-
-export interface Manifest {
-  readonly files: ReadonlyArray<{
-    readonly path: string;
-    readonly bytes: number;
-    readonly sha256: string;
-  }>;
-  readonly format: 1;
-  readonly sourceHost: string;
-  readonly threads: readonly ExportedThread[];
 }
 
 type Reply = Readonly<Record<string, unknown>> & {
@@ -217,20 +142,6 @@ interface Ready {
 
 const runIdOf = (e: RunEvent): string | null =>
   typeof e['runId'] === 'string' ? e['runId'] : null;
-
-function errorOf(r: Readonly<Record<string, unknown>>): Error {
-  const message = String(r['error']);
-  switch (r['errorKind']) {
-    case 'readonly':
-      return new ThreadReadOnlyError(String(r['threadId']), message);
-    case 'damaged':
-      return new ThreadDamagedError(String(r['threadId']), Number(r['atSeq']), String(r['detail']));
-    case 'checkpoint-blocked':
-      return new CheckpointBlockedError(message);
-    default:
-      return new Error(message);
-  }
-}
 
 function waitReady(worker: Worker): Promise<Ready> {
   return new Promise((resolve, reject) => {
@@ -345,7 +256,8 @@ export class StateStore implements MemoryDomainPort {
   private closeTask: Promise<void> | undefined;
   private closing = false;
   private failed: unknown = null;
-  private exportsInFlight = 0;
+  /** Exports in flight plus holdBlobGc holders: while any holds, unreferenced blobs wait in deferredGc. */
+  private gcHolds = 0;
 
   private constructor(
     root: string,
@@ -506,6 +418,7 @@ export class StateStore implements MemoryDomainPort {
       runIdOf(it.event),
       bodies[i],
       it.rawCount ?? null,
+      it.hydrate === false ? 0 : 1,
     ]);
     return this.run(async () => {
       for (const it of items) {
@@ -585,17 +498,37 @@ export class StateStore implements MemoryDomainPort {
     if (r['damage']) {
       throw errorOf(r['damage'] as Readonly<Record<string, unknown>>);
     }
-    return (
-      r['rows'] as Array<{ seq: number; payload: string; rawCount: number | null; ts: number }>
-    ).map((x) => {
-      const row = {
-        event: JSON.parse(x.payload) as RunEvent,
-        raw: x.payload,
-        seq: x.seq,
+    return (r['rows'] as WorkerRow[]).map((x) => logRowOf(threadId, x));
+  }
+
+  /**
+   * Every thread with its catalog times and the rows a hydrating reader folds, in one writer round trip: the verified
+   * rows not appended with `hydrate: false`, up to the thread's damage, which is returned rather than thrown so one
+   * damaged thread never fails the read.
+   */
+  async readHydration(): Promise<HydrationThread[]> {
+    const threads = (await this.call({ op: 'readHydration' }))['threads'] as Array<{
+      createdAt: number;
+      damage: Readonly<Record<string, unknown>> | null;
+      rows: WorkerRow[];
+      threadId: string;
+      updatedAt: number;
+    }>;
+    return threads.map(({ createdAt, damage, rows, threadId, updatedAt }) => {
+      const thread = {
+        createdAt,
+        rows: rows.map((x) => logRowOf(threadId, x)),
         threadId,
-        ts: x.ts,
+        updatedAt,
       };
-      return x.rawCount === null ? row : { ...row, rawCount: x.rawCount };
+      if (!damage) {
+        return thread;
+      }
+      const error = errorOf(damage);
+      if (!(error instanceof ThreadDamagedError)) {
+        throw error;
+      }
+      return { ...thread, damage: error };
     });
   }
 
@@ -646,6 +579,32 @@ export class StateStore implements MemoryDomainPort {
 
   async threads(): Promise<string[]> {
     return (await this.call({ op: 'threads' }))['threads'] as string[];
+  }
+
+  /**
+   * Defers blob unlinking until the returned release runs (each release counts once). A reader that holds threads it
+   * could not fold, whose blob references no count sees, holds collection while they exist.
+   */
+  holdBlobGc(): () => Promise<void> {
+    this.gcHolds++;
+    let released = false;
+    return async () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      await this.releaseGcHold();
+    };
+  }
+
+  private async releaseGcHold(): Promise<void> {
+    this.gcHolds--;
+    if (this.gcHolds === 0 && this.deferredGc.size > 0) {
+      const pending = [...this.deferredGc];
+      this.deferredGc.clear();
+      const indexer = this.requireIndexer('blob GC');
+      await this.run(() => this.gc(indexer, pending));
+    }
   }
 
   /** Threads whose every row verified (purge GC and catch-up read only these). */
@@ -780,21 +739,25 @@ export class StateStore implements MemoryDomainPort {
     if (hashes.length === 0) {
       return [];
     }
+    // Held: the counts are taken at release. A holder may hold threads the indexer cannot yet read.
+    if (this.gcHolds > 0) {
+      for (const h of hashes) {
+        this.deferredGc.add(h);
+      }
+      return [];
+    }
     const counts = await indexer.gcCheck(await this.okThreads(), hashes);
+    // A damaged thread is outside the verified count, yet its rows still name blobs (RunLog.damagedBlobRefs).
+    const held = new Set((await this.call({ op: 'damagedBlobRefs' }))['hashes'] as string[]);
     const unlink: string[] = [];
     for (const h of hashes) {
       const count = counts[h];
       if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) {
         throw new Error(`indexer returned an invalid reference count for blob ${h}`);
       }
-      if (count !== 0) {
-        continue;
+      if (count === 0 && !held.has(h)) {
+        unlink.push(h);
       }
-      if (this.exportsInFlight > 0) {
-        this.deferredGc.add(h);
-        continue;
-      }
-      unlink.push(h);
     }
     if (unlink.length === 0) {
       return [];
@@ -805,8 +768,12 @@ export class StateStore implements MemoryDomainPort {
   async deleteThread(threadId: string): Promise<string[]> {
     const indexer = this.requireIndexer('thread delete');
     return this.run(async () => {
-      await indexer.catchUp(await this.okThreads());
-      const hashes = [...new Set((await this.read(threadId)).flatMap((row) => blobsOf(row.raw)))];
+      // A held collection counts at release, so nothing needs the indexer current now.
+      if (this.gcHolds === 0) {
+        await indexer.catchUp(await this.okThreads());
+      }
+      // Stored references, verified or not: a thread whose rows failed verification still deletes.
+      const hashes = (await this.call({ op: 'storedBlobRefs', threadId }))['hashes'] as string[];
       const intent = await this.call({
         hashes: JSON.stringify(hashes),
         op: 'intentRecord',
@@ -846,7 +813,7 @@ export class StateStore implements MemoryDomainPort {
       throw new Error(`export: ${bundleDir} already exists`);
     }
     mkdirSync(bundleDir, { recursive: true });
-    this.exportsInFlight++;
+    this.gcHolds++;
     try {
       await this.run(() => undefined); // the snapshot is not older than any write issued before this call
       await this.options.hooks?.exportAfterSnapshot?.();
@@ -877,13 +844,7 @@ export class StateStore implements MemoryDomainPort {
       writeFileSync(join(bundleDir, 'manifest.json'), JSON.stringify(m, null, 1));
       return m;
     } finally {
-      this.exportsInFlight--;
-      if (this.exportsInFlight === 0 && this.deferredGc.size > 0) {
-        const pending = [...this.deferredGc];
-        this.deferredGc.clear();
-        const indexer = this.requireIndexer('blob GC');
-        await this.run(() => this.gc(indexer, pending));
-      }
+      await this.releaseGcHold();
     }
   }
 

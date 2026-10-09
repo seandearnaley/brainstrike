@@ -1,12 +1,15 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import { foldHostEditCheckpoints } from '@brainstrike/agent-host/edit-checkpoint-view';
 import type { HostEditRevertOutcome, HostLogRow } from '@brainstrike/agent-host/protocol';
-import type { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
+import { type CommittedThreadSession, foldHostRuns } from '@brainstrike/agent-host/thread-view';
 import type {
   AssistantCheckpointRevertResult,
   AssistantEditCheckpointRecord,
 } from '@brainstrike/assistant-contract';
 import type { EditCheckpointContextValue } from '@brainstrike/assistant-ui';
+
+/** Core refuses a revert while the thread has a run that has not finished. */
+const ACTIVE_RUN_REFUSAL = 'Edits can be reverted once the current run finishes.';
 
 function revertResult(
   entry: AssistantEditCheckpointRecord,
@@ -37,8 +40,8 @@ export class CommittedHostCheckpoints {
   private value: EditCheckpointContextValue | undefined;
 
   constructor(
-    private readonly client: HostClient,
-    private readonly source: CommittedThreadSession,
+    private readonly client: Pick<HostClient, 'request'>,
+    private readonly source: Pick<CommittedThreadSession, 'getSnapshot' | 'subscribe'>,
     private readonly threadId: string
   ) {}
 
@@ -86,6 +89,9 @@ export class CommittedHostCheckpoints {
           outcomes.find((outcome) => outcome.entryId === id)
         );
       },
+      revertRefusal: foldHostRuns(rows).some((run) => run.status === 'running')
+        ? ACTIVE_RUN_REFUSAL
+        : null,
       revertRun: async (runId, options) => {
         const { outcomes } = await revert(runId, options?.force);
         return {

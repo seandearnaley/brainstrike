@@ -82,8 +82,12 @@ export class HookManager {
         path: error.path,
         scope: error.scope,
       });
+      const remedy =
+        error.reason === 'untrusted' || error.reason === 'changed'
+          ? ' — review it in Settings > Hooks'
+          : '';
       this.ctx.emitRunEvent?.({
-        detail: `${error.path}: ${error.message}`,
+        detail: `${error.path}: ${error.message}${remedy}`,
         kind: 'hook.notice',
         label: 'Hook config disabled',
         status: 'failed',

@@ -1,5 +1,6 @@
 import {
   isProviderCredential,
+  McpAppOriginSchema,
   type OpenRouterModelMetadataSnapshot,
   type ProviderCredential,
   type ProviderVerificationSnapshot,
@@ -7,16 +8,13 @@ import {
   parseProviderVerificationSnapshot,
   TOOL_RISK_CATEGORIES,
 } from '@brainstrike/assistant-contract';
-import {
-  ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE,
-  SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES,
-} from '@brainstrike/assistant-contract/assistant-attachments';
+import { ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE } from '@brainstrike/assistant-contract/assistant-attachments';
 import { McpTaskHandleSchema } from '@brainstrike/assistant-contract/mcp-task-presentation';
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { z } from 'zod';
 import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
-import { HostLedgerThreadSchema } from './ledger-wire.js';
+import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.js';
 import { MCP_CONTENT_METHOD_SCHEMAS, MCP_CONTENT_RESULT_SCHEMAS } from './protocol-mcp-content.js';
 import {
   MCP_PRESENTATION_METHOD_SCHEMAS,
@@ -26,10 +24,30 @@ import {
   MCP_SETTINGS_METHOD_SCHEMAS,
   MCP_SETTINGS_RESULT_SCHEMAS,
 } from './protocol-mcp-settings.js';
+import {
+  REWIND_EVENT_SCHEMAS,
+  REWIND_METHOD_SCHEMAS,
+  REWIND_RESULT_SCHEMAS,
+} from './protocol-rewind.js';
+import { SEARCH_METHOD_SCHEMAS, SEARCH_RESULT_SCHEMAS } from './protocol-search.js';
+import { HostHookSkipSchema, HostImageAttachmentSchema } from './run-wire.js';
+import {
+  HostEditBaselineSchema,
+  HostEditRevertOutcomeSchema,
+  HostFileIdentitySchema,
+  HostTurnSnapshotSchema,
+  HostWorkspaceEditOpSchema,
+  Sha256,
+  WorkspaceRelativePath,
+} from './workspace-wire.js';
 
 export * from './protocol-mcp-content.js';
 export * from './protocol-mcp-presentation.js';
 export * from './protocol-mcp-settings.js';
+export * from './protocol-rewind.js';
+export * from './protocol-search.js';
+export * from './run-wire.js';
+export * from './workspace-wire.js';
 
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
 // and the explicit branch links they commit on `run.started`), thread
@@ -53,22 +71,42 @@ export * from './protocol-mcp-settings.js';
 // `interaction.requested` of kind `network`, answered by `interaction/resume`
 // with `{ action }` and, when the policy also asked, an approval grant), a
 // run's turn snapshots for its Changes review (`workspace.snapshot.recorded`),
-// `ledger/read` (every thread's runs and costed provider calls, as Core folds
+// restore to before a message (`thread/rewind/preview`, `thread/rewind`,
+// `thread/rewind/redo`; `thread.rewind.started`, `thread.rewound`,
+// `thread.rewind.redo.started`, `thread.rewind.redone`,
+// `thread.rewind.interrupted`), the hook files a run did not load
+// (`hooks.skipped`), `ledger/read` (every thread's runs and costed provider calls, as Core folds
 // them), the threads `thread/delete` deleted (`threadIds`), and the desktop's
 // MCP settings (`mcp/config/*`, `mcp/extensions/*`, `mcp/tools/*`,
 // `mcp/settings/subscribe` and its `mcp/settings/event`) with server status and
 // control (`mcp/status/read`, `mcp/server/control`, the event's `status`
 // variant), and its MCP presentations (`mcp/tasks/list`, `mcp/tasks/act`,
 // `mcp/elicitation/settle`, `mcp/presentation/subscribe` and its
-// `mcp/presentation/event`) and content browsing (`mcp/content/complete`,
-// `mcp/content/prompt`, `mcp/content/read`). These additions are optional fields, new variants
-// and new methods, so a v11 reader that uses none of them sees nothing new.
+// `mcp/presentation/event`), content browsing (`mcp/content/complete`,
+// `mcp/content/prompt`, `mcp/content/read`), an MCP App's own tool calls
+// (`mcp/app/admit`, `mcp/app/call`), which Core decides under the owning
+// thread's policy, and `worktree.created` (a worktree a call's shell command
+// made, which the desktop adopted). These additions are optional fields, new
+// variants and new methods, so a v11 reader that uses none of them sees
+// nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
 const Id = z.string().min(1);
+/**
+ * A user message's text: empty only beside its images (an image sent alone,
+ * as the composer allows), never a message of nothing.
+ */
+const Prompt = z.string();
+const hasMessage = (message: {
+  readonly attachments?: readonly unknown[] | undefined;
+  readonly prompt: string;
+}): boolean => message.prompt.length > 0 || (message.attachments?.length ?? 0) > 0;
+const NO_MESSAGE = { message: 'A message needs text or an image', path: ['prompt'] };
 const Command = { commandId: Id };
 const Thread = { threadId: Id };
+/** A time the state store recorded, in ms since the epoch. */
+const StoredTime = z.number().int().nonnegative();
 /** A committed thread title: trimmed, never blank. */
 const ThreadTitle = z.string().trim().min(1);
 /** A thread's committed presentation; each field is optional and set independently. */
@@ -104,6 +142,13 @@ export const HostNetworkConsentSchema = z.strictObject({ action: z.enum(['allow'
 const RunVerdict = z.enum(['failed', 'mixed', 'succeeded']);
 const RunVerdictDetail = z.string().max(2000);
 const McpInput = { ...Run, interactionId: Id };
+/** An MCP App's own tool call: the app a committed tool result of the thread mounted. */
+const McpAppCall = {
+  ...Thread,
+  app: McpAppOriginSchema,
+  arguments: z.record(z.string(), z.json()),
+  toolName: Id,
+};
 export const HostMcpInputStatusSchema = z.enum([
   'requested',
   'accepted',
@@ -117,85 +162,6 @@ const McpContent = z.record(
   z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])
 );
 const Seq = z.number().int().nonnegative();
-const Sha256 = z.string().regex(/^[a-f0-9]{64}$/u);
-/** Root-relative POSIX path: no leading slash, no empty, `.` or `..` segment. */
-const WorkspaceRelativePath = z
-  .string()
-  .min(1)
-  .refine(
-    (value) =>
-      !value.startsWith('/') &&
-      value.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..'),
-    'Expected a normalized root-relative path'
-  );
-export const HOST_WORKSPACE_EDIT_OPS = ['write', 'string_replace', 'delete', 'rename'] as const;
-export const HostWorkspaceEditOpSchema = z.enum(HOST_WORKSPACE_EDIT_OPS);
-export type HostEditOp = (typeof HOST_WORKSPACE_EDIT_OPS)[number];
-/** A file's observed identity; content is never part of the client-visible event. */
-const HostFileIdentitySchema = z.strictObject({
-  existed: z.boolean(),
-  hash: Sha256.nullable(),
-  size: z.number().int().nonnegative().nullable(),
-});
-/**
- * A path's state before the run first changed it. Content lives in a
- * content-addressed StateStore blob that this event references (`blobRefs`).
- */
-export const HostEditBaselineSchema = z.discriminatedUnion('kind', [
-  z.strictObject({ kind: z.literal('absent'), path: WorkspaceRelativePath }),
-  z.strictObject({
-    blob: Sha256,
-    bytes: z.number().int().nonnegative(),
-    encoding: z.enum(['utf8', 'base64']),
-    hash: Sha256,
-    kind: z.literal('content'),
-    mode: z.number().int().nonnegative(),
-    path: WorkspaceRelativePath,
-  }),
-  z.strictObject({
-    kind: z.literal('unavailable'),
-    path: WorkspaceRelativePath,
-    reason: z.enum(['too_large', 'symlink', 'not_a_file']),
-  }),
-]);
-export type HostEditBaseline = z.infer<typeof HostEditBaselineSchema>;
-export const HostEditRevertOutcomeSchema = z.discriminatedUnion('status', [
-  z.strictObject({ entryId: Id, status: z.literal('reverted') }),
-  z.strictObject({
-    entryId: Id,
-    reason: z.string().min(1),
-    status: z.enum(['conflict', 'not_revertible']),
-  }),
-]);
-export type HostEditRevertOutcome = z.infer<typeof HostEditRevertOutcomeSchema>;
-/** A workspace root as a turn's snapshot names it: its durable ID and absolute path. */
-export const HostTurnSnapshotRootSchema = z.strictObject({
-  rootId: Id,
-  rootPath: z.string().min(1),
-});
-export type HostTurnSnapshotRoot = z.infer<typeof HostTurnSnapshotRootSchema>;
-/**
- * One root's snapshot at a turn boundary: the platform's snapshot commit. The
- * null object ID records a capture that failed for this root, so the turn's
- * Changes review fails visibly rather than showing part of its changes.
- */
-export const HostTurnSnapshotSchema = z.strictObject({
-  ...HostTurnSnapshotRootSchema.shape,
-  commitOid: z.string().regex(/^[0-9a-f]{40,64}$/),
-});
-export type HostTurnSnapshot = z.infer<typeof HostTurnSnapshotSchema>;
-/**
- * An image on a user message, as the composer encodes it: a base64 data URL.
- * Core admits it against the shared attachment contract's caps.
- */
-export const HostImageAttachmentSchema = z.strictObject({
-  data: z.string().min(1),
-  mediaType: z.enum(SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES),
-  /** The attached file's name, shown with the image. */
-  name: z.string().min(1).max(255),
-  type: z.literal('image'),
-});
-export type HostImageAttachment = z.infer<typeof HostImageAttachmentSchema>;
 const Attachments = z
   .array(HostImageAttachmentSchema)
   .min(1)
@@ -278,6 +244,19 @@ export type HostChildStatus = z.infer<typeof HostChildStatusSchema>;
  */
 export const HOST_CHILDREN_CHANGED = 'thread/children/changed';
 export const HostChildrenChangedSchema = z.strictObject(Thread);
+/**
+ * A running tool's live telemetry (a shell-output slice or MCP progress), sent
+ * to the thread's log subscribers and never committed (ADR-0011 amendment).
+ * The tool result that commits later owns the output; a reload shows no slices.
+ */
+export const HOST_RUN_TELEMETRY = 'run/telemetry';
+export const HostRunTelemetrySchema = z.strictObject({
+  ...Thread,
+  chunk: z.json(),
+  runId: Id,
+  toolCallId: Id,
+});
+export type HostRunTelemetry = z.infer<typeof HostRunTelemetrySchema>;
 /** One settled background invocation delivered to its parent (BST-1932). */
 export const HostChildDeliveryEntrySchema = z.strictObject({
   childRunId: Id,
@@ -445,6 +424,10 @@ export const HOST_METHOD_SCHEMAS = {
   'ledger/read': z.strictObject({}),
   'log/subscribe': z.strictObject({ ...Thread, fromSeq: Seq }),
   'log/unsubscribe': z.strictObject(Thread),
+  /** Core's decision on an app's call under the thread's live policy; nothing runs. */
+  'mcp/app/admit': z.strictObject(McpAppCall),
+  /** Decided afresh, an asked call runs only `approved`, on the app's own server. */
+  'mcp/app/call': z.strictObject({ ...McpAppCall, approved: z.boolean() }),
   'mcp/input/read': z.strictObject(McpInput),
   'mcp/input/settle': z.strictObject({
     ...Command,
@@ -462,15 +445,17 @@ export const HOST_METHOD_SCHEMAS = {
    * step in flight, and the input starts the child's next run under these run
    * settings; only that run's end reports to the parent.
    */
-  'run/input': z.strictObject({
-    ...Command,
-    ...Run,
-    attachments: Attachments.optional(),
-    configuration: z.record(z.string(), z.json()).optional(),
-    modelId: Id,
-    ...PlanMode,
-    prompt: Id,
-  }),
+  'run/input': z
+    .strictObject({
+      ...Command,
+      ...Run,
+      attachments: Attachments.optional(),
+      configuration: z.record(z.string(), z.json()).optional(),
+      modelId: Id,
+      ...PlanMode,
+      prompt: Prompt,
+    })
+    .refine(hasMessage, NO_MESSAGE),
   'run/regenerate': z.strictObject({
     ...Command,
     ...Thread,
@@ -480,18 +465,20 @@ export const HOST_METHOD_SCHEMAS = {
     /** The original committed user message: its run/start command ID. */
     userMessageId: Id,
   }),
-  'run/start': z.strictObject({
-    ...Command,
-    ...Thread,
-    /** Images on the new user message, beside its prompt. */
-    attachments: Attachments.optional(),
-    configuration: z.record(z.string(), z.json()).optional(),
-    modelId: Id,
-    /** A committed run ID to follow, null for the thread root; omitted is the current tip. */
-    parentMessageId: Id.nullable().optional(),
-    ...PlanMode,
-    prompt: Id,
-  }),
+  'run/start': z
+    .strictObject({
+      ...Command,
+      ...Thread,
+      /** Images on the new user message, beside its prompt. */
+      attachments: Attachments.optional(),
+      configuration: z.record(z.string(), z.json()).optional(),
+      modelId: Id,
+      /** A committed run ID to follow, null for the thread root; omitted is the current tip. */
+      parentMessageId: Id.nullable().optional(),
+      ...PlanMode,
+      prompt: Prompt,
+    })
+    .refine(hasMessage, NO_MESSAGE),
   /**
    * End the active run gracefully at its next step boundary, after the step in
    * flight, so the user's steering message can start the next turn (BST-588).
@@ -522,6 +509,8 @@ export const HOST_METHOD_SCHEMAS = {
     ...PlanMode,
   }),
   'thread/read': z.strictObject({ ...Thread, fromSeq: Seq }),
+  ...REWIND_METHOD_SCHEMAS,
+  ...SEARCH_METHOD_SCHEMAS,
   'thread/start': z.strictObject(Command),
   'thread/update': z
     .strictObject({ ...Command, ...Thread, ...ThreadPresentation })
@@ -643,7 +632,8 @@ export const HostEventSchema = z.union([
     parentMessageId: Id.nullable().optional(),
     parentRunId: Id.optional(),
     ...PlanMode,
-    prompt: Id,
+    /** Empty only for a user message of images alone (the run/start refinement). */
+    prompt: Prompt,
     snapshot: HostRunSnapshotSchema.optional(),
     /** Regenerate only: the existing committed user message this run answers again. */
     userMessageId: Id.optional(),
@@ -665,15 +655,11 @@ export const HostEventSchema = z.union([
     modelId: Id,
     usage: z.json(),
   }),
-  /**
-   * OM keeps one merged text per thread, so a branched thread's run receives
-   * none. Gap 17: the legacy profile's resource observations were not
-   * imported; that notice is committed once per root.
-   */
+  /** OM keeps one merged text per thread, so a branched thread's run receives none. */
   z.strictObject({
     type: z.literal('memory.observation.withheld'),
     ...RunFields,
-    reason: z.enum(['branched-thread', 'legacy-resource-observations']),
+    reason: z.literal('branched-thread'),
   }),
   z.strictObject({
     type: z.literal('provider.request.prepared'),
@@ -837,8 +823,28 @@ export const HostEventSchema = z.union([
     failure: z.string().min(1).optional(),
     roots: z.array(HostTurnSnapshotSchema),
   }),
+  ...REWIND_EVENT_SCHEMAS,
+  /** The hook files this run did not load, committed before any hook runs. */
+  z.strictObject({
+    type: z.literal('hooks.skipped'),
+    ...RunFields,
+    files: z.array(HostHookSkipSchema).min(1),
+  }),
   /** Committed with the approval that granted it; the run's later decisions include it. */
   z.strictObject({ type: z.literal('permission.granted'), ...RunFields, grant: PermissionGrant }),
+  /**
+   * A worktree this call's shell command made, which the desktop's worktree
+   * ledger adopted: the host observed it, it did not perform it.
+   */
+  z.strictObject({
+    type: z.literal('worktree.created'),
+    ...RunFields,
+    branch: z.string().min(1).nullable(),
+    path: z.string().min(1),
+    toolCallId: Id,
+    via: z.literal('shell'),
+    worktreeId: Id,
+  }),
   /**
    * Context a lifecycle hook added for the model: a UserPromptSubmit hook's
    * for its run's instructions, or a PostToolUse hook's for one tool result.
@@ -899,6 +905,11 @@ export const HOST_RESULT_SCHEMAS = {
   'ledger/read': z.strictObject({ threads: z.array(HostLedgerThreadSchema) }),
   'log/subscribe': z.strictObject({ rows: z.array(HostLogRowSchema) }),
   'log/unsubscribe': z.strictObject({ unsubscribed: z.literal(true) }),
+  'mcp/app/admit': z.strictObject({
+    decision: z.enum(['allow', 'ask']),
+    riskCategory: RiskCategory,
+  }),
+  'mcp/app/call': z.strictObject({ result: z.json() }),
   'mcp/input/read': z.strictObject({
     // Only a current private capability can supply this ephemeral presentation.
     presentation: z.json().optional(),
@@ -944,7 +955,20 @@ export const HOST_RESULT_SCHEMAS = {
   }),
   'thread/list': z.strictObject({
     // Presentation fields never committed are absent.
-    threads: z.array(z.strictObject({ ...Thread, ...ThreadPresentation })),
+    threads: z.array(
+      z.strictObject({
+        ...Thread,
+        ...ThreadPresentation,
+        binding: ThreadWorkspaceBindingSchema.nullable(),
+        /** The store's first and latest append to the thread, in ms since the epoch. */
+        createdAt: StoredTime,
+        /** Why the thread's history cannot be read; such a thread never runs, but still deletes. */
+        damage: z.string().min(1).optional(),
+        /** Absent before the thread's first root run. */
+        latestRun: HostLatestRunSchema.optional(),
+        updatedAt: StoredTime,
+      })
+    ),
   }),
   // Not ready: the reason `run/start` would fail with; the observation needs an admission.
   'thread/memory/read': z.union([
@@ -957,6 +981,8 @@ export const HOST_RESULT_SCHEMAS = {
     }),
   ]),
   'thread/read': z.strictObject({ rows: z.array(HostLogRowSchema) }),
+  ...REWIND_RESULT_SCHEMAS,
+  ...SEARCH_RESULT_SCHEMAS,
   'thread/start': z.strictObject(Thread),
   'thread/update': z.strictObject({ accepted: z.literal(true) }),
   'thread/workspace/binding/read': z.strictObject({

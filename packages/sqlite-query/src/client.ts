@@ -20,6 +20,14 @@ import {
   type SqliteRows,
   type SqliteValue,
 } from './protocol.js';
+import { SqliteRuntimeRefusedError } from './runtime-refusal.js';
+
+/** A startup failure rebuilt from the query process's reply; a runtime refusal keeps its type. */
+function startupError(reply: { readonly message: string; readonly name: string }): Error {
+  return reply.name === 'SqliteRuntimeRefusedError'
+    ? new SqliteRuntimeRefusedError(reply.message)
+    : new Error(reply.message);
+}
 
 export interface OpenSqliteQueryOptions {
   readonly databasePath: string;
@@ -92,7 +100,7 @@ export class SqliteQueryClient {
           if (response.kind === 'error') {
             const error =
               pending.kind === 'open'
-                ? new Error(response.message)
+                ? startupError(response)
                 : new SqliteQueryInputError(response.message, response.name);
             pending.reject(error);
             return;

@@ -8,9 +8,19 @@ import {
   decoder,
   IndexerError,
   type StateProjectionStats,
+  type StateSearchHit,
+  type StateSearchPendingRow,
+  type StateSearchRow,
+  type StateSearchSimilarHit,
+  type StateSearchVectorsResult,
   stateEventIdentitySchema,
   stateGcSchema,
   stateMatchSchema,
+  stateSearchHitSchema,
+  stateSearchPendingSchema,
+  stateSearchSchema,
+  stateSearchSimilarSchema,
+  stateSearchVectorBatchSchema,
   stateStatsSchema,
   stateThreadsSchema,
 } from './contracts.js';
@@ -18,12 +28,27 @@ import { INDEX_SCHEMA_VERSION, type IndexSchemaVersion } from './index-metadata.
 import { StateMessageVectors } from './state-message-vectors.js';
 import { StateObservationVectors } from './state-observation-vectors.js';
 import type { StateProjection } from './state-projection.js';
+import { StateSearchVectors } from './state-search-vectors.js';
 
 const count = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 const decodeCount = decoder(count);
 const stateSourceColumns =
   'singleton INTEGER PRIMARY KEY CHECK(singleton=1),root TEXT,projection_identity TEXT';
 const stateSourceDefinition = `CREATE TABLE state_index_source(${stateSourceColumns},resource_grants TEXT NOT NULL)`;
+/** Gap 10: one searchable conversation row per committed event, with its own FTS. */
+const searchDefinition = `
+  CREATE TABLE state_search_rows(event_pk INTEGER PRIMARY KEY REFERENCES state_event_rows(pk) ON DELETE CASCADE,thread_id TEXT NOT NULL,seq INTEGER NOT NULL CHECK(seq>0),run_id TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('user','assistant')),text TEXT NOT NULL);
+  CREATE INDEX state_search_thread ON state_search_rows(thread_id,seq);
+  CREATE VIRTUAL TABLE state_search_fts USING fts5(text,content='state_search_rows',content_rowid='event_pk',tokenize='porter unicode61');
+  CREATE TRIGGER state_search_insert AFTER INSERT ON state_search_rows BEGIN
+    INSERT INTO state_search_fts(rowid,text) VALUES(new.event_pk,new.text);
+  END;
+  CREATE TRIGGER state_search_delete AFTER DELETE ON state_search_rows BEGIN
+    INSERT INTO state_search_fts(state_search_fts,rowid,text) VALUES('delete',old.event_pk,old.text);
+  END;
+  INSERT INTO state_search_fts(state_search_fts,rank) VALUES('secure-delete',1);
+`;
+const quote = (text: string): string => `"${text.replaceAll('"', '""')}"`;
 // Normalize only SQL whitespace; quoted constraint/default literals retain their exact bytes.
 const normalizedDefinition = (sql: string): string =>
   sql.replace(/'(?:''|[^'])*'|\s+/gu, (token) => (token.startsWith("'") ? token : ' ')).trim();
@@ -64,6 +89,8 @@ export class StateEventStore {
         INSERT INTO state_events_fts(rowid,content) VALUES(new.pk,new.content);
       END;
       INSERT INTO state_events_fts(state_events_fts,rank) VALUES('secure-delete',1);
+      ${searchDefinition}
+      ${StateSearchVectors.definition}
     `);
     StateMessageVectors.initialize(db);
     StateObservationVectors.initialize(db);
@@ -121,8 +148,12 @@ export class StateEventStore {
       ['state_message_profiles', 'table', version >= 9],
       ['state_message_vectors', 'table', version >= 9],
       ['state_message_scope', 'index', version >= 9],
-      ['state_observation_vectors', 'table', version === 10],
-      ['state_observation_scope', 'index', version === 10],
+      ['state_observation_vectors', 'table', version >= 10],
+      ['state_observation_scope', 'index', version >= 10],
+      ['state_search_rows', 'table', version >= 11],
+      ['state_search_thread', 'index', version >= 11],
+      ['state_search_fts', 'table', version >= 11],
+      ['state_search_vectors', 'table', version >= 12],
     ];
     const objects = decoder(
       Schema.Array(Schema.Struct({ name: Schema.String, sql: Schema.String, type: Schema.String }))
@@ -190,18 +221,27 @@ export class StateEventStore {
       );
       StateMessageVectors.initialize(db);
     }
-    if (version !== INDEX_SCHEMA_VERSION) {
+    if (version < 10) {
       StateObservationVectors.initialize(db);
+    }
+    if (version < 11) {
+      db.exec(searchDefinition);
+    }
+    if (version < 12) {
+      db.exec(StateSearchVectors.definition);
     }
     StateMessageVectors.validateStorage(db);
   }
 
+  /** Caller owns the native transaction: additions, acquisition and their backfill commit together. */
   static acquire(
     db: Database.Database,
     root: string | undefined,
     projection: StateProjection | undefined,
-    options: IndexerOptions
+    options: IndexerOptions,
+    version: IndexSchemaVersion
   ): StateEventStore | undefined {
+    StateEventStore.addCompatibleStorage(db, version);
     StateEventStore.validateRoot(db, root, projection, options);
     if (root === undefined) {
       return;
@@ -209,11 +249,43 @@ export class StateEventStore {
     if (!projection) {
       throw new TypeError('State projection requires its acquired producer schema.');
     }
-    return new StateEventStore(db, root, projection, options);
+    const store = new StateEventStore(db, root, projection, options);
+    if (version < 11) {
+      store.backfillSearch();
+    }
+    return store;
+  }
+
+  /** An upgraded store's search rows, projected from the committed events it already holds. */
+  private backfillSearch(): void {
+    const rows = decoder(
+      Schema.Array(
+        Schema.Struct({ payload: Schema.String, pk: count, seq: count, threadId: Schema.String })
+      )
+    )(
+      this.db
+        .prepare('SELECT pk,thread_id AS threadId,seq,payload FROM state_event_rows ORDER BY pk')
+        .all()
+    );
+    for (const row of rows) {
+      this.writeSearch(row.pk, row.threadId, row.seq, this.projection.decode(row.payload).search);
+    }
+  }
+
+  private writeSearch(pk: number, threadId: string, seq: number, search: StateSearchRow): void {
+    this.db.prepare('DELETE FROM state_search_rows WHERE event_pk=?').run(pk);
+    if (search) {
+      this.db
+        .prepare(
+          'INSERT INTO state_search_rows(event_pk,thread_id,seq,run_id,role,text) VALUES(?,?,?,?,?,?)'
+        )
+        .run(pk, threadId, seq, search.runId, search.role, search.text);
+    }
   }
 
   readonly messages: StateMessageVectors;
   readonly observations: StateObservationVectors;
+  private readonly searchVectors: StateSearchVectors;
 
   constructor(
     private readonly db: Database.Database,
@@ -227,6 +299,7 @@ export class StateEventStore {
     this.truth = new SqliteReader(root);
     this.messages = new StateMessageVectors(db, this.truth, projection, options);
     this.observations = new StateObservationVectors(db, this.truth, projection, this.messages);
+    this.searchVectors = new StateSearchVectors(db);
     db.exec("INSERT INTO state_events_fts(state_events_fts,rank) VALUES('integrity-check',1)");
   }
 
@@ -253,6 +326,7 @@ export class StateEventStore {
     for (const hash of hashes) {
       this.db.prepare('INSERT INTO state_event_blob_refs VALUES(?,?)').run(pk, hash);
     }
+    this.writeSearch(pk, threadId, seq, row.search);
   }
 
   catchUp(input: unknown): boolean {
@@ -354,6 +428,56 @@ export class StateEventStore {
         .pluck()
         .all(query, threadId)
     );
+  }
+
+  /**
+   * Gap 10: committed conversation rows in the requested threads that contain
+   * every query word, best bm25 match first, each with a marked snippet.
+   */
+  search(input: unknown): readonly StateSearchHit[] {
+    const request = decoder(stateSearchSchema)(input);
+    const words = request.query.match(/[\p{L}\p{N}_]+/gu) ?? [];
+    if (words.length === 0 || request.threadIds.length === 0) {
+      return [];
+    }
+    // Like the blob check, a search first catches up to its threads' committed truth.
+    this.catchUp(request.threadIds);
+    return decoder(Schema.Array(stateSearchHitSchema))(
+      this.db
+        .prepare(
+          `SELECT s.thread_id AS threadId,s.seq,s.run_id AS runId,s.role,bm25(state_search_fts) AS rank,
+             snippet(state_search_fts,0,'<mark>','</mark>',' … ',18) AS snippet
+           FROM state_search_fts JOIN state_search_rows s ON s.event_pk=state_search_fts.rowid
+           WHERE state_search_fts MATCH ? AND s.thread_id IN (SELECT value FROM json_each(?))
+           ORDER BY rank,s.thread_id,s.seq LIMIT ?`
+        )
+        .all(words.map(quote).join(' '), JSON.stringify(request.threadIds), request.limit)
+    );
+  }
+
+  /** The semantic arm's backlog: rows of the threads, caught up, with no vector under the profile. */
+  searchPending(input: unknown): readonly StateSearchPendingRow[] {
+    const request = decoder(stateSearchPendingSchema)(input);
+    if (request.threadIds.length === 0) {
+      return [];
+    }
+    this.catchUp(request.threadIds);
+    return this.searchVectors.pending(request);
+  }
+
+  /** Vectors the caller computed for `searchPending` rows; a changed row's vector is not stored. */
+  putSearchVectors(input: unknown): StateSearchVectorsResult {
+    return this.searchVectors.put(decoder(stateSearchVectorBatchSchema)(input));
+  }
+
+  /** The semantic arm: the threads' rows nearest the query vector, caught up first like `search`. */
+  searchSimilar(input: unknown): readonly StateSearchSimilarHit[] {
+    const request = decoder(stateSearchSimilarSchema)(input);
+    if (request.threadIds.length === 0) {
+      return [];
+    }
+    this.catchUp(request.threadIds);
+    return this.searchVectors.similar(request);
   }
 
   recordFailure(error: unknown): void {

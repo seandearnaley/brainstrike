@@ -37,6 +37,7 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChangesBridge } from '../changes-bridge';
 import { useChangesStore } from '../changes-store';
+import { createLegacyRewindPort } from '../rewind-port';
 import { useRewindStore } from '../rewind-store';
 import { RewindConfirmDialog } from '../ui/rewind-confirm-dialog';
 
@@ -206,8 +207,10 @@ function installBridge(overrides: Partial<BridgeStub> = {}): BridgeStub {
 }
 
 function openRewind(composerText: string | null = 'my original prompt'): void {
+  const bridge = (window as unknown as { changes: ChangesBridge }).changes;
   useRewindStore.getState().openRewind({
     composerText,
+    port: createLegacyRewindPort(bridge),
     target: { messageId: 'msg-2', threadId: 'thread-1' },
   });
 }

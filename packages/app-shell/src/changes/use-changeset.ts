@@ -27,13 +27,11 @@
  * threadId })` — would otherwise get a NEW object identity every render, and
  * a successful load's own `setView` triggers exactly such a re-render:
  * `useEffect` fires on `refresh` → `loadView` → the new literal, never
- * settling. Fixed by `stableChangeset`, a `useMemo` keyed on `changesetKey`
- * (a `JSON.stringify`, `null` when `changeset` is `null`): `useMemo` returns
- * its PREVIOUS result whenever the dep array is unchanged, so a fresh
- * literal with the SAME shape reuses the prior render's reference instead of
- * producing a new one. `loadView`/`fileDiff` depend on `stableChangeset`
- * directly (not a ref written during render, which React can replay or
- * discard mid-render — this stays a pure render-time computation).
+ * settling. Fixed by `stableChangeset` (`useStructuralIdentity`): a fresh
+ * literal with the SAME JSON shape reuses the first reference seen for that
+ * shape instead of producing a new one. `loadView`/`fileDiff` depend on
+ * `stableChangeset` directly (not a ref written during render, which React can
+ * replay or discard mid-render).
  *
  * NO ETERNAL LOADING (BST-1115 smoke feedback — the reported "Last Turn sticks
  * on 'Loading changed files…'"). `ChangesSurface` derives its loading state as
@@ -74,6 +72,7 @@ import {
 import { useChangesNavigationStore } from './changes-navigation-store';
 import { useRewindStore } from './rewind-store';
 import { useChangesLiveRefreshSubscription } from './use-changes-live-refresh';
+import { useStructuralIdentity } from './use-structural-identity';
 
 const logger = createLogger('UseChangeset');
 
@@ -189,13 +188,8 @@ export function useChangeset(
   const [error, setError] = useState<string | null>(null);
   const generationRef = useRef(0);
 
-  // STRUCTURAL identity — see this module's doc comment. `changesetKey` is
-  // recomputed every render (cheap); `stableChangeset` is not — `useMemo`
-  // returns the PREVIOUS render's `changeset` whenever `changesetKey` is
-  // unchanged, so a structurally-equal fresh literal settles onto one stable
-  // reference instead of producing a new one every render.
-  const changesetKey = changeset === null ? null : JSON.stringify(changeset);
-  const stableChangeset = useMemo(() => changeset, [changesetKey]);
+  // STRUCTURAL identity — see this module's doc comment.
+  const stableChangeset = useStructuralIdentity(changeset);
 
   // REWIND INVALIDATION (BST-1115). A rewind reverts the very files an open
   // changeset describes, so afterwards the SAME `Changeset` value resolves to a
@@ -257,15 +251,21 @@ export function useChangeset(
       setError(result.ok ? null : result.error);
     }
     return result;
-  }, [bridge, gitInvalidationNonce, liveRefreshNonce, rewindGeneration, rootId, stableChangeset]);
+  }, [bridge, rootId, stableChangeset]);
 
   const refresh = useCallback(async (): Promise<void> => {
     await loadView();
   }, [loadView]);
 
+  // The reload signals above re-run the LOAD EFFECT, never `loadView`'s
+  // memoization: the shipped renderer is built with the React Compiler, which
+  // memoizes a callback on what its body reads, so a signal listed only in a
+  // callback's dependencies (as these once were) never re-created it and no
+  // bump ever reloaded the view. An effect's dependency array is kept as
+  // written.
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+  }, [refresh, gitInvalidationNonce, liveRefreshNonce, rewindGeneration]);
 
   const fileDiff = useCallback(
     async (path: string, entryRootId?: string | null): Promise<GitResult<StructuredFileDiff>> => {

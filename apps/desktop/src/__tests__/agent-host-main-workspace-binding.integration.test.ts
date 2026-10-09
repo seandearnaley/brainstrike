@@ -111,7 +111,6 @@ test('actual Core binding commands reach the live Main owner over the private pl
         roots: [{ displayName: 'Catalog workspace', path: root, rootId: operatingRootId }],
       },
     }),
-    readLegacyMemory: async () => ({ resource: null, resourceObservations: false }),
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
     resolveProviderAuth: async () => ({
       apiKey: 'synthetic-main-binding-key',
@@ -190,16 +189,24 @@ test('actual Core binding commands reach the live Main owner over the private pl
         throw new Error('Main validator was not forwarded');
       }
       const freshCount = validate.mock.calls.length;
-      await validator({ binding: request.patch, signal: new AbortController().signal, threadId });
+      // The admitting run's own check: Main revalidates the selection that run holds.
+      const runId = `${threadId}-run`;
+      await validator({
+        binding: request.patch,
+        runId,
+        signal: new AbortController().signal,
+        threadId,
+      });
       expect(revalidateRetained).toHaveBeenCalledOnce();
       expect(validate).toHaveBeenCalledTimes(freshCount);
       retainedRevoked = true;
       await expect(
-        validator({ binding: request.patch, signal: new AbortController().signal, threadId })
+        validator({ binding: request.patch, runId, signal: new AbortController().signal, threadId })
       ).rejects.toThrow();
       expect(validate).toHaveBeenCalledTimes(freshCount);
       await validator({
         binding: { operatingRootDisplayName: 'Future workspace', operatingRootId: futureRootId },
+        runId,
         signal: new AbortController().signal,
         threadId,
       });

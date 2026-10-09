@@ -28,7 +28,6 @@ import { registerAgentHostClientIpc } from './agent-host-client-ipc';
 import { createAgentHostMainClient } from './agent-host-main-client';
 import { createDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
 import { DesktopWorkspaceBindingAuthority } from './agent-host-platform/desktop-workspace-binding';
-import { readMainLegacyMemory } from './agent-host-platform/legacy-memory-main';
 import { readEmbeddingHostDevice } from './agent-host-platform/memory-vector-selection';
 import {
   PlatformPolicySchema,
@@ -86,7 +85,7 @@ import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { getDesktopEnvironmentBootstrapResult } from './desktop-env';
 import { buildDesktopEnvBootstrapReport } from './desktop-env-report';
 import { serializeDesktopError } from './desktop-error-serialization';
-import { createDesktopHookTrust, loadDesktopRootPaths } from './desktop-hook-trust';
+import { createDesktopHookTrust } from './desktop-hook-trust';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import {
   createDesktopMaintenanceTriggerGraph,
@@ -664,8 +663,10 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       'mcp-runtime': () => cleanupMcpRuntimeForShutdown(),
       'native-index': async () => {
         await agentHostMainClient.close();
-        await agentHostClientIpc.close();
+        // Fence profile admission before joining the renderer's in-flight host connect:
+        // a host start that fails during shutdown is then never retried as a second host.
         await nativeIndexActivation.close();
+        await agentHostClientIpc.close();
       },
       'parser-host': async () => {
         await parserHostManager.stop();
@@ -1018,7 +1019,7 @@ const nativeIndexActivation = createNativeIndexActivation({
     onChildReady: (child) => {
       agentHostPrivateClients.attach(child);
     },
-    platform: () => {
+    platform: (nativeChildren) => {
       const ledger = createWorktreeLedger(getDatabase);
       const workspace = new DesktopWorkspaceBindingAuthority({
         borrowRoot: (root) =>
@@ -1076,8 +1077,8 @@ const nativeIndexActivation = createNativeIndexActivation({
         localLlm: createMainLlmHostClient(createE2eScriptedLlmHost() ?? llmHostManager),
         // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
         mcp: createDesktopMcpPlatformCapabilities(getDesktopMcpHostRuntime()),
-        // Gap 17: the host imports the profile's legacy workspace memory once.
-        readLegacyMemory: readMainLegacyMemory,
+        // ADR-0017: the host reports its native processes; Main ends them if it dies.
+        nativeChildren,
         // BST-1977: host runs' turns snapshot through legacy turns' one shadow-git owner.
         workspaceSnapshots: () => snapshotService,
       });
@@ -1132,13 +1133,10 @@ const agentHostMainClient = createAgentHostMainClient(
     }
   }
 );
-// The host owns hook trust. Main imports the retired renderer approvals once,
-// and no visible client attaches, so no host run is admitted, before it settles.
-const desktopHookTrust = createDesktopHookTrust({
-  loadRootPaths: async () => loadDesktopRootPaths(await getDatabase()),
-  request: (method, params) => agentHostMainClient.request(method, params),
-  storage,
-});
+// The host owns hook trust.
+const desktopHookTrust = createDesktopHookTrust((method, params) =>
+  agentHostMainClient.request(method, params)
+);
 // Legacy threads run project hooks at the same host-owned trust.
 installDesktopHookApprovalReader((root) => desktopHookTrust.approval(root));
 // Host threads record their turn snapshots in the host's log, not the ledger;
@@ -1147,11 +1145,10 @@ const readHostThreadIds = async (): Promise<ReadonlySet<string>> =>
   new Set(
     (await agentHostMainClient.request('thread/list', {})).threads.map(({ threadId }) => threadId)
   );
-const agentHostClientIpc = registerAgentHostClientIpc(async () => {
-  const attachment = await nativeIndexActivation.acquireProfile();
-  await desktopHookTrust.imported();
-  return attachment;
-}, agentHostPrivateClients.open);
+const agentHostClientIpc = registerAgentHostClientIpc(
+  nativeIndexActivation.acquireProfile,
+  agentHostPrivateClients.open
+);
 ipcDisposers.add('agent-host-client', agentHostClientIpc.unregister);
 const nativeRootDataDeletion = createNativeRootDataDeletion({
   acquire: () => nativeIndexActivation.acquire(),

@@ -1,17 +1,39 @@
 import { mkdtemp } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { foldHostRuns } from '@brainstrike/agent-host/thread-view';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { configureAssistantProvider } from './utils/assistant-mock';
+import { readHostThreadTree } from './utils/agent-host-log';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { runInteractiveChildFixture } from './utils/interactive-child-fixture';
-import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
+import {
+  ensureActivityExpanded,
+  ensureAssistantShellVisible,
+  ensureMockWorkspaceOpen,
+} from './utils/layout-helpers';
 import {
   assembledMarkers,
   createAssembledSubagentFixture,
-  readAssembledPersistence,
 } from './utils/subagent-integration-fixture';
+
+/** Each child as the agent host commits it: its call sign, delegated task and latest run status. */
+async function readHostChildren(userDataDir: string) {
+  return (await readHostThreadTree(userDataDir)).flatMap(({ child, rows }) => {
+    if (!child) {
+      return [];
+    }
+    const started = rows.find(({ event }) => event.type === 'run.started')?.event;
+    return [
+      {
+        displayName: child.callSign,
+        taskPrompt: started?.type === 'run.started' ? started.prompt : undefined,
+        taskStatus: foldHostRuns(rows).at(-1)?.status ?? 'running',
+      },
+    ];
+  });
+}
 
 test('switches among running child tabs and retains the child draft', async ({
   electron,
@@ -38,6 +60,7 @@ test('switches among running child tabs and retains the child draft', async ({
         compositeModelKey: 'openrouter::openai/gpt-5.4',
         provider: 'openrouter',
       });
+      await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
       await new HomePage(window).openSettings();
       const settings = new SettingsPage(window);
       await settings.openCategory(/Permissions/i, 'permissions');
@@ -46,27 +69,38 @@ test('switches among running child tabs and retains the child draft', async ({
         .selectOption('ask');
       await settings.setSubagentLimit('Subagent work at once', 'maxConcurrentWork', 2);
       await ensureAssistantShellVisible(window);
-      const root = window.getByTestId('chat-panel');
+      // The host thread's conversation is the Assistant region; it has no legacy panel test id.
+      const root = window.getByRole('region', { exact: true, name: 'Assistant' });
       await root
         .getByRole('textbox', { name: 'Message input' })
         .fill(assembledMarkers.parentPrompt);
       await root.getByRole('button', { exact: true, name: 'Send' }).click();
       await expect(root.getByText('ASSEMBLED_ROOT_CONTINUES_1770', { exact: true })).toBeVisible();
 
-      const activity = root.getByTestId('assistant-activity-group').last();
-      await activity.getByRole('button', { exact: true, name: 'Expand activity' }).click();
-      const openButtons = activity.getByRole('button', { name: /Open .* conversation/ });
-      await expect(openButtons).toHaveCount(4);
-      await openButtons.nth(0).click();
-      const grant = window
-        .getByTestId('assistant-conversation-panel')
-        .getByTestId('approval-grant-category-session');
+      // Each delegation is its own activity group, headed by its persona.
+      const selectedTab = window
+        .getByRole('tablist', { name: 'Workspace tabs' })
+        .getByRole('tab', { selected: true });
+      const openChild = async (persona: string): Promise<string> => {
+        const activity = root
+          .getByTestId('assistant-activity-group')
+          .filter({ hasText: `Delegated to ${persona}` });
+        await ensureActivityExpanded(activity);
+        await activity.getByRole('button', { name: /Open .* conversation/ }).click();
+        await expect(selectedTab).toHaveText(/^[A-Z][a-z]+-[a-f0-9]{6}$/u);
+        return (await selectedTab.innerText()).trim();
+      };
+      const granted = await openChild('parked-grant');
+      const grant = window.getByRole('region', { exact: true, name: granted }).getByRole('button', {
+        exact: true,
+        name: 'Allow reads this session brainstrike.readWorkspaceFile',
+      });
       await expect(grant).toBeVisible();
       await grant.click();
       await expect
         .poll(
           async () =>
-            (await readAssembledPersistence(window)).children.filter(
+            (await readHostChildren(electron.getUserDataDir())).filter(
               (child) => child.taskStatus === 'running'
             ).length
         )
@@ -74,8 +108,8 @@ test('switches among running child tabs and retains the child draft', async ({
 
       // Open three tabs while two provider streams remain held. The other
       // children are also running, waiting for the shared work permits.
-      await openButtons.nth(2).click();
-      await openButtons.nth(3).click();
+      await openChild('stream-alpha');
+      await openChild('stream-beta');
       const tabs = window.getByRole('tablist', { name: 'Workspace tabs' });
       const childTabs = tabs.getByRole('tab', {
         name: /^[A-Z][a-z]+-[a-f0-9]{6}$/u,
@@ -151,8 +185,9 @@ test('switches among running child tabs and retains the child draft', async ({
                 .switchMeasurement.durationMs
           );
           timings.push(duration);
+          // One child conversation is visible; the others stay mounted, hidden.
           await expect(
-            window.locator('[data-testid="assistant-conversation-panel"]:visible')
+            window.getByRole('region', { name: /^[A-Z][a-z]+-[a-f0-9]{6}$/u })
           ).toHaveCount(1);
         } finally {
           await tab.evaluate((element) => {
@@ -170,7 +205,7 @@ test('switches among running child tabs and retains the child draft', async ({
       });
       console.log('CHILD_TAB_SWITCH_MS', JSON.stringify(timings));
       // Output produced while another tab is active appears on return.
-      const alpha = (await readAssembledPersistence(window)).children.find(
+      const alpha = (await readHostChildren(electron.getUserDataDir())).find(
         (child) => child.taskPrompt === 'STREAM_ALPHA_TASK_1770'
       );
       expect(alpha).toBeDefined();
@@ -188,7 +223,7 @@ test('switches among running child tabs and retains the child draft', async ({
       await expect
         .poll(
           async () =>
-            (await readAssembledPersistence(window)).children.find(
+            (await readHostChildren(electron.getUserDataDir())).find(
               (child) => child.taskPrompt === 'STREAM_ALPHA_TASK_1770'
             )?.taskStatus
         )

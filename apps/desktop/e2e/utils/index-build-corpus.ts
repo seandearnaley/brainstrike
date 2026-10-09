@@ -70,7 +70,7 @@ const VERBS = [
 const TYPES = ['string', 'number', 'boolean', 'readonly string[]', 'Uint8Array'] as const;
 
 /** mulberry32: a tiny, well-known 32-bit PRNG with a fixed sequence per seed. */
-function createRandom(seed: number): () => number {
+export function createRandom(seed: number): () => number {
   let state = seed >>> 0;
   return () => {
     state = (state + 0x6d_2b_79_f5) >>> 0;

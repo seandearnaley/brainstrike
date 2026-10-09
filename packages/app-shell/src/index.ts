@@ -4,6 +4,10 @@ export * from './app-config';
 export * from './app-layout';
 export * from './assistant-chat-panel';
 export {
+  type AssistantOperatingRootCandidate,
+  resolveAssistantOperatingRootBinding,
+} from './assistant-operating-root';
+export {
   buildAgentLoopSettings,
   buildAssistantMemoryOptions,
   buildDraftRuntimeForProvider,
@@ -33,6 +37,7 @@ export { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadat
 export { HostChildConversations } from './host-child-conversations';
 export { HostChildToolbar, type HostChildToolbarDetails } from './host-child-toolbar';
 export * from './navigation';
+export { openHostChildTab } from './open-host-child-tab';
 export * from './page-wrapper';
 export * from './provider-verification-client';
 export * from './root-layout-content';

@@ -2,11 +2,16 @@ import {
   type AssistantThreadRepository,
   useAssistantThreadStore,
 } from '@brainstrike/assistant-data';
+import {
+  CONTEXT_EXPLORER_APP_ID,
+  useWorkspaceTabSelectionStore,
+} from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { expect, test, vi } from 'vitest';
 import {
   type AssistantThreadHostCapability,
   withAssistantThreadHost,
 } from '../assistant-thread-host-context';
+import { hostChildWorkspaceTabId } from '../host-child-workspace-tab';
 
 const OWNED = new Set(['owned-thread', 'owned-first', 'owned-second']);
 
@@ -106,7 +111,7 @@ test('renaming a historical thread keeps its existing repository', async () => {
 
 test('thread deletion waits for its host owner and never sends a failed owned deletion to history', async () => {
   const entered = Promise.withResolvers<void>();
-  const joined = Promise.withResolvers<boolean>();
+  const joined = Promise.withResolvers<readonly string[] | undefined>();
   const { history, repository } = repositories(async () => {
     entered.resolve();
     return joined.promise;
@@ -134,10 +139,10 @@ test('mixed bulk deletion leaves only legacy identities with their history owner
   const deleted: string[] = [];
   const { history, repository } = repositories(async (threadId) => {
     if (threadId === 'legacy-thread') {
-      return false;
+      return;
     }
     deleted.push(threadId);
-    return true;
+    return [threadId];
   });
   await repository.deleteThreads?.(['owned-first', 'legacy-thread', 'owned-second']);
   expect(deleted).toEqual(['owned-first', 'owned-second']);
@@ -145,4 +150,44 @@ test('mixed bulk deletion leaves only legacy identities with their history owner
   expect(history.deleteThread).not.toHaveBeenCalled();
   await repository.deleteThread('legacy-thread');
   expect(history.deleteThread).toHaveBeenCalledExactlyOnceWith('legacy-thread');
+});
+
+const childTab = (threadId: string) => hostChildWorkspaceTabId({ persona: 'worker', threadId });
+
+test('deleting a host thread closes the open tabs of every child thread it deleted', async () => {
+  // The host reports the deleted subtree, children first (thread/delete threadIds).
+  const { repository } = repositories(async () => ['grandchild', 'child', 'owned-thread']);
+  useWorkspaceTabSelectionStore
+    .getState()
+    .hydrate(
+      [
+        CONTEXT_EXPLORER_APP_ID,
+        childTab('child'),
+        childTab('unrelated-child'),
+        childTab('grandchild'),
+      ],
+      { appId: childTab('grandchild'), kind: 'app' }
+    );
+  await repository.deleteThread('owned-thread');
+  const { openAppIds, selection } = useWorkspaceTabSelectionStore.getState();
+  expect(openAppIds).toEqual([CONTEXT_EXPLORER_APP_ID, childTab('unrelated-child')]);
+  expect(selection).not.toEqual({ appId: childTab('grandchild'), kind: 'app' });
+});
+
+test('a bulk deletion closes the child tabs of each host thread it deleted, not history ones', async () => {
+  const { history, repository } = repositories(async (threadId) => {
+    if (threadId === 'legacy-thread') {
+      return;
+    }
+    return [`${threadId}-child`, threadId];
+  });
+  useWorkspaceTabSelectionStore
+    .getState()
+    .hydrate([childTab('owned-first-child'), childTab('owned-second-child'), childTab('kept')], {
+      appId: childTab('kept'),
+      kind: 'app',
+    });
+  await repository.deleteThreads?.(['owned-first', 'legacy-thread', 'owned-second']);
+  expect(useWorkspaceTabSelectionStore.getState().openAppIds).toEqual([childTab('kept')]);
+  expect(history.deleteThreads).toHaveBeenCalledExactlyOnceWith(['legacy-thread']);
 });

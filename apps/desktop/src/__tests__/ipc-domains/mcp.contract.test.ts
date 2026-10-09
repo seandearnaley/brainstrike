@@ -10,9 +10,9 @@ import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
 describe('MCP IPC contracts', () => {
   const contracts = [mcpContract, mcpPathSelectionContract, mcpContentContract, mcpAppsContract];
 
-  it('owns all 10 invokes and no pushes in the desktop MCP manifest', () => {
+  it('owns all 7 invokes and no pushes in the desktop MCP manifest', () => {
     const specs = contracts.flatMap((contract) => Object.values(contract));
-    expect(specs.filter(({ kind }) => kind === 'invoke')).toHaveLength(10);
+    expect(specs.filter(({ kind }) => kind === 'invoke')).toHaveLength(7);
     expect(specs.filter(({ kind }) => kind === 'push')).toHaveLength(0);
     expect(new Set(specs.map(({ channel }) => channel))).toEqual(
       new Set(Object.values(DESKTOP_IPC_CHANNELS.mcp))

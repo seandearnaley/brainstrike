@@ -18,15 +18,7 @@ import { createLogger, redactSensitiveLogValue } from '@brainstrike/logging';
 import { Button } from '@brainstrike/ui';
 import { getErrorMessage } from '@brainstrike/utils/error-utils';
 import { Check, Globe, ListChecks, MessageCircleQuestion, TriangleAlert, X } from 'lucide-react';
-import {
-  createContext,
-  type ReactNode,
-  use,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
+import { type ReactNode, use, useCallback, useEffect, useMemo, useState } from 'react';
 import { ActiveThreadKeyContext } from './active-thread-key-context';
 import { useApprovalOwnerMessages } from './approval-owner-thread-context';
 import { useAssistantDecisionRecoveryBlocked } from './assistant-decision-recovery-context';
@@ -34,7 +26,9 @@ import { submitDecisionOrQueue } from './decision-dispatch';
 import { useDecisionRoute } from './decision-route-context';
 import { followUpQueueKey, isDecisionQueued, useFollowUpQueueStore } from './follow-up-queue-store';
 import { useLiveDecisionTransport } from './live-decision-transport';
-import { NetworkDomainChecklist, tickDomain } from './network-domain-checklist';
+import { NetworkDomainChecklist } from './network-domain-checklist';
+import { tickDomain } from './network-domain-ticks';
+import { PlanModeExitContext, usePlanModeExit } from './plan-mode-exit-context';
 import { readRediscoveredPauseDisplay } from './rediscovered-pause-display';
 import { RediscoveredPauseLines } from './rediscovered-pause-lines';
 import {
@@ -57,16 +51,7 @@ function serializeSuspendPayloadDiagnostic(suspendPayload: unknown): string {
     : serialized;
 }
 
-/**
- * Callback that clears the persisted plan-mode toggle. Provided by the
- * data-stream runtime and consumed by {@link SubmitPlanNotice} so APPROVING a
- * plan exits plan mode BEFORE the resume request is composed — the rebuilt
- * server runtime then omits `planMode` and unlocks the mutation tools. REJECT
- * leaves plan mode on so the model can revise. `null` when plan mode is not
- * wired (e.g. non-desktop transports).
- */
-const PlanModeExitContext = createContext<(() => void) | null>(null);
-
+/** Supplies {@link PlanModeExitContext} to {@link SubmitPlanNotice}. */
 export function PlanModeExitProvider({
   children,
   onExit,
@@ -77,10 +62,6 @@ export function PlanModeExitProvider({
   return (
     <PlanModeExitContext.Provider value={onExit ?? null}>{children}</PlanModeExitContext.Provider>
   );
-}
-
-export function usePlanModeExit(): (() => void) | null {
-  return use(PlanModeExitContext);
 }
 
 interface AssistantToolSuspendNoticeProps {

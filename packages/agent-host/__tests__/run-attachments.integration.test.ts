@@ -250,3 +250,27 @@ test('a repeated start command is recognised by its images, and different images
     })
   ).rejects.toThrow(/Command identity was reused with different input/);
 });
+
+/**
+ * BST-1932 (AT-09): the composer sends an image with no text, as the legacy
+ * assistant accepted it. The model reads the image alone, never an empty text.
+ */
+test('an image sent without text is a user message of its image alone', async () => {
+  const harness = await setup();
+  const { runId } = await start(harness, '', [IMAGE]);
+  const rows = await settle(harness, runId);
+  expect(rows.find((row) => row.event.type === 'run.started')?.event).toMatchObject({
+    attachments: [IMAGE],
+    prompt: '',
+  });
+  expect(userParts(harness.model.doStreamCalls[0]?.prompt ?? [])).toEqual([['file image/png']]);
+});
+
+test('a message with neither text nor an image is refused, with nothing committed', async () => {
+  const harness = await setup();
+  await expect(start(harness, '')).rejects.toThrow();
+  const { rows } = await harness
+    .client()
+    .request('thread/read', { fromSeq: 0, threadId: harness.threadId });
+  expect(rows.some((row) => row.event.type === 'run.started')).toBe(false);
+});

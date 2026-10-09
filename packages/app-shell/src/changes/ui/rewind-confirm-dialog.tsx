@@ -21,11 +21,7 @@
  *    `no-adjust-state-on-prop-change`, the defect W4's navigation store exists
  *    to avoid. An acknowledgment must never survive into a different rewind.
  */
-import type {
-  AssistantRewindApplied,
-  AssistantRewindConflict,
-  AssistantRewindMode,
-} from '@brainstrike/assistant-contract';
+import type { AssistantRewindMode } from '@brainstrike/assistant-contract';
 // Deep subpath, not the `assistant-ui-panel` barrel: that barrel pulls the
 // whole assistant panel (and `@assistant-ui/react`) into the Changes chunk.
 import { useRewindComposerStore } from '@brainstrike/assistant-ui/rewind-composer-store';
@@ -42,6 +38,13 @@ import {
 } from '@brainstrike/ui';
 import { Loader2 } from 'lucide-react';
 import { type ReactElement, useState } from 'react';
+import type {
+  RewindConflictModel,
+  RewindConversationEffect,
+  RewindOutcomeModel,
+  RewindPreviewModel,
+  RewindUndo,
+} from '../rewind-port';
 import { type RewindRequest, useRewindStore } from '../rewind-store';
 import { useGitInventory } from '../use-git-inventory';
 import { type UseRewindResult, useRewind } from '../use-rewind';
@@ -50,7 +53,7 @@ import { useRootLabelById } from '../use-root-labels';
 import { ChangedFilesTree } from './changed-files-tree';
 import { ChangesetDiffPane } from './changeset-diff-pane';
 import { RewindConflictList } from './rewind-conflict-list';
-import { RewindOutcomeSummary } from './rewind-outcome-summary';
+import { RewindOutcomeSummary, rewindConversationOutcome } from './rewind-outcome-summary';
 import { DEFAULT_REWIND_MODE, RewindScopeChoice } from './rewind-scope-choice';
 
 /**
@@ -65,11 +68,32 @@ const OPEN_FILES_NOTICE = 'Open files will be updated on disk; unsaved external 
 
 const NO_FILES: readonly [] = [];
 
+const UNDO_WINDOW = 'Undo is available until you send your next message.';
+
+/**
+ * What applying would do to the later messages, in the owner's own terms; the
+ * count joins once the preview has resolved it.
+ */
+function rewindConversationPreview(
+  kind: RewindConversationEffect['kind'],
+  effect: RewindConversationEffect | null
+): string {
+  if (kind === 'hidden') {
+    const count = effect?.kind === 'hidden' ? ` ${effect.messages} message(s) affected.` : '';
+    return `This message and everything after it will be hidden.${count}`;
+  }
+  const count =
+    effect?.kind === 'branched'
+      ? ` ${effect.turns === 1 ? '1 turn leaves' : `${effect.turns} turns leave`} this conversation; switch back to ${effect.turns === 1 ? 'it' : 'them'} with the branch picker.`
+      : '';
+  return `The conversation returns to before this message.${count}`;
+}
+
 /** Which conflicts the gate is currently about: the apply's, else the preview's. */
 function activeConflicts(
-  preview: UseRewindResult['preview'],
-  applyConflicts: readonly AssistantRewindConflict[] | null
-): readonly AssistantRewindConflict[] {
+  preview: RewindPreviewModel | null,
+  applyConflicts: readonly RewindConflictModel[] | null
+): readonly RewindConflictModel[] {
   if (applyConflicts !== null) {
     return applyConflicts;
   }
@@ -114,8 +138,8 @@ function RewindPreviewPanes({
 }
 
 interface AppliedState {
-  readonly applied: AssistantRewindApplied;
   readonly mode: AssistantRewindMode;
+  readonly outcome: RewindOutcomeModel;
 }
 
 /**
@@ -132,7 +156,7 @@ function RewindConfirmBody({
   readonly requestKey: string;
 }): ReactElement {
   const { toast } = useToast();
-  const rewind = useRewind(request.target);
+  const rewind = useRewind(request.port, request.target);
   // The Explorer cannot learn about a bulk revert from the watcher alone — see
   // `use-rewind-explorer-recovery.ts`. Fired after BOTH a files-mode apply and
   // a redo, since both are the same kind of burst against the same roots.
@@ -141,9 +165,7 @@ function RewindConfirmBody({
   const [acknowledged, setAcknowledged] = useState(false);
   const [applying, setApplying] = useState(false);
   const [applyError, setApplyError] = useState<string | null>(null);
-  const [applyConflicts, setApplyConflicts] = useState<readonly AssistantRewindConflict[] | null>(
-    null
-  );
+  const [applyConflicts, setApplyConflicts] = useState<readonly RewindConflictModel[] | null>(null);
   const [result, setResult] = useState<AppliedState | null>(null);
 
   const preview = rewind.preview;
@@ -167,8 +189,12 @@ function RewindConfirmBody({
   // (raised below, in response to THIS call's own `conflicts-unacknowledged`
   // refusal) ever passes `true` — the acknowledgment is for the paths this
   // specific redo just named, never a standing override.
-  const onRedo = async (rewindId: string, acknowledgeConflicts = false): Promise<void> => {
-    const redone = await rewind.redo({ acknowledgeConflicts, rewindId });
+  const onRedo = async (
+    undo: RewindUndo,
+    threadId: string,
+    acknowledgeConflicts = false
+  ): Promise<void> => {
+    const redone = await rewind.redo({ ...undo, acknowledgeConflicts, threadId });
     if (!redone.ok) {
       toast({
         description: redone.error,
@@ -182,7 +208,7 @@ function RewindConfirmBody({
       // in `redone.value.message` can be forced from this toast, mirroring
       // the confirm modal's own gate — the force is scoped to exactly what
       // THIS refusal reported, never a blanket retry.
-      if (redone.value.reason === 'conflicts-unacknowledged') {
+      if (redone.value.forceable) {
         // Persistent for the same reason as the redo toast it replaced:
         // clicking "Undo rewind" consumed that toast, so THIS one is now the
         // only affordance left for completing the redo — a 5s default would
@@ -193,7 +219,7 @@ function RewindConfirmBody({
             <ToastAction
               altText="Undo anyway, overwriting the listed files"
               data-testid="rewind-redo-force-toast-action"
-              onClick={() => void onRedo(rewindId, true)}
+              onClick={() => void onRedo(undo, threadId, true)}
             >
               Undo anyway
             </ToastAction>
@@ -218,14 +244,19 @@ function RewindConfirmBody({
     useRewindStore.getState().markRewindApplied();
     // Same reasoning as the apply path: dispatch now, re-watch in the
     // background. A redo rewrites exactly the files the apply reverted.
-    void recoverExplorer(redone.value.rootOutcomes);
+    void recoverExplorer(redone.value.roots);
     toast({
-      description: `${redone.value.restoredMessageIds.length} message(s) are back.`,
+      description: redone.value.description,
       title: 'Rewind undone',
     });
   };
 
-  const announceApplied = (applied: AssistantRewindApplied): void => {
+  const announceApplied = (
+    undo: RewindUndo,
+    description: string,
+    threadId: string,
+    title = 'Conversation restored'
+  ): void => {
     // `persistent: true` (NOT merely omitting `duration` — Radix's provider
     // default closes an undurationed toast after 5s, see use-toast.ts's
     // DURATION SEMANTICS): this toast is the ONLY redo affordance, and the
@@ -237,14 +268,14 @@ function RewindConfirmBody({
         <ToastAction
           altText="Undo this rewind"
           data-testid="rewind-undo-toast-action"
-          onClick={() => void onRedo(applied.rewindId)}
+          onClick={() => void onRedo(undo, threadId)}
         >
           Undo rewind
         </ToastAction>
       ),
-      description: `${applied.tombstonedMessageIds.length} message(s) hidden. Undo is available until you send your next message.`,
+      description: `${description} ${UNDO_WINDOW}`,
       persistent: true,
-      title: 'Conversation restored',
+      title,
     });
   };
 
@@ -259,16 +290,15 @@ function RewindConfirmBody({
         // The flag carries ONLY what the user actually ticked, and only in the
         // mode where it means anything.
         acknowledgeConflicts: filesMode && acknowledged,
-        messageId: preview.messageId,
         mode: effectiveMode,
-        threadId: preview.threadId,
+        preview,
       });
       if (!outcome.ok) {
         setApplyError(outcome.error);
         return;
       }
       if (!outcome.value.ok) {
-        if (outcome.value.reason === 'conflicts-unacknowledged') {
+        if (outcome.value.conflicts !== null) {
           // Disk changed between preview and apply. Show the CURRENT conflict
           // set and require a fresh acknowledgment — the old tick was for a
           // different list of paths.
@@ -276,9 +306,19 @@ function RewindConfirmBody({
           setAcknowledged(false);
         }
         setApplyError(outcome.value.message);
+        if (outcome.value.redoable) {
+          // It took effect partway: durable state changed, and it can still be undone.
+          useRewindStore.getState().markRewindApplied();
+          announceApplied(
+            outcome.value.redoable,
+            outcome.value.message,
+            preview.threadId,
+            'Rewind interrupted'
+          );
+        }
         return;
       }
-      setResult({ applied: outcome.value, mode: effectiveMode });
+      setResult({ mode: effectiveMode, outcome: outcome.value.outcome });
       // BEFORE the composer repopulation below, and before the toast: the
       // rewind is now durable, and every live surface still shows the
       // conversation and the files it just changed. See
@@ -290,8 +330,13 @@ function RewindConfirmBody({
       // throttled and can take seconds. Holding "Restoring…" open for a
       // background re-watch would report the rewind as still running when it is
       // already done. Every failure inside is logged there, never swallowed.
-      void recoverExplorer(outcome.value.rootOutcomes);
-      announceApplied(outcome.value);
+      const { outcome: applied, rewindId } = outcome.value;
+      void recoverExplorer(applied.roots);
+      announceApplied(
+        { rewindId, roots: applied.roots },
+        rewindConversationOutcome(applied.conversation),
+        preview.threadId
+      );
       if (request.composerText !== null) {
         // Amendment 2: the target prompt goes back in the composer so the user
         // can re-send a variant. `null` (assistant target, or no text) means no
@@ -312,11 +357,7 @@ function RewindConfirmBody({
             Undo is available from the notification until you send your next message.
           </DialogDescription>
         </DialogHeader>
-        <RewindOutcomeSummary
-          fileOutcomes={result.applied.fileOutcomes}
-          rootOutcomes={result.applied.rootOutcomes}
-          tombstonedCount={result.applied.tombstonedMessageIds.length}
-        />
+        <RewindOutcomeSummary outcome={result.outcome} />
         <DialogFooter>
           <Button data-testid="rewind-done" onClick={onClose} type="button">
             Done
@@ -331,10 +372,10 @@ function RewindConfirmBody({
       <DialogHeader>
         <DialogTitle>Restore to before this message</DialogTitle>
         <DialogDescription>
-          This message and everything after it will be hidden.
-          {preview?.ok === true
-            ? ` ${preview.tombstoneMessageIds.length} message(s) affected.`
-            : ''}
+          {rewindConversationPreview(
+            request.port.conversation,
+            preview?.ok === true ? preview.conversation : null
+          )}
         </DialogDescription>
       </DialogHeader>
 
@@ -360,7 +401,7 @@ function RewindConfirmBody({
         </p>
       ) : null}
 
-      {preview?.ok === true && preview.range.kind === 'none' ? (
+      {preview?.ok === true && preview.noRecordedEdits ? (
         <p className="text-muted-foreground text-xs" data-testid="rewind-no-file-changes">
           No agent file edits are recorded after this message — only the conversation can be
           restored.
@@ -370,6 +411,7 @@ function RewindConfirmBody({
       <RewindPreviewPanes requestKey={requestKey} rewind={rewind} />
 
       <RewindScopeChoice
+        conversation={request.port.conversation}
         disabled={applying}
         filesScope={filesScope}
         mode={effectiveMode}

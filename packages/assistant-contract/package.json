@@ -72,6 +72,11 @@
       "import": "./dist/local-llm-model-specs.js",
       "require": "./dist/local-llm-model-specs.js"
     },
+    "./mcp-host-status": {
+      "types": "./dist/mcp-host-status.d.ts",
+      "import": "./dist/mcp-host-status.js",
+      "require": "./dist/mcp-host-status.js"
+    },
     "./mcp-host-runtime": {
       "browser": null,
       "types": "./dist/mcp-host-runtime.d.ts",
@@ -177,6 +182,11 @@
       "types": "./dist/shell-output.d.ts",
       "import": "./dist/shell-output.js",
       "require": "./dist/shell-output.js"
+    },
+    "./tool-telemetry": {
+      "types": "./dist/tool-telemetry.d.ts",
+      "import": "./dist/tool-telemetry.js",
+      "require": "./dist/tool-telemetry.js"
     },
     "./provider-auth": {
       "types": "./dist/provider-auth.d.ts",

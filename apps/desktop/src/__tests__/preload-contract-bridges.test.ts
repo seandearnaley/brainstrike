@@ -234,16 +234,10 @@ describe('preload contract-derived bridges', () => {
   it('routes MCP contract methods through their manifest channels', async () => {
     const mcp = exposedApi('mcp');
     const apps = mcp['apps'] as unknown as Record<string, (...args: unknown[]) => unknown>;
-    mockInvoke.mockResolvedValueOnce({ preparationId: 'prep-1' });
-    await apps['prepare']?.({ preparationId: 'prep-1' });
-    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.mcp.appsPrepare, {
-      preparationId: 'prep-1',
-    });
-
     mockInvoke.mockResolvedValueOnce(undefined);
-    await apps['release']?.({ preparationId: 'prep-1' });
-    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.mcp.appsRelease, {
-      preparationId: 'prep-1',
+    await apps['releaseShell']?.({ token: 'shell-1' });
+    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.mcp.appsReleaseShell, {
+      token: 'shell-1',
     });
   });
 

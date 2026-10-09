@@ -12,6 +12,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HOST_RESULT_SCHEMAS } from '@brainstrike/agent-host/protocol';
 import { removeFixtureRoot } from '@brainstrike/agent-host/test-fixtures/cooperative-host';
+import { HostRunNotices } from '@brainstrike/agent-host/thread-view';
 import { decodeHostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
@@ -189,10 +190,34 @@ test("a launch root's project hook runs on the CLI host only once hooks trust pi
     rows.some(({ event }) => event.type === 'interaction.requested');
   const host = await startCliHost({ workspace });
 
-  // Untrusted, the project file adds no hook: the question is asked.
+  const skipped = (rows: Awaited<ReturnType<typeof host.run>>['rows']) =>
+    rows.flatMap(({ event }) => (event.type === 'hooks.skipped' ? [event] : []));
+  const hooksPath = join(workspace, '.brainstrike', 'hooks.json');
+
+  // Untrusted, the project file adds no hook: the question is asked, and the
+  // run names the file it skipped, which the CLI shows with its remedy.
   const untrusted = await host.run();
   expect(untrusted.code).toBe(2);
   expect(asked(untrusted.rows)).toBe(true);
+  expect(skipped(untrusted.rows)).toEqual([
+    {
+      files: [
+        {
+          detail: 'not trusted',
+          path: hooksPath,
+          reason: 'untrusted',
+          rootId: workspace,
+          scope: 'project',
+        },
+      ],
+      runId: untrusted.runId,
+      type: 'hooks.skipped',
+    },
+  ]);
+  const notices = new HostRunNotices();
+  expect(untrusted.rows.flatMap((row) => notices.read(row))).toEqual([
+    `Project hooks not trusted: ${hooksPath}: not trusted — review it with \`brainstrike hooks trust <root dir>\` (desktop roots: Settings > Hooks)`,
+  ]);
 
   // Unattended, a trust needs the reviewed hash, and the host refuses a stale one.
   const trust = (...args: string[]) => host.cli(['hooks', 'trust', workspace, ...args]);
@@ -211,4 +236,5 @@ test("a launch root's project hook runs on the CLI host only once hooks trust pi
   const blocked = await host.run();
   expect(blocked.code, blocked.stderr).toBe(0);
   expect(asked(blocked.rows)).toBe(false);
+  expect(skipped(blocked.rows)).toEqual([]);
 });

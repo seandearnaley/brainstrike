@@ -26,6 +26,23 @@ function ok<T>(value: T): Promise<GitResult<T>> {
  * `resolveGitBridge()` sees no bridge and renders nothing regardless of the
  * `isViewingActiveWorktree` result under test.
  */
+/** The desktop `window.changes` bridge the rewind action's legacy port needs; never called here. */
+function installChangesBridge(): void {
+  const unused = vi.fn(() => {
+    throw new Error('the header only raises the modal');
+  });
+  (window as unknown as { changes?: unknown }).changes = {
+    applyRewind: unused,
+    fileDiff: unused,
+    finalizeRewinds: unused,
+    inventory: unused,
+    onInvalidated: unused,
+    redoRewind: unused,
+    resolveView: unused,
+    rewindPreview: unused,
+  };
+}
+
 function installGitBridge(): void {
   const worktree = {
     bare: false,
@@ -92,6 +109,7 @@ function installGitBridge(): void {
 
 afterEach(() => {
   Reflect.deleteProperty(window as unknown as { git?: GitBridge }, 'git');
+  Reflect.deleteProperty(window as unknown as { changes?: unknown }, 'changes');
 });
 
 const AGENT_RUN_CHANGESET: Changeset = { kind: 'agent-run', runId: 'run-1', threadId: 'thread-1' };
@@ -368,6 +386,7 @@ describe('ChangesetHeader', () => {
 
   it('offers "Restore to before this" for an agent-run changeset', async () => {
     const user = userEvent.setup();
+    installChangesBridge();
     render(<ChangesetHeader {...baseProps({ changeset: AGENT_RUN_CHANGESET })} />);
 
     const action = screen.getByTestId('changeset-rewind-action');
@@ -378,6 +397,7 @@ describe('ChangesetHeader', () => {
     // Both ids come from the CHANGESET, never from a synthesised identity.
     expect(useRewindStore.getState().request).toEqual({
       composerText: null,
+      port: expect.objectContaining({ conversation: 'hidden' }),
       target: { runId: 'run-1', threadId: 'thread-1' },
     });
   });
@@ -389,6 +409,7 @@ describe('ChangesetHeader', () => {
       kind: 'run-range',
       threadId: 'thread-9',
     };
+    installChangesBridge();
     render(<ChangesetHeader {...baseProps({ changeset: runRange })} />);
 
     await user.click(screen.getByTestId('changeset-rewind-action'));

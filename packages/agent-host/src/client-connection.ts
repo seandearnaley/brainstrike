@@ -1,15 +1,18 @@
 import type { HostAttachment, HostRecord } from '@brainstrike/host-lease';
-import type { MessageConnection } from 'vscode-jsonrpc';
+import { CancellationTokenSource, type MessageConnection } from 'vscode-jsonrpc';
 import {
   AGENT_HOST_PROTOCOL_VERSION,
   HOST_CHILDREN_CHANGED,
   HOST_RESULT_SCHEMAS,
+  HOST_RUN_TELEMETRY,
   HostChildrenChangedSchema,
   type HostLogRow,
   HostLogRowSchema,
   type HostMethod,
   type HostParams,
   type HostResults,
+  type HostRunTelemetry,
+  HostRunTelemetrySchema,
   MCP_PRESENTATION_EVENT,
   MCP_SETTINGS_EVENT,
   type McpPresentationEvent,
@@ -27,7 +30,14 @@ export interface HostClient extends HostAttachment {
   onMcpPresentation(listener: (event: McpPresentationEvent) => void): () => void;
   /** MCP settings changes, after this client's `mcp/settings/subscribe`. */
   onMcpSettings(listener: (event: McpSettingsEvent) => void): () => void;
-  request<M extends HostMethod>(method: M, params: HostParams<M>): Promise<HostResults[M]>;
+  /** A subscribed thread's live tool telemetry; never committed, so a reload shows none. */
+  onTelemetry(listener: (telemetry: HostRunTelemetry) => void): () => void;
+  /** An abort sends the request's JSON-RPC cancellation; the host settles it. */
+  request<M extends HostMethod>(
+    method: M,
+    params: HostParams<M>,
+    signal?: AbortSignal
+  ): Promise<HostResults[M]>;
 }
 /** Browser-safe connection; the private lease record comes from the owning launcher. */
 export async function authenticateHostClient(
@@ -40,6 +50,7 @@ export async function authenticateHostClient(
   const settingsListeners = new Set<(event: McpSettingsEvent) => void>();
   const presentationListeners = new Set<(event: McpPresentationEvent) => void>();
   const childListeners = new Set<(threadId: string) => void>();
+  const telemetryListeners = new Set<(telemetry: HostRunTelemetry) => void>();
   const closeConnection = async (): Promise<void> => {
     const failures: unknown[] = [];
     try {
@@ -51,6 +62,7 @@ export async function authenticateHostClient(
     settingsListeners.clear();
     presentationListeners.clear();
     childListeners.clear();
+    telemetryListeners.clear();
     try {
       await closeTransport();
     } catch (cause) {
@@ -85,6 +97,12 @@ export async function authenticateHostClient(
     const event = McpPresentationEventSchema.parse(input);
     for (const listener of presentationListeners) {
       listener(event);
+    }
+  });
+  connection.onNotification(HOST_RUN_TELEMETRY, (input: unknown) => {
+    const telemetry = HostRunTelemetrySchema.parse(input);
+    for (const listener of telemetryListeners) {
+      listener(telemetry);
     }
   });
   connection.listen();
@@ -131,13 +149,34 @@ export async function authenticateHostClient(
       settingsListeners.add(listener);
       return () => settingsListeners.delete(listener);
     },
+    onTelemetry: (listener) => {
+      telemetryListeners.add(listener);
+      return () => telemetryListeners.delete(listener);
+    },
     record,
     request: async <M extends HostMethod>(
       method: M,
-      params: HostParams<M>
-    ): Promise<HostResults[M]> =>
-      HOST_RESULT_SCHEMAS[method].parse(
-        await connection.sendRequest(method, parseHostParams(method, params))
-      ) as HostResults[M],
+      params: HostParams<M>,
+      signal?: AbortSignal
+    ): Promise<HostResults[M]> => {
+      const parsed = parseHostParams(method, params);
+      if (!signal) {
+        return HOST_RESULT_SCHEMAS[method].parse(
+          await connection.sendRequest(method, parsed)
+        ) as HostResults[M];
+      }
+      signal.throwIfAborted();
+      const cancellation = new CancellationTokenSource();
+      const cancel = (): void => cancellation.cancel();
+      signal.addEventListener('abort', cancel, { once: true });
+      try {
+        return HOST_RESULT_SCHEMAS[method].parse(
+          await connection.sendRequest(method, parsed, cancellation.token)
+        ) as HostResults[M];
+      } finally {
+        signal.removeEventListener('abort', cancel);
+        cancellation.dispose();
+      }
+    },
   };
 }

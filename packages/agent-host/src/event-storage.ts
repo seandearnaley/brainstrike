@@ -65,6 +65,26 @@ export function decodeStoredHostEvent(
 }
 
 /**
+ * The streamed chunk kinds Core's open folds: the ledger's tool-call and tool-error counts
+ * (ledger-projection.ts countToolChunk). Every other chunk is the thread view's alone.
+ */
+const HYDRATED_CHUNK_TYPES: ReadonlySet<unknown> = new Set(['tool-call', 'tool-error']);
+
+/** `false` when no fold of Core's open reads the event, so the hydration read skips its row. */
+function hydrates(event: HostEvent): boolean {
+  if (event.type !== 'stream.chunk') {
+    return true;
+  }
+  const { chunk } = event;
+  return (
+    typeof chunk === 'object' &&
+    chunk !== null &&
+    !Array.isArray(chunk) &&
+    HYDRATED_CHUNK_TYPES.has(chunk['type'])
+  );
+}
+
+/**
  * Keep the existing event kind/run ID; StateStore owns blob durability and reference counting.
  * `referenced` are the blobs the event names in `blobRefs`; a spooled row keeps those names.
  */
@@ -79,9 +99,10 @@ export function storedHostEvent(
   if (refs.length !== supplied.size || refs.some((hash) => !supplied.has(hash))) {
     throw new Error('Host event blob references do not match the supplied blobs');
   }
+  const mark = hydrates(event) ? {} : { hydrate: false as const };
   const stored = largeText(JSON.stringify(event));
   if (!stored.blob) {
-    return { ...(referenced.length > 0 ? { blobs: referenced } : {}), event, threadId };
+    return { ...(referenced.length > 0 ? { blobs: referenced } : {}), event, ...mark, threadId };
   }
   return {
     blobs: [stored.blob, ...referenced],
@@ -91,6 +112,7 @@ export function storedHostEvent(
       ...stored.fields,
       ...(refs.length > 0 ? { blobRefs: refs } : {}),
     },
+    ...mark,
     threadId,
   };
 }

@@ -18,6 +18,24 @@ export const SubagentConversationPresentationContext = createContext<
   ((threadId: string) => Promise<SubagentConversationPresentation>) | null
 >(null);
 
+/** BST-1932 (AT-07): an approval a delegated child asked and that was answered. */
+export interface SubagentAnsweredApproval {
+  readonly args: unknown;
+  /** The root's live policy, not a person, answered it. */
+  readonly byPolicy: boolean;
+  readonly decision: 'approve' | 'deny';
+  readonly interactionId: string;
+  /** The child's call sign. */
+  readonly owner: string;
+  readonly runId: string;
+  readonly toolCallId: string;
+  readonly toolName: string;
+}
+/** A child conversation's answered approvals, by child thread, for its delegation card's history. */
+export const SubagentApprovalHistoryContext = createContext<
+  ((threadId: string) => readonly SubagentAnsweredApproval[]) | null
+>(null);
+
 /** Host-authorized display identity for an approval's exact delegated owner. */
 export interface DelegatedApprovalOwner {
   readonly colorId: string;

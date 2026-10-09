@@ -24,7 +24,9 @@ export class ElectronHarness {
     /** Extra environment for every launch of the app, restarts included (never the harness's own). */
     private readonly electronEnv?: Readonly<Record<string, string>>,
     /** Provider egress boundary for every launch, restarts included (BST-1931). */
-    private readonly modelProvider?: ModelProviderShim
+    private readonly modelProvider?: ModelProviderShim,
+    /** The real folder every launch's folder picker mounts by default, restarts included. */
+    private readonly workspaceRoot?: string
   ) {}
 
   getUserDataDir(): string {
@@ -202,6 +204,7 @@ export class ElectronHarness {
       disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
       ...(this.electronEnv ? { env: this.electronEnv } : {}),
       ...(this.modelProvider ? { modelProvider: this.modelProvider } : {}),
+      ...(this.workspaceRoot ? { workspaceRoot: this.workspaceRoot } : {}),
     });
     this.exitGuard.observe(context.app.process());
     return context;

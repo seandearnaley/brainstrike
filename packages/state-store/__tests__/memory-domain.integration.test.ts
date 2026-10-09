@@ -5,12 +5,7 @@ import {
   executeNativeMemoryRequest,
   MemoryRevisionConflictError,
 } from '../src/memory-domain.mjs';
-import type {
-  MemoryDomainRequest,
-  MemoryEntity,
-  MemoryJsonObject,
-  MemorySnapshot,
-} from '../src/memory-types.js';
+import type { MemoryEntity, MemorySnapshot } from '../src/memory-types.js';
 import { migrate } from '../src/schema.mjs';
 
 function setup() {
@@ -337,87 +332,6 @@ describe('memory leaf on an isolated SQLite connection (not host qualification)'
       expect(executeMemoryRequest(db, { operation: 'read', resourceId: 'other' })).toEqual({
         entities: [],
         revision: 0,
-      });
-    } finally {
-      db.close();
-    }
-  });
-});
-
-describe('legacy workspace memory import (gap 17)', () => {
-  const at = '2026-10-08T12:00:00.000Z';
-  const legacyResource = {
-    createdAt: '2026-09-01T08:00:00.000Z',
-    id: 'resource',
-    updatedAt: '2026-09-30T08:00:00.000Z',
-    workingMemory: '# Legacy notes\n- prefers tabs',
-  };
-  const legacyImport = (
-    resource: MemoryJsonObject | null,
-    resourceObservations: boolean
-  ): MemoryDomainRequest => ({
-    at,
-    operation: 'legacy-import',
-    resource,
-    resourceId: 'resource',
-    resourceObservations,
-  });
-  const status = { operation: 'legacy-import-status', resourceId: 'resource' } as const;
-
-  test('imports the legacy working memory once, with its completion marker', () => {
-    const db = setup();
-    try {
-      expect(executeMemoryRequest(db, status).value).toBeNull();
-      const marker = {
-        at,
-        resourceId: 'resource',
-        resourceObservations: true,
-        workingMemory: 'imported',
-      };
-      const imported = executeMemoryRequest(db, legacyImport(legacyResource, true));
-      expect(imported.value).toEqual(marker);
-      expect(imported.entities).toEqual([
-        { id: 'resource', kind: 'resource', payload: legacyResource, threadId: null },
-      ]);
-      // Once marked, a second import changes nothing, whatever it carries.
-      const again = executeMemoryRequest(
-        db,
-        legacyImport({ ...legacyResource, workingMemory: 'other' }, false)
-      );
-      expect(again).toEqual(imported);
-      expect(executeMemoryRequest(db, status)).toEqual(imported);
-    } finally {
-      db.close();
-    }
-  });
-
-  test('keeps an existing host working memory and records that it did', () => {
-    const db = setup();
-    try {
-      const host = commit(db, 0, [resource]);
-      const imported = executeMemoryRequest(db, legacyImport(legacyResource, false));
-      expect(imported.entities).toEqual(host.entities);
-      expect(imported.value).toEqual({
-        at,
-        resourceId: 'resource',
-        resourceObservations: false,
-        workingMemory: 'kept-host',
-      });
-    } finally {
-      db.close();
-    }
-  });
-
-  test('records a profile with no legacy resource as having nothing to import', () => {
-    const db = setup();
-    try {
-      const imported = executeMemoryRequest(db, legacyImport(null, true));
-      expect(imported.entities).toEqual([]);
-      expect(imported.value).toEqual({
-        at,
-        resourceId: 'resource',
-        resourceObservations: true,
-        workingMemory: 'none',
       });
     } finally {
       db.close();

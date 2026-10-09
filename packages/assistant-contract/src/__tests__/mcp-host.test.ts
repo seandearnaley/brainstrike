@@ -36,10 +36,9 @@ import {
   parseMcpHostCatalog,
   parseMcpHostCloseReport,
   parseMcpHostOperationResult,
-  parseMcpHostServerSnapshot,
-  parseMcpHostSnapshot,
   parseMcpNegotiatedStatus,
 } from '../mcp-host-runtime.js';
+import { parseMcpHostServerSnapshot, parseMcpHostSnapshot } from '../mcp-host-status.js';
 import type { McpConfiguredProtocol, McpStatusTransport } from '../mcp-status.js';
 
 const id = parseConfiguredMcpServerId('😀'.repeat(65));

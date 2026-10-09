@@ -13,9 +13,15 @@ describe('producer-owned state schema projection', () => {
   it('projects historical events through the producer-owned upgrader', async () => {
     const projection = await loadStateProjection({ mode: 'dev', module });
     const raw = '{"seq":1,"v":1,"type":"text","text":"alpha from an old build"}';
-    expect(projection.decode(raw)).toEqual({ gap: null, seq: 1, text: 'alpha from an old build' });
+    expect(projection.decode(raw)).toEqual({
+      gap: null,
+      search: null,
+      seq: 1,
+      text: 'alpha from an old build',
+    });
     expect(projection.decode('{"seq":2,"v":1,"type":"tool-result","output":"gamma"}')).toEqual({
       gap: null,
+      search: null,
       seq: 2,
       text: 'gamma',
     });
@@ -33,18 +39,42 @@ describe('producer-owned state schema projection', () => {
     const projection = await loadStateProjection({ mode: 'prod', module });
     expect(projection.decode('{"seq":2,"v":2,"type":"hologram"}')).toEqual({
       gap: 'unknown event type "hologram"',
+      search: null,
       seq: 2,
       text: null,
     });
     expect(projection.decode('{"seq":3,"v":3,"type":"text","body":"future"}')).toEqual({
       gap: 'unknown event version 3',
+      search: null,
       seq: 3,
       text: null,
     });
     expect(projection.decode('{"seq":4,"type":"purged"}')).toEqual({
       gap: null,
+      search: null,
       seq: 4,
       text: null,
+    });
+  });
+
+  it("projects a producer's searchable conversation row beside its event text", async () => {
+    const projection = await loadStateProjection({
+      mode: 'dev',
+      module: new URL('./fixtures/state-search-schema.mjs', import.meta.url).href,
+    });
+    expect(
+      projection.decode('{"seq":1,"v":1,"type":"answer","runId":"run-1","text":"Ship Friday"}')
+    ).toEqual({
+      gap: null,
+      search: { role: 'assistant', runId: 'run-1', text: 'Ship Friday' },
+      seq: 1,
+      text: 'Ship Friday',
+    });
+    expect(projection.decode('{"seq":2,"v":1,"type":"tool","output":"raw output"}')).toEqual({
+      gap: null,
+      search: null,
+      seq: 2,
+      text: 'raw output',
     });
   });
 

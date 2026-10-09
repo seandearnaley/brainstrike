@@ -22,6 +22,7 @@ import { openIndexer } from '@brainstrike/indexer';
 import {
   SqliteQueryClient,
   SqliteQueryStartupCleanupError,
+  SqliteRuntimeRefusedError,
   spawnQueryProcess,
 } from '@brainstrike/sqlite-query';
 import { RootLock, StateStore } from '@brainstrike/state-store';
@@ -587,6 +588,20 @@ try {
           (cause) => cause === cleanupCause
         );
         receipt.cleanupFailureVisible = true;
+      } else if (mode === 'query-refused') {
+        // A runtime whose SQLite cannot enforce the sandbox heap limit is refused at open
+        // (docs/agents/agent-self-query.md); plain Node/CLI support is BST-1941's.
+        await assert.rejects(
+          capability.grep({
+            caseSensitive: true,
+            isRegex: false,
+            limit: 100,
+            pattern: 'projectToolOutputArtifactPage',
+            rootIds: [rootId],
+          }),
+          (cause) => cause instanceof SqliteRuntimeRefusedError
+        );
+        receipt.runtimeRefused = true;
       }
       publication.invalidateScope({ kind: 'workspace', rootId });
       assert.equal((await text.search(request, context())).scanLimited, true);

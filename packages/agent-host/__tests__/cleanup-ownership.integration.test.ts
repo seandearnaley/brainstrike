@@ -94,11 +94,12 @@ test('Stop fences and joins a physical child even when accepting the durable com
           : store.append(items, committed, durability),
       deleteSetting: (key) => store.deleteSetting(key),
       getSetting: (key) => store.getSetting(key),
+      holdBlobGc: () => store.holdBlobGc(),
       read: (threadId, fromSeq) => store.read(threadId, fromSeq),
+      readHydration: () => store.readHydration(),
       root: store.root,
       setSetting: (key, value) => store.setSetting(key, value),
       syncBoundary: (threadId) => store.syncBoundary(threadId),
-      threads: () => store.threads(),
     },
     platform({
       readPermissionPolicy: () => ({
@@ -577,7 +578,7 @@ test('rejected platform shutdown holds the real store and reports the same failu
     await expect(host.close()).rejects.toThrow();
     expect(closes).toBe(1);
     await expect(StateStore.open(dataRoot)).rejects.toBeInstanceOf(RootLockedError);
-    expect(await host.core.store.threads()).toEqual([]);
+    expect(await host.core.store.readHydration()).toEqual([]);
   } finally {
     await store.close();
     await rm(dataRoot, { force: true, recursive: true });
@@ -690,11 +691,12 @@ test('failed terminal append retains run admission and does not retry persistenc
     },
     deleteSetting: (key) => store.deleteSetting(key),
     getSetting: (key) => store.getSetting(key),
+    holdBlobGc: () => store.holdBlobGc(),
     read: (threadId, fromSeq) => store.read(threadId, fromSeq),
+    readHydration: () => store.readHydration(),
     root: store.root,
     setSetting: (key, value) => store.setSetting(key, value),
     syncBoundary: (threadId) => store.syncBoundary(threadId),
-    threads: () => store.threads(),
   };
   const core = await HostCore.open(port, platform(), () => {
     active += 1;
@@ -745,7 +747,7 @@ test('held platform cleanup keeps the SQLite owner live through host shutdown', 
     const closing = host.close();
     await entered.promise;
     await expect(StateStore.open(dataRoot)).rejects.toBeInstanceOf(RootLockedError);
-    expect(await host.core.store.threads()).toEqual([]);
+    expect(await host.core.store.readHydration()).toEqual([]);
     drained.resolve();
     await closing;
     const reopened = await StateStore.open(dataRoot);
@@ -760,7 +762,9 @@ test('held platform cleanup keeps the SQLite owner live through host shutdown', 
 test('rejected startup cleanup exposes and retains the durable owner instead of releasing it', async () => {
   const dataRoot = await root();
   const original = await StateStore.open(dataRoot);
-  await original.append([{ event: { type: 'thread.started' }, threadId: randomUUID() }]);
+  await original.append([
+    { event: { commandId: randomUUID(), type: 'thread.started' }, threadId: randomUUID() },
+  ]);
   await original.close();
   let owned: StateStore | undefined;
   try {
@@ -768,6 +772,10 @@ test('rejected startup cleanup exposes and retains the durable owner instead of 
       await startAgentHost(
         { lifetime: 'persistent', root: dataRoot },
         platform({
+          // Startup fails once Core holds the root: an unreadable thread no longer does.
+          attachMcpTaskOwner: () => {
+            throw new Error('MCP task owner refused');
+          },
           close: async () => {
             throw new Error('platform cleanup rejected');
           },
@@ -810,11 +818,12 @@ test('failed atomic terminal FULL commit keeps live and replay views running and
     },
     deleteSetting: (key) => store.deleteSetting(key),
     getSetting: (key) => store.getSetting(key),
+    holdBlobGc: () => store.holdBlobGc(),
     read: (threadId, fromSeq) => store.read(threadId, fromSeq),
+    readHydration: () => store.readHydration(),
     root: store.root,
     setSetting: (key, value) => store.setSetting(key, value),
     syncBoundary: (threadId) => store.syncBoundary(threadId),
-    threads: () => store.threads(),
   };
   const core = await HostCore.open(port, platform(), () => {
     active += 1;

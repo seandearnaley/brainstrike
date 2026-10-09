@@ -32,7 +32,7 @@ export class AssistantOperatingRootRowNotFoundError extends Error {
 }
 
 export async function resolveAssistantOperatingRootBinding(
-  database: DbHandle,
+  database: Pick<DbHandle, 'query'>,
   candidate: AssistantOperatingRootCandidate
 ): Promise<PersistedAssistantOperatingRootBinding> {
   const result = await database.query<{ id: string }>(

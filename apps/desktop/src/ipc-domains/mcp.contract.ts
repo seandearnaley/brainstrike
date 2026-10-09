@@ -1,11 +1,6 @@
 /** Pure, preload-safe IPC manifests for the visible-UI MCP surface. */
 import type {
   McpAppBridge,
-  McpAppExecuteRequest,
-  McpAppExecuteResult,
-  McpAppPrepareRequest,
-  McpAppPrepareResult,
-  McpAppReleaseRequest,
   McpAppShellPrepareRequest,
   McpAppShellPrepareResult,
   McpAppShellReleaseRequest,
@@ -80,24 +75,9 @@ export const mcpContentContract = {
 } as const satisfies Contract;
 
 export const mcpAppsContract = {
-  execute: rawChannel<[request: McpAppExecuteRequest], McpAppExecuteResult>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.appsExecute,
-    parseArgs: oneArg('MCP App execute'),
-    roles: VISIBLE_UI,
-  }),
-  prepare: rawChannel<[request: McpAppPrepareRequest], McpAppPrepareResult>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.appsPrepare,
-    parseArgs: oneArg('MCP App prepare'),
-    roles: VISIBLE_UI,
-  }),
   prepareShell: rawChannel<[request: McpAppShellPrepareRequest], McpAppShellPrepareResult>({
     channel: DESKTOP_IPC_CHANNELS.mcp.appsPrepareShell,
     parseArgs: oneArg('MCP App shell prepare'),
-    roles: VISIBLE_UI,
-  }),
-  release: rawChannel<[request: McpAppReleaseRequest], void>({
-    channel: DESKTOP_IPC_CHANNELS.mcp.appsRelease,
-    parseArgs: oneArg('MCP App release'),
     roles: VISIBLE_UI,
   }),
   releaseShell: rawChannel<[request: McpAppShellReleaseRequest], void>({

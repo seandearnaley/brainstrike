@@ -75,6 +75,40 @@ export function text(input: unknown): string | null {
   }
 }
 
+/** An assistant message's own text parts; tool calls, results and reasoning are not conversation text. */
+function assistantText(message: unknown): string[] {
+  const parsed = modelMessageSchema.parse(message);
+  if (parsed.role !== 'assistant') {
+    return [];
+  }
+  if (typeof parsed.content === 'string') {
+    return [parsed.content];
+  }
+  return parsed.content.flatMap((part) => (part.type === 'text' ? [part.text] : []));
+}
+
+/**
+ * Gap 10: the event's searchable conversation row, as legacy indexed user and
+ * assistant text: a user's prompt (a regeneration adds no message, and a wake
+ * delivers no typed one) or the text an assistant step wrote.
+ */
+export function search(
+  input: unknown
+): { readonly role: 'assistant' | 'user'; readonly runId: string; readonly text: string } | null {
+  const event = projectedEvent(input);
+  if (event?.type === 'run.started') {
+    const typed = event.userMessageId === undefined && event.delivery?.via !== 'wake';
+    return typed && event.prompt.trim()
+      ? { role: 'user', runId: event.runId, text: event.prompt }
+      : null;
+  }
+  if (event?.type !== 'model.step' && event?.type !== 'model.messages') {
+    return null;
+  }
+  const text = event.messages.flatMap(assistantText).join('\n').trim();
+  return text ? { role: 'assistant', runId: event.runId, text } : null;
+}
+
 /** Existing command and row addresses; no vendor IDs, timestamp guesses or ID writer. */
 export function messages(
   input: readonly { readonly threadId: string; readonly seq: number; readonly event: unknown }[]

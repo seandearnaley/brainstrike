@@ -100,6 +100,10 @@
       "types": "./dist/settings/tools/mcp-elicitation-capability.d.ts",
       "import": "./dist/settings/tools/mcp-elicitation-capability.js"
     },
+    "./settings/tools/mcp-task-input-canceller": {
+      "types": "./dist/settings/tools/mcp-task-input-canceller.d.ts",
+      "import": "./dist/settings/tools/mcp-task-input-canceller.js"
+    },
     "./settings/tools/mcp-elicitation-dialog": {
       "types": "./dist/settings/tools/mcp-elicitation-dialog.d.ts",
       "import": "./dist/settings/tools/mcp-elicitation-dialog.js"
@@ -115,7 +119,7 @@
   ],
   "license": "ISC",
   "peerDependencies": {
-    "react": "^19.2.4"
+    "react": "^19.3.0"
   },
   "private": true,
   "scripts": {

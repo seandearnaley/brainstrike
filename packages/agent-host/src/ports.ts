@@ -38,16 +38,20 @@ import type { HostAuthVerdict } from './auth-wire.js';
 import type {
   HostEditOp,
   HostEvent,
+  HostHookSkip,
   HostLoginCredential,
   HostObservationalMemoryState,
   HostParams,
   HostResults,
+  HostRewindConflict,
+  HostRewindFileOutcome,
   HostRunSnapshot,
   HostTurnSnapshot,
   HostTurnSnapshotRoot,
 } from './protocol.js';
 import type { McpPresentationEvent } from './protocol-mcp-presentation.js';
 import type { McpSettingsEvent } from './protocol-mcp-settings.js';
+import type { HostStateSearch, HostStateSearchVectors } from './thread-search.js';
 
 /** One committed tool-output overlay entry (the legacy ToolProjectionRewriteEntry). */
 export type HostProjectionRewrite = Extract<
@@ -118,6 +122,12 @@ export interface HostToolState {
   update(key: string, next: (current: unknown) => unknown): Promise<void>;
 }
 
+/** A worktree a shell command made and the desktop's worktree ledger adopted. */
+export interface HostShellWorktree {
+  readonly branch: string | null;
+  readonly path: string;
+  readonly worktreeId: string;
+}
 export interface HostToolContext {
   /** The thread's committed-output artifact reader, supplied by Core. */
   readonly artifacts?: ScopedToolOutputArtifactReader | undefined;
@@ -127,6 +137,12 @@ export interface HostToolContext {
   /** Validated committed response to this tool's intrinsic human interaction. */
   readonly resumeData?: unknown;
   readonly runId: string;
+  /**
+   * The worktrees this call's shell command made, once the desktop's ledger
+   * adopts them. Core retains the work in the call's run, so Stop and finish
+   * join it, and commits each as `worktree.created` under the call.
+   */
+  readonly shellWorktrees?: ((adopted: Promise<readonly HostShellWorktree[]>) => void) | undefined;
   readonly signal: AbortSignal;
   /** Present for every Core-dispatched execution; stateful tools must refuse without it. */
   readonly state?: HostToolState | undefined;
@@ -295,15 +311,12 @@ export interface HostRunAdmission {
   readonly discovery?: HostToolDiscovery | undefined;
   /** Title an untitled thread's first completed run through this run's model. */
   readonly generatesThreadTitle?: boolean;
+  /** The hook files the composition did not load for this run; Core commits them visibly. */
+  readonly hookSkips?: readonly HostHookSkip[] | undefined;
   /** Present only when the composition loaded at least one hook for this run. */
   readonly hooks?: HostRunHooks | undefined;
   /** The selected provider input budget; host compaction keeps requests inside it. */
   readonly inputTokenLimit?: number | undefined;
-  /**
-   * Gap 17: the legacy profile had resource observations, which were not
-   * imported. Core commits that notice once per root, with a run it admits.
-   */
-  readonly legacyObservationsWithheld?: true;
   readonly model: LanguageModel;
   /**
    * The resolved provider's own web search (Anthropic, OpenAI), built with the
@@ -408,10 +421,18 @@ export interface HostMcpToolRequest {
   readonly snapshot?: HostRunSnapshot;
   readonly toolTimeoutMs: number;
 }
+/** An MCP App's own tool call, once Core admitted it under the thread's policy. */
+export interface HostMcpAppToolCall {
+  readonly arguments: import('./protocol.js').HostParams<'mcp/app/call'>['arguments'];
+  readonly serverId: string;
+  readonly toolName: string;
+}
 export interface HostMcpRuntime {
   /** Core's ownership of its recovered tasks, supplied once when Core opens (BST-1930 c3). */
   attachTaskOwner?(owner: McpHostTaskOwner): void;
   readonly authority: McpHostPort;
+  /** One `tools/call` on the app's server; a created task goes to the task authority. */
+  callAppTool(call: HostMcpAppToolCall, signal: AbortSignal): Promise<unknown>;
   close(): Promise<McpHostCloseReport>;
   executableTools(request: HostMcpToolRequest): Promise<HostMcpToolSelection>;
 }
@@ -534,6 +555,45 @@ export interface HostMcpPresentationService {
 }
 
 /** Credentials and process-local capabilities never become protocol payloads. */
+/**
+ * The platform's snapshot owner restores a thread's roots for a rewind
+ * (restore to before a message) and its redo. Core decides what to restore
+ * and commits each intent before any file changes; the owner fingerprints,
+ * restores and revalidates each root against its live owner.
+ */
+export interface HostRewindFiles {
+  /** Restore each root to its target snapshot, after a pre-revert snapshot keyed by `rewindId`. */
+  apply(request: {
+    readonly previewId: string;
+    readonly rewindId: string;
+    readonly targets: readonly HostTurnSnapshot[];
+    readonly threadId: string;
+  }): Promise<readonly HostRewindFileOutcome[]>;
+  /** The paths that changed since the preview; nothing changes. */
+  drift(request: {
+    readonly previewId: string;
+    readonly threadId: string;
+  }): Promise<readonly HostRewindConflict[]>;
+  /** Fingerprint the target roots' live files for a preview; nothing changes. */
+  preview(request: {
+    readonly targets: readonly HostTurnSnapshot[];
+    readonly threadId: string;
+  }): Promise<{ readonly previewId: string }>;
+  /** Restore each root's pre-revert snapshot for `rewindId`; acknowledged paths are forced. */
+  redo(request: {
+    readonly acknowledged: readonly HostRewindConflict[];
+    readonly rewindId: string;
+    readonly targets: readonly HostTurnSnapshot[];
+    readonly threadId: string;
+  }): Promise<readonly HostRewindFileOutcome[]>;
+  /** The paths that changed since the rewind restored them; nothing changes. */
+  redoConflicts(request: {
+    readonly rewindId: string;
+    readonly targets: readonly HostTurnSnapshot[];
+    readonly threadId: string;
+  }): Promise<readonly HostRewindConflict[]>;
+}
+
 export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
   /**
@@ -552,6 +612,8 @@ export interface HostPlatform {
   readonly generatesThreadTitles?: boolean | undefined;
   /** Supplied by the existing run configuration, not a second host default. */
   readonly maxSteps?: number | undefined;
+  /** Runs the MCP App tool calls Core admits; absent where the host has no MCP. */
+  readonly mcp?: Pick<HostMcpRuntime, 'callAppTool'> | undefined;
   /** The desktop's MCP content browsing; absent where no window browses content. */
   readonly mcpContent?: HostMcpContentService;
   /** The desktop's MCP Tasks cards and server input; absent where no window presents them. */
@@ -583,6 +645,12 @@ export interface HostPlatform {
     readonly rootId: string;
     readonly signal: AbortSignal;
   }): Promise<string>;
+  /** The snapshot owner's rewind restores; absent where none exists (the CLI). */
+  readonly rewindFiles?: HostRewindFiles | undefined;
+  /** Gap 10: the host's derived state index search, for `thread/search`. */
+  readonly searchState?: HostStateSearch;
+  /** The semantic arm's index operations, for `thread/search` and its backlog methods. */
+  readonly searchStateVectors?: HostStateSearchVectors;
   /** The native-tool output rewrite policy; Core commits what it selects. */
   selectProjectionRewrites?(
     request: HostProjectionRewriteRequest

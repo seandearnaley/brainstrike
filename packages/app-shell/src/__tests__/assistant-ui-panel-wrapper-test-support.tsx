@@ -2,6 +2,7 @@ import { __resetAssistantPreferencesStoreForTests } from '@brainstrike/app-state
 import { __resetWorkspaceCollectionSyncStatusStoreForTests } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import {
   type LocalLlmBackendFactory,
+  type ProviderId,
   type SupportedProvider,
   WEB_NATIVE_TOOL_IDS,
 } from '@brainstrike/assistant-contract';
@@ -1344,6 +1345,19 @@ interface McpApi {
 let providedMcpTools: McpToolsCapability | null = null;
 
 /** Supplies the MCP tools `setMcpApi` installed to a directly rendered panel. */
+/** The wrapper with the host-provided MCP tools and an authoritative provider list. */
+export function TestWrapperTree({ providers }: { readonly providers: readonly ProviderId[] }) {
+  return (
+    <TestMcpToolsProvider>
+      <AssistantProviderSourceProvider
+        source={{ kind: 'authoritative', providers: [...providers] }}
+      >
+        <AssistantUiPanelWrapper loadLocalLlmBackend={loadTestLocalLlmBackend} />
+      </AssistantProviderSourceProvider>
+    </TestMcpToolsProvider>
+  );
+}
+
 export function TestMcpToolsProvider({ children }: { readonly children: ReactNode }) {
   return (
     <McpToolsCapabilityProvider capability={providedMcpTools}>

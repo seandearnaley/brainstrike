@@ -19,6 +19,18 @@ export type {
 export { isChangesBridgeAvailable, resolveChangesBridge } from './changes-bridge';
 export type { ChangesStoreState } from './changes-store';
 export { changedFileKey, selectRenderedFiles, useChangesStore } from './changes-store';
+export type {
+  ReadyRewindPreview,
+  RewindApplyResult,
+  RewindConflictModel,
+  RewindOutcomeModel,
+  RewindPort,
+  RewindPreviewModel,
+  RewindRedoResult,
+  RewindRootOutcomeModel,
+  RewindRootRef,
+} from './rewind-port';
+export { createLegacyRewindPort } from './rewind-port';
 export type { RewindNavigationState, RewindRequest } from './rewind-store';
 export { useRewindStore } from './rewind-store';
 export { ChangesSurface } from './ui/changes-surface';

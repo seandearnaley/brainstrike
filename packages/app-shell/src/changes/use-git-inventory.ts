@@ -92,8 +92,9 @@ export function useGitInventory(options: UseGitInventoryOptions = {}): UseGitInv
   const { active = true, deferInitialLoad = false } = options;
   // A false -> true transition is a new inventory activation. Results from an
   // older activation stay retained internally but are not exposed while the
-  // mandatory re-entry refresh is unresolved.
-  const activation = useMemo<object>(() => ({}), [active]);
+  // mandatory re-entry refresh is unresolved. The token is derived from `active`,
+  // so the React Compiler (which memoizes on what a body reads) re-creates it.
+  const activation = useMemo<object>(() => ({ active }), [active]);
   // Resolved ONCE per hook instance, not per render — see doc comment.
   const bridge = useMemo(() => resolveChangesBridge(), []);
   const [inventory, setInventory] = useState<GitInventory | null>(null);

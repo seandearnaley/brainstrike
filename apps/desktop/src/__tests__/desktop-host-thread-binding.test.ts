@@ -2,12 +2,12 @@ import type { HostClient } from '@brainstrike/agent-host/browser';
 import {
   AGENT_HOST_PROTOCOL_VERSION,
   HOST_RESULT_SCHEMAS,
-  type HostLogRow,
   HostLogRowSchema,
   type HostMethod,
   type HostParams,
   type HostResults,
 } from '@brainstrike/agent-host/protocol';
+import { DEFAULT_THREAD_TITLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data';
 import { afterEach, expect, test, vi } from 'vitest';
 import { createWindowThreadCapability } from '../renderer/desktop-host-thread-capability';
@@ -31,34 +31,16 @@ const BINDING = {
   secondaryRootIds: ['root-other'],
 };
 
-/** The two rows Core commits for one accepted binding update (workspace-state.ts). */
-function boundRows(
-  seq: number,
-  ts: number,
-  binding: Record<string, unknown> = BINDING,
-  commandId = '0f3b9a3e-1d2c-4f5e-8a7b-6c5d4e3f2a10'
-): HostLogRow[] {
-  return [
-    HostLogRowSchema.parse({
-      event: {
-        commandId,
-        method: 'thread/workspace/binding/update',
-        payload: { commandId, patch: binding, threadId: thread },
-        result: { accepted: true },
-        type: 'command.accepted',
-      },
-      seq,
-      threadId: thread,
-      ts,
-    }),
-    HostLogRowSchema.parse({
-      event: { binding, type: 'workspace.binding.updated' },
-      seq: seq + 1,
-      threadId: thread,
-      ts,
-    }),
-  ];
+/** A `thread/list` entry as Core serves it: the store's times and the committed binding. */
+function catalogEntry(
+  threadId: string,
+  binding: Record<string, unknown> | null = null,
+  updatedAt = startedAt
+) {
+  return { binding, createdAt: startedAt, threadId, updatedAt };
 }
+/** Core's ledger of no costed thread. */
+const NO_COSTS = { threads: [] };
 
 function fixture() {
   const request = vi.fn<(method: HostMethod, params: HostParams<HostMethod>) => Promise<unknown>>();
@@ -69,6 +51,7 @@ function fixture() {
     onEvent: vi.fn(() => () => undefined),
     onMcpPresentation: vi.fn(() => () => undefined),
     onMcpSettings: vi.fn(() => () => undefined),
+    onTelemetry: vi.fn(() => () => undefined),
     record: {
       endpoint: '/tmp/recorded-host-fixture',
       hostVersion: '0.1.0',
@@ -99,8 +82,8 @@ afterEach(async () => {
 test('a host thread commits its workspace binding keys through the host, exactly once', async () => {
   const { capability, request } = fixture();
   request
-    .mockResolvedValueOnce({ threads: [{ threadId: thread }] })
-    .mockResolvedValueOnce({ rows: startedRows })
+    .mockResolvedValueOnce({ threads: [catalogEntry(thread)] })
+    .mockResolvedValueOnce(NO_COSTS)
     .mockResolvedValueOnce({ accepted: true });
   expect(await capability.ownsThread(thread)).toBe(true);
   await capability.updateThreadBinding(thread, BINDING);
@@ -114,8 +97,8 @@ test('a host thread commits its workspace binding keys through the host, exactly
 test('a key the host does not own is refused visibly before any request', async () => {
   const { capability, request } = fixture();
   request
-    .mockResolvedValueOnce({ threads: [{ threadId: thread }] })
-    .mockResolvedValueOnce({ rows: startedRows });
+    .mockResolvedValueOnce({ threads: [catalogEntry(thread)] })
+    .mockResolvedValueOnce(NO_COSTS);
   await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
   const calls = request.mock.calls.length;
   await expect(
@@ -130,15 +113,15 @@ test('a key the host does not own is refused visibly before any request', async 
 test('a thread outside the host catalog is not host-owned', async () => {
   const { capability, request } = fixture();
   request
-    .mockResolvedValueOnce({ threads: [{ threadId: thread }] })
-    .mockResolvedValueOnce({ rows: startedRows })
+    .mockResolvedValueOnce({ threads: [catalogEntry(thread)] })
+    .mockResolvedValueOnce(NO_COSTS)
     // After the snapshot, each miss is re-resolved against the host's catalog.
-    .mockResolvedValueOnce({ threads: [{ threadId: thread }] });
+    .mockResolvedValueOnce({ threads: [catalogEntry(thread)] });
   expect(await capability.ownsThread('legacy-history-thread')).toBe(false);
   await expect(capability.updateThreadBinding('legacy-history-thread', BINDING)).rejects.toThrow();
   expect(request.mock.calls.map(([method]) => method)).toEqual([
     'thread/list',
-    'thread/read',
+    'ledger/read',
     'thread/list',
   ]);
 });
@@ -146,7 +129,10 @@ test('a thread outside the host catalog is not host-owned', async () => {
 test('a failed owner read rejects instead of classifying the thread as historical', async () => {
   const { capability, request } = fixture();
   const unreachable = new Error('The agent host connection closed');
-  request.mockResolvedValueOnce({ threads: [] }).mockRejectedValueOnce(unreachable);
+  request
+    .mockResolvedValueOnce({ threads: [] })
+    .mockResolvedValueOnce(NO_COSTS)
+    .mockRejectedValueOnce(unreachable);
   await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
   await expect(capability.ownsThread(thread)).rejects.toBe(unreachable);
 });
@@ -155,50 +141,83 @@ test('a thread created after the catalog loaded is host-owned without another ca
   const { capability, request } = fixture();
   request
     .mockResolvedValueOnce({ threads: [] })
+    .mockResolvedValueOnce(NO_COSTS)
     .mockResolvedValueOnce({ threadId: thread })
     .mockResolvedValueOnce({ rows: startedRows });
   await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
-  await capability.createThread(WORKSPACE_MEMORY_RESOURCE_ID);
+  expect(await capability.createThread(WORKSPACE_MEMORY_RESOURCE_ID)).toEqual({
+    createdAt: new Date(startedAt),
+    id: thread,
+    resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+    title: DEFAULT_THREAD_TITLE,
+    updatedAt: new Date(startedAt),
+  });
   expect(await capability.ownsThread(thread)).toBe(true);
   expect(request.mock.calls.map(([method]) => method)).toEqual([
     'thread/list',
+    'ledger/read',
     'thread/start',
     'thread/read',
   ]);
 });
 
-test('the catalog projects the latest committed binding; binding rows never move updatedAt', async () => {
+test('the thread list is the catalog and one ledger read, never a thread log', async () => {
   const { capability, request } = fixture();
-  const boundAt = startedAt + 60_000;
-  request.mockResolvedValueOnce({ threads: [{ threadId: thread }] }).mockResolvedValueOnce({
-    rows: [...startedRows, ...boundRows(startedRows.length + 1, boundAt)],
+  request.mockImplementation(async (method) => {
+    if (method === 'thread/list') {
+      return { threads: [catalogEntry(thread), catalogEntry('second-thread')] };
+    }
+    if (method === 'ledger/read') {
+      return NO_COSTS;
+    }
+    throw new Error(`The thread list read ${method}`);
   });
-  const [projected] = await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
-  expect(projected?.metadata).toEqual(BINDING);
-  expect(projected?.updatedAt).toEqual(new Date(startedAt));
+  expect(await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID)).toHaveLength(2);
+  expect(request.mock.calls.map(([method]) => method).sort()).toEqual([
+    'ledger/read',
+    'thread/list',
+  ]);
 });
 
-test('a later committed binding replaces the earlier one in the projection', async () => {
+test("the catalog entry's binding, colour and times are the thread's metadata and dates", async () => {
   const { capability, request } = fixture();
-  const { secondaryRootIds: _secondaryRootIds, ...earlier } = BINDING;
-  const later = { ...BINDING, forgePrWatch: true };
-  const next = startedRows.length + 1;
-  request.mockResolvedValueOnce({ threads: [{ threadId: thread }] }).mockResolvedValueOnce({
-    rows: [
-      ...startedRows,
-      ...boundRows(next, startedAt + 1000, earlier),
-      ...boundRows(next + 2, startedAt + 2000, later, '7a6b5c4d-3e2f-4a1b-9c8d-7e6f5a4b3c2d'),
-    ],
-  });
+  const updatedAt = startedAt + 60_000;
+  request
+    .mockResolvedValueOnce({
+      threads: [{ ...catalogEntry(thread, BINDING, updatedAt), color: 'emerald' }],
+    })
+    .mockResolvedValueOnce(NO_COSTS);
   const [projected] = await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
-  expect(projected?.metadata).toEqual(later);
+  expect(projected).toMatchObject({
+    createdAt: new Date(startedAt),
+    metadata: { ...BINDING, color: 'emerald' },
+    updatedAt: new Date(updatedAt),
+  });
 });
 
 test('an unbound host thread projects no metadata', async () => {
   const { capability, request } = fixture();
   request
-    .mockResolvedValueOnce({ threads: [{ threadId: thread }] })
-    .mockResolvedValueOnce({ rows: startedRows });
+    .mockResolvedValueOnce({ threads: [catalogEntry(thread)] })
+    .mockResolvedValueOnce(NO_COSTS);
   const [projected] = await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
   expect(projected && 'metadata' in projected).toBe(false);
+});
+
+test('a damaged thread stays listed with its catalog dates and its read failure', async () => {
+  const { capability, request } = fixture();
+  const damage = 'missing seq 7';
+  request
+    .mockResolvedValueOnce({ threads: [{ ...catalogEntry(thread), damage }] })
+    .mockResolvedValueOnce(NO_COSTS);
+  expect(await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID)).toEqual([
+    {
+      createdAt: new Date(startedAt),
+      id: thread,
+      readFailure: damage,
+      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
+      title: DEFAULT_THREAD_TITLE,
+      updatedAt: new Date(startedAt),
+    },
+  ]);
 });

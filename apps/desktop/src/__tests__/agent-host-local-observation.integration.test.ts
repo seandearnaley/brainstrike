@@ -131,7 +131,6 @@ async function borrowedHost(
     mcp: createDesktopMcpPlatformCapabilities(new RemoteMcpRuntime()),
     readConfiguration: async (request) => admit(request.threadId),
     ...(readiness ? { readMemoryReadiness: readiness } : {}),
-    readLegacyMemory: async () => ({ resource: null, resourceObservations: false }),
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
   });
   let host: AgentHost | undefined;

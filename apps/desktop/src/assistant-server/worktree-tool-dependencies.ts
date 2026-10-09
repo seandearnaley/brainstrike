@@ -3,6 +3,7 @@ import type { AssistantServerOptions } from './server-options';
 import {
   createShellCorrelation,
   type ShellCorrelationCapability,
+  type ShellWorktreeCorrelation,
 } from './shell-worktree-correlation';
 import type { WorktreeToolCapability } from './worktree-tools';
 
@@ -19,7 +20,7 @@ export type DesktopWorktreeServices = Pick<
 export function desktopWorktreeToolDependencies(
   services: DesktopWorktreeServices,
   run: { readonly runId: string | undefined; readonly threadId: string | undefined }
-): { shellCorrelation?: ShellCorrelationCapability; worktreeTools?: WorktreeToolCapability } {
+): { shellCorrelation?: ShellWorktreeCorrelation; worktreeTools?: WorktreeToolCapability } {
   const service = services.resolveWorktreeService?.() ?? null;
   const forge = services.resolveForgeService?.() ?? null;
   const { runId, threadId } = run;
@@ -37,7 +38,7 @@ export function desktopWorktreeToolDependencies(
         list: () => service.list(),
       }
     : undefined;
-  const shellCorrelation: ShellCorrelationCapability | undefined =
+  const shellCorrelation: ShellWorktreeCorrelation | undefined =
     service || forge
       ? createShellCorrelation({
           forgeRefresh: (rootId) => {
@@ -68,5 +69,35 @@ export function desktopWorktreeToolDependencies(
   return {
     ...(shellCorrelation ? { shellCorrelation } : {}),
     ...(worktreeTools ? { worktreeTools } : {}),
+  };
+}
+
+/**
+ * A legacy run's worktree dependencies: the same services, plus the run's
+ * timeline breadcrumb for each worktree its shell made (BST-1390), which only
+ * legacy runs record in Main. An agent-host run commits its own to the host log.
+ */
+export function legacyWorktreeToolDependencies(
+  services: DesktopWorktreeServices,
+  run: { readonly runId: string | undefined; readonly threadId: string | undefined }
+): { shellCorrelation?: ShellCorrelationCapability; worktreeTools?: WorktreeToolCapability } {
+  const { shellCorrelation, ...rest } = desktopWorktreeToolDependencies(services, run);
+  const service = services.resolveWorktreeService?.() ?? null;
+  const { runId } = run;
+  if (!(shellCorrelation && service && runId)) {
+    return { ...rest, ...(shellCorrelation ? { shellCorrelation } : {}) };
+  }
+  return {
+    ...rest,
+    shellCorrelation: {
+      onCommandCompleted: (input) => {
+        void shellCorrelation
+          .onCommandCompleted(input)
+          .then((adopted) => service.recordShellAdoptions(runId, adopted))
+          .catch((error: unknown) => {
+            logger.error('shell worktree breadcrumb failed', { error, runId });
+          });
+      },
+    },
   };
 }

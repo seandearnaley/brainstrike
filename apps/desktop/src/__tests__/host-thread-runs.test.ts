@@ -1,14 +1,12 @@
 import { type HostLogRow, HostLogRowSchema } from '@brainstrike/agent-host/protocol';
 import approvedRecording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json';
 import questionRecording from '@brainstrike/test-utils/fixtures/committed-host-question.json';
-import richRecording from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json';
 import { expect, test, vi } from 'vitest';
 import { type CommittedHostRunSource, HostThreadRuns } from '../renderer/host-thread-runs';
 // Ordinary app-owned SQLite rows: the runtime shape carries a commit `ts` on every row.
 import appOwnedRecording from './fixtures/committed-app-owned-host-thread.json';
 
 const approved = approvedRecording.map((row) => HostLogRowSchema.parse(row));
-const rich = richRecording.map((row) => HostLogRowSchema.parse(row));
 const question = questionRecording.map((row) => HostLogRowSchema.parse(row));
 const committedAt = HostLogRowSchema.parse(appOwnedRecording[0]).ts;
 const threadId = approved[0]?.threadId;
@@ -64,29 +62,11 @@ class Source implements CommittedHostRunSource {
   }
 }
 
-test('a committed log reads as its latest root run: running until its own finish', () => {
+test("Core's latest run reads as the thread badge's run, its finish time a date", () => {
   const runs = new HostThreadRuns();
-  runs.accept(threadId, approved.slice(0, indexOf(approved, 'run.finished')));
-  expect(runs.getSnapshot().get(threadId)).toEqual({
-    completedAt: null,
-    needsInput: false,
-    status: 'running',
-  });
-  runs.accept(threadId, approved);
-  // The recording predates commit timestamps: no finish time is invented.
-  expect(runs.getSnapshot().get(threadId)).toEqual({
-    completedAt: null,
-    needsInput: false,
-    status: 'completed',
-  });
-});
-
-test('the latest of several runs decides; its finish time is the committed row time', () => {
-  const runs = new HostThreadRuns();
-  const second = rich.findLastIndex((row) => row.event.type === 'run.started');
-  runs.accept(threadId, rich.slice(0, second + 1));
-  expect(runs.getSnapshot().get(threadId)?.status).toBe('running');
-  runs.accept(threadId, finishedAs('failed', rich));
+  runs.seed([
+    [threadId, { completedAt: committedAt, needsInput: false, seq: 9, status: 'failed' }],
+  ]);
   expect(runs.getSnapshot().get(threadId)).toEqual({
     completedAt: new Date(committedAt),
     needsInput: false,
@@ -94,23 +74,24 @@ test('the latest of several runs decides; its finish time is the committed row t
   });
 });
 
-test('outcomes read as the legacy run statuses: Stop is cancelled, an interruption failed', () => {
-  for (const [outcome, status] of [
-    ['stopped', 'cancelled'],
-    ['interrupted', 'failed'],
-  ] as const) {
-    const runs = new HostThreadRuns();
-    runs.accept(threadId, finishedAs(outcome));
-    expect(runs.getSnapshot().get(threadId)?.status).toBe(status);
-  }
-});
-
 test('an older catalog read never replaces a newer observed run state', () => {
   const runs = new HostThreadRuns();
-  runs.accept(threadId, approved);
+  const source = new Source();
+  const stop = runs.observe(threadId, source, vi.fn());
+  source.replay(finishedAs('completed'));
   const finished = runs.getSnapshot();
-  runs.accept(threadId, approved.slice(0, indexOf(approved, 'run.finished')));
+  const finishedSeq = approved[indexOf(approved, 'run.finished')]?.seq ?? 0;
+  // A catalog read taken before the run finished.
+  runs.seed([
+    [threadId, { completedAt: null, needsInput: true, seq: finishedSeq - 1, status: 'running' }],
+  ]);
   expect(runs.getSnapshot()).toBe(finished);
+  // A later read wins: the thread's next run started after the view's last row.
+  runs.seed([
+    [threadId, { completedAt: null, needsInput: false, seq: finishedSeq + 5, status: 'running' }],
+  ]);
+  expect(runs.getSnapshot().get(threadId)?.status).toBe('running');
+  stop();
   runs.delete(threadId);
   expect(runs.getSnapshot().has(threadId)).toBe(false);
 });
@@ -171,18 +152,6 @@ test('a live approval request and failed run notify once each; a Stop does not',
       ...(expected ? [[expected]] : []),
     ]);
   }
-});
-
-test('a run waiting on its user needs input until the committed response', () => {
-  const runs = new HostThreadRuns();
-  runs.accept(threadId, approved.slice(0, indexOf(approved, 'interaction.requested') + 1));
-  expect(runs.getSnapshot().get(threadId)).toEqual({
-    completedAt: null,
-    needsInput: true,
-    status: 'running',
-  });
-  runs.accept(threadId, approved.slice(0, indexOf(approved, 'interaction.responded') + 1));
-  expect(runs.getSnapshot().get(threadId)?.needsInput).toBe(false);
 });
 
 test('a live question notifies as one, in the approval notification kind', () => {

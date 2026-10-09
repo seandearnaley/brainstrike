@@ -47,6 +47,7 @@
     "@testing-library/user-event": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "jsdom": "catalog:",
     "react-dom": "^19.3.0",
@@ -198,7 +199,7 @@
   "main": "dist/index.js",
   "module": "dist/index.js",
   "peerDependencies": {
-    "react": "^19.2.4",
+    "react": "^19.3.0",
     "react-dom": "^19.2.4",
     "zustand": "^5"
   },
@@ -208,7 +209,7 @@
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "lint": "pnpm -w lint",
-    "test": "vitest run --exclude \"**/*.integration.test.*\"",
+    "test": "vitest run --exclude \"**/*.integration.test.*\" && vitest run --config vitest.compiled.config.mts",
     "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",

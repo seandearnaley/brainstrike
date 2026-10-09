@@ -47,7 +47,7 @@ import { decodeNativeEmbeddingWorkerPlan } from './platform/native-embedding-val
 
 type McpContentIpcResponse = import('./ipc-domains/mcp.contract').McpContentIpcResponse;
 type McpHostSnapshot = import('@brainstrike/assistant-contract').McpHostSnapshot;
-type McpAppBridge = import('@brainstrike/assistant-contract').McpAppBridge;
+type McpAppShellBridge = import('@brainstrike/assistant-contract').McpAppShellBridge;
 type McpAppOrigin = import('@brainstrike/assistant-contract').McpAppOrigin;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 // Contract-derived bridges (BST-1648): `exposeBridge(name, contract)` exposes
@@ -556,7 +556,7 @@ contextBridge.exposeInMainWorld('mcp', {
   apps: {
     ...mcpAppsBridge,
     readResource: (origin: McpAppOrigin) => readMcpAppResource(origin),
-  } satisfies McpAppBridge,
+  } satisfies McpAppShellBridge,
 });
 
 // Assistant selection events. Tool execution deliberately stays behind the

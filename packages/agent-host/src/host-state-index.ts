@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Worker } from 'node:worker_threads';
 import {
   createStateStoreIndexer,
+  type StateIndexerPort,
   type StateMessageVectorPort,
   type StateObservationVectorPort,
 } from '@brainstrike/indexer';
@@ -31,6 +32,13 @@ export interface HostStateIndex {
   readonly indexer: StateStoreIndexerPort;
   /** Memory vectors are acquired under the state root itself as their Root ID. */
   readonly rootId: string;
+  /** Gap 10: committed conversation rows of the requested threads matching every query word. */
+  readonly search: StateIndexerPort['searchState'];
+  /** The semantic arm: search-row vectors, their backlog and nearest rows. */
+  readonly searchVectors: Pick<
+    StateIndexerPort,
+    'putStateSearchVectors' | 'searchStatePending' | 'searchStateSimilar'
+  >;
   /** Recall and observation vectors, in this same derived store and writer. */
   readonly vectors: StateMessageVectorPort & StateObservationVectorPort;
 }
@@ -132,6 +140,8 @@ async function connectHostStateIndex(options: {
     close: () => connection.close(),
     indexer: createStateStoreIndexer(port),
     rootId: options.stateRoot,
+    search: (request) => port.searchState(request),
+    searchVectors: port,
     vectors: port,
   };
 }
