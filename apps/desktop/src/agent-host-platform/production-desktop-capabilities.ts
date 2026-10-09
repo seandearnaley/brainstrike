@@ -1,21 +1,8 @@
 import { homedir } from 'node:os';
 import { isDeepStrictEqual } from 'node:util';
-import {
-  createAssistantSkillTools,
-  type RuntimeData,
-  resolveAssistantResilienceConfig,
-  type ScopedToolOutputArtifactReader,
-} from '@brainstrike/agent';
-import {
-  DEFAULT_AGENT_MAX_STEPS,
-  resolveScaledToolResultBudget,
-} from '@brainstrike/agent/tool-runtime';
-import type {
-  HostDelegation,
-  HostRunAdmissionRequest,
-  HostTool,
-  HostToolContext,
-} from '@brainstrike/agent-host';
+import { type RuntimeData, resolveAssistantResilienceConfig } from '@brainstrike/agent';
+import { DEFAULT_AGENT_MAX_STEPS } from '@brainstrike/agent/tool-runtime';
+import type { HostDelegation, HostRunAdmissionRequest } from '@brainstrike/agent-host';
 import {
   CliWorkspaceRootsSchema,
   materializeCliWorkspaceIntent,
@@ -36,33 +23,23 @@ import {
   isPermissionDenied,
   isSupportedProvider,
   listAutoObservationalMemoryCandidates,
-  NATIVE_TOOL_ID,
-  resolveToolRiskCategory,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
 import { DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW } from '@brainstrike/assistant-contract/context-budget';
 import { listEmbeddingModels } from '@brainstrike/assistant-contract/provider-metadata';
 import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thread-workspace-binding';
-import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-repository';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
 import { z } from 'zod';
-import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
-import {
-  buildDesktopAssistantTools,
-  type DesktopAssistantToolDependencies,
-} from '../assistant-server/assistant-tools';
+import type { DesktopAssistantToolDependencies } from '../assistant-server/native-tool-executor-context';
 import {
   type PreparedAdmittedSkills,
   prepareAdmittedSkills,
 } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
-import {
-  type DesktopWorktreeServices,
-  desktopWorktreeToolDependencies,
-} from '../assistant-server/worktree-tool-dependencies';
+import type { DesktopWorktreeServices } from '../assistant-server/worktree-tool-dependencies';
 import { getDatabase } from '../db-main';
 import {
   type DesktopHostSystemContext,
@@ -71,6 +48,7 @@ import {
 } from './desktop-host-context';
 import { resolveDesktopHostDelegation } from './desktop-host-delegation';
 import { desktopHostToolServices, desktopNativeRuntime } from './desktop-host-tool-runtime';
+import { type DesktopToolDescriptor, desktopToolDescriptors } from './desktop-tool-descriptors';
 import type {
   DesktopWorkspaceBindingAuthority,
   DesktopWorkspaceBindingBorrow,
@@ -124,13 +102,6 @@ function desktopWorkspaceRootObservation(
   workspace: DesktopWorkspaceBindingBorrow | undefined
 ): RuntimeData['workspaceRoots'] {
   return workspace ? [...workspace.roots] : undefined;
-}
-
-function desktopRetrievalScopeFields(
-  restricted: boolean,
-  roots: NonNullable<RuntimeData['workspaceRoots']>
-): Pick<DesktopAssistantToolDependencies, 'admittedWorkspaceRootIds'> {
-  return restricted ? { admittedWorkspaceRootIds: roots.map((root) => root.rootId) } : {};
 }
 
 function desktopDurableConfiguration(
@@ -439,24 +410,24 @@ function desktopContextReader(
   };
 }
 
-async function createDesktopNativeTools(
+async function readDesktopNativeAdmission(
   db: Awaited<ReturnType<typeof getDatabase>>,
   configuration: z.output<typeof PlatformModelConfigurationSchema>,
   intent: z.output<typeof PlatformClientConfigurationSchema>,
-  { resolveForgeService, resolveWorktreeService, ...dependencies }: DesktopHostToolServices,
-  budget: ReturnType<typeof resolveScaledToolResultBudget>,
+  worktrees: boolean,
   request: HostRunAdmissionRequest,
   workspace?: DesktopWorkspaceBindingBorrow
 ): Promise<{
   /** The enabled skills of the run's one scan, admitted to the host. */
   readonly admittedSkills: readonly import('@brainstrike/agent').ScannedSkill[] | undefined;
+  /** The admission's tools, described from the catalog; the host executes every one. */
+  readonly descriptors: Record<string, DesktopToolDescriptor>;
   readonly freshRoots: () => Promise<NonNullable<RuntimeData['workspaceRoots']>>;
   /** Retrieval is admitted to the thread's own roots (a CLI selection or a binding). */
   readonly retrievalRootsOnly: boolean;
   readonly readWorkspaceFile: WorkspaceFileReader;
   readonly revalidateWorkspace: () => Promise<void>;
   readonly runtime: RuntimeData;
-  readonly tools: Record<string, import('@brainstrike/agent-host').HostTool>;
   readonly workspaceSkills?: import('@brainstrike/agent').ScannedWorkspaceSkills;
 }> {
   request.signal.throwIfAborted();
@@ -526,82 +497,20 @@ async function createDesktopNativeTools(
     runtime,
     roots
   );
-  const skillTools = workspaceSkills ? createAssistantSkillTools(workspaceSkills) : {};
-  const nativeBindings = Object.fromEntries(
-    [
-      ...DESKTOP_NATIVE_TOOLS,
-      ...Object.keys(skillTools).map(
-        (id) => NATIVE_TOOL_REGISTRIES.byId[id as 'skill' | 'skill_read' | 'skill_search']
-      ),
-    ].map((tool) => [tool.id, { identity: tool.id, risk: resolveToolRiskCategory(tool.defaults) }])
-  );
-  const build = (context?: HostToolContext, currentRoots = roots) =>
-    createAgentHostToolBindings({
-      bindings: nativeBindings,
-      resolvedToolResultBudget: budget,
-      tools: {
-        ...buildDesktopAssistantTools(
-          {
-            ...runtime,
-            workspaceRoots: currentRoots,
-            ...(context
-              ? {
-                  memory: {
-                    resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-                    runId: context.runId,
-                    threadId: context.threadId,
-                  },
-                }
-              : {}),
-          },
-          {
-            ...dependencies,
-            ...desktopWorktreeToolDependencies(
-              { resolveForgeService, resolveWorktreeService },
-              { runId: context?.runId, threadId: context?.threadId }
-            ),
-            ...desktopRetrievalScopeFields(retrievalRootsOnly, currentRoots),
-            ...(workspaceSkills ? { skillScriptResolver: workspaceSkills } : {}),
-            resolvedToolResultBudget: budget,
-            // The host owns committed outputs: it executes the artifact reader.
-            toolOutputArtifactReader: HOST_EXECUTED_ARTIFACT_READER,
-          }
-        ),
-        ...skillTools,
-      },
-    });
-  const native = build();
-  const tools = Object.fromEntries(
-    advertisedNativeTools(native.tools, resolveWorktreeService).map(([name, tool]) => [
-      name,
-      {
-        ...tool,
-        execute: async (input: unknown, context: HostToolContext): Promise<unknown> => {
-          context.signal.throwIfAborted();
-          const currentRoots = await freshRoots();
-          context.signal.throwIfAborted();
-          const executor = build(context, currentRoots).tools[name];
-          if (!executor || executor.identity !== tool.identity) {
-            throw new Error('Native executor changed after admission');
-          }
-          const result = await executor.execute(input, context);
-          if (selection || workspace) {
-            await revalidateWorkspace();
-            context.signal.throwIfAborted();
-          }
-          return result;
-        },
-      },
-    ])
-  );
+  const descriptors = await desktopToolDescriptors({
+    enabledNativeToolIds: intent.enabledNativeToolIds,
+    localProvider: configuration.provider.trim().toLowerCase() === 'local',
+    skills: workspaceSkills !== undefined,
+    worktrees,
+  });
   return {
     admittedSkills,
+    descriptors,
     freshRoots,
     readWorkspaceFile,
     retrievalRootsOnly,
     revalidateWorkspace,
     runtime,
-    tools,
     ...(workspaceSkills ? { workspaceSkills } : {}),
   };
 }
@@ -629,36 +538,12 @@ function desktopRunSkills(
 /** Main's tool services for host threads, resolved per run (the worktree services lazily). */
 export type DesktopHostToolServices = DesktopAssistantToolDependencies & DesktopWorktreeServices;
 
-const WORKTREE_TOOL_IDS: ReadonlySet<string> = new Set([
-  NATIVE_TOOL_ID.listWorktrees,
-  NATIVE_TOOL_ID.manageWorktree,
-]);
-
-/** A worktree tool without Main's worktree service cannot run, so it is not advertised. */
-function advertisedNativeTools(
-  tools: Readonly<Record<string, HostTool>>,
-  resolveWorktreeService: DesktopWorktreeServices['resolveWorktreeService']
-): [string, HostTool][] {
-  const entries = Object.entries(tools);
-  if (resolveWorktreeService?.()) {
-    return entries;
-  }
-  return entries.filter(([, tool]) => !WORKTREE_TOOL_IDS.has(tool.permissionToolId ?? ''));
-}
-
-/** Main only describes the host's artifact reader; the host executes it over its own log. */
-const HOST_EXECUTED_ARTIFACT_READER: ScopedToolOutputArtifactReader = {
-  readRange: () => {
-    throw new Error('The tool output artifact reader executes in the agent host');
-  },
-};
-
 /** Plan mode admits only the plan-mode tool set; the built-in local provider has no plan mode. */
 function desktopRunTools(
-  tools: Readonly<Record<string, HostTool>>,
+  tools: Readonly<Record<string, DesktopToolDescriptor>>,
   request: HostRunAdmissionRequest,
   provider: string
-): Readonly<Record<string, HostTool>> {
+): Readonly<Record<string, DesktopToolDescriptor>> {
   if (!request.planMode) {
     return tools;
   }
@@ -773,17 +658,15 @@ export function productionDesktopCapabilities(
     } = await readPreconditions(request);
     const { definition } = catalog;
     const permissionPolicy = platformPermissionPolicy(intent.permissionPolicy);
-    const budget = resolveScaledToolResultBudget(definition.contextWindow);
-    const native = await createDesktopNativeTools(
+    const native = await readDesktopNativeAdmission(
       db,
       configuration,
       intent,
-      dependencies,
-      budget,
+      Boolean(dependencies.resolveWorktreeService?.()),
       request,
       workspace
     );
-    const tools = desktopRunTools(native.tools, request, configuration.provider);
+    const tools = desktopRunTools(native.descriptors, request, configuration.provider);
     const resilience = resolveAssistantResilienceConfig();
     // MCP tools are composed and executed by the Node host's own MCP runtime.
     const close = (): Promise<void> => {
