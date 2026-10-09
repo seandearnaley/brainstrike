@@ -110,6 +110,11 @@ export interface CommittedHostConversation {
 
 /** Construct alongside the attached client, outside React render. */
 export function createCommittedHostConversation(options: {
+  /**
+   * Bind the thread to its folder before a run it starts, as legacy's first
+   * request did (`bindHostThreadToMainRoot`); a refusal fails that send.
+   */
+  readonly bindThreadRoot?: () => Promise<void>;
   readonly client: HostClient;
   readonly modelId: string;
   /** Told when a newer committed title, colour or icon reaches this view. */
@@ -149,6 +154,7 @@ export function createCommittedHostConversation(options: {
     const prompt = message.content
       .map((part) => (part.type === 'text' ? part.text : ''))
       .join('\n');
+    await options.bindThreadRoot?.();
     await client.request('run/start', {
       ...(attachments.length > 0 ? { attachments } : {}),
       commandId: crypto.randomUUID(),
@@ -178,6 +184,7 @@ export function createCommittedHostConversation(options: {
       if (parentId === null) {
         throw new Error('Regenerate has no committed user message');
       }
+      await options.bindThreadRoot?.();
       await client.request('run/regenerate', {
         commandId: crypto.randomUUID(),
         ...runSettings(),

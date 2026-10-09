@@ -119,7 +119,6 @@ export function isAlwaysVisibleRunEvent(data: unknown): boolean {
     // degradation the row reports.
     (event.kind === 'hook.notice' && event.status === 'failed') ||
     event.kind === 'mcp.tools.unavailable' ||
-    event.kind === 'memory.observation.withheld' ||
     event.kind === 'provider.request.warned' ||
     event.kind === 'run.failed' ||
     event.kind === 'run.cancelled' ||

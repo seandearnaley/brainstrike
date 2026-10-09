@@ -1,5 +1,6 @@
 import {
   createThreadSearchService,
+  type ThreadSearchExtraArms,
   type ThreadSearchRepository,
   type ThreadSearchService,
   type ThreadSearchServiceRepository,
@@ -55,6 +56,8 @@ export interface UseThreadSearchControllerOptions {
   readonly localModelConfigMap: ReturnType<typeof buildLocalEmbeddingModelConfigMap>;
   readonly repository: ThreadSearchControllerRepository | null;
   readonly resourceId: string;
+  /** Gap 10: the thread host's own arms for a query, fused into the same list. */
+  readonly searchHost?: ((query: string) => Promise<ThreadSearchExtraArms>) | undefined;
 }
 
 export interface ThreadSearchController {
@@ -85,6 +88,7 @@ export function useThreadSearchController({
   localModelConfigMap,
   repository,
   resourceId,
+  searchHost,
 }: UseThreadSearchControllerOptions): ThreadSearchController {
   const service = useMemo<ThreadSearchService | null>(
     () => (repository ? createThreadSearchService(repository) : null),
@@ -201,6 +205,9 @@ export function useThreadSearchController({
         return;
       }
       const generation = store.beginSearch();
+      // The host's arms run beside history's sync; their failure fails this search.
+      const hostArms = searchHost?.(trimmed);
+      hostArms?.catch(() => undefined);
       void (async () => {
         try {
           // Incremental sync first: every statement is bounded, so the single
@@ -229,6 +236,7 @@ export function useThreadSearchController({
           drainEmbeddingBacklog();
           const { embedding, semantic } = await resolveQueryEmbedding(trimmed);
           const response = await service.searchThreads(trimmed, {
+            ...(hostArms ? { extraArms: await hostArms } : {}),
             queryEmbedding: embedding,
             resourceId,
           });
@@ -238,7 +246,7 @@ export function useThreadSearchController({
         }
       })();
     },
-    [drainEmbeddingBacklog, repository, resolveQueryEmbedding, resourceId, service]
+    [drainEmbeddingBacklog, repository, resolveQueryEmbedding, resourceId, searchHost, service]
   );
 
   // Debounced auto-search on query changes; a shrunken query clears results

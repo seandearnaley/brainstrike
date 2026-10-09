@@ -51,6 +51,7 @@ import type {
 } from './protocol.js';
 import type { McpPresentationEvent } from './protocol-mcp-presentation.js';
 import type { McpSettingsEvent } from './protocol-mcp-settings.js';
+import type { HostStateSearch, HostStateSearchVectors } from './thread-search.js';
 
 /** One committed tool-output overlay entry (the legacy ToolProjectionRewriteEntry). */
 export type HostProjectionRewrite = Extract<
@@ -316,11 +317,6 @@ export interface HostRunAdmission {
   readonly hooks?: HostRunHooks | undefined;
   /** The selected provider input budget; host compaction keeps requests inside it. */
   readonly inputTokenLimit?: number | undefined;
-  /**
-   * Gap 17: the legacy profile had resource observations, which were not
-   * imported. Core commits that notice once per root, with a run it admits.
-   */
-  readonly legacyObservationsWithheld?: true;
   readonly model: LanguageModel;
   /**
    * The resolved provider's own web search (Anthropic, OpenAI), built with the
@@ -636,6 +632,10 @@ export interface HostPlatform {
   }): Promise<string>;
   /** The snapshot owner's rewind restores; absent where none exists (the CLI). */
   readonly rewindFiles?: HostRewindFiles | undefined;
+  /** Gap 10: the host's derived state index search, for `thread/search`. */
+  readonly searchState?: HostStateSearch;
+  /** The semantic arm's index operations, for `thread/search` and its backlog methods. */
+  readonly searchStateVectors?: HostStateSearchVectors;
   /** The native-tool output rewrite policy; Core commits what it selects. */
   selectProjectionRewrites?(
     request: HostProjectionRewriteRequest

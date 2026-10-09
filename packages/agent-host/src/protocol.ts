@@ -31,6 +31,7 @@ import {
   REWIND_METHOD_SCHEMAS,
   REWIND_RESULT_SCHEMAS,
 } from './protocol-rewind.js';
+import { SEARCH_METHOD_SCHEMAS, SEARCH_RESULT_SCHEMAS } from './protocol-search.js';
 import {
   HostEditBaselineSchema,
   HostEditRevertOutcomeSchema,
@@ -44,6 +45,7 @@ import {
 export * from './protocol-mcp-presentation.js';
 export * from './protocol-mcp-settings.js';
 export * from './protocol-rewind.js';
+export * from './protocol-search.js';
 export * from './workspace-wire.js';
 
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
@@ -500,6 +502,7 @@ export const HOST_METHOD_SCHEMAS = {
   }),
   'thread/read': z.strictObject({ ...Thread, fromSeq: Seq }),
   ...REWIND_METHOD_SCHEMAS,
+  ...SEARCH_METHOD_SCHEMAS,
   'thread/start': z.strictObject(Command),
   'thread/update': z
     .strictObject({ ...Command, ...Thread, ...ThreadPresentation })
@@ -643,15 +646,11 @@ export const HostEventSchema = z.union([
     modelId: Id,
     usage: z.json(),
   }),
-  /**
-   * OM keeps one merged text per thread, so a branched thread's run receives
-   * none. Gap 17: the legacy profile's resource observations were not
-   * imported; that notice is committed once per root.
-   */
+  /** OM keeps one merged text per thread, so a branched thread's run receives none. */
   z.strictObject({
     type: z.literal('memory.observation.withheld'),
     ...RunFields,
-    reason: z.enum(['branched-thread', 'legacy-resource-observations']),
+    reason: z.literal('branched-thread'),
   }),
   z.strictObject({
     type: z.literal('provider.request.prepared'),
@@ -960,6 +959,7 @@ export const HOST_RESULT_SCHEMAS = {
   ]),
   'thread/read': z.strictObject({ rows: z.array(HostLogRowSchema) }),
   ...REWIND_RESULT_SCHEMAS,
+  ...SEARCH_RESULT_SCHEMAS,
   'thread/start': z.strictObject(Thread),
   'thread/update': z.strictObject({ accepted: z.literal(true) }),
   'thread/workspace/binding/read': z.strictObject({

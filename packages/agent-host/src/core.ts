@@ -63,7 +63,7 @@ import {
   bindHostRunAdmission,
   closeHostRunResources,
   ensureHostRunAdmission,
-  HostRunStartNotices,
+  hostMcpUnavailableEvents,
   hostRunCommandRequest,
 } from './run-admission.js';
 import {
@@ -163,7 +163,6 @@ export class HostCore {
   private readonly failedAdmissions = new Map<string, unknown>();
   private readonly deletions = new Map<string, Promise<HostResults['thread/delete']>>();
   private admission: Promise<void> = Promise.resolve();
-  private readonly startNotices = new HostRunStartNotices();
   private readonly rewinds = new HostThreadRewinds({
     accept: (threadId, method, params, result, events) =>
       this.accept(threadId, method, params, result, events, this.foldRows, 'full'),
@@ -225,7 +224,6 @@ export class HostCore {
     this.workspaces.fold(row);
     this.rewinds.fold(row);
     const event = row.event;
-    this.startNotices.fold(event);
     switch (event.type) {
       case 'command.accepted':
         foldHostAcceptedCommand(this.commands, this.runs, event, row.threadId);
@@ -571,12 +569,11 @@ export class HostCore {
       }
       run.release = release;
       const result = { runId: run.id };
-      const notices = this.startNotices.forRun(admission, run.id);
+      const unavailable = hostMcpUnavailableEvents(admission, run.id);
       // A wake has no client command: its run.started records the delivery it answers.
       await (method === 'wake'
-        ? this.append(params.threadId, [started, ...notices])
-        : this.accept(params.threadId, method, record, result, [started, ...notices]));
-      this.startNotices.committed(admission);
+        ? this.append(params.threadId, [started, ...unavailable])
+        : this.accept(params.threadId, method, record, result, [started, ...unavailable]));
       this.children.recordDelivery(started.delivery);
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);

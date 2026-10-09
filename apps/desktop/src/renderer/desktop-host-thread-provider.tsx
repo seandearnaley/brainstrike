@@ -43,6 +43,7 @@ import { hostMcpAppBridge } from './host-mcp-app-bridge';
 import type { HostThreadCanvases } from './host-thread-canvases';
 import { createHostDebugBundleBinding } from './host-thread-debug';
 import type { HostThreadLedger } from './host-thread-ledger';
+import { bindHostThreadToMainRoot } from './host-thread-root-binding';
 import type { HostThreadRuns } from './host-thread-runs';
 import {
   type ProviderReadErrors,
@@ -154,6 +155,21 @@ function HostThread({
   );
   const configuration = useRef(readConfiguration);
   const planMode = useRef(readPlanMode);
+  // Legacy parity: a send binds an unbound thread to the Main root first.
+  const database = useOptionalPGliteDatabase();
+  const bindRoot = useRef(async (): Promise<void> => undefined);
+  useLayoutEffect(() => {
+    bindRoot.current = () => {
+      const { activeRootIds, rootDescriptors } = explorer.getState();
+      const main = activeRootIds[0] ? rootDescriptors[activeRootIds[0]] : undefined;
+      return bindHostThreadToMainRoot({
+        client,
+        database,
+        mainRoot: main ? { displayName: main.displayName, path: main.path } : undefined,
+        threadId,
+      });
+    };
+  }, [client, database, explorer, threadId]);
   useLayoutEffect(() => {
     configuration.current = readConfiguration;
     planMode.current = readPlanMode;
@@ -165,6 +181,8 @@ function HostThread({
     // Commit-time view ownership survives StrictMode render replay without
     // starting duplicate subscriptions or disposing a still-mounted source.
     const current = createCommittedHostConversation({
+      // A child is admitted under its root's binding, so only a root binds.
+      ...(child ? {} : { bindThreadRoot: () => bindRoot.current() }),
       client,
       modelId: '',
       onTitleCommitted,
@@ -175,7 +193,7 @@ function HostThread({
     });
     setConversation(current);
     return () => current.close();
-  }, [client, explorer, onTitleCommitted, threadId]);
+  }, [child, client, explorer, onTitleCommitted, threadId]);
   // A root thread's "Restore to before this message" goes to its owner (the
   // host); a delegated child's view offers none.
   const rewind = useRewindContext();
@@ -205,10 +223,9 @@ function HostThread({
   const budgetGuardrail = useBudgetGuardrailBinding();
   // Debug pack and Copy debug bundle, built from the host's committed log on
   // request; correlated diagnostics come from the renderer's diagnostic store.
-  const diagnostics = useOptionalPGliteDatabase();
   const debugBundle = useMemo(
-    () => (diagnostics ? createHostDebugBundleBinding(client, threadId, diagnostics) : null),
-    [client, diagnostics, threadId]
+    () => (database ? createHostDebugBundleBinding(client, threadId, database) : null),
+    [client, database, threadId]
   );
   // Steer (BST-588): the queue holds the message at its front while Core ends
   // the run after its step in flight; the message then starts the next turn.

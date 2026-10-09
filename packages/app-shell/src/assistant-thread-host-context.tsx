@@ -13,6 +13,7 @@ import type {
   ThreadWorkspaceRepository,
 } from '@brainstrike/assistant-data';
 import type { HostUsageRecord } from '@brainstrike/assistant-data/cost-tracking';
+import type { ThreadSearchExtraArms } from '@brainstrike/db';
 import { createContext, type ReactNode, useContext, useSyncExternalStore } from 'react';
 import type { RewindPort } from './changes/rewind-port';
 
@@ -142,6 +143,12 @@ export interface AssistantThreadHostCapability {
   rewindPort?(threadId: string): RewindPort | undefined;
   /** Omitted by a host that reports no run state; its threads then show none. */
   readonly runs?: AssistantThreadHostRuns;
+  /**
+   * Gap 10: the host's own message and title arms for a Threads panel query,
+   * best first, each match on its thread's committed selected path. History's
+   * search fuses them into one list. A host without search omits this.
+   */
+  searchThreads?(query: string): Promise<ThreadSearchExtraArms>;
   /**
    * Called when an owned thread commits a canvas version while a view of it
    * is mounted, so a canvas reader re-reads through `readCanvases`. Omitted by

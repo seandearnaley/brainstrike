@@ -113,12 +113,14 @@ export async function startAgentHost(
   };
   const clientCapabilities = (): Pick<
     HostConnectionOptions,
-    'auth' | 'mcpPresentation' | 'mcpSettings' | 'providers'
+    'auth' | 'mcpPresentation' | 'mcpSettings' | 'providers' | 'searchState' | 'searchStateVectors'
   > => ({
     ...(platform?.auth ? { auth: platform.auth } : {}),
     ...(platform?.mcpPresentation ? { mcpPresentation: platform.mcpPresentation } : {}),
     ...(platform?.mcpSettings ? { mcpSettings: platform.mcpSettings } : {}),
     ...(platform?.providers ? { providers: platform.providers } : {}),
+    ...(platform?.searchState ? { searchState: platform.searchState } : {}),
+    ...(platform?.searchStateVectors ? { searchStateVectors: platform.searchStateVectors } : {}),
   });
   const ownedPlatform: HostPlatform = {
     close: closePlatform,

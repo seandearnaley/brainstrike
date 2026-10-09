@@ -12,6 +12,7 @@ import type {
   HostClientOrigin,
   HostMcpPresentationService,
   HostMcpSettingsService,
+  HostPlatform,
   HostProviderService,
 } from './ports.js';
 import {
@@ -22,6 +23,11 @@ import {
   parseHostParams,
 } from './protocol.js';
 import { bindHostProviderMethods } from './provider-connection.js';
+import {
+  pendingHostSearchVectors,
+  putHostSearchVectors,
+  searchHostThreads,
+} from './thread-search.js';
 
 export interface HostConnectionLifecycle {
   readonly closing: boolean;
@@ -41,6 +47,10 @@ export interface HostConnectionOptions {
   readonly origin?: HostClientOrigin;
   /** The platform's provider reads, where the host owns a credential store. */
   readonly providers?: HostProviderService;
+  /** Gap 10: the platform's state index search, where the host owns one. */
+  readonly searchState?: HostPlatform['searchState'];
+  /** The semantic arm's index operations, where the host owns a state index. */
+  readonly searchStateVectors?: HostPlatform['searchStateVectors'];
 }
 
 /** All transports enter this same authenticated method dispatcher. */
@@ -58,6 +68,8 @@ export function bindHostConnection(
     mcpSettings,
     origin = 'public-socket',
     providers,
+    searchState,
+    searchStateVectors,
   } = options;
   let initialized = false;
   let disposed = false;
@@ -157,6 +169,13 @@ export function bindHostConnection(
   handle('thread/read', async (params) => ({
     rows: await core.read(params.threadId, params.fromSeq),
   }));
+  handle('thread/search', (params) =>
+    searchHostThreads(core, searchState, searchStateVectors, params)
+  );
+  handle('thread/search/pending', (params) =>
+    pendingHostSearchVectors(core, searchStateVectors, params)
+  );
+  handle('thread/search/vectors', (params) => putHostSearchVectors(searchStateVectors, params));
   handle('thread/workspace/read', (params) => core.readWorkspace(params.threadId));
   handle('thread/workspace/set', (params) => core.setWorkspace(params));
   handle('thread/workspace/binding/read', (params) => core.readWorkspaceBinding(params.threadId));

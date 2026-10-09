@@ -40,7 +40,6 @@ import {
   requiredString,
   worktreeCreatedNotice,
 } from './committed-host-event-readers';
-import { legacyObservationsNotice } from './committed-legacy-observations-notice';
 import { CommittedRewindHead, type CommittedRewindHeadMove } from './committed-rewind-head';
 import { HOST_CONTEXT_COMPACTED_DATA_NAME } from './compaction-summary-message';
 import type { ThreadTokenUsage } from './context-usage-store';
@@ -697,15 +696,6 @@ export class CommittedAssistantLogProjection {
     }
     if (event['type'] !== 'memory.observation.withheld') {
       this.data(run, row, event, 'brainstrike.host-event');
-      return;
-    }
-    if (event['reason'] === 'legacy-resource-observations') {
-      const notice = legacyObservationsNotice(
-        row,
-        requiredString(event, 'runId'),
-        this.message(run).createdAt.toISOString()
-      );
-      this.data(run, row, notice, ASSISTANT_RUN_EVENT_DATA_NAME);
       return;
     }
     if (event['reason'] !== 'branched-thread') {

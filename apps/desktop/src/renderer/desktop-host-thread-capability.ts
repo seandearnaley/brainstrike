@@ -334,6 +334,25 @@ export function createWindowThreadCapability(
       return createHostRewindPort(host, changes);
     },
     runs,
+    // Gap 10: the host's own arms for the Threads panel's fused search. A matched
+    // child is the host's too, so its result can open through this client.
+    searchThreads: async (query) => {
+      const host = await client();
+      const { messages, titles } = await host.request('thread/search', { query });
+      for (const { threadId } of [...messages, ...titles]) {
+        threads.set(threadId, host);
+      }
+      return {
+        messages: messages.map(({ createdAt, headline, messageId, role, threadId }) => ({
+          headline,
+          messageCreatedAt: new Date(createdAt),
+          messageId,
+          role,
+          threadId,
+        })),
+        titles,
+      };
+    },
     subscribeCanvases: canvases.subscribe,
     // BST-1932: the host says which thread's children changed; nothing is polled.
     subscribeChildren: (listener) => {

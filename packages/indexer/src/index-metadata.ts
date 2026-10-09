@@ -12,8 +12,8 @@ import {
   scopedProofIdentitySchema,
 } from './contracts.js';
 
-export const INDEX_SCHEMA_VERSION = 10;
-const supportedSchemaVersion = Schema.Literals([8, 9, INDEX_SCHEMA_VERSION]);
+export const INDEX_SCHEMA_VERSION = 12;
+const supportedSchemaVersion = Schema.Literals([8, 9, 10, 11, INDEX_SCHEMA_VERSION]);
 export type IndexSchemaVersion = typeof supportedSchemaVersion.Type;
 const metadataSchema = Schema.Struct({
   indexMode: Schema.Literals(['text-only', 'vector-configured']),

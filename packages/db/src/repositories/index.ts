@@ -104,11 +104,6 @@ export type {
   IFileRecordRepository,
   IViewFilterPresetsRepository,
 } from './interfaces.js';
-export {
-  type LegacyMemoryDatabase,
-  type PgliteLegacyMemory,
-  readPgliteLegacyMemory,
-} from './legacy-memory-read.js';
 export { pgliteMcpTaskStorage } from './mcp-task-pglite-storage.js';
 export {
   type CreateMcpTaskInput,
