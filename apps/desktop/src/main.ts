@@ -38,6 +38,7 @@ import { createAgentHostPrivateClients } from './agent-host-private-clients';
 import { buildFileMenuTemplate } from './application-file-menu';
 import { registerAssetProtocol } from './asset-protocol';
 import { startAssistantServer } from './assistant-server';
+import { createHostThreadTurns } from './assistant-server/changeset-host-turns';
 import {
   configureDesktopCommandSessionManager,
   disposeDesktopCommandSessions,
@@ -1293,6 +1294,12 @@ ipcDisposers.add(
       // them here so neither has to edit main.ts. Lazy for the same reason as
       // `resolveInventoryService` below.
       createSnapshotRepository,
+      // BST-1977: host threads' agent-run changesets resolve from the host's log.
+      hostThreadTurns: createHostThreadTurns({
+        listThreads: readHostThreadIds,
+        readRows: async (threadId, fromSeq) =>
+          (await agentHostMainClient.request('thread/read', { fromSeq, threadId })).rows,
+      }),
       resolveInventoryService: () => gitInventoryService,
       resolveSnapshotService: () => snapshotService,
     })
