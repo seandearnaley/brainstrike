@@ -12,6 +12,7 @@ export {
   createAgentHostToolBindings,
 } from './adapters/canonical-tool-bindings.js';
 export { committedMemoryTranscript } from './adapters/committed-memory-transcript.js';
+export { hostToolDiscoveryEnabled } from './adapters/host-tool-discovery.js';
 export {
   createKeyringNativeBackend,
   type KeyringNativeBackend,
