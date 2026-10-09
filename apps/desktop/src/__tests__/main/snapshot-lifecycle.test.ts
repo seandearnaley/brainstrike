@@ -20,6 +20,7 @@ vi.mock('../../assistant-server/thread-run-startup-reaper', () => ({
 }));
 
 const startedAt = new Date('2026-09-25T00:00:00.000Z');
+const readHostThreadIds = async (): Promise<ReadonlySet<string>> => new Set(['host-thread']);
 const snapshotsBaseDir = '/profile/snapshots';
 
 function setup() {
@@ -69,6 +70,7 @@ describe('snapshot startup lifecycle', () => {
       getDatabase: getCurrentDatabase,
       logger,
       mainProcessStartedAt: startedAt,
+      readHostThreadIds,
       snapshotService: service,
       snapshotsBaseDir,
     });
@@ -82,6 +84,7 @@ describe('snapshot startup lifecycle', () => {
     expect(mocks.gc).toHaveBeenCalledWith({
       db: database,
       liveRoots: [{ path: '/workspace', rootId: 'root-1' }],
+      readHostThreadIds,
       snapshotRepository: expect.any(Object),
       snapshotService: service,
     });
@@ -104,6 +107,7 @@ describe('snapshot startup lifecycle', () => {
       getDatabase: getCurrentDatabase,
       logger,
       mainProcessStartedAt: startedAt,
+      readHostThreadIds,
       snapshotService: service,
       snapshotsBaseDir,
     });
@@ -132,6 +136,7 @@ describe('snapshot startup lifecycle', () => {
       getDatabase: getCurrentDatabase,
       logger,
       mainProcessStartedAt: startedAt,
+      readHostThreadIds,
       snapshotService: service,
       snapshotsBaseDir,
     });
@@ -172,6 +177,7 @@ describe('snapshot startup lifecycle', () => {
         getDatabase: getCurrentDatabase,
         logger,
         mainProcessStartedAt: startedAt,
+        readHostThreadIds,
         snapshotService: service,
         snapshotsBaseDir,
       });

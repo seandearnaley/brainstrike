@@ -15,6 +15,13 @@
  *     live root's shadow repo with NO ledger rows backing it (for that root)
  *     anchors objects the app can never resolve again; it is deleted. Refs
  *     are enumerated PER SHADOW REPO via `listSnapshotThreadIds`.
+ *     A host thread's turn snapshots are recorded in the host's committed
+ *     log, never the ledger, so its ref stays while the host lists the
+ *     thread; a deleted host thread's ref is residue. The host is asked once,
+ *     only when a ref has no ledger rows, and if it cannot answer every such
+ *     ref is kept and the failure reported (refusing beats guessing here too).
+ *     Host chains are never among the shallow-cut boundaries, so history
+ *     reclamation keeps them whole.
  *  3. RETENTION RING (the plan's GC policy, trigger choice DOCUMENTED here):
  *     keep the newest {@link DEFAULT_SNAPSHOT_TURN_RING} turn brackets per
  *     thread; older ledger rows (including their interleaved `pre-revert`
@@ -100,6 +107,8 @@ export interface SnapshotStartupGcDeps {
   readonly isRootPathAccessible?: (path: string) => Promise<boolean>;
   /** Connected workspace roots (every `roots` row — disconnect ≠ delete). */
   readonly liveRoots: readonly { readonly path: string; readonly rootId: string }[];
+  /** The agent host's live thread ids, whose snapshot refs no ledger row backs. */
+  readonly readHostThreadIds: () => Promise<ReadonlySet<string>>;
   readonly snapshotRepository: SnapshotRepository;
   readonly snapshotService: SnapshotService;
   /** Ring override for tests; production uses the default. */
@@ -140,6 +149,34 @@ interface GcAccumulator {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+/** The host's live thread ids, or that the host could not list them. */
+type HostThreads =
+  | { readonly ids: ReadonlySet<string>; readonly kind: 'listed' }
+  | { readonly kind: 'unavailable' };
+
+/**
+ * The host's live thread ids, read once per sweep and only when a ref without
+ * ledger rows needs the answer.
+ */
+function hostThreadsReader(
+  deps: SnapshotStartupGcDeps,
+  accumulator: GcAccumulator
+): () => Promise<HostThreads> {
+  let read: Promise<HostThreads> | undefined;
+  return () => {
+    read ??= deps.readHostThreadIds().then(
+      (ids): HostThreads => ({ ids, kind: 'listed' }),
+      (error: unknown): HostThreads => {
+        accumulator.failures.push(
+          `host thread list unavailable, so unbacked snapshot refs were kept: ${describeError(error)}`
+        );
+        return { kind: 'unavailable' };
+      }
+    );
+    return read;
+  };
 }
 
 async function listSnapshotThreadIdsInLedger(db: EditCheckpointDatabase): Promise<string[]> {
@@ -368,7 +405,8 @@ async function reconcileRootRepo(
   root: { readonly path: string; readonly rootId: string },
   accessibleByRootId: ReadonlyMap<string, boolean>,
   liveThreadIds: ReadonlySet<string>,
-  boundariesByRoot: ReadonlyMap<string, ReadonlyMap<string, string>>
+  boundariesByRoot: ReadonlyMap<string, ReadonlyMap<string, string>>,
+  readHostThreads: () => Promise<HostThreads>
 ): Promise<void> {
   // An unreachable root path (deleted directory, unmounted volume, a stale
   // row like the 2026-08-07 "mock-project" residue) is an EXPECTED condition:
@@ -397,6 +435,11 @@ async function reconcileRootRepo(
     for (const threadId of refThreadIds) {
       const backedByRows = rootBoundaries.has(threadId);
       if (liveThreadIds.has(threadId) && backedByRows) {
+        continue;
+      }
+      // A host thread's ref lives while the host lists the thread; unread, keep it.
+      const hostThreads = await readHostThreads();
+      if (hostThreads.kind === 'unavailable' || hostThreads.ids.has(threadId)) {
         continue;
       }
       await deps.snapshotService.pruneThread(handle, threadId);
@@ -478,6 +521,7 @@ export async function runSnapshotStartupGc(
 
   // Chain boundaries AFTER trims/purges — they describe what must survive.
   const boundariesByRoot = await survivingChainBoundaries(deps.db);
+  const readHostThreads = hostThreadsReader(deps, accumulator);
   for (const root of deps.liveRoots) {
     await reconcileRootRepo(
       deps,
@@ -486,7 +530,8 @@ export async function runSnapshotStartupGc(
       root,
       accessibleByRootId,
       liveThreadIds,
-      boundariesByRoot
+      boundariesByRoot,
+      readHostThreads
     );
   }
 

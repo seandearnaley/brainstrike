@@ -10,6 +10,8 @@ export interface SnapshotStartupMaintenanceDeps {
   readonly getDatabase: typeof getDesktopDatabase;
   readonly logger: Pick<ReturnType<typeof createLogger>, 'error' | 'info' | 'warn'>;
   readonly mainProcessStartedAt: Date;
+  /** The agent host's live thread ids: their turn snapshots live in its log. */
+  readonly readHostThreadIds: () => Promise<ReadonlySet<string>>;
   readonly snapshotService: SnapshotService;
   readonly snapshotsBaseDir: string;
 }
@@ -19,6 +21,7 @@ export function startSnapshotStartupMaintenance({
   getDatabase,
   logger,
   mainProcessStartedAt,
+  readHostThreadIds,
   snapshotService,
   snapshotsBaseDir,
 }: SnapshotStartupMaintenanceDeps): void {
@@ -74,6 +77,7 @@ export function startSnapshotStartupMaintenance({
       const gcReport = await runSnapshotStartupGc({
         db: gcDatabase,
         liveRoots: rootRows.rows.map((row) => ({ path: row.path, rootId: row.id })),
+        readHostThreadIds,
         snapshotRepository: createSnapshotRepository(gcDatabase),
         snapshotService,
       });

@@ -34,6 +34,8 @@ interface FixtureOptions {
     readonly rootId: string;
     readonly threadId: string;
   }[];
+  /** The host's live thread ids, or why the host could not list them. */
+  readonly hostThreads?: readonly string[] | Error;
   /** thread ids present in the (fake) mastra_threads table. */
   readonly liveThreads?: readonly string[];
   /** One outstanding (unfinalized) revert-bearing tombstone batch, served to
@@ -181,12 +183,20 @@ function makeFixture(options: FixtureOptions) {
     }),
   } as unknown as SnapshotService;
 
+  const readHostThreadIds = vi.fn(async (): Promise<ReadonlySet<string>> => {
+    if (options.hostThreads instanceof Error) {
+      throw options.hostThreads;
+    }
+    return new Set(options.hostThreads ?? []);
+  });
+
   const deps: SnapshotStartupGcDeps = {
     db,
     // The fixture root path is virtual; force it accessible so reconcile paths
     // run. Inaccessible-root behavior is exercised by overriding this probe.
     isRootPathAccessible: async () => true,
     liveRoots: [{ path: '/tmp/root-1', rootId: 'root-1' }],
+    readHostThreadIds,
     snapshotRepository: repository,
     snapshotService: service,
     turnRing: 2,
@@ -201,6 +211,7 @@ function makeFixture(options: FixtureOptions) {
     },
     prunedHistories,
     prunedThreads,
+    readHostThreadIds,
     service,
   };
 }
@@ -435,6 +446,44 @@ describe('runSnapshotStartupGc', () => {
     expect(report.refOnlyPruned).toEqual([{ rootId: 'root-1', threadId: 'thread-ghost' }]);
     expect(fixture.prunedThreads).toEqual([{ rootId: 'root-1', threadId: 'thread-ghost' }]);
     expect(fixture.prunedHistories).toEqual([{ boundaries: [OID_B], rootId: 'root-1' }]);
+  });
+
+  it("keeps a live host thread's ref, which only the host's log records, and prunes a deleted one's", async () => {
+    const fixture = makeFixture({
+      hostThreads: ['host-live'],
+      refsByRoot: { 'root-1': ['host-live', 'host-deleted'] },
+    });
+    const report = await runSnapshotStartupGc(fixture.deps);
+    expect(report.refOnlyPruned).toEqual([{ rootId: 'root-1', threadId: 'host-deleted' }]);
+    expect(fixture.prunedThreads).toEqual([{ rootId: 'root-1', threadId: 'host-deleted' }]);
+    expect(report.failures).toEqual([]);
+    // One host read answers every unbacked ref in the sweep.
+    expect(fixture.readHostThreadIds).toHaveBeenCalledOnce();
+  });
+
+  it('keeps every unbacked ref, visibly, when the host cannot list its threads', async () => {
+    const fixture = makeFixture({
+      hostThreads: new Error('the external host hands out no private port'),
+      refsByRoot: { 'root-1': ['host-or-residue'] },
+    });
+    const report = await runSnapshotStartupGc(fixture.deps);
+    expect(fixture.prunedThreads).toEqual([]);
+    expect(report.refOnlyPruned).toEqual([]);
+    expect(report.failures).toEqual([
+      'host thread list unavailable, so unbacked snapshot refs were kept: the external host hands out no private port',
+    ]);
+  });
+
+  it('asks the host nothing when the ledger backs every ref', async () => {
+    const fixture = makeFixture({
+      boundaries: [{ commitOid: OID_B, rootId: 'root-1', threadId: 'thread-1' }],
+      liveThreads: ['thread-1'],
+      refsByRoot: { 'root-1': ['thread-1'] },
+      rowsByThread: { 'thread-1': turnRows('thread-1', 1) },
+    });
+    await runSnapshotStartupGc(fixture.deps);
+    expect(fixture.prunedThreads).toEqual([]);
+    expect(fixture.readHostThreadIds).not.toHaveBeenCalled();
   });
 
   it('skips (not fails) a live root whose path is inaccessible — no per-boot error-spam', async () => {

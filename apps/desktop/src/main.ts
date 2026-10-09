@@ -1156,6 +1156,12 @@ const desktopHookTrust = createDesktopHookTrust({
 });
 // Legacy threads run project hooks at the same host-owned trust.
 installDesktopHookApprovalReader((root) => desktopHookTrust.approval(root));
+// Host threads record their turn snapshots in the host's log, not the ledger;
+// the startup snapshot GC keeps their refs while the host lists the thread.
+const readHostThreadIds = async (): Promise<ReadonlySet<string>> =>
+  new Set(
+    (await agentHostMainClient.request('thread/list', {})).threads.map(({ threadId }) => threadId)
+  );
 const agentHostClientIpc = registerAgentHostClientIpc(async () => {
   const attachment = await nativeIndexActivation.acquireProfile();
   await desktopHookTrust.imported();
@@ -1589,6 +1595,7 @@ if (singleInstanceLockAcquired) {
         getDatabase,
         logger,
         mainProcessStartedAt,
+        readHostThreadIds,
         snapshotService: constructedSnapshotService,
         snapshotsBaseDir,
       });
