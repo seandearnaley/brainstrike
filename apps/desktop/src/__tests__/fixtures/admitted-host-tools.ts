@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
 import type { HostRunAdmissionRequest, HostTool } from '@brainstrike/agent-host';
 import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
+import { z } from 'zod';
 import {
   mainPlatformConnection,
   type PlatformMessagePort,
@@ -55,7 +56,7 @@ export async function admitHostTools(
   client.listen();
   const close = async (): Promise<void> => {
     try {
-      await client.sendRequest('platform/release', { threadId: request.threadId });
+      await client.sendRequest('platform/release', { selectionRunId: request.runId });
     } finally {
       await owner.close();
       client.dispose();
@@ -78,7 +79,12 @@ export async function admitHostTools(
       close,
       tools: desktopHostSharedTools({
         readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
-        request: (method, input) => client.sendRequest(method, input),
+        // As production binds it: every request names the admitting run's selection.
+        request: (method, input) =>
+          client.sendRequest(method, {
+            ...z.record(z.string(), z.unknown()).parse(input),
+            selectionRunId: request.runId,
+          }),
         resolveTavilyApiKey: async () => undefined,
         selected,
         threadId: request.threadId,

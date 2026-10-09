@@ -88,16 +88,29 @@ type Execute = (
   work: (signal: AbortSignal) => Promise<unknown>
 ) => Promise<unknown>;
 
-/** Register Main's handlers; `admitted` throws for a thread without admitted capabilities. */
+/** A request's admitting run is checked first; the request's own schema parses the rest. */
+type Admit = (input: unknown) => unknown;
+
+const SelectionScopeSchema = z.looseObject({ selectionRunId: z.string().min(1) });
+
+/**
+ * Register Main's handlers. Every request names the run whose admission holds
+ * it (`selectionRunId`); `admitted` throws for a run without admitted capabilities.
+ */
 export function serveHostToolServices(
   connection: MessageConnection,
   execute: Execute,
-  admitted: (threadId: string) => unknown,
+  admitted: (selectionRunId: string) => unknown,
   services: HostToolServiceCapabilities | undefined
 ): void {
+  const admit: Admit = (input) => {
+    const { selectionRunId, ...request } = SelectionScopeSchema.parse(input);
+    admitted(selectionRunId);
+    return request;
+  };
   connection.onRequest('platform/worktree/paths', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      admitted(ThreadRequestSchema.parse(input).threadId);
+      ThreadRequestSchema.parse(admit(input));
       return WorktreePathsResultSchema.parse({
         paths: services?.shell ? await services.shell.worktreePaths() : null,
       });
@@ -105,27 +118,25 @@ export function serveHostToolServices(
   );
   connection.onRequest('platform/shell/completed', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const completed = PlatformShellCompletedSchema.parse(input);
-      admitted(completed.threadId);
+      const completed = PlatformShellCompletedSchema.parse(admit(input));
       services?.shell?.completed(completed);
       return { accepted: true };
     })
   );
   connection.onRequest('desktop-read/grep-index', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const { options, threadId } = GrepIndexRequestSchema.parse(input);
-      admitted(threadId);
+      const { options } = GrepIndexRequestSchema.parse(admit(input));
       return await required(services?.grepIndex, 'grep index')(options);
     })
   );
   // The Terminal panel reaches this host's command sessions over the same connection.
   attachHostCommandSessions(connection);
-  serveIndexReads(connection, execute, admitted, services);
-  serveWorktreeCalls(connection, execute, admitted, services);
-  serveBrowserCalls(connection, execute, admitted, services);
-  serveContextDelivery(connection, execute, admitted, services);
-  serveSelfInspectionReads(connection, execute, admitted, services);
-  serveRetrievalReads(connection, execute, admitted, services);
+  serveIndexReads(connection, execute, admit, services);
+  serveWorktreeCalls(connection, execute, admit, services);
+  serveBrowserCalls(connection, execute, admit, services);
+  serveContextDelivery(connection, execute, admit, services);
+  serveSelfInspectionReads(connection, execute, admit, services);
+  serveRetrievalReads(connection, execute, admit, services);
 }
 
 /** Main's worktree service answers, or the stated reason it cannot in this session. */
@@ -140,13 +151,12 @@ async function viaWorktrees<T>(
 function serveWorktreeCalls(
   connection: MessageConnection,
   execute: Execute,
-  admitted: (threadId: string) => unknown,
+  admit: Admit,
   services: HostToolServiceCapabilities | undefined
 ): void {
   connection.onRequest('platform/worktree/list', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const { threadId } = ThreadRequestSchema.parse(input);
-      admitted(threadId);
+      const { threadId } = ThreadRequestSchema.parse(admit(input));
       return await viaWorktrees(services?.worktrees?.({ runId: undefined, threadId }), (service) =>
         service.list()
       );
@@ -154,8 +164,7 @@ function serveWorktreeCalls(
   );
   connection.onRequest('platform/worktree/create', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const { params, runId, threadId } = WorktreeCreateRequestSchema.parse(input);
-      admitted(threadId);
+      const { params, runId, threadId } = WorktreeCreateRequestSchema.parse(admit(input));
       return await viaWorktrees(services?.worktrees?.({ runId, threadId }), (service) =>
         service.create(params)
       );
@@ -163,8 +172,7 @@ function serveWorktreeCalls(
   );
   connection.onRequest('platform/worktree/archive', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const { params, runId, threadId } = WorktreeArchiveRequestSchema.parse(input);
-      admitted(threadId);
+      const { params, runId, threadId } = WorktreeArchiveRequestSchema.parse(admit(input));
       return await viaWorktrees(services?.worktrees?.({ runId, threadId }), (service) =>
         service.archive(params)
       );
@@ -176,27 +184,24 @@ function serveWorktreeCalls(
 function serveBrowserCalls(
   connection: MessageConnection,
   execute: Execute,
-  admitted: (threadId: string) => unknown,
+  admit: Admit,
   services: HostToolServiceCapabilities | undefined
 ): void {
   connection.onRequest('platform/browser/navigate', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const request = BrowserNavigateRequestSchema.parse(input);
-      admitted(request.threadId);
+      const request = BrowserNavigateRequestSchema.parse(admit(input));
       return await required(services?.browser, 'browser pane').navigate(request.input);
     })
   );
   connection.onRequest('platform/browser/read-page', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const request = BrowserReadPageRequestSchema.parse(input);
-      admitted(request.threadId);
+      const request = BrowserReadPageRequestSchema.parse(admit(input));
       return await required(services?.browser, 'browser pane').readPage(request.input);
     })
   );
   connection.onRequest('platform/browser/page-text', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const request = BrowserPageTextRequestSchema.parse(input);
-      admitted(request.threadId);
+      const request = BrowserPageTextRequestSchema.parse(admit(input));
       return await required(services?.browser, 'browser pane').getPageText(request.input);
     })
   );
@@ -206,15 +211,14 @@ function serveBrowserCalls(
 function serveContextDelivery(
   connection: MessageConnection,
   execute: Execute,
-  admitted: (threadId: string) => unknown,
+  admit: Admit,
   services: HostToolServiceCapabilities | undefined
 ): void {
   connection.onRequest(
     'platform/workspace-context/selection',
     (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
-        const { payload, threadId } = ContextSelectionDeliveryRequestSchema.parse(input);
-        admitted(threadId);
+        const { payload } = ContextSelectionDeliveryRequestSchema.parse(admit(input));
         const delivery = required(services?.contextDelivery, 'window delivery');
         return { notifiedWindowCount: await delivery.selection(payload) };
       })
@@ -223,8 +227,7 @@ function serveContextDelivery(
     'platform/workspace-context/tapestry',
     (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
-        const { payload, threadId } = ContextTapestryDeliveryRequestSchema.parse(input);
-        admitted(threadId);
+        const { payload } = ContextTapestryDeliveryRequestSchema.parse(admit(input));
         const delivery = required(services?.contextDelivery, 'window delivery');
         return { notifiedWindowCount: await delivery.tapestry(payload) };
       })
@@ -250,13 +253,12 @@ async function querySelfOutcome(read: QuerySelfRead, ...args: Parameters<QuerySe
 function serveSelfInspectionReads(
   connection: MessageConnection,
   execute: Execute,
-  admitted: (threadId: string) => unknown,
+  admit: Admit,
   services: HostToolServiceCapabilities | undefined
 ): void {
   connection.onRequest('desktop-read/query-self', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
-      const { request, threadId } = QuerySelfReadRequestSchema.parse(input);
-      admitted(threadId);
+      const { request } = QuerySelfReadRequestSchema.parse(admit(input));
       return await querySelfOutcome(
         required(services?.querySelf, 'self-query read'),
         request,
@@ -268,8 +270,7 @@ function serveSelfInspectionReads(
     'desktop-read/diagnostics/events',
     (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
-        const { filter, threadId } = DiagnosticsReadRequestSchema.parse(input);
-        admitted(threadId);
+        const { filter } = DiagnosticsReadRequestSchema.parse(admit(input));
         return await required(services?.diagnostics, 'diagnostics store').events(filter);
       })
   );
@@ -277,8 +278,7 @@ function serveSelfInspectionReads(
     'desktop-read/diagnostics/fingerprints',
     (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
-        const { filter, threadId } = DiagnosticsReadRequestSchema.parse(input);
-        admitted(threadId);
+        const { filter } = DiagnosticsReadRequestSchema.parse(admit(input));
         return await required(services?.diagnostics, 'diagnostics store').fingerprints(filter);
       })
   );
@@ -288,7 +288,7 @@ function serveSelfInspectionReads(
 function serveIndexReads(
   connection: MessageConnection,
   execute: Execute,
-  admitted: (threadId: string) => unknown,
+  admit: Admit,
   services: HostToolServiceCapabilities | undefined
 ): void {
   const index = () => required(services?.indexSearch, 'workspace index');
@@ -300,8 +300,7 @@ function serveIndexReads(
   ): void => {
     connection.onRequest(method, (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
-        const { request, threadId } = parse(input);
-        admitted(threadId);
+        const { request } = parse(admit(input));
         return await perform(request);
       })
     );
@@ -337,7 +336,7 @@ function serveIndexReads(
 function serveRetrievalReads(
   connection: MessageConnection,
   execute: Execute,
-  admitted: (threadId: string) => unknown,
+  admit: Admit,
   services: HostToolServiceCapabilities | undefined
 ): void {
   const store = () => required(services?.retrievalStore, 'retrieval catalog');
@@ -345,10 +344,9 @@ function serveRetrievalReads(
     'desktop-read/retrieval/embedding-set',
     (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
-        const { request, threadId } = threadScoped(
+        const { request } = threadScoped(
           z.strictObject({ embeddingSetId: z.string().min(1) })
-        ).parse(input);
-        admitted(threadId);
+        ).parse(admit(input));
         return await store().embeddingSet(request.embeddingSetId);
       })
   );
@@ -356,10 +354,9 @@ function serveRetrievalReads(
     'desktop-read/retrieval/file-records',
     (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
-        const { request, threadId } = threadScoped(
-          z.strictObject({ ids: z.array(z.string().min(1)) })
-        ).parse(input);
-        admitted(threadId);
+        const { request } = threadScoped(z.strictObject({ ids: z.array(z.string().min(1)) })).parse(
+          admit(input)
+        );
         return [...(await store().fileRecords(request.ids)).values()];
       })
   );
@@ -367,10 +364,9 @@ function serveRetrievalReads(
     'desktop-read/retrieval/embedding-spaces',
     (input: unknown, token: CancellationToken) =>
       execute(token, async () => {
-        const { request, threadId } = threadScoped(
-          z.strictObject({ includeStats: z.boolean() })
-        ).parse(input);
-        admitted(threadId);
+        const { request } = threadScoped(z.strictObject({ includeStats: z.boolean() })).parse(
+          admit(input)
+        );
         return await store().embeddingSpaces(request);
       })
   );
