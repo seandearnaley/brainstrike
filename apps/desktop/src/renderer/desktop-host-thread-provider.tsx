@@ -12,6 +12,7 @@ import {
   DebugBundleProvider,
   EditCheckpointProvider,
   RunVerdictProvider,
+  useRewindContext,
 } from '@brainstrike/assistant-ui';
 import { useOptionalPGliteDatabase } from '@brainstrike/db/react';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell';
@@ -171,6 +172,9 @@ function HostThread({
     setConversation(current);
     return () => current.close();
   }, [client, explorer, onTitleCommitted, threadId]);
+  // A root thread's "Restore to before this message" goes to its owner (the
+  // host); a delegated child's view offers none.
+  const rewind = useRewindContext();
   // Badges and OS notifications read this view's committed run state.
   const { onRunNotification } = useAssistantRunNotifications();
   const effects = useCommittedEffectCount(conversation);
@@ -235,6 +239,7 @@ function HostThread({
                     onRunningChange={onRunningChange}
                     onSendActiveInput={child ? conversation.sendInput : undefined}
                     onSteerActiveRun={steer}
+                    rewind={child ? null : rewind}
                     store={conversation.store}
                     workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
                   />
