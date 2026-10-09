@@ -68,6 +68,36 @@ export async function readCommittedMcpTasks(
   }
 }
 
+/** Runs `use` with a public client of the running app's host, closed afterwards. */
+export async function withAppHost<T>(
+  userDataDir: string,
+  use: (client: HostClient) => Promise<T>
+): Promise<T> {
+  const client = await attachAppHost(userDataDir);
+  try {
+    return await use(client);
+  } finally {
+    await client.close();
+  }
+}
+
+/** The host's searchable conversation rows and their stored search vectors, read-only. */
+export async function readHostSearchVectorCounts(
+  userDataDir: string
+): Promise<{ readonly rows: number; readonly vectors: number }> {
+  const root = path.dirname(await hostRecordPath(userDataDir));
+  const db = new DatabaseSync(path.join(root, 'state-index.sqlite'), { readOnly: true });
+  try {
+    const count = (sql: string): number => Number(db.prepare(sql).get()?.['count'] ?? 0);
+    return {
+      rows: count('SELECT count(*) AS count FROM state_search_rows'),
+      vectors: count('SELECT count(*) AS count FROM state_search_vectors'),
+    };
+  } finally {
+    db.close();
+  }
+}
+
 /** A thread's committed runs, oldest first, folded from its host log. */
 export async function readCommittedRuns(
   userDataDir: string,
