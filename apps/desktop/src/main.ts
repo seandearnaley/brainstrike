@@ -1089,6 +1089,8 @@ const nativeIndexActivation = createNativeIndexActivation({
         localLlm: createMainLlmHostClient(createE2eScriptedLlmHost() ?? llmHostManager),
         // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
         mcp: createDesktopMcpPlatformCapabilities(getDesktopMcpHostRuntime()),
+        // BST-1977: host runs' turns snapshot through legacy turns' one shadow-git owner.
+        workspaceSnapshots: () => snapshotService,
       });
     },
     platformModule: resolveBundledSiblingPath(
