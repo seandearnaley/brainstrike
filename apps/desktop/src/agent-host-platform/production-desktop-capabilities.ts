@@ -30,8 +30,8 @@ import {
   findProviderDefinition,
   isPermissionDenied,
   isSupportedProvider,
+  listAutoObservationalMemoryCandidates,
   NATIVE_TOOL_ID,
-  resolveAutoObservationalMemoryModelTarget,
   resolveToolRiskCategory,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
@@ -289,20 +289,70 @@ async function readDesktopIntent(
   );
 }
 
-function resolveDesktopMemorySettings(
+/** The chat provider's own auto-observer candidates, in preference order (never another provider). */
+function autoObserverCandidates(provider: string): readonly string[] {
+  return listAutoObservationalMemoryCandidates({
+    chatProvider: provider,
+    providersWithKeys: [provider],
+  });
+}
+
+/**
+ * The auto-observer candidates the model catalog has enabled: provider and
+ * model rows enabled and the model an LLM, the gate the memory settings
+ * dropdown applies (main's resolveEffectiveObservationalMemorySettings).
+ */
+async function readEnabledObserverCandidates(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  candidates: readonly string[]
+): Promise<ReadonlySet<string>> {
+  if (candidates.length === 0) {
+    return new Set();
+  }
+  const pairs = candidates.map((candidate) => {
+    const separator = candidate.indexOf('/');
+    return { modelId: candidate.slice(separator + 1), provider: candidate.slice(0, separator) };
+  });
+  const result = await db.query(
+    `SELECT m.provider_id AS "providerId", m.id AS "modelId"
+       FROM models m JOIN providers p ON p.id = m.provider_id
+      WHERE p.is_enabled = true AND m.is_enabled = true
+        AND (m.capabilities::jsonb)->>'type' = 'llm'
+        AND m.provider_id = ANY($1) AND m.id = ANY($2)`,
+    [[...new Set(pairs.map((pair) => pair.provider))], pairs.map((pair) => pair.modelId)]
+  );
+  const rows = z
+    .array(z.strictObject({ modelId: z.string(), providerId: z.string() }))
+    .parse(result.rows);
+  return new Set(rows.map((row) => `${row.providerId}/${row.modelId}`));
+}
+
+/** A disabled observer resolves no target, so the catalog is read only for an enabled auto one. */
+function readEnabledObservers(
+  db: Awaited<ReturnType<typeof getDatabase>>,
   intent: z.output<typeof PlatformClientConfigurationSchema>,
   provider: string
+): Promise<ReadonlySet<string>> {
+  const observation = intent.memorySettings.observationalMemory;
+  return observation.enabled && observation.modelTarget === 'auto'
+    ? readEnabledObserverCandidates(db, autoObserverCandidates(provider))
+    : Promise.resolve(new Set());
+}
+
+function resolveDesktopMemorySettings(
+  intent: z.output<typeof PlatformClientConfigurationSchema>,
+  provider: string,
+  enabledObservers: ReadonlySet<string>
 ): {
   memorySettings: z.output<typeof PlatformClientConfigurationSchema>['memorySettings'];
   observerTarget: string | null;
 } {
   const observation = intent.memorySettings.observationalMemory;
+  // Auto picks the first enabled candidate of the chat provider; none waits, disabled.
   const observerTarget =
     observation.modelTarget === 'auto'
-      ? resolveAutoObservationalMemoryModelTarget({
-          chatProvider: provider,
-          providersWithKeys: [provider],
-        })
+      ? (autoObserverCandidates(provider).find((candidate) => enabledObservers.has(candidate)) ??
+        null)
       : observation.modelTarget;
   const memorySettings = {
     ...intent.memorySettings,
@@ -724,7 +774,8 @@ export function productionDesktopCapabilities(
     const inputTokenLimit = desktopInputTokenLimit(definition, intent, configuration);
     const { memorySettings, observerTarget } = resolveDesktopMemorySettings(
       intent,
-      configuration.provider
+      configuration.provider,
+      await readEnabledObservers(db, intent, configuration.provider)
     );
     const memoryVectors = await resolveDesktopMemoryVectors(memorySettings, {
       readDimensions: (provider, modelId) => readEmbeddingDimensions(db, provider, modelId),
