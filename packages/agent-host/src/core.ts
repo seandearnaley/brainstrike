@@ -42,7 +42,7 @@ import { deleteHostThread } from './core-thread-deletion.js';
 import { readHostRow, storedHostEvent } from './event-storage.js';
 import { beginHostRun, foldHostHookContextEvent, hostRunTerminalEvents } from './hook-context.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
-import { HostLedgerProjection } from './ledger-projection.js';
+import { HostLogProjections } from './log-projections.js';
 import { HostMcpAppCalls } from './mcp-app-calls.js';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
 import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
@@ -122,7 +122,7 @@ export class HostCore {
   private readonly compactions = new HostContextCompactions();
   private readonly rewrites = new HostProjectionRewrites();
   /** Cost views and the thread list: every committed row, folded once. */
-  private readonly ledger = new HostLedgerProjection();
+  private readonly projections = new HostLogProjections();
   private readonly threads = new Set<string>();
   private readonly catalog = new HostThreadCatalog();
   private readonly presentations = new HostThreadPresentationState({
@@ -195,7 +195,7 @@ export class HostCore {
     // The root owner retains partially restored actors if hydration or cleanup fails.
     onAcquired?.(core);
     await core.catalog.hydrate(store, core.threads, (row) => {
-      core.ledger.apply(row);
+      core.projections.apply(row);
       core.selections.fold(row);
       core.fold(row);
     });
@@ -294,7 +294,7 @@ export class HostCore {
     this.catalog.noteCommitted(rows);
     beforePublish?.(rows);
     for (const row of rows) {
-      this.ledger.apply(row);
+      this.projections.apply(row);
       this.selections.fold(row);
       for (const listener of this.listeners) {
         listener(row, this.children.parentOf(row.threadId));
@@ -318,14 +318,14 @@ export class HostCore {
   listThreads(): HostResults['thread/list']['threads'] {
     return this.catalog.list(this.children.topLevel(this.threads), {
       binding: (threadId) => this.workspaces.readBinding(this.threads, threadId),
-      latestRun: (threadId) => this.ledger.readLatestRun(threadId),
+      latestRun: (threadId) => this.projections.ledger.readLatestRun(threadId),
       presentation: (threadId) => this.presentations.read(threadId),
     });
   }
 
   /** Every thread's runs and costed provider calls, folded from its committed log. */
   readLedger(): HostResults['ledger/read'] {
-    return this.ledger.read();
+    return this.projections.ledger.read();
   }
 
   /** BST-1932: a thread's direct child threads, in delegation order, with their origins. */
@@ -470,7 +470,7 @@ export class HostCore {
     this.compactions.forgetThread(threadId);
     this.rewrites.forgetThread(threadId);
     this.rewinds.forgetThread(threadId);
-    this.ledger.forget(threadId);
+    this.projections.forget(threadId);
   }
 
   startThread(params: HostParams<'thread/start'>): Promise<{ threadId: string }> {
@@ -895,8 +895,11 @@ export class HostCore {
   }
 
   private openRun(run: Run): Promise<HostRunOwner | undefined> {
-    return openHostRunOwner(this.platform, run, (threadId, events) =>
-      this.append(threadId, events, 'full')
+    return openHostRunOwner(
+      this.platform,
+      run,
+      (threadId, events) => this.append(threadId, events, 'full'),
+      (threadIds) => this.projections.readRunnable(this.catalog, threadIds)
     );
   }
 

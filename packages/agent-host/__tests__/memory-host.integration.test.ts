@@ -15,7 +15,24 @@ import { committedRowAddress, committedRunIdentity } from '../src/committed-iden
 import { HostCore } from '../src/core.js';
 import { readHostRow } from '../src/event-storage.js';
 import type { HostPlatform } from '../src/ports.js';
+import type { HostLogRow } from '../src/protocol.js';
 import { scriptedToolSequence } from './fixtures/scripted-model.js';
+
+/**
+ * The first matching row Core commits after this call. Subscribe before the
+ * command that causes it: the wait ends on the run's own committed signal,
+ * however long a loaded machine takes to admit the run, never on a clock.
+ */
+function nextCommitted(core: HostCore, match: (row: HostLogRow) => boolean): Promise<HostLogRow> {
+  const committed = Promise.withResolvers<HostLogRow>();
+  const unsubscribe = core.onCommitted((row) => {
+    if (match(row)) {
+      unsubscribe();
+      committed.resolve(row);
+    }
+  });
+  return committed.promise;
+}
 
 test.each([
   ['history', 3],
@@ -163,16 +180,14 @@ test.each([
         prompt: mode === 'OM' ? 'Paris weather. '.repeat(60) : 'Perform recorded write',
         threadId,
       };
+      const firstPause = nextCommitted(
+        core,
+        (row) =>
+          row.threadId === threadId &&
+          (row.event.type === 'interaction.requested' || row.event.type === 'run.finished')
+      );
       const { runId } = await core.startRun(command);
-      await expect
-        .poll(
-          async () =>
-            (await core.read(threadId, 0)).find(
-              (row) =>
-                row.event.type === 'interaction.requested' || row.event.type === 'run.finished'
-            )?.event.type
-        )
-        .toBe('interaction.requested');
+      expect((await firstPause).event.type).toBe('interaction.requested');
       const before = await core.read(threadId, 0);
       const beforeTranscript = committedMemoryTranscript(before, resourceId);
       const pending = before.find((row) => row.event.type === 'interaction.requested')?.event;
@@ -188,6 +203,10 @@ test.each([
       expect(await owner.memory.getWorkingMemory()).toBe(workingMemory);
       expect(await core.startRun(command)).toEqual({ runId });
       expect(owners).toHaveLength(1);
+      const firstFinished = nextCommitted(
+        core,
+        (row) => row.event.type === 'run.finished' && row.event.runId === runId
+      );
       await core.respond({
         commandId: randomUUID(),
         decision: 'approve',
@@ -195,12 +214,7 @@ test.each([
         runId,
         threadId,
       });
-      await expect
-        .poll(
-          async () =>
-            (await core.read(threadId, 0)).find((row) => row.event.type === 'run.finished')?.event
-        )
-        .toMatchObject({ outcome: 'completed' });
+      expect((await firstFinished).event).toMatchObject({ outcome: 'completed' });
       expect(executions).toBe(1);
       expect(await readFile(target, 'utf8')).toBe('recorded permitted payload');
       const committed = await core.read(threadId, 0);
@@ -289,27 +303,23 @@ test.each([
       expect(await store.check()).toEqual({ gaps: 0, integrity: 'ok' });
       const all = await Promise.all((await store.readAll()).map((row) => readHostRow(store, row)));
       expect(all).toEqual(replay);
+      const secondPause = nextCommitted(
+        core,
+        ({ event, threadId: rowThread }) =>
+          rowThread === threadId &&
+          (event.type === 'interaction.requested' || event.type === 'run.finished')
+      );
       const second = await core.startRun({
         commandId: randomUUID(),
         modelId: 'scripted',
         prompt: 'Decline the second recorded write.',
         threadId,
       });
-      await expect
-        .poll(async () => {
-          const rows = await core.read(threadId, 0);
-          const result = rows.find(
-            ({ event }) =>
-              'runId' in event &&
-              event.runId === second.runId &&
-              (event.type === 'interaction.requested' || event.type === 'run.finished')
-          )?.event;
-          if (result?.type === 'run.finished') {
-            throw new Error(JSON.stringify({ hostPreparedMessages, result }, null, 2));
-          }
-          return result;
-        })
-        .toMatchObject({ type: 'interaction.requested' });
+      const result = (await secondPause).event;
+      if (result.type === 'run.finished') {
+        throw new Error(JSON.stringify({ hostPreparedMessages, result }, null, 2));
+      }
+      expect(result).toMatchObject({ runId: second.runId, type: 'interaction.requested' });
       const secondRows = await core.read(threadId, 0);
       const secondPending = secondRows.find(
         ({ event }) => event.type === 'interaction.requested' && event.runId === second.runId
@@ -322,6 +332,10 @@ test.each([
       if (mode === 'history') {
         expect(JSON.stringify(secondPrompt).includes(command.prompt)).toBe(lastMessages === 40);
       }
+      const secondFinished = nextCommitted(
+        core,
+        ({ event }) => event.type === 'run.finished' && event.runId === second.runId
+      );
       await core.respond({
         commandId: randomUUID(),
         decision: 'deny',
@@ -329,19 +343,12 @@ test.each([
         runId: second.runId,
         threadId,
       });
-      await expect
-        .poll(
-          async () =>
-            (await core.read(threadId, 0)).find(
-              ({ event }) => event.type === 'run.finished' && event.runId === second.runId
-            )?.event
-        )
-        .toMatchObject({ outcome: 'completed' });
+      expect((await secondFinished).event).toMatchObject({ outcome: 'completed' });
       expect(executions).toBe(1);
       expect((await core.read(threadId, 0)).slice(0, replay.length)).toEqual(replay);
     } catch (cause) {
       // Preserve the first assertion and inspect committed truth before cleanup
-      // aborts an opening owner. Do not change the poll deadline or wait for green.
+      // aborts an opening owner.
       const [snapshot] = await Promise.allSettled([store.readAll()]);
       failure = new AggregateError(
         [

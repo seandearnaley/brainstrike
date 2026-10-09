@@ -29,7 +29,6 @@ import {
   committedThreadBranches,
 } from '../committed-identities.js';
 import { compactedRunIds } from '../context-compaction.js';
-import { readHostRow } from '../event-storage.js';
 import type { HostProjectionRewrite, HostRunContext, HostRunOwner } from '../ports.js';
 import { committedRewrites } from '../projection-rewrites.js';
 import type { HostLogRow } from '../protocol.js';
@@ -191,9 +190,7 @@ export class StateStoreHostMemory implements HostRunOwner {
     }
     // Snapshot configuration before constructing native run-owned resources.
     const providerContext = await options.providerRequestContext?.();
-    const inputRows = await Promise.all(
-      (await options.store.read(context.threadId, 0)).map((row) => readHostRow(options.store, row))
-    );
+    const inputRows = context.readCommittedRows(new Set([context.threadId]));
     const native = await selectRunMemory(options.native, inputRows, context);
     const readRows = (): Promise<HostLogRow[]> => readResourceRows(context, options);
     const readTranscript = async (): Promise<MastraDBMessage[]> =>
@@ -666,9 +663,6 @@ async function readResourceRows(
   if (!threads.has(context.threadId)) {
     throw new Error('Acquired Memory thread has no durable resource binding');
   }
-  return Promise.all(
-    (await options.store.readAll())
-      .filter((row) => threads.has(row.threadId))
-      .map((row) => readHostRow(options.store, row))
-  );
+  // Core's committed-row projection: the resource's history without a store scan or re-decode.
+  return [...context.readCommittedRows(threads)];
 }
