@@ -13,6 +13,7 @@ import type {
 import type { HostUsageRecord } from '@brainstrike/assistant-data/cost-tracking';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
+import { readDesktopRunConfiguration } from './desktop-run-configuration';
 import { type CommittedHostRunSource, STATUS_BY_OUTCOME } from './host-thread-runs';
 
 const logger = createLogger('HostThreadLedger');
@@ -72,6 +73,8 @@ interface RunFold {
   failedToolCallCount: number;
   inputTokens: number;
   readonly model: string;
+  /** The observer target its admission resolved, as `provider/model`. */
+  readonly observer: CatalogModel | undefined;
   outputTokens: number;
   readonly provider: string;
   revertedEditCount: number;
@@ -134,10 +137,7 @@ class ThreadLedgerFold {
       this.count(run, row, run, tokensOf(event.usage), 'chat');
     } else if (event.type === 'memory.usage') {
       // Memory's own model calls cost under their own model, within the run.
-      const model = catalogModel(event.modelId);
-      if (!model) {
-        warnUncosted(event.modelId);
-      }
+      const model = observerCallModel(run.observer, event.modelId);
       this.count(run, row, model, tokensOf(event.usage), MEMORY_USAGE_KIND[event.kind]);
     } else if (event.type === 'context.compacted' && event.usage !== undefined) {
       // A compaction summarizer's side call, when one ran, costs like Memory's.
@@ -179,6 +179,9 @@ class ThreadLedgerFold {
       return;
     }
     const binding = event.snapshot?.workspaceBinding;
+    const configuration = readDesktopRunConfiguration(event);
+    const observerTarget = configuration?.memoryResolution?.observerTarget;
+    const focusedRootId = configuration?.intent?.selectionFolderId;
     this.runs.set(event.runId, {
       ...model,
       cacheReadTokens: 0,
@@ -187,12 +190,17 @@ class ThreadLedgerFold {
       editCount: 0,
       failedToolCallCount: 0,
       inputTokens: 0,
+      observer: observerTarget ? targetModel(observerTarget) : undefined,
       outputTokens: 0,
       revertedEditCount: 0,
-      root: {
-        rootDisplayName: binding?.operatingRootDisplayName ?? null,
-        rootId: binding?.operatingRootId ?? null,
-      },
+      // The legacy attribution: the thread's bound root, else the root focused
+      // at Send; the roots table names a focused root.
+      root: binding?.operatingRootId
+        ? {
+            rootDisplayName: binding.operatingRootDisplayName ?? null,
+            rootId: binding.operatingRootId,
+          }
+        : { rootDisplayName: null, rootId: focusedRootId ?? null },
       runId: event.runId,
       startedAt: row.ts,
       status: 'running',
@@ -329,10 +337,41 @@ function emptySubtotal(model: CatalogModel, runKind: AssistantRunUsageKind): Usa
   };
 }
 
+/** An observational-memory model target, `provider/model`; the model may contain '/'. */
+export function targetModel(target: string): CatalogModel | undefined {
+  const separator = target.indexOf('/');
+  return separator > 0
+    ? { model: target.slice(separator + 1), provider: target.slice(0, separator) }
+    : undefined;
+}
+
+/**
+ * An observer call's model: its catalog id when it commits one, else the
+ * run's resolved observer target when the call names that target's model (the
+ * legacy attribution). The built-in local observer bills nothing.
+ */
+export function observerCallModel(
+  observer: CatalogModel | undefined,
+  modelId: string
+): CatalogModel | undefined {
+  const committed = catalogModel(modelId);
+  if (committed) {
+    return committed;
+  }
+  if (observer?.provider === 'local') {
+    return;
+  }
+  if (observer?.model === modelId) {
+    return observer;
+  }
+  warnUncosted(modelId);
+  return;
+}
+
 const uncostedModelIds = new Set<string>();
 /**
- * Core commits the observer's SDK model id, which names no provider: its calls
- * cannot be priced or attributed, so cost views leave them out (once per id).
+ * An observer call that names neither a catalog model nor its run's observer
+ * target cannot be priced or attributed, so cost views leave it out (once per id).
  */
 function warnUncosted(modelId: string): void {
   if (uncostedModelIds.has(modelId)) {

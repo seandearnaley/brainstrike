@@ -343,4 +343,90 @@ describe("the Task Ledger's and cost views' share of a host run", () => {
       },
     ]);
   });
+
+  test("an unbound run's provider calls count toward the root focused at its Send", () => {
+    // The desktop's durable run configuration commits the Send intent, focused root included.
+    const focusedStart = HostLogRowSchema.parse({
+      ...first,
+      event: {
+        ...first.event,
+        snapshot: {
+          configuration: { intent: { selectionFolderId: 'root-b' } },
+          maxSteps: 12,
+          toolIdentities: {},
+        },
+      },
+    });
+    const ledger = new HostThreadLedger();
+    ledger.accept(
+      threadId,
+      rows.map((row) => (row === first ? focusedStart : row))
+    );
+    // The roots table names it; the run's log carries only its id.
+    expect(
+      ledger.getSnapshot().rootUsage.map(({ rootDisplayName, rootId }) => [rootId, rootDisplayName])
+    ).toEqual([
+      [null, null],
+      ['root-b', null],
+    ]);
+  });
+
+  test("observer calls cost under the run's resolved observer target, never a local one", () => {
+    const observing = (observerTarget: string) =>
+      HostLogRowSchema.parse({
+        ...first,
+        event: {
+          ...first.event,
+          snapshot: {
+            configuration: {
+              memoryResolution: { observationalMemory: 'resolved', observerTarget },
+            },
+            maxSteps: 12,
+            toolIdentities: {},
+          },
+        },
+      });
+    // The memory provider commits the SDK model's own id.
+    const observation = (modelId: string) => ({
+      kind: 'observation',
+      modelId,
+      runId,
+      type: 'memory.usage',
+      usage: { inputTokens: 300, outputTokens: 40, totalTokens: 340 },
+    });
+    const costedSources = (observerTarget: string, modelId: string) => {
+      const ledger = new HostThreadLedger();
+      const at = rows.indexOf(first);
+      ledger.accept(
+        threadId,
+        [
+          ...rows.slice(0, at),
+          observing(observerTarget),
+          { event: observation(modelId), seq: 0, threadId },
+          ...rows.slice(at + 1),
+        ].map((row, index) =>
+          HostLogRowSchema.parse({ ...row, seq: index + 1, ts: BASE + (index + 1) * 1000 })
+        )
+      );
+      return ledger
+        .getThreadUsage(threadId)
+        ?.perModel.map(({ model, provider, runKind }) => [provider, model, runKind]);
+    };
+    expect(costedSources('openai/gpt-4.1-mini', 'gpt-4.1-mini')).toEqual([
+      ['openai', 'gpt-4.1-mini', 'om-observation'],
+      ['openrouter', 'anthropic/claude-sonnet-4.6', 'chat'],
+    ]);
+    expect(costedSources('openrouter/google/gemini-2.5-flash', 'google/gemini-2.5-flash')).toEqual([
+      ['openrouter', 'google/gemini-2.5-flash', 'om-observation'],
+      ['openrouter', 'anthropic/claude-sonnet-4.6', 'chat'],
+    ]);
+    // A call naming another model than the target is not attributed to it.
+    expect(costedSources('openai/gpt-4.1-mini', 'gpt-4.1')).toEqual([
+      ['openrouter', 'anthropic/claude-sonnet-4.6', 'chat'],
+    ]);
+    // The built-in local model bills nothing.
+    expect(costedSources('local/gemma-4-e2b-it', 'gemma-4-e2b-it')).toEqual([
+      ['openrouter', 'anthropic/claude-sonnet-4.6', 'chat'],
+    ]);
+  });
 });

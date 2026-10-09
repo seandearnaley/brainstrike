@@ -13,7 +13,7 @@ import {
 import type { DebugBundleBinding } from '@brainstrike/assistant-ui';
 import { z } from 'zod';
 import { readDesktopRunConfiguration } from './desktop-run-configuration';
-import { catalogModel, tokensOf } from './host-thread-ledger';
+import { catalogModel, observerCallModel, targetModel, tokensOf } from './host-thread-ledger';
 import { STATUS_BY_OUTCOME } from './host-thread-runs';
 
 type HostReader = Pick<HostClient, 'request'>;
@@ -158,6 +158,8 @@ function usage(
   run: HostLogRow & { event: RunStarted }
 ): ThreadDebugBundleData['usage'] {
   const runModel = catalogModel(run.event.modelId);
+  const observerTarget = readDesktopRunConfiguration(run.event)?.memoryResolution?.observerTarget;
+  const observer = observerTarget ? targetModel(observerTarget) : undefined;
   return rows.flatMap((row): ThreadDebugBundleData['usage'] => {
     const { event } = row;
     if (runIdOf(event) !== run.event.runId) {
@@ -167,7 +169,11 @@ function usage(
       event.type === 'model.step'
         ? { model: runModel, modelId: run.event.modelId, usage: event.usage }
         : event.type === 'memory.usage'
-          ? { model: catalogModel(event.modelId), modelId: event.modelId, usage: event.usage }
+          ? {
+              model: observerCallModel(observer, event.modelId),
+              modelId: event.modelId,
+              usage: event.usage,
+            }
           : event.type === 'context.compacted' && event.usage !== undefined
             ? {
                 model: catalogModel(event.modelId ?? run.event.modelId),
