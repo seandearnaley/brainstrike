@@ -13,6 +13,7 @@ import {
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
 import { z } from 'zod';
+import { QueryEmbeddingPayloadSchema, QueryEmbeddingResultSchema } from './retrieval-wire';
 
 const Id = z.string().min(1);
 const Decision = z.enum(PERMISSION_DECISIONS);
@@ -357,13 +358,17 @@ export const PlatformLocalWarmupSchema = z.strictObject({
   requestId: z.uuid(),
   threadId: Id,
 });
-export const PlatformLocalEmbeddingQuerySchema = z.strictObject({
-  query: z.string(),
-  threadId: Id,
-});
-export const PlatformLocalEmbeddingResultSchema = z.strictObject({
-  embedding: z.array(z.number()),
-});
+/**
+ * The one relay to Main's hidden embedding host (ADR-0007) for an admitted
+ * thread: its local recall (`query`; Main supplies the admitted saved plan,
+ * which never crosses the wire) or a retrieval tool's query (`request`, the
+ * payload the tool resolved from Main's catalog). Either answers the vector.
+ */
+export const PlatformEmbeddingQuerySchema = z.union([
+  z.strictObject({ query: z.string(), threadId: Id }),
+  z.strictObject({ request: QueryEmbeddingPayloadSchema, threadId: Id }),
+]);
+export const PlatformEmbeddingResultSchema = QueryEmbeddingResultSchema;
 /** Confidential, private launcher channel only; absent from client protocol and log. */
 export const PlatformAuthSchema = z.union([
   z.strictObject({ kind: z.literal('custom_fetch') }),
