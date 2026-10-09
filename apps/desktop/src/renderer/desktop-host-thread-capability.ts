@@ -1,5 +1,5 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
-import type { HostLogRow } from '@brainstrike/agent-host/protocol';
+import type { HostLogRow, HostResults } from '@brainstrike/agent-host/protocol';
 import type { AssistantThreadHostCapability } from '@brainstrike/app-shell/assistant-thread-host-context';
 import { DEFAULT_THREAD_TITLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
@@ -23,9 +23,12 @@ import { HostThreadCanvases } from './host-thread-canvases';
 import { HostThreadLedger } from './host-thread-ledger';
 import { HostThreadRuns } from './host-thread-runs';
 
-/** Workspace views and binding changes are thread state, not conversation activity. */
-const WORKSPACE_COMMANDS = new Set(['thread/workspace/set', 'thread/workspace/binding/update']);
 const logger = createLogger('DesktopHostThreads');
+
+type CatalogEntry = Pick<
+  HostResults['thread/list']['threads'][number],
+  'binding' | 'color' | 'createdAt' | 'damage' | 'icon' | 'threadId' | 'title' | 'updatedAt'
+>;
 
 /** The catalog's committed title, colour and icon (each absent until set). */
 interface HostPresentation {
@@ -54,37 +57,42 @@ function presentedMetadata(threadId: string, { color, icon }: HostPresentation) 
   };
 }
 
-/** Transient display projection of the owner's committed identity, binding and timestamps. */
+/**
+ * Transient display projection of the owner's catalog entry: identity, binding
+ * and timestamps. A damaged thread stays listed, its damage shown as a read failure.
+ */
 function projectThread(
+  resourceId: string,
+  { binding, createdAt, damage, threadId, updatedAt, ...presentation }: CatalogEntry
+): AssistantMemoryThread {
+  const metadata = { ...(binding ?? {}), ...presentedMetadata(threadId, presentation) };
+  return {
+    createdAt: new Date(createdAt),
+    id: threadId,
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+    ...(damage === undefined ? {} : { readFailure: damage }),
+    resourceId,
+    title: presentation.title ?? DEFAULT_THREAD_TITLE,
+    updatedAt: new Date(updatedAt),
+  };
+}
+
+/** A thread Core has just started: its creation is its only committed fact. */
+function projectStarted(
   threadId: string,
   resourceId: string,
-  rows: readonly HostLogRow[],
-  presentation: HostPresentation
+  rows: readonly HostLogRow[]
 ): AssistantMemoryThread {
   const started = rows.find((row) => row.event.type === 'thread.started');
   if (started?.ts === undefined) {
     throw new Error('Host thread has no committed creation timestamp');
   }
-  const latest = rows.findLast(
-    (row) =>
-      row.event.type !== 'workspace.updated' &&
-      row.event.type !== 'workspace.binding.updated' &&
-      !(row.event.type === 'command.accepted' && WORKSPACE_COMMANDS.has(row.event.method))
-  );
-  // Each committed binding event carries the full merged binding.
-  const bound = rows.findLast((row) => row.event.type === 'workspace.binding.updated');
-  const metadata = {
-    ...(bound?.event.type === 'workspace.binding.updated' ? bound.event.binding : {}),
-    ...presentedMetadata(threadId, presentation),
-  };
-  return {
-    createdAt: new Date(started.ts),
-    id: threadId,
-    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
-    resourceId,
-    title: presentation.title ?? DEFAULT_THREAD_TITLE,
-    updatedAt: new Date(latest?.ts ?? started.ts),
-  };
+  return projectThread(resourceId, {
+    binding: null,
+    createdAt: started.ts,
+    threadId,
+    updatedAt: started.ts,
+  });
 }
 
 /**
@@ -172,20 +180,24 @@ export function createWindowThreadCapability(
     }
     return connecting;
   };
+  // The catalog and Core's ledger: two reads, whatever the threads' lengths.
   const listThreads = async (resourceId: string): Promise<readonly AssistantMemoryThread[]> => {
     const host = await client();
-    const catalog = await host.request('thread/list', {});
-    const projected = await Promise.all(
-      catalog.threads.map(async ({ threadId, ...presentation }) => {
-        const { rows } = await host.request('thread/read', { fromSeq: 0, threadId });
-        threads.set(threadId, host);
-        runs.accept(threadId, rows);
-        ledger.accept(threadId, rows);
-        return projectThread(threadId, resourceId, rows, presentation);
-      })
+    const [catalog, costs] = await Promise.all([
+      host.request('thread/list', {}),
+      host.request('ledger/read', {}),
+    ]);
+    for (const { threadId } of catalog.threads) {
+      threads.set(threadId, host);
+    }
+    runs.seed(
+      catalog.threads.flatMap(({ latestRun, threadId }) =>
+        latestRun ? [[threadId, latestRun] as const] : []
+      )
     );
+    ledger.seed(costs.threads);
     catalogLoaded = true;
-    return projected;
+    return catalog.threads.map((entry) => projectThread(resourceId, entry));
   };
   const threadClient = async (threadId: string): Promise<HostClient | undefined> => {
     const known = threads.get(threadId);
@@ -237,7 +249,7 @@ export function createWindowThreadCapability(
       const { threadId } = await host.request('thread/start', { commandId: crypto.randomUUID() });
       const { rows } = await host.request('thread/read', { fromSeq: 0, threadId });
       threads.set(threadId, host);
-      return projectThread(threadId, resourceId, rows, {});
+      return projectStarted(threadId, resourceId, rows);
     },
     deleteThread: async (threadId) => {
       const host = await client();
@@ -245,10 +257,14 @@ export function createWindowThreadCapability(
       if (!catalog.threads.some((thread) => thread.threadId === threadId)) {
         return false;
       }
-      await host.request('thread/delete', { threadId });
-      threads.delete(threadId);
-      runs.delete(threadId);
-      ledger.delete(threadId);
+      // Core deletes the thread's child threads with it and names them all.
+      const { threadIds } = await host.request('thread/delete', { threadId });
+      for (const deleted of threadIds) {
+        threads.delete(deleted);
+        childViews.delete(deleted);
+        runs.delete(deleted);
+        ledger.delete(deleted);
+      }
       return true;
     },
     isHostThread: (threadId) => threads.has(threadId),

@@ -1,8 +1,8 @@
+import { tokensOf } from '@brainstrike/agent-host/ledger-projection';
 import type { HostLogRow } from '@brainstrike/agent-host/protocol';
 import type { HostChildToolbarDetails } from '@brainstrike/app-shell';
 import { readChildExecutionConfiguration } from '@brainstrike/assistant-contract';
 import { z } from 'zod';
-import { tokensOf } from './host-thread-ledger';
 
 /** The desktop's committed run configuration names the model settings the run was admitted with. */
 const CommittedIntentSchema = z.object({ intent: z.unknown() });
