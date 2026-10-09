@@ -38,7 +38,8 @@ import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 // Changes review (`workspace.snapshot.recorded`), and restore to before a
 // message (`thread/rewind/preview`, `thread/rewind`, `thread/rewind/redo`;
 // `thread.rewind.started`, `thread.rewound`, `thread.rewind.redo.started`,
-// `thread.rewind.redone`, `thread.rewind.interrupted`). These additions are optional fields,
+// `thread.rewind.redone`, `thread.rewind.interrupted`), and the hook files a
+// run did not load (`hooks.skipped`). These additions are optional fields,
 // new variants and new methods, so a v11 reader that uses none of them sees
 // nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
@@ -177,6 +178,19 @@ export const HostRewindFileOutcomeSchema = z.discriminatedUnion('status', [
   }),
 ]);
 export type HostRewindFileOutcome = z.infer<typeof HostRewindFileOutcomeSchema>;
+/**
+ * A hook file a run did not load, and why: untrusted (no trust), changed
+ * since its trust, unreadable, invalid, or a phase over its time budget.
+ */
+export const HostHookSkipSchema = z.strictObject({
+  detail: z.string().min(1),
+  /** The file's absolute path, or the phase a budget disabled. */
+  path: z.string().min(1),
+  reason: z.enum(['untrusted', 'changed', 'unreadable', 'invalid', 'over-budget']),
+  rootId: Id.optional(),
+  scope: z.enum(['global', 'project']),
+});
+export type HostHookSkip = z.infer<typeof HostHookSkipSchema>;
 const RewindMode = z.enum(['conversation-and-files', 'conversation-only']);
 const RewindTarget = {
   ...Thread,
@@ -809,6 +823,12 @@ export const HostEventSchema = z.union([
     rewindId: Id,
     runId: Id,
     type: z.literal('thread.rewind.started'),
+  }),
+  /** The hook files this run did not load, committed before any hook runs. */
+  z.strictObject({
+    type: z.literal('hooks.skipped'),
+    ...RunFields,
+    files: z.array(HostHookSkipSchema).min(1),
   }),
   /** The rewind's outcome; files mode lists each path's restore. */
   z.strictObject({
