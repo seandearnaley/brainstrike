@@ -1,8 +1,6 @@
-import {
-  AGENT_HOST_PROTOCOL_VERSION,
-  type HostPlatformLaunchOptions,
-} from '@brainstrike/agent-host';
+import type { HostPlatformLaunchOptions } from '@brainstrike/agent-host';
 import { attachAgentHost } from '@brainstrike/agent-host/client';
+import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host/protocol';
 import { runAtPromiseBoundary, runWithTimeout } from '@brainstrike/effect-kit';
 import {
   attachHost,

@@ -1,4 +1,4 @@
-import { hostHookApprovalFor } from '@brainstrike/agent-host';
+import { hostHookApprovalFor } from '@brainstrike/agent-host/hook-trust';
 import type { HostMethod, HostParams, HostResults } from '@brainstrike/agent-host/protocol';
 
 type HostRequest = <M extends HostMethod>(

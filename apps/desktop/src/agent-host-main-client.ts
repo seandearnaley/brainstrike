@@ -1,4 +1,4 @@
-import { authenticateHostClient, type HostClient } from '@brainstrike/agent-host';
+import { authenticateHostClient, type HostClient } from '@brainstrike/agent-host/client';
 import {
   CLIENT_OPEN_EXTERNAL,
   ClientOpenExternalParamsSchema,
