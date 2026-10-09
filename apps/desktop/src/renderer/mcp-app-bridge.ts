@@ -1,9 +1,9 @@
 /**
  * Capability resolution for the desktop `window.mcp.apps` shell bridge (BST-1572).
  *
- * The visible-UI preload exposes the app shell and document reads as
- * `window.mcp.apps`; hidden hosts and web have no such member. The bridge is
- * resolved by probing its three members (no `isElectron()` check) and is
+ * The visible-UI preload exposes the app shell as `window.mcp.apps`; hidden
+ * hosts and web have no such member. The bridge is resolved by probing its
+ * two members (no `isElectron()` check) and is
  * `null` when any is missing, so the thread UI renders the ordinary tool
  * result with a visible "App rendering unavailable in this host" note instead
  * of a half-wired host.
@@ -12,7 +12,6 @@ import type { McpAppShellBridge } from '@brainstrike/assistant-contract';
 
 const SHELL_METHODS = [
   'prepareShell',
-  'readResource',
   'releaseShell',
 ] as const satisfies readonly (keyof McpAppShellBridge)[];
 

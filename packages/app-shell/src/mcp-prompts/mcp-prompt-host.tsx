@@ -2,7 +2,7 @@
  * App-wide host for composer MCP prompt selection (BST-1592).
  *
  * Owns every side effect the "/" menu's `execute` must not: the `prompts/get`
- * and `completion/complete` calls over the `mcp:content:*` bridge, the liveness
+ * and `completion/complete` calls through the MCP content capability, the liveness
  * watch on the pinned server generation, the composer write-back, and the
  * visible failure surface. Renders nothing until the user selects a prompt, and
  * nothing at all when the desktop bridge is absent (web) — a capability gate,

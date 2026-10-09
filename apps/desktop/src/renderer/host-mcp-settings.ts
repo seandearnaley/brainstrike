@@ -13,6 +13,7 @@ import type { McpHostOperationResult, McpTaskBridge } from '@brainstrike/assista
 import { createLogger } from '@brainstrike/logging';
 import type { McpElicitationBridge } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-capability';
 import { connectDesktopAgentHost } from './agent-host-client';
+import { unwrapContent } from './mcp-content-outcome';
 
 const logger = createLogger('DesktopHostMcpSettings');
 
@@ -227,26 +228,6 @@ type ContentResult<Type extends McpHostOperationResult['type']> = Extract<
   McpHostOperationResult,
   { type: Type }
 >;
-type ContentOutcome<T> =
-  | { readonly ok: true; readonly result: T }
-  | {
-      readonly error: {
-        readonly category: string;
-        readonly code: string;
-        readonly message: string;
-      };
-      readonly ok: false;
-    };
-
-/** A refusal becomes a clean Error carrying only the content taxonomy, never server text. */
-function unwrapContent<T>(outcome: ContentOutcome<T>): T {
-  if (outcome.ok) {
-    return outcome.result;
-  }
-  const { category, code, message } = outcome.error;
-  throw Object.assign(new Error(`${message} (${category} · ${code})`), { category, code });
-}
-
 /** MCP content browsing (Settings, composer prompts, MCP App documents), from the agent host. */
 export interface DesktopMcpContent extends McpContentCapability {
   /** Settings completes resource arguments as well as prompt arguments. */

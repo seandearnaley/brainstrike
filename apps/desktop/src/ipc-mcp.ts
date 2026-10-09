@@ -1,38 +1,29 @@
 import path from 'node:path';
-import type { McpHostSnapshot } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { dialog, ipcMain } from 'electron';
-import { mcpContract, mcpPathSelectionContract } from './ipc-domains/mcp.contract';
+import { mcpPathSelectionContract } from './ipc-domains/mcp.contract';
 import { attachMcpBridges } from './mcp/bridges';
-import { registerMcpContentIpc } from './mcp/content-ipc';
 import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import type { RemoteMcpRuntime } from './mcp/remote-runtime';
-import { createDesktopIpcRegistry, registerDomain } from './platform/desktop-ipc-registry';
-import type { Handlers } from './platform/ipc-contract';
+import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
 
 /**
- * Main's remaining MCP surfaces (BST-1930 c5c): content and Apps reach the
- * host's runtime through the private proxy until c5d makes them public host
- * methods. The host owns the MCP config, extension dials, discovery, tool
- * preferences, server status, lifecycle control, Tasks cards and global server
- * input; Main keeps the native config picker, which hands the chosen file to
- * the host, and the preload's status read for MCP App resources (until c5d).
+ * Main's remaining MCP surfaces (BST-1930 c5d): the native config picker,
+ * which hands the chosen file to the host, and the MCP App shell. The host
+ * owns the MCP config, extension dials, discovery, tool preferences, server
+ * status, lifecycle control, Tasks cards, global server input and content.
  */
 const logger = createLogger('DesktopMcpIpc');
 
-type McpIpcRuntime = Pick<RemoteMcpRuntime, 'host' | 'pickConfigPath'>;
+type McpIpcRuntime = Pick<RemoteMcpRuntime, 'pickConfigPath'>;
 type McpSettingsLifecycleRuntime = Pick<RemoteMcpRuntime, 'resetSettings' | 'resumeSettings'>;
 
-/** Closed across a factory reset; content and the picker refuse while it is. */
+/** Closed across a factory reset; the picker refuses while it is. */
 let mcpSurfacesOpen = true;
 let pendingConfigPathSelection: {
   readonly selection: Promise<string | null>;
   readonly senderId: number;
 } | null = null;
-const mcpContentLifecycle = {
-  barrier: () => Promise.resolve(),
-  isOpen: () => mcpSurfacesOpen,
-};
 
 function clearPendingConfigPathSelection(selection: Promise<string | null>): void {
   if (pendingConfigPathSelection?.selection === selection) {
@@ -119,10 +110,6 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpIpcRuntime }):
   mcpSurfacesOpen = true;
   const registry = createDesktopIpcRegistry({ ipcMain });
   attachMcpBridges(registry);
-  const handlers: Handlers<typeof mcpContract> = {
-    getServerStatusSnapshot: async (): Promise<McpHostSnapshot> =>
-      structuredClone(runtime.host.snapshot()),
-  };
   registry.registerAuthorizedInvoke(
     'mcp',
     mcpPathSelectionContract.selectPath.channel,
@@ -132,8 +119,6 @@ export function registerMcpIpcHandlers({ runtime }: { runtime: McpIpcRuntime }):
       return selectMcpConfigPath(runtime, event.sender.id);
     }
   );
-  registerDomain(registry, 'mcp', mcpContract, handlers);
-  registerMcpContentIpc(registry, runtime, mcpContentLifecycle);
   return () => {
     registry.unregisterAll();
   };
