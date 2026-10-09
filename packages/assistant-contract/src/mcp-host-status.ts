@@ -3,6 +3,7 @@ import { McpExtensionEnablementSchema } from './mcp-extensions.js';
 import type {
   McpHostCatalogErrors,
   McpHostJsonValue,
+  McpHostOperationResult,
   McpHostServerSnapshot,
   McpHostSnapshot,
 } from './mcp-host.js';
@@ -208,4 +209,32 @@ export function parseMcpHostServerSnapshot(value: unknown): McpHostServerSnapsho
 export function parseMcpHostSnapshot(value: unknown): McpHostSnapshot {
   assertMcpHostStrictJson(value);
   return McpHostSnapshotSchema.parse(value) as McpHostSnapshot;
+}
+
+const MCP_HOST_OPERATION_TYPES = [
+  'completion/complete',
+  'prompts/get',
+  'prompts/list',
+  'resources/list',
+  'resources/read',
+  'resources/subscribe',
+  'resources/templates/list',
+  'resources/unsubscribe',
+  'tools/call',
+  'tools/list',
+] as const satisfies readonly McpHostOperationResult['type'][];
+const McpHostOperationResultWireSchema = z.strictObject({
+  result: z.record(z.string(), McpHostJsonValueSchema),
+  type: z.enum(MCP_HOST_OPERATION_TYPES),
+});
+
+/**
+ * An operation result as a client outside the host receives it (BST-1930 c5d):
+ * its envelope, with the result as a strict-JSON object. The host validated
+ * the result against the SDK's schema for its type before it crossed
+ * (`./mcp-host-runtime`, node-only).
+ */
+export function parseMcpHostOperationResultWire(value: unknown): McpHostOperationResult {
+  assertMcpHostStrictJson(value);
+  return McpHostOperationResultWireSchema.parse(value) as McpHostOperationResult;
 }

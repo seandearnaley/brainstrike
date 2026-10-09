@@ -1,5 +1,5 @@
 import type { McpHostOperationResult } from '@brainstrike/assistant-contract';
-import { parseMcpHostOperationResult } from '@brainstrike/assistant-contract/mcp-host-runtime';
+import { parseMcpHostOperationResultWire } from '@brainstrike/assistant-contract/mcp-host-status';
 import { z } from 'zod';
 
 /**
@@ -31,7 +31,7 @@ function contentOutcome<Type extends McpHostOperationResult['type']>(type: Type)
   const result: z.ZodType<Extract<McpHostOperationResult, { type: Type }>> = z
     .unknown()
     .transform((value, context): Extract<McpHostOperationResult, { type: Type }> => {
-      const parsed = parseMcpHostOperationResult(value);
+      const parsed = parseMcpHostOperationResultWire(value);
       if (parsed.type !== type) {
         context.addIssue({ code: 'custom', message: `expected a ${type} result` });
         return z.NEVER;
