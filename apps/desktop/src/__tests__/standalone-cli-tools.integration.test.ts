@@ -114,17 +114,22 @@ test('the standalone CLI runs a native write and an MCP task, answering its inpu
   const workspace = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-cli-tools-ws-')));
   const moduleLog = join(dataRoot, 'module-loads.log');
   await writeFile(join(workspace, EDIT.path), 'original notes\n');
-  // The model writes the note, then runs the MCP task. A tool the host does
-  // not offer ends the turn with a reply naming the missing tool.
+  // The model writes the note, loads the deferred MCP task tool (hosted
+  // discovery), then runs it. A tool the host does not offer ends the turn
+  // with a reply naming the missing tool.
   const shim: ModelProviderShim = await startModelProviderShim((request) => {
     const write = request.toolNames.find((name) => name.endsWith('writeWorkspaceFile'));
-    const task = request.toolNames.find((name) => name === `${SERVER_ID}_start_task`);
-    if (!(write && task)) {
+    const task = `${SERVER_ID}_start_task`;
+    if (!(write && request.toolNames.includes('load_tool'))) {
       return { finalText: `Tools not offered; offered: ${request.toolNames.join(', ')}` };
     }
     return {
       finalText: FINAL,
-      toolCallStages: [[{ arguments: EDIT, name: write }], [{ arguments: {}, name: task }]],
+      toolCallStages: [
+        [{ arguments: EDIT, name: write }],
+        [{ arguments: { toolName: task }, name: 'load_tool' }],
+        [{ arguments: {}, name: task }],
+      ],
     };
   });
   const server: PendingInputFixture = await startPendingInputFixture();
@@ -174,11 +179,11 @@ test('the standalone CLI runs a native write and an MCP task, answering its inpu
     '--json',
     '--non-interactive',
   ]);
-  // The run's model turn (not its title request) was offered both the shared
-  // native tool and the configured MCP tool.
-  expect(shim.requests().find((request) => request.toolNames.length > 0)?.toolNames).toEqual(
-    expect.arrayContaining(['brainstrike_writeWorkspaceFile', `${SERVER_ID}_start_task`])
-  );
+  // The run's model turn (not its title request) was offered the shared native
+  // tool and the discovery tools; the configured MCP tool waits for its load.
+  const offered = shim.requests().find((request) => request.toolNames.length > 0)?.toolNames;
+  expect(offered).toEqual(expect.arrayContaining(['brainstrike_writeWorkspaceFile', 'load_tool']));
+  expect(offered).not.toContain(`${SERVER_ID}_start_task`);
   expect(paused.code, paused.stderr).toBe(2);
   const { runId, threadId } = z
     .object({ runId: z.string(), threadId: z.string() })
@@ -244,9 +249,10 @@ test('the standalone CLI runs a native write and an MCP task, answering its inpu
   const started = effects('effect.started');
   expect(started.map((event) => ('toolId' in event ? event.toolId : undefined))).toEqual([
     'brainstrike_writeWorkspaceFile',
+    'load_tool',
     expect.stringMatching(/start_task$/u),
   ]);
-  expect(effects('effect.finished')).toHaveLength(2);
+  expect(effects('effect.finished')).toHaveLength(3);
   expect(
     events
       .filter((event) => event.type.startsWith('mcp.input.'))

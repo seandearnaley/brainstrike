@@ -180,6 +180,44 @@ export function assertHostAdmissionCleanup(
   }
 }
 
+/**
+ * A command is refused once the host closes, or when its thread is unknown, is
+ * being deleted, or holds an admission whose cleanup failed.
+ */
+export function assertHostCommandAdmissible(
+  threadId: string | undefined,
+  closing: boolean,
+  threads: ReadonlySet<string>,
+  deletions: ReadonlyMap<string, unknown>,
+  failedAdmissions: ReadonlyMap<string, unknown>
+): void {
+  if (closing) {
+    throw new Error('Host is closing');
+  }
+  if (!threadId) {
+    return;
+  }
+  if (!threads.has(threadId)) {
+    throw new Error('Unknown thread');
+  }
+  if (deletions.has(threadId)) {
+    throw new Error('Thread deletion has closed command admission');
+  }
+  assertHostAdmissionCleanup(failedAdmissions, threadId);
+}
+
+/** A user Stop of a root run also stops its turn's children, foreground and background. */
+export async function stopHostRunTree(
+  stopped: readonly HostRunState[],
+  stopRun: (run: HostRunState, reason: unknown) => Promise<void>
+): Promise<void> {
+  const reason = new Error('Run stopped by user');
+  await joinAllHostWork(
+    stopped.map((owned) => stopRun(owned, reason)),
+    'Stop cleanup failed'
+  );
+}
+
 /** BST-1977: a cancelled pre-run selection can fail cleanup before a run exists. */
 export async function rejectHostRunAdmission(
   threadId: string,

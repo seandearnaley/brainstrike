@@ -665,6 +665,19 @@ export class StateStore implements MemoryDomainPort {
     });
   }
 
+  /** One app setting's value, or undefined when it is unset. */
+  async getSetting(key: string): Promise<string | undefined> {
+    const value = (await this.call({ key, op: 'getSetting' }))['value'];
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  /** Removes one app setting; true when it existed. */
+  deleteSetting(key: string): Promise<boolean> {
+    return this.run(
+      async () => (await this.call({ key, op: 'deleteSetting' }))['deleted'] === true
+    );
+  }
+
   /** Native metadata/WM/OM use this same writer and mutation chain; transcript stays in the log. */
   memory(request: MemoryDomainRequest): Promise<MemorySnapshot> {
     const execute = async (): Promise<MemorySnapshot> => {

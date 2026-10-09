@@ -264,6 +264,8 @@ export interface HostRunState {
   planMode?: true;
   /** A child's root thread, whose live permission policy governs its decisions. */
   policyThreadId?: string;
+  /** A UserPromptSubmit hook's committed context, part of the run's instructions. */
+  promptContext?: string;
   readonly rawInputs: Map<string, Json>;
   release?: (() => void) | undefined;
   readonly responses: Set<string>;
@@ -277,6 +279,8 @@ export interface HostRunState {
   task?: Promise<void>;
   terminal: boolean;
   readonly threadId: string;
+  /** PostToolUse hooks' committed context, read with each tool's result. */
+  readonly toolContexts: Map<string, string>;
   /** A follow-up typed into an idle child starts its own turn: its ID. */
   turnId?: string;
 }
@@ -316,6 +320,7 @@ export function createHostRunState(
     stopped: false,
     terminal: false,
     threadId,
+    toolContexts: new Map(),
   };
 }
 

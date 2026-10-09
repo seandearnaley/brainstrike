@@ -1,6 +1,7 @@
 import type {
   OpenRouterModelMetadataSnapshot,
   ProviderVerificationSnapshot,
+  SupportedProvider,
 } from '@brainstrike/assistant-contract';
 import type {
   AssistantMemoryThread,
@@ -114,11 +115,14 @@ export interface AssistantThreadHostCapability {
   /**
    * `onRunningChange` reports the rendered view's own run state, so a tab
    * closed mid-run keeps its view mounted and observing (BST-1844).
+   * `providerReadErrors` are the availability status's credential read
+   * failures, which the composer's pre-send notice names.
    */
   renderThread(
     threadId: string,
     isVisible: boolean,
-    onRunningChange?: (threadId: string, running: boolean) => void
+    onRunningChange?: (threadId: string, running: boolean) => void,
+    providerReadErrors?: Partial<Record<SupportedProvider, string>>
   ): ReactNode | undefined;
   /**
    * BST-1932: a child thread as its committed origin names it, so a restored

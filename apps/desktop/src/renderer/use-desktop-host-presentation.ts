@@ -9,7 +9,9 @@ import {
   useAssistantLocalRuntimeCatalog,
   useAssistantModelChange,
   useAssistantModelPickerConfig,
+  useAssistantProviderDisabledReason,
   useAssistantSlashCommands,
+  useAssistantToolMenu,
   useComposerDraftChannel,
   useConfiguredAssistantProviders,
   useEnableModel,
@@ -54,6 +56,7 @@ type Presentation = Pick<
   | 'openRouterModelMetadataLookup'
   | 'effectiveInputBudget'
   | 'planMode'
+  | 'toolMenu'
 >;
 
 interface DesktopHostPresentation extends Presentation {
@@ -62,8 +65,76 @@ interface DesktopHostPresentation extends Presentation {
   readPlanMode(): boolean;
 }
 
+/** The host status's per-provider credential read failures, keyed by provider. */
+export type ProviderReadErrors = Partial<Record<SupportedProvider, string>>;
+
+/**
+ * The legacy panel's pre-send provider notice. A failed provider refresh gates
+ * a send only while nothing is connected; beside a ready provider it is shown
+ * without gating it.
+ */
+function useProviderNotice({
+  configuredProviders,
+  discoveryError,
+  getProviderLlmModels,
+  isModelEnabled,
+  localRuntimeHint,
+  providerReadErrors,
+  selectedModel,
+  selectedProvider,
+}: {
+  readonly configuredProviders: readonly SupportedProvider[];
+  readonly discoveryError: string | undefined;
+  readonly getProviderLlmModels: (
+    provider: SupportedProvider
+  ) => readonly LlmProviderModelDefinition[];
+  readonly isModelEnabled: (provider: SupportedProvider, modelId: string) => boolean;
+  readonly localRuntimeHint: string | undefined;
+  readonly providerReadErrors: ProviderReadErrors | undefined;
+  readonly selectedModel: string | null | undefined;
+  readonly selectedProvider: SupportedProvider | undefined;
+}): { readonly blocking: string | undefined; readonly refresh: string | undefined } {
+  // Enablement is read through the picker's own predicate.
+  const providerHasEnabledModels = useCallback(
+    (provider: SupportedProvider): boolean =>
+      getProviderLlmModels(provider).some((definition) => isModelEnabled(provider, definition.id)),
+    [getProviderLlmModels, isModelEnabled]
+  );
+  const refresh = discoveryError
+    ? `Could not refresh available providers: ${discoveryError}`
+    : undefined;
+  const blockingRefresh = configuredProviders.length === 0 ? refresh : undefined;
+  const provider = useAssistantProviderDisabledReason(
+    {
+      configuredProviders,
+      currentModel: selectedModel,
+      getProviderLlmModels,
+      localRuntimeHint,
+      providerHasEnabledModels,
+      ...(providerReadErrors ? { providerReadErrors } : {}),
+      selectedProvider: selectedProvider ?? null,
+    },
+    blockingRefresh !== undefined
+  );
+  return { blocking: blockingRefresh ?? provider, refresh };
+}
+
+/** The panel shows the reason a send is gated, else a refresh failure that gates nothing. */
+function noticeProps(
+  gating: string | undefined,
+  refresh: string | undefined
+): Pick<Presentation, 'disabledReason' | 'isComposerDisabled'> {
+  if (gating) {
+    return { disabledReason: gating, isComposerDisabled: true };
+  }
+  return refresh ? { disabledReason: refresh } : {};
+}
+
 /** Existing picker/settings owners project controls; they own no assistant execution. */
-export function useDesktopHostPresentation(threadId: string): DesktopHostPresentation {
+export function useDesktopHostPresentation(
+  threadId: string,
+  providerReadErrors?: ProviderReadErrors
+): DesktopHostPresentation {
   useEnsureModelRegistry();
   const composerDraft = useComposerDraftChannel(threadId);
   const slashCommands = useAssistantSlashCommands(threadId);
@@ -93,8 +164,8 @@ export function useDesktopHostPresentation(threadId: string): DesktopHostPresent
   const providerId = selectedModel?.split('::')[0];
   const selectedProvider = providerId && isSupportedProvider(providerId) ? providerId : undefined;
   const model = selectedModel?.slice((selectedModel.indexOf('::') ?? -1) + 2);
-  const { providers: configuredProviders } = useConfiguredAssistantProviders();
-  const { localRuntimeModels } = useAssistantLocalRuntimeCatalog({
+  const { discoveryError, providers: configuredProviders } = useConfiguredAssistantProviders();
+  const { localRuntimeHint, localRuntimeModels } = useAssistantLocalRuntimeCatalog({
     getLocalRuntimeModels,
     getLocalRuntimeStatuses,
   });
@@ -160,7 +231,19 @@ export function useDesktopHostPresentation(threadId: string): DesktopHostPresent
       settings,
       metadata.lookup
     );
-  const disabledReason = metadata.reason ?? providerDraft.reason;
+  const providerNotice = useProviderNotice({
+    configuredProviders,
+    discoveryError,
+    getProviderLlmModels,
+    isModelEnabled,
+    localRuntimeHint,
+    providerReadErrors,
+    selectedModel,
+    selectedProvider,
+  });
+  // The legacy panel's order: the provider notice, then OpenRouter metadata,
+  // then an invalid settings draft.
+  const disabledReason = providerNotice.blocking ?? metadata.reason ?? providerDraft.reason;
   const readConfiguration = useCallback(
     (selectionFolderId: string | null): Record<string, unknown> => {
       if (disabledReason) {
@@ -232,6 +315,11 @@ export function useDesktopHostPresentation(threadId: string): DesktopHostPresent
     [planModeAvailable]
   );
   const onEnableModel = useEnableModel();
+  // Toggles write the native and MCP tool preferences the next send captures.
+  const { toolMenu } = useAssistantToolMenu({
+    runsMcpTools: true,
+    selectedProvider: selectedProvider ?? null,
+  });
   const contextWindow = metadata.modelDef?.contextWindow;
   // The legacy composer's gate: the selected model's vision decides.
   const attachmentsAvailability = resolveComposerAttachmentsAvailability({
@@ -258,10 +346,11 @@ export function useDesktopHostPresentation(threadId: string): DesktopHostPresent
       picker.pickerModels.some((entry) => `${entry.providerId}::${entry.id}` === recent)
     ),
     slashCommands,
+    toolMenu,
     ...(metadata.agentLoopSettings?.inputTokenLimit
       ? { effectiveInputBudget: metadata.agentLoopSettings.inputTokenLimit }
       : {}),
-    ...(disabledReason ? { disabledReason, isComposerDisabled: true } : {}),
+    ...noticeProps(disabledReason, providerNotice.refresh),
     ...(selectedModel ? { selectedModel } : {}),
     ...(selectedProvider ? { selectedProvider } : {}),
     ...(contextWindow ? { contextWindow } : {}),

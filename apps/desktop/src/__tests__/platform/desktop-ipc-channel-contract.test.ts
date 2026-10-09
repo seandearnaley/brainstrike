@@ -81,7 +81,7 @@ function listProductionTypeScriptFiles(directory: string): string[] {
 describe('desktop IPC channel contract', () => {
   it('keeps shared platform channel constants owned by the central catalog', () => {
     const workspaceContextToolsSource = readFileSync(
-      path.join(SOURCE_ROOT, 'assistant-server', 'workspace-context-tools.ts'),
+      path.join(SOURCE_ROOT, 'assistant-server', 'workspace-context-broadcast.ts'),
       'utf8'
     );
     const dbSharedSource = readFileSync(path.join(SOURCE_ROOT, 'db-shared.ts'), 'utf8');

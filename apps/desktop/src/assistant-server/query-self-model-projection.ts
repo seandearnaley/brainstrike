@@ -27,7 +27,7 @@ import {
   projectionSingleLine as singleLine,
   type WorkspaceTextModelOutput,
 } from '@brainstrike/host-capabilities/native-tools';
-import type { QuerySelfResult } from './query-self-tool';
+import type { QuerySelfResult } from './query-self-core';
 
 const CELL_SEPARATOR = '\t';
 

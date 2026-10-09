@@ -9,6 +9,11 @@ export function createHostSdkTools(options: {
     rawInput: unknown
   ) => { readonly value: unknown } | undefined;
   readonly execute: (toolId: string, toolCallId: string, input: unknown) => Promise<unknown>;
+  /** The result as the model reads it: the tool's own projection plus any host context. */
+  readonly modelOutput: (
+    toolId: string,
+    options: Parameters<NonNullable<HostTool['toModelOutput']>>[0]
+  ) => ReturnType<NonNullable<HostTool['toModelOutput']>>;
   readonly tools: Readonly<Record<string, HostTool>>;
 }): ToolSet {
   const tools: ToolSet = {};
@@ -25,7 +30,7 @@ export function createHostSdkTools(options: {
       : tool({
           ...definition,
           execute: (input, context) => options.execute(id, context.toolCallId, input),
-          ...(registered.toModelOutput ? { toModelOutput: registered.toModelOutput } : {}),
+          toModelOutput: (projection) => options.modelOutput(id, projection),
         });
   }
   return tools;

@@ -101,14 +101,16 @@ test('a host run’s task list and canvas survive a reload and are gone with the
       if ((request.requestBody as { stream?: unknown }).stream !== true) {
         return { finalText: THREAD_TITLE };
       }
-      const taskList = request.toolNames.find((tool) => tool.endsWith('manageTaskList'));
-      const canvas = request.toolNames.find((tool) => tool.endsWith('manageCanvas'));
-      if (!(taskList && canvas)) {
+      // Hosted discovery defers both tools: the model loads them first.
+      if (!request.toolNames.includes('load_tool')) {
         return { finalText: `Missing tools: ${request.toolNames.join(', ')}` };
       }
+      const taskList = 'brainstrike_manageTaskList';
+      const canvas = 'brainstrike_manageCanvas';
       return {
         finalText: REPLY,
         toolCallStages: [
+          [{ arguments: { toolNames: [taskList, canvas] }, name: 'load_tool' }],
           [{ arguments: { tasks: TASKS }, name: taskList }],
           [
             {

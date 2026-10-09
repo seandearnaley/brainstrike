@@ -334,6 +334,41 @@ export async function collectThreadDebugBundleData(
     };
   });
 
+  const { diagnosticEvents, priorFailures } = await collectCorrelatedDiagnostics(db, {
+    run,
+    threadId,
+  });
+
+  return {
+    diagnosticEvents,
+    environment: readDebugBundleEnvironment(),
+    messages,
+    priorFailures,
+    run,
+    runError,
+    runEvents,
+    threadId,
+    usage,
+  };
+}
+
+/**
+ * The renderer's diagnostic events correlated to a thread and its selected
+ * run (by run id, thread id and the run's ±5 minute window), and the prior
+ * failures sharing the run's newest correlated fingerprint. Shared by every
+ * bundle source, whichever owner recorded the run.
+ */
+export async function collectCorrelatedDiagnostics(
+  db: DebugBundleDatabase,
+  input: {
+    readonly run: Pick<
+      NonNullable<ThreadDebugBundleData['run']>,
+      'completedAt' | 'id' | 'startedAt'
+    > | null;
+    readonly threadId: string;
+  }
+): Promise<Pick<ThreadDebugBundleData, 'diagnosticEvents' | 'priorFailures'>> {
+  const { run, threadId } = input;
   const repository = new DiagnosticEventsRepository(db);
   const runIdCorrelated = run ? await repository.queryEvents({ runId: run.id }) : [];
   const threadCorrelated = await repository.queryEvents({ threadId });
@@ -363,22 +398,16 @@ export async function collectThreadDebugBundleData(
         Date.now() - PRIOR_FAILURE_LOOKBACK_MS
       )
     : null;
+  return { diagnosticEvents, priorFailures };
+}
 
+/** The bundle's environment section, stamped when it is collected. */
+export function readDebugBundleEnvironment(): ThreadDebugBundleData['environment'] {
   return {
-    diagnosticEvents,
-    environment: {
-      appVersion: readAppVersion(),
-      generatedAt: new Date().toISOString(),
-      platform: readPlatform(),
-      sessionId: getDiagnosticSessionId(),
-    },
-    messages,
-    priorFailures,
-    run,
-    runError,
-    runEvents,
-    threadId,
-    usage,
+    appVersion: readAppVersion(),
+    generatedAt: new Date().toISOString(),
+    platform: readPlatform(),
+    sessionId: getDiagnosticSessionId(),
   };
 }
 

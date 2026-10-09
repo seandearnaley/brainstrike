@@ -69,6 +69,11 @@ export interface StartCommandSessionInput {
   readonly cwd?: string;
   /** Host-observed delegated child, never a tool-input field. */
   readonly delegatedThreadId?: string;
+  /**
+   * The calling run's freshly admitted roots; a manager built without a
+   * resolver (the desktop agent host's) takes its roots only from here.
+   */
+  readonly resolver?: WorkspaceRootResolver;
   readonly rootId: string;
   readonly rows?: number;
   readonly signal?: AbortSignal;
@@ -125,7 +130,8 @@ export interface CommandSessionManagerOptions {
   readonly maxBufferChars?: number;
   /** Maximum wait for a PTY exit acknowledgement after reaping. */
   readonly processExitTimeoutMs?: number;
-  readonly resolver: WorkspaceRootResolver;
+  /** Every known root (Main's roots store); absent where each start names its own roots. */
+  readonly resolver?: WorkspaceRootResolver;
   readonly spawn?: typeof pty.spawn;
   readonly treeKill?: TreeKill;
 }
@@ -173,10 +179,16 @@ function assertRootId(rootId: unknown): asserts rootId is string {
 }
 
 async function resolveSessionCwd(
-  resolver: WorkspaceRootResolver,
+  resolver: WorkspaceRootResolver | undefined,
   rootId: string,
   requestedCwd: string | undefined
 ): Promise<{ cwd: string; rootPath: string }> {
+  if (!resolver) {
+    throw new CommandSessionError(
+      'root-unavailable',
+      'No workspace roots were admitted for this command session.'
+    );
+  }
   const root = await resolveRootCwd(resolver, rootId, 'command session', logger);
   if (!root.ok) {
     throw new CommandSessionError('root-unavailable', root.error);
@@ -596,7 +608,11 @@ export function createCommandSessionManager({
     }
 
     const rootId = input.rootId.trim();
-    const { cwd, rootPath } = await resolveSessionCwd(resolver, rootId, input.cwd);
+    const { cwd, rootPath } = await resolveSessionCwd(
+      input.resolver ?? resolver,
+      rootId,
+      input.cwd
+    );
     if (input.signal?.aborted) {
       throw new CommandSessionError('aborted', 'Command session start was aborted.');
     }

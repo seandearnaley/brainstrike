@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { BlobContent, StateStore } from '@brainstrike/state-store';
 import type { LanguageModel, ModelMessage } from 'ai';
-import { ApprovalInputReconstructionError } from './approval-input.js';
 import { acceptHostChildInput, takeHostChildInput } from './child-input.js';
 import { HostContextCompactions } from './context-compaction.js';
 import {
@@ -21,7 +20,7 @@ import {
   abortHostThreadRuns,
   acceptHostRunStop,
   assertHostAdmissionCleanup,
-  joinAllHostWork,
+  assertHostCommandAdmissible,
   joinHostRunOwner,
   joinHostThreadDeletion,
   queueHostAdmission,
@@ -29,6 +28,7 @@ import {
   rejectHostRunAdmission,
   retainHostRunWork,
   steerHostRun,
+  stopHostRunTree,
 } from './core-run-lifecycle.js';
 import {
   createHostRunContext,
@@ -42,6 +42,8 @@ import {
   recordHostConversationId,
 } from './core-state.js';
 import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-storage.js';
+import { beginHostRun, foldHostHookContextEvent, hostRunTerminalEvents } from './hook-context.js';
+import type { HostHookTrustStore } from './hook-trust.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
 import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
@@ -83,6 +85,7 @@ import {
   commitHostModelMessages,
   createHostApprovalResponses,
   finishApprovedHostResults,
+  hostContinuationFailure,
   startHostNextRun,
 } from './run-continuation.js';
 import { userRunVerdict } from './run-verdicts.js';
@@ -93,10 +96,10 @@ import { HostThreadWorkspaceState } from './workspace-state.js';
 
 export { jsonValue } from './json-value.js';
 
-export type HostEventStore = Pick<
-  StateStore,
-  'append' | 'read' | 'root' | 'syncBoundary' | 'threads'
-> & { readonly deleteThread?: StateStore['deleteThread'] };
+export type HostEventStore = HostHookTrustStore &
+  Pick<StateStore, 'append' | 'read' | 'root' | 'syncBoundary' | 'threads'> & {
+    readonly deleteThread?: StateStore['deleteThread'];
+  };
 
 /** One writer, one admission queue, and one SDK loop per root run (ADR-0011/12/17). */
 export class HostCore {
@@ -216,6 +219,9 @@ export class HostCore {
       case 'interaction.responded':
         foldHostInteraction(this.runs, event);
         break;
+      case 'hook.context':
+        foldHostHookContextEvent(this.runs, event);
+        break;
       default:
         foldHostRunEffect(this.runs, event, row.ts);
         break;
@@ -327,18 +333,8 @@ export class HostCore {
     const queued = queueHostAdmission(
       this.admission,
       () => {
-        if (this.closing) {
-          throw new Error('Host is closing');
-        }
-        if (threadId) {
-          if (!this.threads.has(threadId)) {
-            throw new Error('Unknown thread');
-          }
-          if (this.deletions.has(threadId)) {
-            throw new Error('Thread deletion has closed command admission');
-          }
-          assertHostAdmissionCleanup(this.failedAdmissions, threadId);
-        }
+        const { closing, deletions, failedAdmissions, threads } = this;
+        assertHostCommandAdmissible(threadId, closing, threads, deletions, failedAdmissions);
         return perform();
       },
       signal
@@ -556,7 +552,11 @@ export class HostCore {
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);
       recordHostConversationId(this.conversationIds, run.id);
-      run.task = this.loop(run, admission.model);
+      run.task = beginHostRun(run, admission, {
+        commit: (events) => this.append(run.threadId, events, 'full', this.foldRows),
+        fail: (detail) => this.finish(run, 'failed', detail),
+        loop: (model) => this.loop(run, model),
+      });
       // Stop/close joins this task; retain failures rather than leaking rejections.
       run.task.catch(() => undefined);
       return result;
@@ -830,15 +830,8 @@ export class HostCore {
       if (run.completion) {
         throw cause;
       }
-      await this.finish(
-        run,
-        run.stopped
-          ? 'stopped'
-          : cause instanceof ApprovalInputReconstructionError
-            ? 'interrupted'
-            : 'failed',
-        cause instanceof Error ? cause.message : String(cause)
-      );
+      const failed = hostContinuationFailure(run, cause);
+      await this.finish(run, failed.outcome, failed.detail);
     }
   }
 
@@ -871,15 +864,11 @@ export class HostCore {
   }
 
   stop(params: HostParams<'run/stop'>): Promise<{ outcome: 'stopped' | 'already-terminal' }> {
-    const join = async (): Promise<void> => {
+    const join = (): Promise<void> => {
       const run = this.run(params.threadId, params.runId);
-      const reason = new Error('Run stopped by user');
       // BST-1932: a root Stop ends its turn's children, foreground and background.
       const stopped = [run, ...this.children.turnChildren(run, this.runs)];
-      await joinAllHostWork(
-        stopped.map((owned) => this.stopRun(owned, reason)),
-        'Stop cleanup failed'
-      );
+      return stopHostRunTree(stopped, (owned, reason) => this.stopRun(owned, reason));
     };
     return this.command(
       'run/stop',
@@ -947,8 +936,8 @@ export class HostCore {
       (owned) =>
         titling ? titling.then(() => this.closeRunOwner(owned)) : this.closeRunOwner(owned),
       () => this.read(run.threadId, 0),
-      (event, commit) =>
-        this.append(run.threadId, [event], 'full', (rows) => {
+      async (event, commit) =>
+        this.append(run.threadId, await hostRunTerminalEvents(run, event), 'full', (rows) => {
           commit();
           this.foldRows(rows);
         })

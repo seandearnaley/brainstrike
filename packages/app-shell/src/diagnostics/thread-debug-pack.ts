@@ -141,23 +141,28 @@ function parseInstant(value: unknown, subject: string): number {
 }
 
 /** Earliest run start, clamped to 24 hours before capture, through capture. */
-function resolveHostWindow(snapshot: ThreadDebugSnapshot): ThreadDebugHostEvidence['window'] {
-  const until = parseInstant(snapshot.capturedAt, 'capturedAt');
-  const runs = snapshot.sections['runs'] ?? [];
-  if (runs.length === 0) {
+export function boundedHostWindow(
+  capturedAt: string,
+  earliestRunStartMs: number | null
+): ThreadDebugHostEvidence['window'] {
+  const until = parseInstant(capturedAt, 'capturedAt');
+  if (earliestRunStartMs === null) {
     return null;
   }
-  let earliest = Number.POSITIVE_INFINITY;
-  for (const run of runs) {
-    earliest = Math.min(
-      earliest,
-      parseInstant(run['started_at'], `run ${String(run['id'])} started_at`)
-    );
-  }
   return {
-    since: new Date(Math.max(earliest, until - HOST_WINDOW_MAX_MS)).toISOString(),
+    since: new Date(Math.max(earliestRunStartMs, until - HOST_WINDOW_MAX_MS)).toISOString(),
     until: new Date(until).toISOString(),
   };
+}
+
+function resolveHostWindow(snapshot: ThreadDebugSnapshot): ThreadDebugHostEvidence['window'] {
+  const runs = snapshot.sections['runs'] ?? [];
+  let earliest: number | null = null;
+  for (const run of runs) {
+    const started = parseInstant(run['started_at'], `run ${String(run['id'])} started_at`);
+    earliest = earliest === null ? started : Math.min(earliest, started);
+  }
+  return boundedHostWindow(snapshot.capturedAt, earliest);
 }
 
 async function readHostItem(
@@ -185,11 +190,19 @@ export async function collectThreadDebugHostEvidence(
   probe: ThreadDebugHostProbe | null,
   snapshot: ThreadDebugSnapshot
 ): Promise<ThreadDebugHostEvidence> {
+  return await collectHostEvidence(probe, () => resolveHostWindow(snapshot));
+}
+
+/** Reads the desktop host evidence for a run window; every gap carries its reason. */
+export async function collectHostEvidence(
+  probe: ThreadDebugHostProbe | null,
+  resolveWindow: () => ThreadDebugHostEvidence['window']
+): Promise<ThreadDebugHostEvidence> {
   if (probe === null) {
     const missing = { reason: NO_BRIDGE_REASON, status: 'unavailable' } as const;
     return { hostLog: missing, processCounters: missing, window: null };
   }
-  const window = resolveHostWindow(snapshot);
+  const window = resolveWindow();
   const hostLog: ThreadDebugHostItem =
     window === null
       ? { reason: 'no run start in the snapshot to bound the log window', status: 'unavailable' }
@@ -202,7 +215,10 @@ export async function collectThreadDebugHostEvidence(
   return { hostLog, processCounters, window };
 }
 
-function hostValue(item: ThreadDebugHostItem): Readonly<Record<string, unknown>> | null {
+/** Host evidence as a pack section: the value, or null with its reason in the manifest. */
+export function hostEvidenceValue(
+  item: ThreadDebugHostItem
+): Readonly<Record<string, unknown>> | null {
   return item.status === 'included' ? item.value : null;
 }
 
@@ -233,21 +249,28 @@ function listPermissionGates(redactedSections: unknown): Record<string, unknown>
   );
 }
 
-export function formatThreadDebugPack(
-  snapshot: ThreadDebugSnapshot,
-  host: ThreadDebugHostEvidence
-): string {
-  const decodedArtifacts = (snapshot.sections['toolOutputs'] ?? []).map(decodeArtifact);
-  // Derived views and host evidence sit INSIDE sections, so both redaction
-  // passes below cover them.
-  const sections: Record<string, unknown> = {
-    ...snapshot.sections,
-    childFirstSteps: deriveChildFirstSteps(snapshot.sections),
-    hostLog: hostValue(host.hostLog),
-    legs: deriveThreadDebugLegs(snapshot.sections),
-    processCounters: hostValue(host.processCounters),
-    toolOutputs: decodedArtifacts.map((artifact) => artifact.row),
+/** An export's sections and host manifest after both redaction passes. */
+export interface RedactedDebugPack {
+  readonly hostManifest: Readonly<Record<string, unknown>>;
+  readonly redaction: {
+    readonly keyNames: true;
+    readonly valueCount: number;
+    readonly valueKinds: readonly string[];
   };
+  readonly sections: unknown;
+  readonly structuralElisions: { readonly depth: number; readonly repeated: number };
+}
+
+/**
+ * Both redaction passes every exported pack takes: sensitive key names (with
+ * depth and repeated-value bounds), then recognized secret value shapes in
+ * every string. Host evidence sits INSIDE sections, so both passes cover it;
+ * an unavailable reason takes the same value scrub.
+ */
+export function redactDebugPack(
+  sections: Record<string, unknown>,
+  host: ThreadDebugHostEvidence
+): RedactedDebugPack {
   let redactedValues = 0;
   let depthElisions = 0;
   let repeatedElisions = 0;
@@ -296,6 +319,39 @@ export function formatThreadDebugPack(
     processCounters: scrub(describeHostItem(host.processCounters)),
     window: host.window,
   };
+  return {
+    hostManifest,
+    redaction: {
+      keyNames: true,
+      valueCount: redactedValues,
+      valueKinds: [...redactedKinds].sort(),
+    },
+    sections: redactedSections,
+    structuralElisions: { depth: depthElisions, repeated: repeatedElisions },
+  };
+}
+
+export function formatThreadDebugPack(
+  snapshot: ThreadDebugSnapshot,
+  host: ThreadDebugHostEvidence
+): string {
+  const decodedArtifacts = (snapshot.sections['toolOutputs'] ?? []).map(decodeArtifact);
+  // Derived views and host evidence sit INSIDE sections, so both redaction
+  // passes below cover them.
+  const sections: Record<string, unknown> = {
+    ...snapshot.sections,
+    childFirstSteps: deriveChildFirstSteps(snapshot.sections),
+    hostLog: hostEvidenceValue(host.hostLog),
+    legs: deriveThreadDebugLegs(snapshot.sections),
+    processCounters: hostEvidenceValue(host.processCounters),
+    toolOutputs: decodedArtifacts.map((artifact) => artifact.row),
+  };
+  const {
+    hostManifest,
+    redaction,
+    sections: redactedSections,
+    structuralElisions,
+  } = redactDebugPack(sections, host);
   const env = (import.meta as { env?: Record<string, unknown> }).env;
   const artifactFailures = decodedArtifacts.flatMap((artifact) =>
     artifact.failure ? [artifact.failure] : []
@@ -361,17 +417,13 @@ export function formatThreadDebugPack(
       ],
       permissionGates: listPermissionGates(redactedSections),
       platform: typeof navigator === 'undefined' ? 'unknown' : navigator.platform,
-      redaction: {
-        keyNames: true,
-        valueCount: redactedValues,
-        valueKinds: [...redactedKinds].sort(),
-      },
+      redaction,
       retainedArtifactBytes: retainedArtifactBytes.toString(),
       retainedArtifactBytesComplete: !artifactFailures.some(
         (failure) => failure.code === 'invalid-byte-length'
       ),
       rootThreadId: snapshot.rootThreadId,
-      structuralElisions: { depth: depthElisions, repeated: repeatedElisions },
+      structuralElisions,
       threadId: snapshot.threadId,
       unknownRunStatuses: runs.flatMap((row) =>
         getRunStatusKind(row['status']) === null

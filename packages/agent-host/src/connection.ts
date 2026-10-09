@@ -4,6 +4,7 @@ import type { MessageConnection } from 'vscode-jsonrpc';
 import { bindHostAuthMethods } from './auth-connection.js';
 import type { HostCore } from './core.js';
 import { hostChildStatusChanged } from './core-child-runs.js';
+import { bindHostHookTrustMethods } from './hook-trust.js';
 import type { HostAuthService, HostClientOrigin, HostProviderService } from './ports.js';
 import {
   HOST_CHILDREN_CHANGED,
@@ -115,6 +116,7 @@ export function bindHostConnection(
   });
   bindHostAuthMethods(handle, connection, auth, origin);
   bindHostProviderMethods(handle, providers, origin);
+  bindHostHookTrustMethods(handle, core.store);
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));
   handle('thread/children', (params) => ({ children: core.listChildren(params.threadId) }));
