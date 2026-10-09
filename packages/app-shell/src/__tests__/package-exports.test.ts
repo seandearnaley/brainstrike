@@ -21,6 +21,7 @@ describe('@brainstrike/app-shell package contract', () => {
         './canvas/canvas-panel',
         './changes',
         './changes/availability',
+        './changes/use-last-turn-follower',
         './connected-prompt-manager-lazy',
         './cost-tracking-settings',
         './diagnostics',

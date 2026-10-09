@@ -24,6 +24,8 @@ import { observeFixtureChild, recordFixtureEvent } from './owned-fixture-process
 import { RECORDED_VECTOR_PROFILE } from './recorded-memory-vector-port.js';
 
 export const WORKING_FACT = '# Project facts\n- Working memory contribution: coding in Paris.';
+/** The observer's catalog id: the id its memory.usage is committed under. */
+export const ACCOUNTING_OBSERVER_CATALOG_ID = 'openai::recorded-observer-prompt';
 export const OBSERVATION_FACT = 'Observation contribution: preserve the Paris coding decision.';
 export const HISTORY_FACT = 'Paris committed source selected by real semantic recall.';
 
@@ -461,6 +463,7 @@ export async function finalPromptAccountingHost(
                   workingMemory: { enabled: true, scope: 'thread' },
                 },
               },
+              ...(observations ? { observerModelId: ACCOUNTING_OBSERVER_CATALOG_ID } : {}),
               recordPrompt: async (identity, requestParams) => {
                 receipts.push({ request: requestParams, runId: identity.runId });
               },
