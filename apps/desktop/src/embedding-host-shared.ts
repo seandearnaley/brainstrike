@@ -112,6 +112,12 @@ export interface EmbeddingHostWorkerRuntimeMetadata {
 export interface EmbeddingHostRuntimeMetadata {
   readonly actualWorkerMetadata: EmbeddingHostWorkerRuntimeMetadata | null;
   readonly backendMismatch: boolean;
+  /**
+   * The device this host resolved at start from the saved vector preference
+   * and device detection. An unpinned load runs on it; a pinned query changes
+   * `selectedDevicePreference`, never this.
+   */
+  readonly hostDevice?: 'webgpu' | 'wasm';
   readonly selectedDevicePreference: 'webgpu' | 'wasm';
   readonly telemetry: EmbeddingTelemetrySnapshot;
 }
@@ -298,6 +304,12 @@ function assertEmbeddingHostRuntimeMetadata(value: unknown): EmbeddingHostRuntim
   if (typeof backendMismatch !== 'boolean') {
     throw new Error('Embedding host status embeddingRuntime.backendMismatch must be a boolean.');
   }
+  const hostDevice = candidate['hostDevice'];
+  if (hostDevice !== undefined && hostDevice !== 'webgpu' && hostDevice !== 'wasm') {
+    throw new Error(
+      'Embedding host status embeddingRuntime.hostDevice must be "webgpu" or "wasm".'
+    );
+  }
   const actualWorkerMetadata = candidate['actualWorkerMetadata'];
   return {
     actualWorkerMetadata:
@@ -305,6 +317,7 @@ function assertEmbeddingHostRuntimeMetadata(value: unknown): EmbeddingHostRuntim
         ? null
         : assertEmbeddingWorkerRuntimeMetadata(actualWorkerMetadata),
     backendMismatch,
+    ...(hostDevice === undefined ? {} : { hostDevice }),
     selectedDevicePreference,
     telemetry: assertEmbeddingTelemetrySnapshot(candidate['telemetry']),
   };

@@ -30,7 +30,6 @@ import {
   createEmbeddingHostQueryEmbeddingResultReport,
   type EmbeddingHostInferenceRequest,
   type EmbeddingHostRuntimeMetadata,
-  type EmbeddingHostWorkerRuntimeMetadata,
 } from '../../embedding-host-shared';
 import {
   getEmbeddingHostBridge,
@@ -59,6 +58,10 @@ import {
   type QueryEmbeddingRuntimeOwner,
   runOwnedQueryEmbeddingInference,
 } from './embedding-host-query-owner';
+import {
+  createBackendMismatchError,
+  createEmbeddingRuntimeMetadata,
+} from './embedding-host-runtime-metadata';
 import { startEmbeddingTelemetryReporter } from './embedding-telemetry-reporter';
 import { createEmbeddingWorkerConfig } from './embedding-worker-config';
 
@@ -154,30 +157,6 @@ function createFatalErrorHandler(
       lastError: message,
     });
   };
-}
-
-function createEmbeddingRuntimeMetadata(
-  selectedDevicePreference: EmbeddingDeviceType,
-  actualWorkerMetadata: EmbeddingHostWorkerRuntimeMetadata | null
-): EmbeddingHostRuntimeMetadata {
-  return {
-    actualWorkerMetadata,
-    backendMismatch:
-      actualWorkerMetadata !== null &&
-      (actualWorkerMetadata.device !== selectedDevicePreference ||
-        actualWorkerMetadata.fallbackApplied),
-    selectedDevicePreference,
-    telemetry: getEmbeddingTelemetrySnapshot(),
-  };
-}
-
-function createBackendMismatchError(metadata: EmbeddingHostRuntimeMetadata): string | null {
-  const actual = metadata.actualWorkerMetadata;
-  if (!(metadata.backendMismatch && actual)) {
-    return null;
-  }
-  const fallbackSuffix = actual.fallbackApplied ? ' with fallbackApplied=true' : '';
-  return `Embedding backend mismatch: selected ${metadata.selectedDevicePreference}, actual ${actual.device}${fallbackSuffix}.`;
 }
 
 function isRecoverableEmbeddingWorkerFatalError(message: string): boolean {
@@ -415,7 +394,8 @@ async function handleQueryEmbeddingRequest(options: {
             runtime.device;
           embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(
             selectedDevicePreference,
-            runtime
+            runtime,
+            embeddingRuntimeRef.current?.hostDevice
           );
           reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
             active: true,
@@ -545,7 +525,11 @@ async function startEmbeddingHostWorkerRuntime({
     await ensureEmbeddingQueueBootstrapLoaded();
     const hydratedPreferences = await resolveHydratedEmbeddingWorkerPreferences();
     const hydratedDevicePref = hydratedPreferences.devicePref;
-    embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(hydratedDevicePref, null);
+    embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(
+      hydratedDevicePref,
+      null,
+      hydratedDevicePref
+    );
     const workerConfig = createEmbeddingWorkerConfig(db, gate);
     const controller = await startEmbeddingWorker({
       ...workerConfig,
@@ -554,7 +538,11 @@ async function startEmbeddingHostWorkerRuntime({
       initializeLocalModelOnStart: false,
       onFatalError,
       onRuntimeMetadataChange: (metadata) => {
-        embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(hydratedDevicePref, metadata);
+        embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(
+          hydratedDevicePref,
+          metadata,
+          hydratedDevicePref
+        );
         const backendMismatchError = createBackendMismatchError(embeddingRuntimeRef.current);
         if (backendMismatchError) {
           fatalErrorRef.current = backendMismatchError;

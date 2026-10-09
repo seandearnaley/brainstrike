@@ -29,6 +29,7 @@ import { registerAgentHostClientIpc } from './agent-host-client-ipc';
 import { createAgentHostMainClient } from './agent-host-main-client';
 import { createDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
 import { DesktopWorkspaceBindingAuthority } from './agent-host-platform/desktop-workspace-binding';
+import { readEmbeddingHostDevice } from './agent-host-platform/memory-vector-selection';
 import {
   PlatformPolicySchema,
   platformPermissionPolicy,
@@ -201,7 +202,7 @@ import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { createNativeCallerRead } from './native-caller-query';
 import { createNativeIndexActivation } from './native-index-activation';
 import { reportNativeIndexActivationError as reportNativeIndexFailure } from './native-index-activation-error';
-import { NATIVE_INDEX_SETTINGS_KEY, readNativeIndexSettings } from './native-index-settings';
+import { NATIVE_INDEX_SETTINGS_KEY } from './native-index-settings';
 import {
   createInitialWindowAfterNativeReader,
   createNativeStartupFailureReporter,
@@ -1060,10 +1061,8 @@ const nativeIndexActivation = createNativeIndexActivation({
           },
           undefined,
           workspace,
-          // Local recall uses the saved local execution selection (Search & Indexing).
-          async () =>
-            readNativeIndexSettings(await storage.getItem(NATIVE_INDEX_SETTINGS_KEY)).selection ??
-            undefined
+          // Local recall loads as the embedding host's unpinned query did (BST-1929).
+          (signal) => readEmbeddingHostDevice(embeddingHostManager, signal)
         ),
         // BST-1977: app-owned host/stop released Root with the native writer live.
         // Retiring the profile here would wait on this same Core close request.

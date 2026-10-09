@@ -904,6 +904,28 @@ describe('native pinned hidden renderer query', () => {
     expect(initializeMock).toHaveBeenCalledTimes(2);
     expect(disposeQueryEmbeddingServiceMock).toHaveBeenCalledTimes(1);
   });
+  it('reports the device it resolved at start, which a pinned query never replaces', async () => {
+    const listener = await start();
+    await waitFor(() =>
+      expect(reportStatusMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          embeddingRuntime: expect.objectContaining({ hostDevice: 'webgpu' }),
+          state: 'running',
+        })
+      )
+    );
+    generateQueryEmbeddingMock.mockResolvedValue(result());
+    listener(request(plan, 'pinned-wasm'));
+    await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledTimes(1));
+    expect(reportStatusMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        embeddingRuntime: expect.objectContaining({
+          hostDevice: 'webgpu',
+          selectedDevicePreference: 'wasm',
+        }),
+      })
+    );
+  });
   it.each([
     undefined,
     { ...result().runtime, device: 'webgpu' },

@@ -39,7 +39,6 @@ import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thr
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-repository';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
-import type { SelectedEmbeddingRequestPlan } from '@brainstrike/embeddings/inference-plan';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
 import { z } from 'zod';
 import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
@@ -583,13 +582,14 @@ function desktopRunTools(
   return desktopPlanModeTools(tools);
 }
 
-async function readSavedLocalEmbeddingSelection(
-  read: (() => Promise<SelectedEmbeddingRequestPlan | undefined>) | undefined
-): Promise<SelectedEmbeddingRequestPlan | undefined> {
+async function readLocalEmbeddingHostDevice(
+  read: ((signal: AbortSignal) => Promise<'webgpu' | 'wasm'>) | undefined,
+  signal: AbortSignal
+): Promise<'webgpu' | 'wasm'> {
   if (!read) {
-    throw new Error('Local Memory vectors require the saved local execution selection');
+    throw new Error('Local Memory vectors require the embedding host');
   }
-  return await read();
+  return await read(signal);
 }
 
 /** Main's worktree/forge correlation of host commands, over the same services as legacy threads. */
@@ -624,7 +624,7 @@ export function productionDesktopCapabilities(
   readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>,
   readCliOwnerIntent?: DesktopCliOwnerIntentReader,
   workspaceAuthority?: DesktopWorkspaceBindingAuthority,
-  readLocalEmbeddingSelection?: () => Promise<SelectedEmbeddingRequestPlan | undefined>
+  readLocalEmbeddingDevice?: (signal: AbortSignal) => Promise<'webgpu' | 'wasm'>
 ): Omit<DesktopPlatformCapabilities, 'mcp'> {
   const policies = new Map<string, PermissionToolGateSnapshot>();
   // A host thread's session grants are the host's own (permission.granted);
@@ -663,7 +663,7 @@ export function productionDesktopCapabilities(
     );
     const memoryVectors = await resolveDesktopMemoryVectors(memorySettings, {
       readDimensions: (provider, modelId) => readEmbeddingDimensions(db, provider, modelId),
-      readLocalSelection: () => readSavedLocalEmbeddingSelection(readLocalEmbeddingSelection),
+      readLocalDevice: () => readLocalEmbeddingHostDevice(readLocalEmbeddingDevice, request.signal),
     });
     request.signal.throwIfAborted();
     const budget = resolveScaledToolResultBudget(definition.contextWindow);
