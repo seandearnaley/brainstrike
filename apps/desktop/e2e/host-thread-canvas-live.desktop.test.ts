@@ -81,8 +81,11 @@ test('an open Canvas panel shows the canvas a host run commits, without a thread
     // Open the Canvas panel on this thread before any canvas exists.
     await page.getByTestId('workspace-add-tab').click();
     await page.getByTestId('workspace-add-tab-canvas').click();
+    // The empty state stands in for the populated panel until a canvas exists.
+    await expect(page.getByText(/No canvases in this thread yet/u)).toBeVisible({
+      timeout: 30_000,
+    });
     const panel = page.getByTestId('canvas-panel');
-    await expect(panel).toContainText('No canvases in this thread yet', { timeout: 30_000 });
 
     drawing = true;
     await input.fill('Draw it.');
