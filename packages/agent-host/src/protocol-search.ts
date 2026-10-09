@@ -38,21 +38,34 @@ export const SEARCH_METHOD_SCHEMAS = {
     /** The semantic arm: the caller's query vector, its embedder profile and minimum cosine. */
     semantic: SearchSemantic.optional(),
   }),
+  /** The semantic arm's coverage of every host thread under the caller's embedder profile. */
+  'thread/search/coverage': z.strictObject({ profile: SearchVectorProfile }),
   /** The semantic arm's backlog: rows with no vector under the caller's embedder profile. */
   'thread/search/pending': z.strictObject({
     limit: z.number().int().positive().max(64),
     profile: SearchVectorProfile,
   }),
-  /** The caller's vectors for backlog rows, each with the source hash it embedded. */
+  /**
+   * The caller's vectors for backlog rows, each with the source hash it
+   * embedded, or why it could not embed a row (legacy's `embedding_error`).
+   */
   'thread/search/vectors': z.strictObject({
     profile: SearchVectorProfile,
     rows: z.array(
-      z.strictObject({
-        seq: Seq,
-        sourceHash: SearchSourceHash,
-        threadId: Id,
-        vector: z.array(z.number()).min(1),
-      })
+      z.union([
+        z.strictObject({
+          seq: Seq,
+          sourceHash: SearchSourceHash,
+          threadId: Id,
+          vector: z.array(z.number()).min(1),
+        }),
+        z.strictObject({
+          error: z.string().min(1),
+          seq: Seq,
+          sourceHash: SearchSourceHash,
+          threadId: Id,
+        }),
+      ])
     ),
   }),
 } as const;
@@ -66,6 +79,12 @@ export const SEARCH_RESULT_SCHEMAS = {
     /** Root threads whose title holds every query word, most similar first. */
     titles: z.array(z.strictObject({ similarity: z.number(), threadId: Id, title: ThreadTitle })),
   }),
+  /** Rows, rows with a vector, and rows whose last embedding failed within the retry window. */
+  'thread/search/coverage': z.strictObject({
+    embedded: z.number().int().nonnegative(),
+    errored: z.number().int().nonnegative(),
+    rows: z.number().int().nonnegative(),
+  }),
   'thread/search/pending': z.strictObject({
     rows: z.array(
       z.strictObject({
@@ -77,6 +96,7 @@ export const SEARCH_RESULT_SCHEMAS = {
     ),
   }),
   'thread/search/vectors': z.strictObject({
+    failed: z.number().int().nonnegative(),
     stale: z.number().int().nonnegative(),
     stored: z.number().int().nonnegative(),
   }),

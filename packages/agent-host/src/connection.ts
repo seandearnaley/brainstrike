@@ -27,6 +27,7 @@ import {
 } from './protocol.js';
 import { bindHostProviderMethods } from './provider-connection.js';
 import {
+  coverageHostSearchVectors,
   pendingHostSearchVectors,
   putHostSearchVectors,
   searchHostThreads,
@@ -188,6 +189,9 @@ export function bindHostConnection(
   );
   handle('thread/search/pending', (params) =>
     pendingHostSearchVectors(core, searchStateVectors, params)
+  );
+  handle('thread/search/coverage', (params) =>
+    coverageHostSearchVectors(core, searchStateVectors, params)
   );
   handle('thread/search/vectors', (params) => putHostSearchVectors(searchStateVectors, params));
   handle('thread/workspace/read', (params) => core.readWorkspace(params.threadId));

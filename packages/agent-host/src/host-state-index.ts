@@ -37,7 +37,7 @@ export interface HostStateIndex {
   /** The semantic arm: search-row vectors, their backlog and nearest rows. */
   readonly searchVectors: Pick<
     StateIndexerPort,
-    'putStateSearchVectors' | 'searchStatePending' | 'searchStateSimilar'
+    'putStateSearchVectors' | 'searchStateCoverage' | 'searchStatePending' | 'searchStateSimilar'
   >;
   /** Recall and observation vectors, in this same derived store and writer. */
   readonly vectors: StateMessageVectorPort & StateObservationVectorPort;

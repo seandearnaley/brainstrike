@@ -19,6 +19,7 @@ import {
   type ProductionHostRunConfiguration,
 } from '../src/production-platform.js';
 import {
+  coverageHostSearchVectors,
   pendingHostSearchVectors,
   putHostSearchVectors,
   searchHostThreads,
@@ -169,6 +170,35 @@ test('host search finds content by words and by meaning on the selected path, an
       'Saffron harvest happens in the autumn.',
       'Crocus threads are picked by hand.',
     ]);
+    // The first row fails to embed: it is errored, out of the backlog, as legacy's is.
+    const [failing, ...embeddable] = pending.rows;
+    if (!failing) {
+      throw new Error('Expected a backlog row');
+    }
+    expect(
+      await putHostSearchVectors(vectors, {
+        profile,
+        rows: [
+          {
+            error: 'model unavailable',
+            seq: failing.seq,
+            sourceHash: failing.sourceHash,
+            threadId: failing.threadId,
+          },
+        ],
+      })
+    ).toEqual({ failed: 1, stale: 0, stored: 0 });
+    expect(await coverageHostSearchVectors(core, vectors, { profile })).toEqual({
+      embedded: 0,
+      errored: 1,
+      rows: 3,
+    });
+    expect(
+      (await pendingHostSearchVectors(core, vectors, { limit: 64, profile })).rows.map(
+        ({ seq }) => seq
+      )
+    ).toEqual(embeddable.map(({ seq }) => seq));
+    // A vector for every row stores them all and clears the failure.
     expect(
       await putHostSearchVectors(vectors, {
         profile,
@@ -179,7 +209,12 @@ test('host search finds content by words and by meaning on the selected path, an
           vector: topic(text),
         })),
       })
-    ).toEqual({ stale: 0, stored: 3 });
+    ).toEqual({ failed: 0, stale: 0, stored: 3 });
+    expect(await coverageHostSearchVectors(core, vectors, { profile })).toEqual({
+      embedded: 3,
+      errored: 0,
+      rows: 3,
+    });
     expect((await pendingHostSearchVectors(core, vectors, { limit: 64, profile })).rows).toEqual(
       []
     );

@@ -85,7 +85,7 @@ for (const version of [8, 9] as const) {
       expect(upgraded).toEqual(baseline);
       const audit = openConnection(f.dbPath, { readonly: true });
       try {
-        expect(audit.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(12);
+        expect(audit.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(13);
         expect(audit.prepare('SELECT count(*) FROM state_observation_vectors').pluck().get()).toBe(
           0
         );
@@ -244,7 +244,7 @@ for (const version of [8, 9] as const) {
             db.exec('CREATE TABLE state_observation_vectors(counterfeit TEXT)');
           }
           if (invalid === 'unknown') {
-            db.prepare('UPDATE index_metadata SET schema_version=13').run();
+            db.prepare('UPDATE index_metadata SET schema_version=14').run();
           }
         } finally {
           db.close();
@@ -265,7 +265,7 @@ for (const version of [8, 9] as const) {
         const audit = openConnection(f.dbPath, { readonly: true });
         try {
           expect(audit.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(
-            invalid === 'unknown' ? 13 : version
+            invalid === 'unknown' ? 14 : version
           );
           expect(
             audit

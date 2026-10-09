@@ -52,6 +52,8 @@ import {
   stateObservationPurgeSchema,
   stateObservationQuerySchema,
   stateObservationUpsertSchema,
+  stateSearchCoverageResultSchema,
+  stateSearchCoverageSchema,
   stateSearchHitSchema,
   stateSearchPendingRowSchema,
   stateSearchPendingSchema,
@@ -463,6 +465,12 @@ export function createIndexerConnection(
         'state-search',
         decoder(stateSearchSchema)(request),
         decoder(Schema.Array(stateSearchHitSchema))
+      ),
+    searchStateCoverage: (request) =>
+      call(
+        'state-search-coverage',
+        decoder(stateSearchCoverageSchema)(request),
+        decoder(stateSearchCoverageResultSchema)
       ),
     searchStatePending: (request) =>
       call(

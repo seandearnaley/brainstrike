@@ -2,6 +2,8 @@ import type { ThreadSearchExtraArms } from '@brainstrike/db';
 import { renderHook } from '@testing-library/react';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AssistantThreadSearchSemantic } from '../assistant-thread-host-context';
+import type { HostThreadSearchVectors } from '../host-thread-search-vectors';
 import { resetThreadSearchStore, useThreadSearchStore } from '../thread-search-store';
 import {
   THREAD_SEARCH_DEBOUNCE_MS,
@@ -12,7 +14,7 @@ import {
 vi.mock('../prompt-embedding-model-info', () => ({
   resolveSingletonProfileModelInfo: vi.fn(() => ({
     dimensions: 3,
-    modelConfig: null,
+    modelConfig: { description: '', dimensions: 3, id: 'test-model', name: 'Test', tags: [] },
     modelKey: 'local::test-model',
   })),
 }));
@@ -59,15 +61,27 @@ function createRepository(
   };
 }
 
+/** The search embedder's identity on a WASM runtime: a 3-dimension model loads quantized. */
+const VECTOR_PROFILE = {
+  dimensions: 3,
+  distance: 'cosine',
+  dtype: 'q4',
+  modelId: 'test-model',
+  provider: 'local',
+};
+
 function createEmbedder(query: number[] | Error = [0.1, 0.2, 0.3]) {
   return {
-    embedDocumentWithRecovery: vi.fn(async () => [0.1, 0.2, 0.3]),
+    embedDocumentWithRecovery: vi.fn(async (_info: unknown, text: string) =>
+      text === 'host text two' ? [0.4, 0.5, 0.6] : [0.1, 0.2, 0.3]
+    ),
     embedQueryWithRecovery: vi.fn(async () => {
       if (query instanceof Error) {
         throw query;
       }
       return query;
     }),
+    ensureEmbedderReady: vi.fn(async () => ({ runtime: 'wasm' as const }) as never),
   };
 }
 
@@ -91,11 +105,16 @@ describe('useThreadSearchController', () => {
     repository: ThreadSearchControllerRepository | null,
     embedder = createEmbedder(),
     loadEmbeddingQueue: (() => Promise<never>) | null = null,
-    searchHost?: (query: string) => Promise<ThreadSearchExtraArms>
+    searchHost?: (
+      query: string,
+      semantic?: AssistantThreadSearchSemantic
+    ) => Promise<ThreadSearchExtraArms>,
+    hostSearchVectors?: HostThreadSearchVectors
   ) {
     return renderHook(() =>
       useThreadSearchController({
         embedder,
+        hostSearchVectors,
         loadEmbeddingQueue,
         localModelConfigMap: new Map() as never,
         repository,
@@ -220,6 +239,7 @@ describe('useThreadSearchController', () => {
               failFirst = reject;
             })
         ),
+      ensureEmbedderReady: vi.fn(async () => ({ runtime: 'wasm' as const }) as never),
     };
     const repository = createRepository();
     renderController(
@@ -344,14 +364,24 @@ describe('useThreadSearchController', () => {
       ],
       titles: [],
     }));
-    renderController(repository, createEmbedder(), null, searchHost);
+    renderController(
+      repository,
+      createEmbedder(),
+      vi.fn(async () => ({}) as never),
+      searchHost
+    );
 
     act(() => {
       useThreadSearchStore.getState().setQuery('hnsw');
     });
     await flushAsync();
 
-    expect(searchHost).toHaveBeenCalledWith('hnsw');
+    // The host's arms take the same query vector, under the embedder's identity.
+    expect(searchHost).toHaveBeenCalledWith('hnsw', {
+      profile: VECTOR_PROFILE,
+      threshold: 0.35,
+      vector: [0.1, 0.2, 0.3],
+    });
     expect(useThreadSearchStore.getState().results?.map(({ threadId }) => threadId)).toEqual([
       'thread-1',
       'host-thread',
@@ -404,5 +434,57 @@ describe('useThreadSearchController', () => {
     expect(repository.listNeedingEmbedding).toHaveBeenCalled();
     expect(embedder.embedDocumentWithRecovery).toHaveBeenCalledWith(expect.anything(), 'text');
     expect(useThreadSearchStore.getState().coverage).toEqual(pendingCoverage);
+  });
+
+  it("drains the host's backlog after history's, at the same rows per pass", async () => {
+    const repository = createRepository();
+    const pending = vi
+      .fn<HostThreadSearchVectors['pending']>()
+      .mockResolvedValueOnce([
+        { seq: 1, sourceHash: 'a'.repeat(64), text: 'host text one', threadId: 'host-thread' },
+        { seq: 2, sourceHash: 'b'.repeat(64), text: 'host text two', threadId: 'host-thread' },
+      ])
+      .mockResolvedValue([]);
+    const put = vi.fn<HostThreadSearchVectors['put']>(async () => ({
+      failed: 0,
+      stale: 0,
+      stored: 2,
+    }));
+    // The host's half of the panel's embedding progress, read after each host pass.
+    const coverage = vi
+      .fn<HostThreadSearchVectors['coverage']>()
+      .mockResolvedValueOnce({ embedded: 0, errored: 0, rows: 2 })
+      .mockResolvedValue({ embedded: 2, errored: 0, rows: 2 });
+    const embedder = createEmbedder();
+    renderController(
+      repository,
+      embedder,
+      vi.fn(async () => ({}) as never),
+      undefined,
+      { coverage, pending, put }
+    );
+
+    act(() => {
+      useThreadSearchStore.getState().setQuery('hnsw');
+    });
+    await flushAsync();
+
+    expect(pending).toHaveBeenCalledWith(VECTOR_PROFILE, 16);
+    expect(put).toHaveBeenCalledTimes(1);
+    expect(put).toHaveBeenCalledWith(VECTOR_PROFILE, [
+      { seq: 1, sourceHash: 'a'.repeat(64), threadId: 'host-thread', vector: [0.1, 0.2, 0.3] },
+      { seq: 2, sourceHash: 'b'.repeat(64), threadId: 'host-thread', vector: [0.4, 0.5, 0.6] },
+    ]);
+    // The second pass found an empty backlog and stopped.
+    expect(pending).toHaveBeenCalledTimes(2);
+    // History's coverage (none) and the host's rows are one progress.
+    expect(coverage).toHaveBeenCalledWith(VECTOR_PROFILE);
+    expect(useThreadSearchStore.getState().coverage).toEqual({
+      embeddableMessages: 2,
+      embeddedMessages: 2,
+      erroredMessages: 0,
+      indexedMessages: 2,
+      totalMessages: 2,
+    });
   });
 });
