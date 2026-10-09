@@ -7,165 +7,206 @@ import { StateStore } from '@brainstrike/state-store';
 import { expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { HostCore } from '../src/core.js';
-import type { HostPlatform, HostRunAdmission, HostRunAdmissionRequest } from '../src/ports.js';
-import { HOST_RESULT_SCHEMAS } from '../src/protocol.js';
+import type { HostPlatform, HostRunAdmission } from '../src/ports.js';
+import { HOST_RESULT_SCHEMAS, type HostEvent, type HostResults } from '../src/protocol.js';
 import { scriptedModel } from './fixtures/scripted-model.js';
 
-async function withCore(
-  admitRun: (request: HostRunAdmissionRequest) => Promise<HostRunAdmission>,
-  body: (core: HostCore, threadId: string) => Promise<void>
-): Promise<void> {
-  const root = await mkdtemp(join(tmpdir(), 'bs-m3-memory-read-'));
-  const store = await StateStore.open(root);
-  const platform: HostPlatform = {
-    admitRun,
+type MemoryRead = HostResults['thread/memory/read'];
+const MODEL = 'openai::gpt-6-sol';
+const AWAITING: MemoryRead = {
+  admission: { ready: true },
+  observational: { reason: 'no-hosted-chat-provider', state: 'awaiting-observer' },
+};
+
+function platform(overrides: Partial<HostPlatform>): HostPlatform {
+  return {
     close: async () => undefined,
     readPermissionPolicy: () => ({ policies: { ...DEFAULT_PERMISSION_POLICIES }, yolo: false }),
-  };
-  const core = await HostCore.open(store, platform, () => () => undefined);
-  try {
-    const { threadId } = await core.startThread({ commandId: randomUUID() });
-    await body(core, threadId);
-  } finally {
-    await core.close();
-    await store.close();
-    await rm(root, { force: true, recursive: true });
-  }
-}
-
-function admission(overrides: Partial<HostRunAdmission> = {}): HostRunAdmission {
-  return {
-    configuration: { provider: 'openai' },
-    model: scriptedModel(),
-    snapshot: { configuration: {}, maxSteps: 1, toolIdentities: {} },
-    tools: {},
     ...overrides,
   };
 }
 
-test('thread/memory/read is the run/start admission, released at once, with its observation', async () => {
-  const requests: HostRunAdmissionRequest[] = [];
-  const close = vi.fn(async () => undefined);
-  const readObservation = vi.fn(async () => ({
-    reason: 'no-hosted-chat-provider' as const,
-    state: 'awaiting-observer' as const,
-  }));
-  await withCore(
-    async (request) => {
-      requests.push(request);
-      return admission({ close, readObservation });
+/** An admission whose run pauses for an approval of an edit, so it stays active. */
+function pausingAdmission(overrides: Partial<HostRunAdmission> = {}): HostRunAdmission {
+  return {
+    configuration: { provider: 'openai' },
+    model: scriptedModel('write_file'),
+    snapshot: { configuration: {}, maxSteps: 2, toolIdentities: { write_file: 'write-1' } },
+    tools: {
+      write_file: {
+        description: 'Write a permitted file',
+        execute: async () => ({ written: true }),
+        identity: 'write-1',
+        inputSchema: z.object({ text: z.string() }),
+        risk: 'edit',
+      },
     },
-    async (core, threadId) => {
+    ...overrides,
+  };
+}
+
+async function committed<T extends HostEvent['type']>(
+  core: HostCore,
+  threadId: string,
+  type: T
+): Promise<Extract<HostEvent, { type: T }>> {
+  let event: Extract<HostEvent, { type: T }> | undefined;
+  await expect
+    .poll(async () => {
+      event = (await core.read(threadId, 0))
+        .map((row) => row.event)
+        .find((candidate): candidate is Extract<HostEvent, { type: T }> => candidate.type === type);
+      return event !== undefined;
+    })
+    .toBe(true);
+  if (!event) {
+    throw new Error(`Expected a committed ${type}`);
+  }
+  return event;
+}
+
+async function withStore(body: (root: string) => Promise<void>): Promise<void> {
+  const root = await mkdtemp(join(tmpdir(), 'bs-m3-memory-read-'));
+  try {
+    await body(root);
+  } finally {
+    await rm(root, { force: true, recursive: true });
+  }
+}
+
+async function withCore(
+  root: string,
+  host: HostPlatform,
+  body: (core: HostCore) => Promise<void>
+): Promise<void> {
+  const store = await StateStore.open(root);
+  const core = await HostCore.open(store, host, () => () => undefined);
+  try {
+    await body(core);
+  } finally {
+    await core.close();
+    await store.close();
+  }
+}
+
+test('a read evaluates run/start’s request with the pure preconditions and admits nothing', async () => {
+  const admitRun = vi.fn<NonNullable<HostPlatform['admitRun']>>();
+  const readMemoryReadiness = vi.fn<NonNullable<HostPlatform['readMemoryReadiness']>>(
+    async () => AWAITING
+  );
+  await withStore((root) =>
+    withCore(root, platform({ admitRun, readMemoryReadiness }), async (core) => {
+      const { threadId } = await core.startThread({ commandId: randomUUID() });
       const configuration = { memorySettings: { semanticRecall: { enabled: true } } };
-      const result = await core.readThreadMemory({
-        configuration,
-        modelId: 'openai::gpt-6-sol',
-        threadId,
-      });
-      expect(HOST_RESULT_SCHEMAS['thread/memory/read'].parse(result)).toEqual({
-        admission: { ready: true },
-        observational: { reason: 'no-hosted-chat-provider', state: 'awaiting-observer' },
-      });
-      expect(requests).toHaveLength(1);
-      expect(requests[0]).toMatchObject({ configuration, modelId: 'openai::gpt-6-sol', threadId });
-      expect(requests[0]?.prompt).toBeUndefined();
-      expect(readObservation).toHaveBeenCalledWith(threadId);
-      expect(close).toHaveBeenCalledTimes(1);
-      // A read commits nothing: the log holds only the thread's own start.
+      const result = await core.readThreadMemory({ configuration, modelId: MODEL, threadId });
+      expect(HOST_RESULT_SCHEMAS['thread/memory/read'].parse(result)).toEqual(AWAITING);
+      const [request, readThread] = readMemoryReadiness.mock.calls[0] ?? [];
+      expect(request).toMatchObject({ configuration, modelId: MODEL, threadId });
+      expect(request?.prompt).toBeUndefined();
+      expect(readThread).toBe(threadId);
+      expect(admitRun).not.toHaveBeenCalled();
+      // Nothing is committed: the log holds only the thread's own start.
       expect((await core.read(threadId, 0)).map((row) => row.event.type)).toEqual([
         'command.accepted',
         'thread.started',
       ]);
-    }
+    })
   );
 });
 
-test('an admission without observational memory reads off', async () => {
-  await withCore(
-    async () => admission(),
-    async (core, threadId) => {
-      expect(await core.readThreadMemory({ modelId: 'openai::gpt-6-sol', threadId })).toEqual({
-        admission: { ready: true },
-        observational: { state: 'off' },
-      });
-    }
-  );
-});
-
-test('the reason run/start would fail with is the readiness reason, before any send', async () => {
-  const failure = 'The embedding host is not running.';
-  await withCore(
-    async () => {
-      throw new Error(failure);
+test('a read never queues behind a send whose admission is still in flight', async () => {
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<HostRunAdmission>();
+  const host = platform({
+    admitRun: async () => {
+      entered.resolve();
+      return await release.promise;
     },
-    async (core, threadId) => {
-      const result = await core.readThreadMemory({ modelId: 'openai::gpt-6-sol', threadId });
-      expect(HOST_RESULT_SCHEMAS['thread/memory/read'].parse(result)).toEqual({
-        admission: { ready: false, reason: failure },
-      });
-      await expect(
-        core.startRun({
-          commandId: randomUUID(),
-          modelId: 'openai::gpt-6-sol',
-          prompt: 'hello',
-          threadId,
-        })
-      ).rejects.toThrow(failure);
-    }
-  );
-});
-
-test('an unknown thread has no memory readiness', async () => {
-  await withCore(
-    async () => admission(),
-    async (core) => {
-      await expect(
-        core.readThreadMemory({ modelId: 'openai::gpt-6-sol', threadId: randomUUID() })
-      ).rejects.toThrow('Unknown thread');
-    }
-  );
-});
-
-test('during an active run the readiness is that run’s own admission, not a second one', async () => {
-  const admitted = vi.fn();
-  const readObservation = vi.fn(async () => ({ record: null, state: 'active' as const }));
-  await withCore(
-    async (request) => {
-      admitted(request);
-      return admission({
-        model: scriptedModel('write_file'),
-        readObservation,
-        snapshot: { configuration: {}, maxSteps: 2, toolIdentities: { write_file: 'write-1' } },
-        tools: {
-          write_file: {
-            description: 'Write a permitted file',
-            execute: async () => ({ written: true }),
-            identity: 'write-1',
-            inputSchema: z.object({ text: z.string() }),
-            risk: 'edit',
-          },
-        },
-      });
-    },
-    async (core, threadId) => {
-      await core.startRun({
+    readMemoryReadiness: async () => AWAITING,
+  });
+  await withStore((root) =>
+    withCore(root, host, async (core) => {
+      const { threadId } = await core.startThread({ commandId: randomUUID() });
+      const send = core.startRun({
         commandId: randomUUID(),
-        modelId: 'openai::gpt-6-sol',
-        prompt: 'Write',
+        modelId: MODEL,
+        prompt: 'hi',
         threadId,
       });
-      // The run waits for an approval, so it holds its selection.
-      await expect
-        .poll(async () =>
-          (await core.read(threadId, 0)).some((row) => row.event.type === 'interaction.requested')
-        )
-        .toBe(true);
-      expect(await core.readThreadMemory({ modelId: 'openai::gpt-6-sol', threadId })).toEqual({
+      await entered.promise;
+      // The send holds the command queue until its admission settles; the read
+      // must answer first, or this test deadlocks.
+      expect(await core.readThreadMemory({ modelId: MODEL, threadId })).toEqual(AWAITING);
+      release.reject(new Error('The send was only here to hold the queue'));
+      await expect(send).rejects.toThrow('The send was only here to hold the queue');
+    })
+  );
+}, 15_000);
+
+test('during an active run the read answers from that run’s own admission', async () => {
+  const admitted = vi.fn();
+  const readMemoryReadiness = vi.fn<NonNullable<HostPlatform['readMemoryReadiness']>>();
+  const readObservation = vi.fn(async () => ({ record: null, state: 'active' as const }));
+  const host = platform({
+    admitRun: async (request) => {
+      admitted(request);
+      return pausingAdmission({ readObservation });
+    },
+    readMemoryReadiness,
+  });
+  await withStore((root) =>
+    withCore(root, host, async (core) => {
+      const { threadId } = await core.startThread({ commandId: randomUUID() });
+      await core.startRun({ commandId: randomUUID(), modelId: MODEL, prompt: 'Write', threadId });
+      await committed(core, threadId, 'interaction.requested');
+      expect(await core.readThreadMemory({ modelId: MODEL, threadId })).toEqual({
         admission: { ready: true },
         observational: { record: null, state: 'active' },
       });
       expect(admitted).toHaveBeenCalledTimes(1);
       expect(readObservation).toHaveBeenCalledWith(threadId);
-    }
+      expect(readMemoryReadiness).not.toHaveBeenCalled();
+    })
+  );
+});
+
+test('a paused run whose admission is not open reads its committed snapshot, never a throw', async () => {
+  await withStore(async (root) => {
+    let threadId = '';
+    let snapshot: Extract<HostEvent, { type: 'run.started' }>['snapshot'] | undefined;
+    await withCore(root, platform({ admitRun: async () => pausingAdmission() }), async (core) => {
+      ({ threadId } = await core.startThread({ commandId: randomUUID() }));
+      await core.startRun({ commandId: randomUUID(), modelId: MODEL, prompt: 'Write', threadId });
+      snapshot = (await committed(core, threadId, 'run.started')).snapshot;
+      await committed(core, threadId, 'interaction.requested');
+    });
+    // After a restart the paused run is recovered without reopening its selection.
+    const readMemoryReadiness = vi.fn<NonNullable<HostPlatform['readMemoryReadiness']>>(
+      async () => AWAITING
+    );
+    const admitRun = vi.fn<NonNullable<HostPlatform['admitRun']>>();
+    await withCore(root, platform({ admitRun, readMemoryReadiness }), async (core) => {
+      expect(
+        await core.readThreadMemory({
+          configuration: { ignored: true },
+          modelId: 'other',
+          threadId,
+        })
+      ).toEqual(AWAITING);
+      const [request] = readMemoryReadiness.mock.calls[0] ?? [];
+      expect(request).toMatchObject({ modelId: MODEL, snapshot, threadId });
+      expect(request?.configuration).toBeUndefined();
+      expect(admitRun).not.toHaveBeenCalled();
+    });
+  });
+});
+
+test('an unknown thread has no memory readiness', async () => {
+  await withStore((root) =>
+    withCore(root, platform({ readMemoryReadiness: async () => AWAITING }), async (core) => {
+      await expect(
+        core.readThreadMemory({ modelId: MODEL, threadId: randomUUID() })
+      ).rejects.toThrow('Unknown thread');
+    })
   );
 });

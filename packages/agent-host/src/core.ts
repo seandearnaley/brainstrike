@@ -482,21 +482,14 @@ export class HostCore {
     );
   }
 
-  /** Memory readiness for the next run, queued with run admissions (`core-memory-read.ts`). */
+  /** Memory readiness for the next run: read-only, never queued (`core-memory-read.ts`). */
   readThreadMemory(
     params: HostParams<'thread/memory/read'>,
     origin?: HostClientOrigin
   ): Promise<HostResults['thread/memory/read']> {
-    const { children, pendingAdmissions, platform, runs, workspaces } = this;
-    return this.admit(params.threadId, () =>
-      readHostThreadMemory(platform, params, {
-        children,
-        origin,
-        pendingAdmissions,
-        runs,
-        workspaces,
-      })
-    );
+    const { children, deletions, platform, runs, threads, workspaces } = this;
+    const context = { children, deletions, origin, runs, threads, workspaces };
+    return readHostThreadMemory(platform, params, context);
   }
 
   /** One admission per new run; restart folds its committed branch the same way. */
