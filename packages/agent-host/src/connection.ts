@@ -3,8 +3,15 @@ import type { HostRecord } from '@brainstrike/host-lease';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { bindHostAuthMethods } from './auth-connection.js';
 import type { HostCore } from './core.js';
+import { hostChildStatusChanged } from './core-child-runs.js';
 import type { HostAuthService, HostClientOrigin, HostProviderService } from './ports.js';
-import { type HostLogRow, type HostMethod, type HostParams, parseHostParams } from './protocol.js';
+import {
+  HOST_CHILDREN_CHANGED,
+  type HostLogRow,
+  type HostMethod,
+  type HostParams,
+  parseHostParams,
+} from './protocol.js';
 import { bindHostProviderMethods } from './provider-connection.js';
 
 export interface HostConnectionLifecycle {
@@ -51,10 +58,16 @@ export function bindHostConnection(
     subscriptions.delete(threadId);
   };
   const disposables: Array<{ dispose(): void }> = [];
-  const release = core.onCommitted((row: HostLogRow) => {
+  const release = core.onCommitted((row: HostLogRow, parentThreadId?: string) => {
     const from = subscriptions.get(row.threadId)?.fromSeq;
     if (from !== undefined && row.seq > from && !disposed) {
       connection.sendNotification('log/event', row).catch(() => connection.dispose());
+    }
+    // BST-1932: a child's status change tells every client to re-read its parent's children.
+    if (parentThreadId && initialized && !disposed && hostChildStatusChanged(row)) {
+      connection
+        .sendNotification(HOST_CHILDREN_CHANGED, { threadId: parentThreadId })
+        .catch(() => connection.dispose());
     }
   });
   const handle = <M extends HostMethod>(
