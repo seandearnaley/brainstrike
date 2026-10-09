@@ -109,6 +109,8 @@ export interface ProductionHostPlatformOptions {
   resolveProviderAuth(provider: string): Promise<ProviderAuthInput | undefined>;
   /** The live root owner checkpoint revert revalidates against. */
   readonly resolveWorkspaceRoot?: HostPlatform['resolveWorkspaceRoot'];
+  /** The snapshot owner's rewind restores; absent where none exists (the CLI). */
+  readonly rewindFiles?: HostPlatform['rewindFiles'];
   /** The native-tool output rewrite policy (host-capabilities). */
   readonly selectProjectionRewrites?: HostPlatform['selectProjectionRewrites'];
   readonly startup: HostStartupContext;
@@ -476,6 +478,7 @@ export async function createProductionHostPlatform(
     readPermissionPolicy: options.readPermissionPolicy,
     ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
     ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),
+    ...(options.rewindFiles ? { rewindFiles: options.rewindFiles } : {}),
     ...(options.selectProjectionRewrites
       ? { selectProjectionRewrites: options.selectProjectionRewrites }
       : {}),
