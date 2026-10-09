@@ -467,6 +467,11 @@ export interface HostPlatform {
   readonly tools?: Readonly<Record<string, HostTool>> | undefined;
   validateWorkspaceBinding?(request: {
     readonly binding: ThreadWorkspaceBinding;
+    /**
+     * The run being admitted, when this checks an admission: the platform
+     * revalidates that run's selection. A binding update names no run.
+     */
+    readonly runId?: string;
     readonly signal: AbortSignal;
     readonly threadId: string;
   }): Promise<void>;
