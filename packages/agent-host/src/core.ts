@@ -9,6 +9,7 @@ import {
   hostDeliveryPosition,
   reportHostChildWakeFailure,
 } from './core-child-runs.js';
+import { readHostThreadMemory } from './core-memory-read.js';
 import { reportRetiredHostOutcomes, retireHostCoreRuns } from './core-retirement.js';
 import {
   type HostRunAction as Action,
@@ -478,6 +479,23 @@ export class HostCore {
       this.admitRun('run/regenerate', params, origin, () =>
         hostRegeneratePosition(this.runs.values(), params)
       )
+    );
+  }
+
+  /** Memory readiness for the next run, queued with run admissions (`core-memory-read.ts`). */
+  readThreadMemory(
+    params: HostParams<'thread/memory/read'>,
+    origin?: HostClientOrigin
+  ): Promise<HostResults['thread/memory/read']> {
+    const { children, pendingAdmissions, platform, runs, workspaces } = this;
+    return this.admit(params.threadId, () =>
+      readHostThreadMemory(platform, params, {
+        children,
+        origin,
+        pendingAdmissions,
+        runs,
+        workspaces,
+      })
     );
   }
 
