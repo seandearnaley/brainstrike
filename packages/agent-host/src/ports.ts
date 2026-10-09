@@ -116,6 +116,12 @@ export interface HostToolState {
   update(key: string, next: (current: unknown) => unknown): Promise<void>;
 }
 
+/** A worktree a shell command made and the desktop's worktree ledger adopted. */
+export interface HostShellWorktree {
+  readonly branch: string | null;
+  readonly path: string;
+  readonly worktreeId: string;
+}
 export interface HostToolContext {
   /** The thread's committed-output artifact reader, supplied by Core. */
   readonly artifacts?: ScopedToolOutputArtifactReader | undefined;
@@ -125,6 +131,12 @@ export interface HostToolContext {
   /** Validated committed response to this tool's intrinsic human interaction. */
   readonly resumeData?: unknown;
   readonly runId: string;
+  /**
+   * The worktrees this call's shell command made, once the desktop's ledger
+   * adopts them. Core retains the work in the call's run, so Stop and finish
+   * join it, and commits each as `worktree.created` under the call.
+   */
+  readonly shellWorktrees?: ((adopted: Promise<readonly HostShellWorktree[]>) => void) | undefined;
   readonly signal: AbortSignal;
   /** Present for every Core-dispatched execution; stateful tools must refuse without it. */
   readonly state?: HostToolState | undefined;
