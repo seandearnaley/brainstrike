@@ -3,7 +3,8 @@ import type { CSSProperties, ReactElement } from 'react';
 import { getDelegatedColorPresentation } from './agent-color-presentation';
 import { ASSISTANT_THREAD_ICON_PRESENTATION } from './assistant-thread-presentation';
 import type { DelegatedSidebarRow } from './delegated-sidebar-rows';
-import { openHostChildTab } from './open-host-child-tab';
+import { hostChildWorkspaceTabId } from './host-child-workspace-tab';
+import { threadWorkspaceNavigation } from './thread-workspace/live-thread-workspace-navigation';
 
 const Icon = ASSISTANT_THREAD_ICON_PRESENTATION.message.iconComponent;
 const STATUS_LABEL = { idle: 'Child', 'needs-input': 'Needs input', working: 'Working' } as const;
@@ -11,7 +12,8 @@ const STATUS_LABEL = { idle: 'Child', 'needs-input': 'Needs input', working: 'Wo
 /**
  * BST-1932 (F19–F21): an agent host child's row: its mark, call sign, parent's
  * colour cue, unread dot and status, as the shipped child rows show them.
- * Clicking it opens the child's own tab.
+ * Clicking it opens the child's own tab in its root's workspace, opening that
+ * root first, as a delegated child's row does.
  */
 export function HostChildSidebarCell({
   row,
@@ -27,7 +29,13 @@ export function HostChildSidebarCell({
     <button
       className={`flex w-full min-w-0 items-center gap-2 rounded px-2 py-1 text-left text-xs ${appearance.idleClassName}`}
       data-agent-color={child.color}
-      onClick={() => openHostChildTab(child)}
+      onClick={() =>
+        threadWorkspaceNavigation.open(
+          row.root.resourceId,
+          row.root.threadId,
+          hostChildWorkspaceTabId(child)
+        )
+      }
       style={appearance.style}
       type="button"
     >

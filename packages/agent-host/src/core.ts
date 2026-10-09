@@ -316,15 +316,10 @@ export class HostCore {
 
   /** Top-level threads with the facts Core already holds: presentation, store dates, damage, binding, latest run. */
   listThreads(): HostResults['thread/list']['threads'] {
-    return this.children.topLevel(this.threads).map((threadId) => {
-      const latestRun = this.ledger.readLatestRun(threadId);
-      return {
-        threadId,
-        ...this.presentations.read(threadId),
-        ...this.catalog.entry(threadId),
-        ...this.workspaces.readBinding(this.threads, threadId),
-        ...(latestRun ? { latestRun } : {}),
-      };
+    return this.catalog.list(this.children.topLevel(this.threads), {
+      binding: (threadId) => this.workspaces.readBinding(this.threads, threadId),
+      latestRun: (threadId) => this.ledger.readLatestRun(threadId),
+      presentation: (threadId) => this.presentations.read(threadId),
     });
   }
 

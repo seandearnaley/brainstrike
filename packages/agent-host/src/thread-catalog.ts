@@ -1,7 +1,9 @@
 import type { HydrationThread, LogRow, StateStore } from '@brainstrike/state-store';
 import { readHostRow, readHostThreadHistory } from './event-storage.js';
 import type { HostHookTrustStore } from './hook-trust.js';
-import type { HostLogRow } from './protocol.js';
+import type { HostLogRow, HostResults } from './protocol.js';
+
+type ListedThread = HostResults['thread/list']['threads'][number];
 
 /** The Root store Core opens over and commits to. */
 export type HostEventStore = HostHookTrustStore &
@@ -115,6 +117,27 @@ export class HostThreadCatalog {
     }
     const damage = this.damaged.get(threadId);
     return damage === undefined ? times : { ...times, damage };
+  }
+
+  /** `thread/list`: each thread with its catalog facts beside the facts its other owners fold. */
+  list(
+    threadIds: readonly string[],
+    facts: {
+      readonly binding: (threadId: string) => Pick<ListedThread, 'binding'>;
+      readonly latestRun: (threadId: string) => ListedThread['latestRun'];
+      readonly presentation: (threadId: string) => Pick<ListedThread, 'color' | 'icon' | 'title'>;
+    }
+  ): ListedThread[] {
+    return threadIds.map((threadId) => {
+      const latestRun = facts.latestRun(threadId);
+      return {
+        threadId,
+        ...facts.presentation(threadId),
+        ...this.entry(threadId),
+        ...facts.binding(threadId),
+        ...(latestRun ? { latestRun } : {}),
+      };
+    });
   }
 
   /** A thread's committed history; a damaged thread refuses with the reason its listing names. */
