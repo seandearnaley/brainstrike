@@ -78,8 +78,8 @@
   "main": "./dist/index.js",
   "module": "./dist/index.js",
   "peerDependencies": {
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   },
   "private": true,
   "scripts": {

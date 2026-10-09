@@ -3,9 +3,9 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import {
   buildMcpMenuItems,
   type McpAction,
-  type McpToolMap,
   mcpReducer,
 } from '../assistant-ui-panel-wrapper-runtime';
+import { useMcpToolsCapability } from '../mcp-tools-capability';
 
 /** Shown wherever the legacy composer lists MCP tools it can no longer run. */
 export const MCP_LEGACY_THREAD_NOTICE = 'MCP tools are available in new threads';
@@ -30,6 +30,7 @@ export function useAssistantMcpMenuState({
   setNativeToolEnabled,
 }: UseAssistantMcpMenuStateArgs): UseAssistantMcpMenuStateResult {
   const [mcpState, dispatchMcp] = useReducer(mcpReducer, { loading: false, tools: [] });
+  const mcpTools = useMcpToolsCapability();
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -46,33 +47,31 @@ export function useAssistantMcpMenuState({
   }, []);
 
   const loadMcpTools = useCallback(async () => {
-    if (typeof window === 'undefined' || !window.mcp?.listTools) {
+    if (!mcpTools) {
       dispatchMcpIfMounted({ tools: [], type: 'LOADED' });
       return;
     }
 
     dispatchMcpIfMounted({ type: 'LOADING' });
     try {
-      const toolsByServer = (await window.mcp.listTools()) as McpToolMap;
-      dispatchMcpIfMounted({ tools: buildMcpMenuItems(toolsByServer), type: 'LOADED' });
+      dispatchMcpIfMounted({ tools: buildMcpMenuItems(await mcpTools.list()), type: 'LOADED' });
     } catch {
       dispatchMcpIfMounted({ type: 'ERROR' });
     }
-  }, [dispatchMcpIfMounted]);
+  }, [dispatchMcpIfMounted, mcpTools]);
 
   useEffect(() => {
     void loadMcpTools();
   }, [loadMcpTools]);
 
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.mcp?.onToolsUpdated) {
+    if (!mcpTools) {
       return;
     }
-
-    return window.mcp.onToolsUpdated((toolsByServer: McpToolMap) => {
+    return mcpTools.subscribe((toolsByServer) => {
       dispatchMcpIfMounted({ tools: buildMcpMenuItems(toolsByServer), type: 'LOADED' });
     });
-  }, [dispatchMcpIfMounted]);
+  }, [dispatchMcpIfMounted, mcpTools]);
 
   const enabledNativeToolIds = useMemo(
     () => nativeToolItems.filter((tool) => tool.enabled !== false).map((tool) => tool.id),
@@ -111,18 +110,13 @@ export function useAssistantMcpMenuState({
         return;
       }
 
-      if (enabled) {
-        await window.mcp?.enableTools?.([toolId]);
-      } else {
-        await window.mcp?.disableTools?.([toolId]);
-      }
+      await mcpTools?.setEnabled([toolId], enabled);
       await loadMcpTools();
     },
-    [loadMcpTools, setNativeToolEnabled, toolSourceById]
+    [loadMcpTools, mcpTools, setNativeToolEnabled, toolSourceById]
   );
 
-  const canRefreshMcp =
-    typeof window !== 'undefined' && typeof window.mcp?.listTools === 'function';
+  const canRefreshMcp = mcpTools !== null;
 
   const toolMenu = useMemo<AssistantToolMenuConfig>(() => {
     // Only tools the thread can run count toward "N of M enabled".

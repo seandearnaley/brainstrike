@@ -1,9 +1,7 @@
 import type { McpElicitationPresentationWire } from '@brainstrike/assistant-contract';
+import { useMcpElicitationCapability } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-capability';
 import { McpElicitationDialog } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-dialog';
-import {
-  mcpTaskInputCanceller,
-  resolveMcpTaskInputBridge,
-} from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-host';
+import { mcpTaskInputCanceller } from '@brainstrike/settings-ui/settings/tools/mcp-task-input-canceller';
 import { Button } from '@brainstrike/ui';
 import { type ReactElement, useState, useSyncExternalStore } from 'react';
 import type { CommittedHostMcpInput, CommittedMcpInputSnapshot } from './committed-host-mcp-input';
@@ -33,7 +31,7 @@ export function CommittedHostMcpInputView({
   readonly input: CommittedHostMcpInput;
 }): ReactElement | null {
   const snapshot = useSyncExternalStore(input.subscribe, input.getSnapshot, input.getSnapshot);
-  const [taskBridge] = useState(() => resolveMcpTaskInputBridge());
+  const { tasks: taskBridge } = useMcpElicitationCapability();
   // Cancelling the input's task from this dialog keeps the dialog to report that
   // outcome once Core retires the input. Other retirements (Stop, a server
   // withdrawal) show the status line instead.

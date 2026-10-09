@@ -9,12 +9,12 @@ import {
 const rows: readonly CommittedAssistantLogRow[] = recording;
 
 /**
- * BST-1932 (AT-07): a host command streams its output through the tool's Mastra
- * writer, whose `custom` commits the chunk verbatim as a `stream.chunk` row
- * (`writeShellOutputChunk` → `ToolStream.custom` → the host's `write`). The
- * projection presents it as the shell-output data part a tool card streams.
+ * A host command's live output is uncommitted telemetry (ADR-0011 amendment);
+ * the tool result owns the output. A `stream.chunk` carrying a shell slice can
+ * only come from a log written before that, and a reload presents no live
+ * output from it, as legacy did.
  */
-it('presents a committed host shell-output chunk as its tool call’s live output', () => {
+it('presents no live output from a shell slice an older log committed', () => {
   const start = rows.find(({ event }) => event['type'] === 'run.started');
   const requested = rows.findIndex(({ event }) => event['type'] === 'interaction.requested');
   const pause = rows[requested];
@@ -55,10 +55,5 @@ it('presents a committed host shell-output chunk as its tool call’s live outpu
     .repository.messages.find(({ message }) => message.id === runId)?.message;
   expect(
     answer?.content.filter((part) => part.type === 'data' && part.name === SHELL_OUTPUT_DATA_NAME)
-  ).toEqual([
-    expect.objectContaining({
-      data: { chunk: 'STREAM_STDOUT_FIRST', stream: 'stdout', toolCallId },
-      name: SHELL_OUTPUT_DATA_NAME,
-    }),
-  ]);
+  ).toEqual([]);
 });

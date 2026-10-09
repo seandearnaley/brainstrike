@@ -114,7 +114,7 @@ function decodeBlob(blob: Uint8Array): Buffer {
 
 /** Counts/hashes alone did not qualify retained auxiliary Float32 bytes for a legacy upgrade. */
 function validateLegacyOrdinaryVectors(db: Database.Database, version: IndexSchemaVersion): void {
-  if (version === INDEX_SCHEMA_VERSION) {
+  if (version >= 10) {
     return;
   }
   try {
@@ -287,12 +287,12 @@ export class IndexWriter {
             this.options,
             version
           );
-          StateEventStore.addCompatibleStorage(this.db, version);
           acquiredState = StateEventStore.acquire(
             this.db,
             this.options.stateRoot,
             this.projection,
-            this.options
+            this.options,
+            version
           );
           this.scoped.beginOwnerEpoch();
           acquiredState?.messages.beginOwnerGeneration();

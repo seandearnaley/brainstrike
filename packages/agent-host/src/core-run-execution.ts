@@ -1,5 +1,6 @@
 import { resolveAssistantResilienceConfig } from '@brainstrike/agent/provider-runtime';
 import { isGuardedToolError } from '@brainstrike/assistant-contract';
+import { isToolTelemetryStreamPart } from '@brainstrike/assistant-contract/tool-telemetry';
 import type { BlobContent } from '@brainstrike/state-store';
 import { type LanguageModel, type ModelMessage, stepCountIs, streamText } from 'ai';
 import {
@@ -24,7 +25,7 @@ import {
   type HostProjectionRewrites,
   prepareProjectionRewrites,
 } from './projection-rewrites.js';
-import type { HostEvent, HostLogRow } from './protocol.js';
+import type { HostEvent, HostLogRow, HostRunTelemetry } from './protocol.js';
 import {
   combineHostSystemContext,
   createAdmittedHostSdkTools,
@@ -94,6 +95,8 @@ export interface HostRunExecutionPorts {
   readonly rewrites: HostProjectionRewrites;
   readonly runs: ReadonlyMap<string, Run>;
   syncBoundary(threadId: string): Promise<void>;
+  /** Publish a running tool's live telemetry to the thread's subscribers; never committed. */
+  telemetry(telemetry: HostRunTelemetry): void;
 }
 
 /** Run one admitted tool effect under its exact permission decision, committing start and output. */
@@ -208,11 +211,45 @@ async function executeRegisteredTool(
       retain: (work) => retainHostRunWork(run, work),
     }),
     runId: run.id,
+    // The shell's adopted worktrees arrive after the result; the run joins them.
+    shellWorktrees: (adopted) =>
+      retainHostRunWork(
+        run,
+        adopted.then(async (worktrees) => {
+          if (worktrees.length > 0) {
+            await ports.append(
+              run.threadId,
+              worktrees.map(({ branch, path, worktreeId }) => ({
+                branch,
+                path,
+                runId: run.id,
+                toolCallId: action.toolCallId,
+                type: 'worktree.created' as const,
+                via: 'shell' as const,
+                worktreeId,
+              })),
+              'full',
+              ports.foldRows
+            );
+          }
+        })
+      ),
     signal: run.controller.signal,
     threadId: run.threadId,
     toolCallId: action.toolCallId,
     write: async (chunk: unknown): Promise<void> => {
       run.controller.signal.throwIfAborted();
+      // Live telemetry goes out uncommitted; the tool result owns the output
+      // (ADR-0011 amendment). Every other tool-writer chunk commits.
+      if (isToolTelemetryStreamPart(chunk)) {
+        ports.telemetry({
+          chunk: jsonValue(chunk),
+          runId: run.id,
+          threadId: run.threadId,
+          toolCallId: action.toolCallId,
+        });
+        return;
+      }
       await ports.append(run.threadId, [
         { chunk: jsonValue(chunk), runId: run.id, type: 'stream.chunk' },
       ]);

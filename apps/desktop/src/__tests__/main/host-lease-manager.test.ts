@@ -191,6 +191,28 @@ describe('desktop host lease ownership', () => {
     await expect(owner.close()).resolves.toBeUndefined();
     expect(child.kill).not.toHaveBeenCalled();
   });
+  it('names the utility pid Electron reports at spawn in a close timeout', async () => {
+    const { createDesktopHostLease } = await import('../../host-lease-manager');
+    // Electron's utilityProcess has no pid until its spawn event.
+    const child = new Child();
+    child.pid = undefined;
+    child.exitOnClose = false;
+    const owner = createDesktopHostLease({
+      closeTimeoutMs: 20,
+      fork: () => {
+        queueMicrotask(() => {
+          child.pid = 123;
+          child.emit('spawn');
+          child.emit('message', { event: 'ready' });
+        });
+        return child;
+      },
+      root,
+    });
+    await owner.acquire();
+    await expect(owner.close()).rejects.toThrow('Owned host utility pid 123 did not exit');
+    child.exit(0);
+  });
   it('surfaces a cleanup timeout without killing its child or claiming the lease is released', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
     const child = new Child();

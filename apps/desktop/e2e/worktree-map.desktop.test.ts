@@ -35,6 +35,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import { readHostThreadTree } from './utils/agent-host-log';
 import {
   configureAssistantProvider,
   enableAssistantCatalogModel,
@@ -215,18 +216,17 @@ interface ShellCreatedEventRow extends Record<string, unknown> {
   readonly via: string;
 }
 
+/** The host's committed `worktree.created` breadcrumbs for one path, across its threads. */
 async function queryShellCreatedEvents(
-  page: Page,
+  userDataDir: string,
   worktreePath: string
 ): Promise<readonly ShellCreatedEventRow[]> {
-  return await queryRows<ShellCreatedEventRow>(
-    page,
-    `SELECT kind, metadata->>'via' AS via
-       FROM brainstrike_assistant_run_events
-      WHERE kind = 'worktree.created'
-        AND metadata->>'via' = 'shell'
-        AND metadata->>'path' = $1`,
-    [worktreePath]
+  return (await readHostThreadTree(userDataDir)).flatMap(({ rows }) =>
+    rows.flatMap(({ event }) =>
+      event.type === 'worktree.created' && event.path === worktreePath
+        ? [{ kind: event.type, via: event.via }]
+        : []
+    )
   );
 }
 
@@ -604,7 +604,10 @@ test.describe('Worktree Map (desktop)', () => {
       expect(shim.requestCount() - requestCountBefore).toBeGreaterThanOrEqual(2);
     });
 
-    test("shell correlation adopts what the agent's shell made", async ({ window: page }) => {
+    test("shell correlation adopts what the agent's shell made", async ({
+      electron,
+      window: page,
+    }) => {
       test.setTimeout(300_000);
       const repo = freshGitRepo({
         label: 'shell-create',
@@ -655,11 +658,13 @@ test.describe('Worktree Map (desktop)', () => {
         )
         .toBe(true);
       await expect
-        .poll(async () => (await queryShellCreatedEvents(page, shellWorktreePath)).length, {
-          timeout: 90_000,
-        })
+        .poll(
+          async () =>
+            (await queryShellCreatedEvents(electron.getUserDataDir(), shellWorktreePath)).length,
+          { timeout: 90_000 }
+        )
         .toBeGreaterThanOrEqual(1);
-      expect(await queryShellCreatedEvents(page, shellWorktreePath)).toEqual([
+      expect(await queryShellCreatedEvents(electron.getUserDataDir(), shellWorktreePath)).toEqual([
         { kind: 'worktree.created', via: 'shell' },
       ]);
       expect(shim.requestCount() - requestCountBefore).toBeGreaterThanOrEqual(2);

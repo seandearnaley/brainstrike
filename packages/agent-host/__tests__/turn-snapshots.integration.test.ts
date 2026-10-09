@@ -31,7 +31,8 @@ const ROOT = { rootId: 'root-1', rootPath: '/workspace/project' };
 
 /** One run of the scripted model (one read_fixture call, then an answer). */
 async function runWith(options: {
-  readonly captureTurnBoundary: NonNullable<HostRunAdmission['captureTurnBoundary']>;
+  readonly captureTurnBoundary?: NonNullable<HostRunAdmission['captureTurnBoundary']>;
+  readonly hookSkips?: HostRunAdmission['hookSkips'];
   readonly hooks?: Partial<HostRunHooks>;
 }) {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-turn-snapshots-'));
@@ -39,8 +40,9 @@ async function runWith(options: {
   const scripted = scriptedToolSequence([{ input: { path: 'notes.txt' }, toolId: 'read_fixture' }]);
   const platform: HostPlatform = {
     admitRun: async () => ({
-      captureTurnBoundary: options.captureTurnBoundary,
+      ...(options.captureTurnBoundary ? { captureTurnBoundary: options.captureTurnBoundary } : {}),
       configuration: {},
+      ...(options.hookSkips ? { hookSkips: options.hookSkips } : {}),
       ...(options.hooks
         ? {
             hooks: {
@@ -154,4 +156,30 @@ test('a failed capture is committed visibly and the run still completes', async 
   expect(events.find((event) => event.type === 'run.finished')).toMatchObject({
     outcome: 'completed',
   });
+});
+
+const UNTRUSTED = {
+  detail: 'not trusted',
+  path: '/workspace/project/.brainstrike/hooks.json',
+  reason: 'untrusted' as const,
+  rootId: 'root-1',
+  scope: 'project' as const,
+};
+
+test('a run with no hooks still commits the hook files it skipped, before its first step', async () => {
+  const { events, runId } = await runWith({ hookSkips: [UNTRUSTED] });
+  const types = events.map((event) => event.type);
+  expect(events).toContainEqual({ files: [UNTRUSTED], runId, type: 'hooks.skipped' });
+  expect(types.indexOf('hooks.skipped')).toBeGreaterThan(types.indexOf('run.started'));
+  expect(types.indexOf('hooks.skipped')).toBeLessThan(types.indexOf('effect.started'));
+});
+
+test('the skipped hook files commit with the turn start, and a run that skipped none commits none', async () => {
+  const captureTurnBoundary = async () => [{ ...ROOT, commitOid: START_OID }];
+  const skipped = await runWith({ captureTurnBoundary, hookSkips: [UNTRUSTED] });
+  const types = skipped.events.map((event) => event.type);
+  expect(types.indexOf('hooks.skipped')).toBe(types.indexOf('workspace.snapshot.recorded') + 1);
+
+  const clean = await runWith({ captureTurnBoundary });
+  expect(clean.events.map((event) => event.type)).not.toContain('hooks.skipped');
 });

@@ -68,17 +68,21 @@ export function desktopHostToolServices(
 /** Main's worktree/forge correlation of host commands, over the same services as legacy threads. */
 function desktopShellCorrelation(services: DesktopWorktreeServices): DesktopShellCorrelation {
   return {
-    completed: ({ command, precedingWorktreePaths, rootId, runId, threadId }) => {
-      desktopWorktreeToolDependencies(services, {
+    completed: async ({ command, precedingWorktreePaths, rootId, runId, threadId }) => {
+      const correlation = desktopWorktreeToolDependencies(services, {
         runId,
         threadId,
-      }).shellCorrelation?.onCommandCompleted({
-        command,
-        precedingWorktreePaths: precedingWorktreePaths
-          ? new Set(precedingWorktreePaths)
-          : undefined,
-        rootId,
-      });
+      }).shellCorrelation;
+      const adopted = correlation
+        ? await correlation.onCommandCompleted({
+            command,
+            precedingWorktreePaths: precedingWorktreePaths
+              ? new Set(precedingWorktreePaths)
+              : undefined,
+            rootId,
+          })
+        : [];
+      return adopted.map(({ branch, id, path }) => ({ branch, path, worktreeId: id }));
     },
     worktreePaths: async () => {
       const service = services.resolveWorktreeService?.();

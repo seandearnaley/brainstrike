@@ -12,14 +12,6 @@ export {
   type HostCredentialsOptions,
 } from './credentials.js';
 export {
-  LegacySecretConflictError,
-  type LegacySecretEntry,
-  type LegacySecretMigrationReport,
-  type LegacySecretSource,
-  LegacySecretVerificationError,
-  migrateLegacySecrets,
-} from './legacy-secret-migration.js';
-export {
   createHostAuthority,
   type HostAuthority,
   type HostAuthorityOptions,

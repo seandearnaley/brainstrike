@@ -195,7 +195,8 @@ test('delegated command asks by default, then a per-tool grant streams output an
         .getByRole('button', { exact: true, name: 'Always allow brainstrike.executeCommand' })
         .click();
       await review.getByRole('button', { name: 'Close pending approvals' }).click();
-      // An approval-bearing call is a standalone card outside activity groups (BST-1977).
+      // An approval-bearing call is its own card on a host thread (BST-1977), not
+      // a member of an activity group, so its live log shows without expanding.
       await expect(first.getByRole('log', { name: 'Live command output' })).toContainText(
         'STREAM_STDOUT_FIRST',
         { timeout: 15_000 }

@@ -336,6 +336,17 @@ async function handle(m) {
       const r = log.readFrom(String(m['threadId']), Number(m['fromSeq']), Number(m['limit']));
       return { damage: r.damage ? errorReply(r.damage) : null, rows: r.rows };
     }
+    case 'readHydration':
+      return {
+        threads: log.readHydration().map(({ damage, ...thread }) => ({
+          ...thread,
+          damage: damage ? errorReply(damage) : null,
+        })),
+      };
+    case 'storedBlobRefs':
+      return { hashes: log.storedBlobRefs(String(m['threadId'])) };
+    case 'damagedBlobRefs':
+      return { hashes: log.damagedBlobRefs() };
     case 'readAll':
       return readAll();
     case 'status':

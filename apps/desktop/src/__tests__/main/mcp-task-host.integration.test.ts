@@ -15,6 +15,7 @@ import type { McpClientExtensionRequestContract } from '@brainstrike/agent/mcp-t
 import type { McpTaskPresentation } from '@brainstrike/assistant-contract';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { McpTaskStore } from '@brainstrike/db';
+import type { ResolvedMcpServer } from '@brainstrike/host-capabilities/mcp/config-file';
 import type {
   McpBoundTaskElicitationPresenter,
   McpTaskElicitationBinding,
@@ -30,7 +31,6 @@ import {
 import { StateStore } from '@brainstrike/state-store';
 import type { JSONObject } from '@modelcontextprotocol/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ResolvedMcpServer } from '../../mcp-loader';
 
 const SERVER_ID = parseConfiguredMcpServerId('team.tasks.prod');
 const HTTP_SERVER: ResolvedMcpServer = {

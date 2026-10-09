@@ -17,7 +17,6 @@ export {
   createKeyringNativeBackend,
   type KeyringNativeBackend,
 } from './adapters/keyring-native-worker.js';
-export { importLegacyMemory } from './adapters/legacy-memory-import.js';
 export { createMcpHostToolAdapter } from './adapters/mcp.js';
 export {
   HostMemory,

@@ -1,21 +1,18 @@
-import { AssistantLinkCapabilitiesProvider } from '@brainstrike/assistant-ui/assistant-link-capabilities-provider';
 import type { WorkspaceApp } from '@brainstrike/file-explorer-ui/shell';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { isAgentColor } from '@brainstrike/types/agent-color';
 import { MessageSquare } from 'lucide-react';
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { getDelegatedColorPresentation } from './agent-color-presentation';
 import {
   type AssistantThreadHostCapability,
   type AssistantThreadHostChild,
   useAssistantThreadHost,
 } from './assistant-thread-host-context';
-import { CHILD_PROVIDER_SOURCE } from './delegated-child-conversation-panel';
 import { Failure } from './delegated-workspace-child-view';
-import { AssistantProviderSourceProvider } from './hooks/assistant-provider-source';
 import { HostChildConversationHeader } from './host-child-conversation-header';
+import { HostChildSurface } from './host-child-surface';
 import { type HostChildWorkspaceTab, readHostChildWorkspaceTab } from './host-child-workspace-tab';
-import { useAssistantLinkCapabilitiesValue } from './use-assistant-link-capabilities';
 
 function asError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value));
@@ -24,18 +21,6 @@ function asError(value: unknown): Error {
 const MISSING = 'The child conversation is missing or does not belong to this workspace.';
 const NOT_HOSTED = 'This child conversation is not owned by the agent host.';
 const icon: WorkspaceApp['icon'] = ({ className }) => <MessageSquare className={className} />;
-
-/** The assistant panel's own providers, as a legacy child conversation receives them. */
-function HostChildSurface({ children }: { readonly children: ReactNode }) {
-  const linkCapabilities = useAssistantLinkCapabilitiesValue();
-  return (
-    <AssistantProviderSourceProvider source={CHILD_PROVIDER_SOURCE}>
-      <AssistantLinkCapabilitiesProvider capabilities={linkCapabilities}>
-        {children}
-      </AssistantLinkCapabilitiesProvider>
-    </AssistantProviderSourceProvider>
-  );
-}
 
 type Resolution =
   | { readonly child: AssistantThreadHostChild; readonly host: AssistantThreadHostCapability }

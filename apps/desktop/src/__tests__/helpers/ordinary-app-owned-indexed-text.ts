@@ -13,7 +13,7 @@ import type { IndexSearchCapability } from '@brainstrike/indexing-contract/index
 import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { _electron, type ElectronApplication } from 'playwright';
-import { expect } from 'vitest';
+import { expect, onTestFinished } from 'vitest';
 import { z } from 'zod';
 import { HomePage } from '../../../e2e/page-objects/home-page';
 import { ensureAssistantShellVisible } from '../../../e2e/utils/layout-helpers';
@@ -22,6 +22,7 @@ import {
   startModelProviderShim,
 } from '../../../e2e/utils/model-provider-shim';
 import { createDisposableAppProfile } from './disposable-app-profile';
+import { killAppWithLauncher } from './electron-launcher-watchdog';
 
 const desktop = resolve(import.meta.dirname, '../../..');
 // Reuse the recorded public metadata fixture; no provider grant or inference.
@@ -35,6 +36,27 @@ const recordedModelMetadata = parseOpenRouterModelMetadata(
   'anthropic/claude-sonnet-4.6',
   Date.parse('2026-10-07T05:07:09.516Z')
 );
+
+// A graceful step that outlives these bounds is a leak: it is recorded, then killed.
+const CLOSE_STEP_MS = 30_000;
+const RELEASE_HOOK_MS = 120_000;
+
+async function within<T>(step: Promise<T>, label: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      step,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error(`${label} did not finish within ${CLOSE_STEP_MS} ms`)),
+          CLOSE_STEP_MS
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function providerPortRefused(baseUrl: string): Promise<boolean> {
   const url = new URL(baseUrl);
@@ -131,6 +153,67 @@ export async function qualifyOrdinaryAppIndexedText(
       ],
     };
   });
+  let providerClosed = false;
+  let remaining: { pid: number; start: string }[] = [];
+  let released: Promise<void> | undefined;
+  /**
+   * Closes everything this proof started, once. It runs when the proof returns
+   * or fails, and from Vitest's onTestFinished when the test times out, so the
+   * app never outlives the test. An owned process that survives the graceful
+   * close fails the proof and is then killed.
+   */
+  const release = (): Promise<void> => {
+    released ??= (async () => {
+      try {
+        await within(
+          (async () => {
+            await client?.close();
+            await client?.closed;
+          })(),
+          'The host client close'
+        );
+      } catch (cause) {
+        errors.push(cause);
+      }
+      try {
+        if (application) {
+          await within(capture(application), 'The owned process capture');
+        }
+      } catch (cause) {
+        errors.push(cause);
+      }
+      try {
+        await within(application?.close() ?? Promise.resolve(), 'The Electron app close');
+      } catch (cause) {
+        errors.push(cause);
+      }
+      remaining = owners.filter(({ pid, start }) => processStartTime(pid) === start);
+      if (remaining.length > 0) {
+        errors.push(new Error('Owned app or Root process remains live'));
+        for (const { pid } of remaining) {
+          try {
+            process.kill(pid, 'SIGKILL');
+          } catch (cause) {
+            errors.push(cause);
+          }
+        }
+        await expect
+          .poll(() => owners.filter(({ pid, start }) => processStartTime(pid) === start))
+          .toEqual([]);
+      }
+      try {
+        await model.close();
+        providerClosed = await providerPortRefused(model.baseUrl);
+        if (!providerClosed) {
+          errors.push(new Error('Acquired model provider listener remains open'));
+        }
+      } catch (cause) {
+        errors.push(cause);
+      }
+    })();
+    return released;
+  };
+  onTestFinished(release, RELEASE_HOOK_MS);
   try {
     // Keep this search case independent of real or inherited MCP configuration.
     await mkdir(join(disposable, 'mcp'));
@@ -171,6 +254,9 @@ export async function qualifyOrdinaryAppIndexedText(
         join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
     });
     const appProcess = application.process();
+    if (appProcess.pid) {
+      killAppWithLauncher(appProcess.pid);
+    }
     const appStart = appProcess.pid && processStartTime(appProcess.pid);
     if (appProcess.pid && appStart) {
       owners.push({ pid: appProcess.pid, start: appStart });
@@ -508,40 +594,9 @@ export async function qualifyOrdinaryAppIndexedText(
       );
     }
   } finally {
-    let providerClosed = false;
-    try {
-      await client?.close();
-      await client?.closed;
-    } catch (cause) {
-      errors.push(cause);
-    }
-    try {
-      if (application) {
-        await capture(application);
-      }
-    } catch (cause) {
-      errors.push(cause);
-    }
-    try {
-      await application?.close();
-    } catch (cause) {
-      errors.push(cause);
-    }
-    try {
-      await model.close();
-      providerClosed = await providerPortRefused(model.baseUrl);
-      if (!providerClosed) {
-        errors.push(new Error('Acquired model provider listener remains open'));
-      }
-    } catch (cause) {
-      errors.push(cause);
-    }
-    const remaining = owners.filter(({ pid, start }) => processStartTime(pid) === start);
+    await release();
     const root = RootLock.inspect(profile);
     const rootReleased = root?.owner.released ?? null;
-    if (remaining.length > 0) {
-      errors.push(new Error('Owned app or Root process remains live'));
-    }
     if (application && rootReleased !== true) {
       errors.push(new Error('Ordinary app-owned Root did not release its lock'));
     }

@@ -5,6 +5,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { createLogger } from '@brainstrike/logging';
+import { trackNativeChild } from '@brainstrike/state-store/native-children';
 import {
   createBackgroundIndexingEntryPolicy,
   createWorkspaceIgnoreMatcher,
@@ -148,10 +149,14 @@ async function readGitConfigValue(
   options: { cwd: string }
 ): Promise<string | undefined> {
   try {
-    const { stdout } = await execFileAsync('git', [...args], {
+    const query = execFileAsync('git', [...args], {
       cwd: options.cwd,
       timeout: 2000,
     });
+    // execFile cannot pass the Root's flock (an ADR-0017 limit); the host's supervisor still
+    // learns this bounded git process.
+    query.child.once('exit', trackNativeChild(query.child.pid, { group: false }));
+    const { stdout } = await query;
     const value = stdout.trim();
     return value === '' ? undefined : value;
   } catch {

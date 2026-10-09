@@ -16,6 +16,7 @@ import {
   type CommittedAssistantLogRow,
   CommittedAssistantLogStore,
   type CommittedAssistantRunIdentity,
+  LiveShellOutputs,
 } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
@@ -110,6 +111,11 @@ export interface CommittedHostConversation {
 
 /** Construct alongside the attached client, outside React render. */
 export function createCommittedHostConversation(options: {
+  /**
+   * Bind the thread to its folder before a run it starts, as legacy's first
+   * request did (`bindHostThreadToMainRoot`); a refusal fails that send.
+   */
+  readonly bindThreadRoot?: () => Promise<void>;
   readonly client: HostClient;
   readonly modelId: string;
   /** Told when a newer committed title, colour or icon reaches this view. */
@@ -123,8 +129,22 @@ export function createCommittedHostConversation(options: {
   const { client, modelId, threadId } = options;
   const source = new CommittedThreadSession(client, threadId);
   const mcpInput = new CommittedHostMcpInput(client, source, threadId);
+  // A running command's output arrives as uncommitted telemetry; its committed
+  // result owns the output from then on (ADR-0011 amendment).
+  const liveShellOutputs = new LiveShellOutputs();
+  const releaseTelemetry = client.onTelemetry((telemetry) => {
+    if (telemetry.threadId === threadId) {
+      liveShellOutputs.accept(telemetry.chunk);
+    }
+  });
+  const releaseResults = client.onEvent((row) => {
+    if (row.threadId === threadId && row.event.type === 'effect.finished') {
+      liveShellOutputs.clear(row.event.toolCallId);
+    }
+  });
   const store = new CommittedAssistantLogStore({
     identifyRun: (row) => committedConversationIdentity(source.getSnapshot().rows, row),
+    liveShellOutputs,
     source,
     threadId,
   });
@@ -149,6 +169,7 @@ export function createCommittedHostConversation(options: {
     const prompt = message.content
       .map((part) => (part.type === 'text' ? part.text : ''))
       .join('\n');
+    await options.bindThreadRoot?.();
     await client.request('run/start', {
       ...(attachments.length > 0 ? { attachments } : {}),
       commandId: crypto.randomUUID(),
@@ -178,6 +199,7 @@ export function createCommittedHostConversation(options: {
       if (parentId === null) {
         throw new Error('Regenerate has no committed user message');
       }
+      await options.bindThreadRoot?.();
       await client.request('run/regenerate', {
         commandId: crypto.randomUUID(),
         ...runSettings(),
@@ -222,6 +244,8 @@ export function createCommittedHostConversation(options: {
     approvals,
     checkpoints: new CommittedHostCheckpoints(client, source, threadId),
     close: () => {
+      releaseTelemetry();
+      releaseResults();
       unsubscribeTitles();
       approvals.close().catch((error: unknown) => {
         logger.error('Delegated approvals unsubscribe failed', { error, threadId });

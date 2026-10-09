@@ -13,8 +13,10 @@ import type {
   ThreadWorkspaceRepository,
 } from '@brainstrike/assistant-data';
 import type { HostUsageRecord } from '@brainstrike/assistant-data/cost-tracking';
+import type { ThreadSearchExtraArms } from '@brainstrike/db';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { createContext, type ReactNode, useContext, useSyncExternalStore } from 'react';
+import type { RewindPort } from './changes/rewind-port';
 import { readHostChildWorkspaceTab } from './host-child-workspace-tab';
 
 /** A host thread's latest committed root run, read as the thread badges read a run row. */
@@ -139,8 +141,20 @@ export interface AssistantThreadHostCapability {
    * thread that is not a host child.
    */
   resolveChildThread?(threadId: string): Promise<AssistantThreadHostChild>;
+  /**
+   * The rewind owner (restore to before a message) of a thread this host
+   * owns; undefined for a thread it does not own, which history rewinds. A
+   * host without rewinds omits it.
+   */
+  rewindPort?(threadId: string): RewindPort | undefined;
   /** Omitted by a host that reports no run state; its threads then show none. */
   readonly runs?: AssistantThreadHostRuns;
+  /**
+   * Gap 10: the host's own message and title arms for a Threads panel query,
+   * best first, each match on its thread's committed selected path. History's
+   * search fuses them into one list. A host without search omits this.
+   */
+  searchThreads?(query: string): Promise<ThreadSearchExtraArms>;
   /**
    * Called when an owned thread commits a canvas version while a view of it
    * is mounted, so a canvas reader re-reads through `readCanvases`. Omitted by

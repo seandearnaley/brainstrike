@@ -110,6 +110,16 @@ test('CLI and Electron share an authenticated Node host, approved file action, r
       configFile: false,
       logLevel: 'error',
       plugins: [tailwindcss()],
+      // The stylesheet imports db-explorer's styles, which the desktop config
+      // aliases (vite.config.mts) because the app does not depend on the package.
+      resolve: {
+        alias: [
+          {
+            find: '@brainstrike/db-explorer/styles.css',
+            replacement: join(repository, 'packages/db-explorer/styles.css'),
+          },
+        ],
+      },
       root: desktop,
     }),
   ]);

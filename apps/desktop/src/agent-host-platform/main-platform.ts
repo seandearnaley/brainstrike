@@ -10,7 +10,7 @@ import type {
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
-import type { PgliteLegacyMemory } from '@brainstrike/db';
+import type { NativeChildObserver } from '@brainstrike/state-store/native-children';
 import {
   type CancellationToken,
   ErrorCodes,
@@ -19,9 +19,9 @@ import {
 } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
+import { serveHostRewindFiles } from './host-rewind-files';
 import { type HostToolServiceCapabilities, serveHostToolServices } from './host-tool-services';
 import { type DesktopWorkspaceSnapshots, serveHostTurnSnapshots } from './host-turn-snapshots';
-import { serveLegacyMemory } from './legacy-memory-main';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
 import type { DesktopMemoryVectorSelection } from './memory-vector-selection';
 import {
@@ -30,6 +30,7 @@ import {
   PlatformLocalGenerationSchema,
   PlatformLocalWarmupSchema,
   PlatformMemoryReadinessSchema,
+  PlatformNativeChildSchema,
   PlatformPolicySchema,
   PlatformRunIntentSchema,
   PlatformRunRequestSchema,
@@ -62,9 +63,9 @@ export interface DesktopPlatformCapabilities {
   readonly localLlm?: LocalLlmHostClient;
   /** The Node host always composes its MCP runtime, which reaches these Main stores. */
   readonly mcp: DesktopMcpPlatformCapabilities;
+  /** ADR-0017: Main's supervisor of the native processes the host reports starting. */
+  readonly nativeChildren?: NativeChildObserver;
   readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopPlatformSelection>;
-  /** Gap 17: the profile's legacy workspace memory, read once for the host's import. */
-  readLegacyMemory(): Promise<PgliteLegacyMemory>;
   /** thread/memory/read: the same preconditions `readConfiguration` starts with, nothing acquired. */
   readMemoryReadiness?(
     request: HostRunIntentRequest
@@ -146,7 +147,15 @@ export function serveDesktopPlatform(
   const controllers = new Set<AbortController>();
   const pending = new Set<Promise<unknown>>();
   const mcpStores = serveMainMcpStores(connection, capabilities.mcp);
-  const legacyMemory = serveLegacyMemory(connection, capabilities.readLegacyMemory);
+  const nativeChildren = capabilities.nativeChildren;
+  if (nativeChildren) {
+    connection.onNotification('platform/native-child/started', (input: unknown) =>
+      nativeChildren.started(PlatformNativeChildSchema.parse(input))
+    );
+    connection.onNotification('platform/native-child/exited', (input: unknown) =>
+      nativeChildren.exited(PlatformNativeChildSchema.parse(input))
+    );
+  }
   let closing: Promise<void> | undefined;
   const execute = <T>(
     token: CancellationToken,
@@ -319,6 +328,7 @@ export function serveDesktopPlatform(
     (selectionRunId) => selection(selectionRunId).freshWorkspaceRoots(),
     capabilities.workspaceSnapshots
   );
+  serveHostRewindFiles(connection, execute, capabilities);
   connection.onRequest('platform/workspace/roots', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
       const { selectionRunId } = z
@@ -398,7 +408,6 @@ export function serveDesktopPlatform(
         await Promise.allSettled([...pending]);
       }
       mcpStores.close();
-      legacyMemory.close();
       const results = await Promise.allSettled(
         [...selections.values()].map((value) => value.selection.close())
       );

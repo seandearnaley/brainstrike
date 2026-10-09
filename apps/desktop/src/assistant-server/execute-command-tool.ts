@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import {
@@ -17,9 +17,11 @@ import {
   withWorkspaceMutationLease,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
+import { spawnNativeChild } from '@brainstrike/state-store/native-children';
 import stripAnsi from 'strip-ansi';
 import treeKill from 'tree-kill';
 import { createCredentialIsolatedChildEnvironment } from '../desktop-env';
+import { KILL_GRACE_MS } from './kill-grace';
 import {
   describeOpenRootTopology,
   type OpenRootTopology,
@@ -60,12 +62,6 @@ const MAX_STREAMED_OUTPUT_BYTES = 256_000;
 /** Visible notice appended to the live stream once the streaming cap is hit. */
 const STREAM_TRUNCATION_NOTICE =
   '\n[output truncated — live streaming stopped; the final result keeps the start and end of each stream]\n';
-/**
- * Grace period between the polite SIGTERM and the forceful SIGKILL when tearing
- * down a process tree. A well-behaved child exits on SIGTERM; a wedged one is
- * reaped by the follow-up SIGKILL.
- */
-const KILL_GRACE_MS = 2000;
 
 /**
  * Resolve the shell + argument convention for the current platform.
@@ -369,7 +365,8 @@ export function runDetachedProcess(args: {
           strippedCredentialCount,
         });
       }
-      child = spawn(executable, argv, {
+      // In the agent host the command inherits the Root's flock (ADR-0017).
+      child = spawnNativeChild(executable, argv, {
         cwd,
         detached: true,
         env: childEnvironment,

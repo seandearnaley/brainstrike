@@ -18,7 +18,6 @@ import { createRunRequest } from './_harness';
 // desktop process adapters are mocked; every replay lookup uses migrated PGlite.
 const mocks = vi.hoisted(() => () => import('./_assistant-server-mocks'));
 vi.mock('../../assistant-server/http', async () => (await mocks()).makeAssistantServerHttpMock());
-vi.mock('../../mcp-loader', async () => (await mocks()).makeMcpLoaderMock());
 vi.mock('../../agent-client-loader', async () => (await mocks()).makeAgentClientLoaderMock());
 vi.mock('../../secrets', async () => (await mocks()).makeSecretsMock());
 vi.mock('@brainstrike/agent/hosted-web', async () => (await mocks()).makeHostedWebAgentMock());

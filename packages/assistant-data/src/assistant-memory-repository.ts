@@ -83,6 +83,11 @@ export interface AssistantMemoryThread {
   readonly id: string;
   readonly latestRun?: AssistantThreadRunRecord;
   readonly metadata?: AssistantThreadMetadata;
+  /**
+   * Why the thread's owner cannot read its log (an agent host thread whose
+   * committed rows are damaged). The thread stays listed with its dates.
+   */
+  readonly readFailure?: string;
   readonly resourceId: string;
   readonly title: string;
   readonly updatedAt: Date;

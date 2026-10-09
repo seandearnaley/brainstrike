@@ -11,15 +11,16 @@
 import type { AssistantRewindConflict } from '@brainstrike/assistant-contract';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import type { RewindConflictModel } from '../rewind-port';
 import { RewindConflictList } from '../ui/rewind-conflict-list';
 
+/** A legacy conflict as its port maps it: forceable only for the codes force overrides. */
 function conflict(
   code: AssistantRewindConflict['code'],
   path = 'src/index.ts'
-): AssistantRewindConflict {
+): RewindConflictModel {
   return {
-    checkpointId: `cp-${path}-${code}`,
-    code,
+    forceable: code === 'disk-changed' || code === 'path-occupied',
     message: 'test conflict',
     path,
     rootId: 'root-a',

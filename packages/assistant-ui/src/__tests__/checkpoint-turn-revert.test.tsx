@@ -63,6 +63,7 @@ function contextValue(
     entries,
     entriesByToolCallId,
     revertEntry: vi.fn(),
+    revertRefusal: null,
     revertRun: vi.fn(),
     ...overrides,
   };
@@ -449,6 +450,30 @@ describe('CheckpointTurnRevertControl', () => {
     const error = await screen.findByTestId('checkpoint-turn-revert-error');
     expect(error).toBeInTheDocument();
     expect(screen.getByTestId('checkpoint-turn-revert-retry')).toBeEnabled();
+  });
+
+  it('shows the refusal a rejected revert carries, not a generic failure', async () => {
+    const user = userEvent.setup();
+    const refusal = 'Checkpoint revert is refused while the thread has an active run';
+    const onRevert = vi.fn().mockRejectedValue(new Error(refusal));
+
+    wrap(<CheckpointTurnRevertControl onRevert={onRevert} revertibleCount={2} />);
+
+    await user.click(screen.getByTestId('checkpoint-turn-revert'));
+    await user.click(screen.getByTestId('checkpoint-turn-revert-confirm'));
+
+    expect(await screen.findByTestId('checkpoint-turn-revert-error')).toHaveTextContent(refusal);
+  });
+
+  it('disables Revert all while reverts are refused', () => {
+    wrap(
+      <CheckpointTurnRevertControl
+        onRevert={vi.fn()}
+        refusal="Edits can be reverted once the current run finishes."
+        revertibleCount={2}
+      />
+    );
+    expect(screen.getByTestId('checkpoint-turn-revert')).toBeDisabled();
   });
 
   it('surfaces the reason when a revert reverts nothing (no conflict to force)', async () => {

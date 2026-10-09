@@ -26,7 +26,7 @@
  * that timed out or threw is reported as an UNANSWERED leg, never degraded to
  * the empty value a real "nothing here" answer produces.
  */
-import { type ChildProcess, spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -50,6 +50,7 @@ import {
   toQueryFailure,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
+import { spawnNativeChild } from '@brainstrike/state-store/native-children';
 import {
   createMessageConnection,
   type MessageConnection,
@@ -377,7 +378,8 @@ class LspServerConnection {
     private readonly server: ResolvedServer,
     private readonly rootPath: string
   ) {
-    this.child = spawn(process.execPath, [server.cliPath, ...server.args], {
+    // In the agent host the server inherits the Root's flock (ADR-0017).
+    this.child = spawnNativeChild(process.execPath, [server.cliPath, ...server.args], {
       cwd: rootPath,
       // ELECTRON_RUN_AS_NODE lets the packaged app run the server's JS entry
       // through Electron's bundled Node (there is no standalone `node`).

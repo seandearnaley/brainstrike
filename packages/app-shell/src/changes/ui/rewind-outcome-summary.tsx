@@ -12,45 +12,44 @@
  * Files that did NOT revert are named individually underneath, for the same
  * partial-failure honesty reason: a count is not a report.
  */
-import type {
-  AssistantRewindFileOutcome,
-  AssistantRewindRootOutcome,
-} from '@brainstrike/assistant-contract';
 import type { ReactElement } from 'react';
+import type { RewindConversationEffect, RewindOutcomeModel } from '../rewind-port';
+
+/** What the rewind did to the conversation, in the owner's own terms. */
+export function rewindConversationOutcome(effect: RewindConversationEffect): string {
+  if (effect.kind === 'hidden') {
+    return `${effect.messages} message${effect.messages === 1 ? '' : 's'} hidden.`;
+  }
+  return `${effect.turns} turn${effect.turns === 1 ? '' : 's'} left this conversation; switch back to ${effect.turns === 1 ? 'it' : 'them'} with the branch picker.`;
+}
 
 export function RewindOutcomeSummary({
-  fileOutcomes,
-  rootOutcomes,
-  tombstonedCount,
+  outcome,
 }: {
-  readonly fileOutcomes: readonly AssistantRewindFileOutcome[];
-  readonly rootOutcomes: readonly AssistantRewindRootOutcome[];
-  readonly tombstonedCount: number;
+  readonly outcome: RewindOutcomeModel;
 }): ReactElement {
-  const unreverted = fileOutcomes.filter((outcome) => outcome.code !== 'reverted');
-
   return (
     <div className="flex flex-col gap-3" data-testid="rewind-outcome-summary">
       <p className="text-sm" data-testid="rewind-outcome-messages">
-        {tombstonedCount} message{tombstonedCount === 1 ? '' : 's'} hidden.
+        {rewindConversationOutcome(outcome.conversation)}
       </p>
 
-      {rootOutcomes.length > 0 ? (
+      {outcome.roots.length > 0 ? (
         <div className="flex flex-col gap-1" data-testid="rewind-outcome-roots">
           <p className="font-medium text-xs">Per workspace root</p>
-          {rootOutcomes.map((root) => (
+          {outcome.roots.map((root) => (
             <p
               className="text-muted-foreground text-xs"
               data-testid={`rewind-outcome-root-${root.rootId}`}
               key={root.rootId}
             >
-              <span className="font-medium text-foreground">{root.rootLabel ?? root.rootId}</span>
+              <span className="font-medium text-foreground">{root.label ?? root.rootId}</span>
               {root.rootPath === null ? (
                 <span className="text-warning"> (not connected — nothing could be written)</span>
               ) : null}
               <span>
                 {' '}
-                — {root.reverted} of {root.attempted} restored
+                — {root.restored} of {root.attempted} restored
               </span>
               {root.conflicts > 0 ? <span> · {root.conflicts} conflicting</span> : null}
               {root.failed > 0 ? <span> · {root.failed} not restored</span> : null}
@@ -59,13 +58,13 @@ export function RewindOutcomeSummary({
         </div>
       ) : null}
 
-      {unreverted.length > 0 ? (
+      {outcome.notRestored.length > 0 ? (
         <div className="flex flex-col gap-0.5" data-testid="rewind-outcome-unreverted">
           <p className="font-medium text-xs">Not restored</p>
-          {unreverted.map((outcome) => (
-            <p className="text-muted-foreground text-xs" key={outcome.checkpointId}>
-              <span className="font-mono text-foreground">{outcome.path}</span>
-              <span> — {outcome.message ?? outcome.code}</span>
+          {outcome.notRestored.map((file) => (
+            <p className="text-muted-foreground text-xs" key={`${file.rootId}\u0000${file.path}`}>
+              <span className="font-mono text-foreground">{file.path}</span>
+              <span> — {file.message}</span>
             </p>
           ))}
         </div>

@@ -36,6 +36,8 @@ import {
   parseMcpHostCatalog,
   parseMcpHostCloseReport,
   parseMcpHostOperationResult,
+  parseMcpHostServerSnapshot,
+  parseMcpHostSnapshot,
   parseMcpNegotiatedStatus,
 } from '../mcp-host-runtime.js';
 import type { McpConfiguredProtocol, McpStatusTransport } from '../mcp-status.js';
@@ -627,5 +629,48 @@ describe('MCP host contract', () => {
     ]) {
       expect(() => parseMcpHostCloseReport(malformedClose)).toThrow();
     }
+  });
+});
+
+describe('MCP host status at a process boundary (BST-1930 c5b)', () => {
+  const base = {
+    auth: { credentialState: 'stored', type: 'bearer' },
+    configuredProtocol: 'legacy',
+    configuredServerId: 'fixture.status',
+    generation: 2,
+    transport: 'streamable-http',
+  } as const;
+
+  it('keeps each server state with the fields that state carries', () => {
+    const status = {
+      revision: 4,
+      servers: [
+        { ...base, state: 'disconnected' },
+        {
+          ...base,
+          configuredServerId: 'fixture.failed',
+          error: { category: 'connection', code: 'mcp-connection-failed', message: 'refused' },
+          state: 'error',
+        },
+        {
+          ...base,
+          configuredServerId: 'fixture.connected',
+          negotiated: { era: 'legacy', revision: '2025-06-18' },
+          state: 'connected',
+        },
+      ],
+    };
+    expect(parseMcpHostSnapshot(status)).toEqual(status);
+  });
+
+  it('refuses a server whose state lacks its facts, or a generation the host never mints', () => {
+    expect(() => parseMcpHostServerSnapshot({ ...base, state: 'connected' })).toThrow();
+    expect(() => parseMcpHostServerSnapshot({ ...base, state: 'error' })).toThrow();
+    expect(() =>
+      parseMcpHostServerSnapshot({ ...base, generation: 0, state: 'disconnected' })
+    ).toThrow();
+    expect(() =>
+      parseMcpHostSnapshot({ revision: 1, servers: [{ ...base, extra: 1, state: 'disconnected' }] })
+    ).toThrow();
   });
 });

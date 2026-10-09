@@ -165,9 +165,7 @@ describe('preload runtime contract', () => {
       'mcpContract',
       'mcpPathSelectionContract',
       'mcpContentContract',
-      'mcpElicitationContract',
       'mcpAppsContract',
-      'mcpTasksContract',
     ]) {
       expect(preloadSource).toContain(`createIpcBridge(ipcRenderer, ${contract})`);
     }

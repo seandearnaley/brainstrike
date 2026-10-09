@@ -1,6 +1,8 @@
 import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
 import {
   HOST_OBSERVER_AWAITING_REASONS,
+  HostRewindConflictSchema,
+  HostRewindFileOutcomeSchema,
   HostRunSnapshotSchema,
   HostTurnSnapshotRootSchema,
   HostTurnSnapshotSchema,
@@ -22,6 +24,12 @@ import { QueryEmbeddingPayloadSchema, QueryEmbeddingResultSchema } from './retri
 
 const Id = z.string().min(1);
 const Decision = z.enum(PERMISSION_DECISIONS);
+/** ADR-0017: one native process the host started; `group` leaders are signalled as a whole group. */
+export const PlatformNativeChildSchema = z.strictObject({
+  group: z.boolean(),
+  pid: z.number().int().positive(),
+  start: z.string().min(1),
+});
 export const PlatformRunRequestSchema = z.strictObject({
   configuration: z.record(z.string(), z.json()).optional(),
   modelId: Id,
@@ -389,6 +397,27 @@ export const PlatformTurnSnapshotRequestSchema = z.discriminatedUnion('boundary'
   }),
 ]);
 export const PlatformTurnSnapshotResultSchema = z.array(HostTurnSnapshotSchema);
+/** A host rewind's restore requests over Main's snapshot owner (`HostRewindFiles`). */
+const RewindTargets = z.array(HostTurnSnapshotSchema);
+export const PlatformRewindPreviewSchema = z.strictObject({ targets: RewindTargets, threadId: Id });
+export const PlatformRewindDriftSchema = z.strictObject({ previewId: Id, threadId: Id });
+export const PlatformRewindApplySchema = z.strictObject({
+  previewId: Id,
+  rewindId: Id,
+  targets: RewindTargets,
+  threadId: Id,
+});
+export const PlatformRewindRedoConflictsSchema = z.strictObject({
+  rewindId: Id,
+  targets: RewindTargets,
+  threadId: Id,
+});
+export const PlatformRewindRedoSchema = PlatformRewindRedoConflictsSchema.extend({
+  acknowledged: z.array(HostRewindConflictSchema),
+});
+export const PlatformRewindPreviewResultSchema = z.strictObject({ previewId: Id });
+export const PlatformRewindConflictsSchema = z.array(HostRewindConflictSchema);
+export const PlatformRewindOutcomesSchema = z.array(HostRewindFileOutcomeSchema);
 /** Confidential, private launcher channel only; absent from client protocol and log. */
 export const PlatformAuthSchema = z.union([
   z.strictObject({ kind: z.literal('custom_fetch') }),

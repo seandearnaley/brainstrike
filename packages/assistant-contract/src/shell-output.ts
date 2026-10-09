@@ -13,6 +13,8 @@
  * server's run-event persistence tap ignores it, so live slices are never
  * persisted — on reload the FINAL captured result (the tool's return value,
  * persisted by Mastra as the tool-invocation result) is the source of truth.
+ * The agent host keeps the same rule: it sends these slices as uncommitted
+ * `run/telemetry`, never as run-log rows (ADR-0011 amendment).
  */
 export const SHELL_OUTPUT_DATA_NAME = 'brainstrike.shell-output';
 
@@ -33,8 +35,8 @@ export interface AssistantShellOutputPart {
 
 /**
  * The `type` of the chunk a command writes through its tool writer's `custom`,
- * which forwards it verbatim: the legacy stream mapper and the host's committed
- * `stream.chunk` rows both carry this wire shape.
+ * which forwards it verbatim: the legacy stream mapper and the host's
+ * `run/telemetry` notification both carry this wire shape.
  */
 export const SHELL_OUTPUT_STREAM_PART_TYPE = 'brainstrike.shell-output.chunk';
 

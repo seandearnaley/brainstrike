@@ -3,7 +3,7 @@ import { formatTokenCount } from '@brainstrike/tokenization';
 import { Button, Popover, PopoverContent, PopoverTrigger } from '@brainstrike/ui';
 import { SlidersHorizontal } from 'lucide-react';
 import type { ReactElement } from 'react';
-import { capturedEffort } from './delegated-conversation-toolbar';
+import { capturedEffort } from './captured-effort';
 
 /** BST-1932 (F15): a host child's facts as its committed log records them. */
 export interface HostChildToolbarDetails {

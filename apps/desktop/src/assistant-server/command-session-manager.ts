@@ -19,6 +19,7 @@ import {
   isWithinRoot,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
+import { trackNativeChild } from '@brainstrike/state-store/native-children';
 import type { IPty } from 'node-pty';
 import * as pty from 'node-pty';
 import treeKill from 'tree-kill';
@@ -677,9 +678,15 @@ export function createCommandSessionManager({
       subscriptions: [],
     };
     sessions.set(id, entry);
+    // node-pty cannot pass the Root's flock (an ADR-0017 limit); the host's supervisor still
+    // learns the session's process group, which node-pty starts as its own session leader.
+    const untrack = trackNativeChild(processHandle.pid, { group: true });
     entry.subscriptions.push(
       processHandle.onData((chunk) => appendOutput(entry, chunk)),
-      processHandle.onExit(({ exitCode, signal }) => recordExit(entry, exitCode, signal))
+      processHandle.onExit(({ exitCode, signal }) => {
+        untrack();
+        recordExit(entry, exitCode, signal);
+      })
     );
 
     if (input.signal) {

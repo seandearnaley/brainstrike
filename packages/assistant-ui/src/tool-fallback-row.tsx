@@ -181,12 +181,15 @@ function CheckpointRevertButton({
   readonly toolName: string;
 }): ReactElement | null {
   const checkpoint = useCheckpointForToolCall(toolCallId);
-  const [phase, setPhase] = useState<'idle' | 'confirm' | 'reverting' | 'conflict'>('idle');
+  const [phase, setPhase] = useState<'idle' | 'confirm' | 'reverting' | 'conflict' | 'failed'>(
+    'idle'
+  );
+  const [failure, setFailure] = useState<string | null>(null);
 
   if (!(checkpoint && REVERTIBLE_MUTATION_TOOL_NAMES.has(denormalizeNativeToolName(toolName)))) {
     return null;
   }
-  const { availability, entry, revert } = checkpoint;
+  const { availability, entry, refusal, revert } = checkpoint;
 
   if (entry.revertedAt) {
     return (
@@ -226,13 +229,42 @@ function CheckpointRevertButton({
 
   const runRevert = async (force: boolean): Promise<void> => {
     setPhase('reverting');
-    const result = await revert(force ? { force: true } : undefined);
-    if (result.ok) {
-      setPhase('idle');
-      return;
+    try {
+      const result = await revert(force ? { force: true } : undefined);
+      if (result.ok) {
+        setPhase('idle');
+        return;
+      }
+      setPhase(result.code === 'conflict' ? 'conflict' : 'idle');
+    } catch (error) {
+      // The owner refused (e.g. the thread has an active run): show its reason,
+      // never an unhandled rejection or a button stuck in 'reverting'.
+      setFailure(error instanceof Error ? error.message : String(error));
+      setPhase('failed');
     }
-    setPhase(result.code === 'conflict' ? 'conflict' : 'idle');
   };
+
+  if (phase === 'failed') {
+    return (
+      <span className="flex shrink-0 items-center gap-1 text-[11px]">
+        <span className="text-destructive" data-testid="checkpoint-revert-error">
+          {failure}
+        </span>
+        <Button
+          className="h-5 px-1.5 text-[11px]"
+          data-testid="checkpoint-revert-retry"
+          onClick={() => {
+            setFailure(null);
+            setPhase('confirm');
+          }}
+          size="sm"
+          variant="ghost"
+        >
+          Try again
+        </Button>
+      </span>
+    );
+  }
 
   if (phase === 'conflict') {
     return (
@@ -277,23 +309,27 @@ function CheckpointRevertButton({
 
   return (
     <Tooltip>
+      {/* A span trigger: a disabled button receives no pointer events, and the
+          refusal reason must still show on hover. */}
       <TooltipTrigger asChild>
-        <Button
-          aria-label={`Revert ${toolName}`}
-          className="h-5 shrink-0 gap-1 px-1.5 text-[11px]"
-          data-testid="checkpoint-revert"
-          disabled={phase === 'reverting'}
-          onClick={() => setPhase('confirm')}
-          size="sm"
-          variant="ghost"
-        >
-          <Undo2 className="size-3" />
-          Revert
-        </Button>
+        <span className="shrink-0">
+          <Button
+            aria-label={`Revert ${toolName}`}
+            className="h-5 gap-1 px-1.5 text-[11px]"
+            data-testid="checkpoint-revert"
+            disabled={phase === 'reverting' || refusal !== null}
+            onClick={() => setPhase('confirm')}
+            size="sm"
+            variant="ghost"
+          >
+            <Undo2 className="size-3" />
+            Revert
+          </Button>
+        </span>
       </TooltipTrigger>
       {/* Turn-start semantics (BST-1164 T4): the snapshot engine restores the
           file to its state when the turn began, not to just-before-this-edit. */}
-      <TooltipContent>Restore this file to its state at turn start</TooltipContent>
+      <TooltipContent>{refusal ?? 'Restore this file to its state at turn start'}</TooltipContent>
     </Tooltip>
   );
 }

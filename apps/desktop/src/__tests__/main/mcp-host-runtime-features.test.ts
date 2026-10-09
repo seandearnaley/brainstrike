@@ -1,8 +1,11 @@
 import type { ExplicitHttpMcpClient } from '@brainstrike/agent/mcp-client';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
+import type {
+  ResolvedMcpConfig,
+  ResolvedMcpServer,
+} from '@brainstrike/host-capabilities/mcp/config-file';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
-import type { ResolvedMcpConfig, ResolvedMcpServer } from '../../mcp-loader';
 
 const transportClient = () => ({
   callTool: vi.fn(async () => ({ content: [] })),

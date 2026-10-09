@@ -13,6 +13,7 @@ import type {
   SqliteValue,
 } from './protocol.js';
 import { REVIEWED_FUNCTIONS } from './reviewed-functions.js';
+import { SqliteRuntimeRefusedError } from './runtime-refusal.js';
 
 const HEAP_LIMIT = 512 * 1024 * 1024;
 const LENGTH_LIMIT = 16 * 1024 * 1024;
@@ -47,11 +48,15 @@ export class SqliteSandbox {
     this.#database = database;
     try {
       if (!('limits' in database)) {
-        throw new Error('This SQLite runtime lacks required engine resource limits.');
+        throw new SqliteRuntimeRefusedError(
+          'This SQLite runtime lacks required engine resource limits.'
+        );
       }
       const limits = decodeLimits(database.limits);
       if (limits.attach !== 0 || limits.length !== LENGTH_LIMIT) {
-        throw new Error('SQLite did not apply the required attach and length limits.');
+        throw new SqliteRuntimeRefusedError(
+          'SQLite did not apply the required attach and length limits.'
+        );
       }
       if (
         database
@@ -60,7 +65,7 @@ export class SqliteSandbox {
           )
           .get()
       ) {
-        throw new Error(
+        throw new SqliteRuntimeRefusedError(
           'This SQLite build disables memory accounting (DEFAULT_MEMSTATUS=0); refusing an unenforced heap limit.'
         );
       }
@@ -68,7 +73,7 @@ export class SqliteSandbox {
       database.enableLoadExtension(false);
       const heap = decodeHeap(database.prepare(`PRAGMA hard_heap_limit=${HEAP_LIMIT}`).get());
       if (heap.hard_heap_limit <= 0 || heap.hard_heap_limit > HEAP_LIMIT) {
-        throw new Error('SQLite did not apply the required hard heap limit.');
+        throw new SqliteRuntimeRefusedError('SQLite did not apply the required hard heap limit.');
       }
       database.setAuthorizer((action, argument, functionName) => {
         switch (action) {
