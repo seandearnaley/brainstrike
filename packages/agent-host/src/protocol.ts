@@ -313,16 +313,6 @@ export type HostLoginCredential = Exclude<ProviderCredential, { readonly type: '
 const LoginCredential = z.custom<HostLoginCredential>(
   (value) => isProviderCredential(value) && value.type !== 'oauth'
 );
-/**
- * The launching desktop's one-time import of its retired encrypted store,
- * decrypted where only it can decrypt: every entry, or why none could be read.
- */
-const HostLegacyImportSchema = z.union([
-  z.strictObject({ entries: z.array(z.strictObject({ account: Id, value: z.string() })) }),
-  z.strictObject({ unavailable: z.string().min(1) }),
-]);
-export type HostLegacyImport = z.infer<typeof HostLegacyImportSchema>;
-
 const Provider = { provider: Id };
 /** A workspace root by its durable ID: the desktop's DB `roots.id`. */
 const HookRoot = { rootId: Id };
@@ -391,7 +381,6 @@ export const HOST_METHOD_SCHEMAS = {
   'auth/credential/delete': z.strictObject({ account: Id }),
   'auth/credential/set': z.strictObject({ account: Id, credential: LoginCredential }),
   'auth/disconnect': z.strictObject(Provider),
-  'auth/import-legacy': HostLegacyImportSchema,
   'auth/login': z.strictObject({ ...Provider, credential: LoginCredential }),
   'auth/status': z.strictObject(Provider),
   'auth/verify': z.strictObject(Provider),
@@ -869,10 +858,6 @@ export const HOST_RESULT_SCHEMAS = {
   'auth/credential/delete': z.strictObject({ deleted: z.boolean() }),
   'auth/credential/set': z.strictObject({ stored: z.literal(true) }),
   'auth/disconnect': HostAuthStatusSchema,
-  'auth/import-legacy': z.strictObject({
-    alreadyPresent: z.number().int().nonnegative(),
-    migrated: z.number().int().nonnegative(),
-  }),
   'auth/login': z.strictObject({ stored: z.literal(true) }),
   'auth/status': HostAuthStatusSchema,
   'auth/verify': HostAuthVerdictSchema,
