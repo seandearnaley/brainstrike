@@ -622,6 +622,8 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       'embedding-host': async () => {
         await embeddingHostManager.dispose();
       },
+      // A reset in flight finishes, reopen included; later resets are refused.
+      'factory-reset': () => handleResetLocal.close(),
       'file-system': () => applicationIpcDomain.close(),
       // Its own step, deliberately NOT nested inside 'git-inventory':
       // `gitInventoryService.stop()`'s final `await toDispose.disposeAll()` is
@@ -969,7 +971,7 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
       : 'unmanaged';
   },
   onDeleteRootData: (rootId) => nativeRootDataDeletion.deleteRootData(rootId),
-  onResetLocal: () => nativeRootDataDeletion.transition(() => handleResetLocal()),
+  onResetLocal: () => nativeRootDataDeletion.transition(() => handleResetLocal.reset()),
   onStorageChanged: (key) => {
     if (!app.isReady() || isDesktopShuttingDown()) {
       return;

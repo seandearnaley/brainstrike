@@ -11,6 +11,7 @@ export interface DesktopResetRuntime {
 
 export interface DesktopResetLogger {
   readonly error: (message: string, error: unknown) => void;
+  readonly info: (message: string) => void;
 }
 
 export interface CreateDesktopFactoryResetHandlerOptions {
@@ -40,6 +41,12 @@ export interface CreateDesktopFactoryResetHandlerOptions {
 export interface DesktopFactoryResetResult {
   message?: string;
   success: boolean;
+}
+
+export interface DesktopFactoryReset {
+  /** Joins the reset in flight, if any; resets requested from now on are refused. */
+  close(): Promise<void>;
+  reset(): Promise<DesktopFactoryResetResult>;
 }
 
 type ResetFailure =
@@ -147,7 +154,7 @@ export function createDesktopFactoryResetHandler({
   runWithDatabaseResetBarrier,
   userDataPath,
   waitForDatabaseWorkSchedulerIdle,
-}: CreateDesktopFactoryResetHandlerOptions): () => Promise<DesktopFactoryResetResult> {
+}: CreateDesktopFactoryResetHandlerOptions): DesktopFactoryReset {
   let profileResetLease: ProfileResetLease | null = null;
   const runReset = async (): Promise<DesktopFactoryResetResult> => {
     let failure: ResetFailure = NO_RESET_FAILURE;
@@ -213,13 +220,26 @@ export function createDesktopFactoryResetHandler({
       return { message, success: false };
     }
 
+    logger.info('Desktop factory reset completed');
     return { success: true };
   };
   let resetInFlight: Promise<DesktopFactoryResetResult> | null = null;
-  return async () => {
-    resetInFlight ??= runReset().finally(() => {
-      resetInFlight = null;
-    });
-    return await resetInFlight;
+  let closed = false;
+  return {
+    // Shutdown fences new resets, then lets the one in flight finish: a reset
+    // abandoned mid-way would leave its purge without its reopen or restore.
+    close: async () => {
+      closed = true;
+      await resetInFlight;
+    },
+    reset: async () => {
+      if (closed) {
+        return { message: 'The app is quitting: the factory reset did not start.', success: false };
+      }
+      resetInFlight ??= runReset().finally(() => {
+        resetInFlight = null;
+      });
+      return await resetInFlight;
+    },
   };
 }
