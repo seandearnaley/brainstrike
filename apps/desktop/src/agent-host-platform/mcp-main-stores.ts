@@ -1,7 +1,14 @@
-import { MCP_STORE_METHODS, respond } from '@brainstrike/host-capabilities/mcp/mcp-runtime-wire';
+import {
+  MCP_STORE_METHODS,
+  McpDiagnosticEventSchema,
+  respond,
+} from '@brainstrike/host-capabilities/mcp/mcp-runtime-wire';
+import { createLogger } from '@brainstrike/logging';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import type { MainMcpHostControl } from '../mcp/main-host-control';
+
+const logger = createLogger('DesktopNodeMcpHost');
 
 /** Main's MCP adapters for the Node host: Electron's opener and Main's host control. */
 export interface DesktopMcpPlatformCapabilities {
@@ -19,6 +26,23 @@ export function serveMainMcpStores(
 ): { close(): void } {
   const binding = capabilities.control.bind(connection);
   const handlers = [
+    connection.onRequest(MCP_STORE_METHODS.diagnostics, (input: unknown) =>
+      respond(() => {
+        const event = McpDiagnosticEventSchema.parse(input);
+        if (event.type === 'record') {
+          const { args, level, scope } = event.record;
+          createLogger(scope)[level](...args);
+          return;
+        }
+        // Main's existing logger owns the file and durable diagnostic sinks.
+        // A receipt is accepted only after the host has joined successful cleanup.
+        logger.info(`MCP runtime ${event.type} cleanup completed`, {
+          hostCloseReport: event.hostCloseReport,
+          legacyClientsClosed: true,
+          ...(event.type === 'reset' ? { snapshot: event.snapshot } : {}),
+        });
+      })
+    ),
     connection.onRequest(MCP_STORE_METHODS.ready, (input: unknown) =>
       respond(() => {
         z.strictObject({}).parse(input);
