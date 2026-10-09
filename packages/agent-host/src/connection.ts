@@ -136,6 +136,9 @@ export function bindHostConnection(
   handle('run/input', (params) => core.input(params));
   handle('run/stop', (params) => core.stop(params));
   handle('checkpoint/revert', (params) => core.revertCheckpoint(params));
+  handle('thread/rewind/preview', (params) => core.previewRewind(params));
+  handle('thread/rewind', (params) => core.rewind(params));
+  handle('thread/rewind/redo', (params) => core.redoRewind(params));
   handle('run/verdict', (params) => core.recordVerdict(params));
   handle('interaction/respond', (params) => core.respond(params));
   handle('interaction/resume', (params) => core.resume(params));
