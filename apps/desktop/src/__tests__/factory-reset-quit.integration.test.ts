@@ -1,8 +1,8 @@
 // @vitest-environment node
-// Quitting while a factory reset is still finishing must let the reset finish.
-// Shutdown closed MCP while the reset's reopen was starting the agent host: the
-// host's start was refused ("MCP is unavailable"), and the reset reported
-// itself failed although its purge had run.
+// Quitting while a factory reset runs must let the reset finish. Shutdown used
+// to run its steps under the reset: the process exited with the reset
+// abandoned, or the reset's reopen found the agent host fenced and reported the
+// reset failed although its purge had run.
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -78,8 +78,12 @@ test('quitting while a factory reset finishes lets the reset complete', {
       // The renderer is replaced by the reset: nobody awaits the answer here.
       void api.db.resetLocal().catch(() => undefined);
     });
-    // The purge has run; the reset is still reopening what it closed.
-    await expect.poll(() => existsSync(sentinel), { timeout: 60_000 }).toBe(false);
+    // Quit inside the reset: it has stopped the browser pane and not yet purged the data.
+    await expect
+      .poll(() => output.includes('Browser pane session storage cleared (factory reset)'), {
+        timeout: 60_000,
+      })
+      .toBe(true);
     await app.evaluate(({ app: electronApp }) => {
       electronApp.quit();
     });
@@ -88,6 +92,7 @@ test('quitting while a factory reset finishes lets the reset complete', {
     expect(output).not.toContain('Failed to reset desktop application data');
     expect(output).not.toContain('MCP is unavailable');
     expect(output).toContain('Desktop factory reset completed');
+    expect(existsSync(sentinel)).toBe(false);
   } finally {
     await app.close();
   }
