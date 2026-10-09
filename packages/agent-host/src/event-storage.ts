@@ -10,7 +10,13 @@ import {
   sha256Hex,
 } from '@brainstrike/state-store';
 import { z } from 'zod';
-import { type HostEvent, HostEventSchema, type HostLogRow } from './protocol.js';
+import {
+  type HostEvent,
+  HostEventSchema,
+  type HostLogRow,
+  type HostRunSnapshot,
+} from './protocol.js';
+import { readRunSnapshot, storedRunSnapshot, takeRunSnapshotRef } from './run-snapshot-blobs.js';
 
 export async function readHostThreadHistory(
   store: Pick<StateStore, 'read' | 'root'>,
@@ -41,27 +47,48 @@ export function hostEventSpool(
   return 'blob' in stored ? Spool.parse(stored) : undefined;
 }
 
-/** Shared producer decoder; the caller owns asynchronous or worker-local blob IO. */
-export function decodeStoredHostEvent(
+/** A stored row's body: the row itself, or the JSON of the blob it spooled to. */
+export function storedHostBody(
   stored: Readonly<Record<string, unknown>>,
   blob?: Uint8Array
-): HostEvent {
+): Readonly<Record<string, unknown>> {
   const spool = hostEventSpool(stored);
   if (!spool) {
-    return HostEventSchema.parse(stored);
+    return stored;
   }
   if (!(blob && blob.byteLength === spool.bytes && sha256Hex(Buffer.from(blob)) === spool.blob)) {
     throw new Error('Committed host event blob is damaged');
   }
-  const event = HostEventSchema.parse(JSON.parse(Buffer.from(blob).toString('utf8')));
-  if (event.type !== spool.type || ('runId' in event ? event.runId : undefined) !== spool.runId) {
+  const body = z
+    .record(z.string(), z.unknown())
+    .parse(JSON.parse(Buffer.from(blob).toString('utf8')));
+  if (body['type'] !== spool.type || body['runId'] !== spool.runId) {
     throw new Error('Committed host event blob identity does not match its row');
   }
-  const refs = 'blobRefs' in event ? (event.blobRefs ?? []) : [];
-  if (JSON.stringify(refs) !== JSON.stringify(spool.blobRefs ?? [])) {
+  if (JSON.stringify(body['blobRefs'] ?? []) !== JSON.stringify(spool.blobRefs ?? [])) {
     throw new Error('Committed host event blob references do not match its row');
   }
-  return event;
+  return body;
+}
+
+/**
+ * Shared producer decoder; the caller owns asynchronous or worker-local blob
+ * IO, including resolving a run snapshot reference to its committed snapshot.
+ */
+export function decodeStoredHostEvent(
+  stored: Readonly<Record<string, unknown>>,
+  blob?: Uint8Array,
+  snapshot?: (hash: string) => HostRunSnapshot
+): HostEvent {
+  const { body, ref } = takeRunSnapshotRef(storedHostBody(stored, blob));
+  const event = HostEventSchema.parse(body);
+  if (ref === undefined) {
+    return event;
+  }
+  if (!snapshot) {
+    throw new Error('A committed run snapshot reference needs its blob reader');
+  }
+  return { ...event, snapshot: snapshot(ref) } as HostEvent;
 }
 
 /**
@@ -100,17 +127,20 @@ export function storedHostEvent(
     throw new Error('Host event blob references do not match the supplied blobs');
   }
   const mark = hydratesHostEvent(event) ? {} : { hydrate: false as const };
-  const stored = largeText(JSON.stringify(event));
+  const { blobs: snapshot, body } = storedRunSnapshot(event);
+  const blobs = [...snapshot, ...referenced];
+  const bodyRefs = z.array(z.string()).parse(body['blobRefs'] ?? []);
+  const stored = largeText(JSON.stringify(body));
   if (!stored.blob) {
-    return { ...(referenced.length > 0 ? { blobs: referenced } : {}), event, ...mark, threadId };
+    return { ...(blobs.length > 0 ? { blobs } : {}), event: body, ...mark, threadId };
   }
   return {
-    blobs: [stored.blob, ...referenced],
+    blobs: [stored.blob, ...blobs],
     event: {
       type: event.type,
       ...('runId' in event ? { runId: event.runId } : {}),
       ...stored.fields,
-      ...(refs.length > 0 ? { blobRefs: refs } : {}),
+      ...(bodyRefs.length > 0 ? { blobRefs: bodyRefs } : {}),
     },
     ...mark,
     threadId,
@@ -123,10 +153,13 @@ export async function readHostRow(
 ): Promise<HostLogRow> {
   const { seq: _storedSeq, ...stored } = row.event;
   const spool = hostEventSpool(stored);
-  const event = decodeStoredHostEvent(
+  const body = storedHostBody(
     stored,
     spool ? await readFile(join(store.root, BLOBS_DIR, spool.blob)) : undefined
   );
+  const ref = takeRunSnapshotRef(body).ref;
+  const snapshot = ref === undefined ? undefined : await readRunSnapshot(store.root, ref);
+  const event = decodeStoredHostEvent(body, undefined, snapshot && (() => snapshot));
   return {
     event,
     seq: row.seq,
