@@ -1,7 +1,10 @@
 import { ipcMain } from 'electron';
+import { hostCommandSessions } from './agent-host-platform/host-command-session-client';
 import {
+  type CommandSessionInventoryHandlers,
   type CommandSessionIpcHandlers,
   createCommandSessionIpcHandlers,
+  withHostCommandSessions,
 } from './command-session-ipc-handlers';
 import { getDatabase } from './db-main';
 import { createDatabaseRootResolver } from './git-ipc-handlers';
@@ -27,7 +30,12 @@ export function registerTerminalIpc(
   handlers: TerminalIpcHandlers = createTerminalIpcHandlers({
     resolver: createDatabaseRootResolver(getDatabase),
   }),
-  commandSessionHandlers: CommandSessionIpcHandlers = createCommandSessionIpcHandlers()
+  commandSessionHandlers:
+    | CommandSessionInventoryHandlers
+    | CommandSessionIpcHandlers = withHostCommandSessions(
+    createCommandSessionIpcHandlers(),
+    hostCommandSessions
+  )
 ): () => void {
   const unregisterTerminal = registerTerminalIpcHandlers(handlers);
   const registry = createDesktopIpcRegistry({ ipcMain });

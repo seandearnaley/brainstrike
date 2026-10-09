@@ -26,6 +26,8 @@ import { resolveWorkspaceRoot } from './workspace-roots';
 
 export interface CommandSessionToolDependencies {
   readonly manager?: CommandSessionManager;
+  /** Start sessions in the run's own admitted roots rather than the manager's resolver. */
+  readonly rootsFromRuntime?: boolean;
 }
 
 type InspectCommandSessionsResult =
@@ -403,6 +405,9 @@ export async function runManageCommandSession(
     return await manager
       .start({
         command: operation.command,
+        ...(dependencies.rootsFromRuntime
+          ? { resolver: { listRoots: async () => runtimeData?.workspaceRoots ?? [] } }
+          : {}),
         rootId,
         ...(dependencies.executionThreadId &&
         dependencies.executionThreadId !== runtimeData?.memory?.threadId

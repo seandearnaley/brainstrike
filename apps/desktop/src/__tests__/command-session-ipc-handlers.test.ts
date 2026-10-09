@@ -3,7 +3,10 @@ import {
   CommandSessionError,
   type CommandSessionManager,
 } from '../assistant-server/command-session-manager';
-import { createCommandSessionIpcHandlers } from '../command-session-ipc-handlers';
+import {
+  createCommandSessionIpcHandlers,
+  withHostCommandSessions,
+} from '../command-session-ipc-handlers';
 
 function createManager(): CommandSessionManager {
   return {
@@ -134,5 +137,37 @@ describe('command session IPC handlers', () => {
     expect(manager.write).toHaveBeenCalledWith('root-1', 'session-1', 'y\n');
     expect(manager.stop).toHaveBeenCalledWith('root-1', 'session-1');
     expect(manager.remove).toHaveBeenCalledWith('root-1', 'session-1');
+  });
+
+  it('keeps Main’s own answer when no agent host is connected, and asks the host for a session Main lacks', async () => {
+    const manager = createManager();
+    vi.mocked(manager.stop).mockRejectedValue(
+      new CommandSessionError('session-not-found', 'No command session "host-session".')
+    );
+    const host = {
+      list: vi.fn(),
+      read: vi.fn(),
+      remove: vi.fn(),
+      stop: vi.fn(async () => ({ ok: true as const })),
+      write: vi.fn(),
+    };
+    let connected: typeof host | undefined;
+    const panel = withHostCommandSessions(
+      createCommandSessionIpcHandlers({ manager }),
+      () => connected
+    );
+    const identity = { rootId: 'root-1', sessionId: 'host-session' };
+
+    await expect(panel.stop(identity)).resolves.toMatchObject({
+      error: { code: 'session-not-found' },
+      ok: false,
+    });
+    await expect(panel.list({ rootId: 'root-1' })).resolves.toMatchObject({
+      ok: true,
+      value: { sessions: [expect.objectContaining({ id: 'session-1' })] },
+    });
+    connected = host;
+    await expect(panel.stop(identity)).resolves.toEqual({ ok: true });
+    expect(host.stop).toHaveBeenCalledWith(identity);
   });
 });

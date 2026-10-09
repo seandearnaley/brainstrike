@@ -32,10 +32,9 @@ import {
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
 import { z } from 'zod';
-import { disposeLiveChildProcesses } from '../assistant-server/execute-command-tool';
-import { disposeLspServers } from '../assistant-server/lsp-diagnostics';
 import { mainPlatformConnection } from './connection';
 import { desktopHostSharedTools } from './desktop-host-shared-tools';
+import { disposeHostTools, serveHostCommandSessions } from './host-tool-process';
 import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
 import { parentPlatformPort } from './parent-platform-port';
 import {
@@ -177,6 +176,7 @@ export async function createHostPlatform(
     }
     await context.write?.(progress.chunk);
   });
+  serveHostCommandSessions(connection);
   // ADR-0007: a borrowed local generation streams through Main's progress notifications.
   const localProgress: LocalProgressListeners = new Map();
   connection.onNotification('platform/llm/progress', (input: unknown) => {
@@ -201,9 +201,8 @@ export async function createHostPlatform(
     close: async () => {
       // MCP cleanup still writes through Main's stores, so it joins before Main closes.
       await mcpHost.close();
-      // The language servers and command trees this host spawned.
-      await disposeLspServers();
-      disposeLiveChildProcesses();
+      // The language servers, command trees and command sessions this host spawned.
+      await disposeHostTools();
       await request('platform/close', {});
     },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
@@ -260,6 +259,7 @@ export async function createHostPlatform(
         throw cause;
       }
       const shared = desktopHostSharedTools({
+        appPaths: platformOptions?.appPaths,
         readFileCursorRegistry,
         request,
         resolveTavilyApiKey: host.resolveTavilyApiKey,

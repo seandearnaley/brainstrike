@@ -1104,6 +1104,11 @@ const nativeIndexActivation = createNativeIndexActivation({
         ? process.env['BRAINSTRIKE_E2E_OPENAI_CODEX_ISSUER']
         : undefined;
       return {
+        appPaths: {
+          isPackaged: app.isPackaged,
+          resourcesPath: process.resourcesPath,
+          userDataPath: app.getPath('userData'),
+        },
         credentialStore: desktopCredentialStoreSelection(),
         // Main loaded the env files; the host gates provider status on rejections.
         ...(desktopEnvLoadResult.failures.length > 0

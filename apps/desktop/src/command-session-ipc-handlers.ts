@@ -1,4 +1,5 @@
 import { createLogger } from '@brainstrike/logging';
+import type { HostCommandSessionClient } from './agent-host-platform/host-command-session-client';
 import {
   COMMAND_SESSION_READ_PAGE_UTF16_CODE_UNITS,
   CommandSessionError,
@@ -163,4 +164,71 @@ export function createCommandSessionIpcHandlers({
   }
 
   return { list, read, remove, stop, write };
+}
+
+/** The Terminal panel's inventory: every handler answers asynchronously. */
+export interface CommandSessionInventoryHandlers {
+  readonly list: (params: CommandSessionListParams) => Promise<
+    CommandSessionIpcResult<{
+      readonly rootId: string;
+      readonly sessions: readonly CommandSessionInfo[];
+    }>
+  >;
+  readonly read: (
+    params: CommandSessionReadParams
+  ) => Promise<CommandSessionIpcResult<CommandSessionReadPage>>;
+  readonly remove: (params: CommandSessionIdentityParams) => Promise<CommandSessionIpcResult>;
+  readonly stop: (params: CommandSessionIdentityParams) => Promise<CommandSessionIpcResult>;
+  readonly write: (params: CommandSessionWriteParams) => Promise<CommandSessionIpcResult>;
+}
+
+function isSessionNotFound(result: { readonly ok: boolean }): boolean {
+  return (
+    !result.ok &&
+    'error' in result &&
+    (result.error as { readonly code: string }).code === 'session-not-found'
+  );
+}
+
+/**
+ * Main's legacy sessions beside the connected agent host's. Session ids are
+ * UUIDs, so a session Main does not hold belongs to the host, and a request
+ * for it goes there; without a connected host there are no host sessions.
+ */
+export function withHostCommandSessions(
+  main: CommandSessionIpcHandlers,
+  host: () => HostCommandSessionClient | undefined
+): CommandSessionInventoryHandlers {
+  async function routed<R extends { readonly ok: boolean }>(
+    local: R | Promise<R>,
+    forward: (client: HostCommandSessionClient) => Promise<R>
+  ): Promise<R> {
+    const result = await local;
+    const client = host();
+    return client && isSessionNotFound(result) ? await forward(client) : result;
+  }
+  return {
+    list: async (params) => {
+      const local = main.list(params);
+      const client = host();
+      if (!(local.ok && client)) {
+        return local;
+      }
+      const remote = await client.list(params);
+      if (!remote.ok) {
+        return remote;
+      }
+      return {
+        ok: true,
+        value: {
+          rootId: local.value.rootId,
+          sessions: [...local.value.sessions, ...remote.value.sessions],
+        },
+      };
+    },
+    read: (params) => routed(main.read(params), (client) => client.read(params)),
+    remove: (params) => routed(main.remove(params), (client) => client.remove(params)),
+    stop: (params) => routed(main.stop(params), (client) => client.stop(params)),
+    write: (params) => routed(main.write(params), (client) => client.write(params)),
+  };
 }

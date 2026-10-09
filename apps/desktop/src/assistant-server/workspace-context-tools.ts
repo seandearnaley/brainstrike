@@ -1,8 +1,10 @@
 /**
  * The write-back half of the workspace-context tool family (BST-743):
  * updateWorkspaceContextSelection and updateWorkspaceTapestrySelections —
- * selection validation and the renderer broadcast over the shared IPC channel
- * catalog. The read half lives in workspace-context-read-tools.ts.
+ * selection validation, then delivery through a caller-supplied broadcaster
+ * (Main's lives in workspace-context-broadcast.ts). The read half lives in
+ * workspace-context-read-tools.ts. This module must not import Electron: the
+ * desktop agent host bundle loads it.
  *
  * Leaf module: depends on the read/paging, path-resolution, workspace-root,
  * and Workspace Index leaves — never on `assistant-tools.ts`, so no import
@@ -24,16 +26,16 @@ import type {
   AssistantWorkspaceContextSelectionUpdatePayload,
   AssistantWorkspaceTapestryUpdatePayload,
 } from '@brainstrike/types';
-import { BrowserWindow } from 'electron';
-import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
-import { getWindowRole } from '../window-role';
 import { resolveSelectionFolderId } from './workspace-context-read-tools';
 import { resolveWorkspaceRoot } from './workspace-roots';
 
-const WORKSPACE_CONTEXT_SELECTION_EVENT =
-  DESKTOP_IPC_CHANNELS.agent.workspaceContextSelectionUpdate;
 const SELECTABLE_WORKSPACE_FILE_VALIDATION_BATCH_SIZE = 64;
-const WORKSPACE_CONTEXT_TAPESTRY_EVENT = DESKTOP_IPC_CHANNELS.agent.workspaceContextTapestryUpdate;
+
+/** Delivers a write-back to the visible app windows; resolves how many were notified. */
+export interface WorkspaceContextBroadcaster {
+  readonly selection: (payload: AssistantWorkspaceContextSelectionUpdatePayload) => Promise<number>;
+  readonly tapestry: (payload: AssistantWorkspaceTapestryUpdatePayload) => Promise<number>;
+}
 interface WorkspaceContextSkippedPath {
   message?: string;
   path: string;
@@ -121,24 +123,6 @@ async function validateSelectableWorkspaceFiles(args: {
   return { requestedCount: requestedPaths.length, selectedFiles, skippedFiles };
 }
 
-function broadcastWorkspaceContextEvent(
-  channel: typeof WORKSPACE_CONTEXT_SELECTION_EVENT | typeof WORKSPACE_CONTEXT_TAPESTRY_EVENT,
-  payload: AssistantWorkspaceContextSelectionUpdatePayload | AssistantWorkspaceTapestryUpdatePayload
-): number {
-  let notifiedWindowCount = 0;
-  for (const browserWindow of BrowserWindow.getAllWindows()) {
-    if (browserWindow.isDestroyed()) {
-      continue;
-    }
-    if (getWindowRole(browserWindow) !== 'visible-ui') {
-      continue;
-    }
-    browserWindow.webContents.send(channel, payload);
-    notifiedWindowCount += 1;
-  }
-  return notifiedWindowCount;
-}
-
 /**
  * Resolve the target root for a selection write-back. The client RootId the
  * renderer routes by is NOT the DB roots.id, but both name the SAME absolute
@@ -163,7 +147,8 @@ function resolveWriteBackTarget(
 
 export async function runUpdateWorkspaceContextSelection(
   input: UpdateWorkspaceContextSelectionInput,
-  runtimeData: RuntimeData | undefined
+  runtimeData: RuntimeData | undefined,
+  broadcaster: WorkspaceContextBroadcaster
 ): Promise<{
   appliedCount: number;
   folderId: string;
@@ -184,7 +169,7 @@ export async function runUpdateWorkspaceContextSelection(
   });
   const notifiedWindowCount =
     selectedFiles.length > 0
-      ? broadcastWorkspaceContextEvent(WORKSPACE_CONTEXT_SELECTION_EVENT, {
+      ? await broadcaster.selection({
           filePaths: selectedFiles,
           folderId,
           mode,
@@ -205,7 +190,8 @@ export async function runUpdateWorkspaceContextSelection(
 
 export async function runUpdateWorkspaceTapestrySelections(
   input: UpdateWorkspaceTapestrySelectionsInput,
-  runtimeData: RuntimeData | undefined
+  runtimeData: RuntimeData | undefined,
+  broadcaster: WorkspaceContextBroadcaster
 ): Promise<{
   appliedFileCount: number;
   folderId: string;
@@ -241,7 +227,7 @@ export async function runUpdateWorkspaceTapestrySelections(
 
   let notifiedWindowCount = 0;
   if (selectFiles && selectedFiles.length > 0) {
-    notifiedWindowCount = broadcastWorkspaceContextEvent(WORKSPACE_CONTEXT_SELECTION_EVENT, {
+    notifiedWindowCount = await broadcaster.selection({
       filePaths: selectedFiles,
       folderId,
       mode: 'add',
@@ -251,7 +237,7 @@ export async function runUpdateWorkspaceTapestrySelections(
   if (updates.length > 0) {
     notifiedWindowCount = Math.max(
       notifiedWindowCount,
-      broadcastWorkspaceContextEvent(WORKSPACE_CONTEXT_TAPESTRY_EVENT, {
+      await broadcaster.tapestry({
         folderId,
         mode,
         updates,

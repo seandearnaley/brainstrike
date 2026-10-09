@@ -2,7 +2,6 @@ import { homedir } from 'node:os';
 import { isDeepStrictEqual } from 'node:util';
 import {
   createAssistantSkillTools,
-  isSupportedProvider,
   type RuntimeData,
   resolveAssistantResilienceConfig,
   type ScopedToolOutputArtifactReader,
@@ -28,12 +27,15 @@ import {
   DESKTOP_NATIVE_TOOLS,
   deriveAgentLoopInputTokenLimit,
   findLlmModelDefinition,
+  findProviderDefinition,
   isPermissionDenied,
+  isSupportedProvider,
   NATIVE_TOOL_ID,
   resolveAutoObservationalMemoryModelTarget,
   resolveToolRiskCategory,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
+import { DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW } from '@brainstrike/assistant-contract/context-budget';
 import { listEmbeddingModels } from '@brainstrike/assistant-contract/provider-metadata';
 import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
@@ -47,10 +49,17 @@ import {
   buildDesktopAssistantTools,
   type DesktopAssistantToolDependencies,
 } from '../assistant-server/assistant-tools';
+import { mainBrowserToolRunner } from '../assistant-server/browser-agent-tools';
 import { pgliteGrepIndex } from '../assistant-server/grep-search-tool';
-import { prepareRequestSkills } from '../assistant-server/request-skills';
+import { mainDiagnosticsReader } from '../assistant-server/query-diagnostics-tool';
+import { mainQuerySelfRead } from '../assistant-server/query-self-tool';
+import {
+  type PreparedAdmittedSkills,
+  prepareAdmittedSkills,
+} from '../assistant-server/request-skills';
 import { pgliteRetrievalStore } from '../assistant-server/retrieval-store-pglite';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
+import { mainWorkspaceContextBroadcaster } from '../assistant-server/workspace-context-broadcast';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
 import {
   type DesktopWorktreeServices,
@@ -66,6 +75,7 @@ import type { DesktopShellCorrelation, HostToolServiceCapabilities } from './hos
 import type { DesktopPlatformCapabilities, DesktopPlatformSelection } from './main-platform';
 import { resolveDesktopMemoryVectors } from './memory-vector-selection';
 import {
+  PlatformAdmittedSkillSchema,
   PlatformClientConfigurationSchema,
   PlatformModelConfigurationSchema,
   PlatformWorkspaceContextSchema,
@@ -169,6 +179,25 @@ function desktopObservationResolution(enabled: boolean, observerTarget: string |
   }
   return observerTarget === null ? 'waiting-for-eligible-model' : 'resolved';
 }
+/**
+ * Ollama and LM Studio models are discovered live from the local server: the
+ * picker offers exactly what the runtime lists, and neither the models table
+ * nor the static catalog holds them. A run on one is budgeted at the
+ * conservative window the picker declares for every discovered model.
+ */
+function localRuntimeModelDefinition(model: string): DesktopCatalogSelection['definition'] {
+  if (model.length === 0) {
+    throw new Error('The selected local runtime model has no id');
+  }
+  return {
+    contextWindow: DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW,
+    id: model,
+    supportsStreaming: true,
+    type: 'llm',
+    vision: 'unknown',
+  };
+}
+
 async function readDesktopCatalogSelection(
   db: Awaited<ReturnType<typeof getDatabase>>,
   modelId: string
@@ -178,6 +207,9 @@ async function readDesktopCatalogSelection(
   const model = modelId.slice(separator + 2);
   if (separator < 1 || !isSupportedProvider(provider)) {
     throw new Error('The selected model has no supported catalog identity');
+  }
+  if (findProviderDefinition(provider)?.runtime === 'local') {
+    return { definition: localRuntimeModelDefinition(model), model, provider };
   }
   // The UI composite is a selection key. The existing catalog owns the pair.
   const result = await db.query(
@@ -344,6 +376,8 @@ async function createDesktopNativeTools(
   request: HostRunAdmissionRequest,
   workspace?: DesktopWorkspaceBindingBorrow
 ): Promise<{
+  /** The enabled skills of the run's one scan, admitted to the host. */
+  readonly admittedSkills: readonly import('@brainstrike/agent').ScannedSkill[] | undefined;
   readonly freshRoots: () => Promise<NonNullable<RuntimeData['workspaceRoots']>>;
   /** Retrieval is admitted to the thread's own roots (a CLI selection or a binding). */
   readonly retrievalRootsOnly: boolean;
@@ -414,16 +448,12 @@ async function createDesktopNativeTools(
       : {}),
     ...(intent.skillsPreference ? { skillsPreference: intent.skillsPreference } : {}),
   };
-  if (selection && (intent.skillsPreference?.masterEnabled ?? true)) {
-    throw new Error('CLI Skills require an explicit existing home-tier read authority');
-  }
-  const { workspaceSkills } = selection
-    ? {}
-    : prepareRequestSkills({
-        fs: createSecureSkillsFs([...roots.map((root) => root.path), homedir()]),
-        homedir,
-        runtimeData: runtime,
-      });
+  const { skills: admittedSkills, workspaceSkills } = desktopRunSkills(
+    selection !== undefined,
+    intent,
+    runtime,
+    roots
+  );
   const skillTools = workspaceSkills ? createAssistantSkillTools(workspaceSkills) : {};
   const nativeBindings = Object.fromEntries(
     [
@@ -493,6 +523,7 @@ async function createDesktopNativeTools(
     ])
   );
   return {
+    admittedSkills,
     freshRoots,
     readWorkspaceFile,
     retrievalRootsOnly,
@@ -501,6 +532,26 @@ async function createDesktopNativeTools(
     tools,
     ...(workspaceSkills ? { workspaceSkills } : {}),
   };
+}
+
+/** A CLI selection runs without skills; otherwise one scan feeds the prompt and the host's skill tools. */
+function desktopRunSkills(
+  cliSelection: boolean,
+  intent: z.output<typeof PlatformClientConfigurationSchema>,
+  runtime: RuntimeData,
+  roots: readonly { readonly path: string }[]
+): PreparedAdmittedSkills {
+  if (!cliSelection) {
+    return prepareAdmittedSkills({
+      fs: createSecureSkillsFs([...roots.map((root) => root.path), homedir()]),
+      homedir,
+      runtimeData: runtime,
+    });
+  }
+  if (intent.skillsPreference?.masterEnabled ?? true) {
+    throw new Error('CLI Skills require an explicit existing home-tier read authority');
+  }
+  return {};
 }
 
 /** Main's tool services for host threads, resolved per run (the worktree services lazily). */
@@ -533,7 +584,8 @@ const HOST_EXECUTED_ARTIFACT_READER: ScopedToolOutputArtifactReader = {
 /** What the host's shared native tools need from this admission; roots come back per call. */
 function desktopNativeRuntime(
   runtime: RuntimeData,
-  retrievalRootsOnly: boolean
+  retrievalRootsOnly: boolean,
+  skills: readonly import('@brainstrike/agent').ScannedSkill[] | undefined
 ): DesktopPlatformSelection['nativeRuntime'] {
   if (typeof runtime.provider !== 'string' || !runtime.workspaceRoots) {
     throw new Error('Desktop admission has no native tool runtime');
@@ -544,6 +596,7 @@ function desktopNativeRuntime(
     ...(retrievalRootsOnly ? { retrievalRootsOnly: true as const } : {}),
     ...(runtime.selectionFilePaths ? { selectionFilePaths: [...runtime.selectionFilePaths] } : {}),
     ...(runtime.selectionFolderId ? { selectionFolderId: runtime.selectionFolderId } : {}),
+    ...(skills ? { skills: z.array(PlatformAdmittedSkillSchema).parse(skills) } : {}),
     ...(runtime.workspaceContext
       ? { workspaceContext: PlatformWorkspaceContextSchema.parse(runtime.workspaceContext) }
       : {}),
@@ -569,8 +622,14 @@ function desktopHostToolServices(
           queryEmbedding: (payload, signal) => embeddings.queryEmbedding(payload, { signal }),
         }
       : {}),
+    browser: mainBrowserToolRunner,
+    contextDelivery: mainWorkspaceContextBroadcaster,
+    diagnostics: mainDiagnosticsReader,
+    querySelf: mainQuerySelfRead(),
     retrievalStore: pgliteRetrievalStore(),
     shell: desktopShellCorrelation(dependencies),
+    worktrees: ({ runId, threadId }) =>
+      desktopWorktreeToolDependencies(dependencies, { runId, threadId }).worktreeTools,
   };
 }
 
@@ -732,7 +791,11 @@ export function productionDesktopCapabilities(
           ...(memoryVectors ? { vectorProfile: memoryVectors.profile } : {}),
         },
         ...(memoryVectors?.local ? { localEmbedding: memoryVectors.local } : {}),
-        nativeRuntime: desktopNativeRuntime(native.runtime, native.retrievalRootsOnly),
+        nativeRuntime: desktopNativeRuntime(
+          native.runtime,
+          native.retrievalRootsOnly,
+          native.admittedSkills
+        ),
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
         ...desktopSystemFields(system),
         tools,

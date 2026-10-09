@@ -164,6 +164,26 @@ export const PlatformClientConfigurationSchema = z.strictObject({
     oversizedOptInByRootId: z.record(z.string(), z.boolean()),
   }),
 });
+/** One enabled skill of the run's scan: its paths, frontmatter and SKILL.md instructions. */
+export const PlatformAdmittedSkillSchema = z.strictObject({
+  allowedTools: z.array(z.string()).exactOptional(),
+  compatibility: z.json().exactOptional(),
+  containmentRoot: z.string().min(1),
+  description: z.string(),
+  dirAbsPath: z.string().min(1),
+  dirName: z.string().min(1),
+  instructions: z.string(),
+  license: z.string().exactOptional(),
+  metadata: z.record(z.string(), z.json()).exactOptional(),
+  name: z.string().min(1),
+  preferenceKey: z.string().min(1),
+  sourceRootDisplayName: z.string().exactOptional(),
+  sourceRootId: Id.exactOptional(),
+  tier: z.enum(['root-brainstrike', 'global-brainstrike', 'root-claude', 'global-claude']),
+  userInvocable: z.boolean(),
+  warnings: z.array(z.string()),
+});
+
 /** Admission data of the shared native tools; roots are revalidated per call via Main. */
 export const PlatformNativeRuntimeSchema = z.strictObject({
   boundWorkspaceRootId: Id.optional(),
@@ -173,6 +193,8 @@ export const PlatformNativeRuntimeSchema = z.strictObject({
   /** The focused root's curated files, for the host's workspace-context reads. */
   selectionFilePaths: z.array(z.string()).optional(),
   selectionFolderId: Id.optional(),
+  /** The enabled skills of Main's one scan for this run; the host reads their files itself. */
+  skills: z.array(PlatformAdmittedSkillSchema).optional(),
   /** The request's curated context selection, as Main admitted it. */
   workspaceContext: PlatformWorkspaceContextSchema.optional(),
   workspaceRootPath: Id.optional(),
