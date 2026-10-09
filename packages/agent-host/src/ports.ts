@@ -39,6 +39,8 @@ import type {
   HostEvent,
   HostLegacyImport,
   HostLoginCredential,
+  HostRewindConflict,
+  HostRewindFileOutcome,
   HostRunSnapshot,
   HostTurnSnapshot,
   HostTurnSnapshotRoot,
@@ -441,6 +443,45 @@ export interface HostProviderService {
 }
 
 /** Credentials and process-local capabilities never become protocol payloads. */
+/**
+ * The platform's snapshot owner restores a thread's roots for a rewind
+ * (restore to before a message) and its redo. Core decides what to restore
+ * and commits each intent before any file changes; the owner fingerprints,
+ * restores and revalidates each root against its live owner.
+ */
+export interface HostRewindFiles {
+  /** Restore each root to its target snapshot, after a pre-revert snapshot keyed by `rewindId`. */
+  apply(request: {
+    readonly previewId: string;
+    readonly rewindId: string;
+    readonly targets: readonly HostTurnSnapshot[];
+    readonly threadId: string;
+  }): Promise<readonly HostRewindFileOutcome[]>;
+  /** The paths that changed since the preview; nothing changes. */
+  drift(request: {
+    readonly previewId: string;
+    readonly threadId: string;
+  }): Promise<readonly HostRewindConflict[]>;
+  /** Fingerprint the target roots' live files for a preview; nothing changes. */
+  preview(request: {
+    readonly targets: readonly HostTurnSnapshot[];
+    readonly threadId: string;
+  }): Promise<{ readonly previewId: string }>;
+  /** Restore each root's pre-revert snapshot for `rewindId`; acknowledged paths are forced. */
+  redo(request: {
+    readonly acknowledged: readonly HostRewindConflict[];
+    readonly rewindId: string;
+    readonly targets: readonly HostTurnSnapshot[];
+    readonly threadId: string;
+  }): Promise<readonly HostRewindFileOutcome[]>;
+  /** The paths that changed since the rewind restored them; nothing changes. */
+  redoConflicts(request: {
+    readonly rewindId: string;
+    readonly targets: readonly HostTurnSnapshot[];
+    readonly threadId: string;
+  }): Promise<readonly HostRewindConflict[]>;
+}
+
 export interface HostPlatform {
   admitRun?(request: HostRunAdmissionRequest): Promise<HostRunAdmission>;
   /** The host's credential authority; absent where the host owns no credential store. */
@@ -470,6 +511,8 @@ export interface HostPlatform {
     readonly rootId: string;
     readonly signal: AbortSignal;
   }): Promise<string>;
+  /** The snapshot owner's rewind restores; absent where none exists (the CLI). */
+  readonly rewindFiles?: HostRewindFiles;
   /** The native-tool output rewrite policy; Core commits what it selects. */
   selectProjectionRewrites?(
     request: HostProjectionRewriteRequest
