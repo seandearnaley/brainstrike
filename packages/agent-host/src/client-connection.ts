@@ -4,12 +4,15 @@ import {
   AGENT_HOST_PROTOCOL_VERSION,
   HOST_CHILDREN_CHANGED,
   HOST_RESULT_SCHEMAS,
+  HOST_RUN_TELEMETRY,
   HostChildrenChangedSchema,
   type HostLogRow,
   HostLogRowSchema,
   type HostMethod,
   type HostParams,
   type HostResults,
+  type HostRunTelemetry,
+  HostRunTelemetrySchema,
   parseHostParams,
 } from './protocol.js';
 
@@ -17,6 +20,8 @@ export interface HostClient extends HostAttachment {
   /** BST-1932: told the thread whose children changed status; re-read `thread/children`. */
   onChildrenChanged(listener: (threadId: string) => void): () => void;
   onEvent(listener: (row: HostLogRow) => void): () => void;
+  /** A subscribed thread's live tool telemetry; never committed, so a reload shows none. */
+  onTelemetry(listener: (telemetry: HostRunTelemetry) => void): () => void;
   request<M extends HostMethod>(method: M, params: HostParams<M>): Promise<HostResults[M]>;
 }
 /** Browser-safe connection; the private lease record comes from the owning launcher. */
@@ -28,6 +33,7 @@ export async function authenticateHostClient(
 ): Promise<HostClient> {
   const listeners = new Set<(row: HostLogRow) => void>();
   const childListeners = new Set<(threadId: string) => void>();
+  const telemetryListeners = new Set<(telemetry: HostRunTelemetry) => void>();
   const closeConnection = async (): Promise<void> => {
     const failures: unknown[] = [];
     try {
@@ -37,6 +43,7 @@ export async function authenticateHostClient(
     }
     listeners.clear();
     childListeners.clear();
+    telemetryListeners.clear();
     try {
       await closeTransport();
     } catch (cause) {
@@ -59,6 +66,12 @@ export async function authenticateHostClient(
     const { threadId } = HostChildrenChangedSchema.parse(input);
     for (const listener of childListeners) {
       listener(threadId);
+    }
+  });
+  connection.onNotification(HOST_RUN_TELEMETRY, (input: unknown) => {
+    const telemetry = HostRunTelemetrySchema.parse(input);
+    for (const listener of telemetryListeners) {
+      listener(telemetry);
     }
   });
   connection.listen();
@@ -96,6 +109,10 @@ export async function authenticateHostClient(
     onEvent: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    onTelemetry: (listener) => {
+      telemetryListeners.add(listener);
+      return () => telemetryListeners.delete(listener);
     },
     record,
     request: async <M extends HostMethod>(
