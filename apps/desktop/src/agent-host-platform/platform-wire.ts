@@ -5,7 +5,11 @@ import {
   CliWorkspaceSelectionSchema,
 } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
-import { PERMISSION_DECISIONS, TOOL_RISK_CATEGORIES } from '@brainstrike/assistant-contract';
+import {
+  PERMISSION_DECISIONS,
+  runtimeSubagentSettingsSchema,
+  TOOL_RISK_CATEGORIES,
+} from '@brainstrike/assistant-contract';
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
 import { z } from 'zod';
@@ -137,6 +141,25 @@ const PlatformVectorProfileSchema = z.custom<VectorProfile>((input) => {
     return false;
   }
 }, 'Memory vectors require a supported embedding profile');
+/** BST-1932: the renderer's subagent preferences, captured with each run's input. */
+export const PlatformSubagentsIntentSchema = z.strictObject({
+  delegationEnabled: z.boolean(),
+  disabledPersonaIds: z.array(Id),
+  settings: runtimeSubagentSettingsSchema,
+});
+export type PlatformSubagentsIntent = z.infer<typeof PlatformSubagentsIntentSchema>;
+/** A resolved persona crossing from Main's persona owner to the host. */
+const PlatformPersonaSchema = z.strictObject({
+  allowedToolIds: z.array(Id),
+  description: z.string(),
+  id: Id,
+  instructions: z.string(),
+  label: z.string(),
+  maxSteps: z.number().int().positive(),
+  mode: z.enum(['read-only', 'worker']).optional(),
+  model: z.strictObject({ modelId: Id, provider: Id }).optional(),
+  source: z.enum(['built-in', 'user']).optional(),
+});
 /** Existing UI preference owners supply only non-secret intent; roots remain Main-owned. */
 export const PlatformClientConfigurationSchema = z.strictObject({
   agentLoop: z
@@ -158,6 +181,7 @@ export const PlatformClientConfigurationSchema = z.strictObject({
       masterEnabled: z.boolean(),
     })
     .optional(),
+  subagents: PlatformSubagentsIntentSchema.optional(),
   workspaceContext: PlatformWorkspaceContextSchema.optional(),
   workspaceInstructionsPreference: z.strictObject({
     masterEnabled: z.boolean(),
@@ -201,8 +225,16 @@ export const PlatformNativeRuntimeSchema = z.strictObject({
   workspaceRoots: CliWorkspaceRootsSchema,
 });
 export const PlatformSelectionSchema = z.strictObject({
+  /** The host-supplied context a delegated child receives beside its persona instructions. */
+  childSystem: z.string().optional(),
   configuration: PlatformModelConfigurationSchema,
   contextWindow: z.number().int().positive(),
+  delegation: z
+    .strictObject({
+      personas: z.array(PlatformPersonaSchema),
+      settings: runtimeSubagentSettingsSchema,
+    })
+    .optional(),
   durableConfiguration: z.record(z.string(), z.json()),
   inputTokenLimit: z.number().int().positive(),
   maxSteps: z.number().int().positive(),

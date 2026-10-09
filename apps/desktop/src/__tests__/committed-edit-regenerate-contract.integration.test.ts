@@ -31,7 +31,10 @@ import { scriptedModel } from '@brainstrike/agent-host/test-fixtures/scripted-mo
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { CommittedAssistantLogStore } from '@brainstrike/assistant-ui';
 import { afterEach, expect, test } from 'vitest';
-import { createCommittedHostConversation } from '../renderer/committed-host-conversation';
+import {
+  committedConversationIdentity,
+  createCommittedHostConversation,
+} from '../renderer/committed-host-conversation';
 
 /** The fixture's recording model: it keeps every request's prompt. */
 type RecordingModel = ReturnType<typeof scriptedModel>;
@@ -195,13 +198,7 @@ test('the desktop committed conversation offers Regenerate and Edit through the 
 /** A fresh client fold of exactly these committed rows, with the production identities. */
 function freshFold(rows: readonly HostLogRow[], threadId: string) {
   const store = new CommittedAssistantLogStore({
-    identifyRun: (row) => {
-      const runId = row.event['runId'];
-      if (typeof runId !== 'string') {
-        throw new Error('Committed conversation has no run identity');
-      }
-      return committedRunIdentity(rows, runId);
-    },
+    identifyRun: (row) => committedConversationIdentity(rows, row),
     source: {
       getSnapshot: () => ({ connected: true, error: undefined, rows }),
       subscribe: () => () => undefined,
