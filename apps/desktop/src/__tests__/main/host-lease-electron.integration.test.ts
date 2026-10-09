@@ -359,6 +359,19 @@ describe('real Electron host lease acquisition', () => {
     const additional = await attachHost(attachment.record);
     await additional.close();
   });
+  for (const kernel of ['plain', 'agent'] as const) {
+    it(`closes the ${kernel} app host and releases its Root once live Main lets its lifetime channel go`, async () => {
+      const root = join(directory, `lifetime-${kernel}`);
+      const app = startApp(root, undefined, kernel === 'agent' ? agentPlatform : undefined);
+      const record = await app.attached;
+      expect(app.ownsHost()).toBe(true);
+      app.process.stdin.write('release-lifetime\n');
+      await waitGone(record.pid, record.start);
+      expect(RootLock.inspect(root)?.owner.released).toBe(true);
+      expect(app.process.exitCode).toBeNull();
+      await app.close();
+    });
+  }
   it('releases an app-owned host after actual Electron parent death with a CLI still attached', async () => {
     const root = join(directory, 'parent-death');
     const app = startApp(root);
