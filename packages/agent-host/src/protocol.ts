@@ -204,6 +204,13 @@ export const HostChildOriginSchema = z.strictObject({
   parentRunId: Id,
   parentThreadId: Id,
   persona: Id,
+  /**
+   * The persona as it was admitted: what the child's toolbar names, never the
+   * current persona list. Children committed before it carry none.
+   */
+  profile: z
+    .strictObject({ label: z.string().min(1), mode: z.enum(['read-only', 'worker']) })
+    .optional(),
   toolCallId: Id,
   turnId: Id,
 });
