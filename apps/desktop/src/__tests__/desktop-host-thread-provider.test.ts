@@ -66,7 +66,7 @@ test('deletion recognizes a Core thread committed after the visible catalog was 
     .mockResolvedValueOnce({ threads: [{ threadId: firstThread }] })
     .mockResolvedValueOnce({ rows: richRows })
     .mockResolvedValueOnce({ threads: [{ threadId: firstThread }, { threadId: laterThread }] })
-    .mockResolvedValueOnce({ deleted: true });
+    .mockResolvedValueOnce({ deleted: true, threadIds: [laterThread] });
   await capability.listThreads(WORKSPACE_MEMORY_RESOURCE_ID);
   expect(await capability.deleteThread(laterThread)).toBe(true);
   expect(request).toHaveBeenLastCalledWith('thread/delete', { threadId: laterThread });

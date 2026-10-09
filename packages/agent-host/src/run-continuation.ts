@@ -1,6 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import type { ToolRiskCategory } from '@brainstrike/assistant-contract';
-import { asSchema, type ModelMessage, modelMessageSchema, type ToolContent } from 'ai';
+import {
+  asSchema,
+  type LanguageModel,
+  type ModelMessage,
+  modelMessageSchema,
+  type ToolContent,
+} from 'ai';
 import { z } from 'zod';
 import { ApprovalInputReconstructionError, validateApprovalInput } from './approval-input.js';
 import {
@@ -459,4 +465,63 @@ export async function createHostApprovalResponses(
     }
   }
   return responses;
+}
+
+/** Core's seams for one run's continuation, bound to that run. */
+export interface HostRunContinuationPorts {
+  readonly commitMessages: (messages: readonly ModelMessage[]) => Promise<void>;
+  readonly dispatch: Dispatch;
+  readonly finish: (
+    outcome: Extract<HostEvent, { type: 'run.finished' }>['outcome'],
+    detail?: string
+  ) => Promise<void>;
+  readonly loop: (model: LanguageModel) => Promise<void>;
+  readonly openRun: () => Promise<unknown>;
+  readonly platform: HostPlatform;
+  readonly startNextRun: (params: HostParams<'run/start'>) => Promise<boolean>;
+}
+
+/**
+ * Continue a run once every decision it waits on is answered: commit the
+ * approved calls' results, then start an approved plan's run, finish at the
+ * step limit, or loop again.
+ */
+export async function continueHostRun(run: Run, ports: HostRunContinuationPorts): Promise<void> {
+  if (run.terminal) {
+    return;
+  }
+  if (run.stopped) {
+    await ports.finish('stopped');
+    return;
+  }
+  if ([...run.approvals.values()].some((approval) => !hasHostInteractionResponse(approval))) {
+    return;
+  }
+  try {
+    const admission = await ensureHostRunAdmission(ports.platform, run);
+    await ports.openRun();
+    // The SDK collects approvals from one final tool message, preserving parallel calls.
+    const responses = await createHostApprovalResponses(run, ports.platform, ports.dispatch);
+    await ports.commitMessages(responses.length > 0 ? [{ content: responses, role: 'tool' }] : []);
+    const plan = approvedHostPlan(run);
+    if (plan) {
+      await ports.finish('completed');
+      await ports.startNextRun(approvedHostPlanRunParams(run, plan));
+      return;
+    }
+    if (run.steps >= admission.snapshot.maxSteps) {
+      await ports.commitMessages(
+        await finishApprovedHostResults(run, ports.platform, ports.dispatch)
+      );
+      await ports.finish('completed');
+      return;
+    }
+    await ports.loop(admission.model);
+  } catch (cause) {
+    if (run.completion) {
+      throw cause;
+    }
+    const failed = hostContinuationFailure(run, cause);
+    await ports.finish(failed.outcome, failed.detail);
+  }
 }
