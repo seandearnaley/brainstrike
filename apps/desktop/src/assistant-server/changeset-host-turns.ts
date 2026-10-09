@@ -13,6 +13,12 @@
  * - while it runs, start against the live work-tree, without attribution;
  * - a missing or failed capture fails the whole view, never part of it.
  *
+ * A `run-range` changeset with no TO run is what a rewind to before a message
+ * would restore (`thread/rewind/preview` names its `fromRunId`): each root's
+ * restore point against the live work-tree, without attribution. Restore
+ * points follow Core's rule: the FROM run's turn start, and for a root first
+ * seen in a later run (in log order), its first turn start after that.
+ *
  * A thread's log is folded incrementally: each read asks only for rows after
  * the last folded `seq`, and folding skips any row at or below it, so a live
  * refresh reads only new rows and concurrent reads fold each row once. No
@@ -56,6 +62,11 @@ export interface HostThreadTurns {
   readonly knows: (threadId: string) => boolean;
   /** Ask the host whether it owns the thread, remembering every thread it lists. */
   readonly owns: (threadId: string) => Promise<boolean>;
+  /** A rewind's restore points from `fromRunId` against the live work-tree. */
+  readonly rangeTargetsOf: (
+    threadId: string,
+    fromRunId: string
+  ) => Promise<GitResult<ResolvedTurnTargets>>;
   /** A host run's diff targets, from its thread's committed log. */
   readonly targetsOf: (threadId: string, runId: string) => Promise<GitResult<ResolvedTurnTargets>>;
 }
@@ -171,9 +182,52 @@ function targetsOfHostRun(
   };
 }
 
+/** Each root's restore point from `fromRunId` on, against the live work-tree. */
+function rangeTargetsOfHostThread(
+  threadId: string,
+  fromRunId: string,
+  thread: FoldedHostThread
+): GitResult<ResolvedTurnTargets> {
+  const turns = [...thread.runs.entries()];
+  const from = turns.findIndex(([runId]) => runId === fromRunId);
+  const start = turns[from]?.[1].start;
+  if (!start) {
+    return snapshotMissingError(
+      `run "${fromRunId}" in host thread "${threadId}" recorded no turn-start snapshot`
+    );
+  }
+  const targets = new Map<string, RootDiffTarget>();
+  for (const [, turn] of turns.slice(from)) {
+    if (!turn.start) {
+      continue;
+    }
+    const failed = failedCapture(turn.start);
+    if (failed) {
+      return failed;
+    }
+    for (const { commitOid, rootId, rootPath } of turn.start.roots) {
+      if (!targets.has(rootId)) {
+        targets.set(rootId, { fromOid: commitOid, rootId, rootPath, to: { worktree: true } });
+      }
+    }
+  }
+  return { ok: true, value: { attribution: null, targets: [...targets.values()] } };
+}
+
 export function createHostThreadTurns(source: HostThreadTurnsSource): HostThreadTurns {
   const owned = new Set<string>();
   const threads = new Map<string, FoldedHostThread>();
+  const folded = async (threadId: string): Promise<FoldedHostThread> => {
+    let thread = threads.get(threadId);
+    if (!thread) {
+      thread = { runs: new Map(), seq: 0 };
+      threads.set(threadId, thread);
+    }
+    for (const row of await source.readRows(threadId, thread.seq)) {
+      foldRow(thread, row);
+    }
+    return thread;
+  };
   return {
     knows: (threadId) => owned.has(threadId),
     owns: async (threadId) => {
@@ -182,16 +236,9 @@ export function createHostThreadTurns(source: HostThreadTurnsSource): HostThread
       }
       return owned.has(threadId);
     },
-    targetsOf: async (threadId, runId) => {
-      let thread = threads.get(threadId);
-      if (!thread) {
-        thread = { runs: new Map(), seq: 0 };
-        threads.set(threadId, thread);
-      }
-      for (const row of await source.readRows(threadId, thread.seq)) {
-        foldRow(thread, row);
-      }
-      return targetsOfHostRun(threadId, runId, thread.runs.get(runId));
-    },
+    rangeTargetsOf: async (threadId, fromRunId) =>
+      rangeTargetsOfHostThread(threadId, fromRunId, await folded(threadId)),
+    targetsOf: async (threadId, runId) =>
+      targetsOfHostRun(threadId, runId, (await folded(threadId)).runs.get(runId)),
   };
 }

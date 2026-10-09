@@ -307,6 +307,53 @@ test('a host run is reviewed live against the work-tree, then start against end 
   expect(reads).toEqual(afterFirst);
 });
 
+test('a rewind preview’s host run range is each root’s restore point against the live work-tree', async () => {
+  const paused = await pausedHostRun();
+  await paused.client.request('interaction/respond', {
+    commandId: randomUUID(),
+    decision: 'approve',
+    interactionId: paused.requested.interactionId,
+    runId: paused.runId,
+    threadId: paused.threadId,
+  });
+  await rowsUntil(
+    paused.client,
+    paused.threadId,
+    (row) => row.event.type === 'run.finished' && row.event.runId === paused.runId
+  );
+  // A change after the turn ended: a rewind restores it too, so its view shows it.
+  await writeFile(join(paused.workspace, 'after-the-turn.txt'), 'written later\n');
+  const { reads, resolver } = mainResolver(paused.service, clientSource(paused.client));
+  const changeset = {
+    fromRunId: paused.runId,
+    kind: 'run-range' as const,
+    threadId: paused.threadId,
+  };
+
+  const view = await resolver.resolveView(changeset);
+  expect(view).toEqual({
+    ok: true,
+    value: {
+      changeset,
+      files: expect.arrayContaining([
+        expect.objectContaining({ path: 'permitted.txt', rootId: ROOT_ID, status: 'modified' }),
+        expect.objectContaining({ path: 'after-the-turn.txt', rootId: ROOT_ID, status: 'added' }),
+      ]),
+      totalAdditions: 2,
+      totalDeletions: 1,
+    },
+  });
+  expect(view.ok && view.value.files).toHaveLength(2);
+  const diff = await resolver.fileDiff(ROOT_ID, changeset, 'permitted.txt');
+  expect(diff).toMatchObject({ ok: true, value: { path: 'permitted.txt', status: 'modified' } });
+  const afterFirst = { ...reads };
+
+  // A host range ending at a TO run is refused visibly, never approximated.
+  const bounded = await resolver.resolveView({ ...changeset, toRunId: paused.runId });
+  expect(!bounded.ok && bounded.error).toMatch(/^run-range-unsupported: /);
+  expect(reads).toEqual(afterFirst);
+});
+
 test('a run resolved before its turn start is committed resolves once it is', async () => {
   const gate = Promise.withResolvers<void>();
   const started = await startedHostRun({ startGate: gate.promise });
