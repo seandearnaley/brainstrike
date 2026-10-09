@@ -257,15 +257,21 @@ export function useChangeset(
       setError(result.ok ? null : result.error);
     }
     return result;
-  }, [bridge, gitInvalidationNonce, liveRefreshNonce, rewindGeneration, rootId, stableChangeset]);
+  }, [bridge, rootId, stableChangeset]);
 
   const refresh = useCallback(async (): Promise<void> => {
     await loadView();
   }, [loadView]);
 
+  // The reload signals above re-run the LOAD EFFECT, never `loadView`'s
+  // memoization: the shipped renderer is built with the React Compiler, which
+  // memoizes a callback on what its body reads, so a signal listed only in a
+  // callback's dependencies (as these once were) never re-created it and no
+  // bump ever reloaded the view. An effect's dependency array is kept as
+  // written.
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+  }, [refresh, gitInvalidationNonce, liveRefreshNonce, rewindGeneration]);
 
   const fileDiff = useCallback(
     async (path: string, entryRootId?: string | null): Promise<GitResult<StructuredFileDiff>> => {
