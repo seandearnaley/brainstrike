@@ -153,7 +153,7 @@ describe('the meter reads the host memory state the next send would admit', () =
   test('a ready read fills the segment, and a not-ready read names why the send is refused', async () => {
     const { client, request } = hostClient(ACTIVE);
     const ready = renderHook(() =>
-      useHostMemorySegment({ blocked: false, client, readRequest, source: undefined })
+      useHostMemorySegment({ blocked: false, catalog: '', client, readRequest, source: undefined })
     );
     expect(ready.result.current).toEqual({ omSegment: { kind: 'loading' } });
     await waitFor(() => expect(ready.result.current.omSegment).toMatchObject({ kind: 'stats' }));
@@ -162,6 +162,7 @@ describe('the meter reads the host memory state the next send would admit', () =
     const notReady = renderHook(() =>
       useHostMemorySegment({
         blocked: false,
+        catalog: '',
         client: refused.client,
         readRequest,
         source: undefined,
@@ -178,7 +179,13 @@ describe('the meter reads the host memory state the next send would admit', () =
     const { client, request } = hostClient();
     const buildRequest = vi.fn(readRequest);
     const { result } = renderHook(() =>
-      useHostMemorySegment({ blocked: true, client, readRequest: buildRequest, source: undefined })
+      useHostMemorySegment({
+        blocked: true,
+        catalog: '',
+        client,
+        readRequest: buildRequest,
+        source: undefined,
+      })
     );
     expect(result.current).toEqual({});
     expect(buildRequest).not.toHaveBeenCalled();
@@ -188,7 +195,9 @@ describe('the meter reads the host memory state the next send would admit', () =
   test('a committed memory call or run end re-reads; a streamed chunk does not', async () => {
     const { client, request } = hostClient(ACTIVE, ACTIVE, ACTIVE);
     const source = new RowSource();
-    renderHook(() => useHostMemorySegment({ blocked: false, client, readRequest, source }));
+    renderHook(() =>
+      useHostMemorySegment({ blocked: false, catalog: '', client, readRequest, source })
+    );
     await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
     act(() => source.commit(chunk));
     act(() => source.commit(observerCall));
@@ -202,7 +211,13 @@ describe('the meter reads the host memory state the next send would admit', () =
     // The thread view's request callback changes identity on every render.
     const { rerender, result } = renderHook(
       ({ build }: { build: () => HostParams<'thread/memory/read'> }) =>
-        useHostMemorySegment({ blocked: false, client, readRequest: build, source: undefined }),
+        useHostMemorySegment({
+          blocked: false,
+          catalog: '',
+          client,
+          readRequest: build,
+          source: undefined,
+        }),
       { initialProps: { build: () => ({ ...REQUEST }) } }
     );
     await waitFor(() => expect(result.current.omSegment).toMatchObject({ kind: 'stats' }));
@@ -212,12 +227,38 @@ describe('the meter reads the host memory state the next send would admit', () =
     expect(request).toHaveBeenCalledTimes(1);
   });
 
+  test('enabling the selected model re-reads the same request, so its gate clears', async () => {
+    const disabled: MemoryRead = {
+      admission: { ready: false, reason: 'The selected catalog model is disabled' },
+    };
+    const { client, request } = hostClient(disabled, ACTIVE);
+    const { rerender, result } = renderHook(
+      ({ catalog }: { catalog: string }) =>
+        useHostMemorySegment({ blocked: false, catalog, client, readRequest, source: undefined }),
+      { initialProps: { catalog: 'openrouter::other-model' } }
+    );
+    await waitFor(() =>
+      expect(result.current.admissionReason).toBe('The selected catalog model is disabled')
+    );
+    // The catalog admission reads gained the selected model; the request is unchanged.
+    rerender({ catalog: 'openrouter::other-model\nopenai::gpt-6-sol' });
+    await waitFor(() => expect(result.current.omSegment).toMatchObject({ kind: 'stats' }));
+    expect(result.current.admissionReason).toBeUndefined();
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
   test('a new request or a memory-settings change re-reads', async () => {
     const { client, request } = hostClient(ACTIVE, ACTIVE, ACTIVE);
     const planned = { ...REQUEST, planMode: true as const };
     const { rerender, result } = renderHook(
       ({ build }: { build: () => HostParams<'thread/memory/read'> }) =>
-        useHostMemorySegment({ blocked: false, client, readRequest: build, source: undefined }),
+        useHostMemorySegment({
+          blocked: false,
+          catalog: '',
+          client,
+          readRequest: build,
+          source: undefined,
+        }),
       { initialProps: { build: readRequest } }
     );
     await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
@@ -245,7 +286,7 @@ describe('the meter reads the host memory state the next send would admit', () =
     const client = memoryClient(request);
     const source = new RowSource();
     const { result } = renderHook(() =>
-      useHostMemorySegment({ blocked: false, client, readRequest, source })
+      useHostMemorySegment({ blocked: false, catalog: '', client, readRequest, source })
     );
     act(() => source.commit(finished));
     await waitFor(() =>

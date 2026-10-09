@@ -155,7 +155,7 @@ function HostThread({
   // ADR-0019: the composer's model is the host thread's selection.
   const selection = useHostThreadSelection(client, threadId);
   const readSelectionFolderId = useCallback(() => explorer.getState().currentFolderId, [explorer]);
-  const { readConfiguration, readModelId, readPlanMode, ...presentation } =
+  const { catalogKey, readConfiguration, readModelId, readPlanMode, ...presentation } =
     useDesktopHostPresentation(threadId, selection, readSelectionFolderId, providerReadErrors);
   const configuration = useRef(readConfiguration);
   const modelId = useRef(readModelId);
@@ -220,6 +220,7 @@ function HostThread({
   );
   const memory = useHostMemorySegment({
     blocked: presentation.isComposerDisabled === true,
+    catalog: catalogKey,
     client,
     readRequest: readMemoryRequest,
     source: conversation?.source,

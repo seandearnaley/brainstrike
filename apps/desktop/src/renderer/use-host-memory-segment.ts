@@ -105,9 +105,11 @@ class HostMemoryReads {
   read(
     client: Pick<HostClient, 'request'>,
     request: HostParams<'thread/memory/read'> | undefined,
+    catalog: string,
     always: boolean
   ): void {
-    const key = request === undefined ? undefined : JSON.stringify(request);
+    // Admission also reads the enabled catalog, which the request does not carry.
+    const key = request === undefined ? undefined : JSON.stringify([request, catalog]);
     if (!always && key === this.#answered) {
       return;
     }
@@ -150,26 +152,32 @@ class HostMemoryReads {
  * Reads `thread/memory/read` with the request the next `run/start` would send:
  * when the thread opens, when the request it builds changes (model,
  * configuration, plan mode; compared by value, since the thread view's
- * callback changes identity on every render), when the memory settings
- * change, and after each committed memory call or run end. It never polls.
+ * callback changes identity on every render), when the enabled catalog that
+ * admission reads changes, when the memory settings change, and after each
+ * committed memory call or run end. It never polls.
  * While another notice already gates the send, the request cannot be built,
  * so nothing is read.
  */
 export function useHostMemorySegment(options: {
   readonly blocked: boolean;
+  /**
+   * The enabled catalog models admission reads, which the request does not
+   * carry: enabling the selected model must clear its gate.
+   */
+  readonly catalog: string;
   readonly client: Pick<HostClient, 'request'>;
   readonly readRequest: () => HostParams<'thread/memory/read'>;
   readonly source: HostMemoryRowSource | undefined;
 }): HostMemorySegment {
-  const { blocked, client, readRequest, source } = options;
+  const { blocked, catalog, client, readRequest, source } = options;
   // An answer that arrives after unmount publishes to a store nothing reads.
   const [reads] = useState(() => new HostMemoryReads());
   const segment = useSyncExternalStore(reads.subscribe, reads.getSnapshot);
   const read = useCallback(
     (always: boolean): void => {
-      reads.read(client, blocked ? undefined : readRequest(), always);
+      reads.read(client, blocked ? undefined : readRequest(), catalog, always);
     },
-    [blocked, client, readRequest, reads]
+    [blocked, catalog, client, readRequest, reads]
   );
   // The thread opened, or the request or its gate may have changed.
   useEffect(() => {

@@ -196,6 +196,29 @@ describe("ADR-0019: the host composer's model is the thread's run selection", ()
     );
   });
 
+  test('a pick made while a notice gates the send is saved once the notice clears', async () => {
+    // The picked model's catalog row is not enabled yet: the provider notice gates.
+    catalog.current = { error: null, loading: false, rows: [] };
+    const host = { selection: null, set: vi.fn(async () => undefined) };
+    const { rerender, result } = renderHook(() => present(undefined, host));
+    act(() => result.current.onModelChange?.(compositeB));
+    expect(result.current.disabledReason).toBe('Enable at least one model for OpenAI to continue.');
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(host.set).not.toHaveBeenCalled();
+    // Settings enables the row: the notice clears and the same pick is saved.
+    catalog.current = {
+      error: null,
+      loading: false,
+      rows: [{ id: modelB.id, providerId: 'openai' }],
+    };
+    rerender();
+    await waitFor(() => expect(host.set).toHaveBeenCalledTimes(1));
+    expect(host.set).toHaveBeenCalledWith(compositeB, expect.anything());
+    await waitFor(() => expect(result.current.disabledReason).toBeUndefined());
+  });
+
   test('a pick the host refuses gates the send with the reason', async () => {
     const host = {
       selection: { modelId: compositeA },
