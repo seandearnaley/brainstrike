@@ -27,7 +27,14 @@ async function askForNetwork(
   await window.getByTestId('permission-policy-execute').selectOption('ask');
   modelProvider.setScript(({ requestBody, toolNames }) =>
     (requestBody as { stream?: unknown }).stream === true && toolNames.length > 0
-      ? { finalText: FINAL, toolCallStages: Array.from({ length: calls }, () => [CALL]) }
+      ? {
+          finalText: FINAL,
+          // Hosted discovery defers run_python: the model loads it first.
+          toolCallStages: [
+            [{ arguments: { toolName: CALL.name }, name: 'load_tool' }],
+            ...Array.from({ length: calls }, () => [CALL]),
+          ],
+        }
       : { finalText: 'Network consent check' }
   );
   await ensureAssistantShellVisible(window);

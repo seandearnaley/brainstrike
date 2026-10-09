@@ -74,8 +74,13 @@ test('a host run’s content search runs in the agent host, reading only the ind
         .getByRole('tab', { selected: true })
         .getAttribute('id')) ?? '';
     const threadId = tabId.replace('assistant-thread-tab-', '');
+    // The reply streams before its run commits run.finished.
+    await expect
+      .poll(async () => (await readCommittedRuns(electron.getUserDataDir(), threadId))[0]?.status, {
+        timeout: 30_000,
+      })
+      .toBe('completed');
     const [run] = await readCommittedRuns(electron.getUserDataDir(), threadId);
-    expect(run?.status).toBe('completed');
     expect(run?.results).toHaveLength(1);
     // The host's live ripgrep pass found the on-disk marker.
     expect(run?.results[0]?.output).toMatchObject({
