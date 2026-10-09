@@ -218,13 +218,7 @@ import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { VECTOR_PREFERENCES_STORAGE_KEY } from './platform/vector-preferences-storage-key';
 import { registerPrivilegedSchemes } from './privileged-schemes';
-import {
-  createDesktopSettingsSecrets,
-  desktopCredentialStoreSelection,
-  desktopLegacySecretsPending,
-  importDesktopLegacySecrets,
-  installDesktopLegacyImporter,
-} from './secrets';
+import { createDesktopSettingsSecrets, desktopCredentialStoreSelection } from './secrets';
 import { setupSecurity } from './setup-security';
 import { installIndexCallerRead, openIndexQuery } from './sqlite-query-host-manager';
 import type { DesktopSettingsStoreSchema } from './store-schema';
@@ -1015,20 +1009,6 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
     }
   },
 });
-function reportDesktopLegacyImport(attempt: ReturnType<typeof importDesktopLegacySecrets>): void {
-  attempt.then(
-    (imported) => {
-      if (imported.migrated > 0 || imported.alreadyPresent > 0) {
-        logger.info('Imported legacy provider secrets into the credential store', imported);
-      }
-    },
-    (error: unknown) => {
-      logger.error('Legacy provider secrets could not be imported; the legacy store is kept', {
-        error: serializeDesktopError(error),
-      });
-    }
-  );
-}
 function reportNativeIndexActivationError(message: string, error: unknown): void {
   reportNativeIndexFailure(message, error, isDesktopShuttingDown(), logger);
 }
@@ -1037,8 +1017,6 @@ const nativeIndexActivation = createNativeIndexActivation({
   agentHostPlatform: {
     onChildReady: (child) => {
       agentHostPrivateClients.attach(child);
-      // A host launched while retired entries remained waits to hear about them.
-      reportDesktopLegacyImport(importDesktopLegacySecrets({ afterHostLaunch: true }));
     },
     platform: () => {
       const ledger = createWorktreeLedger(getDatabase);
@@ -1108,11 +1086,8 @@ const nativeIndexActivation = createNativeIndexActivation({
       'Agent host platform',
       'agent-host-platform-entry.js'
     ),
-    // The host owns the profile store Main reads. While the retired safeStorage
-    // store still holds entries, the host holds credential use until Main's
-    // import over the private client settles.
+    // The host owns the profile store Main reads.
     platformOptions: async () => {
-      const legacyImportPending = await desktopLegacySecretsPending();
       // An isolated E2E launch's egress boundary may stand in for the Codex
       // sign-in issuer on loopback; the host refuses any other origin.
       const e2eCodexIssuer = isElectronE2ETestMode()
@@ -1129,7 +1104,6 @@ const nativeIndexActivation = createNativeIndexActivation({
         ...(desktopEnvLoadResult.failures.length > 0
           ? { envFileFailures: [...desktopEnvLoadResult.failures] }
           : {}),
-        ...(legacyImportPending ? { legacyImportPending: true as const } : {}),
         ...(e2eCodexIssuer ? { openAiCodexIssuer: e2eCodexIssuer } : {}),
       };
     },
@@ -1158,8 +1132,6 @@ const agentHostMainClient = createAgentHostMainClient(
     }
   }
 );
-// Only Main can decrypt the retired safeStorage store; the host writes it.
-installDesktopLegacyImporter((input) => agentHostMainClient.request('auth/import-legacy', input));
 // The host owns hook trust. Main imports the retired renderer approvals once,
 // and no visible client attaches, so no host run is admitted, before it settles.
 const desktopHookTrust = createDesktopHookTrust({
@@ -1522,10 +1494,6 @@ if (singleInstanceLockAcquired) {
     registerShutdownSignalHandlers();
     try {
       emitBootMeasurementMark('app-ready', app.isPackaged);
-      // One-time import of the retired safeStorage entries, decrypted here and
-      // written by the host once it is ready. Credential use in Main and the
-      // host waits for it; a failure keeps the legacy copy and reports itself.
-      reportDesktopLegacyImport(importDesktopLegacySecrets());
       // Validated up front (before assistant-server startup) so a malformed
       // value fails loudly and clearly here, instead of being caught by the
       // assistant-server try/catch below and mislabeled as an assistant
