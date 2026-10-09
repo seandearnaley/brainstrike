@@ -96,6 +96,7 @@ function harness(
     mcp: createDesktopMcpPlatformCapabilities(new RemoteMcpRuntime()),
     ...(closeRootCapabilities ? { closeRootCapabilities } : {}),
     readConfiguration,
+    readLegacyMemory: async () => ({ resource: null, resourceObservations: false }),
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
     ...(hostTools ? { hostTools } : {}),
     ...(localEmbedding ? { localEmbedding } : {}),
