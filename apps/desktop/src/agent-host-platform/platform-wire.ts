@@ -271,7 +271,21 @@ export const PlatformLocalGenerationSchema = z.strictObject({
       topP: z.number().exactOptional(),
     })
     .exactOptional(),
+  /** Correlates the generation's `platform/llm/progress` notifications. */
+  requestId: z.uuid(),
   threadId: Id,
+});
+/** One cumulative progress snapshot of a borrowed local generation or warmup. */
+export const PlatformLocalProgressSchema = z.strictObject({
+  progress: z.strictObject({
+    file: z.string().exactOptional(),
+    kind: z.enum(['loading', 'reasoning', 'stage', 'text']),
+    message: z.string().exactOptional(),
+    progress: z.number().exactOptional(),
+    reasoningText: z.string().exactOptional(),
+    text: z.string().exactOptional(),
+  }),
+  requestId: z.uuid(),
 });
 export const PlatformLocalGenerationResultSchema = z.strictObject({
   finishReason: z.enum(['stop', 'length', 'tool_calls']),
@@ -284,7 +298,11 @@ export const PlatformLocalGenerationResultSchema = z.strictObject({
     totalTokens: z.number().nonnegative(),
   }),
 });
-export const PlatformLocalWarmupSchema = z.strictObject({ modelId: Id, threadId: Id });
+export const PlatformLocalWarmupSchema = z.strictObject({
+  modelId: Id,
+  requestId: z.uuid(),
+  threadId: Id,
+});
 export const PlatformLocalEmbeddingQuerySchema = z.strictObject({
   query: z.string(),
   threadId: Id,

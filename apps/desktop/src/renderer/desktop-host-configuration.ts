@@ -13,7 +13,11 @@ import {
   useSkillsPreferencesStore,
 } from '@brainstrike/app-state/stores/skills-preferences-store';
 import { useWorkspaceInstructionsPreferencesStore } from '@brainstrike/app-state/stores/workspace-instructions-preferences-store';
-import { DESKTOP_NATIVE_TOOL_IDS, isSupportedProvider } from '@brainstrike/assistant-contract';
+import {
+  DESKTOP_NATIVE_TOOL_IDS,
+  isSupportedProvider,
+  LOCAL_DESKTOP_NATIVE_TOOL_IDS,
+} from '@brainstrike/assistant-contract';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
 import {
@@ -70,9 +74,12 @@ export function readDesktopHostConfiguration(
     useWorkspaceContextCurationStore.getState().contextSnapshot,
     selectionFolderId
   );
+  // The built-in local model gets its own small tool surface, as the legacy composer offers it.
+  const offeredNativeToolIds: readonly string[] =
+    provider === 'local' ? LOCAL_DESKTOP_NATIVE_TOOL_IDS : DESKTOP_NATIVE_TOOL_IDS;
   return captureDesktopHostIntent({
     agentLoop: projection?.agentLoop ?? buildAgentLoopSettings(providerSettings[provider]),
-    enabledNativeToolIds: DESKTOP_NATIVE_TOOL_IDS.filter((id) =>
+    enabledNativeToolIds: offeredNativeToolIds.filter((id) =>
       useNativeToolPreferencesStore.getState().isToolEnabled(id)
     ),
     memoryOptions: buildAssistantMemoryOptions(providerSettings[provider]),

@@ -55,6 +55,12 @@ export interface ProductionHostRunConfiguration {
   readonly durableConfiguration: HostRunSnapshot['configuration'];
   /** The run's lifecycle hooks, when the composition loaded any. */
   readonly hooks?: HostRunHooks;
+  /**
+   * The admitted thread's borrowed hidden-renderer inference for the built-in
+   * `local` provider (ADR-0007: models never load in a host process). The CLI
+   * has none and refuses that provider before admission.
+   */
+  readonly localLlmHostClient?: LocalLlmHostClient;
   readonly maxSteps: number;
   readonly memory: Omit<
     StateStoreHostMemoryOptions,
@@ -82,12 +88,6 @@ export interface ProductionHostPlatformOptions {
   close(): Promise<void>;
   /** Purge process-local caches of a deleted thread. */
   readonly forgetThread?: HostPlatform['forgetThread'];
-  /**
-   * The launching desktop's hidden-renderer inference for the built-in `local`
-   * provider (ADR-0007: models never load in a host process). The CLI has none
-   * and refuses that provider before admission.
-   */
-  readonly localLlmHostClient?: LocalLlmHostClient;
   /** Desktop platform selections already include the existing qualified MCP executors. */
   readonly mcp?: HostMcpRuntime;
   /** Memory resources whose recall/observation vectors the host's state index stores. */
@@ -143,18 +143,19 @@ function admittedNativeWebSearch(
 
 /** The run's concrete model; a local one loads before admission returns, as the legacy stream did. */
 async function admittedModel(
-  options: Pick<ProductionHostPlatformOptions, 'localLlmHostClient' | 'resolveModel'>,
-  configuration: RuntimeData,
+  options: Pick<ProductionHostPlatformOptions, 'resolveModel'>,
+  selected: Pick<ProductionHostRunConfiguration, 'configuration' | 'localLlmHostClient'>,
   auth: ProviderAuthInput | undefined,
   signal: AbortSignal
 ): Promise<Exclude<LanguageModel, string>> {
+  const { configuration, localLlmHostClient } = selected;
   const localModel = configuration.provider === 'local' ? configuration.model : undefined;
-  if (localModel && options.localLlmHostClient) {
-    await options.localLlmHostClient.warmup(localModel, { signal });
+  if (localModel && localLlmHostClient) {
+    await localLlmHostClient.warmup(localModel, { signal });
   }
   return options.resolveModel
     ? await options.resolveModel(configuration, auth)
-    : rootModel(configuration, auth, options.localLlmHostClient);
+    : rootModel(configuration, auth, localLlmHostClient);
 }
 
 function unavailableMcpServers(
@@ -353,7 +354,7 @@ export async function createProductionHostPlatform(
         const auth = selected.resolveProviderAuth
           ? await selected.resolveProviderAuth(provider)
           : await options.resolveProviderAuth(provider);
-        const model = await admittedModel(options, selected.configuration, auth, request.signal);
+        const model = await admittedModel(options, selected, auth, request.signal);
         request.signal.throwIfAborted();
         acquired = await acquireMcp(request, selected);
         // BST-1932: a delegated child opens its own run on this admission, so
