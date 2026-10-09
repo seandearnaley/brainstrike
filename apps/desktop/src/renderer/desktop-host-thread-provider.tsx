@@ -8,8 +8,10 @@ import { AssistantThreadHostContext } from '@brainstrike/app-shell/assistant-thr
 import {
   BudgetGuardrailProvider,
   CommittedAssistantConversation,
+  DebugBundleProvider,
   EditCheckpointProvider,
 } from '@brainstrike/assistant-ui';
+import { useOptionalPGliteDatabase } from '@brainstrike/db/react';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell';
 import {
   type ReactElement,
@@ -17,6 +19,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   useSyncExternalStore,
@@ -31,6 +34,7 @@ import { CommittedWorkspaceControls } from './committed-workspace-controls';
 import { readDesktopHostModel } from './desktop-host-configuration';
 import { createWindowThreadCapability } from './desktop-host-thread-capability';
 import { HostApprovalStrip } from './host-approval-strip';
+import { createHostDebugBundleBinding } from './host-thread-debug';
 import type { HostThreadLedger } from './host-thread-ledger';
 import type { HostThreadRuns } from './host-thread-runs';
 import {
@@ -137,6 +141,13 @@ function HostThread({
   const cumulativeUsage = useHostThreadUsage(ledger, threadId);
   // The composer's last-24h budget burn-down and send gate, host usage included.
   const budgetGuardrail = useBudgetGuardrailBinding();
+  // Debug pack and Copy debug bundle, built from the host's committed log on
+  // request; correlated diagnostics come from the renderer's diagnostic store.
+  const diagnostics = useOptionalPGliteDatabase();
+  const debugBundle = useMemo(
+    () => (diagnostics ? createHostDebugBundleBinding(client, threadId, diagnostics) : null),
+    [client, diagnostics, threadId]
+  );
   // Steer (BST-588): the queue holds the message at its front while Core ends
   // the run after its step in flight; the message then starts the next turn.
   const [steeredRunId, setSteeredRunId] = useState<string>();
@@ -150,21 +161,25 @@ function HostThread({
       <div className="min-h-0 flex-1">
         <CommittedCheckpoints checkpoints={conversation.checkpoints}>
           <BudgetGuardrailProvider value={budgetGuardrail}>
-            <HostChildConversations revision={effects} threadId={threadId}>
-              <CommittedAssistantConversation
-                {...presentation}
-                agentColor={agentColor}
-                approvalStrip={<HostApprovalStrip client={client} tree={conversation.approvals} />}
-                commands={conversation.commands}
-                {...(cumulativeUsage ? { cumulativeUsage } : {})}
-                label={label}
-                onRunningChange={onRunningChange}
-                onSendActiveInput={child ? conversation.sendInput : undefined}
-                onSteerActiveRun={steer}
-                store={conversation.store}
-                workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
-              />
-            </HostChildConversations>
+            <DebugBundleProvider value={debugBundle}>
+              <HostChildConversations revision={effects} threadId={threadId}>
+                <CommittedAssistantConversation
+                  {...presentation}
+                  agentColor={agentColor}
+                  approvalStrip={
+                    <HostApprovalStrip client={client} tree={conversation.approvals} />
+                  }
+                  commands={conversation.commands}
+                  {...(cumulativeUsage ? { cumulativeUsage } : {})}
+                  label={label}
+                  onRunningChange={onRunningChange}
+                  onSendActiveInput={child ? conversation.sendInput : undefined}
+                  onSteerActiveRun={steer}
+                  store={conversation.store}
+                  workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
+                />
+              </HostChildConversations>
+            </DebugBundleProvider>
           </BudgetGuardrailProvider>
         </CommittedCheckpoints>
       </div>
