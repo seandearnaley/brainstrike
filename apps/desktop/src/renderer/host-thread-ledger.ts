@@ -29,7 +29,7 @@ type Tokens = Pick<
 >;
 
 /** Unreported token counts are counted as none, as the legacy usage writer does. */
-function tokensOf(usage: unknown): Tokens {
+export function tokensOf(usage: unknown): Tokens {
   const parsed = CommittedUsageSchema.parse(usage);
   return {
     cacheReadTokens: parsed.inputTokenDetails?.cacheReadTokens ?? 0,
