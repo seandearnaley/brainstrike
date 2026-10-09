@@ -9,6 +9,7 @@ import {
   hostDeliveryPosition,
   reportHostChildWakeFailure,
 } from './core-child-runs.js';
+import { hostMcpTaskOwner } from './core-mcp-owner.js';
 import { readHostThreadMemory } from './core-memory-read.js';
 import { reportRetiredHostOutcomes, retireHostCoreRuns } from './core-retirement.js';
 import {
@@ -171,6 +172,8 @@ export class HostCore {
         core.fold(await readHostRow(store, row));
       }
     }
+    // BST-1930 c3: Core owns its recovered MCP tasks before any run can discover tools.
+    platform.attachMcpTaskOwner?.(hostMcpTaskOwner(core.executionPorts()));
     for (const run of core.runs.values()) {
       const recovery = recoverHostRun(run);
       if (recovery?.kind === 'finish') {
@@ -737,11 +740,8 @@ export class HostCore {
   }
 
   private threadGrants(threadId: string): HostThreadGrants {
-    let grants = this.grants.get(threadId);
-    if (!grants) {
-      grants = { categories: new Set(), tools: new Set() };
-      this.grants.set(threadId, grants);
-    }
+    const grants = this.grants.get(threadId) ?? { categories: new Set(), tools: new Set() };
+    this.grants.set(threadId, grants);
     return grants;
   }
 
