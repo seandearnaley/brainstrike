@@ -1,4 +1,5 @@
 import { readShellOutputStreamPart } from '@brainstrike/assistant-contract/shell-output';
+import { readToolTelemetryOmission } from '@brainstrike/assistant-contract/tool-telemetry';
 import { createContext } from 'react';
 import type { ShellOutputAccumulation } from './shell-output-parts';
 
@@ -24,9 +25,19 @@ export class LiveShellOutputs {
   /**
    * One telemetry chunk. Only a readable shell slice accumulates: MCP progress
    * renders nothing (legacy parity), and a slice that names no tool call, pipe
-   * or text is never attributed to a card.
+   * or text is never attributed to a card. A replay's omission marker for a
+   * call records how much of its earliest output this view will not show.
    */
   accept(chunk: unknown): void {
+    const omission = readToolTelemetryOmission(chunk);
+    if (omission?.toolCallId !== undefined) {
+      const existing = this.outputs[omission.toolCallId] ?? { text: '', truncated: false };
+      this.publish({
+        ...this.outputs,
+        [omission.toolCallId]: { ...existing, omittedBytes: omission.omittedBytes },
+      });
+      return;
+    }
     const slice = readShellOutputStreamPart(chunk);
     if (!slice) {
       return;
@@ -35,6 +46,7 @@ export class LiveShellOutputs {
     this.publish({
       ...this.outputs,
       [slice.toolCallId]: {
+        ...existing,
         text: existing.text + slice.chunk,
         truncated: existing.truncated || slice.truncated === true,
       },

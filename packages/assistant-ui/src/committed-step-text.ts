@@ -1,4 +1,5 @@
 import type { ThreadAssistantMessage } from '@assistant-ui/react';
+import { readToolTelemetryOmission } from '@brainstrike/assistant-contract/tool-telemetry';
 
 type Part = ThreadAssistantMessage['content'][number];
 type ToolPart = Extract<Part, { type: 'tool-call' }>;
@@ -77,6 +78,44 @@ export function liveStreamPart(
       ? { type: 'complete' }
       : (previous?.status ?? { type: 'running' }),
     text: (previous?.text ?? '') + (type.endsWith('-delta') ? delta : ''),
+  };
+}
+
+/**
+ * Where one live telemetry chunk goes in the open step's overlay: its text or
+ * reasoning part, or, when a late view's replay dropped the step's oldest
+ * text, a notice that says so, never silently (ADR-0011 amendment).
+ */
+export function liveOverlayEntry(
+  step: number,
+  chunk: unknown
+): { readonly key: string; readonly part: (prior: Part | undefined) => TextPart } | undefined {
+  const live = asRecord(chunk);
+  const type = live?.['type'];
+  if (!(live && typeof type === 'string')) {
+    return;
+  }
+  const omission = readToolTelemetryOmission(live);
+  if (omission) {
+    // A call's omission belongs to its command's live output, not to the reply.
+    return omission.toolCallId === undefined
+      ? {
+          key: `live:${JSON.stringify([step, 'omitted'])}`,
+          part: () => ({
+            status: { type: 'complete' },
+            text: `Earlier reply text not shown (${Math.ceil(omission.omittedBytes / 1024)} KB)`,
+            type: 'text',
+          }),
+        }
+      : undefined;
+  }
+  if (!MODEL_STREAM_TYPES.has(type)) {
+    return;
+  }
+  const partType = type.startsWith('reasoning') ? 'reasoning' : 'text';
+  return {
+    key: `live:${JSON.stringify([step, partType, live['id'] ?? null])}`,
+    part: (prior) => liveStreamPart(prior, type, live),
   };
 }
 

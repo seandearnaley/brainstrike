@@ -224,7 +224,10 @@ export function bindHostConnection(
       views: (current?.views ?? 0) + 1,
     });
     try {
-      return { rows: await core.read(params.threadId, params.fromSeq) };
+      const rows = await core.read(params.threadId, params.fromSeq);
+      // Taken after the read, in the tick the response is sent: the replay
+      // applies over the rows, and later telemetry follows it (ADR-0011 amendment).
+      return { rows, telemetry: core.liveTelemetry.replay(params.threadId) };
     } catch (cause) {
       unsubscribe(params.threadId);
       throw cause;

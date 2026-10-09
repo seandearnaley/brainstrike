@@ -94,6 +94,31 @@ reply 300 deltas long (2026-10-09, macOS arm64):
   Row count was not what made open slow, so the open-time gap stays open, and
   no lazy decoding was added in its name.
 
+A view that subscribes mid-call or mid-step, such as a running child's tab,
+gets replayed what it missed, as legacy's resumable session did. Core keeps
+this replay in memory and never commits it.
+
+- **What is kept.** Each running tool call's telemetry is kept from its first
+  chunk until its `effect.finished` commits. The open step's text and
+  reasoning are kept from its committed `start-step` until its `model.step`,
+  or a Stop's partial `model.messages`, commits. `run.finished` drops all of
+  the run's streams.
+- **Ordinals.** Every stream numbers its chunks with an `ordinal` from 0. A
+  call's stream is keyed by run and `toolCallId`; a run's text and reasoning
+  share one stream keyed by run.
+- **Delivery.** The `log/subscribe` result carries the thread's replay as
+  `telemetry`, taken after the read in the tick the result is sent. A view
+  applies it after the replayed rows, then applies the live chunks it held
+  meanwhile. It skips any ordinal it has already applied, so views that share
+  a connection see each chunk once.
+- **The bound.** Each stream is held to 512 KiB of chunk JSON
+  (`HOST_TELEMETRY_REPLAY_BYTES`). Past that, the oldest chunks drop, and the
+  replay opens with a `brainstrike.telemetry.omitted` marker giving the
+  omitted bytes and the ordinal where the kept output resumes. A command's live
+  pane shows "Earlier output not shown (N KB)". A reply's live overlay shows
+  "Earlier reply text not shown (N KB)" until the step commits. Output is never
+  dropped silently.
+
 ## Sources
 
 - `docs/agents/assistant-persistence.md:173` (line number at `43daec7fb`): readers
