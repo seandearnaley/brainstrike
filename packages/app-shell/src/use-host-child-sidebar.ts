@@ -79,7 +79,11 @@ function projectHostChildRows(
   snapshot: HostChildSidebarSnapshot
 ): ThreadPanelVisibleRow[] {
   const rows: ThreadPanelVisibleRow[] = [];
-  const append = (parentId: string, parentColor: AgentColor | undefined): void => {
+  const append = (
+    parentId: string,
+    parentColor: AgentColor | undefined,
+    root: Extract<DelegatedSidebarRow, { kind: 'host-child' }>['root']
+  ): void => {
     const parent = expanded.get(parentId);
     if (!parent) {
       return;
@@ -118,17 +122,21 @@ function projectHostChildRows(
         kind: 'host-child',
         parentColor,
         parentId,
+        root,
         unread: snapshot.unread.has(child.threadId),
       };
       rows.push(row);
-      append(id, isAgentColor(child.color) ? child.color : undefined);
+      append(id, isAgentColor(child.color) ? child.color : undefined, root);
     }
   };
   for (const row of base) {
     rows.push(row);
     if (row.kind === 'thread') {
       const color = row.thread.metadata?.color;
-      append(row.id, isAgentColor(color) ? color : undefined);
+      append(row.id, isAgentColor(color) ? color : undefined, {
+        resourceId: row.thread.resourceId,
+        threadId: row.thread.id,
+      });
     }
   }
   return rows;

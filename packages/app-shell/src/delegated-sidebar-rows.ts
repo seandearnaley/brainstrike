@@ -39,6 +39,8 @@ export type DelegatedSidebarRow = {
       readonly kind: 'host-child';
       readonly child: AssistantThreadHostChild;
       readonly parentColor?: AgentColor | undefined;
+      /** The top-level thread the child belongs to: its tab opens in that root's workspace. */
+      readonly root: { readonly resourceId: string; readonly threadId: string };
       readonly unread: boolean;
     }
 );
