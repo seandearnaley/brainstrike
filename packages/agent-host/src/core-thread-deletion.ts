@@ -4,8 +4,9 @@ import {
   joinHostThreadDeletion,
 } from './core-run-lifecycle.js';
 import type { HostRunState } from './core-state.js';
+import type { HostResults } from './protocol.js';
 
-type Deleted = Promise<{ deleted: true }>;
+type Deleted = Promise<HostResults['thread/delete']>;
 
 /** The Core state one thread deletion reads and retires; Core stays its only writer. */
 export interface HostThreadDeletionPorts {
@@ -60,7 +61,7 @@ export function deleteHostThread(threadId: string, ports: HostThreadDeletionPort
       ports.runs.delete(run.id);
       ports.conversationIds.delete(run.id);
     }
-    return { deleted: true };
+    return { deleted: true, threadIds: [...subtree] };
   });
   for (const member of subtree) {
     ports.deletions.set(member, deletion);

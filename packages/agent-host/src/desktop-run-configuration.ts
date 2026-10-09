@@ -1,6 +1,6 @@
-import type { HostEvent } from '@brainstrike/agent-host/protocol';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
+import type { HostEvent } from './protocol.js';
 
 const logger = createLogger('DesktopRunConfiguration');
 

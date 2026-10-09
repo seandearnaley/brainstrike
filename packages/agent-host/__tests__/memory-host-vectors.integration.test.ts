@@ -208,7 +208,10 @@ test('thread deletion erases that thread’s recall vectors from the host state 
   try {
     const { threadId } = await host.run('The capital of France is Paris.');
     expect(host.storedVectors()).toBeGreaterThan(0);
-    expect(await host.client.request('thread/delete', { threadId })).toEqual({ deleted: true });
+    expect(await host.client.request('thread/delete', { threadId })).toEqual({
+      deleted: true,
+      threadIds: [threadId],
+    });
     expect(host.storedVectors()).toBe(0);
   } finally {
     await host.close();
