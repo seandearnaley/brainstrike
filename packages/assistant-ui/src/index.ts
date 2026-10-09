@@ -192,6 +192,7 @@ export {
   useToolResultRenderers,
 } from './use-tool-result-renderers';
 export { PrChip, type WorkspaceBarForge } from './workspace-bar/pr-chip';
+export { SharedFolderChip } from './workspace-bar/shared-folder-chip';
 export {
   WorkspaceBar,
   type WorkspaceBarBaseRefOption,
