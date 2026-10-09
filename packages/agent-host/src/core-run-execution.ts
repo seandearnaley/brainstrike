@@ -17,7 +17,7 @@ import type { HostRunState as Run } from './core-state.js';
 import { healInterruptedRunHistory } from './interrupted-history.js';
 import { jsonValue } from './json-value.js';
 import type { HostMcpInputState } from './mcp-input-state.js';
-import type { HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
+import type { HostPlatform, HostRunAdmission, HostRunOwner, HostTool } from './ports.js';
 import {
   applyProjectionRewrites,
   type HostProjectionRewrites,
@@ -32,6 +32,7 @@ import {
   hostModelStepEvents,
   hostRunToolDecision,
   hostRunTools,
+  hostStepActiveTools,
   prepareHostProviderStep,
 } from './run-admission.js';
 import { hostRunAttemptEvent } from './run-attempts.js';
@@ -65,9 +66,16 @@ export interface HostRunExecutionPorts {
     beforePublish?: (rows: readonly HostLogRow[]) => void,
     referenced?: readonly BlobContent[]
   ): Promise<HostLogRow[]>;
+  /** BST-1932: a child's execution deadline for one leg; none for other runs. */
+  armDeadline(run: Run): ReturnType<typeof setTimeout> | undefined;
   closing(): boolean;
   commitMessages(run: Run, messages: readonly ModelMessage[]): Promise<void>;
   readonly compactions: HostContextCompactions;
+  /**
+   * BST-1932: a persona delegation. Core's child-run manager commits this
+   * effect together with the child thread it starts, and returns its result.
+   */
+  delegate(run: Run, action: HostRunAction, input: unknown): Promise<unknown>;
   dispatch(run: Run, action: HostRunAction, input: unknown): Promise<unknown>;
   finish(
     run: Run,
@@ -107,13 +115,40 @@ export async function executeHostAction(
   }
   run.controller.signal.throwIfAborted();
   await ensureHostRunAdmission(ports.platform, run);
+  const output = registered.delegation
+    ? await ports.delegate(run, action, input)
+    : await executeRegisteredTool(ports, run, action, registered, input, resumeData);
+  const [finished] = await ports.append(run.threadId, [
+    {
+      output: jsonValue(output),
+      runId: run.id,
+      toolCallId: action.toolCallId,
+      type: 'effect.finished',
+    },
+  ]);
+  run.outputs.set(action.toolCallId, jsonValue(output));
+  if (finished?.ts !== undefined) {
+    run.outputCommittedAt.set(action.toolCallId, finished.ts);
+  }
+  return output;
+}
+
+/** Commit the effect's start, then run its registered executor under its run's context. */
+async function executeRegisteredTool(
+  ports: HostRunExecutionPorts,
+  run: Run,
+  action: HostRunAction,
+  registered: HostTool,
+  input: unknown,
+  resumeData: unknown
+): Promise<unknown> {
   await ports.append(run.threadId, [action]);
   run.started.add(action.toolCallId);
   run.effectTools.set(action.toolCallId, action.toolCatalogId ?? action.toolId);
   run.controller.signal.throwIfAborted();
   // The public SDK already validated/transformed this exact admitted input.
   // Revalidating a canonical value can transform it a second time.
-  const output = await registered.execute(input, {
+  return await registered.execute(input, {
     ...(resumeData === undefined ? {} : { resumeData }),
     ...ports.records.context(
       run,
@@ -149,19 +184,6 @@ export async function executeHostAction(
       ]);
     },
   });
-  const [finished] = await ports.append(run.threadId, [
-    {
-      output: jsonValue(output),
-      runId: run.id,
-      toolCallId: action.toolCallId,
-      type: 'effect.finished',
-    },
-  ]);
-  run.outputs.set(action.toolCallId, jsonValue(output));
-  if (finished?.ts !== undefined) {
-    run.outputCommittedAt.set(action.toolCallId, finished.ts);
-  }
-  return output;
 }
 
 async function commitContextEvent(
@@ -267,14 +289,21 @@ export async function runHostSdkLoop(
   // entered the transcript, so only a leg that began with committed steps
   // counts as the model having contributed.
   const resumed = run.steps > 0;
+  // BST-1932: a child's execution deadline bounds each leg, across its attempts.
+  const deadline = ports.armDeadline(run);
   for (let attempt = 1; ; attempt += 1) {
     const ended = await runHostSdkAttempt(ports, run, model, resumed);
     if (ended.checkpointFailure !== undefined) {
+      clearTimeout(deadline);
       throw ended.checkpointFailure;
     }
-    // A stopped, closing or steered run ends here: a steer asked for no further step.
+    // A stopped, closing, steered or timed-out run ends here: none asked for another attempt.
     const record =
-      ended.maxAttempts === undefined || run.stopped || run.steered || ports.closing()
+      ended.maxAttempts === undefined ||
+      run.stopped ||
+      run.steered ||
+      run.deadline !== undefined ||
+      ports.closing()
         ? undefined
         : hostRunAttemptEvent(run, ended.outcome, attempt, ended.maxAttempts);
     // An overflow is re-attempted only over a branch a committed compaction
@@ -289,6 +318,7 @@ export async function runHostSdkLoop(
         continue;
       }
     }
+    clearTimeout(deadline);
     await finishHostSdkLoop(
       run,
       ports.closing(),
@@ -376,12 +406,18 @@ async function runHostSdkAttempt(
         try {
           await owner?.commitHostStep?.();
         } catch (cause) {
+          run.controller.abort(cause);
+          // While the host closes, the run cannot commit its own failure, so the
+          // lost checkpoint must reject close with its original cause.
+          if (ports.closing()) {
+            checkpointFailure = cause;
+            return;
+          }
           // The step is committed; its owner (Memory) failed to take it. That
-          // ends the run as failed with the owner's detail, not a lost
-          // checkpoint, and a non-provider failure is never re-attempted.
+          // ends the run as failed with the owner's detail, and a non-provider
+          // failure is never re-attempted.
           ownerStepFailure = cause;
           outcome.fail(cause);
-          run.controller.abort(cause);
         }
       },
       prepareStep: async ({ messages }) => {
@@ -414,17 +450,13 @@ async function runHostSdkAttempt(
           combineHostSystemContext(memory?.system, compactionNote).system,
           notes
         ).system;
-        // Hosted discovery: a deferred tool is offered only after this run committed its load.
-        const activeTools = await admission.discovery?.activeTools({
-          runId: run.id,
-          threadId: run.threadId,
-        });
-        const surface = activeTools ? { activeTools } : {};
+        const activeTools = await hostStepActiveTools(run, ports.platform);
+        const gated = activeTools ? { activeTools } : {};
         if (!admission.provider) {
           return {
-            ...surface,
             messages: memory?.messages ?? prepared,
             ...(system ? { system } : {}),
+            ...gated,
           };
         }
         const provider = await admission.provider.prepare({
@@ -432,8 +464,10 @@ async function runHostSdkAttempt(
           messages: memory?.messages ?? prepared,
           modelId: run.modelId,
           signal: run.controller.signal,
+          // BST-1932: a child reserves its last step for a tool-free summary.
+          stepNumber: run.steps,
         });
-        return { ...prepareHostProviderStep(provider, system, owner), ...surface };
+        return { ...prepareHostProviderStep(provider, system, owner), ...gated };
       },
       // A committed run/steer ends the run after the step in flight (BST-588).
       stopWhen: [stepCountIs(admission.snapshot.maxSteps - run.steps), () => run.steered],

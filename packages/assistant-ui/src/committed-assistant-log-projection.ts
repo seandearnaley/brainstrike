@@ -22,6 +22,7 @@ import {
 } from '@brainstrike/assistant-contract/context-breakdown';
 import {
   createDeclinedToolCallResult,
+  isCodeExecutionApprovalContext,
   TOOL_CALL_BLOCKED_MESSAGE,
   TOOL_CALL_DECLINED_MESSAGE,
 } from '@brainstrike/assistant-contract/tool-approval';
@@ -323,6 +324,27 @@ function committedToolCatalogId(event: Readonly<Record<string, unknown>>): strin
   return typeof event['toolCatalogId'] === 'string'
     ? event['toolCatalogId']
     : requiredString(event, 'toolId');
+}
+
+/**
+ * What the card reads beside the approval: a question or plan's kind, or a
+ * code-execution approval's host facts (validated by the card before use).
+ */
+function interactionFacts(
+  kind: 'approval' | 'question' | 'plan',
+  executionContext: unknown
+): NonNullable<ToolPart['providerMetadata']>[string] | undefined {
+  if (kind !== 'approval') {
+    return { interactionKind: kind };
+  }
+  // A shape this build does not fully understand falls to the card's
+  // absent-context path (no fact rows, no grants), never a partial render.
+  // The owner has already validated JSON at the public HostLogRow boundary.
+  if (!isCodeExecutionApprovalContext(executionContext)) {
+    return;
+  }
+  const facts: Readonly<Record<string, unknown>> = { executionContext };
+  return facts as NonNullable<ToolPart['providerMetadata']>[string];
 }
 
 /** A permission approval answers with its grant options; a question or plan with text. */
@@ -853,20 +875,21 @@ export class CommittedAssistantLogProjection {
       throw new Error('Committed interaction has an unsupported kind.');
     }
     const risk = isToolRiskCategory(event['risk']) ? event['risk'] : undefined;
+    const facts = interactionFacts(kind, event['executionContext']);
     this.updateTool(run, id, (part) => ({
       ...part,
       approval: {
         id: interactionId,
         ...interactionAnswers(kind, risk),
       },
-      ...(kind === 'approval'
-        ? {}
-        : {
+      ...(facts
+        ? {
             providerMetadata: {
               ...part.providerMetadata,
-              brainstrike: { ...part.providerMetadata?.['brainstrike'], interactionKind: kind },
+              brainstrike: { ...part.providerMetadata?.['brainstrike'], ...facts },
             },
-          }),
+          }
+        : {}),
     }));
     this.view = {
       ...this.view,

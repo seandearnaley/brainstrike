@@ -28,8 +28,13 @@ import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 // step boundary), run attempt records, `mcp.tools.unavailable`, committed with
 // `run.started` for each configured MCP server whose tools the run proceeds
 // without, permission grants answered with an approval (`interaction/respond`
-// grant, `permission.granted`, the request's risk), and plan mode (`run/start`,
-// `run/regenerate` and `run.started` planMode).
+// grant, `permission.granted`, the request's risk), plan mode (`run/start`,
+// `run/regenerate` and `run.started` planMode), and child threads (BST-1932):
+// `thread.started` with a delegation `origin`, the child results a
+// `run.started` delivers, an approval the root's policy answered, and
+// `thread/children` (a thread's direct children). Child additions are optional
+// fields, new variants and a new method, so a v11 reader of a thread without
+// children sees nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -187,6 +192,56 @@ export const McpToolAuthoritySchema = z.discriminatedUnion('kind', [
   }),
 ]);
 export type McpToolAuthority = z.infer<typeof McpToolAuthoritySchema>;
+/**
+ * BST-1932: a child thread's durable invocation identity, ancestry and owner.
+ * The child threadId is the invocation ID; this origin commits in the same
+ * transaction as the parent's delegation effect. `turnId` is the root run
+ * whose user turn admitted the whole subtree.
+ */
+export const HostChildOriginSchema = z.strictObject({
+  background: z.boolean(),
+  depth: z.number().int().positive(),
+  parentRunId: Id,
+  parentThreadId: Id,
+  persona: Id,
+  toolCallId: Id,
+  turnId: Id,
+});
+export type HostChildOrigin = z.infer<typeof HostChildOriginSchema>;
+/** One settled background invocation delivered to its parent (BST-1932). */
+export const HostChildDeliveryEntrySchema = z.strictObject({
+  childRunId: Id,
+  childThreadId: Id,
+  /** A completed run typed into an idle child, not its delegated invocation. */
+  followUp: z.literal(true).optional(),
+  /** What the parent's model reads in place of the dispatch acknowledgement. */
+  outcome: z.string(),
+  parentRunId: Id,
+  state: z.enum(['returned', 'failed', 'cancelled']),
+  toolCallId: Id,
+});
+export type HostChildDeliveryEntry = z.infer<typeof HostChildDeliveryEntrySchema>;
+/**
+ * The durable delivery watermark: these entries reached the parent's model
+ * input on the run that records them, as an automated message that the user
+ * did not write. A wake run's prompt is that message; a user turn carries it
+ * ahead of its own message.
+ */
+export const HostChildDeliverySchema = z.discriminatedUnion('via', [
+  z.strictObject({
+    entries: z.array(HostChildDeliveryEntrySchema).min(1),
+    messageId: Id,
+    turnId: Id,
+    via: z.literal('wake'),
+  }),
+  z.strictObject({
+    entries: z.array(HostChildDeliveryEntrySchema).min(1),
+    ledger: Id,
+    messageId: Id,
+    via: z.literal('next-turn'),
+  }),
+]);
+export type HostChildDelivery = z.infer<typeof HostChildDeliverySchema>;
 /** Credentials and executable capabilities remain process-local. */
 export const HostRunSnapshotSchema = z.strictObject({
   configuration: z.record(z.string(), z.json()),
@@ -212,6 +267,14 @@ const HostLegacyImportSchema = z.union([
 export type HostLegacyImport = z.infer<typeof HostLegacyImportSchema>;
 
 const Provider = { provider: Id };
+
+/**
+ * Host -> client: a UI action only the connected desktop client performs. The
+ * one external opener for every host feature (OAuth sign-in, MCP authorization).
+ */
+export const CLIENT_OPEN_EXTERNAL = 'client/open-external';
+export const ClientOpenExternalParamsSchema = z.strictObject({ url: z.url() });
+export const ClientOpenExternalResultSchema = z.strictObject({ opened: z.literal(true) });
 
 export const HOST_METHOD_SCHEMAS = {
   // auth/* is secret-bearing: process-local, never in HostCommandLedger, the log
@@ -310,6 +373,8 @@ export const HOST_METHOD_SCHEMAS = {
     source: z.literal('user'),
     verdict: RunVerdict,
   }),
+  /** BST-1932: a thread's direct child threads; they are never in `thread/list`. */
+  'thread/children': z.strictObject(Thread),
   /** Destructive Root lifecycle; the existing StateStore intent owns recovery. */
   'thread/delete': z.strictObject(Thread),
   'thread/list': z.strictObject({}),
@@ -409,6 +474,7 @@ export const HostEventSchema = z.union([
     type: z.literal('mcp.tools.unavailable'),
   }),
   z.strictObject({ commandId: Id, type: z.literal('thread.started') }),
+  z.strictObject({ origin: HostChildOriginSchema, type: z.literal('thread.started') }),
   z.strictObject({ ...ThreadPresentation, type: z.literal('thread.updated') }),
   z.strictObject({ snapshot: WorkspaceSnapshotSchema, type: z.literal('workspace.updated') }),
   z.strictObject({
@@ -423,6 +489,8 @@ export const HostEventSchema = z.union([
     ...RunFields,
     /** The user message's images; a regeneration repeats its message's. */
     attachments: Attachments.optional(),
+    /** BST-1932: background child results this run delivers to its model. */
+    delivery: HostChildDeliverySchema.optional(),
     modelId: Id,
     /**
      * The committed message this run's new user message follows (a run ID;
@@ -472,6 +540,13 @@ export const HostEventSchema = z.union([
   z.strictObject({
     type: z.literal('interaction.requested'),
     ...Action,
+    /**
+     * A code-execution approval's host-computed sandbox facts (reach, scratch
+     * folder, reads, timeout), which the tool's arguments cannot carry. Shape:
+     * assistant-contract's CodeExecutionApprovalContext; a consumer validates
+     * it with isCodeExecutionApprovalContext before showing it.
+     */
+    executionContext: z.json().optional(),
     interactionId: Id,
     kind: z.enum(['approval', 'question', 'plan']),
     /** A permission approval's risk category, which its session grant names. */
@@ -480,6 +555,8 @@ export const HostEventSchema = z.union([
   z.strictObject({
     type: z.literal('interaction.responded'),
     ...RunFields,
+    /** BST-1932: the root's live policy, not a person, answered this approval. */
+    by: z.literal('policy').optional(),
     decision: z.enum(['approve', 'deny']),
     interactionId: Id,
   }),
@@ -673,6 +750,18 @@ export const HOST_RESULT_SCHEMAS = {
   'run/steer': z.strictObject({ outcome: z.enum(['steering', 'already-terminal']) }),
   'run/stop': z.strictObject({ outcome: z.enum(['stopped', 'already-terminal']) }),
   'run/verdict': z.strictObject({ accepted: z.literal(true) }),
+  'thread/children': z.strictObject({
+    // Delegation order: each child with the origin its thread.started committed,
+    // and its call sign and family colour, derived from the tree on every read.
+    children: z.array(
+      z.strictObject({
+        ...Thread,
+        callSign: z.string().min(1),
+        color: z.string().min(1),
+        origin: HostChildOriginSchema,
+      })
+    ),
+  }),
   'thread/delete': z.strictObject({ deleted: z.literal(true) }),
   'thread/list': z.strictObject({
     // Presentation fields never committed are absent.

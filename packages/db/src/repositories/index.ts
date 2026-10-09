@@ -104,7 +104,11 @@ export type {
   IFileRecordRepository,
   IViewFilterPresetsRepository,
 } from './interfaces.js';
-export { pgliteMcpTaskStorage } from './mcp-task-pglite-storage.js';
+export {
+  type PgliteMcpTaskRows,
+  pgliteMcpTaskStorage,
+  readPgliteMcpTaskRows,
+} from './mcp-task-pglite-storage.js';
 export {
   type CreateMcpTaskInput,
   MAX_ACTIVE_MCP_TASKS_PER_SCOPE,

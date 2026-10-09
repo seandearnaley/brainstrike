@@ -1,3 +1,4 @@
+import type { LocalLlmHostClient } from '@brainstrike/agent/local-llm';
 import {
   buildGenerationProviderOptionsOption,
   buildModelSettingsOption,
@@ -5,14 +6,16 @@ import {
 } from '@brainstrike/agent/provider-request';
 import {
   createProvider,
+  createProviderNativeWebSearchTool,
   type ProviderAuthInput,
+  providerSupportsNativeWebSearch,
   type RuntimeData,
   resolveRuntimeConfiguration,
 } from '@brainstrike/agent/provider-runtime';
 import type { ScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import type { VectorProfile } from '@brainstrike/indexer';
-import type { LanguageModel } from 'ai';
+import type { LanguageModel, Tool } from 'ai';
 import { z } from 'zod';
 import { committedRunMessages, createHostToolDiscovery } from './adapters/host-tool-discovery.js';
 import { createMcpHostToolAdapter } from './adapters/mcp.js';
@@ -23,14 +26,17 @@ import {
   type StateStoreHostMemoryOptions,
 } from './adapters/state-store-host-memory.js';
 import type { StateStoreMemoryVector } from './adapters/state-store-memory-vector.js';
+import { withHostDelegationTools } from './child-runs.js';
 import { type HostStateIndex, openHostStateIndex } from './host-state-index.js';
 import { materializeHostProviderModel } from './model-router-sdk.js';
 import type {
+  HostDelegation,
   HostMcpRuntime,
   HostMcpToolSelection,
   HostPlatform,
   HostRunAdmission,
   HostRunAdmissionRequest,
+  HostRunContext,
   HostRunHooks,
   HostTool,
 } from './ports.js';
@@ -40,9 +46,13 @@ import type { HostStartupContext } from './runtime.js';
 
 /** Existing settings/context/native catalog owners resolve this once per admitted run. */
 export interface ProductionHostRunConfiguration {
+  /** BST-1932: the host context a delegated child receives beside its persona instructions. */
+  readonly childSystem?: string | undefined;
   /** Borrowed platform capabilities remain owned until every run tail joins. */
   readonly close?: () => Promise<void>;
   readonly configuration: RuntimeData;
+  /** BST-1932: the personas and subagent limits this admission may delegate with. */
+  readonly delegation?: HostDelegation | undefined;
   readonly durableConfiguration: HostRunSnapshot['configuration'];
   /** The run's lifecycle hooks, when the composition loaded any. */
   readonly hooks?: HostRunHooks;
@@ -73,6 +83,12 @@ export interface ProductionHostPlatformOptions {
   close(): Promise<void>;
   /** Purge process-local caches of a deleted thread. */
   readonly forgetThread?: HostPlatform['forgetThread'];
+  /**
+   * The launching desktop's hidden-renderer inference for the built-in `local`
+   * provider (ADR-0007: models never load in a host process). The CLI has none
+   * and refuses that provider before admission.
+   */
+  readonly localLlmHostClient?: LocalLlmHostClient;
   /** Desktop platform selections already include the existing qualified MCP executors. */
   readonly mcp?: HostMcpRuntime;
   /** Memory resources whose recall/observation vectors the host's state index stores. */
@@ -99,16 +115,47 @@ export interface ProductionHostPlatformOptions {
 
 function rootModel(
   configuration: RuntimeData,
-  auth: ProviderAuthInput | undefined
+  auth: ProviderAuthInput | undefined,
+  localLlmHostClient: LocalLlmHostClient | undefined
 ): Exclude<LanguageModel, string> {
   const selected = resolveRuntimeConfiguration(configuration, auth);
   const model = createProvider(
     selected.provider,
     selected.authInput,
     selected.runtime.model,
-    selected.runtime
+    selected.provider === 'local' && localLlmHostClient
+      ? { ...selected.runtime, localLlmHostClient }
+      : selected.runtime
   );
   return materializeHostProviderModel(model);
+}
+
+/** The provider's own web search, built with the chat model's auth; Core decides its use. */
+function admittedNativeWebSearch(
+  provider: string,
+  auth: ProviderAuthInput | undefined
+): { readonly nativeWebSearch?: Tool } {
+  if (!providerSupportsNativeWebSearch(provider)) {
+    return {};
+  }
+  const tool = createProviderNativeWebSearchTool(provider, auth) as unknown as Tool | undefined;
+  return tool ? { nativeWebSearch: tool } : {};
+}
+
+/** The run's concrete model; a local one loads before admission returns, as the legacy stream did. */
+async function admittedModel(
+  options: Pick<ProductionHostPlatformOptions, 'localLlmHostClient' | 'resolveModel'>,
+  configuration: RuntimeData,
+  auth: ProviderAuthInput | undefined,
+  signal: AbortSignal
+): Promise<Exclude<LanguageModel, string>> {
+  const localModel = configuration.provider === 'local' ? configuration.model : undefined;
+  if (localModel && options.localLlmHostClient) {
+    await options.localLlmHostClient.warmup(localModel, { signal });
+  }
+  return options.resolveModel
+    ? await options.resolveModel(configuration, auth)
+    : rootModel(configuration, auth, options.localLlmHostClient);
 }
 
 function unavailableMcpServers(
@@ -153,6 +200,26 @@ function mergeToolCatalogs(
     }
   }
   return merged;
+}
+
+/**
+ * BST-1932: the shipped child Memory. A run that withholds working memory
+ * (a read-only persona's child) keeps every other Memory option.
+ */
+export function hostRunMemoryOptions<Memory extends Pick<StateStoreHostMemoryOptions, 'native'>>(
+  memory: Memory,
+  context: Pick<HostRunContext, 'workingMemory'>
+): Memory {
+  if (context.workingMemory !== false) {
+    return memory;
+  }
+  return {
+    ...memory,
+    native: {
+      ...memory.native,
+      options: { ...memory.native.options, workingMemory: { enabled: false } },
+    },
+  };
 }
 
 /** Node-only production composition; Core remains the sole dispatcher and event writer. */
@@ -287,14 +354,14 @@ export async function createProductionHostPlatform(
         const auth = selected.resolveProviderAuth
           ? await selected.resolveProviderAuth(provider)
           : await options.resolveProviderAuth(provider);
-        const model = options.resolveModel
-          ? await options.resolveModel(selected.configuration, auth)
-          : rootModel(selected.configuration, auth);
+        const model = await admittedModel(options, selected.configuration, auth, request.signal);
         request.signal.throwIfAborted();
         acquired = await acquireMcp(request, selected);
-        let opened: Promise<StateStoreHostMemory> | undefined;
+        // BST-1932: a delegated child opens its own run on this admission, so
+        // each run's Memory owner is kept by its run ID.
+        const opened = new Map<string, Promise<StateStoreHostMemory>>();
         const runMemory = async (runId: string): Promise<HostMemory> => {
-          const owner = await opened;
+          const owner = await opened.get(runId);
           if (owner?.memory.identity.runId !== runId) {
             throw new Error('Memory tool call has no Memory owner for its run');
           }
@@ -302,11 +369,10 @@ export async function createProductionHostPlatform(
         };
         const { vectors, ...memory } = selected.memory;
         const nativeMemory = (
-          bridge: StateStoreMemoryVector | undefined
+          bridge: StateStoreMemoryVector | undefined,
+          native: StateStoreHostMemoryOptions['native'] = memory.native
         ): StateStoreHostMemoryOptions['native'] =>
-          bridge && vectors
-            ? { ...memory.native, embedder: vectors.embedder, vector: bridge }
-            : memory.native;
+          bridge && vectors ? { ...native, embedder: vectors.embedder, vector: bridge } : native;
         const authoredTools = mergeToolCatalogs(
           selected.tools,
           acquired?.mcp.tools ?? {},
@@ -316,40 +382,46 @@ export async function createProductionHostPlatform(
             runMemory
           )
         );
+        const admittedTools = withHostDelegationTools(authoredTools, selected.delegation);
         // Hosted providers defer tools behind the legacy catalog search, over this run's committed steps.
         const discovery = await createHostToolDiscovery({
           modelId: request.modelId,
           provider: selected.providerRequestContext.provider,
           readRunMessages: (run) =>
             committedRunMessages(options.startup.store, selected.memory.resourceId, run),
-          tools: authoredTools,
+          tools: admittedTools,
         });
         // One run-bound registry supplies SDK declarations and approval/restart
         // validation against the concrete resolved model, including MCP opt-out.
         const tools = await prepareHostProviderTools(
           model,
-          discovery ? mergeToolCatalogs(authoredTools, discovery.tools) : authoredTools
+          discovery ? mergeToolCatalogs(admittedTools, discovery.tools) : admittedTools
         );
         request.signal.throwIfAborted();
         const selection: HostRunAdmission = {
+          childSystem: selected.childSystem,
           close: release,
           configuration: selected.configuration,
+          delegation: selected.delegation,
           ...(discovery ? { discovery: discovery.discovery } : {}),
           // Like the legacy Memory default (`generateTitle: true`).
           generatesThreadTitle: true,
           hooks: selected.hooks,
           inputTokenLimit: selected.providerRequestContext.inputTokenLimit,
           model,
+          ...admittedNativeWebSearch(provider, auth),
           openRun: (context) => {
             const bridge = runVectorBridge(selected, context.threadId, context.signal);
-            opened = StateStoreHostMemory.open(context, {
-              ...memory,
-              native: nativeMemory(bridge),
+            const runOptions = hostRunMemoryOptions(memory, context);
+            const owner = StateStoreHostMemory.open(context, {
+              ...runOptions,
+              native: nativeMemory(bridge, runOptions.native),
               providerRequestContext: () => selected.providerRequestContext,
               store: options.startup.store,
               ...(bridge ? { vectorBridge: bridge } : {}),
             });
-            return opened;
+            opened.set(context.runId, owner);
+            return owner;
           },
           provider: {
             prepare: async ({ configuration, messages, signal }) => {

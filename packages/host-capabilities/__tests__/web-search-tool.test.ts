@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   runWebSearch,
   type WebSearchToolDependencies,
-} from '../../assistant-server/web-search-tool';
+} from '../src/native-tools/web-search-tool.js';
 
 const SECRET_TAVILY_KEY = 'tvly-SECRET-should-never-leak';
 

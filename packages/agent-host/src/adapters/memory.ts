@@ -3,7 +3,7 @@ import { noopObserve } from '@mastra/core/tools';
 import { Memory } from '@mastra/memory';
 import type { LanguageModelMiddleware, LanguageModelUsage } from 'ai';
 import type { HostRunContext, HostRunOwner } from '../ports.js';
-import { HostRunOwnerCleanupError } from '../run-admission.js';
+import { HostRunOwnerCleanupError, HostRunOwnerFailure } from '../run-admission.js';
 import { type MemoryLanguageModel, MemoryProviderLifetime } from './memory-provider-lifetime.js';
 
 type MemoryConfig = NonNullable<ConstructorParameters<typeof Memory>[0]>;
@@ -74,7 +74,7 @@ export class HostMemoryStepError extends Error {
  * Every memory tail joined, but these operations failed: the run's outcome,
  * not a leak. The original failures are retained; the message names the step.
  */
-export class HostMemoryFailure extends AggregateError {
+export class HostMemoryFailure extends HostRunOwnerFailure {
   constructor(failures: readonly unknown[], message: string) {
     super(failures, message);
     this.name = 'HostMemoryFailure';

@@ -118,9 +118,9 @@ test('Settings writes go through the host authority and a subscription login is 
     await expect(
       auth.storeProviderCredential(PROVIDER, { key: 'sk-not-a-sign-in', type: 'api_key' })
     ).rejects.toThrow('does not accept a credential login');
-    await expect(auth.connect(PROVIDER, undefined, 'public-socket')).rejects.toThrow(
-      /interactive/i
-    );
+    await expect(
+      auth.connect(PROVIDER, undefined, 'public-socket', async () => undefined)
+    ).rejects.toThrow(/interactive/i);
   } finally {
     await credentials.close();
   }

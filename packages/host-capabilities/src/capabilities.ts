@@ -5,6 +5,7 @@ import type {
 } from '@brainstrike/agent-host';
 import type { KeyringCredentialBackend } from '@brainstrike/agent-host/credential-contract';
 import { createHostCredentials, type HostCredentials } from './credentials.js';
+import { createTavilyKeyResolver } from './native-tools/web-search-tool.js';
 import { createHostAuthority, type HostAuthority } from './provider-auth/host-authority.js';
 import { createHostProviderServices } from './provider-services.js';
 
@@ -20,6 +21,8 @@ export interface HostCapabilities {
   readonly credentials: HostCredentials;
   /** Provider availability, probes and model metadata, read from this store. */
   readonly providers: HostProviderService;
+  /** The Tavily key for host-executed web search: env first, then this host's store. */
+  resolveTavilyApiKey(): Promise<string | undefined>;
 }
 
 export interface HostCapabilitiesOptions {
@@ -28,8 +31,6 @@ export interface HostCapabilitiesOptions {
   readonly env: NodeJS.ProcessEnv;
   /** Trusted process launch selection; never inferred or defaulted. */
   readonly launch: HostPlatformLaunchOptions | undefined;
-  /** The launching desktop's validated browser opener; the CLI has none. */
-  readonly openExternal?: (url: string) => Promise<void>;
   readonly startup: HostStartupContext;
 }
 
@@ -56,7 +57,6 @@ export async function createHostCapabilities(
     credentials,
     env: options.env,
     ...(options.launch?.legacyImportPending ? { legacyImportPending: true } : {}),
-    ...(options.openExternal ? { openExternal: options.openExternal } : {}),
   });
   return {
     auth,
@@ -67,5 +67,9 @@ export async function createHostCapabilities(
       env: options.env,
       envFileFailures: options.launch?.envFileFailures ?? [],
     }),
+    // Through the gated secrets: a pending legacy import settles before the key is read.
+    resolveTavilyApiKey: createTavilyKeyResolver(options.env, (account) =>
+      auth.secrets().getKey(account)
+    ),
   };
 }

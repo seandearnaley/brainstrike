@@ -27,6 +27,12 @@ const RUN_PYTHON_MAX_TIMEOUT_MS = 600_000;
 const RUN_PYTHON_MAX_DOMAINS = 256;
 const RUN_PYTHON_MAX_DOMAIN_CHARS = 253;
 
+/** What a preview reads from an approval: its tool, arguments and host facts. */
+export type ApprovalPreviewSubject = Pick<
+  AssistantToolApprovalRequest,
+  'args' | 'executionContext' | 'toolName'
+>;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
@@ -94,7 +100,7 @@ export function narrowRunPythonArgs(value: unknown): RunPythonApprovalArgs | nul
  * suppressed) rather than rendering partially.
  */
 export function readRunPythonExecutionContext(
-  approval: AssistantToolApprovalRequest
+  approval: ApprovalPreviewSubject
 ): CodeExecutionApprovalContext | null {
   const context: unknown = approval.executionContext;
   return isCodeExecutionApprovalContext(context) ? context : null;
@@ -109,7 +115,7 @@ export function readRunPythonExecutionContext(
  * easy to ignore (BST-1070 design §2.1).
  */
 export function resolveApprovalPreviewPolicy(
-  approval: AssistantToolApprovalRequest
+  approval: ApprovalPreviewSubject
 ): { readonly suppressGrants: boolean } | null {
   if (approval.toolName !== NATIVE_TOOL_ID.runPython) {
     return null;

@@ -18,6 +18,8 @@ import type {
 } from '@brainstrike/assistant-contract';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
 import type { McpTaskHandle } from '@brainstrike/assistant-contract/mcp-task-presentation';
+import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import type { RuntimeSubagentSettings } from '@brainstrike/assistant-contract/subagent-settings';
 import type { ThreadWorkspaceBinding } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
 import type {
@@ -144,6 +146,11 @@ export interface HostRunContext {
   readonly runId: string;
   readonly signal: AbortSignal;
   readonly threadId: string;
+  /**
+   * BST-1932: false for a read-only persona's child run, which keeps the
+   * parent's Memory on its own thread but never reads or writes working memory.
+   */
+  readonly workingMemory?: false;
 }
 /** Fence new work and join every provider, memory, storage and hook tail. */
 export interface HostRunOwner {
@@ -165,13 +172,18 @@ export interface HostProviderRequest {
   readonly messages: readonly ModelMessage[];
   readonly modelId: string;
   readonly signal: AbortSignal;
+  /** The run's step about to start; a child reserves its last step for a summary. */
+  readonly stepNumber?: number;
 }
 
 export interface HostPreparedModelRequest extends LanguageModelCallOptions {
+  /** A step may withhold every tool, as a child's summary step does. */
+  readonly activeTools?: string[];
   readonly messages: ModelMessage[];
   readonly model: LanguageModel;
   readonly providerOptions?: NonNullable<Parameters<typeof streamText>[0]['providerOptions']>;
   readonly system?: string;
+  readonly toolChoice?: 'none';
 }
 
 /** Shipped provider selection and request hygiene, with no second agent loop. */
@@ -186,6 +198,11 @@ export type HostPreToolUseVerdict =
 
 /** The run's user-authored lifecycle hooks, from the composition's hooks configuration. */
 export interface HostRunHooks {
+  /**
+   * Whether a PreToolUse hook would run for this tool (its catalog ID). A
+   * provider-executed tool never reaches the approval point where hooks run.
+   */
+  matchesPreToolUse(toolName: string): boolean;
   /** Before a tool the policy would allow or ask about: a hook may block it, with a reason. */
   preToolUse(call: {
     readonly input: unknown;
@@ -212,9 +229,17 @@ export interface HostToolDiscovery {
 
 /** One immutable selection retained across approval legs, never re-read from Settings. */
 export interface HostRunAdmission {
+  /**
+   * BST-1932: the host-supplied context (date, skills, workspace instructions)
+   * a delegated child receives beside its persona instructions; never the
+   * root's supervisor instructions.
+   */
+  readonly childSystem?: string | undefined;
   /** Join resources selected before the run is committed, including failed admission. */
   close?(): Promise<void>;
   readonly configuration: Readonly<RuntimeData>;
+  /** Present when this run may delegate; its tools are already in `tools`. */
+  readonly delegation?: HostDelegation | undefined;
   /** Present when the run defers tools behind discovery; its tools include the discovery tools. */
   readonly discovery?: HostToolDiscovery | undefined;
   /** Title an untitled thread's first completed run through this run's model. */
@@ -224,12 +249,20 @@ export interface HostRunAdmission {
   /** The selected provider input budget; host compaction keeps requests inside it. */
   readonly inputTokenLimit?: number | undefined;
   readonly model: LanguageModel;
+  /**
+   * The resolved provider's own web search (Anthropic, OpenAI), built with the
+   * run's provider auth. Core swaps it in for the catalog web search only when
+   * that tool resolves to `allow` at admission; it has no local execute.
+   */
+  readonly nativeWebSearch?: Tool;
   openRun?(context: HostRunContext): Promise<HostRunOwner>;
   readonly provider?: HostProviderPort;
   readonly snapshot: HostRunSnapshot;
   readonly tools: Readonly<Record<string, HostTool>>;
   /** Configured MCP servers this run proceeds without; committed with `run.started`. */
   readonly unavailableMcpServers?: readonly HostMcpUnavailableServer[];
+  /** BST-1932: a read-only child's admission withholds working memory from its run owner. */
+  readonly workingMemory?: false;
 }
 
 /**
@@ -239,10 +272,12 @@ export interface HostRunAdmission {
 export interface HostAuthService {
   cancel(provider: string): Promise<ProviderAuthStatus>;
   clear(): Promise<boolean>;
+  /** `openExternal` asks the requesting client to open the sign-in page. */
   connect(
     provider: string,
     method: ProviderAuthStartMethod | undefined,
-    origin: HostClientOrigin | undefined
+    origin: HostClientOrigin | undefined,
+    openExternal: (url: string) => Promise<void>
   ): Promise<ProviderAuthStatus>;
   deleteCredential(account: string): Promise<boolean>;
   disconnect(provider: string): Promise<ProviderAuthStatus>;
@@ -308,12 +343,24 @@ export interface HostMcpRuntime {
   close(): Promise<McpHostCloseReport>;
   executableTools(request: HostMcpToolRequest): Promise<HostMcpToolSelection>;
 }
+/**
+ * BST-1932: the personas a run may delegate to and the user's subagent limits,
+ * resolved by the existing settings owner for this admission. HostCore owns
+ * the `agent-<persona>` tools built from it and dispatches them itself.
+ */
+export interface HostDelegation {
+  readonly personas: readonly AssistantPersonaDefinition[];
+  readonly settings: RuntimeSubagentSettings;
+}
+
 export interface HostTool {
   /**
    * A system note this tool contributes before each step, from its thread's
    * committed tool state (the legacy `<current-task-list>` re-injection).
    */
   readonly contextNote?: (state: Pick<HostToolState, 'entries' | 'read'>) => string | undefined;
+  /** HostCore-dispatched persona delegation; `execute` is never called for it. */
+  readonly delegation?: AssistantPersonaDefinition;
   readonly description: string;
   execute(input: unknown, context: HostToolContext): Promise<unknown>;
   /** Existing executor/server-generation identity, bound into pending decisions. */
@@ -353,6 +400,8 @@ export interface HostPlatform {
   /** The host's credential authority; absent where the host owns no credential store. */
   readonly auth?: HostAuthService;
   close(): Promise<void>;
+  /** The default admission's delegation capability; `admitRun` sets it per admission. */
+  readonly delegation?: HostDelegation | undefined;
   /** Purge process-local caches scoped to a thread Core just deleted. */
   forgetThread?(threadId: string): void;
   /** The default admission's auto-title capability; `admitRun` sets it per admission. */

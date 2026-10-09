@@ -135,9 +135,11 @@ function standaloneSystemPrompt(
   roots: readonly RuntimeWorkspaceRoot[],
   configuredMcp: boolean
 ): string {
-  const mcpTools = configuredMcp ? ', and the configured MCP servers (text Apps only)' : '';
-  const unavailableMcp = configuredMcp ? 'MCP Tasks' : 'configured MCP/Tasks';
-  return `This standalone host supports the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob and symbol search, the task list, canvases and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. Content search, language-server inspection and shell tools, ${unavailableMcp}, Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
+  const mcpTools = configuredMcp
+    ? ', and the configured MCP servers with their Tasks (text Apps only)'
+    : '';
+  const unavailableMcp = configuredMcp ? '' : 'configured MCP/Tasks, ';
+  return `This standalone host supports the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob and symbol search, the task list, canvases and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. Content search, language-server inspection and shell tools, ${unavailableMcp}Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
 }
 
 /** Root and its canonical writer have already been acquired by startAgentHost. */
@@ -157,7 +159,7 @@ export async function createHostPlatform(
     launch: platformOptions,
     startup,
   });
-  // Configured MCP servers run in this host's own MCP runtime (Tasks off for now).
+  // Configured MCP servers run in this host's own MCP runtime, Tasks in its StateStore.
   // The MCP client stack loads only for a configured host: imported eagerly it
   // added ~200 ms to every CLI host start, pushing cold starts past `host start`.
   const mcpConfig = platformOptions?.mcpConfig;
@@ -174,7 +176,7 @@ export async function createHostPlatform(
     });
   }
   const capabilities = mcp
-    ? { ...standaloneCapabilities, configuredMcp: 'available' }
+    ? { ...standaloneCapabilities, configuredMcp: 'available', tasks: 'available' }
     : standaloneCapabilities;
   const system = standaloneSystemPrompt(workspaceRoots, mcp !== undefined);
   return createProductionHostPlatform({

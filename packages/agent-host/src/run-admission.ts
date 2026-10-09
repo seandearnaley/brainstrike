@@ -1,6 +1,15 @@
-import { resolvePermissionDecision } from '@brainstrike/assistant-contract';
+import { resolveRunPythonExecutionContext } from '@brainstrike/agent/tool-runtime';
+import {
+  intersectChildPermissionCeilings,
+  isPermissionDenied,
+  NATIVE_TOOL_ID,
+  type PermissionToolGateSnapshot,
+  resolvePermissionDecision,
+} from '@brainstrike/assistant-contract';
+import { WEB_SEARCH_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { modelMessageSchema, type StepResult, type ToolSet } from 'ai';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
+import { withHostDelegationTools } from './child-runs.js';
 import type { HostRunState } from './core-state.js';
 import { canonical, jsonValue } from './json-value.js';
 import { McpAuthorityReconstructionError } from './mcp-authority.js';
@@ -12,7 +21,7 @@ import type {
   HostRunAdmissionRequest,
   HostRunOwner,
 } from './ports.js';
-import type { HostEvent } from './protocol.js';
+import type { HostEvent, HostRunSnapshot } from './protocol.js';
 import { HostRunSnapshotSchema } from './protocol.js';
 import { createHostSdkTools } from './sdk-tools.js';
 import { settleHostToolOutputs } from './tool-artifacts.js';
@@ -52,6 +61,18 @@ export class HostRunAdmissionCleanupError extends AggregateError {
   constructor(cause: unknown, cleanup: unknown) {
     super([cause, cleanup], 'Run selection and cleanup failed');
     this.name = 'HostRunAdmissionCleanupError';
+  }
+}
+
+/**
+ * A run owner joined all of its work, and these failures are the run's outcome.
+ * Only this releases a run whose owner close rejected; any other rejection is
+ * opaque and keeps the run, its writer and Root owned.
+ */
+export class HostRunOwnerFailure extends AggregateError {
+  constructor(failures: readonly unknown[], message: string) {
+    super(failures, message);
+    this.name = 'HostRunOwnerFailure';
   }
 }
 
@@ -147,17 +168,47 @@ export function hostRunCommandRequest(
     readonly threadId: string;
   },
   origin: HostClientOrigin | undefined,
-  prompt: string,
-  signal: AbortSignal
-): Omit<HostRunAdmissionRequest, 'snapshot' | 'workspaceBinding'> {
+  /** A command's user-written prompt; a wake (BST-1932) has none. */
+  prompt: string | undefined,
+  signal: AbortSignal,
+  /** BST-1932: a wake continues its turn by reopening the run it follows. */
+  snapshot?: HostRunSnapshot
+): Omit<HostRunAdmissionRequest, 'workspaceBinding'> {
   return {
     ...(params.configuration ? { configuration: params.configuration } : {}),
     modelId: params.modelId,
     ...(origin ? { origin } : {}),
     ...(params.planMode ? { planMode: true } : {}),
-    prompt,
+    ...(prompt === undefined ? {} : { prompt }),
     signal,
+    ...(snapshot ? { snapshot } : {}),
     threadId: params.threadId,
+  };
+}
+
+/** The platform's fixed default selection, for hosts without a per-run `admitRun`. */
+async function defaultHostRunAdmission(
+  platform: HostPlatform,
+  request: HostRunAdmissionRequest
+): Promise<HostRunAdmission> {
+  const { delegation, maxSteps, resolveModel, tools } = platform;
+  if (!(resolveModel && tools && maxSteps && Number.isSafeInteger(maxSteps) && maxSteps > 0)) {
+    throw new Error('Host platform has no complete run admission capability');
+  }
+  const admitted = withHostDelegationTools(tools, delegation);
+  return {
+    configuration: {},
+    ...(delegation ? { delegation } : {}),
+    ...(platform.generatesThreadTitles ? { generatesThreadTitle: true } : {}),
+    model: await resolveModel.call(platform, request.modelId),
+    snapshot: {
+      configuration: {},
+      maxSteps,
+      toolIdentities: Object.fromEntries(
+        Object.entries(admitted).map(([id, binding]) => [id, binding.identity])
+      ),
+    },
+    tools: admitted,
   };
 }
 
@@ -166,32 +217,20 @@ export async function acquireHostRunAdmission(
   request: HostRunAdmissionRequest
 ): Promise<HostRunAdmission> {
   await validateHostRunWorkspaceBinding(platform, request);
-  let selected: HostRunAdmission;
-  if (platform.admitRun) {
-    selected = await platform.admitRun(request);
-  } else {
-    const { maxSteps, resolveModel, tools } = platform;
-    if (!(resolveModel && tools && maxSteps && Number.isSafeInteger(maxSteps) && maxSteps > 0)) {
-      throw new Error('Host platform has no complete run admission capability');
-    }
-    selected = {
-      configuration: {},
-      ...(platform.generatesThreadTitles ? { generatesThreadTitle: true } : {}),
-      model: await resolveModel.call(platform, request.modelId),
-      snapshot: {
-        configuration: {},
-        maxSteps,
-        toolIdentities: Object.fromEntries(
-          Object.entries(tools).map(([id, binding]) => [id, binding.identity])
-        ),
-      },
-      tools,
-    };
-  }
+  const selected = platform.admitRun
+    ? await platform.admitRun(request)
+    : await defaultHostRunAdmission(platform, request);
   try {
     await validateHostRunWorkspaceBinding(platform, request);
-    const admission = captureHostRunAdmission(bindHostRunWorkspace(selected, request));
+    const offered = omitDeniedHostTools(
+      selected,
+      await platform.readPermissionPolicy(request.threadId)
+    );
+    const admission = captureHostRunAdmission(bindHostRunWorkspace(offered, request));
     const { snapshot, tools } = admission;
+    if (!admission.delegation && Object.values(tools).some((tool) => tool.delegation)) {
+      throw new Error('Delegation tools were admitted without a delegation capability');
+    }
     if (
       request.snapshot &&
       Object.values(tools).some((tool) => tool.mcpAuthority?.kind === 'unavailable')
@@ -216,13 +255,45 @@ export async function acquireHostRunAdmission(
     }
     return admission;
   } catch (cause) {
-    try {
-      await selected.close?.();
-    } catch (cleanup) {
-      throw new HostRunAdmissionCleanupError(cause, cleanup);
-    }
-    throw cause;
+    return await rejectHostRunSelection(selected, cause);
   }
+}
+
+/**
+ * A tool the saved policy explicitly denies is not offered to the model or
+ * admitted to the run. Recovery compares the result with the committed
+ * selection, so a policy changed since admission interrupts rather than
+ * substitutes.
+ */
+function omitDeniedHostTools(
+  selected: HostRunAdmission,
+  policy: PermissionToolGateSnapshot
+): HostRunAdmission {
+  const denied = new Set(
+    Object.entries(selected.tools).flatMap(([id, tool]) =>
+      isPermissionDenied(policy, tool.risk, tool.permissionToolId ?? id) ? [id] : []
+    )
+  );
+  if (denied.size === 0) {
+    return selected;
+  }
+  const kept = <T>(entries: Readonly<Record<string, T>>): Record<string, T> =>
+    Object.fromEntries(Object.entries(entries).filter(([id]) => !denied.has(id)));
+  return {
+    ...selected,
+    snapshot: { ...selected.snapshot, toolIdentities: kept(selected.snapshot.toolIdentities) },
+    tools: kept(selected.tools),
+  };
+}
+
+/** Join a selection that failed after acquisition, then rethrow its failure. */
+async function rejectHostRunSelection(selected: HostRunAdmission, cause: unknown): Promise<never> {
+  try {
+    await selected.close?.();
+  } catch (cleanup) {
+    throw new HostRunAdmissionCleanupError(cause, cleanup);
+  }
+  throw cause;
 }
 
 /** The Core retains this promise; both owners are attempted even when one join fails. */
@@ -233,9 +304,9 @@ export async function closeHostRunResources(run: HostRunState): Promise<void> {
         try {
           await owner?.close();
         } catch (cause) {
-          // Only work the owner could not join keeps the run owned. A joined
-          // failure (a failed memory step) is the run's outcome; release it.
-          if (cause instanceof HostRunOwnerCleanupError) {
+          // A joined failure (a failed memory step) is the run's outcome and
+          // releases it; any other rejection keeps the run owned.
+          if (!(cause instanceof HostRunOwnerFailure)) {
             throw cause;
           }
           run.ownerFailure ??= cause;
@@ -274,13 +345,18 @@ export async function closeHostRunResources(run: HostRunState): Promise<void> {
 
 /**
  * The run's admission as Core uses it: oversized tool outputs reach the model
- * as durable artifact pages over the committed output (legacy settlement).
+ * as durable artifact pages over the committed output (legacy settlement), and
+ * whether the provider's web search stands in for the catalog tool is fixed
+ * once. Both admission paths (a new run and a re-admitted one) go through
+ * here; each joins the selection if this throws.
  */
-export function bindHostRunAdmission(
+export async function bindHostRunAdmission(
+  platform: HostPlatform,
   run: HostRunState,
   acquired: HostRunAdmission
-): HostRunAdmission {
+): Promise<HostRunAdmission> {
   const admission = { ...acquired, tools: settleHostToolOutputs(run, acquired.tools) };
+  run.nativeWebSearch = await admitHostNativeWebSearch(platform, run, admission);
   run.admission = admission;
   return admission;
 }
@@ -302,9 +378,78 @@ export async function ensureHostRunAdmission(
     return run.admission;
   }
   run.admissionTask ??= acquireHostRunAdmission(platform, request).then((acquired) =>
-    bindHostRunAdmission(run, acquired)
+    bindHostRunAdmission(platform, run, acquired).catch((cause: unknown) =>
+      rejectHostRunSelection(acquired, cause)
+    )
   );
   return run.admissionTask;
+}
+
+/** The catalog web search's provider tool name in this run's registry. */
+function hostWebSearchToolId(admission: HostRunAdmission): string | undefined {
+  return Object.entries(admission.tools).find(
+    ([id, tool]) => (tool.permissionToolId ?? id) === WEB_SEARCH_TOOL_ID
+  )?.[0];
+}
+
+/**
+ * Decide once, at admission, whether the provider's own web search replaces
+ * the catalog tool. Only an `allow` qualifies: a provider-executed tool runs
+ * before any approval could pause it, so `ask` keeps the execute-backed tool
+ * and `deny` leaves nothing to swap. A run carrying an approval of the catalog
+ * tool also keeps it, so the answered call resumes against the same executor.
+ */
+async function admitHostNativeWebSearch(
+  platform: HostPlatform,
+  run: HostRunState,
+  admission: HostRunAdmission
+): Promise<HostRunState['nativeWebSearch']> {
+  const tool = admission.nativeWebSearch;
+  const toolId = hostWebSearchToolId(admission);
+  if (!(tool && toolId)) {
+    return;
+  }
+  if ([...run.approvals.values()].some((approval) => approval.event.toolId === toolId)) {
+    return;
+  }
+  // The provider's search never passes an approval point, so a PreToolUse hook
+  // on web search could not run; the catalog tool keeps it running per call.
+  if (admission.hooks?.matchesPreToolUse(WEB_SEARCH_TOOL_ID)) {
+    return;
+  }
+  const decision = await hostToolDecision(platform, run, admission.tools, toolId);
+  return decision === 'allow' ? { tool, toolId } : undefined;
+}
+
+/**
+ * A provider-executed tool has no execute for the per-call permission
+ * re-check, so each step re-reads the live policy instead: once web search no
+ * longer resolves to `allow`, the provider's tool leaves the step's tools.
+ */
+export async function hostStepActiveTools(
+  run: HostRunState,
+  platform: HostPlatform
+): Promise<string[] | undefined> {
+  const native = run.nativeWebSearch;
+  const nativeAllowed =
+    native !== undefined && (await hostRunToolDecision(platform, run, native.toolId)) === 'allow';
+  // Hosted discovery: a deferred tool is offered only after this run committed its load.
+  const discovered = await run.admission?.discovery?.activeTools({
+    runId: run.id,
+    threadId: run.threadId,
+  });
+  if (!discovered) {
+    return !native || nativeAllowed
+      ? undefined
+      : Object.keys(hostRunTools(run)).filter((id) => id !== native.toolId);
+  }
+  if (!native) {
+    return discovered;
+  }
+  // Legacy keeps the provider's own web search on the initial surface
+  // (resolveToolDiscoverySurface); it leaves once it no longer resolves to allow.
+  const surface = discovered.filter((id) => id !== native.toolId);
+  return nativeAllowed ? [...surface, native.toolId] : surface;
 }
 
 export function hostRunTools(run: HostRunState): HostRunAdmission['tools'] {
@@ -327,8 +472,14 @@ export function hostStepInteractions(
     if (!registered) {
       throw new Error('Approval references an unknown tool');
     }
+    // As the legacy approval chunk did: run_python's card shows host facts.
+    const executionContext =
+      registered.permissionToolId === NATIVE_TOOL_ID.runPython
+        ? resolveRunPythonExecutionContext(part.toolCall.input)
+        : undefined;
     return [
       {
+        ...(executionContext ? { executionContext: jsonValue(executionContext) } : {}),
         input: jsonValue(part.toolCall.input),
         interactionId: part.approvalId,
         kind: registered.interaction?.kind ?? 'approval',
@@ -353,25 +504,40 @@ function isHostDiscoveryTool(run: HostRunState, toolId: string): boolean {
 }
 
 /** Keep revocation live while taking risk and executor identity from admission. */
-export async function hostRunToolDecision(
+export function hostRunToolDecision(
   platform: HostPlatform,
   run: HostRunState,
   toolId: string
 ): Promise<'allow' | 'ask' | 'deny'> {
-  const registered = hostRunTools(run)[toolId];
+  return hostToolDecision(platform, run, hostRunTools(run), toolId);
+}
+
+/** `tools` is passed because admission decides before it retains the run's tools. */
+async function hostToolDecision(
+  platform: HostPlatform,
+  run: HostRunState,
+  tools: HostRunAdmission['tools'],
+  toolId: string
+): Promise<'allow' | 'ask' | 'deny'> {
+  const registered = tools[toolId];
   if (!registered) {
     throw new Error('Tool is not registered');
   }
   if (isHostDiscoveryTool(run, toolId)) {
     return 'allow';
   }
-  const snapshot = await platform.readPermissionPolicy(run.threadId);
+  // BST-1932: spawning never asks; every effect inside the child passes this gate itself.
+  if (registered.delegation) {
+    return 'allow';
+  }
+  // A descendant follows its root's live policy and grants (it shares the root
+  // thread's); only its admitted denies stay frozen (ADR-0010).
+  const live = await platform.readPermissionPolicy(run.policyThreadId ?? run.threadId);
+  const snapshot = run.admittedPolicy
+    ? (intersectChildPermissionCeilings(run.admittedPolicy, live) ?? live)
+    : live;
   const permissionToolId = registered.permissionToolId ?? toolId;
-  // ADR-0010: explicit deny outranks a session grant or YOLO.
-  if (
-    snapshot.perToolOverrides?.[permissionToolId] === 'deny' ||
-    snapshot.policies[registered.risk] === 'deny'
-  ) {
+  if (isPermissionDenied(snapshot, registered.risk, permissionToolId)) {
     return 'deny';
   }
   // The run's own committed grants add to the saved policy; deny already won.
@@ -396,7 +562,7 @@ export function createAdmittedHostSdkTools(
     input: unknown
   ) => Promise<unknown>
 ): ToolSet {
-  return createHostSdkTools({
+  const tools = createHostSdkTools({
     admittedInput: (id, input) => admittedApprovalInput(id, input, run),
     execute: (id, toolCallId, input) => {
       const action = run.permits.get(toolCallId);
@@ -410,15 +576,24 @@ export function createAdmittedHostSdkTools(
     },
     tools: hostRunTools(run),
   });
+  const native = run.nativeWebSearch;
+  return native ? { ...tools, [native.toolId]: native.tool } : tools;
 }
 
 /** Uses the existing Core-owned run; permission calculation has no log writer. */
 export async function decideHostSdkApproval(
   run: HostRunState,
   platform: HostPlatform,
-  call: { toolName: string; toolCallId: string; input: unknown }
-): Promise<'approved' | 'denied' | 'user-approval' | { type: 'denied'; reason: string }> {
+  call: { toolName: string; toolCallId: string; input: unknown; providerExecuted?: boolean }
+): Promise<
+  'approved' | 'denied' | 'not-applicable' | 'user-approval' | { type: 'denied'; reason: string }
+> {
   run.controller.signal.throwIfAborted();
+  // The provider already ran its own search; admission and each step's active
+  // tools are its gate (hostStepActiveTools), never a decision after the fact.
+  if (call.providerExecuted === true && call.toolName === run.nativeWebSearch?.toolId) {
+    return 'not-applicable';
+  }
   const registered = hostRunTools(run)[call.toolName];
   if (!registered) {
     throw new Error('Unknown tool');

@@ -26,6 +26,7 @@ import { hostCanvasStore, hostTaskListNote, hostTaskListStore } from './host-sto
 import type { FileMutationPorts } from './ports.js';
 import type { ReadWorkspaceFileCursorRegistry } from './read-workspace-file-cursor-registry.js';
 import { resetToolCallLoopGuards } from './tool-call-loop-guards.js';
+import type { WebSearchToolDependencies } from './web-search-tool.js';
 
 /**
  * Purge a deleted thread's process-local tool state: its read cursors, its
@@ -67,6 +68,8 @@ export interface SharedNativeHostToolsOptions {
   readonly resolvedToolResultBudget: ScaledToolResultBudget;
   /** The admitted request runtime, without per-execution memory identity. */
   readonly runtime: RuntimeData;
+  /** This process's Tavily key owner; required when web search is admitted. */
+  readonly webSearch?: WebSearchToolDependencies;
 }
 
 function unavailableAtAdmission(): never {
@@ -114,6 +117,7 @@ export function createSharedNativeHostTools(
         getActiveToolResultBudget()?.domainModelResultCharBudget ?? budget,
       resolvedDomainCharBudget: budget,
       runtimeData,
+      webSearch: options.webSearch,
     };
     const tools: MastraTools = {};
     for (const id of options.ids) {

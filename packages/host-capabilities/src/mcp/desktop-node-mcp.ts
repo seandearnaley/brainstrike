@@ -5,6 +5,7 @@ import { parseMcpExtensionEnablement } from '@brainstrike/assistant-contract';
 import { parseMcpConfigValue } from '@brainstrike/assistant-contract/mcp-config';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { createSecretsMcpBearerCredentialAuthority } from './bearer-credential.js';
+import { importLegacyMcpTasks } from './legacy-task-import.js';
 import { createMcpHostServices, type McpHostServices } from './mcp-host-services.js';
 
 import { applyMcpToolRegistryState, serveMcpRuntimeToMain } from './mcp-runtime-server.js';
@@ -50,6 +51,17 @@ export async function createDesktopNodeMcpHost(
   secrets: () => Pick<SecretsService, 'getKey' | 'listProviders'>
 ): Promise<{ readonly services: McpHostServices; close(): Promise<void> }> {
   const state = McpDesiredStateSchema.parse(await request(MCP_STORE_METHODS.state, {}));
+  const taskStorage = stateStoreMcpTaskStorage(startup.store);
+  // Tasks storage opens only after Main's legacy PGlite rows are imported; a
+  // failed import refuses this open and the next open retries it.
+  let imported: Promise<void> | undefined;
+  const importLegacyTasks = (): Promise<void> =>
+    (imported ??= importLegacyMcpTasks(startup.store, () =>
+      request(MCP_STORE_METHODS.tasksLegacy, {})
+    ).catch((cause: unknown) => {
+      imported = undefined;
+      throw cause;
+    }));
   const services = await createMcpHostServices({
     appUi: 'rich',
     // Main asks for local presentation explicitly; until then local input fails closed.
@@ -66,7 +78,10 @@ export async function createDesktopNodeMcpHost(
       await request(MCP_STORE_METHODS.openExternal, { url });
     },
     // The host's StateStore is the one MCP Tasks writer.
-    openTaskStorage: async () => stateStoreMcpTaskStorage(startup.store),
+    openTaskStorage: async () => {
+      await importLegacyTasks();
+      return taskStorage;
+    },
     startup,
   });
   let server: ReturnType<typeof serveMcpRuntimeToMain> | undefined;

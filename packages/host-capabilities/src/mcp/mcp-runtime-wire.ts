@@ -10,6 +10,8 @@ import { z } from 'zod';
  *   its store moves to Node (OAuth records to the shared credential store,
  *   host-owned config). Bearer references already live in the profile
  *   credential store Node reads directly, and Tasks in the host's StateStore.
+ *   `platform/mcp/tasks/legacy` reads Main's PGlite Tasks rows once, for the
+ *   host's import; it goes when PGlite leaves the desktop.
  * - Main → Node `mcp-runtime/*`: Main's renderer surfaces (settings, status,
  *   tasks, elicitation, Apps, content) reach that runtime. They go in c5, when
  *   the renderer calls public host-protocol methods instead.
@@ -22,6 +24,7 @@ export const MCP_STORE_METHODS = {
   openExternal: 'platform/open-external',
   ready: 'platform/mcp/ready',
   state: 'platform/mcp/state',
+  tasksLegacy: 'platform/mcp/tasks/legacy',
 } as const;
 
 export const MCP_RUNTIME_METHODS = {

@@ -18,6 +18,11 @@ import {
   wrapLanguageModel,
 } from 'ai';
 import {
+  hostBranchDeliveries,
+  overlayHostChildOutcomes,
+  withHostDeliveryLedger,
+} from '../child-delivery.js';
+import {
   committedRowAddress,
   committedRunAncestors,
   committedRunIdentity,
@@ -364,6 +369,11 @@ export class StateStoreHostMemory implements HostRunOwner {
     // history window nor a semantic recall hit re-adds one (Core adds the note).
     const compacted = compactedRunIds(rows);
     this.preparedRewrites = committedRewrites(rows);
+    // BST-1932: a delivered child outcome replaces its acknowledgement, as without Memory.
+    const delivered = hostBranchDeliveries(
+      rows,
+      (runId) => path.has(runId) || runId === this.identity.runId
+    );
     for (const started of rows) {
       if (
         (!this.resourceRecall && started.threadId !== this.identity.threadId) ||
@@ -391,7 +401,12 @@ export class StateStoreHostMemory implements HostRunOwner {
       if (!(selected.has(previous.userMessageId) || recalledSegment)) {
         continue;
       }
-      historical.push({ content: started.event.prompt, role: 'user' });
+      historical.push(
+        withHostDeliveryLedger(
+          { content: started.event.prompt, role: 'user' },
+          started.event.delivery
+        )
+      );
       historicalIds.add(previous.userMessageId);
       if (
         !rows.some(
@@ -403,7 +418,7 @@ export class StateStoreHostMemory implements HostRunOwner {
       ) {
         continue;
       }
-      const occurrence = rows.flatMap((row) => {
+      const committed = rows.flatMap((row) => {
         const event = row.event;
         if (
           row.threadId === started.threadId &&
@@ -415,6 +430,7 @@ export class StateStoreHostMemory implements HostRunOwner {
         }
         return [];
       });
+      const occurrence = overlayHostChildOutcomes(previousRunId, committed, delivered);
       const interrupted = rows.some((row) => {
         const event = row.event;
         return (
