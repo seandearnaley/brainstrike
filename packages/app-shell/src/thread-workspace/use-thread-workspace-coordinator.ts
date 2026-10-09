@@ -6,6 +6,8 @@ import type {
 import { ThreadWorkspaceUnavailableError } from '@brainstrike/assistant-data';
 import { createLogger } from '@brainstrike/logging';
 import { useEffect, useEffectEvent, useRef, useSyncExternalStore } from 'react';
+import { isDelegatedWorkspaceTabId } from '../delegated-workspace-tab';
+import { isHostChildWorkspaceTabId } from '../host-child-workspace-tab';
 import type { ThreadWorkspaceNavigation } from './thread-workspace-navigation';
 import {
   applyWorkspaceSnapshot,
@@ -56,6 +58,10 @@ function rejectUnavailableChildNavigation(
       new Error('Conversation storage is not ready. Open the child again after loading completes.')
     );
   }
+}
+
+function isChildConversationTabId(appId: string): boolean {
+  return isHostChildWorkspaceTabId(appId) || isDelegatedWorkspaceTabId(appId);
 }
 
 function hasPendingWorkspaceHydration(
@@ -291,8 +297,8 @@ function shouldPreserveLiveBootEdits(
  *   synchronously (the workspace stores still hold the outgoing state at
  *   that point), then hydrates the incoming thread from the in-memory cache
  *   (synchronous) or the repository (async, intent-guarded against a further
- *   switch), INHERITING the current workspace when no row exists — which is
- *   both the new-thread semantic and the first-run upgrade path;
+ *   switch), INHERITING the current workspace minus the outgoing thread's
+ *   child-conversation tabs when no row exists (the new-thread semantic);
  * - preloads snapshots for all OPEN thread tabs so switching is instant;
  * - prunes cache entries for threads that are no longer open (delete/close).
  *
@@ -589,8 +595,18 @@ export function useThreadWorkspaceCoordinator({
           hydrateLoadedSnapshot(snapshot);
           return;
         }
-        // No row: INHERIT the current workspace (new thread, or first run
-        // after upgrade). The live stores already show it — persist as-is.
+        // No row: INHERIT the current workspace (new thread). The live stores
+        // already show it; only the outgoing thread's child conversations
+        // stay behind, because they belong to that thread's tree.
+        const childTabs = facadeRef.current.getOpenAppIds().filter(isChildConversationTabId);
+        if (childTabs.length > 0) {
+          hydratingRef.current = true;
+          try {
+            facadeRef.current.closeApps(childTabs);
+          } finally {
+            hydratingRef.current = false;
+          }
+        }
         clearHydrationTracking();
         navigation?.complete(resourceId, activeThreadId);
         const inherited = captureWorkspaceSnapshot(facadeRef.current);
