@@ -32,8 +32,6 @@ export type {
   McpTaskIdentityWire,
   McpTaskInsertWire,
   McpTaskLeaseWire,
-  McpTaskLegacyAuthorityWire,
-  McpTaskLegacyTaskWire,
   McpTaskPatchWire,
   McpTaskScopeWire,
   McpTaskStatusWire,

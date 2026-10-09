@@ -1,4 +1,4 @@
-import { type McpTaskStorage, pgliteMcpTaskStorage, readPgliteMcpTaskRows } from '@brainstrike/db';
+import { type McpTaskStorage, pgliteMcpTaskStorage } from '@brainstrike/db';
 import {
   createSecretsMcpBearerCredentialAuthority,
   type McpBearerCredentialAuthority,
@@ -69,20 +69,14 @@ export function createDesktopMcpHostPlatform(
 
 /**
  * Main's MCP stores for the Node host's runtime (BST-1930 c1 interim):
- * Electron's external opener and a read of the legacy PGlite Tasks rows the
- * host imports once. Bearer references and OAuth records live in the profile
- * store the host owns, Tasks in its StateStore.
+ * Electron's external opener. Bearer references and OAuth records live in the
+ * profile store the host owns, Tasks in its StateStore.
  */
 export function createDesktopMcpPlatformCapabilities(
   runtime: RemoteMcpRuntime
 ): DesktopMcpPlatformCapabilities {
   return {
     openExternal: openExternalWithElectron,
-    readLegacyTasks: async () => {
-      const { getDatabase } = await import('../db-main');
-      const database = await getDatabase();
-      return await readPgliteMcpTaskRows({ query: (sql, params) => database.query(sql, params) });
-    },
     runtime,
   };
 }

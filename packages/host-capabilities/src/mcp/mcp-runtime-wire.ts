@@ -6,9 +6,7 @@ import { z } from 'zod';
  * (BST-1930 c1 interim). Two groups, each with a removal point:
  *
  * - Node to Main `platform/*` adapters: Electron `shell.openExternal`, and the
- *   readiness handshake that opens `mcp-runtime/*` to Main.
- *   `platform/mcp/tasks/legacy` reads Main's PGlite Tasks rows once, for the
- *   host's import; it goes when PGlite leaves the desktop. The host owns its
+ *   readiness handshake that opens `mcp-runtime/*` to Main. The host owns its
  *   MCP config, extension dials, tool preferences, credentials and Tasks.
  * - Main to Node `mcp-runtime/*`: Main's remaining renderer surfaces (status,
  *   lifecycle control, tasks, elicitation, Apps, content), the native config
@@ -18,7 +16,6 @@ import { z } from 'zod';
 export const MCP_STORE_METHODS = {
   openExternal: 'platform/open-external',
   ready: 'platform/mcp/ready',
-  tasksLegacy: 'platform/mcp/tasks/legacy',
 } as const;
 
 export const MCP_RUNTIME_METHODS = {

@@ -11,7 +11,6 @@ import {
   type McpOAuthCredentialStorage,
 } from './credential-oauth-store.js';
 import { readStoredMcpExtensionPreferences } from './extension-preferences.js';
-import { importLegacyMcpTasks } from './legacy-task-import.js';
 import { createMcpHostServices, type McpHostServices } from './mcp-host-services.js';
 import { serveMcpRuntimeToMain } from './mcp-runtime-server.js';
 import { MCP_STORE_METHODS } from './mcp-runtime-wire.js';
@@ -62,16 +61,6 @@ export async function createDesktopNodeMcpHost(
 ): Promise<DesktopNodeMcpHost> {
   const { connection, credentials, request, startup, userDataDir } = options;
   const taskStorage = stateStoreMcpTaskStorage(startup.store);
-  // Tasks storage opens only after Main's legacy PGlite rows are imported; a
-  // failed import refuses this open and the next open retries it.
-  let imported: Promise<void> | undefined;
-  const importLegacyTasks = (): Promise<void> =>
-    (imported ??= importLegacyMcpTasks(startup.store, () =>
-      request(MCP_STORE_METHODS.tasksLegacy, {})
-    ).catch((cause: unknown) => {
-      imported = undefined;
-      throw cause;
-    }));
   // The stored opt-out applies before any server hears what this client supports.
   const extensions = await readStoredMcpExtensionPreferences(startup.store);
   // Created eagerly, so the host's factory reset reaches its records before any connect.
@@ -112,10 +101,7 @@ export async function createDesktopNodeMcpHost(
         await request(MCP_STORE_METHODS.openExternal, { url });
       },
       // The host's StateStore is the one MCP Tasks writer.
-      openTaskStorage: async () => {
-        await importLegacyTasks();
-        return taskStorage;
-      },
+      openTaskStorage: async () => taskStorage,
       startup,
     });
   } catch (cause) {

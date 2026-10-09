@@ -10,7 +10,7 @@ import { TruthIndexer } from './helpers/truth-indexer.js';
 
 const THREAD = 'recorded-mcp-task-thread';
 const BOUND_SECRET = 'recorded-M3-thread-bound-mcp-task-input';
-const IMPORTED_SECRET = 'recorded-M3-imported-desktop-mcp-task-input';
+const PROFILE_SECRET = 'recorded-M3-profile-scoped-mcp-task-input';
 const AT = new Date('2026-10-08T19:00:00Z').toISOString();
 
 afterEach(cleanupDirs);
@@ -33,9 +33,9 @@ function pendingTask(taskId: string, secret: string, threadId: string | null) {
 /**
  * MCP Tasks rows (BST-1930 ruling B) leave no byte behind: deleting a thread
  * erases the task rows its runs created, and factory reset removes the rows
- * that belong to no thread, the desktop's imported PGlite rows among them.
+ * that belong to no thread.
  */
-test('thread delete erases its MCP task rows; reset erases the profile-scoped and imported rows', async () => {
+test('thread delete erases its MCP task rows; reset erases the profile-scoped rows', async () => {
   const root = freshDir('m3-mcp-task-erasure');
   const indexer = new TruthIndexer(root);
   const store = await StateStore.open(root, { indexer });
@@ -67,37 +67,34 @@ test('thread delete erases its MCP task rows; reset erases the profile-scoped an
       operation: 'insert',
       row: pendingTask('bound', BOUND_SECRET, THREAD),
     });
-    const importedEpoch = randomUUID();
-    await store.mcpTasks({
+    // A task no thread created: the profile's own, under another server's authority.
+    const profileOpened = await store.mcpTasks({
       at: AT,
-      authorities: [
-        {
-          authorityEpoch: importedEpoch,
-          connectionGeneration: 3,
-          createdAt: AT,
-          principalId: 'linear:user-42',
-          resource: 'https://mcp.linear.app/mcp',
-          retiredAt: null,
-          runtimeId: 'desktop-main-runtime',
-          serverId: 'linear',
-          updatedAt: AT,
-        },
-      ],
-      operation: 'legacy-import',
-      tasks: [
-        {
-          ...pendingTask('imported', IMPORTED_SECRET, null),
-          authorityEpoch: importedEpoch,
-          createdAt: AT,
-          principalId: 'linear:user-42',
-          resource: 'https://mcp.linear.app/mcp',
-          serverId: 'linear',
-          updatedAt: AT,
-        },
-      ],
+      authorityEpoch: randomUUID(),
+      input: {
+        connectionGeneration: 3,
+        principalId: 'linear:user-42',
+        resource: 'https://mcp.linear.app/mcp',
+        runtimeId: 'agent-host-runtime',
+        serverId: 'linear',
+      },
+      operation: 'open-authority',
+    });
+    const profileLease: McpTaskLeaseWire = {
+      authorityEpoch: String(profileOpened.rows[0]?.['authority_epoch']),
+      connectionGeneration: 3,
+      principalId: 'linear:user-42',
+      resource: 'https://mcp.linear.app/mcp',
+      runtimeId: 'agent-host-runtime',
+      serverId: 'linear',
+    };
+    await store.mcpTasks({
+      lease: profileLease,
+      operation: 'insert',
+      row: pendingTask('profile', PROFILE_SECRET, null),
     });
     expect(byteSearch(root, BOUND_SECRET).total).toBeGreaterThan(0);
-    expect(byteSearch(root, IMPORTED_SECRET).total).toBeGreaterThan(0);
+    expect(byteSearch(root, PROFILE_SECRET).total).toBeGreaterThan(0);
 
     await store.deleteThread(THREAD);
     expect(byteSearch(root, BOUND_SECRET)).toEqual({ files: {}, total: 0 });
@@ -105,11 +102,11 @@ test('thread delete erases its MCP task rows; reset erases the profile-scoped an
       store.mcpTasks({ identity: { ...lease, taskId: 'bound' }, operation: 'get' })
     ).resolves.toEqual({ rows: [] });
     // A row no thread created survives thread deletion; only reset clears it.
-    expect(byteSearch(root, IMPORTED_SECRET).total).toBeGreaterThan(0);
+    expect(byteSearch(root, PROFILE_SECRET).total).toBeGreaterThan(0);
 
     await store.reset();
     expect(existsSync(join(root, STATE_DB))).toBe(false);
-    expect(byteSearch(root, IMPORTED_SECRET)).toEqual({ files: {}, total: 0 });
+    expect(byteSearch(root, PROFILE_SECRET)).toEqual({ files: {}, total: 0 });
   } finally {
     await store.close();
     indexer.close();
