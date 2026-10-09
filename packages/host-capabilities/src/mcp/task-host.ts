@@ -55,6 +55,7 @@ import type {
 import type {
   ConfiguredMcpServerId,
   McpHostExecution,
+  McpHostTaskOwner,
   McpTaskListResult,
 } from '@brainstrike/assistant-contract';
 import {
@@ -135,6 +136,13 @@ export interface McpDesktopTaskHostOptions {
   /** The host's one Tasks store; this leaf never constructs another. */
   readonly openStorage: () => Promise<McpTaskStorage>;
   readonly runtimeId?: string;
+  /**
+   * Core's ownership of the tasks its runs bound (BST-1930 c3), supplied once
+   * Core opens. A session's recovery waits for it, so a recovered task's input
+   * goes to Core and its earlier answers are read from Core's log. Without it
+   * a recovered task presents on the local listener.
+   */
+  readonly taskOwner?: Promise<McpHostTaskOwner>;
 }
 
 interface TrackedEntry {
@@ -153,6 +161,7 @@ interface TaskSession {
   interaction: McpTaskInteraction | undefined;
   readonly lifecycle: McpTaskLifecycle;
   readonly observationPort: McpTaskObservationPort;
+  owner: McpHostTaskOwner | undefined;
   readonly protocolVersion: string;
   readonly repository: McpTaskStore;
   readonly tasks: Map<string, TrackedEntry>;
@@ -308,12 +317,17 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
         repository,
       }),
       observationPort,
+      owner: undefined,
       protocolVersion: MCP_TASK_PRESENTATION_PROTOCOL_VERSION,
       repository,
       tasks: new Map(),
     };
     this.sessions.set(configuredServerId, session);
     try {
+      session.owner = await this.options.taskOwner;
+      if (session.closed) {
+        return;
+      }
       const recovered = await session.lifecycle.recover();
       for (const tracked of recovered) {
         this.register(session, tracked, undefined);
@@ -542,19 +556,21 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
       throw new Error(`MCP task "${taskId}" is already registered with this host.`);
     }
     const handle = projectMcpTaskRecord(tracked.record, 'live').handle;
+    // A recovered task is Core's when a run of Core's bound it (BST-1930 c3).
+    const owned = execution ?? session.owner?.recover(handle);
     // Core commits the task binding before any of its input can be presented to it.
     let bound: Promise<void> | undefined;
     const binding = this.options.elicitationPresenter.bindTaskPresenter({
       configuredServerId: session.configuredServerId,
       generation: session.generation,
-      ...(execution
+      ...(owned
         ? {
             host: {
               acknowledged: (inputKey: string) =>
                 session.interaction?.acknowledgement(taskId, inputKey) ??
                 Promise.reject(new Error(`MCP task "${taskId}" has no interaction coordinator.`)),
               bound: () => bound ?? Promise.reject(new Error('MCP task binding was not started.')),
-              execution,
+              execution: owned,
             },
           }
         : {}),
@@ -570,7 +586,7 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
     };
     session.tasks.set(taskId, entry);
     this.store(entry.presentation);
-    bound = execution?.bindTask({
+    bound = owned?.bindTask({
       assertCurrent: async () => {
         if (session.closed || session.tasks.get(taskId) !== entry) {
           throw new Error(`MCP task "${taskId}" is no longer tracked by this registration.`);
@@ -649,6 +665,13 @@ export class McpDesktopTaskHost implements McpDesktopTaskHostPort {
           connection.client.listenTasks(ids, handler, requestOptions),
         requestExtension: (contract, params, requestOptions) =>
           connection.client.requestExtension(contract, params, requestOptions),
+      },
+      // A restarted coordinator reads Core's committed answers before presenting (BST-1930 c3).
+      committedOutcome: (taskId, inputKey) => {
+        const entry = session.tasks.get(taskId);
+        return entry && session.owner
+          ? session.owner.inputOutcome(entry.presentation.handle, inputKey)
+          : undefined;
       },
       elicitation,
       observationPort: session.observationPort,

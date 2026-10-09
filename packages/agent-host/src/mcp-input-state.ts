@@ -411,6 +411,178 @@ export class HostMcpInputState {
     }
   }
 
+  /**
+   * The committed outcome of the latest answer accepted for a bound task's
+   * input (BST-1930 c3): only the server's ack is `acknowledged`; an intent
+   * without it is `unknown` and is never resent. No intent: nothing was sent.
+   */
+  inputOutcome(handle: McpTaskHandle, inputKey: string): 'acknowledged' | 'unknown' | undefined {
+    const parsed = McpTaskHandleSchema.safeParse(handle);
+    const owned = parsed.success ? this.tasks.get(taskKey(parsed.data)) : undefined;
+    if (!(parsed.success && owned)) {
+      return undefined;
+    }
+    let latest: PendingInput | undefined;
+    for (const pending of this.inputs.values()) {
+      if (
+        pending.threadId === owned.threadId &&
+        pending.event.runId === owned.event.runId &&
+        pending.event.taskId === parsed.data.taskId &&
+        String(pending.event.requestId) === inputKey
+      ) {
+        latest = pending;
+      }
+    }
+    if (!latest?.intent) {
+      return undefined;
+    }
+    return latest.status === 'remote-acknowledged' ? 'acknowledged' : 'unknown';
+  }
+
+  /**
+   * Core's execution for a durable task its run bound, after a host restart
+   * (BST-1930 c3). The committed `mcp.task.bound` is the ownership; a new input
+   * is committed under that run, so only the public mcp/input client answers
+   * it. Undefined when no committed binding owns the task.
+   */
+  recover(
+    handle: McpTaskHandle,
+    ownerOf: (threadId: string, runId: string) => HostMcpExecutionOwner | undefined
+  ): HostMcpExecution | undefined {
+    const parsed = McpTaskHandleSchema.safeParse(handle);
+    const key = parsed.success ? taskKey(parsed.data) : undefined;
+    const owned = key === undefined ? undefined : this.tasks.get(key);
+    const owner = owned && ownerOf(owned.threadId, owned.event.runId);
+    if (!(key && owned && owner)) {
+      return undefined;
+    }
+    const current = (): void => {
+      owner.assertCurrent();
+      if (this.tasks.get(key) !== owned) {
+        throw refused();
+      }
+    };
+    return {
+      bindTask: (task) =>
+        owner.admit(async (): Promise<void> => {
+          current();
+          const bound = McpTaskHandleSchema.safeParse(task.handle);
+          if (!bound.success || taskKey(bound.data) !== key) {
+            throw refused();
+          }
+          try {
+            await task.assertCurrent();
+          } catch {
+            throw refused();
+          }
+          current();
+          owned.live = task;
+        }),
+      requestInput: (input) =>
+        owner.admit(() => this.requestRecoveredInput(owned, key, input, owner, current)),
+      threadId: owned.threadId,
+    };
+  }
+
+  private async requestRecoveredInput(
+    owned: OwnedTask,
+    key: string,
+    input: HostMcpInputCapability,
+    owner: HostMcpExecutionOwner,
+    current: () => void
+  ): Promise<void> {
+    current();
+    const presentation = structuredClone(input.presentation);
+    const provenance = presentation.provenance;
+    const task = provenance.taskHandle;
+    if (
+      input.signal.aborted ||
+      !task ||
+      taskKey(task) !== key ||
+      provenance.configuredServerId !== owned.event.configuredServerId ||
+      this.inputs.has(presentation.id) ||
+      this.inputOutcome(owned.event.handle, String(provenance.requestId)) !== undefined
+    ) {
+      throw refused();
+    }
+    const live = owned.live;
+    try {
+      if (!live) {
+        throw refused();
+      }
+      await live.assertCurrent();
+      await input.assertCurrent();
+    } catch {
+      throw refused();
+    }
+    current();
+    const { configuredServerId, runId, toolCallId, toolId, toolIdentity } = owned.event;
+    const event = safeEvent<Request>({
+      configuredServerId,
+      generation: provenance.generation,
+      interactionId: presentation.id,
+      invocationId: provenance.invocationId,
+      mode: presentation.mode,
+      requestId: provenance.requestId,
+      runId,
+      taskId: owned.event.handle.taskId,
+      toolCallId,
+      toolId,
+      toolIdentity,
+      type: 'mcp.input.requested',
+    });
+    const capability: HostMcpInputCapability = {
+      assertCurrent: input.assertCurrent.bind(input),
+      presentation,
+      settle: input.settle.bind(input),
+      signal: input.signal,
+      validate: input.validate.bind(input),
+    };
+    await owner.append([event], () => {
+      const pending = this.inputs.get(presentation.id);
+      if (!pending) {
+        throw refused();
+      }
+      pending.live = capability;
+      pending.status = 'requested';
+    });
+    // The server withdrew the input before any answer: a committed fact every client folds.
+    const withdraw = (): void => {
+      const pending = this.inputs.get(presentation.id);
+      if (pending?.live !== capability || pending.intent) {
+        return;
+      }
+      pending.live = undefined;
+      pending.release?.();
+      pending.status = 'retired';
+      owner.retain(
+        owner.admit(() =>
+          owner.append([
+            safeEvent<Settled>({
+              interactionId: presentation.id,
+              runId,
+              status: 'retired',
+              type: 'mcp.input.settled',
+            }),
+          ])
+        )
+      );
+    };
+    input.signal.addEventListener('abort', withdraw, { once: true });
+    const pending = this.inputs.get(presentation.id);
+    if (!pending) {
+      throw refused();
+    }
+    pending.release = (): void => {
+      input.signal.removeEventListener('abort', withdraw);
+      pending.release = undefined;
+    };
+    if (input.signal.aborted) {
+      withdraw();
+      throw refused();
+    }
+  }
+
   execution(
     run: HostRunState,
     action: Origin,

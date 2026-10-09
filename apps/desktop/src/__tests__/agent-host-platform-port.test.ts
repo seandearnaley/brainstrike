@@ -89,6 +89,7 @@ function harness(
     mcp: createDesktopMcpPlatformCapabilities(new RemoteMcpRuntime()),
     ...(closeRootCapabilities ? { closeRootCapabilities } : {}),
     readConfiguration,
+    readLegacyMemory: async () => ({ resource: null, resourceObservations: false }),
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
     ...(hostTools ? { hostTools } : {}),
     ...(localEmbedding ? { localEmbedding } : {}),
@@ -149,7 +150,11 @@ it.each([false, true])(
 );
 
 async function admit(client: MessageConnection): Promise<unknown> {
-  return client.sendRequest('platform/admit', { modelId: 'openai::fixture', threadId: 'thread' });
+  return client.sendRequest('platform/admit', {
+    modelId: 'openai::fixture',
+    runId: 'run',
+    threadId: 'thread',
+  });
 }
 
 const LIST_TABLES = {
@@ -258,7 +263,7 @@ it('an aborted admission joins the arriving selection and retains an independent
   try {
     const admitted = h.client.sendRequest(
       'platform/admit',
-      { modelId: 'openai::fixture', threadId: 'thread' },
+      { modelId: 'openai::fixture', runId: 'run', threadId: 'thread' },
       cancellation.token
     );
     admitted.catch(() => undefined);

@@ -50,6 +50,7 @@
 import type { Changeset, ChangesetView, GitResult, StructuredFileDiff } from '@brainstrike/types';
 import type { RootCwdResult } from '../workspace-root-cwd';
 import { resolveGitScopeChangesetView, resolveGitScopeFileDiff } from './changeset-git-scope';
+import type { HostThreadTurns } from './changeset-host-turns';
 import {
   createSnapshotChangesetResolver,
   type SnapshotChangesetResolver,
@@ -63,6 +64,8 @@ import type { SnapshotTurnRegistry } from './snapshot-turn-registry';
 /** W7 snapshot-engine wiring (threaded from main.ts via the changes IPC options). */
 export interface ChangesetDiffServiceSnapshotDeps {
   readonly createRepository: (db: EditCheckpointDatabase) => SnapshotRepository;
+  /** Host threads' turns, from the host's committed log (BST-1977). */
+  readonly hostThreads?: HostThreadTurns | undefined;
   /** Injectable for tests; defaults to the process-shared registry. */
   readonly registry?: SnapshotTurnRegistry | undefined;
   readonly resolveService: () => SnapshotService | null;
@@ -100,6 +103,7 @@ export function createChangesetDiffService(deps: ChangesetDiffServiceDeps): Chan
   const snapshotResolver: SnapshotChangesetResolver | null = deps.snapshots
     ? createSnapshotChangesetResolver({
         createRepository: deps.snapshots.createRepository,
+        hostThreads: deps.snapshots.hostThreads,
         registry: deps.snapshots.registry,
         resolveDatabase: deps.resolveDatabase,
         resolveService: deps.snapshots.resolveService,

@@ -4,6 +4,10 @@ import { access, chmod, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  buildToolDiscoveryNote,
+  createSanitizedToolNameMap,
+} from '@brainstrike/agent/tool-runtime';
 import { attachAgentHost } from '@brainstrike/agent-host';
 import { writePrivateCredentialFile } from '@brainstrike/agent-host/file-credentials';
 import { HOST_RESULT_SCHEMAS } from '@brainstrike/agent-host/protocol';
@@ -300,6 +304,18 @@ test('real bin runs the explicit canonical model through production HTTP, commit
   expect(requests).toHaveLength(1);
   expect(requests[0]?.['body']).toMatchObject({ model: 'gpt-6-sol', store: true, stream: true });
   expect(JSON.stringify(requests[0]?.['body'])).toContain('Synthetic standalone prompt');
+  // Hosted discovery defers part of the standalone catalog: the run's instructions carry the
+  // legacy guidance, from the shared builder over the run's admitted native tools.
+  const available = z
+    .object({
+      capabilities: z.object({ nativeTools: z.object({ available: z.array(z.string()) }) }),
+    })
+    .parse(
+      started?.event.type === 'run.started' ? started.event.snapshot?.configuration : undefined
+    ).capabilities.nativeTools.available;
+  expect(JSON.stringify(requests[0]?.['body'])).toContain(
+    JSON.stringify(buildToolDiscoveryNote(createSanitizedToolNameMap(available))).slice(1, -1)
+  );
   expect(await command(dataRoot, ['host', 'stop'], http)).toMatchObject({ code: 0 });
   await expect.poll(() => processStartTime(owner.pid)).toBeNull();
   const completed = await receipts(http.receipt);

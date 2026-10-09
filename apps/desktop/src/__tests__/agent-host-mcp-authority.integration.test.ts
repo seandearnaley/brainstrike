@@ -176,16 +176,20 @@ describe('persisted configured MCP authority', () => {
           threadId,
         });
         let interactionId: string | undefined;
+        // The approval follows the load step's own model turn.
         await expect
-          .poll(async () => {
-            const pending = (await core.read(threadId, 0)).find(
-              ({ event }) => event.type === 'interaction.requested'
-            )?.event;
-            if (pending?.type === 'interaction.requested') {
-              interactionId = pending.interactionId;
-            }
-            return interactionId !== undefined;
-          })
+          .poll(
+            async () => {
+              const pending = (await core.read(threadId, 0)).find(
+                ({ event }) => event.type === 'interaction.requested'
+              )?.event;
+              if (pending?.type === 'interaction.requested') {
+                interactionId = pending.interactionId;
+              }
+              return interactionId !== undefined;
+            },
+            { timeout: 10_000 }
+          )
           .toBe(true);
         if (!interactionId) {
           throw new Error('Real stdio probe did not require approval');
@@ -392,16 +396,20 @@ describe('persisted configured MCP authority', () => {
           threadId,
         });
         let interactionId: string | undefined;
+        // The approval follows the load step's own model turn.
         await expect
-          .poll(async () => {
-            const event = (await core.read(threadId, 0)).find(
-              ({ event }) => event.type === 'interaction.requested'
-            )?.event;
-            if (event?.type === 'interaction.requested') {
-              interactionId = event.interactionId;
-            }
-            return interactionId !== undefined;
-          })
+          .poll(
+            async () => {
+              const event = (await core.read(threadId, 0)).find(
+                ({ event }) => event.type === 'interaction.requested'
+              )?.event;
+              if (event?.type === 'interaction.requested') {
+                interactionId = event.interactionId;
+              }
+              return interactionId !== undefined;
+            },
+            { timeout: 10_000 }
+          )
           .toBe(true);
         if (!interactionId) {
           throw new Error('The real MCP call did not require approval');

@@ -35,11 +35,12 @@ import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 // `thread/children` (a thread's direct children), lifecycle hook context
 // (`hook.context`), host-owned project hook trust (`hooks/trust`,
 // `hooks/trust/read`, `hooks/untrust`), `thread/memory/read` (memory
-// readiness for the next run), and run_python's network consent: an
+// readiness for the next run), run_python's network consent (an
 // `interaction.requested` of kind `network`, answered by `interaction/resume`
-// with `{ action }` and, when the policy also asked, an approval grant. These
-// additions are optional fields, new variants and new methods, so a v11 reader
-// that uses none of them sees nothing new.
+// with `{ action }` and, when the policy also asked, an approval grant), and a
+// run's turn snapshots for its Changes review (`workspace.snapshot.recorded`).
+// These additions are optional fields, new variants and new methods, so a v11
+// reader that uses none of them sees nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -145,6 +146,22 @@ export const HostEditRevertOutcomeSchema = z.discriminatedUnion('status', [
   }),
 ]);
 export type HostEditRevertOutcome = z.infer<typeof HostEditRevertOutcomeSchema>;
+/** A workspace root as a turn's snapshot names it: its durable ID and absolute path. */
+export const HostTurnSnapshotRootSchema = z.strictObject({
+  rootId: Id,
+  rootPath: z.string().min(1),
+});
+export type HostTurnSnapshotRoot = z.infer<typeof HostTurnSnapshotRootSchema>;
+/**
+ * One root's snapshot at a turn boundary: the platform's snapshot commit. The
+ * null object ID records a capture that failed for this root, so the turn's
+ * Changes review fails visibly rather than showing part of its changes.
+ */
+export const HostTurnSnapshotSchema = z.strictObject({
+  ...HostTurnSnapshotRootSchema.shape,
+  commitOid: z.string().regex(/^[0-9a-f]{40,64}$/),
+});
+export type HostTurnSnapshot = z.infer<typeof HostTurnSnapshotSchema>;
 /**
  * An image on a user message, as the composer encodes it: a base64 data URL.
  * Core admits it against the shared attachment contract's caps.
@@ -215,10 +232,30 @@ export const HostChildOriginSchema = z.strictObject({
   parentRunId: Id,
   parentThreadId: Id,
   persona: Id,
+  /**
+   * The persona as it was admitted: what the child's toolbar names, never the
+   * current persona list. Children committed before it carry none.
+   */
+  profile: z
+    .strictObject({ label: z.string().min(1), mode: z.enum(['read-only', 'worker']) })
+    .optional(),
   toolCallId: Id,
   turnId: Id,
 });
 export type HostChildOrigin = z.infer<typeof HostChildOriginSchema>;
+/**
+ * BST-1932: a child as its parent's sidebar shows it: a run in progress, a run
+ * waiting on a person's answer, or no run in progress.
+ */
+export const HostChildStatusSchema = z.enum(['working', 'needs-input', 'idle']);
+export type HostChildStatus = z.infer<typeof HostChildStatusSchema>;
+/**
+ * BST-1932: the host's notice that a thread's children changed status (a child
+ * run started, paused for a person, was answered or ended). A client re-reads
+ * `thread/children` for `threadId` only when told.
+ */
+export const HOST_CHILDREN_CHANGED = 'thread/children/changed';
+export const HostChildrenChangedSchema = z.strictObject(Thread);
 /** One settled background invocation delivered to its parent (BST-1932). */
 export const HostChildDeliveryEntrySchema = z.strictObject({
   childRunId: Id,
@@ -612,11 +649,15 @@ export const HostEventSchema = z.union([
     modelId: Id,
     usage: z.json(),
   }),
-  /** OM keeps one merged text per thread, so a branched thread's run receives none. */
+  /**
+   * OM keeps one merged text per thread, so a branched thread's run receives
+   * none. Gap 17: the legacy profile's resource observations were not
+   * imported; that notice is committed once per root.
+   */
   z.strictObject({
     type: z.literal('memory.observation.withheld'),
     ...RunFields,
-    reason: z.literal('branched-thread'),
+    reason: z.enum(['branched-thread', 'legacy-resource-observations']),
   }),
   z.strictObject({
     type: z.literal('provider.request.prepared'),
@@ -768,6 +809,18 @@ export const HostEventSchema = z.union([
     commandId: Id,
     outcomes: z.array(HostEditRevertOutcomeSchema),
   }),
+  /**
+   * The run's workspace at a turn boundary, for its Changes review: its roots'
+   * snapshots at the turn's start, and the same roots' at its end. `failure`
+   * records a capture that failed as a whole (no roots were snapshotted).
+   */
+  z.strictObject({
+    type: z.literal('workspace.snapshot.recorded'),
+    ...RunFields,
+    boundary: z.enum(['turn-start', 'turn-end']),
+    failure: z.string().min(1).optional(),
+    roots: z.array(HostTurnSnapshotSchema),
+  }),
   /** Committed with the approval that granted it; the run's later decisions include it. */
   z.strictObject({ type: z.literal('permission.granted'), ...RunFields, grant: PermissionGrant }),
   /**
@@ -857,13 +910,14 @@ export const HOST_RESULT_SCHEMAS = {
   'run/verdict': z.strictObject({ accepted: z.literal(true) }),
   'thread/children': z.strictObject({
     // Delegation order: each child with the origin its thread.started committed,
-    // and its call sign and family colour, derived from the tree on every read.
+    // and its call sign, family colour and status, derived on every read.
     children: z.array(
       z.strictObject({
         ...Thread,
         callSign: z.string().min(1),
         color: z.string().min(1),
         origin: HostChildOriginSchema,
+        status: HostChildStatusSchema,
       })
     ),
   }),

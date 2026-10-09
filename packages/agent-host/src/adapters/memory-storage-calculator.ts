@@ -7,6 +7,7 @@ import type {
   MemorySnapshot,
 } from '@brainstrike/state-store';
 import { InMemoryStore, type MemoryStorage } from '@mastra/core/storage';
+import { TokenCounter } from '@mastra/memory/processors';
 import { decodeMemory, encodeMemory } from './memory-storage-codec.js';
 
 const methods = new Set([
@@ -197,4 +198,16 @@ export async function calculateMemoryMutation(
   } finally {
     await temporary.close();
   }
+}
+
+const observationTokens = new TokenCounter();
+
+/**
+ * Mastra OM's own observation token count. `TokenCounter.countObservations`
+ * sets a record's `observationTokenCount`, each buffered chunk's `tokenCount`
+ * and `bufferedReflectionTokens`; the writer recounts those with it after
+ * detaching a deleted thread's sections from shared resource observations.
+ */
+export function countObservationTokens(text: string): number {
+  return observationTokens.countObservations(text);
 }

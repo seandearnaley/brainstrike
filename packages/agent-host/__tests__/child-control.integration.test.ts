@@ -170,7 +170,16 @@ test('typing into an idle child continues its conversation under its persona and
   expect(delivered?.prompt).toContain('Deeper finding.');
   expect(delivered?.delivery?.entries.map((entry) => entry.childRunId)).toEqual([followUp]);
   await rowsUntil(harness, harness.threadId, finished(delivered?.runId ?? ''));
-  expect(runsOf(await harness.core().read(harness.threadId, 0))).toHaveLength(3);
+  const rootRuns = runsOf(await harness.core().read(harness.threadId, 0)).map((run) => run.runId);
+  expect(rootRuns).toHaveLength(3);
+  // Each admission is requested for the run it starts, and that run commits under
+  // its ID: the command, its wake, the follow-up (admitted for the root), the report.
+  expect(requests.map((request) => request.runId)).toEqual([
+    rootRuns[0],
+    rootRuns[1],
+    followUp,
+    rootRuns[2],
+  ]);
   // A follow-up answered no tool call: the invocation's delivered outcome stays in place.
   const parentLast = model.doStreamCalls
     .filter((call) => firstUser(call) === 'Explore.')

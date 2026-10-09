@@ -18,6 +18,7 @@ import type { VectorProfile } from '@brainstrike/indexer';
 import type { LanguageModel, Tool } from 'ai';
 import { z } from 'zod';
 import { committedRunMessages, createHostToolDiscovery } from './adapters/host-tool-discovery.js';
+import { importLegacyMemory } from './adapters/legacy-memory-import.js';
 import { createMcpHostToolAdapter } from './adapters/mcp.js';
 import type { HostMemory } from './adapters/memory.js';
 import { hostMemoryTools } from './adapters/memory-tools.js';
@@ -43,6 +44,7 @@ import type {
   HostRunAdmissionRequest,
   HostRunContext,
   HostRunHooks,
+  HostRunIntentRequest,
   HostTool,
 } from './ports.js';
 import type { HostObserverAwaitingReason, HostRunSnapshot } from './protocol.js';
@@ -51,6 +53,8 @@ import type { HostStartupContext } from './runtime.js';
 
 /** Existing settings/context/native catalog owners resolve this once per admitted run. */
 export interface ProductionHostRunConfiguration {
+  /** The platform's workspace snapshot owner, for each run's turn boundaries. */
+  readonly captureTurnBoundary?: HostRunAdmission['captureTurnBoundary'];
   /** BST-1932: the host context a delegated child receives beside its persona instructions. */
   readonly childSystem?: string | undefined;
   /** Borrowed platform capabilities remain owned until every run tail joins. */
@@ -113,9 +117,14 @@ export interface ProductionHostPlatformOptions {
   /** Provider reads from the same credential store. */
   readonly providers?: HostPlatform['providers'];
   readConfiguration(request: HostRunAdmissionRequest): Promise<ProductionHostRunConfiguration>;
+  /**
+   * Gap 17: the launching desktop's legacy workspace memory, read once from
+   * Main for the import before a run's Memory opens. The CLI has none.
+   */
+  readonly readLegacyMemory?: () => Promise<unknown>;
   /** thread/memory/read's preconditions; absent where the host has no composer. */
   readonly readMemoryPreconditions?: (
-    request: HostRunAdmissionRequest
+    request: HostRunIntentRequest
   ) => Promise<HostMemoryPreconditions>;
   readPermissionPolicy(
     threadId?: string
@@ -161,6 +170,17 @@ function admittedNativeWebSearch(
   }
   const tool = createProviderNativeWebSearchTool(provider, auth) as unknown as Tool | undefined;
   return tool ? { nativeWebSearch: tool } : {};
+}
+
+/** The provider's auth: the admission's own resolver when it brings one, else the host's. */
+async function admittedProviderAuth(
+  options: Pick<ProductionHostPlatformOptions, 'resolveProviderAuth'>,
+  selected: Pick<ProductionHostRunConfiguration, 'resolveProviderAuth'>,
+  provider: string
+): Promise<ProviderAuthInput | undefined> {
+  return selected.resolveProviderAuth
+    ? await selected.resolveProviderAuth(provider)
+    : await options.resolveProviderAuth(provider);
 }
 
 /** The run's concrete model; a local one loads before admission returns, as the legacy stream did. */
@@ -277,6 +297,22 @@ export async function createProductionHostPlatform(
   const selections = new Set<() => Promise<void>>();
   let closing: Promise<void> | undefined;
   let stateIndex: Promise<HostStateIndex> | undefined;
+  // Gap 17: one legacy import per memory resource; a failed one is retried by the next admission.
+  const legacyImports = new Map<string, ReturnType<typeof importLegacyMemory>>();
+  const importLegacy = (resourceId: string): ReturnType<typeof importLegacyMemory> | undefined => {
+    const read = options.readLegacyMemory;
+    if (!read) {
+      return;
+    }
+    const pending =
+      legacyImports.get(resourceId) ??
+      importLegacyMemory(options.startup.store, resourceId, read).catch((cause: unknown) => {
+        legacyImports.delete(resourceId);
+        throw cause;
+      });
+    legacyImports.set(resourceId, pending);
+    return pending;
+  };
   const close = (): Promise<void> => {
     closing ??= (async () => {
       const joined = await Promise.allSettled([...selections].map((release) => release()));
@@ -398,10 +434,10 @@ export async function createProductionHostPlatform(
         if (closing) {
           throw new Error('Production host is closing');
         }
+        // Before any run of this admission opens its Memory.
+        const legacy = await importLegacy(selected.memory.resourceId);
         const provider = selected.configuration.provider ?? '';
-        const auth = selected.resolveProviderAuth
-          ? await selected.resolveProviderAuth(provider)
-          : await options.resolveProviderAuth(provider);
+        const auth = await admittedProviderAuth(options, selected, provider);
         const model = await admittedModel(options, selected, auth, request.signal);
         request.signal.throwIfAborted();
         acquired = await acquireMcp(request, selected);
@@ -447,6 +483,9 @@ export async function createProductionHostPlatform(
         );
         request.signal.throwIfAborted();
         const selection: HostRunAdmission = {
+          ...(selected.captureTurnBoundary
+            ? { captureTurnBoundary: selected.captureTurnBoundary }
+            : {}),
           childSystem: selected.childSystem,
           close: release,
           configuration: selected.configuration,
@@ -454,6 +493,7 @@ export async function createProductionHostPlatform(
           ...(discovery ? { discovery: discovery.discovery } : {}),
           // Like the legacy Memory default (`generateTitle: true`).
           generatesThreadTitle: true,
+          ...(legacy?.resourceObservations ? { legacyObservationsWithheld: true as const } : {}),
           hooks: selected.hooks,
           inputTokenLimit: selected.providerRequestContext.inputTokenLimit,
           model,
@@ -521,6 +561,9 @@ export async function createProductionHostPlatform(
       }
     },
     close,
+    ...(options.mcp?.attachTaskOwner
+      ? { attachMcpTaskOwner: options.mcp.attachTaskOwner.bind(options.mcp) }
+      : {}),
     ...productionMemoryReadiness(options),
     readPermissionPolicy: options.readPermissionPolicy,
     ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),

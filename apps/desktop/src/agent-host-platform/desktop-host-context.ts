@@ -7,9 +7,10 @@ import {
   type DelegationPersonaSummary,
   filterToolsForPlanMode,
   formatSkillsCatalog,
+  injectWorkspaceRootManifestContext,
 } from '@brainstrike/agent/tool-runtime';
-import type { HostRunAdmissionRequest } from '@brainstrike/agent-host';
-import type { ToolRiskCategory } from '@brainstrike/assistant-contract';
+import { type HostRunIntentRequest, hostToolDiscoveryEnabled } from '@brainstrike/agent-host';
+import { isSupportedProvider, type ToolRiskCategory } from '@brainstrike/assistant-contract';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-text-file-reader';
 import { createLogger } from '@brainstrike/logging';
@@ -53,10 +54,12 @@ export async function readDesktopHostSystemContext(options: {
   /** Plan mode: the instructions say the run may only read and propose a plan. */
   readonly planMode: boolean;
   readonly readWorkspaceFile?: WorkspaceFileReader;
-  readonly request: HostRunAdmissionRequest;
+  readonly request: HostRunIntentRequest;
   readonly runtime: RuntimeData;
   /** The admitted tools by provider name; the instructions name each by its catalog id. */
-  readonly tools: Readonly<Record<string, { readonly permissionToolId?: string }>>;
+  readonly tools: Readonly<
+    Record<string, { readonly description: string; readonly permissionToolId?: string }>
+  >;
   readonly workspaceSkills?: ScannedWorkspaceSkills;
 }): Promise<DesktopHostSystemContext> {
   if (options.request.snapshot) {
@@ -78,6 +81,14 @@ export async function readDesktopHostSystemContext(options: {
       ? buildLocalDefaultInstructions(names)
       : buildDefaultInstructions(names, {
           planMode: options.planMode,
+          // The same gate the admission uses to defer these tools behind discovery.
+          toolDiscoveryEnabled:
+            isSupportedProvider(options.runtime.provider) &&
+            hostToolDiscoveryEnabled({
+              modelId: options.request.modelId,
+              provider: options.runtime.provider,
+              tools: options.tools,
+            }),
           ...(options.personas?.length
             ? { backgroundDelegation: true, personas: options.personas }
             : {}),
@@ -120,6 +131,8 @@ export async function readDesktopHostSystemContext(options: {
   messages = await injectReferencedFilesContext(messages, options.runtime, readFile);
   messages = await injectActivatedSkillsContext(messages, skills);
   messages = await injectWorkspaceInstructionsContext(messages, options.runtime, readFile);
+  // The legacy per-turn workspace topology: root selectors, main root and focused root.
+  messages = injectWorkspaceRootManifestContext(messages, options.runtime);
   const injected = messages
     .filter((message) => message.role === 'system')
     .map((message) =>

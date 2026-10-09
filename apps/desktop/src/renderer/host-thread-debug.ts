@@ -12,7 +12,8 @@ import {
 } from '@brainstrike/app-shell';
 import type { DebugBundleBinding } from '@brainstrike/assistant-ui';
 import { z } from 'zod';
-import { catalogModel, tokensOf } from './host-thread-ledger';
+import { readDesktopRunConfiguration } from './desktop-run-configuration';
+import { catalogModel, observerCallModel, targetModel, tokensOf } from './host-thread-ledger';
 import { STATUS_BY_OUTCOME } from './host-thread-runs';
 
 type HostReader = Pick<HostClient, 'request'>;
@@ -22,13 +23,6 @@ type RunStarted = Extract<HostEvent, { type: 'run.started' }>;
 /** The legacy bundle's bounds: its newest 40 transcript messages and 500 timeline events. */
 const TRANSCRIPT_MESSAGES = 40;
 const TIMELINE_EVENTS = 500;
-
-/** What the run's captured configuration says about generation, when it was captured. */
-const CapturedModelConfigurationSchema = z.object({
-  modelConfiguration: z
-    .object({ modelSettings: z.json().optional(), providerOptions: z.json().optional() })
-    .optional(),
-});
 
 /** AI SDK response messages, as a model.step commits them. */
 const StepMessageSchema = z.object({ content: z.json(), role: z.string() });
@@ -75,10 +69,7 @@ function bundleRun(
   finished: HostLogRow | undefined
 ): BundleRun {
   const model = catalogModel(started.event.modelId);
-  const captured = CapturedModelConfigurationSchema.safeParse(
-    started.event.snapshot?.configuration ?? {}
-  );
-  const generation = captured.success ? captured.data.modelConfiguration : undefined;
+  const generation = readDesktopRunConfiguration(started.event)?.intent?.modelConfiguration;
   const outcome = finished?.event.type === 'run.finished' ? finished.event : undefined;
   return {
     completedAt: finished ? iso(finished) : null,
@@ -167,6 +158,8 @@ function usage(
   run: HostLogRow & { event: RunStarted }
 ): ThreadDebugBundleData['usage'] {
   const runModel = catalogModel(run.event.modelId);
+  const observerTarget = readDesktopRunConfiguration(run.event)?.memoryResolution?.observerTarget;
+  const observer = observerTarget ? targetModel(observerTarget) : undefined;
   return rows.flatMap((row): ThreadDebugBundleData['usage'] => {
     const { event } = row;
     if (runIdOf(event) !== run.event.runId) {
@@ -176,7 +169,11 @@ function usage(
       event.type === 'model.step'
         ? { model: runModel, modelId: run.event.modelId, usage: event.usage }
         : event.type === 'memory.usage'
-          ? { model: catalogModel(event.modelId), modelId: event.modelId, usage: event.usage }
+          ? {
+              model: observerCallModel(observer, event.modelId),
+              modelId: event.modelId,
+              usage: event.usage,
+            }
           : event.type === 'context.compacted' && event.usage !== undefined
             ? {
                 model: catalogModel(event.modelId ?? run.event.modelId),

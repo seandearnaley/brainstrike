@@ -66,6 +66,7 @@ const explorer: AssistantThreadHostChild = {
   parentRunId: 'parent-run',
   parentThreadId: 'root-1',
   persona: 'explore',
+  status: 'idle',
   threadId: 'child-1',
   toolCallId: 'call-1',
 };

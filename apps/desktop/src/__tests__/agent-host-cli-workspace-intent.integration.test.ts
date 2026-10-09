@@ -246,6 +246,7 @@ function request(configuration: unknown): HostRunAdmissionRequest {
   return {
     configuration: z.record(z.string(), z.json()).parse(configuration),
     modelId: 'openai::gpt-6-sol',
+    runId: 'owner-run',
     signal: new AbortController().signal,
     threadId: 'owner-thread',
   };

@@ -8,7 +8,7 @@ import {
   RunVerdictProvider,
   useRunVerdictContext,
 } from '../run-verdict-context';
-import { RunVerdictButtons, selectFinishedRunId } from '../run-verdict-control';
+import { DerivedRunVerdict, RunVerdictButtons, selectFinishedRunId } from '../run-verdict-control';
 
 function runEventPart(data: Record<string, unknown>): Record<string, unknown> {
   return { data, name: 'brainstrike.run-event', type: 'data' };
@@ -155,5 +155,30 @@ describe('RunVerdictButtons', () => {
         'true'
       );
     });
+  });
+});
+
+describe('committed verdicts (host threads)', () => {
+  function wrap(ui: ReactNode) {
+    return render(<TooltipProvider>{ui}</TooltipProvider>);
+  }
+
+  it('shows a committed user verdict as chosen before any click, so it persists across reloads', () => {
+    wrap(<RunVerdictButtons committed="failed" onVerdict={vi.fn()} />);
+    expect(screen.getByRole('button', { name: /didn't work/i })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
+    expect(screen.getByRole('button', { name: /worked/i })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+  });
+
+  it('names a hook verdict, with its detail on hover', () => {
+    render(<DerivedRunVerdict verdict={{ detail: 'Graded', source: 'hook', verdict: 'mixed' }} />);
+    const label = screen.getByTestId('run-verdict-derived');
+    expect(label).toHaveTextContent('Hook verdict: mixed');
+    expect(label).toHaveAttribute('title', 'Graded');
   });
 });

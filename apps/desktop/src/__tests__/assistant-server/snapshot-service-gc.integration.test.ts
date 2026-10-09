@@ -217,4 +217,32 @@ describe('pruneHistory', () => {
     expect(await blobExists(fourth)).toBe(false);
     expect(await blobExists(fifth)).toBe(true);
   });
+
+  it("keeps a chain outside the boundaries whole: a host thread's turns survive a legacy trim", {
+    timeout: HEAVY_TIMEOUT_MS,
+  }, async () => {
+    // A host thread's turns are recorded in the host's log, never the ledger,
+    // so its chain is never among the boundaries the startup GC cuts at.
+    await write('file.txt', 'host-1\n');
+    const hostStart = await snap('host-thread');
+    await write('file.txt', 'host-2\n');
+    const hostEnd = await snap('host-thread');
+    const legacy: string[] = [];
+    for (let turn = 1; turn <= 3; turn += 1) {
+      await write('file.txt', `legacy-${turn}\n`);
+      legacy.push(await snap('legacy-thread'));
+    }
+    const [legacyOldest, , legacyNewest] = legacy;
+    if (!(legacyOldest && legacyNewest)) {
+      throw new Error('fixture must produce three legacy snapshots');
+    }
+
+    await service.pruneHistory(handle, [legacyNewest]);
+
+    expect(await blobExists(legacyOldest)).toBe(false);
+    expect(await blobExists(hostStart)).toBe(true);
+    expect(await blobExists(hostEnd)).toBe(true);
+    const diffs = await service.diffRefs(handle, hostStart, hostEnd);
+    expect(diffs.map((diff) => diff.path)).toEqual(['file.txt']);
+  });
 });

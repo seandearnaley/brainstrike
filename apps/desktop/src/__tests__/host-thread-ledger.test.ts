@@ -123,7 +123,7 @@ test('a running run lists as running; deleting the thread drops it', () => {
     ledger.getSnapshot().runs.find((run) => run.startedAt.getTime() === second.ts)
   ).toMatchObject({ completedAt: null, durationMs: null, status: 'running' });
   ledger.delete(threadId);
-  expect(ledger.getSnapshot()).toEqual({ runs: [], usage: [] });
+  expect(ledger.getSnapshot()).toEqual({ rootUsage: [], runs: [], usage: [] });
 });
 
 describe("a thread's committed usage for the meter's thread total", () => {
@@ -235,5 +235,198 @@ describe("a thread's committed usage for the meter's thread total", () => {
       totalInputTokens: 304,
       totalOutputTokens: 140,
     });
+  });
+});
+
+describe("the Task Ledger's and cost views' share of a host run", () => {
+  const [first] = started;
+  if (first?.event.type !== 'run.started') {
+    throw new Error('The recording has no run');
+  }
+  const { runId } = first.event;
+  /** The recording, with `events` committed right after the first run starts. */
+  const withRows = (...events: Record<string, unknown>[]): HostLogRow[] => {
+    const at = rows.indexOf(first) + 1;
+    return [
+      ...rows.slice(0, at),
+      ...events.map((event) => ({ event, seq: 0, threadId })),
+      ...rows.slice(at),
+    ].map((row, index) =>
+      HostLogRowSchema.parse({ ...row, seq: index + 1, ts: BASE + (index + 1) * 1000 })
+    );
+  };
+  const hash = (digit: string): string => digit.repeat(64);
+  const edit = (entryId: string, path: string) => ({
+    after: { existed: true, hash: hash('b'), size: 12 },
+    baselines: [{ kind: 'absent', path }],
+    before: { existed: false, hash: null, size: null },
+    entryId,
+    op: 'write',
+    path,
+    rootId: 'root-a',
+    rootPath: '/tmp/workspace-a',
+    runId,
+    toolCallId: `call-${entryId}`,
+    toolId: 'brainstrike.writeFile',
+    type: 'workspace.edit.recorded',
+  });
+
+  test('its committed edits and reverts count in its ledger row, each revert once', () => {
+    const revert = (commandId: string) => ({
+      commandId,
+      outcomes: [
+        { entryId: 'edit-1', status: 'reverted' },
+        { entryId: 'edit-2', reason: 'The file changed since the edit.', status: 'conflict' },
+      ],
+      runId,
+      type: 'workspace.edit.reverted',
+    });
+    const ledger = new HostThreadLedger();
+    ledger.accept(
+      threadId,
+      withRows(
+        edit('edit-1', 'notes.txt'),
+        edit('edit-2', 'plan.md'),
+        revert('revert-1'),
+        revert('revert-2')
+      )
+    );
+    expect(ledger.getSnapshot().runs.find((run) => run.runId === runId)).toMatchObject({
+      editCount: 2,
+      revertedEditCount: 1,
+    });
+  });
+
+  test("its provider calls count toward its bound root's cost; an unbound run's are unattributed", () => {
+    const boundStart = HostLogRowSchema.parse({
+      ...first,
+      event: {
+        ...first.event,
+        snapshot: {
+          configuration: {},
+          maxSteps: 12,
+          toolIdentities: {},
+          workspaceBinding: { operatingRootDisplayName: 'Workspace A', operatingRootId: 'root-a' },
+        },
+      },
+    });
+    const ledger = new HostThreadLedger();
+    ledger.accept(
+      threadId,
+      rows.map((row) => (row === first ? boundStart : row))
+    );
+    // Each run commits two steps of 1 input / 25 output; unattributed first, as the SQL orders.
+    expect(ledger.getSnapshot().rootUsage).toEqual([
+      {
+        estimatedCacheCreationTokens: 0,
+        estimatedCacheReadTokens: 0,
+        estimatedInputTokens: 2,
+        estimatedOutputTokens: 50,
+        inputTokens: 2,
+        model: 'anthropic/claude-sonnet-4.6',
+        outputTokens: 50,
+        provider: 'openrouter',
+        rootDisplayName: null,
+        rootId: null,
+      },
+      {
+        estimatedCacheCreationTokens: 0,
+        estimatedCacheReadTokens: 0,
+        estimatedInputTokens: 2,
+        estimatedOutputTokens: 50,
+        inputTokens: 2,
+        model: 'anthropic/claude-sonnet-4.6',
+        outputTokens: 50,
+        provider: 'openrouter',
+        rootDisplayName: 'Workspace A',
+        rootId: 'root-a',
+      },
+    ]);
+  });
+
+  test("an unbound run's provider calls count toward the root focused at its Send", () => {
+    // The desktop's durable run configuration commits the Send intent, focused root included.
+    const focusedStart = HostLogRowSchema.parse({
+      ...first,
+      event: {
+        ...first.event,
+        snapshot: {
+          configuration: { intent: { selectionFolderId: 'root-b' } },
+          maxSteps: 12,
+          toolIdentities: {},
+        },
+      },
+    });
+    const ledger = new HostThreadLedger();
+    ledger.accept(
+      threadId,
+      rows.map((row) => (row === first ? focusedStart : row))
+    );
+    // The roots table names it; the run's log carries only its id.
+    expect(
+      ledger.getSnapshot().rootUsage.map(({ rootDisplayName, rootId }) => [rootId, rootDisplayName])
+    ).toEqual([
+      [null, null],
+      ['root-b', null],
+    ]);
+  });
+
+  test("observer calls cost under the run's resolved observer target, never a local one", () => {
+    const observing = (observerTarget: string) =>
+      HostLogRowSchema.parse({
+        ...first,
+        event: {
+          ...first.event,
+          snapshot: {
+            configuration: {
+              memoryResolution: { observationalMemory: 'resolved', observerTarget },
+            },
+            maxSteps: 12,
+            toolIdentities: {},
+          },
+        },
+      });
+    // The memory provider commits the SDK model's own id.
+    const observation = (modelId: string) => ({
+      kind: 'observation',
+      modelId,
+      runId,
+      type: 'memory.usage',
+      usage: { inputTokens: 300, outputTokens: 40, totalTokens: 340 },
+    });
+    const costedSources = (observerTarget: string, modelId: string) => {
+      const ledger = new HostThreadLedger();
+      const at = rows.indexOf(first);
+      ledger.accept(
+        threadId,
+        [
+          ...rows.slice(0, at),
+          observing(observerTarget),
+          { event: observation(modelId), seq: 0, threadId },
+          ...rows.slice(at + 1),
+        ].map((row, index) =>
+          HostLogRowSchema.parse({ ...row, seq: index + 1, ts: BASE + (index + 1) * 1000 })
+        )
+      );
+      return ledger
+        .getThreadUsage(threadId)
+        ?.perModel.map(({ model, provider, runKind }) => [provider, model, runKind]);
+    };
+    expect(costedSources('openai/gpt-4.1-mini', 'gpt-4.1-mini')).toEqual([
+      ['openai', 'gpt-4.1-mini', 'om-observation'],
+      ['openrouter', 'anthropic/claude-sonnet-4.6', 'chat'],
+    ]);
+    expect(costedSources('openrouter/google/gemini-2.5-flash', 'google/gemini-2.5-flash')).toEqual([
+      ['openrouter', 'google/gemini-2.5-flash', 'om-observation'],
+      ['openrouter', 'anthropic/claude-sonnet-4.6', 'chat'],
+    ]);
+    // A call naming another model than the target is not attributed to it.
+    expect(costedSources('openai/gpt-4.1-mini', 'gpt-4.1')).toEqual([
+      ['openrouter', 'anthropic/claude-sonnet-4.6', 'chat'],
+    ]);
+    // The built-in local model bills nothing.
+    expect(costedSources('local/gemma-4-e2b-it', 'gemma-4-e2b-it')).toEqual([
+      ['openrouter', 'anthropic/claude-sonnet-4.6', 'chat'],
+    ]);
   });
 });

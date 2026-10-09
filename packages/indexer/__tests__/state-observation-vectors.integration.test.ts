@@ -2,6 +2,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   createStateStoreIndexer,
   openIndexer,
@@ -15,10 +16,19 @@ import { Schema } from 'effect';
 import { afterEach, beforeEach, expect, it, type TestContext, vi } from 'vitest';
 import { decoder, stateObservationMetadataSchema } from '../src/contracts.js';
 import { ObservationLifecycle } from './fixtures/state-observation-lifecycle.js';
-import { captureIndex, captureStorage, groupText } from './fixtures/state-observation-native.mjs';
+import {
+  captureIndex,
+  captureStorage,
+  groupText,
+  observationTokens,
+} from './fixtures/state-observation-native.mjs';
 import { observationChunks } from './fixtures/state-observation-schema.mjs';
 
 const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
+// The production writer's native memory calculator, which also carries Mastra OM's token counter.
+const memoryCalculatorModule = fileURLToPath(
+  new URL('../../agent-host/dist/adapters/memory-storage-calculator.js', import.meta.url)
+);
 const profile = {
   dimensions: 8,
   distance: 'cosine',
@@ -124,7 +134,7 @@ async function fixture(owner: ObservationLifecycle, nativeScope: 'thread' | 'res
     );
   let port = await acquirePort(options);
   let store = await owner.acquire(
-    () => StateStore.open(root, { indexer: createStateStoreIndexer(port) }),
+    () => StateStore.open(root, { indexer: createStateStoreIndexer(port), memoryCalculatorModule }),
     (ownedStore) => ownedStore.close()
   );
   await owner.work(() =>
@@ -205,7 +215,11 @@ async function fixture(owner: ObservationLifecycle, nativeScope: 'thread' | 'res
         owner.check();
         port = await acquirePort({ ...options, embedding: { indexMode: 'open-existing' } });
         store = await owner.acquire(
-          () => StateStore.open(root, { indexer: createStateStoreIndexer(port) }),
+          () =>
+            StateStore.open(root, {
+              indexer: createStateStoreIndexer(port),
+              memoryCalculatorModule,
+            }),
           (ownedStore) => ownedStore.close()
         );
       }),
@@ -669,18 +683,18 @@ it(
         code: 'stale-observation-plan',
       });
       await write(f);
-      await write(f, neighbor);
+      const kept = await write(f, neighbor);
       await f.store.deleteThread('one');
-      expect(await byteFiles(f)).toEqual([]);
       await expect(f.port.queryStateObservationVectors(query)).rejects.toMatchObject({
         code: 'thread-not-authorized',
       });
+      // Deleting one thread keeps the other thread's shared group and vector.
       expect(
         await f.port.queryStateObservationVectors({
           ...query,
           scope: { ...scope, threadId: 'two' },
         })
-      ).toEqual([]);
+      ).toMatchObject([{ id: kept.ids[0] }]);
       await expect(
         f.port.upsertStateObservationVectors({ plan: late.plan, segments: late.segments })
       ).rejects.toThrow();
@@ -728,6 +742,50 @@ it(
         (row) => row.kind === 'observation'
       )
     ).toBe(false);
+  }),
+  getAdjustedTimeout('integration')
+);
+
+it(
+  "deleting one thread keeps the other thread's shared observations and their vectors",
+  qualification(async (owner) => {
+    const f = await fixture(owner, 'resource');
+    const neighbor = source('neighbor', 'two', 'Shared observation kept after the other delete.');
+    await f.native.active(
+      `${groupText(source().text, source().groupId, 'one', 'resource')}\n${groupText(neighbor.text, neighbor.groupId, 'two', 'resource')}`,
+      date
+    );
+    await f.persist();
+    await write(f);
+    const retained = await write(f, neighbor);
+    await f.store.deleteThread('one');
+    // The shared record keeps only the other thread's attributed section, and
+    // its token count is Mastra OM's own count of what is left.
+    const kept = groupText(neighbor.text, neighbor.groupId, 'two', 'resource');
+    const shared = (await f.store.memory({ operation: 'read', resourceId: 'resource' })).entities
+      .filter((row) => row.kind === 'observation')
+      .map((row) => row.payload);
+    expect(shared).toEqual([
+      expect.objectContaining({
+        activeObservations: kept,
+        observationTokenCount: observationTokens(kept),
+      }),
+    ]);
+    // Its vectors survive; the deleted thread's are gone with the thread.
+    expect(
+      await f.port.queryStateObservationVectors({ ...query, scope: { ...scope, threadId: 'two' } })
+    ).toMatchObject([{ id: retained.ids[0] }]);
+    await expect(f.port.queryStateObservationVectors(query)).rejects.toMatchObject({
+      code: 'thread-not-authorized',
+    });
+    const db = openConnection(f.options.dbPath, { readonly: true });
+    try {
+      expect(
+        db.prepare('SELECT DISTINCT thread_id FROM state_observation_vectors').pluck().all()
+      ).toEqual(['two']);
+    } finally {
+      db.close();
+    }
   }),
   getAdjustedTimeout('integration')
 );

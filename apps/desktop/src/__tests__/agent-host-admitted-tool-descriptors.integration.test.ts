@@ -184,6 +184,7 @@ function request(
     configuration: z.record(z.string(), z.json()).parse(configuration),
     modelId: `${model.provider}::${model.model}`,
     ...(options.planMode ? { planMode: true } : {}),
+    runId: 'host-run',
     signal: new AbortController().signal,
     threadId: 'host-thread',
   };

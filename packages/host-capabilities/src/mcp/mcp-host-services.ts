@@ -11,7 +11,11 @@ import type {
   HostStartupContext,
 } from '@brainstrike/agent-host';
 import { joinCredentialCleanup } from '@brainstrike/agent-host/credential-contract';
-import type { McpExtensionEnablement, McpHostCloseReport } from '@brainstrike/assistant-contract';
+import type {
+  McpExtensionEnablement,
+  McpHostCloseReport,
+  McpHostTaskOwner,
+} from '@brainstrike/assistant-contract';
 import type { ResolvedMcpConfig } from '@brainstrike/assistant-contract/mcp-config';
 import type { McpTaskStorage } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
@@ -105,6 +109,10 @@ export async function createMcpHostServices<Collection extends AgentHostMcpColle
       throw new AgentHostAdapterClosedError();
     }
   };
+  // Core supplies its ownership of recovered tasks when it opens (BST-1930 c3);
+  // closing first refuses the wait, so no Tasks session outlives the host.
+  const taskOwner = Promise.withResolvers<McpHostTaskOwner>();
+  void taskOwner.promise.catch(() => undefined);
   const runtime = new McpHostRuntime(
     {
       appUi: options.appUi,
@@ -112,10 +120,12 @@ export async function createMcpHostServices<Collection extends AgentHostMcpColle
       oauthStore: options.oauthStore,
       openExternal: options.openExternal,
       openTaskStorage: options.openTaskStorage,
+      taskOwner: taskOwner.promise,
     },
     options.runtimeDependencies
   );
   const close = (): Promise<McpHostCloseReport> => {
+    taskOwner.reject(new AgentHostAdapterClosedError());
     closing ??= Promise.resolve().then(async () => {
       let report: McpHostCloseReport | undefined;
       // The shared authority joins actual requests, Tasks and OAuth persistence.
@@ -259,5 +269,14 @@ export async function createMcpHostServices<Collection extends AgentHostMcpColle
     work.then(settled, settled);
     return work;
   };
-  return { close, mcp: { authority: runtime.host, close, executableTools }, runtime };
+  return {
+    close,
+    mcp: {
+      attachTaskOwner: (owner) => taskOwner.resolve(owner),
+      authority: runtime.host,
+      close,
+      executableTools,
+    },
+    runtime,
+  };
 }

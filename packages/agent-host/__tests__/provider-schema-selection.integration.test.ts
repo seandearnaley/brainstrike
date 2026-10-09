@@ -460,6 +460,7 @@ test('production concurrent selections retain their own auth closures outside du
       [firstThread, secondThread].map((thread) =>
         platform.admitRun!({
           modelId: 'gpt-6-sol',
+          runId: `${thread.threadId}-run`,
           signal: new AbortController().signal,
           threadId: thread.threadId,
         })
@@ -555,6 +556,7 @@ test.each([
     await expect(
       platform.admitRun?.({
         modelId: 'gpt-6-sol',
+        runId: 'recorded-auth-validation-run',
         signal: new AbortController().signal,
         threadId: 'recorded-auth-validation-thread',
       })

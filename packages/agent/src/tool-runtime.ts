@@ -9,6 +9,7 @@ export {
   buildCurrentTaskListNote,
   buildDefaultInstructions,
   buildLocalDefaultInstructions,
+  buildToolDiscoveryNote,
   type DelegationPersonaSummary,
 } from './mastra/default-instructions';
 export { LIST_AVAILABLE_TOOLS_ID } from './mastra/deferred-tool-catalog';
@@ -48,3 +49,7 @@ export { resolveToolGuardBudget } from './tools/resolve-tool-guard-budget';
 export { resolveRunPythonExecutionContext } from './tools/run-python-approval-context';
 export { createSubmitPlanTool } from './tools/submit-plan-tool';
 export type { RuntimeData } from './types';
+export {
+  buildWorkspaceRootManifestContextMessage,
+  injectWorkspaceRootManifestContext,
+} from './workspace-root-manifest';

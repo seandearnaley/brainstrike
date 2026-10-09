@@ -41,10 +41,6 @@ export {
   serializeFileMentionDirective,
   summarizeAssistantTaskList,
 } from '@brainstrike/assistant-contract';
-export type {
-  HookTrustApproval,
-  HookTrustRequest,
-} from '@brainstrike/assistant-contract/hook-trust-request';
 export {
   type AssistantPersonaDefinition,
   type AssistantPersonaId,

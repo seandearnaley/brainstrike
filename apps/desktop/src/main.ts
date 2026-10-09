@@ -9,7 +9,6 @@ import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract
 import { createMainLlmHostClient } from '@brainstrike/assistant-service/ports';
 import { recoverInterruptedDimensionIndexMaintenanceAtStartup } from '@brainstrike/db';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
-import { purgeMcpOAuthRuntimeState } from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
 import { clearReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import { createProviderVerificationService } from '@brainstrike/host-capabilities/provider-verification';
 import type { ProfileResetLease } from '@brainstrike/host-lease';
@@ -29,6 +28,7 @@ import { registerAgentHostClientIpc } from './agent-host-client-ipc';
 import { createAgentHostMainClient } from './agent-host-main-client';
 import { createDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
 import { DesktopWorkspaceBindingAuthority } from './agent-host-platform/desktop-workspace-binding';
+import { readMainLegacyMemory } from './agent-host-platform/legacy-memory-main';
 import { readEmbeddingHostDevice } from './agent-host-platform/memory-vector-selection';
 import {
   PlatformPolicySchema,
@@ -39,6 +39,7 @@ import { createAgentHostPrivateClients } from './agent-host-private-clients';
 import { buildFileMenuTemplate } from './application-file-menu';
 import { registerAssetProtocol } from './asset-protocol';
 import { startAssistantServer } from './assistant-server';
+import { createHostThreadTurns } from './assistant-server/changeset-host-turns';
 import {
   configureDesktopCommandSessionManager,
   disposeDesktopCommandSessions,
@@ -46,6 +47,7 @@ import {
 import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
 import type { ForgeService } from './assistant-server/forge-service';
 import type { GitInventoryService } from './assistant-server/git-inventory-service';
+import { installDesktopHookApprovalReader } from './assistant-server/hooks/server-integration';
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
 import { readMainVerificationCredential } from './assistant-server/provider-credentials';
 import { execFileSnapshotGitRunner } from './assistant-server/snapshot-git';
@@ -1096,6 +1098,10 @@ const nativeIndexActivation = createNativeIndexActivation({
         localLlm: createMainLlmHostClient(createE2eScriptedLlmHost() ?? llmHostManager),
         // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
         mcp: createDesktopMcpPlatformCapabilities(getDesktopMcpHostRuntime()),
+        // Gap 17: the host imports the profile's legacy workspace memory once.
+        readLegacyMemory: readMainLegacyMemory,
+        // BST-1977: host runs' turns snapshot through legacy turns' one shadow-git owner.
+        workspaceSnapshots: () => snapshotService,
       });
     },
     platformModule: resolveBundledSiblingPath(
@@ -1161,6 +1167,14 @@ const desktopHookTrust = createDesktopHookTrust({
   request: (method, params) => agentHostMainClient.request(method, params),
   storage,
 });
+// Legacy threads run project hooks at the same host-owned trust.
+installDesktopHookApprovalReader((root) => desktopHookTrust.approval(root));
+// Host threads record their turn snapshots in the host's log, not the ledger;
+// the startup snapshot GC keeps their refs while the host lists the thread.
+const readHostThreadIds = async (): Promise<ReadonlySet<string>> =>
+  new Set(
+    (await agentHostMainClient.request('thread/list', {})).threads.map(({ threadId }) => threadId)
+  );
 const agentHostClientIpc = registerAgentHostClientIpc(async () => {
   const attachment = await nativeIndexActivation.acquireProfile();
   await desktopHookTrust.imported();
@@ -1290,6 +1304,12 @@ ipcDisposers.add(
       // them here so neither has to edit main.ts. Lazy for the same reason as
       // `resolveInventoryService` below.
       createSnapshotRepository,
+      // BST-1977: host threads' agent-run changesets resolve from the host's log.
+      hostThreadTurns: createHostThreadTurns({
+        listThreads: readHostThreadIds,
+        readRows: async (threadId, fromSeq) =>
+          (await agentHostMainClient.request('thread/read', { fromSeq, threadId })).rows,
+      }),
       resolveInventoryService: () => gitInventoryService,
       resolveSnapshotService: () => snapshotService,
     })
@@ -1594,6 +1614,7 @@ if (singleInstanceLockAcquired) {
         getDatabase,
         logger,
         mainProcessStartedAt,
+        readHostThreadIds,
         snapshotService: constructedSnapshotService,
         snapshotsBaseDir,
       });
@@ -1657,7 +1678,8 @@ if (singleInstanceLockAcquired) {
       logger.debug('Setting up IPC handlers that require app readiness...');
       // Settings reads the profile store directly and writes through the host,
       // the single credential writer. Its `auth/clear` also drops the sign-in
-      // engine's in-memory rotated-token overlay (BST-1356).
+      // engine's in-memory rotated-token overlay (BST-1356) and the host's MCP
+      // OAuth records with their live providers.
       const secretsService = createDesktopSettingsSecrets({
         clear: async () => (await agentHostMainClient.request('auth/clear', {})).cleared,
         deleteCredential: async (account) =>
@@ -1670,9 +1692,6 @@ if (singleInstanceLockAcquired) {
         'secrets',
         registerSecretsIpcHandlers(secretsService, {
           envFileFailures: desktopEnvLoadResult.failures,
-          onClearAll: async () => {
-            await purgeMcpOAuthRuntimeState();
-          },
           // Projected per invoke from the RECORDED bootstrap result — loading is
           // never re-run (initializeDesktopEnvironment throws on double-init).
           readEnvBootstrapReport: () =>

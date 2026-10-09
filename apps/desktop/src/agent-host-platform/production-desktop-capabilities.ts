@@ -2,7 +2,11 @@ import { homedir } from 'node:os';
 import { isDeepStrictEqual } from 'node:util';
 import { type RuntimeData, resolveAssistantResilienceConfig } from '@brainstrike/agent';
 import { DEFAULT_AGENT_MAX_STEPS } from '@brainstrike/agent/tool-runtime';
-import type { HostDelegation, HostRunAdmissionRequest } from '@brainstrike/agent-host';
+import type {
+  HostDelegation,
+  HostRunAdmissionRequest,
+  HostRunIntentRequest,
+} from '@brainstrike/agent-host';
 import {
   CliWorkspaceRootsSchema,
   materializeCliWorkspaceIntent,
@@ -71,7 +75,7 @@ interface DesktopCatalogSelection {
 }
 
 /** Supplied by the existing settings owner, never parsed from client configuration. */
-export type DesktopCliOwnerIntentReader = (request: HostRunAdmissionRequest) => Promise<unknown>;
+export type DesktopCliOwnerIntentReader = (request: HostRunIntentRequest) => Promise<unknown>;
 
 function desktopSystemFields(system: string | undefined): { readonly system?: string } {
   return system === undefined ? {} : { system };
@@ -209,7 +213,7 @@ async function readDesktopCatalogSelection(
 }
 
 async function readDesktopIntent(
-  request: HostRunAdmissionRequest,
+  request: HostRunIntentRequest,
   catalog: DesktopCatalogSelection,
   readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>,
   readCliOwnerIntent?: DesktopCliOwnerIntentReader
@@ -588,7 +592,7 @@ export function productionDesktopCapabilities(
   readCliOwnerIntent?: DesktopCliOwnerIntentReader,
   workspaceAuthority?: DesktopWorkspaceBindingAuthority,
   readLocalEmbeddingDevice?: (signal: AbortSignal) => Promise<'webgpu' | 'wasm'>
-): Omit<DesktopPlatformCapabilities, 'mcp'> {
+): Omit<DesktopPlatformCapabilities, 'mcp' | 'readLegacyMemory'> {
   const policies = new Map<string, PermissionToolGateSnapshot>();
   // A host thread's session grants are the host's own (permission.granted);
   // no renderer store reaches its decisions.
@@ -605,7 +609,7 @@ export function productionDesktopCapabilities(
    * settings, observer resolution and the recall-embedder plan. A run
    * admission and thread/memory/read both start here; nothing is acquired.
    */
-  const readPreconditions = async (request: HostRunAdmissionRequest) => {
+  const readPreconditions = async (request: HostRunIntentRequest) => {
     const db = await getDatabase();
     request.signal.throwIfAborted();
     const catalog = await readDesktopCatalogSelection(db, request.modelId);

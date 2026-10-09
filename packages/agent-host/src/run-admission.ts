@@ -8,6 +8,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import { WEB_SEARCH_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { modelMessageSchema, type StepResult, type ToolSet } from 'ai';
+import { leaseHostAdmission } from './admission-lease.js';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import { withHostDelegationTools } from './child-runs.js';
 import type { HostRunState } from './core-state.js';
@@ -20,6 +21,7 @@ import type {
   HostPreparedModelRequest,
   HostRunAdmission,
   HostRunAdmissionRequest,
+  HostRunIntentRequest,
   HostRunOwner,
 } from './ports.js';
 import type { HostEvent, HostRunSnapshot } from './protocol.js';
@@ -107,20 +109,16 @@ function immutableData<T>(input: T): T {
 
 /** Retain the selected executors and configuration without freezing the source registry. */
 export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmission {
-  let closing: Promise<void> | undefined;
   const mcpAuthorities = Object.fromEntries(
     Object.entries(selected.tools).flatMap(([id, tool]) =>
       tool.mcpAuthority ? [[id, tool.mcpAuthority]] : []
     )
   );
+  const close = selected.close?.bind(selected);
   return Object.freeze({
     ...selected,
-    ...(selected.close
-      ? {
-          close: (): Promise<void> =>
-            (closing ??= Promise.resolve().then(() => selected.close?.())),
-        }
-      : {}),
+    // Children borrow this selection; it closes once, after its last holder.
+    ...(close ? { close: leaseHostAdmission(close) } : {}),
     configuration: immutableData(selected.configuration),
     ...(selected.unavailableMcpServers
       ? {
@@ -148,6 +146,52 @@ export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmi
   });
 }
 
+/**
+ * Gap 17: the notice that the legacy profile's resource observations were not
+ * imported. The committed event is the delivered fact, so it goes with the
+ * first admitted run whose root log does not hold it yet.
+ */
+export function hostLegacyObservationEvents(
+  admission: HostRunAdmission,
+  runId: string,
+  noticed: boolean
+): Extract<HostEvent, { type: 'memory.observation.withheld' }>[] {
+  return admission.legacyObservationsWithheld && !noticed
+    ? [{ reason: 'legacy-resource-observations', runId, type: 'memory.observation.withheld' }]
+    : [];
+}
+
+/** Whether a committed event is the gap 17 legacy-observations notice. */
+export function isHostLegacyObservationNotice(event: HostEvent): boolean {
+  return (
+    event.type === 'memory.observation.withheld' && event.reason === 'legacy-resource-observations'
+  );
+}
+
+/**
+ * A run's start notices: unavailable MCP servers, and the legacy-observations
+ * notice once per root. Serialized admission makes that check-then-append
+ * commit it once; the committed event is the delivered fact.
+ */
+export class HostRunStartNotices {
+  private legacyNoticed = false;
+
+  fold(event: HostEvent): void {
+    this.legacyNoticed ||= isHostLegacyObservationNotice(event);
+  }
+
+  forRun(admission: HostRunAdmission, runId: string): HostEvent[] {
+    return [
+      ...hostMcpUnavailableEvents(admission, runId),
+      ...hostLegacyObservationEvents(admission, runId, this.legacyNoticed),
+    ];
+  }
+
+  committed(admission: HostRunAdmission): void {
+    this.legacyNoticed ||= admission.legacyObservationsWithheld === true;
+  }
+}
+
 /** The run proceeds without each unavailable MCP server; its log names each one. */
 export function hostMcpUnavailableEvents(
   admission: HostRunAdmission,
@@ -161,8 +205,8 @@ export function hostMcpUnavailableEvents(
   }));
 }
 
-/** A new run command's admission request; only a live client supplies an origin. */
-export function hostRunCommandRequest(
+/** What a new run command would be admitted with; only a live client supplies an origin. */
+export function hostRunIntentRequest(
   params: {
     readonly configuration?: HostRunAdmissionRequest['configuration'] | undefined;
     readonly modelId: string;
@@ -175,7 +219,7 @@ export function hostRunCommandRequest(
   signal: AbortSignal,
   /** BST-1932: a wake continues its turn by reopening the run it follows. */
   snapshot?: HostRunSnapshot
-): Omit<HostRunAdmissionRequest, 'workspaceBinding'> {
+): Omit<HostRunIntentRequest, 'workspaceBinding'> {
   return {
     ...(params.configuration ? { configuration: params.configuration } : {}),
     modelId: params.modelId,
@@ -186,6 +230,17 @@ export function hostRunCommandRequest(
     ...(snapshot ? { snapshot } : {}),
     threadId: params.threadId,
   };
+}
+
+/** A new run command's admission request: its intent, for the run being admitted. */
+export function hostRunCommandRequest(
+  params: Parameters<typeof hostRunIntentRequest>[0] & { readonly runId: string },
+  origin: HostClientOrigin | undefined,
+  prompt: string | undefined,
+  signal: AbortSignal,
+  snapshot?: HostRunSnapshot
+): Omit<HostRunAdmissionRequest, 'workspaceBinding'> {
+  return { ...hostRunIntentRequest(params, origin, prompt, signal, snapshot), runId: params.runId };
 }
 
 /** The platform's fixed default selection, for hosts without a per-run `admitRun`. */
@@ -365,12 +420,13 @@ export async function bindHostRunAdmission(
 
 /** The request that reopens a committed run's selection from its snapshot. */
 export function hostRunReopenRequest(
-  run: Pick<HostRunState, 'modelId' | 'planMode' | 'snapshot' | 'threadId'>,
+  run: Pick<HostRunState, 'id' | 'modelId' | 'planMode' | 'snapshot' | 'threadId'>,
   signal: AbortSignal
 ): HostRunAdmissionRequest {
   return {
     modelId: run.modelId,
     ...(run.planMode ? { planMode: true } : {}),
+    runId: run.id,
     signal,
     ...(run.snapshot ? { snapshot: run.snapshot } : {}),
     ...(run.snapshot?.workspaceBinding ? { workspaceBinding: run.snapshot.workspaceBinding } : {}),

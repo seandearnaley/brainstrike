@@ -26,7 +26,10 @@ import {
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
-import type { CommittedAssistantConversationProps } from '@brainstrike/assistant-ui';
+import {
+  type CommittedAssistantConversationProps,
+  useLocalModelLoading,
+} from '@brainstrike/assistant-ui';
 import {
   type AssistantProviderSettingsUpdate,
   mergeAssistantProviderSettings,
@@ -38,6 +41,7 @@ import { type EnabledCatalogModels, useEnabledCatalogModels } from './use-enable
 type Presentation = Pick<
   CommittedAssistantConversationProps,
   | 'attachmentsAvailability'
+  | 'localLoadingState'
   | 'onEnableModel'
   | 'onModelChange'
   | 'onProviderSettingsChange'
@@ -343,6 +347,12 @@ export function useDesktopHostPresentation(
   });
   const contextWindow = metadata.modelDef?.contextWindow;
   // The legacy composer's gate: the selected model's vision decides.
+  // The built-in local model's load progress: Main broadcasts the llm-host's
+  // loading reports for loads it starts itself, which a host thread's are.
+  const { localLoadingState } = useLocalModelLoading({
+    localViaDataStream: false,
+    modelName: undefined,
+  });
   const attachmentsAvailability = resolveComposerAttachmentsAvailability({
     providerGateAvailable: selectedProvider !== 'local',
     selectedModel: selectedDefinition,
@@ -351,6 +361,7 @@ export function useDesktopHostPresentation(
     ...picker,
     composerDraftCommand: composerDraft.command,
     fileMentions,
+    ...(localLoadingState ? { localLoadingState } : {}),
     onComposerDraftCommandApplied: composerDraft.onApplied,
     onComposerTextChange: composerDraft.onTextChange,
     onEnableModel,

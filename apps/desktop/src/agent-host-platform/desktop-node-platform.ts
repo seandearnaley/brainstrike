@@ -12,6 +12,7 @@ import {
   type HostPlatform,
   type HostPlatformLaunchOptions,
   type HostRunAdmissionRequest,
+  type HostRunIntentRequest,
   type HostStartupContext,
   type ProductionHostRunConfiguration,
 } from '@brainstrike/agent-host';
@@ -49,6 +50,7 @@ import {
   PlatformMemoryReadinessSchema,
   PlatformPolicySchema,
   PlatformSelectionSchema,
+  PlatformTurnSnapshotResultSchema,
 } from './platform-wire';
 
 type PlatformSelection = z.output<typeof PlatformSelectionSchema>;
@@ -169,16 +171,20 @@ function platformDelegation(
 
 /** Electron-free production entry: Node owns the model loop, Memory and committed log. */
 /** The wire request for one admission, shared by `platform/admit` and memory readiness. */
-function platformRunRequest(admission: HostRunAdmissionRequest): Record<string, unknown> {
+function platformRunIntent(intent: HostRunIntentRequest): Record<string, unknown> {
   return {
-    ...(admission.configuration ? { configuration: admission.configuration } : {}),
-    ...(admission.snapshot ? { snapshot: admission.snapshot } : {}),
-    ...(admission.workspaceBinding ? { workspaceBinding: admission.workspaceBinding } : {}),
-    modelId: admission.modelId,
-    ...(admission.planMode ? { planMode: true } : {}),
-    ...(admission.prompt === undefined ? {} : { prompt: admission.prompt }),
-    threadId: admission.threadId,
+    ...(intent.configuration ? { configuration: intent.configuration } : {}),
+    ...(intent.snapshot ? { snapshot: intent.snapshot } : {}),
+    ...(intent.workspaceBinding ? { workspaceBinding: intent.workspaceBinding } : {}),
+    modelId: intent.modelId,
+    ...(intent.planMode ? { planMode: true } : {}),
+    ...(intent.prompt === undefined ? {} : { prompt: intent.prompt }),
+    threadId: intent.threadId,
   };
+}
+
+function platformRunRequest(admission: HostRunAdmissionRequest): Record<string, unknown> {
+  return { ...platformRunIntent(admission), runId: admission.runId };
 }
 
 export async function createHostPlatform(
@@ -224,15 +230,17 @@ export async function createHostPlatform(
   });
   // The desktop's one MCP runtime: host-thread MCP tools run here, beside Core.
   // Its servers connect after readiness, so bearer reads wait for a pending
-  // legacy import like every other credential use.
-  const mcpHost = await createDesktopNodeMcpHost(connection, request, startup, () =>
-    host.auth.secrets()
-  );
+  // legacy import like every other credential use. Its OAuth records live in
+  // this host's profile store, which Main never writes.
+  const mcpHost = await createDesktopNodeMcpHost(connection, request, startup, {
+    secrets: () => host.auth.secrets(),
+    store: () => host.credentials.store(),
+  });
   await startup.register(() => mcpHost.close());
   return createProductionHostPlatform({
     auth: host.auth,
     close: async () => {
-      // MCP cleanup still writes through Main's stores, so it joins before Main closes.
+      // The MCP runtime joins while Main's platform connection is still open.
       await mcpHost.close();
       // The language servers, command trees and command sessions this host spawned.
       await disposeHostTools();
@@ -297,10 +305,17 @@ export async function createHostPlatform(
       const hooks = createHostRunHooks({
         globalPath: getGlobalHooksPath(),
         maxHookTimeoutMs: selected.toolTimeoutMs,
-        roots: await trustedHookRoots(startup.store, selected.workspace?.roots ?? []),
+        // The run's admitted roots, bound or live: the roots its tools use.
+        roots: await trustedHookRoots(startup.store, selected.nativeRuntime.workspaceRoots),
         sessionId: admission.threadId,
       });
       return {
+        // Main's shadow-git owner brackets each run's turn for its Changes
+        // review. Unsignalled: a stopped run's turn still ends with snapshots.
+        captureTurnBoundary: async (boundary) =>
+          PlatformTurnSnapshotResultSchema.parse(
+            await request('platform/snapshot/capture', boundary)
+          ),
         childSystem: selected.childSystem,
         close: closeSelection,
         configuration,
@@ -323,10 +338,11 @@ export async function createHostPlatform(
         toolTimeoutMs: selected.toolTimeoutMs,
       };
     },
+    readLegacyMemory: () => request('platform/memory/legacy', {}),
     // Main's admission preconditions, then the memory credentials, nothing acquired.
     readMemoryPreconditions: async (admission) => {
       const readiness = PlatformMemoryReadinessSchema.parse(
-        await request('platform/memory/readiness', platformRunRequest(admission), admission.signal)
+        await request('platform/memory/readiness', platformRunIntent(admission), admission.signal)
       );
       return readiness.ready
         ? await desktopMemoryPreconditions(readiness, (provider) =>

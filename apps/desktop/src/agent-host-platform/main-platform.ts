@@ -5,10 +5,12 @@ import type {
   HostDelegation,
   HostPlatform,
   HostRunAdmissionRequest,
+  HostRunIntentRequest,
 } from '@brainstrike/agent-host';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
+import type { PgliteLegacyMemory } from '@brainstrike/db';
 import {
   type CancellationToken,
   ErrorCodes,
@@ -18,6 +20,8 @@ import {
 import { z } from 'zod';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { type HostToolServiceCapabilities, serveHostToolServices } from './host-tool-services';
+import { type DesktopWorkspaceSnapshots, serveHostTurnSnapshots } from './host-turn-snapshots';
+import { serveLegacyMemory } from './legacy-memory-main';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
 import type { DesktopMemoryVectorSelection } from './memory-vector-selection';
 import {
@@ -27,6 +31,7 @@ import {
   PlatformLocalWarmupSchema,
   PlatformMemoryReadinessSchema,
   PlatformPolicySchema,
+  PlatformRunIntentSchema,
   PlatformRunRequestSchema,
   type PlatformSelection,
   PlatformSelectionSchema,
@@ -58,9 +63,11 @@ export interface DesktopPlatformCapabilities {
   /** The Node host always composes its MCP runtime, which reaches these Main stores. */
   readonly mcp: DesktopMcpPlatformCapabilities;
   readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopPlatformSelection>;
+  /** Gap 17: the profile's legacy workspace memory, read once for the host's import. */
+  readLegacyMemory(): Promise<PgliteLegacyMemory>;
   /** thread/memory/read: the same preconditions `readConfiguration` starts with, nothing acquired. */
   readMemoryReadiness?(
-    request: HostRunAdmissionRequest
+    request: HostRunIntentRequest
   ): Promise<z.input<typeof PlatformMemoryReadinessSchema>>;
   readPermissionPolicy(
     threadId?: string
@@ -68,6 +75,8 @@ export interface DesktopPlatformCapabilities {
   /** The live path of a mounted profile root; rejects an unknown root. */
   resolveWorkspaceRoot?(rootId: string): Promise<string>;
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
+  /** Legacy turns' shadow-git owner, which also snapshots each host run's turn. */
+  readonly workspaceSnapshots?: DesktopWorkspaceSnapshots;
 }
 
 /** The selection as it crosses to the host: Main-only fields stay behind. */
@@ -104,10 +113,10 @@ interface DesktopSelectionOwner {
   readonly workspaceBinding?: HostRunAdmissionRequest['workspaceBinding'];
 }
 
-function desktopAdmissionRequest(
-  request: ReturnType<typeof PlatformRunRequestSchema.parse>,
+function desktopIntentRequest(
+  request: ReturnType<typeof PlatformRunIntentSchema.parse>,
   signal: AbortSignal
-): HostRunAdmissionRequest {
+): HostRunIntentRequest {
   return {
     ...(request.configuration ? { configuration: request.configuration } : {}),
     ...(request.snapshot ? { snapshot: request.snapshot } : {}),
@@ -120,6 +129,13 @@ function desktopAdmissionRequest(
   };
 }
 
+function desktopAdmissionRequest(
+  request: ReturnType<typeof PlatformRunRequestSchema.parse>,
+  signal: AbortSignal
+): HostRunAdmissionRequest {
+  return { ...desktopIntentRequest(request, signal), runId: request.runId };
+}
+
 /** One private connection borrows existing owners; it constructs no platform store. */
 export function serveDesktopPlatform(
   connection: MessageConnection,
@@ -130,6 +146,7 @@ export function serveDesktopPlatform(
   const controllers = new Set<AbortController>();
   const pending = new Set<Promise<unknown>>();
   const mcpStores = serveMainMcpStores(connection, capabilities.mcp);
+  const legacyMemory = serveLegacyMemory(connection, capabilities.readLegacyMemory);
   let closing: Promise<void> | undefined;
   const execute = <T>(
     token: CancellationToken,
@@ -288,6 +305,12 @@ export function serveDesktopPlatform(
     })
   );
   serveHostToolServices(connection, execute, selection, capabilities.hostTools);
+  serveHostTurnSnapshots(
+    connection,
+    execute,
+    (threadId) => selection(threadId).freshWorkspaceRoots(),
+    capabilities.workspaceSnapshots
+  );
   connection.onRequest('platform/workspace/roots', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
       const { threadId } = z.strictObject({ threadId: z.string().min(1) }).parse(input);
@@ -304,9 +327,9 @@ export function serveDesktopPlatform(
         if (!read) {
           throw new Error('Desktop memory readiness is unavailable');
         }
-        const request = PlatformRunRequestSchema.parse(input);
+        const request = PlatformRunIntentSchema.parse(input);
         return PlatformMemoryReadinessSchema.parse(
-          await read(desktopAdmissionRequest(request, signal))
+          await read(desktopIntentRequest(request, signal))
         );
       })
   );
@@ -365,6 +388,7 @@ export function serveDesktopPlatform(
         await Promise.allSettled([...pending]);
       }
       mcpStores.close();
+      legacyMemory.close();
       const results = await Promise.allSettled(
         [...selections.values()].map((value) => value.selection.close())
       );

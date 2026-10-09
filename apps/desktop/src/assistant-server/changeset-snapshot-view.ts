@@ -34,6 +34,13 @@
  * `listRunRangeCheckpoints(firstLegRunId → lastLegRunId)`, which covers
  * mid-turn resume legs' rows too.
  *
+ * HOST THREADS (BST-1977): a host turn is a run, and the host's committed
+ * log records its snapshots and tool edits; `changeset-host-turns.ts`
+ * resolves an `agent-run` changeset from it with these same semantics. A
+ * thread the host lists is remembered, so its live refresh never reads the
+ * ledger or the database; the host is asked only about a thread with no
+ * ledger rows.
+ *
  * NO SILENT FALLBACKS (plan global constraint 4): a missing or failed
  * capture makes the changeset VISIBLY unavailable — never "diff what we
  * can". Stable machine-readable error prefixes, registered alongside the
@@ -54,10 +61,19 @@ import type {
   GitResult,
   StructuredFileDiff,
 } from '@brainstrike/types';
+import type { HostThreadTurns } from './changeset-host-turns';
+import {
+  captureFailedError,
+  type ResolvedTurnTargets,
+  type RootDiffTarget,
+  type SnapshotAttributionRecord,
+  type SnapshotAttributionSpan,
+  snapshotMissingError,
+} from './changeset-snapshot-targets';
 import { type EditCheckpointDatabase, listRunRangeCheckpoints } from './edit-checkpoint-journal';
 import { snapshotRelativePath } from './snapshot-paths';
 import { isFailedSnapshotCaptureOid, type SnapshotRepository } from './snapshot-repository';
-import type { SnapshotDiffTarget, SnapshotService } from './snapshot-service';
+import type { SnapshotService } from './snapshot-service';
 import {
   findBracketByRunAnchor,
   findBracketByRunId,
@@ -71,21 +87,12 @@ import {
   type SnapshotTurnState,
 } from './snapshot-turn-registry';
 
+export type {
+  SnapshotAttributionRecord,
+  SnapshotAttributionSpan,
+} from './changeset-snapshot-targets';
+
 type SnapshotChangeset = Extract<Changeset, { kind: 'agent-run' | 'run-range' }>;
-
-/** One journal row's attribution identity — content fields never travel here. */
-export interface SnapshotAttributionRecord {
-  readonly fromPath: string | null;
-  readonly path: string;
-  readonly rootId: string;
-}
-
-/** The turn span an attribution join covers: first → last leg run ids. */
-export interface SnapshotAttributionSpan {
-  readonly firstRunId: string;
-  readonly lastRunId: string;
-  readonly threadId: string;
-}
 
 export interface SnapshotRunAnchor {
   readonly completedAt: string | null;
@@ -94,6 +101,8 @@ export interface SnapshotRunAnchor {
 
 export interface SnapshotChangesetResolverDeps {
   readonly createRepository: (db: EditCheckpointDatabase) => SnapshotRepository;
+  /** Host threads' turns, from the host's committed log (BST-1977). */
+  readonly hostThreads?: HostThreadTurns | undefined;
   /** Injectable for tests; defaults to {@link loadJournalAttributionRecords}. */
   readonly loadAttribution?:
     | ((
@@ -187,34 +196,6 @@ export async function loadJournalAttributionRecords(
   };
 }
 
-/** One root's resolved diff endpoints. */
-interface RootDiffTarget {
-  readonly fromOid: string;
-  readonly rootId: string;
-  readonly rootPath: string;
-  readonly to: SnapshotDiffTarget;
-}
-
-interface ResolvedTurnTargets {
-  /** Null when the view is LIVE (worktree side; attribution join skipped). */
-  readonly attributionSpan: SnapshotAttributionSpan | null;
-  readonly targets: readonly RootDiffTarget[];
-}
-
-function captureFailedError(rootId: string, detail: string): GitResult<never> {
-  return {
-    error:
-      `changeset-snapshot-capture-failed: the workspace snapshot for root "${rootId}" ` +
-      `was not captured (${detail}); this changeset cannot be shown. ` +
-      'Partial diffs are never fabricated.',
-    ok: false,
-  };
-}
-
-function snapshotMissingError(detail: string): GitResult<never> {
-  return { error: `changeset-snapshot-missing: ${detail}`, ok: false };
-}
-
 /** Registry outcomes → per-root FROM oids; a failed outcome fails the view. */
 function fromOidsOfOutcomes(
   outcomes: ReadonlyMap<string, SnapshotCaptureOutcome>
@@ -242,7 +223,7 @@ function targetsOfRegistryTurn(state: SnapshotTurnState): GitResult<ResolvedTurn
       rootPath: from.rootPath,
       to: { worktree: true },
     }));
-    return { ok: true, value: { attributionSpan: null, targets } };
+    return { ok: true, value: { attribution: null, targets } };
   }
   if (state.endOutcomes === null || state.lastRunId === null) {
     return snapshotMissingError(
@@ -265,10 +246,13 @@ function targetsOfRegistryTurn(state: SnapshotTurnState): GitResult<ResolvedTurn
   return {
     ok: true,
     value: {
-      attributionSpan: {
-        firstRunId: state.firstRunId,
-        lastRunId: state.lastRunId,
-        threadId: state.threadId,
+      attribution: {
+        kind: 'journal',
+        span: {
+          firstRunId: state.firstRunId,
+          lastRunId: state.lastRunId,
+          threadId: state.threadId,
+        },
       },
       targets,
     },
@@ -331,10 +315,13 @@ function targetsOfClosedBracket(
   return {
     ok: true,
     value: {
-      attributionSpan: {
-        firstRunId: bracket.startRunId,
-        lastRunId: bracket.endRunId,
-        threadId,
+      attribution: {
+        kind: 'journal',
+        span: {
+          firstRunId: bracket.startRunId,
+          lastRunId: bracket.endRunId,
+          threadId,
+        },
       },
       targets,
     },
@@ -508,6 +495,10 @@ export function createSnapshotChangesetResolver(
     const rows = await repo.snapshotsForThread(threadId);
     const brackets = resolveSnapshotTurnBrackets(rows);
     if (brackets.length === 0) {
+      // A host thread records its turns in the host's log, never the ledger.
+      if (deps.hostThreads && (await deps.hostThreads.owns(threadId))) {
+        return await deps.hostThreads.targetsOf(threadId, runId);
+      }
       return snapshotMissingError(
         `no workspace snapshots exist for thread "${threadId}" — this turn predates the snapshot engine`
       );
@@ -551,6 +542,11 @@ export function createSnapshotChangesetResolver(
     const state = registry.get(threadId);
     if (state?.runIds.has(runId)) {
       return targetsOfRegistryTurn(state);
+    }
+    // A known host thread's turns come from the host's log alone: its live
+    // refresh reads neither the ledger nor the database.
+    if (deps.hostThreads?.knows(threadId)) {
+      return await deps.hostThreads.targetsOf(threadId, runId);
     }
     return await targetsFromLedger(threadId, runId);
   }
@@ -638,7 +634,7 @@ export function createSnapshotChangesetResolver(
     const toIndex = brackets.indexOf(toBracket);
     if (toIndex < fromIndex) {
       // Inverted range: honest empty view (journal-engine precedent).
-      return { ok: true, value: { attributionSpan: null, targets: [] } };
+      return { ok: true, value: { attribution: null, targets: [] } };
     }
     const slice = brackets.slice(fromIndex, toIndex + 1);
     const openTail = toBracket.endRunId === null;
@@ -653,15 +649,18 @@ export function createSnapshotChangesetResolver(
       return targetsResult;
     }
     const targets = targetsResult.value;
-    const attributionSpan =
+    const attribution: ResolvedTurnTargets['attribution'] =
       openTail || fromResult.value.startRunId === null || toBracket.endRunId === null
         ? null
         : {
-            firstRunId: fromResult.value.startRunId,
-            lastRunId: toBracket.endRunId,
-            threadId: changeset.threadId,
+            kind: 'journal',
+            span: {
+              firstRunId: fromResult.value.startRunId,
+              lastRunId: toBracket.endRunId,
+              threadId: changeset.threadId,
+            },
           };
-    return { ok: true, value: { attributionSpan, targets } };
+    return { ok: true, value: { attribution, targets } };
   }
 
   async function resolveTargets(
@@ -673,6 +672,35 @@ export function createSnapshotChangesetResolver(
     return await resolveRunRangeTargets(changeset);
   }
 
+  /** A settled turn's tool-edit attribution as root-relative records; null when live. */
+  async function attributionRecordsOf(
+    attribution: ResolvedTurnTargets['attribution']
+  ): Promise<GitResult<readonly SnapshotAttributionRecord[] | null>> {
+    if (attribution === null) {
+      return { ok: true, value: null };
+    }
+    if (attribution.kind === 'committed') {
+      // A host run's own committed edits, already root-relative.
+      return { ok: true, value: attribution.records };
+    }
+    const attributionResult = await loadAttribution(await deps.resolveDatabase(), attribution.span);
+    if (!attributionResult.ok) {
+      return attributionResult;
+    }
+    // PATH SHAPE (shared `snapshot-paths.ts` rule): journal rows carry
+    // NORMALIZED workspace paths with a leading slash (`/src/a.ts`) while
+    // snapshot diffs are root-relative (`src/a.ts`) — joined raw, NOTHING
+    // ever matched and every tool edit rendered unattributed in production.
+    return {
+      ok: true,
+      value: attributionResult.value.map((record) => ({
+        fromPath: record.fromPath === null ? null : snapshotRelativePath(record.fromPath),
+        path: snapshotRelativePath(record.path),
+        rootId: record.rootId,
+      })),
+    };
+  }
+
   async function resolveView(changeset: SnapshotChangeset): Promise<GitResult<ChangesetView>> {
     const serviceResult = requireService();
     if (!serviceResult.ok) {
@@ -682,28 +710,12 @@ export function createSnapshotChangesetResolver(
     if (!targetsResult.ok) {
       return targetsResult;
     }
-    const { attributionSpan, targets } = targetsResult.value;
-
-    let attributionRecords: readonly SnapshotAttributionRecord[] | null = null;
-    if (attributionSpan !== null) {
-      const attributionResult = await loadAttribution(
-        await deps.resolveDatabase(),
-        attributionSpan
-      );
-      if (!attributionResult.ok) {
-        return attributionResult;
-      }
-      // PATH SHAPE (shared `snapshot-paths.ts` rule): journal rows carry
-      // NORMALIZED workspace paths with a leading slash (`/src/a.ts`) while
-      // snapshot diffs are root-relative (`src/a.ts`) — joined raw, NOTHING
-      // ever matched and every tool edit rendered unattributed in production.
-      attributionRecords = attributionResult.value.map((record) => ({
-        fromPath: record.fromPath === null ? null : snapshotRelativePath(record.fromPath),
-        path: snapshotRelativePath(record.path),
-        rootId: record.rootId,
-      }));
+    const { attribution, targets } = targetsResult.value;
+    const recordsResult = await attributionRecordsOf(attribution);
+    if (!recordsResult.ok) {
+      return recordsResult;
     }
-    const records = attributionRecords;
+    const records = recordsResult.value;
 
     const files: ChangedFileEntry[] = [];
     let totalAdditions = 0;
