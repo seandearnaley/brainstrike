@@ -40,6 +40,7 @@
     "./fixtures/committed-host-mcp-unavailable.json": "./fixtures/committed-host-mcp-unavailable.json",
     "./fixtures/committed-host-plan.json": "./fixtures/committed-host-plan.json",
     "./fixtures/committed-host-question.json": "./fixtures/committed-host-question.json",
+    "./fixtures/committed-host-rewinds.json": "./fixtures/committed-host-rewinds.json",
     "./fixtures/committed-host-run-attempts.json": "./fixtures/committed-host-run-attempts.json",
     "./fixtures/committed-rich-host-runs.json": "./fixtures/committed-rich-host-runs.json",
     "./fixtures/observation-memory": "./fixtures/observation-memory.mjs",

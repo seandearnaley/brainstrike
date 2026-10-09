@@ -39,6 +39,7 @@ import {
   requiredString,
 } from './committed-host-event-fields';
 import { legacyObservationsNotice } from './committed-legacy-observations-notice';
+import { CommittedRewindHead, type CommittedRewindHeadMove } from './committed-rewind-head';
 import { HOST_CONTEXT_COMPACTED_DATA_NAME } from './compaction-summary-message';
 import type { ThreadTokenUsage } from './context-usage-store';
 
@@ -370,6 +371,7 @@ export class CommittedAssistantLogProjection {
   private cursor = 0;
   private readonly runs = new Map<string, ProjectedRun>();
   private readonly messageIndexes = new Map<string, number>();
+  private readonly rewinds = new CommittedRewindHead();
   private view: CommittedAssistantLogView;
 
   constructor(private readonly options: CommittedAssistantLogProjectionOptions) {
@@ -941,10 +943,31 @@ export class CommittedAssistantLogProjection {
     this.publishRunStatus(run, runId);
   }
 
+  /** A rewind moves the head the composer answers from; the old branch stays. */
+  private rewindHead(move: CommittedRewindHeadMove): void {
+    if (move.to === 'unchanged') {
+      return;
+    }
+    const runId = move.to === 'latest' ? [...this.runs.keys()].at(-1) : move.runId;
+    if (runId === undefined) {
+      throw new Error('Committed rewind redo has no projected run.');
+    }
+    const headId = runId === null ? null : this.runs.get(runId)?.messageId;
+    if (headId === undefined) {
+      throw new Error('Committed rewind names no projected run.');
+    }
+    this.view = { ...this.view, repository: { ...this.view.repository, headId } };
+  }
+
   private apply(row: CommittedAssistantLogRow): void {
     const event = row.event;
     if (event['type'] === 'run.started') {
       this.start(row);
+      return;
+    }
+    const rewound = this.rewinds.fold(event);
+    if (rewound) {
+      this.rewindHead(rewound);
       return;
     }
     if (typeof event['runId'] !== 'string') {
