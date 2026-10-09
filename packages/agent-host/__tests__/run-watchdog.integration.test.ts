@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import {
-  committedTextDeltas,
+  committedRunText,
   finishedRun,
   probeTool,
   stop,
@@ -35,7 +35,8 @@ test('a stream that goes quiet mid-answer fails after the inter-output window', 
   const { rows, terminal } = await finishedRun(model);
   expect(terminal.outcome).toBe('failed');
   expect(terminal.detail).toBe('The model stream stalled after 1000ms without output.');
-  expect(committedTextDeltas(rows)).toEqual(['Partial']);
+  // A terminal watchdog abort keeps the partial reply, as legacy did.
+  expect(committedRunText(rows)).toBe('Partial');
   expect(aborted()).toBe(1);
 });
 
