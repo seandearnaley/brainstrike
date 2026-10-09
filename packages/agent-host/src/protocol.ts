@@ -1,5 +1,6 @@
 import {
   isProviderCredential,
+  McpAppOriginSchema,
   type OpenRouterModelMetadataSnapshot,
   type ProviderCredential,
   type ProviderVerificationSnapshot,
@@ -58,8 +59,11 @@ export * from './protocol-mcp-settings.js';
 // control (`mcp/status/read`, `mcp/server/control`, the event's `status`
 // variant), and its MCP presentations (`mcp/tasks/list`, `mcp/tasks/act`,
 // `mcp/elicitation/settle`, `mcp/presentation/subscribe` and its
-// `mcp/presentation/event`). These additions are optional fields, new variants
-// and new methods, so a v11 reader that uses none of them sees nothing new.
+// `mcp/presentation/event`), an MCP App's own tool calls (`mcp/app/admit`,
+// `mcp/app/call`), which Core decides under the owning thread's policy, and
+// `worktree.created` (a worktree a call's shell command made, which the
+// desktop adopted). These additions are optional fields, new variants and new
+// methods, so a v11 reader that uses none of them sees nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.
@@ -101,6 +105,13 @@ export const HostNetworkConsentSchema = z.strictObject({ action: z.enum(['allow'
 const RunVerdict = z.enum(['failed', 'mixed', 'succeeded']);
 const RunVerdictDetail = z.string().max(2000);
 const McpInput = { ...Run, interactionId: Id };
+/** An MCP App's own tool call: the app a committed tool result of the thread mounted. */
+const McpAppCall = {
+  ...Thread,
+  app: McpAppOriginSchema,
+  arguments: z.record(z.string(), z.json()),
+  toolName: Id,
+};
 export const HostMcpInputStatusSchema = z.enum([
   'requested',
   'accepted',
@@ -441,6 +452,10 @@ export const HOST_METHOD_SCHEMAS = {
   'ledger/read': z.strictObject({}),
   'log/subscribe': z.strictObject({ ...Thread, fromSeq: Seq }),
   'log/unsubscribe': z.strictObject(Thread),
+  /** Core's decision on an app's call under the thread's live policy; nothing runs. */
+  'mcp/app/admit': z.strictObject(McpAppCall),
+  /** Decided afresh, an asked call runs only `approved`, on the app's own server. */
+  'mcp/app/call': z.strictObject({ ...McpAppCall, approved: z.boolean() }),
   'mcp/input/read': z.strictObject(McpInput),
   'mcp/input/settle': z.strictObject({
     ...Command,
@@ -836,6 +851,19 @@ export const HostEventSchema = z.union([
   /** Committed with the approval that granted it; the run's later decisions include it. */
   z.strictObject({ type: z.literal('permission.granted'), ...RunFields, grant: PermissionGrant }),
   /**
+   * A worktree this call's shell command made, which the desktop's worktree
+   * ledger adopted: the host observed it, it did not perform it.
+   */
+  z.strictObject({
+    type: z.literal('worktree.created'),
+    ...RunFields,
+    branch: z.string().min(1).nullable(),
+    path: z.string().min(1),
+    toolCallId: Id,
+    via: z.literal('shell'),
+    worktreeId: Id,
+  }),
+  /**
    * Context a lifecycle hook added for the model: a UserPromptSubmit hook's
    * for its run's instructions, or a PostToolUse hook's for one tool result.
    */
@@ -894,6 +922,11 @@ export const HOST_RESULT_SCHEMAS = {
   'ledger/read': z.strictObject({ threads: z.array(HostLedgerThreadSchema) }),
   'log/subscribe': z.strictObject({ rows: z.array(HostLogRowSchema) }),
   'log/unsubscribe': z.strictObject({ unsubscribed: z.literal(true) }),
+  'mcp/app/admit': z.strictObject({
+    decision: z.enum(['allow', 'ask']),
+    riskCategory: RiskCategory,
+  }),
+  'mcp/app/call': z.strictObject({ result: z.json() }),
   'mcp/input/read': z.strictObject({
     // Only a current private capability can supply this ephemeral presentation.
     presentation: z.json().optional(),

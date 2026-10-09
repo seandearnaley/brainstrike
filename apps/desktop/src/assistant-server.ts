@@ -131,7 +131,7 @@ import {
   enrichRuntimeDataWithWorkspaceRoots,
   getWorkspaceRoots,
 } from './assistant-server/workspace-roots';
-import { desktopWorktreeToolDependencies } from './assistant-server/worktree-tool-dependencies';
+import { legacyWorktreeToolDependencies } from './assistant-server/worktree-tool-dependencies';
 import { type DesktopDatabase, getDatabase } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import { resolveDesktopPythonExecutable } from './python-runtime';
@@ -807,7 +807,7 @@ async function handleAssistantPostOwned(
           toolDependencies: {
             embeddingHostManager: options.embeddingHostManager,
             llmHostManager: options.llmHostManager,
-            ...desktopWorktreeToolDependencies(options, {
+            ...legacyWorktreeToolDependencies(options, {
               runId: core.runId,
               threadId: core.runtimeData?.memory?.threadId,
             }),

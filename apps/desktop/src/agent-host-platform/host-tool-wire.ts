@@ -24,6 +24,11 @@ export const PlatformShellCompletedSchema = z.strictObject({
   threadId: Id,
 });
 
+/** The worktrees Main's ledger adopted from the command, for the host to commit. */
+export const PlatformShellCompletedResultSchema = z.strictObject({
+  adopted: z.array(z.strictObject({ branch: Id.nullable(), path: Id, worktreeId: Id })),
+});
+
 export const WorktreePathsResultSchema = z.strictObject({
   paths: z.array(z.string()).nullable(),
 });

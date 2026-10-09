@@ -28,6 +28,7 @@ import {
   ContextTapestryDeliveryRequestSchema,
   DiagnosticsReadRequestSchema,
   GrepIndexRequestSchema,
+  PlatformShellCompletedResultSchema,
   PlatformShellCompletedSchema,
   QuerySelfReadRequestSchema,
   WorktreeArchiveRequestSchema,
@@ -45,7 +46,10 @@ const ThreadRequestSchema = GrepIndexRequestSchema.pick({ threadId: true });
 
 /** Main's worktree/forge side of a host command, until the worktree ledger is a host fact. */
 export interface DesktopShellCorrelation {
-  readonly completed: (input: z.output<typeof PlatformShellCompletedSchema>) => void;
+  /** Correlates the command and answers with the worktrees the ledger adopted from it. */
+  readonly completed: (
+    input: z.output<typeof PlatformShellCompletedSchema>
+  ) => Promise<z.output<typeof PlatformShellCompletedResultSchema>['adopted']>;
   /** Every known worktree path before the command, or null without a worktree service. */
   readonly worktreePaths: () => Promise<readonly string[] | null>;
 }
@@ -107,8 +111,9 @@ export function serveHostToolServices(
     execute(token, async () => {
       const completed = PlatformShellCompletedSchema.parse(input);
       admitted(completed.threadId);
-      services?.shell?.completed(completed);
-      return { accepted: true };
+      return PlatformShellCompletedResultSchema.parse({
+        adopted: services?.shell ? await services.shell.completed(completed) : [],
+      });
     })
   );
   connection.onRequest('desktop-read/grep-index', (input: unknown, token: CancellationToken) =>

@@ -118,6 +118,12 @@ export interface HostToolState {
   update(key: string, next: (current: unknown) => unknown): Promise<void>;
 }
 
+/** A worktree a shell command made and the desktop's worktree ledger adopted. */
+export interface HostShellWorktree {
+  readonly branch: string | null;
+  readonly path: string;
+  readonly worktreeId: string;
+}
 export interface HostToolContext {
   /** The thread's committed-output artifact reader, supplied by Core. */
   readonly artifacts?: ScopedToolOutputArtifactReader | undefined;
@@ -127,6 +133,12 @@ export interface HostToolContext {
   /** Validated committed response to this tool's intrinsic human interaction. */
   readonly resumeData?: unknown;
   readonly runId: string;
+  /**
+   * The worktrees this call's shell command made, once the desktop's ledger
+   * adopts them. Core retains the work in the call's run, so Stop and finish
+   * join it, and commits each as `worktree.created` under the call.
+   */
+  readonly shellWorktrees?: ((adopted: Promise<readonly HostShellWorktree[]>) => void) | undefined;
   readonly signal: AbortSignal;
   /** Present for every Core-dispatched execution; stateful tools must refuse without it. */
   readonly state?: HostToolState | undefined;
@@ -408,10 +420,18 @@ export interface HostMcpToolRequest {
   readonly snapshot?: HostRunSnapshot;
   readonly toolTimeoutMs: number;
 }
+/** An MCP App's own tool call, once Core admitted it under the thread's policy. */
+export interface HostMcpAppToolCall {
+  readonly arguments: import('./protocol.js').HostParams<'mcp/app/call'>['arguments'];
+  readonly serverId: string;
+  readonly toolName: string;
+}
 export interface HostMcpRuntime {
   /** Core's ownership of its recovered tasks, supplied once when Core opens (BST-1930 c3). */
   attachTaskOwner?(owner: McpHostTaskOwner): void;
   readonly authority: McpHostPort;
+  /** One `tools/call` on the app's server; a created task goes to the task authority. */
+  callAppTool(call: HostMcpAppToolCall, signal: AbortSignal): Promise<unknown>;
   close(): Promise<McpHostCloseReport>;
   executableTools(request: HostMcpToolRequest): Promise<HostMcpToolSelection>;
 }
@@ -539,6 +559,8 @@ export interface HostPlatform {
   readonly generatesThreadTitles?: boolean | undefined;
   /** Supplied by the existing run configuration, not a second host default. */
   readonly maxSteps?: number | undefined;
+  /** Runs the MCP App tool calls Core admits; absent where the host has no MCP. */
+  readonly mcp?: Pick<HostMcpRuntime, 'callAppTool'> | undefined;
   /** The desktop's MCP Tasks cards and server input; absent where no window presents them. */
   readonly mcpPresentation?: HostMcpPresentationService;
   /** The desktop's MCP settings authority; absent where the host owns no MCP config. */

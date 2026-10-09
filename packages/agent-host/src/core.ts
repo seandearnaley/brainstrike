@@ -19,12 +19,9 @@ import {
   runHostSdkLoop,
 } from './core-run-execution.js';
 import {
-  abortHostThreadRuns,
   acceptHostRunStop,
-  assertHostAdmissionCleanup,
   assertHostCommandAdmissible,
   joinHostRunOwner,
-  joinHostThreadDeletion,
   queueHostAdmission,
   recoverHostRun,
   rejectHostRunAdmission,
@@ -42,12 +39,14 @@ import {
   type HostRunState as Run,
   recordHostConversationId,
 } from './core-state.js';
+import { deleteHostThread } from './core-thread-deletion.js';
 import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-storage.js';
 import { beginHostRun, foldHostHookContextEvent, hostRunTerminalEvents } from './hook-context.js';
 import type { HostHookTrustStore } from './hook-trust.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import { HostLedgerProjection } from './ledger-projection.js';
 import type { HostLatestRun } from './ledger-wire.js';
+import { HostMcpAppCalls } from './mcp-app-calls.js';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
 import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
 import { HostProjectionRewrites } from './projection-rewrites.js';
@@ -105,6 +104,21 @@ export type HostEventStore = HostHookTrustStore &
 export class HostCore {
   private readonly commands = new HostCommandLedger();
   private readonly mcpInputs = new HostMcpInputState();
+  /** An MCP App's own tool calls, decided under the thread's live policy and grants. */
+  readonly mcpApps = new HostMcpAppCalls({
+    assertAdmissible: (threadId) =>
+      assertHostCommandAdmissible(
+        threadId,
+        this.closing,
+        this.threads,
+        this.deletions,
+        this.failedAdmissions
+      ),
+    grants: (threadId) => this.threadGrants(threadId),
+    platform: () => this.platform,
+    read: (threadId) => this.read(threadId, 0),
+    rootThread: (threadId) => this.children.rootThread(threadId),
+  });
   private readonly records = new HostToolRecords();
   private readonly compactions = new HostContextCompactions();
   private readonly rewrites = new HostProjectionRewrites();
@@ -392,54 +406,26 @@ export class HostCore {
 
   /** BST-1977: raw StateStore deletion cannot retire active Memory/provider work. */
   deleteThread(params: { readonly threadId: string }): Promise<HostResults['thread/delete']> {
-    const existing = this.deletions.get(params.threadId);
-    if (existing) {
-      return existing;
-    }
-    if (this.closing) {
-      return Promise.reject(new Error('Host is closing'));
-    }
-    if (!this.threads.has(params.threadId)) {
-      return Promise.reject(new Error('Unknown thread'));
-    }
-    const erase = this.store.deleteThread?.bind(this.store);
-    if (!erase) {
-      return Promise.reject(new Error('The Root owner has no thread deletion capability'));
-    }
-    // BST-1932: a thread's child threads are deleted with it, through this same path.
-    const subtree = this.children.subtree(params.threadId);
-    const deletion = this.admission.then(async (): Promise<HostResults['thread/delete']> => {
-      if (this.closing) {
-        throw new Error('Host is closing');
-      }
-      for (const threadId of subtree) {
-        assertHostAdmissionCleanup(this.failedAdmissions, threadId);
-      }
-      const runs = [...this.runs.values()].filter((run) => subtree.includes(run.threadId));
-      await joinHostThreadDeletion(
-        runs,
-        (run) => this.closeRunOwner(run),
-        (run) => this.finish(run, 'stopped')
-      );
-      for (const threadId of subtree) {
-        await erase(threadId);
-        this.forgetThread(threadId);
-      }
-      for (const run of runs) {
-        this.runs.delete(run.id);
-        this.conversationIds.delete(run.id);
-      }
-      return { deleted: true, threadIds: subtree };
+    return deleteHostThread(params.threadId, {
+      admission: {
+        get: () => this.admission,
+        set: (next) => {
+          this.admission = next;
+        },
+      },
+      closeRunOwner: (run) => this.closeRunOwner(run),
+      closing: () => this.closing,
+      conversationIds: this.conversationIds,
+      deletions: this.deletions,
+      erase: this.store.deleteThread?.bind(this.store),
+      failedAdmissions: this.failedAdmissions,
+      finish: (run) => this.finish(run, 'stopped'),
+      forget: (threadId) => this.forgetThread(threadId),
+      pendingAdmissions: this.pendingAdmissions,
+      runs: this.runs,
+      subtree: (threadId) => this.children.subtree(threadId),
+      threads: this.threads,
     });
-    for (const threadId of subtree) {
-      this.deletions.set(threadId, deletion);
-      abortHostThreadRuns(threadId, this.pendingAdmissions, this.runs.values());
-    }
-    this.admission = deletion.then(
-      () => undefined,
-      () => undefined
-    );
-    return deletion;
   }
 
   private forgetThread(threadId: string): void {
