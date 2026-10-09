@@ -410,10 +410,18 @@ export interface HostMcpToolRequest {
   readonly snapshot?: HostRunSnapshot;
   readonly toolTimeoutMs: number;
 }
+/** An MCP App's own tool call, once Core admitted it under the thread's policy. */
+export interface HostMcpAppToolCall {
+  readonly arguments: import('./protocol.js').HostParams<'mcp/app/call'>['arguments'];
+  readonly serverId: string;
+  readonly toolName: string;
+}
 export interface HostMcpRuntime {
   /** Core's ownership of its recovered tasks, supplied once when Core opens (BST-1930 c3). */
   attachTaskOwner?(owner: McpHostTaskOwner): void;
   readonly authority: McpHostPort;
+  /** One `tools/call` on the app's server; a created task goes to the task authority. */
+  callAppTool(call: HostMcpAppToolCall, signal: AbortSignal): Promise<unknown>;
   close(): Promise<McpHostCloseReport>;
   executableTools(request: HostMcpToolRequest): Promise<HostMcpToolSelection>;
 }
@@ -493,6 +501,8 @@ export interface HostPlatform {
   readonly generatesThreadTitles?: boolean | undefined;
   /** Supplied by the existing run configuration, not a second host default. */
   readonly maxSteps?: number | undefined;
+  /** Runs the MCP App tool calls Core admits; absent where the host has no MCP. */
+  readonly mcp?: Pick<HostMcpRuntime, 'callAppTool'> | undefined;
   /** Run-scoped construction; cached shared memory must not capture a run signal. */
   openRun?(context: HostRunContext): Promise<HostRunOwner>;
   /** Provider reads from the host's own store; absent where it owns none. */

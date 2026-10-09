@@ -566,6 +566,7 @@ export async function createProductionHostPlatform(
       : {}),
     ...productionMemoryReadiness(options),
     readPermissionPolicy: options.readPermissionPolicy,
+    ...(options.mcp ? { mcp: options.mcp } : {}),
     ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
     ...(options.resolveWorkspaceRoot ? { resolveWorkspaceRoot: options.resolveWorkspaceRoot } : {}),
     ...(options.selectProjectionRewrites
