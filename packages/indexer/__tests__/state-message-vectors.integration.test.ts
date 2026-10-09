@@ -615,7 +615,7 @@ it('accepts null text from real Core metadata across SQLite/vector reopen withou
         seq: Schema.Int,
         threadId: Schema.String,
         // A recording read back through `thread/read` carries each row's commit time.
-        ts: Schema.optional(Schema.Number),
+        ts: Schema.optional(Schema.Finite),
       })
     )
   )(captured);
