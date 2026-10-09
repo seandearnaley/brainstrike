@@ -457,6 +457,7 @@ export function hostStepInteractions(
     if (!registered) {
       throw new Error('Approval references an unknown tool');
     }
+    const consent = run.consents.get(part.toolCall.toolCallId);
     // As the legacy approval chunk did: run_python's card shows host facts.
     const executionContext =
       registered.permissionToolId === NATIVE_TOOL_ID.runPython
@@ -467,8 +468,11 @@ export function hostStepInteractions(
         ...(executionContext ? { executionContext: jsonValue(executionContext) } : {}),
         input: jsonValue(part.toolCall.input),
         interactionId: part.approvalId,
-        kind: registered.interaction?.kind ?? 'approval',
-        ...(registered.interaction ? {} : { risk: registered.risk }),
+        kind: registered.interaction?.kind ?? (consent ? 'network' : 'approval'),
+        // A network consent offers grants only where it also stands in for an approval.
+        ...(registered.interaction || (consent && !consent.approval)
+          ? {}
+          : { risk: registered.risk }),
         runId: run.id,
         ...(registered.permissionToolId ? { toolCatalogId: registered.permissionToolId } : {}),
         toolCallId: part.toolCall.toolCallId,
@@ -611,6 +615,14 @@ export async function decideHostSdkApproval(
       canonical(prior.event.input) !== canonical(action.input))
   ) {
     throw new Error('Committed approval action identity changed');
+  }
+  // run_python's requested network needs a person per call (legacy Gate B). The
+  // SDK gives a call one approval round, so this one card also stands in for an
+  // approval the policy asks for; Core answers and executes it on resume.
+  if (!prior && registered.consent?.(call.input)) {
+    run.liveInputs.set(call.toolCallId, { value: call.input });
+    run.consents.set(call.toolCallId, { approval: decision === 'ask' });
+    return 'user-approval';
   }
   if (decision === 'ask' && prior?.decision !== 'approve') {
     run.liveInputs.set(call.toolCallId, { value: call.input });

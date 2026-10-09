@@ -12,7 +12,13 @@ import {
 import { executableInputSchema } from './executable-input-schema.js';
 import { jsonValue } from './json-value.js';
 import type { HostPlatform } from './ports.js';
-import type { HostEvent, HostLogRow, HostParams, HostPermissionGrant } from './protocol.js';
+import {
+  type HostEvent,
+  type HostLogRow,
+  HostNetworkConsentSchema,
+  type HostParams,
+  type HostPermissionGrant,
+} from './protocol.js';
 import { ensureHostRunAdmission, hostRunToolDecision, hostRunTools } from './run-admission.js';
 import { hostStartPosition } from './run-branch.js';
 
@@ -43,6 +49,48 @@ export async function commitHostModelMessages(
   fold(row);
 }
 
+/** The answered call's tool must be unchanged; any grant must match the call. */
+function answeredGrant(
+  run: Run,
+  pending: PendingInteraction,
+  grant: HostPermissionGrant | undefined,
+  decision: 'approve' | 'deny'
+): HostPermissionGrant | undefined {
+  const registered = hostRunTools(run)[pending.event.toolId];
+  if (!registered || registered.identity !== pending.event.toolIdentity) {
+    throw new Error('Approval tool identity changed');
+  }
+  if (!grant) {
+    return;
+  }
+  assertHostGrantMatchesCall(grant, decision, {
+    risk: registered.risk,
+    toolId: registered.permissionToolId ?? pending.event.toolId,
+  });
+  return grant;
+}
+
+/**
+ * A resume's grant: only a network consent that stood in for an approval
+ * (it carries the call's risk) may carry one, and, as legacy's approval grant
+ * did, it covers running the tool, never its network.
+ */
+function resumedGrant(
+  run: Run,
+  pending: PendingInteraction,
+  grant: HostPermissionGrant | undefined,
+  resumed: unknown
+): HostPermissionGrant | undefined {
+  if (!grant) {
+    return;
+  }
+  if (pending.event.kind !== 'network' || pending.event.risk === undefined) {
+    throw new Error('Only a network consent that stood in for an approval carries a grant');
+  }
+  const { action } = HostNetworkConsentSchema.parse(resumed);
+  return answeredGrant(run, pending, grant, action === 'allow' ? 'approve' : 'deny');
+}
+
 /** Core supplies its sole acceptance writer and continuation owner. */
 export async function commitHostInteractionResponse(
   run: Run,
@@ -66,41 +114,36 @@ export async function commitHostInteractionResponse(
     );
   }
   await ensureHostRunAdmission(platform, run);
+  const grant = approval
+    ? answeredGrant(run, pending, params.grant, params.decision)
+    : resumedGrant(
+        run,
+        pending,
+        params.grant,
+        await validateHostInteractionResume(run, pending, params.resumeData)
+      );
+  await accept([
+    ...(grant ? [{ grant, runId: run.id, type: 'permission.granted' as const }] : []),
+    approval
+      ? {
+          decision: params.decision,
+          interactionId: params.interactionId,
+          runId: run.id,
+          type: 'interaction.responded',
+        }
+      : {
+          interactionId: params.interactionId,
+          resumeData: params.resumeData,
+          runId: run.id,
+          type: 'interaction.responded',
+        },
+  ]);
+  if (grant) {
+    applyHostPermissionGrant(run, grant);
+  }
   if (approval) {
-    const registered = hostRunTools(run)[pending.event.toolId];
-    if (!registered || registered.identity !== pending.event.toolIdentity) {
-      throw new Error('Approval tool identity changed');
-    }
-    const grant = 'grant' in params ? params.grant : undefined;
-    if (grant) {
-      assertHostGrantMatchesCall(grant, params.decision, {
-        risk: registered.risk,
-        toolId: registered.permissionToolId ?? pending.event.toolId,
-      });
-    }
-    await accept([
-      ...(grant ? [{ grant, runId: run.id, type: 'permission.granted' as const }] : []),
-      {
-        decision: params.decision,
-        interactionId: params.interactionId,
-        runId: run.id,
-        type: 'interaction.responded',
-      },
-    ]);
-    if (grant) {
-      applyHostPermissionGrant(run, grant);
-    }
     pending.decision = params.decision;
   } else {
-    await validateHostInteractionResume(run, pending, params.resumeData);
-    await accept([
-      {
-        interactionId: params.interactionId,
-        resumeData: params.resumeData,
-        runId: run.id,
-        type: 'interaction.responded',
-      },
-    ]);
     pending.resumeData = params.resumeData;
   }
   run.task = (run.task ?? Promise.resolve()).then(continueRun);
@@ -228,6 +271,12 @@ export async function validateHostInteractionResume(
   value: unknown
 ): Promise<unknown> {
   const tool = hostRunTools(run)[pending.event.toolId];
+  if (pending.event.kind === 'network') {
+    if (!tool?.consent || tool.identity !== pending.event.toolIdentity) {
+      throw new Error('Network consent tool identity changed');
+    }
+    return HostNetworkConsentSchema.parse(value);
+  }
   if (
     !tool ||
     tool.identity !== pending.event.toolIdentity ||
