@@ -85,6 +85,7 @@ export function desktopHostSharedTools(options: {
     readFileCursorRegistry: options.readFileCursorRegistry,
     resolvedToolResultBudget: resolveScaledToolResultBudget(selected.contextWindow),
     runtime,
+    webExtract: { resolveApiKey: options.resolveTavilyApiKey },
     webSearch: { resolveApiKey: options.resolveTavilyApiKey },
   });
   const byCatalogId = new Map(

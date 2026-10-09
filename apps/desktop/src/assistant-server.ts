@@ -30,7 +30,10 @@ import {
 } from '@brainstrike/assistant-service/stream-init';
 import { ToolOutputArtifactRepository } from '@brainstrike/db';
 import type { HookRunVerdict } from '@brainstrike/host-capabilities/hooks';
-import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
+import {
+  readWorkspaceTextFile,
+  WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS,
+} from '@brainstrike/host-capabilities/native-tools';
 import {
   handleActiveRunDiscoveryRequest,
   registerInitializingAssistantRun,
@@ -122,7 +125,6 @@ import {
 import { readThreadTaskList } from './assistant-server/task-list-repository';
 import { createToolProjectionRewriteLookup } from './assistant-server/tool-projection-rewrite-repository';
 import { scanUserPersonas } from './assistant-server/user-personas-loader';
-import { WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS } from './assistant-server/web-extract-model-projection';
 import { injectWorkspaceInstructionsContext } from './assistant-server/workspace-instructions-context';
 import {
   BoundWorkspaceRootUnavailableError,

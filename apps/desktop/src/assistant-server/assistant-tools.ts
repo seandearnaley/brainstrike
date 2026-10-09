@@ -52,7 +52,8 @@ export function buildDesktopAssistantTools(
       getActiveToolResultBudget()?.domainModelResultCharBudget ?? resolvedDomainCharBudget,
     resolvedDomainCharBudget,
     runtimeData,
-    // Main still executes web search for legacy threads, keyed from Main's view.
+    // Main still executes the web tools for legacy threads, keyed from Main's view.
+    webExtract: { resolveApiKey: resolveTavilyApiKeyFromKeychain, ...dependencies.webExtract },
     webSearch: { resolveApiKey: resolveTavilyApiKeyFromKeychain, ...dependencies.webSearch },
   };
   const tools: MastraTools = {};

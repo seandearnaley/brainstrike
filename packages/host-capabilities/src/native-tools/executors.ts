@@ -20,6 +20,7 @@ import {
   type RuntimeData,
   readToolExecutionThreadId,
   type StringReplaceWorkspaceFileInput,
+  type WebExtractInput,
   type WebSearchInput,
   type WriteWorkspaceFileInput,
 } from '@brainstrike/agent';
@@ -50,6 +51,8 @@ import {
   type ToolExecuteContext,
   type ToolExecuteInput,
 } from './tool-execute-support.js';
+import { projectWebExtractModelOutput } from './web-extract-model-projection.js';
+import { runWebExtract, type WebExtractToolDependencies } from './web-extract-tool.js';
 import { projectWebSearchModelOutput } from './web-search-model-projection.js';
 import { runWebSearch, type WebSearchToolDependencies } from './web-search-tool.js';
 import { readStateScope } from './workspace-file-staleness.js';
@@ -85,6 +88,8 @@ export interface NativeToolBuildContext {
   readonly resolveActiveDomainCharBudget: () => number;
   readonly resolvedDomainCharBudget: number;
   readonly runtimeData: RuntimeData | undefined;
+  /** The process's Tavily key owner for web extract; absent omits it for the request. */
+  readonly webExtract?: WebExtractToolDependencies | undefined;
   /** The process's Tavily key owner; absent omits web search for the request. */
   readonly webSearch?: WebSearchToolDependencies | undefined;
 }
@@ -102,6 +107,7 @@ export const SHARED_NATIVE_TOOL_IDS = [
   NATIVE_TOOL_ID.renameWorkspaceFile,
   NATIVE_TOOL_ID.stringReplaceWorkspaceFile,
   NATIVE_TOOL_ID.submitPlan,
+  NATIVE_TOOL_ID.webExtract,
   NATIVE_TOOL_ID.webSearch,
   NATIVE_TOOL_ID.writeWorkspaceFile,
 ] as const;
@@ -363,6 +369,30 @@ export const SHARED_NATIVE_TOOL_EXECUTORS: SharedNativeToolExecutors = {
           id: NATIVE_TOOL_ID.manageTaskList,
           inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.manageTaskList],
         },
+  // Tavily /extract; the key resolves in the executing process and never
+  // reaches the model, and refuseExtractUrl keeps internal URLs from leaving it.
+  [NATIVE_TOOL_ID.webExtract]: ({ resolveActiveDomainCharBudget, webExtract }) =>
+    webExtract
+      ? {
+          description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.webExtract],
+          execute: async (input: ToolExecuteInput<WebExtractInput>) => {
+            const resolvedInput = parseToolExecuteInput(
+              NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webExtract],
+              input
+            );
+            try {
+              return await runWebExtract(resolvedInput, webExtract);
+            } catch (error) {
+              logToolFailure('webExtract failed', error, resolvedInput);
+              throw error;
+            }
+          },
+          id: NATIVE_TOOL_ID.webExtract,
+          inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webExtract],
+          toModelOutput: (output: unknown) =>
+            projectWebExtractModelOutput(output, resolveActiveDomainCharBudget()),
+        }
+      : undefined,
   // Tavily-backed; the key resolves in the executing process and never
   // reaches the model. A provider-native search replaces this entry only at
   // run admission, where the permission decision is known (run-admission.ts).

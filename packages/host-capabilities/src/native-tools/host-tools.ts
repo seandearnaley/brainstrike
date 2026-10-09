@@ -26,6 +26,7 @@ import { hostCanvasStore, hostTaskListNote, hostTaskListStore } from './host-sto
 import type { FileMutationPorts } from './ports.js';
 import type { ReadWorkspaceFileCursorRegistry } from './read-workspace-file-cursor-registry.js';
 import { resetToolCallLoopGuards } from './tool-call-loop-guards.js';
+import type { WebExtractToolDependencies } from './web-extract-tool.js';
 import type { WebSearchToolDependencies } from './web-search-tool.js';
 
 /**
@@ -69,6 +70,8 @@ export interface SharedNativeHostToolsOptions {
   /** The admitted request runtime, without per-execution memory identity. */
   readonly runtime: RuntimeData;
   /** This process's Tavily key owner; required when web search is admitted. */
+  /** The host's Tavily key owner for web extract; absent omits it. */
+  readonly webExtract?: WebExtractToolDependencies;
   readonly webSearch?: WebSearchToolDependencies;
 }
 
@@ -117,6 +120,7 @@ export function createSharedNativeHostTools(
         getActiveToolResultBudget()?.domainModelResultCharBudget ?? budget,
       resolvedDomainCharBudget: budget,
       runtimeData,
+      webExtract: options.webExtract,
       webSearch: options.webSearch,
     };
     const tools: MastraTools = {};

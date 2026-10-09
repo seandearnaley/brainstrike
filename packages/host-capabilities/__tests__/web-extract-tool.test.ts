@@ -14,14 +14,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   runWebExtract,
   type WebExtractToolDependencies,
-} from '../../assistant-server/web-extract-tool';
-
-vi.mock('electron', () => ({}));
-vi.mock('../../secrets', () => ({
-  getSecretsService: () => ({
-    getKey: vi.fn().mockResolvedValue(undefined),
-  }),
-}));
+} from '../src/native-tools/web-extract-tool.js';
 
 function okJsonResponse(body: unknown): Response {
   return {
