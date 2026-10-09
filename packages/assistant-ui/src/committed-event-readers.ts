@@ -1,8 +1,4 @@
 import type { RunAttemptNoticeInput } from '@brainstrike/assistant-contract';
-import {
-  readShellOutputStreamPart,
-  SHELL_OUTPUT_DATA_NAME,
-} from '@brainstrike/assistant-contract/shell-output';
 
 const ATTEMPT_REASONS = new Set<unknown>([
   'context-overflow',
@@ -41,8 +37,9 @@ export function readRunAttempt(event: Readonly<Record<string, unknown>>): RunAtt
 
 /**
  * A committed `stream.chunk` the timeline presents as a named data part: a
- * `data` chunk as named, or a command's live output as its tool writer
- * committed it (BST-1932, AT-07). Anything else is not a named data part.
+ * `data` chunk, as named. Anything else is not a named data part. A command's
+ * live output is never committed (ADR-0011 amendment), so a shell slice an
+ * older log holds presents nothing, as legacy did.
  */
 export function committedStreamData(
   chunk: Readonly<Record<string, unknown>>
@@ -51,6 +48,5 @@ export function committedStreamData(
   if ((type === 'data' || type === 'aui-data') && typeof chunk['name'] === 'string') {
     return { data: chunk['data'], name: chunk['name'] };
   }
-  const shellOutput = readShellOutputStreamPart(chunk);
-  return shellOutput ? { data: shellOutput, name: SHELL_OUTPUT_DATA_NAME } : undefined;
+  return;
 }
