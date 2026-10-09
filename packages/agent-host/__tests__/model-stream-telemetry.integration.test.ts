@@ -11,13 +11,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import type { LanguageModel } from 'ai';
-import { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
 import { attachAgentHost, type HostClient } from '../src/client.js';
 import type { HostLogRow, HostRunTelemetry } from '../src/protocol.js';
 import { type AgentHost, startAgentHost } from '../src/runtime.js';
 import { foldHostRuns } from '../src/thread-view.js';
-import { scriptedModel } from './fixtures/scripted-model.js';
+import { scriptedModel, scriptedPartialThenHeld } from './fixtures/scripted-model.js';
 
 const roots: string[] = [];
 const hosts: AgentHost[] = [];
@@ -106,29 +105,9 @@ test('a run commits no text rows while its subscribers receive the text live', a
   expect(foldHostRuns(rows)[0]?.text).toBe('Host run completed.');
 });
 
-/** Streams a partial answer, then holds the step open until the run is aborted. */
-function partialThenHeldModel(partial: string): MockLanguageModelV4 {
-  return new MockLanguageModelV4({
-    doStream: async ({ abortSignal }) => ({
-      stream: new ReadableStream({
-        start(controller) {
-          controller.enqueue({ type: 'stream-start', warnings: [] });
-          controller.enqueue({ id: 'text-1', type: 'text-start' });
-          controller.enqueue({ delta: partial, id: 'text-1', type: 'text-delta' });
-          abortSignal?.addEventListener(
-            'abort',
-            () => controller.error(abortSignal.reason ?? new Error('aborted')),
-            { once: true }
-          );
-        },
-      }),
-    }),
-  });
-}
-
 test('a Stop mid-step keeps the partial text in the committed run', async () => {
   const partial = 'PARTIAL_ANSWER_1723 ';
-  const client = await connected(partialThenHeldModel(partial));
+  const client = await connected(scriptedPartialThenHeld(partial));
   const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
   const live: string[] = [];
   client.onTelemetry(({ chunk }) => {
