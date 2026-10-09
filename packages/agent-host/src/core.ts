@@ -563,7 +563,7 @@ export class HostCore {
       this.runs.set(run.id, run);
       recordHostConversationId(this.conversationIds, params.commandId);
       recordHostConversationId(this.conversationIds, run.id);
-      run.task = this.beginRun(run, admission);
+      run.task = admission.hooks ? this.beginRun(run, admission) : this.loop(run, admission.model);
       // Stop/close joins this task; retain failures rather than leaking rejections.
       run.task.catch(() => undefined);
       return result;
@@ -972,7 +972,7 @@ export class HostCore {
     }).catch((cause: unknown) => reportHostChildWakeFailure(threadId, cause));
   }
 
-  /** A fresh run's prompt passes its UserPromptSubmit hooks before the first step. */
+  /** With hooks, the prompt passes UserPromptSubmit first; without, the loop starts at once. */
   private async beginRun(run: Run, admission: HostRunAdmission): Promise<void> {
     const failure = await passHostPromptHooks(run, admission, (events) =>
       this.append(run.threadId, events, 'full', this.foldRows)
