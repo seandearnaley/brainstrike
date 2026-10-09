@@ -86,7 +86,26 @@ export type MemoryDomainRequest = (
       readonly sharedResource: 'clear' | 'detach-thread' | 'preserve';
     }
   | { readonly operation: 'purge-resource'; readonly resourceId: string }
+  | {
+      /** Gap 17: the desktop's legacy workspace memory, imported once. */
+      readonly operation: 'legacy-import';
+      readonly resourceId: string;
+      readonly at: string;
+      /** The legacy resource as its native record (ISO dates), or null when the profile had none. */
+      readonly resource: MemoryJsonObject | null;
+      /** The legacy profile had resource-scope observations; they are recorded, never imported. */
+      readonly resourceObservations: boolean;
+    }
+  /** The import's marker (`MemoryLegacyImport`) as the snapshot's `value`, or null before it ran. */
+  | { readonly operation: 'legacy-import-status'; readonly resourceId: string }
 ) & { readonly ownerThreadId?: string };
+/** What the one legacy workspace-memory import did, recorded with it. */
+export interface MemoryLegacyImport {
+  readonly at: string;
+  readonly resourceId: string;
+  readonly resourceObservations: boolean;
+  readonly workingMemory: 'imported' | 'kept-host' | 'none';
+}
 export interface MemoryDomainPort {
   memory(request: MemoryDomainRequest): Promise<MemorySnapshot>;
 }
