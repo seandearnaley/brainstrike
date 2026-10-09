@@ -1,5 +1,6 @@
 import { resolveAssistantResilienceConfig } from '@brainstrike/agent/provider-runtime';
 import { isGuardedToolError } from '@brainstrike/assistant-contract';
+import { isToolTelemetryStreamPart } from '@brainstrike/assistant-contract/tool-telemetry';
 import type { BlobContent } from '@brainstrike/state-store';
 import { type LanguageModel, type ModelMessage, stepCountIs, streamText } from 'ai';
 import {
@@ -215,6 +216,17 @@ async function executeRegisteredTool(
     toolCallId: action.toolCallId,
     write: async (chunk: unknown): Promise<void> => {
       run.controller.signal.throwIfAborted();
+      // Live telemetry goes out uncommitted; the tool result owns the output
+      // (ADR-0011 amendment). Every other tool-writer chunk commits.
+      if (isToolTelemetryStreamPart(chunk)) {
+        ports.telemetry({
+          chunk: jsonValue(chunk),
+          runId: run.id,
+          threadId: run.threadId,
+          toolCallId: action.toolCallId,
+        });
+        return;
+      }
       await ports.append(run.threadId, [
         { chunk: jsonValue(chunk), runId: run.id, type: 'stream.chunk' },
       ]);

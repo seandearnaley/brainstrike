@@ -4,6 +4,7 @@ import {
   parseConfiguredMcpServerId,
   parseMcpHostOperation,
 } from '@brainstrike/assistant-contract';
+import { MCP_PROGRESS_STREAM_PART_TYPE } from '@brainstrike/assistant-contract/tool-telemetry';
 import { createLogger } from '@brainstrike/logging';
 import type { ToolsInput } from '@mastra/core/agent';
 import { type StandardSchemaWithJSON, toStandardSchema } from '@mastra/core/schema';
@@ -38,7 +39,7 @@ import {
 const logger = createLogger('MastraAgentMcpRuntimeClient');
 const rawCallToolResultSignals = new WeakSet<AbortSignal>();
 
-export const MCP_PROGRESS_STREAM_PART_TYPE = 'brainstrike.mcp-progress.chunk';
+export { MCP_PROGRESS_STREAM_PART_TYPE };
 
 /**
  * Mark one authority-owned execution signal as requiring the complete
