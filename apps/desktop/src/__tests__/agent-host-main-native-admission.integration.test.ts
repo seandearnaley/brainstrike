@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HostRunAdmissionRequest } from '@brainstrike/agent-host';
 import { DEFAULT_PERMISSION_POLICIES, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW } from '@brainstrike/assistant-contract/context-budget';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 
@@ -32,6 +33,8 @@ vi.mock('../ipc-mcp', () => ({
 
 import { PlatformClientConfigurationSchema } from '../agent-host-platform/platform-wire';
 import { productionDesktopCapabilities } from '../agent-host-platform/production-desktop-capabilities';
+import lmStudioModels from './fixtures/lmstudio-v1-models.json';
+import ollamaTags from './fixtures/ollama-0.32.14-api-tags.json';
 
 const WORKTREE_TOOL_IDS = [NATIVE_TOOL_ID.listWorktrees, NATIVE_TOOL_ID.manageWorktree];
 let directory = '';
@@ -256,4 +259,45 @@ test('Main admits one scan’s enabled skills to a host run, and none to the bui
   expect(local.admitted).toBeUndefined();
   expect(local.tools).not.toEqual(expect.arrayContaining(['skill']));
   expect(local.tools.filter((id) => id?.startsWith('skill'))).toEqual([]);
+});
+
+// Recorded 2026-10-08 from a local Ollama 0.32.14 (`GET /api/tags`) and LM Studio (`GET /v1/models`).
+const OLLAMA_CHAT_MODELS = ollamaTags.models
+  .filter((model) => model.capabilities.includes('completion'))
+  .map((model) => model.name);
+const LM_STUDIO_CHAT_MODELS = lmStudioModels.data
+  .map((model) => model.id)
+  .filter((id) => !id.startsWith('text-embedding-'));
+
+test('a model the local Ollama or LM Studio runtime lists is admitted without a catalog row', async () => {
+  // Runtime-discovered models live in neither the models table nor the static catalog.
+  owner.query.mockImplementation(async (sql: string) => {
+    if (sql.includes('FROM models')) {
+      throw new Error('A local runtime model has no models row to read');
+    }
+    if (sql.includes('FROM roots')) {
+      return { rows: [{ displayName: 'A', id: 'root-a', path: join(directory, 'a') }] };
+    }
+    throw new Error('Unexpected owner query in local runtime admission');
+  });
+  expect(OLLAMA_CHAT_MODELS).toEqual(
+    expect.arrayContaining(['gemma4:31b', 'glm-4.7-flash:latest', 'qwen3:30b'])
+  );
+  for (const [provider, model] of [
+    ...OLLAMA_CHAT_MODELS.map((id) => ['ollama', id] as const),
+    ...LM_STUDIO_CHAT_MODELS.map((id) => ['lmstudio', id] as const),
+  ]) {
+    const captured = await productionDesktopCapabilities({}).readConfiguration(
+      request([], { agentLoop: { maxSteps: 3 } }, { model, provider })
+    );
+    try {
+      // Budgeted at the conservative window the picker declares for discovered models.
+      expect({ contextWindow: captured.contextWindow, model: captured.configuration }).toEqual({
+        contextWindow: DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW,
+        model: { model, provider },
+      });
+    } finally {
+      await captured.close();
+    }
+  }
 });

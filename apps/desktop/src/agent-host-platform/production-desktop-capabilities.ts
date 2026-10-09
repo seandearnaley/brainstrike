@@ -27,6 +27,7 @@ import {
   DESKTOP_NATIVE_TOOLS,
   deriveAgentLoopInputTokenLimit,
   findLlmModelDefinition,
+  findProviderDefinition,
   isPermissionDenied,
   isSupportedProvider,
   NATIVE_TOOL_ID,
@@ -34,6 +35,7 @@ import {
   resolveToolRiskCategory,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract';
+import { DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW } from '@brainstrike/assistant-contract/context-budget';
 import { listEmbeddingModels } from '@brainstrike/assistant-contract/provider-metadata';
 import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
@@ -177,6 +179,25 @@ function desktopObservationResolution(enabled: boolean, observerTarget: string |
   }
   return observerTarget === null ? 'waiting-for-eligible-model' : 'resolved';
 }
+/**
+ * Ollama and LM Studio models are discovered live from the local server: the
+ * picker offers exactly what the runtime lists, and neither the models table
+ * nor the static catalog holds them. A run on one is budgeted at the
+ * conservative window the picker declares for every discovered model.
+ */
+function localRuntimeModelDefinition(model: string): DesktopCatalogSelection['definition'] {
+  if (model.length === 0) {
+    throw new Error('The selected local runtime model has no id');
+  }
+  return {
+    contextWindow: DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW,
+    id: model,
+    supportsStreaming: true,
+    type: 'llm',
+    vision: 'unknown',
+  };
+}
+
 async function readDesktopCatalogSelection(
   db: Awaited<ReturnType<typeof getDatabase>>,
   modelId: string
@@ -186,6 +207,9 @@ async function readDesktopCatalogSelection(
   const model = modelId.slice(separator + 2);
   if (separator < 1 || !isSupportedProvider(provider)) {
     throw new Error('The selected model has no supported catalog identity');
+  }
+  if (findProviderDefinition(provider)?.runtime === 'local') {
+    return { definition: localRuntimeModelDefinition(model), model, provider };
   }
   // The UI composite is a selection key. The existing catalog owns the pair.
   const result = await db.query(
