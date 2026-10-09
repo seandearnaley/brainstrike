@@ -36,7 +36,6 @@ import {
   foldHostRunEffect,
   HostCommandLedger,
   type HostThreadGrants,
-  hasHostInteractionResponse,
   type HostRunState as Run,
   recordHostConversationId,
 } from './core-state.js';
@@ -45,6 +44,8 @@ import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-sto
 import { beginHostRun, foldHostHookContextEvent, hostRunTerminalEvents } from './hook-context.js';
 import type { HostHookTrustStore } from './hook-trust.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
+import { HostLedgerProjection } from './ledger-projection.js';
+import type { HostLatestRun } from './ledger-wire.js';
 import { type HostMcpInputClient, HostMcpInputState } from './mcp-input-state.js';
 import type { HostClientOrigin, HostPlatform, HostRunAdmission, HostRunOwner } from './ports.js';
 import { HostProjectionRewrites } from './projection-rewrites.js';
@@ -79,14 +80,10 @@ import {
 } from './run-branch.js';
 
 import {
-  approvedHostPlan,
-  approvedHostPlanRunParams,
   approveHostRunByPolicy,
   commitHostInteractionResponse,
   commitHostModelMessages,
-  createHostApprovalResponses,
-  finishApprovedHostResults,
-  hostContinuationFailure,
+  continueHostRun,
   startHostNextRun,
 } from './run-continuation.js';
 import { userRunVerdict } from './run-verdicts.js';
@@ -110,6 +107,8 @@ export class HostCore {
   private readonly records = new HostToolRecords();
   private readonly compactions = new HostContextCompactions();
   private readonly rewrites = new HostProjectionRewrites();
+  /** Cost views and the thread list: every committed row, folded once. */
+  private readonly ledger = new HostLedgerProjection();
   private readonly threads = new Set<string>();
   private readonly presentations = new HostThreadPresentationState({
     admit: (threadId, perform) => this.admit(threadId, perform),
@@ -146,7 +145,7 @@ export class HostCore {
   private readonly listeners = new Set<(row: HostLogRow, parentThreadId?: string) => void>();
   private readonly pendingAdmissions = new Map<AbortController, string>();
   private readonly failedAdmissions = new Map<string, unknown>();
-  private readonly deletions = new Map<string, Promise<{ deleted: true }>>();
+  private readonly deletions = new Map<string, Promise<HostResults['thread/delete']>>();
   private admission: Promise<void> = Promise.resolve();
   private readonly startNotices = new HostRunStartNotices();
   private readonly rewinds = new HostThreadRewinds({
@@ -177,7 +176,9 @@ export class HostCore {
     for (const threadId of await store.threads()) {
       core.threads.add(threadId);
       for (const row of await store.read(threadId)) {
-        core.fold(await readHostRow(store, row));
+        const hydrated = await readHostRow(store, row);
+        core.ledger.apply(hydrated);
+        core.fold(hydrated);
       }
     }
     await core.rewinds.recover();
@@ -275,6 +276,7 @@ export class HostCore {
     const rows = await Promise.all(committed.map((row) => readHostRow(this.store, row)));
     beforePublish?.(rows);
     for (const row of rows) {
+      this.ledger.apply(row);
       for (const listener of this.listeners) {
         listener(row, this.children.parentOf(row.threadId));
       }
@@ -289,6 +291,16 @@ export class HostCore {
 
   listThreads(): HostResults['thread/list']['threads'] {
     return this.children.topLevel(this.threads, this.presentations);
+  }
+
+  /** Every thread's runs and costed provider calls, folded from its committed log. */
+  readLedger(): HostResults['ledger/read'] {
+    return this.ledger.read();
+  }
+
+  /** The thread's latest root run; undefined before its first run starts. */
+  readLatestRun(threadId: string): HostLatestRun | undefined {
+    return this.ledger.readLatestRun(threadId);
   }
 
   /** BST-1932: a thread's direct child threads, in delegation order, with their origins. */
@@ -387,7 +399,7 @@ export class HostCore {
   }
 
   /** Thread deletion queues behind admission and joins its runs (`core-thread-deletion.ts`). */
-  deleteThread(params: { readonly threadId: string }): Promise<{ deleted: true }> {
+  deleteThread(params: { readonly threadId: string }): Promise<HostResults['thread/delete']> {
     const { admission, children, deletions, failedAdmissions, pendingAdmissions, runs } = this;
     return deleteHostThread(
       {
@@ -429,6 +441,7 @@ export class HostCore {
     this.compactions.forgetThread(threadId);
     this.rewrites.forgetThread(threadId);
     this.rewinds.forgetThread(threadId);
+    this.ledger.forget(threadId);
     this.grants.delete(threadId);
   }
 
@@ -791,58 +804,17 @@ export class HostCore {
     );
   }
 
-  private async finishApprovedCalls(run: Run): Promise<void> {
-    await this.commitMessages(
-      run,
-      await finishApprovedHostResults(run, this.platform, (action, input, resumeData) =>
-        this.dispatch(run, action, input, resumeData)
-      )
-    );
-    await this.finish(run, 'completed');
-  }
-
-  private async continueRun(run: Run): Promise<void> {
-    if (run.terminal) {
-      return;
-    }
-    if (run.stopped) {
-      await this.finish(run, 'stopped');
-      return;
-    }
-    if ([...run.approvals.values()].some((approval) => !hasHostInteractionResponse(approval))) {
-      return;
-    }
-    try {
-      const admission = await ensureHostRunAdmission(this.platform, run);
-      await this.openRun(run);
-      // The SDK collects approvals from one final tool message, preserving parallel calls.
-      const responses = await createHostApprovalResponses(
-        run,
-        this.platform,
-        (action, input, resumeData) => this.dispatch(run, action, input, resumeData)
-      );
-      await this.commitMessages(
-        run,
-        responses.length > 0 ? [{ content: responses, role: 'tool' }] : []
-      );
-      const plan = approvedHostPlan(run);
-      if (plan) {
-        await this.finish(run, 'completed');
-        await this.startNextRun(approvedHostPlanRunParams(run, plan), run.input?.origin);
-        return;
-      }
-      if (run.steps >= admission.snapshot.maxSteps) {
-        await this.finishApprovedCalls(run);
-        return;
-      }
-      await this.loop(run, admission.model);
-    } catch (cause) {
-      if (run.completion) {
-        throw cause;
-      }
-      const failed = hostContinuationFailure(run, cause);
-      await this.finish(run, failed.outcome, failed.detail);
-    }
+  /** Run the approved calls once every decision is answered, then go on (run-continuation). */
+  private continueRun(run: Run): Promise<void> {
+    return continueHostRun(run, {
+      commitMessages: (messages) => this.commitMessages(run, messages),
+      dispatch: (action, input, resumeData) => this.dispatch(run, action, input, resumeData),
+      finish: (outcome, detail) => this.finish(run, outcome, detail),
+      loop: (model) => this.loop(run, model),
+      openRun: () => this.openRun(run),
+      platform: this.platform,
+      startNextRun: (params) => this.startNextRun(params, run.input?.origin),
+    });
   }
 
   recordVerdict(params: HostParams<'run/verdict'>): Promise<{ accepted: true }> {

@@ -6,8 +6,9 @@ import {
   joinHostThreadDeletion,
 } from './core-run-lifecycle.js';
 import type { HostRunState } from './core-state.js';
+import type { HostResults } from './protocol.js';
 
-type Deletion = Promise<{ deleted: true }>;
+type Deletion = Promise<HostResults['thread/delete']>;
 
 /** Core's state one thread deletion uses; Core keeps the admission queue's tail. */
 export interface HostThreadDeletionContext {
@@ -70,7 +71,7 @@ export function deleteHostThread(context: HostThreadDeletionContext, threadId: s
     for (const run of runs) {
       context.forgetRun(run);
     }
-    return { deleted: true };
+    return { deleted: true, threadIds: subtree };
   });
   for (const id of subtree) {
     context.deletions.set(id, deletion);
