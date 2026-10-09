@@ -1,3 +1,4 @@
+import type { ThreadSearchExtraArms } from '@brainstrike/db';
 import { renderHook } from '@testing-library/react';
 import { act } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -89,7 +90,8 @@ describe('useThreadSearchController', () => {
   function renderController(
     repository: ThreadSearchControllerRepository | null,
     embedder = createEmbedder(),
-    loadEmbeddingQueue: (() => Promise<never>) | null = null
+    loadEmbeddingQueue: (() => Promise<never>) | null = null,
+    searchHost?: (query: string) => Promise<ThreadSearchExtraArms>
   ) {
     return renderHook(() =>
       useThreadSearchController({
@@ -98,6 +100,7 @@ describe('useThreadSearchController', () => {
         localModelConfigMap: new Map() as never,
         repository,
         resourceId: 'workspace-memory',
+        ...(searchHost ? { searchHost } : {}),
       })
     );
   }
@@ -325,6 +328,51 @@ describe('useThreadSearchController', () => {
       await vi.advanceTimersByTimeAsync(10);
     });
     expect(useThreadSearchStore.getState().results).toBe(resolvedResults);
+  });
+
+  it("fuses the host's arms into the same result list as history's", async () => {
+    const repository = createRepository();
+    const searchHost = vi.fn(async () => ({
+      messages: [
+        {
+          headline: '<mark>hnsw</mark> on the host',
+          messageCreatedAt: new Date('2026-10-08T00:00:00Z'),
+          messageId: 'host-message',
+          role: 'user',
+          threadId: 'host-thread',
+        },
+      ],
+      titles: [],
+    }));
+    renderController(repository, createEmbedder(), null, searchHost);
+
+    act(() => {
+      useThreadSearchStore.getState().setQuery('hnsw');
+    });
+    await flushAsync();
+
+    expect(searchHost).toHaveBeenCalledWith('hnsw');
+    expect(useThreadSearchStore.getState().results?.map(({ threadId }) => threadId)).toEqual([
+      'thread-1',
+      'host-thread',
+    ]);
+  });
+
+  it('fails the search visibly when the host search fails', async () => {
+    const repository = createRepository();
+    renderController(repository, createEmbedder(), null, async () => {
+      throw new Error('The agent host is unavailable.');
+    });
+
+    act(() => {
+      useThreadSearchStore.getState().setQuery('hnsw');
+    });
+    await flushAsync();
+
+    expect(useThreadSearchStore.getState()).toMatchObject({
+      error: 'The agent host is unavailable.',
+      status: 'error',
+    });
   });
 
   it('drains the embedding backlog and records coverage', async () => {

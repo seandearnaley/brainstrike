@@ -314,6 +314,25 @@ export function createWindowThreadCapability(
       };
     },
     runs,
+    // Gap 10: the host's own arms for the Threads panel's fused search. A matched
+    // child is the host's too, so its result can open through this client.
+    searchThreads: async (query) => {
+      const host = await client();
+      const { messages, titles } = await host.request('thread/search', { query });
+      for (const { threadId } of [...messages, ...titles]) {
+        threads.set(threadId, host);
+      }
+      return {
+        messages: messages.map(({ createdAt, headline, messageId, role, threadId }) => ({
+          headline,
+          messageCreatedAt: new Date(createdAt),
+          messageId,
+          role,
+          threadId,
+        })),
+        titles,
+      };
+    },
     subscribeTitleChanges: (listener) => {
       titleListeners.add(listener);
       return () => titleListeners.delete(listener);

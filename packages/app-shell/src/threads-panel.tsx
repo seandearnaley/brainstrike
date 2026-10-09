@@ -1968,9 +1968,14 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
     localModelConfigMap,
     repository: threadSearchRepository,
     resourceId,
+    searchHost: host?.searchThreads?.bind(host),
   });
   const searchResultTitles = useThreadSearchTitles(threadSearchRepository, resourceId);
-  const selectSearchResult = useThreadSearchResultNavigation(threadSearchRepository, resourceId);
+  const selectSearchResult = useThreadSearchResultNavigation(
+    threadSearchRepository,
+    resourceId,
+    host
+  );
   const searchActive = useThreadSearchStore((state) => state.status !== 'idle');
   // The count and the select-visible toggle describe the treegrid. Withdraw
   // them whenever something else stands in for it — a state card, or search

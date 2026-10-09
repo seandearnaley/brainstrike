@@ -12,6 +12,7 @@ import type {
   ThreadWorkspaceRepository,
 } from '@brainstrike/assistant-data';
 import type { HostUsageRecord } from '@brainstrike/assistant-data/cost-tracking';
+import type { ThreadSearchExtraArms } from '@brainstrike/db';
 import { createContext, type ReactNode, useContext, useSyncExternalStore } from 'react';
 
 /** A host thread's latest committed root run, read as the thread badges read a run row. */
@@ -125,6 +126,12 @@ export interface AssistantThreadHostCapability {
   resolveChildThread?(threadId: string): Promise<AssistantThreadHostChild>;
   /** Omitted by a host that reports no run state; its threads then show none. */
   readonly runs?: AssistantThreadHostRuns;
+  /**
+   * Gap 10: the host's own message and title arms for a Threads panel query,
+   * best first, each match on its thread's committed selected path. History's
+   * search fuses them into one list. A host without search omits this.
+   */
+  searchThreads?(query: string): Promise<ThreadSearchExtraArms>;
   /** Called when a host thread's committed title changes; a host without live titles omits it. */
   subscribeTitleChanges?(listener: () => void): () => void;
   /**
