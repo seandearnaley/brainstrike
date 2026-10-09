@@ -51,16 +51,23 @@ test('a host run’s command session appears in the Terminal panel and stops fro
     });
     await enableModel(page);
     modelProvider.setScript((request) => {
-      const name = request.toolNames.find((tool) => tool.endsWith('manageCommandSession'));
-      return name
-        ? {
-            finalText: REPLY,
-            toolCall: {
+      // Hosted discovery defers the session tool: the model loads it first.
+      if (!request.toolNames.includes('load_tool')) {
+        return { finalText: `No load_tool offered: ${request.toolNames.join(', ')}` };
+      }
+      const session = 'brainstrike_manageCommandSession';
+      return {
+        finalText: REPLY,
+        toolCallStages: [
+          [{ arguments: { toolName: session }, name: 'load_tool' }],
+          [
+            {
               arguments: { operation: { action: 'start', command: 'sleep 120' } },
-              name,
+              name: session,
             },
-          }
-        : { finalText: `No session tool offered: ${request.toolNames.join(', ')}` };
+          ],
+        ],
+      };
     });
     await ensureAssistantShellVisible(page);
     const region = page.getByRole('region', { exact: true, name: 'Assistant' });
@@ -82,7 +89,10 @@ test('a host run’s command session appears in the Terminal panel and stops fro
       tabId.replace('assistant-thread-tab-', '')
     );
     expect(run?.status).toBe('completed');
-    const sessionId = (run?.results[0]?.output as { readonly id?: string } | undefined)?.id;
+    // load_tool's result comes first, then the session start's.
+    expect(run?.results).toHaveLength(2);
+    expect(run?.results[0]?.output).toMatchObject({ success: true });
+    const sessionId = (run?.results[1]?.output as { readonly id?: string } | undefined)?.id;
     expect(sessionId).toMatch(/^command-session-/);
 
     // Main holds no session for this run: the panel lists the agent host's.

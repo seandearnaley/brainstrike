@@ -20,8 +20,11 @@ import {
 } from '@brainstrike/app-shell';
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
-import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
-import { isSupportedProvider, type SupportedProvider } from '@brainstrike/assistant-contract';
+import {
+  findProviderDefinition,
+  isSupportedProvider,
+  type SupportedProvider,
+} from '@brainstrike/assistant-contract';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import {
   type CommittedAssistantConversationProps,
@@ -33,6 +36,7 @@ import {
 } from '@brainstrike/types';
 import { useCallback, useMemo, useState } from 'react';
 import { readDesktopHostConfiguration } from './desktop-host-configuration';
+import { type EnabledCatalogModels, useEnabledCatalogModels } from './use-enabled-catalog-models';
 
 type Presentation = Pick<
   CommittedAssistantConversationProps,
@@ -73,11 +77,23 @@ interface DesktopHostPresentation extends Presentation {
 export type ProviderReadErrors = Partial<Record<SupportedProvider, string>>;
 
 /**
- * The legacy panel's pre-send provider notice. A failed provider refresh gates
- * a send only while nothing is connected; beside a ready provider it is shown
- * without gating it.
+ * Admission's rule: a provider whose runtime is `local` (Ollama, LM Studio)
+ * serves whatever model its server lists, with no catalog row; every other
+ * selection needs an enabled `models` row.
+ */
+function isDynamicLocalRuntime(provider: SupportedProvider): boolean {
+  return findProviderDefinition(provider)?.runtime === 'local';
+}
+
+/**
+ * The legacy panel's pre-send provider notice, gating only what admission
+ * refuses. A failed provider refresh gates a send only while nothing is
+ * connected; beside a ready provider it is shown without gating it. A notice
+ * about a local runtime's discovery is shown without gating: admission admits
+ * that selection without the renderer's probe.
  */
 function useProviderNotice({
+  catalog,
   configuredProviders,
   discoveryError,
   getProviderLlmModels,
@@ -87,6 +103,7 @@ function useProviderNotice({
   selectedModel,
   selectedProvider,
 }: {
+  readonly catalog: EnabledCatalogModels;
   readonly configuredProviders: readonly SupportedProvider[];
   readonly discoveryError: string | undefined;
   readonly getProviderLlmModels: (
@@ -97,12 +114,14 @@ function useProviderNotice({
   readonly providerReadErrors: ProviderReadErrors | undefined;
   readonly selectedModel: string | null | undefined;
   readonly selectedProvider: SupportedProvider | undefined;
-}): { readonly blocking: string | undefined; readonly refresh: string | undefined } {
-  // Enablement is read through the picker's own predicate.
+}): { readonly advisory: string | undefined; readonly blocking: string | undefined } {
+  // Enablement is read through the picker's own predicate. Until the catalog
+  // is read, no catalog provider is claimed to have nothing enabled.
   const providerHasEnabledModels = useCallback(
     (provider: SupportedProvider): boolean =>
+      (catalog.state !== 'ready' && !isDynamicLocalRuntime(provider)) ||
       getProviderLlmModels(provider).some((definition) => isModelEnabled(provider, definition.id)),
-    [getProviderLlmModels, isModelEnabled]
+    [catalog.state, getProviderLlmModels, isModelEnabled]
   );
   const refresh = discoveryError
     ? `Could not refresh available providers: ${discoveryError}`
@@ -120,18 +139,23 @@ function useProviderNotice({
     },
     blockingRefresh !== undefined
   );
-  return { blocking: blockingRefresh ?? provider, refresh };
+  if (selectedProvider && isDynamicLocalRuntime(selectedProvider)) {
+    return { advisory: provider ?? refresh, blocking: blockingRefresh };
+  }
+  const catalogError =
+    catalog.state === 'error' ? `Could not read the enabled models: ${catalog.message}` : undefined;
+  return { advisory: refresh, blocking: blockingRefresh ?? provider ?? catalogError };
 }
 
-/** The panel shows the reason a send is gated, else a refresh failure that gates nothing. */
+/** The panel shows the reason a send is gated, else a notice that gates nothing. */
 function noticeProps(
   gating: string | undefined,
-  refresh: string | undefined
+  advisory: string | undefined
 ): Pick<Presentation, 'disabledReason' | 'isComposerDisabled'> {
   if (gating) {
     return { disabledReason: gating, isComposerDisabled: true };
   }
-  return refresh ? { disabledReason: refresh } : {};
+  return advisory ? { disabledReason: advisory } : {};
 }
 
 /** Existing picker/settings owners project controls; they own no assistant execution. */
@@ -160,8 +184,6 @@ export function useDesktopHostPresentation(
   );
   const drafts = useAssistantThreadStore((state) => state.draftRuntimeByThreadId);
   const setThreadDraftRuntime = useAssistantThreadStore((state) => state.setThreadDraftRuntime);
-  const registry = useModelRegistryStore((state) => state.models);
-  const downloaded = useModelRegistryStore((state) => state.downloadedModels);
   const draft = drafts[threadId];
   const selectedModel =
     draft?.model && draft.provider ? `${draft.provider}::${draft.model}` : globalModel;
@@ -185,16 +207,14 @@ export function useDesktopHostPresentation(
       getRuntimeProviderLlmModels(provider, runtimeModels, undefined),
     [runtimeModels]
   );
+  // The catalog host admission reads, not the Settings registry cache.
+  const catalog = useEnabledCatalogModels();
   const isModelEnabled = useCallback(
     (provider: SupportedProvider, modelId: string): boolean =>
-      provider === 'ollama' || provider === 'lmstudio'
+      isDynamicLocalRuntime(provider)
         ? getProviderLlmModels(provider).some((definition) => definition.id === modelId)
-        : provider === 'local'
-          ? downloaded[modelId] === true
-          : registry.some(
-              (entry) => entry.providerId === provider && entry.id === modelId && entry.isEnabled
-            ),
-    [downloaded, getProviderLlmModels, registry]
+        : catalog.state === 'ready' && catalog.keys.has(`${provider}::${modelId}`),
+    [catalog, getProviderLlmModels]
   );
   const picker = useAssistantModelPickerConfig({
     configuredProviders,
@@ -236,6 +256,7 @@ export function useDesktopHostPresentation(
       metadata.lookup
     );
   const providerNotice = useProviderNotice({
+    catalog,
     configuredProviders,
     discoveryError,
     getProviderLlmModels,
@@ -361,7 +382,7 @@ export function useDesktopHostPresentation(
     ...(metadata.agentLoopSettings?.inputTokenLimit
       ? { effectiveInputBudget: metadata.agentLoopSettings.inputTokenLimit }
       : {}),
-    ...noticeProps(disabledReason, providerNotice.refresh),
+    ...noticeProps(disabledReason, providerNotice.advisory),
     ...(selectedModel ? { selectedModel } : {}),
     ...(selectedProvider ? { selectedProvider } : {}),
     ...(contextWindow ? { contextWindow } : {}),
