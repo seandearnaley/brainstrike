@@ -53,6 +53,11 @@ vi.mock('../../../renderer/create-embedding-queue', () => ({
 
 // This layout fixture supplies its own child surfaces; actual host/port binding
 // is exercised by the desktop host-thread integration and projection tests.
+// No agent host in jsdom: the composer menu gets no host MCP tools.
+vi.mock('../../../renderer/host-mcp-settings', () => ({
+  resolveDesktopMcpToolsCapability: () => null,
+}));
+
 vi.mock('../../../renderer/desktop-host-thread-provider', () => ({
   DesktopHostThreadProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));

@@ -35,6 +35,7 @@ import {
   renderAssistantThreadPanel,
   type SelectionUpdateHandler,
   setMcpApi,
+  TestMcpToolsProvider,
   testEnabledModels,
   useChangesetMock,
 } from './assistant-ui-panel-wrapper-test-support';
@@ -586,14 +587,16 @@ describe('AssistantUiPanelWrapper', () => {
     // Re-render component
     await act(async () => {
       rerender(
-        <AssistantProviderSourceProvider
-          source={{
-            kind: 'authoritative',
-            providers: ['openai', 'anthropic', 'google'],
-          }}
-        >
-          <AssistantUiPanelWrapper loadLocalLlmBackend={loadTestLocalLlmBackend} />
-        </AssistantProviderSourceProvider>
+        <TestMcpToolsProvider>
+          <AssistantProviderSourceProvider
+            source={{
+              kind: 'authoritative',
+              providers: ['openai', 'anthropic', 'google'],
+            }}
+          >
+            <AssistantUiPanelWrapper loadLocalLlmBackend={loadTestLocalLlmBackend} />
+          </AssistantProviderSourceProvider>
+        </TestMcpToolsProvider>
       );
     });
 
@@ -2066,9 +2069,11 @@ describe('AssistantUiPanelWrapper', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
     const { unmount } = render(
-      <AssistantProviderSourceProvider source={{ kind: 'authoritative', providers: ['openai'] }}>
-        <AssistantUiPanelWrapper loadLocalLlmBackend={loadTestLocalLlmBackend} />
-      </AssistantProviderSourceProvider>
+      <TestMcpToolsProvider>
+        <AssistantProviderSourceProvider source={{ kind: 'authoritative', providers: ['openai'] }}>
+          <AssistantUiPanelWrapper loadLocalLlmBackend={loadTestLocalLlmBackend} />
+        </AssistantProviderSourceProvider>
+      </TestMcpToolsProvider>
     );
 
     unmount();

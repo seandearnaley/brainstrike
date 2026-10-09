@@ -14,6 +14,11 @@ const themeStorageAdapter: ThemeStorageAdapter = {
 };
 
 // Mock file-explorer-ui - needed for useFileExplorerStoreContext
+// jsdom has no agent host: the window owns no host MCP settings.
+vi.mock('../../../../renderer/host-mcp-settings', () => ({
+  resolveDesktopHostMcpSettings: () => null,
+}));
+
 vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   FileExplorerProvider: ({ children }: { children: React.ReactNode }) => children,
   useFileExplorerStoreContext: () => {
