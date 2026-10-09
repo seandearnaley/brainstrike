@@ -93,10 +93,11 @@ test('a host thread meter shows its waiting observer, and a memory precondition 
   await ensureAssistantShellVisible(page);
   const reopened = page.getByRole('region', { exact: true, name: 'Assistant' });
 
-  // The reason is the error run/start would fail with, shown before any send:
-  // the host's provider-auth refusal for the embedder's provider.
+  // The reason is the error run/start would fail with, shown before any send.
   await expect(
-    reopened.getByText('The selected provider has no configured credential')
+    reopened.getByText(
+      'Semantic recall requires a configured Google AI Studio API key. Configure it in Settings → Providers, choose a keyless local embedder, or turn semantic recall off.'
+    )
   ).toBeVisible({ timeout: 30_000 });
   await expect(reopened.getByRole('textbox', { name: 'Message input' })).toBeDisabled();
   expect(modelProvider.refusals()).toEqual([]);
