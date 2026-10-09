@@ -47,6 +47,14 @@ function keepToolOverride(grant: CommittedApprovalGrant): void {
   }
 }
 
+/** A question, plan or network consent's typed answer, as the host resumes it. */
+function typedResumeData(text: string | undefined): z.infer<ReturnType<typeof z.json>> {
+  if (text === undefined) {
+    throw new Error('Human interaction requires its typed response');
+  }
+  return z.json().parse(JSON.parse(text));
+}
+
 export interface CommittedHostConversation {
   /** The thread's committed edit checkpoints, reverted through the host. */
   readonly checkpoints: CommittedHostCheckpoints;
@@ -157,29 +165,27 @@ export function createCommittedHostConversation(options: {
       if (pending.length !== 1 || !interaction) {
         throw new Error('Approval has no unique committed interaction');
       }
-      if (interaction.kind && interaction.kind !== 'approval') {
-        if (response.text === undefined) {
-          throw new Error('Human interaction requires its typed response');
-        }
-        await client.request('interaction/resume', {
-          commandId: crypto.randomUUID(),
-          interactionId: interaction.interactionId,
-          resumeData: z.json().parse(JSON.parse(response.text)),
-          runId: interaction.runId,
-          threadId,
-        });
-        return;
-      }
       // A grant option is committed by the host, which keeps it for the thread.
+      // An approval offers one, and so does a network consent standing in for one.
       const grant = committedApprovalGrant(response.optionId, interaction);
-      await client.request('interaction/respond', {
+      const answer = {
         commandId: crypto.randomUUID(),
-        decision: response.approved ? 'approve' : 'deny',
         ...(grant ? { grant } : {}),
         interactionId: interaction.interactionId,
         runId: interaction.runId,
         threadId,
-      });
+      };
+      if (interaction.kind && interaction.kind !== 'approval') {
+        await client.request('interaction/resume', {
+          ...answer,
+          resumeData: typedResumeData(response.text),
+        });
+      } else {
+        await client.request('interaction/respond', {
+          ...answer,
+          decision: response.approved ? 'approve' : 'deny',
+        });
+      }
       if (grant) {
         keepToolOverride(grant);
       }
