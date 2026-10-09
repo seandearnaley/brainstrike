@@ -1,6 +1,7 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import type { HostLogRow } from '@brainstrike/agent-host/protocol';
 import type { AssistantThreadHostCapability } from '@brainstrike/app-shell/assistant-thread-host-context';
+import { resolveChangesBridge } from '@brainstrike/app-shell/changes/availability';
 import { DEFAULT_THREAD_TITLE } from '@brainstrike/assistant-contract/mastra-memory-schema';
 import {
   type ThreadWorkspaceBinding,
@@ -19,6 +20,7 @@ import {
 import { foldHostCanvases } from '@brainstrike/host-capabilities/canvas-state';
 import { createLogger } from '@brainstrike/logging';
 import { connectDesktopAgentHost } from './agent-host-client';
+import { createHostRewindPort } from './host-rewind-port';
 import { HostThreadCanvases } from './host-thread-canvases';
 import { HostThreadLedger } from './host-thread-ledger';
 import { HostThreadRuns } from './host-thread-runs';
@@ -319,6 +321,17 @@ export function createWindowThreadCapability(
         threadId,
         toolCallId: child.origin.toolCallId,
       };
+    },
+    rewindPort: (threadId) => {
+      const host = threads.get(threadId);
+      if (!host) {
+        return;
+      }
+      const changes = resolveChangesBridge();
+      if (!changes) {
+        throw new Error('Restoring a host thread needs the desktop changes bridge');
+      }
+      return createHostRewindPort(host, changes);
     },
     runs,
     subscribeCanvases: canvases.subscribe,

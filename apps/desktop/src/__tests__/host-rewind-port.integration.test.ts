@@ -231,12 +231,15 @@ test('files that changed after the preview are named, and nothing applies until 
   expect(rows.some(({ event }) => event.type.startsWith('thread.rew'))).toBe(false);
 });
 
-test('a target named by a run, not a message, is refused visibly', async () => {
+test('a target the Changes header names by its run previews that run’s user message', async () => {
   const thread = await hostThread(files());
-  const first = await thread.send('First');
+  await thread.send('First');
+  const second = await thread.send('Second');
   const port = createHostRewindPort(thread.client as HostClient, changes());
-  await expect(port.preview({ runId: first.runId, threadId: thread.threadId })).resolves.toEqual({
-    error: 'A host thread restores to before a message: use the message’s Restore action.',
-    ok: false,
+  await expect(
+    port.preview({ runId: second.runId, threadId: thread.threadId })
+  ).resolves.toMatchObject({
+    ok: true,
+    value: { changeset: { fromRunId: second.runId }, messageId: second.messageId, ok: true },
   });
 });

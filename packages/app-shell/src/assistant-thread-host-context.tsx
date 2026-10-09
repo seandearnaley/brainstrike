@@ -14,6 +14,7 @@ import type {
 } from '@brainstrike/assistant-data';
 import type { HostUsageRecord } from '@brainstrike/assistant-data/cost-tracking';
 import { createContext, type ReactNode, useContext, useSyncExternalStore } from 'react';
+import type { RewindPort } from './changes/rewind-port';
 
 /** A host thread's latest committed root run, read as the thread badges read a run row. */
 export interface AssistantThreadHostRun {
@@ -133,6 +134,12 @@ export interface AssistantThreadHostCapability {
    * thread that is not a host child.
    */
   resolveChildThread?(threadId: string): Promise<AssistantThreadHostChild>;
+  /**
+   * The rewind owner (restore to before a message) of a thread this host
+   * owns; undefined for a thread it does not own, which history rewinds. A
+   * host without rewinds omits it.
+   */
+  rewindPort?(threadId: string): RewindPort | undefined;
   /** Omitted by a host that reports no run state; its threads then show none. */
   readonly runs?: AssistantThreadHostRuns;
   /**

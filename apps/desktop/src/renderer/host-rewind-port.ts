@@ -9,6 +9,7 @@
  * the live work-tree.
  */
 import type { HostClient } from '@brainstrike/agent-host/browser';
+import { committedRunIdentity } from '@brainstrike/agent-host/committed-identities';
 import type {
   HostResults,
   HostRewindConflict,
@@ -223,19 +224,20 @@ export function createHostRewindPort(
     conversation: 'branched',
     fileDiff: (changeset, path, rootId) => changes.fileDiff(rootId, changeset, path),
     preview: async (target) => {
-      if (target.messageId === undefined) {
-        return {
-          error: 'A host thread restores to before a message: use the message’s Restore action.',
-          ok: false,
-        };
-      }
+      // The Changes header names a run: its user message is the run's committed identity.
+      const messageId =
+        target.messageId ??
+        committedRunIdentity(
+          (await client.request('thread/read', { fromSeq: 0, threadId: target.threadId })).rows,
+          target.runId
+        ).userMessageId;
       const preview = await client.request('thread/rewind/preview', {
-        messageId: target.messageId,
+        messageId,
         threadId: target.threadId,
       });
       return {
         ok: true,
-        value: await previewModel(changes, target.threadId, target.messageId, preview),
+        value: await previewModel(changes, target.threadId, messageId, preview),
       };
     },
     redo: async ({ acknowledgeConflicts, rewindId, roots, threadId }) => {
