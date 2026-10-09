@@ -1,4 +1,4 @@
-import { app, utilityProcess } from 'electron';
+import { app, MessageChannelMain, type MessagePortMain, utilityProcess } from 'electron';
 import { createDesktopHostLease } from '../../host-lease-manager';
 import { createNativeIndexRuntime } from '../../native-index-runtime';
 
@@ -12,6 +12,8 @@ if (!(root && entryPath)) {
 }
 const startupTimeoutMs = process.argv[4] === undefined ? undefined : Number(process.argv[4]);
 let ownPid: number | undefined;
+// Main's end of each host's lifetime channel, so a live Main can let its host go.
+const lifetimeEnds: MessagePortMain[] = [];
 const owner = createDesktopHostLease({
   entryPath,
   fork: (entry, args) => {
@@ -20,6 +22,11 @@ const owner = createDesktopHostLease({
       ownPid = child.pid;
     });
     return child;
+  },
+  lifetimeChannel: () => {
+    const channel = new MessageChannelMain();
+    lifetimeEnds.push(channel.port1);
+    return channel;
   },
   platformModule: process.env['BRAINSTRIKE_M3_OWNED_PLATFORM_MODULE'],
   root,
@@ -49,6 +56,12 @@ process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk: string) => {
   if (chunk.trim() === 'close') {
     close();
+  }
+  if (chunk.trim() === 'release-lifetime') {
+    for (const end of lifetimeEnds.splice(0)) {
+      end.close();
+    }
+    report({ event: 'lifetime-released' });
   }
 });
 app.on('window-all-closed', () => undefined);
