@@ -141,10 +141,7 @@ describe('ipc-mcp handlers', () => {
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:content:complete', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:content:getPrompt', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:content:readResource', expect.any(Function));
-      // Apps admission handlers (BST-1572)
-      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:apps:prepare', expect.any(Function));
-      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:apps:execute', expect.any(Function));
-      expect(ipcMain.handle).toHaveBeenCalledWith('mcp:apps:release', expect.any(Function));
+      // Apps shell handlers (BST-1572); the agent host admits app tool calls
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:apps:prepareShell', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:apps:releaseShell', expect.any(Function));
       // Durable Tasks handlers (BST-1566)
@@ -153,7 +150,7 @@ describe('ipc-mcp handlers', () => {
       // Global registered-extension dials (BST-1604)
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:extensions:get', expect.any(Function));
       expect(ipcMain.handle).toHaveBeenCalledWith('mcp:extensions:set', expect.any(Function));
-      expect(ipcMain.handle).toHaveBeenCalledTimes(32);
+      expect(ipcMain.handle).toHaveBeenCalledTimes(29);
     });
 
     it('returned cleanup unregisters handlers without tearing down MCP runtime state', async () => {

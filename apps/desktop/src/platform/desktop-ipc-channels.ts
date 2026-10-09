@@ -226,10 +226,7 @@ export const DESKTOP_IPC_CHANNELS = {
     setPreferences: 'logging:set-preferences',
   },
   mcp: {
-    appsExecute: 'mcp:apps:execute',
-    appsPrepare: 'mcp:apps:prepare',
     appsPrepareShell: 'mcp:apps:prepareShell',
-    appsRelease: 'mcp:apps:release',
     appsReleaseShell: 'mcp:apps:releaseShell',
     configCreateSample: 'mcp:config:createSample',
     configGet: 'mcp:config:get',

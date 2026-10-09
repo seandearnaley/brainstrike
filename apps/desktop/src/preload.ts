@@ -49,7 +49,7 @@ import { decodeNativeEmbeddingWorkerPlan } from './platform/native-embedding-val
 
 type McpContentIpcResponse = import('./ipc-domains/mcp.contract').McpContentIpcResponse;
 type McpHostSnapshot = import('@brainstrike/assistant-contract').McpHostSnapshot;
-type McpAppBridge = import('@brainstrike/assistant-contract').McpAppBridge;
+type McpAppShellBridge = import('@brainstrike/assistant-contract').McpAppShellBridge;
 type McpAppOrigin = import('@brainstrike/assistant-contract').McpAppOrigin;
 type McpTaskBridge = import('@brainstrike/assistant-contract').McpTaskBridge;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
@@ -560,7 +560,7 @@ contextBridge.exposeInMainWorld('mcp', {
   apps: {
     ...mcpAppsBridge,
     readResource: (origin: McpAppOrigin) => readMcpAppResource(origin),
-  } satisfies McpAppBridge,
+  } satisfies McpAppShellBridge,
   complete: (request: unknown) => unwrapMcpContent(mcpContentBridge.complete(request)),
   getPrompt: (request: unknown) => unwrapMcpContent(mcpContentBridge.getPrompt(request)),
   readResource: (request: unknown) => unwrapMcpContent(mcpContentBridge.readResource(request)),
