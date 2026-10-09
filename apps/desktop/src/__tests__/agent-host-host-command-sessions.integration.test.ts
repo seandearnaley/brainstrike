@@ -15,6 +15,7 @@ import {
 import { desktopHostSharedTools } from '../agent-host-platform/desktop-host-shared-tools';
 import {
   attachHostCommandSessions,
+  disposeDesktopAndHostCommandSessionsForRoot,
   hostCommandSessions,
 } from '../agent-host-platform/host-command-session-client';
 import {
@@ -176,4 +177,50 @@ test('a host run’s command session lives in the agent host and Main’s Termin
     'platform/workspace/roots',
     'platform/workspace/roots',
   ]);
+});
+
+test('disconnecting a root in Main stops and forgets the host run sessions there', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-session-root-')));
+  cleanups.push(() => rm(root, { force: true, recursive: true }));
+  const channel = new MessageChannel();
+  const hostSide = mainPlatformConnection(new UtilityPort(channel.port1));
+  const mainSide = mainPlatformConnection(new UtilityPort(channel.port2));
+  serveHostCommandSessions(hostSide);
+  hostSide.listen();
+  attachHostCommandSessions(mainSide);
+  mainSide.listen();
+  cleanups.push(() => {
+    mainSide.dispose();
+    hostSide.dispose();
+    channel.port1.close();
+    channel.port2.close();
+  });
+  cleanups.push(() => disposeHostTools());
+  const manage = desktopHostSharedTools({
+    readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
+    request: vi.fn(async () => [{ displayName: 'A', path: root, rootId: 'root-a' }]),
+    resolveTavilyApiKey: async () => undefined,
+    selected: selection(root),
+    threadId: 'host-thread',
+  })['brainstrike_manageCommandSession'];
+  if (!manage) {
+    throw new Error('manageCommandSession was not built for the host');
+  }
+  await manage.execute({ operation: { action: 'start', command: 'sleep 30' } }, execution);
+  const panel = withHostCommandSessions(
+    createCommandSessionIpcHandlers({
+      manager: createCommandSessionManager({ resolver: { listRoots: async () => [] } }),
+    }),
+    hostCommandSessions
+  );
+  await expect(panel.list({ rootId: 'root-a' })).resolves.toMatchObject({
+    value: { sessions: [expect.objectContaining({ status: 'running' })] },
+  });
+
+  // The disconnect path Main's root registry and fs:removeRoot take.
+  await expect(disposeDesktopAndHostCommandSessionsForRoot('root-a')).resolves.toBe(1);
+  await expect(panel.list({ rootId: 'root-a' })).resolves.toEqual({
+    ok: true,
+    value: { rootId: 'root-a', sessions: [] },
+  });
 });

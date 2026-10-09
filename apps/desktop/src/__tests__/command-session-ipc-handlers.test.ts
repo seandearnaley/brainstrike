@@ -145,6 +145,7 @@ describe('command session IPC handlers', () => {
       new CommandSessionError('session-not-found', 'No command session "host-session".')
     );
     const host = {
+      disposeRoot: vi.fn(),
       list: vi.fn(),
       read: vi.fn(),
       remove: vi.fn(),

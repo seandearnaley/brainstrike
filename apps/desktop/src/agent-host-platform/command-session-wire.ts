@@ -91,3 +91,8 @@ export const HostCommandSessionDoneResultSchema = z.discriminatedUnion('ok', [
   z.object({ ok: z.literal(true) }),
   Failure,
 ]);
+
+/** The host reaped and forgot this many sessions in a disconnected root. */
+export const HostCommandSessionDisposeRootResultSchema = z.object({
+  disposed: z.number().int().nonnegative(),
+});

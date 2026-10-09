@@ -1,0 +1,11 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "lfm2.5-thinking:latest",
+      "object": "model",
+      "created": 1769055372,
+      "owned_by": "library"
+    }
+  ]
+}
