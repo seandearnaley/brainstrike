@@ -5,6 +5,7 @@ import {
   type HostImageAttachment,
   HostImageAttachmentSchema,
   type HostLogRow,
+  type HostParams,
 } from '@brainstrike/agent-host/protocol';
 import { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
 import type {
@@ -109,34 +110,52 @@ export interface CommittedHostConversation {
   readonly verdicts: CommittedHostVerdicts;
 }
 
-/** Construct alongside the attached client, outside React render. */
-export function createCommittedHostConversation(options: {
-  /**
-   * Bind the thread to its folder before a run it starts, as legacy's first
-   * request did (`bindHostThreadToMainRoot`); a refusal fails that send.
-   */
-  readonly bindThreadRoot?: () => Promise<void>;
-  readonly client: HostClient;
+/** What the next run this view starts takes from the composer's current settings. */
+export interface HostRunSettingsSource {
   readonly modelId: string;
-  /** Told when a newer committed title, colour or icon reaches this view. */
-  readonly onTitleCommitted?: () => void;
-  readonly readModelId?: () => string;
   readonly readConfiguration?: () => Record<string, unknown>;
+  readonly readModelId?: () => string;
   /** Plan mode for the next run this view starts; absent is off. */
   readonly readPlanMode?: () => boolean;
-  readonly threadId: string;
-}): CommittedHostConversation {
-  const { client, modelId, threadId } = options;
+}
+
+/** The model, configuration and plan mode a `run/start` from these settings sends. */
+export function hostRunSettings(
+  settings: HostRunSettingsSource
+): Pick<HostParams<'run/start'>, 'configuration' | 'modelId' | 'planMode'> {
+  return {
+    ...(settings.readConfiguration
+      ? {
+          configuration: z
+            .record(z.string(), z.json())
+            .parse(JSON.parse(JSON.stringify(settings.readConfiguration()))),
+        }
+      : {}),
+    modelId: settings.readModelId?.() ?? settings.modelId,
+    ...(settings.readPlanMode?.() ? { planMode: true as const } : {}),
+  };
+}
+
+/** Construct alongside the attached client, outside React render. */
+export function createCommittedHostConversation(
+  options: HostRunSettingsSource & {
+    /**
+     * Bind the thread to its folder before a run it starts, as legacy's first
+     * request did (`bindHostThreadToMainRoot`); a refusal fails that send.
+     */
+    readonly bindThreadRoot?: () => Promise<void>;
+    readonly client: HostClient;
+    /** Told when a newer committed title, colour or icon reaches this view. */
+    readonly onTitleCommitted?: () => void;
+    readonly threadId: string;
+  }
+): CommittedHostConversation {
+  const { client, threadId } = options;
   const source = new CommittedThreadSession(client, threadId);
   const mcpInput = new CommittedHostMcpInput(client, source, threadId);
   // A running command's output arrives as uncommitted telemetry; its committed
   // result owns the output from then on (ADR-0011 amendment).
   const liveShellOutputs = new LiveShellOutputs();
-  const releaseTelemetry = client.onTelemetry((telemetry) => {
-    if (telemetry.threadId === threadId) {
-      liveShellOutputs.accept(telemetry.chunk);
-    }
-  });
   const releaseResults = client.onEvent((row) => {
     if (row.threadId === threadId && row.event.type === 'effect.finished') {
       liveShellOutputs.clear(row.event.toolCallId);
@@ -148,17 +167,15 @@ export function createCommittedHostConversation(options: {
     source,
     threadId,
   });
-  const runSettings = () => ({
-    ...(options.readConfiguration
-      ? {
-          configuration: z
-            .record(z.string(), z.json())
-            .parse(JSON.parse(JSON.stringify(options.readConfiguration()))),
-        }
-      : {}),
-    modelId: options.readModelId?.() ?? modelId,
-    ...(options.readPlanMode?.() ? { planMode: true as const } : {}),
+  // A tool's live output and the model's live text and reasoning; each consumer
+  // takes only its own chunk types.
+  const releaseTelemetry = client.onTelemetry((telemetry) => {
+    if (telemetry.threadId === threadId) {
+      liveShellOutputs.accept(telemetry.chunk);
+      store.acceptTelemetry(telemetry.runId, telemetry.chunk);
+    }
   });
+  const runSettings = () => hostRunSettings(options);
   // A send, a send from a selected branch, and an edit all start a new user
   // message after the vendor's explicit parent (null: the thread root).
   const startTurn = async (message: AppendMessage): Promise<void> => {

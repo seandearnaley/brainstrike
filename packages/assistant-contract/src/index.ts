@@ -44,6 +44,7 @@ export * from './mcp-status.js';
 export * from './mcp-task-ipc.js';
 export * from './mcp-task-presentation.js';
 export * from './mcp-tool-preferences.js';
+export * from './memory-credential-reasons.js';
 export * from './memory-settings.js';
 export * from './model-reasoning.js';
 export * from './native-tool-catalog.js';

@@ -8,6 +8,7 @@ import {
   decoder,
   IndexerError,
   type StateProjectionStats,
+  type StateSearchCoverage,
   type StateSearchHit,
   type StateSearchPendingRow,
   type StateSearchRow,
@@ -16,6 +17,7 @@ import {
   stateEventIdentitySchema,
   stateGcSchema,
   stateMatchSchema,
+  stateSearchCoverageSchema,
   stateSearchHitSchema,
   stateSearchPendingSchema,
   stateSearchSchema,
@@ -91,6 +93,7 @@ export class StateEventStore {
       INSERT INTO state_events_fts(state_events_fts,rank) VALUES('secure-delete',1);
       ${searchDefinition}
       ${StateSearchVectors.definition}
+      ${StateSearchVectors.failureDefinition}
     `);
     StateMessageVectors.initialize(db);
     StateObservationVectors.initialize(db);
@@ -154,6 +157,7 @@ export class StateEventStore {
       ['state_search_thread', 'index', version >= 11],
       ['state_search_fts', 'table', version >= 11],
       ['state_search_vectors', 'table', version >= 12],
+      ['state_search_vector_failures', 'table', version >= 13],
     ];
     const objects = decoder(
       Schema.Array(Schema.Struct({ name: Schema.String, sql: Schema.String, type: Schema.String }))
@@ -229,6 +233,9 @@ export class StateEventStore {
     }
     if (version < 12) {
       db.exec(StateSearchVectors.definition);
+    }
+    if (version < 13) {
+      db.exec(StateSearchVectors.failureDefinition);
     }
     StateMessageVectors.validateStorage(db);
   }
@@ -468,6 +475,16 @@ export class StateEventStore {
   /** Vectors the caller computed for `searchPending` rows; a changed row's vector is not stored. */
   putSearchVectors(input: unknown): StateSearchVectorsResult {
     return this.searchVectors.put(decoder(stateSearchVectorBatchSchema)(input));
+  }
+
+  /** The semantic arm's coverage of the threads, caught up first like `search`. */
+  searchCoverage(input: unknown): StateSearchCoverage {
+    const request = decoder(stateSearchCoverageSchema)(input);
+    if (request.threadIds.length === 0) {
+      return { embedded: 0, errored: 0, rows: 0 };
+    }
+    this.catchUp(request.threadIds);
+    return this.searchVectors.coverage(request);
   }
 
   /** The semantic arm: the threads' rows nearest the query vector, caught up first like `search`. */

@@ -65,41 +65,24 @@ export function catalogModel(modelId: string): CatalogModel | undefined {
     : undefined;
 }
 
-/** An observational-memory model target, `provider/model`; the model may contain '/'. */
-export function targetModel(target: string): CatalogModel | undefined {
-  const separator = target.indexOf('/');
-  return separator > 0
-    ? { model: target.slice(separator + 1), provider: target.slice(0, separator) }
-    : undefined;
-}
-
 /**
- * An observer call's model: its catalog id when it commits one, else the
- * run's resolved observer target when the call names that target's model (the
- * legacy attribution). The built-in local observer bills nothing.
+ * An observer call's model: the catalog id Core commits it under (BST-1929).
+ * The built-in local observer bills nothing.
  */
-export function observerCallModel(
-  observer: CatalogModel | undefined,
-  modelId: string
-): CatalogModel | undefined {
+export function observerUsageModel(modelId: string): CatalogModel | undefined {
   const committed = catalogModel(modelId);
-  if (committed) {
-    return committed;
-  }
-  if (observer?.provider === 'local') {
+  if (!committed) {
+    warnUncosted(modelId);
     return;
   }
-  if (observer?.model === modelId) {
-    return observer;
-  }
-  warnUncosted(modelId);
-  return;
+  return committed.provider === 'local' ? undefined : committed;
 }
 
 const uncostedModelIds = new Set<string>();
 /**
- * An observer call that names neither a catalog model nor its run's observer
- * target cannot be priced or attributed, so cost views leave it out (once per id).
+ * An observer call that names no catalog model (a row committed before
+ * BST-1929 carries the SDK's own id) cannot be priced or attributed, so cost
+ * views leave it out (once per id).
  */
 function warnUncosted(modelId: string): void {
   if (uncostedModelIds.has(modelId)) {
@@ -120,8 +103,6 @@ interface RunFold {
   failedToolCallCount: number;
   inputTokens: number;
   readonly model: string;
-  /** The observer target its admission resolved, as `provider/model`. */
-  readonly observer: CatalogModel | undefined;
   outputTokens: number;
   readonly provider: string;
   revertedEditCount: number;
@@ -185,7 +166,7 @@ export class ThreadLedgerFold {
       this.count(run, row, run, tokensOf(event.usage), 'chat');
     } else if (event.type === 'memory.usage') {
       // Memory's own model calls cost under their own model, within the run.
-      const model = observerCallModel(run.observer, event.modelId);
+      const model = observerUsageModel(event.modelId);
       this.count(run, row, model, tokensOf(event.usage), MEMORY_USAGE_KIND[event.kind]);
     } else if (event.type === 'context.compacted' && event.usage !== undefined) {
       // A compaction summarizer's side call, when one ran, costs like Memory's.
@@ -249,7 +230,6 @@ export class ThreadLedgerFold {
     }
     const binding = event.snapshot?.workspaceBinding;
     const configuration = readDesktopRunConfiguration(event);
-    const observerTarget = configuration?.memoryResolution?.observerTarget;
     const focusedRootId = configuration?.intent?.selectionFolderId;
     this.runs.set(event.runId, {
       ...model,
@@ -259,7 +239,6 @@ export class ThreadLedgerFold {
       editCount: 0,
       failedToolCallCount: 0,
       inputTokens: 0,
-      observer: observerTarget ? targetModel(observerTarget) : undefined,
       outputTokens: 0,
       revertedEditCount: 0,
       // The legacy attribution: the thread's bound root, else the root focused

@@ -11,6 +11,14 @@ import {
 import type { HostCredentials } from './credentials.js';
 import { createProviderCredentialReader } from './provider-credentials.js';
 
+/** A keyed provider with no configured credential; the caller names what needed it. */
+export class ProviderCredentialMissingError extends Error {
+  constructor(readonly provider: string) {
+    super('The selected provider has no configured credential');
+    this.name = 'ProviderCredentialMissingError';
+  }
+}
+
 export interface HostProviderAuthOptions {
   readonly credentials: HostCredentials;
   readonly env: NodeJS.ProcessEnv;
@@ -43,7 +51,7 @@ export function createHostProviderAuth(
       if (findProviderDefinition(provider)?.authType === 'none') {
         return;
       }
-      throw new Error('The selected provider has no configured credential');
+      throw new ProviderCredentialMissingError(provider);
     }
     // BST-1353: resolve once per admission so typed chain errors survive SDK
     // wrapping and a later run picks up a newly completed `aws sso login`.

@@ -49,7 +49,7 @@ export async function createDesktopHostMemoryVectorConfiguration(
     });
   } else {
     const auth = await requireMemoryApiKey(
-      'Semantic recall',
+      semanticRecall.enabled ? 'semantic-recall' : 'semantic-observation-recall',
       profile.provider,
       resolveProviderAuth
     );

@@ -16,28 +16,70 @@ export interface HostRunView {
   readonly results: readonly Extract<HostEvent, { type: 'effect.finished' }>[];
   readonly runId: string;
   readonly status: 'running' | Extract<HostEvent, { type: 'run.finished' }>['outcome'];
+  /** The run's committed assistant text, from its `model.step` messages. */
   readonly text: string;
 }
 
-function textDelta(
+interface FoldedRun extends HostRunView {
+  /** A step started and its `model.step` has not committed yet. */
+  readonly stepOpen: boolean;
+}
+
+/**
+ * The assistant text of committed model messages. The model's text stream is
+ * live telemetry, never committed (ADR-0011 amendment), so `model.step`
+ * messages are the one durable owner of a step's text; a Stop mid-step commits
+ * its partial reply as `model.messages`.
+ */
+export function committedAssistantText(messages: readonly unknown[]): string {
+  let text = '';
+  for (const message of messages) {
+    if (!message || typeof message !== 'object' || Array.isArray(message)) {
+      continue;
+    }
+    const { content, role } = message as { content?: unknown; role?: unknown };
+    if (role !== 'assistant') {
+      continue;
+    }
+    if (typeof content === 'string') {
+      text += content;
+      continue;
+    }
+    for (const part of Array.isArray(content) ? content : []) {
+      if (
+        part &&
+        typeof part === 'object' &&
+        part.type === 'text' &&
+        typeof part.text === 'string'
+      ) {
+        text += part.text;
+      }
+    }
+  }
+  return text;
+}
+
+/** Whether a committed chunk opens a model step. */
+export function isHostStepStart(
   chunk: Extract<HostEvent, { type: 'stream.chunk' }>['chunk']
-): string | undefined {
-  if (!chunk || typeof chunk !== 'object' || Array.isArray(chunk)) {
-    return;
-  }
-  if (chunk['type'] === 'text-delta' && typeof chunk['text'] === 'string') {
-    return chunk['text'];
-  }
-  return undefined;
+): boolean {
+  return (
+    !!chunk && typeof chunk === 'object' && !Array.isArray(chunk) && chunk['type'] === 'start-step'
+  );
 }
 
 /** One committed run event applied to its run's view. */
-function foldRunEvent(run: HostRunView, event: HostEvent): HostRunView {
+function foldRunEvent(run: FoldedRun, event: HostEvent): FoldedRun {
   switch (event.type) {
-    case 'stream.chunk': {
-      const text = textDelta(event.chunk);
-      return text === undefined ? run : { ...run, text: run.text + text };
-    }
+    case 'stream.chunk':
+      return isHostStepStart(event.chunk) ? { ...run, stepOpen: true } : run;
+    case 'model.step':
+      return { ...run, stepOpen: false, text: run.text + committedAssistantText(event.messages) };
+    case 'model.messages':
+      // Only a Stop's partial reply commits assistant text inside an open step.
+      return run.stepOpen
+        ? { ...run, stepOpen: false, text: run.text + committedAssistantText(event.messages) }
+        : run;
     case 'interaction.requested':
       return { ...run, approvals: [...run.approvals, event] };
     case 'interaction.responded':
@@ -63,7 +105,7 @@ function foldRunEvent(run: HostRunView, event: HostEvent): HostRunView {
 
 /** Consumers fold the committed log; none of these values have another writer. */
 export function foldHostRuns(rows: readonly HostLogRow[]): HostRunView[] {
-  const runs = new Map<string, HostRunView>();
+  const runs = new Map<string, FoldedRun>();
   for (const { event } of rows) {
     if (event.type === 'run.started') {
       runs.set(event.runId, {
@@ -71,6 +113,7 @@ export function foldHostRuns(rows: readonly HostLogRow[]): HostRunView[] {
         results: [],
         runId: event.runId,
         status: 'running',
+        stepOpen: false,
         text: '',
       });
       continue;
@@ -80,7 +123,7 @@ export function foldHostRuns(rows: readonly HostLogRow[]): HostRunView[] {
       runs.set(run.runId, foldRunEvent(run, event));
     }
   }
-  return [...runs.values()];
+  return [...runs.values()].map(({ stepOpen: _stepOpen, ...run }) => run);
 }
 
 /** How a CLI user trusts a project hooks file; the help names both stores. */

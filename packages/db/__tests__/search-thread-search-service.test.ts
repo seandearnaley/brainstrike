@@ -249,6 +249,49 @@ describe('ThreadSearchService', () => {
     });
   });
 
+  it("fuses another owner's lexical and semantic arms per message, as its own", async () => {
+    const service = createThreadSearchService(createStubRepository({}));
+    const hostMessage = (messageId: string, threadId: string, headline: string) => ({
+      headline,
+      messageCreatedAt: NOW,
+      messageId,
+      role: 'assistant',
+      threadId,
+    });
+
+    const response = await service.searchThreads('orchid', {
+      extraArms: {
+        messages: [hostMessage('host-1', 'host-a', '<mark>orchid</mark> care')],
+        similarMessages: [
+          hostMessage('host-2', 'host-b', 'Watering the flowers weekly'),
+          hostMessage('host-1', 'host-a', 'Orchid care'),
+        ],
+        titles: [],
+      },
+      queryEmbedding: [0.5],
+      resourceId: RESOURCE_ID,
+    });
+
+    // Found by both arms, host-1 outranks host-2, which only meaning found.
+    expect(response.results.map(({ threadId }) => threadId)).toEqual(['host-a', 'host-b']);
+    expect(response.results.map(({ matches }) => matches)).toEqual([
+      [
+        expect.objectContaining({
+          headline: '<mark>orchid</mark> care',
+          messageId: 'host-1',
+          sources: ['fts', 'vector'],
+        }),
+      ],
+      [
+        expect.objectContaining({
+          headline: 'Watering the flowers weekly',
+          messageId: 'host-2',
+          sources: ['vector'],
+        }),
+      ],
+    ]);
+  });
+
   it('threads scoped options through to the repository arms', async () => {
     const repository = createStubRepository({});
     const service = createThreadSearchService(repository);

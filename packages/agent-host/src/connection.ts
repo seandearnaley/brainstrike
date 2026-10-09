@@ -27,6 +27,7 @@ import {
 } from './protocol.js';
 import { bindHostProviderMethods } from './provider-connection.js';
 import {
+  coverageHostSearchVectors,
   pendingHostSearchVectors,
   putHostSearchVectors,
   searchHostThreads,
@@ -189,7 +190,12 @@ export function bindHostConnection(
   handle('thread/search/pending', (params) =>
     pendingHostSearchVectors(core, searchStateVectors, params)
   );
+  handle('thread/search/coverage', (params) =>
+    coverageHostSearchVectors(core, searchStateVectors, params)
+  );
   handle('thread/search/vectors', (params) => putHostSearchVectors(searchStateVectors, params));
+  handle('thread/selection/read', (params) => core.selections.read(params.threadId));
+  handle('thread/selection/set', (params) => core.selections.set(params));
   handle('thread/workspace/read', (params) => core.readWorkspace(params.threadId));
   handle('thread/workspace/set', (params) => core.setWorkspace(params));
   handle('thread/workspace/binding/read', (params) => core.readWorkspaceBinding(params.threadId));
@@ -200,9 +206,9 @@ export function bindHostConnection(
   handle('run/input', (params) => core.input(params));
   handle('run/stop', (params) => core.stop(params));
   handle('checkpoint/revert', (params) => core.revertCheckpoint(params));
-  handle('thread/rewind/preview', (params) => core.previewRewind(params));
-  handle('thread/rewind', (params) => core.rewind(params));
-  handle('thread/rewind/redo', (params) => core.redoRewind(params));
+  handle('thread/rewind/preview', (params) => core.rewinds.preview(params));
+  handle('thread/rewind', (params) => core.rewinds.rewind(params));
+  handle('thread/rewind/redo', (params) => core.rewinds.redo(params));
   handle('run/verdict', (params) => core.recordVerdict(params));
   handle('interaction/respond', (params) => core.respond(params));
   handle('interaction/resume', (params) => core.resume(params));

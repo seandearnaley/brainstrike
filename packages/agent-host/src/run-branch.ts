@@ -21,6 +21,7 @@ import {
   foldHostRunMessages,
   type HostRunBranch,
   type HostRunInput,
+  type HostRunMap,
   type HostRunState,
   type HostThreadGrants,
   recordHostConversationId,
@@ -64,12 +65,11 @@ export interface HostRunAdmissionCommand {
  *   history follows the previous run, which was the only history then.
  */
 export function foldHostRunBranch(
-  runs: Iterable<HostRunState>,
-  threadId: string,
+  /** The thread's runs folded before this one, in commit order. */
+  prior: readonly HostRunState[],
   event: Started,
   admission: HostRunAdmissionCommand
 ): HostRunBranch {
-  const prior = [...runs].filter((run) => run.threadId === threadId);
   const delivery = event.delivery ? { delivery: event.delivery } : {};
   if (event.userMessageId !== undefined) {
     const original = prior.find((run) => run.branch.userMessageId === event.userMessageId);
@@ -231,7 +231,8 @@ function committedHostUserMessage(
 
 /** A started run's state, on the branch its committed run.started records. */
 export function startedHostRun(
-  runs: Iterable<HostRunState>,
+  /** The thread's earlier runs, in commit order. */
+  prior: readonly HostRunState[],
   threadId: string,
   started: Started,
   admission: HostRunAdmissionCommand,
@@ -243,7 +244,7 @@ export function startedHostRun(
     threadId,
     started.runId,
     started.modelId,
-    foldHostRunBranch(runs, threadId, started, admission),
+    foldHostRunBranch(prior, started, admission),
     grants,
     snapshot,
     controller
@@ -320,7 +321,8 @@ export function hostRunInput(
 
 /** The run.started an admission commits, and its run's state on that branch. */
 export function admittedHostRun(
-  runs: Iterable<HostRunState>,
+  /** The admitting thread's earlier runs, in commit order. */
+  prior: readonly HostRunState[],
   admission: HostRunAdmissionCommand & {
     readonly modelId: string;
     readonly planMode?: true | undefined;
@@ -341,7 +343,7 @@ export function admittedHostRun(
     type: 'run.started',
   };
   const run = startedHostRun(
-    runs,
+    prior,
     admission.threadId,
     started,
     admission,
@@ -385,7 +387,7 @@ export function delegatedHostRunAdmission(threadId: string): HostRunAdmissionCom
 export function foldHostStartedRun(
   admitted: Map<string, HostRunAdmissionCommand>,
   conversationIds: Set<string>,
-  runs: Map<string, HostRunState>,
+  runs: HostRunMap,
   threadId: string,
   event: Started,
   grants: HostThreadGrants,
@@ -393,11 +395,8 @@ export function foldHostStartedRun(
 ): HostRunState {
   recordHostConversationId(conversationIds, event.runId);
   let admission = admitted.get(event.runId);
-  if (
-    !admission &&
-    isChildThread(threadId) &&
-    ![...runs.values()].some((run) => run.threadId === threadId)
-  ) {
+  const prior = runs.ofThread(threadId);
+  if (!admission && isChildThread(threadId) && prior.length === 0) {
     admission = delegatedHostRunAdmission(threadId);
     recordHostConversationId(conversationIds, threadId);
   }
@@ -409,7 +408,7 @@ export function foldHostStartedRun(
     throw new Error('Committed run start has no committed admission command');
   }
   admitted.delete(event.runId);
-  const run = startedHostRun(runs.values(), threadId, event, admission, grants, event.snapshot);
+  const run = startedHostRun(prior, threadId, event, admission, grants, event.snapshot);
   runs.set(event.runId, run);
   return run;
 }

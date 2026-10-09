@@ -147,23 +147,43 @@ export const stateSearchPendingRowSchema = Schema.Struct({
   threadId: nonblank,
 });
 export type StateSearchPendingRow = typeof stateSearchPendingRowSchema.Type;
+/** Each backlog row's vector, or why the caller could not embed it. */
 export const stateSearchVectorBatchSchema = Schema.Struct({
   profile: vectorProfileSchema,
   rows: Schema.Array(
-    Schema.Struct({
-      seq: positive,
-      sourceHash: hash,
-      threadId: nonblank,
-      vector: Schema.Array(Schema.Finite),
-    })
+    Schema.Union([
+      Schema.Struct({
+        seq: positive,
+        sourceHash: hash,
+        threadId: nonblank,
+        vector: Schema.Array(Schema.Finite),
+      }),
+      Schema.Struct({ error: nonblank, seq: positive, sourceHash: hash, threadId: nonblank }),
+    ])
   ),
 });
 export type StateSearchVectorBatch = typeof stateSearchVectorBatchSchema.Type;
 /** `stale` rows changed or disappeared after they were read; nothing was stored for them. */
 export const stateSearchVectorsResultSchema = Schema.Struct({
+  failed: nonnegative,
   stale: nonnegative,
   stored: nonnegative,
 });
+export const stateSearchCoverageSchema = Schema.Struct({
+  profile: vectorProfileSchema,
+  threadIds: Schema.Array(nonblank),
+});
+export type StateSearchCoverageRequest = typeof stateSearchCoverageSchema.Type;
+/**
+ * The threads' rows, those with a vector under the profile, and those whose
+ * last embedding failed within the retry window (legacy's `embedding_error`).
+ */
+export const stateSearchCoverageResultSchema = Schema.Struct({
+  embedded: nonnegative,
+  errored: nonnegative,
+  rows: nonnegative,
+});
+export type StateSearchCoverage = typeof stateSearchCoverageResultSchema.Type;
 export type StateSearchVectorsResult = typeof stateSearchVectorsResultSchema.Type;
 export const stateSearchSimilarSchema = Schema.Struct({
   limit: positive.check(Schema.isLessThanOrEqualTo(100)),

@@ -2,8 +2,9 @@ import { isRetiredModelId } from '@brainstrike/app-state/stores/assistant-prefer
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import type { AssistantMemoryThread } from '@brainstrike/assistant-data';
 import type { ForgePrCacheEntry } from '@brainstrike/types';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@brainstrike/ui';
 import type { LucideIcon } from 'lucide-react';
-import { GitBranch, GitPullRequest } from 'lucide-react';
+import { AlertTriangle, GitBranch, GitPullRequest } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 import type { ThreadBranchInfo } from './hooks/use-thread-branch-by-root-path';
 
@@ -272,5 +273,39 @@ function ThreadBadge({
       {Icon ? <Icon aria-hidden="true" className="size-2.5" /> : null}
       {children}
     </span>
+  );
+}
+
+/**
+ * A thread whose committed history cannot be read: it still lists and deletes,
+ * but never opens or runs. The marker names why, on hover and on focus.
+ */
+export function ThreadReadFailureMarker({
+  reason,
+  title,
+}: {
+  readonly reason: string | undefined;
+  readonly title: string;
+}): ReactElement | null {
+  if (reason === undefined) {
+    return null;
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        {/* A button only so a keyboard can reach the reason; it does nothing else. */}
+        <button
+          aria-label={`${title}: its history cannot be read. ${reason}`}
+          className="inline-flex size-6 items-center justify-center rounded-sm text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          data-testid="thread-read-failure"
+          // Like the row's other controls, a click here never opens the row.
+          onClick={(event) => event.stopPropagation()}
+          type="button"
+        >
+          <AlertTriangle aria-hidden="true" className="size-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-80 break-words">{reason}</TooltipContent>
+    </Tooltip>
   );
 }

@@ -1,20 +1,46 @@
 import type { ProviderAuthInput } from '@brainstrike/agent/provider-runtime';
 import type { HostMemoryPreconditions, HostObservationSource } from '@brainstrike/agent-host';
+import {
+  isSupportedProvider,
+  type MemoryCredentialNeed,
+  memoryCredentialRequiredReason,
+} from '@brainstrike/assistant-contract';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
+import { ProviderCredentialMissingError } from '@brainstrike/host-capabilities';
 import type { PlatformSelection } from './platform-wire';
 
 type ResolveProviderAuth = (provider: string) => Promise<ProviderAuthInput | undefined>;
-type MemoryFeature = 'Observational Memory' | 'Semantic recall';
 
-/** A hosted memory model runs here in Node with its provider's resolved API key. */
+/** Why the memory feature cannot run without its provider's API key, as legacy words it. */
+function memoryKeyRequired(need: MemoryCredentialNeed, provider: string): Error {
+  return new Error(
+    isSupportedProvider(provider)
+      ? memoryCredentialRequiredReason(need, provider)
+      : `Memory uses the unsupported provider ${provider}`
+  );
+}
+
+/**
+ * A hosted memory model runs here in Node with its provider's resolved API key.
+ * A missing key is named for the feature that needs it; any other resolution
+ * failure (a store read, an expired login) keeps its own reason.
+ */
 export async function requireMemoryApiKey(
-  feature: MemoryFeature,
+  need: MemoryCredentialNeed,
   provider: string,
   resolveProviderAuth: ResolveProviderAuth
 ): Promise<Extract<ProviderAuthInput, { kind: 'api_key' }>> {
-  const auth = await resolveProviderAuth(provider);
+  let auth: ProviderAuthInput | undefined;
+  try {
+    auth = await resolveProviderAuth(provider);
+  } catch (cause) {
+    if (cause instanceof ProviderCredentialMissingError) {
+      throw memoryKeyRequired(need, provider);
+    }
+    throw cause;
+  }
   if (auth?.kind !== 'api_key' || !auth.apiKey.trim()) {
-    throw new Error(`${feature} requires the resolved ${provider} API credential`);
+    throw memoryKeyRequired(need, provider);
   }
   return auth;
 }
@@ -22,20 +48,23 @@ export async function requireMemoryApiKey(
 /** The hosted providers an admitted Memory selection resolves keys for, as its run does. */
 function memoryCredentialRequirements(
   memory: PlatformSelection['memory']
-): readonly { readonly feature: MemoryFeature; readonly provider: string }[] {
+): readonly { readonly need: MemoryCredentialNeed; readonly provider: string }[] {
   const { observationalMemory: observation, semanticRecall } = memory.settings;
-  const requirements: { feature: MemoryFeature; provider: string }[] = [];
+  const requirements: { need: MemoryCredentialNeed; provider: string }[] = [];
   if (observation.enabled) {
     const target = parseObservationalMemoryModelTarget(observation.modelTarget);
     if (target.provider !== 'local') {
-      requirements.push({ feature: 'Observational Memory', provider: target.provider });
+      requirements.push({ need: 'observational-memory', provider: target.provider });
     }
   }
   const profile = memory.vectorProfile;
   const vectors =
     semanticRecall.enabled || (observation.enabled && observation.retrievalMode === 'vector');
   if (vectors && profile && profile.provider !== 'local' && profile.provider !== 'transformers') {
-    requirements.push({ feature: 'Semantic recall', provider: profile.provider });
+    requirements.push({
+      need: semanticRecall.enabled ? 'semantic-recall' : 'semantic-observation-recall',
+      provider: profile.provider,
+    });
   }
   return requirements;
 }
@@ -62,8 +91,8 @@ export async function desktopMemoryPreconditions(
   resolveProviderAuth: ResolveProviderAuth
 ): Promise<HostMemoryPreconditions> {
   try {
-    for (const { feature, provider } of memoryCredentialRequirements(admitted.memory)) {
-      await requireMemoryApiKey(feature, provider, resolveProviderAuth);
+    for (const { need, provider } of memoryCredentialRequirements(admitted.memory)) {
+      await requireMemoryApiKey(need, provider, resolveProviderAuth);
     }
   } catch (cause) {
     return { ready: false, reason: cause instanceof Error ? cause.message : String(cause) };

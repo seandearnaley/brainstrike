@@ -152,6 +152,11 @@ export class HostRunOutcome {
           : resolveProviderError(cause, this.configuration).detail;
   }
 
+  /** The attempt ended because a watchdog found the stream stalled. */
+  stalled(): boolean {
+    return this.cause instanceof StreamStalledError;
+  }
+
   private emptyReply(): boolean {
     return (
       this.failure === undefined &&

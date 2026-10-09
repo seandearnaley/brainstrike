@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { HostEvent, HostLogRow } from '../src/protocol.js';
 import {
   type Chunk,
-  committedTextDeltas,
+  committedRunText,
   finishedRun,
   probeTool,
   stop,
@@ -42,7 +42,7 @@ test('a first-output stall is re-attempted over the committed branch and the run
   expect(attempts(rows)[0]).not.toHaveProperty('refusal');
 });
 
-test('a stall after partial text is re-attempted; the partial text stays in the log', async () => {
+test('a stall after partial text is re-attempted; the recovered attempt owns the text', async () => {
   const { calls, model } = timedModel([
     [
       { id: 'text-1', type: 'text-start' },
@@ -53,7 +53,9 @@ test('a stall after partial text is re-attempted; the partial text stays in the 
   const { rows, terminal } = await finishedRun(model);
   expect(terminal.outcome).toBe('completed');
   expect(calls()).toBe(2);
-  expect(committedTextDeltas(rows)).toEqual(['Partial', 'Recovered.']);
+  // The stalled attempt's partial was live telemetry; a replaced attempt is not an
+  // aborted turn, so only the recovered step's committed text remains (legacy).
+  expect(committedRunText(rows)).toBe('Recovered.');
   expect(attempts(rows)).toEqual([
     expect.objectContaining({
       reason: 'stalled',
@@ -65,8 +67,7 @@ test('a stall after partial text is re-attempted; the partial text stays in the 
   const attemptSeq = rows.find((row) => row.event.type === 'run.attempt')?.seq ?? 0;
   const recoveredSeq =
     rows.find(
-      (row) =>
-        row.event.type === 'stream.chunk' && JSON.stringify(row.event.chunk).includes('Recovered.')
+      (row) => row.event.type === 'model.step' && JSON.stringify(row.event).includes('Recovered.')
     )?.seq ?? 0;
   expect(attemptSeq).toBeGreaterThan(0);
   expect(recoveredSeq).toBeGreaterThan(attemptSeq);

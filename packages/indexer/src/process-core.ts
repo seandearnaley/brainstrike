@@ -18,6 +18,7 @@ import {
   stateMessageUpsertResultSchema,
   stateObservationHitSchema,
   stateObservationPlanSchema,
+  stateSearchCoverageResultSchema,
   stateSearchHitSchema,
   stateSearchPendingRowSchema,
   stateSearchSimilarHitSchema,
@@ -193,6 +194,13 @@ export async function runIndexerProcess(
               request.op,
               request.payload,
               decoder(stateSearchVectorsResultSchema)
+            );
+            break;
+          case 'state-search-coverage':
+            work = client.call(
+              request.op,
+              request.payload,
+              decoder(stateSearchCoverageResultSchema)
             );
             break;
           case 'state-search-similar':

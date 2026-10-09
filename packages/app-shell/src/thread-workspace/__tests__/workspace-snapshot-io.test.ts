@@ -15,6 +15,7 @@ function createFakeFacade(overrides: Partial<WorkspaceStateFacade> = {}): Worksp
     applyFileTabs: vi.fn(),
     applyPanes: vi.fn(),
     applyRootViews: vi.fn(),
+    closeApps: vi.fn(),
     getEditorState: vi.fn(() => ({})),
     getExpandedDirectoryPaths: vi.fn(() => new Set<string>()),
     getExplorerScrollTop: vi.fn(() => undefined),
