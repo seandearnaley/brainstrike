@@ -5,15 +5,30 @@ import { bindHostAuthMethods } from './auth-connection.js';
 import type { HostCore } from './core.js';
 import { hostChildStatusChanged } from './core-child-runs.js';
 import { bindHostHookTrustMethods } from './hook-trust.js';
-import type { HostAuthService, HostClientOrigin, HostProviderService } from './ports.js';
+import { bindHostMcpPresentationMethods } from './mcp-presentation-connection.js';
+import { bindHostMcpSettingsMethods } from './mcp-settings-connection.js';
+import type {
+  HostAuthService,
+  HostClientOrigin,
+  HostMcpPresentationService,
+  HostMcpSettingsService,
+  HostPlatform,
+  HostProviderService,
+} from './ports.js';
 import {
   HOST_CHILDREN_CHANGED,
+  HOST_RUN_TELEMETRY,
   type HostLogRow,
   type HostMethod,
   type HostParams,
   parseHostParams,
 } from './protocol.js';
 import { bindHostProviderMethods } from './provider-connection.js';
+import {
+  pendingHostSearchVectors,
+  putHostSearchVectors,
+  searchHostThreads,
+} from './thread-search.js';
 
 export interface HostConnectionLifecycle {
   readonly closing: boolean;
@@ -25,10 +40,18 @@ export interface HostConnectionOptions {
   /** The platform's credential authority, where the host owns one. */
   readonly auth?: HostAuthService;
   readonly lifecycle?: HostConnectionLifecycle;
+  /** The desktop's MCP Tasks cards and server input, where the host presents them. */
+  readonly mcpPresentation?: HostMcpPresentationService;
+  /** The desktop's MCP settings authority, where the host owns one. */
+  readonly mcpSettings?: HostMcpSettingsService;
   /** The transport's client origin; the public socket is never the desktop. */
   readonly origin?: HostClientOrigin;
   /** The platform's provider reads, where the host owns a credential store. */
   readonly providers?: HostProviderService;
+  /** Gap 10: the platform's state index search, where the host owns one. */
+  readonly searchState?: HostPlatform['searchState'];
+  /** The semantic arm's index operations, where the host owns a state index. */
+  readonly searchStateVectors?: HostPlatform['searchStateVectors'];
 }
 
 /** All transports enter this same authenticated method dispatcher. */
@@ -39,7 +62,16 @@ export function bindHostConnection(
   attached: () => void,
   options: HostConnectionOptions = {}
 ): () => void {
-  const { auth, lifecycle, origin = 'public-socket', providers } = options;
+  const {
+    auth,
+    lifecycle,
+    mcpPresentation,
+    mcpSettings,
+    origin = 'public-socket',
+    providers,
+    searchState,
+    searchStateVectors,
+  } = options;
   let initialized = false;
   let disposed = false;
   const mcpClient = {
@@ -69,6 +101,13 @@ export function bindHostConnection(
       connection
         .sendNotification(HOST_CHILDREN_CHANGED, { threadId: parentThreadId })
         .catch(() => connection.dispose());
+    }
+  });
+  // A running tool's live telemetry goes to the same subscribers as the thread's
+  // rows, and is never committed (ADR-0011 amendment).
+  const releaseTelemetry = core.onTelemetry((telemetry) => {
+    if (subscriptions.has(telemetry.threadId) && !disposed) {
+      connection.sendNotification(HOST_RUN_TELEMETRY, telemetry).catch(() => connection.dispose());
     }
   });
   const handle = <M extends HostMethod>(
@@ -125,6 +164,8 @@ export function bindHostConnection(
   });
   bindHostAuthMethods(handle, connection, auth, origin);
   bindHostProviderMethods(handle, providers, origin);
+  disposables.push(bindHostMcpSettingsMethods(handle, connection, mcpSettings, origin));
+  disposables.push(bindHostMcpPresentationMethods(handle, connection, mcpPresentation, origin));
   bindHostHookTrustMethods(handle, core.store);
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));
@@ -136,6 +177,13 @@ export function bindHostConnection(
   handle('thread/read', async (params) => ({
     rows: await core.read(params.threadId, params.fromSeq),
   }));
+  handle('thread/search', (params) =>
+    searchHostThreads(core, searchState, searchStateVectors, params)
+  );
+  handle('thread/search/pending', (params) =>
+    pendingHostSearchVectors(core, searchStateVectors, params)
+  );
+  handle('thread/search/vectors', (params) => putHostSearchVectors(searchStateVectors, params));
   handle('thread/workspace/read', (params) => core.readWorkspace(params.threadId));
   handle('thread/workspace/set', (params) => core.setWorkspace(params));
   handle('thread/workspace/binding/read', (params) => core.readWorkspaceBinding(params.threadId));
@@ -146,6 +194,9 @@ export function bindHostConnection(
   handle('run/input', (params) => core.input(params));
   handle('run/stop', (params) => core.stop(params));
   handle('checkpoint/revert', (params) => core.revertCheckpoint(params));
+  handle('thread/rewind/preview', (params) => core.previewRewind(params));
+  handle('thread/rewind', (params) => core.rewind(params));
+  handle('thread/rewind/redo', (params) => core.redoRewind(params));
   handle('run/verdict', (params) => core.recordVerdict(params));
   handle('interaction/respond', (params) => core.respond(params));
   handle('interaction/resume', (params) => core.resume(params));
@@ -178,6 +229,7 @@ export function bindHostConnection(
     disposed = true;
     core.releaseMcpInputClient(mcpClient);
     release();
+    releaseTelemetry();
     subscriptions.clear();
     for (const disposable of disposables) {
       disposable.dispose();

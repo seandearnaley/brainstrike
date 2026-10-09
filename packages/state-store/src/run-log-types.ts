@@ -11,6 +11,8 @@ export interface AppendItem {
   /** Blobs this event references (see `largeText`), written before the append in the same write-chain step. */
   readonly blobs?: readonly BlobContent[];
   readonly event: RunEvent;
+  /** `false` keeps the row out of the hydration read (StateStore.readHydration); every other read still returns it. */
+  readonly hydrate?: false;
   /** Raw (pre-coalescing) chunk count of a `ui.chunk` row. */
   readonly rawCount?: number;
   readonly threadId: string;

@@ -6,21 +6,6 @@ function wildcardGloss(domain: string): string | null {
   return domain.startsWith('*.') ? `— any host ending in ${domain.slice(1)}` : null;
 }
 
-/** The set with one domain ticked or unticked. */
-export function tickDomain(
-  ticked: ReadonlySet<string>,
-  domain: string,
-  checked: boolean
-): ReadonlySet<string> {
-  const next = new Set(ticked);
-  if (checked) {
-    next.add(domain);
-  } else {
-    next.delete(domain);
-  }
-  return next;
-}
-
 /**
  * run_python's requested domains (BST-1070 §3.3), each ticked by hand before
  * Allow enables. The ticks are the owner's local state, never persisted, so a

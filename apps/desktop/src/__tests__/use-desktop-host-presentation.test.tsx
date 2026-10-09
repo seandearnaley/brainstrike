@@ -1,4 +1,5 @@
 import type { useConfiguredAssistantProviders } from '@brainstrike/app-shell';
+import { McpToolsCapabilityProvider } from '@brainstrike/app-shell/mcp-tools-capability';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
@@ -8,6 +9,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, type Mock, test, vi } from 'vitest';
 import { useDesktopHostPresentation } from '../renderer/use-desktop-host-presentation';
 
@@ -270,35 +272,34 @@ describe('the host composer gates a send on the provider notice', () => {
 describe("the host composer's Tools menu", () => {
   const nativeTools = useNativeToolPreferencesStore.getState();
   const MCP_TOOL = 'docs.search';
-  // The menu's share of the preload MCP bridge.
-  const mcp = {
-    disableTools: vi.fn(),
-    enableTools: vi.fn(),
-    listTools: vi.fn(),
-    onToolsUpdated: vi.fn(),
+  // The agent host's MCP tools, as the desktop root provides them to the composer.
+  const mcpTools = {
+    list: vi.fn(),
+    setEnabled: vi.fn(),
+    subscribe: vi.fn(),
   };
+  const wrapper = ({ children }: { readonly children: ReactNode }) => (
+    <McpToolsCapabilityProvider capability={mcpTools}>{children}</McpToolsCapabilityProvider>
+  );
   beforeEach(() => {
     configured.current = { discoveryState: 'ready', providers: ['openai'] };
     catalog.current = { error: null, loading: false, rows: [enabledOpenAi] };
     // The desktop shell's lifecycle bridge: desktop native tools are offered.
     Object.defineProperty(window, 'desktopLifecycle', { configurable: true, value: {} });
-    mcp.disableTools.mockResolvedValue(undefined);
-    mcp.enableTools.mockResolvedValue(undefined);
-    mcp.listTools.mockResolvedValue({
+    mcpTools.setEnabled.mockResolvedValue(undefined);
+    mcpTools.list.mockResolvedValue({
       docs: [{ description: 'Search the docs', enabled: true, id: MCP_TOOL }],
     });
-    mcp.onToolsUpdated.mockReturnValue(() => undefined);
-    Object.defineProperty(window, 'mcp', { configurable: true, value: mcp });
+    mcpTools.subscribe.mockReturnValue(() => undefined);
   });
   afterEach(() => {
     Reflect.deleteProperty(window, 'desktopLifecycle');
-    Reflect.deleteProperty(window, 'mcp');
     vi.clearAllMocks();
     useNativeToolPreferencesStore.setState(nativeTools, true);
   });
 
   test('lists the desktop native tools and the MCP tools host runs bind, as toggles', async () => {
-    const { result } = renderHook(() => useDesktopHostPresentation(THREAD));
+    const { result } = renderHook(() => useDesktopHostPresentation(THREAD), { wrapper });
     await waitFor(() => {
       expect(result.current.toolMenu?.items.some((tool) => tool.id === MCP_TOOL)).toBe(true);
     });
@@ -321,7 +322,7 @@ describe("the host composer's Tools menu", () => {
     if (!nativeTool) {
       throw new Error('No desktop native tool');
     }
-    const { result } = renderHook(() => useDesktopHostPresentation(THREAD));
+    const { result } = renderHook(() => useDesktopHostPresentation(THREAD), { wrapper });
     await waitFor(() => {
       expect(result.current.toolMenu?.items.some((tool) => tool.id === MCP_TOOL)).toBe(true);
     });
@@ -330,7 +331,7 @@ describe("the host composer's Tools menu", () => {
       await result.current.toolMenu?.onToggleTool?.(MCP_TOOL, false);
     });
     expect(useNativeToolPreferencesStore.getState().isToolEnabled(nativeTool)).toBe(false);
-    expect(mcp.disableTools).toHaveBeenCalledWith([MCP_TOOL]);
+    expect(mcpTools.setEnabled).toHaveBeenCalledWith([MCP_TOOL], false);
     expect(result.current.readConfiguration(null)['enabledNativeToolIds']).toEqual(
       DESKTOP_NATIVE_TOOL_IDS.filter((id) => id !== nativeTool)
     );

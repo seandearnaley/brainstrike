@@ -20,6 +20,7 @@ const require = createRequire(import.meta.url);
 const { getCILaunchArgs } = playwrightEnvironment;
 const e2eUserDataDirEnv = 'BRAINSTRIKE_E2E_USER_DATA_DIR';
 const dbRootPathEnv = 'BRAINSTRIKE_DB_ROOT_PATH';
+const e2eRealRootPathEnv = 'BRAINSTRIKE_E2E_REAL_ROOT_PATH';
 
 export interface ElectronAppContext {
   app: ElectronApplication;
@@ -37,6 +38,12 @@ interface LaunchElectronAppOptions {
    */
   readonly modelProvider?: ModelProviderShim;
   readonly userDataDir?: string;
+  /**
+   * A real folder the test-mode folder picker mounts when neither the process
+   * environment nor the spec's env names one (BRAINSTRIKE_E2E_REAL_ROOT_PATH).
+   * Main validates a host thread's bound root on disk, so a mounted root must exist.
+   */
+  readonly workspaceRoot?: string;
 }
 
 interface ElectronOutputBuffer {
@@ -233,7 +240,7 @@ export async function launchElectronApp(
   userDataDir?: string,
   options: Pick<
     LaunchElectronAppOptions,
-    'disableExternalLocalRuntimeProbes' | 'env' | 'modelProvider'
+    'disableExternalLocalRuntimeProbes' | 'env' | 'modelProvider' | 'workspaceRoot'
   > = {}
 ): Promise<ElectronAppContext> {
   return await launchElectronAppWithOptions({
@@ -309,7 +316,8 @@ async function launchElectronAppWithBoundary(
       launchMode,
       options.disableExternalLocalRuntimeProbes ?? false,
       options.env ?? {},
-      providerEgressEnv
+      providerEgressEnv,
+      options.workspaceRoot
     );
 
     try {
@@ -391,7 +399,9 @@ function createLaunchOptions(
   disableExternalLocalRuntimeProbes: boolean,
   extraEnv: Readonly<Record<string, string>>,
   /** Provider egress boundary values; applied over every other source (BST-1931). */
-  providerEgressEnv: Readonly<Record<string, string>>
+  providerEgressEnv: Readonly<Record<string, string>>,
+  /** The default mounted folder; the process env and the spec's env both override it. */
+  workspaceRoot: string | undefined
 ): Parameters<typeof electron.launch>[0] {
   const { ELECTRON_RUN_AS_NODE: _ignoredElectronRunAsNode, ...baseEnv } = process.env;
   const ciArgs = getCILaunchArgs();
@@ -452,6 +462,7 @@ function createLaunchOptions(
   const options: Parameters<typeof electron.launch>[0] = {
     args: [...baseArgs, ...ciArgs],
     env: {
+      ...(workspaceRoot ? { [e2eRealRootPathEnv]: workspaceRoot } : {}),
       ...baseEnv,
       // Before every harness-owned variable below: a spec's env can add, never override them.
       ...extraEnv,

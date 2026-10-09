@@ -7,9 +7,7 @@ import { registerDatabaseIntegrityIpcHandlers } from '../../ipc-domains/database
 import {
   mcpContentContract,
   mcpContract,
-  mcpElicitationContract,
   mcpPathSelectionContract,
-  mcpTasksContract,
 } from '../../ipc-domains/mcp.contract';
 import { registerSkillsIpcHandlers } from '../../ipc-skills';
 import { registerUserCommandsIpcHandlers } from '../../ipc-user-commands';
@@ -162,13 +160,7 @@ describe('contract-registered leaf domains are visible-UI-only by construction (
 });
 
 describe('contract-registered MCP invokes are visible-UI-only by construction (BST-996)', () => {
-  const contracts = [
-    mcpContract,
-    mcpPathSelectionContract,
-    mcpContentContract,
-    mcpElicitationContract,
-    mcpTasksContract,
-  ];
+  const contracts = [mcpContract, mcpPathSelectionContract, mcpContentContract];
 
   beforeEach(() => {
     resetElectronMainTestHarness();

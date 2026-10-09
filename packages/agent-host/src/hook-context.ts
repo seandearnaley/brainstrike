@@ -179,16 +179,17 @@ interface HostRunStartSteps {
 
 /**
  * A fresh run records its turn start (where the platform snapshots
- * workspaces), then passes its UserPromptSubmit hooks: a block fails it, else
- * its loop runs. With neither, the loop starts in this same turn, so the run's
- * owner opens before run/start replies, as it did before lifecycle hooks.
+ * workspaces) and the hook files it did not load, then passes its
+ * UserPromptSubmit hooks: a block fails it, else its loop runs. With none of
+ * these, the loop starts in this same turn, so the run's owner opens before
+ * run/start replies, as it did before lifecycle hooks.
  */
 export function beginHostRun(
   run: HostRunState,
   admission: HostRunAdmission,
   steps: HostRunStartSteps
 ): Promise<void> {
-  return admission.hooks || admission.captureTurnBoundary
+  return admission.hooks || admission.captureTurnBoundary || admission.hookSkips?.length
     ? gatedHostRun(run, admission, steps)
     : steps.loop(admission.model);
 }
@@ -199,8 +200,15 @@ async function gatedHostRun(
   steps: HostRunStartSteps
 ): Promise<void> {
   const start = hostTurnStart(run, admission);
-  if (start) {
-    await steps.commit([await start]);
+  const skips = admission.hookSkips ?? [];
+  const recorded: HostEvent[] = [
+    ...(start ? [await start] : []),
+    ...(skips.length > 0
+      ? [{ files: [...skips], runId: run.id, type: 'hooks.skipped' as const }]
+      : []),
+  ];
+  if (recorded.length > 0) {
+    await steps.commit(recorded);
   }
   const failure = await passHostPromptHooks(run, admission, steps.commit);
   await (failure === undefined ? steps.loop(admission.model) : steps.fail(failure));

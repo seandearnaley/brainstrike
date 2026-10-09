@@ -1,9 +1,20 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { useChangesStore } from '../changes-store';
+import type { RewindPort } from '../rewind-port';
 import { useRewindStore } from '../rewind-store';
+
+/** A port no test here calls: the store only holds it. */
+const PORT: RewindPort = {
+  apply: () => Promise.reject(new Error('not used')),
+  conversation: 'hidden',
+  fileDiff: () => Promise.reject(new Error('not used')),
+  preview: () => Promise.reject(new Error('not used')),
+  redo: () => Promise.reject(new Error('not used')),
+};
 
 const REQUEST = {
   composerText: 'my original prompt',
+  port: PORT,
   target: { messageId: 'msg-2', threadId: 'thread-1' },
 } as const;
 
@@ -28,6 +39,7 @@ describe('useRewindStore', () => {
   it('accepts a run target as well as a message target', () => {
     useRewindStore.getState().openRewind({
       composerText: null,
+      port: PORT,
       target: { runId: 'run-1', threadId: 'thread-1' },
     });
 

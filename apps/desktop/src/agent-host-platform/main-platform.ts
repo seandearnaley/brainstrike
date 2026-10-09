@@ -10,7 +10,7 @@ import type {
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
-import type { PgliteLegacyMemory } from '@brainstrike/db';
+import type { NativeChildObserver } from '@brainstrike/state-store/native-children';
 import {
   type CancellationToken,
   ErrorCodes,
@@ -19,9 +19,9 @@ import {
 } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
+import { serveHostRewindFiles } from './host-rewind-files';
 import { type HostToolServiceCapabilities, serveHostToolServices } from './host-tool-services';
 import { type DesktopWorkspaceSnapshots, serveHostTurnSnapshots } from './host-turn-snapshots';
-import { serveLegacyMemory } from './legacy-memory-main';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
 import type { DesktopMemoryVectorSelection } from './memory-vector-selection';
 import {
@@ -30,6 +30,7 @@ import {
   PlatformLocalGenerationSchema,
   PlatformLocalWarmupSchema,
   PlatformMemoryReadinessSchema,
+  PlatformNativeChildSchema,
   PlatformPolicySchema,
   PlatformRunIntentSchema,
   PlatformRunRequestSchema,
@@ -62,9 +63,9 @@ export interface DesktopPlatformCapabilities {
   readonly localLlm?: LocalLlmHostClient;
   /** The Node host always composes its MCP runtime, which reaches these Main stores. */
   readonly mcp: DesktopMcpPlatformCapabilities;
+  /** ADR-0017: Main's supervisor of the native processes the host reports starting. */
+  readonly nativeChildren?: NativeChildObserver;
   readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopPlatformSelection>;
-  /** Gap 17: the profile's legacy workspace memory, read once for the host's import. */
-  readLegacyMemory(): Promise<PgliteLegacyMemory>;
   /** thread/memory/read: the same preconditions `readConfiguration` starts with, nothing acquired. */
   readMemoryReadiness?(
     request: HostRunIntentRequest
@@ -146,7 +147,15 @@ export function serveDesktopPlatform(
   const controllers = new Set<AbortController>();
   const pending = new Set<Promise<unknown>>();
   const mcpStores = serveMainMcpStores(connection, capabilities.mcp);
-  const legacyMemory = serveLegacyMemory(connection, capabilities.readLegacyMemory);
+  const nativeChildren = capabilities.nativeChildren;
+  if (nativeChildren) {
+    connection.onNotification('platform/native-child/started', (input: unknown) =>
+      nativeChildren.started(PlatformNativeChildSchema.parse(input))
+    );
+    connection.onNotification('platform/native-child/exited', (input: unknown) =>
+      nativeChildren.exited(PlatformNativeChildSchema.parse(input))
+    );
+  }
   let closing: Promise<void> | undefined;
   const execute = <T>(
     token: CancellationToken,
@@ -184,16 +193,18 @@ export function serveDesktopPlatform(
     task.then(settled, settled);
     return task;
   };
-  const selection = (threadId: string): DesktopPlatformSelection => {
-    const value = selections.get(threadId);
+  // BST-1932: keyed by the run each selection admitted, so a child borrowing its
+  // parent's admission names that run, and the thread's next run has its own.
+  const selection = (selectionRunId: string): DesktopPlatformSelection => {
+    const value = selections.get(selectionRunId);
     if (!value || value.closing) {
-      throw new Error('Platform thread has no admitted capabilities');
+      throw new Error('Platform run has no admitted capabilities');
     }
     return value.selection;
   };
   // Only the admitted selection's own local chat model or observer may borrow the llm-host.
-  const localModel = (threadId: string, modelId: string): LocalLlmHostClient => {
-    const admitted = selection(threadId);
+  const localModel = (selectionRunId: string, modelId: string): LocalLlmHostClient => {
+    const admitted = selection(selectionRunId);
     const observation = admitted.memory.settings.observationalMemory;
     const observer = observation.enabled
       ? parseObservationalMemoryModelTarget(observation.modelTarget)
@@ -222,9 +233,10 @@ export function serveDesktopPlatform(
     };
   connection.onRequest('platform/llm/generate', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
-      const { requestId, threadId, ...generation } = PlatformLocalGenerationSchema.parse(input);
+      const { requestId, selectionRunId, ...generation } =
+        PlatformLocalGenerationSchema.parse(input);
       return PlatformLocalGenerationResultSchema.parse(
-        await localModel(threadId, generation.modelId).generate(generation, {
+        await localModel(selectionRunId, generation.modelId).generate(generation, {
           onProgress: relayProgress(requestId),
           signal,
         })
@@ -234,7 +246,7 @@ export function serveDesktopPlatform(
   connection.onRequest('platform/embedding/query', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
       const parsed = PlatformEmbeddingQuerySchema.parse(input);
-      const admitted = selection(parsed.threadId);
+      const admitted = selection(parsed.selectionRunId);
       const embeddings = capabilities.localEmbedding;
       if (!embeddings) {
         throw new Error('This desktop has no embedding host for host threads');
@@ -262,8 +274,8 @@ export function serveDesktopPlatform(
   );
   connection.onRequest('platform/llm/warmup', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
-      const { modelId, requestId, threadId } = PlatformLocalWarmupSchema.parse(input);
-      await localModel(threadId, modelId).warmup(modelId, {
+      const { modelId, requestId, selectionRunId } = PlatformLocalWarmupSchema.parse(input);
+      await localModel(selectionRunId, modelId).warmup(modelId, {
         onProgress: relayProgress(requestId),
         signal,
       });
@@ -282,14 +294,19 @@ export function serveDesktopPlatform(
       if (!capabilities.validateWorkspaceBinding) {
         throw new Error('Desktop has no live workspace binding owner');
       }
-      const captured = selections.get(request.threadId);
+      // An admission's check revalidates that run's own selection when it is held.
+      const captured = request.selectionRunId ? selections.get(request.selectionRunId) : undefined;
       if (
         captured?.selection.revalidateWorkspace &&
         isDeepStrictEqual(captured.workspaceBinding, request.binding)
       ) {
         await captured.selection.revalidateWorkspace(signal);
       } else {
-        await capabilities.validateWorkspaceBinding({ ...request, signal });
+        await capabilities.validateWorkspaceBinding({
+          binding: request.binding,
+          signal,
+          threadId: request.threadId,
+        });
       }
       signal.throwIfAborted();
       return { accepted: true };
@@ -308,13 +325,16 @@ export function serveDesktopPlatform(
   serveHostTurnSnapshots(
     connection,
     execute,
-    (threadId) => selection(threadId).freshWorkspaceRoots(),
+    (selectionRunId) => selection(selectionRunId).freshWorkspaceRoots(),
     capabilities.workspaceSnapshots
   );
+  serveHostRewindFiles(connection, execute, capabilities);
   connection.onRequest('platform/workspace/roots', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const { threadId } = z.strictObject({ threadId: z.string().min(1) }).parse(input);
-      return CliWorkspaceRootsSchema.parse(await selection(threadId).freshWorkspaceRoots());
+      const { selectionRunId } = z
+        .strictObject({ selectionRunId: z.string().min(1), threadId: z.string().min(1) })
+        .parse(input);
+      return CliWorkspaceRootsSchema.parse(await selection(selectionRunId).freshWorkspaceRoots());
     })
   );
   // Read-only: no selection is registered, so it never conflicts with a run's.
@@ -336,10 +356,10 @@ export function serveDesktopPlatform(
   connection.onRequest('platform/admit', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
       const request = PlatformRunRequestSchema.parse(input);
-      if (selections.has(request.threadId) || admissions.has(request.threadId)) {
-        throw new Error('Platform thread already owns a selection');
+      if (selections.has(request.runId) || admissions.has(request.runId)) {
+        throw new Error('Platform run already owns a selection');
       }
-      admissions.add(request.threadId);
+      admissions.add(request.runId);
       let captured: DesktopPlatformSelection | undefined;
       try {
         const borrowed = await capabilities.readConfiguration(
@@ -353,29 +373,29 @@ export function serveDesktopPlatform(
           },
         };
         captured = owner.selection;
-        selections.set(request.threadId, owner);
+        selections.set(request.runId, owner);
         signal.throwIfAborted();
         return describePlatformSelection(captured);
       } catch (cause) {
         return await rejectPlatformSelection(
           captured,
           () => {
-            selections.delete(request.threadId);
+            selections.delete(request.runId);
           },
           cause
         );
       } finally {
-        admissions.delete(request.threadId);
+        admissions.delete(request.runId);
       }
     })
   );
   connection.onRequest('platform/release', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
-      const { threadId } = z.strictObject({ threadId: z.string().min(1) }).parse(input);
-      const captured = selections.get(threadId);
+      const { selectionRunId } = z.strictObject({ selectionRunId: z.string().min(1) }).parse(input);
+      const captured = selections.get(selectionRunId);
       if (captured) {
         await captured.selection.close();
-        selections.delete(threadId);
+        selections.delete(selectionRunId);
       }
     })
   );
@@ -388,7 +408,6 @@ export function serveDesktopPlatform(
         await Promise.allSettled([...pending]);
       }
       mcpStores.close();
-      legacyMemory.close();
       const results = await Promise.allSettled(
         [...selections.values()].map((value) => value.selection.close())
       );

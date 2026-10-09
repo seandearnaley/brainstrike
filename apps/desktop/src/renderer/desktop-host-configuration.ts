@@ -19,6 +19,7 @@ import {
   DESKTOP_NATIVE_TOOL_IDS,
   isSupportedProvider,
   LOCAL_DESKTOP_NATIVE_TOOL_IDS,
+  type OpenRouterModelMetadataLookup,
 } from '@brainstrike/assistant-contract';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { useWorkspaceContextCurationStore } from '@brainstrike/file-explorer-ui/preview';
@@ -46,11 +47,16 @@ export function readDesktopHostModel(threadId: string): string {
   return composite;
 }
 
-/** Capture intent at Send from the same stores used by the existing assistant. */
+/**
+ * Capture intent at Send from the same stores used by the existing assistant.
+ * `openRouterLookup` is the composer's OpenRouter metadata: the efforts it
+ * offered are validated against that same metadata, as the legacy Send did.
+ */
 export function readDesktopHostConfiguration(
   threadId: string,
   selectionFolderId: string | null,
-  projection?: DesktopHostModelProjection
+  projection?: DesktopHostModelProjection,
+  openRouterLookup?: OpenRouterModelMetadataLookup
 ): Record<string, unknown> {
   const preferences = useAssistantPreferencesStore.getState();
   const composite = readDesktopHostModel(threadId);
@@ -63,6 +69,7 @@ export function readDesktopHostConfiguration(
   const providerSettings = { ...preferences.providerSettings, ...threadDraft?.providerSettings };
   const draft = buildDraftRuntimeForProvider({
     model: composite.slice(separator + 2),
+    openRouterLookup,
     provider,
     providerSettingsMap: providerSettings,
   });

@@ -88,6 +88,27 @@ it('retries a failed host start once that host has released Root; Main retiremen
   await expect(activation.acquireProfile()).rejects.toThrow('terminal retirement');
 });
 
+it('keeps Main retirement terminal when a starting host fails and releases Root under it', async () => {
+  const { activation } = fixture();
+  const starting = Promise.withResolvers<void>();
+  const failing = Promise.withResolvers<void>();
+  mocks.acquireProfile.mockImplementationOnce(async () => {
+    starting.resolve();
+    await failing.promise;
+    // The failed start's rollback closes its platform, which releases Root capabilities.
+    await activation.closeRootCapabilities();
+    throw new Error('MCP is unavailable: the agent host is not running.');
+  });
+  const connecting = activation.acquireProfile();
+  await starting.promise;
+  // App shutdown begins while the host is still starting.
+  const closing = activation.close();
+  failing.resolve();
+  await expect(connecting).rejects.toThrow('MCP is unavailable');
+  await closing;
+  expect(mocks.createProfileOwner).toHaveBeenCalledOnce();
+});
+
 it('shows a failure that persists after the retry, and a later admission starts again', async () => {
   const { activation } = fixture();
   try {

@@ -14,7 +14,7 @@ import { modelMessageSchema, type StepResult, type ToolSet } from 'ai';
 import { leaseHostAdmission } from './admission-lease.js';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import { withHostDelegationTools } from './child-runs.js';
-import type { HostRunState, HostThreadGrants } from './core-state.js';
+import { createHostRunContext, type HostRunState, type HostThreadGrants } from './core-state.js';
 import { defaultHostToolModelOutput, withHostToolHookContext } from './hook-context.js';
 import { canonical, jsonValue } from './json-value.js';
 import { McpAuthorityReconstructionError } from './mcp-authority.js';
@@ -147,52 +147,6 @@ export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmi
       )
     ),
   });
-}
-
-/**
- * Gap 17: the notice that the legacy profile's resource observations were not
- * imported. The committed event is the delivered fact, so it goes with the
- * first admitted run whose root log does not hold it yet.
- */
-export function hostLegacyObservationEvents(
-  admission: HostRunAdmission,
-  runId: string,
-  noticed: boolean
-): Extract<HostEvent, { type: 'memory.observation.withheld' }>[] {
-  return admission.legacyObservationsWithheld && !noticed
-    ? [{ reason: 'legacy-resource-observations', runId, type: 'memory.observation.withheld' }]
-    : [];
-}
-
-/** Whether a committed event is the gap 17 legacy-observations notice. */
-export function isHostLegacyObservationNotice(event: HostEvent): boolean {
-  return (
-    event.type === 'memory.observation.withheld' && event.reason === 'legacy-resource-observations'
-  );
-}
-
-/**
- * A run's start notices: unavailable MCP servers, and the legacy-observations
- * notice once per root. Serialized admission makes that check-then-append
- * commit it once; the committed event is the delivered fact.
- */
-export class HostRunStartNotices {
-  private legacyNoticed = false;
-
-  fold(event: HostEvent): void {
-    this.legacyNoticed ||= isHostLegacyObservationNotice(event);
-  }
-
-  forRun(admission: HostRunAdmission, runId: string): HostEvent[] {
-    return [
-      ...hostMcpUnavailableEvents(admission, runId),
-      ...hostLegacyObservationEvents(admission, runId, this.legacyNoticed),
-    ];
-  }
-
-  committed(admission: HostRunAdmission): void {
-    this.legacyNoticed ||= admission.legacyObservationsWithheld === true;
-  }
 }
 
 /** The run proceeds without each unavailable MCP server; its log names each one. */
@@ -354,6 +308,28 @@ async function rejectHostRunSelection(selected: HostRunAdmission, cause: unknown
     throw new HostRunAdmissionCleanupError(cause, cleanup);
   }
   throw cause;
+}
+
+/**
+ * The run's owner (its public Memory), opened once over its admission. A run
+ * whose owner close has begun is never reopened: Core releases a joined owner.
+ */
+export function openHostRunOwner(
+  platform: HostPlatform,
+  run: HostRunState,
+  append: Parameters<typeof createHostRunContext>[1]
+): Promise<HostRunOwner | undefined> {
+  if (run.ownerClose) {
+    return Promise.reject(new Error('The run owner is already closed'));
+  }
+  run.owner ??= ensureHostRunAdmission(platform, run).then((admission) => {
+    const open = admission.openRun ?? platform.openRun?.bind(platform);
+    return open?.({
+      ...createHostRunContext(run, append),
+      ...(admission.workingMemory === false ? { workingMemory: false as const } : {}),
+    });
+  });
+  return run.owner;
 }
 
 /** The Core retains this promise; both owners are attempted even when one join fails. */

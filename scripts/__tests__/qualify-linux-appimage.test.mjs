@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import {
   chmod,
+  mkdir,
   mkdtemp,
   readdir,
   readFile,
@@ -29,7 +30,7 @@ import {
   validateAppImageHeader,
 } from '../qualify-linux-appimage-artifact.mjs';
 import {
-  assertEncryptedCredential,
+  assertCredentialAtRest,
   inspectProfile,
   inspectSandboxArguments,
   runLifecycleStages,
@@ -559,34 +560,30 @@ test('live sandbox check proves CDP process ownership and rejects injected bypas
   }
 });
 
-test('credential-at-rest check requires Linux keyring ciphertext, never plaintext or basic_text', () => {
+test('credential-at-rest check requires the OS keyring store and no plaintext under the root', async (t) => {
   const marker = 'synthetic-test-value';
-  const wrap = (value) => JSON.stringify({ secrets: { 'appimage-qualification': value } });
-  assert.throws(() => assertEncryptedCredential(wrap(marker), marker), /plaintext/);
-  assert.throws(
-    () => assertEncryptedCredential(wrap(Buffer.from(marker).toString('base64')), marker),
-    /plaintext/
+  const clean = await temporary(t);
+  await mkdir(path.join(clean, 'profile', 'nested'), { recursive: true });
+  await writeFile(path.join(clean, 'profile', 'nested', 'state.json'), '{"other":"data"}');
+  assert.deepEqual(await assertCredentialAtRest(clean, marker), {
+    credentialStore: 'os-keyring-secret-service',
+    filesScanned: 1,
+  });
+
+  const plaintext = await temporary(t);
+  await mkdir(path.join(plaintext, 'database'), { recursive: true });
+  // A large file whose only copy of the marker straddles a read chunk boundary.
+  const filler = Buffer.alloc(64 * 1024 - 5, 0x20);
+  await writeFile(
+    path.join(plaintext, 'database', 'page.bin'),
+    Buffer.concat([filler, Buffer.from(marker), filler])
   );
-  assert.throws(() => assertEncryptedCredential('{}', marker));
-  assert.throws(() => assertEncryptedCredential(wrap('not base64!'), marker));
-  for (const bytes of [
-    Buffer.from(`v10${'x'.repeat(16)}`),
-    Buffer.from([1, 2, 3, 255]),
-    Buffer.from('v11'),
-    Buffer.from('v11short'),
-  ]) {
-    assert.throws(
-      () => assertEncryptedCredential(wrap(bytes.toString('base64')), marker),
-      /Linux keyring/
-    );
-  }
-  assert.deepEqual(
-    assertEncryptedCredential(
-      wrap(Buffer.concat([Buffer.from('v11'), Buffer.alloc(16, 0xa5)]).toString('base64')),
-      marker
-    ),
-    { ciphertextFormat: 'linux-os-crypt-v11' }
-  );
+  await assert.rejects(assertCredentialAtRest(plaintext, marker), /plaintext/);
+
+  const fileStore = await temporary(t);
+  await mkdir(path.join(fileStore, 'profile'), { recursive: true });
+  await writeFile(path.join(fileStore, 'profile', 'brainstrike-credentials.json'), '{}');
+  await assert.rejects(assertCredentialAtRest(fileStore, marker), /OS keyring/);
 });
 
 test('long report paths use short socket paths backed by the same isolated disk directory', async (t) => {

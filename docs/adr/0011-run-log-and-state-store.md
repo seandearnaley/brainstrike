@@ -57,6 +57,20 @@ the final spike code, neither lost a displayed chunk.
 - ADR-0002 records the durable PGlite `job_queue`. It needs a status review when M2
   deletes the scheduling layer; this ADR does not change it.
 
+## Amendment (2026-10-09): live tool telemetry
+
+A running tool's live telemetry is the one carve-out from "every view is a fold
+of the log". This means `executeCommand`'s shell-output slices
+(`SHELL_OUTPUT_STREAM_PART_TYPE`) and MCP progress
+(`MCP_PROGRESS_STREAM_PART_TYPE`). The host's tool write seam classifies these
+two types with `isToolTelemetryStreamPart` and sends them to the thread's log
+subscribers as the uncommitted `run/telemetry` notification (protocol v11,
+additive). Every other tool-writer chunk still commits as `stream.chunk`.
+Committing telemetry made each slice wait on a disk commit and grew every
+hydration: a 25 ms progress server for ten minutes is about 24k rows. Legacy
+kept these slices transient. The tool result, which commits, owns the output,
+so a reload shows the result and no slices.
+
 ## Sources
 
 - `docs/agents/assistant-persistence.md:173` (line number at `43daec7fb`): readers

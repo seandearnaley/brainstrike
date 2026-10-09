@@ -6,6 +6,7 @@ import {
   type ThreadMessage,
 } from '@assistant-ui/react';
 import type { ThreadTokenUsage } from './context-usage-store';
+import type { LiveShellOutputs } from './live-shell-outputs';
 
 /** Published by the host's committed fold. Messages and parts retain the fold's identities. */
 export interface CommittedAssistantSnapshot {
@@ -26,6 +27,8 @@ export interface CommittedAssistantSnapshot {
 /** One source per conversation. Its owner folds/replays the log; this binding never appends to it. */
 export interface CommittedAssistantStore {
   readonly getSnapshot: () => CommittedAssistantSnapshot;
+  /** Running commands' live output, sent as uncommitted host telemetry. */
+  readonly liveShellOutputs?: LiveShellOutputs | undefined;
   readonly subscribe: (listener: () => void) => () => void;
   readonly threadId: string;
 }

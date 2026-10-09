@@ -39,9 +39,9 @@ export function ApprovalRow({ approval, colorId, ownerDisplayName, state }: Appr
   const [expanded, setExpanded] = useState(false);
   const bodyId = useId();
   const delegation = approval.delegation;
-  const owner = delegation
-    ? (ownerDisplayName ?? describeDelegationChain(delegation))
-    : 'Assistant';
+  // A named owner wins: a host child's history names its call sign without a legacy delegation identity.
+  const owner =
+    ownerDisplayName ?? (delegation ? describeDelegationChain(delegation) : 'Assistant');
   const verb = verbForTool(approval.toolName);
   const action = requestedAction(approval.toolName);
   const target = verb.namesTool ? undefined : extractPrimaryArg(approval.args, undefined);

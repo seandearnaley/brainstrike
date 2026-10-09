@@ -104,13 +104,9 @@ describe('registerSecretsIpcHandlers', () => {
     clearProviderEnv();
   });
 
-  afterEach(async () => {
+  afterEach(() => {
     restoreProviderEnv();
     clearCachedAgentClient();
-
-    // Clear test mode secrets to prevent state leakage between tests
-    const { clearTestModeSecrets } = await import('../../ipc-secrets');
-    clearTestModeSecrets();
   });
 
   function skippedEnvBootstrapReport(): EnvBootstrapReport {
@@ -473,15 +469,24 @@ describe('registerSecretsIpcHandlers', () => {
     expect(secretsService.listProviders).toHaveBeenCalledTimes(1);
   });
 
-  it('uses only in-memory secrets in test mode (ignores env vars)', async () => {
+  it("saves to the profile's store in test mode, which lists it without env vars", async () => {
     process.env['NODE_ENV'] = 'test';
     process.env['GOOGLE_GENERATIVE_AI_API_KEY'] = 'sk-google';
 
+    // The store the host reads: a save through Settings is what lists afterwards.
+    const stored = new Map<string, string>();
     const secretsService: SecretsServiceMock = {
       deleteKey: vi.fn(),
+      getCredential: vi.fn(async (provider: string) => {
+        const key = stored.get(provider);
+        return key === undefined ? null : { key, type: 'api_key' };
+      }),
       getKey: vi.fn(),
-      listProviders: vi.fn(),
-      saveKey: vi.fn(),
+      listProviders: vi.fn(async () => [...stored.keys()]),
+      saveKey: vi.fn(async (provider: string, key: string) => {
+        stored.set(provider, key);
+        return true;
+      }),
     };
 
     const { getHandler } = await bootstrap(secretsService);
@@ -493,15 +498,15 @@ describe('registerSecretsIpcHandlers', () => {
     expect(listHandler).toBeDefined();
     expect(listStoredHandler).toBeDefined();
 
-    await saveHandler!(createInvokeEvent(), 'anthropic', 'sk-test-anthropic');
-    const result = await listHandler!(createInvokeEvent());
-    const storedResult = (await listStoredHandler!(createInvokeEvent())) as string[];
-
-    // Test mode should only include in-memory secrets, NOT env vars
-    expect(result).toEqual([{ provider: 'anthropic', source: 'stored' }]);
-    expect(storedResult).toEqual(['anthropic']);
-    expect(storedResult).not.toContain('google');
-    expect(secretsService.listProviders).not.toHaveBeenCalled();
+    await expect(saveHandler!(createInvokeEvent(), 'anthropic', 'sk-test-anthropic')).resolves.toBe(
+      true
+    );
+    expect(secretsService.saveKey).toHaveBeenCalledWith('anthropic', 'sk-test-anthropic');
+    // The store's entries, and no env-configured provider.
+    await expect(listHandler!(createInvokeEvent())).resolves.toEqual([
+      { provider: 'anthropic', source: 'stored' },
+    ]);
+    await expect(listStoredHandler!(createInvokeEvent())).resolves.toEqual(['anthropic']);
   });
 
   it('rejects credential inspection visibly when environment files failed to load', async () => {
@@ -688,148 +693,48 @@ describe('registerSecretsIpcHandlers', () => {
     ] as const;
 
     it.each(typedCredentials)(
-      'round-trips a %s credential through saveCredential → getCredential in test mode',
+      'saves and reads a %s credential through the profile store in test mode',
       async (_type, credential) => {
         process.env['NODE_ENV'] = 'test';
         const secretsService: SecretsServiceMock = {
           deleteKey: vi.fn(),
+          getCredential: vi.fn().mockResolvedValue(credential),
           getKey: vi.fn(),
           listProviders: vi.fn(),
           saveKey: vi.fn(),
+          setCredential: vi.fn().mockResolvedValue(true),
         };
 
         const { getHandler } = await bootstrap(secretsService);
-        const saveCredentialHandler = getHandler('secrets:saveCredential');
-        const getCredentialHandler = getHandler('secrets:getCredential');
-        expect(saveCredentialHandler).toBeDefined();
-        expect(getCredentialHandler).toBeDefined();
-
         await expect(
-          saveCredentialHandler!(createInvokeEvent(), 'anthropic', credential)
+          getHandler('secrets:saveCredential')!(createInvokeEvent(), 'anthropic', credential)
         ).resolves.toBe(true);
-        await expect(getCredentialHandler!(createInvokeEvent(), 'anthropic')).resolves.toEqual({
-          credential,
-          ok: true,
-        });
+        expect(secretsService.setCredential).toHaveBeenCalledWith('anthropic', credential);
+        await expect(
+          getHandler('secrets:getCredential')!(createInvokeEvent(), 'anthropic')
+        ).resolves.toEqual({ credential, ok: true });
+        expect(secretsService.getCredential).toHaveBeenCalledWith('anthropic');
       }
     );
 
-    it('maps a legacy string saved via secrets:save to an api_key credential in test mode', async () => {
+    it('reads and deletes a key through the profile store in test mode', async () => {
       process.env['NODE_ENV'] = 'test';
       const secretsService: SecretsServiceMock = {
-        deleteKey: vi.fn(),
-        getKey: vi.fn(),
+        deleteKey: vi.fn().mockResolvedValue(true),
+        getKey: vi.fn().mockResolvedValue('sk-raw'),
         listProviders: vi.fn(),
         saveKey: vi.fn(),
       };
 
       const { getHandler } = await bootstrap(secretsService);
-      await getHandler('secrets:save')!(createInvokeEvent(), 'openai', 'sk-raw');
-
-      await expect(
-        getHandler('secrets:getCredential')!(createInvokeEvent(), 'openai')
-      ).resolves.toEqual({ credential: { key: 'sk-raw', type: 'api_key' }, ok: true });
       await expect(getHandler('secrets:get')!(createInvokeEvent(), 'openai')).resolves.toBe(
         'sk-raw'
       );
-    });
-
-    it('round-trips a GCP service-account JSON saved via secrets:save in test mode (envelope parity)', async () => {
-      process.env['NODE_ENV'] = 'test';
-      const gcpServiceAccountJson = '{"type":"service_account","project_id":"p"}';
-      const secretsService: SecretsServiceMock = {
-        deleteKey: vi.fn(),
-        getKey: vi.fn(),
-        listProviders: vi.fn(),
-        saveKey: vi.fn(),
-      };
-
-      const { getHandler } = await bootstrap(secretsService);
-      await getHandler('secrets:save')!(createInvokeEvent(), 'vertex', gcpServiceAccountJson);
-
-      await expect(getHandler('secrets:get')!(createInvokeEvent(), 'vertex')).resolves.toBe(
-        gcpServiceAccountJson
+      await expect(getHandler('secrets:delete')!(createInvokeEvent(), 'openai')).resolves.toBe(
+        true
       );
-      await expect(
-        getHandler('secrets:getCredential')!(createInvokeEvent(), 'vertex')
-      ).resolves.toEqual({
-        credential: { key: gcpServiceAccountJson, type: 'api_key' },
-        ok: true,
-      });
-    });
-
-    it('secrets:get on a stored oauth credential throws in test mode (never a stringified credential)', async () => {
-      process.env['NODE_ENV'] = 'test';
-      const secretsService: SecretsServiceMock = {
-        deleteKey: vi.fn(),
-        getKey: vi.fn(),
-        listProviders: vi.fn(),
-        saveKey: vi.fn(),
-      };
-
-      const { getHandler } = await bootstrap(secretsService);
-      await getHandler('secrets:saveCredential')!(
-        createInvokeEvent(),
-        'anthropic',
-        oauthCredential
-      );
-
-      await expect(
-        getHandler('secrets:get')!(createInvokeEvent(), 'anthropic')
-      ).rejects.toMatchObject({
-        code: 'credential_type_unsupported',
-        name: 'SecretReadError',
-        provider: 'anthropic',
-      });
-    });
-
-    it('lists the fingerprint metadata for test-mode typed saves and omits it for legacy saves', async () => {
-      process.env['NODE_ENV'] = 'test';
-      const secretsService: SecretsServiceMock = {
-        deleteKey: vi.fn(),
-        getKey: vi.fn(),
-        listProviders: vi.fn(),
-        saveKey: vi.fn(),
-      };
-
-      const { getHandler } = await bootstrap(secretsService);
-      await getHandler('secrets:saveCredential')!(createInvokeEvent(), 'anthropic', {
-        key: 'sk-ant-test-123',
-        metadata: { last4: '-123', savedAt: '2026-08-18T10:00:00.000Z' },
-        type: 'api_key',
-      });
-      await getHandler('secrets:save')!(createInvokeEvent(), 'openai', 'sk-legacy');
-
-      await expect(getHandler('secrets:list')!(createInvokeEvent())).resolves.toEqual([
-        {
-          metadata: { last4: '-123', savedAt: '2026-08-18T10:00:00.000Z' },
-          provider: 'anthropic',
-          source: 'stored',
-        },
-        { provider: 'openai', source: 'stored' },
-      ]);
-    });
-
-    it('saveCredential returns a malformed_credential result for an unrecognized type in test mode, storing nothing', async () => {
-      process.env['NODE_ENV'] = 'test';
-      const secretsService: SecretsServiceMock = {
-        deleteKey: vi.fn(),
-        getKey: vi.fn(),
-        listProviders: vi.fn(),
-        saveKey: vi.fn(),
-      };
-
-      const { getHandler } = await bootstrap(secretsService);
-      await expect(
-        getHandler('secrets:saveCredential')!(createInvokeEvent(), 'openai', {
-          key: 'x',
-          type: 'gcp',
-        })
-      ).resolves.toEqual({ error: 'malformed_credential', ok: false });
-
-      await expect(
-        getHandler('secrets:getCredential')!(createInvokeEvent(), 'openai')
-      ).resolves.toEqual({ credential: null, ok: true });
+      expect(secretsService.getKey).toHaveBeenCalledWith('openai');
+      expect(secretsService.deleteKey).toHaveBeenCalledWith('openai');
     });
 
     it('rejects a malformed argument list before it can key the secrets store', async () => {

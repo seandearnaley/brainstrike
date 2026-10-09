@@ -18,7 +18,7 @@
  * - `getSecretsService` is a plain arrow, not a vi.fn (nothing asserts on it).
  * Kept as one-line stubs purely to hold the import graph narrow (the real
  * assistant-tools barrel is ~800 lines / 32 imports evaluated at module load):
- * mcp-loader, assistant-tools, workspace-text-file-reader. db-main stays
+ * assistant-tools, workspace-text-file-reader. db-main stays
  * mocked because mastra-memory.ts still imports getDatabase directly (its
  * injection is the MemoryFactory slice of BST-972).
  */
@@ -84,10 +84,6 @@ vi.mock('@brainstrike/agent/pglite-mastra-memory', () => ({
 
 vi.mock('../../db-main', () => ({
   getDatabase: vi.fn(() => Promise.resolve(mockDesktopDatabase)),
-}));
-
-vi.mock('../../mcp-loader', () => ({
-  loadMcpConfig: vi.fn(() => Promise.resolve({ config: undefined })),
 }));
 
 vi.mock('../../assistant-server/assistant-tools', () => ({

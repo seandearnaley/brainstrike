@@ -56,7 +56,6 @@ export async function createHostCapabilities(
       : { codexIssuer: options.launch.openAiCodexIssuer }),
     credentials,
     env: options.env,
-    ...(options.launch?.legacyImportPending ? { legacyImportPending: true } : {}),
   });
   return {
     auth,
@@ -67,7 +66,6 @@ export async function createHostCapabilities(
       env: options.env,
       envFileFailures: options.launch?.envFileFailures ?? [],
     }),
-    // Through the gated secrets: a pending legacy import settles before the key is read.
     resolveTavilyApiKey: createTavilyKeyResolver(options.env, (account) =>
       auth.secrets().getKey(account)
     ),

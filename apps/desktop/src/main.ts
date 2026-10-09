@@ -28,7 +28,6 @@ import { registerAgentHostClientIpc } from './agent-host-client-ipc';
 import { createAgentHostMainClient } from './agent-host-main-client';
 import { createDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
 import { DesktopWorkspaceBindingAuthority } from './agent-host-platform/desktop-workspace-binding';
-import { readMainLegacyMemory } from './agent-host-platform/legacy-memory-main';
 import { readEmbeddingHostDevice } from './agent-host-platform/memory-vector-selection';
 import {
   PlatformPolicySchema,
@@ -86,7 +85,7 @@ import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { getDesktopEnvironmentBootstrapResult } from './desktop-env';
 import { buildDesktopEnvBootstrapReport } from './desktop-env-report';
 import { serializeDesktopError } from './desktop-error-serialization';
-import { createDesktopHookTrust, loadDesktopRootPaths } from './desktop-hook-trust';
+import { createDesktopHookTrust } from './desktop-hook-trust';
 import { resolveDesktopRendererLaunchMode } from './desktop-launch-mode';
 import {
   createDesktopMaintenanceTriggerGraph,
@@ -218,13 +217,7 @@ import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { VECTOR_PREFERENCES_STORAGE_KEY } from './platform/vector-preferences-storage-key';
 import { registerPrivilegedSchemes } from './privileged-schemes';
-import {
-  createDesktopSettingsSecrets,
-  desktopCredentialStoreSelection,
-  desktopLegacySecretsPending,
-  importDesktopLegacySecrets,
-  installDesktopLegacyImporter,
-} from './secrets';
+import { createDesktopSettingsSecrets, desktopCredentialStoreSelection } from './secrets';
 import { setupSecurity } from './setup-security';
 import { installIndexCallerRead, openIndexQuery } from './sqlite-query-host-manager';
 import type { DesktopSettingsStoreSchema } from './store-schema';
@@ -670,8 +663,10 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       'mcp-runtime': () => cleanupMcpRuntimeForShutdown(),
       'native-index': async () => {
         await agentHostMainClient.close();
-        await agentHostClientIpc.close();
+        // Fence profile admission before joining the renderer's in-flight host connect:
+        // a host start that fails during shutdown is then never retried as a second host.
         await nativeIndexActivation.close();
+        await agentHostClientIpc.close();
       },
       'parser-host': async () => {
         await parserHostManager.stop();
@@ -1015,20 +1010,6 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
     }
   },
 });
-function reportDesktopLegacyImport(attempt: ReturnType<typeof importDesktopLegacySecrets>): void {
-  attempt.then(
-    (imported) => {
-      if (imported.migrated > 0 || imported.alreadyPresent > 0) {
-        logger.info('Imported legacy provider secrets into the credential store', imported);
-      }
-    },
-    (error: unknown) => {
-      logger.error('Legacy provider secrets could not be imported; the legacy store is kept', {
-        error: serializeDesktopError(error),
-      });
-    }
-  );
-}
 function reportNativeIndexActivationError(message: string, error: unknown): void {
   reportNativeIndexFailure(message, error, isDesktopShuttingDown(), logger);
 }
@@ -1037,10 +1018,8 @@ const nativeIndexActivation = createNativeIndexActivation({
   agentHostPlatform: {
     onChildReady: (child) => {
       agentHostPrivateClients.attach(child);
-      // A host launched while retired entries remained waits to hear about them.
-      reportDesktopLegacyImport(importDesktopLegacySecrets({ afterHostLaunch: true }));
     },
-    platform: () => {
+    platform: (nativeChildren) => {
       const ledger = createWorktreeLedger(getDatabase);
       const workspace = new DesktopWorkspaceBindingAuthority({
         borrowRoot: (root) =>
@@ -1098,8 +1077,8 @@ const nativeIndexActivation = createNativeIndexActivation({
         localLlm: createMainLlmHostClient(createE2eScriptedLlmHost() ?? llmHostManager),
         // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
         mcp: createDesktopMcpPlatformCapabilities(getDesktopMcpHostRuntime()),
-        // Gap 17: the host imports the profile's legacy workspace memory once.
-        readLegacyMemory: readMainLegacyMemory,
+        // ADR-0017: the host reports its native processes; Main ends them if it dies.
+        nativeChildren,
         // BST-1977: host runs' turns snapshot through legacy turns' one shadow-git owner.
         workspaceSnapshots: () => snapshotService,
       });
@@ -1108,11 +1087,8 @@ const nativeIndexActivation = createNativeIndexActivation({
       'Agent host platform',
       'agent-host-platform-entry.js'
     ),
-    // The host owns the profile store Main reads. While the retired safeStorage
-    // store still holds entries, the host holds credential use until Main's
-    // import over the private client settles.
+    // The host owns the profile store Main reads.
     platformOptions: async () => {
-      const legacyImportPending = await desktopLegacySecretsPending();
       // An isolated E2E launch's egress boundary may stand in for the Codex
       // sign-in issuer on loopback; the host refuses any other origin.
       const e2eCodexIssuer = isElectronE2ETestMode()
@@ -1129,7 +1105,6 @@ const nativeIndexActivation = createNativeIndexActivation({
         ...(desktopEnvLoadResult.failures.length > 0
           ? { envFileFailures: [...desktopEnvLoadResult.failures] }
           : {}),
-        ...(legacyImportPending ? { legacyImportPending: true as const } : {}),
         ...(e2eCodexIssuer ? { openAiCodexIssuer: e2eCodexIssuer } : {}),
       };
     },
@@ -1158,15 +1133,10 @@ const agentHostMainClient = createAgentHostMainClient(
     }
   }
 );
-// Only Main can decrypt the retired safeStorage store; the host writes it.
-installDesktopLegacyImporter((input) => agentHostMainClient.request('auth/import-legacy', input));
-// The host owns hook trust. Main imports the retired renderer approvals once,
-// and no visible client attaches, so no host run is admitted, before it settles.
-const desktopHookTrust = createDesktopHookTrust({
-  loadRootPaths: async () => loadDesktopRootPaths(await getDatabase()),
-  request: (method, params) => agentHostMainClient.request(method, params),
-  storage,
-});
+// The host owns hook trust.
+const desktopHookTrust = createDesktopHookTrust((method, params) =>
+  agentHostMainClient.request(method, params)
+);
 // Legacy threads run project hooks at the same host-owned trust.
 installDesktopHookApprovalReader((root) => desktopHookTrust.approval(root));
 // Host threads record their turn snapshots in the host's log, not the ledger;
@@ -1175,11 +1145,10 @@ const readHostThreadIds = async (): Promise<ReadonlySet<string>> =>
   new Set(
     (await agentHostMainClient.request('thread/list', {})).threads.map(({ threadId }) => threadId)
   );
-const agentHostClientIpc = registerAgentHostClientIpc(async () => {
-  const attachment = await nativeIndexActivation.acquireProfile();
-  await desktopHookTrust.imported();
-  return attachment;
-}, agentHostPrivateClients.open);
+const agentHostClientIpc = registerAgentHostClientIpc(
+  nativeIndexActivation.acquireProfile,
+  agentHostPrivateClients.open
+);
 ipcDisposers.add('agent-host-client', agentHostClientIpc.unregister);
 const nativeRootDataDeletion = createNativeRootDataDeletion({
   acquire: () => nativeIndexActivation.acquire(),
@@ -1522,10 +1491,6 @@ if (singleInstanceLockAcquired) {
     registerShutdownSignalHandlers();
     try {
       emitBootMeasurementMark('app-ready', app.isPackaged);
-      // One-time import of the retired safeStorage entries, decrypted here and
-      // written by the host once it is ready. Credential use in Main and the
-      // host waits for it; a failure keeps the legacy copy and reports itself.
-      reportDesktopLegacyImport(importDesktopLegacySecrets());
       // Validated up front (before assistant-server startup) so a malformed
       // value fails loudly and clearly here, instead of being caught by the
       // assistant-server try/catch below and mislabeled as an assistant
@@ -1723,13 +1688,7 @@ if (singleInstanceLockAcquired) {
         })
       );
       ipcDisposers.add('agent', registerAgentIpcHandlers());
-      ipcDisposers.add(
-        'mcp',
-        registerMcpIpcHandlers({
-          runtime: getDesktopMcpHostRuntime(),
-          settingsStore: getSettingsStore,
-        })
-      );
+      ipcDisposers.add('mcp', registerMcpIpcHandlers({ runtime: getDesktopMcpHostRuntime() }));
       ipcDisposers.add('runtime', registerRuntimeIpcHandlers());
       logger.debug('Ready-dependent IPC handlers registered successfully');
       // Kick off DB initialization (utilityProcess spawn + migrations) and the

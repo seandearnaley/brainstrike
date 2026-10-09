@@ -45,68 +45,12 @@ declare global {
      */
     changes?: Partial<ChangesBridge>;
     /**
-     * Desktop-only MCP bridge. The composer's MCP prompt affordance
-     * (BST-1592) uses the `McpPromptBridge` members, capability-checked via
-     * `resolveMcpPromptBridge()` rather than `isElectron()`; they are derived
-     * from that interface so this declaration cannot drift from it.
+     * Desktop-only MCP content bridge. The composer's MCP prompt affordance
+     * (BST-1592) uses its `McpPromptBridge` content members, capability-checked
+     * via `resolveMcpPromptBridge()` rather than `isElectron()`; the agent host
+     * owns MCP settings and status (BST-1930 c5a-c5b).
      */
-    mcp?: Partial<McpPromptBridge> & {
-      getConfig?: () => Promise<
-        | {
-            error?: string;
-            path: string;
-            exists: boolean;
-            servers?: Array<{
-              name: string;
-              transport: 'sse' | 'stdio' | 'streamable-http';
-            }>;
-          }
-        | undefined
-      >;
-      onConfigUpdated?: (
-        callback: (config: {
-          error?: string;
-          path: string;
-          exists: boolean;
-          servers?: Array<{
-            name: string;
-            transport: 'sse' | 'stdio' | 'streamable-http';
-          }>;
-        }) => void
-      ) => (() => void) | undefined;
-      watch?: () => Promise<{ watching: boolean }>;
-      unwatch?: () => Promise<{ watching: false }>;
-      listTools?: () => Promise<
-        Record<
-          string,
-          Array<{
-            id: string;
-            serverName?: string;
-            description?: string;
-            inputSchema?: unknown;
-            enabled: boolean;
-            discoveredAt?: number;
-          }>
-        >
-      >;
-      enableTools?: (toolIds: string[]) => Promise<void>;
-      disableTools?: (toolIds: string[]) => Promise<void>;
-      onToolsUpdated?: (
-        callback: (
-          tools: Record<
-            string,
-            Array<{
-              id: string;
-              serverName?: string;
-              description?: string;
-              inputSchema?: unknown;
-              enabled: boolean;
-              discoveredAt?: number;
-            }>
-          >
-        ) => void
-      ) => (() => void) | undefined;
-    };
+    mcp?: Partial<Pick<McpPromptBridge, 'complete' | 'getPrompt'>>;
     /**
      * Desktop-only OS shell integration bridge. Absent on web (no preload) —
      * capability-check via `resolvePlatformBridge()` (`platform-bridge.ts`)

@@ -47,6 +47,7 @@
     "@testing-library/user-event": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "jsdom": "catalog:",
     "react-dom": "^19.3.0",
@@ -60,6 +61,14 @@
     "./assistant-thread-host-context": {
       "types": "./dist/assistant-thread-host-context.d.ts",
       "import": "./dist/assistant-thread-host-context.js"
+    },
+    "./mcp-status-capability": {
+      "types": "./dist/mcp-status-capability.d.ts",
+      "import": "./dist/mcp-status-capability.js"
+    },
+    "./mcp-tools-capability": {
+      "types": "./dist/mcp-tools-capability.d.ts",
+      "import": "./dist/mcp-tools-capability.js"
     },
     ".": {
       "types": "./dist/index.d.ts",
@@ -196,7 +205,7 @@
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "lint": "pnpm -w lint",
-    "test": "vitest run --exclude \"**/*.integration.test.*\"",
+    "test": "vitest run --exclude \"**/*.integration.test.*\" && vitest run --config vitest.compiled.config.mts",
     "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:watch": "vitest",

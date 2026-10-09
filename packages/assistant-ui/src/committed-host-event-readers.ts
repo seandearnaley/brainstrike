@@ -1,5 +1,9 @@
 import type { CompleteAttachment } from '@assistant-ui/react';
-import type { AssistantRunEvent } from '@brainstrike/assistant-contract';
+import type {
+  AssistantRunEvent,
+  HookSkipNoticeInput,
+  RunAttemptNoticeInput,
+} from '@brainstrike/assistant-contract';
 
 /**
  * Readers of committed host events the log projection maps onto the thread:
@@ -108,4 +112,76 @@ export function worktreeCreatedNotice(
     status: 'info',
     timestamp,
   };
+}
+
+const ATTEMPT_REASONS = new Set<unknown>([
+  'context-overflow',
+  'empty-response',
+  'provider-error',
+  'stalled',
+]);
+const ATTEMPT_REFUSALS = new Set<unknown>(['budget-exhausted', 'tool-parts', 'committed-output']);
+
+/** A committed host `run.attempt` row, read strictly like every other committed event. */
+export function readRunAttempt(event: Readonly<Record<string, unknown>>): RunAttemptNoticeInput {
+  const { attempt, maxAttempts, reason, recovered, refusal } = event;
+  if (
+    typeof attempt !== 'number' ||
+    typeof maxAttempts !== 'number' ||
+    !ATTEMPT_REASONS.has(reason) ||
+    typeof recovered !== 'boolean' ||
+    (refusal !== undefined && !ATTEMPT_REFUSALS.has(refusal))
+  ) {
+    throw new Error('Committed run attempt has an unsupported shape.');
+  }
+  return {
+    attempt,
+    detail: requiredString(event, 'detail'),
+    maxAttempts,
+    reason: reason as RunAttemptNoticeInput['reason'],
+    recovered,
+    ...(refusal === undefined
+      ? {}
+      : { refusal: refusal as NonNullable<RunAttemptNoticeInput['refusal']> }),
+  };
+}
+
+const HOOK_SKIP_REASONS = new Set<unknown>([
+  'changed',
+  'invalid',
+  'over-budget',
+  'unreadable',
+  'untrusted',
+]);
+
+/** A committed `hooks.skipped` row's files: at least one, each with a known reason. */
+export function readHookSkips(
+  event: Readonly<Record<string, unknown>>
+): readonly HookSkipNoticeInput[] {
+  const files = event['files'];
+  if (!Array.isArray(files) || files.length === 0) {
+    throw new Error('Committed hooks.skipped names no files.');
+  }
+  return files.map((entry): HookSkipNoticeInput => {
+    const file = record(entry);
+    if (!(file && HOOK_SKIP_REASONS.has(file['reason']))) {
+      throw new Error('Committed hook skip has an unsupported shape.');
+    }
+    return {
+      detail: requiredString(file, 'detail'),
+      path: requiredString(file, 'path'),
+      reason: file['reason'] as HookSkipNoticeInput['reason'],
+    };
+  });
+}
+
+/** A committed stream chunk's data part: a named data chunk. Tool telemetry is never committed. */
+export function committedStreamData(
+  chunk: Readonly<Record<string, unknown>>
+): { readonly data: unknown; readonly name: string } | undefined {
+  const type = chunk['type'];
+  if ((type === 'data' || type === 'aui-data') && typeof chunk['name'] === 'string') {
+    return { data: chunk['data'], name: chunk['name'] };
+  }
+  return;
 }

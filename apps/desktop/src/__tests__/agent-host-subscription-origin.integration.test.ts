@@ -21,6 +21,7 @@ import {
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { RemoteMcpRuntime } from '../mcp/remote-runtime';
+import { desktopAppPaths } from './fixtures/desktop-host-profile';
 
 /** Same public MessageEvent shape as the Electron utility port, backed by real Node ports. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -111,7 +112,6 @@ test('a CLI socket client attached to the desktop host cannot resolve the openai
     // Production's Main MCP stores; this scenario configures no MCP server.
     mcp: createDesktopMcpPlatformCapabilities(new RemoteMcpRuntime()),
     readConfiguration: async () => selection,
-    readLegacyMemory: async () => ({ resource: null, resourceObservations: false }),
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
   });
   let host: AgentHost | undefined;
@@ -122,7 +122,7 @@ test('a CLI socket client attached to the desktop host cannot resolve the openai
     ).toBe(true);
     const options = { lifetime: 'persistent' as const, root };
     host = await startAgentHost(options, (context) =>
-      createHostPlatform(options, context, { credentialStore })
+      createHostPlatform(options, context, { appPaths: desktopAppPaths(root), credentialStore })
     );
     // The CLI's transport: the host's public socket, authenticated by host.json.
     client = await attachAgentHost(host.record);

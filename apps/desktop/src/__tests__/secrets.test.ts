@@ -3,17 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const safeStorageMock = vi.hoisted(() => ({
-  decryptString: vi.fn<(buf: Buffer) => string>(),
-  getSelectedStorageBackend: vi.fn<() => string>(),
-  isEncryptionAvailable: vi.fn<() => boolean>(),
-}));
-
 const userData = vi.hoisted(() => ({ path: '/unused-in-these-tests' }));
 
 vi.mock('electron', () => ({
   app: { getPath: () => userData.path },
-  safeStorage: safeStorageMock,
 }));
 
 import {
@@ -22,46 +15,12 @@ import {
   SECRET_READ_ERROR_CODES,
 } from '@brainstrike/assistant-contract';
 import { getSecretReadErrorPayload } from '@brainstrike/assistant-service/secret-errors';
-import {
-  createHostCredentials,
-  migrateLegacySecrets,
-} from '@brainstrike/host-capabilities/credentials';
+import { createHostCredentials } from '@brainstrike/host-capabilities/credentials';
 import {
   createSecretsMcpBearerCredentialAuthority,
   mcpBearerCredentialStorageKey,
 } from '@brainstrike/host-capabilities/mcp/bearer-credential';
-import {
-  createSafeStorageLegacySecretSource,
-  desktopCredentialStoreSelection,
-  SecretReadError,
-} from '../secrets';
-
-/**
- * The retired electron-store file inside a disposable profile, in its shipped
- * shape. `undefined` leaves the profile without one (a fresh install).
- */
-async function legacyFile(secrets?: Record<string, string>): Promise<string> {
-  const file = join(await disposableProfile(), 'brainstrike-secrets.json');
-  if (secrets) {
-    await writeFile(file, JSON.stringify({ secrets, unrelated: 'kept' }));
-  }
-  return file;
-}
-
-/** What the retired safeStorage service wrote: base64 of the encrypted plaintext. */
-function legacyCiphertext(plaintext: string): string {
-  return Buffer.from(`enc:${plaintext}`).toString('base64');
-}
-
-function useRoundTripSafeStorage(): void {
-  safeStorageMock.decryptString.mockImplementation((buf: Buffer) => {
-    const text = buf.toString('utf8');
-    if (!text.startsWith('enc:')) {
-      throw new Error('not ciphertext');
-    }
-    return text.slice('enc:'.length);
-  });
-}
+import { desktopCredentialStoreSelection, SecretReadError } from '../secrets';
 
 const profiles: string[] = [];
 
@@ -81,9 +40,6 @@ async function desktopSecrets() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  safeStorageMock.isEncryptionAvailable.mockReturnValue(true);
-  safeStorageMock.getSelectedStorageBackend.mockReturnValue('keychain');
-  useRoundTripSafeStorage();
 });
 
 afterEach(async () => {
@@ -108,94 +64,8 @@ describe('desktop credential store selection', () => {
   });
 });
 
-describe('retired safeStorage source failure surfacing (BST-574)', () => {
-  it('reads an empty store as no entries, even when encryption is unusable', async () => {
-    safeStorageMock.getSelectedStorageBackend.mockReturnValue('basic_text');
-    await expect(
-      createSafeStorageLegacySecretSource(await legacyFile(), safeStorageMock).entries()
-    ).resolves.toEqual([]);
-  });
-
-  it('decrypts every entry under its existing account name', async () => {
-    const source = createSafeStorageLegacySecretSource(
-      await legacyFile({
-        anthropic: legacyCiphertext('{"key":"sk-ant","type":"api_key"}'),
-        openai: legacyCiphertext('sk-test'),
-      }),
-      safeStorageMock
-    );
-    await expect(source.entries()).resolves.toEqual([
-      { account: 'anthropic', value: '{"key":"sk-ant","type":"api_key"}' },
-      { account: 'openai', value: 'sk-test' },
-    ]);
-  });
-
-  it('throws a typed decrypt_failed error for a corrupt stored secret (never skipped)', async () => {
-    const source = createSafeStorageLegacySecretSource(
-      await legacyFile({ openai: Buffer.from('garbage').toString('base64') }),
-      safeStorageMock
-    );
-    const attempt = source.entries();
-    await expect(attempt).rejects.toBeInstanceOf(SecretReadError);
-    await expect(attempt).rejects.toMatchObject({ code: 'decrypt_failed', provider: 'openai' });
-  });
-
-  it.each(['basic_text', 'unavailable'])(
-    'throws a typed encryption_unavailable error when a secret exists but the backend is %s',
-    async (backend) => {
-      if (backend === 'basic_text') {
-        safeStorageMock.getSelectedStorageBackend.mockReturnValue('basic_text');
-      } else {
-        safeStorageMock.isEncryptionAvailable.mockReturnValue(false);
-      }
-      const source = createSafeStorageLegacySecretSource(
-        await legacyFile({ anthropic: legacyCiphertext('sk') }),
-        safeStorageMock
-      );
-      await expect(source.entries()).rejects.toMatchObject({
-        code: 'encryption_unavailable',
-        provider: 'anthropic',
-      });
-    }
-  );
-
-  it('retires the legacy store only through the migration, after the copy is verified', async () => {
-    const legacy = await legacyFile({ openai: legacyCiphertext('sk-legacy-raw') });
-    const { credentials, svc } = await desktopSecrets();
-    await expect(
-      migrateLegacySecrets({
-        destination: credentials.store(),
-        source: createSafeStorageLegacySecretSource(legacy, safeStorageMock),
-      })
-    ).resolves.toEqual({ alreadyPresent: 0, migrated: 1 });
-    expect(JSON.parse(await readFile(legacy, 'utf8'))).toEqual({ secrets: {}, unrelated: 'kept' });
-    await expect(svc.getKey('openai')).resolves.toBe('sk-legacy-raw');
-    await credentials.close();
-  });
-});
-
 describe('typed provider credentials (BST-1348)', () => {
   describe('legacy bare-string compatibility', () => {
-    it('reads a migrated pre-change raw value identically through getKey AND getCredential', async () => {
-      // Fixture: exactly what the pre-BST-1348 saveKey wrote — the encrypted
-      // bare string. No JSON anywhere.
-      const { credentials, svc } = await desktopSecrets();
-      await migrateLegacySecrets({
-        destination: credentials.store(),
-        source: createSafeStorageLegacySecretSource(
-          await legacyFile({ openai: legacyCiphertext('sk-legacy-raw') }),
-          safeStorageMock
-        ),
-      });
-
-      await expect(svc.getKey('openai')).resolves.toBe('sk-legacy-raw');
-      await expect(svc.getCredential('openai')).resolves.toEqual({
-        key: 'sk-legacy-raw',
-        type: 'api_key',
-      });
-      await credentials.close();
-    });
-
     it('getKey on a value saved through the string saveKey keeps returning the raw string', async () => {
       const { credentials, svc } = await desktopSecrets();
       await svc.saveKey('anthropic', 'sk-ant-raw');
@@ -352,7 +222,6 @@ describe("Main's view of the host-owned profile store", () => {
     userData.path = await disposableProfile();
     vi.resetModules();
     const secrets = await import('../secrets');
-    await secrets.importDesktopLegacySecrets();
     // The host's own handle on the same profile store.
     const host = createHostCredentials({
       selection: secrets.desktopCredentialStoreSelection(userData.path, true),
@@ -427,72 +296,19 @@ describe("Main's view of the host-owned profile store", () => {
   });
 });
 
-describe('the retired safeStorage store imports through the host', () => {
-  /** Main's module over a disposable profile whose legacy file holds `secrets`. */
-  async function profileWithLegacy(secrets?: Record<string, string>) {
-    const legacy = await legacyFile(secrets);
-    userData.path = join(legacy, '..');
+// Greenfield: there are no users, so nothing is imported (BST-1930).
+describe('no retired safeStorage import', () => {
+  it("never reads a profile's retired safeStorage store", async () => {
+    userData.path = await disposableProfile();
+    const retired = join(userData.path, 'brainstrike-secrets.json');
+    const content = JSON.stringify({ secrets: { openai: 'cmV0aXJlZA==' } });
+    await writeFile(retired, content);
     vi.resetModules();
-    return { legacy, module: await import('../secrets') };
-  }
+    const secrets = await import('../secrets');
 
-  it('decrypts in Main, imports through the host, then retires the legacy copy', async () => {
-    const { legacy, module } = await profileWithLegacy({
-      openai: legacyCiphertext('{"key":"sk-legacy","type":"api_key"}'),
-    });
-    await expect(module.desktopLegacySecretsPending()).resolves.toBe(true);
-    const importer = vi.fn(async () => {
-      // The legacy copy survives until the host's verified import returns.
-      expect(JSON.parse(await readFile(legacy, 'utf8')).secrets).not.toEqual({});
-      return { alreadyPresent: 0, migrated: 1 };
-    });
-    module.installDesktopLegacyImporter(importer);
-
-    await expect(module.importDesktopLegacySecrets()).resolves.toEqual({
-      alreadyPresent: 0,
-      migrated: 1,
-    });
-    expect(importer).toHaveBeenCalledWith({
-      entries: [{ account: 'openai', value: '{"key":"sk-legacy","type":"api_key"}' }],
-    });
-    expect(JSON.parse(await readFile(legacy, 'utf8'))).toEqual({ secrets: {}, unrelated: 'kept' });
-    await expect(module.desktopLegacySecretsPending()).resolves.toBe(false);
-    // Joined, never repeated, within one host's life.
-    await module.importDesktopLegacySecrets();
-    expect(importer).toHaveBeenCalledOnce();
-  });
-
-  it('reports an unreadable store to the host and keeps the legacy copy', async () => {
-    const { legacy, module } = await profileWithLegacy({ openai: 'not-ciphertext' });
-    const importer = vi.fn(async () => {
-      throw new Error('The retired credential store could not be read: decrypt_failed');
-    });
-    module.installDesktopLegacyImporter(importer);
-
-    await expect(module.importDesktopLegacySecrets()).rejects.toMatchObject({
-      code: 'decrypt_failed',
-    });
-    expect(importer).toHaveBeenCalledWith({ unavailable: expect.stringContaining('decrypt') });
-    expect(JSON.parse(await readFile(legacy, 'utf8')).secrets).toEqual({
-      openai: 'not-ciphertext',
-    });
-    // A relaunched host is told again.
-    await expect(module.importDesktopLegacySecrets({ afterHostLaunch: true })).rejects.toThrow();
-    expect(importer).toHaveBeenCalledTimes(2);
-  });
-
-  it('never reaches the host when there is nothing to import', async () => {
-    const { module } = await profileWithLegacy();
-    await expect(module.desktopLegacySecretsPending()).resolves.toBe(false);
-    await expect(module.importDesktopLegacySecrets()).resolves.toEqual({
-      alreadyPresent: 0,
-      migrated: 0,
-    });
-  });
-
-  it('refuses visibly when entries exist but no host importer is installed', async () => {
-    const { module } = await profileWithLegacy({ openai: legacyCiphertext('sk-legacy') });
-    await expect(module.importDesktopLegacySecrets()).rejects.toThrow('agent host');
+    await expect(secrets.getSecretsService().listProviders()).resolves.toEqual([]);
+    await expect(secrets.getSecretsService().getKey('openai')).resolves.toBeNull();
+    expect(await readFile(retired, 'utf8')).toBe(content);
   });
 });
 

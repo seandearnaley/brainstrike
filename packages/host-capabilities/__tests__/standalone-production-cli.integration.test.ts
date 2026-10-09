@@ -158,7 +158,10 @@ test('real bin attaches before platform selection, preserves threads and release
   ]);
   expect(attached.code).toBe(0);
   expect(HOST_RESULT_SCHEMAS['thread/list'].parse(JSON.parse(attached.stdout))).toEqual({
-    threads: [{ threadId }],
+    // The catalog facts Core holds: no binding and no run yet.
+    threads: [
+      { binding: null, createdAt: expect.any(Number), threadId, updatedAt: expect.any(Number) },
+    ],
   });
   expect(await record(dataRoot)).toEqual(first);
   const stopped = await command(dataRoot, ['host', 'stop']);
@@ -173,7 +176,10 @@ test('real bin attaches before platform selection, preserves threads and release
   const reopened = await command(dataRoot, ['threads', 'list']);
   expect(reopened.code).toBe(0);
   expect(HOST_RESULT_SCHEMAS['thread/list'].parse(JSON.parse(reopened.stdout))).toEqual({
-    threads: [{ threadId }],
+    // The catalog facts Core holds: no binding and no run yet.
+    threads: [
+      { binding: null, createdAt: expect.any(Number), threadId, updatedAt: expect.any(Number) },
+    ],
   });
   await expect.poll(() => RootLock.inspect(dataRoot)?.owner.released).toBe(true);
 });

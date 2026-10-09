@@ -10,10 +10,10 @@
  * Split into its own module so the list and its gate stay together and the
  * dialog's own cognitive complexity stays inside the lint budget.
  */
-import type { AssistantRewindConflict } from '@brainstrike/assistant-contract';
 import { Checkbox } from '@brainstrike/ui';
 import { AlertTriangle } from 'lucide-react';
 import type { ReactElement } from 'react';
+import type { RewindConflictModel } from '../rewind-port';
 
 /**
  * Distinct conflicts for display, keyed `(rootId, path)`.
@@ -29,10 +29,10 @@ import type { ReactElement } from 'react';
  * path, and collapsing them would hide a whole root's conflict.
  */
 export function dedupeConflictsForDisplay(
-  conflicts: readonly AssistantRewindConflict[]
-): readonly AssistantRewindConflict[] {
+  conflicts: readonly RewindConflictModel[]
+): readonly RewindConflictModel[] {
   const seen = new Set<string>();
-  const unique: AssistantRewindConflict[] = [];
+  const unique: RewindConflictModel[] = [];
   for (const conflict of conflicts) {
     const key = `${conflict.rootId}\u0000${conflict.path}`;
     if (seen.has(key)) {
@@ -44,23 +44,9 @@ export function dedupeConflictsForDisplay(
   return unique;
 }
 
-/**
- * `disk-changed`/`path-occupied` are the only codes acknowledgment actually
- * overrides — under the snapshot engine (BST-1164 T3/T4) an acknowledged
- * drift conflict is forced PER PATH by overriding its expected hash in the
- * restore plan's gate. `root-unavailable` and `capture-unavailable` never
- * reach that gate: a disconnected or uncovered root cannot restore no matter
- * what is ticked — acknowledging only lets the apply proceed with those files
- * reported under "Not restored" afterward. The checkbox copy says which is
- * true for THIS set.
- */
-const FORCEABLE_CONFLICT_CODES: ReadonlySet<AssistantRewindConflict['code']> = new Set([
-  'disk-changed',
-  'path-occupied',
-]);
-
-function allForceable(conflicts: readonly AssistantRewindConflict[]): boolean {
-  return conflicts.every((conflict) => FORCEABLE_CONFLICT_CODES.has(conflict.code));
+/** Whether acknowledging overwrites every listed file; the port says per file. */
+function allForceable(conflicts: readonly RewindConflictModel[]): boolean {
+  return conflicts.every((conflict) => conflict.forceable);
 }
 
 export function RewindConflictList({
@@ -69,7 +55,7 @@ export function RewindConflictList({
   onAcknowledgedChange,
 }: {
   readonly acknowledged: boolean;
-  readonly conflicts: readonly AssistantRewindConflict[];
+  readonly conflicts: readonly RewindConflictModel[];
   readonly onAcknowledgedChange: (next: boolean) => void;
 }): ReactElement | null {
   const unique = dedupeConflictsForDisplay(conflicts);
