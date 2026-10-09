@@ -160,9 +160,9 @@ export class HostThreadRewinds {
   }
 
   /** A start's params with the rewound tip as its parent, when it names none. */
-  position<T extends { readonly parentMessageId?: string | null; readonly threadId: string }>(
-    params: T
-  ): T {
+  position<
+    T extends { readonly parentMessageId?: string | null | undefined; readonly threadId: string },
+  >(params: T): T {
     const tip = this.tip(params.threadId);
     return params.parentMessageId === undefined && tip !== undefined
       ? { ...params, parentMessageId: tip }
