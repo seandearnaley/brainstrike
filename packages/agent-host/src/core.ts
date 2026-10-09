@@ -276,8 +276,18 @@ export class HostCore {
     return () => this.listeners.delete(listener);
   }
 
+  /** Top-level threads with the facts Core already holds: presentation, store dates, damage, binding, latest run. */
   listThreads(): HostResults['thread/list']['threads'] {
-    return this.children.topLevel(this.threads, this.presentations);
+    return this.children.topLevel(this.threads).map((threadId) => {
+      const latestRun = this.ledger.readLatestRun(threadId);
+      return {
+        threadId,
+        ...this.presentations.read(threadId),
+        ...this.catalog.entry(threadId),
+        ...this.workspaces.readBinding(this.threads, threadId),
+        ...(latestRun ? { latestRun } : {}),
+      };
+    });
   }
 
   /** Every thread's runs and costed provider calls, folded from its committed log. */

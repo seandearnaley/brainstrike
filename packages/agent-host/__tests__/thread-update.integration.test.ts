@@ -46,7 +46,8 @@ async function catalogEntry(client: HostClient, threadId: string) {
   if (!thread) {
     throw new Error('The thread is not in the host catalog');
   }
-  return thread;
+  // Its presentation only: the catalog's dates, binding and run are not what an update commits.
+  return { color: thread.color, icon: thread.icon, threadId: thread.threadId, title: thread.title };
 }
 
 async function titleOf(client: HostClient, threadId: string): Promise<string | undefined> {

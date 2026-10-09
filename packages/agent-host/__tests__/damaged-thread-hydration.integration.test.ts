@@ -134,6 +134,11 @@ async function openDamaged(seeded: Awaited<ReturnType<typeof seededRoot>>): Prom
         .map(({ threadId }) => threadId)
         .sort()
     ).toEqual([seeded.damaged, seeded.healthy].sort());
+    const listed = new Map(host.core.listThreads().map((thread) => [thread.threadId, thread]));
+    // The list names the damage and keeps the store's dates; a readable thread carries none.
+    expect(listed.get(seeded.damaged)?.damage).toMatch(/\S/u);
+    expect(listed.get(seeded.damaged)?.createdAt).toBeGreaterThan(0);
+    expect(listed.get(seeded.healthy)).not.toHaveProperty('damage');
     await expect(host.core.read(seeded.damaged, 0)).rejects.toThrow();
     expect(await host.core.read(seeded.healthy, 0)).not.toHaveLength(0);
     await expect(
