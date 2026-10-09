@@ -521,6 +521,9 @@ export async function createProductionHostPlatform(
       }
     },
     close,
+    ...(options.mcp?.attachTaskOwner
+      ? { attachMcpTaskOwner: options.mcp.attachTaskOwner.bind(options.mcp) }
+      : {}),
     ...productionMemoryReadiness(options),
     readPermissionPolicy: options.readPermissionPolicy,
     ...(options.forgetThread ? { forgetThread: options.forgetThread } : {}),
