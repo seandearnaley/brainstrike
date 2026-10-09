@@ -905,7 +905,11 @@ export const HOST_RESULT_SCHEMAS = {
   'interaction/respond': z.strictObject({ accepted: z.literal(true) }),
   'interaction/resume': z.strictObject({ accepted: z.literal(true) }),
   'ledger/read': z.strictObject({ threads: z.array(HostLedgerThreadSchema) }),
-  'log/subscribe': z.strictObject({ rows: z.array(HostLogRowSchema) }),
+  'log/subscribe': z.strictObject({
+    rows: z.array(HostLogRowSchema),
+    /** The thread's running calls and open steps, replayed over `rows` (ADR-0011 amendment). */
+    telemetry: z.array(HostRunTelemetrySchema),
+  }),
   'log/unsubscribe': z.strictObject({ unsubscribed: z.literal(true) }),
   'mcp/app/admit': z.strictObject({
     decision: z.enum(['allow', 'ask']),
