@@ -123,19 +123,21 @@ its holder is SIGKILLed, and it frees when the last such process exits.
   Object (`windows-job-native` `initialize()`) before it starts any native process,
   so its native processes end with it.
 
-Known limits. None of these holds the Root's flock; Main's registry still ends each
-one after its host dies.
+Known limits. These processes do not hold the Root's flock.
 
-- A descendant that closes its inherited descriptors (a daemon-style
-  double fork or `closefrom`) no longer holds the Root.
+- A descendant that closes its inherited descriptors (`closefrom`, or a
+  daemon-style double fork) no longer holds the Root. A double fork also leaves
+  its process group, so nothing ends it.
 - Command sessions: node-pty 1.1.0 spawns with `POSIX_SPAWN_CLOEXEC_DEFAULT` and
   duplicates only the pty into fds 0-2 (`node-pty/src/unix/pty.cc` lines 703-750).
-  When the host dies, the pty hangs up (SIGHUP).
+  Main's registry ends each session's group after the host dies, and the pty hangs
+  up (SIGHUP).
 - stdio MCP servers: the SDK's `StdioClientTransport` spawns with stdio
   `[pipe, pipe, stderr]` (`@modelcontextprotocol/client` 2.1.0, `dist/stdio.mjs`
-  lines 79-83). When the host dies, the server's stdin reaches EOF.
-- Short `execFile` calls (git, ripgrep): `execFile` takes no stdio option. They are
-  bounded by their own timeouts.
+  lines 79-83). Main's registry ends each server after the host dies, and its stdin
+  reaches EOF.
+- Short `execFile` calls (git, ripgrep): `execFile` takes no stdio option. Main's
+  registry ends them after the host dies; their own timeouts bound them otherwise.
 
 ## Consequences
 
