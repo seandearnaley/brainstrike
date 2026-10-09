@@ -8,16 +8,13 @@ import {
   parseProviderVerificationSnapshot,
   TOOL_RISK_CATEGORIES,
 } from '@brainstrike/assistant-contract';
-import {
-  ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE,
-  SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES,
-} from '@brainstrike/assistant-contract/assistant-attachments';
+import { ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE } from '@brainstrike/assistant-contract/assistant-attachments';
 import { McpTaskHandleSchema } from '@brainstrike/assistant-contract/mcp-task-presentation';
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WorkspaceSnapshotSchema } from '@brainstrike/assistant-contract/thread-workspace-snapshot';
 import { z } from 'zod';
 import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
-import { HostLedgerThreadSchema } from './ledger-wire.js';
+import { HostLatestRunSchema, HostLedgerThreadSchema } from './ledger-wire.js';
 import {
   MCP_PRESENTATION_METHOD_SCHEMAS,
   MCP_PRESENTATION_RESULT_SCHEMAS,
@@ -32,6 +29,7 @@ import {
   REWIND_RESULT_SCHEMAS,
 } from './protocol-rewind.js';
 import { SEARCH_METHOD_SCHEMAS, SEARCH_RESULT_SCHEMAS } from './protocol-search.js';
+import { HostHookSkipSchema, HostImageAttachmentSchema } from './run-wire.js';
 import {
   HostEditBaselineSchema,
   HostEditRevertOutcomeSchema,
@@ -46,6 +44,7 @@ export * from './protocol-mcp-presentation.js';
 export * from './protocol-mcp-settings.js';
 export * from './protocol-rewind.js';
 export * from './protocol-search.js';
+export * from './run-wire.js';
 export * from './workspace-wire.js';
 
 // 11: committed branch history (`run/start` parentMessageId, `run/regenerate`,
@@ -102,6 +101,8 @@ const hasMessage = (message: {
 const NO_MESSAGE = { message: 'A message needs text or an image', path: ['prompt'] };
 const Command = { commandId: Id };
 const Thread = { threadId: Id };
+/** A time the state store recorded, in ms since the epoch. */
+const StoredTime = z.number().int().nonnegative();
 /** A committed thread title: trimmed, never blank. */
 const ThreadTitle = z.string().trim().min(1);
 /** A thread's committed presentation; each field is optional and set independently. */
@@ -157,31 +158,6 @@ const McpContent = z.record(
   z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])
 );
 const Seq = z.number().int().nonnegative();
-/**
- * A hook file a run did not load, and why: untrusted (no trust), changed
- * since its trust, unreadable, invalid, or a phase over its time budget.
- */
-export const HostHookSkipSchema = z.strictObject({
-  detail: z.string().min(1),
-  /** The file's absolute path, or the phase a budget disabled. */
-  path: z.string().min(1),
-  reason: z.enum(['untrusted', 'changed', 'unreadable', 'invalid', 'over-budget']),
-  rootId: Id.optional(),
-  scope: z.enum(['global', 'project']),
-});
-export type HostHookSkip = z.infer<typeof HostHookSkipSchema>;
-/**
- * An image on a user message, as the composer encodes it: a base64 data URL.
- * Core admits it against the shared attachment contract's caps.
- */
-export const HostImageAttachmentSchema = z.strictObject({
-  data: z.string().min(1),
-  mediaType: z.enum(SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES),
-  /** The attached file's name, shown with the image. */
-  name: z.string().min(1).max(255),
-  type: z.literal('image'),
-});
-export type HostImageAttachment = z.infer<typeof HostImageAttachmentSchema>;
 const Attachments = z
   .array(HostImageAttachmentSchema)
   .min(1)
@@ -973,7 +949,20 @@ export const HOST_RESULT_SCHEMAS = {
   }),
   'thread/list': z.strictObject({
     // Presentation fields never committed are absent.
-    threads: z.array(z.strictObject({ ...Thread, ...ThreadPresentation })),
+    threads: z.array(
+      z.strictObject({
+        ...Thread,
+        ...ThreadPresentation,
+        binding: ThreadWorkspaceBindingSchema.nullable(),
+        /** The store's first and latest append to the thread, in ms since the epoch. */
+        createdAt: StoredTime,
+        /** Why the thread's history cannot be read; such a thread never runs, but still deletes. */
+        damage: z.string().min(1).optional(),
+        /** Absent before the thread's first root run. */
+        latestRun: HostLatestRunSchema.optional(),
+        updatedAt: StoredTime,
+      })
+    ),
   }),
   // Not ready: the reason `run/start` would fail with; the observation needs an admission.
   'thread/memory/read': z.union([

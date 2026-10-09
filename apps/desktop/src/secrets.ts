@@ -12,8 +12,6 @@ import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 
 export {
   credentialStoredKeyFingerprint,
-  credentialToApiKey,
-  parseCredentialOrThrow,
   SecretReadError,
   type SecretsService,
 } from '@brainstrike/agent-host/credential-contract';

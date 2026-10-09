@@ -22,7 +22,7 @@ export interface HostThreadDeletionContext {
   finish(run: HostRunState): Promise<void>;
   /** Drop a deleted thread's folded state, and a deleted run's. */
   forgetRun(run: HostRunState): void;
-  forgetThread(threadId: string): void;
+  forgetThread(threadId: string): void | Promise<void>;
   readonly pendingAdmissions: ReadonlyMap<AbortController, string>;
   /** The new admission tail: later commands queue behind the deletion. */
   queue(tail: Promise<void>): void;
@@ -66,7 +66,7 @@ export function deleteHostThread(context: HostThreadDeletionContext, threadId: s
     );
     for (const id of subtree) {
       await erase(id);
-      context.forgetThread(id);
+      await context.forgetThread(id);
     }
     for (const run of runs) {
       context.forgetRun(run);

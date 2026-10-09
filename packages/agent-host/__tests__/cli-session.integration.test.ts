@@ -408,7 +408,10 @@ test.each(['approve', 'deny'] as const)(
     await expect(readFile(join(dataRoot, 'fixture-effect-count'))).rejects.toMatchObject({
       code: 'ENOENT',
     });
-    expect(await cli(dataRoot, ['threads', 'list'])).toEqual({ threads: [{ threadId }] });
+    // The paused run waits on its approval in the catalog too.
+    expect(await cli(dataRoot, ['threads', 'list'])).toMatchObject({
+      threads: [{ latestRun: { needsInput: true, status: 'running' }, threadId }],
+    });
     const displayed = HOST_RESULT_SCHEMAS['thread/read'].parse(
       await cli(dataRoot, ['threads', 'show', '--thread', threadId])
     );
@@ -455,7 +458,9 @@ test.each(['approve', 'deny'] as const)(
     } finally {
       await store.close();
     }
-    expect(await cli(dataRoot, ['threads', 'list'])).toEqual({ threads: [{ threadId }] });
+    expect(await cli(dataRoot, ['threads', 'list'])).toMatchObject({
+      threads: [{ latestRun: { needsInput: false }, threadId }],
+    });
     await expect.poll(() => RootLock.inspect(dataRoot)?.owner.released).toBe(true);
   }
 );
