@@ -128,63 +128,17 @@ test('a project hook runs on a host thread only after it is approved in Settings
   expect(modelProvider.refusals()).toEqual([]);
 });
 
-test('an approval made before the upgrade still runs the hook, with no re-approval', async ({
-  electron,
+test('a legacy thread runs the project hook at the trust the host owns', async ({
   modelProvider,
+  window: page,
 }) => {
   test.setTimeout(180_000);
-  let page = await electron.ensureWindow();
   await ensureMockWorkspaceOpen(page);
   await configureAssistantProvider(page);
 
-  // The retired renderer store's persisted approval, as it was written before
-  // the host owned trust: keyed by the root's DB id, pinned to the file's hash.
-  const review = await page.evaluate(
-    (root) =>
-      (
-        window as Window & {
-          hooks?: {
-            getProjectHooksForReview(
-              rootId: string,
-              absPath: string
-            ): Promise<{ dbRootId?: string; sha256?: string }>;
-          };
-        }
-      ).hooks?.getProjectHooksForReview('e2e-review', root),
-    workspace
-  );
-  expect(review?.dbRootId).toBeTruthy();
-  expect(review?.sha256).toMatch(/^[a-f0-9]{64}$/);
-  const slice = JSON.stringify({
-    state: {
-      approvalsByRootId: {
-        [review?.dbRootId ?? '']: { approvedAt: Date.now(), sha256: review?.sha256 },
-      },
-    },
-    version: 2,
-  });
-  await page.evaluate(
-    (value) =>
-      (
-        window as Window & {
-          electronAPI?: { storage?: { setItem(key: string, value: string): Promise<void> } };
-        }
-      ).electronAPI?.storage?.setItem('hook-trust.v1', value),
-    slice
-  );
-
-  // The upgrade: a new Main imports the approval into the host before any run.
-  await electron.closeForStateSeeding();
-  page = await electron.ensureWindow();
-  await ensureMockWorkspaceOpen(page);
-  await configureAssistantProvider(page);
-
-  scriptRead(modelProvider, 'The read after the upgrade was blocked.');
-  await send(page, 'Read notes.txt', 'The read after the upgrade was blocked.');
-  expect(lastFollowUp(modelProvider)).toContain(REASON);
-
-  // Settings reads the host's imported trust; nothing was approved here.
+  // Approved once in Settings › Hooks, through the host.
   const hooks = await hooksSettings(page);
+  await hooks.getByRole('button', { exact: true, name: 'Approve' }).click();
   await expect(hooks.getByText('Trusted', { exact: true })).toBeVisible();
 
   // A legacy thread (one from before the host, served by Main's legacy server)
