@@ -275,6 +275,67 @@ function sumDeclaredTimeouts(hooks: readonly LoadedHook[]): number {
   return hooks.reduce((acc, hook) => acc + (hook.definition.timeout ?? DEFAULT_HOOK_TIMEOUT_MS), 0);
 }
 
+/**
+ * One root's project hooks file. Trust and parse come from ONE read: hash the
+ * bytes, compare them to the approval, and parse those SAME bytes only when
+ * trusted.
+ */
+function loadProjectRoot(
+  root: HookConfigRootInput,
+  input: HookConfigInput,
+  merged: Partial<Record<HookEventName, LoadedHook[]>>,
+  errors: HookConfigError[],
+  sources: HookConfigSource[]
+): void {
+  const filePath = getProjectHooksPath(root.absPath);
+  const bytes = readProjectHookConfig(filePath);
+  sources.push({ exists: bytes !== null, path: filePath, rootId: root.rootId, scope: 'project' });
+  if (bytes === null) {
+    return;
+  }
+  if (typeof bytes === 'string') {
+    errors.push({
+      message: bytes,
+      path: filePath,
+      reason: 'unreadable',
+      rootId: root.rootId,
+      scope: 'project',
+    });
+    return;
+  }
+  const trusted =
+    root.approvedSha256 !== undefined && sha256OfBuffer(bytes) === root.approvedSha256;
+  if (!trusted) {
+    const changed = root.approvedSha256 !== undefined;
+    errors.push({
+      message: changed
+        ? 'changed since it was trusted; review it in Settings > Hooks'
+        : 'untrusted; approve in Settings > Hooks',
+      path: filePath,
+      reason: changed ? 'changed' : 'untrusted',
+      rootId: root.rootId,
+      scope: 'project',
+    });
+    return;
+  }
+  const validated = validateFile(
+    bytes.toString('utf8'),
+    { cwd: root.absPath, rootId: root.rootId, scope: 'project' },
+    input.maxHookTimeoutMs
+  );
+  if (validated.ok) {
+    mergeInto(merged, validated.value.hooks);
+  } else {
+    errors.push({
+      message: validated.message,
+      path: filePath,
+      reason: 'invalid',
+      rootId: root.rootId,
+      scope: 'project',
+    });
+  }
+}
+
 export function loadHooksConfig(input: HookConfigInput): HooksConfigLoadResult {
   const merged: Partial<Record<HookEventName, LoadedHook[]>> = {};
   const errors: HookConfigError[] = [];
@@ -293,7 +354,12 @@ export function loadHooksConfig(input: HookConfigInput): HooksConfigLoadResult {
       if (validated.ok) {
         mergeInto(merged, validated.value.hooks);
       } else {
-        errors.push({ message: validated.message, path: input.globalPath, scope: 'global' });
+        errors.push({
+          message: validated.message,
+          path: input.globalPath,
+          reason: 'invalid',
+          scope: 'global',
+        });
       }
     }
   }
@@ -301,47 +367,7 @@ export function loadHooksConfig(input: HookConfigInput): HooksConfigLoadResult {
   // Then each root, in input order. Trust + parse from ONE read: hash the bytes,
   // compare to the approval, and parse those SAME bytes only when trusted.
   for (const root of input.roots) {
-    const filePath = getProjectHooksPath(root.absPath);
-    const bytes = readProjectHookConfig(filePath);
-    sources.push({ exists: bytes !== null, path: filePath, rootId: root.rootId, scope: 'project' });
-    if (bytes === null) {
-      continue;
-    }
-    if (typeof bytes === 'string') {
-      errors.push({
-        message: bytes,
-        path: filePath,
-        rootId: root.rootId,
-        scope: 'project',
-      });
-      continue;
-    }
-    const trusted =
-      root.approvedSha256 !== undefined && sha256OfBuffer(bytes) === root.approvedSha256;
-    if (!trusted) {
-      errors.push({
-        message: 'untrusted; approve in Settings > Hooks',
-        path: filePath,
-        rootId: root.rootId,
-        scope: 'project',
-      });
-      continue;
-    }
-    const validated = validateFile(
-      bytes.toString('utf8'),
-      { cwd: root.absPath, rootId: root.rootId, scope: 'project' },
-      input.maxHookTimeoutMs
-    );
-    if (validated.ok) {
-      mergeInto(merged, validated.value.hooks);
-    } else {
-      errors.push({
-        message: validated.message,
-        path: filePath,
-        rootId: root.rootId,
-        scope: 'project',
-      });
-    }
+    loadProjectRoot(root, input, merged, errors, sources);
   }
 
   // Pre-stream aggregate bound (I1): the combined UserPromptSubmit budget must
@@ -353,6 +379,7 @@ export function loadHooksConfig(input: HookConfigInput): HooksConfigLoadResult {
       errors.push({
         message: `UserPromptSubmit hooks' combined timeout ${total}ms reaches the ${input.aggregateTimeoutMs}ms pre-stream aggregate budget; phase disabled`,
         path: 'UserPromptSubmit (aggregate)',
+        reason: 'over-budget',
         scope: 'global',
       });
       // Disable the phase (empty = no hooks run) fail-closed.

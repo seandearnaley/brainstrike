@@ -139,6 +139,7 @@ describe('loadHooksConfig', () => {
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]?.rootId).toBe('root-a');
     expect(result.errors[0]?.message).toMatch(/untrusted/i);
+    expect(result.errors[0]?.reason).toBe('untrusted');
   });
 
   it('disables a file with invalid JSON but keeps other files', () => {
@@ -163,6 +164,7 @@ describe('loadHooksConfig', () => {
     expect(result.hooks.PreToolUse?.map((h) => h.definition.command)).toEqual(['b']);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]?.rootId).toBe('root-a');
+    expect(result.errors[0]?.reason).toBe('invalid');
   });
 
   it('disables a file whose matcher regex cannot compile', () => {
@@ -242,6 +244,7 @@ describe('loadHooksConfig', () => {
     expect(result.errors[0]?.message).toBe(
       `hooks.json must be a regular file no larger than ${MAX_HOOKS_CONFIG_BYTES} bytes`
     );
+    expect(result.errors[0]?.reason).toBe('unreadable');
   });
 
   it('precompiles the tool_name matcher into a RegExp', () => {
@@ -305,7 +308,9 @@ describe('loadHooksConfig', () => {
       });
 
       expect(result.hooks.Stop ?? []).toHaveLength(0);
-      expect(result.errors[0]?.message).toMatch(/untrusted/i);
+      // A trust exists, but for other bytes: the file changed since its review.
+      expect(result.errors[0]?.reason).toBe('changed');
+      expect(result.errors[0]?.message).toMatch(/changed since it was trusted/i);
     });
 
     it('does not cross-apply one root approval to a different root file', () => {
@@ -327,6 +332,7 @@ describe('loadHooksConfig', () => {
 
       expect(result.hooks.Stop ?? []).toHaveLength(0);
       expect(result.errors[0]?.rootId).toBe('root-b');
+      expect(result.errors[0]?.reason).toBe('changed');
     });
   });
 
@@ -359,6 +365,7 @@ describe('loadHooksConfig', () => {
     expect(result.hooks.UserPromptSubmit ?? []).toHaveLength(0);
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]?.message).toMatch(/aggregate budget/i);
+    expect(result.errors[0]?.reason).toBe('over-budget');
   });
 
   it('keeps UserPromptSubmit hooks that stay under the aggregate budget', () => {

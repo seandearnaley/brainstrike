@@ -49,7 +49,17 @@ describe('HookManager', () => {
   it('reports each config error once as a hook.notice(failed)', () => {
     const events: HookRunEventInput[] = [];
     const manager = makeManager(
-      { errors: [{ message: 'bad', path: '/x/hooks.json', rootId: 'r1', scope: 'project' }] },
+      {
+        errors: [
+          {
+            message: 'bad',
+            path: '/x/hooks.json',
+            reason: 'invalid',
+            rootId: 'r1',
+            scope: 'project',
+          },
+        ],
+      },
       events
     );
 
