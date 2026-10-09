@@ -1,3 +1,4 @@
+import { TOOL_TELEMETRY_OMITTED_TYPE } from '@brainstrike/assistant-contract';
 import recording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json';
 import { expect, it } from 'vitest';
 import {
@@ -100,4 +101,37 @@ it('never folds text from a committed delta an older log holds', () => {
     },
   ]);
   expect(texts(projection)).toEqual([]);
+});
+
+it('a replay that dropped the step’s oldest text opens with a visible notice until the step commits', () => {
+  const projection = projector();
+  const finalStep = rows.findLastIndex(
+    ({ event }) =>
+      event['type'] === 'stream.chunk' &&
+      (event['chunk'] as { type?: string })?.type === 'start-step'
+  );
+  const committed = rows.findLastIndex(({ event }) => event['type'] === 'model.step');
+  projection.acceptCommitted(rows.slice(0, finalStep + 1));
+  // A call's omission belongs to its command's live output, not to the reply.
+  projection.acceptLive(runId, {
+    omittedBytes: 900,
+    resumesAt: 1,
+    toolCallId: 'command-1',
+    type: TOOL_TELEMETRY_OMITTED_TYPE,
+  });
+  projection.acceptLive(runId, {
+    omittedBytes: 2048,
+    resumesAt: 4,
+    type: TOOL_TELEMETRY_OMITTED_TYPE,
+  });
+  projection.acceptLive(runId, { id: 'text-1', text: 'completed.', type: 'text-delta' });
+  expect(texts(projection)).toEqual([
+    { status: { type: 'complete' }, text: 'Earlier reply text not shown (2 KB)' },
+    { status: { type: 'running' }, text: 'completed.' },
+  ]);
+
+  projection.acceptCommitted(rows.slice(finalStep + 1, committed + 1));
+  expect(texts(projection)).toEqual([
+    { status: { type: 'complete' }, text: 'Host run completed.' },
+  ]);
 });

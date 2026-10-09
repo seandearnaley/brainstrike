@@ -156,8 +156,11 @@ export async function runAgentHostProcess(
       stop();
     }
   };
+  // A Node-forked app host lives exactly as long as its launcher's IPC channel (ADR-0017). Electron
+  // launches its app host with a lifetime port instead, which the parent channel's listen() wires.
+  let appLifetime = false;
   const disconnected = (): void => {
-    if (!ready) {
+    if (!ready || appLifetime) {
       stop();
     }
   };
@@ -173,6 +176,7 @@ export async function runAgentHostProcess(
   const failures: unknown[] = [];
   try {
     const options = decodeStartOptions(JSON.parse(args[0] ?? 'null'));
+    appLifetime = options.lifetime === 'app';
     root = options.root;
     const modulePath = args[1];
     if (!modulePath) {

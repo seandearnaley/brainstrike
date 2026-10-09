@@ -12,9 +12,9 @@
  */
 import type { McpElicitationPresentationWire } from '@brainstrike/assistant-contract';
 import { useEffect, useReducer, useRef } from 'react';
-import { useMcpElicitationCapability } from './mcp-elicitation-capability';
 import { McpElicitationDialog } from './mcp-elicitation-dialog';
 import { mcpTaskInputCanceller } from './mcp-task-input-canceller';
+import { useMcpElicitationCapability } from './use-mcp-elicitation-capability';
 
 interface HostState {
   readonly queue: readonly McpElicitationPresentationWire[];

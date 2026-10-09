@@ -13,7 +13,8 @@ type PreparedStep = Awaited<ReturnType<ReturnType<Turn['step']>['prepare']>>;
 type NativeContext = Awaited<ReturnType<Memory['getContext']>>;
 type ProviderRequest = Parameters<NonNullable<LanguageModelMiddleware['wrapStream']>>[0]['params'];
 
-export interface HostMemoryIdentity extends HostRunContext {
+/** A run's identity for native Memory, which reads committed history only through its storage domain. */
+export interface HostMemoryIdentity extends Omit<HostRunContext, 'readCommittedRows'> {
   readonly resourceId: string;
 }
 

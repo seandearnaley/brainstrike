@@ -112,12 +112,13 @@ describe('desktop graceful shutdown', () => {
     expect(options.exitProcess).not.toHaveBeenCalled();
   });
 
-  it('pins the documented order: renderers first, the database drain last, no log-sink step', () => {
+  it('pins the documented order: a reset in flight first, the database drain last, no log-sink step', () => {
     expect(DESKTOP_SHUTDOWN_STEP_ORDER).toEqual([
+      'factory-reset',
       'renderers',
       'assistant-server',
-      'mcp-runtime',
       'native-index',
+      'mcp-runtime',
       'file-system',
       'chunking-host',
       'parser-host',

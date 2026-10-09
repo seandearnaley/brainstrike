@@ -53,7 +53,8 @@ import { useRootLabelById } from '../use-root-labels';
 import { ChangedFilesTree } from './changed-files-tree';
 import { ChangesetDiffPane } from './changeset-diff-pane';
 import { RewindConflictList } from './rewind-conflict-list';
-import { RewindOutcomeSummary, rewindConversationOutcome } from './rewind-outcome-summary';
+import { RewindOutcomeSummary } from './rewind-outcome-summary';
+import { rewindConversationOutcome } from './rewind-outcome-text';
 import { DEFAULT_REWIND_MODE, RewindScopeChoice } from './rewind-scope-choice';
 
 /**

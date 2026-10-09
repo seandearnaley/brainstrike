@@ -84,6 +84,10 @@ test('a host thread shows text live, and a Stop keeps the partial reply across a
   });
   // Live, from telemetry: nothing about this text is committed yet.
   await expect.poll(() => answerTexts(view)).toEqual([PARTIAL]);
+  // A view that opens the running thread shows the reply in progress.
+  const opened = open();
+  await expect.poll(() => answerTexts(opened)).toEqual([PARTIAL]);
+  expect(answerTexts(view)).toEqual([PARTIAL]);
 
   await view.commands.onCancel?.();
   await expect.poll(() => view.store.getSnapshot().isRunning).toBe(false);

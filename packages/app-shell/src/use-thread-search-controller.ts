@@ -62,6 +62,12 @@ const MAX_EMBEDDING_PASSES_PER_DRAIN = 50;
  */
 export const THREAD_SEARCH_SEMANTIC_RETRY_MS = 60_000;
 
+/** The embedder a backlog drain embeds the host's rows with, and their vector profile. */
+interface HostSearchTarget {
+  readonly modelInfo: EmbeddingSetModelInfo;
+  readonly profile: ThreadSearchVectorProfile;
+}
+
 export interface UseThreadSearchControllerOptions {
   /** `ensureEmbedderReady` names the runtime, so the profile, of the embedder that ran. */
   readonly embedder: ThreadSearchEmbedder & Pick<UseSearchEmbedderResult, 'ensureEmbedderReady'>;
@@ -191,37 +197,30 @@ export function useThreadSearchController({
     // The host's half needs the profile of the embedder that will run; an
     // embedder that cannot start leaves it out, and the search shows semantic
     // search unavailable with its reason.
-    let hostTarget:
-      | Promise<{ modelInfo: EmbeddingSetModelInfo; profile: ThreadSearchVectorProfile } | null>
-      | undefined;
-    const resolveHostTarget = () => {
-      hostTarget ??= (async () => {
-        if (!hostSearchVectors) {
-          return null;
-        }
-        try {
-          await loadEmbeddingQueue();
-          const modelInfo = await resolveModelInfo();
-          const { runtime } = await embedder.ensureEmbedderReady(modelInfo);
-          return { modelInfo, profile: threadSearchVectorProfile(modelInfo, runtime) };
-        } catch {
-          return null;
-        }
-      })();
-      return hostTarget;
+    const resolveHostTarget = async (): Promise<HostSearchTarget | null> => {
+      if (!hostSearchVectors) {
+        return null;
+      }
+      try {
+        await loadEmbeddingQueue();
+        const modelInfo = await resolveModelInfo();
+        const { runtime } = await embedder.ensureEmbedderReady(modelInfo);
+        return { modelInfo, profile: threadSearchVectorProfile(modelInfo, runtime) };
+      } catch {
+        return null;
+      }
     };
     /** The panel's one embedding progress: history's rows and the host's. */
-    const recordCoverage = async () => {
+    const recordCoverage = async (target: HostSearchTarget | null) => {
       const history = await repository.getCoverage(resourceId);
-      const target = await resolveHostTarget();
       const host =
         target && hostSearchVectors ? await hostSearchVectors.coverage(target.profile) : null;
       useThreadSearchStore.getState().recordCoverage(combineThreadSearchCoverage(history, host));
       return history;
     };
-    const drainHistory = async (): Promise<void> => {
+    const drainHistory = async (target: HostSearchTarget | null): Promise<void> => {
       for (let pass = 0; pass < MAX_EMBEDDING_PASSES_PER_DRAIN; pass += 1) {
-        const coverage = await recordCoverage();
+        const coverage = await recordCoverage(target);
         if (coverage.embeddableMessages <= coverage.embeddedMessages + coverage.erroredMessages) {
           return;
         }
@@ -245,8 +244,7 @@ export function useThreadSearchController({
       }
     };
     // The host's backlog, after history's, at the same rows per pass.
-    const drainHost = async (): Promise<void> => {
-      const target = await resolveHostTarget();
+    const drainHost = async (target: HostSearchTarget | null): Promise<void> => {
       if (!(target && hostSearchVectors)) {
         return;
       }
@@ -262,7 +260,7 @@ export function useThreadSearchController({
           modelInfo: target.modelInfo,
           profile: target.profile,
         });
-        await recordCoverage();
+        await recordCoverage(target);
         if (embedded === 0) {
           return;
         }
@@ -270,8 +268,9 @@ export function useThreadSearchController({
     };
     const execute = async (): Promise<void> => {
       try {
-        await drainHistory();
-        await drainHost();
+        const target = await resolveHostTarget();
+        await drainHistory(target);
+        await drainHost(target);
       } catch {
         // Backlog embedding is opportunistic; failures surface per-search via
         // the semantic `unavailable` reason, and per-row via embedding_error.

@@ -40,6 +40,7 @@ import type {
   HostEvent,
   HostHookSkip,
   HostLoginCredential,
+  HostLogRow,
   HostObservationalMemoryState,
   HostParams,
   HostResults,
@@ -152,6 +153,11 @@ export interface HostToolContext {
   readonly write?: (chunk: unknown) => Promise<void>;
 }
 export interface HostRunContext {
+  /**
+   * The threads' committed rows that Core's hydration keeps, as Core already
+   * decoded them, threads by id and each by seq: the run's Memory history.
+   */
+  readCommittedRows(threadIds: ReadonlySet<string>): readonly HostLogRow[];
   /** A typed, committed reason this run received no observational memory. */
   recordObservationWithheld?(reason: 'branched-thread'): Promise<void>;
   /** These receipts append through HostCore, before publication and terminal join. */

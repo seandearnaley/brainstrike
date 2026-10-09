@@ -26,7 +26,7 @@ import {
 } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
-import { RemoteMcpRuntime } from '../mcp/remote-runtime';
+import { MainMcpHostControl } from '../mcp/main-host-control';
 import { desktopAppPaths } from './fixtures/desktop-host-profile';
 
 const LOCAL_MODEL = 'onnx-community/gemma-4-E2B-it-ONNX';
@@ -144,7 +144,7 @@ test('a host thread on the built-in local model generates through the hidden llm
   const nodePort = new UtilityPort(channel.port2);
   const mainOwner = serveDesktopPlatform(mainPlatformConnection(mainPort), {
     localLlm: inference,
-    mcp: createDesktopMcpPlatformCapabilities(new RemoteMcpRuntime()),
+    mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
     readConfiguration: async () => selection,
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
   });

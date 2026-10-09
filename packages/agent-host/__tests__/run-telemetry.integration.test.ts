@@ -121,15 +121,103 @@ test('a command’s live output reaches subscribers without committing a stream.
         toolCallId,
         type: SHELL_OUTPUT_STREAM_PART_TYPE,
       },
+      ordinal: 0,
       runId,
       threadId,
       toolCallId,
     },
     {
       chunk: { progress: 1, toolCallId, total: 2, type: MCP_PROGRESS_STREAM_PART_TYPE },
+      ordinal: 1,
       runId,
       threadId,
       toolCallId,
     },
   ]);
+});
+
+test("a view that subscribes after a call's first output is replayed it ahead of new output", async () => {
+  const root = await mkdtemp(join(tmpdir(), 'bs-run-telemetry-replay-'));
+  roots.push(root);
+  let release = (): void => undefined;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const slice = (chunk: string, toolCallId: string) => ({
+    chunk,
+    stream: 'stdout' as const,
+    toolCallId,
+    type: SHELL_OUTPUT_STREAM_PART_TYPE,
+  });
+  const host = await startAgentHost(
+    { lifetime: 'persistent', root },
+    {
+      close: async () => undefined,
+      maxSteps: 3,
+      readPermissionPolicy: () => ({
+        policies: { ...DEFAULT_PERMISSION_POLICIES, read: 'allow' },
+        yolo: false,
+      }),
+      resolveModel: async () => scriptedModel('run_command'),
+      tools: {
+        run_command: {
+          description: 'Run a command',
+          execute: async (_input, context) => {
+            await context.write?.(slice('BEFORE_THE_VIEW\n', context.toolCallId));
+            await held;
+            await context.write?.(slice('AFTER_THE_VIEW\n', context.toolCallId));
+            return { exitCode: 0, stdout: 'BEFORE_THE_VIEW\nAFTER_THE_VIEW\n' };
+          },
+          identity: 'native-run-command-generation-1',
+          inputSchema: z.object({ text: z.string() }),
+          risk: 'read',
+        },
+      },
+    }
+  );
+  hosts.push(host);
+  const starter = await attachAgentHost(host.record);
+  clients.push(starter);
+  const { threadId } = await starter.request('thread/start', { commandId: randomUUID() });
+  const first: HostRunTelemetry[] = [];
+  starter.onTelemetry((received) => {
+    if (received.toolCallId !== undefined) {
+      first.push(received);
+    }
+  });
+  await starter.request('log/subscribe', { fromSeq: 0, threadId });
+  const { runId } = await starter.request('run/start', {
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Run the command',
+    threadId,
+  });
+  await expect.poll(() => first.length).toBe(1);
+  const toolCallId = first[0]?.toolCallId ?? '';
+
+  // A second view, on its own connection, opens the thread mid-call.
+  const late = await attachAgentHost(host.record);
+  clients.push(late);
+  const live: HostRunTelemetry[] = [];
+  late.onTelemetry((received) => live.push(received));
+  const opened = await late.request('log/subscribe', { fromSeq: 0, threadId });
+  release();
+  expect(opened.telemetry).toEqual([
+    { chunk: slice('BEFORE_THE_VIEW\n', toolCallId), ordinal: 0, runId, threadId, toolCallId },
+  ]);
+  await expect
+    .poll(() => live.filter((received) => received.toolCallId === toolCallId))
+    .toEqual([
+      { chunk: slice('AFTER_THE_VIEW\n', toolCallId), ordinal: 1, runId, threadId, toolCallId },
+    ]);
+
+  await expect
+    .poll(async () =>
+      (await late.request('thread/read', { fromSeq: 0, threadId })).rows.some(
+        ({ event }) => event.type === 'run.finished'
+      )
+    )
+    .toBe(true);
+  // The call's result committed and owns its output: a view opened now is replayed nothing.
+  expect((await late.request('log/subscribe', { fromSeq: 0, threadId })).telemetry).toEqual([]);
 });

@@ -3,6 +3,7 @@ import type { StartupMessage } from '@brainstrike/host-lease';
 import { bindDesktopClientPort } from './agent-host-platform/desktop-client-port';
 import { installParentPlatformPort } from './agent-host-platform/parent-platform-port';
 import { decodeHostLeaseControl, decodeHostLeaseParentMessage } from './host-lease-control';
+import { installHostLifetimePort } from './host-lifetime-port';
 
 /** Electron provides a launcher channel; all agent work stays in the Node kernel. */
 async function main(): Promise<void> {
@@ -18,7 +19,11 @@ async function main(): Promise<void> {
       listen: (cancel) => {
         const receive = (input: unknown): void => {
           try {
-            if (installParentPlatformPort(input) || bindDesktopClientPort(input, host)) {
+            if (
+              installParentPlatformPort(input) ||
+              installHostLifetimePort(input, cancel) ||
+              bindDesktopClientPort(input, host)
+            ) {
               return;
             }
             decodeHostLeaseControl(decodeHostLeaseParentMessage(input).data);

@@ -3,30 +3,15 @@ import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { app } from 'electron';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { handleAssistantRequest } from '../../assistant-server';
-import { createDesktopMcpHostRuntime, getDesktopMcpHostRuntime } from '../../mcp/host-runtime';
+import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import { createRunRequest, MockResponse } from './_harness';
 
-type DesktopMcpHostRuntime = ReturnType<typeof createDesktopMcpHostRuntime>;
-
-const runtimeSlot = vi.hoisted(() => ({ current: undefined as DesktopMcpHostRuntime | undefined }));
 const mockSecretsService = vi.hoisted(() => ({
   getCredential: vi.fn(async () => ({ key: 'local-test-key', type: 'api_key' as const })),
   getKey: vi.fn(async () => 'local-test-key'),
   listProviders: vi.fn(async () => ['local']),
 }));
 
-vi.mock('../../mcp/host-runtime', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../mcp/host-runtime')>();
-  return {
-    ...actual,
-    getDesktopMcpHostRuntime: vi.fn(() => {
-      if (!runtimeSlot.current) {
-        throw new Error('BST-1543 desktop MCP runtime was not installed');
-      }
-      return runtimeSlot.current;
-    }),
-  };
-});
 vi.mock('../../db-main', () => ({
   getDatabase: vi.fn(async () => ({
     exec: vi.fn(async () => undefined),
@@ -61,7 +46,6 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  runtimeSlot.current = undefined;
   try {
     await runtime?.host.close();
   } finally {
@@ -141,7 +125,6 @@ it('runs the legacy assistant HTTP turn without MCP tools', async () => {
     createHttpTransportClient,
     createStdioTransportClient,
   });
-  runtimeSlot.current = runtime;
   await runtime.replaceResolvedConfig({
     servers: [
       {
@@ -189,7 +172,6 @@ it('runs the legacy assistant HTTP turn without MCP tools', async () => {
   expect(response.body).toContain('BST-1930 legacy turn passed.');
   expect(llmHostManager.generateForMain).toHaveBeenCalled();
   expect(JSON.stringify(llmHostManager.generateForMain.mock.calls)).not.toContain(MODEL_TOOL_ID);
-  expect(getDesktopMcpHostRuntime).not.toHaveBeenCalled();
   expect(invoke).not.toHaveBeenCalled();
   expect(transport.callTool).not.toHaveBeenCalled();
   expect(close).not.toHaveBeenCalled();

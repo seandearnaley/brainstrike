@@ -133,7 +133,13 @@ function LiveShellOutputRegion({
   if (!(isRunning && shellOutput && shellOutput.text.length > 0)) {
     return null;
   }
-  return <LiveShellOutputPane text={shellOutput.text} truncated={shellOutput.truncated} />;
+  return (
+    <LiveShellOutputPane
+      omittedBytes={shellOutput.omittedBytes}
+      text={shellOutput.text}
+      truncated={shellOutput.truncated}
+    />
+  );
 }
 
 function ToolDetailLabel({ children }: { children: ReactNode }) {

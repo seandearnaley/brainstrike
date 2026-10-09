@@ -31,8 +31,11 @@ async function main(): Promise<void> {
       stop();
     }
   };
+  // An app host lives exactly as long as its launcher's IPC channel (ADR-0017): it closes when the
+  // app dies or lets it go. Other hosts outlive the creator that disconnects after their startup.
+  let appLifetime = false;
   const disconnected = (): void => {
-    if (!ready) {
+    if (!ready || appLifetime) {
       stop();
     }
   };
@@ -42,6 +45,7 @@ async function main(): Promise<void> {
   process.on('disconnect', disconnected);
   try {
     const options = decodeStartOptions(JSON.parse(process.argv[2] ?? 'null'));
+    appLifetime = options.lifetime === 'app';
     host = await startHost(options, undefined, controller.signal);
     controller.signal.throwIfAborted();
     ready = true;
