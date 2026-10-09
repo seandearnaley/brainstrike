@@ -25,8 +25,6 @@ type Execute = <T>(
 export function serveHostTurnSnapshots(
   connection: MessageConnection,
   execute: Execute,
-  /** The roots of the selection the admitting run holds. */
-  admittedRoots: (selectionRunId: string) => Promise<readonly { path: string; rootId: string }[]>,
   snapshots: DesktopWorkspaceSnapshots | undefined
 ): void {
   connection.onRequest('platform/snapshot/capture', (input: unknown, token: CancellationToken) =>
@@ -36,10 +34,7 @@ export function serveHostTurnSnapshots(
       if (!service) {
         throw new Error('This desktop has no workspace snapshot owner');
       }
-      const roots =
-        request.boundary === 'turn-start'
-          ? await admittedRoots(request.selectionRunId)
-          : request.roots.map(({ rootId, rootPath }) => ({ path: rootPath, rootId }));
+      const roots = request.roots.map(({ rootId, rootPath }) => ({ path: rootPath, rootId }));
       const captured: HostTurnSnapshot[] = [];
       for (const root of roots) {
         const outcome = await captureRootSnapshot(

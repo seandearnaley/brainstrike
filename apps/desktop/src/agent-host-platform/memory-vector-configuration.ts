@@ -17,7 +17,7 @@ type NativeOptions = NonNullable<MemoryConfiguration['native']['options']>;
  * hidden embedding host (ADR-0007). The host owns the vector store.
  */
 export async function createDesktopHostMemoryVectorConfiguration(
-  selection: PlatformSelection,
+  selection: Pick<PlatformSelection, 'memory'>,
   resolveProviderAuth: (provider: string) => Promise<ProviderAuthInput | undefined>,
   localEmbedding: LocalEmbeddingHostClient | undefined
 ): Promise<

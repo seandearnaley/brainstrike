@@ -27,6 +27,10 @@ import {
   MCP_SETTINGS_RESULT_SCHEMAS,
 } from './protocol-mcp-settings.js';
 import {
+  PERMISSION_POLICY_METHOD_SCHEMAS,
+  PERMISSION_POLICY_RESULT_SCHEMAS,
+} from './protocol-permission-policy.js';
+import {
   REWIND_EVENT_SCHEMAS,
   REWIND_METHOD_SCHEMAS,
   REWIND_RESULT_SCHEMAS,
@@ -52,6 +56,7 @@ export * from './mcp-authority-wire.js';
 export * from './protocol-mcp-content.js';
 export * from './protocol-mcp-presentation.js';
 export * from './protocol-mcp-settings.js';
+export * from './protocol-permission-policy.js';
 export * from './protocol-rewind.js';
 export * from './protocol-search.js';
 export * from './protocol-selection.js';
@@ -342,6 +347,7 @@ export const HOST_METHOD_SCHEMAS = {
   ...MCP_CONTENT_METHOD_SCHEMAS,
   ...MCP_PRESENTATION_METHOD_SCHEMAS,
   ...MCP_SETTINGS_METHOD_SCHEMAS,
+  ...PERMISSION_POLICY_METHOD_SCHEMAS,
   // auth/* is secret-bearing: process-local, never in HostCommandLedger, the log
   // or diagnostics. The host is the single writer and token holder.
   'auth/cancel': z.strictObject(Provider),
@@ -879,6 +885,7 @@ export const HOST_RESULT_SCHEMAS = {
   ...MCP_CONTENT_RESULT_SCHEMAS,
   ...MCP_PRESENTATION_RESULT_SCHEMAS,
   ...MCP_SETTINGS_RESULT_SCHEMAS,
+  ...PERMISSION_POLICY_RESULT_SCHEMAS,
   'auth/cancel': HostAuthStatusSchema,
   'auth/clear': z.strictObject({ cleared: z.boolean() }),
   'auth/connect': HostAuthStatusSchema,

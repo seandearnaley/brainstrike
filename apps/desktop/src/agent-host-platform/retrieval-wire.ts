@@ -34,7 +34,7 @@ const EmbeddingStateSchema = z.discriminatedUnion('indexMode', [
   }),
 ]);
 
-const InferencePlanSchema = z.object({
+export const InferencePlanSchema = z.object({
   device: z.enum(['wasm', 'webgpu']),
   dimensions: z.number().int().positive(),
   dtype: Dtype,

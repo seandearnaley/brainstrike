@@ -13,6 +13,7 @@ import { bindHostHookTrustMethods } from './hook-trust.js';
 import { bindHostMcpContentMethods } from './mcp-content-connection.js';
 import { bindHostMcpPresentationMethods } from './mcp-presentation-connection.js';
 import { bindHostMcpSettingsMethods } from './mcp-settings-connection.js';
+import { bindHostPermissionPolicyMethods } from './permission-policy.js';
 import type {
   HostAuthService,
   HostClientOrigin,
@@ -186,6 +187,7 @@ export function bindHostConnection(
   disposables.push(bindHostMcpPresentationMethods(handle, connection, mcpPresentation, origin));
   bindHostMcpContentMethods(handle, mcpContent, origin);
   bindHostHookTrustMethods(handle, core.store);
+  bindHostPermissionPolicyMethods(handle, core.store, origin);
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));
   handle('ledger/read', () => core.readLedger());

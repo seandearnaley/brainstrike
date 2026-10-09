@@ -6,7 +6,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
 import { type AgentHost, attachAgentHost, startAgentHost } from '@brainstrike/agent-host';
-import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { createHostCredentials } from '@brainstrike/host-capabilities/credentials';
 import { afterEach, expect, test, vi } from 'vitest';
 import {
@@ -14,13 +13,11 @@ import {
   type PlatformMessagePort,
 } from '../agent-host-platform/connection';
 import { createHostPlatform } from '../agent-host-platform/desktop-node-platform';
-import {
-  type DesktopPlatformSelection,
-  serveDesktopPlatform,
-} from '../agent-host-platform/main-platform';
+import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
+import { capturedIntent, mainReads } from './fixtures/desktop-admission-reads';
 import { desktopAppPaths } from './fixtures/desktop-host-profile';
 
 /** Same public MessageEvent shape as the Electron utility port, backed by real Node ports. */
@@ -40,40 +37,6 @@ class UtilityPort extends EventEmitter implements PlatformMessagePort {
     this.port.close();
   }
 }
-
-const selection: DesktopPlatformSelection = {
-  close: async () => undefined,
-  configuration: { model: 'codex/gpt-6-sol', provider: 'openai-codex' },
-  contextWindow: 32_000,
-  durableConfiguration: { model: 'codex/gpt-6-sol', provider: 'openai-codex' },
-  freshWorkspaceRoots: async () => [],
-  inputTokenLimit: 24_000,
-  maxSteps: 1,
-  memory: {
-    options: { lastMessages: 12, workingMemory: { enabled: false, scope: 'thread', template: '' } },
-    settings: {
-      observationalMemory: {
-        enabled: false,
-        messageTokens: 30_000,
-        modelTarget: 'auto',
-        observationTokens: 40_000,
-        retrievalMode: 'off',
-        scope: 'thread',
-      },
-      semanticRecall: {
-        embeddingModelTarget: null,
-        enabled: false,
-        messageRange: 2,
-        scope: 'resource',
-        topK: 5,
-      },
-    },
-  },
-  nativeRuntime: { provider: 'openai-codex', workspaceRoots: [] },
-  resourceId: 'subscription-origin-fixture',
-  tools: {},
-  toolTimeoutMs: 5000,
-};
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -109,10 +72,9 @@ test('a CLI socket client attached to the desktop host cannot resolve the openai
   });
   await seed.close();
   const mainOwner = serveDesktopPlatform(mainPlatformConnection(mainPort), {
+    admission: mainReads(),
     // Production's Main MCP stores; this scenario configures no MCP server.
     mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
-    readConfiguration: async () => selection,
-    readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
   });
   let host: AgentHost | undefined;
   let client: Awaited<ReturnType<typeof attachAgentHost>> | undefined;
@@ -131,7 +93,12 @@ test('a CLI socket client attached to the desktop host cannot resolve the openai
     const started = await attached
       .request('run/start', {
         commandId: randomUUID(),
-        modelId: 'openai-codex::codex/gpt-6-sol',
+        configuration: capturedIntent({
+          agentLoop: { maxSteps: 1 },
+          model: 'codex/gpt-5.5',
+          provider: 'openai-codex',
+        }),
+        modelId: 'openai-codex::codex/gpt-5.5',
         prompt: 'Read README.md',
         threadId,
       })

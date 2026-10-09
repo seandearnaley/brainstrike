@@ -32,7 +32,7 @@ vi.mock('../ipc-mcp', () => ({
 }));
 
 import { PlatformClientConfigurationSchema } from '../agent-host-platform/platform-wire';
-import { productionDesktopCapabilities } from '../agent-host-platform/production-desktop-capabilities';
+import { desktopAdmission } from './fixtures/desktop-admission';
 import lmStudioModels from './fixtures/lmstudio-v1-models.json';
 import ollamaTags from './fixtures/ollama-0.32.14-api-tags.json';
 
@@ -124,7 +124,7 @@ test('Main serves a host run’s worktree calls through its worktree service und
     })),
     list: vi.fn(async () => ({ ok: true as const, value: [] })),
   };
-  const worktrees = productionDesktopCapabilities({
+  const worktrees = desktopAdmission({
     resolveForgeService: () => null,
     resolveWorktreeService: () => service as never,
   }).hostTools?.worktrees?.({ runId: 'host-run', threadId: 'host-thread' });
@@ -148,7 +148,7 @@ test('Main serves a host run’s worktree calls through its worktree service und
 });
 
 test('a host thread is not offered worktree tools while Main has no worktree service', async () => {
-  const captured = await productionDesktopCapabilities({
+  const captured = await desktopAdmission({
     resolveWorktreeService: () => null,
   }).readConfiguration(request([...WORKTREE_TOOL_IDS, NATIVE_TOOL_ID.globWorkspace]));
   try {
@@ -179,7 +179,7 @@ test('Main admits the request’s curated context selection to the host’s nati
     selectedSourceApproxTokens: null,
     tokenBudget: 321,
   };
-  const captured = await productionDesktopCapabilities({}).readConfiguration(
+  const captured = await desktopAdmission({}).readConfiguration(
     request([NATIVE_TOOL_ID.readWorkspaceContext], {
       selectionFolderId: 'root-a',
       workspaceContext,
@@ -208,7 +208,7 @@ test('Main reconciles a host command’s worktrees under the host run’s identi
       value: { commonDir: '/repo/.git' },
     })),
   };
-  const shell = productionDesktopCapabilities({
+  const shell = desktopAdmission({
     resolveForgeService: () => null,
     resolveWorktreeService: () => service as never,
   }).hostTools?.shell;
@@ -243,9 +243,7 @@ test('Main admits one scan’s enabled skills to a host run, and none to the bui
   );
   const skills = { skillsPreference: { disabledSkillKeys: [], masterEnabled: true } };
   const admit = async (model: { readonly model: string; readonly provider: string }) => {
-    const captured = await productionDesktopCapabilities({}).readConfiguration(
-      request([], skills, model)
-    );
+    const captured = await desktopAdmission({}).readConfiguration(request([], skills, model));
     try {
       return {
         admitted: captured.nativeRuntime.skills?.map((entry) => entry.name),
@@ -292,7 +290,7 @@ test('a model the local Ollama or LM Studio runtime lists is admitted without a 
     ...OLLAMA_CHAT_MODELS.map((id) => ['ollama', id] as const),
     ...LM_STUDIO_CHAT_MODELS.map((id) => ['lmstudio', id] as const),
   ]) {
-    const captured = await productionDesktopCapabilities({}).readConfiguration(
+    const captured = await desktopAdmission({}).readConfiguration(
       request([], { agentLoop: { maxSteps: 3 } }, { model, provider })
     );
     try {
@@ -323,7 +321,7 @@ test('the auto observer is the first auto candidate the model catalog has enable
     throw new Error('Unexpected owner query in observer admission');
   });
   const memory = async (target: { model: string; provider: string }) => {
-    const captured = await productionDesktopCapabilities({}).readConfiguration(
+    const captured = await desktopAdmission({}).readConfiguration(
       request(
         [],
         {

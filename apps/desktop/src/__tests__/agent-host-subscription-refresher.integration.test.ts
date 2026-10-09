@@ -12,7 +12,6 @@ import {
   type HostClient,
   startAgentHost,
 } from '@brainstrike/agent-host';
-import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { createHostCredentials } from '@brainstrike/host-capabilities/credentials';
 import { afterEach, expect, test, vi } from 'vitest';
 import {
@@ -20,13 +19,11 @@ import {
   type PlatformMessagePort,
 } from '../agent-host-platform/connection';
 import { createHostPlatform } from '../agent-host-platform/desktop-node-platform';
-import {
-  type DesktopPlatformSelection,
-  serveDesktopPlatform,
-} from '../agent-host-platform/main-platform';
+import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
+import { capturedIntent, mainReads } from './fixtures/desktop-admission-reads';
 import { desktopAppPaths } from './fixtures/desktop-host-profile';
 
 /** The shipped Codex endpoints (descriptors/openai-codex), matched as recorded. */
@@ -50,40 +47,6 @@ class UtilityPort extends EventEmitter implements PlatformMessagePort {
     this.port.close();
   }
 }
-
-const selection: DesktopPlatformSelection = {
-  close: async () => undefined,
-  configuration: { model: 'codex/gpt-6-sol', provider: 'openai-codex' },
-  contextWindow: 32_000,
-  durableConfiguration: { model: 'codex/gpt-6-sol', provider: 'openai-codex' },
-  freshWorkspaceRoots: async () => [],
-  inputTokenLimit: 24_000,
-  maxSteps: 1,
-  memory: {
-    options: { lastMessages: 12, workingMemory: { enabled: false, scope: 'thread', template: '' } },
-    settings: {
-      observationalMemory: {
-        enabled: false,
-        messageTokens: 30_000,
-        modelTarget: 'auto',
-        observationTokens: 40_000,
-        retrievalMode: 'off',
-        scope: 'thread',
-      },
-      semanticRecall: {
-        embeddingModelTarget: null,
-        enabled: false,
-        messageRange: 2,
-        scope: 'resource',
-        topK: 5,
-      },
-    },
-  },
-  nativeRuntime: { provider: 'openai-codex', workspaceRoots: [] },
-  resourceId: 'subscription-refresher-fixture',
-  tools: {},
-  toolTimeoutMs: 5000,
-};
 
 /** Main's own client shape: a private port the host binds as the desktop origin. */
 async function desktopClient(host: AgentHost): Promise<HostClient> {
@@ -158,9 +121,8 @@ test('a desktop run and the legacy verifier share the host refresher without rep
   });
   await seed.close();
   const mainOwner = serveDesktopPlatform(mainPlatformConnection(mainPort), {
+    admission: mainReads(),
     mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
-    readConfiguration: async () => selection,
-    readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
   });
   let host: AgentHost | undefined;
   let desktop: HostClient | undefined;
@@ -178,7 +140,12 @@ test('a desktop run and the legacy verifier share the host refresher without rep
     const { threadId } = await ui.request('thread/start', { commandId: randomUUID() });
     await ui.request('run/start', {
       commandId: randomUUID(),
-      modelId: 'openai-codex::codex/gpt-6-sol',
+      configuration: capturedIntent({
+        agentLoop: { maxSteps: 1 },
+        model: 'codex/gpt-5.5',
+        provider: 'openai-codex',
+      }),
+      modelId: 'openai-codex::codex/gpt-5.5',
       prompt: 'Read README.md',
       threadId,
     });

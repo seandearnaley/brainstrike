@@ -46,6 +46,11 @@ export interface DesktopFactoryResetResult {
 export interface DesktopFactoryReset {
   /** Joins the reset in flight, if any; resets requested from now on are refused. */
   close(): Promise<void>;
+  /**
+   * Settles once no reset is in flight, its reopen included. A reset retires the
+   * profile only until it reopens it: whoever needs the profile meanwhile waits.
+   */
+  idle(): Promise<void>;
   reset(): Promise<DesktopFactoryResetResult>;
 }
 
@@ -231,6 +236,11 @@ export function createDesktopFactoryResetHandler({
     close: async () => {
       closed = true;
       await resetInFlight;
+    },
+    idle: async () => {
+      while (resetInFlight) {
+        await resetInFlight;
+      }
     },
     reset: async () => {
       if (closed) {

@@ -16,6 +16,7 @@
 
 import {
   permissionPolicySelectors,
+  usePermissionPolicyHydration,
   usePermissionPolicyStore,
 } from '@brainstrike/app-state/stores/permission-policy-store';
 import {
@@ -271,12 +272,37 @@ function SessionGrantsBlock() {
 }
 
 export function PermissionSettingsSection() {
+  const hydration = usePermissionPolicyHydration();
   const enforce = usePermissionPolicyStore(permissionPolicySelectors.enforce);
   const policies = usePermissionPolicyStore(permissionPolicySelectors.policies);
   const yolo = usePermissionPolicyStore(permissionPolicySelectors.yolo);
   const setEnforce = usePermissionPolicyStore((state) => state.setEnforce);
   const setCategoryPolicy = usePermissionPolicyStore((state) => state.setCategoryPolicy);
   const setYolo = usePermissionPolicyStore((state) => state.setYolo);
+
+  // BST-1930: editing defaults while the host is still opening can overwrite
+  // saved policy and lose the pending write when the user immediately quits.
+  if (hydration.status !== 'ready') {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Permissions</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {hydration.status === 'failed' ? (
+            <>
+              <p role="alert">Unable to load permission settings: {hydration.error}</p>
+              <Button onClick={() => void usePermissionPolicyStore.persist.rehydrate()}>
+                Retry
+              </Button>
+            </>
+          ) : (
+            <p role="status">Loading permission settings…</p>
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card>

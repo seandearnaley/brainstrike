@@ -1628,6 +1628,13 @@ other — see `docs/agents/assistant-providers.md`.
   Resolve its platform storage through a local deferred state-storage proxy so an
   optimized chunk-evaluation cycle cannot make Zustand omit the `persist` API; a
   later hydration retries and genuine adapter failures remain visible.
+- With the agent-host capability, the saved policy belongs to the host's
+  StateStore and is read and written through the typed `permissions/policy`
+  requests. Main and renderer storage keep no copy; session grants remain
+  transient. Permissions settings waits for the saved policy to load before
+  exposing edits, and shows a failed read with an explicit retry. This prevents
+  editing boot defaults while the host connection is still pending and losing
+  that change on an immediate quit.
 
 Flow (desktop assistant server → agent runtime):
 

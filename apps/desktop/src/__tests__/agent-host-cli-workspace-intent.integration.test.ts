@@ -134,8 +134,8 @@ vi.mock('@brainstrike/db', async (original) => ({
   },
 }));
 
-import { productionDesktopCapabilities } from '../agent-host-platform/production-desktop-capabilities';
 import { readDesktopHostConfiguration } from '../renderer/desktop-host-configuration';
+import { desktopAdmission } from './fixtures/desktop-admission';
 import { desktopHostIntentFixture as intent } from './fixtures/desktop-host-intent';
 
 const directories: string[] = [];
@@ -342,7 +342,7 @@ test.for([{ rootIds: ['root-a'] }, { rootIds: [] }])(
     });
     const unchanged = structuredClone(original);
     const readOwner = vi.fn(async () => original);
-    const capabilities = productionDesktopCapabilities({}, undefined, readOwner);
+    const capabilities = desktopAdmission({}, undefined, readOwner);
     const input = request(cliInput(rootIds));
     const captured = await capabilities.readConfiguration(input);
     try {
@@ -377,7 +377,7 @@ test.for([undefined, null, { modelConfiguration: { model: 'gpt-6-sol', provider:
   async (output) => {
     await workspace();
     const readOwner = vi.fn(async () => output);
-    const capabilities = productionDesktopCapabilities({}, undefined, readOwner);
+    const capabilities = desktopAdmission({}, undefined, readOwner);
     await expect(capabilities.readConfiguration(request(cliInput()))).rejects.toThrow();
     expect(readOwner).toHaveBeenCalledOnce();
     expect(owner.query.mock.calls.some(([sql]) => String(sql).includes('FROM roots'))).toBe(false);
@@ -388,7 +388,7 @@ test('actual Main refuses a trusted owner model mismatch before root acquisition
   await workspace();
   const original = intent();
   original.modelConfiguration.model = 'gpt-6-astra';
-  const capabilities = productionDesktopCapabilities({}, undefined, async () => original);
+  const capabilities = desktopAdmission({}, undefined, async () => original);
   await expect(capabilities.readConfiguration(request(cliInput()))).rejects.toThrow(
     'Captured settings do not belong'
   );
@@ -398,7 +398,7 @@ test('actual Main refuses a trusted owner model mismatch before root acquisition
 test('actual Main rejects caller-supplied owner intent in the strict CLI envelope', async () => {
   await workspace();
   const readOwner = vi.fn(async () => intent());
-  const capabilities = productionDesktopCapabilities({}, undefined, readOwner);
+  const capabilities = desktopAdmission({}, undefined, readOwner);
   await expect(
     capabilities.readConfiguration(request({ ...cliInput(), ownerIntent: intent() }))
   ).rejects.toThrow();
@@ -414,7 +414,7 @@ test('actual Main joins a held owner read and refuses after admission is aborted
     entered.resolve();
     return release.promise;
   });
-  const capabilities = productionDesktopCapabilities({}, undefined, readOwner);
+  const capabilities = desktopAdmission({}, undefined, readOwner);
   const pending = capabilities.readConfiguration({
     ...request(cliInput()),
     signal: controller.signal,
@@ -439,7 +439,7 @@ test('actual Main joins a held owner read and refuses after admission is aborted
 test('actual Main recovery retains committed full intent without rereading current preferences', async () => {
   await workspace();
   const readOwner = vi.fn(async () => intent());
-  const capabilities = productionDesktopCapabilities({}, undefined, readOwner);
+  const capabilities = desktopAdmission({}, undefined, readOwner);
   const input = request(cliInput());
   const admitted = await capabilities.readConfiguration(input);
   const snapshot = HostRunSnapshotSchema.parse({
@@ -467,7 +467,7 @@ test('actual Main recovery retains committed full intent without rereading curre
 test('actual Main preserves a nondefault full intent and refuses CLI reduction without its intent owner', async () => {
   await workspace();
   const original = intent();
-  const capabilities = productionDesktopCapabilities({}, async () => original.permissionPolicy);
+  const capabilities = desktopAdmission({}, async () => original.permissionPolicy);
   const captured = await capabilities.readConfiguration(request(original));
   try {
     expect(captured.durableConfiguration['intent']).toEqual(original);
@@ -522,7 +522,7 @@ test('actual Main context reads never begin B after revocation while A is held',
     workspaceContext: { ...intent().workspaceContext!, files: [] },
     workspaceInstructionsPreference: { masterEnabled: true, oversizedOptInByRootId: {} },
   };
-  const capabilities = productionDesktopCapabilities({});
+  const capabilities = desktopAdmission({});
   const pending = capabilities.readConfiguration(request(configuration));
   const settled = pending.then(
     async (selection) => {
@@ -640,7 +640,7 @@ test.each([
   async ({ toolId, selected }) => {
     await workspace();
     const fixture = native();
-    const capabilities = productionDesktopCapabilities({
+    const capabilities = desktopAdmission({
       embeddingHostManager: { queryEmbedding: fixture.queryEmbedding },
       nativeIndexSearch: fixture.capability,
     });
@@ -690,7 +690,7 @@ test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
     await workspace();
     const fixture = native();
     fixture.search.mockResolvedValue(fixture.result);
-    const capabilities = productionDesktopCapabilities({
+    const capabilities = desktopAdmission({
       embeddingHostManager: { queryEmbedding: fixture.queryEmbedding },
       nativeIndexSearch: fixture.capability,
     });
@@ -728,7 +728,7 @@ test.each([
     await workspace();
     const fixture = native();
     const admitted = await admitHostTools(
-      productionDesktopCapabilities({
+      desktopAdmission({
         embeddingHostManager: { queryEmbedding: fixture.queryEmbedding },
       }),
       request({
@@ -786,7 +786,7 @@ test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
       results: [{ chunk, position: 1, rrfScore: 0.1, sourceCount: 2 }],
     });
     const admitted = await admitHostTools(
-      productionDesktopCapabilities({
+      desktopAdmission({
         embeddingHostManager: { queryEmbedding: fixture.queryEmbedding },
       }),
       request({
@@ -817,7 +817,7 @@ test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
     await workspace();
     const fixture = native();
     const admitted = await admitHostTools(
-      productionDesktopCapabilities({
+      desktopAdmission({
         embeddingHostManager: { queryEmbedding: fixture.queryEmbedding },
         nativeIndexSearch: fixture.capability,
       }),
@@ -859,7 +859,7 @@ test.each([NATIVE_TOOL_ID.queryEmbeddingSpace, NATIVE_TOOL_ID.hybridSearch])(
     fixture.search.mockResolvedValue(result);
     fixture.grep.mockResolvedValue(result);
     const admitted = await admitHostTools(
-      productionDesktopCapabilities({
+      desktopAdmission({
         embeddingHostManager: { queryEmbedding: fixture.queryEmbedding },
         nativeIndexSearch: fixture.capability,
       }),
@@ -934,7 +934,7 @@ test.each([
       results: [{ chunk, position: 1, rrfScore: 0.1, sourceCount: 2 }],
     });
     const admitted = await admitHostTools(
-      productionDesktopCapabilities({
+      desktopAdmission({
         embeddingHostManager: { queryEmbedding: fixture.queryEmbedding },
         ...(backend === 'native' ? { nativeIndexSearch: fixture.capability } : {}),
       }),

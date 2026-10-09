@@ -119,42 +119,34 @@ const STORE_NAME = 'permission-policy.v1' as const;
 // silently reset users); only the in-payload `version` field bumps so the
 // migrate below can adopt the new secure default for slices that predate it.
 const STORE_VERSION = 2 as const;
+/** The persisted envelope's version, which a host-backed persistence writes back. */
+export const PERMISSION_POLICY_STORE_VERSION = STORE_VERSION;
 
 const ALL_RISK_CATEGORIES: readonly ToolRiskCategory[] = ['read', 'edit', 'execute', 'mcp'];
 
-interface ElectronStorageBridge {
-  readonly getItem: (key: string) => Promise<string | null>;
-  readonly removeItem: (key: string) => Promise<void>;
-  readonly setItem: (key: string, value: string) => Promise<void>;
+/**
+ * Where a client whose agent host owns the saved policy keeps it (the desktop:
+ * the host's StateStore, BST-1930 stage e). That client provides it when it
+ * starts; until then the store reads and writes nothing, and nothing goes to
+ * this window's own storage.
+ */
+const hostPersistence = Promise.withResolvers<StateStorage>();
+
+/** The desktop renderer's host-backed persistence for the saved policy. */
+export function provideHostPermissionPolicyPersistence(storage: StateStorage): void {
+  hostPersistence.resolve(storage);
 }
 
-function getElectronStorageBridge(): ElectronStorageBridge | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  const bridge = (
-    window as Window & {
-      electronAPI?: {
-        storage?: ElectronStorageBridge;
-      };
-    }
-  ).electronAPI?.storage;
-
-  return bridge ?? null;
+/** Capability, not platform: a window with an agent host client keeps the policy there. */
+function hasAgentHostClient(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    (window as Window & { agentHost?: unknown }).agentHost !== undefined
+  );
 }
 
-function createPermissionPolicyStorage() {
-  const electronStorage = getElectronStorageBridge();
-  if (electronStorage) {
-    return {
-      getItem: (key: string) => electronStorage.getItem(key),
-      removeItem: (key: string) => electronStorage.removeItem(key),
-      setItem: (key: string, value: string) => electronStorage.setItem(key, value),
-    };
-  }
-
-  return createBrowserJsonStorage();
+function createPermissionPolicyStorage(): StateStorage | Promise<StateStorage> {
+  return hasAgentHostClient() ? hostPersistence.promise : createBrowserJsonStorage();
 }
 
 function createDeferredPermissionPolicyStorage(): StateStorage {
@@ -197,6 +189,15 @@ function createDeferredPermissionPolicyStorage(): StateStorage {
 }
 
 const storage = createJSONStorage(createDeferredPermissionPolicyStorage);
+
+type PermissionPolicyHydration =
+  | { status: 'loading' | 'ready' }
+  | { status: 'failed'; error: string };
+
+/** Transient read status; only the policy store persists data. */
+export const usePermissionPolicyHydration = create<PermissionPolicyHydration>(() => ({
+  status: 'loading',
+}));
 
 function defaultPolicies(): PermissionPolicies {
   return { ...DEFAULT_PERMISSION_POLICIES };
@@ -338,6 +339,20 @@ export const usePermissionPolicyStore = create<PermissionPolicyStore>()(
         } satisfies PermissionPolicyData;
       },
       name: STORE_NAME,
+      onRehydrateStorage: () => {
+        usePermissionPolicyHydration.setState({ status: 'loading' }, true);
+        return (_state, error) => {
+          usePermissionPolicyHydration.setState(
+            error === undefined
+              ? { status: 'ready' }
+              : {
+                  error: error instanceof Error ? error.message : String(error),
+                  status: 'failed',
+                },
+            true
+          );
+        };
+      },
       // SESSION-ONLY `sessionGrants` is intentionally excluded — only the
       // persisted slice is written to storage.
       partialize: (state) => ({
