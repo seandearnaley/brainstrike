@@ -338,6 +338,13 @@ export interface HostRunAdmissionRequest {
   /** Plan mode: admit only what reads and proposes a plan, and say so to the model. */
   readonly planMode?: true;
   readonly prompt?: string;
+  /**
+   * The run this admission is for, minted before admission and committed with
+   * its run.started (a reopen passes the committed run's). A platform keys what
+   * it binds at admission by it, so a child borrowing this admission and the
+   * thread's next run never share one platform selection.
+   */
+  readonly runId: string;
   readonly signal: AbortSignal;
   /** Reopen the committed selection, rejecting changed executors rather than substituting. */
   readonly snapshot?: HostRunSnapshot;

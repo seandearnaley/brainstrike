@@ -169,6 +169,7 @@ test('actual Core binding commands reach the live Main owner over the private pl
     }
     const admission = await admitRun({
       modelId: 'gpt-4o-mini',
+      runId: `${threadId}-run`,
       signal: new AbortController().signal,
       threadId,
       workspaceBinding: request.patch,

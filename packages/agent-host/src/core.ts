@@ -494,11 +494,13 @@ export class HostCore {
     let release: (() => void) | undefined;
     // BST-1932: a child thread's run is admitted for its root, then narrowed.
     const root = this.children.rootThread(params.threadId);
+    // Admission is for this run: platforms key its selection by the run's ID.
+    const runId = randomUUID();
     try {
       const wake = method === 'wake' ? this.children.wakeSelection(params, this.runs) : undefined;
       admission = await acquireHostRunAdmission(this.platform, {
         ...hostRunCommandRequest(
-          { ...params, threadId: root },
+          { ...params, runId, threadId: root },
           origin,
           wake ? undefined : selected.prompt,
           controller.signal,
@@ -524,7 +526,7 @@ export class HostCore {
             ...(origin ? { origin } : {}),
           },
           method,
-          runId: randomUUID(),
+          runId,
         },
         hostDeliveryPosition(
           method,

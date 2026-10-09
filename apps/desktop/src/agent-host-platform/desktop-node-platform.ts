@@ -251,6 +251,7 @@ export async function createHostPlatform(
           modelId: admission.modelId,
           ...(admission.planMode ? { planMode: true } : {}),
           ...(admission.prompt === undefined ? {} : { prompt: admission.prompt }),
+          runId: admission.runId,
           threadId: admission.threadId,
         },
         admission.signal

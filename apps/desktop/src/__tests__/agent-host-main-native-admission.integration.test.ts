@@ -102,6 +102,7 @@ function request(
   return {
     configuration: z.record(z.string(), z.json()).parse(configuration),
     modelId: `${model.provider}::${model.model}`,
+    runId: 'host-run',
     signal: new AbortController().signal,
     threadId: 'host-thread',
   };

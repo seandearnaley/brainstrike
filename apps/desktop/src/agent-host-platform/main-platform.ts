@@ -137,6 +137,7 @@ function desktopAdmissionRequest(
     modelId: request.modelId,
     ...(request.planMode ? { planMode: true } : {}),
     ...(request.prompt === undefined ? {} : { prompt: request.prompt }),
+    runId: request.runId,
     signal,
     threadId: request.threadId,
   };
