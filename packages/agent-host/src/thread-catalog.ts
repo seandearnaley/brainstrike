@@ -5,6 +5,11 @@ import type { HostLogRow, HostResults } from './protocol.js';
 
 type ListedThread = HostResults['thread/list']['threads'][number];
 
+/** A damaged thread's refusal: its text is written for the person who opened or ran it. */
+export class HostThreadDamagedRefusal extends Error {
+  override readonly name = 'HostThreadDamagedRefusal';
+}
+
 /** The Root store Core opens over and commits to. */
 export type HostEventStore = HostHookTrustStore &
   Pick<StateStore, 'append' | 'holdBlobGc' | 'read' | 'readHydration' | 'root' | 'syncBoundary'> & {
@@ -149,7 +154,9 @@ export class HostThreadCatalog {
   ): Promise<HostLogRow[]> {
     const damage = this.damaged.get(threadId);
     if (damage !== undefined) {
-      return Promise.reject(new Error(`This thread's history cannot be read: ${damage}`));
+      return Promise.reject(
+        new HostThreadDamagedRefusal(`This thread's history cannot be read: ${damage}`)
+      );
     }
     return readHostThreadHistory(store, threads, threadId, fromSeq);
   }
@@ -157,7 +164,9 @@ export class HostThreadCatalog {
   assertRunnable(threadId: string): void {
     const damage = this.damaged.get(threadId);
     if (damage !== undefined) {
-      throw new Error(`This thread's history cannot be read, so it cannot run: ${damage}`);
+      throw new HostThreadDamagedRefusal(
+        `This thread's history cannot be read, so it cannot run: ${damage}`
+      );
     }
   }
 

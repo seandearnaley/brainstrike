@@ -1,17 +1,17 @@
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rename, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { readHostThreadTree } from './utils/agent-host-log';
 import {
-  configureAssistantProvider,
-  enableAssistantCatalogModel,
-  readAssistantMockRequests,
-  setupAssistantMock,
-} from './utils/assistant-mock';
+  readHostRoot,
+  readHostThreadTree,
+  readSpooledBlobHashes,
+  withAppHost,
+} from './utils/agent-host-log';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { runInteractiveChildFixture } from './utils/interactive-child-fixture';
 import {
   ensureActivityExpanded,
@@ -36,6 +36,11 @@ const RESUMED_REPLY = 'Question decision resumed.';
 const FOLLOW_UP_PROMPT = 'Now summarize what you found.';
 const FOLLOW_UP_REPLY = 'Summary after the question decision.';
 const LINEAR_TITLE = 'Approval linearity verification';
+const DAMAGED_PROMPT = 'Reply at length about the damaged history.';
+const HEALTHY_PROMPT = 'Reply briefly about the healthy history.';
+const LONG_REPLY_MARKER = 'LONG_REPLY_1932';
+/** One reply large enough that its committed rows spool into blobs. */
+const LONG_REPLY = `${LONG_REPLY_MARKER} ${'A long recorded reply. '.repeat(1200)}`;
 
 /** The text of the request's newest user message. */
 function lastUserMessage({ messages }: ModelProviderRequest): string {
@@ -89,12 +94,6 @@ async function readLinearRoot(userDataDir: string) {
   };
 }
 
-interface MessageParentEdgeRow {
-  readonly messageId: string;
-  readonly parentId: string | null;
-  readonly threadId: string;
-}
-
 async function waitForAssistantChat(window: Page): Promise<void> {
   await expect(await ensureAssistantShellVisible(window)).toBeVisible({
     timeout: E2E_TIMEOUTS.cardVisibility,
@@ -119,135 +118,6 @@ async function sendPrompt(window: Page, text: string): Promise<void> {
   await expect(window.getByText(text).first()).toBeVisible({
     timeout: E2E_TIMEOUTS.messageVisibility,
   });
-}
-
-/**
- * Reads the edge rows for one thread. The thread under test is captured ONCE
- * (from the composer's live thread via the newest edge row) and then passed
- * explicitly — a recency-based lookup per read could silently retarget if a
- * background write bumps another thread's `updatedAt` mid-test.
- */
-async function readThreadEdges(
-  page: Page,
-  threadId: string | null
-): Promise<readonly MessageParentEdgeRow[]> {
-  return await page.evaluate(async (scopedThreadId) => {
-    const api = (window as Window & { electronAPI?: unknown }).electronAPI;
-    const query = (
-      api as {
-        db?: {
-          query?: (
-            sql: string,
-            params?: readonly unknown[]
-          ) => Promise<{ rows?: readonly Record<string, unknown>[] }>;
-        };
-      }
-    )?.db?.query;
-    if (typeof query !== 'function') {
-      throw new Error('Electron db.query bridge is not available');
-    }
-    const result = scopedThreadId
-      ? await query(
-          `SELECT edges.message_id AS "messageId",
-                  edges.parent_id AS "parentId",
-                  edges.thread_id AS "threadId"
-             FROM brainstrike_assistant_message_parents AS edges
-            WHERE edges.thread_id = $1
-            ORDER BY edges.created_at ASC, edges.message_id ASC`,
-          [scopedThreadId]
-        )
-      : await query(
-          `SELECT edges.message_id AS "messageId",
-                  edges.parent_id AS "parentId",
-                  edges.thread_id AS "threadId"
-             FROM brainstrike_assistant_message_parents AS edges
-            ORDER BY edges.created_at DESC
-            LIMIT 1`
-        );
-    return (result.rows ?? []) as unknown as MessageParentEdgeRow[];
-  }, threadId);
-}
-
-/** Orders edges root-first; throws when the graph is not one linear chain. */
-function toLinearChain(edges: readonly MessageParentEdgeRow[]): readonly string[] {
-  const roots = edges.filter((edge) => edge.parentId === null);
-  if (roots.length !== 1) {
-    throw new Error(
-      `Expected exactly one root edge, got ${roots.length}: ${JSON.stringify(edges)}`
-    );
-  }
-  const childByParent = new Map<string, MessageParentEdgeRow>();
-  for (const edge of edges) {
-    if (edge.parentId === null) {
-      continue;
-    }
-    if (childByParent.has(edge.parentId)) {
-      throw new Error(`Sibling branch detected at parent ${edge.parentId}`);
-    }
-    childByParent.set(edge.parentId, edge);
-  }
-  const chain: string[] = [];
-  let cursor: MessageParentEdgeRow | undefined = roots[0];
-  while (cursor) {
-    chain.push(cursor.messageId);
-    cursor = childByParent.get(cursor.messageId);
-  }
-  if (chain.length !== edges.length) {
-    throw new Error(
-      `Edge graph is not one connected chain (${chain.length}/${edges.length}): ${JSON.stringify(edges)}`
-    );
-  }
-  return chain;
-}
-
-async function seedContentRowsForChain(
-  page: Page,
-  args: {
-    readonly chain: readonly string[];
-    readonly threadId: string;
-    readonly texts: readonly string[];
-    readonly title: string;
-  }
-): Promise<void> {
-  await page.evaluate(async ({ chain, threadId, texts, title }) => {
-    const api = (window as Window & { electronAPI?: unknown }).electronAPI;
-    const query = (
-      api as {
-        db?: {
-          query?: (sql: string, params?: readonly unknown[]) => Promise<unknown>;
-        };
-      }
-    )?.db?.query;
-    if (typeof query !== 'function') {
-      throw new Error('Electron db.query bridge is not available');
-    }
-    const resourceResult = (await query(`SELECT "resourceId" FROM mastra_threads WHERE id = $1`, [
-      threadId,
-    ])) as { rows?: readonly Record<string, unknown>[] };
-    const resourceId = resourceResult.rows?.[0]?.['resourceId'];
-    if (typeof resourceId !== 'string') {
-      throw new Error(`Thread ${threadId} has no resourceId`);
-    }
-    const base = Date.now() - chain.length * 1000;
-    for (const [index, messageId] of chain.entries()) {
-      const role = index % 2 === 0 ? 'user' : 'assistant';
-      const text = texts[index] ?? `${role} message ${index + 1}`;
-      await query(
-        `INSERT INTO mastra_messages
-             (id, thread_id, content, role, type, "createdAt", "resourceId")
-           VALUES ($1, $2, $3::jsonb, $4, 'v2', $5, $6)`,
-        [
-          messageId,
-          threadId,
-          JSON.stringify({ content: text, format: 2, parts: [{ text, type: 'text' }] }),
-          role,
-          new Date(base + index * 1000).toISOString(),
-          resourceId,
-        ]
-      );
-    }
-    await query('UPDATE mastra_threads SET title = $2 WHERE id = $1', [threadId, title]);
-  }, args);
 }
 
 test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
@@ -324,71 +194,119 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
     expect(modelCalls()).toBe(completedCalls);
   });
 
-  test('a failed decision discovery preserves history and clears after successful reload', async ({
+  // AT-12 case 2 on the blob-move seam: a thread whose spooled history cannot
+  // be read stays listed with its read failure, opens to an alert instead of a
+  // transcript, and leaves the other threads readable. Once its blob is back,
+  // the next launch reads it whole again. Nothing calls the model.
+  test('a damaged thread shows its read failure while the others list, then recovers with its blob', async ({
+    electron,
     modelProvider,
     window,
   }) => {
-    await prepareMockWorkspace(window);
-    const prompt = 'Keep this conversation while checking pending decisions.';
-    const reply = 'This saved response must remain visible.';
-    await configureAssistantProvider(window);
-    modelProvider.setScript({ finalText: reply });
-    await waitForAssistantChat(window);
-    await sendPrompt(window, prompt);
-    await expect(window.getByText(reply).first()).toBeVisible({
+    test.setTimeout(240_000);
+    const damagedTitle = 'Damaged history verification';
+    const healthyTitle = 'Healthy history verification';
+    const healthyReply = 'HEALTHY_REPLY_1932';
+    modelProvider.setScript((request) => {
+      const damaged = lastUserMessage(request).includes(DAMAGED_PROMPT);
+      if (request.toolNames.length === 0) {
+        return { finalText: damaged ? damagedTitle : healthyTitle };
+      }
+      return { finalText: damaged ? LONG_REPLY : healthyReply };
+    });
+    const modelCalls = (): number => modelProvider.requests().length;
+    let page = window;
+    const open = async (): Promise<void> => {
+      await prepareMockWorkspace(page);
+      await configureAssistantProvider(page);
+      await waitForAssistantChat(page);
+    };
+    await open();
+    await sendPrompt(page, DAMAGED_PROMPT);
+    const region = page.getByRole('region', { exact: true, name: 'Assistant' });
+    await expect(region.getByText(LONG_REPLY_MARKER).first()).toBeVisible({
       timeout: E2E_TIMEOUTS.messageVisibility,
     });
-    const latest = await readThreadEdges(window, null);
-    const threadId = latest[0]?.threadId;
-    if (!threadId) {
-      throw new Error('Expected the created conversation identity');
-    }
-    await expect.poll(async () => (await readThreadEdges(window, threadId)).length).toBe(2);
-    const chain = toLinearChain(await readThreadEdges(window, threadId));
-    const title = `Decision recovery E2E ${Date.now()}`;
-    await seedContentRowsForChain(window, { chain, texts: [prompt, reply], threadId, title });
-    let failDiscovery = true;
-    await window.route('**/assistant/suspended-runs?*', async (route) => {
-      await route.fulfill({
-        body: JSON.stringify(
-          failDiscovery
-            ? { error: 'ambiguous delegated snapshot' }
-            : { approvals: [], suspends: [] }
-        ),
-        contentType: 'application/json',
-        status: failDiscovery ? 500 : 200,
-      });
+    await page.getByTestId('assistant-new-thread-button').click();
+    // Each thread keeps its panel mounted: send from the new thread's own panel.
+    const healthyPanel = page
+      .getByRole('tabpanel', { exact: true, name: 'New Thread' })
+      .getByRole('region', { exact: true, name: 'Assistant' });
+    await healthyPanel.getByRole('textbox', { name: 'Message input' }).fill(HEALTHY_PROMPT);
+    await healthyPanel.getByRole('button', { exact: true, name: 'Send' }).click();
+    await expect(page.getByText(healthyReply, { exact: true }).first()).toBeVisible({
+      timeout: E2E_TIMEOUTS.messageVisibility,
     });
-    const reopen = async () => {
-      await window.reload();
-      const { mockFileSystemOperations } = await loadElectronHelpers();
-      await mockFileSystemOperations(window);
-      await ensureMockWorkspaceOpen(window);
-      await setupAssistantMock(window, { variant: 'simple' });
-      await waitForAssistantChat(window);
-      await window
-        .getByRole('treegrid', { name: 'Workspace threads' })
-        .getByRole('button')
-        .filter({ has: window.getByText(title, { exact: true }) })
-        .click();
-      await expect(window.getByText(prompt).first()).toBeVisible({
-        timeout: E2E_TIMEOUTS.messageVisibility,
-      });
-      await expect(window.getByText(reply).first()).toBeVisible();
-    };
-    await reopen();
-    const recovery = window
-      .getByRole('alert')
-      .filter({ hasText: 'Pending decisions could not be restored' });
-    await expect(recovery).toBeVisible();
-    await expect(recovery).toContainText('Reopen this thread to check again.');
-    expect(await readAssistantMockRequests(window)).toHaveLength(0);
-    expect(await readThreadEdges(window, threadId)).toHaveLength(2);
-    failDiscovery = false;
-    await reopen();
-    await expect(recovery).toHaveCount(0);
-    expect(await readThreadEdges(window, threadId)).toHaveLength(2);
-    expect(await readAssistantMockRequests(window)).toHaveLength(0);
+    const userDataDir = electron.getUserDataDir();
+    // A row's open button may also announce unseen activity after its title.
+    const threadRow = (title: string) =>
+      page
+        .getByTestId('thread-row')
+        .getByRole('button', { name: new RegExp(`^${title}(?: has unseen activity)?$`, 'u') });
+    await expect(threadRow(damagedTitle)).toBeVisible();
+    await expect(threadRow(healthyTitle)).toBeVisible();
+    const damagedThread = (await readHostThreadTree(userDataDir)).find(({ rows }) =>
+      rows.some(({ event }) => event.type === 'run.started' && event.prompt === DAMAGED_PROMPT)
+    );
+    if (!damagedThread) {
+      throw new Error('The host committed no thread for the damaged prompt');
+    }
+    const root = await readHostRoot(userDataDir);
+    const blobs = readSpooledBlobHashes(root, damagedThread.threadId);
+    expect(blobs.length).toBeGreaterThan(0);
+    const settledCalls = modelCalls();
+
+    // Move the thread's spooled blobs aside while no host owns the Root.
+    const aside = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-moved-blobs-'));
+    await electron.closeForStateSeeding();
+    for (const hash of blobs) {
+      await rename(path.join(root, 'blobs', hash), path.join(aside, hash));
+    }
+    page = await electron.ensureWindow();
+    await open();
+    // Its generated title is one of the rows the host cannot read, so the
+    // damaged thread lists under the default title until its blob returns.
+    const damagedListing = 'New Thread';
+    const marker = page.getByTestId('thread-read-failure');
+    await expect(marker).toHaveCount(1);
+    await expect(marker).toHaveAccessibleName(
+      new RegExp(`^${damagedListing}: its history cannot be read\\. `, 'u')
+    );
+    await expect(threadRow(damagedTitle)).toHaveCount(0);
+    const { threads } = await withAppHost(userDataDir, (client) =>
+      client.request('thread/list', {})
+    );
+    const damage = threads.find(({ threadId }) => threadId === damagedThread.threadId)?.damage;
+    expect(damage).toMatch(/\S/u);
+    await threadRow(damagedListing).click();
+    // The thread's panel shows the host's own refusal in place of a conversation.
+    const alert = page
+      .getByRole('tabpanel', { exact: true, name: damagedListing })
+      .getByRole('alert', { name: 'Agent host error' });
+    await expect(alert).toHaveText(`This thread's history cannot be read: ${damage}`);
+    await expect(page.getByText(LONG_REPLY_MARKER)).toHaveCount(0);
+    await threadRow(healthyTitle).click();
+    await expect(page.getByText(healthyReply, { exact: true }).first()).toBeVisible();
+    expect(modelCalls()).toBe(settledCalls);
+
+    // The blobs return; the next launch reads the thread whole.
+    await electron.closeForStateSeeding();
+    for (const hash of blobs) {
+      await rename(path.join(aside, hash), path.join(root, 'blobs', hash));
+    }
+    page = await electron.ensureWindow();
+    await open();
+    await expect(page.getByTestId('thread-read-failure')).toHaveCount(0);
+    await threadRow(damagedTitle).click();
+    await expect(page.getByText(LONG_REPLY_MARKER).first()).toBeVisible({
+      timeout: E2E_TIMEOUTS.messageVisibility,
+    });
+    await expect(
+      page
+        .getByRole('tabpanel', { exact: true, name: damagedTitle })
+        .getByRole('alert', { name: 'Agent host error' })
+    ).toHaveCount(0);
+    expect(modelCalls()).toBe(settledCalls);
   });
 
   // A decision in flight ("claimed") has no host form: `interaction/respond` is one
