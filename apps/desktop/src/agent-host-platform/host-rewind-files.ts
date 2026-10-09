@@ -4,7 +4,14 @@ import type {
   HostRewindFileOutcome,
   HostTurnSnapshot,
 } from '@brainstrike/agent-host';
+import { createLogger } from '@brainstrike/logging';
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
+import {
+  type CheckpointReindexAction,
+  createCheckpointReindexDeps,
+} from '../assistant-server/checkpoint-reindex-deps';
+import type { EditCheckpointDatabase } from '../assistant-server/edit-checkpoint-journal';
+import { reindexOutcome } from '../assistant-server/rewind-snapshot-engine';
 import { listThreadSnapshotChain } from '../assistant-server/snapshot-chains';
 import { execFileSnapshotGitRunner } from '../assistant-server/snapshot-git';
 import type {
@@ -12,6 +19,7 @@ import type {
   ShadowRepoHandle,
   SnapshotService,
 } from '../assistant-server/snapshot-service';
+import { getDatabase } from '../db-main';
 import {
   PlatformRewindApplySchema,
   PlatformRewindConflictsSchema,
@@ -22,6 +30,8 @@ import {
   PlatformRewindRedoConflictsSchema,
   PlatformRewindRedoSchema,
 } from './platform-wire';
+
+const logger = createLogger('HostRewindFiles');
 
 /** Previews kept for their rewind; an evicted one refuses as `preview-required`. */
 const MAX_STORED_PREVIEWS = 32;
@@ -34,6 +44,12 @@ interface StoredPreview {
 
 /** Main's owners a host rewind borrows: the one shadow-git service and the live root owner. */
 export interface HostRewindFilesOwners {
+  /**
+   * The same reindex seam legacy restores feed (`createCheckpointReindexDeps`):
+   * a restored path re-indexes and a deleted one invalidates, explicitly, not
+   * left to file watchers.
+   */
+  readonly reindex: () => Promise<(action: CheckpointReindexAction) => Promise<void>>;
   /** The live path of a mounted root; rejects an unmounted one. */
   readonly resolveWorkspaceRoot: (rootId: string) => Promise<string>;
   readonly snapshots: () => SnapshotService | null;
@@ -85,6 +101,31 @@ export function createHostRewindFiles(owners: HostRewindFilesOwners) {
   ): Promise<ShadowRepoHandle> {
     const path = await owners.resolveWorkspaceRoot(target.rootId);
     return await service.ensureShadowRepo({ path, rootId: target.rootId });
+  }
+
+  /**
+   * Legacy's post-restore reindex, path by path. Like legacy's, its failures
+   * are logged, never fatal: the files are already restored, and a failed
+   * report over a succeeded restore would be the worse lie.
+   */
+  async function reindexAll(
+    handle: ShadowRepoHandle,
+    rootId: string,
+    applied: readonly PerFileOutcome[]
+  ): Promise<void> {
+    let reindex: (action: CheckpointReindexAction) => Promise<void>;
+    try {
+      reindex = await owners.reindex();
+    } catch (error) {
+      logger.error('Host rewind reindex is unavailable (non-fatal; files already restored)', {
+        error: error instanceof Error ? error.message : String(error),
+        rootId,
+      });
+      return;
+    }
+    for (const outcome of applied) {
+      await reindexOutcome(reindex, handle.rootPath, rootId, outcome);
+    }
   }
 
   function service(): SnapshotService {
@@ -165,6 +206,7 @@ export function createHostRewindFiles(owners: HostRewindFilesOwners) {
         const applied = await owner.applyRestorePlan(handle, plan, {
           expectedPreRevertHashes: expected,
         });
+        await reindexAll(handle, target.rootId, applied);
         outcomes.push(...applied.map((outcome) => outcomeOf(target.rootId, outcome)));
       }
       return outcomes;
@@ -231,6 +273,7 @@ export function createHostRewindFiles(owners: HostRewindFilesOwners) {
         const applied = await owner.applyRestorePlan(planned.handle, planned.plan, {
           expectedPreRevertHashes: expected,
         });
+        await reindexAll(planned.handle, target.rootId, applied);
         outcomes.push(...applied.map((outcome) => outcomeOf(target.rootId, outcome)));
       }
       return outcomes;
@@ -273,6 +316,12 @@ export function serveHostRewindFiles(
   }
 ): void {
   const files = createHostRewindFiles({
+    reindex: async () =>
+      (
+        await createCheckpointReindexDeps(
+          (await getDatabase()) as unknown as EditCheckpointDatabase
+        )
+      ).reindex,
     resolveWorkspaceRoot: (rootId) => {
       if (!owners.resolveWorkspaceRoot) {
         throw new Error('Desktop has no live workspace root owner');

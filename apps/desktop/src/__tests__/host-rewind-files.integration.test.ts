@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { createHostRewindFiles } from '../agent-host-platform/host-rewind-files';
+import type { CheckpointReindexAction } from '../assistant-server/checkpoint-reindex-deps';
 import { execFileSnapshotGitRunner } from '../assistant-server/snapshot-git';
 import { createSnapshotService, type SnapshotService } from '../assistant-server/snapshot-service';
 
@@ -24,6 +25,7 @@ beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), 'bs-host-rewind-root-')));
   shadow = await realpath(await mkdtemp(join(tmpdir(), 'bs-host-rewind-shadow-')));
   service = createSnapshotService({ runner: execFileSnapshotGitRunner, snapshotsBaseDir: shadow });
+  reindexed = [];
 });
 
 afterEach(async () => {
@@ -33,8 +35,14 @@ afterEach(async () => {
 
 const read = (name: string) => readFile(join(root, name), 'utf8').catch(() => null);
 
+/** Every reindex action the restores feed, in order. */
+let reindexed: CheckpointReindexAction[] = [];
+
 function owner(mounted = true) {
   return createHostRewindFiles({
+    reindex: async () => async (action) => {
+      reindexed.push(action);
+    },
     resolveWorkspaceRoot: async (rootId) => {
       if (!(mounted && rootId === ROOT_ID)) {
         throw new Error('The workspace root is no longer mounted');
@@ -86,6 +94,21 @@ test('a rewind restores the turn, refuses drift until acknowledged, and redo und
   );
   expect(await read('notes.txt')).toBe('v1\n');
   expect(await read('made.txt')).toBeNull();
+  // The legacy post-restore reindex: a restored path re-indexes, a deleted one invalidates.
+  expect(reindexed).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        content: 'v1\n',
+        kind: 'restore',
+        rootId: ROOT_ID,
+        workspacePath: 'notes.txt',
+      }),
+      { kind: 'delete', rootId: ROOT_ID, workspacePath: 'made.txt' },
+      { kind: 'delete', rootId: ROOT_ID, workspacePath: 'late.txt' },
+    ])
+  );
+  expect(reindexed).toHaveLength(3);
+  reindexed = [];
   // A preview binds one apply.
   await expect(files.drift({ previewId, threadId: THREAD })).rejects.toThrow('preview-required');
 
@@ -98,6 +121,12 @@ test('a rewind restores the turn, refuses drift until acknowledged, and redo und
   expect(await read('notes.txt')).toBe('v2\n');
   expect(await read('made.txt')).toBe('made by the run\n');
   expect(await read('late.txt')).toBe('written after the preview\n');
+  // Redo reindexes the paths it brings back.
+  expect(reindexed.map(({ kind, workspacePath }) => `${kind} ${workspacePath}`).sort()).toEqual([
+    'restore late.txt',
+    'restore made.txt',
+    'restore notes.txt',
+  ]);
 });
 
 test('a redo names paths changed after the rewind, and forces only those acknowledged', {
