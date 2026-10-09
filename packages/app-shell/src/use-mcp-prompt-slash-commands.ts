@@ -25,7 +25,7 @@ import { resolveMcpPromptBridge } from './mcp-prompts/mcp-prompt-bridge';
 import { type McpPromptEntry, selectMcpPromptEntries } from './mcp-prompts/mcp-prompt-catalog';
 import { useMcpPromptSelectionStore } from './mcp-prompts/mcp-prompt-selection-store';
 import { splitComposerTrigger } from './mcp-prompts/mcp-prompt-text';
-import { useMcpStatusCapability } from './mcp-status-capability';
+import { useMcpStatusCapability } from './use-mcp-status-capability';
 
 const logger = createLogger('McpPromptSlashCommands');
 
