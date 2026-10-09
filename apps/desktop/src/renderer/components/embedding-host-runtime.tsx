@@ -61,6 +61,8 @@ import {
 import {
   createBackendMismatchError,
   createEmbeddingRuntimeMetadata,
+  embeddingHostDevice,
+  withResolvedHostDevice,
 } from './embedding-host-runtime-metadata';
 import { startEmbeddingTelemetryReporter } from './embedding-telemetry-reporter';
 import { createEmbeddingWorkerConfig } from './embedding-worker-config';
@@ -395,7 +397,7 @@ async function handleQueryEmbeddingRequest(options: {
           embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(
             selectedDevicePreference,
             runtime,
-            embeddingRuntimeRef.current?.hostDevice
+            embeddingHostDevice(embeddingRuntimeRef.current)
           );
           reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
             active: true,
@@ -525,11 +527,9 @@ async function startEmbeddingHostWorkerRuntime({
     await ensureEmbeddingQueueBootstrapLoaded();
     const hydratedPreferences = await resolveHydratedEmbeddingWorkerPreferences();
     const hydratedDevicePref = hydratedPreferences.devicePref;
-    embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(
-      hydratedDevicePref,
-      null,
-      hydratedDevicePref
-    );
+    embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(hydratedDevicePref, null, {
+      hostDevice: hydratedDevicePref,
+    });
     const workerConfig = createEmbeddingWorkerConfig(db, gate);
     const controller = await startEmbeddingWorker({
       ...workerConfig,
@@ -541,7 +541,7 @@ async function startEmbeddingHostWorkerRuntime({
         embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(
           hydratedDevicePref,
           metadata,
-          hydratedDevicePref
+          embeddingHostDevice(embeddingRuntimeRef.current)
         );
         const backendMismatchError = createBackendMismatchError(embeddingRuntimeRef.current);
         if (backendMismatchError) {
@@ -962,6 +962,20 @@ export function EmbeddingHostRuntime(): null {
             throw new Error('Embedding host database is unavailable for reset.');
           }
           await controls.reset(nextRuntimeId);
+        },
+        resolveDevice: async () => {
+          const current = embeddingRuntimeRef.current;
+          // Only the device an unpinned load uses; the worker keeps its own until restart.
+          const next = current
+            ? await withResolvedHostDevice(current, resolveHydratedVectorDevicePreference)
+            : null;
+          if (next && !disposed && embeddingRuntimeRef.current === current) {
+            embeddingRuntimeRef.current = next;
+            reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running', {
+              active: activeRef.current,
+              embeddingRuntime: next,
+            });
+          }
         },
         stop: async () => {
           stoppedByCommandRef.current = true;

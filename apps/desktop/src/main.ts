@@ -214,6 +214,7 @@ import { createNativeScopedSearchCapability } from './native-scoped-search';
 import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
+import { VECTOR_PREFERENCES_STORAGE_KEY } from './platform/vector-preferences-storage-key';
 import { registerPrivilegedSchemes } from './privileged-schemes';
 import {
   createDesktopSettingsSecrets,
@@ -978,7 +979,15 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
   onDeleteRootData: (rootId) => nativeRootDataDeletion.deleteRootData(rootId),
   onResetLocal: () => nativeRootDataDeletion.transition(() => handleResetLocal()),
   onStorageChanged: (key) => {
-    if (key !== NATIVE_INDEX_SETTINGS_KEY || !app.isReady() || isDesktopShuttingDown()) {
+    if (!app.isReady() || isDesktopShuttingDown()) {
+      return;
+    }
+    if (key === VECTOR_PREFERENCES_STORAGE_KEY) {
+      // Recall's unpinned device follows the preference; the worker keeps its own until restart.
+      embeddingHostManager.resolveDevice();
+      return;
+    }
+    if (key !== NATIVE_INDEX_SETTINGS_KEY) {
       return;
     }
     nativeRootDataDeletion

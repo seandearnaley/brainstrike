@@ -5,6 +5,7 @@ import {
 } from '@brainstrike/embeddings/inference-plan';
 import type { VectorProfile } from '@brainstrike/indexer';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
+import { waitForHostStartup } from '../embedding-host-startup';
 import { resolveNativeCanonicalProfile } from '../native-canonical-profile';
 import type { PlatformSelection } from './platform-wire';
 
@@ -74,14 +75,16 @@ export async function readEmbeddingHostDevice(
   host: Pick<EmbeddingHostManager, 'ensureStarted'>,
   signal: AbortSignal
 ): Promise<'webgpu' | 'wasm'> {
-  const status = await host.ensureStarted({ waitForRunning: true });
-  signal.throwIfAborted();
+  const status = await waitForHostStartup(host.ensureStarted({ waitForRunning: true }), signal);
   if (status.state !== 'running') {
     throw new Error(status.lastError ?? 'The embedding host is not running.');
   }
   const device = status.embeddingRuntime?.hostDevice;
   if (!device) {
-    throw new Error('The embedding host has not resolved its execution device.');
+    throw new Error(
+      status.embeddingRuntime?.hostDeviceError ??
+        'The embedding host has not resolved its execution device.'
+    );
   }
   return device;
 }

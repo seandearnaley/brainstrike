@@ -131,7 +131,7 @@ describe('embedding host shared command helpers', () => {
         runtimeId: 'embedding-host:runtime-1',
         type: 'request',
       })
-    ).toThrow('Embedding host command payload.action must be "reset" or "stop".');
+    ).toThrow('Embedding host command payload.action must be "reset", "resolve-device" or "stop".');
   });
 
   it('fails fast when reset commands omit nextRuntimeId', () => {
@@ -150,6 +150,17 @@ describe('embedding host shared command helpers', () => {
     expect(() => createEmbeddingHostCommand('stop', '   ')).toThrow(
       'Embedding host command runtimeId must be a non-empty string.'
     );
+  });
+
+  it('round-trips a resolve-device command, which carries no next runtime', () => {
+    const command = createEmbeddingHostCommand('resolve-device', 'embedding-host:runtime-1');
+    expect(assertEmbeddingHostCommand(command)).toEqual(command);
+    expect(() =>
+      assertEmbeddingHostCommand({
+        ...command,
+        payload: { action: 'resolve-device', nextRuntimeId: 'x' },
+      })
+    ).toThrow('must not include payload.nextRuntimeId');
   });
 
   it('fails fast when reset command creation receives a blank next runtime id', () => {

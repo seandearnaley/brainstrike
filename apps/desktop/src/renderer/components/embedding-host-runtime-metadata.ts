@@ -5,11 +5,29 @@ import type {
   EmbeddingHostWorkerRuntimeMetadata,
 } from '../../embedding-host-shared';
 
-/** The runtime metadata a status report carries; `hostDevice` is the device resolved at start. */
+/** The host's resolved device for unpinned loads, or why it could not resolve one. */
+export type EmbeddingHostDevice = Pick<
+  EmbeddingHostRuntimeMetadata,
+  'hostDevice' | 'hostDeviceError'
+>;
+
+/** The device fields a metadata update carries forward unchanged. */
+export function embeddingHostDevice(
+  metadata: EmbeddingHostRuntimeMetadata | null
+): EmbeddingHostDevice {
+  return {
+    ...(metadata?.hostDevice === undefined ? {} : { hostDevice: metadata.hostDevice }),
+    ...(metadata?.hostDeviceError === undefined
+      ? {}
+      : { hostDeviceError: metadata.hostDeviceError }),
+  };
+}
+
+/** The runtime metadata a status report carries. */
 export function createEmbeddingRuntimeMetadata(
   selectedDevicePreference: EmbeddingDeviceType,
   actualWorkerMetadata: EmbeddingHostWorkerRuntimeMetadata | null,
-  hostDevice: EmbeddingDeviceType | undefined
+  device: EmbeddingHostDevice
 ): EmbeddingHostRuntimeMetadata {
   return {
     actualWorkerMetadata,
@@ -17,10 +35,23 @@ export function createEmbeddingRuntimeMetadata(
       actualWorkerMetadata !== null &&
       (actualWorkerMetadata.device !== selectedDevicePreference ||
         actualWorkerMetadata.fallbackApplied),
-    ...(hostDevice === undefined ? {} : { hostDevice }),
+    ...device,
     selectedDevicePreference,
     telemetry: getEmbeddingTelemetrySnapshot(),
   };
+}
+
+/** The same metadata with its host device re-resolved, or the reason it could not be. */
+export async function withResolvedHostDevice(
+  current: EmbeddingHostRuntimeMetadata,
+  resolve: () => Promise<EmbeddingDeviceType>
+): Promise<EmbeddingHostRuntimeMetadata> {
+  const { hostDevice: _device, hostDeviceError: _error, ...rest } = current;
+  try {
+    return { ...rest, hostDevice: await resolve() };
+  } catch (error) {
+    return { ...rest, hostDeviceError: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 export function createBackendMismatchError(metadata: EmbeddingHostRuntimeMetadata): string | null {

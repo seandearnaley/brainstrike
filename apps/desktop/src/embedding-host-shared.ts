@@ -67,7 +67,7 @@ export interface EmbeddingHostBackfillRequest {
   readonly source?: EmbeddingBackfillSource;
 }
 
-export type EmbeddingHostCommandAction = 'reset' | 'stop';
+export type EmbeddingHostCommandAction = 'reset' | 'resolve-device' | 'stop';
 
 export type EmbeddingHostCommandPayload =
   | {
@@ -76,6 +76,10 @@ export type EmbeddingHostCommandPayload =
     }
   | {
       readonly action: 'stop';
+    }
+  | {
+      /** Re-resolve `hostDevice` from the saved preference; the worker keeps its device. */
+      readonly action: 'resolve-device';
     };
 
 export interface EmbeddingHostBackfillProgress extends BackgroundRuntimeProgress {
@@ -118,6 +122,8 @@ export interface EmbeddingHostRuntimeMetadata {
    * `selectedDevicePreference`, never this.
    */
   readonly hostDevice?: 'webgpu' | 'wasm';
+  /** A preference change could not resolve a device; recall reports this instead. */
+  readonly hostDeviceError?: string;
   readonly selectedDevicePreference: 'webgpu' | 'wasm';
   readonly telemetry: EmbeddingTelemetrySnapshot;
 }
@@ -183,7 +189,10 @@ export function assertEmbeddingHostQueryEmbeddingCancel(
 
 export const EMBEDDING_HOST_STOPPED_RUNTIME_ID = EMBEDDING_HOST_RUNTIME.stoppedRuntimeId;
 
-export function createEmbeddingHostCommand(action: 'stop', runtimeId: string): EmbeddingHostCommand;
+export function createEmbeddingHostCommand(
+  action: 'resolve-device' | 'stop',
+  runtimeId: string
+): EmbeddingHostCommand;
 export function createEmbeddingHostCommand(
   action: 'reset',
   runtimeId: string,
@@ -212,7 +221,7 @@ export function createEmbeddingHostCommand(
     };
   }
   if (nextRuntimeId !== undefined) {
-    throw new Error('Embedding host stop commands must not include nextRuntimeId.');
+    throw new Error(`Embedding host ${action} commands must not include nextRuntimeId.`);
   }
   return {
     channel: 'control',
@@ -235,8 +244,10 @@ export function assertEmbeddingHostCommand(value: unknown): EmbeddingHostCommand
     throw new Error('Embedding host command must have channel="control".');
   }
   const action = payload['action'];
-  if (action !== 'reset' && action !== 'stop') {
-    throw new Error('Embedding host command payload.action must be "reset" or "stop".');
+  if (action !== 'reset' && action !== 'resolve-device' && action !== 'stop') {
+    throw new Error(
+      'Embedding host command payload.action must be "reset", "resolve-device" or "stop".'
+    );
   }
   if (action === 'reset') {
     const nextRuntimeId = payload['nextRuntimeId'];
@@ -252,7 +263,7 @@ export function assertEmbeddingHostCommand(value: unknown): EmbeddingHostCommand
     };
   }
   if ('nextRuntimeId' in payload) {
-    throw new Error('Embedding host stop commands must not include payload.nextRuntimeId.');
+    throw new Error(`Embedding host ${action} commands must not include payload.nextRuntimeId.`);
   }
   return {
     channel: 'control',
@@ -310,6 +321,10 @@ function assertEmbeddingHostRuntimeMetadata(value: unknown): EmbeddingHostRuntim
       'Embedding host status embeddingRuntime.hostDevice must be "webgpu" or "wasm".'
     );
   }
+  const hostDeviceError = candidate['hostDeviceError'];
+  if (hostDeviceError !== undefined && typeof hostDeviceError !== 'string') {
+    throw new Error('Embedding host status embeddingRuntime.hostDeviceError must be a string.');
+  }
   const actualWorkerMetadata = candidate['actualWorkerMetadata'];
   return {
     actualWorkerMetadata:
@@ -318,6 +333,7 @@ function assertEmbeddingHostRuntimeMetadata(value: unknown): EmbeddingHostRuntim
         : assertEmbeddingWorkerRuntimeMetadata(actualWorkerMetadata),
     backendMismatch,
     ...(hostDevice === undefined ? {} : { hostDevice }),
+    ...(hostDeviceError === undefined ? {} : { hostDeviceError }),
     selectedDevicePreference,
     telemetry: assertEmbeddingTelemetrySnapshot(candidate['telemetry']),
   };

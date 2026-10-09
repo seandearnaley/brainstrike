@@ -303,6 +303,24 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     expect(lifecycleState.destroyHostWindow).not.toHaveBeenCalled();
   });
 
+  it('relays a preference change to a running host as resolve-device, never a reset', () => {
+    const manager = createEmbeddingHostManager();
+    manager.resolveDevice();
+    expect(mockHostWindow.webContents.send).toHaveBeenCalledTimes(1);
+    expect(mockHostWindow.webContents.send).toHaveBeenCalledWith(
+      'embedding-host:command',
+      expect.objectContaining({
+        payload: { action: 'resolve-device' },
+        runtimeId: 'embedding-host-runtime',
+      })
+    );
+    // A host that is not running resolves its device when it next starts.
+    mockHostWindow.webContents.send.mockClear();
+    currentLifecycleStatus.state = 'stopped';
+    manager.resolveDevice();
+    expect(mockHostWindow.webContents.send).not.toHaveBeenCalled();
+  });
+
   it('exposes resetting platform status while a renderer reset is in flight', async () => {
     let resolveReset!: () => void;
     const resetStatus: {
