@@ -1065,7 +1065,7 @@ const nativeIndexActivation = createNativeIndexActivation({
     },
     platformModule: resolveBundledSiblingPath(
       'Agent host platform',
-      'agent-host-platform-entry.js'
+      'agent-host-platform-entry.mjs'
     ),
     // The host owns the profile store Main reads.
     platformOptions: async () => {

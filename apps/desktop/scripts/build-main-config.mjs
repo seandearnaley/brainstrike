@@ -47,7 +47,6 @@ const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
 export const MAIN_PROCESS_ENTRY_POINTS = {
   'agent-host-entry': 'src/agent-host-entry.ts',
-  'agent-host-platform-entry': 'src/agent-host-platform-entry.ts',
   'db-host-entry': 'src/db-host-entry.ts',
   'hidden-preload': 'src/hidden-preload.ts',
   'host-lease-entry': 'src/host-lease-entry.ts',
@@ -122,4 +121,19 @@ export const MAIN_PROCESS_BUILD_OPTIONS = {
   // app). An empty tsconfigRaw disables paths resolution; bare imports stay
   // external and resolve at runtime exactly like the previous tsc output.
   tsconfigRaw: '{}',
+};
+
+/**
+ * The platform shares the Node kernel's ESM dependencies. Emitting CJS here
+ * loads a second agent/Mastra runtime through their conditional exports.
+ * Its utility launcher stays CJS so compile caching precedes all host imports.
+ * Main and both sandboxed preloads retain their existing CJS contract.
+ * @type {import('esbuild').BuildOptions}
+ */
+export const AGENT_HOST_PLATFORM_BUILD_OPTIONS = {
+  ...MAIN_PROCESS_BUILD_OPTIONS,
+  define: { __dirname: 'import.meta.dirname', __filename: 'import.meta.filename' },
+  entryPoints: { 'agent-host-platform-entry': 'src/agent-host-platform-entry.ts' },
+  format: 'esm',
+  outExtension: { '.js': '.mjs' },
 };

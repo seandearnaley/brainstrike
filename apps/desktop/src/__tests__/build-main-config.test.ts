@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  AGENT_HOST_PLATFORM_BUILD_OPTIONS,
   MAIN_PROCESS_BUILD_OPTIONS,
   MAIN_PROCESS_ENTRY_POINTS,
 } from '../../scripts/build-main-config.mjs';
@@ -61,7 +62,6 @@ describe('main-process bundle config', () => {
   it('bundles every runtime and logging transport entry point', () => {
     expect(MAIN_PROCESS_ENTRY_POINTS).toEqual({
       'agent-host-entry': 'src/agent-host-entry.ts',
-      'agent-host-platform-entry': 'src/agent-host-platform-entry.ts',
       'db-host-entry': 'src/db-host-entry.ts',
       'hidden-preload': 'src/hidden-preload.ts',
       'host-lease-entry': 'src/host-lease-entry.ts',
@@ -73,6 +73,9 @@ describe('main-process bundle config', () => {
       'parser-host-entry': 'src/parser-host-entry.ts',
       preload: 'src/preload.ts',
       'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
+    });
+    expect(AGENT_HOST_PLATFORM_BUILD_OPTIONS.entryPoints).toEqual({
+      'agent-host-platform-entry': 'src/agent-host-platform-entry.ts',
     });
   });
 
