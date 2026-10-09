@@ -34,6 +34,8 @@ import {
   warmUpMainProbes,
 } from './utils/foreground-latency-probes';
 import { writeIndexBuildCorpus } from './utils/index-build-corpus';
+import { ensureAssistantShellVisible } from './utils/layout-helpers';
+import { loadElectronHelpers } from './utils/load-electron-helpers';
 import type { ModelProviderShim } from './utils/model-provider-shim';
 import { createThreadMessageCorpus, type ThreadMessageCorpus } from './utils/thread-message-corpus';
 
@@ -65,7 +67,7 @@ const API_KEY = 'test-key-thread-embedding-benchmark';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
 const MODEL = 'anthropic/claude-sonnet-4.6';
 /** Host threads seeded at once; each thread's runs are sequential, as a conversation's are. */
-const SEED_CONCURRENCY = 8;
+const SEED_CONCURRENCY = 16;
 
 test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });
 
@@ -181,7 +183,10 @@ function lastUserText(messages: readonly unknown[]): string {
 /**
  * Host threads holding the corpus, committed by the host's own runs: each
  * user message is a run's prompt, and the provider answers with the next
- * message. Resolves with the conversation rows the runs committed.
+ * message. The first prompt is sent from the composer, so its run carries the
+ * configuration the app captures at Send; every other run reuses that
+ * configuration through a public host client. Resolves with the conversation
+ * rows the runs committed.
  */
 async function seedHostCorpus(
   page: Page,
@@ -189,15 +194,6 @@ async function seedHostCorpus(
   corpus: ThreadMessageCorpus,
   modelProvider: ModelProviderShim
 ): Promise<number> {
-  await configureAssistantProvider(page, {
-    apiKey: API_KEY,
-    compositeModelKey: `openrouter::${MODEL}`,
-    provider: 'openrouter',
-  });
-  await queryDb(page, 'UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2', [
-    MODEL,
-    'openrouter',
-  ]);
   const answers = new Map<string, string>();
   for (const thread of corpus.threads) {
     for (let index = 0; index + 1 < thread.messages.length; index += 2) {
@@ -216,38 +212,118 @@ async function seedHostCorpus(
     }
     return { finalText: answer };
   });
+  const [first, ...rest] = corpus.threads;
+  const firstPrompt = first?.messages[0]?.text;
+  if (!(first && firstPrompt)) {
+    throw new Error('The benchmark corpus has no first prompt');
+  }
+  await ensureAssistantShellVisible(page);
+  const region = page.getByRole('region', { exact: true, name: 'Assistant' });
+  const input = region.getByRole('textbox', { name: 'Message input' });
+  await expect(async () => {
+    await input.fill(firstPrompt);
+    await expect(input).toHaveValue(firstPrompt, { timeout: 1000 });
+  }).toPass({ timeout: 60_000 });
+  await region.getByRole('button', { exact: true, name: 'Send' }).click();
+  const tabId =
+    (await page
+      .getByRole('tablist', { name: 'Open assistant threads' })
+      .getByRole('tab', { selected: true })
+      .getAttribute('id')) ?? '';
+  const firstThreadId = tabId.replace('assistant-thread-tab-', '');
   return await withAppHost(userDataDir, async (client) => {
+    // Each thread is read from its last row on, so a poll never re-reads a whole log.
+    const cursors = new Map<string, number>();
     const finished = async (threadId: string, runId: string): Promise<void> => {
       await expect
         .poll(
-          async () =>
-            (await client.request('thread/read', { fromSeq: 0, threadId })).rows.find(
-              ({ event }) => event.type === 'run.finished' && event.runId === runId
-            )?.event,
+          async () => {
+            const { rows } = await client.request('thread/read', {
+              fromSeq: cursors.get(threadId) ?? 0,
+              threadId,
+            });
+            const last = rows.at(-1);
+            if (last) {
+              cursors.set(threadId, last.seq);
+            }
+            return rows.find(({ event }) => event.type === 'run.finished' && event.runId === runId)
+              ?.event;
+          },
           { intervals: [100], timeout: 60_000 }
         )
         .toMatchObject({ outcome: 'completed' });
     };
-    const queue = [...corpus.threads];
-    let rows = 0;
+    // The composer's run: its accepted command holds the captured configuration.
+    let configuration: Record<string, unknown> | undefined;
+    await expect
+      .poll(
+        async () => {
+          const { rows } = await client.request('thread/read', {
+            fromSeq: 0,
+            threadId: firstThreadId,
+          });
+          const accepted = rows.find(
+            ({ event }) => event.type === 'command.accepted' && event.method === 'run/start'
+          )?.event;
+          const payload =
+            accepted?.type === 'command.accepted'
+              ? (accepted.payload as Record<string, unknown>)
+              : {};
+          configuration = payload['configuration'] as Record<string, unknown> | undefined;
+          return rows.some(
+            ({ event }) => event.type === 'run.finished' && event.outcome === 'completed'
+          );
+        },
+        { timeout: 60_000 }
+      )
+      .toBe(true);
+    if (!configuration) {
+      throw new Error('The composer run committed no captured configuration');
+    }
+    const captured = configuration;
+    const runs = async (
+      threadId: string,
+      messages: ThreadMessageCorpus['threads'][number]['messages'],
+      from: number
+    ): Promise<number> => {
+      let committed = 0;
+      for (let index = from; index + 1 < messages.length; index += 2) {
+        const { runId } = await client.request('run/start', {
+          commandId: randomUUID(),
+          configuration: captured as never,
+          modelId: `openrouter::${MODEL}`,
+          prompt: messages[index]?.text ?? '',
+          threadId,
+        });
+        await finished(threadId, runId);
+        committed += 2;
+      }
+      return committed;
+    };
+    let rows = 2 + (await runs(firstThreadId, first.messages, 2));
+    const queue = [...rest];
     const seedNext = async (): Promise<void> => {
       for (let thread = queue.shift(); thread; thread = queue.shift()) {
         const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
-        for (let index = 0; index + 1 < thread.messages.length; index += 2) {
-          const { runId } = await client.request('run/start', {
-            commandId: randomUUID(),
-            modelId: `openrouter::${MODEL}`,
-            prompt: thread.messages[index]?.text ?? '',
-            threadId,
-          });
-          await finished(threadId, runId);
-          rows += 2;
-        }
+        rows += await runs(threadId, thread.messages, 0);
       }
     };
     await Promise.all(Array.from({ length: SEED_CONCURRENCY }, seedNext));
     return rows;
   });
+}
+
+/** The host runs' provider and model, enabled before the seeding reload reads them. */
+async function enableBenchmarkModel(page: Page): Promise<void> {
+  await configureAssistantProvider(page, {
+    apiKey: API_KEY,
+    compositeModelKey: `openrouter::${MODEL}`,
+    provider: 'openrouter',
+  });
+  await queryDb(page, 'UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2', [
+    MODEL,
+    'openrouter',
+  ]);
 }
 
 /** The host's rows and stored search vectors; the host keeps no per-row embedding error. */
@@ -288,9 +364,10 @@ test.describe('Foreground latency under thread message embedding', () => {
     'measures foreground latency while the Threads panel embeds its message backlog',
     { tag: '@perf' },
     async ({ electron, electronApp, modelProvider, window: page }, testInfo) => {
-      test.setTimeout(30 * 60 * 1000);
-      const device = readBenchDevice(DEVICE_ENV);
       const owner = readOwner();
+      // Seeding 800 host runs takes most of an hour; the history corpus is rows in a table.
+      test.setTimeout((owner === 'host' ? 90 : 30) * 60 * 1000);
+      const device = readBenchDevice(DEVICE_ENV);
       const evidencePath =
         process.env[EVIDENCE_PATH_ENV]?.trim() ||
         testInfo.outputPath('foreground-latency-under-thread-embedding.json');
@@ -307,6 +384,9 @@ test.describe('Foreground latency under thread message embedding', () => {
 
       try {
         await showAppWindow(electronApp.app, page);
+        if (owner === 'host') {
+          await enableBenchmarkModel(page);
+        }
         await seedPausedWorkspace(
           page,
           probeRoot.rootPath,
@@ -319,14 +399,28 @@ test.describe('Foreground latency under thread message embedding', () => {
           owner === 'history'
             ? await seedHistoryCorpus(page, corpus)
             : await seedHostCorpus(page, electron.getUserDataDir(), corpus, modelProvider);
+        // A fresh app measures the host owner, as the history owner is measured
+        // with no runs behind it: the seeding runs' process state is not the load.
+        let app = electronApp.app;
+        let view = page;
+        if (owner === 'host') {
+          const restarted = await electron.restart();
+          app = restarted.app;
+          view = restarted.window;
+          await (await loadElectronHelpers()).waitForAppReady(view);
+          await showAppWindow(app, view);
+          await expect(view.getByTestId('indexing-status-trigger')).toContainText('Paused', {
+            timeout: 60_000,
+          });
+        }
         const counted = (): Promise<EmbeddingCounts> =>
           owner === 'history'
-            ? readEmbeddingCounts(page)
+            ? readEmbeddingCounts(view)
             : readHostEmbeddingCounts(electron.getUserDataDir());
-        await openThreadsPanel(page);
+        await openThreadsPanel(view);
 
-        await installRendererFrameProbe(page);
-        await installMainProbes(electronApp.app, {
+        await installRendererFrameProbe(view);
+        await installMainProbes(app, {
           chatRunId,
           embeddingSetId: PROBE_EMBEDDING_SET_ID,
           grepFilePath: NEVER_INDEXED_GREP_PATH,
@@ -335,20 +429,20 @@ test.describe('Foreground latency under thread message embedding', () => {
           readTargetPath: probeRoot.readTargetPath,
           rootPath: probeRoot.rootPath,
         });
-        const rendererCalibration = await calibrateRendererFrameProbe(page, CALIBRATION_BLOCK_MS);
+        const rendererCalibration = await calibrateRendererFrameProbe(view, CALIBRATION_BLOCK_MS);
 
         // ---- idle: Threads panel open, nothing searched or embedding ----
-        const warmUpErrors = await warmUpMainProbes(electronApp.app, WARMUP_SAMPLES);
-        await markRendererPhase(page, 'idle-start');
-        const idleMain = await runMainIdlePhase(electronApp.app, IDLE_SAMPLES);
-        await markRendererPhase(page, 'idle-end');
-        const idleRenderer = await readRendererWindows(page, [['idle-start', 'idle-end']]);
+        const warmUpErrors = await warmUpMainProbes(app, WARMUP_SAMPLES);
+        await markRendererPhase(view, 'idle-start');
+        const idleMain = await runMainIdlePhase(app, IDLE_SAMPLES);
+        await markRendererPhase(view, 'idle-end');
+        const idleRenderer = await readRendererWindows(view, [['idle-start', 'idle-end']]);
 
         // ---- loaded: from the search until every seeded message is embedded ----
         // The count checks run between windows, so they are not measured.
-        const search = page.getByRole('combobox', { name: 'Search threads' });
-        await startMainLoadedPhase(electronApp.app);
-        await markRendererPhase(page, 'loaded-start-0');
+        const search = view.getByRole('combobox', { name: 'Search threads' });
+        await startMainLoadedPhase(app);
+        await markRendererPhase(view, 'loaded-start-0');
         const drainStartedAt = Date.now();
         await search.fill(SEARCH_QUERIES[0] ?? 'vector latency');
         const loadedWindows: Array<readonly [string, string]> = [];
@@ -356,10 +450,10 @@ test.describe('Foreground latency under thread message embedding', () => {
         let lastProgressAt = drainStartedAt;
         let drainElapsedMs: number;
         for (let segment = 0; ; segment += 1) {
-          await page.waitForTimeout(CHECK_EVERY_MS);
+          await view.waitForTimeout(CHECK_EVERY_MS);
           const checkedAt = Date.now();
-          await pauseMainLoadedPhase(electronApp.app);
-          await markRendererPhase(page, `loaded-end-${segment}`);
+          await pauseMainLoadedPhase(app);
+          await markRendererPhase(view, `loaded-end-${segment}`);
           loadedWindows.push([`loaded-start-${segment}`, `loaded-end-${segment}`]);
           const next = await counted();
           if (next.embedded !== counts.embedded || next.errored !== counts.errored) {
@@ -381,15 +475,15 @@ test.describe('Foreground latency under thread message embedding', () => {
             drainElapsedMs = checkedAt - drainStartedAt;
             break;
           }
-          await resumeMainLoadedPhase(electronApp.app);
-          await markRendererPhase(page, `loaded-start-${segment + 1}`);
+          await resumeMainLoadedPhase(app);
+          await markRendererPhase(view, `loaded-start-${segment + 1}`);
           // A finished drain stops; the next search queues the next one.
           await search.fill(
             SEARCH_QUERIES[(segment + 1) % SEARCH_QUERIES.length] ?? 'vector latency'
           );
         }
-        const loadedMain = await stopMainLoadedPhase(electronApp.app);
-        const loadedRenderer = await readRendererWindows(page, loadedWindows);
+        const loadedMain = await stopMainLoadedPhase(app);
+        const loadedRenderer = await readRendererWindows(view, loadedWindows);
 
         // ---- validity: refuse to report numbers that cannot mean anything ----
         const idleRendererMetrics = rendererMetrics(idleRenderer);
