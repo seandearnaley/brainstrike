@@ -55,6 +55,9 @@ function bindAcquiredPlatform(owned: HostPlatform, acquired: HostPlatform): void
   if (acquired.forgetThread) {
     owned.forgetThread = acquired.forgetThread.bind(acquired);
   }
+  if (acquired.readMemoryReadiness) {
+    owned.readMemoryReadiness = acquired.readMemoryReadiness.bind(acquired);
+  }
   if (acquired.resolveWorkspaceRoot) {
     owned.resolveWorkspaceRoot = acquired.resolveWorkspaceRoot.bind(acquired);
   }

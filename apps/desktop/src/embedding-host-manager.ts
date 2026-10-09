@@ -36,6 +36,7 @@ import {
   type EmbeddingHostStatus,
   type EmbeddingHostStatusReport,
 } from './embedding-host-shared';
+import { waitForHostStartup } from './embedding-host-startup';
 import { HostedEmbeddingRequests } from './hosted-embedding-requests';
 import { createHostRequestChannel, type HostRequestChannel } from './platform/host-request-channel';
 import {
@@ -56,35 +57,6 @@ const EMBEDDING_HOST_STATUS_IDLE_GRACE_MS = 5000;
 // Leave time for the remaining owners inside main's five-second shutdown budget.
 const EMBEDDING_HOST_SHUTDOWN_TIMEOUT_MS = 3000;
 const EMBEDDING_HOST_STOP_TIMEOUT_MS = 10_000;
-
-function waitForHostStartup(
-  startup: Promise<EmbeddingHostStatus>,
-  signal?: AbortSignal
-): Promise<EmbeddingHostStatus> {
-  if (!signal) {
-    return startup;
-  }
-  return new Promise((resolve, reject) => {
-    const onAbort = (): void => {
-      signal.removeEventListener('abort', onAbort);
-      reject(signal.reason);
-    };
-    void startup.then(
-      (status) => {
-        signal.removeEventListener('abort', onAbort);
-        resolve(status);
-      },
-      (error: unknown) => {
-        signal.removeEventListener('abort', onAbort);
-        reject(error);
-      }
-    );
-    signal.addEventListener('abort', onAbort, { once: true });
-    if (signal.aborted) {
-      onAbort();
-    }
-  });
-}
 
 export interface EmbeddingHostManagerOptions {
   readonly platform?: NodeJS.Platform;
@@ -337,6 +309,27 @@ export class EmbeddingHostManager {
   async stop(): Promise<EmbeddingHostStatus> {
     this.assertNotDisposed('stop');
     return this.stopHost();
+  }
+
+  /**
+   * A vector preference changed: a running host re-resolves the device an
+   * unpinned load runs on (`hostDevice`), as a new legacy query service did.
+   * Its background worker keeps its device until the host restarts. A host
+   * that is not running, or a disposed manager, has no device to re-resolve.
+   */
+  resolveDevice(): void {
+    const window = this.lifecycle.getHostWindow();
+    const status = this.getStatus();
+    if (this.disposed || this.disposing || !window || window.isDestroyed()) {
+      return;
+    }
+    if (status.state !== 'running') {
+      return;
+    }
+    window.webContents.send(
+      EMBEDDING_HOST_COMMAND_EVENT,
+      createEmbeddingHostCommand('resolve-device', status.runtimeId)
+    );
   }
 
   private async stopHost(timeoutMs = EMBEDDING_HOST_STOP_TIMEOUT_MS): Promise<EmbeddingHostStatus> {

@@ -46,7 +46,6 @@ import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thr
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-repository';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
-import type { SelectedEmbeddingRequestPlan } from '@brainstrike/embeddings/inference-plan';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
 import { z } from 'zod';
 import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
@@ -83,7 +82,10 @@ import type {
 } from './desktop-workspace-binding';
 import type { DesktopShellCorrelation, HostToolServiceCapabilities } from './host-tool-services';
 import type { DesktopPlatformCapabilities, DesktopPlatformSelection } from './main-platform';
-import { resolveDesktopMemoryVectors } from './memory-vector-selection';
+import {
+  type DesktopMemoryVectorSelection,
+  resolveDesktopMemoryVectors,
+} from './memory-vector-selection';
 import {
   PlatformAdmittedSkillSchema,
   PlatformClientConfigurationSchema,
@@ -323,6 +325,23 @@ function resolveDesktopMemorySettings(
         : { ...observation, modelTarget: observerTarget },
   };
   return { memorySettings, observerTarget };
+}
+
+/** The admitted Memory selection; observations wait when 'auto' found no candidate. */
+function desktopMemorySelection(
+  intent: z.output<typeof PlatformClientConfigurationSchema>,
+  settings: z.output<typeof PlatformClientConfigurationSchema>['memorySettings'],
+  observerTarget: string | null,
+  vectors: DesktopMemoryVectorSelection | undefined
+): DesktopPlatformSelection['memory'] {
+  return {
+    ...(intent.memorySettings.observationalMemory.enabled && observerTarget === null
+      ? { observerAwaiting: 'no-hosted-chat-provider' as const }
+      : {}),
+    options: intent.memoryOptions,
+    settings,
+    ...(vectors ? { vectorProfile: vectors.profile } : {}),
+  };
 }
 
 /** Catalog dimensions of the recall embedder: hosted from the registry, local from the DB catalog. */
@@ -653,13 +672,14 @@ function desktopRunTools(
   return desktopPlanModeTools(tools);
 }
 
-async function readSavedLocalEmbeddingSelection(
-  read: (() => Promise<SelectedEmbeddingRequestPlan | undefined>) | undefined
-): Promise<SelectedEmbeddingRequestPlan | undefined> {
+async function readLocalEmbeddingHostDevice(
+  read: ((signal: AbortSignal) => Promise<'webgpu' | 'wasm'>) | undefined,
+  signal: AbortSignal
+): Promise<'webgpu' | 'wasm'> {
   if (!read) {
-    throw new Error('Local Memory vectors require the saved local execution selection');
+    throw new Error('Local Memory vectors require the embedding host');
   }
-  return await read();
+  return await read(signal);
 }
 
 /** Main's worktree/forge correlation of host commands, over the same services as legacy threads. */
@@ -712,7 +732,7 @@ export function productionDesktopCapabilities(
   readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>,
   readCliOwnerIntent?: DesktopCliOwnerIntentReader,
   workspaceAuthority?: DesktopWorkspaceBindingAuthority,
-  readLocalEmbeddingSelection?: () => Promise<SelectedEmbeddingRequestPlan | undefined>
+  readLocalEmbeddingDevice?: (signal: AbortSignal) => Promise<'webgpu' | 'wasm'>
 ): Omit<DesktopPlatformCapabilities, 'mcp'> {
   const policies = new Map<string, PermissionToolGateSnapshot>();
   // A host thread's session grants are the host's own (permission.granted);
@@ -725,14 +745,15 @@ export function productionDesktopCapabilities(
     );
     return policy;
   };
-  const readConfiguration = async (
-    request: HostRunAdmissionRequest,
-    workspace?: DesktopWorkspaceBindingBorrow
-  ): Promise<DesktopPlatformSelection> => {
+  /**
+   * The admission's pure preconditions: the catalog model and captured
+   * settings, observer resolution and the recall-embedder plan. A run
+   * admission and thread/memory/read both start here; nothing is acquired.
+   */
+  const readPreconditions = async (request: HostRunAdmissionRequest) => {
     const db = await getDatabase();
     request.signal.throwIfAborted();
     const catalog = await readDesktopCatalogSelection(db, request.modelId);
-    const { definition } = catalog;
     const intent = await readDesktopIntent(
       request,
       catalog,
@@ -740,20 +761,47 @@ export function productionDesktopCapabilities(
       readCliOwnerIntent
     );
     const configuration = PlatformModelConfigurationSchema.parse(intent.modelConfiguration);
-    const permissionPolicy = platformPermissionPolicy(intent.permissionPolicy);
     if (configuration.provider !== catalog.provider || configuration.model !== catalog.model) {
       throw new Error('Captured settings do not belong to the selected catalog model');
     }
-    const inputTokenLimit = desktopInputTokenLimit(definition, intent, configuration);
+    const inputTokenLimit = desktopInputTokenLimit(catalog.definition, intent, configuration);
     const { memorySettings, observerTarget } = resolveDesktopMemorySettings(
       intent,
       configuration.provider
     );
     const memoryVectors = await resolveDesktopMemoryVectors(memorySettings, {
       readDimensions: (provider, modelId) => readEmbeddingDimensions(db, provider, modelId),
-      readLocalSelection: () => readSavedLocalEmbeddingSelection(readLocalEmbeddingSelection),
+      readLocalDevice: () => readLocalEmbeddingHostDevice(readLocalEmbeddingDevice, request.signal),
     });
     request.signal.throwIfAborted();
+    const memory = desktopMemorySelection(intent, memorySettings, observerTarget, memoryVectors);
+    return {
+      catalog,
+      configuration,
+      db,
+      inputTokenLimit,
+      intent,
+      memory,
+      memoryVectors,
+      observerTarget,
+    };
+  };
+  const readConfiguration = async (
+    request: HostRunAdmissionRequest,
+    workspace?: DesktopWorkspaceBindingBorrow
+  ): Promise<DesktopPlatformSelection> => {
+    const {
+      catalog,
+      configuration,
+      db,
+      inputTokenLimit,
+      intent,
+      memory,
+      memoryVectors,
+      observerTarget,
+    } = await readPreconditions(request);
+    const { definition } = catalog;
+    const permissionPolicy = platformPermissionPolicy(intent.permissionPolicy);
     const budget = resolveScaledToolResultBudget(definition.contextWindow);
     const native = await createDesktopNativeTools(
       db,
@@ -816,11 +864,7 @@ export function productionDesktopCapabilities(
         freshWorkspaceRoots: native.freshRoots,
         inputTokenLimit,
         maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
-        memory: {
-          options: intent.memoryOptions,
-          settings: memorySettings,
-          ...(memoryVectors ? { vectorProfile: memoryVectors.profile } : {}),
-        },
+        memory,
         ...(memoryVectors?.local ? { localEmbedding: memoryVectors.local } : {}),
         nativeRuntime: desktopNativeRuntime(
           native.runtime,
@@ -909,6 +953,16 @@ export function productionDesktopCapabilities(
           );
         }
         throw cause;
+      }
+    },
+    // A precondition failure is the reason run/start would fail with.
+    readMemoryReadiness: async (request) => {
+      try {
+        const { memory } = await readPreconditions(request);
+        return { memory, ready: true, resourceId: WORKSPACE_MEMORY_RESOURCE_ID };
+      } catch (cause) {
+        request.signal.throwIfAborted();
+        return { ready: false, reason: cause instanceof Error ? cause.message : String(cause) };
       }
     },
     readPermissionPolicy: readHostPermissionPolicy,

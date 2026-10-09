@@ -29,6 +29,7 @@ import { registerAgentHostClientIpc } from './agent-host-client-ipc';
 import { createAgentHostMainClient } from './agent-host-main-client';
 import { createDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
 import { DesktopWorkspaceBindingAuthority } from './agent-host-platform/desktop-workspace-binding';
+import { readEmbeddingHostDevice } from './agent-host-platform/memory-vector-selection';
 import {
   PlatformPolicySchema,
   platformPermissionPolicy,
@@ -202,7 +203,7 @@ import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { createNativeCallerRead } from './native-caller-query';
 import { createNativeIndexActivation } from './native-index-activation';
 import { reportNativeIndexActivationError as reportNativeIndexFailure } from './native-index-activation-error';
-import { NATIVE_INDEX_SETTINGS_KEY, readNativeIndexSettings } from './native-index-settings';
+import { NATIVE_INDEX_SETTINGS_KEY } from './native-index-settings';
 import {
   createInitialWindowAfterNativeReader,
   createNativeStartupFailureReporter,
@@ -213,6 +214,7 @@ import { createNativeScopedSearchCapability } from './native-scoped-search';
 import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
+import { VECTOR_PREFERENCES_STORAGE_KEY } from './platform/vector-preferences-storage-key';
 import { registerPrivilegedSchemes } from './privileged-schemes';
 import {
   createDesktopSettingsSecrets,
@@ -977,7 +979,15 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
   onDeleteRootData: (rootId) => nativeRootDataDeletion.deleteRootData(rootId),
   onResetLocal: () => nativeRootDataDeletion.transition(() => handleResetLocal()),
   onStorageChanged: (key) => {
-    if (key !== NATIVE_INDEX_SETTINGS_KEY || !app.isReady() || isDesktopShuttingDown()) {
+    if (!app.isReady() || isDesktopShuttingDown()) {
+      return;
+    }
+    if (key === VECTOR_PREFERENCES_STORAGE_KEY) {
+      // Recall's unpinned device follows the preference; the worker keeps its own until restart.
+      embeddingHostManager.resolveDevice();
+      return;
+    }
+    if (key !== NATIVE_INDEX_SETTINGS_KEY) {
       return;
     }
     nativeRootDataDeletion
@@ -1061,10 +1071,8 @@ const nativeIndexActivation = createNativeIndexActivation({
           },
           undefined,
           workspace,
-          // Local recall uses the saved local execution selection (Search & Indexing).
-          async () =>
-            readNativeIndexSettings(await storage.getItem(NATIVE_INDEX_SETTINGS_KEY)).selection ??
-            undefined
+          // Local recall loads as the embedding host's unpinned query did (BST-1929).
+          (signal) => readEmbeddingHostDevice(embeddingHostManager, signal)
         ),
         // BST-1977: app-owned host/stop released Root with the native writer live.
         // Retiring the profile here would wait on this same Core close request.

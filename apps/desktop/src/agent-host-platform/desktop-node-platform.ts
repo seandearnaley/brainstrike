@@ -12,6 +12,7 @@ import {
   createProductionHostPlatform,
   type HostPlatform,
   type HostPlatformLaunchOptions,
+  type HostRunAdmissionRequest,
   type HostStartupContext,
   type HostTool,
   type HostToolContext,
@@ -43,11 +44,13 @@ import { mainPlatformConnection } from './connection';
 import { desktopHostSharedTools } from './desktop-host-shared-tools';
 import { disposeHostTools, serveHostCommandSessions } from './host-tool-process';
 import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
+import { desktopMemoryPreconditions } from './memory-readiness';
 import { parentPlatformPort } from './parent-platform-port';
 import {
   PlatformEmbeddingResultSchema,
   PlatformLocalGenerationResultSchema,
   PlatformLocalProgressSchema,
+  PlatformMemoryReadinessSchema,
   PlatformPolicySchema,
   PlatformProgressSchema,
   PlatformSelectionSchema,
@@ -170,6 +173,19 @@ function platformDelegation(
 }
 
 /** Electron-free production entry: Node owns the model loop, Memory and committed log. */
+/** The wire request for one admission, shared by `platform/admit` and memory readiness. */
+function platformRunRequest(admission: HostRunAdmissionRequest): Record<string, unknown> {
+  return {
+    ...(admission.configuration ? { configuration: admission.configuration } : {}),
+    ...(admission.snapshot ? { snapshot: admission.snapshot } : {}),
+    ...(admission.workspaceBinding ? { workspaceBinding: admission.workspaceBinding } : {}),
+    modelId: admission.modelId,
+    ...(admission.planMode ? { planMode: true } : {}),
+    ...(admission.prompt === undefined ? {} : { prompt: admission.prompt }),
+    threadId: admission.threadId,
+  };
+}
+
 export async function createHostPlatform(
   _options: HostStartOptions,
   startup: HostStartupContext,
@@ -244,15 +260,7 @@ export async function createHostPlatform(
     readConfiguration: async (admission) => {
       const response = await request(
         'platform/admit',
-        {
-          ...(admission.configuration ? { configuration: admission.configuration } : {}),
-          ...(admission.snapshot ? { snapshot: admission.snapshot } : {}),
-          ...(admission.workspaceBinding ? { workspaceBinding: admission.workspaceBinding } : {}),
-          modelId: admission.modelId,
-          ...(admission.planMode ? { planMode: true } : {}),
-          ...(admission.prompt === undefined ? {} : { prompt: admission.prompt }),
-          threadId: admission.threadId,
-        },
+        platformRunRequest(admission),
         admission.signal
       );
       const selected = await parsePlatformSelection(response, () =>
@@ -425,6 +433,17 @@ export async function createHostPlatform(
         tools,
         toolTimeoutMs: selected.toolTimeoutMs,
       };
+    },
+    // Main's admission preconditions, then the memory credentials, nothing acquired.
+    readMemoryPreconditions: async (admission) => {
+      const readiness = PlatformMemoryReadinessSchema.parse(
+        await request('platform/memory/readiness', platformRunRequest(admission), admission.signal)
+      );
+      return readiness.ready
+        ? await desktopMemoryPreconditions(readiness, (provider) =>
+            host.auth.resolveProviderAuth(provider, admission.origin)
+          )
+        : readiness;
     },
     // Main supplies the existing policy owner; Core remains the only gate.
     readPermissionPolicy: async (threadId) => {

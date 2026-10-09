@@ -208,6 +208,7 @@ export async function observationHostLifecycle(
                 })
               : undefined;
             const owner = await StateStoreHostMemory.open(context, {
+              observerModelId: 'openai::gpt-4.1-mini',
               recordPrompt: async () => undefined,
               resourceId,
               store: startup.store,

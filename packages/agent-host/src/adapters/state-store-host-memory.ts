@@ -96,6 +96,8 @@ async function selectRunMemory(
 }
 export interface StateStoreHostMemoryOptions {
   readonly native: Omit<HostMemoryCapabilities['native'], 'storage'>;
+  /** The observer's catalog `provider::model`; required when observational memory is on. */
+  readonly observerModelId?: string;
   readonly providerRequestContext?: () => ProviderRequestContext | Promise<ProviderRequestContext>;
   readonly recordObserverUsage?: HostMemoryCapabilities['recordObserverUsage'];
   readonly recordPrompt: HostMemoryCapabilities['recordPrompt'];
@@ -217,6 +219,9 @@ export class StateStoreHostMemory implements HostRunOwner {
           }
         : {}),
       native: { ...native, storage },
+      ...(options.observerModelId === undefined
+        ? {}
+        : { observerModelId: options.observerModelId }),
       recordObserverUsage: async (current, receipt) => {
         if (!context.recordObserverUsage) {
           throw new Error('Public Memory requires the host-owned usage receipt writer');

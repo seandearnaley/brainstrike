@@ -11,6 +11,7 @@ import {
 } from '@brainstrike/agent-host';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import type { z } from 'zod';
+import { requireMemoryApiKey } from './memory-readiness';
 import { createDesktopHostMemoryVectorConfiguration } from './memory-vector-configuration';
 import type { PlatformSelectionSchema } from './platform-wire';
 
@@ -40,10 +41,11 @@ async function createObserverModel(
       createProvider('local', undefined, target.model, { localLlmHostClient: local.llm })
     );
   }
-  const auth = await resolveProviderAuth(target.provider);
-  if (auth?.kind !== 'api_key' || !auth.apiKey.trim()) {
-    throw new Error(`Observational Memory requires the resolved ${target.provider} API credential`);
-  }
+  const auth = await requireMemoryApiKey(
+    'Observational Memory',
+    target.provider,
+    resolveProviderAuth
+  );
   const configuration = resolveRuntimeConfiguration(
     { model: target.model, provider: target.provider },
     auth
@@ -74,13 +76,13 @@ export async function createDesktopHostMemoryConfiguration(
   let observationalMemory: NonNullable<
     ProductionHostRunConfiguration['memory']['native']['options']
   >['observationalMemory'] = false;
+  let observerModelId: string | undefined;
   if (observation.enabled) {
+    const target = parseObservationalMemoryModelTarget(observation.modelTarget);
+    // The catalog id its usage is priced under, like a run's own model.
+    observerModelId = `${target.provider}::${target.model}`;
     observationalMemory = {
-      model: await createObserverModel(
-        parseObservationalMemoryModelTarget(observation.modelTarget),
-        resolveProviderAuth,
-        local
-      ),
+      model: await createObserverModel(target, resolveProviderAuth, local),
       scope: observation.scope,
       ...(observation.retrievalMode === 'messages'
         ? { retrieval: { scope: observation.scope } }
@@ -102,6 +104,10 @@ export async function createDesktopHostMemoryConfiguration(
         workingMemory: { ...selection.memory.options.workingMemory },
       },
     },
+    ...(observerModelId === undefined ? {} : { observerModelId }),
+    ...(selection.memory.observerAwaiting
+      ? { observerAwaiting: selection.memory.observerAwaiting }
+      : {}),
     recordPrompt: async () => undefined,
     resourceId: selection.resourceId,
     ...(vectorConfiguration.vectors ? { vectors: vectorConfiguration.vectors } : {}),

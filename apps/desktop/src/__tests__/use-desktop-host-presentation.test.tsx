@@ -8,7 +8,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import { useAssistantThreadStore } from '@brainstrike/assistant-data';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, type Mock, test, vi } from 'vitest';
 import { useDesktopHostPresentation } from '../renderer/use-desktop-host-presentation';
 
 // The provider list is this hook's input (the shared discovery resource owns
@@ -334,5 +334,44 @@ describe("the host composer's Tools menu", () => {
     expect(result.current.readConfiguration(null)['enabledNativeToolIds']).toEqual(
       DESKTOP_NATIVE_TOOL_IDS.filter((id) => id !== nativeTool)
     );
+  });
+});
+
+describe('the built-in local model load on a host thread', () => {
+  type ProgressListener = (report: unknown) => void;
+  const llmHost = (
+    window as unknown as {
+      readonly llmHost: { readonly onProgress: Mock<(listener: ProgressListener) => () => void> };
+    }
+  ).llmHost;
+  const original = llmHost.onProgress.getMockImplementation();
+  afterEach(() => {
+    if (original) {
+      llmHost.onProgress.mockImplementation(original);
+    }
+  });
+
+  test("the composer shows Main's broadcast llm-host loading progress", async () => {
+    // Main broadcasts loads it starts itself (a host thread's warmup or generation).
+    const listeners = new Set<ProgressListener>();
+    llmHost.onProgress.mockImplementation((listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    });
+    const { result, unmount } = renderHook(() => useDesktopHostPresentation(THREAD));
+    expect(result.current.localLoadingState).toBeUndefined();
+    act(() => {
+      for (const listener of listeners) {
+        listener({
+          payload: { kind: 'loading', message: 'Loading local model', progress: 40 },
+          type: 'progress',
+        });
+      }
+    });
+    await waitFor(() =>
+      expect(result.current.localLoadingState).toMatchObject({ progress: 40, stage: 'loading' })
+    );
+    unmount();
+    expect(listeners.size).toBe(0);
   });
 });

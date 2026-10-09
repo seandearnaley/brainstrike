@@ -24,6 +24,7 @@ export {
   type HostMemoryStep,
 } from './adapters/memory.js';
 export { StateStoreMemoryStorage } from './adapters/memory-storage.js';
+export type { HostObservationSource } from './adapters/observation-state.js';
 export {
   StateStoreHostMemory,
   type StateStoreHostMemoryOptions,
@@ -78,6 +79,7 @@ export {
 } from './process-entry.js';
 export {
   createProductionHostPlatform,
+  type HostMemoryPreconditions,
   type ProductionHostPlatformOptions,
   type ProductionHostRunConfiguration,
 } from './production-platform.js';

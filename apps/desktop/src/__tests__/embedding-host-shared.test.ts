@@ -131,7 +131,7 @@ describe('embedding host shared command helpers', () => {
         runtimeId: 'embedding-host:runtime-1',
         type: 'request',
       })
-    ).toThrow('Embedding host command payload.action must be "reset" or "stop".');
+    ).toThrow('Embedding host command payload.action must be "reset", "resolve-device" or "stop".');
   });
 
   it('fails fast when reset commands omit nextRuntimeId', () => {
@@ -150,6 +150,17 @@ describe('embedding host shared command helpers', () => {
     expect(() => createEmbeddingHostCommand('stop', '   ')).toThrow(
       'Embedding host command runtimeId must be a non-empty string.'
     );
+  });
+
+  it('round-trips a resolve-device command, which carries no next runtime', () => {
+    const command = createEmbeddingHostCommand('resolve-device', 'embedding-host:runtime-1');
+    expect(assertEmbeddingHostCommand(command)).toEqual(command);
+    expect(() =>
+      assertEmbeddingHostCommand({
+        ...command,
+        payload: { action: 'resolve-device', nextRuntimeId: 'x' },
+      })
+    ).toThrow('must not include payload.nextRuntimeId');
   });
 
   it('fails fast when reset command creation receives a blank next runtime id', () => {
@@ -186,6 +197,39 @@ describe('embedding host shared command helpers', () => {
         state: 'running',
       }).embeddingRuntime?.telemetry.batchTransfer.totalBytes
     ).toBe(12);
+  });
+
+  it('carries the device the host resolved at start across the status boundary', () => {
+    const status = (hostDevice: unknown) => ({
+      active: false,
+      embeddingRuntime: {
+        actualWorkerMetadata: null,
+        backendMismatch: false,
+        hostDevice,
+        selectedDevicePreference: 'webgpu',
+        telemetry: {
+          batchTransfer: { batchCount: 0, lastBytes: 0, peakBytes: 0, totalBytes: 0 },
+          cache: {
+            entries: [],
+            estimatedGpuBytes: 0,
+            estimatedHeapBytes: 0,
+            memoryEstimateUnavailableCount: 0,
+            residentCount: 0,
+          },
+          health: { failureCount: 0, lastFailure: null },
+          lastUpdatedAt: null,
+          peakVectorsInFlight: 0,
+        },
+      },
+      lastError: null,
+      runtimeId: 'embedding-host:runtime-1',
+      runtimeKind: 'embedding-host',
+      state: 'running',
+    });
+    expect(assertEmbeddingHostStatus(status('wasm')).embeddingRuntime?.hostDevice).toBe('wasm');
+    expect(() => assertEmbeddingHostStatus(status('cpu'))).toThrow(
+      'Embedding host status embeddingRuntime.hostDevice must be "webgpu" or "wasm".'
+    );
   });
 
   it('rejects malformed embedding telemetry at the host status boundary', () => {
