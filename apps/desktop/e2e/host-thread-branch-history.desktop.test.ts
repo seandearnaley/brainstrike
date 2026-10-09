@@ -79,12 +79,20 @@ test('a host thread edit and regenerate are navigable branches that survive a re
   await expect(input).toBeVisible({ timeout: E2E_TIMEOUTS.inputVisibility });
   const row = (text: string): Locator =>
     panel.locator('[data-message-id]').filter({ hasText: text }).last();
-  const send = async (text: string, answer: string) => {
-    await input.fill(text);
-    await panel.getByRole('button', { exact: true, name: 'Send' }).click();
+  // An answer shows before its run ends. Message action bars hide while a run is
+  // active, and a user message's bar shows only under the pointer, so a hover
+  // made before the run settles can be lost when the layout changes.
+  const settled = async (answer: string) => {
     await expect(panel.getByText(answer, { exact: true })).toBeVisible({
       timeout: E2E_TIMEOUTS.messageVisibility,
     });
+    await expect(panel.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
+    await expect(panel.getByRole('button', { exact: true, name: 'Send' })).toBeVisible();
+  };
+  const send = async (text: string, answer: string) => {
+    await input.fill(text);
+    await panel.getByRole('button', { exact: true, name: 'Send' }).click();
+    await settled(answer);
   };
   await send(FIRST, 'Alpha answer.');
   await send(SECOND, 'Beta answer.');
@@ -97,9 +105,7 @@ test('a host thread edit and regenerate are navigable branches that survive a re
     .filter({ has: window.getByRole('button', { exact: true, name: 'Cancel' }) });
   await editor.getByRole('textbox').fill(EDITED);
   await editor.getByRole('button', { exact: true, name: 'Send' }).click();
-  await expect(panel.getByText('Gamma answer.', { exact: true })).toBeVisible({
-    timeout: E2E_TIMEOUTS.messageVisibility,
-  });
+  await settled('Gamma answer.');
   const editRequest = modelProvider
     .requests()
     .find((request) => streaming(request) && lastUser(request).includes(EDITED));

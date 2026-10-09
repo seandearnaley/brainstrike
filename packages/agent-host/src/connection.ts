@@ -1,6 +1,11 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { HostRecord } from '@brainstrike/host-lease';
-import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
+import {
+  type CancellationToken,
+  ErrorCodes,
+  type MessageConnection,
+  ResponseError,
+} from 'vscode-jsonrpc';
 import { bindHostAuthMethods } from './auth-connection.js';
 import type { HostCore } from './core.js';
 import { hostChildStatusChanged } from './core-child-runs.js';
@@ -26,6 +31,7 @@ import {
   parseHostParams,
 } from './protocol.js';
 import { bindHostProviderMethods } from './provider-connection.js';
+import { HostThreadDamagedRefusal } from './thread-catalog.js';
 import {
   coverageHostSearchVectors,
   pendingHostSearchVectors,
@@ -135,6 +141,12 @@ export function bindHostConnection(
         );
         try {
           return await request(parseHostParams(method, input), controller.signal);
+        } catch (cause) {
+          // A damaged thread's refusal crosses as the host wrote it, without the
+          // transport's "Request … failed with message" wrapper.
+          throw cause instanceof HostThreadDamagedRefusal
+            ? new ResponseError(ErrorCodes.InternalError, cause.message)
+            : cause;
         } finally {
           cancelled.dispose();
         }
