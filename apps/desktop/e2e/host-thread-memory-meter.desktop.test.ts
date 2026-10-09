@@ -56,11 +56,11 @@ test('a host thread meter shows its waiting observer, and a memory precondition 
     timeout: 30_000,
   });
 
-  // Observations are on (Auto) by default, and no observer model is enabled:
-  // the host reports the observer as waiting, not as off.
+  // Observations are on (Auto) by default, and none of OpenRouter's recommended
+  // observer models is enabled: the host reports why the observer waits.
   await region.getByTestId('context-usage-trigger').hover();
   await expect(page.getByTestId('context-usage-om-note')).toContainText(
-    'Observations on (Auto) —',
+    'Observations on (Auto) — no recommended observer model is enabled in your model catalog',
     { timeout: 30_000 }
   );
 

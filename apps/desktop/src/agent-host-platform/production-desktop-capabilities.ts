@@ -344,16 +344,25 @@ function resolveDesktopMemorySettings(
   return { memorySettings, observerTarget };
 }
 
-/** The admitted Memory selection; observations wait when 'auto' found no candidate. */
+/**
+ * The admitted Memory selection. Observations wait when 'auto' resolved no
+ * observer, for the reason legacy's settings resolver gives: the chat provider
+ * has no auto candidate, or none of its candidates is enabled in the catalog.
+ */
 function desktopMemorySelection(
   intent: z.output<typeof PlatformClientConfigurationSchema>,
+  provider: string,
   settings: z.output<typeof PlatformClientConfigurationSchema>['memorySettings'],
   observerTarget: string | null,
   vectors: DesktopMemoryVectorSelection | undefined
 ): DesktopPlatformSelection['memory'] {
+  const awaiting =
+    autoObserverCandidates(provider).length === 0
+      ? 'no-hosted-chat-provider'
+      : 'model-not-eligible';
   return {
     ...(intent.memorySettings.observationalMemory.enabled && observerTarget === null
-      ? { observerAwaiting: 'no-hosted-chat-provider' as const }
+      ? { observerAwaiting: awaiting }
       : {}),
     options: intent.memoryOptions,
     settings,
@@ -634,7 +643,13 @@ export function productionDesktopCapabilities(
       readLocalDevice: () => readLocalEmbeddingHostDevice(readLocalEmbeddingDevice, request.signal),
     });
     request.signal.throwIfAborted();
-    const memory = desktopMemorySelection(intent, memorySettings, observerTarget, memoryVectors);
+    const memory = desktopMemorySelection(
+      intent,
+      configuration.provider,
+      memorySettings,
+      observerTarget,
+      memoryVectors
+    );
     return {
       catalog,
       configuration,
