@@ -39,7 +39,6 @@ import {
   foldHostRunEffect,
   HostCommandLedger,
   type HostThreadGrants,
-  hasHostInteractionResponse,
   type HostRunState as Run,
   recordHostConversationId,
 } from './core-state.js';
@@ -81,14 +80,10 @@ import {
 } from './run-branch.js';
 
 import {
-  approvedHostPlan,
-  approvedHostPlanRunParams,
   approveHostRunByPolicy,
   commitHostInteractionResponse,
   commitHostModelMessages,
-  createHostApprovalResponses,
-  finishApprovedHostResults,
-  hostContinuationFailure,
+  continueHostRun,
   startHostNextRun,
 } from './run-continuation.js';
 import { userRunVerdict } from './run-verdicts.js';
@@ -792,58 +787,17 @@ export class HostCore {
     );
   }
 
-  private async finishApprovedCalls(run: Run): Promise<void> {
-    await this.commitMessages(
-      run,
-      await finishApprovedHostResults(run, this.platform, (action, input, resumeData) =>
-        this.dispatch(run, action, input, resumeData)
-      )
-    );
-    await this.finish(run, 'completed');
-  }
-
-  private async continueRun(run: Run): Promise<void> {
-    if (run.terminal) {
-      return;
-    }
-    if (run.stopped) {
-      await this.finish(run, 'stopped');
-      return;
-    }
-    if ([...run.approvals.values()].some((approval) => !hasHostInteractionResponse(approval))) {
-      return;
-    }
-    try {
-      const admission = await ensureHostRunAdmission(this.platform, run);
-      await this.openRun(run);
-      // The SDK collects approvals from one final tool message, preserving parallel calls.
-      const responses = await createHostApprovalResponses(
-        run,
-        this.platform,
-        (action, input, resumeData) => this.dispatch(run, action, input, resumeData)
-      );
-      await this.commitMessages(
-        run,
-        responses.length > 0 ? [{ content: responses, role: 'tool' }] : []
-      );
-      const plan = approvedHostPlan(run);
-      if (plan) {
-        await this.finish(run, 'completed');
-        await this.startNextRun(approvedHostPlanRunParams(run, plan), run.input?.origin);
-        return;
-      }
-      if (run.steps >= admission.snapshot.maxSteps) {
-        await this.finishApprovedCalls(run);
-        return;
-      }
-      await this.loop(run, admission.model);
-    } catch (cause) {
-      if (run.completion) {
-        throw cause;
-      }
-      const failed = hostContinuationFailure(run, cause);
-      await this.finish(run, failed.outcome, failed.detail);
-    }
+  /** Run the approved calls once every decision is answered, then go on (run-continuation). */
+  private continueRun(run: Run): Promise<void> {
+    return continueHostRun(run, {
+      commitMessages: (messages) => this.commitMessages(run, messages),
+      dispatch: (action, input, resumeData) => this.dispatch(run, action, input, resumeData),
+      finish: (outcome, detail) => this.finish(run, outcome, detail),
+      loop: (model) => this.loop(run, model),
+      openRun: () => this.openRun(run),
+      platform: this.platform,
+      startNextRun: (params) => this.startNextRun(params, run.input?.origin),
+    });
   }
 
   recordVerdict(params: HostParams<'run/verdict'>): Promise<{ accepted: true }> {
