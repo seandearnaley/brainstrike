@@ -34,7 +34,8 @@ import { HostAuthStatusSchema, HostAuthVerdictSchema } from './auth-wire.js';
 // `run.started` delivers, an approval the root's policy answered, and
 // `thread/children` (a thread's direct children), lifecycle hook context
 // (`hook.context`), host-owned project hook trust (`hooks/trust`,
-// `hooks/trust/read`, `hooks/untrust`), and run_python's network consent: an
+// `hooks/trust/read`, `hooks/untrust`), `thread/memory/read` (memory
+// readiness for the next run), and run_python's network consent: an
 // `interaction.requested` of kind `network`, answered by `interaction/resume`
 // with `{ action }` and, when the policy also asked, an approval grant. These
 // additions are optional fields, new variants and new methods, so a v11 reader
@@ -289,6 +290,40 @@ export const HostHookTrustSchema = z.strictObject({
 });
 export type HostHookTrust = z.infer<typeof HostHookTrustSchema>;
 
+/** Why observational memory waits for an observer it can run. */
+export const HOST_OBSERVER_AWAITING_REASONS = [
+  'keys-unknown',
+  'model-not-eligible',
+  'no-backend',
+  'no-hosted-chat-provider',
+] as const;
+export type HostObserverAwaitingReason = (typeof HOST_OBSERVER_AWAITING_REASONS)[number];
+const ObservationTokens = z.number().int().nonnegative();
+/**
+ * Observational memory as a run admission configures it. `active` carries the
+ * thread's committed observation record, or null before the first observation.
+ */
+export const HostObservationalMemoryStateSchema = z.discriminatedUnion('state', [
+  z.strictObject({ state: z.literal('off') }),
+  z.strictObject({
+    reason: z.enum(HOST_OBSERVER_AWAITING_REASONS),
+    state: z.literal('awaiting-observer'),
+  }),
+  z.strictObject({
+    record: z
+      .strictObject({
+        bufferedObservationTokens: ObservationTokens,
+        messageTokenThreshold: z.number().int().positive(),
+        observationTokenCount: ObservationTokens,
+        pendingMessageTokens: ObservationTokens,
+        totalTokensObserved: ObservationTokens,
+      })
+      .nullable(),
+    state: z.literal('active'),
+  }),
+]);
+export type HostObservationalMemoryState = z.infer<typeof HostObservationalMemoryStateSchema>;
+
 /**
  * Host -> client: a UI action only the connected desktop client performs. The
  * one external opener for every host feature (OAuth sign-in, MCP authorization).
@@ -423,6 +458,16 @@ export const HOST_METHOD_SCHEMAS = {
   /** Destructive Root lifecycle; the existing StateStore intent owns recovery. */
   'thread/delete': z.strictObject(Thread),
   'thread/list': z.strictObject({}),
+  /**
+   * Memory readiness for the thread's next run: the admission `run/start`
+   * makes with these fields, released at once. Nothing is committed.
+   */
+  'thread/memory/read': z.strictObject({
+    ...Thread,
+    configuration: z.record(z.string(), z.json()).optional(),
+    modelId: Id,
+    ...PlanMode,
+  }),
   'thread/read': z.strictObject({ ...Thread, fromSeq: Seq }),
   'thread/start': z.strictObject(Command),
   'thread/update': z
@@ -827,6 +872,16 @@ export const HOST_RESULT_SCHEMAS = {
     // Presentation fields never committed are absent.
     threads: z.array(z.strictObject({ ...Thread, ...ThreadPresentation })),
   }),
+  // Not ready: the reason `run/start` would fail with; the observation needs an admission.
+  'thread/memory/read': z.union([
+    z.strictObject({
+      admission: z.strictObject({ ready: z.literal(true) }),
+      observational: HostObservationalMemoryStateSchema,
+    }),
+    z.strictObject({
+      admission: z.strictObject({ ready: z.literal(false), reason: z.string().min(1) }),
+    }),
+  ]),
   'thread/read': z.strictObject({ rows: z.array(HostLogRowSchema) }),
   'thread/start': z.strictObject(Thread),
   'thread/update': z.strictObject({ accepted: z.literal(true) }),

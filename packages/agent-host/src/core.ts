@@ -9,6 +9,7 @@ import {
   hostDeliveryPosition,
   reportHostChildWakeFailure,
 } from './core-child-runs.js';
+import { readHostThreadMemory } from './core-memory-read.js';
 import { reportRetiredHostOutcomes, retireHostCoreRuns } from './core-retirement.js';
 import {
   type HostRunAction as Action,
@@ -476,6 +477,16 @@ export class HostCore {
         hostRegeneratePosition(this.runs.values(), params)
       )
     );
+  }
+
+  /** Memory readiness for the next run: read-only, never queued (`core-memory-read.ts`). */
+  readThreadMemory(
+    params: HostParams<'thread/memory/read'>,
+    origin?: HostClientOrigin
+  ): Promise<HostResults['thread/memory/read']> {
+    const { children, deletions, platform, runs, threads, workspaces } = this;
+    const context = { children, deletions, origin, runs, threads, workspaces };
+    return readHostThreadMemory(platform, params, context);
   }
 
   /** One admission per new run; restart folds its committed branch the same way. */

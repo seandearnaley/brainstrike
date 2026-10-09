@@ -46,7 +46,6 @@ import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thr
 import { NATIVE_TOOL_REGISTRIES } from '@brainstrike/assistant-contract/tool-metadata';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-repository';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
-import type { SelectedEmbeddingRequestPlan } from '@brainstrike/embeddings/inference-plan';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
 import { z } from 'zod';
 import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
@@ -54,17 +53,11 @@ import {
   buildDesktopAssistantTools,
   type DesktopAssistantToolDependencies,
 } from '../assistant-server/assistant-tools';
-import { mainBrowserToolRunner } from '../assistant-server/browser-agent-tools';
-import { pgliteGrepIndex } from '../assistant-server/grep-search-tool';
-import { mainDiagnosticsReader } from '../assistant-server/query-diagnostics-tool';
-import { mainQuerySelfRead } from '../assistant-server/query-self-tool';
 import {
   type PreparedAdmittedSkills,
   prepareAdmittedSkills,
 } from '../assistant-server/request-skills';
-import { pgliteRetrievalStore } from '../assistant-server/retrieval-store-pglite';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
-import { mainWorkspaceContextBroadcaster } from '../assistant-server/workspace-context-broadcast';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
 import {
   type DesktopWorktreeServices,
@@ -77,18 +70,19 @@ import {
   readDesktopHostSystemContext,
 } from './desktop-host-context';
 import { resolveDesktopHostDelegation } from './desktop-host-delegation';
+import { desktopHostToolServices, desktopNativeRuntime } from './desktop-host-tool-runtime';
 import type {
   DesktopWorkspaceBindingAuthority,
   DesktopWorkspaceBindingBorrow,
 } from './desktop-workspace-binding';
-import type { DesktopShellCorrelation, HostToolServiceCapabilities } from './host-tool-services';
 import type { DesktopPlatformCapabilities, DesktopPlatformSelection } from './main-platform';
-import { resolveDesktopMemoryVectors } from './memory-vector-selection';
 import {
-  PlatformAdmittedSkillSchema,
+  type DesktopMemoryVectorSelection,
+  resolveDesktopMemoryVectors,
+} from './memory-vector-selection';
+import {
   PlatformClientConfigurationSchema,
   PlatformModelConfigurationSchema,
-  PlatformWorkspaceContextSchema,
   platformPermissionPolicy,
 } from './platform-wire';
 
@@ -375,6 +369,23 @@ function resolveDesktopMemorySettings(
   return { memorySettings, observerTarget };
 }
 
+/** The admitted Memory selection; observations wait when 'auto' found no candidate. */
+function desktopMemorySelection(
+  intent: z.output<typeof PlatformClientConfigurationSchema>,
+  settings: z.output<typeof PlatformClientConfigurationSchema>['memorySettings'],
+  observerTarget: string | null,
+  vectors: DesktopMemoryVectorSelection | undefined
+): DesktopPlatformSelection['memory'] {
+  return {
+    ...(intent.memorySettings.observationalMemory.enabled && observerTarget === null
+      ? { observerAwaiting: 'no-hosted-chat-provider' as const }
+      : {}),
+    options: intent.memoryOptions,
+    settings,
+    ...(vectors ? { vectorProfile: vectors.profile } : {}),
+  };
+}
+
 /** Catalog dimensions of the recall embedder: hosted from the registry, local from the DB catalog. */
 async function readEmbeddingDimensions(
   db: Awaited<ReturnType<typeof getDatabase>>,
@@ -642,52 +653,6 @@ const HOST_EXECUTED_ARTIFACT_READER: ScopedToolOutputArtifactReader = {
   },
 };
 
-/** What the host's shared native tools need from this admission; roots come back per call. */
-function desktopNativeRuntime(
-  runtime: RuntimeData,
-  retrievalRootsOnly: boolean,
-  skills: readonly import('@brainstrike/agent').ScannedSkill[] | undefined
-): DesktopPlatformSelection['nativeRuntime'] {
-  if (typeof runtime.provider !== 'string' || !runtime.workspaceRoots) {
-    throw new Error('Desktop admission has no native tool runtime');
-  }
-  return {
-    ...(runtime.boundWorkspaceRootId ? { boundWorkspaceRootId: runtime.boundWorkspaceRootId } : {}),
-    provider: runtime.provider,
-    ...(retrievalRootsOnly ? { retrievalRootsOnly: true as const } : {}),
-    ...(runtime.selectionFilePaths ? { selectionFilePaths: [...runtime.selectionFilePaths] } : {}),
-    ...(runtime.selectionFolderId ? { selectionFolderId: runtime.selectionFolderId } : {}),
-    ...(skills ? { skills: z.array(PlatformAdmittedSkillSchema).parse(skills) } : {}),
-    ...(runtime.workspaceContext
-      ? { workspaceContext: PlatformWorkspaceContextSchema.parse(runtime.workspaceContext) }
-      : {}),
-    ...(runtime.workspaceRootPath ? { workspaceRootPath: runtime.workspaceRootPath } : {}),
-    workspaceRoots: runtime.workspaceRoots.map(({ displayName, path, rootId }) => ({
-      displayName,
-      path,
-      rootId,
-    })),
-  };
-}
-
-/** The Main-owned stores and services host threads' own tools read through Main. */
-function desktopHostToolServices(
-  dependencies: DesktopHostToolServices
-): HostToolServiceCapabilities {
-  return {
-    grepIndex: pgliteGrepIndex,
-    ...(dependencies.nativeIndexSearch ? { indexSearch: dependencies.nativeIndexSearch } : {}),
-    browser: mainBrowserToolRunner,
-    contextDelivery: mainWorkspaceContextBroadcaster,
-    diagnostics: mainDiagnosticsReader,
-    querySelf: mainQuerySelfRead(),
-    retrievalStore: pgliteRetrievalStore(),
-    shell: desktopShellCorrelation(dependencies),
-    worktrees: ({ runId, threadId }) =>
-      desktopWorktreeToolDependencies(dependencies, { runId, threadId }).worktreeTools,
-  };
-}
-
 /** Plan mode admits only the plan-mode tool set; the built-in local provider has no plan mode. */
 function desktopRunTools(
   tools: Readonly<Record<string, HostTool>>,
@@ -703,39 +668,14 @@ function desktopRunTools(
   return desktopPlanModeTools(tools);
 }
 
-async function readSavedLocalEmbeddingSelection(
-  read: (() => Promise<SelectedEmbeddingRequestPlan | undefined>) | undefined
-): Promise<SelectedEmbeddingRequestPlan | undefined> {
+async function readLocalEmbeddingHostDevice(
+  read: ((signal: AbortSignal) => Promise<'webgpu' | 'wasm'>) | undefined,
+  signal: AbortSignal
+): Promise<'webgpu' | 'wasm'> {
   if (!read) {
-    throw new Error('Local Memory vectors require the saved local execution selection');
+    throw new Error('Local Memory vectors require the embedding host');
   }
-  return await read();
-}
-
-/** Main's worktree/forge correlation of host commands, over the same services as legacy threads. */
-function desktopShellCorrelation(services: DesktopWorktreeServices): DesktopShellCorrelation {
-  return {
-    completed: ({ command, precedingWorktreePaths, rootId, runId, threadId }) => {
-      desktopWorktreeToolDependencies(services, {
-        runId,
-        threadId,
-      }).shellCorrelation?.onCommandCompleted({
-        command,
-        precedingWorktreePaths: precedingWorktreePaths
-          ? new Set(precedingWorktreePaths)
-          : undefined,
-        rootId,
-      });
-    },
-    worktreePaths: async () => {
-      const service = services.resolveWorktreeService?.();
-      if (!service) {
-        return null;
-      }
-      const listed = await service.list();
-      return listed.ok ? listed.value.map((entry) => entry.path) : null;
-    },
-  };
+  return await read(signal);
 }
 
 /** BST-1932: the supervisor instructions name only the personas this run may delegate to. */
@@ -762,7 +702,7 @@ export function productionDesktopCapabilities(
   readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>,
   readCliOwnerIntent?: DesktopCliOwnerIntentReader,
   workspaceAuthority?: DesktopWorkspaceBindingAuthority,
-  readLocalEmbeddingSelection?: () => Promise<SelectedEmbeddingRequestPlan | undefined>
+  readLocalEmbeddingDevice?: (signal: AbortSignal) => Promise<'webgpu' | 'wasm'>
 ): Omit<DesktopPlatformCapabilities, 'mcp'> {
   const policies = new Map<string, PermissionToolGateSnapshot>();
   // A host thread's session grants are the host's own (permission.granted);
@@ -775,14 +715,15 @@ export function productionDesktopCapabilities(
     );
     return policy;
   };
-  const readConfiguration = async (
-    request: HostRunAdmissionRequest,
-    workspace?: DesktopWorkspaceBindingBorrow
-  ): Promise<DesktopPlatformSelection> => {
+  /**
+   * The admission's pure preconditions: the catalog model and captured
+   * settings, observer resolution and the recall-embedder plan. A run
+   * admission and thread/memory/read both start here; nothing is acquired.
+   */
+  const readPreconditions = async (request: HostRunAdmissionRequest) => {
     const db = await getDatabase();
     request.signal.throwIfAborted();
     const catalog = await readDesktopCatalogSelection(db, request.modelId);
-    const { definition } = catalog;
     const intent = await readDesktopIntent(
       request,
       catalog,
@@ -790,11 +731,10 @@ export function productionDesktopCapabilities(
       readCliOwnerIntent
     );
     const configuration = PlatformModelConfigurationSchema.parse(intent.modelConfiguration);
-    const permissionPolicy = platformPermissionPolicy(intent.permissionPolicy);
     if (configuration.provider !== catalog.provider || configuration.model !== catalog.model) {
       throw new Error('Captured settings do not belong to the selected catalog model');
     }
-    const inputTokenLimit = desktopInputTokenLimit(definition, intent, configuration);
+    const inputTokenLimit = desktopInputTokenLimit(catalog.definition, intent, configuration);
     const { memorySettings, observerTarget } = resolveDesktopMemorySettings(
       intent,
       configuration.provider,
@@ -802,9 +742,37 @@ export function productionDesktopCapabilities(
     );
     const memoryVectors = await resolveDesktopMemoryVectors(memorySettings, {
       readDimensions: (provider, modelId) => readEmbeddingDimensions(db, provider, modelId),
-      readLocalSelection: () => readSavedLocalEmbeddingSelection(readLocalEmbeddingSelection),
+      readLocalDevice: () => readLocalEmbeddingHostDevice(readLocalEmbeddingDevice, request.signal),
     });
     request.signal.throwIfAborted();
+    const memory = desktopMemorySelection(intent, memorySettings, observerTarget, memoryVectors);
+    return {
+      catalog,
+      configuration,
+      db,
+      inputTokenLimit,
+      intent,
+      memory,
+      memoryVectors,
+      observerTarget,
+    };
+  };
+  const readConfiguration = async (
+    request: HostRunAdmissionRequest,
+    workspace?: DesktopWorkspaceBindingBorrow
+  ): Promise<DesktopPlatformSelection> => {
+    const {
+      catalog,
+      configuration,
+      db,
+      inputTokenLimit,
+      intent,
+      memory,
+      memoryVectors,
+      observerTarget,
+    } = await readPreconditions(request);
+    const { definition } = catalog;
+    const permissionPolicy = platformPermissionPolicy(intent.permissionPolicy);
     const budget = resolveScaledToolResultBudget(definition.contextWindow);
     const native = await createDesktopNativeTools(
       db,
@@ -867,11 +835,7 @@ export function productionDesktopCapabilities(
         freshWorkspaceRoots: native.freshRoots,
         inputTokenLimit,
         maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
-        memory: {
-          options: intent.memoryOptions,
-          settings: memorySettings,
-          ...(memoryVectors ? { vectorProfile: memoryVectors.profile } : {}),
-        },
+        memory,
         ...(memoryVectors?.local ? { localEmbedding: memoryVectors.local } : {}),
         nativeRuntime: desktopNativeRuntime(
           native.runtime,
@@ -960,6 +924,16 @@ export function productionDesktopCapabilities(
           );
         }
         throw cause;
+      }
+    },
+    // A precondition failure is the reason run/start would fail with.
+    readMemoryReadiness: async (request) => {
+      try {
+        const { memory } = await readPreconditions(request);
+        return { memory, ready: true, resourceId: WORKSPACE_MEMORY_RESOURCE_ID };
+      } catch (cause) {
+        request.signal.throwIfAborted();
+        return { ready: false, reason: cause instanceof Error ? cause.message : String(cause) };
       }
     },
     readPermissionPolicy: readHostPermissionPolicy,

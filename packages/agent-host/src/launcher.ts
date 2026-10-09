@@ -19,7 +19,7 @@ export function createAgentHostSpawner(
           ]
         : []),
     ],
-    entrypoint: fileURLToPath(new URL('./process-entry.js', import.meta.url)),
+    entrypoint: fileURLToPath(new URL('./host-process-entry.js', import.meta.url)),
     output: 'ignore',
   });
 }

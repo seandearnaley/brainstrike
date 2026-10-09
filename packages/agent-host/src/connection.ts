@@ -109,6 +109,7 @@ export function bindHostConnection(
   handle('thread/children', (params) => ({ children: core.listChildren(params.threadId) }));
   handle('thread/delete', (params) => core.deleteThread(params));
   handle('thread/update', (params) => core.updateThread(params));
+  handle('thread/memory/read', (params) => core.readThreadMemory(params, origin));
   handle('thread/read', async (params) => ({
     rows: await core.read(params.threadId, params.fromSeq),
   }));

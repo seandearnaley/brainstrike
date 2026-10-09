@@ -11,7 +11,12 @@ import {
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
-import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
+import {
+  type CancellationToken,
+  ErrorCodes,
+  type MessageConnection,
+  ResponseError,
+} from 'vscode-jsonrpc';
 import { z } from 'zod';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { type HostToolServiceCapabilities, serveHostToolServices } from './host-tool-services';
@@ -22,6 +27,7 @@ import {
   PlatformLocalGenerationResultSchema,
   PlatformLocalGenerationSchema,
   PlatformLocalWarmupSchema,
+  PlatformMemoryReadinessSchema,
   PlatformPolicySchema,
   PlatformRunRequestSchema,
   type PlatformSelection,
@@ -55,6 +61,10 @@ export interface DesktopPlatformCapabilities {
   /** The Node host always composes its MCP runtime, which reaches these Main stores. */
   readonly mcp: DesktopMcpPlatformCapabilities;
   readConfiguration(request: HostRunAdmissionRequest): Promise<DesktopPlatformSelection>;
+  /** thread/memory/read: the same preconditions `readConfiguration` starts with, nothing acquired. */
+  readMemoryReadiness?(
+    request: HostRunAdmissionRequest
+  ): Promise<z.input<typeof PlatformMemoryReadinessSchema>>;
   readPermissionPolicy(
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
@@ -163,7 +173,19 @@ export function serveDesktopPlatform(
     if (token.isCancellationRequested) {
       cancel();
     }
-    const task = Promise.resolve().then(() => work(controller.signal));
+    const task = Promise.resolve()
+      .then(() => work(controller.signal))
+      .catch((cause: unknown) => {
+        // vscode-jsonrpc reports a plain Error as "Request <method> failed with
+        // message: ..."; the host receives the platform's own message instead,
+        // a reason the composer can show (thread/memory/read).
+        throw cause instanceof ResponseError
+          ? cause
+          : new ResponseError(
+              ErrorCodes.InternalError,
+              cause instanceof Error ? cause.message : String(cause)
+            );
+      });
     pending.add(task);
     const settled = (): void => {
       subscription.dispose();
@@ -299,6 +321,22 @@ export function serveDesktopPlatform(
       const { threadId } = z.strictObject({ threadId: z.string().min(1) }).parse(input);
       return CliWorkspaceRootsSchema.parse(await selection(threadId).freshWorkspaceRoots());
     })
+  );
+  // Read-only: no selection is registered, so it never conflicts with a run's.
+  connection.onRequest(
+    'platform/memory/readiness',
+    // The explicit result type keeps vscode-jsonrpc from narrowing the union to one member.
+    (input: unknown, token: CancellationToken): Promise<unknown> =>
+      execute(token, async (signal) => {
+        const read = capabilities.readMemoryReadiness;
+        if (!read) {
+          throw new Error('Desktop memory readiness is unavailable');
+        }
+        const request = PlatformRunRequestSchema.parse(input);
+        return PlatformMemoryReadinessSchema.parse(
+          await read(desktopAdmissionRequest(request, signal))
+        );
+      })
   );
   connection.onRequest('platform/admit', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
