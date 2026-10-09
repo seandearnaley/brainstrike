@@ -491,6 +491,8 @@ export async function createProductionHostPlatform(
               ...runOptions,
               native: nativeMemory(bridge, runOptions.native),
               providerRequestContext: () => selected.providerRequestContext,
+              // Core keeps every run and its admission; a closed owner leaves this map.
+              released: () => opened.delete(context.runId),
               store: options.startup.store,
               ...(bridge ? { vectorBridge: bridge } : {}),
             });

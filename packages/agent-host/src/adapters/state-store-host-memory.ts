@@ -100,6 +100,12 @@ export interface StateStoreHostMemoryOptions {
   readonly providerRequestContext?: () => ProviderRequestContext | Promise<ProviderRequestContext>;
   readonly recordObserverUsage?: HostMemoryCapabilities['recordObserverUsage'];
   readonly recordPrompt: HostMemoryCapabilities['recordPrompt'];
+  /**
+   * Told once the owner has joined and closed, so whatever keeps it by its run
+   * (an admission shared by delegated runs) drops it: a closed owner's public
+   * Memory and its WebAssembly hasher must not outlive the run.
+   */
+  readonly released?: () => void;
   readonly resourceId: string;
   readonly store: StateStore;
   /** Captured run bridge over the existing Root indexer, prepared before native embedding. */
@@ -123,7 +129,8 @@ export class StateStoreHostMemory implements HostRunOwner {
     private readonly providerContext: ProviderRequestContext | undefined,
     private readonly semanticRecall: boolean,
     private readonly resourceRecall: boolean,
-    private readonly vectorBridge: StateStoreMemoryVector | undefined
+    private readonly vectorBridge: StateStoreMemoryVector | undefined,
+    private readonly released: (() => void) | undefined
   ) {}
 
   static createVectorBridge(options: StateStoreMemoryVectorOptions): StateStoreMemoryVector {
@@ -240,7 +247,8 @@ export class StateStoreHostMemory implements HostRunOwner {
       providerContext,
       semanticRecall,
       resourceRecall,
-      vectorBridge
+      vectorBridge,
+      options.released
     );
     try {
       await storage.init();
@@ -573,6 +581,7 @@ export class StateStoreHostMemory implements HostRunOwner {
           'Memory storage cleanup failed'
         );
       }
+      this.released?.();
       // Every memory tail joined and storage closed: a failure is the run's outcome.
       if (failure !== undefined) {
         throw failure;
