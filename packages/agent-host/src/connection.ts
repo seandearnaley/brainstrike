@@ -8,6 +8,7 @@ import { bindHostHookTrustMethods } from './hook-trust.js';
 import type { HostAuthService, HostClientOrigin, HostProviderService } from './ports.js';
 import {
   HOST_CHILDREN_CHANGED,
+  HOST_RUN_TELEMETRY,
   type HostLogRow,
   type HostMethod,
   type HostParams,
@@ -69,6 +70,13 @@ export function bindHostConnection(
       connection
         .sendNotification(HOST_CHILDREN_CHANGED, { threadId: parentThreadId })
         .catch(() => connection.dispose());
+    }
+  });
+  // A running tool's live telemetry goes to the same subscribers as the thread's
+  // rows, and is never committed (ADR-0011 amendment).
+  const releaseTelemetry = core.onTelemetry((telemetry) => {
+    if (subscriptions.has(telemetry.threadId) && !disposed) {
+      connection.sendNotification(HOST_RUN_TELEMETRY, telemetry).catch(() => connection.dispose());
     }
   });
   const handle = <M extends HostMethod>(
@@ -167,6 +175,7 @@ export function bindHostConnection(
     disposed = true;
     core.releaseMcpInputClient(mcpClient);
     release();
+    releaseTelemetry();
     subscriptions.clear();
     for (const disposable of disposables) {
       disposable.dispose();
