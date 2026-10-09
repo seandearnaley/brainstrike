@@ -66,14 +66,16 @@ class Source implements CommittedHostRunSource {
 
 test('a committed log reads as its latest root run: running until its own finish', () => {
   const runs = new HostThreadRuns();
-  runs.accept(threadId, approved.slice(0, indexOf(approved, 'run.finished')));
+  // The real recording, as a log whose rows carry no commit times.
+  const untimed = approved.map(({ ts: _ts, ...row }) => row);
+  runs.accept(threadId, untimed.slice(0, indexOf(untimed, 'run.finished')));
   expect(runs.getSnapshot().get(threadId)).toEqual({
     completedAt: null,
     needsInput: false,
     status: 'running',
   });
-  runs.accept(threadId, approved);
-  // The recording predates commit timestamps: no finish time is invented.
+  runs.accept(threadId, untimed);
+  // Without commit times, no finish time is invented.
   expect(runs.getSnapshot().get(threadId)).toEqual({
     completedAt: null,
     needsInput: false,
