@@ -19,7 +19,6 @@ import { promises as fsPromises } from 'node:fs';
 import path from 'node:path';
 import { createLogger } from '@brainstrike/logging';
 import type {
-  GitInventory,
   GitResult,
   ManagedWorktreePathEntry,
   ManagedWorktreeRow,
@@ -34,7 +33,6 @@ import type {
   WorktreeSettings,
   WorktreeSetupOutcome,
 } from '@brainstrike/types';
-import type { GitCommandRunner } from './git-service';
 import {
   describeFailure,
   GIT_DEFAULT_TIMEOUT_MS,
@@ -63,7 +61,7 @@ import {
   inspectWorktreeArchivePreviewForPath,
   worktreePathExists,
 } from './worktree-archive-preview';
-import { createWorktreeLedger, type WorktreeLedgerDatabase } from './worktree-ledger';
+import { createWorktreeLedger } from './worktree-ledger';
 import {
   assertWorktreeTargetOutsideRoots,
   generateWorktreeName,
@@ -75,8 +73,15 @@ import {
   emitWorktreeArchivedEvent,
   emitWorktreeCreateEvents,
   emitWorktreeShellCreatedEvent,
-  type WorktreeRunEventDeps,
 } from './worktree-run-events';
+import {
+  buildRootIdByRealPath,
+  createMutex,
+  type RepositoryContext,
+  type WorktreeArchiveParams,
+  type WorktreeServiceDeps,
+  type WorktreeSetupInput,
+} from './worktree-service-inputs';
 import {
   repositorySetupDecisionInput,
   resolveRepositorySetupContext,
@@ -84,103 +89,11 @@ import {
 
 const logger = createLogger('WorktreeService');
 
-/**
- * A renderer-attested decision, pinned to the script's hash at decision time.
- * `resolveSetupCommand` re-hashes disk and refuses a mismatch (fail closed to
- * a visible skipped setup) rather than trusting a decision made against
- * different script contents.
- */
-export interface RepositorySetupDecisionInput {
-  readonly decision: 'approved' | 'denied';
-  readonly scriptSha256: string;
-}
-
-/** What `runSetup` needs to run `.worktreeinclude` copy + the setup command. */
-export interface WorktreeSetupInput {
-  /** Test seam; production uses `WORKTREE_INCLUDE_MAX_TOTAL_BYTES`. */
-  readonly copyMaxBytes?: number;
-  /** Required only for the repository-committed fallback script. */
-  readonly repositorySetupDecision?: RepositorySetupDecisionInput;
-  readonly settings: WorktreeSettings;
-  readonly sourcePath: string;
-  /** Test seam; production allows a two-second SIGTERM grace period. */
-  readonly terminationGraceMs?: number;
-  /** Test seam; production uses `WORKTREE_SETUP_TIMEOUT_MS`. */
-  readonly timeoutMs?: number;
-  readonly worktree: ManagedWorktreeRow;
-}
-
-export interface WorktreeServiceDeps extends WorktreeRunEventDeps {
-  readonly getDatabase: () => Promise<WorktreeLedgerDatabase>;
-  readonly readSettings: () => Promise<WorktreeSettings>;
-  /**
-   * The cached inventory snapshot — the same one `window.changes.inventory()`
-   * serves. `options.forceFresh` (threaded to `WorktreeAdoptDeps.resolveInventory`,
-   * used only by `reconcileWorktreesFromShell`'s post-command read) requests a
-   * build guaranteed to start after the call, main.ts's wiring maps it to
-   * `GitInventoryService.getSnapshot({ maxAgeMs: 0 })`.
-   */
-  readonly resolveInventory: (options?: { readonly forceFresh?: boolean }) => Promise<GitInventory>;
-  readonly resolveRootCwd: (rootId: string) => Promise<GitResult<string>>;
-  readonly resolveRootPaths: () => Promise<
-    readonly { readonly id: string; readonly path: string }[]
-  >;
-  readonly run: GitCommandRunner;
-  readonly runSetup: (input: WorktreeSetupInput) => Promise<WorktreeSetupOutcome>;
-}
-
-interface RepositoryContext {
-  readonly commonDir: string;
-  readonly cwd: string;
-  readonly repositoryRoot: string;
-}
-
-interface WorktreeArchiveParams {
-  readonly confirmIgnoredEntries?: string;
-  readonly force?: boolean;
-  readonly runId?: string;
-  readonly worktreeId: string;
-}
-
-/** FIFO async mutex: tasks run strictly one at a time, failures don't wedge it. */
-function createMutex(): <T>(task: () => Promise<T>) => Promise<T> {
-  let tail: Promise<unknown> = Promise.resolve();
-  return (task) => {
-    const result = tail.then(task);
-    tail = result.catch(() => undefined);
-    return result;
-  };
-}
-
-/**
- * Root id keyed by REALPATH'D path — the same canonical basis
- * `git-inventory-service.ts` already uses for `descriptor.path` (and, by
- * extension, for `WorktreeListEntry.path`/`row.path`, which the ledger
- * writes from that same canonical path). A root whose path no longer
- * resolves (deleted/moved since it was mounted) cannot be an exact mount for
- * anything, so it is OMITTED rather than keyed on a raw, possibly-stale
- * path — consistent with this file's "never throw across the boundary"
- * contract, this degrades that one root's exact-match lookup, never the
- * whole list.
- */
-async function buildRootIdByRealPath(
-  roots: readonly { readonly id: string; readonly path: string }[]
-): Promise<ReadonlyMap<string, string>> {
-  const resolved = await Promise.all(
-    roots.map(async (root): Promise<readonly [string, string] | null> => {
-      try {
-        return [await fsPromises.realpath(root.path), root.id];
-      } catch (error) {
-        logger.warn('worktree list: root path could not be resolved for exact-mount matching', {
-          error,
-          rootId: root.id,
-        });
-        return null;
-      }
-    })
-  );
-  return new Map(resolved.filter((entry): entry is readonly [string, string] => entry !== null));
-}
+export type {
+  RepositorySetupDecisionInput,
+  WorktreeServiceDeps,
+  WorktreeSetupInput,
+} from './worktree-service-inputs';
 
 export function createWorktreeService(deps: WorktreeServiceDeps) {
   const ledger = createWorktreeLedger(deps.getDatabase);
@@ -1009,13 +922,7 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
     }): Promise<GitResult<WorktreeShellReconcileResult>> {
       return await serialize(async () => {
         try {
-          const reconciled = await reconcileWorktreesFromShell(adoptDeps(), params);
-          if (reconciled.ok) {
-            for (const row of reconciled.value.adopted) {
-              await emitWorktreeShellCreatedEvent(deps, params.runId ?? null, row);
-            }
-          }
-          return reconciled;
+          return await reconcileWorktreesFromShell(adoptDeps(), params);
         } catch (error) {
           // Spreading `params` directly would dump `precedingWorktreePaths` —
           // a `Set`, which loses its members through JSON-shaped logging
@@ -1031,6 +938,18 @@ export function createWorktreeService(deps: WorktreeServiceDeps) {
           return { error: toErrorMessage(error), ok: false };
         }
       });
+    },
+    /**
+     * A legacy run's timeline breadcrumbs for the worktrees its shell made. An
+     * agent-host run's caller commits them to the host log instead.
+     */
+    async recordShellAdoptions(
+      runId: string,
+      adopted: readonly ManagedWorktreeRow[]
+    ): Promise<void> {
+      for (const row of adopted) {
+        await emitWorktreeShellCreatedEvent(deps, runId, row);
+      }
     },
     async repositoryContextForRoot(rootId: string): Promise<GitResult<RepositoryContext>> {
       return await resolveRepositoryContext(rootId);
