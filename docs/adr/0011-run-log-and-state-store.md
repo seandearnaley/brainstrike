@@ -57,10 +57,10 @@ the final spike code, neither lost a displayed chunk.
 - ADR-0002 records the durable PGlite `job_queue`. It needs a status review when M2
   deletes the scheduling layer; this ADR does not change it.
 
-## Amendment (2026-10-09): live tool telemetry
+## Amendment (2026-10-09): live telemetry
 
-A running tool's live telemetry is the one carve-out from "every view is a fold
-of the log". This means `executeCommand`'s shell-output slices
+Live telemetry is the one carve-out from "every view is a fold
+of the log". For a running tool, that means `executeCommand`'s shell-output slices
 (`SHELL_OUTPUT_STREAM_PART_TYPE`) and MCP progress
 (`MCP_PROGRESS_STREAM_PART_TYPE`). The host's tool write seam classifies these
 two types with `isToolTelemetryStreamPart` and sends them to the thread's log
@@ -70,6 +70,29 @@ Committing telemetry made each slice wait on a disk commit and grew every
 hydration: a 25 ms progress server for ten minutes is about 24k rows. Legacy
 kept these slices transient. The tool result, which commits, owns the output,
 so a reload shows the result and no slices.
+
+The model's text and reasoning stream is the same kind of telemetry. The run
+loop sends `text-start/delta/end` and `reasoning-start/delta/end` to
+subscribers as `run/telemetry` with no `toolCallId`. It keeps committing
+`start-step`, `finish-step` and `tool-*`, because notices, billing, ledger
+counts and projection step keys read them. A step's `model.step` messages are
+the one durable owner of its text, and no reader folds text from deltas. A
+view shows a live overlay for the open step and replaces it with the step's
+committed parts when that step commits; the overlay is never dropped on the
+next `start-step`. Legacy's abort finalization is kept: a user's Stop, or a
+terminal watchdog abort, commits the open step's observed partial reply as
+`model.messages` through Core. A stall replaced by a new attempt keeps nothing,
+as in legacy. A SIGKILL mid-step loses the partial reply in both legacy and
+host. Measured with UI-panels' open harness at 1,000 threads x 5 runs, each
+reply 300 deltas long (2026-10-09, macOS arm64):
+
+- `state.db` fell from 642 MB to 35 MB. With content-addressed blobs (98 MB
+  both times), the profile fell from 739 MB to 133 MB. Legacy's database was
+  44 MB.
+- Warm host open (`startAgentHost`) did not improve: 1,519–1,694 ms over five
+  opens, against 1,429–1,530 ms before the change and legacy's 80–570 ms.
+  Row count was not what made open slow, so the open-time gap stays open, and
+  no lazy decoding was added in its name.
 
 ## Sources
 
