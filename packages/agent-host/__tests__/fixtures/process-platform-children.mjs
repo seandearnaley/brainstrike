@@ -42,7 +42,7 @@ function step(next) {
           { type: 'stream-start', warnings: [] },
           {
             input: JSON.stringify(next.input),
-            toolCallId: `${next.toolName}-call`,
+            toolCallId: `${next.toolName}-call-${next.index}`,
             toolName: next.toolName,
             type: 'tool-call',
           },
@@ -60,31 +60,37 @@ function step(next) {
   };
 }
 
-/** @param {string} root @param {keyof typeof INTERACTIONS} interaction */
-function treeModel(root, interaction) {
+/**
+ * Each task's tool calls in order, then its answer. A paused-tree scenario
+ * names the grandchild's interaction; an idle one lets the tree finish, and a
+ * follow-up typed into an idle grandchild writes.
+ * @param {string} root @param {string} scenario
+ */
+function treeModel(root, scenario) {
+  const interaction = INTERACTIONS[scenario];
+  /** @type {Record<string, { input: unknown; toolName: string }[]>} */
+  const script = {
+    'Continue the saved grandchild task.': [
+      { input: INTERACTIONS.write_file, toolName: 'write_file' },
+    ],
+    'Delegate the tree.': [{ input: { prompt: 'LEVEL_1' }, toolName: 'agent-worker' }],
+    LEVEL_1: (scenario === 'idle-sibling' ? ['LEVEL_2', 'SIBLING_2'] : ['LEVEL_2']).map(
+      (prompt) => ({ input: { prompt }, toolName: 'agent-worker' })
+    ),
+    LEVEL_2: interaction ? [{ input: interaction, toolName: scenario }] : [],
+  };
   return new MockLanguageModelV4({
     doStream: async ({ prompt }) => {
       const texts = userTexts(prompt);
       const task = texts.at(-1) ?? '';
       const latestUser = prompt.findLastIndex((message) => message.role === 'user');
-      const answered = prompt.slice(latestUser).some((message) => message.role === 'tool');
+      const results = prompt.slice(latestUser).filter((message) => message.role === 'tool').length;
       await appendFile(
         join(root, 'fixture-model-calls'),
         `${JSON.stringify({ ledgers: texts.filter((text) => text.includes(LEDGER)).length, pid: process.pid, task })}\n`
       );
-      if (answered) {
-        return step({ text: `${task} done.` });
-      }
-      if (task === 'Delegate the tree.') {
-        return step({ input: { prompt: 'LEVEL_1' }, toolName: 'agent-worker' });
-      }
-      if (task === 'LEVEL_1') {
-        return step({ input: { prompt: 'LEVEL_2' }, toolName: 'agent-worker' });
-      }
-      if (task === 'LEVEL_2') {
-        return step({ input: INTERACTIONS[interaction], toolName: interaction });
-      }
-      return step({ text: `${task} answered.` });
+      const next = script[task]?.[results];
+      return step(next ? { ...next, index: results } : { text: `${task} answered.` });
     },
   });
 }
@@ -94,10 +100,10 @@ function treeModel(root, interaction) {
 export async function createHostPlatform(options) {
   const root = options.root;
   await appendFile(join(root, 'fixture-platform-pids'), `${process.pid}\n`);
-  const interaction = z
-    .enum(['ask_user', 'submit_plan', 'write_file'])
+  const scenario = z
+    .enum(['ask_user', 'submit_plan', 'write_file', 'idle', 'idle-sibling'])
     .parse(process.env.BRAINSTRIKE_CHILD_RESTART_TOOL);
-  const model = treeModel(root, interaction);
+  const model = treeModel(root, scenario);
   const answer = async (_input, context) => context.resumeData;
   return {
     async close() {},

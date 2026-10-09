@@ -157,6 +157,63 @@ afterEach(async (context) => {
 const finishedOutcomes = (rows: readonly HostLogRow[]) =>
   rows.flatMap(({ event }) => (event.type === 'run.finished' ? [event.outcome] : []));
 
+/** The committed child threads, read with no host running, by the tool call that started each. */
+async function childThreads(root: string): Promise<Map<string, string>> {
+  const store = await StateStore.open(root);
+  try {
+    const children = new Map<string, string>();
+    for (const threadId of await store.threads()) {
+      const started = ((await store.read(threadId, 1, 1)) as HostLogRow[])[0]?.event;
+      if (started?.type === 'thread.started' && 'origin' in started && started.origin) {
+        children.set(`${started.origin.depth}:${started.origin.toolCallId}`, threadId);
+      }
+    }
+    return children;
+  } finally {
+    await store.close();
+  }
+}
+
+async function startRun(root: string, tool: string, threadId: string, prompt: string) {
+  return HOST_RESULT_SCHEMAS['run/start'].parse(
+    await cli(root, tool, [
+      'run',
+      'start',
+      '--thread',
+      threadId,
+      '--model',
+      'scripted',
+      '--prompt',
+      prompt,
+    ])
+  ).runId;
+}
+
+/** The interaction `runId` pauses on, read from the live host. */
+async function pauseOf(root: string, threadId: string, runId: string) {
+  const client = await attachAgentHost(await owner(root));
+  try {
+    let pause: HostLogRow['event'] | undefined;
+    await expect
+      .poll(
+        async () => {
+          pause = (await client.request('thread/read', { fromSeq: 0, threadId })).rows
+            .map((row) => row.event)
+            .find((event) => event.type === 'interaction.requested' && event.runId === runId);
+          return pause?.type;
+        },
+        { timeout: 30_000 }
+      )
+      .toBe('interaction.requested');
+    if (pause?.type !== 'interaction.requested') {
+      throw new Error('The follow-up did not pause');
+    }
+    return ['--thread', threadId, '--run', runId, '--interaction', pause.interactionId];
+  } finally {
+    await client.close();
+  }
+}
+
 test.for(Object.keys(CASES) as Decision[])(
   'a paused grandchild is interrupted by a real host restart; its decision is refused and the parent reads it once (%s)',
   async (decision) => {
@@ -205,6 +262,16 @@ test.for(Object.keys(CASES) as Decision[])(
           { timeout: 30_000 }
         )
         .toBe('interaction.requested');
+      // The root's own turn ends after its background dispatch; the restart follows it.
+      await expect
+        .poll(
+          async () =>
+            (await client.request('thread/read', { fromSeq: 0, threadId })).rows.some(
+              ({ event }) => event.type === 'run.finished'
+            ),
+          { timeout: 30_000 }
+        )
+        .toBe(true);
     } finally {
       await client.close();
     }
@@ -315,5 +382,112 @@ test.for(Object.keys(CASES) as Decision[])(
     const pids = (await lines(root, 'fixture-platform-pids')).map(Number);
     expect(new Set(pids).size).toBe(pids.length);
     expect(pids.length).toBeGreaterThanOrEqual(5);
+  }
+);
+
+/**
+ * AT-13's idle-grandchild-restart, ported to ADR-0010: a follow-up typed into
+ * an idle grandchild pauses on its write, and the host restarts. The follow-up
+ * is interrupted, its approval is refused, nothing is written, and no host
+ * re-runs it. Ruling (a): an interrupted or stopped follow-up reports nothing
+ * to its parent; the child's own view shows it. The shipped spec
+ * (apps/desktop/src/__tests__/assistant-server/idle-grandchild-restart.integration.test.ts
+ * on main ed97957e0) has no interrupted follow-up, since its approval survived
+ * the restart; its stopped continuation added no parent outcome (:85
+ * `parentCalls: 1` for the sibling alone, :88 `stoppedState: 'cancelled'`), and
+ * its recovery phase added none (:125, :130).
+ */
+test.for(['single', 'stop-sibling'] as const)(
+  'a follow-up typed into an idle grandchild is interrupted by a real host restart and reports nothing to its parent (%s)',
+  async (mode) => {
+    const scenario = mode === 'single' ? 'idle' : 'idle-sibling';
+    const root = await freshRoot();
+    const threadId = HOST_RESULT_SCHEMAS['thread/start'].parse(
+      await cli(root, scenario, ['thread', 'start'])
+    ).threadId;
+    await released(root);
+    // The whole tree runs and settles; its host exits idle.
+    await startRun(root, scenario, threadId, 'Delegate the tree.');
+    await released(root);
+    const children = await childThreads(root);
+    const worker = children.get('1:agent-worker-call-0') ?? '';
+    const grandchild = children.get('2:agent-worker-call-0') ?? '';
+    const sibling = children.get('2:agent-worker-call-1');
+    expect(children.size).toBe(mode === 'single' ? 2 : 3);
+
+    // A fresh process: the follow-up typed into the idle grandchild pauses on its write.
+    const FOLLOW_UP = 'Continue the saved grandchild task.';
+    const followUp = await startRun(root, scenario, grandchild, FOLLOW_UP);
+    const host = await owner(root);
+    const grandchildTarget = await pauseOf(root, grandchild, followUp);
+    let selected = { runId: followUp, target: grandchildTarget, threadId: grandchild };
+    if (sibling) {
+      // The sibling's follow-up pauses too; Stop ends the grandchild's before the restart.
+      const siblingRun = await startRun(root, scenario, sibling, FOLLOW_UP);
+      selected = {
+        runId: siblingRun,
+        target: await pauseOf(root, sibling, siblingRun),
+        threadId: sibling,
+      };
+      await cli(root, scenario, ['run', 'stop', '--thread', grandchild, '--run', followUp]);
+    }
+    await stop(root, host);
+
+    // Later processes: every decision is refused, before and after the parent's next turn.
+    const approve = [...CASES.approve.args];
+    expect(await refused(root, scenario, [...approve, ...selected.target])).toMatch(STALE);
+    await released(root);
+    if (sibling) {
+      expect(await refused(root, scenario, [...approve, ...grandchildTarget])).toMatch(STALE);
+      await released(root);
+    }
+    const parentTurn = await startRun(root, scenario, worker, 'What happened?');
+    await released(root);
+    expect(await refused(root, scenario, [...approve, ...selected.target])).toMatch(STALE);
+    await released(root);
+
+    const read = await rowsOf(root);
+    const runFinished = async (thread: string, runId: string) =>
+      (await read(thread)).find(
+        ({ event }) => event.type === 'run.finished' && event.runId === runId
+      )?.event;
+    expect(await runFinished(selected.threadId, selected.runId)).toMatchObject({
+      detail: 'Host restarted; child runs are not resumed',
+      outcome: 'interrupted',
+    });
+    if (sibling) {
+      expect(await runFinished(grandchild, followUp)).toMatchObject({ outcome: 'stopped' });
+    }
+    const allRows = (
+      await Promise.all([threadId, ...children.values()].map((thread) => read(thread)))
+    ).flat();
+    expect(allRows.filter(({ event }) => event.type === 'interaction.responded')).toEqual([]);
+    // No delivery anywhere carries a follow-up, and the parent's next turn reads nothing.
+    const followUps = new Set([followUp, selected.runId]);
+    expect(
+      allRows.flatMap(({ event }) =>
+        event.type === 'run.started'
+          ? (event.delivery?.entries ?? []).filter(({ childRunId }) => followUps.has(childRunId))
+          : []
+      )
+    ).toEqual([]);
+    const parentStart = allRows.find(
+      ({ event }) => event.type === 'run.started' && event.runId === parentTurn
+    )?.event;
+    expect(parentStart).toMatchObject({ type: 'run.started' });
+    expect(parentStart).not.toHaveProperty('delivery');
+
+    // Nothing was written, and no host re-ran a follow-up after the restart.
+    await expect(readFile(join(root, 'fixture-effect-count'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+    const calls = (await lines(root, 'fixture-model-calls')).map(
+      (line) => JSON.parse(line) as { pid: number; task: string }
+    );
+    expect(calls.filter(({ task }) => task === FOLLOW_UP).map(({ pid }) => pid)).toEqual(
+      sibling ? [host.pid, host.pid] : [host.pid]
+    );
+    const pids = (await lines(root, 'fixture-platform-pids')).map(Number);
+    expect(new Set(pids).size).toBe(pids.length);
   }
 );
