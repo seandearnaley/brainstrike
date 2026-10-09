@@ -162,15 +162,29 @@ async function passHostPromptHooks(
   }
 }
 
-/** A fresh run starts past its UserPromptSubmit hooks: a block fails it, else its loop runs. */
-export async function beginHostRun(
+interface HostRunStartSteps {
+  readonly commit: (events: HostEvent[]) => Promise<unknown>;
+  readonly fail: (detail: string) => Promise<void>;
+  readonly loop: (model: HostRunAdmission['model']) => Promise<void>;
+}
+
+/**
+ * A fresh run starts past its UserPromptSubmit hooks: a block fails it, else
+ * its loop runs. With no hooks the loop starts in this same turn, so the run's
+ * owner opens before run/start replies, as it did before lifecycle hooks.
+ */
+export function beginHostRun(
   run: HostRunState,
   admission: HostRunAdmission,
-  steps: {
-    readonly commit: (events: HostEvent[]) => Promise<unknown>;
-    readonly fail: (detail: string) => Promise<void>;
-    readonly loop: (model: HostRunAdmission['model']) => Promise<void>;
-  }
+  steps: HostRunStartSteps
+): Promise<void> {
+  return admission.hooks ? gatedHostRun(run, admission, steps) : steps.loop(admission.model);
+}
+
+async function gatedHostRun(
+  run: HostRunState,
+  admission: HostRunAdmission,
+  steps: HostRunStartSteps
 ): Promise<void> {
   const failure = await passHostPromptHooks(run, admission, steps.commit);
   await (failure === undefined ? steps.loop(admission.model) : steps.fail(failure));
