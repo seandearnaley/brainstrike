@@ -2,6 +2,7 @@ import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS, type RuntimeData } from '@br
 import { app } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import { handleAssistantRequest } from '../../assistant-server';
+import { installDesktopHookApprovalReader } from '../../assistant-server/hooks/server-integration';
 import { resetDesktopMastraMemoryCacheForTests } from '../../assistant-server/mastra-memory';
 import {
   mockDesktopDatabase,
@@ -44,6 +45,9 @@ vi.mock('../../db-main', async () => (await mocks()).makeDbMainMock());
 const runRequest = createRunRequest(handleAssistantRequest);
 
 beforeEach(() => {
+  // Main installs the agent host's hook-trust reader before the server takes
+  // requests; this host trusts no root's project hooks.
+  installDesktopHookApprovalReader(async () => undefined);
   mockDesktopDatabase.exec.mockReset();
   mockDesktopDatabase.query.mockReset();
   // Default: workspace-roots enrichment (runs first on every assistant
