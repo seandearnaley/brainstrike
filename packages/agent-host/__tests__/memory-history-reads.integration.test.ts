@@ -33,17 +33,20 @@ const native: StateStoreHostMemoryOptions['native'] = {
 };
 
 /**
- * The rows one Memory-composed run reads from the store, after `seededThreads`
- * other threads of its resource each committed their own runs.
+ * The rows one Memory-composed run reads, from the store and from Core's
+ * committed-row projection, after `seededThreads` other threads of its
+ * resource each committed their own runs.
  */
-async function rowsReadByOneRun(seededThreads: number): Promise<{ readAll: number; rows: number }> {
+async function rowsReadByOneRun(
+  seededThreads: number
+): Promise<{ projectionRows: number; readAll: number; rows: number }> {
   const root = await mkdtemp(join(tmpdir(), 'bs-m3-memory-history-'));
   const store = await StateStore.open(root, {
     memoryCalculatorModule: fileURLToPath(
       new URL('../dist/adapters/memory-storage-calculator.js', import.meta.url)
     ),
   });
-  const counted = { readAll: 0, rows: 0 };
+  const counted = { projectionRows: 0, readAll: 0, rows: 0 };
   let counting = false;
   const readAll = store.readAll.bind(store);
   const read = store.read.bind(store);
@@ -74,13 +77,25 @@ async function rowsReadByOneRun(seededThreads: number): Promise<{ readAll: numbe
     close: async () => undefined,
     maxSteps: 3,
     openRun: (context) =>
-      StateStoreHostMemory.open(context, {
-        native,
-        providerRequestContext: () => ({ inputTokenLimit: 200_000, provider: 'openai' }),
-        recordPrompt: async () => undefined,
-        resourceId: 'brainstrike:workspace',
-        store,
-      }),
+      StateStoreHostMemory.open(
+        {
+          ...context,
+          readCommittedRows: (threadIds) => {
+            const rows = context.readCommittedRows(threadIds);
+            if (counting) {
+              counted.projectionRows += rows.length;
+            }
+            return rows;
+          },
+        },
+        {
+          native,
+          providerRequestContext: () => ({ inputTokenLimit: 200_000, provider: 'openai' }),
+          recordPrompt: async () => undefined,
+          resourceId: 'brainstrike:workspace',
+          store,
+        }
+      ),
     readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
     resolveModel: async () => model,
   };
@@ -124,12 +139,13 @@ async function rowsReadByOneRun(seededThreads: number): Promise<{ readAll: numbe
   return counted;
 }
 
-test("a Memory-composed run's store reads do not grow with its resource's history", async () => {
+test("a Memory-composed run's history reads do not grow with its resource's history", async () => {
   const small = await rowsReadByOneRun(2);
   const large = await rowsReadByOneRun(12);
-  // The run's Memory reads its resource's committed history from Core's
-  // projection: the store is never scanned whole, and what the run reads from
-  // it is its own thread, however much the resource's other threads hold.
+  // The run's Memory reads committed history from Core's projection, never by
+  // scanning the store, and only the threads its configuration asks for: with
+  // thread-scoped history that is its own thread, however much the resource's
+  // other threads hold.
   expect(large).toEqual(small);
   expect(large.readAll).toBe(0);
 }, 120_000);
