@@ -10,11 +10,13 @@ import {
   sha256Hex,
 } from '@brainstrike/state-store';
 import { z } from 'zod';
+import { storedJson } from './json-value.js';
 import {
   type HostEvent,
   HostEventSchema,
   type HostLogRow,
   type HostRunSnapshot,
+  hostEventSchema,
 } from './protocol.js';
 import { readRunSnapshot, storedRunSnapshot, takeRunSnapshotRef } from './run-snapshot-blobs.js';
 
@@ -46,6 +48,9 @@ export function hostEventSpool(
 ): z.output<typeof Spool> | undefined {
   return 'blob' in stored ? Spool.parse(stored) : undefined;
 }
+
+/** Stored rows' events, over stored JSON values (ADR-0011). */
+const StoredHostEventSchema = hostEventSchema(storedJson);
 
 /** A stored row's body: the row itself, or the JSON of the blob it spooled to. */
 export function storedHostBody(
@@ -81,7 +86,7 @@ export function decodeStoredHostEvent(
   snapshot?: (hash: string) => HostRunSnapshot
 ): HostEvent {
   const { body, ref } = takeRunSnapshotRef(storedHostBody(stored, blob));
-  const event = HostEventSchema.parse(body);
+  const event = StoredHostEventSchema.parse(body);
   if (ref === undefined) {
     return event;
   }

@@ -108,6 +108,12 @@ about 20 KB, and 17 KB of that is the system prompt repeated on every run. At
 1,000 threads x 5 runs, the hydration read was 128 MB, of which 102 MB was
 4,996 spooled `run.started` rows, each read, hashed and parsed at open.
 
+A stored row's JSON values are not walked again. The event schemas are built
+once over a JSON value schema: producers and the wire use `z.json()`, and the
+stored-row reader accepts the values JSON.parse produced, which `z.json()` can
+never reject. Every structural field of a stored row is still validated at
+open, and rows stay crc-verified by the store.
+
 ## Sources
 
 - `docs/agents/assistant-persistence.md:173` (line number at `43daec7fb`): readers

@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { BLOBS_DIR, type BlobContent, sha256Hex } from '@brainstrike/state-store';
-import { type HostEvent, type HostRunSnapshot, HostRunSnapshotSchema } from './protocol.js';
+import { storedJson } from './json-value.js';
+import { type HostEvent, type HostRunSnapshot, hostRunSnapshotSchema } from './protocol.js';
 import { Sha256 } from './workspace-wire.js';
 
 /**
@@ -53,11 +54,14 @@ function frozen<T>(value: T): T {
   return value;
 }
 
+/** A snapshot blob is stored JSON, like a stored row (ADR-0011). */
+const StoredRunSnapshotSchema = hostRunSnapshotSchema(storedJson);
+
 function decodeSnapshot(hash: string, bytes: Uint8Array): HostRunSnapshot {
   if (sha256Hex(Buffer.from(bytes)) !== hash) {
     throw new Error('Committed run snapshot blob is damaged');
   }
-  return frozen(HostRunSnapshotSchema.parse(JSON.parse(Buffer.from(bytes).toString('utf8'))));
+  return frozen(StoredRunSnapshotSchema.parse(JSON.parse(Buffer.from(bytes).toString('utf8'))));
 }
 
 /**
