@@ -31,6 +31,7 @@ function fixture() {
     close: vi.fn(async () => undefined),
     closed: Promise.resolve(),
     onEvent: vi.fn(() => () => undefined),
+    onMcpSettings: vi.fn(() => () => undefined),
     record: {
       endpoint: '/tmp/recorded-host-fixture',
       hostVersion: '0.1.0',

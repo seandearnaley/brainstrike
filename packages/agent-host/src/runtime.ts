@@ -111,8 +111,12 @@ export async function startAgentHost(
     });
     return platformClose;
   };
-  const clientCapabilities = (): Pick<HostConnectionOptions, 'auth' | 'providers'> => ({
+  const clientCapabilities = (): Pick<
+    HostConnectionOptions,
+    'auth' | 'mcpSettings' | 'providers'
+  > => ({
     ...(platform?.auth ? { auth: platform.auth } : {}),
+    ...(platform?.mcpSettings ? { mcpSettings: platform.mcpSettings } : {}),
     ...(platform?.providers ? { providers: platform.providers } : {}),
   });
   const ownedPlatform: HostPlatform = {

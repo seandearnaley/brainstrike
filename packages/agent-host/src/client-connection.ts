@@ -8,11 +8,16 @@ import {
   type HostMethod,
   type HostParams,
   type HostResults,
+  MCP_SETTINGS_EVENT,
+  type McpSettingsEvent,
+  McpSettingsEventSchema,
   parseHostParams,
 } from './protocol.js';
 
 export interface HostClient extends HostAttachment {
   onEvent(listener: (row: HostLogRow) => void): () => void;
+  /** MCP settings changes, after this client's `mcp/settings/subscribe`. */
+  onMcpSettings(listener: (event: McpSettingsEvent) => void): () => void;
   request<M extends HostMethod>(method: M, params: HostParams<M>): Promise<HostResults[M]>;
 }
 /** Browser-safe connection; the private lease record comes from the owning launcher. */
@@ -23,6 +28,7 @@ export async function authenticateHostClient(
   transportClosed: Promise<void>
 ): Promise<HostClient> {
   const listeners = new Set<(row: HostLogRow) => void>();
+  const settingsListeners = new Set<(event: McpSettingsEvent) => void>();
   const closeConnection = async (): Promise<void> => {
     const failures: unknown[] = [];
     try {
@@ -31,6 +37,7 @@ export async function authenticateHostClient(
       failures.push(cause);
     }
     listeners.clear();
+    settingsListeners.clear();
     try {
       await closeTransport();
     } catch (cause) {
@@ -47,6 +54,12 @@ export async function authenticateHostClient(
     const row = HostLogRowSchema.parse(input);
     for (const listener of listeners) {
       listener(row);
+    }
+  });
+  connection.onNotification(MCP_SETTINGS_EVENT, (input: unknown) => {
+    const event = McpSettingsEventSchema.parse(input);
+    for (const listener of settingsListeners) {
+      listener(event);
     }
   });
   connection.listen();
@@ -80,6 +93,10 @@ export async function authenticateHostClient(
     onEvent: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
+    },
+    onMcpSettings: (listener) => {
+      settingsListeners.add(listener);
+      return () => settingsListeners.delete(listener);
     },
     record,
     request: async <M extends HostMethod>(
