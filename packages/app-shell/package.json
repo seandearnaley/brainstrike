@@ -89,6 +89,10 @@
       "types": "./dist/changes/availability.d.ts",
       "import": "./dist/changes/availability.js"
     },
+    "./changes/use-last-turn-follower": {
+      "types": "./dist/changes/use-last-turn-follower.d.ts",
+      "import": "./dist/changes/use-last-turn-follower.js"
+    },
     "./cost-tracking-settings": {
       "types": "./dist/cost-tracking/index.d.ts",
       "import": "./dist/cost-tracking/index.js"

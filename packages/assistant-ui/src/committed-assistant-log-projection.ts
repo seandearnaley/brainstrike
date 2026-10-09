@@ -846,7 +846,11 @@ export class CommittedAssistantLogProjection {
     this.data(run, row, chunk, 'brainstrike.host-stream');
   }
 
-  private finish(run: ProjectedRun, event: Readonly<Record<string, unknown>>): void {
+  private finish(
+    run: ProjectedRun,
+    row: CommittedAssistantLogRow,
+    event: Readonly<Record<string, unknown>>
+  ): void {
     run.terminal = true;
     for (const interaction of this.view.pendingInteractions.filter(
       (item) => item.runId === event['runId']
@@ -889,6 +893,15 @@ export class CommittedAssistantLogProjection {
               ...(typeof event['detail'] === 'string' ? { error: event['detail'] } : {}),
             },
     });
+    if (outcome === 'completed') {
+      // The legacy stream's terminal event, once on the run's final leg: its
+      // verdict and Changes review controls read the run from it.
+      this.runEvent(run, row, 'finished', {
+        kind: 'run.finished',
+        label: 'Assistant run completed',
+        status: 'completed',
+      });
+    }
     const active = [...this.runs].findLast(([, candidate]) => !candidate.terminal)?.[0];
     this.view = {
       ...this.view,
@@ -1011,7 +1024,7 @@ export class CommittedAssistantLogProjection {
       this.updateTool(run, id, (part) => ({ ...part, isError: false, result: event['output'] }));
       run.authoritativeResults.add(id);
     } else if (event['type'] === 'run.finished') {
-      this.finish(run, event);
+      this.finish(run, row, event);
     } else {
       this.other(run, row);
     }

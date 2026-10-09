@@ -9,6 +9,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import type { EditCheckpointDatabase } from '../../assistant-server/edit-checkpoint-journal';
+import type { SnapshotChainEntry } from '../../assistant-server/snapshot-chains';
 import {
   FAILED_SNAPSHOT_CAPTURE_OID,
   type SnapshotRepository,
@@ -34,6 +35,10 @@ interface FixtureOptions {
     readonly rootId: string;
     readonly threadId: string;
   }[];
+  /** Each thread's snapshot chain (newest first), served to the host ring. */
+  readonly chains?: Readonly<Record<string, readonly SnapshotChainEntry[] | Error>>;
+  /** The host's live thread ids, or why the host could not list them. */
+  readonly hostThreads?: readonly string[] | Error;
   /** thread ids present in the (fake) mastra_threads table. */
   readonly liveThreads?: readonly string[];
   /** One outstanding (unfinalized) revert-bearing tombstone batch, served to
@@ -44,6 +49,8 @@ interface FixtureOptions {
     readonly rewindId: string;
     readonly targetRunId: string;
   };
+  /** Why each root's ref inventory fails, when it does. */
+  readonly refInventoryFailures?: Readonly<Record<string, Error>>;
   /** Per-repo refs (rootId → thread ids). */
   readonly refsByRoot?: Readonly<Record<string, readonly string[]>>;
   /** Rows per thread, ledger order. */
@@ -167,9 +174,13 @@ function makeFixture(options: FixtureOptions) {
       rootId: root.rootId,
       rootPath: root.path,
     })),
-    listSnapshotThreadIds: vi.fn(async (handle: { rootId: string }) => [
-      ...(options.refsByRoot?.[handle.rootId] ?? []),
-    ]),
+    listSnapshotThreadIds: vi.fn(async (handle: { rootId: string }) => {
+      const failure = options.refInventoryFailures?.[handle.rootId];
+      if (failure) {
+        throw failure;
+      }
+      return [...(options.refsByRoot?.[handle.rootId] ?? [])];
+    }),
     pruneHistory: vi.fn(
       async (handle: { rootId: string }, boundaries: readonly string[]): Promise<void> => {
         prunedHistories.push({ boundaries, rootId: handle.rootId });
@@ -181,12 +192,27 @@ function makeFixture(options: FixtureOptions) {
     }),
   } as unknown as SnapshotService;
 
+  const readHostThreadIds = vi.fn(async (): Promise<ReadonlySet<string>> => {
+    if (options.hostThreads instanceof Error) {
+      throw options.hostThreads;
+    }
+    return new Set(options.hostThreads ?? []);
+  });
+
   const deps: SnapshotStartupGcDeps = {
     db,
     // The fixture root path is virtual; force it accessible so reconcile paths
     // run. Inaccessible-root behavior is exercised by overriding this probe.
     isRootPathAccessible: async () => true,
     liveRoots: [{ path: '/tmp/root-1', rootId: 'root-1' }],
+    readHostThreadIds,
+    readThreadChain: vi.fn(async (_handle: unknown, threadId: string) => {
+      const chain = options.chains?.[threadId] ?? [];
+      if (chain instanceof Error) {
+        throw chain;
+      }
+      return [...chain];
+    }),
     snapshotRepository: repository,
     snapshotService: service,
     turnRing: 2,
@@ -201,6 +227,7 @@ function makeFixture(options: FixtureOptions) {
     },
     prunedHistories,
     prunedThreads,
+    readHostThreadIds,
     service,
   };
 }
@@ -435,6 +462,105 @@ describe('runSnapshotStartupGc', () => {
     expect(report.refOnlyPruned).toEqual([{ rootId: 'root-1', threadId: 'thread-ghost' }]);
     expect(fixture.prunedThreads).toEqual([{ rootId: 'root-1', threadId: 'thread-ghost' }]);
     expect(fixture.prunedHistories).toEqual([{ boundaries: [OID_B], rootId: 'root-1' }]);
+  });
+
+  it('cuts a host chain past the ring and re-lists every unbacked chain start in the prune', async () => {
+    // Ring of 2 (the fixture's): the long chain holds three turns, the short one.
+    const turn = (oid: string, kind: 'turn-end' | 'turn-start', runId: string) => ({
+      commitOid: oid.repeat(40),
+      kind,
+      runId,
+    });
+    const fixture = makeFixture({
+      chains: {
+        'host-long': [
+          turn('6', 'turn-end', 'run-3'),
+          turn('5', 'turn-start', 'run-3'),
+          turn('4', 'turn-end', 'run-2'),
+          turn('3', 'turn-start', 'run-2'),
+          turn('2', 'turn-end', 'run-1'),
+          turn('1', 'turn-start', 'run-1'),
+        ],
+        'host-short': [turn('8', 'turn-end', 'run-9'), turn('7', 'turn-start', 'run-9')],
+      },
+      hostThreads: ['host-long', 'host-short'],
+      refsByRoot: { 'root-1': ['host-long', 'host-short'] },
+    });
+    const report = await runSnapshotStartupGc(fixture.deps);
+    expect(report.hostRingTrimmed).toEqual([{ rootId: 'root-1', threadId: 'host-long' }]);
+    expect(fixture.prunedHistories).toEqual([
+      { boundaries: ['3'.repeat(40), '7'.repeat(40)], rootId: 'root-1' },
+    ]);
+    expect(report.failures).toEqual([]);
+  });
+
+  it('leaves a root unpruned, visibly, when a surviving chain cannot be read', async () => {
+    const fixture = makeFixture({
+      chains: { 'host-unreadable': new Error('bad object HEAD') },
+      hostThreads: ['host-unreadable'],
+      liveThreads: [],
+      refsByRoot: { 'root-1': ['host-unreadable', 'thread-ghost'] },
+    });
+    const report = await runSnapshotStartupGc(fixture.deps);
+    // The ghost ref is still residue, but no prune may drop the unreadable chain's start.
+    expect(fixture.prunedThreads).toEqual([{ rootId: 'root-1', threadId: 'thread-ghost' }]);
+    expect(fixture.prunedHistories).toEqual([]);
+    expect(report.failures).toEqual([
+      'snapshot chain unreadable for thread "host-unreadable" in root "root-1", so the root was not pruned: bad object HEAD',
+    ]);
+  });
+
+  it('leaves a root unpruned when its ref inventory fails, though the ring trimmed its rows', async () => {
+    const fixture = makeFixture({
+      boundaries: [{ commitOid: OID_C, rootId: 'root-1', threadId: 'thread-1' }],
+      liveThreads: ['thread-1'],
+      refInventoryFailures: { 'root-1': new Error('for-each-ref failed') },
+      rowsByThread: { 'thread-1': turnRows('thread-1', 3) },
+    });
+    const report = await runSnapshotStartupGc(fixture.deps);
+    expect(report.ringTrimmed).toEqual([{ deletedRows: 2, threadId: 'thread-1' }]);
+    expect(fixture.prunedHistories).toEqual([]);
+    expect(report.failures).toEqual([
+      'ref reconciliation failed for root "root-1": for-each-ref failed',
+    ]);
+  });
+
+  it("keeps a live host thread's ref, which only the host's log records, and prunes a deleted one's", async () => {
+    const fixture = makeFixture({
+      hostThreads: ['host-live'],
+      refsByRoot: { 'root-1': ['host-live', 'host-deleted'] },
+    });
+    const report = await runSnapshotStartupGc(fixture.deps);
+    expect(report.refOnlyPruned).toEqual([{ rootId: 'root-1', threadId: 'host-deleted' }]);
+    expect(fixture.prunedThreads).toEqual([{ rootId: 'root-1', threadId: 'host-deleted' }]);
+    expect(report.failures).toEqual([]);
+    // One host read answers every unbacked ref in the sweep.
+    expect(fixture.readHostThreadIds).toHaveBeenCalledOnce();
+  });
+
+  it('keeps every unbacked ref, visibly, when the host cannot list its threads', async () => {
+    const fixture = makeFixture({
+      hostThreads: new Error('the external host hands out no private port'),
+      refsByRoot: { 'root-1': ['host-or-residue'] },
+    });
+    const report = await runSnapshotStartupGc(fixture.deps);
+    expect(fixture.prunedThreads).toEqual([]);
+    expect(report.refOnlyPruned).toEqual([]);
+    expect(report.failures).toEqual([
+      'host thread list unavailable, so unbacked snapshot refs were kept: the external host hands out no private port',
+    ]);
+  });
+
+  it('asks the host nothing when the ledger backs every ref', async () => {
+    const fixture = makeFixture({
+      boundaries: [{ commitOid: OID_B, rootId: 'root-1', threadId: 'thread-1' }],
+      liveThreads: ['thread-1'],
+      refsByRoot: { 'root-1': ['thread-1'] },
+      rowsByThread: { 'thread-1': turnRows('thread-1', 1) },
+    });
+    await runSnapshotStartupGc(fixture.deps);
+    expect(fixture.prunedThreads).toEqual([]);
+    expect(fixture.readHostThreadIds).not.toHaveBeenCalled();
   });
 
   it('skips (not fails) a live root whose path is inaccessible — no per-boot error-spam', async () => {

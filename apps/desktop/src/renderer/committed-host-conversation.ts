@@ -21,6 +21,7 @@ import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
 import { CommittedHostCheckpoints } from './committed-host-checkpoints';
 import { CommittedHostMcpInput } from './committed-host-mcp-input';
+import { CommittedHostVerdicts } from './committed-host-verdicts';
 import { respondToHostApproval, resumeHostInteraction } from './host-approval-response';
 import { HostTreeApprovals } from './host-tree-approvals';
 
@@ -103,6 +104,8 @@ export interface CommittedHostConversation {
    */
   steer(): Promise<string | undefined>;
   readonly store: CommittedAssistantLogStore;
+  /** The thread's committed run verdicts, recorded through the host. */
+  readonly verdicts: CommittedHostVerdicts;
 }
 
 /** Construct alongside the attached client, outside React render. */
@@ -265,5 +268,6 @@ export function createCommittedHostConversation(options: {
       return outcome === 'steering' ? runId : undefined;
     },
     store,
+    verdicts: new CommittedHostVerdicts(client, source, threadId),
   };
 }

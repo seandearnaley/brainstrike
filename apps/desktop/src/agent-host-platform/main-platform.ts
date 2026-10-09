@@ -20,6 +20,7 @@ import {
 import { z } from 'zod';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { type HostToolServiceCapabilities, serveHostToolServices } from './host-tool-services';
+import { type DesktopWorkspaceSnapshots, serveHostTurnSnapshots } from './host-turn-snapshots';
 import { serveLegacyMemory } from './legacy-memory-main';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
 import type { DesktopMemoryVectorSelection } from './memory-vector-selection';
@@ -74,6 +75,8 @@ export interface DesktopPlatformCapabilities {
   /** The live path of a mounted profile root; rejects an unknown root. */
   resolveWorkspaceRoot?(rootId: string): Promise<string>;
   readonly validateWorkspaceBinding?: HostPlatform['validateWorkspaceBinding'];
+  /** Legacy turns' shadow-git owner, which also snapshots each host run's turn. */
+  readonly workspaceSnapshots?: DesktopWorkspaceSnapshots;
 }
 
 /** The selection as it crosses to the host: Main-only fields stay behind. */
@@ -302,6 +305,12 @@ export function serveDesktopPlatform(
     })
   );
   serveHostToolServices(connection, execute, selection, capabilities.hostTools);
+  serveHostTurnSnapshots(
+    connection,
+    execute,
+    (threadId) => selection(threadId).freshWorkspaceRoots(),
+    capabilities.workspaceSnapshots
+  );
   connection.onRequest('platform/workspace/roots', (input: unknown, token: CancellationToken) =>
     execute(token, async () => {
       const { threadId } = z.strictObject({ threadId: z.string().min(1) }).parse(input);

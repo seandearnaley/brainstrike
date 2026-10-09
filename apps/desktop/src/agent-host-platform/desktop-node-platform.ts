@@ -50,6 +50,7 @@ import {
   PlatformMemoryReadinessSchema,
   PlatformPolicySchema,
   PlatformSelectionSchema,
+  PlatformTurnSnapshotResultSchema,
 } from './platform-wire';
 
 type PlatformSelection = z.output<typeof PlatformSelectionSchema>;
@@ -307,6 +308,12 @@ export async function createHostPlatform(
         sessionId: admission.threadId,
       });
       return {
+        // Main's shadow-git owner brackets each run's turn for its Changes
+        // review. Unsignalled: a stopped run's turn still ends with snapshots.
+        captureTurnBoundary: async (boundary) =>
+          PlatformTurnSnapshotResultSchema.parse(
+            await request('platform/snapshot/capture', boundary)
+          ),
         childSystem: selected.childSystem,
         close: closeSelection,
         configuration,

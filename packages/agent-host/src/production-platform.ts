@@ -53,6 +53,8 @@ import type { HostStartupContext } from './runtime.js';
 
 /** Existing settings/context/native catalog owners resolve this once per admitted run. */
 export interface ProductionHostRunConfiguration {
+  /** The platform's workspace snapshot owner, for each run's turn boundaries. */
+  readonly captureTurnBoundary?: HostRunAdmission['captureTurnBoundary'];
   /** BST-1932: the host context a delegated child receives beside its persona instructions. */
   readonly childSystem?: string | undefined;
   /** Borrowed platform capabilities remain owned until every run tail joins. */
@@ -168,6 +170,17 @@ function admittedNativeWebSearch(
   }
   const tool = createProviderNativeWebSearchTool(provider, auth) as unknown as Tool | undefined;
   return tool ? { nativeWebSearch: tool } : {};
+}
+
+/** The provider's auth: the admission's own resolver when it brings one, else the host's. */
+async function admittedProviderAuth(
+  options: Pick<ProductionHostPlatformOptions, 'resolveProviderAuth'>,
+  selected: Pick<ProductionHostRunConfiguration, 'resolveProviderAuth'>,
+  provider: string
+): Promise<ProviderAuthInput | undefined> {
+  return selected.resolveProviderAuth
+    ? await selected.resolveProviderAuth(provider)
+    : await options.resolveProviderAuth(provider);
 }
 
 /** The run's concrete model; a local one loads before admission returns, as the legacy stream did. */
@@ -424,9 +437,7 @@ export async function createProductionHostPlatform(
         // Before any run of this admission opens its Memory.
         const legacy = await importLegacy(selected.memory.resourceId);
         const provider = selected.configuration.provider ?? '';
-        const auth = selected.resolveProviderAuth
-          ? await selected.resolveProviderAuth(provider)
-          : await options.resolveProviderAuth(provider);
+        const auth = await admittedProviderAuth(options, selected, provider);
         const model = await admittedModel(options, selected, auth, request.signal);
         request.signal.throwIfAborted();
         acquired = await acquireMcp(request, selected);
@@ -472,6 +483,9 @@ export async function createProductionHostPlatform(
         );
         request.signal.throwIfAborted();
         const selection: HostRunAdmission = {
+          ...(selected.captureTurnBoundary
+            ? { captureTurnBoundary: selected.captureTurnBoundary }
+            : {}),
           childSystem: selected.childSystem,
           close: release,
           configuration: selected.configuration,

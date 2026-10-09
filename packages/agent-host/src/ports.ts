@@ -43,6 +43,8 @@ import type {
   HostObservationalMemoryState,
   HostResults,
   HostRunSnapshot,
+  HostTurnSnapshot,
+  HostTurnSnapshotRoot,
 } from './protocol.js';
 
 /** One committed tool-output overlay entry (the legacy ToolProjectionRewriteEntry). */
@@ -241,6 +243,15 @@ export interface HostRunHooks {
   userPromptSubmit(prompt: string): Promise<HostUserPromptVerdict>;
 }
 
+/** One turn boundary of a run, for the platform's workspace snapshot owner. */
+export interface HostTurnBoundaryRequest {
+  readonly boundary: 'turn-start' | 'turn-end';
+  /** The turn-start roots, for the turn's end; at its start the platform reads the run's roots. */
+  readonly roots?: readonly HostTurnSnapshotRoot[];
+  readonly runId: string;
+  readonly threadId: string;
+}
+
 /**
  * Hosted tool discovery (the legacy Mastra catalog search): a deferred tool
  * stays off the model's surface until the run commits a `load_tool` for it.
@@ -259,6 +270,14 @@ export interface HostToolDiscovery {
 
 /** One immutable selection retained across approval legs, never re-read from Settings. */
 export interface HostRunAdmission {
+  /**
+   * Snapshot the run's workspace roots at a turn boundary, for its Changes
+   * review. A root whose capture failed returns the null object ID; a capture
+   * that fails as a whole rejects. Omitted where no snapshot owner exists (CLI).
+   */
+  readonly captureTurnBoundary?: (
+    request: HostTurnBoundaryRequest
+  ) => Promise<readonly HostTurnSnapshot[]>;
   /**
    * BST-1932: the host-supplied context (date, skills, workspace instructions)
    * a delegated child receives beside its persona instructions; never the

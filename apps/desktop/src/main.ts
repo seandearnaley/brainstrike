@@ -40,6 +40,7 @@ import { createAgentHostPrivateClients } from './agent-host-private-clients';
 import { buildFileMenuTemplate } from './application-file-menu';
 import { registerAssetProtocol } from './asset-protocol';
 import { startAssistantServer } from './assistant-server';
+import { createHostThreadTurns } from './assistant-server/changeset-host-turns';
 import {
   configureDesktopCommandSessionManager,
   disposeDesktopCommandSessions,
@@ -1100,6 +1101,8 @@ const nativeIndexActivation = createNativeIndexActivation({
         mcp: createDesktopMcpPlatformCapabilities(getDesktopMcpHostRuntime()),
         // Gap 17: the host imports the profile's legacy workspace memory once.
         readLegacyMemory: readMainLegacyMemory,
+        // BST-1977: host runs' turns snapshot through legacy turns' one shadow-git owner.
+        workspaceSnapshots: () => snapshotService,
       });
     },
     platformModule: resolveBundledSiblingPath(
@@ -1167,6 +1170,12 @@ const desktopHookTrust = createDesktopHookTrust({
 });
 // Legacy threads run project hooks at the same host-owned trust.
 installDesktopHookApprovalReader((root) => desktopHookTrust.approval(root));
+// Host threads record their turn snapshots in the host's log, not the ledger;
+// the startup snapshot GC keeps their refs while the host lists the thread.
+const readHostThreadIds = async (): Promise<ReadonlySet<string>> =>
+  new Set(
+    (await agentHostMainClient.request('thread/list', {})).threads.map(({ threadId }) => threadId)
+  );
 const agentHostClientIpc = registerAgentHostClientIpc(async () => {
   const attachment = await nativeIndexActivation.acquireProfile();
   await desktopHookTrust.imported();
@@ -1296,6 +1305,12 @@ ipcDisposers.add(
       // them here so neither has to edit main.ts. Lazy for the same reason as
       // `resolveInventoryService` below.
       createSnapshotRepository,
+      // BST-1977: host threads' agent-run changesets resolve from the host's log.
+      hostThreadTurns: createHostThreadTurns({
+        listThreads: readHostThreadIds,
+        readRows: async (threadId, fromSeq) =>
+          (await agentHostMainClient.request('thread/read', { fromSeq, threadId })).rows,
+      }),
       resolveInventoryService: () => gitInventoryService,
       resolveSnapshotService: () => snapshotService,
     })
@@ -1600,6 +1615,7 @@ if (singleInstanceLockAcquired) {
         getDatabase,
         logger,
         mainProcessStartedAt,
+        readHostThreadIds,
         snapshotService: constructedSnapshotService,
         snapshotsBaseDir,
       });
