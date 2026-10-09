@@ -12,8 +12,10 @@ import {
 import recordedPlan from '@brainstrike/test-utils/fixtures/committed-host-plan.json';
 import recordedQuestion from '@brainstrike/test-utils/fixtures/committed-host-question.json';
 import { TooltipProvider } from '@brainstrike/ui';
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
+// HostCore with the canonical run_python binding (network-consent.integration.test.ts).
+import recordedNetwork from './fixtures/committed-host-network.json';
 
 afterEach(cleanup);
 test.each([
@@ -102,3 +104,82 @@ test.each([
     }
   }
 );
+
+test('replays a run_python network card: facts, ticked domains, the approval grant, then a per-call ask', async () => {
+  const rows = recordedNetwork.map((row) => HostLogRowSchema.parse(row));
+  const started = rows.find(({ event }) => event.type === 'run.started');
+  const cards = rows.flatMap(({ event }, index) =>
+    event.type === 'interaction.requested' ? [index] : []
+  );
+  const [first, second] = cards;
+  if (started?.event.type !== 'run.started' || first === undefined || second === undefined) {
+    throw new Error('Recorded network consent log is incomplete');
+  }
+  const view = new CommittedThreadView(started.threadId);
+  const identity = committedRunIdentity(rows, started.event.runId);
+  view.accept(rows.slice(0, first + 1));
+  const store = new CommittedAssistantLogStore({
+    identifyRun: () => identity,
+    source: {
+      getSnapshot: (): CommittedAssistantLogSourceSnapshot => ({
+        connected: true,
+        error: undefined,
+        rows: view.getSnapshot(),
+      }),
+      subscribe: view.subscribe,
+    },
+    threadId: started.threadId,
+  });
+  const dispatch = vi.fn().mockResolvedValue(undefined);
+  try {
+    render(
+      <TooltipProvider>
+        <CommittedAssistantConversation
+          commands={{ onNew: vi.fn(), onRespondToToolApproval: dispatch }}
+          label="Recorded network consent"
+          store={store}
+        />
+      </TooltipProvider>
+    );
+    const card = screen.getByRole('group', { name: 'Internet access for brainstrike.runPython' });
+    // The code-execution facts and the requested domain, asked here, not later.
+    expect(within(card).getByTestId('approval-run-python-write')).toBeTruthy();
+    expect(within(card).queryByTestId('approval-run-python-forewarning')).toBeNull();
+    expect(within(card).getAllByRole('checkbox')).toHaveLength(1);
+    fireEvent.click(within(card).getByRole('button', { name: 'Allow commands this session' }));
+    expect(dispatch).not.toHaveBeenCalled();
+    fireEvent.click(within(card).getByRole('checkbox', { name: 'pypi.org' }));
+    fireEvent.click(within(card).getByRole('button', { name: 'Allow commands this session' }));
+    await act(async () => undefined);
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch.mock.calls[0]?.[0]).toMatchObject({
+      approved: true,
+      optionId: 'grant-session',
+      text: JSON.stringify({ action: 'allow' }),
+    });
+
+    await act(async () => {
+      view.accept(rows.slice(first + 1, second + 1));
+    });
+    const next = screen.getByRole('group', { name: 'Internet access for brainstrike.runPython' });
+    expect(within(next).queryByRole('button', { name: 'Always allow' })).toBeNull();
+    expect(within(next).queryByRole('button', { name: 'Allow commands this session' })).toBeNull();
+    fireEvent.click(within(next).getByRole('checkbox', { name: 'pypi.org' }));
+    fireEvent.click(within(next).getByRole('button', { name: 'Allow pypi.org' }));
+    await act(async () => undefined);
+    expect(dispatch).toHaveBeenCalledTimes(2);
+    expect(dispatch.mock.calls[1]?.[0]).toMatchObject({
+      approved: true,
+      text: JSON.stringify({ action: 'allow' }),
+    });
+    expect(dispatch.mock.calls[1]?.[0]).not.toHaveProperty('optionId');
+
+    await act(async () => {
+      view.accept(rows.slice(second + 1));
+    });
+    expect(store.getCommittedView().pendingInteractions).toHaveLength(0);
+    expect(screen.queryByTestId('committed-network-consent')).toBeNull();
+  } finally {
+    store.dispose();
+  }
+});

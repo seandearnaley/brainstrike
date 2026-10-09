@@ -10,6 +10,7 @@ import {
 import { AssistantLinkCapabilitiesProvider } from '@brainstrike/assistant-ui/assistant-link-capabilities-provider';
 import { type ReactElement, useMemo } from 'react';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
+import { AssistantProviderModelDefaults } from './assistant-provider-model-defaults';
 import { AssistantUiPanelWrapperLazy } from './assistant-ui-panel-wrapper-lazy';
 import {
   type AssistantProviderSource,
@@ -41,6 +42,13 @@ export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelPr
       : undefined;
   const providerSource = useMemo<AssistantProviderSource>(
     () => resolveAssistantProviderSource(status),
+    [status]
+  );
+  const providerReadErrors = useMemo(
+    () =>
+      status.state === 'enabled' && status.providerErrors
+        ? toProviderReadErrors(status.providerErrors)
+        : undefined,
     [status]
   );
   // Links in thread markdown cannot use the anchor default: the desktop
@@ -86,12 +94,13 @@ export function AssistantChatPanel({ loadLocalLlmBackend }: AssistantChatPanelPr
         )}
         {status.state === 'enabled' && fixedProviderModelsResolution.state !== 'error' && (
           <AssistantProviderSourceProvider source={providerSource}>
+            <AssistantProviderModelDefaults
+              {...(providerReadErrors ? { providerReadErrors } : {})}
+            />
             <AssistantLinkCapabilitiesProvider capabilities={linkCapabilities}>
               <AssistantUiPanelWrapperLazy
                 {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-                {...(status.providerErrors
-                  ? { providerReadErrors: toProviderReadErrors(status.providerErrors) }
-                  : {})}
+                {...(providerReadErrors ? { providerReadErrors } : {})}
                 {...(status.providerKeySources
                   ? { providerKeySources: status.providerKeySources }
                   : {})}

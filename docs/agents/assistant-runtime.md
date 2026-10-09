@@ -2134,9 +2134,8 @@ NO hook runner (capability-gated, no `isElectron()` checks).
 - Merge order is global-first, then roots in mounted order; each loaded hook is
   tagged with its source `cwd`/`rootId` (global hooks' cwd = the MAIN root — see
   "WORKSPACE ROOT IDENTITY" in `docs/agents/workspace-context.md`).
-- Thread `RuntimeData.hookRunner` as trusted, agent-only, never serialized, plus
-  `RuntimeData.hookTrustRequest` on the wire. The server STRIPS any
-  client-supplied `hookRunner` and injects the server-built one.
+- Thread `RuntimeData.hookRunner` as trusted, agent-only, never serialized. The
+  server STRIPS any client-supplied `hookRunner` and injects the server-built one.
 - **Run-verdict protocol.** A Stop hook may label the run's outcome by printing ONE
   JSON line: `{"brainstrikeRunVerdict":{"verdict":…,"detail":…}}`. Hook stdout is
   UNTRUSTED repo data, so `hooks/run-verdict.ts` parses strictly:
@@ -2164,9 +2163,17 @@ NO hook runner (capability-gated, no `isElectron()` checks).
   are separate identity domains. The review IPC runs in MAIN, CONTAINMENT-checks
   the reviewed realpath against mounted DB roots (`resolveDbRootForPath`; an
   arbitrary or symlink-escaping path is refused) and returns the resolved
-  `dbRootId`, which the panel keys status/approve/revoke by.
-  `buildHookTrustRequest` is SCOPED to currently-mounted DB ids and attests NOTHING
-  until resolved or if the resolver is absent (fail closed).
+  `dbRootId`; approve and revoke name the root by its mounted path, and Main
+  resolves the DB root again.
+- **The agent host owns project hook trust.** It records `{path, sha256}` under
+  the StateStore settings key `hooks.trust/<roots.id>`, re-hashes the file on
+  `hooks/trust` and refuses a mismatch (InvalidParams). A trust applies only to
+  the same root at the path it was trusted at. Host runs read it at admission;
+  the legacy server reads it per request through Main's installed reader; the
+  renderer attests nothing. Main imports the retired renderer store's approvals
+  once (exact hash matches only) before any visible client attaches, and
+  removes the old slice after every entry settled. Factory reset clears the key
+  with the host's StateStore files.
 - The disconnect-severs property is SERVER-ENFORCED: `fs:removeRoot` asks
   `WorkspaceRootRegistry` to remove the mount and converge the DB to the complete
   remaining mounted-path set, with the persisted registry write first and a DB

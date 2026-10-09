@@ -132,6 +132,7 @@ test('a foreground persona child runs in its own thread with narrowed tools and 
       parentRunId: runId,
       parentThreadId: harness.threadId,
       persona: 'explore',
+      profile: { label: 'Explorer', mode: 'read-only' },
       toolCallId: 'parent-call-1',
       turnId: runId,
     },
@@ -223,6 +224,47 @@ test('a crash restart interrupts a running child and its parent without a model 
       .listThreads()
       .map((thread) => thread.threadId)
   ).toEqual([harness.threadId]);
+});
+
+test('a delegated child is listed only once its thread has committed', async () => {
+  // AT-03's recorded defect: the tree's approvals listed a reserved child, its
+  // log subscription found no thread ("Unknown thread"), and its approval was lost.
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let held = false;
+  const harness = await setupChildRunHost(
+    delegationModel('EXPLORE_TASK: find what notes.txt says.'),
+    cleanup,
+    {
+      holdAppend: async (items) => {
+        if (
+          !held &&
+          items.some(({ event }) => event.type === 'thread.started' && 'origin' in event)
+        ) {
+          held = true;
+          entered.resolve();
+          await release.promise;
+        }
+      },
+    }
+  );
+  const runId = await harness.start('Delegate the notes.');
+  await entered.promise;
+  // The delegation is reserved and its commit is in flight: nothing to list yet.
+  let reserved: unknown;
+  try {
+    reserved = harness.core().listChildren(harness.threadId);
+  } finally {
+    release.resolve();
+  }
+  expect(reserved).toEqual([]);
+  await rowsUntil(harness, harness.threadId, finished(runId));
+  expect(
+    harness
+      .core()
+      .listChildren(harness.threadId)
+      .map(({ origin }) => origin.persona)
+  ).toEqual(['explore']);
 });
 
 test('deleting a parent thread deletes its child threads through the same host delete path', async () => {

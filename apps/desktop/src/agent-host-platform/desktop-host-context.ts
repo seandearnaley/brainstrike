@@ -9,14 +9,10 @@ import {
   formatSkillsCatalog,
   injectWorkspaceRootManifestContext,
 } from '@brainstrike/agent/tool-runtime';
-import {
-  type HostRunAdmissionRequest,
-  type HostTool,
-  hostToolDiscoveryEnabled,
-} from '@brainstrike/agent-host';
+import { type HostRunIntentRequest, hostToolDiscoveryEnabled } from '@brainstrike/agent-host';
 import { isSupportedProvider, type ToolRiskCategory } from '@brainstrike/assistant-contract';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
-import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/native-tools';
+import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-text-file-reader';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
 import { injectReferencedFilesContext } from '../assistant-server/referenced-files-context';
@@ -58,9 +54,12 @@ export async function readDesktopHostSystemContext(options: {
   /** Plan mode: the instructions say the run may only read and propose a plan. */
   readonly planMode: boolean;
   readonly readWorkspaceFile?: WorkspaceFileReader;
-  readonly request: HostRunAdmissionRequest;
+  readonly request: HostRunIntentRequest;
   readonly runtime: RuntimeData;
-  readonly tools: Readonly<Record<string, HostTool>>;
+  /** The admitted tools by provider name; the instructions name each by its catalog id. */
+  readonly tools: Readonly<
+    Record<string, { readonly description: string; readonly permissionToolId?: string }>
+  >;
   readonly workspaceSkills?: ScannedWorkspaceSkills;
 }): Promise<DesktopHostSystemContext> {
   if (options.request.snapshot) {

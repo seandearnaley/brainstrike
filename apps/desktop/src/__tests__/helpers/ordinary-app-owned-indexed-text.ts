@@ -1,7 +1,6 @@
 // @vitest-environment node
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
-import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost } from '@brainstrike/agent-host';
 import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/app-state/stores/assistant-preferences-store-version';
@@ -22,6 +21,7 @@ import {
   type ModelProviderRequest,
   startModelProviderShim,
 } from '../../../e2e/utils/model-provider-shim';
+import { createDisposableAppProfile } from './disposable-app-profile';
 import { killAppWithLauncher } from './electron-launcher-watchdog';
 
 const desktop = resolve(import.meta.dirname, '../../..');
@@ -80,17 +80,12 @@ async function providerPortRefused(baseUrl: string): Promise<boolean> {
 export async function qualifyOrdinaryAppIndexedText(
   options: { readonly stopHost?: boolean } = {}
 ): Promise<void> {
-  const disposable = await mkdtemp(
-    join(
-      tmpdir(),
-      options.stopHost ? 'brainstrike-m3-app-owned-stop-' : 'brainstrike-m3-app-owned-indexed-text-'
-    )
+  const { evidence, root: disposable } = await createDisposableAppProfile(
+    options.stopHost ? 'brainstrike-m3-app-owned-stop-' : 'brainstrike-m3-app-owned-indexed-text-'
   );
   const profile = join(disposable, 'profiles/m3-indexed-text');
-  const evidence = `${disposable}-evidence`;
   const workspace = join(disposable, 'workspace');
   await mkdir(profile, { recursive: true });
-  await mkdir(evidence);
   await mkdir(workspace);
   const searchLine = 'INDEXEDTEXTSENTINEL4802 belongs to the selected real indexed file.';
   await writeFile(join(workspace, 'indexed-proof.md'), `# Indexed text proof\n${searchLine}\n`);
@@ -625,9 +620,6 @@ export async function qualifyOrdinaryAppIndexedText(
       )
     );
     process.stderr.write(`App-owned indexed text evidence: ${evidence}\n`);
-    if (!failure && errors.length === 0) {
-      await rm(disposable, { recursive: true });
-    }
   }
   if (errors.length > 0) {
     throw new AggregateError(

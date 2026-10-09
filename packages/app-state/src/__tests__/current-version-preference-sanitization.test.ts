@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { useBackgroundIndexingPreferencesStore } from '../stores/background-indexing-preferences-store';
-import { useHookTrustStore } from '../stores/hook-trust-store';
 import { useSubagentPersonasStore } from '../stores/subagent-personas-store';
 import { useTokenPreferencesStore } from '../stores/token-preferences-store';
 import { useVectorPreferencesStore } from '../stores/vector-preferences-store';
@@ -41,18 +40,6 @@ describe('current-version preference sanitization siblings', () => {
     expect(merged.mode).toBe('root-folder-cache');
     expect(merged.paused).toBe(false);
     expect(merged.setEnabled).toBe(current.setEnabled);
-  });
-
-  it('drops malformed hook approvals at the current version', () => {
-    const current = useHookTrustStore.getState();
-    const merged = mergeCurrentVersion(
-      useHookTrustStore,
-      { approvalsByRootId: { bad: { approvedAt: 'yesterday', sha256: 123 } } },
-      current
-    ) as typeof current;
-
-    expect(merged.approvalsByRootId).toEqual({});
-    expect(merged.approveRoot).toBe(current.approveRoot);
   });
 
   it('sanitizes subagent availability at the current version', () => {

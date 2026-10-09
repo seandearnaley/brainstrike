@@ -2,6 +2,7 @@ import type { HostClient } from '@brainstrike/agent-host/browser';
 import { usePermissionPolicyStore } from '@brainstrike/app-state/stores/permission-policy-store';
 import type { ToolRiskCategory } from '@brainstrike/assistant-contract/tool-metadata';
 import { type CommittedApprovalGrant, committedApprovalGrant } from '@brainstrike/assistant-ui';
+import { z } from 'zod';
 
 /** A committed approval as the host answers it: its run, and what its grants name. */
 export interface HostApprovalTarget {
@@ -42,6 +43,36 @@ export async function respondToHostApproval(
     decision: response.approved ? 'approve' : 'deny',
     ...(grant ? { grant } : {}),
     interactionId: target.interactionId,
+    runId: target.runId,
+    threadId: target.threadId,
+  });
+  if (grant) {
+    keepToolOverride(grant);
+  }
+}
+
+/**
+ * Resume a committed question, plan or network consent with its typed answer.
+ * Only a network consent that stood in for an approval offers a grant, which
+ * the host commits as it does an approval's.
+ */
+export async function resumeHostInteraction(
+  client: Pick<HostClient, 'request'>,
+  target: HostApprovalTarget,
+  response: { readonly optionId?: string | undefined; readonly text?: string | undefined }
+): Promise<void> {
+  if (response.text === undefined) {
+    throw new Error('Human interaction requires its typed response');
+  }
+  const grant = committedApprovalGrant(response.optionId, {
+    permissionToolId: target.permissionToolId,
+    ...(target.risk ? { risk: target.risk } : {}),
+  });
+  await client.request('interaction/resume', {
+    commandId: crypto.randomUUID(),
+    ...(grant ? { grant } : {}),
+    interactionId: target.interactionId,
+    resumeData: z.json().parse(JSON.parse(response.text)),
     runId: target.runId,
     threadId: target.threadId,
   });

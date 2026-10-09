@@ -9,8 +9,9 @@
  *     composer's `onThreadRunStart`;
  *   - re-hydration: reads the rewind generation counter the panel uses as its
  *     `historyGeneration` key — rationale in `rewind-store.ts`'s own doc;
- *   - the standing "Last Turn" identity and the live mid-run refresh, both
- *     documented inline below.
+ *   - the standing "Last Turn" identity and the live mid-run refresh,
+ *     through the shared `useLastTurnFollower` (host threads use it too),
+ *     driven from this thread's run stream as documented inline below.
  *
  * It composes the sibling `changes/` modules only — it must NEVER import the
  * wrapper back (module-scope chunk-init cycle class; bitten four times).
@@ -20,10 +21,10 @@ import {
   denormalizeNativeToolName,
   NATIVE_TOOL_ID,
 } from '@brainstrike/assistant-contract';
-import { useActiveAssistantThreadId } from '@brainstrike/assistant-data';
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback } from 'react';
 import { useChangesNavigationStore } from './changes-navigation-store';
 import { useRewindStore } from './rewind-store';
+import { useLastTurnFollower } from './use-last-turn-follower';
 import { type UseRewindFinalizationArgs, useRewindFinalization } from './use-rewind-finalization';
 
 /**
@@ -37,13 +38,6 @@ function isManageCanvasToolName(value: unknown): boolean {
     typeof value === 'string' && denormalizeNativeToolName(value) === NATIVE_TOOL_ID.manageCanvas
   );
 }
-
-/**
- * Leading+trailing throttle window for the live "Last Turn" re-resolve
- * (BST-1115 smoke feedback). Long enough that a burst of tool completions
- * costs one round-trip, short enough to read as real time.
- */
-const LIVE_CHANGES_REFRESH_THROTTLE_MS = 500;
 
 export interface UseWrapperRewindWiringArgs {
   /** The wrapper's raw run-creation seam. Returned wrapped, never replaced. */
@@ -83,40 +77,20 @@ export function useWrapperRewindWiring({
   // active thread continuously so the Changes surface's "Last Turn" scope
   // works without ever needing a "→ Review" handoff — see
   // `changes-navigation-store.ts`'s own doc comment for the full contract.
-  // Resets `latestRunId` to `null` on every thread switch: the wrapper only
-  // knows about runs it has itself OBSERVED finish/fail (no run-history IPC
-  // exists to hydrate a thread's PAST runs — inventing one would violate NO
-  // SILENT FALLBACKS), so a freshly-selected thread is honestly "no
-  // completed turns yet" until one completes in this session.
-  const setActiveThreadIdentity = useChangesNavigationStore(
-    (state) => state.setActiveThreadIdentity
-  );
-  // BST-1268 unification: every OPEN thread's wrapper mounts simultaneously
-  // (hidden, not unmounted), so publication is gated on being the ACTIVE
-  // thread — the old publish-on-mount was last-mount-wins and let a
-  // background thread steal the Canvas/Changes identity. Publication now
-  // fires when THIS thread becomes active (re-asserting the honest
-  // `latestRunId: null` reset on every switch) and run events publish only
-  // while active.
-  const isActiveThread = useActiveAssistantThreadId() === threadId && threadId !== undefined;
-  const isActiveThreadRef = useRef(isActiveThread);
-  useEffect(() => {
-    isActiveThreadRef.current = isActiveThread;
-  });
-  useEffect(() => {
-    if (!(isActiveThread && threadId)) {
-      return;
-    }
-    setActiveThreadIdentity({ latestRunId: null, threadId });
-  }, [threadId, isActiveThread, setActiveThreadIdentity]);
+  // Activation publishes `latestRunId: null` on every thread switch: the
+  // wrapper only knows about runs it has itself OBSERVED finish/fail, so a
+  // freshly-selected thread is honestly "no completed turns yet" until one
+  // completes in this session. Publication is gated on being the ACTIVE
+  // thread (BST-1268) inside the follower.
+  const { publishRun, refresh } = useLastTurnFollower(threadId, null);
 
   const publishTerminalRunIdentity = useCallback(
     (event: AssistantRunEvent) => {
-      if (threadId && event.runId && isActiveThreadRef.current) {
-        setActiveThreadIdentity({ latestRunId: event.runId, threadId });
+      if (event.runId) {
+        publishRun(event.runId);
       }
     },
-    [threadId, setActiveThreadIdentity]
+    [publishRun]
   );
 
   // LIVE Changes while the agent works (BST-1115 smoke feedback: "the ux needs
@@ -131,38 +105,18 @@ export function useWrapperRewindWiring({
   //   an in-flight run is honest: the VIEW path reads the journal and returns
   //   the rows written so far (the running-run refusal lives in the REWIND
   //   path, and stays there).
-  // - a completed file-mutation tool asks the surface to re-resolve. The
-  //   journal is written per edit in main, so each re-resolve picks up the
-  //   file that tool just wrote.
-  //
-  // THROTTLED leading+trailing: a tool burst must not fire an IPC round-trip
-  // per call, and the LAST completion in a burst must still be reflected —
-  // dropping it would leave the list one file short until the run ended.
+  // - a completed file-mutation tool asks the surface to re-resolve (the
+  //   follower throttles it). The journal is written per edit in main, so
+  //   each re-resolve picks up the file that tool just wrote.
   const requestCanvasRefresh = useChangesNavigationStore((state) => state.requestCanvasRefresh);
-  const requestLiveLastTurnRefresh = useChangesNavigationStore(
-    (state) => state.requestLiveLastTurnRefresh
-  );
-  const liveRefreshThrottleRef = useRef<{
-    timer: ReturnType<typeof setTimeout> | null;
-    lastFiredAt: number;
-  }>({ lastFiredAt: 0, timer: null });
-  useEffect(() => {
-    const throttle = liveRefreshThrottleRef.current;
-    return () => {
-      if (throttle.timer !== null) {
-        clearTimeout(throttle.timer);
-        throttle.timer = null;
-      }
-    };
-  }, []);
   const handleRunEditActivity = useCallback(
     (event: AssistantRunEvent) => {
       if (!threadId) {
         return;
       }
       if (event.kind === 'run.started') {
-        if (event.runId && isActiveThreadRef.current) {
-          setActiveThreadIdentity({ latestRunId: event.runId, threadId });
+        if (event.runId) {
+          publishRun(event.runId);
         }
         return;
       }
@@ -173,24 +127,9 @@ export function useWrapperRewindWiring({
       if (isManageCanvasToolName(event.metadata?.['toolName'])) {
         requestCanvasRefresh();
       }
-      const throttle = liveRefreshThrottleRef.current;
-      const now = Date.now();
-      const elapsed = now - throttle.lastFiredAt;
-      if (elapsed >= LIVE_CHANGES_REFRESH_THROTTLE_MS) {
-        throttle.lastFiredAt = now;
-        requestLiveLastTurnRefresh(threadId);
-        return;
-      }
-      if (throttle.timer !== null) {
-        return;
-      }
-      throttle.timer = setTimeout(() => {
-        throttle.timer = null;
-        throttle.lastFiredAt = Date.now();
-        requestLiveLastTurnRefresh(threadId);
-      }, LIVE_CHANGES_REFRESH_THROTTLE_MS - elapsed);
+      refresh();
     },
-    [requestCanvasRefresh, requestLiveLastTurnRefresh, threadId, setActiveThreadIdentity]
+    [publishRun, refresh, requestCanvasRefresh, threadId]
   );
 
   return {

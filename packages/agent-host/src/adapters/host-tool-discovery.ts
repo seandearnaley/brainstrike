@@ -85,7 +85,10 @@ function discoveryHostTool<TInput>(
 interface HostDiscoveryCatalog {
   readonly modelId: string;
   readonly provider: ProviderId;
-  readonly tools: Readonly<Record<string, HostTool>>;
+  /** The split reads declarations only, so a descriptor that names no executor qualifies. */
+  readonly tools: Readonly<
+    Record<string, Pick<HostTool, 'description' | 'mcpBinding' | 'permissionToolId'>>
+  >;
 }
 
 /** The legacy hosted split; undefined for a local runtime or when nothing defers. */

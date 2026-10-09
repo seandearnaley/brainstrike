@@ -35,7 +35,10 @@ type DesktopToolOnSurface<Surface extends NativeToolSurface> = DesktopNativeTool
   : never;
 
 export type WebNativeToolId = DesktopToolOnSurface<'web'>['id'];
-export type LocalDesktopNativeToolId = DesktopToolOnSurface<'local'>['id'];
+export type LocalDesktopNativeToolId = Extract<
+  DesktopNativeTool,
+  { readonly localProvider: 'offered' }
+>['id'];
 
 export const DESKTOP_NATIVE_TOOL_IDS: readonly DesktopNativeToolId[] =
   NATIVE_TOOL_REGISTRIES.ids.desktop;
@@ -43,17 +46,26 @@ export const DESKTOP_NATIVE_TOOL_IDS: readonly DesktopNativeToolId[] =
 export const WEB_NATIVE_TOOL_IDS: readonly WebNativeToolId[] = NATIVE_TOOL_REGISTRIES.ids.web;
 
 /**
- * Eager-core-only tools advertised to the built-in local model — the desktop
- * definitions that list the `local` surface.
+ * Eager-core-only tools offered to the built-in local model — the desktop
+ * definitions with `localProvider: 'offered'`.
  *
- * `askUser` and `submitPlan` are the other critical tools, but the local
- * provider deliberately does not register their suspend/resume implementations.
+ * `askUser` and `submitPlan` are the other critical tools, but they are
+ * `unregistered`: the local provider has no suspend/resume implementation.
  * `writeWorkspaceFile` is critical for hosted small-model create reachability,
  * but remains excluded here: the local capability surface is an explicit,
  * separately qualified product contract rather than every critical hosted tool.
  */
 export const LOCAL_DESKTOP_NATIVE_TOOL_IDS: readonly LocalDesktopNativeToolId[] =
   NATIVE_TOOL_REGISTRIES.ids.local;
+
+/**
+ * Desktop tools with no executor under the built-in local provider
+ * (`localProvider: 'unregistered'`): every executor fold skips them for a local
+ * run, and Main never describes them to one.
+ */
+export const LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS: ReadonlySet<string> = new Set(
+  NATIVE_TOOL_REGISTRIES.ids.localUnregistered
+);
 
 /** Native tool results that must never be retained by durable artifact settlement. */
 export const NON_DURABLE_NATIVE_TOOL_OUTPUT_IDS: readonly DesktopNativeToolId[] =

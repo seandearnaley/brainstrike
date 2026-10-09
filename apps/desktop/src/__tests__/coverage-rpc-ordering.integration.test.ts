@@ -292,13 +292,14 @@ it.each(['progress', 'cancel', 'shutdown', 'deadline', 'corruption'] as const)(
           missingVectors: 0,
           vectors: 2,
         });
-        for (const change of [{ storeId: 'a'.repeat(64) }, { authorityEpoch: 'b'.repeat(64) }]) {
+        for (const [change, code] of [
+          [{ storeId: 'a'.repeat(64) }, 'coverage-store-mismatch'],
+          [{ authorityEpoch: 'b'.repeat(64) }, 'coverage-authority-changed'],
+        ] as const) {
           const forged = isolateNativeCoverage(port, (authority) =>
             open({ ...authority, ...change })
           );
-          await expect(forged.coverageBatch(requests)).rejects.toMatchObject({
-            code: 'coverage-authority-changed',
-          });
+          await expect(forged.coverageBatch(requests)).rejects.toMatchObject({ code });
         }
         const forgedMembership = isolateNativeCoverage(port, (authority) =>
           open({

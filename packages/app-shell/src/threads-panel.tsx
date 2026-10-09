@@ -83,6 +83,7 @@ import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-pat
 import { useThreadFolderRows } from './hooks/use-thread-folder-rows';
 import { useThreadsAwaitingApproval } from './hooks/use-threads-awaiting-approval';
 import { useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
+import { HostChildSidebarCell } from './host-child-sidebar-cell';
 import { canRefreshAgentColors, refreshAgentColors } from './refresh-agent-colors';
 import { lookupThreadBranch, type ThreadBranchLookup } from './thread-branch-resolution';
 import { ThreadFolderHeader } from './thread-folder-header';
@@ -120,6 +121,7 @@ import { ThreadsPanelSearch } from './threads-panel-search';
 import { ThreadsViewOptionsPopover } from './threads-panel-view-options';
 import { useActiveAssistantThreadIds } from './use-active-assistant-thread-ids';
 import { useDelegatedSidebar } from './use-delegated-sidebar';
+import { useHostChildSidebar } from './use-host-child-sidebar';
 import { type ThreadPanelSelection, useThreadPanelSelection } from './use-thread-panel-selection';
 import { useThreadSearchController } from './use-thread-search-controller';
 import { useThreadSearchResultNavigation } from './use-thread-search-result-navigation';
@@ -518,7 +520,7 @@ function buildThreadPanelTreeNodes(
   return rows.map((row) => ({
     data: row,
     depth:
-      row.kind === 'delegated' || row.kind === 'delegated-state'
+      row.kind === 'delegated' || row.kind === 'delegated-state' || row.kind === 'host-child'
         ? row.depth
         : row.kind === 'group'
           ? 0
@@ -530,7 +532,8 @@ function buildThreadPanelTreeNodes(
     // and the shared Left/Right keyboard contract expose a symmetric tree.
     hasChildren:
       row.kind === 'group' ||
-      (delegatedEnabled && (row.kind === 'thread' || row.kind === 'delegated')),
+      (delegatedEnabled &&
+        (row.kind === 'thread' || row.kind === 'delegated' || row.kind === 'host-child')),
     id: row.id,
     parentId: row.kind === 'group' ? null : row.parentId,
     type: `thread-panel-${row.kind}`,
@@ -821,7 +824,9 @@ function ThreadPanelCell({
   readonly rowsProps: ThreadRowContextProps;
 }): ReactElement {
   let content: ReactElement;
-  if (row.kind === 'delegated' || row.kind === 'delegated-state') {
+  if (row.kind === 'host-child') {
+    content = <HostChildSidebarCell row={row} />;
+  } else if (row.kind === 'delegated' || row.kind === 'delegated-state') {
     content = <DelegatedSidebarCell onShowMore={onShowMoreChildren} row={row} />;
   } else if (row.kind === 'thread') {
     const groupId = rowsProps.folderMode
@@ -1165,10 +1170,16 @@ function ThreadPanelTree({
     selectedThreadIds: selectedAvailableThreadIds,
     visibleRows,
   } = selection;
-  const delegated = useDelegatedSidebar(visibleRows.rows);
+  const legacyChildren = useDelegatedSidebar(visibleRows.rows);
+  // BST-1932: a host thread's children come from the host; history's from history.
+  const hostChildren = useHostChildSidebar();
+  const delegated = useMemo(
+    () => ({ ...legacyChildren, rows: hostChildren.project(legacyChildren.rows) }),
+    [hostChildren, legacyChildren]
+  );
   const nodes = useMemo(
-    () => buildThreadPanelTreeNodes(delegated.rows, delegated.enabled),
-    [delegated.rows, delegated.enabled]
+    () => buildThreadPanelTreeNodes(delegated.rows, delegated.enabled || hostChildren.enabled),
+    [delegated.rows, delegated.enabled, hostChildren.enabled]
   );
   const colorByGroupId = useMemo(
     () =>
@@ -1191,11 +1202,12 @@ function ThreadPanelTree({
     () =>
       new Set([
         ...delegated.expandedIds,
+        ...hostChildren.expandedIds,
         ...visibleRows.rows.flatMap((row) =>
           row.kind === 'group' && !row.collapsed ? [row.id] : []
         ),
       ]),
-    [delegated.expandedIds, visibleRows.rows]
+    [delegated.expandedIds, hostChildren.expandedIds, visibleRows.rows]
   );
   const bulkSelectionController = useThreadBulkSelectionController({
     onBulkColor,
@@ -1327,6 +1339,10 @@ function ThreadPanelTree({
         }
         onToggleExpand={(nodeId) => {
           const row = delegated.rows.find((candidate) => candidate.id === nodeId);
+          if (row && hostChildren.owns(row)) {
+            hostChildren.toggle(row);
+            return;
+          }
           if (row?.kind === 'thread' || row?.kind === 'delegated') {
             delegated.toggle(row);
             return;

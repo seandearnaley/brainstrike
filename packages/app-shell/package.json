@@ -49,7 +49,7 @@
     "@types/react": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "jsdom": "catalog:",
-    "react-dom": "^19.2.7",
+    "react-dom": "^19.3.0",
     "vitest": "catalog:",
     "zustand": "catalog:"
   },
@@ -88,6 +88,10 @@
     "./changes/availability": {
       "types": "./dist/changes/availability.d.ts",
       "import": "./dist/changes/availability.js"
+    },
+    "./changes/use-last-turn-follower": {
+      "types": "./dist/changes/use-last-turn-follower.d.ts",
+      "import": "./dist/changes/use-last-turn-follower.js"
     },
     "./cost-tracking-settings": {
       "types": "./dist/cost-tracking/index.d.ts",

@@ -27,6 +27,11 @@ export interface HostMemoryCapabilities {
   joinNativeLifetime?(): Promise<void>;
   /** Public Memory configuration; storage delegates to the existing StateStore writer. */
   readonly native: MemoryConfig & { readonly storage: NonNullable<MemoryConfig['storage']> };
+  /**
+   * The observer's catalog `provider::model`, which its usage is priced and
+   * attributed under. Required whenever observational memory is on.
+   */
+  readonly observerModelId?: string;
   /** Actual observer/reflector usage and model identity, for the existing usage ledger. */
   recordObserverUsage(
     identity: HostMemoryIdentity,
@@ -125,11 +130,13 @@ export class HostMemory implements HostRunOwner {
   private beginning: Promise<NativeContext> | undefined;
   private closing: Promise<void> | undefined;
   private joined = false;
+  private readonly observerModelId: string | undefined;
 
   constructor(
     readonly identity: HostMemoryIdentity,
     private readonly capabilities: HostMemoryCapabilities
   ) {
+    this.observerModelId = capabilities.observerModelId;
     this.providers = new MemoryProviderLifetime(identity.signal, (receipt) =>
       this.recordObserverUsage(receipt)
     );
@@ -151,6 +158,9 @@ export class HostMemory implements HostRunOwner {
         throw new Error(
           'Observational memory requires resolved concrete observer and reflector models'
         );
+      }
+      if (!capabilities.observerModelId) {
+        throw new Error('Observational memory requires its observer catalog model id');
       }
       if (typeof observation === 'object') {
         native = {
@@ -377,8 +387,15 @@ export class HostMemory implements HostRunOwner {
     if (this.joined) {
       return Promise.reject(new Error('Host memory lifetime is already joined'));
     }
+    const modelId = this.observerModelId;
+    if (!modelId) {
+      return Promise.reject(
+        new Error('Observer usage arrived without an observer catalog model id')
+      );
+    }
+    // The SDK reports its own model id; the ledger prices the catalog id.
     return this.track('accounting', () =>
-      this.capabilities.recordObserverUsage(this.identity, receipt)
+      this.capabilities.recordObserverUsage(this.identity, { ...receipt, modelId })
     );
   }
 

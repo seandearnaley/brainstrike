@@ -11,15 +11,18 @@ import type { HostTreeApprovals } from './host-tree-approvals';
  */
 export function HostApprovalStrip({
   client,
+  self,
   tree,
 }: {
   readonly client: Pick<HostClient, 'request'>;
+  /** A child view's own call sign, which owns the approvals of the viewed thread itself. */
+  readonly self: string | undefined;
   readonly tree: HostTreeApprovals;
 }): ReactElement | null {
   const waiting = useSyncExternalStore(tree.subscribe, tree.getSnapshot, tree.getSnapshot);
   const approvals = useMemo(
     () =>
-      waiting.map(({ approval, owner, threadId }): CommittedPendingApproval => {
+      waiting.map(({ approval, owner = self, threadId }): CommittedPendingApproval => {
         const toolName = approval.toolCatalogId ?? approval.toolId;
         return {
           args: approval.input,
@@ -43,7 +46,7 @@ export function HostApprovalStrip({
           toolName,
         };
       }),
-    [client, waiting]
+    [client, self, waiting]
   );
   return <CommittedApprovalStrip approvals={approvals} />;
 }

@@ -8,6 +8,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import { WEB_SEARCH_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { modelMessageSchema, type StepResult, type ToolSet } from 'ai';
+import { leaseHostAdmission } from './admission-lease.js';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import { withHostDelegationTools } from './child-runs.js';
 import type { HostRunState } from './core-state.js';
@@ -20,6 +21,7 @@ import type {
   HostPreparedModelRequest,
   HostRunAdmission,
   HostRunAdmissionRequest,
+  HostRunIntentRequest,
   HostRunOwner,
 } from './ports.js';
 import type { HostEvent, HostRunSnapshot } from './protocol.js';
@@ -107,20 +109,16 @@ function immutableData<T>(input: T): T {
 
 /** Retain the selected executors and configuration without freezing the source registry. */
 export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmission {
-  let closing: Promise<void> | undefined;
   const mcpAuthorities = Object.fromEntries(
     Object.entries(selected.tools).flatMap(([id, tool]) =>
       tool.mcpAuthority ? [[id, tool.mcpAuthority]] : []
     )
   );
+  const close = selected.close?.bind(selected);
   return Object.freeze({
     ...selected,
-    ...(selected.close
-      ? {
-          close: (): Promise<void> =>
-            (closing ??= Promise.resolve().then(() => selected.close?.())),
-        }
-      : {}),
+    // Children borrow this selection; it closes once, after its last holder.
+    ...(close ? { close: leaseHostAdmission(close) } : {}),
     configuration: immutableData(selected.configuration),
     ...(selected.unavailableMcpServers
       ? {
@@ -170,6 +168,30 @@ export function isHostLegacyObservationNotice(event: HostEvent): boolean {
   );
 }
 
+/**
+ * A run's start notices: unavailable MCP servers, and the legacy-observations
+ * notice once per root. Serialized admission makes that check-then-append
+ * commit it once; the committed event is the delivered fact.
+ */
+export class HostRunStartNotices {
+  private legacyNoticed = false;
+
+  fold(event: HostEvent): void {
+    this.legacyNoticed ||= isHostLegacyObservationNotice(event);
+  }
+
+  forRun(admission: HostRunAdmission, runId: string): HostEvent[] {
+    return [
+      ...hostMcpUnavailableEvents(admission, runId),
+      ...hostLegacyObservationEvents(admission, runId, this.legacyNoticed),
+    ];
+  }
+
+  committed(admission: HostRunAdmission): void {
+    this.legacyNoticed ||= admission.legacyObservationsWithheld === true;
+  }
+}
+
 /** The run proceeds without each unavailable MCP server; its log names each one. */
 export function hostMcpUnavailableEvents(
   admission: HostRunAdmission,
@@ -183,8 +205,8 @@ export function hostMcpUnavailableEvents(
   }));
 }
 
-/** A new run command's admission request; only a live client supplies an origin. */
-export function hostRunCommandRequest(
+/** What a new run command would be admitted with; only a live client supplies an origin. */
+export function hostRunIntentRequest(
   params: {
     readonly configuration?: HostRunAdmissionRequest['configuration'] | undefined;
     readonly modelId: string;
@@ -197,7 +219,7 @@ export function hostRunCommandRequest(
   signal: AbortSignal,
   /** BST-1932: a wake continues its turn by reopening the run it follows. */
   snapshot?: HostRunSnapshot
-): Omit<HostRunAdmissionRequest, 'workspaceBinding'> {
+): Omit<HostRunIntentRequest, 'workspaceBinding'> {
   return {
     ...(params.configuration ? { configuration: params.configuration } : {}),
     modelId: params.modelId,
@@ -208,6 +230,17 @@ export function hostRunCommandRequest(
     ...(snapshot ? { snapshot } : {}),
     threadId: params.threadId,
   };
+}
+
+/** A new run command's admission request: its intent, for the run being admitted. */
+export function hostRunCommandRequest(
+  params: Parameters<typeof hostRunIntentRequest>[0] & { readonly runId: string },
+  origin: HostClientOrigin | undefined,
+  prompt: string | undefined,
+  signal: AbortSignal,
+  snapshot?: HostRunSnapshot
+): Omit<HostRunAdmissionRequest, 'workspaceBinding'> {
+  return { ...hostRunIntentRequest(params, origin, prompt, signal, snapshot), runId: params.runId };
 }
 
 /** The platform's fixed default selection, for hosts without a per-run `admitRun`. */
@@ -385,18 +418,27 @@ export async function bindHostRunAdmission(
   return admission;
 }
 
-export async function ensureHostRunAdmission(
-  platform: HostPlatform,
-  run: HostRunState
-): Promise<HostRunAdmission> {
-  const request: HostRunAdmissionRequest = {
+/** The request that reopens a committed run's selection from its snapshot. */
+export function hostRunReopenRequest(
+  run: Pick<HostRunState, 'id' | 'modelId' | 'planMode' | 'snapshot' | 'threadId'>,
+  signal: AbortSignal
+): HostRunAdmissionRequest {
+  return {
     modelId: run.modelId,
     ...(run.planMode ? { planMode: true } : {}),
-    signal: run.controller.signal,
+    runId: run.id,
+    signal,
     ...(run.snapshot ? { snapshot: run.snapshot } : {}),
     ...(run.snapshot?.workspaceBinding ? { workspaceBinding: run.snapshot.workspaceBinding } : {}),
     threadId: run.threadId,
   };
+}
+
+export async function ensureHostRunAdmission(
+  platform: HostPlatform,
+  run: HostRunState
+): Promise<HostRunAdmission> {
+  const request = hostRunReopenRequest(run, run.controller.signal);
   if (run.admission) {
     await validateHostRunWorkspaceBinding(platform, request);
     return run.admission;
@@ -496,6 +538,7 @@ export function hostStepInteractions(
     if (!registered) {
       throw new Error('Approval references an unknown tool');
     }
+    const consent = run.consents.get(part.toolCall.toolCallId);
     // As the legacy approval chunk did: run_python's card shows host facts.
     const executionContext =
       registered.permissionToolId === NATIVE_TOOL_ID.runPython
@@ -506,8 +549,11 @@ export function hostStepInteractions(
         ...(executionContext ? { executionContext: jsonValue(executionContext) } : {}),
         input: jsonValue(part.toolCall.input),
         interactionId: part.approvalId,
-        kind: registered.interaction?.kind ?? 'approval',
-        ...(registered.interaction ? {} : { risk: registered.risk }),
+        kind: registered.interaction?.kind ?? (consent ? 'network' : 'approval'),
+        // A network consent offers grants only where it also stands in for an approval.
+        ...(registered.interaction || (consent && !consent.approval)
+          ? {}
+          : { risk: registered.risk }),
         runId: run.id,
         ...(registered.permissionToolId ? { toolCatalogId: registered.permissionToolId } : {}),
         toolCallId: part.toolCall.toolCallId,
@@ -674,6 +720,14 @@ export async function decideHostSdkApproval(
       canonical(prior.event.input) !== canonical(action.input))
   ) {
     throw new Error('Committed approval action identity changed');
+  }
+  // run_python's requested network needs a person per call (legacy Gate B). The
+  // SDK gives a call one approval round, so this one card also stands in for an
+  // approval the policy asks for; Core answers and executes it on resume.
+  if (!prior && registered.consent?.(call.input)) {
+    run.liveInputs.set(call.toolCallId, { value: call.input });
+    run.consents.set(call.toolCallId, { approval: decision === 'ask' });
+    return 'user-approval';
   }
   if (decision === 'ask' && prior?.decision !== 'approve') {
     run.liveInputs.set(call.toolCallId, { value: call.input });

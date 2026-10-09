@@ -4,6 +4,7 @@ import {
   type AskUserResumeData,
   NATIVE_TOOL_ID,
 } from '@brainstrike/assistant-contract';
+import { AskUserResumeSchema } from '@brainstrike/assistant-contract/native-tool-schemas';
 import { TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract/tool-metadata';
 import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
@@ -16,27 +17,6 @@ const AskUserSuspendSchema = z.object({
   question: z.string(),
   selectionMode: z.enum(['single_select', 'multi_select']).optional(),
 });
-
-const AskUserAnswerSchema = z.union([z.string(), z.array(z.string())]);
-
-/**
- * Envelope-first: `{answer}` ({@link AskUserResumeData}) is the canonical
- * resume shape — an OBJECT so the suspend-resume transport can attach the
- * 1.56+ `approved: true` rider when askUser is ask-gated. The bare
- * string/string[] arm is LEGACY compat for resuming runs suspended before the
- * envelope migration; remove it once no pre-migration snapshots can remain.
- *
- * The rider is DECLARED rather than left to zod's strip, matching
- * `RunPythonNetworkResumeSchema`: this schema is what Mastra advertises to the
- * client as the pause's `resumeSchema`, so an undeclared rider would publish a
- * shape the transport does not actually send — and the declaration is what
- * keeps the arm safe if it is ever tightened to `.strict()`, where an
- * undeclared `approved` flips from silently stripped to a hard resume failure.
- */
-const AskUserResumeSchema = z.union([
-  z.object({ answer: AskUserAnswerSchema, approved: z.literal(true).optional() }),
-  AskUserAnswerSchema,
-]);
 
 const AskUserOutputSchema = z.object({ answer: z.string() });
 
