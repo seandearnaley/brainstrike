@@ -40,6 +40,7 @@ import type {
   HostLegacyImport,
   HostLoginCredential,
   HostObservationalMemoryState,
+  HostResults,
   HostRunSnapshot,
 } from './protocol.js';
 
@@ -400,6 +401,15 @@ export interface HostPlatform {
   openRun?(context: HostRunContext): Promise<HostRunOwner>;
   /** Provider reads from the host's own store; absent where it owns none. */
   readonly providers?: HostProviderService;
+  /**
+   * thread/memory/read: the admission's pure preconditions for this request
+   * (no acquisition, MCP discovery or model warmup) and the observation they
+   * configure for `threadId`. Absent where the host has no composer.
+   */
+  readMemoryReadiness?(
+    request: HostRunAdmissionRequest,
+    threadId: string
+  ): Promise<HostResults['thread/memory/read']>;
   readPermissionPolicy(
     threadId?: string
   ): PermissionToolGateSnapshot | Promise<PermissionToolGateSnapshot>;
