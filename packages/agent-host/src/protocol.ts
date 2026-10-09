@@ -46,9 +46,10 @@ export * from './protocol-mcp-settings.js';
 // with `{ action }` and, when the policy also asked, an approval grant), a
 // run's turn snapshots for its Changes review (`workspace.snapshot.recorded`),
 // and the desktop's MCP settings (`mcp/config/*`, `mcp/extensions/*`,
-// `mcp/tools/*`, `mcp/settings/subscribe` and its `mcp/settings/event`).
-// These additions are optional fields, new variants and new methods, so a v11
-// reader that uses none of them sees nothing new.
+// `mcp/tools/*`, `mcp/settings/subscribe` and its `mcp/settings/event`) with
+// server status and control (`mcp/status/read`, `mcp/server/control`, the
+// event's `status` variant). These additions are optional fields, new variants
+// and new methods, so a v11 reader that uses none of them sees nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
 
 // ADR-0017: transport request IDs never serve as durable command identities.

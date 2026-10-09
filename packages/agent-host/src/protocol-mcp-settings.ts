@@ -1,11 +1,21 @@
-import { McpExtensionEnablementSchema } from '@brainstrike/assistant-contract';
+import {
+  McpExtensionEnablementSchema,
+  McpHostControlRequestSchema,
+  type McpHostServerSnapshot,
+  type McpHostSnapshot,
+} from '@brainstrike/assistant-contract';
+import {
+  parseMcpHostServerSnapshot,
+  parseMcpHostSnapshot,
+} from '@brainstrike/assistant-contract/mcp-host-runtime';
 import { z } from 'zod';
 
 /**
  * The desktop host's MCP settings (BST-1930 c5a): the config file, the global
  * extension dials, and the discovered tools with their saved preferences. The
  * host owns all three; a client reads and changes them only through these
- * methods and hears changes through `mcp/settings/event`.
+ * methods and hears changes through `mcp/settings/event`. The same stream
+ * carries the runtime's server status (c5b), which lifecycle control changes.
  */
 const Id = z.string().min(1);
 
@@ -70,10 +80,20 @@ export const McpToolStatsSchema = z.strictObject({
 });
 export type McpToolStats = z.infer<typeof McpToolStatsSchema>;
 
+/** The runtime's server status: a whole revision, as a read or a watch event. */
+export const McpHostStatusSchema: z.ZodType<McpHostSnapshot> = z
+  .unknown()
+  .transform((value): McpHostSnapshot => parseMcpHostSnapshot(value));
+// Annotated so declarations name the contract's type, not its unexported parts.
+const McpHostServerStatusSchema: z.ZodType<McpHostServerSnapshot> = z
+  .unknown()
+  .transform((value): McpHostServerSnapshot => parseMcpHostServerSnapshot(value));
+
 /** What a settings subscriber holds, and each change pushed to it. */
 export const McpSettingsSnapshotSchema = z.strictObject({
   config: McpConfigStatusSchema,
   extensions: McpExtensionEnablementSchema,
+  status: McpHostStatusSchema,
   tools: McpToolsByServerSchema,
 });
 export type McpSettingsSnapshot = z.infer<typeof McpSettingsSnapshotSchema>;
@@ -83,6 +103,7 @@ export const MCP_SETTINGS_EVENT = 'mcp/settings/event';
 export const McpSettingsEventSchema = z.discriminatedUnion('type', [
   z.strictObject({ config: McpConfigStatusSchema, type: z.literal('config') }),
   z.strictObject({ extensions: McpExtensionEnablementSchema, type: z.literal('extensions') }),
+  z.strictObject({ status: McpHostStatusSchema, type: z.literal('status') }),
   z.strictObject({ tools: McpToolsByServerSchema, type: z.literal('tools') }),
 ]);
 export type McpSettingsEvent = z.infer<typeof McpSettingsEventSchema>;
@@ -100,7 +121,10 @@ export const MCP_SETTINGS_METHOD_SCHEMAS = {
   'mcp/config/write': z.strictObject({ content: z.string() }),
   'mcp/extensions/read': None,
   'mcp/extensions/set': McpExtensionEnablementSchema,
+  /** connect, retry, cancel, disconnect or reauthorize one configured server. */
+  'mcp/server/control': McpHostControlRequestSchema,
   'mcp/settings/subscribe': None,
+  'mcp/status/read': None,
   'mcp/tools/list': None,
   'mcp/tools/reload': None,
   'mcp/tools/reset': None,
@@ -125,7 +149,9 @@ export const MCP_SETTINGS_RESULT_SCHEMAS = {
   ]),
   'mcp/extensions/read': McpExtensionEnablementSchema,
   'mcp/extensions/set': McpExtensionEnablementSchema,
+  'mcp/server/control': McpHostServerStatusSchema,
   'mcp/settings/subscribe': McpSettingsSnapshotSchema,
+  'mcp/status/read': McpHostStatusSchema,
   'mcp/tools/list': McpToolsByServerSchema,
   'mcp/tools/reload': Applied,
   'mcp/tools/reset': Applied,
