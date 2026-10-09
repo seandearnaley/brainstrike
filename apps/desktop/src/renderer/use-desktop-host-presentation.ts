@@ -235,6 +235,14 @@ export function useDesktopHostPresentation(
   const selectedDefinition = selectedProvider
     ? getProviderLlmModels(selectedProvider).find((definition) => definition.id === model)
     : undefined;
+  // The legacy composer's gate: the selected model's vision decides. Derived
+  // here, before anything memoizes what `selectedDefinition` came from: the
+  // React Compiler treats a plain call's arguments as possibly mutated, and a
+  // later call made it skip compiling this hook (preserve-manual-memoization).
+  const attachmentsAvailability = resolveComposerAttachmentsAvailability({
+    providerGateAvailable: selectedProvider !== 'local',
+    selectedModel: selectedDefinition,
+  });
   const metadata = useOpenRouterModelMetadata({
     modelId: model,
     modelSettings: draft?.modelSettings ?? buildModelSettings(settings),
@@ -342,11 +350,6 @@ export function useDesktopHostPresentation(
     selectedProvider: selectedProvider ?? null,
   });
   const contextWindow = metadata.modelDef?.contextWindow;
-  // The legacy composer's gate: the selected model's vision decides.
-  const attachmentsAvailability = resolveComposerAttachmentsAvailability({
-    providerGateAvailable: selectedProvider !== 'local',
-    selectedModel: selectedDefinition,
-  });
   return {
     ...picker,
     composerDraftCommand: composerDraft.command,
