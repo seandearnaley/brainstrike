@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module';
 import { Socket } from 'node:net';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -126,6 +127,15 @@ export async function runAgentHostProcess(
   // Canonical tools and MCP use the shared logger. Stdout belongs exclusively
   // to JSON-RPC framing; configure before dynamically importing the platform.
   configureLogger({ console: { destination: 2 } });
+  if (process.platform === 'win32') {
+    // ADR-0017: Windows has no inheritable Root lock. Before this host starts any
+    // native process it joins a kill-on-close Job, which ends them all when it exits.
+    (
+      createRequire(import.meta.url)(
+        '@brainstrike/windows-job-native'
+      ) as typeof import('@brainstrike/windows-job-native')
+    ).initialize();
+  }
   const controller = new AbortController();
   let host: AgentHost | undefined;
   let ready = false;

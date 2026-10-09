@@ -2,7 +2,7 @@
 
 const bindings = require('bindings');
 
-const { SecureRoot: NativeSecureRoot } = bindings({
+const { SecureRoot: NativeSecureRoot, tryExclusiveFlock } = bindings({
   bindings: 'secure_fs_native',
   ['module_root']: __dirname,
 });
@@ -53,3 +53,4 @@ class SecureRoot {
 }
 
 exports.SecureRoot = SecureRoot;
+exports.tryExclusiveFlock = tryExclusiveFlock;

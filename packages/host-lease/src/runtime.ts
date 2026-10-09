@@ -191,7 +191,8 @@ export async function startHost(
           )
         ).lock
       : await owner.acquire(
-          () => RootLock.acquire(options.root),
+          // ADR-0017: the native processes this host starts inherit its Root.
+          () => RootLock.acquire(options.root, { shareWithNativeChildren: true }),
           async (lock) => lock.release()
         );
     signal?.throwIfAborted();

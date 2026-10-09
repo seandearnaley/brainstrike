@@ -21,7 +21,6 @@
  *    `updateConfig()` calls and one would silently run under the other's
  *    network allow-list.
  */
-import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { rm, writeFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
@@ -29,6 +28,7 @@ import { platform } from 'node:process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { SandboxManager, type SandboxRuntimeConfig } from '@anthropic-ai/sandbox-runtime';
 import { createLogger } from '@brainstrike/logging';
+import { spawnNativeChild } from '@brainstrike/state-store/native-children';
 
 import {
   assertExecRequestSatisfiable,
@@ -615,8 +615,9 @@ export interface ChildProcessLike {
 
 const realSpawnDeps: FenceSpawnDeps = {
   killGroup: terminateProcessGroup,
+  // In the agent host the fenced interpreter inherits the Root's flock (ADR-0017).
   spawnProcess: (command, args, { cwd, env }) =>
-    spawn(command, [...args], {
+    spawnNativeChild(command, [...args], {
       cwd,
       detached: true,
       env,

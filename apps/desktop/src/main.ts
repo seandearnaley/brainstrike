@@ -1040,7 +1040,7 @@ const nativeIndexActivation = createNativeIndexActivation({
       // A host launched while retired entries remained waits to hear about them.
       reportDesktopLegacyImport(importDesktopLegacySecrets({ afterHostLaunch: true }));
     },
-    platform: () => {
+    platform: (nativeChildren) => {
       const ledger = createWorktreeLedger(getDatabase);
       const workspace = new DesktopWorkspaceBindingAuthority({
         borrowRoot: (root) =>
@@ -1098,6 +1098,8 @@ const nativeIndexActivation = createNativeIndexActivation({
         localLlm: createMainLlmHostClient(createE2eScriptedLlmHost() ?? llmHostManager),
         // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
         mcp: createDesktopMcpPlatformCapabilities(getDesktopMcpHostRuntime()),
+        // ADR-0017: the host reports its native processes; Main ends them if it dies.
+        nativeChildren,
         // Gap 17: the host imports the profile's legacy workspace memory once.
         readLegacyMemory: readMainLegacyMemory,
         // BST-1977: host runs' turns snapshot through legacy turns' one shadow-git owner.
