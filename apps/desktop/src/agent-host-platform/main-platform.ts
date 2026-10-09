@@ -19,7 +19,7 @@ import { type HostToolServiceCapabilities, serveHostToolServices } from './host-
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
 import type { DesktopMemoryVectorSelection } from './memory-vector-selection';
 import {
-  PlatformLocalEmbeddingQuerySchema,
+  PlatformEmbeddingQuerySchema,
   PlatformLocalGenerationResultSchema,
   PlatformLocalGenerationSchema,
   PlatformLocalWarmupSchema,
@@ -46,7 +46,10 @@ export interface DesktopPlatformCapabilities {
   closeRootCapabilities?(): Promise<void>;
   /** Main-owned stores and services the agent host's own tools read (cap-tools). */
   readonly hostTools?: HostToolServiceCapabilities;
-  /** ADR-0007: Main's hidden embedding host, borrowed by a thread's admitted local recall. */
+  /**
+   * ADR-0007: Main's hidden embedding host, borrowed by an admitted thread's
+   * local recall or retrieval tools through `platform/embedding/query`.
+   */
   readonly localEmbedding?: Pick<EmbeddingHostManager, 'queryEmbedding'>;
   /** ADR-0007: Main's hidden llm-host, borrowed by a thread's admitted local chat model or observer. */
   readonly localLlm?: LocalLlmHostClient;
@@ -220,27 +223,31 @@ export function serveDesktopPlatform(
   );
   connection.onRequest('platform/embedding/query', (input: unknown, token: CancellationToken) =>
     execute(token, async (signal) => {
-      const { query, threadId } = PlatformLocalEmbeddingQuerySchema.parse(input);
-      const local = selection(threadId).localEmbedding;
+      const parsed = PlatformEmbeddingQuerySchema.parse(input);
+      const admitted = selection(parsed.threadId);
+      const embeddings = capabilities.localEmbedding;
+      if (!embeddings) {
+        throw new Error('This desktop has no embedding host for host threads');
+      }
+      if ('request' in parsed) {
+        // A retrieval tool's query, for a thread with admitted capabilities.
+        return await embeddings.queryEmbedding(parsed.request, { signal });
+      }
+      const local = admitted.localEmbedding;
       if (!local) {
         throw new Error('Local embedding is not part of this admitted thread selection');
       }
-      if (!capabilities.localEmbedding) {
-        throw new Error('This desktop has no embedding host for the admitted local recall');
-      }
       const { workerPlan } = local;
-      return {
-        embedding: await capabilities.localEmbedding.queryEmbedding(
-          {
-            dimensions: workerPlan.dimensions,
-            inferencePlan: workerPlan,
-            modelId: workerPlan.modelId,
-            modelKey: local.modelKey,
-            query,
-          },
-          { signal }
-        ),
-      };
+      return await embeddings.queryEmbedding(
+        {
+          dimensions: workerPlan.dimensions,
+          inferencePlan: workerPlan,
+          modelId: workerPlan.modelId,
+          modelKey: local.modelKey,
+          query: parsed.query,
+        },
+        { signal }
+      );
     })
   );
   connection.onRequest('platform/llm/warmup', (input: unknown, token: CancellationToken) =>

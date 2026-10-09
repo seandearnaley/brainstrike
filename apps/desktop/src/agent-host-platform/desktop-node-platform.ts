@@ -39,7 +39,7 @@ import { desktopHostSharedTools } from './desktop-host-shared-tools';
 import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
 import { parentPlatformPort } from './parent-platform-port';
 import {
-  PlatformLocalEmbeddingResultSchema,
+  PlatformEmbeddingResultSchema,
   PlatformLocalGenerationResultSchema,
   PlatformLocalProgressSchema,
   PlatformPolicySchema,
@@ -123,9 +123,9 @@ function borrowedLocalInference(
   return {
     embedding: {
       queryEmbedding: async ({ query }, options) =>
-        PlatformLocalEmbeddingResultSchema.parse(
+        PlatformEmbeddingResultSchema.parse(
           await request('platform/embedding/query', { query, threadId }, options?.signal)
-        ).embedding,
+        ),
     },
     llm: {
       generate: async (generation, options) =>

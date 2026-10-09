@@ -560,15 +560,9 @@ function desktopNativeRuntime(
 function desktopHostToolServices(
   dependencies: DesktopHostToolServices
 ): HostToolServiceCapabilities {
-  const embeddings = dependencies.embeddingHostManager;
   return {
     grepIndex: pgliteGrepIndex,
     ...(dependencies.nativeIndexSearch ? { indexSearch: dependencies.nativeIndexSearch } : {}),
-    ...(embeddings
-      ? {
-          queryEmbedding: (payload, signal) => embeddings.queryEmbedding(payload, { signal }),
-        }
-      : {}),
     retrievalStore: pgliteRetrievalStore(),
     shell: desktopShellCorrelation(dependencies),
   };
