@@ -83,11 +83,12 @@ async function readSegment(
 
 /**
  * Reads `thread/memory/read` with the request the next `run/start` would send:
- * when the thread opens, when `readRequest` changes (a new identity is a new
- * model, configuration or plan mode), when the memory settings change, and
- * after each committed memory call or run end. It never polls. While another
- * notice already gates the send, the request cannot be built, so nothing is
- * read.
+ * when the thread opens, when the request it builds changes (model,
+ * configuration, plan mode; compared by value, since the thread view's
+ * callback changes identity on every render), when the memory settings
+ * change, and after each committed memory call or run end. It never polls.
+ * While another notice already gates the send, the request cannot be built,
+ * so nothing is read.
  */
 export function useHostMemorySegment(options: {
   readonly blocked: boolean;
@@ -99,41 +100,56 @@ export function useHostMemorySegment(options: {
   const [segment, setSegment] = useState<HostMemorySegment>({});
   // Only the latest read may publish; an earlier answer is for older settings.
   const latest = useRef(0);
-  const refresh = useCallback((): void => {
-    latest.current += 1;
-    const attempt = latest.current;
-    if (blocked) {
-      setSegment({});
-      return;
-    }
-    setSegment((previous) => ({ ...previous, omSegment: { kind: 'loading' } }));
-    readSegment(client, readRequest()).then(
-      (next) => {
-        if (attempt === latest.current) {
-          setSegment(next);
-        }
-      },
-      (cause: unknown) => {
-        if (attempt === latest.current) {
-          setSegment({
-            omSegment: {
-              kind: 'error',
-              reason: cause instanceof Error ? cause.message : String(cause),
-            },
-          });
-        }
+  // The request the published segment answers, serialized; undefined while gated.
+  const answered = useRef<string | undefined>(undefined);
+  const read = useCallback(
+    (always: boolean): void => {
+      const request = blocked ? undefined : readRequest();
+      const key = request === undefined ? undefined : JSON.stringify(request);
+      if (!always && key === answered.current) {
+        return;
       }
-    );
-  }, [blocked, client, readRequest]);
-  // The thread opened, or the request's model, settings, plan mode or gate changed.
-  useEffect(() => {
-    refresh();
-    return () => {
+      answered.current = key;
       latest.current += 1;
-    };
-  }, [refresh]);
+      const attempt = latest.current;
+      if (request === undefined) {
+        setSegment({});
+        return;
+      }
+      setSegment((previous) => ({ ...previous, omSegment: { kind: 'loading' } }));
+      readSegment(client, request).then(
+        (next) => {
+          if (attempt === latest.current) {
+            setSegment(next);
+          }
+        },
+        (cause: unknown) => {
+          if (attempt === latest.current) {
+            setSegment({
+              omSegment: {
+                kind: 'error',
+                reason: cause instanceof Error ? cause.message : String(cause),
+              },
+            });
+          }
+        }
+      );
+    },
+    [blocked, client, readRequest]
+  );
+  // The thread opened, or the request or its gate may have changed.
+  useEffect(() => {
+    read(false);
+  }, [read]);
+  // An answer that arrives after unmount publishes nothing.
+  useEffect(
+    () => () => {
+      latest.current += 1;
+    },
+    []
+  );
   // Memory settings are captured from their store at call time.
-  useEffect(() => useAssistantMemoryPreferencesStore.subscribe(refresh), [refresh]);
+  useEffect(() => useAssistantMemoryPreferencesStore.subscribe(() => read(true)), [read]);
   // Each committed memory call or run end changes what Memory holds.
   useEffect(() => {
     if (!source) {
@@ -145,9 +161,9 @@ export function useHostMemorySegment(options: {
       const changed = rows.length < seen || memoryChangedSince(rows, seen);
       seen = rows.length;
       if (changed) {
-        refresh();
+        read(true);
       }
     });
-  }, [refresh, source]);
+  }, [read, source]);
   return segment;
 }

@@ -197,6 +197,21 @@ describe('the meter reads the host memory state the next send would admit', () =
     await waitFor(() => expect(request).toHaveBeenCalledTimes(3));
   });
 
+  test('a re-render that builds an equal request reads nothing more', async () => {
+    const { client, request } = hostClient(ACTIVE, ACTIVE);
+    // The thread view's request callback changes identity on every render.
+    const { rerender, result } = renderHook(
+      ({ build }: { build: () => HostParams<'thread/memory/read'> }) =>
+        useHostMemorySegment({ blocked: false, client, readRequest: build, source: undefined }),
+      { initialProps: { build: () => ({ ...REQUEST }) } }
+    );
+    await waitFor(() => expect(result.current.omSegment).toMatchObject({ kind: 'stats' }));
+    rerender({ build: () => ({ ...REQUEST }) });
+    rerender({ build: () => ({ ...REQUEST }) });
+    expect(result.current.omSegment).toMatchObject({ kind: 'stats' });
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
   test('a new request or a memory-settings change re-reads', async () => {
     const { client, request } = hostClient(ACTIVE, ACTIVE, ACTIVE);
     const planned = { ...REQUEST, planMode: true as const };
