@@ -3,8 +3,10 @@ import { useAssistantRunNotifications, useBudgetGuardrailBinding } from '@brains
 import { AssistantThreadHostContext } from '@brainstrike/app-shell/assistant-thread-host-context';
 import {
   BudgetGuardrailProvider,
+  ChangesReviewProvider,
   CommittedAssistantConversation,
   EditCheckpointProvider,
+  RunVerdictProvider,
 } from '@brainstrike/assistant-ui';
 import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell';
 import {
@@ -44,6 +46,22 @@ function CommittedCheckpoints({
     checkpoints.getSnapshot
   );
   return <EditCheckpointProvider value={value}>{children}</EditCheckpointProvider>;
+}
+
+/** The run verdict controls, fed from the thread's committed verdicts. */
+function CommittedVerdicts({
+  children,
+  verdicts,
+}: {
+  readonly children: ReactNode;
+  readonly verdicts: CommittedHostConversation['verdicts'];
+}): ReactElement {
+  const value = useSyncExternalStore(
+    verdicts.subscribe,
+    verdicts.getSnapshot,
+    verdicts.getSnapshot
+  );
+  return <RunVerdictProvider value={value}>{children}</RunVerdictProvider>;
 }
 
 function HostThread({
@@ -111,17 +129,23 @@ function HostThread({
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1">
         <CommittedCheckpoints checkpoints={conversation.checkpoints}>
-          <BudgetGuardrailProvider value={budgetGuardrail}>
-            <CommittedAssistantConversation
-              {...presentation}
-              commands={conversation.commands}
-              label="Assistant"
-              onRunningChange={onRunningChange}
-              onSteerActiveRun={steer}
-              store={conversation.store}
-              workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
-            />
-          </BudgetGuardrailProvider>
+          <CommittedVerdicts verdicts={conversation.verdicts}>
+            {/* Host runs record no workspace snapshots yet, so their edits offer no
+                Changes review until a run's changeset resolves (gap 3). */}
+            <ChangesReviewProvider value={null}>
+              <BudgetGuardrailProvider value={budgetGuardrail}>
+                <CommittedAssistantConversation
+                  {...presentation}
+                  commands={conversation.commands}
+                  label="Assistant"
+                  onRunningChange={onRunningChange}
+                  onSteerActiveRun={steer}
+                  store={conversation.store}
+                  workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
+                />
+              </BudgetGuardrailProvider>
+            </ChangesReviewProvider>
+          </CommittedVerdicts>
         </CommittedCheckpoints>
       </div>
       {steeredRunId ? <SteeringStatus runId={steeredRunId} store={conversation.store} /> : null}
