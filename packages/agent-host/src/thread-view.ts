@@ -1,4 +1,5 @@
 import {
+  describeHookSkip,
   describeRunAttempt,
   providerCallWarningDetail,
   providerCallWarningLabel,
@@ -82,10 +83,15 @@ export function foldHostRuns(rows: readonly HostLogRow[]): HostRunView[] {
   return [...runs.values()];
 }
 
+/** How a CLI user trusts a project hooks file; the help names both stores. */
+const CLI_HOOK_TRUST_REMEDY =
+  'review it with `brainstrike hooks trust <root dir>` (desktop roots: Settings > Hooks)';
+
 /**
  * Human notices for committed rows: each distinct provider call warning once
- * per run (the SDK repeats them on every step), and every attempt record. The
- * wording is shared with the desktop thread view.
+ * per run (the SDK repeats them on every step), every attempt record, and
+ * every hook file a run skipped. The wording is shared with the desktop
+ * thread view.
  */
 export class HostRunNotices {
   private readonly warned = new Map<string, Set<string>>();
@@ -96,6 +102,12 @@ export class HostRunNotices {
       return [notice.ended, ...(notice.resumed ? [notice.resumed] : [])].map(
         (line) => `${line.label}: ${line.detail}`
       );
+    }
+    if (event.type === 'hooks.skipped') {
+      return event.files.map((file) => {
+        const notice = describeHookSkip(file, CLI_HOOK_TRUST_REMEDY);
+        return `${notice.label}: ${notice.detail}`;
+      });
     }
     if (event.type !== 'stream.chunk') {
       return [];
