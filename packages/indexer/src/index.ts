@@ -26,6 +26,8 @@ import type {
   StateObservationQuery,
   StateObservationUpsert,
   StateProjectionStats,
+  StateSearch,
+  StateSearchHit,
 } from './contracts.js';
 import type { CoverageAuthorityPort } from './coverage-authority.js';
 import {
@@ -85,6 +87,8 @@ export type {
   StateObservationUpsert,
   StateProjectionOptions,
   StateProjectionStats,
+  StateSearch,
+  StateSearchHit,
   TextFileCommit,
   VectorProfile,
 } from './contracts.js';
@@ -149,6 +153,8 @@ export interface StateIndexerPort {
   matchState(threadId: string, query: string): Promise<readonly number[]>;
   rebuildState(threadId: string): Promise<void>;
   reindexState(threadId: string, seq: number): Promise<void>;
+  /** Gap 10: committed conversation rows of the requested threads matching every query word. */
+  searchState(request: StateSearch): Promise<readonly StateSearchHit[]>;
   stateBlobCounts(
     threads: readonly string[],
     hashes: readonly string[]

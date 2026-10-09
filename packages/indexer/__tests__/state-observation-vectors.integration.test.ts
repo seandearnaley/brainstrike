@@ -805,7 +805,7 @@ it(
     await expect(f.openIndex()).rejects.toMatchObject({ code: 'rebuild-required' });
     expect(await readFile(f.options.dbPath)).toEqual(before);
     const restore = openConnection(f.options.dbPath);
-    restore.prepare('UPDATE index_metadata SET schema_version=10').run();
+    restore.prepare('UPDATE index_metadata SET schema_version=11').run();
     restore.close();
     await f.reopen();
     expect(await f.store.read('one')).toEqual(transcript);

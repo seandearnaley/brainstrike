@@ -102,6 +102,32 @@ export const stateGcSchema = Schema.Struct({
   threads: stateThreadsSchema,
 });
 export const stateMatchSchema = Schema.Struct({ query: nonblank, threadId: nonblank });
+/** Gap 10: one committed event's searchable conversation text, as its producer projects it. */
+export const stateSearchRowSchema = Schema.NullOr(
+  Schema.Struct({
+    role: Schema.Literals(['user', 'assistant']),
+    runId: nonblank,
+    text: nonblank,
+  })
+);
+export type StateSearchRow = typeof stateSearchRowSchema.Type;
+export const stateSearchSchema = Schema.Struct({
+  limit: positive.check(Schema.isLessThanOrEqualTo(100)),
+  query: nonblank,
+  threadIds: Schema.Array(nonblank),
+});
+export type StateSearch = typeof stateSearchSchema.Type;
+export const stateSearchHitSchema = Schema.Struct({
+  /** FTS5 bm25: lower is a better match. */
+  rank: Schema.Finite,
+  role: Schema.Literals(['user', 'assistant']),
+  runId: nonblank,
+  seq: positive,
+  /** The matched text with each match wrapped in `<mark>`. */
+  snippet: Schema.String,
+  threadId: nonblank,
+});
+export type StateSearchHit = typeof stateSearchHitSchema.Type;
 export const stateHealthSchema = Schema.Struct({ indexerErrors: Schema.Array(Schema.String) });
 export const stateCountsSchema = Schema.Record(Schema.String, nonnegative);
 export const stateStatsSchema = Schema.Struct({

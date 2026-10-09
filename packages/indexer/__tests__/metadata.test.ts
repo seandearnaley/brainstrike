@@ -17,7 +17,7 @@ const row = {
   storeId: 'a'.repeat(64),
 };
 it('decodes raw text and complete configured identity without a SQLite driver', () => {
-  for (const schemaVersion of [8, 9, 10]) {
+  for (const schemaVersion of [8, 9, 10, 11]) {
     expect(decodeIndexIdentityRow({ ...row, schemaVersion })).toEqual({
       embedding: { indexMode: 'text-only' },
       storeId: row.storeId,
@@ -29,7 +29,7 @@ it('decodes raw text and complete configured identity without a SQLite driver', 
     profileHash: embeddingProfileHash(profile),
     profileJson: JSON.stringify(profile),
   };
-  for (const schemaVersion of [8, 9, 10]) {
+  for (const schemaVersion of [8, 9, 10, 11]) {
     expect(decodeIndexIdentityRow({ ...configured, schemaVersion })).toEqual({
       embedding: { indexMode: 'vector-configured', profile, profileHash: configured.profileHash },
       storeId: row.storeId,
@@ -42,7 +42,7 @@ it('decodes raw text and complete configured identity without a SQLite driver', 
     { ...row, schemaVersion: 5 },
     { ...row, schemaVersion: 6 },
     { ...row, schemaVersion: 7 },
-    { ...row, schemaVersion: 11 },
+    { ...row, schemaVersion: 12 },
     { ...row, profileJson: '{}' },
     { ...configured, profileHash: 'b'.repeat(64) },
     { ...configured, profileJson: '{}' },
