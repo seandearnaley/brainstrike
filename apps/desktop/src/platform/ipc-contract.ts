@@ -17,8 +17,8 @@ export type IpcChannelName = `${string}:${string}`;
 export type IpcSenderRoles = readonly [DesktopWindowRole, ...DesktopWindowRole[]];
 
 /**
- * The ONE failure taxonomy that crosses IPC as data (promoted from
- * `mcp/content-ipc.ts`). `ipcMain.handle` replies to a thrown Error with
+ * The ONE failure taxonomy that crosses IPC as data (first written for MCP
+ * content IPC, now an agent-host method). `ipcMain.handle` replies to a thrown Error with
  * Electron's formatted string, main-process stack included, so failures
  * travel as an envelope and the preload rebuilds a clean Error carrying
  * exactly these three fields.

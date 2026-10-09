@@ -14,6 +14,7 @@ import {
   LOCAL_DESKTOP_NATIVE_TOOL_IDS,
   type LocalProviderOptions,
   listProviderLlmModels,
+  memoryCredentialRequiredReason,
   mergeOpenRouterAutoProfileModel,
   type OpenAiProviderOptions,
   type OpenRouterAutoProfileModel,
@@ -229,10 +230,10 @@ function resolveSemanticRecallDisabledReason(args: {
     return;
   }
 
-  const providerName = getProviderDefinition(providerId).displayName;
-  return args.memorySettings.semanticRecall.enabled
-    ? `Semantic recall requires a configured ${providerName} API key. Configure it in Settings → Providers, choose a keyless local embedder, or turn semantic recall off.`
-    : `Semantic observation recall requires a configured ${providerName} API key. Configure it in Settings → Providers, choose a keyless local embedder, or turn vector observation retrieval off.`;
+  return memoryCredentialRequiredReason(
+    args.memorySettings.semanticRecall.enabled ? 'semantic-recall' : 'semantic-observation-recall',
+    providerId
+  );
 }
 
 /** Why an 'auto' observer target could not resolve to a concrete model. */
@@ -378,8 +379,7 @@ function resolveObservationalMemoryDisabledReason(args: {
     return;
   }
 
-  const providerName = getProviderDefinition(providerId).displayName;
-  return `Observational memory requires a configured ${providerName} API key. Configure it in Settings → Providers, choose a keyless local observer, or turn observations off.`;
+  return memoryCredentialRequiredReason('observational-memory', providerId);
 }
 
 export function resolveAssistantMemoryDisabledReason(args: {

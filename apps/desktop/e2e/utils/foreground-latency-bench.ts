@@ -120,38 +120,9 @@ export async function seedPausedWorkspace(
   await setVectorDevicePreference(page, device);
   const { reloadRenderer } = await loadElectronHelpers();
   await reloadRenderer(page, reloadReason);
-  await page.waitForFunction(
-    () =>
-      // biome-ignore lint/style/useNamingConvention: Renderer test hook global intentionally uses the app-owned key.
-      typeof (window as Window & { __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: unknown })
-        .__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ === 'object',
-    undefined,
-    { timeout: 60_000 }
-  );
   await expect(page.getByTestId('indexing-status-trigger')).toContainText('Paused', {
     timeout: 60_000,
   });
-}
-
-export async function readWorkspaceIndexSetId(page: Page): Promise<string> {
-  let setId: string | null = null;
-  await expect
-    .poll(
-      async () => {
-        const rows = await queryDb(
-          page,
-          `SELECT id FROM embedding_sets WHERE system_role = 'workspace-index'`
-        );
-        setId = rows.length === 1 && typeof rows[0]?.['id'] === 'string' ? rows[0]['id'] : null;
-        return setId;
-      },
-      { message: 'Expected exactly one Workspace Index embedding set.', timeout: 60_000 }
-    )
-    .not.toBeNull();
-  if (setId === null) {
-    throw new Error('Workspace Index embedding set id is unresolved.');
-  }
-  return setId;
 }
 
 /** A thread with a `running` run row: the chat-path write needs a parent run, as during a real turn. */

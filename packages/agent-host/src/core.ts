@@ -30,16 +30,16 @@ import {
   stopHostRunTree,
 } from './core-run-lifecycle.js';
 import {
-  createHostRunContext,
   foldHostAcceptedCommand,
   foldHostInteraction,
   foldHostRunEffect,
   HostCommandLedger,
+  HostRunMap,
   type HostRunState as Run,
   recordHostConversationId,
 } from './core-state.js';
 import { deleteHostThread } from './core-thread-deletion.js';
-import { readHostRow, readHostThreadHistory, storedHostEvent } from './event-storage.js';
+import { readHostRow, storedHostEvent } from './event-storage.js';
 import { beginHostRun, foldHostHookContextEvent, hostRunTerminalEvents } from './hook-context.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
 import { HostLedgerProjection } from './ledger-projection.js';
@@ -63,6 +63,7 @@ import {
   ensureHostRunAdmission,
   hostMcpUnavailableEvents,
   hostRunCommandRequest,
+  openHostRunOwner,
 } from './run-admission.js';
 import {
   admittedHostRun,
@@ -157,7 +158,7 @@ export class HostCore {
     command: (method, params, perform) => this.command(method, params, perform),
     threads: this.threads,
   });
-  private readonly runs = new Map<string, Run>();
+  private readonly runs = new HostRunMap();
   private readonly children = new HostChildRuns();
   private readonly admittedRuns = new Map<string, HostRunAdmissionCommand>();
   private readonly conversationIds = new Set<string>();
@@ -342,7 +343,7 @@ export class HostCore {
   }
 
   read(threadId: string, fromSeq: number): Promise<HostLogRow[]> {
-    return readHostThreadHistory(this.store, this.threads, threadId, fromSeq);
+    return this.catalog.readHistory(this.store, this.threads, threadId, fromSeq);
   }
 
   readWorkspace(threadId: string): ReturnType<HostThreadWorkspaceState['readSnapshot']> {
@@ -563,7 +564,7 @@ export class HostCore {
       controller.signal.throwIfAborted();
       release = this.retainRun();
       const { run, started } = admittedHostRun(
-        this.runs.values(),
+        this.runs.ofThread(params.threadId),
         {
           ...params,
           input: hostRunInput(params.configuration, origin),
@@ -899,14 +900,9 @@ export class HostCore {
   }
 
   private openRun(run: Run): Promise<HostRunOwner | undefined> {
-    run.owner ??= ensureHostRunAdmission(this.platform, run).then((admission) => {
-      const open = admission.openRun ?? this.platform.openRun?.bind(this.platform);
-      return open?.({
-        ...createHostRunContext(run, (threadId, events) => this.append(threadId, events, 'full')),
-        ...(admission.workingMemory === false ? { workingMemory: false as const } : {}),
-      });
-    });
-    return run.owner;
+    return openHostRunOwner(this.platform, run, (threadId, events) =>
+      this.append(threadId, events, 'full')
+    );
   }
 
   private closeRunOwner(run: Run): Promise<void> {

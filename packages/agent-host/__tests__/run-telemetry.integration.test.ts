@@ -75,7 +75,12 @@ test('a command’s live output reaches subscribers without committing a stream.
   clients.push(client);
   const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
   const telemetry: HostRunTelemetry[] = [];
-  client.onTelemetry((received) => telemetry.push(received));
+  // Tool telemetry names its call; the model's own text stream names none.
+  client.onTelemetry((received) => {
+    if (received.toolCallId !== undefined) {
+      telemetry.push(received);
+    }
+  });
   await client.request('log/subscribe', { fromSeq: 0, threadId });
 
   await client.request('run/start', {

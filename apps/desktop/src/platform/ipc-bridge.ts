@@ -33,8 +33,8 @@ function isIpcFailure(value: unknown): value is IpcFailure {
 /**
  * The ONE preload unwrap for `IpcResult` replies: `ok: true` yields the
  * value; `ok: false` becomes a clean Error whose message is
- * `message (category · code)` with `category`/`code` properties (the
- * `mcp:content:*` ruling, promoted); any other shape is rejected by name.
+ * `message (category · code)` with `category`/`code` properties (first
+ * written for MCP content); any other shape is rejected by name.
  */
 export function unwrapIpcResult<T>(channel: string, reply: unknown): T {
   if (

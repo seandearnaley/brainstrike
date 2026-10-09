@@ -261,7 +261,8 @@ export interface HostRunState {
   /** When each output committed (its row time), for artifact retention. */
   readonly outputCommittedAt: Map<string, number>;
   readonly outputs: Map<string, Json>;
-  owner?: Promise<HostRunOwner | undefined>;
+  /** The run's open owner (its public Memory); released once its close joins. */
+  owner?: Promise<HostRunOwner | undefined> | undefined;
   ownerClose?: Promise<void>;
   /** The owner joined all of its work, but some failed: this run's failed outcome. */
   ownerFailure?: unknown;
@@ -292,6 +293,70 @@ export interface HostRunState {
   turnId?: string;
   /** The run's committed turn-start snapshots: the roots its turn end snapshots. */
   turnStart?: Extract<HostEvent, { type: 'workspace.snapshot.recorded' }>;
+}
+
+/**
+ * Core's runs by run ID, which also keeps each thread's runs in the order they
+ * were folded, so a run's branch reads its thread's earlier runs without
+ * scanning every thread's (one map owns both views).
+ */
+export class HostRunMap extends Map<string, HostRunState> {
+  private readonly byThread = new Map<string, HostRunState[]>();
+
+  override set(runId: string, run: HostRunState): this {
+    const previous = this.get(runId);
+    super.set(runId, run);
+    if (previous && previous.threadId === run.threadId) {
+      const list = this.listed(previous);
+      list[list.indexOf(previous)] = run;
+      return this;
+    }
+    if (previous) {
+      this.unlist(previous);
+    }
+    const list = this.byThread.get(run.threadId);
+    if (list) {
+      list.push(run);
+    } else {
+      this.byThread.set(run.threadId, [run]);
+    }
+    return this;
+  }
+
+  override delete(runId: string): boolean {
+    const run = this.get(runId);
+    if (run) {
+      this.unlist(run);
+    }
+    return super.delete(runId);
+  }
+
+  override clear(): void {
+    this.byThread.clear();
+    super.clear();
+  }
+
+  /** The thread's runs, in the order they were folded. */
+  ofThread(threadId: string): readonly HostRunState[] {
+    return this.byThread.get(threadId) ?? [];
+  }
+
+  private unlist(run: HostRunState): void {
+    const list = this.listed(run);
+    list.splice(list.indexOf(run), 1);
+    if (list.length === 0) {
+      this.byThread.delete(run.threadId);
+    }
+  }
+
+  /** The thread list holding a run this map holds; both views change together. */
+  private listed(run: HostRunState): HostRunState[] {
+    const list = this.byThread.get(run.threadId);
+    if (!list?.includes(run)) {
+      throw new Error(`Run ${run.id} is missing from its thread's runs`);
+    }
+    return list;
+  }
 }
 
 export function createHostRunState(

@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { HostCore } from '../../src/core.js';
 import type { HostPlatform } from '../../src/ports.js';
 import type { HostEvent, HostLogRow } from '../../src/protocol.js';
+import { foldHostRuns } from '../../src/thread-view.js';
 
 /**
  * Host runs over a scripted provider whose stream parts arrive on a timeline,
@@ -159,17 +160,11 @@ export async function finishedRun(
   }
 }
 
-export function committedTextDeltas(rows: readonly HostLogRow[]): string[] {
-  return rows.flatMap((row) =>
-    row.event.type === 'stream.chunk' &&
-    typeof row.event.chunk === 'object' &&
-    row.event.chunk !== null &&
-    !Array.isArray(row.event.chunk) &&
-    row.event.chunk['type'] === 'text-delta' &&
-    typeof row.event.chunk['text'] === 'string'
-      ? [row.event.chunk['text']]
-      : []
-  );
+/** The run's committed assistant text: its `model.step` messages, never text deltas. */
+export function committedRunText(rows: readonly HostLogRow[]): string {
+  return foldHostRuns(rows)
+    .map((run) => run.text)
+    .join('');
 }
 
 export const probeTool = (delayMs: number): Partial<HostPlatform> => ({

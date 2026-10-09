@@ -7,7 +7,7 @@ import {
 import {
   parseMcpHostServerSnapshot,
   parseMcpHostSnapshot,
-} from '@brainstrike/assistant-contract/mcp-host-runtime';
+} from '@brainstrike/assistant-contract/mcp-host-status';
 import { z } from 'zod';
 
 /**

@@ -15,6 +15,15 @@ produce valid numbers (precedent: `embedding-queue-load.integration.test.ts`).
 - Probes: `apps/desktop/e2e/utils/foreground-latency-probes.ts`.
 - Corpus: `apps/desktop/e2e/utils/index-build-corpus.ts`.
 - E2E-only main-process seam: `apps/desktop/src/e2e-foreground-latency-probes.ts`.
+- Shared setup and reporting: `apps/desktop/e2e/utils/foreground-latency-bench.ts`.
+
+Since 2026-10-09 the spec builds the **native** Workspace Index (M3:
+`NativeWorkspaceIndexProvider` and the native indexer process). The legacy
+pipeline it was written against (the renderer's sync orchestration, the
+`__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__` summary and the backfill `complete`
+event) no longer runs in the desktop, so the BEFORE numbers below describe a
+pipeline that no longer exists; compare native runs with native runs (see
+"Native index runs").
 
 ### How a run works
 
@@ -22,9 +31,11 @@ produce valid numbers (precedent: `embedding-queue-load.integration.test.ts`).
    The evidence records the corpus SHA-256; runs compare only when it matches.
 2. Show the app window (inactive, so it takes no focus). Desktop E2E otherwise
    never shows it, and a never-shown window on Linux runs rAF at about 1 Hz.
-3. Open it as the workspace root with the Workspace Index **paused**, and set the
-   embedding device. Seed one assistant thread with a `running` run row, which
-   the chat-path write needs as its parent.
+3. Open it as the workspace root with the Workspace Index **paused**. In
+   Settings → Search & Indexing, choose BGE Small, "Text and semantic search"
+   and the device's execution plan (`WebGPU · FP16`, or `WASM · Q8`); the
+   index stays paused. Seed one assistant thread with a `running` run row,
+   which the chat-path write needs as its parent.
 4. Calibrate the renderer probe: block the renderer's main thread for 120 ms and
    require the long-task observer to record it and the frame gap to show it.
    A dead observer would otherwise report "zero long tasks".
@@ -35,32 +46,31 @@ produce valid numbers (precedent: `embedding-queue-load.integration.test.ts`).
 6. **Loaded:** open the indexing status popover, then start the main probes
    and open the renderer window just before clicking Resume (the two start
    within one CDP round trip). The window includes the click and closing the
-   popover. It closes when the Workspace Index backfill emits `complete` on an
-   index where every file is imported and chunked, every chunk is embedded and
-   no `embed_chunk` job is queued, running or failed: the renderer window ends
-   at the event's own timestamp, and main pauses as soon as the test sees it.
-   Probes keep their 200 ms pace throughout.
-   - Every index check (after any `complete`, and every 200 s without one)
-     pauses both windows, reads the index summary, and resumes, so the checks
-     are never measured. A loaded window can therefore have several segments;
-     the evidence records how many (`loadedWindowSegments`).
+   popover. Every 2 s (`CHECK_EVERY_MS`) the test pauses both windows, reads
+   the native index through the renderer's `indexSearch` capability
+   (`status()` and `coverageBatch()` over the authorized roots), and resumes,
+   so the checks are never measured. The loaded window closes at the first
+   check that finds every root's scan complete, every corpus file indexed,
+   every chunk embedded and no vector missing, so it can run up to one check
+   interval past the build's real end. Probes keep their 200 ms pace
+   throughout. A loaded window has many segments; the evidence records how
+   many (`loadedWindowSegments`).
 7. Write the evidence JSON, print a summary, and fail if the run is invalid.
 
 A run is **invalid**, never reported, when: the build took under 60 s; any
 probe has fewer than 100 loaded samples; any probe operation threw; the idle
 rAF frame gap p50 is above 20 ms (the window is not producing frames); the
-calibration block was not seen; the embedding host ran on a different
-device than configured, or with `fallbackApplied`; or the index stopped
-making progress (the stall rule below). An invalid run still writes its
+calibration block was not seen; the native query plan
+(`queryPlan.inferencePlan.device`) runs on another device than configured; or
+the index stopped making progress (the stall rule below). An invalid run still writes its
 evidence, with `status: "invalid"` and the reasons.
 
 #### Stall rule
 
-If no index count (files, chunked files, chunks, embedded chunks) changes for
-200 s, the run stops, records the last index summary as an invalid reason and
-writes its evidence, instead of hanging until the 55-minute test timeout. The
-loop checks every 200 s, so it stops between 200 and 400 s after the last
-change.
+If no index count (indexed files, chunks, embedded chunks) changes for 200 s,
+the run stops, records the last index summary as an invalid reason and writes
+its evidence, instead of hanging until the 55-minute test timeout. The loop
+checks every 2 s, so it stops within 2 s of that window.
 
 The window is sized from observed progress. In traces read every ~1.2 s, the
 slowest gap between count changes was 6.1 s: the WASM model loading before the
@@ -80,8 +90,8 @@ finishes cannot be produced on demand in the real app.
 | Renderer long tasks: count, total ms | `PerformanceObserver` `longtask` entries (main-thread tasks over 50 ms) in the visible window. | Names the cause of a frame gap. The M2 exit criterion requires zero. |
 | Main event-loop lag p95, max | `perf_hooks.monitorEventLoopDelay` at 10 ms resolution, minus the resolution, so 0 means on time. | Main brokers every IPC call, every chat-path write and every tool call. Its lag adds to all of them. |
 | Chat-path op p95, max | One `run.step.finished` event written through `recordDesktopAssistantRunEvent`, timed in main. | See below. M3 swaps in the run-log append. |
-| Tool read p95, loaded ÷ idle | The shared tool file reader (`readWorkspaceTextFile`) on a fixed corpus file, then the grep tool's index query (`GrepSearchService` over `FileChunkRepository` on main's database handle), scoped to one path. Timed in main. | An agent's tools read while a build runs. The loaded÷idle ratio is the contention signal. |
-| Build throughput | Embedded chunks ÷ build wall time (Resume to the terminal `complete`). The fields reuse the stage benchmark's names: `chunkCount`, `completedChunkCount`, `elapsedMs`, `chunksPerSecond`. | M2's second exit criterion, and the context for every other number: a faster build is a heavier load. |
+| Tool read p95, loaded ÷ idle | The shared tool file reader (`readWorkspaceTextFile`) on a fixed corpus file, then the grep tool's index query (`GrepSearchService` over `FileChunkRepository` on main's database handle), scoped to one path. Timed in main. On the native index the chunks live in the indexer's own SQLite, so the PGlite query runs against a set id with no rows (`foreground-latency-benchmark-no-set`): a foreground PGlite read, identical idle and loaded. | An agent's tools read while a build runs. The loaded÷idle ratio is the contention signal. |
+| Build throughput | Embedded chunks ÷ build wall time (Resume to the first check that finds the index terminal). The fields reuse the stage benchmark's names: `chunkCount`, `completedChunkCount`, `elapsedMs`, `chunksPerSecond`. | M2's second exit criterion, and the context for every other number: a faster build is a heavier load. |
 
 The evidence also keeps the tool read's two components (file read, index
 query), p50s, `n` everywhere, and the raw chat-path and tool-read samples, for
@@ -164,9 +174,33 @@ and corpus. Local and CI numbers measure different load: WebGPU on an M4 Max
 completes about 42 chunks/s and keeps the DB host busy; WASM on a 2-vCPU runner
 completes under 2 chunks/s, so its load is mostly CPU.
 
-### BEFORE numbers
+### Native index runs
 
-Today's system: PGlite on the DB host behind the `DatabaseWorkScheduler`, with
+One local run, 2026-10-09, evidence schema v2: app at `1d627efcb` with the
+`473986260` spec, on the M3 integration branch. Apple M4 Max, Electron 44.4.5,
+`webgpu` fp16, the same 1,000-file corpus (6,962 chunks, SHA-256 `64dcd016…`).
+The machine was shared with other agents: load average 23.8 at start.
+
+| Metric | Idle | Loaded |
+| --- | ---: | ---: |
+| Renderer frame gap p95 / max (ms) | 18.2 / 18.7 | 18.6 / 18.8 |
+| Renderer long tasks | 0 | 0 |
+| Main event-loop lag p95 / max (ms) | 4.07 / 17.6 | 4.99 / **543.1** |
+| Chat-path op p50 / p95 / max (ms) | 1.09 / 1.23 / 4.33 | 1.11 / 4.33 / 28.8 |
+| Chat-path op, n | 150 | 484 |
+| Tool read p50 / p95 / max (ms) | 2.16 / 19.8 / 53.7 | 6.69 / 28.6 / 76.9 |
+| Tool read p95 loaded ÷ idle | | 1.44 |
+| Build | | 61.9 chunks/s, 112.6 s |
+
+The chat-path write and the tool read barely move under the native build,
+against 7.7× and 5.6× on the legacy pipeline. Main's event loop stalled once
+for 543 ms during the build (its p95 did not move); that single stall is not
+yet attributed. One run is not a spread: repeat it three times before using
+it as a BEFORE.
+
+### BEFORE numbers (legacy pipeline, superseded)
+
+The legacy system: PGlite on the DB host behind the `DatabaseWorkScheduler`, with
 the sync orchestration in the visible renderer and embeddings in the hidden
 embedding host. These runs predate the aligned windows and the stall rule; the
 re-run below checks that aligning the windows did not move them.

@@ -6,8 +6,8 @@ const logger = createLogger('DesktopRunConfiguration');
 
 /**
  * The parts of the desktop's durable run configuration that renderer views
- * read back: the Send intent's generation settings and focused root, and the
- * observer target admission resolved. The desktop admission writes it
+ * read back: the Send intent's generation settings and focused root. The
+ * desktop admission writes it
  * (`desktopDurableConfiguration`); Core commits it on `run.started`.
  */
 const DesktopRunConfigurationSchema = z.object({
@@ -19,7 +19,6 @@ const DesktopRunConfigurationSchema = z.object({
       selectionFolderId: z.string().min(1).optional(),
     })
     .optional(),
-  memoryResolution: z.object({ observerTarget: z.string().min(1).nullable() }).optional(),
 });
 export type DesktopRunConfiguration = z.infer<typeof DesktopRunConfigurationSchema>;
 

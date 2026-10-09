@@ -32,6 +32,7 @@ import type { CommittedHostCheckpoints } from './committed-host-checkpoints';
 import {
   type CommittedHostConversation,
   createCommittedHostConversation,
+  hostRunSettings,
 } from './committed-host-conversation';
 import { CommittedHostMcpInputView } from './committed-host-mcp-input-view';
 import { CommittedWorkspaceControls } from './committed-workspace-controls';
@@ -50,6 +51,7 @@ import {
   useDesktopHostPresentation,
 } from './use-desktop-host-presentation';
 import { useHostLastTurn } from './use-host-last-turn';
+import { useHostMemorySegment, withMemoryGate } from './use-host-memory-segment';
 import { useHostThreadSelection } from './use-host-thread-selection';
 import { useHostThreadUsage } from './use-host-thread-usage';
 
@@ -201,6 +203,27 @@ function HostThread({
   // A root thread's "Restore to before this message" goes to its owner (the
   // host); a delegated child's view offers none.
   const rewind = useRewindContext();
+  // The meter's memory segment and the memory send gate: what admission would
+  // answer for the run the next send starts.
+  const planModeEnabled = presentation.planMode?.enabled === true;
+  const readMemoryRequest = useCallback(
+    () => ({
+      ...hostRunSettings({
+        modelId: '',
+        readConfiguration: () => readConfiguration(explorer.getState().currentFolderId),
+        readModelId,
+        readPlanMode: () => planModeEnabled,
+      }),
+      threadId,
+    }),
+    [explorer, planModeEnabled, readConfiguration, readModelId, threadId]
+  );
+  const memory = useHostMemorySegment({
+    blocked: presentation.isComposerDisabled === true,
+    client,
+    readRequest: readMemoryRequest,
+    source: conversation?.source,
+  });
   // Badges and OS notifications read this view's committed run state.
   const { onRunNotification } = useAssistantRunNotifications();
   const effects = useCommittedEffectCount(conversation);
@@ -251,7 +274,8 @@ function HostThread({
                   <HostApprovalHistoryProvider tree={conversation.approvals}>
                     <HostChildConversations revision={effects} threadId={threadId}>
                       <CommittedAssistantConversation
-                        {...presentation}
+                        {...withMemoryGate(presentation, memory)}
+                        {...(memory.omSegment ? { omSegment: memory.omSegment } : {})}
                         agentColor={agentColor}
                         approvalStrip={
                           <HostApprovalStrip

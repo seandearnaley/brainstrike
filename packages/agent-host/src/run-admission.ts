@@ -14,7 +14,7 @@ import { modelMessageSchema, type StepResult, type ToolSet } from 'ai';
 import { leaseHostAdmission } from './admission-lease.js';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import { withHostDelegationTools } from './child-runs.js';
-import type { HostRunState, HostThreadGrants } from './core-state.js';
+import { createHostRunContext, type HostRunState, type HostThreadGrants } from './core-state.js';
 import { defaultHostToolModelOutput, withHostToolHookContext } from './hook-context.js';
 import { canonical, jsonValue } from './json-value.js';
 import { McpAuthorityReconstructionError } from './mcp-authority.js';
@@ -306,6 +306,28 @@ async function rejectHostRunSelection(selected: HostRunAdmission, cause: unknown
   throw cause;
 }
 
+/**
+ * The run's owner (its public Memory), opened once over its admission. A run
+ * whose owner close has begun is never reopened: Core releases a joined owner.
+ */
+export function openHostRunOwner(
+  platform: HostPlatform,
+  run: HostRunState,
+  append: Parameters<typeof createHostRunContext>[1]
+): Promise<HostRunOwner | undefined> {
+  if (run.ownerClose) {
+    return Promise.reject(new Error('The run owner is already closed'));
+  }
+  run.owner ??= ensureHostRunAdmission(platform, run).then((admission) => {
+    const open = admission.openRun ?? platform.openRun?.bind(platform);
+    return open?.({
+      ...createHostRunContext(run, append),
+      ...(admission.workingMemory === false ? { workingMemory: false as const } : {}),
+    });
+  });
+  return run.owner;
+}
+
 /** The Core retains this promise; both owners are attempted even when one join fails. */
 export async function closeHostRunResources(run: HostRunState): Promise<void> {
   const joined = await Promise.allSettled([
@@ -351,6 +373,9 @@ export async function closeHostRunResources(run: HostRunState): Promise<void> {
       'Run resource cleanup failed'
     );
   }
+  // Core keeps every run of the process; a joined owner (public Memory, its
+  // observational memory and their WebAssembly hashers) must not outlive it.
+  run.owner = undefined;
 }
 
 /**

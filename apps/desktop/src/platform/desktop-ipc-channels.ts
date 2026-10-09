@@ -229,10 +229,6 @@ export const DESKTOP_IPC_CHANNELS = {
     appsPrepareShell: 'mcp:apps:prepareShell',
     appsReleaseShell: 'mcp:apps:releaseShell',
     configSelectPath: 'mcp:config:selectPath',
-    contentComplete: 'mcp:content:complete',
-    contentGetPrompt: 'mcp:content:getPrompt',
-    contentReadResource: 'mcp:content:readResource',
-    statusGet: 'mcp:status:get',
   },
   notesVault: {
     // One-way main→renderer push: a watched vault directory changed. Pushed to

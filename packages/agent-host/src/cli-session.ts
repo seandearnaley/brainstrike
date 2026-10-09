@@ -3,12 +3,14 @@ import { createInterface } from 'node:readline';
 import { z } from 'zod';
 import type { HostCliOutput } from './cli.js';
 import type { HostClient } from './client.js';
-import type { HostLogRow } from './protocol.js';
+import type { HostLogRow, HostRunTelemetry } from './protocol.js';
 import {
   CommittedThreadView,
+  committedAssistantText,
   foldHostRuns,
   HostRunNotices,
   type HostRunView,
+  isHostStepStart,
   type PendingHostApproval,
 } from './thread-view.js';
 
@@ -80,11 +82,58 @@ function pendingMcpInput(
   return;
 }
 
+/**
+ * A run's answer prints once: live from `run/telemetry` text deltas, or, for a
+ * step this terminal did not watch (replay, attach), from its committed
+ * `model.step` text (ADR-0011 amendment). A Stop's partial reply commits as
+ * `model.messages` inside the open step.
+ */
+class HostCliAnswerText {
+  /** Runs whose open step printed live text since its last commit. */
+  private readonly printedLive = new Set<string>();
+  /** Runs with a committed step start and no step commit yet. */
+  private readonly openSteps = new Set<string>();
+
+  live(telemetry: HostRunTelemetry, output: HostCliOutput): void {
+    const chunk = telemetry.chunk;
+    if (
+      chunk &&
+      typeof chunk === 'object' &&
+      !Array.isArray(chunk) &&
+      chunk['type'] === 'text-delta' &&
+      typeof chunk['text'] === 'string'
+    ) {
+      output.write(chunk['text']);
+      this.printedLive.add(telemetry.runId);
+    }
+  }
+
+  committed(row: HostLogRow, output: HostCliOutput): void {
+    const event = row.event;
+    if (event.type === 'stream.chunk' && isHostStepStart(event.chunk)) {
+      this.openSteps.add(event.runId);
+      return;
+    }
+    const stepText =
+      event.type === 'model.step' ||
+      (event.type === 'model.messages' && this.openSteps.has(event.runId));
+    if (!stepText) {
+      return;
+    }
+    this.openSteps.delete(event.runId);
+    if (this.printedLive.delete(event.runId)) {
+      return;
+    }
+    output.write(committedAssistantText(event.messages));
+  }
+}
+
 function displayRow(
   row: HostLogRow,
   output: HostCliOutput,
   json: boolean,
-  notices: HostRunNotices
+  notices: HostRunNotices,
+  answer: HostCliAnswerText
 ): void {
   if (json) {
     output.write(`${JSON.stringify(row)}\n`);
@@ -95,18 +144,8 @@ function displayRow(
     process.stderr.write(`\n${notice}\n`);
   }
   const event = row.event;
-  if (event.type === 'stream.chunk') {
-    const chunk = event.chunk;
-    if (
-      chunk &&
-      typeof chunk === 'object' &&
-      !Array.isArray(chunk) &&
-      chunk['type'] === 'text-delta' &&
-      typeof chunk['text'] === 'string'
-    ) {
-      output.write(chunk['text']);
-    }
-  } else if (event.type === 'mcp.tools.unavailable') {
+  answer.committed(row, output);
+  if (event.type === 'mcp.tools.unavailable') {
     // A notice beside the output: the run proceeds without this server's tools.
     process.stderr.write(`MCP server ${event.serverId} unavailable: ${event.reason}\n`);
   } else if (event.type === 'effect.finished') {
@@ -122,6 +161,7 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
   const { client, threadId, output } = options;
   const view = new CommittedThreadView(threadId);
   const notices = new HostRunNotices();
+  const answer = new HostCliAnswerText();
   const completion = Promise.withResolvers<void>();
   // A disconnect can happen while the initial subscribe/start request is pending.
   completion.promise.catch(() => undefined);
@@ -157,7 +197,7 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
       }
       printedSeq = row.seq;
       if (options.json || ('runId' in row.event && row.event.runId === runId)) {
-        displayRow(row, output, options.json, notices);
+        displayRow(row, output, options.json, notices, answer);
       }
     }
   };
@@ -304,6 +344,11 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
   terminal?.on('line', line);
   terminal?.once('close', eof);
   const release = client.onEvent((row) => accept([row]));
+  const releaseTelemetry = client.onTelemetry((telemetry) => {
+    if (!options.json && telemetry.threadId === threadId && telemetry.runId === runId) {
+      answer.live(telemetry, output);
+    }
+  });
   const disconnected = (): void => {
     connectionClosed = true;
     finish(new HostCliExitError('Host connection closed before terminal completion.', 1));
@@ -339,6 +384,7 @@ export async function runHostCliSession(options: HostCliSessionOptions): Promise
     terminal?.off('close', eof);
     terminal?.close();
     release();
+    releaseTelemetry();
     await responding;
     await stopping;
     if (!connectionClosed) {

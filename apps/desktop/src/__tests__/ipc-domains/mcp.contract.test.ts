@@ -1,18 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import {
-  mcpAppsContract,
-  mcpContentContract,
-  mcpContract,
-  mcpPathSelectionContract,
-} from '../../ipc-domains/mcp.contract';
+import { mcpAppsContract, mcpPathSelectionContract } from '../../ipc-domains/mcp.contract';
 import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
 
 describe('MCP IPC contracts', () => {
-  const contracts = [mcpContract, mcpPathSelectionContract, mcpContentContract, mcpAppsContract];
+  const contracts = [mcpPathSelectionContract, mcpAppsContract];
 
-  it('owns all 7 invokes and no pushes in the desktop MCP manifest', () => {
+  it('owns all 3 invokes and no pushes in the desktop MCP manifest', () => {
     const specs = contracts.flatMap((contract) => Object.values(contract));
-    expect(specs.filter(({ kind }) => kind === 'invoke')).toHaveLength(7);
+    expect(specs.filter(({ kind }) => kind === 'invoke')).toHaveLength(3);
     expect(specs.filter(({ kind }) => kind === 'push')).toHaveLength(0);
     expect(new Set(specs.map(({ channel }) => channel))).toEqual(
       new Set(Object.values(DESKTOP_IPC_CHANNELS.mcp))
@@ -31,8 +26,8 @@ describe('MCP IPC contracts', () => {
   });
 
   it('rejects malformed tuples before handlers run', () => {
-    expect(() => mcpContentContract.getPrompt.parseArgs([])).toThrow();
-    expect(mcpContract.getServerStatusSnapshot.parseArgs(['extra'])).toEqual([]);
+    expect(() => mcpAppsContract.prepareShell.parseArgs([])).toThrow();
+    expect(mcpPathSelectionContract.selectPath.parseArgs(['extra'])).toEqual([]);
   });
 
   // BST-1930 c5a: the agent host owns MCP config, extension dials and tool
@@ -45,13 +40,13 @@ describe('MCP IPC contracts', () => {
     ]);
   });
 
-  // BST-1930 c5b: server status pushes and lifecycle control are host methods
-  // too; only the preload's status read for MCP App resources remains (c5d).
-  it('leaves MCP status pushes and lifecycle control off the desktop IPC manifest', () => {
+  // BST-1930 c5b-c5d: server status, lifecycle control and content (an App's
+  // document included) are host methods too.
+  it('leaves MCP status, lifecycle control and content off the desktop IPC manifest', () => {
     const channels = Object.values(DESKTOP_IPC_CHANNELS.mcp);
-    expect(channels.filter((channel) => /^mcp:(lifecycle|status):/u.test(channel))).toEqual([
-      'mcp:status:get',
-    ]);
+    expect(channels.filter((channel) => /^mcp:(lifecycle|status|content):/u.test(channel))).toEqual(
+      []
+    );
   });
 
   // BST-1930 c5c: Tasks cards and global server input are host methods too.

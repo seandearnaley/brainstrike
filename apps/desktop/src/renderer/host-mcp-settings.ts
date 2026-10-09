@@ -6,12 +6,14 @@ import type {
   McpPresentationEvent,
   McpSettingsEvent,
 } from '@brainstrike/agent-host/protocol';
+import type { McpContentCapability } from '@brainstrike/app-shell/mcp-content-capability';
 import type { McpStatusCapability } from '@brainstrike/app-shell/mcp-status-capability';
 import type { McpToolsCapability } from '@brainstrike/app-shell/mcp-tools-capability';
-import type { McpTaskBridge } from '@brainstrike/assistant-contract';
+import type { McpHostOperationResult, McpTaskBridge } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { McpElicitationBridge } from '@brainstrike/settings-ui/settings/tools/mcp-elicitation-capability';
 import { connectDesktopAgentHost } from './agent-host-client';
+import { unwrapContent } from './mcp-content-outcome';
 
 const logger = createLogger('DesktopHostMcpSettings');
 
@@ -19,6 +21,7 @@ const logger = createLogger('DesktopHostMcpSettings');
 export type DesktopMcpSettingsMethod = Extract<
   HostMethod,
   | `mcp/config/${string}`
+  | `mcp/content/${string}`
   | `mcp/elicitation/${string}`
   | `mcp/extensions/${string}`
   | `mcp/server/${string}`
@@ -218,5 +221,34 @@ export function resolveDesktopMcpElicitationBridge(): McpElicitationBridge | nul
     settleElicitation: async (settlement) => {
       await settings.request('mcp/elicitation/settle', settlement);
     },
+  };
+}
+
+type ContentResult<Type extends McpHostOperationResult['type']> = Extract<
+  McpHostOperationResult,
+  { type: Type }
+>;
+/** MCP content browsing (Settings, composer prompts, MCP App documents), from the agent host. */
+export interface DesktopMcpContent extends McpContentCapability {
+  /** Settings completes resource arguments as well as prompt arguments. */
+  complete(
+    request: HostParams<'mcp/content/complete'>
+  ): Promise<ContentResult<'completion/complete'>>;
+  getPrompt(request: HostParams<'mcp/content/prompt'>): Promise<ContentResult<'prompts/get'>>;
+  readResource(request: HostParams<'mcp/content/read'>): Promise<ContentResult<'resources/read'>>;
+}
+
+export function resolveDesktopMcpContent(): DesktopMcpContent | null {
+  const settings = resolveDesktopHostMcpSettings();
+  if (!settings) {
+    return null;
+  }
+  return {
+    complete: async (request) =>
+      unwrapContent(await settings.request('mcp/content/complete', request)),
+    getPrompt: async (request) =>
+      unwrapContent(await settings.request('mcp/content/prompt', request)),
+    readResource: async (request) =>
+      unwrapContent(await settings.request('mcp/content/read', request)),
   };
 }

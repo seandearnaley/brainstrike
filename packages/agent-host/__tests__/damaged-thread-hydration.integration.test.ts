@@ -139,7 +139,10 @@ async function openDamaged(seeded: Awaited<ReturnType<typeof seededRoot>>): Prom
     expect(listed.get(seeded.damaged)?.damage).toMatch(/\S/u);
     expect(listed.get(seeded.damaged)?.createdAt).toBeGreaterThan(0);
     expect(listed.get(seeded.healthy)).not.toHaveProperty('damage');
-    await expect(host.core.read(seeded.damaged, 0)).rejects.toThrow();
+    // Opening it reads the same reason the list names, not a store or file error.
+    await expect(host.core.read(seeded.damaged, 0)).rejects.toThrow(
+      `This thread's history cannot be read: ${listed.get(seeded.damaged)?.damage}`
+    );
     expect(await host.core.read(seeded.healthy, 0)).not.toHaveLength(0);
     await expect(
       host.core.startRun({

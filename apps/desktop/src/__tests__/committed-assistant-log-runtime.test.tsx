@@ -253,12 +253,12 @@ describe('real committed owner fold to production ExternalStore bridge', () => {
       tools[1]?.type === 'tool-call' && tools[1].approval?.id
     );
     for (const { message } of answers) {
-      expect(message.content.find((part) => part.type === 'reasoning')).toMatchObject({
-        providerMetadata: {
-          google: { signature: 'captured-signature' },
-          openai: { traceId: 'captured-trace' },
-        },
-        text: 'The committed effect completed.',
+      // The step's committed reasoning carries the provider fields its
+      // `model.step` message kept; the reasoning-start trace was only live.
+      const reasoning = message.content.find((part) => part.type === 'reasoning');
+      expect(reasoning).toMatchObject({ text: 'The committed effect completed.' });
+      expect(reasoning?.providerMetadata).toEqual({
+        google: { signature: 'captured-signature' },
       });
       expect(
         message.content.find(
@@ -285,7 +285,7 @@ describe('real committed owner fold to production ExternalStore bridge', () => {
     expect(source.listeners.size).toBe(0);
   });
 
-  it('keeps unrelated vendor rows and the shipped tool card stable across 24 actual committed text deltas', async () => {
+  it('keeps unrelated vendor rows and the shipped tool card stable across 24 actual live text deltas', async () => {
     const second = starts[1];
     if (second?.event.type !== 'run.started') {
       throw new Error('Missing second captured run.');
@@ -306,8 +306,15 @@ describe('real committed owner fold to production ExternalStore bridge', () => {
         event.chunk['type'] === 'text-start'
     );
     const source = new OwnerSource();
-    source.fold.accept(rows.slice(0, textStart + 1));
+    source.fold.accept(rows.slice(0, textStart));
     const bridge = store(source);
+    // The model's text is run telemetry: the recorded chunks reach the store
+    // as the host sends them, never as committed rows.
+    const opened = rows[textStart]?.event;
+    if (opened?.type !== 'stream.chunk') {
+      throw new Error('Missing captured text start.');
+    }
+    bridge.acceptTelemetry(secondId, opened.chunk);
     const renders = { approval: 0, card: 0, first: 0, text: 0 };
     const renderers: readonly ToolResultRenderer[] = [
       {
@@ -398,25 +405,35 @@ describe('real committed owner fold to production ExternalStore bridge', () => {
         row.event.chunk['type'] === 'text-end'
     );
     const publications = rows.slice(textStart + 1, textEnd);
-    expect(
-      publications.filter(
-        ({ event }) =>
-          event.type === 'stream.chunk' &&
-          typeof event.chunk === 'object' &&
-          event.chunk !== null &&
-          !Array.isArray(event.chunk) &&
-          event.chunk['type'] === 'text-delta'
-      )
-    ).toHaveLength(24);
+    const isTextDelta = ({ event }: (typeof rows)[number]): boolean =>
+      event.type === 'stream.chunk' &&
+      typeof event.chunk === 'object' &&
+      event.chunk !== null &&
+      !Array.isArray(event.chunk) &&
+      event.chunk['type'] === 'text-delta';
+    expect(publications.filter(isTextDelta)).toHaveLength(24);
+    // In recorded order: each delta live, the step's `model.step` committed.
+    // The step's commit replaces the live text, so the delta after it is not shown.
     for (const row of publications) {
       await act(async () => {
-        source.fold.accept([row]);
+        if (isTextDelta(row) && row.event.type === 'stream.chunk') {
+          bridge.acceptTelemetry(secondId, row.event.chunk);
+        } else {
+          source.fold.accept([row]);
+        }
       });
     }
     expect(renders.first).toBe(before.first);
     expect(renders.card).toBe(before.card);
     expect(renders.approval).toBe(before.approval);
     expect(renders.text).toBe(before.text + 24);
+    expect(
+      bridge
+        .getSnapshot()
+        .repository.messages.find(({ message }) => message.id === secondId)
+        ?.message.content.filter((part) => part.type === 'text')
+        .map((part) => part.type === 'text' && part.text)
+    ).toEqual([Array.from({ length: 24 }, (_, index) => `Token${index} `).join('')]);
     expect(
       bridge.getSnapshot().repository.messages.find(({ message }) => message.id === firstId)
         ?.message

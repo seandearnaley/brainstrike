@@ -1,99 +1,163 @@
 [
   {
     "event": {
-      "commandId": "1b605c36-c016-4245-960e-0e3cf91368c1",
+      "commandId": "fcd122fe-b217-4c3d-9b32-10859de54247",
       "method": "thread/start",
       "payload": {
-        "commandId": "1b605c36-c016-4245-960e-0e3cf91368c1"
+        "commandId": "fcd122fe-b217-4c3d-9b32-10859de54247"
       },
       "result": {
-        "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
+        "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618"
       },
       "type": "command.accepted"
     },
     "seq": 1,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942290
   },
   {
     "event": {
-      "commandId": "1b605c36-c016-4245-960e-0e3cf91368c1",
+      "commandId": "fcd122fe-b217-4c3d-9b32-10859de54247",
       "type": "thread.started"
     },
     "seq": 2,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942290
   },
   {
     "event": {
-      "commandId": "6acd5d5e-9796-4b91-9ef6-aea5ea7b0a47",
+      "commandId": "eb1a6f39-f1e6-498e-bb4d-cff2b37abf8b",
       "method": "run/start",
       "payload": {
-        "commandId": "6acd5d5e-9796-4b91-9ef6-aea5ea7b0a47",
-        "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781",
+        "commandId": "eb1a6f39-f1e6-498e-bb4d-cff2b37abf8b",
+        "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
         "modelId": "scripted",
         "prompt": "Use the fixture tool, then report the result."
       },
       "result": {
-        "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8"
+        "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac"
       },
       "type": "command.accepted"
     },
     "seq": 3,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942335
   },
   {
     "event": {
       "type": "run.started",
-      "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
       "modelId": "scripted",
-      "prompt": "Use the fixture tool, then report the result."
+      "parentMessageId": null,
+      "prompt": "Use the fixture tool, then report the result.",
+      "snapshot": {
+        "configuration": {},
+        "maxSteps": 3,
+        "toolIdentities": {
+          "write_file": "native-fixture-generation-1"
+        }
+      }
     },
     "seq": 4,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942335
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
       "chunk": {
         "type": "start"
       }
     },
     "seq": 5,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
-  },
-  {
-    "event": {
-      "type": "interaction.requested",
-      "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8",
-      "input": {
-        "text": "written by permitted host tool"
-      },
-      "toolCallId": "recorded-call-1",
-      "toolId": "write_file",
-      "toolIdentity": "native-fixture-generation-1",
-      "interactionId": "15ca928f-1022-4071-a7e1-b05017ccea91",
-      "kind": "approval"
-    },
-    "seq": 6,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942434
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
       "chunk": {
         "type": "start-step",
         "request": {},
         "warnings": []
       }
     },
+    "seq": 6,
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942445
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool-call",
+              "toolCallId": "recorded-call-1",
+              "toolName": "write_file",
+              "input": {
+                "text": "written by permitted host tool"
+              }
+            },
+            {
+              "type": "tool-approval-request",
+              "approvalId": "aitxt-GBph7a6KNjWk3vfmum2YQbxe",
+              "toolCallId": "recorded-call-1"
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "mock-provider",
+        "modelId": "mock-model-id"
+      },
+      "stepNumber": 0,
+      "usage": {
+        "inputTokens": 1,
+        "inputTokenDetails": {
+          "noCacheTokens": 1,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "outputTokens": 1,
+        "outputTokenDetails": {
+          "textTokens": 1,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 2
+      }
+    },
     "seq": 7,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942448
+  },
+  {
+    "event": {
+      "type": "interaction.requested",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
+      "input": {
+        "text": "written by permitted host tool"
+      },
+      "toolCallId": "recorded-call-1",
+      "toolId": "write_file",
+      "toolIdentity": "native-fixture-generation-1",
+      "interactionId": "aitxt-GBph7a6KNjWk3vfmum2YQbxe",
+      "kind": "approval",
+      "risk": "edit"
+    },
+    "seq": 8,
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942448
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
       "chunk": {
         "type": "tool-call",
         "toolCallId": "recorded-call-1",
@@ -103,81 +167,17 @@
         }
       }
     },
-    "seq": 8,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
-  },
-  {
-    "event": {
-      "commandId": "6096850d-8da7-4810-9a7e-556dfe375576",
-      "method": "interaction/respond",
-      "payload": {
-        "commandId": "6096850d-8da7-4810-9a7e-556dfe375576",
-        "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781",
-        "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8",
-        "decision": "approve",
-        "interactionId": "15ca928f-1022-4071-a7e1-b05017ccea91"
-      },
-      "result": {
-        "accepted": true
-      },
-      "type": "command.accepted"
-    },
     "seq": 9,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
-  },
-  {
-    "event": {
-      "type": "interaction.responded",
-      "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8",
-      "decision": "approve",
-      "interactionId": "15ca928f-1022-4071-a7e1-b05017ccea91"
-    },
-    "seq": 10,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942457
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
       "chunk": {
         "type": "tool-approval-request",
-        "approvalId": "aitxt-Gyef9D9qyHX7k164AggjFKDR",
-        "toolCall": {
-          "type": "tool-call",
-          "toolCallId": "recorded-call-1",
-          "toolName": "write_file",
-          "input": {
-            "text": "written by permitted host tool"
-          }
-        },
-        "isAutomatic": true
-      }
-    },
-    "seq": 11,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
-  },
-  {
-    "event": {
-      "type": "effect.started",
-      "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8",
-      "input": {
-        "text": "written by permitted host tool"
-      },
-      "toolCallId": "recorded-call-1",
-      "toolId": "write_file",
-      "toolIdentity": "native-fixture-generation-1"
-    },
-    "seq": 12,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
-  },
-  {
-    "event": {
-      "type": "stream.chunk",
-      "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8",
-      "chunk": {
-        "type": "tool-approval-response",
-        "approvalId": "aitxt-Gyef9D9qyHX7k164AggjFKDR",
-        "approved": true,
+        "approvalId": "aitxt-GBph7a6KNjWk3vfmum2YQbxe",
         "toolCall": {
           "type": "tool-call",
           "toolCallId": "recorded-call-1",
@@ -188,45 +188,14 @@
         }
       }
     },
-    "seq": 13,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
-  },
-  {
-    "event": {
-      "type": "effect.finished",
-      "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8",
-      "output": {
-        "path": "/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/bs-m3-record-S9oGWC/permitted.txt"
-      },
-      "toolCallId": "recorded-call-1"
-    },
-    "seq": 14,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
+    "seq": 10,
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942458
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8",
-      "chunk": {
-        "type": "tool-result",
-        "toolCallId": "recorded-call-1",
-        "toolName": "write_file",
-        "input": {
-          "text": "written by permitted host tool"
-        },
-        "output": {
-          "path": "/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/bs-m3-record-S9oGWC/permitted.txt"
-        },
-        "dynamic": false
-      }
-    },
-    "seq": 15,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
-  },
-  {
-    "event": {
-      "type": "stream.chunk",
-      "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
       "chunk": {
         "type": "finish-step",
         "finishReason": "tool-calls",
@@ -246,81 +215,251 @@
           "totalTokens": 2
         },
         "performance": {
-          "stepTimeMs": 7.513458000000014,
-          "toolExecutionMs": {
-            "recorded-call-1": 1.0239590000000476
-          },
-          "responseTimeMs": 1.8947090000000344,
-          "effectiveOutputTokensPerSecond": 527.7855332929657,
-          "outputTokensPerSecond": 2141.708269349691,
-          "inputTokensPerSecond": 700.3821284892985,
-          "effectiveTotalTokensPerSecond": 1055.5710665859315,
-          "timeToFirstOutputMs": 1.4277920000000108
+          "stepTimeMs": 11.648499999999785,
+          "toolExecutionMs": {},
+          "responseTimeMs": 4.04458300000033,
+          "effectiveOutputTokensPerSecond": 247.24427709850892,
+          "outputTokensPerSecond": 1544.9980687524487,
+          "inputTokensPerSecond": 294.3485375145441,
+          "effectiveTotalTokensPerSecond": 494.48855419701783,
+          "timeToFirstOutputMs": 3.3973330000003443
         },
         "response": {
-          "id": "aitxt-t7pEQ6GiMgU2v1Fpk2oLYlnB",
-          "timestamp": "2026-10-06T08:16:33.838Z",
+          "id": "aitxt-8oEoekldY8w7wJe9KR1nKDC2",
+          "timestamp": "2026-10-09T11:39:02.439Z",
           "modelId": "mock-model-id"
         }
       }
     },
-    "seq": 16,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
+    "seq": 11,
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942463
+  },
+  {
+    "event": {
+      "commandId": "0da0883a-0cbc-489b-bcfe-fd0c10c4da46",
+      "method": "interaction/respond",
+      "payload": {
+        "commandId": "0da0883a-0cbc-489b-bcfe-fd0c10c4da46",
+        "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+        "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
+        "decision": "approve",
+        "interactionId": "aitxt-GBph7a6KNjWk3vfmum2YQbxe"
+      },
+      "result": {
+        "accepted": true
+      },
+      "type": "command.accepted"
+    },
+    "seq": 12,
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942507
+  },
+  {
+    "event": {
+      "type": "interaction.responded",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
+      "decision": "approve",
+      "interactionId": "aitxt-GBph7a6KNjWk3vfmum2YQbxe"
+    },
+    "seq": 13,
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942507
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
+      "chunk": {
+        "type": "finish",
+        "finishReason": "tool-calls",
+        "rawFinishReason": "tool_calls",
+        "totalUsage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        }
+      }
+    },
+    "seq": 14,
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942523
+  },
+  {
+    "event": {
+      "type": "model.messages",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
+      "messages": [
+        {
+          "role": "tool",
+          "content": [
+            {
+              "type": "tool-approval-response",
+              "approvalId": "aitxt-GBph7a6KNjWk3vfmum2YQbxe",
+              "approved": true
+            }
+          ]
+        }
+      ]
+    },
+    "seq": 15,
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942544
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
+      "chunk": {
+        "type": "start"
+      }
+    },
+    "seq": 16,
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942617
+  },
+  {
+    "event": {
+      "type": "effect.started",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
+      "input": {
+        "text": "written by permitted host tool"
+      },
+      "toolCallId": "recorded-call-1",
+      "toolId": "write_file",
+      "toolIdentity": "native-fixture-generation-1"
+    },
+    "seq": 17,
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942621
+  },
+  {
+    "event": {
+      "type": "effect.finished",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
+      "output": {
+        "path": "/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/bs-m3-record-Xvnf74/permitted.txt"
+      },
+      "toolCallId": "recorded-call-1"
+    },
+    "seq": 18,
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942637
+  },
+  {
+    "event": {
+      "type": "model.messages",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
+      "messages": [
+        {
+          "role": "tool",
+          "content": [
+            {
+              "type": "tool-result",
+              "toolCallId": "recorded-call-1",
+              "toolName": "write_file",
+              "output": {
+                "type": "json",
+                "value": {
+                  "path": "/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/bs-m3-record-Xvnf74/permitted.txt"
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "seq": 19,
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942640
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
+      "chunk": {
+        "type": "tool-result",
+        "toolCallId": "recorded-call-1",
+        "toolName": "write_file",
+        "input": {
+          "text": "written by permitted host tool"
+        },
+        "output": {
+          "path": "/var/folders/88/jjwxcv3n76x4p7t1xz693qc00000gn/T/bs-m3-record-Xvnf74/permitted.txt"
+        },
+        "dynamic": false
+      }
+    },
+    "seq": 20,
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942641
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
       "chunk": {
         "type": "start-step",
         "request": {},
         "warnings": []
       }
     },
-    "seq": 17,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
+    "seq": 21,
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942663
   },
   {
     "event": {
-      "type": "stream.chunk",
-      "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8",
-      "chunk": {
-        "id": "text-1",
-        "type": "text-start"
+      "type": "model.step",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "Host run completed."
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "mock-provider",
+        "modelId": "mock-model-id"
+      },
+      "stepNumber": 1,
+      "usage": {
+        "inputTokens": 1,
+        "inputTokenDetails": {
+          "noCacheTokens": 1,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "outputTokens": 1,
+        "outputTokenDetails": {
+          "textTokens": 1,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 2
       }
     },
-    "seq": 18,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
+    "seq": 22,
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942668
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8",
-      "chunk": {
-        "type": "text-delta",
-        "id": "text-1",
-        "text": "Host run completed."
-      }
-    },
-    "seq": 19,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
-  },
-  {
-    "event": {
-      "type": "stream.chunk",
-      "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8",
-      "chunk": {
-        "id": "text-1",
-        "type": "text-end"
-      }
-    },
-    "seq": 20,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
-  },
-  {
-    "event": {
-      "type": "stream.chunk",
-      "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
       "chunk": {
         "type": "finish-step",
         "finishReason": "stop",
@@ -340,59 +479,62 @@
           "totalTokens": 2
         },
         "performance": {
-          "stepTimeMs": 1.8070000000000164,
+          "stepTimeMs": 1.249166999999943,
           "toolExecutionMs": {},
-          "responseTimeMs": 0.2907920000000104,
-          "effectiveOutputTokensPerSecond": 3438.8841508706028,
-          "outputTokensPerSecond": 13761.404764193781,
-          "inputTokensPerSecond": 4584.527220630659,
-          "effectiveTotalTokensPerSecond": 6877.7683017412055,
-          "timeToFirstOutputMs": 0.21812499999998636
+          "responseTimeMs": 0.355040999999801,
+          "effectiveOutputTokensPerSecond": 2816.5761137461886,
+          "outputTokensPerSecond": 11267.605633816673,
+          "inputTokensPerSecond": 3755.290265162313,
+          "effectiveTotalTokensPerSecond": 5633.152227492377,
+          "timeToFirstOutputMs": 0.2662909999999101
         },
         "response": {
-          "id": "aitxt-1Z9BcSXtF5taLzJU18bXVlXc",
-          "timestamp": "2026-10-06T08:16:33.847Z",
+          "id": "aitxt-Xd9D0ZrU7wp1eHFcJsMRuU5F",
+          "timestamp": "2026-10-09T11:39:02.661Z",
           "modelId": "mock-model-id"
         }
       }
     },
-    "seq": 21,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
+    "seq": 23,
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942677
   },
   {
     "event": {
       "type": "stream.chunk",
-      "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
       "chunk": {
         "type": "finish",
         "finishReason": "stop",
         "rawFinishReason": "stop",
         "totalUsage": {
-          "inputTokens": 2,
+          "inputTokens": 1,
           "inputTokenDetails": {
-            "noCacheTokens": 2,
+            "noCacheTokens": 1,
             "cacheReadTokens": 0,
             "cacheWriteTokens": 0
           },
-          "outputTokens": 2,
+          "outputTokens": 1,
           "outputTokenDetails": {
-            "textTokens": 2,
+            "textTokens": 1,
             "reasoningTokens": 0
           },
-          "totalTokens": 4
+          "totalTokens": 2
         }
       }
     },
-    "seq": 22,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
+    "seq": 24,
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942710
   },
   {
     "event": {
       "type": "run.finished",
-      "runId": "0d883036-7820-4ede-a817-f39c62d9e6f8",
+      "runId": "e7cdb997-1a2c-4c99-9955-fcf1ff07b8ac",
       "outcome": "completed"
     },
-    "seq": 23,
-    "threadId": "7b46e20b-c9d5-49d8-ba85-47a360ad4781"
+    "seq": 25,
+    "threadId": "349da2b5-b4a6-4cfd-aa86-66e3b0856618",
+    "ts": 1791545942716
   }
 ]

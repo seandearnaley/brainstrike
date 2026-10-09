@@ -16,7 +16,11 @@ export {
   type HostAuthority,
   type HostAuthorityOptions,
 } from './provider-auth/host-authority.js';
-export { createHostProviderAuth, type HostProviderAuthOptions } from './provider-auth.js';
+export {
+  createHostProviderAuth,
+  type HostProviderAuthOptions,
+  ProviderCredentialMissingError,
+} from './provider-auth.js';
 export {
   createProviderCredentialReader,
   isBearerCredential,

@@ -55,7 +55,7 @@ const warned = {
 };
 
 describe('committed host run resilience is visible in the thread', () => {
-  it('a recovered stall shows its attempt rows, its one provider warning, and the abandoned text as incomplete', () => {
+  it('a recovered stall shows its attempt rows, its one provider warning, and only the recovered text', () => {
     const message = projected()(runIds[0]);
     expect(runEvents(message.content)).toEqual([
       warned,
@@ -82,10 +82,9 @@ describe('committed host run resilience is visible in the thread', () => {
     const texts = message.content.flatMap((part) =>
       part.type === 'text' ? [{ status: part.status, text: part.text }] : []
     );
-    expect(texts).toEqual([
-      { status: { reason: 'other', type: 'incomplete' }, text: 'Partial' },
-      { status: { type: 'complete' }, text: 'Recovered answer.' },
-    ]);
+    // The stalled attempt's partial was live telemetry and was replaced, as in
+    // legacy; the recovered step's committed text is the transcript.
+    expect(texts).toEqual([{ status: { type: 'complete' }, text: 'Recovered answer.' }]);
     expect(message.status).toEqual({ reason: 'stop', type: 'complete' });
   });
 
