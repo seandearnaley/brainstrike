@@ -657,14 +657,15 @@ export function productionDesktopCapabilities(
     );
     return policy;
   };
-  const readConfiguration = async (
-    request: HostRunAdmissionRequest,
-    workspace?: DesktopWorkspaceBindingBorrow
-  ): Promise<DesktopPlatformSelection> => {
+  /**
+   * The admission's pure preconditions: the catalog model and captured
+   * settings, observer resolution and the recall-embedder plan. A run
+   * admission and thread/memory/read both start here; nothing is acquired.
+   */
+  const readPreconditions = async (request: HostRunAdmissionRequest) => {
     const db = await getDatabase();
     request.signal.throwIfAborted();
     const catalog = await readDesktopCatalogSelection(db, request.modelId);
-    const { definition } = catalog;
     const intent = await readDesktopIntent(
       request,
       catalog,
@@ -672,11 +673,10 @@ export function productionDesktopCapabilities(
       readCliOwnerIntent
     );
     const configuration = PlatformModelConfigurationSchema.parse(intent.modelConfiguration);
-    const permissionPolicy = platformPermissionPolicy(intent.permissionPolicy);
     if (configuration.provider !== catalog.provider || configuration.model !== catalog.model) {
       throw new Error('Captured settings do not belong to the selected catalog model');
     }
-    const inputTokenLimit = desktopInputTokenLimit(definition, intent, configuration);
+    const inputTokenLimit = desktopInputTokenLimit(catalog.definition, intent, configuration);
     const { memorySettings, observerTarget } = resolveDesktopMemorySettings(
       intent,
       configuration.provider
@@ -686,6 +686,34 @@ export function productionDesktopCapabilities(
       readLocalDevice: () => readLocalEmbeddingHostDevice(readLocalEmbeddingDevice, request.signal),
     });
     request.signal.throwIfAborted();
+    const memory = desktopMemorySelection(intent, memorySettings, observerTarget, memoryVectors);
+    return {
+      catalog,
+      configuration,
+      db,
+      inputTokenLimit,
+      intent,
+      memory,
+      memoryVectors,
+      observerTarget,
+    };
+  };
+  const readConfiguration = async (
+    request: HostRunAdmissionRequest,
+    workspace?: DesktopWorkspaceBindingBorrow
+  ): Promise<DesktopPlatformSelection> => {
+    const {
+      catalog,
+      configuration,
+      db,
+      inputTokenLimit,
+      intent,
+      memory,
+      memoryVectors,
+      observerTarget,
+    } = await readPreconditions(request);
+    const { definition } = catalog;
+    const permissionPolicy = platformPermissionPolicy(intent.permissionPolicy);
     const budget = resolveScaledToolResultBudget(definition.contextWindow);
     const native = await createDesktopNativeTools(
       db,
@@ -740,7 +768,7 @@ export function productionDesktopCapabilities(
         freshWorkspaceRoots: native.freshRoots,
         inputTokenLimit,
         maxSteps: intent.agentLoop?.maxSteps ?? DEFAULT_AGENT_MAX_STEPS,
-        memory: desktopMemorySelection(intent, memorySettings, observerTarget, memoryVectors),
+        memory,
         ...(memoryVectors?.local ? { localEmbedding: memoryVectors.local } : {}),
         nativeRuntime: desktopNativeRuntime(native.runtime, native.retrievalRootsOnly),
         resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
@@ -825,6 +853,16 @@ export function productionDesktopCapabilities(
           );
         }
         throw cause;
+      }
+    },
+    // A precondition failure is the reason run/start would fail with.
+    readMemoryReadiness: async (request) => {
+      try {
+        const { memory } = await readPreconditions(request);
+        return { memory, ready: true, resourceId: WORKSPACE_MEMORY_RESOURCE_ID };
+      } catch (cause) {
+        request.signal.throwIfAborted();
+        return { ready: false, reason: cause instanceof Error ? cause.message : String(cause) };
       }
     },
     readPermissionPolicy: readHostPermissionPolicy,
