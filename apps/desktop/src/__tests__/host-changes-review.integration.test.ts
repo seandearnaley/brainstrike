@@ -64,11 +64,14 @@ async function temporaryDirectory(prefix: string): Promise<string> {
 function captureWith(
   service: SnapshotService,
   workspace: string,
-  failStart: boolean
+  options: HostRunOptions
 ): NonNullable<HostRunAdmission['captureTurnBoundary']> {
   return async (request) => {
-    if (failStart && request.boundary === 'turn-start') {
-      throw new Error('the shadow repository is unavailable');
+    if (request.boundary === 'turn-start') {
+      await options.startGate;
+      if (options.failStart) {
+        throw new Error('the shadow repository is unavailable');
+      }
     }
     const roots =
       request.boundary === 'turn-start'
@@ -161,8 +164,14 @@ async function rowsUntil(
   return rows;
 }
 
-/** A host thread whose first run is paused on the default `edit:ask` approval of a tracked write. */
-async function pausedHostRun(options: { readonly failStart?: boolean } = {}) {
+interface HostRunOptions {
+  readonly failStart?: boolean;
+  /** Holds the run's turn-start capture until it settles. */
+  readonly startGate?: Promise<void>;
+}
+
+/** A host thread whose first run has started; its turn may still be capturing. */
+async function startedHostRun(options: HostRunOptions = {}) {
   const hostRoot = await temporaryDirectory('bs-m3-host-changes-host-');
   const workspace = await temporaryDirectory('bs-m3-host-changes-workspace-');
   const shadow = await temporaryDirectory('bs-m3-host-changes-shadow-');
@@ -177,7 +186,7 @@ async function pausedHostRun(options: { readonly failStart?: boolean } = {}) {
     { lifetime: 'persistent', root: hostRoot },
     {
       admitRun: async () => ({
-        captureTurnBoundary: captureWith(service, workspace, options.failStart === true),
+        captureTurnBoundary: captureWith(service, workspace, options),
         configuration: {},
         model,
         snapshot: { configuration: {}, maxSteps: 3, toolIdentities: { write_file: TOOL_IDENTITY } },
@@ -215,16 +224,22 @@ async function pausedHostRun(options: { readonly failStart?: boolean } = {}) {
     prompt: 'Edit the permitted file',
     threadId,
   });
+  return { client, runId, service, threadId, workspace };
+}
+
+/** A host thread whose first run is paused on the default `edit:ask` approval of a tracked write. */
+async function pausedHostRun(options: HostRunOptions = {}) {
+  const started = await startedHostRun(options);
   const rows = await rowsUntil(
-    client,
-    threadId,
+    started.client,
+    started.threadId,
     (row) => row.event.type === 'interaction.requested'
   );
   const requested = rows.find((row) => row.event.type === 'interaction.requested')?.event;
   if (requested?.type !== 'interaction.requested') {
     throw new Error('The tracked write did not pause for approval');
   }
-  return { client, requested, runId, service, threadId, workspace };
+  return { ...started, requested };
 }
 
 test('a host run is reviewed live against the work-tree, then start against end with its tool edit attributed', async () => {
@@ -289,6 +304,86 @@ test('a host run is reviewed live against the work-tree, then start against end 
   const diff = await resolver.fileDiff(ROOT_ID, changeset, 'permitted.txt');
   expect(diff).toMatchObject({ ok: true, value: { path: 'permitted.txt', status: 'modified' } });
   // Once the host owns the thread, its turns are read from the host's log alone.
+  expect(reads).toEqual(afterFirst);
+});
+
+test('a rewind preview’s host run range is each root’s restore point against the live work-tree', async () => {
+  const paused = await pausedHostRun();
+  await paused.client.request('interaction/respond', {
+    commandId: randomUUID(),
+    decision: 'approve',
+    interactionId: paused.requested.interactionId,
+    runId: paused.runId,
+    threadId: paused.threadId,
+  });
+  await rowsUntil(
+    paused.client,
+    paused.threadId,
+    (row) => row.event.type === 'run.finished' && row.event.runId === paused.runId
+  );
+  // A change after the turn ended: a rewind restores it too, so its view shows it.
+  await writeFile(join(paused.workspace, 'after-the-turn.txt'), 'written later\n');
+  const { reads, resolver } = mainResolver(paused.service, clientSource(paused.client));
+  const changeset = {
+    fromRunId: paused.runId,
+    kind: 'run-range' as const,
+    threadId: paused.threadId,
+  };
+
+  const view = await resolver.resolveView(changeset);
+  expect(view).toEqual({
+    ok: true,
+    value: {
+      changeset,
+      files: expect.arrayContaining([
+        expect.objectContaining({ path: 'permitted.txt', rootId: ROOT_ID, status: 'modified' }),
+        expect.objectContaining({ path: 'after-the-turn.txt', rootId: ROOT_ID, status: 'added' }),
+      ]),
+      totalAdditions: 2,
+      totalDeletions: 1,
+    },
+  });
+  expect(view.ok && view.value.files).toHaveLength(2);
+  const diff = await resolver.fileDiff(ROOT_ID, changeset, 'permitted.txt');
+  expect(diff).toMatchObject({ ok: true, value: { path: 'permitted.txt', status: 'modified' } });
+  const afterFirst = { ...reads };
+
+  // A host range ending at a TO run is refused visibly, never approximated.
+  const bounded = await resolver.resolveView({ ...changeset, toRunId: paused.runId });
+  expect(!bounded.ok && bounded.error).toMatch(/^run-range-unsupported: /);
+  expect(reads).toEqual(afterFirst);
+});
+
+test('a run resolved before its turn start is committed resolves once it is', async () => {
+  const gate = Promise.withResolvers<void>();
+  const started = await startedHostRun({ startGate: gate.promise });
+  const { reads, resolver } = mainResolver(started.service, clientSource(started.client));
+  const changeset = {
+    kind: 'agent-run' as const,
+    runId: started.runId,
+    threadId: started.threadId,
+  };
+  await rowsUntil(started.client, started.threadId, (row) => row.event.type === 'run.started');
+
+  // "Last Turn" follows a run the moment it starts, before its turn-start capture lands.
+  const early = await resolver.resolveView(changeset);
+  expect(!early.ok && early.error).toMatch(
+    /^changeset-snapshot-missing: .*recorded no workspace snapshots/
+  );
+
+  gate.resolve();
+  await rowsUntil(
+    started.client,
+    started.threadId,
+    (row) => row.event.type === 'workspace.snapshot.recorded'
+  );
+  await writeFile(join(started.workspace, 'shell-made.txt'), 'made by a shell\n');
+  const afterFirst = { ...reads };
+  const live = await resolver.resolveView(changeset);
+  expect(live).toMatchObject({
+    ok: true,
+    value: { files: [expect.objectContaining({ path: 'shell-made.txt', status: 'added' })] },
+  });
   expect(reads).toEqual(afterFirst);
 });
 

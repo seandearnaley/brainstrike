@@ -125,7 +125,15 @@ test('a host thread keeps its title, colour and icon across a reload, a second c
   // A second client (another window or the CLI) sees the committed title.
   other = await attachAgentHost(host.record);
   expect((await other.request('thread/list', {})).threads).toEqual([
-    { color: 'emerald', icon: 'rocket', threadId: created.id, title: 'Release plan' },
+    {
+      binding: null,
+      color: 'emerald',
+      createdAt: created.createdAt.getTime(),
+      icon: 'rocket',
+      threadId: created.id,
+      title: 'Release plan',
+      updatedAt: expect.any(Number),
+    },
   ]);
 
   // A host restart folds the same title from the log.

@@ -179,7 +179,10 @@ export function usePreviewPanelState({
     setTokenVersion((prev) => prev + 1);
   }, [tokenCounting.mode, tokenCounting.reason]);
 
-  // Build file items using the persistent cache
+  // Build file items using the persistent cache. Hot-cache updates arrive as a
+  // new `getTokenCount`, whose identity follows the provider's cache version.
+  // `tokenVersion` serves only the provider-less in-memory path, which neither
+  // shipped app takes (both mount TokenCacheProvider).
   const flatListItems = useMemo(() => {
     const folderGroups: Record<string, FileItem[]> = {};
 
@@ -220,15 +223,7 @@ export function usePreviewPanelState({
     }
 
     return items;
-  }, [
-    selectedFiles,
-    fileSizes,
-    decodeFileSelection,
-    cacheVersion,
-    tokenVersion,
-    getFileSize,
-    getTokenCount,
-  ]);
+  }, [selectedFiles, fileSizes, decodeFileSelection, tokenVersion, getFileSize, getTokenCount]);
 
   // Calculate total stats using the persistent cache
   // BST-153: Also track pendingCount for "estimating..." UI state
@@ -267,7 +262,6 @@ export function usePreviewPanelState({
   }, [
     cachedSelectionStats.selection,
     cachedSelectionStats.tokenCounts,
-    cacheVersion,
     getTokenCount,
     selectedFiles,
     tokenVersion,

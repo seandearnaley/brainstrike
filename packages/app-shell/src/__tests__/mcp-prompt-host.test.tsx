@@ -20,9 +20,20 @@ import { useAssistantComposerCommandStore } from '../assistant-composer-command-
 import { selectMcpPromptEntries } from '../mcp-prompts/mcp-prompt-catalog';
 import { McpPromptComposerHost } from '../mcp-prompts/mcp-prompt-host';
 import { useMcpPromptSelectionStore } from '../mcp-prompts/mcp-prompt-selection-store';
+import { type McpStatusCapability, McpStatusCapabilityProvider } from '../mcp-status-capability';
 
-type StatusListener = (event: { revision: number; servers: unknown[] }) => void;
+type StatusListener = (event: McpHostSnapshot) => void;
 const listeners = new Set<StatusListener>();
+/** The agent host's MCP status the desktop provides (BST-1930 c5b); `null` like web. */
+let status: McpStatusCapability | null = null;
+
+function renderHost() {
+  return render(
+    <McpStatusCapabilityProvider capability={status}>
+      <McpPromptComposerHost />
+    </McpStatusCapabilityProvider>
+  );
+}
 
 function connectedServer(prompts: unknown[], generation = 7): unknown {
   return {
@@ -78,7 +89,11 @@ function installBridge(
       return () => listeners.delete(listener);
     },
   };
-  (window as unknown as { mcp?: unknown }).mcp = bridge;
+  (window as unknown as { mcp?: unknown }).mcp = {
+    complete: bridge.complete,
+    getPrompt: bridge.getPrompt,
+  };
+  status = { read: bridge.getServerStatusSnapshot, subscribe: bridge.onServerStatusUpdated };
   return bridge;
 }
 
@@ -142,6 +157,7 @@ beforeEach(() => {
   useAssistantComposerCommandStore.getState().reset();
   useMcpPromptSelectionStore.getState().clear();
   listeners.clear();
+  status = null;
   toastSpy.mockClear();
 });
 
@@ -152,14 +168,14 @@ afterEach(() => {
 
 describe('McpPromptComposerHost', () => {
   it('renders nothing without the desktop bridge', () => {
-    const { container } = render(<McpPromptComposerHost />);
+    const { container } = renderHost();
     expect(container).toBeEmptyDOMElement();
   });
 
   it('stages an argument-less prompt into the composer draft without a dialog', async () => {
     const prompts = [{ name: 'review' }];
     const bridge = installBridge(prompts);
-    render(<McpPromptComposerHost />);
+    renderHost();
 
     act(() => select(prompts));
 
@@ -185,7 +201,7 @@ describe('McpPromptComposerHost', () => {
         type: 'prompts/get',
       })),
     });
-    render(<McpPromptComposerHost />);
+    renderHost();
 
     act(() => select(prompts));
 
@@ -205,7 +221,7 @@ describe('McpPromptComposerHost', () => {
         throw new Error('MCP content server not connected (not-connected · x)');
       }),
     });
-    render(<McpPromptComposerHost />);
+    renderHost();
 
     act(() => select(prompts));
 
@@ -229,7 +245,7 @@ describe('McpPromptComposerHost', () => {
       type: 'completion/complete' as const,
     }));
     const bridge = installBridge(prompts, { complete });
-    render(<McpPromptComposerHost />);
+    renderHost();
 
     act(() => select(prompts));
     const dialog = await screen.findByTestId('mcp-prompt-dialog');
@@ -260,7 +276,7 @@ describe('McpPromptComposerHost', () => {
     const user = userEvent.setup();
     const prompts = [{ arguments: [{ name: 'path', required: true }], name: 'review' }];
     const bridge = installBridge(prompts);
-    render(<McpPromptComposerHost />);
+    renderHost();
 
     act(() => select(prompts));
     await screen.findByTestId('mcp-prompt-dialog');
@@ -273,7 +289,7 @@ describe('McpPromptComposerHost', () => {
   it('blocks submission visibly when the server retires mid-selection', async () => {
     const prompts = [{ arguments: [{ name: 'path', required: true }], name: 'review' }];
     installBridge(prompts);
-    render(<McpPromptComposerHost />);
+    renderHost();
 
     act(() => select(prompts));
     await screen.findByTestId('mcp-prompt-dialog');
@@ -293,7 +309,7 @@ describe('McpPromptComposerHost', () => {
     // same empty surface web shows, and no actionable error.
     (window as unknown as { mcp?: unknown }).mcp = { getPrompt: vi.fn() };
 
-    const { container } = render(<McpPromptComposerHost />);
+    const { container } = renderHost();
 
     await waitFor(() =>
       expect(toastSpy).toHaveBeenCalledWith(
@@ -307,10 +323,28 @@ describe('McpPromptComposerHost', () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it('surfaces content members without the host status as a malformed bridge', async () => {
+    installBridge([{ name: 'review' }]);
+    status = null;
+
+    const { container } = renderHost();
+
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          description: expect.stringContaining('getServerStatusSnapshot'),
+          title: 'MCP prompts unavailable',
+          variant: 'destructive',
+        })
+      )
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it('says nothing when the runtime legitimately has no prompt bridge', async () => {
     (window as unknown as { mcp?: unknown }).mcp = { listServers: vi.fn() };
 
-    render(<McpPromptComposerHost />);
+    renderHost();
 
     await waitFor(() => expect(toastSpy).not.toHaveBeenCalled());
   });
@@ -320,7 +354,7 @@ describe('McpPromptComposerHost', () => {
     const prompts = [{ arguments: [{ name: 'path' }], name: 'review' }];
     const deferred = deferredGetPrompt();
     installBridge(prompts, { getPrompt: deferred.getPrompt });
-    render(<McpPromptComposerHost />);
+    renderHost();
 
     act(() => select(prompts));
     await screen.findByTestId('mcp-prompt-dialog');
@@ -343,7 +377,7 @@ describe('McpPromptComposerHost', () => {
     const prompts = [{ name: 'review' }];
     const deferred = deferredGetPrompt();
     installBridge(prompts, { getPrompt: deferred.getPrompt });
-    render(<McpPromptComposerHost />);
+    renderHost();
 
     act(() => select(prompts));
     await waitFor(() => expect(deferred.getPrompt).toHaveBeenCalledTimes(1));
@@ -367,7 +401,7 @@ describe('McpPromptComposerHost', () => {
     const prompts = [{ name: 'review' }];
     const deferred = deferredGetPrompt();
     installBridge(prompts, { getPrompt: deferred.getPrompt });
-    render(<McpPromptComposerHost />);
+    renderHost();
 
     act(() => select(prompts));
     await waitFor(() => expect(deferred.getPrompt).toHaveBeenCalledTimes(1));

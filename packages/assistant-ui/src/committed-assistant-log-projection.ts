@@ -1,5 +1,4 @@
 import {
-  type CompleteAttachment,
   type ExportedMessageRepository,
   fromThreadMessageLike,
   type ThreadAssistantMessage,
@@ -8,12 +7,12 @@ import {
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   type AssistantRunEvent,
+  describeHookSkip,
   describeRunAttempt,
   PROVIDER_CALL_WARNING_RUN_EVENT_KIND,
   providerCallWarningDetail,
   providerCallWarningLabel,
   providerCallWarningMetadata,
-  type RunAttemptNoticeInput,
   readProviderCallWarning,
 } from '@brainstrike/assistant-contract';
 import {
@@ -32,6 +31,17 @@ import {
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { parsePartialJsonObject } from 'assistant-stream/utils';
 import { committedApprovalOptions } from './committed-approval-options';
+import {
+  committedAttachments,
+  committedStreamData,
+  mcpToolsUnavailableNotice,
+  readHookSkips,
+  readRunAttempt,
+  record,
+  requiredString,
+  worktreeCreatedNotice,
+} from './committed-host-event-readers';
+import { CommittedRewindHead, type CommittedRewindHeadMove } from './committed-rewind-head';
 import { HOST_CONTEXT_COMPACTED_DATA_NAME } from './compaction-summary-message';
 import type { ThreadTokenUsage } from './context-usage-store';
 
@@ -119,108 +129,6 @@ type ProjectedRunEvent = Pick<
   AssistantRunEvent,
   'detail' | 'kind' | 'label' | 'metadata' | 'status'
 >;
-
-const ATTEMPT_REASONS = new Set<unknown>([
-  'context-overflow',
-  'empty-response',
-  'provider-error',
-  'stalled',
-]);
-const ATTEMPT_REFUSALS = new Set<unknown>(['budget-exhausted', 'tool-parts', 'committed-output']);
-
-/** A committed host `run.attempt` row, read strictly like every other committed event. */
-function readRunAttempt(event: Readonly<Record<string, unknown>>): RunAttemptNoticeInput {
-  const { attempt, maxAttempts, reason, recovered, refusal } = event;
-  if (
-    typeof attempt !== 'number' ||
-    typeof maxAttempts !== 'number' ||
-    !ATTEMPT_REASONS.has(reason) ||
-    typeof recovered !== 'boolean' ||
-    (refusal !== undefined && !ATTEMPT_REFUSALS.has(refusal))
-  ) {
-    throw new Error('Committed run attempt has an unsupported shape.');
-  }
-  return {
-    attempt,
-    detail: requiredString(event, 'detail'),
-    maxAttempts,
-    reason: reason as RunAttemptNoticeInput['reason'],
-    recovered,
-    ...(refusal === undefined
-      ? {}
-      : { refusal: refusal as NonNullable<RunAttemptNoticeInput['refusal']> }),
-  };
-}
-
-function record(value: unknown): Readonly<Record<string, unknown>> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Readonly<Record<string, unknown>>)
-    : undefined;
-}
-
-function requiredString(value: Readonly<Record<string, unknown>>, key: string): string {
-  const field = value[key];
-  if (typeof field !== 'string' || !field) {
-    throw new Error(`Committed host event is missing ${key}.`);
-  }
-  return field;
-}
-
-/**
- * A committed `mcp.tools.unavailable` as the run timeline's always-visible
- * notice. Its key is the committed row's address, never a new identity.
- */
-function mcpToolsUnavailableNotice(
-  event: Readonly<Record<string, unknown>>,
-  row: CommittedAssistantLogRow,
-  runId: string,
-  timestamp: string
-): AssistantRunEvent {
-  const serverName = requiredString(event, 'serverId');
-  const reason = requiredString(event, 'reason');
-  return {
-    detail: `${serverName} skipped for this request — ${reason}`,
-    id: `run-event-${row.threadId}-${row.seq}`,
-    kind: 'mcp.tools.unavailable',
-    label: 'MCP server tools unavailable',
-    metadata: { reason, scope: 'server', serverName },
-    runId,
-    status: 'failed',
-    timestamp,
-  };
-}
-
-/** A committed user message's images, as sent-message attachments. */
-function committedAttachments(
-  event: Readonly<Record<string, unknown>>,
-  messageId: string
-): CompleteAttachment[] | undefined {
-  const attachments = event['attachments'];
-  if (attachments === undefined) {
-    return;
-  }
-  if (!Array.isArray(attachments)) {
-    throw new Error('Committed host attachments must be a list.');
-  }
-  return attachments.map((attachment: unknown, index): CompleteAttachment => {
-    if (
-      !attachment ||
-      typeof attachment !== 'object' ||
-      !('type' in attachment && attachment.type === 'image')
-    ) {
-      throw new Error('A committed host attachment must be an image.');
-    }
-    const fields = attachment as Readonly<Record<string, unknown>>;
-    return {
-      content: [{ image: requiredString(fields, 'data'), type: 'image' }],
-      contentType: requiredString(fields, 'mediaType'),
-      id: `${messageId}:attachment:${index}`,
-      name: requiredString(fields, 'name'),
-      status: { type: 'complete' },
-      type: 'image',
-    };
-  });
-}
 
 function providerMetadata(value: unknown): ToolPart['providerMetadata'] {
   const providers = record(value);
@@ -409,6 +317,7 @@ export class CommittedAssistantLogProjection {
   private cursor = 0;
   private readonly runs = new Map<string, ProjectedRun>();
   private readonly messageIndexes = new Map<string, number>();
+  private readonly rewinds = new CommittedRewindHead();
   private view: CommittedAssistantLogView;
 
   constructor(private readonly options: CommittedAssistantLogProjectionOptions) {
@@ -565,6 +474,20 @@ export class CommittedAssistantLogProjection {
         label: notice.resumed.label,
         metadata: { attempt: attempt.attempt + 1, maxAttempts: attempt.maxAttempts },
         status: 'info',
+      });
+    }
+  }
+
+  /** Each hook file the run did not load, as an always-visible failed notice. */
+  private hookSkips(run: ProjectedRun, row: CommittedAssistantLogRow): void {
+    for (const [index, skip] of readHookSkips(row.event).entries()) {
+      const notice = describeHookSkip(skip, 'review it in Settings > Hooks');
+      this.runEvent(run, row, `hook-skip:${index}`, {
+        detail: notice.detail,
+        kind: 'hook.notice',
+        label: notice.label,
+        metadata: { path: skip.path, reason: skip.reason },
+        status: 'failed',
       });
     }
   }
@@ -727,8 +650,9 @@ export class CommittedAssistantLogProjection {
 
   /**
    * A host event with no message part of its own: an attempt record becomes
-   * its run's attempt notice, a compaction its compaction-card part, a
-   * withheld memory reason thread view state, and anything else host-event data.
+   * its run's attempt notice, each skipped hook file a failed hook notice, a
+   * compaction its compaction-card part, a withheld memory reason thread view
+   * state, and anything else host-event data.
    */
   private other(run: ProjectedRun, row: CommittedAssistantLogRow): void {
     const event = row.event;
@@ -744,6 +668,16 @@ export class CommittedAssistantLogProjection {
     }
     if (event['type'] === 'run.attempt') {
       this.attempt(run, row);
+      return;
+    }
+    if (event['type'] === 'worktree.created') {
+      const at = this.message(run).createdAt.toISOString();
+      const notice = worktreeCreatedNotice(event, row, requiredString(event, 'runId'), at);
+      this.data(run, row, notice, ASSISTANT_RUN_EVENT_DATA_NAME);
+      return;
+    }
+    if (event['type'] === 'hooks.skipped') {
+      this.hookSkips(run, row);
       return;
     }
     if (event['type'] === 'context.compacted') {
@@ -778,8 +712,9 @@ export class CommittedAssistantLogProjection {
       return;
     }
     const type = chunk['type'];
-    if ((type === 'data' || type === 'aui-data') && typeof chunk['name'] === 'string') {
-      this.data(run, row, chunk['data'], chunk['name']);
+    const named = committedStreamData(chunk);
+    if (named) {
+      this.data(run, row, named.data, named.name);
       return;
     }
     if (type === 'tool-approval-response') {
@@ -952,10 +887,31 @@ export class CommittedAssistantLogProjection {
     this.publishRunStatus(run, runId);
   }
 
+  /** A rewind moves the head the composer answers from; the old branch stays. */
+  private rewindHead(move: CommittedRewindHeadMove): void {
+    if (move.to === 'unchanged') {
+      return;
+    }
+    const runId = move.to === 'latest' ? [...this.runs.keys()].at(-1) : move.runId;
+    if (runId === undefined) {
+      throw new Error('Committed rewind redo has no projected run.');
+    }
+    const headId = runId === null ? null : this.runs.get(runId)?.messageId;
+    if (headId === undefined) {
+      throw new Error('Committed rewind names no projected run.');
+    }
+    this.view = { ...this.view, repository: { ...this.view.repository, headId } };
+  }
+
   private apply(row: CommittedAssistantLogRow): void {
     const event = row.event;
     if (event['type'] === 'run.started') {
       this.start(row);
+      return;
+    }
+    const rewound = this.rewinds.fold(event);
+    if (rewound) {
+      this.rewindHead(rewound);
       return;
     }
     if (typeof event['runId'] !== 'string') {

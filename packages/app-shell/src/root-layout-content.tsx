@@ -60,6 +60,7 @@ import { buildWorkspaceApps } from './build-workspace-apps';
 import { useChangesNavigationStore } from './changes/changes-navigation-store';
 import { useRewindStore } from './changes/rewind-store';
 import { RewindConfirmDialogLazy } from './changes/ui/rewind-confirm-dialog-lazy';
+import { useRewindPortFor } from './changes/use-rewind-port-for';
 import { CommandPaletteHost } from './command-palette-host';
 import { ConnectedPromptManagerLazy } from './connected-prompt-manager-lazy';
 import { createAppActionRegistry } from './context-action-registry';
@@ -313,15 +314,16 @@ function useChangesReviewValue(
  */
 function useRewindValue(changesPageContent: ReactNode): RewindContextValue | null {
   const openRewind = useRewindStore((state) => state.openRewind);
+  const portFor = useRewindPortFor();
   return useMemo(() => {
-    if (!changesPageContent) {
+    if (!(changesPageContent && portFor)) {
       return null;
     }
     return {
       requestRewind: ({ composerText, messageId, threadId }) =>
-        openRewind({ composerText, target: { messageId, threadId } }),
+        openRewind({ composerText, port: portFor(threadId), target: { messageId, threadId } }),
     };
-  }, [changesPageContent, openRewind]);
+  }, [changesPageContent, openRewind, portFor]);
 }
 
 function useDebouncedPanelLayoutChange(options: {

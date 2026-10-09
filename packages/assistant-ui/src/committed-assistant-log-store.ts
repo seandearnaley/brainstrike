@@ -9,6 +9,7 @@ import type {
   CommittedAssistantStore,
 } from './committed-assistant-store';
 import { type ThreadTokenUsage, useContextUsageStore } from './context-usage-store';
+import type { LiveShellOutputs } from './live-shell-outputs';
 
 /** Owner view fields pass through; this source has already applied committed gap ordering. */
 export interface CommittedAssistantLogSourceSnapshot {
@@ -27,6 +28,8 @@ export interface CommittedAssistantLogSource {
 }
 
 export interface CommittedAssistantLogStoreOptions extends CommittedAssistantLogProjectionOptions {
+  /** Running commands' live output, fed by the owner from uncommitted host telemetry. */
+  readonly liveShellOutputs?: LiveShellOutputs;
   readonly source: CommittedAssistantLogSource;
 }
 
@@ -38,6 +41,7 @@ export interface CommittedAssistantLogStoreOptions extends CommittedAssistantLog
  */
 export class CommittedAssistantLogStore implements CommittedAssistantStore {
   readonly threadId: string;
+  readonly liveShellOutputs: LiveShellOutputs | undefined;
   private readonly projection: CommittedAssistantLogProjection;
   private readonly listeners = new Set<() => void>();
   private readonly release: () => void;
@@ -45,6 +49,7 @@ export class CommittedAssistantLogStore implements CommittedAssistantStore {
 
   constructor(options: CommittedAssistantLogStoreOptions) {
     this.threadId = options.threadId;
+    this.liveShellOutputs = options.liveShellOutputs;
     this.projection = new CommittedAssistantLogProjection(options);
     let displayedContext: ThreadTokenUsage | undefined;
     let displayedBreakdown: CommittedAssistantLogView['contextBreakdown'];

@@ -8,9 +8,9 @@ import {
   createMcpContentApplicationPort,
   type McpContentApplicationRequest,
 } from '@brainstrike/assistant-service/mcp-content-application-port';
+import type { ResolvedMcpConfig } from '@brainstrike/host-capabilities/mcp/config-file';
 import { describe, expect, it, vi } from 'vitest';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
-import type { ResolvedMcpConfig } from '../../mcp-loader';
 
 const SERVER_ID = parseConfiguredMcpServerId('team.linear.prod');
 const FIRST_URL = 'https://linear.example/first';

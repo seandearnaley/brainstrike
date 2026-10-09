@@ -16,6 +16,7 @@ import {
   type CommittedAssistantLogRow,
   CommittedAssistantLogStore,
   type CommittedAssistantRunIdentity,
+  LiveShellOutputs,
 } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
@@ -128,8 +129,22 @@ export function createCommittedHostConversation(options: {
   const { client, modelId, threadId } = options;
   const source = new CommittedThreadSession(client, threadId);
   const mcpInput = new CommittedHostMcpInput(client, source, threadId);
+  // A running command's output arrives as uncommitted telemetry; its committed
+  // result owns the output from then on (ADR-0011 amendment).
+  const liveShellOutputs = new LiveShellOutputs();
+  const releaseTelemetry = client.onTelemetry((telemetry) => {
+    if (telemetry.threadId === threadId) {
+      liveShellOutputs.accept(telemetry.chunk);
+    }
+  });
+  const releaseResults = client.onEvent((row) => {
+    if (row.threadId === threadId && row.event.type === 'effect.finished') {
+      liveShellOutputs.clear(row.event.toolCallId);
+    }
+  });
   const store = new CommittedAssistantLogStore({
     identifyRun: (row) => committedConversationIdentity(source.getSnapshot().rows, row),
+    liveShellOutputs,
     source,
     threadId,
   });
@@ -229,6 +244,8 @@ export function createCommittedHostConversation(options: {
     approvals,
     checkpoints: new CommittedHostCheckpoints(client, source, threadId),
     close: () => {
+      releaseTelemetry();
+      releaseResults();
       unsubscribeTitles();
       approvals.close().catch((error: unknown) => {
         logger.error('Delegated approvals unsubscribe failed', { error, threadId });

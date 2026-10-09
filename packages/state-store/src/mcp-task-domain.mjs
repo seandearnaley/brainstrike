@@ -197,86 +197,6 @@ function update(db, { identity, lease, patch }) {
 }
 
 /** The settings key recording that the desktop's PGlite Tasks rows were imported. */
-export const MCP_TASK_LEGACY_IMPORT_KEY = 'mcp-tasks.legacy-import';
-
-/** @param {import('better-sqlite3').Database} db @returns {Row[]} */
-function legacyImportStatus(db) {
-  const value = db
-    .prepare('SELECT value FROM settings WHERE key = ?')
-    .pluck()
-    .get(MCP_TASK_LEGACY_IMPORT_KEY);
-  return typeof value === 'string' ? [JSON.parse(value)] : [];
-}
-
-/**
- * The desktop's PGlite Tasks rows, imported once with their completion marker in one transaction. Plain inserts keep
- * a CHECK failure loud (OR IGNORE would drop the row silently). A legacy authority whose scope is already live here
- * imports retired, so the host's live authority stays the only one for that scope.
- * @param {import('better-sqlite3').Database} db
- * @param {Extract<import('./mcp-task-types.js').McpTaskDomainRequest, { operation: 'legacy-import' }>} request
- * @returns {Row[]}
- */
-function legacyImport(db, { at, authorities, tasks }) {
-  if (legacyImportStatus(db).length > 0) {
-    return [];
-  }
-  const insertAuthority = db.prepare(
-    `INSERT INTO ${AUTHORITIES} (
-       authority_epoch, server_id, resource, principal_id, runtime_id,
-       connection_generation, created_at, updated_at, retired_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CASE
-       WHEN ? IS NULL AND EXISTS (
-         SELECT 1 FROM ${AUTHORITIES}
-         WHERE server_id = ? AND resource = ? AND principal_id = ? AND retired_at IS NULL
-       ) THEN ? ELSE ? END)`
-  );
-  for (const authority of authorities) {
-    insertAuthority.run(
-      authority.authorityEpoch,
-      authority.serverId,
-      authority.resource,
-      authority.principalId,
-      authority.runtimeId,
-      authority.connectionGeneration,
-      authority.createdAt,
-      authority.updatedAt,
-      authority.retiredAt,
-      authority.serverId,
-      authority.resource,
-      authority.principalId,
-      authority.updatedAt,
-      authority.retiredAt
-    );
-  }
-  const insertTask = db.prepare(
-    `INSERT INTO ${TASKS} (
-       authority_epoch, server_id, resource, principal_id, task_id, status,
-       status_message, input_metadata, result_metadata, blocked_diagnostic,
-       history, created_at, updated_at, terminal_at, thread_id
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`
-  );
-  for (const task of tasks) {
-    insertTask.run(
-      ...identityParams(task),
-      task.status,
-      task.statusMessage,
-      task.inputMetadata,
-      task.resultMetadata,
-      task.blockedDiagnostic,
-      task.history,
-      task.createdAt,
-      task.updatedAt,
-      task.terminalAt
-    );
-  }
-  const marker = { at, authorities: authorities.length, tasks: tasks.length };
-  db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)').run(
-    MCP_TASK_LEGACY_IMPORT_KEY,
-    JSON.stringify(marker)
-  );
-  return [marker];
-}
-
 /**
  * @param {import('better-sqlite3').Database} db
  * @param {import('./mcp-task-types.js').McpTaskDomainRequest} request
@@ -284,10 +204,6 @@ function legacyImport(db, { at, authorities, tasks }) {
  */
 function execute(db, request) {
   switch (request.operation) {
-    case 'legacy-import':
-      return legacyImport(db, request);
-    case 'legacy-import-status':
-      return legacyImportStatus(db);
     case 'open-authority':
       return openAuthority(db, request);
     case 'retire-authority':

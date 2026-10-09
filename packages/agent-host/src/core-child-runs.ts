@@ -27,7 +27,11 @@ import {
 } from './child-runs.js';
 import { HostChildWorkQueue } from './child-work-queue.js';
 import { retainHostRunWork } from './core-run-lifecycle.js';
-import { type HostRunState, hasHostInteractionResponse } from './core-state.js';
+import {
+  type HostRunState,
+  type HostThreadGrants,
+  hasHostInteractionResponse,
+} from './core-state.js';
 import type { HostDelegation, HostPlatform, HostRunAdmission } from './ports.js';
 import type {
   HostChildDelivery,
@@ -41,7 +45,6 @@ import type {
   HostRunSnapshot,
 } from './protocol.js';
 import { delegatedHostRunAdmission, type HostRunPosition, startedHostRun } from './run-branch.js';
-import type { HostThreadPresentationState } from './thread-presentation-state.js';
 
 type Action = Extract<HostEvent, { type: 'effect.started' }>;
 type Started = Extract<HostEvent, { type: 'run.started' }>;
@@ -195,6 +198,7 @@ function hostChildStatus(
 }
 
 export class HostChildRuns {
+  private readonly grantsByRoot = new Map<string, HostThreadGrants>();
   private readonly origins = new Map<string, HostChildOrigin>();
   /** Each child thread's invocation run: the first run its delegation started. */
   private readonly invocations = new Map<string, string>();
@@ -221,6 +225,18 @@ export class HostChildRuns {
   forget(threadId: string): void {
     this.origins.delete(threadId);
     this.invocations.delete(threadId);
+    this.grantsByRoot.delete(threadId);
+  }
+
+  /**
+   * The grants every run of `threadId`'s tree shares: its root thread's
+   * (ADR-0010), kept for this process only; replay never restores them.
+   */
+  grants(threadId: string): HostThreadGrants {
+    const root = this.rootThread(threadId);
+    const grants = this.grantsByRoot.get(root) ?? { categories: new Set(), tools: new Set() };
+    this.grantsByRoot.set(root, grants);
+    return grants;
   }
 
   /** Folds after HostCore's own fold, so a started run already exists. */
@@ -417,13 +433,8 @@ export class HostChildRuns {
 
   /** A thread's direct children, in the order their origins were committed. */
   /** Child threads are reached through their parent, never listed as top-level threads. */
-  topLevel(
-    threads: ReadonlySet<string>,
-    presentations: Pick<HostThreadPresentationState, 'read'>
-  ): HostResults['thread/list']['threads'] {
-    return [...threads]
-      .filter((threadId) => !this.isChild(threadId))
-      .map((threadId) => ({ threadId, ...presentations.read(threadId) }));
+  topLevel(threads: ReadonlySet<string>): string[] {
+    return [...threads].filter((threadId) => !this.isChild(threadId));
   }
 
   listed(

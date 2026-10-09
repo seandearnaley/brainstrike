@@ -1,7 +1,10 @@
 import type { McpClientCapabilityOptions } from '@brainstrike/agent/mcp-client';
 import { type McpHostOperation, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
+import {
+  parseMcpConfig,
+  type ResolvedMcpConfig,
+} from '@brainstrike/host-capabilities/mcp/config-file';
 import { z } from 'zod';
-import { parseMcpConfig, type ResolvedMcpConfig } from '../mcp-loader';
 import {
   createDesktopMcpHostRuntime,
   type DesktopMcpHostRuntime,

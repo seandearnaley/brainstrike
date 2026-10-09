@@ -28,6 +28,7 @@ import {
   readToolOutputArtifact,
   type ScopedToolOutputArtifactReader,
 } from '@brainstrike/agent/tool-runtime';
+import type { HostToolContext } from '@brainstrike/agent-host';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import { createArtifactReaderModelProjection } from './artifact-reader-model-projection.js';
 import { SEARCH_NATIVE_TOOL_EXECUTORS } from './executors-search.js';
@@ -70,6 +71,8 @@ export interface NativeToolPorts {
   /** Absent without an active thread; the tool then reports `no_active_thread`. */
   readonly canvas: CanvasStore | undefined;
   readonly fileMutations: FileMutationPorts;
+  /** Core's commit of the worktrees this call's shell command made (`worktree.created`). */
+  readonly shellWorktrees?: HostToolContext['shellWorktrees'];
   /** Absent without an active thread; the tool then reports it. */
   readonly taskList: TaskListStore | undefined;
 }

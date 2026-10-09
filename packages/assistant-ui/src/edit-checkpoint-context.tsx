@@ -38,6 +38,12 @@ export interface EditCheckpointContextValue {
     options?: { force?: boolean }
   ) => Promise<AssistantCheckpointRevertResult>;
   /**
+   * Why every revert is refused right now (a host thread's active run), or
+   * null. Each Revert control renders disabled with this reason rather than
+   * offering a click the owner would refuse.
+   */
+  readonly revertRefusal: string | null;
+  /**
    * Revert every non-reverted entry recorded for a run (one assistant turn), in
    * reverse apply order. `force` skips the per-file conflict check. Partial
    * success is honest — one conflicting file never aborts the rest.
@@ -87,6 +93,8 @@ export function availabilityForEntry(
 export function useCheckpointForToolCall(toolCallId: string): {
   availability: AssistantCheckpointUndoAvailability;
   entry: AssistantEditCheckpointRecord;
+  /** Non-null while reverts are refused: render Revert disabled with this reason. */
+  refusal: string | null;
   revert: (options?: { force?: boolean }) => Promise<AssistantCheckpointRevertResult>;
 } | null {
   const context = use(EditCheckpointContext);
@@ -100,6 +108,7 @@ export function useCheckpointForToolCall(toolCallId: string): {
   return {
     availability: availabilityForEntry(context.availabilityById, entry.id),
     entry,
+    refusal: context.revertRefusal,
     revert: (options) => context.revertEntry(entry.id, options),
   };
 }
@@ -268,6 +277,8 @@ function tallyRunAvailability(
  */
 export function useCheckpointTurnRevert(toolCallIds: readonly string[]): {
   revertibleCount: number;
+  /** Non-null while reverts are refused: render the control disabled with this reason. */
+  refusal: string | null;
   revert: (options?: { force?: boolean }) => Promise<readonly AssistantCheckpointRevertRunResult[]>;
   /** Non-null when nothing is restorable — render disabled with this reason. */
   unavailableReason: string | null;
@@ -283,8 +294,9 @@ export function useCheckpointTurnRevert(toolCallIds: readonly string[]): {
     if (!scope) {
       return null;
     }
-    const { revertRun } = context;
+    const { revertRefusal, revertRun } = context;
     return {
+      refusal: revertRefusal,
       revert: async (options) => {
         const results: AssistantCheckpointRevertRunResult[] = [];
         for (const runId of scope.runIds) {

@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { readFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { access, readdir, readFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -375,37 +376,51 @@ export async function qualifyAppImageLifecycle({ options, root, report, buildLau
     report,
     signal,
   });
-  const encryptedFile = await readFile(
-    path.join(root, 'profile', 'brainstrike-secrets.json'),
-    'utf8'
-  );
-  const evidence = assertEncryptedCredential(encryptedFile, marker);
+  const evidence = await assertCredentialAtRest(root, marker);
   report.checks.push({ evidence, name: 'encrypted-at-rest', status: 'passed' });
 }
 
-export function assertEncryptedCredential(source, marker) {
-  assert.ok(!source.includes(marker), 'Synthetic credential was stored in plaintext.');
-  const encoded = JSON.parse(source).secrets?.[PROVIDER];
-  assert.ok(
-    typeof encoded === 'string' && encoded.length > 0,
-    'Encrypted credential was not persisted.'
+/** Whether `needle` occurs in the file, read in chunks that overlap by the needle's length. */
+async function fileContains(file, needle) {
+  let carry = Buffer.alloc(0);
+  for await (const chunk of createReadStream(file)) {
+    const window = Buffer.concat([carry, chunk]);
+    if (window.includes(needle)) {
+      return true;
+    }
+    carry = window.subarray(Math.max(0, window.length - needle.length + 1));
+  }
+  return false;
+}
+
+async function regularFiles(directory) {
+  const files = [];
+  for (const entry of await readdir(directory, { recursive: true, withFileTypes: true })) {
+    if (entry.isFile()) {
+      files.push(path.join(entry.parentPath, entry.name));
+    }
+  }
+  return files;
+}
+
+/**
+ * A production launch keeps the host's profile credential store in the OS
+ * keyring (the Linux Secret Service), never in a profile file: the private
+ * file store (`brainstrike-credentials.json`) exists only for isolated test
+ * runs. So the synthetic credential's plaintext must appear in no file the
+ * qualification's disposable root holds, and the file store must be absent.
+ */
+export async function assertCredentialAtRest(root, marker) {
+  const fileStore = path.join(root, 'profile', 'brainstrike-credentials.json');
+  const fileStorePresent = await access(fileStore).then(
+    () => true,
+    () => false
   );
-  const ciphertext = Buffer.from(encoded, 'base64');
-  assert.ok(
-    ciphertext.toString('base64') === encoded,
-    'Encrypted credential is not canonical base64.'
-  );
-  assert.ok(
-    !ciphertext.includes(Buffer.from(marker)),
-    'Synthetic credential was only base64-encoded plaintext.'
-  );
-  // Linux synchronous OSCrypt v10 uses a hardcoded key; only v11 uses the OS
-  // secret store. Unknown formats fail closed until explicitly qualified.
-  assert.ok(
-    ciphertext.subarray(0, 3).equals(Buffer.from('v11')) &&
-      ciphertext.length > 3 &&
-      (ciphertext.length - 3) % 16 === 0,
-    'Expected Linux keyring-backed v11 ciphertext; basic_text or unknown formats are unqualified.'
-  );
-  return { ciphertextFormat: 'linux-os-crypt-v11' };
+  assert.ok(!fileStorePresent, 'Credentials used the test-only file store, not the OS keyring.');
+  const needle = Buffer.from(marker);
+  const files = await regularFiles(root);
+  for (const file of files) {
+    assert.ok(!(await fileContains(file, needle)), 'Synthetic credential was stored in plaintext.');
+  }
+  return { credentialStore: 'os-keyring-secret-service', filesScanned: files.length };
 }

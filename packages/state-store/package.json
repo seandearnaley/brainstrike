@@ -3,6 +3,7 @@
   "description": "The SQLite state DB: the run log and the small authoritative tables, written by one worker thread (ADR-0011)",
   "version": "0.1.0",
   "dependencies": {
+    "@brainstrike/secure-fs-native": "workspace:*",
     "better-sqlite3": "catalog:"
   },
   "devDependencies": {
@@ -21,6 +22,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./native-children": {
+      "types": "./dist/native-children.d.ts",
+      "default": "./dist/native-children.js"
     }
   },
   "files": [

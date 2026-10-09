@@ -1,12 +1,23 @@
+import type { McpSettingsEvent } from '@brainstrike/agent-host/protocol';
 import {
   type McpExtensionEnablement,
+  type McpHostControlRequest,
+  type McpHostServerSnapshot,
   type McpHostSnapshot,
   type McpHostWatchEvent,
-  type McpToolPreferencesFault,
   parseConfiguredMcpServerId,
 } from '@brainstrike/assistant-contract';
 import { render } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+
+/** The agent host's MCP settings over this window's client, as the renderer reaches them. */
+interface FakeHostMcpSettings {
+  readonly request: Mock<(method: string, params: unknown) => Promise<unknown>>;
+  readonly subscribe: Mock<(listener: (event: McpSettingsEvent) => void) => () => void>;
+}
+const hostMcpSettings = vi.hoisted((): { current: FakeHostMcpSettings | null } => ({
+  current: null,
+}));
 
 const setToolsEnabledMock = vi.hoisted(() => vi.fn());
 const resetToolsMock = vi.hoisted(() => vi.fn());
@@ -51,6 +62,7 @@ const fileExplorerMockState = vi.hoisted((): { current: FileExplorerMockState } 
 
 interface CapturedToolsOperations {
   completeMcpContent?: (request: unknown) => Promise<unknown>;
+  controlMcpServer?: (request: McpHostControlRequest) => Promise<McpHostServerSnapshot>;
   createSampleConfig: () => Promise<{ error?: string; path: string; success: boolean }>;
   disableTools: (ids: string[]) => Promise<void>;
   enableTools: (ids: string[]) => Promise<void>;
@@ -58,7 +70,7 @@ interface CapturedToolsOperations {
   getMcpConfigPath?: () => Promise<string>;
   getMcpExtensionPreferences?: () => Promise<McpExtensionEnablement>;
   getMcpPrompt?: (request: unknown) => Promise<unknown>;
-  getMcpServerStatus: () => Promise<McpHostSnapshot>;
+  getMcpServerStatus?: () => Promise<McpHostSnapshot>;
   getStats: () => Promise<{
     byCategory: Record<string, number>;
     bySource: { mcp: number; native: number };
@@ -288,6 +300,10 @@ vi.mock('@brainstrike/app-state/stores/native-tool-preferences-store', () => ({
   },
 }));
 
+vi.mock('../../../../renderer/host-mcp-settings', () => ({
+  resolveDesktopHostMcpSettings: () => hostMcpSettings.current,
+}));
+
 vi.mock('../../../../renderer/components/settings/logging-settings', () => ({
   DesktopLoggingSettings: () => <div data-testid="logging-settings" />,
 }));
@@ -298,58 +314,83 @@ interface DesktopTestWindow {
   };
   mcp?: {
     complete?: (request: unknown) => Promise<unknown>;
-    createSampleConfig?: () => Promise<{ path: string; success: boolean }>;
-    disableTools?: (ids: string[]) => Promise<void>;
     getPrompt?: (request: unknown) => Promise<unknown>;
     readResource?: (request: unknown) => Promise<unknown>;
-    enableTools?: (ids: string[]) => Promise<void>;
-    getConfig?: () => Promise<{ error?: string; exists: boolean; path: string } | null>;
-    getExtensionPreferences?: () => Promise<McpExtensionEnablement>;
-    getPath?: () => Promise<string>;
-    getServerStatusSnapshot?: () => Promise<McpHostSnapshot>;
-    getToolStats?: () => Promise<{
-      enabled: number;
-      servers: number;
-      total: number;
-      preferencesFault?: McpToolPreferencesFault;
-    }>;
-    listTools?: () => Promise<
-      Record<
-        string,
-        Array<{
-          description?: string;
-          enabled: boolean;
-          id: string;
-          inputSchema?: unknown;
-          serverName?: string;
-        }>
-      >
-    >;
-    onExtensionPreferencesUpdated?: (
-      listener: (preferences: McpExtensionEnablement) => void
-    ) => (() => void) | undefined;
-    onServerStatusUpdated?: (
-      listener: (snapshot: McpHostSnapshot) => void
-    ) => (() => void) | undefined;
-    onConfigUpdated?: (
-      listener: (config: { error?: string; exists: boolean; path: string }) => void
-    ) => (() => void) | undefined;
-    onToolsUpdated?: (listener: (tools: unknown) => void) => (() => void) | undefined;
-    readConfigText?: () => Promise<{ content: string; path: string } | null>;
-    reloadToolPreferences?: () => Promise<void>;
-    resetTools?: () => Promise<void>;
     selectPath?: () => Promise<string | null>;
-    setExtensionPreferences?: (
-      preferences: McpExtensionEnablement
-    ) => Promise<McpExtensionEnablement>;
-    setPath?: (path: string | null) => Promise<{ path: string; success: boolean }>;
-    writeConfigText?: (
-      content: string
-    ) => Promise<{ error?: string; path: string; success: boolean } | null>;
   };
 }
 
 const getDesktopWindow = (): DesktopTestWindow => window as unknown as DesktopTestWindow;
+
+const MCP_TOOLS = {
+  local: [
+    {
+      description: 'Search files',
+      discoveredAt: 1,
+      enabled: false,
+      id: 'mcp-search',
+      inputSchema: { type: 'object' },
+      serverName: 'local',
+    },
+  ],
+};
+
+function createHostMcpSettings(): FakeHostMcpSettings {
+  const responses: Record<string, (params: unknown) => unknown> = {
+    'mcp/config/path': () => ({ path: '/tmp/mcp.json' }),
+    'mcp/config/path/set': (params) => ({
+      path: (params as { path: string | null }).path ?? '/tmp/default.json',
+      success: true,
+    }),
+    'mcp/config/read': () => ({
+      content: '{}',
+      created: false,
+      error: 'invalid_mcp_config: servers: required',
+      exists: true,
+      path: '/tmp/mcp.json',
+    }),
+    'mcp/config/sample': () => ({ path: '/tmp/sample.json', success: true }),
+    'mcp/config/status': () => ({ exists: true, path: '/tmp/mcp.json' }),
+    'mcp/config/write': () => ({ path: '/tmp/mcp.json', success: true }),
+    'mcp/extensions/read': () => extensionPreferences,
+    'mcp/extensions/set': (params) => params,
+    'mcp/server/control': () => hostSnapshot.servers[0],
+    'mcp/status/read': () => hostSnapshot,
+    'mcp/tools/list': () => MCP_TOOLS,
+    'mcp/tools/reload': () => ({ applied: true }),
+    'mcp/tools/reset': () => ({ applied: true }),
+    'mcp/tools/set': () => ({ applied: true }),
+    'mcp/tools/stats': () => ({ disabled: 1, enabled: 1, servers: 1, total: 2 }),
+  };
+  return {
+    request: vi.fn(async (method: string, params: unknown) => {
+      const respond = responses[method];
+      if (!respond) {
+        throw new Error(`Unexpected MCP settings request ${method}`);
+      }
+      return respond(params);
+    }),
+    subscribe: vi.fn(() => vi.fn()),
+  };
+}
+
+function requireSettings(): FakeHostMcpSettings {
+  if (!hostMcpSettings.current) {
+    throw new Error('Expected the host MCP settings capability');
+  }
+  return hostMcpSettings.current;
+}
+
+async function renderOperations(): Promise<CapturedToolsOperations> {
+  const { default: SettingsPageContent } = await import(
+    '../../../../renderer/components/settings/page-content'
+  );
+  render(<SettingsPageContent />);
+  if (!capturedOperations) {
+    throw new Error('Expected tools operations to be captured');
+  }
+  return capturedOperations;
+}
 
 describe('desktop SettingsPageContent tool operations', () => {
   beforeEach(() => {
@@ -362,6 +403,7 @@ describe('desktop SettingsPageContent tool operations', () => {
       setDevInlineFixtureEnabled: () => {},
     };
     assistantAvailability.current = { state: 'loading' };
+    hostMcpSettings.current = createHostMcpSettings();
 
     const desktopWindow = getDesktopWindow();
     desktopWindow.assistant = undefined;
@@ -370,196 +412,67 @@ describe('desktop SettingsPageContent tool operations', () => {
         result: { completion: { values: ['BST-1585'] } },
         type: 'completion/complete',
       })),
-      createSampleConfig: vi.fn(async () => ({ path: '/tmp/sample.json', success: true })),
-      disableTools: vi.fn(async () => {}),
-      enableTools: vi.fn(async () => {}),
-      getConfig: vi.fn(async () => ({ exists: true, path: '/tmp/mcp.json' })),
-      getExtensionPreferences: vi.fn(async () => extensionPreferences),
-      getPath: vi.fn(async () => '/tmp/mcp.json'),
       getPrompt: vi.fn(async () => ({
         result: { messages: [{ content: { text: 'Summarize', type: 'text' }, role: 'user' }] },
         type: 'prompts/get',
-      })),
-      getServerStatusSnapshot: vi.fn(async () => hostSnapshot),
-      getToolStats: vi.fn(async () => ({ enabled: 1, servers: 1, total: 2 })),
-      listTools: vi.fn(async () => ({
-        local: [
-          {
-            description: 'Search files',
-            enabled: false,
-            id: 'mcp-search',
-            inputSchema: { type: 'object' },
-            serverName: 'local',
-          },
-        ],
-      })),
-      onConfigUpdated: vi.fn(() => vi.fn()),
-      onExtensionPreferencesUpdated: vi.fn(() => vi.fn()),
-      onServerStatusUpdated: vi.fn(() => vi.fn()),
-      onToolsUpdated: vi.fn(() => vi.fn()),
-      readConfigText: vi.fn(async () => ({
-        content: '{}',
-        error: 'invalid_mcp_config: servers: required',
-        path: '/tmp/mcp.json',
       })),
       readResource: vi.fn(async () => ({
         result: { contents: [{ text: '# BST-1585', uri: 'linear://issue/BST-1585' }] },
         type: 'resources/read',
       })),
-      resetTools: vi.fn(async () => {}),
       selectPath: vi.fn(async () => '/tmp/selected.json'),
-      setExtensionPreferences: vi.fn(async (preferences: McpExtensionEnablement) => preferences),
-      setPath: vi.fn(async (path) => ({ path: path ?? '/tmp/default.json', success: true })),
-      writeConfigText: vi.fn(async () => ({ path: '/tmp/mcp.json', success: true })),
     };
   });
 
-  it('forwards tool preference reload through the desktop capability', async () => {
-    const desktopWindow = getDesktopWindow();
-    if (!desktopWindow.mcp) {
-      throw new Error('Expected MCP test bridge');
-    }
-    const reload = vi.fn(async (): Promise<void> => {});
-    desktopWindow.mcp.reloadToolPreferences = reload;
-    const { default: SettingsPageContent } = await import(
-      '../../../../renderer/components/settings/page-content'
-    );
-    render(<SettingsPageContent />);
-    if (!capturedOperations?.reloadToolPreferences) {
+  it('forwards tool preference reload to the agent host', async () => {
+    const operations = await renderOperations();
+    if (!operations.reloadToolPreferences) {
       throw new Error('Expected reload operation');
     }
-    await capturedOperations.reloadToolPreferences();
-    expect(reload).toHaveBeenCalledOnce();
+    await operations.reloadToolPreferences();
+    expect(requireSettings().request).toHaveBeenCalledWith('mcp/tools/reload', {});
     expect(resetToolsMock).not.toHaveBeenCalled();
-    expect(desktopWindow.mcp.resetTools).not.toHaveBeenCalled();
   });
 
-  it('omits tool preference reload when its bridge capability is unavailable', async () => {
-    const { default: SettingsPageContent } = await import(
-      '../../../../renderer/components/settings/page-content'
-    );
-    render(<SettingsPageContent />);
-    if (!capturedOperations) {
-      throw new Error('Expected tools operations');
-    }
-    expect(capturedOperations.reloadToolPreferences).toBeUndefined();
+  it('omits the host MCP settings operations where the window has no agent host', async () => {
+    hostMcpSettings.current = null;
+    const operations = await renderOperations();
+    expect(operations.reloadToolPreferences).toBeUndefined();
+    expect(operations).not.toHaveProperty('getMcpExtensionPreferences');
+    expect(operations).not.toHaveProperty('readMcpConfigText');
+    expect(operations).not.toHaveProperty('writeMcpConfigText');
+    await expect(operations.createSampleConfig()).resolves.toEqual({
+      error: 'MCP settings need the desktop agent host',
+      path: '',
+      success: false,
+    });
   });
 
-  it.each(['enableTools', 'disableTools'] as const)(
-    'normalizes the exact Electron transport wrapper for %s rejection',
-    async (operation) => {
-      const mcp = getDesktopWindow().mcp;
-      if (!mcp) {
-        throw new Error('Expected MCP bridge');
-      }
+  it.each([
+    ['enableTools', true],
+    ['disableTools', false],
+  ] as const)(
+    'surfaces the host refusal of %s as the host wrote it',
+    async (operation, enabled) => {
       const faultMessage = 'Preferences could not be loaded. Repair and Reload tool preferences.';
-      const channel = operation === 'enableTools' ? 'mcp:tools:enable' : 'mcp:tools:disable';
-      mcp.getToolStats = vi.fn().mockResolvedValue({
-        enabled: 0,
-        preferencesFault: {
-          kind: 'invalid',
-          message: faultMessage,
-          path: '/profile/mcp/tool-preferences.json',
-        },
-        servers: 1,
-        total: 2,
+      requireSettings().request.mockImplementation(async (method) => {
+        if (method === 'mcp/tools/set') {
+          throw new Error(faultMessage);
+        }
+        return;
       });
-      mcp[operation] = vi
-        .fn()
-        .mockRejectedValue(
-          new Error(`Error invoking remote method '${channel}': Error: ${faultMessage}`)
-        );
-      const { default: SettingsPageContent } = await import(
-        '../../../../renderer/components/settings/page-content'
-      );
-      render(<SettingsPageContent />);
-      if (!capturedOperations) {
-        throw new Error('Expected tools operations');
-      }
-      await expect(capturedOperations[operation](['mcp-search'])).rejects.toMatchObject({
-        message: faultMessage,
+      const operations = await renderOperations();
+
+      await expect(operations[operation](['mcp-search'])).rejects.toThrow(faultMessage);
+      expect(requireSettings().request).toHaveBeenCalledWith('mcp/tools/set', {
+        enabled,
+        toolIds: ['mcp-search'],
       });
     }
   );
 
-  it('preserves distinct failure content while normalizing its Electron transport wrapper', async () => {
-    const mcp = getDesktopWindow().mcp;
-    if (!mcp) {
-      throw new Error('Expected MCP bridge');
-    }
-    const faultMessage = 'Preferences could not be loaded. Repair and Reload tool preferences.';
-    const error = new Error(
-      `Error invoking remote method 'mcp:tools:enable': Error: Another failure; ${faultMessage}`
-    );
-    mcp.getToolStats = vi.fn().mockResolvedValue({
-      enabled: 0,
-      preferencesFault: {
-        kind: 'invalid',
-        message: faultMessage,
-        path: '/profile/mcp/tool-preferences.json',
-      },
-      servers: 1,
-      total: 2,
-    });
-    mcp.enableTools = vi.fn().mockRejectedValue(error);
-    const { default: SettingsPageContent } = await import(
-      '../../../../renderer/components/settings/page-content'
-    );
-    render(<SettingsPageContent />);
-    if (!capturedOperations) {
-      throw new Error('Expected tools operations');
-    }
-    await expect(capturedOperations.enableTools(['mcp-search'])).rejects.toMatchObject({
-      cause: error,
-      message: `Another failure; ${faultMessage}`,
-    });
-  });
-
-  it('normalizes an in-flight refusal after reload has cleared main fault stats', async () => {
-    const mcp = getDesktopWindow().mcp;
-    if (!mcp) {
-      throw new Error('Expected MCP bridge');
-    }
-    const faultMessage = 'Preferences could not be loaded. Repair and Reload tool preferences.';
-    const refused = Promise.withResolvers<void>();
-    mcp.enableTools = vi.fn(() => refused.promise);
-    mcp.getToolStats = vi.fn().mockResolvedValue({
-      enabled: 0,
-      preferencesFault: {
-        kind: 'invalid',
-        message: faultMessage,
-        path: '/profile/mcp/tool-preferences.json',
-      },
-      servers: 1,
-      total: 2,
-    });
-    mcp.reloadToolPreferences = vi.fn(async (): Promise<void> => {
-      mcp.getToolStats = vi.fn().mockResolvedValue({ enabled: 2, servers: 1, total: 2 });
-    });
-    const { default: SettingsPageContent } = await import(
-      '../../../../renderer/components/settings/page-content'
-    );
-    render(<SettingsPageContent />);
-    if (!capturedOperations?.reloadToolPreferences) {
-      throw new Error('Expected tools operations');
-    }
-    await capturedOperations.getStats();
-    const attempt = capturedOperations.enableTools(['mcp-search']);
-    const rejected = expect(attempt).rejects.toMatchObject({ message: faultMessage });
-    await capturedOperations.reloadToolPreferences();
-    await capturedOperations.getStats();
-    refused.reject(
-      new Error(`Error invoking remote method 'mcp:tools:enable': Error: ${faultMessage}`)
-    );
-    await rejected;
-  });
-
   it('wires desktop MCP and native tool operations through the settings category', async () => {
-    const { default: SettingsPageContent } = await import(
-      '../../../../renderer/components/settings/page-content'
-    );
-
-    render(<SettingsPageContent />);
+    const operations = await renderOperations();
 
     expect(createToolsSettingsCategoryMock).toHaveBeenCalledWith(
       expect.objectContaining({ mcpAvailable: true })
@@ -567,16 +480,10 @@ describe('desktop SettingsPageContent tool operations', () => {
     expect(createTokenCountingSettingsCategoryMock).toHaveBeenCalledWith({
       accurateRuntimeAvailable: true,
     });
-    if (!capturedOperations) {
-      throw new Error('Expected tools operations to be captured');
-    }
+    const settings = requireSettings();
 
-    await expect(capturedOperations.getTools()).resolves.toEqual([
-      expect.objectContaining({
-        enabled: true,
-        id: 'native-read',
-        source: 'native',
-      }),
+    await expect(operations.getTools()).resolves.toEqual([
+      expect.objectContaining({ enabled: true, id: 'native-read', source: 'native' }),
       expect.objectContaining({
         enabled: false,
         id: 'mcp-search',
@@ -584,82 +491,86 @@ describe('desktop SettingsPageContent tool operations', () => {
         source: 'mcp',
       }),
     ]);
-    await expect(capturedOperations.getStats()).resolves.toMatchObject({
+    await expect(operations.getStats()).resolves.toMatchObject({
       byCategory: expect.objectContaining({ action: 2, retrieval: 1 }),
       bySource: { mcp: 2, native: 1 },
       enabled: 2,
       total: 3,
     });
 
-    await capturedOperations.enableTools(['native-read', 'mcp-search']);
+    await operations.enableTools(['native-read', 'mcp-search']);
     expect(setToolsEnabledMock).toHaveBeenCalledWith(['native-read'], true);
-    expect(getDesktopWindow().mcp?.enableTools).toHaveBeenCalledWith(['mcp-search']);
+    expect(settings.request).toHaveBeenCalledWith('mcp/tools/set', {
+      enabled: true,
+      toolIds: ['mcp-search'],
+    });
 
-    await capturedOperations.disableTools(['native-read', 'mcp-search']);
+    await operations.disableTools(['native-read', 'mcp-search']);
     expect(setToolsEnabledMock).toHaveBeenCalledWith(['native-read'], false);
-    expect(getDesktopWindow().mcp?.disableTools).toHaveBeenCalledWith(['mcp-search']);
+    expect(settings.request).toHaveBeenCalledWith('mcp/tools/set', {
+      enabled: false,
+      toolIds: ['mcp-search'],
+    });
 
-    await capturedOperations.resetTools();
+    await operations.resetTools();
     expect(resetToolsMock).toHaveBeenCalled();
-    expect(getDesktopWindow().mcp?.resetTools).toHaveBeenCalled();
+    expect(settings.request).toHaveBeenCalledWith('mcp/tools/reset', {});
 
-    await capturedOperations.refreshMcpServers();
-    await capturedOperations.openMcpConfig();
-    expect(getDesktopWindow().mcp?.setPath).toHaveBeenCalledWith('/tmp/selected.json');
-    await capturedOperations.resetMcpConfig();
-    expect(getDesktopWindow().mcp?.setPath).toHaveBeenCalledWith(null);
+    await operations.refreshMcpServers();
+    // Main's native picker hands the chosen file to the host, which selects it.
+    await operations.openMcpConfig();
+    expect(getDesktopWindow().mcp?.selectPath).toHaveBeenCalledOnce();
+    expect(settings.request).not.toHaveBeenCalledWith('mcp/config/path/set', {
+      path: '/tmp/selected.json',
+    });
+    await operations.resetMcpConfig();
+    expect(settings.request).toHaveBeenCalledWith('mcp/config/path/set', { path: null });
 
-    await expect(capturedOperations.getMcpConfigPath?.()).resolves.toBe('/tmp/mcp.json');
-    await expect(capturedOperations.readMcpConfigText?.()).resolves.toEqual({
+    await expect(operations.getMcpConfigPath?.()).resolves.toBe('/tmp/mcp.json');
+    await expect(operations.readMcpConfigText?.()).resolves.toEqual({
       content: '{}',
+      created: false,
       error: 'invalid_mcp_config: servers: required',
-      path: '/tmp/mcp.json',
-    });
-    await expect(capturedOperations.writeMcpConfigText?.('{"servers":{}}')).resolves.toEqual({
-      path: '/tmp/mcp.json',
-      success: true,
-    });
-    await expect(capturedOperations.getMcpConfigInfo()).resolves.toEqual({
       exists: true,
       path: '/tmp/mcp.json',
     });
-    await expect(capturedOperations.createSampleConfig()).resolves.toEqual({
+    await expect(operations.writeMcpConfigText?.('{"servers":{}}')).resolves.toEqual({
+      path: '/tmp/mcp.json',
+      success: true,
+    });
+    expect(settings.request).toHaveBeenCalledWith('mcp/config/write', {
+      content: '{"servers":{}}',
+    });
+    await expect(operations.getMcpConfigInfo()).resolves.toEqual({
+      exists: true,
+      path: '/tmp/mcp.json',
+    });
+    await expect(operations.createSampleConfig()).resolves.toEqual({
       path: '/tmp/sample.json',
       success: true,
     });
 
-    expect(capturedOperations).not.toHaveProperty('executeToolTest');
+    expect(operations).not.toHaveProperty('executeToolTest');
 
-    const setPath = getDesktopWindow().mcp?.setPath;
-    if (!setPath) {
-      throw new Error('Expected MCP setPath bridge to be available.');
-    }
-    vi.mocked(setPath).mockResolvedValueOnce({
-      path: '/tmp/mcp.json',
-      success: false,
-    });
-    await expect(capturedOperations.setMcpConfigPath?.('/tmp/bad.json')).rejects.toThrow(
-      'Failed to set MCP config path'
+    settings.request.mockRejectedValueOnce(
+      new Error('MCP config path must be selected with the native file picker.')
+    );
+    await expect(operations.setMcpConfigPath?.('/tmp/bad.json')).rejects.toThrow(
+      'MCP config path must be selected with the native file picker.'
     );
   });
 
   it('forwards user-initiated MCP content browsing to the bridge verbs (BST-1585)', async () => {
-    const { default: SettingsPageContent } = await import(
-      '../../../../renderer/components/settings/page-content'
-    );
-    render(<SettingsPageContent />);
-    if (!capturedOperations) {
-      throw new Error('Expected tools operations to be captured');
-    }
+    const operations = await renderOperations();
     const mcp = getDesktopWindow().mcp;
     const authority = { configuredServerId: parseConfiguredMcpServerId('local'), generation: 1 };
     const readRequest = { authority, uri: 'linear://issue/BST-1585' };
-    await expect(capturedOperations.readMcpResource?.(readRequest)).resolves.toMatchObject({
+    await expect(operations.readMcpResource?.(readRequest)).resolves.toMatchObject({
       type: 'resources/read',
     });
     expect(mcp?.readResource).toHaveBeenCalledWith(readRequest);
     const promptRequest = { arguments: { identifier: 'BST-1585' }, authority, name: 'summary' };
-    await expect(capturedOperations.getMcpPrompt?.(promptRequest)).resolves.toMatchObject({
+    await expect(operations.getMcpPrompt?.(promptRequest)).resolves.toMatchObject({
       type: 'prompts/get',
     });
     expect(mcp?.getPrompt).toHaveBeenCalledWith(promptRequest);
@@ -668,7 +579,7 @@ describe('desktop SettingsPageContent tool operations', () => {
       authority,
       ref: { name: 'summary', type: 'ref/prompt' },
     };
-    await expect(capturedOperations.completeMcpContent?.(completeRequest)).resolves.toMatchObject({
+    await expect(operations.completeMcpContent?.(completeRequest)).resolves.toMatchObject({
       type: 'completion/complete',
     });
     expect(mcp?.complete).toHaveBeenCalledWith(completeRequest);
@@ -683,197 +594,137 @@ describe('desktop SettingsPageContent tool operations', () => {
       ...rest
     } = desktopWindow.mcp ?? {};
     desktopWindow.mcp = rest;
-    const { default: SettingsPageContent } = await import(
-      '../../../../renderer/components/settings/page-content'
-    );
-    render(<SettingsPageContent />);
-    if (!capturedOperations) {
-      throw new Error('Expected tools operations to be captured');
-    }
-    expect(capturedOperations).not.toHaveProperty('readMcpResource');
-    expect(capturedOperations).not.toHaveProperty('getMcpPrompt');
-    expect(capturedOperations).not.toHaveProperty('completeMcpContent');
-    expect(capturedOperations).toHaveProperty('getMcpServerStatus');
+    const operations = await renderOperations();
+    expect(operations).not.toHaveProperty('readMcpResource');
+    expect(operations).not.toHaveProperty('getMcpPrompt');
+    expect(operations).not.toHaveProperty('completeMcpContent');
+    expect(operations).toHaveProperty('getMcpServerStatus');
   });
 
-  it('returns main-process status snapshots without inferring from tools', async () => {
-    const { default: SettingsPageContent } = await import(
-      '../../../../renderer/components/settings/page-content'
-    );
-    render(<SettingsPageContent />);
-    if (!capturedOperations) {
-      throw new Error('Expected tools operations to be captured');
+  it('reads server status from the agent host, hears its revisions, and runs control there', async () => {
+    const operations = await renderOperations();
+    const settings = requireSettings();
+    const toolReads = settings.request.mock.calls.filter(([method]) => method === 'mcp/tools/list');
+    if (
+      !(
+        operations.getMcpServerStatus &&
+        operations.subscribeMcpServerStatus &&
+        operations.controlMcpServer
+      )
+    ) {
+      throw new Error('Expected the MCP server status operations');
     }
-    const mcp = getDesktopWindow().mcp;
-    if (!mcp?.listTools) {
-      throw new Error('Expected MCP tool bridge to be available');
-    }
-    const callsBeforeStatus = vi.mocked(mcp.listTools).mock.calls.length;
-    await expect(capturedOperations.getMcpServerStatus()).resolves.toEqual(hostSnapshot);
-    expect(mcp.listTools).toHaveBeenCalledTimes(callsBeforeStatus);
+    await expect(operations.getMcpServerStatus()).resolves.toEqual(hostSnapshot);
+    expect(settings.request).toHaveBeenCalledWith('mcp/status/read', {});
+    expect(
+      settings.request.mock.calls.filter(([method]) => method === 'mcp/tools/list')
+    ).toHaveLength(toolReads.length);
 
+    const disposer = vi.fn();
+    settings.subscribe.mockReturnValueOnce(disposer);
     const listener = vi.fn();
-    const subscribeMcpServerStatus = capturedOperations.subscribeMcpServerStatus;
-    if (!subscribeMcpServerStatus) {
-      throw new Error('Expected MCP status subscription to be available');
-    }
-    const onServerStatusUpdated = mcp.onServerStatusUpdated;
-    if (!onServerStatusUpdated) {
-      throw new Error('Expected MCP status bridge subscription to be available');
-    }
-    const statusDisposer = vi.fn();
-    vi.mocked(onServerStatusUpdated).mockReturnValueOnce(statusDisposer);
-    const unsubscribe = subscribeMcpServerStatus(listener);
-    expect(onServerStatusUpdated).toHaveBeenCalledWith(listener);
-    const forwardedStatusListener = vi.mocked(onServerStatusUpdated).mock.calls[0]?.[0];
-    forwardedStatusListener?.(hostSnapshot);
-    expect(listener).toHaveBeenCalledWith(hostSnapshot);
+    const unsubscribe = operations.subscribeMcpServerStatus(listener);
+    const stream = settings.subscribe.mock.calls.at(-1)?.[0];
+    stream?.({ status: hostSnapshot, type: 'status' });
+    stream?.({ tools: {}, type: 'tools' });
+    expect(listener.mock.calls).toEqual([[hostSnapshot]]);
     unsubscribe();
-    expect(statusDisposer).toHaveBeenCalledOnce();
+    expect(disposer).toHaveBeenCalledOnce();
+
+    const request = {
+      action: 'connect' as const,
+      configuredServerId: hostSnapshot.servers[0].configuredServerId,
+    };
+    await expect(operations.controlMcpServer(request)).resolves.toEqual(hostSnapshot.servers[0]);
+    expect(settings.request).toHaveBeenCalledWith('mcp/server/control', request);
+  });
+
+  it('hears config and tools changes from the host settings stream', async () => {
+    const operations = await renderOperations();
+    const settings = requireSettings();
+    const unsubscribe = vi.fn();
+    settings.subscribe.mockReturnValue(unsubscribe);
 
     const configListener = vi.fn();
-    const onConfigUpdated = mcp.onConfigUpdated;
-    if (!onConfigUpdated) {
-      throw new Error('Expected MCP config bridge subscription to be available');
-    }
-    const configDisposer = vi.fn();
-    vi.mocked(onConfigUpdated).mockReturnValueOnce(configDisposer);
-    const unsubscribeConfig = capturedOperations.subscribeMcpConfig(configListener);
-    expect(onConfigUpdated).toHaveBeenCalledWith(configListener);
-    const forwardedConfigListener = vi.mocked(onConfigUpdated).mock.calls[0]?.[0];
-    const configUpdate = { exists: false, path: '/tmp/new-mcp.json' };
-    forwardedConfigListener?.(configUpdate);
-    expect(configListener).toHaveBeenCalledWith(configUpdate);
-    unsubscribeConfig();
-    expect(configDisposer).toHaveBeenCalledOnce();
-
+    const stopConfig = operations.subscribeMcpConfig(configListener);
     const toolsListener = vi.fn();
-    const onToolsUpdated = mcp.onToolsUpdated;
-    if (!onToolsUpdated) {
-      throw new Error('Expected MCP tools bridge subscription to be available');
-    }
-    const toolsDisposer = vi.fn();
-    vi.mocked(onToolsUpdated).mockReturnValueOnce(toolsDisposer);
-    const unsubscribeTools = capturedOperations.subscribeMcpTools(toolsListener);
-    expect(onToolsUpdated).toHaveBeenCalledWith(expect.any(Function));
-    const forwardedToolsListener = vi.mocked(onToolsUpdated).mock.calls[0]?.[0];
-    forwardedToolsListener?.(undefined);
-    expect(toolsListener).toHaveBeenCalledOnce();
-    unsubscribeTools();
-    expect(toolsDisposer).toHaveBeenCalledOnce();
+    const stopTools = operations.subscribeMcpTools(toolsListener);
+    const [configStream, toolsStream] = settings.subscribe.mock.calls.map(([listener]) => listener);
+    const config = { exists: false, path: '/tmp/new-mcp.json' };
+    configStream?.({ config, type: 'config' });
+    configStream?.({ tools: {}, type: 'tools' });
+    toolsStream?.({ tools: MCP_TOOLS, type: 'tools' });
+    toolsStream?.({ config, type: 'config' });
 
-    Reflect.deleteProperty(mcp, 'getServerStatusSnapshot');
-    await expect(capturedOperations.getMcpServerStatus()).rejects.toThrow(
-      'MCP bridge is missing getServerStatusSnapshot'
-    );
+    expect(configListener.mock.calls).toEqual([[config]]);
+    expect(toolsListener).toHaveBeenCalledOnce();
+    stopConfig();
+    stopTools();
+    expect(unsubscribe).toHaveBeenCalledTimes(2);
   });
 
-  it('exposes the global MCP extension dials backed by the preload bridge', async () => {
-    const { default: SettingsPageContent } = await import(
-      '../../../../renderer/components/settings/page-content'
-    );
-    render(<SettingsPageContent />);
-    if (!capturedOperations) {
-      throw new Error('Expected tools operations to be captured');
-    }
-    const mcp = getDesktopWindow().mcp;
-    const getExtensionPreferences = mcp?.getExtensionPreferences;
-    const setExtensionPreferences = mcp?.setExtensionPreferences;
-    const onExtensionPreferencesUpdated = mcp?.onExtensionPreferencesUpdated;
-    if (!(getExtensionPreferences && setExtensionPreferences && onExtensionPreferencesUpdated)) {
-      throw new Error('Expected MCP extension preference bridge to be available');
+  it('exposes the global MCP extension dials backed by the agent host', async () => {
+    const operations = await renderOperations();
+    const settings = requireSettings();
+    if (
+      !(
+        operations.getMcpExtensionPreferences &&
+        operations.setMcpExtensionPreferences &&
+        operations.subscribeMcpExtensionPreferences
+      )
+    ) {
+      throw new Error('Expected the MCP extension dial operations');
     }
 
-    const getMcpExtensionPreferences = capturedOperations.getMcpExtensionPreferences;
-    if (!getMcpExtensionPreferences) {
-      throw new Error('Expected getMcpExtensionPreferences to be exposed');
-    }
-    await expect(getMcpExtensionPreferences()).resolves.toEqual(extensionPreferences);
-    expect(getExtensionPreferences).toHaveBeenCalledOnce();
-
-    const setMcpExtensionPreferences = capturedOperations.setMcpExtensionPreferences;
-    if (!setMcpExtensionPreferences) {
-      throw new Error('Expected setMcpExtensionPreferences to be exposed');
-    }
-    await expect(setMcpExtensionPreferences({ apps: false, tasks: true })).resolves.toEqual({
+    await expect(operations.getMcpExtensionPreferences()).resolves.toEqual(extensionPreferences);
+    expect(settings.request).toHaveBeenCalledWith('mcp/extensions/read', {});
+    await expect(
+      operations.setMcpExtensionPreferences({ apps: false, tasks: true })
+    ).resolves.toEqual({ apps: false, tasks: true });
+    expect(settings.request).toHaveBeenCalledWith('mcp/extensions/set', {
       apps: false,
       tasks: true,
     });
-    expect(setExtensionPreferences).toHaveBeenCalledWith({ apps: false, tasks: true });
 
-    const subscribeMcpExtensionPreferences = capturedOperations.subscribeMcpExtensionPreferences;
-    if (!subscribeMcpExtensionPreferences) {
-      throw new Error('Expected subscribeMcpExtensionPreferences to be exposed');
-    }
     const disposer = vi.fn();
-    vi.mocked(onExtensionPreferencesUpdated).mockReturnValueOnce(disposer);
+    settings.subscribe.mockReturnValueOnce(disposer);
     const listener = vi.fn();
-    const unsubscribe = subscribeMcpExtensionPreferences(listener);
-    expect(onExtensionPreferencesUpdated).toHaveBeenCalledWith(listener);
-    const forwarded = vi.mocked(onExtensionPreferencesUpdated).mock.calls[0]?.[0];
-    forwarded?.({ apps: false, tasks: false });
-    expect(listener).toHaveBeenCalledWith({ apps: false, tasks: false });
+    const unsubscribe = operations.subscribeMcpExtensionPreferences(listener);
+    const stream = settings.subscribe.mock.calls.at(-1)?.[0];
+    stream?.({ extensions: { apps: false, tasks: false }, type: 'extensions' });
+    stream?.({ tools: {}, type: 'tools' });
+    expect(listener.mock.calls).toEqual([[{ apps: false, tasks: false }]]);
     unsubscribe();
     expect(disposer).toHaveBeenCalledOnce();
   });
 
-  it('omits the MCP extension dial operations when the bridge lacks the verbs', async () => {
-    const desktopWindow = getDesktopWindow();
-    const {
-      getExtensionPreferences: _get,
-      onExtensionPreferencesUpdated: _subscribe,
-      setExtensionPreferences: _set,
-      ...rest
-    } = desktopWindow.mcp ?? {};
-    desktopWindow.mcp = rest;
-    const { default: SettingsPageContent } = await import(
-      '../../../../renderer/components/settings/page-content'
-    );
-    render(<SettingsPageContent />);
+  it('omits server status and control where the window has no agent host', async () => {
+    hostMcpSettings.current = null;
+    await renderOperations();
 
-    expect(capturedOperations).not.toHaveProperty('getMcpExtensionPreferences');
-    expect(capturedOperations).not.toHaveProperty('setMcpExtensionPreferences');
-    expect(capturedOperations).not.toHaveProperty('subscribeMcpExtensionPreferences');
-  });
-
-  it('omits the live status operation when the preload subscription is unavailable', async () => {
-    const mcp = getDesktopWindow().mcp;
-    if (!mcp) {
-      throw new Error('Expected MCP bridge to be available');
-    }
-    Reflect.deleteProperty(mcp, 'onServerStatusUpdated');
-    const { default: SettingsPageContent } = await import(
-      '../../../../renderer/components/settings/page-content'
-    );
-
-    render(<SettingsPageContent />);
-
+    expect(capturedOperations).not.toHaveProperty('getMcpServerStatus');
     expect(capturedOperations).not.toHaveProperty('subscribeMcpServerStatus');
+    expect(capturedOperations).not.toHaveProperty('controlMcpServer');
   });
 
   it('rejects MCP tool projection identities that disagree with their group key', async () => {
-    const mcp = getDesktopWindow().mcp;
-    if (!mcp?.listTools) {
-      throw new Error('Expected MCP tools bridge to be available');
-    }
-    vi.mocked(mcp.listTools).mockResolvedValueOnce({
-      local: [
-        {
-          enabled: true,
-          id: 'local.search',
-          serverName: 'different-server',
-        },
-      ],
-    });
-    const { default: SettingsPageContent } = await import(
-      '../../../../renderer/components/settings/page-content'
+    requireSettings().request.mockImplementation(async (method) =>
+      method === 'mcp/tools/list'
+        ? {
+            local: [
+              {
+                discoveredAt: 1,
+                enabled: true,
+                id: 'local.search',
+                serverName: 'different-server',
+              },
+            ],
+          }
+        : undefined
     );
-    render(<SettingsPageContent />);
-    if (!capturedOperations) {
-      throw new Error('Expected tools operations to be captured');
-    }
+    const operations = await renderOperations();
 
-    await expect(capturedOperations.getTools()).rejects.toThrow(
+    await expect(operations.getTools()).rejects.toThrow(
       'MCP tool projection identity mismatch: group "local" contains server "different-server"'
     );
   });

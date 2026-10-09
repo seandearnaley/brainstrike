@@ -5,6 +5,7 @@ import {
   type AssistantConversationPanelProps,
 } from './assistant-conversation-panel';
 import type { CommittedAssistantSnapshot } from './committed-assistant-store';
+import { LiveShellOutputContext } from './live-shell-outputs';
 import { useAssistantThreadRuntimeAdapters } from './use-assistant-thread-runtime-adapters';
 import {
   type CommittedAssistantRuntimeOptions,
@@ -64,43 +65,45 @@ function BoundCommittedAssistantConversation({
   };
   const unavailable = connection !== 'connected' || error !== undefined;
   return (
-    <div className="flex h-full min-h-0 flex-col" ref={rootRef}>
-      {error === undefined ? (
-        connection === 'connected' ? null : (
-          <div aria-live="polite" role="status">
-            {connection === 'connecting'
-              ? 'Connecting to the agent host…'
-              : connection === 'failed'
-                ? 'The agent host connection failed. Reconnect to continue.'
-                : 'Agent host disconnected. Reconnect to continue.'}
+    <LiveShellOutputContext value={store.liveShellOutputs ?? null}>
+      <div className="flex h-full min-h-0 flex-col" ref={rootRef}>
+        {error === undefined ? (
+          connection === 'connected' ? null : (
+            <div aria-live="polite" role="status">
+              {connection === 'connecting'
+                ? 'Connecting to the agent host…'
+                : connection === 'failed'
+                  ? 'The agent host connection failed. Reconnect to continue.'
+                  : 'Agent host disconnected. Reconnect to continue.'}
+            </div>
+          )
+        ) : (
+          <div aria-label="Agent host error" role="alert">
+            {error}
           </div>
-        )
-      ) : (
-        <div aria-label="Agent host error" role="alert">
-          {error}
-        </div>
-      )}
-      {commandError === undefined ? null : (
-        <div aria-label="Agent command error" role="alert">
-          {commandError}
-          <button onClick={dismissCommandError} type="button">
-            Dismiss
-          </button>
-        </div>
-      )}
-      <CommittedRuntimePanel
-        {...presentation}
-        adapters={adapters}
-        commands={commands}
-        disabledReason={error ?? (unavailable ? UNAVAILABLE : presentation.disabledReason)}
-        // A queued follow-up waits out a disconnect: an idle-looking view is not
-        // a committed run end until the owner is connected again.
-        isReattaching={unavailable}
-        onCommandError={reportCommandError}
-        {...(withheld ? { omSegment: { kind: 'withheld' as const, reason: withheld } } : {})}
-        store={store}
-      />
-    </div>
+        )}
+        {commandError === undefined ? null : (
+          <div aria-label="Agent command error" role="alert">
+            {commandError}
+            <button onClick={dismissCommandError} type="button">
+              Dismiss
+            </button>
+          </div>
+        )}
+        <CommittedRuntimePanel
+          {...presentation}
+          adapters={adapters}
+          commands={commands}
+          disabledReason={error ?? (unavailable ? UNAVAILABLE : presentation.disabledReason)}
+          // A queued follow-up waits out a disconnect: an idle-looking view is not
+          // a committed run end until the owner is connected again.
+          isReattaching={unavailable}
+          onCommandError={reportCommandError}
+          {...(withheld ? { omSegment: { kind: 'withheld' as const, reason: withheld } } : {})}
+          store={store}
+        />
+      </div>
+    </LiveShellOutputContext>
   );
 }
 

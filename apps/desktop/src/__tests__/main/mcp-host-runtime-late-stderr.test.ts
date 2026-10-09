@@ -1,7 +1,7 @@
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
+import type { ResolvedMcpServer } from '@brainstrike/host-capabilities/mcp/config-file';
 import { describe, expect, it, vi } from 'vitest';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
-import type { ResolvedMcpServer } from '../../mcp-loader';
 
 const stdioServer = {
   args: [],

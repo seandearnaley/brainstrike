@@ -1,10 +1,11 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { Page } from '@playwright/test';
+import { foldHostRuns } from '@brainstrike/agent-host/thread-view';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
+import { readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { type ModelProviderRequest, startModelProviderShim } from './utils/model-provider-shim';
@@ -34,81 +35,33 @@ function isRootOpeningTurn({ messages, toolNames }: ModelProviderRequest): boole
   );
 }
 
-async function readNativeState(
-  page: Page,
-  rootThreadId: string
-): Promise<{
-  approvalEvents: { toolName: string | null; threadId: string }[];
-  checkpoints: { path: string; threadId: string }[];
-  tasks: { error: unknown; status: string }[];
-  children: { status: string; threadId: string }[];
-  rootFinalMessages: { id: string; content: unknown }[];
-}> {
-  return await page.evaluate(async (threadId) => {
-    const api = (
-      globalThis as {
-        electronAPI?: {
-          db?: {
-            query?: (
-              sql: string,
-              params?: readonly unknown[]
-            ) => Promise<{ rows: Record<string, unknown>[] }>;
-          };
-        };
-      }
-    ).electronAPI;
-    if (!api?.db?.query) {
-      throw new Error('Native database bridge unavailable');
-    }
-    const [taskRows, childRows, checkpointRows, approvalRows, rootFinalRows] = await Promise.all([
-      api.db.query(
-        'SELECT status, error FROM mastra_background_tasks WHERE thread_id = $1 ORDER BY tool_call_id',
-        [threadId]
+/**
+ * BST-1932: the delegation tree as the agent host committed it. Each Worker as
+ * its parent's sidebar shows it (needs-input while it waits on an approval),
+ * how its runs ended, every recorded edit, and the root's final answers.
+ */
+async function readHostState(userDataDir: string) {
+  const tree = await readHostThreadTree(userDataDir);
+  const rootLog = tree.find(({ parentThreadId }) => parentThreadId === undefined);
+  const workers = tree.filter(({ parentThreadId }) => parentThreadId === rootLog?.threadId);
+  return {
+    checkpoints: tree
+      .flatMap(({ rows, threadId }) =>
+        rows.flatMap(({ event }) =>
+          event.type === 'workspace.edit.recorded' ? [{ path: event.path, threadId }] : []
+        )
+      )
+      .sort((a, b) => a.path.localeCompare(b.path)),
+    rootFinalTexts: foldHostRuns(rootLog?.rows ?? [])
+      .map(({ text }) => text)
+      .filter(
+        (text) => text.includes('ROOT_WRITE_COMPLETE') || text.includes('ROOT_AND_WORKERS_COMPLETE')
       ),
-      api.db.query(
-        `SELECT DISTINCT ON (child.thread_id) child.thread_id AS "threadId", run.status
-           FROM brainstrike_delegated_conversations child
-           JOIN brainstrike_assistant_thread_runs run ON run.thread_id = child.thread_id
-          WHERE child.parent_thread_id = $1
-          ORDER BY child.thread_id, run.started_at DESC, run.id DESC`,
-        [threadId]
-      ),
-      api.db.query(
-        `SELECT checkpoint.path, checkpoint.thread_id AS "threadId"
-           FROM brainstrike_assistant_edit_checkpoints checkpoint
-           LEFT JOIN brainstrike_delegated_conversations child ON child.thread_id = checkpoint.thread_id
-          WHERE checkpoint.thread_id = $1 OR child.parent_thread_id = $1
-          ORDER BY checkpoint.path`,
-        [threadId]
-      ),
-      api.db.query(
-        `SELECT event.thread_id AS "threadId", event.metadata->>'toolName' AS "toolName"
-           FROM brainstrike_assistant_run_events event
-          WHERE event.kind = 'tool.approval.requested'
-            AND (event.thread_id = $1 OR event.thread_id IN (
-              SELECT child.thread_id FROM brainstrike_delegated_conversations child
-              WHERE child.parent_thread_id = $1
-            ))
-          ORDER BY event.occurred_at, event.id`,
-        [threadId]
-      ),
-      api.db.query(
-        `SELECT id, content FROM mastra_messages
-          WHERE thread_id = $1 AND role = 'assistant'
-            AND (content::text LIKE '%ROOT_WRITE_COMPLETE%'
-              OR content::text LIKE '%ROOT_AND_WORKERS_COMPLETE%')
-          ORDER BY "createdAt", id`,
-        [threadId]
-      ),
-    ]);
-    return {
-      approvalEvents: approvalRows.rows as { toolName: string | null; threadId: string }[],
-      checkpoints: checkpointRows.rows as { path: string; threadId: string }[],
-      children: childRows.rows as { status: string; threadId: string }[],
-      rootFinalMessages: rootFinalRows.rows as { id: string; content: unknown }[],
-      tasks: taskRows.rows as { error: unknown; status: string }[],
-    };
-  }, rootThreadId);
+    workers: workers.map(({ child, rows }) => ({
+      outcomes: rows.flatMap(({ event }) => (event.type === 'run.finished' ? [event.outcome] : [])),
+      status: child?.status,
+    })),
+  };
 }
 
 // The provider boundary is scripted; Electron, Mastra, permission decisions,
@@ -249,36 +202,30 @@ test('root approval resumes while three Workers are parked, then live grants com
     // One Send admits one root run: exactly one provider turn opens it (the
     // root prompt with no tool history yet). A second admission would add another.
     await expect.poll(() => provider.requests().filter(isRootOpeningTurn).length).toBe(1);
-    const rootTab = window
-      .getByRole('tablist', { name: 'Open assistant threads' })
-      .getByRole('tab', { selected: true });
-    const rootThreadId = (await rootTab.getAttribute('id'))?.replace('assistant-thread-tab-', '');
-    if (!rootThreadId) {
-      throw new Error('The root thread tab has no thread id');
-    }
+    const userDataDir = electron.getUserDataDir();
     const rootApproval = root.getByRole('button', {
       exact: true,
       name: 'Approve brainstrike.writeWorkspaceFile',
     });
     await expect
       .poll(async () => {
-        const { tasks } = await readNativeState(window, rootThreadId);
-        const failed = tasks.filter((task) =>
-          ['failed', 'timed_out', 'cancelled'].includes(task.status)
+        const { workers } = await readHostState(userDataDir);
+        const failed = workers.filter(({ outcomes }) =>
+          outcomes.some((outcome) => outcome !== 'completed')
         );
         if (failed.length > 0) {
-          return `Background tasks failed: ${JSON.stringify(failed)}`;
+          return `Workers ended early: ${JSON.stringify(failed)}`;
         }
         return (await rootApproval.isVisible()) ? 'approval' : 'pending';
       })
       .toBe('approval');
+    // Each Worker waits on its read approval.
     await expect
-      .poll(
-        async () => (await readNativeState(window, rootThreadId)).tasks.map((task) => task.status),
-        { timeout: 45_000 }
-      )
-      .toEqual(['suspended', 'suspended', 'suspended']);
-    const beforeApproval = await readNativeState(window, rootThreadId);
+      .poll(async () => (await readHostState(userDataDir)).workers.map(({ status }) => status), {
+        timeout: 45_000,
+      })
+      .toEqual(['needs-input', 'needs-input', 'needs-input']);
+    const beforeApproval = await readHostState(userDataDir);
     expect(beforeApproval.checkpoints).toEqual([]);
     for (const output of [ROOT_OUTPUT, ...WORKERS.map((worker) => worker.output)]) {
       await expect(readFile(path.join(workspace, output), 'utf8')).rejects.toMatchObject({
@@ -299,13 +246,13 @@ test('root approval resumes while three Workers are parked, then live grants com
         { timeout: 45_000 }
       )
       .toBe(4);
+    // Each Worker now waits on its write approval.
     await expect
-      .poll(
-        async () => (await readNativeState(window, rootThreadId)).tasks.map((task) => task.status),
-        { timeout: 45_000 }
-      )
-      .toEqual(['suspended', 'suspended', 'suspended']);
-    const parkedWriteState = await readNativeState(window, rootThreadId);
+      .poll(async () => (await readHostState(userDataDir)).workers.map(({ status }) => status), {
+        timeout: 45_000,
+      })
+      .toEqual(['needs-input', 'needs-input', 'needs-input']);
+    const parkedWriteState = await readHostState(userDataDir);
     await testInfo.attach('parked-worker-write-state', {
       body: JSON.stringify(parkedWriteState),
       contentType: 'application/json',
@@ -324,21 +271,20 @@ test('root approval resumes while three Workers are parked, then live grants com
     await expect
       .poll(
         async () => {
-          const state = await readNativeState(window, rootThreadId);
+          const state = await readHostState(userDataDir);
           return {
-            children: state.children.map((child) => child.status),
-            tasks: state.tasks.map((task) => task.status),
+            outcomes: state.workers.map(({ outcomes }) => outcomes),
+            statuses: state.workers.map(({ status }) => status),
           };
         },
         { timeout: 45_000 }
       )
       .toEqual({
-        children: ['completed', 'completed', 'completed'],
-        tasks: ['completed', 'completed', 'completed'],
+        outcomes: [['completed'], ['completed'], ['completed']],
+        statuses: ['idle', 'idle', 'idle'],
       });
-    const settled = await readNativeState(window, rootThreadId);
-    expect(settled.children).toHaveLength(3);
-    expect(settled.children.every((child) => child.status === 'completed')).toBe(true);
+    const settled = await readHostState(userDataDir);
+    expect(settled.workers).toHaveLength(3);
     expect(settled.checkpoints.map((checkpoint) => checkpoint.path)).toEqual([
       'alpha-output.txt',
       'beta-output.txt',
@@ -356,15 +302,25 @@ test('root approval resumes while three Workers are parked, then live grants com
     await expect(root.getByText('ROOT_AND_WORKERS_COMPLETE', { exact: true })).toBeVisible();
     await expect(root.getByText('ROOT_AND_WORKERS_COMPLETE', { exact: true })).toHaveCount(1);
     expect(rootFinalRequests).toBe(2);
-    expect(provider.transcript().filter((turn) => turn.decision === 'final-text')).toHaveLength(5);
-    const finalState = await readNativeState(window, rootThreadId);
-    expect(finalState.rootFinalMessages).toHaveLength(2);
-    expect(JSON.stringify(finalState.rootFinalMessages[0]?.content)).toContain(
-      'ROOT_WRITE_COMPLETE'
+    // The host also titles the thread once: a request that advertises no tools.
+    const titleRequests = new Set(
+      provider
+        .requests()
+        .filter(({ toolNames }) => toolNames.length === 0)
+        .map(({ requestIndex }) => requestIndex)
     );
-    expect(JSON.stringify(finalState.rootFinalMessages[1]?.content)).toContain(
-      'ROOT_AND_WORKERS_COMPLETE'
-    );
+    expect(titleRequests.size).toBe(1);
+    // Two root answers and three Worker answers.
+    expect(
+      provider
+        .transcript()
+        .filter((turn) => turn.decision === 'final-text' && !titleRequests.has(turn.requestIndex))
+    ).toHaveLength(5);
+    // The root's turn answered the write; one wake answered all three Workers.
+    const finalState = await readHostState(userDataDir);
+    expect(finalState.rootFinalTexts).toHaveLength(2);
+    expect(finalState.rootFinalTexts[0]).toContain('ROOT_WRITE_COMPLETE');
+    expect(finalState.rootFinalTexts[1]).toContain('ROOT_AND_WORKERS_COMPLETE');
     expect(
       provider
         .transcript()

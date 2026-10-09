@@ -1,18 +1,23 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { HostRecord } from '@brainstrike/host-lease';
-import type { MessageConnection } from 'vscode-jsonrpc';
+import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { bindHostAuthMethods } from './auth-connection.js';
 import type { HostCore } from './core.js';
 import { hostChildStatusChanged } from './core-child-runs.js';
 import { bindHostHookTrustMethods } from './hook-trust.js';
+import { bindHostMcpPresentationMethods } from './mcp-presentation-connection.js';
+import { bindHostMcpSettingsMethods } from './mcp-settings-connection.js';
 import type {
   HostAuthService,
   HostClientOrigin,
+  HostMcpPresentationService,
+  HostMcpSettingsService,
   HostPlatform,
   HostProviderService,
 } from './ports.js';
 import {
   HOST_CHILDREN_CHANGED,
+  HOST_RUN_TELEMETRY,
   type HostLogRow,
   type HostMethod,
   type HostParams,
@@ -35,6 +40,10 @@ export interface HostConnectionOptions {
   /** The platform's credential authority, where the host owns one. */
   readonly auth?: HostAuthService;
   readonly lifecycle?: HostConnectionLifecycle;
+  /** The desktop's MCP Tasks cards and server input, where the host presents them. */
+  readonly mcpPresentation?: HostMcpPresentationService;
+  /** The desktop's MCP settings authority, where the host owns one. */
+  readonly mcpSettings?: HostMcpSettingsService;
   /** The transport's client origin; the public socket is never the desktop. */
   readonly origin?: HostClientOrigin;
   /** The platform's provider reads, where the host owns a credential store. */
@@ -56,6 +65,8 @@ export function bindHostConnection(
   const {
     auth,
     lifecycle,
+    mcpPresentation,
+    mcpSettings,
     origin = 'public-socket',
     providers,
     searchState,
@@ -92,19 +103,35 @@ export function bindHostConnection(
         .catch(() => connection.dispose());
     }
   });
+  // A running tool's live telemetry goes to the same subscribers as the thread's
+  // rows, and is never committed (ADR-0011 amendment).
+  const releaseTelemetry = core.onTelemetry((telemetry) => {
+    if (subscriptions.has(telemetry.threadId) && !disposed) {
+      connection.sendNotification(HOST_RUN_TELEMETRY, telemetry).catch(() => connection.dispose());
+    }
+  });
   const handle = <M extends HostMethod>(
     method: M,
-    request: (params: HostParams<M>) => unknown
+    request: (params: HostParams<M>, signal: AbortSignal) => unknown
   ): void => {
     disposables.push(
-      connection.onRequest(method, async (input: unknown) => {
+      connection.onRequest(method, async (input: unknown, token: CancellationToken) => {
         if (disposed || (!initialized && method !== 'initialize')) {
           throw new Error('Host connection requires authentication');
         }
         if (lifecycle?.closing) {
           throw new Error('Host is closing');
         }
-        return request(parseHostParams(method, input));
+        // The client's `$/cancelRequest` aborts the work its request started.
+        const controller = new AbortController();
+        const cancelled = token.onCancellationRequested(() =>
+          controller.abort(new Error('The client cancelled the request'))
+        );
+        try {
+          return await request(parseHostParams(method, input), controller.signal);
+        } finally {
+          cancelled.dispose();
+        }
       })
     );
   };
@@ -137,6 +164,8 @@ export function bindHostConnection(
   });
   bindHostAuthMethods(handle, connection, auth, origin);
   bindHostProviderMethods(handle, providers, origin);
+  disposables.push(bindHostMcpSettingsMethods(handle, connection, mcpSettings, origin));
+  disposables.push(bindHostMcpPresentationMethods(handle, connection, mcpPresentation, origin));
   bindHostHookTrustMethods(handle, core.store);
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));
@@ -165,9 +194,14 @@ export function bindHostConnection(
   handle('run/input', (params) => core.input(params));
   handle('run/stop', (params) => core.stop(params));
   handle('checkpoint/revert', (params) => core.revertCheckpoint(params));
+  handle('thread/rewind/preview', (params) => core.previewRewind(params));
+  handle('thread/rewind', (params) => core.rewind(params));
+  handle('thread/rewind/redo', (params) => core.redoRewind(params));
   handle('run/verdict', (params) => core.recordVerdict(params));
   handle('interaction/respond', (params) => core.respond(params));
   handle('interaction/resume', (params) => core.resume(params));
+  handle('mcp/app/admit', (params) => core.mcpApps.admit(params));
+  handle('mcp/app/call', (params, signal) => core.mcpApps.call(params, signal));
   handle('mcp/input/read', (params) => core.readMcpInput(params));
   handle('mcp/input/stage', (params) => core.stageMcpInput(params, mcpClient));
   handle('mcp/input/settle', (params) => core.settleMcpInput(params, mcpClient));
@@ -195,6 +229,7 @@ export function bindHostConnection(
     disposed = true;
     core.releaseMcpInputClient(mcpClient);
     release();
+    releaseTelemetry();
     subscriptions.clear();
     for (const disposable of disposables) {
       disposable.dispose();

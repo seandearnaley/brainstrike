@@ -4,9 +4,10 @@ import {
 } from '@brainstrike/assistant-contract';
 import { useMemo } from 'react';
 import { deriveTaskListFromParts } from './derive-task-list';
-import { createShellOutputAccumulator, type ShellOutputAccumulation } from './shell-output-parts';
+import type { ShellOutputAccumulation } from './shell-output-parts';
 import { isToolCallPart, runEventsSpanMs } from './tool-activity';
 import { collectToolDurations } from './tool-durations';
+import { useShellOutputs } from './use-shell-outputs';
 import { useStableRecord } from './use-stable-record';
 
 export interface ChainActivityDerivations {
@@ -26,9 +27,9 @@ export interface ChainActivityDerivations {
  *
  * - durations: recomputed per chunk but value-stable via useStableRecord
  *   (identity only changes when a tool actually finishes).
- * - shell outputs: incremental accumulator, O(new parts) per update, same
- *   record identity unless a shell slice actually arrived — keyed by message
- *   id so a thread/message switch resets it.
+ * - shell outputs: incremental accumulator (useShellOutputs), O(new parts)
+ *   per update, same record identity unless a shell slice actually arrived —
+ *   one accumulator per message id, so a thread/message switch resets it.
  */
 export function useChainActivityDerivations(
   messageParts: readonly unknown[],
@@ -48,11 +49,7 @@ export function useChainActivityDerivations(
   const toolDurations = useStableRecord(
     useMemo(() => collectToolDurations(messageParts), [messageParts])
   );
-  const accumulateShellOutputs = useMemo(() => createShellOutputAccumulator(), [messageId]);
-  const shellOutputs = useMemo(
-    () => accumulateShellOutputs(messageParts),
-    [accumulateShellOutputs, messageParts]
-  );
+  const shellOutputs = useShellOutputs(messageId, messageParts);
   const taskList = useMemo(() => deriveTaskListFromParts(messageParts), [messageParts]);
 
   return { activityFallbackMs, shellOutputs, taskList, toolDurations };

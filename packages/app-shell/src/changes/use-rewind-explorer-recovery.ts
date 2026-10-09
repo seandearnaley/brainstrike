@@ -46,26 +46,22 @@
  * tree to refresh or watch to retry, so it is skipped by identity, not
  * silently.
  */
-import type { AssistantRewindRootOutcome } from '@brainstrike/assistant-contract';
 import { useWatcherHealth } from '@brainstrike/file-explorer-hooks';
 import { createFileExplorerRefreshEvent } from '@brainstrike/file-explorer-ui/shell';
 import { createLogger } from '@brainstrike/logging';
 import { useCallback } from 'react';
+import type { RewindRootRef } from './rewind-port';
 
 const logger = createLogger('RewindExplorerRecovery');
 
-export type RewindExplorerRecovery = (
-  rootOutcomes: readonly AssistantRewindRootOutcome[]
-) => Promise<void>;
+export type RewindExplorerRecovery = (roots: readonly RewindRootRef[]) => Promise<void>;
 
 interface ConnectedRoot {
   readonly rootId: string;
   readonly rootPath: string;
 }
 
-function connectedRoots(
-  rootOutcomes: readonly AssistantRewindRootOutcome[]
-): readonly ConnectedRoot[] {
+function connectedRoots(rootOutcomes: readonly RewindRootRef[]): readonly ConnectedRoot[] {
   const seen = new Set<string>();
   const roots: ConnectedRoot[] = [];
   for (const outcome of rootOutcomes) {
@@ -82,7 +78,7 @@ export function useRewindExplorerRecovery(): RewindExplorerRecovery {
   const { healthByRoot, retry } = useWatcherHealth();
 
   return useCallback(
-    async (rootOutcomes: readonly AssistantRewindRootOutcome[]): Promise<void> => {
+    async (rootOutcomes: readonly RewindRootRef[]): Promise<void> => {
       const roots = connectedRoots(rootOutcomes);
       if (roots.length === 0) {
         return;

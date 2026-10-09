@@ -6,12 +6,15 @@ import {
   type PermissionToolGateSnapshot,
   resolvePermissionDecision,
 } from '@brainstrike/assistant-contract';
-import { WEB_SEARCH_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
+import {
+  type ToolRiskCategory,
+  WEB_SEARCH_TOOL_ID,
+} from '@brainstrike/assistant-contract/tool-metadata';
 import { modelMessageSchema, type StepResult, type ToolSet } from 'ai';
 import { leaseHostAdmission } from './admission-lease.js';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import { withHostDelegationTools } from './child-runs.js';
-import type { HostRunState } from './core-state.js';
+import type { HostRunState, HostThreadGrants } from './core-state.js';
 import { defaultHostToolModelOutput, withHostToolHookContext } from './hook-context.js';
 import { canonical, jsonValue } from './json-value.js';
 import { McpAuthorityReconstructionError } from './mcp-authority.js';
@@ -560,21 +563,38 @@ async function hostToolDecision(
   const snapshot = run.admittedPolicy
     ? (intersectChildPermissionCeilings(run.admittedPolicy, live) ?? live)
     : live;
-  const permissionToolId = registered.permissionToolId ?? toolId;
-  if (isPermissionDenied(snapshot, registered.risk, permissionToolId)) {
+  return hostPolicyDecision(
+    snapshot,
+    run.grants,
+    registered.risk,
+    registered.permissionToolId ?? toolId
+  );
+}
+
+/**
+ * One tool's decision under the saved policy and its thread's grants: a deny
+ * (the tool's own, or its category's) wins, and the grants add to the rest.
+ * A model's call and an MCP App's own call of a tool are decided here alike.
+ */
+export function hostPolicyDecision(
+  policy: PermissionToolGateSnapshot,
+  grants: HostThreadGrants,
+  risk: ToolRiskCategory,
+  permissionToolId: string
+): 'allow' | 'ask' | 'deny' {
+  if (isPermissionDenied(policy, risk, permissionToolId)) {
     return 'deny';
   }
-  // The run's own committed grants add to the saved policy; deny already won.
   return resolvePermissionDecision({
     perToolOverrides: {
-      ...snapshot.perToolOverrides,
-      ...Object.fromEntries([...run.grants.tools].map((tool) => [tool, 'allow' as const])),
+      ...policy.perToolOverrides,
+      ...Object.fromEntries([...grants.tools].map((tool) => [tool, 'allow' as const])),
     },
-    policies: snapshot.policies,
-    riskCategory: registered.risk,
-    sessionGrants: new Set([...(snapshot.sessionGrants ?? []), ...run.grants.categories]),
+    policies: policy.policies,
+    riskCategory: risk,
+    sessionGrants: new Set([...(policy.sessionGrants ?? []), ...grants.categories]),
     toolId: permissionToolId,
-    yolo: snapshot.yolo,
+    yolo: policy.yolo,
   });
 }
 

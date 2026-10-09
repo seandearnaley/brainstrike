@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as mcpIpc from '../../ipc-mcp';
 import { toMcpContentIpcFailure } from '../../mcp/content-ipc';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
-import { loadMcpConfig } from '../../mcp-loader';
 import { createAllowlistedSenderFrame } from '../helpers/desktop-ipc-sender-frame-test-allowlist';
 
 type RegisteredHandler = (...args: unknown[]) => unknown | Promise<unknown>;
@@ -28,16 +27,6 @@ vi.mock('electron', () => ({
     removeHandler: vi.fn(),
     removeListener: vi.fn(),
   },
-}));
-
-vi.mock('../../mcp-loader', () => ({
-  getDefaultMcpConfigTemplate: vi.fn(() => '{\n  "servers": []\n}'),
-  getMcpConfigPath: vi.fn(),
-  loadMcpConfig: vi.fn(),
-  readMcpConfigText: vi.fn(),
-  setCustomMcpConfigPath: vi.fn(),
-  watchMcpConfig: vi.fn(async () => ({ close: vi.fn() })),
-  writeMcpConfigText: vi.fn(),
 }));
 
 vi.mock('../../secrets', () => ({
@@ -79,6 +68,18 @@ const CATALOG = {
   subscription: { mode: 'none', state: 'unsupported' },
 } as const;
 type Runtime = ReturnType<typeof createDesktopMcpHostRuntime>;
+
+/** Main's view of the runtime: its surfaces, plus the settings calls the host answers. */
+function mainView(target: Runtime) {
+  return {
+    elicitationPresenter: target.elicitationPresenter,
+    host: target.host,
+    pickConfigPath: vi.fn(async (path: string) => ({ path, success: true as const })),
+    resetSettings: vi.fn(async () => undefined),
+    resumeSettings: vi.fn(async () => undefined),
+    taskHost: target.taskHost,
+  };
+}
 type Invoke = (operation: McpHostOperation) => unknown;
 
 function defaultResult(operation: McpHostOperation): unknown {
@@ -126,6 +127,7 @@ describe('mcp:content:* IPC handlers (BST-1585)', () => {
   let handlers: Map<string, RegisteredHandler>;
   let unregister: (() => void) | undefined;
   let runtime: Runtime | undefined;
+  let view: ReturnType<typeof mainView> | undefined;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -134,20 +136,17 @@ describe('mcp:content:* IPC handlers (BST-1585)', () => {
     vi.mocked(ipcMain.handle).mockImplementation(((channel: string, handler: RegisteredHandler) => {
       handlers.set(channel, handler);
     }) as typeof ipcMain.handle);
-    vi.mocked(loadMcpConfig).mockResolvedValue({
-      exists: false,
-      path: '/tmp/mcp.config.json',
-    } as never);
   });
 
   afterEach(async () => {
-    if (runtime) {
-      await mcpIpc.resumeMcpRuntimeAfterFactoryReset(runtime);
+    if (view) {
+      await mcpIpc.resumeMcpRuntimeAfterFactoryReset(view);
     }
     unregister?.();
     await runtime?.host.close();
     unregister = undefined;
     runtime = undefined;
+    view = undefined;
   });
 
   async function connect(target: Runtime): Promise<{
@@ -155,8 +154,8 @@ describe('mcp:content:* IPC handlers (BST-1585)', () => {
     generation: number;
   }> {
     runtime = target;
-    unregister = mcpIpc.registerMcpIpcHandlers({ runtime: target });
-    // Startup discovery holds the lifecycle barrier; `mcp:status:get` waits on it.
+    view = mainView(target);
+    unregister = mcpIpc.registerMcpIpcHandlers({ runtime: view });
     await requireHandler('mcp:status:get')(VISIBLE_UI_EVENT);
     await target.replaceResolvedConfig({
       servers: [
@@ -327,7 +326,7 @@ describe('mcp:content:* IPC handlers (BST-1585)', () => {
     const { invocations, runtime: target } = createRuntime();
     const authority = await connect(target);
 
-    await mcpIpc.resetMcpRuntimeForFactoryReset(target);
+    await mcpIpc.resetMcpRuntimeForFactoryReset(view ?? mainView(target));
     await expect(
       requireHandler('mcp:content:readResource')(VISIBLE_UI_EVENT, { authority, uri: RESOURCE_URI })
     ).resolves.toEqual({

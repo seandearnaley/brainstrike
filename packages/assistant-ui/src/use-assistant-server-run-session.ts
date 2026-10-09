@@ -452,7 +452,9 @@ export function useAssistantServerRunSession({
     () => (threadKey && resumeApi ? readAssistantActiveRunSession(threadKey) : undefined),
     [resumeApi, threadKey]
   );
-  const sessionScope = useMemo(() => ({}), [resumeApi, threadKey]);
+  // A fresh identity per resume endpoint and thread. The body reads both, so the
+  // React Compiler, which memoizes on what a body reads, keeps them as its key.
+  const sessionScope = useMemo(() => ({ resumeApi, threadKey }), [resumeApi, threadKey]);
   const [activeSessionState, setActiveSessionState] = useState(() => ({
     record: initialActiveRunSession,
     replayEligible: initialActiveRunSession !== undefined,
@@ -485,14 +487,13 @@ export function useAssistantServerRunSession({
     desktopAssistantBaseUrl && resourceId && threadKey
       ? `${desktopAssistantBaseUrl}:${resourceId}:${threadKey}`
       : undefined;
-  const discoveryAttemptKey = JSON.stringify([discoveryKey ?? null, recoveryRetryToken]);
   const discoveryResource = useMemo(
     () =>
       new AssistantRunDiscoveryResource<AssistantDiscoveredRun | null>(
         discoveryKey ? 'pending' : 'ready',
         null
       ),
-    [discoveryAttemptKey, discoveryKey]
+    [discoveryKey]
   );
   const discovery = useSyncExternalStore(
     discoveryResource.subscribe,
@@ -522,6 +523,9 @@ export function useAssistantServerRunSession({
     discoveryAuthHeadersRef.current = authHeaders;
   }, [authHeaders]);
 
+  // A retry restarts discovery on the same resource. Its token is a dependency
+  // here because effects keep their dependencies as written, while the React
+  // Compiler drops a memo dependency its body never reads.
   useEffect(() => {
     if (!discoveryKey) {
       if (preparedRequestRef.current?.scopeKey === undefined) {
@@ -580,6 +584,7 @@ export function useAssistantServerRunSession({
     desktopAssistantBaseUrl,
     discoveryKey,
     discoveryResource,
+    recoveryRetryToken,
     resourceId,
     sessionScope,
     threadKey,

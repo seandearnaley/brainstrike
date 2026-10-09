@@ -113,9 +113,11 @@ export async function startAgentHost(
   };
   const clientCapabilities = (): Pick<
     HostConnectionOptions,
-    'auth' | 'providers' | 'searchState' | 'searchStateVectors'
+    'auth' | 'mcpPresentation' | 'mcpSettings' | 'providers' | 'searchState' | 'searchStateVectors'
   > => ({
     ...(platform?.auth ? { auth: platform.auth } : {}),
+    ...(platform?.mcpPresentation ? { mcpPresentation: platform.mcpPresentation } : {}),
+    ...(platform?.mcpSettings ? { mcpSettings: platform.mcpSettings } : {}),
     ...(platform?.providers ? { providers: platform.providers } : {}),
     ...(platform?.searchState ? { searchState: platform.searchState } : {}),
     ...(platform?.searchStateVectors ? { searchStateVectors: platform.searchStateVectors } : {}),
@@ -131,6 +133,9 @@ export async function startAgentHost(
     get maxSteps(): number | undefined {
       return currentPlatform().maxSteps;
     },
+    get mcp(): HostPlatform['mcp'] {
+      return currentPlatform().mcp;
+    },
     readPermissionPolicy: (threadId) => currentPlatform().readPermissionPolicy(threadId),
     resolveModel: (modelId) => {
       const platform = currentPlatform();
@@ -138,6 +143,9 @@ export async function startAgentHost(
         throw new Error('Production model selection requires run admission');
       }
       return platform.resolveModel(modelId);
+    },
+    get rewindFiles(): HostPlatform['rewindFiles'] {
+      return currentPlatform().rewindFiles;
     },
     get tools(): HostPlatform['tools'] {
       return currentPlatform().tools;
@@ -216,6 +224,8 @@ export async function startAgentHost(
               memoryCalculatorModule: createRequire(import.meta.url).resolve(
                 '@brainstrike/agent-host/memory-storage-calculator'
               ),
+              // ADR-0017: the native processes this host starts inherit its Root.
+              shareWithNativeChildren: true,
               startup: {
                 acquire: async (acquired) => {
                   signal.throwIfAborted();

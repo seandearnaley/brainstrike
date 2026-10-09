@@ -26,9 +26,7 @@ import {
   mcpAppsContract,
   mcpContentContract,
   mcpContract,
-  mcpElicitationContract,
   mcpPathSelectionContract,
-  mcpTasksContract,
 } from './ipc-domains/mcp.contract';
 import { notesVaultContract } from './ipc-domains/notes-vault.contract';
 import { skillsContract } from './ipc-domains/skills.contract';
@@ -49,9 +47,8 @@ import { decodeNativeEmbeddingWorkerPlan } from './platform/native-embedding-val
 
 type McpContentIpcResponse = import('./ipc-domains/mcp.contract').McpContentIpcResponse;
 type McpHostSnapshot = import('@brainstrike/assistant-contract').McpHostSnapshot;
-type McpAppBridge = import('@brainstrike/assistant-contract').McpAppBridge;
+type McpAppShellBridge = import('@brainstrike/assistant-contract').McpAppShellBridge;
 type McpAppOrigin = import('@brainstrike/assistant-contract').McpAppOrigin;
-type McpTaskBridge = import('@brainstrike/assistant-contract').McpTaskBridge;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 // Contract-derived bridges (BST-1648): `exposeBridge(name, contract)` exposes
 // exactly `Object.keys(contract)`, each routed to its manifest channel with
@@ -544,28 +541,25 @@ contextBridge.exposeInMainWorld('agent', {
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.chat, messages, runtime),
 });
 
-// MCP Config API (desktop-only). The channel methods and subscriptions are
-// derived from pure contracts. `apps.readResource` stays a composed preload
-// operation: it resolves the live server generation before using the content
-// contract, so there is intentionally no dedicated IPC channel for it.
+// MCP content, Apps, Tasks and elicitation (desktop-only). The channel methods
+// and subscriptions are derived from pure contracts; MCP settings, status,
+// Tasks cards and global server input belong to the agent host. `apps.readResource` stays a composed preload
+// operation: it resolves the live server generation (the preload-internal
+// status read) before using the content contract, so there is intentionally no
+// dedicated IPC channel for it.
 const mcpRootBridge = createIpcBridge(ipcRenderer, mcpContract);
 const mcpPathSelectionBridge = createIpcBridge(ipcRenderer, mcpPathSelectionContract);
 const mcpContentBridge = createIpcBridge(ipcRenderer, mcpContentContract);
-const mcpElicitationBridge = createIpcBridge(ipcRenderer, mcpElicitationContract);
 const mcpAppsBridge = createIpcBridge(ipcRenderer, mcpAppsContract);
-const mcpTasksBridge = createIpcBridge(ipcRenderer, mcpTasksContract);
 contextBridge.exposeInMainWorld('mcp', {
-  ...mcpRootBridge,
   ...mcpPathSelectionBridge,
   apps: {
     ...mcpAppsBridge,
     readResource: (origin: McpAppOrigin) => readMcpAppResource(origin),
-  } satisfies McpAppBridge,
+  } satisfies McpAppShellBridge,
   complete: (request: unknown) => unwrapMcpContent(mcpContentBridge.complete(request)),
   getPrompt: (request: unknown) => unwrapMcpContent(mcpContentBridge.getPrompt(request)),
   readResource: (request: unknown) => unwrapMcpContent(mcpContentBridge.readResource(request)),
-  ...mcpElicitationBridge,
-  tasks: mcpTasksBridge satisfies McpTaskBridge,
 });
 
 // Assistant selection events. Tool execution deliberately stays behind the

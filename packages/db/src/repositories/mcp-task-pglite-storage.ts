@@ -234,38 +234,3 @@ export function pgliteMcpTaskStorage(db: McpTaskDatabase): McpTaskStorage {
     },
   };
 }
-
-/** Every PGlite Tasks row in its column shape, timestamps as ISO text. */
-export interface PgliteMcpTaskRows {
-  readonly authorities: readonly Readonly<Record<string, unknown>>[];
-  readonly tasks: readonly Readonly<Record<string, unknown>>[];
-}
-
-function isoTimestamps(row: unknown): Readonly<Record<string, unknown>> {
-  if (typeof row !== 'object' || row === null) {
-    throw new TypeError('A PGlite MCP Tasks row must be an object.');
-  }
-  return Object.fromEntries(
-    Object.entries(row).map(([column, value]) => [
-      column,
-      value instanceof Date ? value.toISOString() : value,
-    ])
-  );
-}
-
-/**
- * The desktop's PGlite Tasks rows, read once for the host's import into its
- * StateStore (BST-1930 ruling B). Read-only; the host validates every row.
- */
-export async function readPgliteMcpTaskRows(db: McpTaskDatabase): Promise<PgliteMcpTaskRows> {
-  const authorities = await db.query(
-    `SELECT * FROM ${AUTHORITY_TABLE} ORDER BY created_at ASC, authority_epoch ASC`
-  );
-  const tasks = await db.query(
-    `SELECT * FROM ${TABLE} ORDER BY created_at ASC, authority_epoch ASC, task_id ASC`
-  );
-  return {
-    authorities: authorities.rows.map(isoTimestamps),
-    tasks: tasks.rows.map(isoTimestamps),
-  };
-}

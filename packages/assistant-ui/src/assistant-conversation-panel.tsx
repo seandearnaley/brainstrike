@@ -15,7 +15,7 @@ import { type AssistantUiPanelProps, ChatThreadUI } from './assistant-ui-panel';
 import { type DecisionRoute, DecisionRouteContext } from './decision-route-context';
 import { FollowUpQueueOwnershipContext } from './follow-up-queue-ownership';
 import { MetadataProviders } from './openrouter-model-metadata-context';
-import { RewindProvider } from './rewind-context';
+import { type RewindContextValue, RewindProvider } from './rewind-context';
 
 type ThreadSurfaceProps = ComponentProps<typeof ChatThreadUI>;
 export type AssistantConversationPanelProps = Partial<
@@ -46,6 +46,11 @@ export type AssistantConversationPanelProps = Partial<
      * read those answers from it (`answered-approvals-index.tsx`).
      */
     readonly ownerThread?: ApprovalOwnerThread | undefined;
+    /**
+     * "Restore to before this message" for a root conversation whose owner
+     * rewinds it; absent, the view offers none (a delegated child's view).
+     */
+    readonly rewind?: RewindContextValue | null | undefined;
     /** Owned by the host; viewing or closing this panel never starts or stops a run. */
     readonly runtime: AssistantRuntime;
     readonly threadKey: string;
@@ -64,6 +69,7 @@ export function AssistantConversationPanel({
   prepareActiveInput,
   label,
   ownerThread,
+  rewind = null,
   runtime,
   threadKey,
   openRouterModelMetadataLookup,
@@ -96,7 +102,7 @@ export function AssistantConversationPanel({
             prepare={prepareActiveInput}
           >
             <PlanModeExitProvider onExit={props.planMode?.onExit}>
-              <RewindProvider value={null}>
+              <RewindProvider value={rewind}>
                 <DecisionRouteContext value={decisionRoute ?? null}>
                   <FollowUpQueueOwnershipContext value={ownsFollowUpQueue}>
                     <AssistantPanelErrorBoundary>

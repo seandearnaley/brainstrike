@@ -24,6 +24,7 @@ import { GitCommitHorizontal, History, Loader2, RefreshCw, Upload } from 'lucide
 import { type ReactElement, useMemo, useState } from 'react';
 import { resolveGitBridge } from '../../git-panel/git-bridge';
 import { useRewindStore } from '../rewind-store';
+import { useRewindPortFor } from '../use-rewind-port-for';
 import { ChangesetSourcePicker } from './changeset-source-picker';
 import { describeGitScopeKind } from './git-scope-label';
 
@@ -380,13 +381,19 @@ function RewindFromRunAction({
 }: {
   readonly runId: string;
   readonly threadId: string;
-}): ReactElement {
+}): ReactElement | null {
   const openRewind = useRewindStore((state) => state.openRewind);
+  const portFor = useRewindPortFor();
+  if (!portFor) {
+    return null;
+  }
   return (
     <Button
       className="h-7 gap-1 px-2 text-xs"
       data-testid="changeset-rewind-action"
-      onClick={() => openRewind({ composerText: null, target: { runId, threadId } })}
+      onClick={() =>
+        openRewind({ composerText: null, port: portFor(threadId), target: { runId, threadId } })
+      }
       size="sm"
       type="button"
       variant="outline"

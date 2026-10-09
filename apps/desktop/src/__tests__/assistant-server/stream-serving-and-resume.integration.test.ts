@@ -61,10 +61,6 @@ vi.mock('../../assistant-server/http', async () => {
   };
 });
 
-vi.mock('../../mcp-loader', () => ({
-  loadMcpConfig: vi.fn(() => Promise.resolve({ config: undefined })),
-}));
-
 const { convertAssistantUiMessages } = vi.hoisted(() => ({
   convertAssistantUiMessages: vi.fn((messages) => messages),
 }));

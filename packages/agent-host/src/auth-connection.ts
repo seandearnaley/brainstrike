@@ -63,6 +63,5 @@ export function bindHostAuthMethods(
     deleted: await desktop().deleteCredential(account),
   }));
   handle('auth/clear', async () => ({ cleared: await desktop().clear() }));
-  handle('auth/import-legacy', (input) => desktop().importLegacy(input));
   handle('auth/verify', ({ provider }) => desktop().verify(provider));
 }

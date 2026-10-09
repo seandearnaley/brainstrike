@@ -1,14 +1,14 @@
 import { z } from 'zod';
 
 /**
- * Renderer ↔ desktop-main contract for production MCP Apps (BST-1572
- * enablement). The renderer owns the sandbox policy, provenance, frame
- * bridge, and the tool-call authority's approval state; the main process owns
- * admission (prepare / execute / release against the live assistant run),
- * resource reads, and the shell registry that serves each mount's sandbox
- * shell from the privileged `brainstrike-mcp-app:` scheme (prepareShell /
- * releaseShell). This module owns the payload schemas; the desktop pure IPC
- * contract owns channel names and authorization.
+ * Production MCP Apps contract (BST-1572 enablement). The renderer owns the
+ * sandbox policy, provenance, frame bridge, and the tool-call authority's
+ * approval state; the agent host admits and runs each app tool call (prepare /
+ * execute / release) under the owning thread's policy; the desktop main
+ * process owns resource reads and the shell registry that serves each mount's
+ * sandbox shell from the privileged `brainstrike-mcp-app:` scheme
+ * (prepareShell / releaseShell). This module owns the payload schemas; the
+ * desktop pure IPC contract owns channel names and authorization.
  */
 /** Scheme the desktop main process serves registered sandbox shells from. */
 export const MCP_APP_SHELL_URL_SCHEME = 'brainstrike-mcp-app';
@@ -104,7 +104,7 @@ export type McpAppShellPrepareResult = z.infer<typeof McpAppShellPrepareResultSc
 export const McpAppShellReleaseRequestSchema = z.strictObject({ token: ShellTokenSchema });
 export type McpAppShellReleaseRequest = z.infer<typeof McpAppShellReleaseRequestSchema>;
 
-/** Capability the visible-UI preload exposes; absent on web and hidden hosts. */
+/** What an app mount needs from its host: its shell and document, and its tool calls' admission. */
 export interface McpAppBridge {
   execute(request: McpAppExecuteRequest): Promise<McpAppExecuteResult>;
   prepare(request: McpAppPrepareRequest): Promise<McpAppPrepareResult>;
@@ -116,6 +116,12 @@ export interface McpAppBridge {
   /** Unregisters a shell; its URL answers 404 from this point on. */
   releaseShell(request: McpAppShellReleaseRequest): Promise<void>;
 }
+
+/** The part of the bridge the visible-UI preload exposes; absent on web and hidden hosts. */
+export type McpAppShellBridge = Pick<
+  McpAppBridge,
+  'prepareShell' | 'readResource' | 'releaseShell'
+>;
 
 /** Cheap discriminator probe shared by the persisted tool-result marker readers. */
 export function hasToolResultKind(value: unknown, kind: string): boolean {

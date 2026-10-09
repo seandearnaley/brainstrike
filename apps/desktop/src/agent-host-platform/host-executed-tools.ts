@@ -1,4 +1,5 @@
 import { homedir } from 'node:os';
+import type { HostToolContext } from '@brainstrike/agent-host';
 import {
   NATIVE_TOOL_ID,
   scanShellCommandForGitSignals,
@@ -57,6 +58,7 @@ import {
   DiagnosticEventItemsSchema,
   DiagnosticFingerprintItemsSchema,
   GrepIndexResultSchema,
+  PlatformShellCompletedResultSchema,
   QuerySelfReadResultSchema,
   WorktreeArchiveResultSchema,
   WorktreeCreateResultSchema,
@@ -110,7 +112,8 @@ type MainRequest = (method: string, input: unknown, signal?: AbortSignal) => Pro
 function hostShellCorrelation(
   request: MainRequest,
   threadId: string,
-  runId: string | undefined
+  runId: string | undefined,
+  shellWorktrees: HostToolContext['shellWorktrees']
 ): ShellCorrelationDependencies {
   return {
     shellCorrelation: {
@@ -120,15 +123,20 @@ function hostShellCorrelation(
         if (!(signals.touchedWorktrees || signals.createdPullRequest)) {
           return;
         }
-        request('platform/shell/completed', {
+        const adopted = request('platform/shell/completed', {
           command,
           precedingWorktreePaths: precedingWorktreePaths ? [...precedingWorktreePaths] : null,
           rootId,
           ...(runId ? { runId } : {}),
           threadId,
-        }).catch((error: unknown) => {
-          logger.error('shell correlation request failed', { error, rootId });
-        });
+        })
+          .then((reply) => PlatformShellCompletedResultSchema.parse(reply).adopted)
+          .catch((error: unknown) => {
+            logger.error('shell correlation request failed', { error, rootId });
+            return [];
+          });
+        // Core commits each adopted worktree under this call, joined by its run.
+        shellWorktrees?.(adopted);
       },
     },
     worktreeTools: {
@@ -340,8 +348,8 @@ export function desktopHostToolExecutors(
       ? { [NATIVE_TOOL_ID.runPython]: runPythonExecutor(hostCodeExecution(appPaths)) }
       : {}),
     ...hostSkillExecutors(native, appPaths),
-    [NATIVE_TOOL_ID.executeCommand]: executeCommandExecutor(({ runtimeData }) =>
-      hostShellCorrelation(request, threadId, runtimeData?.memory?.runId)
+    [NATIVE_TOOL_ID.executeCommand]: executeCommandExecutor(({ ports, runtimeData }) =>
+      hostShellCorrelation(request, threadId, runtimeData?.memory?.runId, ports.shellWorktrees)
     ),
   };
 }
