@@ -8,6 +8,7 @@ import {
 } from '@brainstrike/assistant-contract';
 import { WEB_SEARCH_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { modelMessageSchema, type StepResult, type ToolSet } from 'ai';
+import { leaseHostAdmission } from './admission-lease.js';
 import { ApprovalInputReconstructionError, admittedApprovalInput } from './approval-input.js';
 import { withHostDelegationTools } from './child-runs.js';
 import type { HostRunState } from './core-state.js';
@@ -107,20 +108,16 @@ function immutableData<T>(input: T): T {
 
 /** Retain the selected executors and configuration without freezing the source registry. */
 export function captureHostRunAdmission(selected: HostRunAdmission): HostRunAdmission {
-  let closing: Promise<void> | undefined;
   const mcpAuthorities = Object.fromEntries(
     Object.entries(selected.tools).flatMap(([id, tool]) =>
       tool.mcpAuthority ? [[id, tool.mcpAuthority]] : []
     )
   );
+  const close = selected.close?.bind(selected);
   return Object.freeze({
     ...selected,
-    ...(selected.close
-      ? {
-          close: (): Promise<void> =>
-            (closing ??= Promise.resolve().then(() => selected.close?.())),
-        }
-      : {}),
+    // Children borrow this selection; it closes once, after its last holder.
+    ...(close ? { close: leaseHostAdmission(close) } : {}),
     configuration: immutableData(selected.configuration),
     ...(selected.unavailableMcpServers
       ? {

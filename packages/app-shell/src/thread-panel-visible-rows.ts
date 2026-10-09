@@ -122,6 +122,7 @@ const THREAD_PANEL_ROW_HEIGHT_PX = {
   'delegated-state': 36,
   empty: 40,
   group: 40,
+  'host-child': THREAD_CONTROL_ROW_PITCH_PX,
   'show-more': 36,
   thread: THREAD_CONTROL_ROW_PITCH_PX,
 } as const satisfies Record<ThreadPanelVisibleRow['kind'], number>;
@@ -364,7 +365,9 @@ export function filterThreadPanelSelection(
 ): Set<string> {
   const delegatedIds = new Set(
     rows.flatMap((row) =>
-      row.kind === 'delegated' || row.kind === 'delegated-state' ? [row.id] : []
+      row.kind === 'delegated' || row.kind === 'delegated-state' || row.kind === 'host-child'
+        ? [row.id]
+        : []
     )
   );
   return new Set([...ids].filter((id) => !delegatedIds.has(id)));

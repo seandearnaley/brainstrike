@@ -1,6 +1,7 @@
 import type { HostClient } from '@brainstrike/agent-host/browser';
 import {
   HostChildConversations,
+  HostChildToolbar,
   useAssistantRunNotifications,
   useBudgetGuardrailBinding,
 } from '@brainstrike/app-shell';
@@ -34,6 +35,7 @@ import { CommittedWorkspaceControls } from './committed-workspace-controls';
 import { readDesktopHostModel } from './desktop-host-configuration';
 import { createWindowThreadCapability } from './desktop-host-thread-capability';
 import { HostApprovalStrip } from './host-approval-strip';
+import { HostChildDetailsFold } from './host-child-details';
 import { createHostDebugBundleBinding } from './host-thread-debug';
 import type { HostThreadLedger } from './host-thread-ledger';
 import type { HostThreadRuns } from './host-thread-runs';
@@ -71,6 +73,30 @@ function useCommittedEffectCount(conversation: CommittedHostConversation | undef
   return useSyncExternalStore(source?.subscribe ?? NO_SUBSCRIPTION, read, read);
 }
 const NO_SUBSCRIPTION = (): (() => void) => () => undefined;
+
+/** BST-1932 (F15): a child's toolbar, live from its committed log. */
+function HostChildDetails({
+  source,
+}: {
+  readonly source: CommittedHostConversation['source'];
+}): ReactElement | null {
+  // A new source replays its log from the first row, so each source has its own fold.
+  const folds = useRef(new WeakMap<object, HostChildDetailsFold>());
+  const read = useCallback(() => {
+    let fold = folds.current.get(source);
+    if (!fold) {
+      fold = new HostChildDetailsFold();
+      folds.current.set(source, fold);
+    }
+    return fold.apply(source.getSnapshot().rows);
+  }, [source]);
+  const details = useSyncExternalStore(source.subscribe, read, read);
+  return details ? (
+    <div className="shrink-0 border-b px-2 py-1">
+      <HostChildToolbar details={details} />
+    </div>
+  ) : null;
+}
 
 function HostThread({
   agentColor,
@@ -158,6 +184,7 @@ function HostThread({
   }, [conversation]);
   return conversation ? (
     <div className="flex h-full min-h-0 flex-col">
+      {child ? <HostChildDetails key={threadId} source={conversation.source} /> : null}
       <div className="min-h-0 flex-1">
         <CommittedCheckpoints checkpoints={conversation.checkpoints}>
           <BudgetGuardrailProvider value={budgetGuardrail}>
@@ -167,7 +194,11 @@ function HostThread({
                   {...presentation}
                   agentColor={agentColor}
                   approvalStrip={
-                    <HostApprovalStrip client={client} tree={conversation.approvals} />
+                    <HostApprovalStrip
+                      client={client}
+                      self={child ? label : undefined}
+                      tree={conversation.approvals}
+                    />
                   }
                   commands={conversation.commands}
                   {...(cumulativeUsage ? { cumulativeUsage } : {})}

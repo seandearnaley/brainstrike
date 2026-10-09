@@ -30,6 +30,7 @@ function fixture() {
   const client: HostClient = {
     close: vi.fn(async () => undefined),
     closed: Promise.resolve(),
+    onChildrenChanged: vi.fn(() => () => undefined),
     onEvent: vi.fn(() => () => undefined),
     record: {
       endpoint: '/tmp/recorded-host-fixture',

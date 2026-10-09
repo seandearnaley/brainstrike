@@ -132,6 +132,7 @@ test('a foreground persona child runs in its own thread with narrowed tools and 
       parentRunId: runId,
       parentThreadId: harness.threadId,
       persona: 'explore',
+      profile: { label: 'Explorer', mode: 'read-only' },
       toolCallId: 'parent-call-1',
       turnId: runId,
     },

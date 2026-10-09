@@ -3,9 +3,13 @@ import {
   intersectChildPermissionCeilings,
   type PermissionToolGateSnapshot,
 } from '@brainstrike/assistant-contract';
-import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
+import {
+  type AssistantPersonaDefinition,
+  personaMode,
+} from '@brainstrike/assistant-contract/personas';
 import { createLogger } from '@brainstrike/logging';
 import type { LanguageModel } from 'ai';
+import { borrowHostAdmission } from './admission-lease.js';
 import {
   describeHostChildContinuation,
   describeHostChildLedger,
@@ -23,12 +27,13 @@ import {
 } from './child-runs.js';
 import { HostChildWorkQueue } from './child-work-queue.js';
 import { retainHostRunWork } from './core-run-lifecycle.js';
-import type { HostRunState } from './core-state.js';
+import { type HostRunState, hasHostInteractionResponse } from './core-state.js';
 import type { HostDelegation, HostPlatform, HostRunAdmission } from './ports.js';
 import type {
   HostChildDelivery,
   HostChildDeliveryEntry,
   HostChildOrigin,
+  HostChildStatus,
   HostEvent,
   HostLogRow,
   HostParams,
@@ -159,6 +164,35 @@ interface Invocation {
  * BST-1932: HostCore's child-thread registry, folded from the committed log.
  * HostCore remains the only writer; this owns no store, queue or loop.
  */
+/** The committed events that change a child's status in its parent's sidebar. */
+const CHILD_STATUS_EVENTS = new Set<HostEvent['type']>([
+  'run.started',
+  'run.finished',
+  'interaction.requested',
+  'interaction.responded',
+]);
+
+/** True when a committed row may change its child thread's status. */
+export function hostChildStatusChanged(row: HostLogRow): boolean {
+  return CHILD_STATUS_EVENTS.has(row.event.type);
+}
+
+/** A child's status, derived from its runs: never stored. */
+function hostChildStatus(
+  threadId: string,
+  runs: ReadonlyMap<string, HostRunState>
+): HostChildStatus {
+  const active = [...runs.values()].filter((run) => run.threadId === threadId && !run.terminal);
+  if (active.length === 0) {
+    return 'idle';
+  }
+  return active.some((run) =>
+    [...run.approvals.values()].some((pending) => !hasHostInteractionResponse(pending))
+  )
+    ? 'needs-input'
+    : 'working';
+}
+
 export class HostChildRuns {
   private readonly origins = new Map<string, HostChildOrigin>();
   /** Each child thread's invocation run: the first run its delegation started. */
@@ -375,11 +409,17 @@ export class HostChildRuns {
     return snapshot;
   }
 
+  /** The thread that delegated `threadId`; undefined for a top-level thread. */
+  parentOf(threadId: string): string | undefined {
+    return this.origins.get(threadId)?.parentThreadId;
+  }
+
   /** A thread's direct children, in the order their origins were committed. */
   listed(
     threadId: string,
     threads: ReadonlySet<string>,
-    presentations: { read(threadId: string): { readonly color?: string | undefined } }
+    presentations: { read(threadId: string): { readonly color?: string | undefined } },
+    runs: ReadonlyMap<string, HostRunState>
   ): HostResults['thread/children']['children'] {
     if (!threads.has(threadId)) {
       throw new Error('Unknown thread');
@@ -403,7 +443,15 @@ export class HostChildRuns {
       if (!color) {
         throw new Error('A child conversation has no family colour.');
       }
-      return [{ callSign: hostChildCallSign(child), color, origin, threadId: child }];
+      return [
+        {
+          callSign: hostChildCallSign(child),
+          color,
+          origin,
+          status: hostChildStatus(child, runs),
+          threadId: child,
+        },
+      ];
     });
   }
 
@@ -455,6 +503,11 @@ export class HostChildRuns {
       this.origins.delete(prepared.threadId);
       release();
       throw cause;
+    }
+    // The committed child holds its parent's selection until the child settles.
+    const borrowed = borrowHostAdmission(request.admission.close);
+    if (borrowed && prepared.child.admission) {
+      prepared.child.admission = { ...prepared.child.admission, close: borrowed };
     }
     request.run.started.add(request.action.toolCallId);
     this.invocations.set(prepared.threadId, prepared.child.id);
@@ -623,6 +676,7 @@ export class HostChildRuns {
       parentRunId: run.id,
       parentThreadId: run.threadId,
       persona: persona.id,
+      profile: { label: persona.label, mode: personaMode(persona) },
       toolCallId: action.toolCallId,
       turnId,
     };

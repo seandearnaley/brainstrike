@@ -60,7 +60,7 @@ export function DelegatedSidebarCell({
   row,
   onShowMore,
 }: {
-  readonly row: DelegatedSidebarRow;
+  readonly row: Exclude<DelegatedSidebarRow, { kind: 'host-child' }>;
   readonly onShowMore: (id: string) => void;
 }) {
   if (row.kind === 'delegated') {

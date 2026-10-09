@@ -31,6 +31,7 @@ export { useEnableModel } from './hooks/use-enable-model';
 export { useHostAssistantStatusFetcher } from './hooks/use-host-assistant-status-fetcher';
 export { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
 export { HostChildConversations } from './host-child-conversations';
+export { HostChildToolbar, type HostChildToolbarDetails } from './host-child-toolbar';
 export * from './navigation';
 export * from './page-wrapper';
 export * from './provider-verification-client';
