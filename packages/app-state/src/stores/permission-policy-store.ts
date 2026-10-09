@@ -190,6 +190,15 @@ function createDeferredPermissionPolicyStorage(): StateStorage {
 
 const storage = createJSONStorage(createDeferredPermissionPolicyStorage);
 
+type PermissionPolicyHydration =
+  | { status: 'loading' | 'ready' }
+  | { status: 'failed'; error: string };
+
+/** Transient read status; only the policy store persists data. */
+export const usePermissionPolicyHydration = create<PermissionPolicyHydration>(() => ({
+  status: 'loading',
+}));
+
 function defaultPolicies(): PermissionPolicies {
   return { ...DEFAULT_PERMISSION_POLICIES };
 }
@@ -330,6 +339,20 @@ export const usePermissionPolicyStore = create<PermissionPolicyStore>()(
         } satisfies PermissionPolicyData;
       },
       name: STORE_NAME,
+      onRehydrateStorage: () => {
+        usePermissionPolicyHydration.setState({ status: 'loading' }, true);
+        return (_state, error) => {
+          usePermissionPolicyHydration.setState(
+            error === undefined
+              ? { status: 'ready' }
+              : {
+                  error: error instanceof Error ? error.message : String(error),
+                  status: 'failed',
+                },
+            true
+          );
+        };
+      },
       // SESSION-ONLY `sessionGrants` is intentionally excluded — only the
       // persisted slice is written to storage.
       partialize: (state) => ({

@@ -2,7 +2,7 @@ import {
   __resetPermissionPolicyStoreForTests,
   usePermissionPolicyStore,
 } from '@brainstrike/app-state/stores/permission-policy-store';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 const { PermissionSettingsSection } = await import(
@@ -12,6 +12,64 @@ const { PermissionSettingsSection } = await import(
 describe('PermissionSettingsSection', () => {
   beforeEach(() => {
     __resetPermissionPolicyStoreForTests();
+  });
+
+  it('waits for the saved policy before accepting changes', async () => {
+    const storage = usePermissionPolicyStore.persist.getOptions().storage;
+    const read = Promise.withResolvers<null>();
+    usePermissionPolicyStore.persist.setOptions({
+      storage: {
+        getItem: () => read.promise,
+        removeItem: () => undefined,
+        setItem: () => undefined,
+      },
+    });
+    try {
+      const hydration = usePermissionPolicyStore.persist.rehydrate();
+      render(<PermissionSettingsSection />);
+      expect(screen.queryByTestId('permission-policy-edit')).toBeNull();
+      expect(screen.getByRole('status')).not.toBeNull();
+      await act(async () => {
+        read.resolve(null);
+        await hydration;
+      });
+      expect((screen.getByTestId('permission-policy-edit') as HTMLSelectElement).disabled).toBe(
+        false
+      );
+    } finally {
+      read.resolve(null);
+      usePermissionPolicyStore.persist.setOptions({ storage });
+      await act(async () => usePermissionPolicyStore.persist.rehydrate());
+    }
+  });
+
+  it('shows a failed policy read and lets the user retry before editing', async () => {
+    const storage = usePermissionPolicyStore.persist.getOptions().storage;
+    let failing = true;
+    usePermissionPolicyStore.persist.setOptions({
+      storage: {
+        getItem: async () => {
+          if (failing) {
+            throw new Error('Policy connection closed');
+          }
+          return null;
+        },
+        removeItem: () => undefined,
+        setItem: () => undefined,
+      },
+    });
+    try {
+      await usePermissionPolicyStore.persist.rehydrate();
+      render(<PermissionSettingsSection />);
+      expect(screen.queryByTestId('permission-policy-edit')).toBeNull();
+      expect(screen.getByRole('alert')).not.toBeNull();
+      failing = false;
+      fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+      await waitFor(() => expect(screen.getByTestId('permission-policy-edit')).not.toBeNull());
+    } finally {
+      usePermissionPolicyStore.persist.setOptions({ storage });
+      await act(async () => usePermissionPolicyStore.persist.rehydrate());
+    }
   });
 
   it('renders the enforce toggle, four category controls, and the YOLO toggle', () => {
