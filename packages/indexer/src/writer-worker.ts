@@ -70,6 +70,9 @@ try {
         case 'state-search-vectors':
           value = writer.requireState().putSearchVectors(request.payload);
           break;
+        case 'state-search-coverage':
+          value = writer.requireState().searchCoverage(request.payload);
+          break;
         case 'state-search-similar':
           value = writer.requireState().searchSimilar(request.payload);
           break;

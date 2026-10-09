@@ -27,6 +27,8 @@ import type {
   StateObservationUpsert,
   StateProjectionStats,
   StateSearch,
+  StateSearchCoverage,
+  StateSearchCoverageRequest,
   StateSearchHit,
   StateSearchPending,
   StateSearchPendingRow,
@@ -94,6 +96,8 @@ export type {
   StateProjectionOptions,
   StateProjectionStats,
   StateSearch,
+  StateSearchCoverage,
+  StateSearchCoverageRequest,
   StateSearchHit,
   StateSearchPending,
   StateSearchPendingRow,
@@ -169,6 +173,8 @@ export interface StateIndexerPort {
   reindexState(threadId: string, seq: number): Promise<void>;
   /** Gap 10: committed conversation rows of the requested threads matching every query word. */
   searchState(request: StateSearch): Promise<readonly StateSearchHit[]>;
+  /** The semantic arm's coverage: rows, embedded rows and recently failed rows. */
+  searchStateCoverage(request: StateSearchCoverageRequest): Promise<StateSearchCoverage>;
   /** The semantic arm's backlog: rows with no vector under the profile, for the caller to embed. */
   searchStatePending(request: StateSearchPending): Promise<readonly StateSearchPendingRow[]>;
   /** The semantic arm: rows nearest the query vector under the profile, best first. */
