@@ -6,7 +6,7 @@
  */
 import type { McpHostSnapshot } from '@brainstrike/assistant-contract';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { createElement, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const toastSpy = vi.fn();
@@ -15,6 +15,7 @@ vi.mock('@brainstrike/ui', () => ({
 }));
 
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
+import { type McpContentCapability, McpContentCapabilityProvider } from '../mcp-content-capability';
 import { useMcpPromptSelectionStore } from '../mcp-prompts/mcp-prompt-selection-store';
 import { type McpStatusCapability, McpStatusCapabilityProvider } from '../mcp-status-capability';
 import { useMcpPromptSlashCommands } from '../use-mcp-prompt-slash-commands';
@@ -31,18 +32,24 @@ interface TestBridge {
 const listeners = new Set<StatusListener>();
 /** The agent host's MCP status the desktop provides (BST-1930 c5b); `null` like web. */
 let status: McpStatusCapability | null = null;
+/** The agent host's prompt content the desktop provides (BST-1930 c5d); `null` like web. */
+let content: McpContentCapability | null = null;
 
-/** `window.mcp` carries the content members; the status comes from the host. */
+/** The desktop provides both content and status from the agent host. */
 function install(bridge: TestBridge): void {
-  (window as unknown as { mcp?: unknown }).mcp = {
+  content = {
     complete: bridge.complete,
     getPrompt: bridge.getPrompt,
-  };
+  } as unknown as McpContentCapability;
   status = { read: bridge.getServerStatusSnapshot, subscribe: bridge.onServerStatusUpdated };
 }
 
 function wrapper({ children }: { readonly children: ReactNode }) {
-  return createElement(McpStatusCapabilityProvider, { capability: status, children });
+  return (
+    <McpStatusCapabilityProvider capability={status}>
+      <McpContentCapabilityProvider capability={content}>{children}</McpContentCapabilityProvider>
+    </McpStatusCapabilityProvider>
+  );
 }
 
 function connectedServer(id: string, prompts: unknown[], generation = 7): unknown {
@@ -91,11 +98,11 @@ beforeEach(() => {
   useMcpPromptSelectionStore.getState().clear();
   listeners.clear();
   status = null;
+  content = null;
   toastSpy.mockClear();
 });
 
 afterEach(() => {
-  (window as unknown as { mcp?: unknown }).mcp = undefined;
   vi.restoreAllMocks();
 });
 
@@ -109,7 +116,7 @@ describe('useMcpPromptSlashCommands', () => {
   // always mounted and owns the one visible report, so the composer surface
   // cannot double-toast it.
   it('offers nothing when the bridge is present but incomplete', async () => {
-    (window as unknown as { mcp?: unknown }).mcp = { getPrompt: vi.fn() };
+    content = { complete: vi.fn(), getPrompt: vi.fn() };
     const { result } = renderHook(() => useMcpPromptSlashCommands('thread-1'), { wrapper });
     await waitFor(() => expect(result.current).toEqual([]));
   });

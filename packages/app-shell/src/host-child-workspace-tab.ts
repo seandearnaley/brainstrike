@@ -32,6 +32,10 @@ export function hostChildWorkspaceTabId(tab: HostChildWorkspaceTab): string {
   return PREFIX + encodeURIComponent(JSON.stringify(tuple));
 }
 
+export function isHostChildWorkspaceTabId(id: string): boolean {
+  return id.startsWith(PREFIX);
+}
+
 /** Ordinary app ids pass through; a corrupted child id is a visible error. */
 export function readHostChildWorkspaceTab(id: string): HostChildWorkspaceTab | undefined {
   if (!id.startsWith(PREFIX)) {

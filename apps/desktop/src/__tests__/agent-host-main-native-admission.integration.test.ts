@@ -322,7 +322,7 @@ test('the auto observer is the first auto candidate the model catalog has enable
     }
     throw new Error('Unexpected owner query in observer admission');
   });
-  const observer = async () => {
+  const memory = async (target: { model: string; provider: string }) => {
     const captured = await productionDesktopCapabilities({}).readConfiguration(
       request(
         [],
@@ -345,15 +345,18 @@ test('the auto observer is the first auto candidate the model catalog has enable
             },
           },
         },
-        { model: 'anthropic/claude-sonnet-4.6', provider: 'openrouter' }
+        target
       )
     );
     try {
-      return captured.memory.settings.observationalMemory;
+      return captured.memory;
     } finally {
       await captured.close();
     }
   };
+  const observer = async () =>
+    (await memory({ model: 'anthropic/claude-sonnet-4.6', provider: 'openrouter' })).settings
+      .observationalMemory;
 
   // OpenRouter's first auto candidate ships catalog-disabled; the enabled one after it observes.
   eligible.mockReturnValue([{ modelId: 'google/gemini-3.5-flash-lite', providerId: 'openrouter' }]);
@@ -364,4 +367,12 @@ test('the auto observer is the first auto candidate the model catalog has enable
   // No enabled candidate: observation waits, disabled, as the settings resolver reports it.
   eligible.mockReturnValue([]);
   await expect(observer()).resolves.toMatchObject({ enabled: false });
+  // Why it waits, as legacy's settings resolver names it: the chat provider has
+  // auto candidates but none is enabled, or it has no auto candidate at all.
+  await expect(
+    memory({ model: 'anthropic/claude-sonnet-4.6', provider: 'openrouter' })
+  ).resolves.toMatchObject({ observerAwaiting: 'model-not-eligible' });
+  await expect(
+    memory({ model: 'anthropic.claude-fable-5', provider: 'bedrock' })
+  ).resolves.toMatchObject({ observerAwaiting: 'no-hosted-chat-provider' });
 });

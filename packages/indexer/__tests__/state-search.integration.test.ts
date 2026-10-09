@@ -134,7 +134,7 @@ it('an upgraded schema 10 store projects search rows from the events it already 
   const db = openConnection(f.options.dbPath);
   try {
     db.exec(
-      'DROP TABLE state_search_vectors; DROP TABLE state_search_fts; DROP TABLE state_search_rows;'
+      'DROP TABLE state_search_vector_failures; DROP TABLE state_search_vectors; DROP TABLE state_search_fts; DROP TABLE state_search_rows;'
     );
     db.prepare('UPDATE index_metadata SET schema_version=10').run();
   } finally {
@@ -154,7 +154,7 @@ it('an upgraded schema 10 store projects search rows from the events it already 
   );
   const upgraded = openConnection(f.options.dbPath, { readonly: true });
   try {
-    expect(upgraded.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(12);
+    expect(upgraded.prepare('SELECT schema_version FROM index_metadata').pluck().get()).toBe(13);
   } finally {
     upgraded.close();
   }

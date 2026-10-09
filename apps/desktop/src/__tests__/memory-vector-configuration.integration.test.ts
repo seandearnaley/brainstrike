@@ -169,7 +169,9 @@ test('missing vector capabilities refuse visibly without substituting a model', 
   ).rejects.toThrow(/desktop embedding host/);
   await expect(
     createDesktopHostMemoryConfiguration(selection(hostedProfile), async () => undefined)
-  ).rejects.toThrow(/API credential/);
+  ).rejects.toThrow(
+    'Semantic recall requires a configured OpenAI API key. Configure it in Settings → Providers, choose a keyless local embedder, or turn semantic recall off.'
+  );
   expect(fetch).not.toHaveBeenCalled();
 });
 
@@ -211,6 +213,8 @@ test('disabled recall and existing observer messages/off options preserve provid
   }
   await expect(
     createDesktopHostMemoryConfiguration(admitted, async () => undefined)
-  ).rejects.toThrow(/API credential/);
+  ).rejects.toThrow(
+    'Observational memory requires a configured OpenAI API key. Configure it in Settings → Providers, choose a keyless local observer, or turn observations off.'
+  );
   expect(fetch).not.toHaveBeenCalled();
 });

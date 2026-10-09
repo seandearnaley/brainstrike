@@ -22,12 +22,7 @@ import { fileSystemContract, fileSystemWatchContract } from './ipc-domains/file-
 import { forgeContract } from './ipc-domains/forge.contract';
 import { gitContract } from './ipc-domains/git.contract';
 import { indexSearchContract } from './ipc-domains/index-search.contract';
-import {
-  mcpAppsContract,
-  mcpContentContract,
-  mcpContract,
-  mcpPathSelectionContract,
-} from './ipc-domains/mcp.contract';
+import { mcpAppsContract, mcpPathSelectionContract } from './ipc-domains/mcp.contract';
 import { notesVaultContract } from './ipc-domains/notes-vault.contract';
 import { skillsContract } from './ipc-domains/skills.contract';
 import {
@@ -45,10 +40,7 @@ import { MAIN_OWNED_DESKTOP_STORAGE_KEYS } from './platform/desktop-storage-auth
 import { createBridgeExposer, createIpcBridge } from './platform/ipc-bridge';
 import { decodeNativeEmbeddingWorkerPlan } from './platform/native-embedding-validation';
 
-type McpContentIpcResponse = import('./ipc-domains/mcp.contract').McpContentIpcResponse;
-type McpHostSnapshot = import('@brainstrike/assistant-contract').McpHostSnapshot;
 type McpAppShellBridge = import('@brainstrike/assistant-contract').McpAppShellBridge;
-type McpAppOrigin = import('@brainstrike/assistant-contract').McpAppOrigin;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 // Contract-derived bridges (BST-1648): `exposeBridge(name, contract)` exposes
 // exactly `Object.keys(contract)`, each routed to its manifest channel with
@@ -121,52 +113,6 @@ import {
 // below intentionally duplicate `file-read-errors.ts`; conformance tests
 // source-evaluate this preload's own constants and predicate.
 const FILE_READ_ERROR_CODE_TOO_LARGE = 'TOO_LARGE' as const;
-/**
- * `mcp:content:*` failures travel as a result envelope (a thrown Error would
- * reach the renderer as Electron's formatted string, main-process stack
- * included). Rebuild a clean Error carrying only the fixed taxonomy.
- */
-const unwrapMcpContent = async (
-  response: Promise<McpContentIpcResponse>
-): Promise<Extract<McpContentIpcResponse, { ok: true }>['result']> => {
-  const settled = await response;
-  if (settled.ok) {
-    return settled.result;
-  }
-  throw Object.assign(
-    new Error(`${settled.error.message} (${settled.error.category} · ${settled.error.code})`),
-    { category: settled.error.category, code: settled.error.code }
-  );
-};
-
-const readMcpAppResource = async (origin: McpAppOrigin): Promise<string> => {
-  const snapshot = (await mcpRootBridge.getServerStatusSnapshot()) as McpHostSnapshot;
-  const server = snapshot.servers.find(
-    ({ configuredServerId }) => configuredServerId === origin.serverId
-  );
-  if (!server) {
-    throw new Error(`MCP Apps server "${origin.serverId}" has no live content authority`);
-  }
-  const response = await unwrapMcpContent(
-    mcpContentBridge.readResource({
-      authority: { configuredServerId: origin.serverId, generation: server.generation },
-      uri: origin.resourceUri,
-    })
-  );
-  if (response.type !== 'resources/read') {
-    throw new Error('MCP Apps resource read returned an unexpected operation type');
-  }
-  const content = response.result.contents.find(({ uri }) => uri === origin.resourceUri);
-  if (!(content && 'text' in content) || typeof content.text !== 'string') {
-    throw new Error(`MCP Apps resource "${origin.resourceUri}" has no text content`);
-  }
-  if (content.mimeType !== origin.mimeType) {
-    throw new Error(
-      `MCP Apps resource "${origin.resourceUri}" MIME type must be "${origin.mimeType}"`
-    );
-  }
-  return content.text;
-};
 const DESKTOP_TEST_MODE =
   process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
 const EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED =
@@ -541,25 +487,14 @@ contextBridge.exposeInMainWorld('agent', {
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.chat, messages, runtime),
 });
 
-// MCP content, Apps, Tasks and elicitation (desktop-only). The channel methods
-// and subscriptions are derived from pure contracts; MCP settings, status,
-// Tasks cards and global server input belong to the agent host. `apps.readResource` stays a composed preload
-// operation: it resolves the live server generation (the preload-internal
-// status read) before using the content contract, so there is intentionally no
-// dedicated IPC channel for it.
-const mcpRootBridge = createIpcBridge(ipcRenderer, mcpContract);
+// The MCP config picker and MCP App shell (desktop-only), derived from pure
+// contracts. MCP settings, status, Tasks cards, global server input and
+// content, an App's document included, belong to the agent host.
 const mcpPathSelectionBridge = createIpcBridge(ipcRenderer, mcpPathSelectionContract);
-const mcpContentBridge = createIpcBridge(ipcRenderer, mcpContentContract);
 const mcpAppsBridge = createIpcBridge(ipcRenderer, mcpAppsContract);
 contextBridge.exposeInMainWorld('mcp', {
   ...mcpPathSelectionBridge,
-  apps: {
-    ...mcpAppsBridge,
-    readResource: (origin: McpAppOrigin) => readMcpAppResource(origin),
-  } satisfies McpAppShellBridge,
-  complete: (request: unknown) => unwrapMcpContent(mcpContentBridge.complete(request)),
-  getPrompt: (request: unknown) => unwrapMcpContent(mcpContentBridge.getPrompt(request)),
-  readResource: (request: unknown) => unwrapMcpContent(mcpContentBridge.readResource(request)),
+  apps: mcpAppsBridge satisfies McpAppShellBridge,
 });
 
 // Assistant selection events. Tool execution deliberately stays behind the

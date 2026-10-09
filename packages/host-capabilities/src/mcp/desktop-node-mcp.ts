@@ -6,6 +6,7 @@ import { createLogger } from '@brainstrike/logging';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { createSecretsMcpBearerCredentialAuthority } from './bearer-credential.js';
 import { createMcpConfigFile } from './config-file.js';
+import { McpContentService } from './content-service.js';
 import {
   createCredentialMcpOAuthStore,
   type McpOAuthCredentialStorage,
@@ -43,6 +44,8 @@ export interface DesktopNodeMcpHostOptions {
 
 export interface DesktopNodeMcpHost {
   close(): Promise<void>;
+  /** The desktop windows' MCP content browsing. */
+  readonly content: McpContentService;
   /** The desktop windows' MCP Tasks cards and server input. */
   readonly presentation: McpPresentationService;
   readonly services: McpHostServices;
@@ -118,6 +121,10 @@ export async function createDesktopNodeMcpHost(
     userDataDir,
   });
   const presentation = new McpPresentationService(services.runtime);
+  const content = new McpContentService({
+    admit: () => settings.admitContent(),
+    host: services.runtime.host,
+  });
   let server: ReturnType<typeof serveMcpRuntimeToMain> | undefined;
   try {
     server = serveMcpRuntimeToMain(connection, services.runtime, settings);
@@ -156,6 +163,7 @@ export async function createDesktopNodeMcpHost(
           throw new AggregateError(failures, 'Desktop MCP host cleanup failed');
         }
       })()),
+    content,
     presentation,
     services,
     settings,

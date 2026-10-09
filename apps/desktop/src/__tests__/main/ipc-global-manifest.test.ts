@@ -330,7 +330,7 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
     expect(union.map((entry) => entry.channel)).toEqual(
       expect.arrayContaining([
         DESKTOP_IPC_CHANNELS.clipboard.writeText,
-        DESKTOP_IPC_CHANNELS.mcp.statusGet,
+        DESKTOP_IPC_CHANNELS.mcp.configSelectPath,
         DESKTOP_IPC_CHANNELS.browser.listTabs,
       ])
     );
@@ -369,7 +369,7 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
     ]);
     expect(contracts.filter(({ file }) => file === 'database.contract.ts')).toHaveLength(6);
     expect(contracts.filter(({ file }) => file === 'file-system.contract.ts')).toHaveLength(2);
-    expect(contracts.filter(({ file }) => file === 'mcp.contract.ts')).toHaveLength(4);
+    expect(contracts.filter(({ file }) => file === 'mcp.contract.ts')).toHaveLength(2);
     expect(contracts.filter(({ file }) => file === 'storage-preferences.contract.ts')).toHaveLength(
       4
     );

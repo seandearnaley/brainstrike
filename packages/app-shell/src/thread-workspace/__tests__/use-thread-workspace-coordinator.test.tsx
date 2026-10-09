@@ -5,6 +5,8 @@ import {
 } from '@brainstrike/assistant-data';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { delegatedWorkspaceTabId } from '../../delegated-workspace-tab';
+import { hostChildWorkspaceTabId } from '../../host-child-workspace-tab';
 import { ThreadWorkspaceNavigation } from '../thread-workspace-navigation';
 import { useThreadWorkspaceCoordinator } from '../use-thread-workspace-coordinator';
 import type { WorkspaceStateFacade } from '../workspace-snapshot-io';
@@ -55,6 +57,15 @@ function createHarness() {
     applyRootViews: vi.fn((focusedRootId, visibleRootIds) => {
       state.focusedRootId = focusedRootId;
       state.visibleRootIds = visibleRootIds;
+    }),
+    // Mirrors the selection store: a closed selected app hands selection on.
+    closeApps: vi.fn((appIds: readonly string[]) => {
+      const closing = new Set(appIds);
+      state.openAppIds = state.openAppIds.filter((id) => !closing.has(id));
+      if (state.selection.kind === 'app' && closing.has(state.selection.appId)) {
+        const successor = state.openAppIds.at(-1);
+        state.selection = successor ? { appId: successor, kind: 'app' } : { kind: 'empty' };
+      }
     }),
     getEditorState: vi.fn(() => state.editorState),
     getExpandedDirectoryPaths: vi.fn(() => state.expandedPaths),
@@ -464,6 +475,35 @@ describe('useThreadWorkspaceCoordinator', () => {
     });
     // Inherit does NOT hydrate — the live stores already show this state.
     expect(harness.facade.applyFileTabs).not.toHaveBeenCalled();
+  });
+
+  it('a new thread inherits the workspace without the outgoing thread child conversations', async () => {
+    const harness = createHarness();
+    const hostChild = hostChildWorkspaceTabId({ persona: 'researcher', threadId: 'child-a' });
+    const delegated = delegatedWorkspaceTabId({
+      ownerResourceId: 'resource',
+      rootThreadId: 'thread-a',
+      threadId: 'child-b',
+    });
+    harness.state.openAppIds = ['context-explorer', hostChild, delegated];
+    harness.state.selection = { appId: hostChild, kind: 'app' };
+    const { rerender } = render(harness, 'thread-a');
+
+    rerender({ activeThreadId: 'thread-new', openThreadIds: ['thread-a', 'thread-new'] });
+
+    await waitFor(() => {
+      expect(harness.rows.get('thread-new')?.apps.openAppIds).toEqual(['context-explorer']);
+    });
+    expect(harness.state.openAppIds).toEqual(['context-explorer']);
+    expect(harness.rows.get('thread-new')?.apps.selection).toEqual({
+      appId: 'context-explorer',
+      kind: 'app',
+    });
+    expect(harness.rows.get('thread-a')?.apps.openAppIds).toEqual([
+      'context-explorer',
+      hostChild,
+      delegated,
+    ]);
   });
 
   it('preloads open-thread snapshots and hydrates from cache synchronously on switch', async () => {

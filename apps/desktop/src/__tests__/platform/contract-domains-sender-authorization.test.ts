@@ -4,11 +4,7 @@ import { createDesktopDatabaseIntegrity } from '../../database-integrity-state';
 import { registerClipboardIpcHandlers } from '../../ipc-clipboard';
 import { registerContextFilesIpcHandlers } from '../../ipc-context-files';
 import { registerDatabaseIntegrityIpcHandlers } from '../../ipc-domains/database-integrity-ipc';
-import {
-  mcpContentContract,
-  mcpContract,
-  mcpPathSelectionContract,
-} from '../../ipc-domains/mcp.contract';
+import { mcpAppsContract, mcpPathSelectionContract } from '../../ipc-domains/mcp.contract';
 import { registerSkillsIpcHandlers } from '../../ipc-skills';
 import { registerUserCommandsIpcHandlers } from '../../ipc-user-commands';
 import { registerUserPersonasIpcHandlers } from '../../ipc-user-personas';
@@ -160,7 +156,7 @@ describe('contract-registered leaf domains are visible-UI-only by construction (
 });
 
 describe('contract-registered MCP invokes are visible-UI-only by construction (BST-996)', () => {
-  const contracts = [mcpContract, mcpPathSelectionContract, mcpContentContract];
+  const contracts = [mcpPathSelectionContract, mcpAppsContract];
 
   beforeEach(() => {
     resetElectronMainTestHarness();

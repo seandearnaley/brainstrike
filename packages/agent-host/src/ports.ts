@@ -528,6 +528,19 @@ export interface HostMcpSettingsService {
 }
 
 /**
+ * The desktop's MCP content browsing (BST-1930 c5d): one connected server
+ * generation's resource body, prompt messages or argument completions. A
+ * refusal answers in the content taxonomy, never with a server's own text.
+ */
+export interface HostMcpContentService {
+  complete(
+    request: HostParams<'mcp/content/complete'>
+  ): Promise<HostResults['mcp/content/complete']>;
+  prompt(request: HostParams<'mcp/content/prompt'>): Promise<HostResults['mcp/content/prompt']>;
+  read(request: HostParams<'mcp/content/read'>): Promise<HostResults['mcp/content/read']>;
+}
+
+/**
  * The desktop's MCP presentations (BST-1930 c5c): durable Tasks status cards
  * and their actions, and server input no run owns. Its windows read, answer
  * and follow them; only one presenter shows server input, and it stays
@@ -601,6 +614,8 @@ export interface HostPlatform {
   readonly maxSteps?: number | undefined;
   /** Runs the MCP App tool calls Core admits; absent where the host has no MCP. */
   readonly mcp?: Pick<HostMcpRuntime, 'callAppTool'> | undefined;
+  /** The desktop's MCP content browsing; absent where no window browses content. */
+  readonly mcpContent?: HostMcpContentService;
   /** The desktop's MCP Tasks cards and server input; absent where no window presents them. */
   readonly mcpPresentation?: HostMcpPresentationService;
   /** The desktop's MCP settings authority; absent where the host owns no MCP config. */

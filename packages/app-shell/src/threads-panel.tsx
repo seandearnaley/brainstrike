@@ -1980,6 +1980,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
   );
   const { retrySearch } = useThreadSearchController({
     embedder,
+    hostSearchVectors: host?.searchVectors,
     loadEmbeddingQueue,
     localModelConfigMap,
     repository: threadSearchRepository,

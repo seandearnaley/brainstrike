@@ -21,6 +21,7 @@ import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
+import { useMcpContentCapability } from './mcp-content-capability';
 import { resolveMcpPromptBridge } from './mcp-prompts/mcp-prompt-bridge';
 import { type McpPromptEntry, selectMcpPromptEntries } from './mcp-prompts/mcp-prompt-catalog';
 import { useMcpPromptSelectionStore } from './mcp-prompts/mcp-prompt-selection-store';
@@ -79,7 +80,8 @@ export function useMcpPromptSlashCommands(threadId: string | undefined): readonl
   // is surfaced by `McpPromptComposerHost` (always mounted); this hook only has
   // to offer nothing.
   const status = useMcpStatusCapability();
-  const [resolution] = useState(() => resolveMcpPromptBridge(status));
+  const content = useMcpContentCapability();
+  const [resolution] = useState(() => resolveMcpPromptBridge(status, content));
   const bridge = resolution.status === 'ready' ? resolution.bridge : null;
   const [snapshot, setSnapshot] = useState<McpHostSnapshot>(EMPTY_SNAPSHOT);
   const { toast } = useToast();

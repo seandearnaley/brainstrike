@@ -10,7 +10,6 @@ import type {
   AssistantWorkspaceTapestryUpdatePayload,
 } from '@brainstrike/types';
 import type { ChangesBridge } from '../changes/changes-bridge';
-import type { McpPromptBridge } from '../mcp-prompts/mcp-prompt-bridge';
 import type { PlatformBridge } from '../platform-bridge';
 import type { UserCommandsBridge } from '../user-commands-bridge';
 import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
@@ -44,13 +43,6 @@ declare global {
      * resolver validates it.
      */
     changes?: Partial<ChangesBridge>;
-    /**
-     * Desktop-only MCP content bridge. The composer's MCP prompt affordance
-     * (BST-1592) uses its `McpPromptBridge` content members, capability-checked
-     * via `resolveMcpPromptBridge()` rather than `isElectron()`; the agent host
-     * owns MCP settings and status (BST-1930 c5a-c5b).
-     */
-    mcp?: Partial<Pick<McpPromptBridge, 'complete' | 'getPrompt'>>;
     /**
      * Desktop-only OS shell integration bridge. Absent on web (no preload) —
      * capability-check via `resolvePlatformBridge()` (`platform-bridge.ts`)

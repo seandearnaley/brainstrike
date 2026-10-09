@@ -222,19 +222,12 @@ describe('preload contract-derived bridges', () => {
 
   it('exposes the composed MCP bridge with contract-derived root and Apps keys', () => {
     const mcp = exposedApi('mcp');
-    // Server status, lifecycle control, Tasks cards and global server input
-    // are agent-host methods (BST-1930 c5b-c5c).
-    const expectedRootKeys = new Set([
-      ...Object.keys(mcpPathSelectionContract),
-      'apps',
-      'complete',
-      'getPrompt',
-      'readResource',
-    ]);
+    // Server status, lifecycle control, Tasks cards, global server input and
+    // content are agent-host methods (BST-1930 c5b-c5d).
+    const expectedRootKeys = new Set([...Object.keys(mcpPathSelectionContract), 'apps']);
     expect(new Set(Object.keys(mcp))).toEqual(expectedRootKeys);
-    expect(Object.keys(mcp['apps'] as object).sort()).toEqual(
-      [...Object.keys(mcpAppsContract), 'readResource'].sort()
-    );
+    // An App's document is read from the agent host (BST-1930 c5d).
+    expect(Object.keys(mcp['apps'] as object).sort()).toEqual(Object.keys(mcpAppsContract).sort());
   });
 
   it('routes MCP contract methods through their manifest channels', async () => {
@@ -244,58 +237,6 @@ describe('preload contract-derived bridges', () => {
     await apps['releaseShell']?.({ token: 'shell-1' });
     expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.mcp.appsReleaseShell, {
       token: 'shell-1',
-    });
-  });
-
-  it("reads an MCP App resource against the server's live generation from Main's status", async () => {
-    const apps = exposedApi('mcp')['apps'] as unknown as Record<
-      string,
-      (...args: unknown[]) => Promise<unknown>
-    >;
-    const uri = 'ui://fixture/app.html';
-    mockInvoke.mockResolvedValueOnce({
-      revision: 3,
-      servers: [{ configuredServerId: 'fixture', generation: 7 }],
-    });
-    mockInvoke.mockResolvedValueOnce({
-      ok: true,
-      result: {
-        result: { contents: [{ mimeType: 'text/html;profile=mcp-app', text: '<p>app</p>', uri }] },
-        type: 'resources/read',
-      },
-    });
-
-    await expect(
-      apps['readResource']?.({
-        mimeType: 'text/html;profile=mcp-app',
-        resourceUri: uri,
-        serverId: 'fixture',
-        toolName: 'show',
-      })
-    ).resolves.toBe('<p>app</p>');
-    expect(mockInvoke.mock.calls.slice(-2)).toEqual([
-      [DESKTOP_IPC_CHANNELS.mcp.statusGet],
-      [
-        DESKTOP_IPC_CHANNELS.mcp.contentReadResource,
-        { authority: { configuredServerId: 'fixture', generation: 7 }, uri },
-      ],
-    ]);
-  });
-
-  it('unwraps MCP content replies into the established public promise behavior', async () => {
-    const mcp = exposedApi('mcp');
-    const result = { completion: { values: ['done'] }, type: 'completion/complete' };
-    mockInvoke.mockResolvedValueOnce({ ok: true, result });
-    await expect(mcp['complete']?.({ argument: { name: 'n', value: 'v' } })).resolves.toBe(result);
-
-    mockInvoke.mockResolvedValueOnce({
-      error: { category: 'protocol', code: 'invalid-result', message: 'bad content' },
-      ok: false,
-    });
-    await expect(mcp['complete']?.({})).rejects.toMatchObject({
-      category: 'protocol',
-      code: 'invalid-result',
-      message: 'bad content (protocol · invalid-result)',
     });
   });
 

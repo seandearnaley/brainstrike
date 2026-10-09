@@ -2,7 +2,7 @@
  * App-wide host for composer MCP prompt selection (BST-1592).
  *
  * Owns every side effect the "/" menu's `execute` must not: the `prompts/get`
- * and `completion/complete` calls over the `mcp:content:*` bridge, the liveness
+ * and `completion/complete` calls through the MCP content capability, the liveness
  * watch on the pinned server generation, the composer write-back, and the
  * visible failure surface. Renders nothing until the user selects a prompt, and
  * nothing at all when the desktop bridge is absent (web) — a capability gate,
@@ -21,6 +21,7 @@ import { createLogger } from '@brainstrike/logging';
 import { useToast } from '@brainstrike/ui';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAssistantComposerCommandStore } from '../assistant-composer-command-store';
+import { useMcpContentCapability } from '../mcp-content-capability';
 import { useMcpStatusCapability } from '../use-mcp-status-capability';
 import { resolveMcpPromptBridge } from './mcp-prompt-bridge';
 import { isMcpPromptEntryLive, type McpPromptEntry } from './mcp-prompt-catalog';
@@ -52,7 +53,8 @@ export function McpPromptComposerHost() {
   // mounts and a status capability its host provides once, so resolve it once
   // for the component's lifetime.
   const status = useMcpStatusCapability();
-  const [resolution] = useState(() => resolveMcpPromptBridge(status));
+  const content = useMcpContentCapability();
+  const [resolution] = useState(() => resolveMcpPromptBridge(status, content));
   const bridge = resolution.status === 'ready' ? resolution.bridge : null;
   const selection = useMcpPromptSelectionStore((state) => state.selection);
   const clear = useMcpPromptSelectionStore((state) => state.clear);

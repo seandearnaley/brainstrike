@@ -40,9 +40,8 @@ import type {
   HostChildStatus,
   HostEvent,
   HostLogRow,
-  HostParams,
   HostResults,
-  HostRunSnapshot,
+  HostRunSelection,
 } from './protocol.js';
 import { delegatedHostRunAdmission, type HostRunPosition, startedHostRun } from './run-branch.js';
 
@@ -387,9 +386,14 @@ export class HostChildRuns {
 
   /**
    * B10/B14: a wake follows an idle thread's tip only when no run there is
-   * active or parked and an unstopped turn has undelivered results.
+   * active or parked and an unstopped turn has undelivered results. It admits
+   * fresh from the thread's committed run selection (ADR-0019).
    */
-  wakeParams(threadId: string, runs: ReadonlyMap<string, HostRunState>) {
+  wakeParams(
+    threadId: string,
+    runs: ReadonlyMap<string, HostRunState>,
+    selections: { forWake(threadId: string): HostRunSelection }
+  ) {
     const own = [...runs.values()].filter((run) => run.threadId === threadId);
     const tip = own.at(-1);
     const pending = this.pending(threadId, runs, undefined, false);
@@ -400,30 +404,13 @@ export class HostChildRuns {
       // The wake continues its turn under the client transport that admitted the turn.
       origin: runs.get(pending.turnId)?.input?.origin,
       params: {
+        ...selections.forWake(threadId),
         commandId: randomUUID(),
-        modelId: tip.modelId,
         parentMessageId: tip.id,
         prompt: 'wake',
         threadId,
       },
     };
-  }
-
-  /**
-   * A wake continues its turn: its admission reopens the committed selection
-   * of the run it follows, as a restart reopens a run, never posing as a
-   * client's configuration.
-   */
-  wakeSelection(
-    params: HostParams<'run/start'> | HostParams<'run/regenerate'>,
-    runs: ReadonlyMap<string, HostRunState>
-  ): HostRunSnapshot {
-    const tip = 'parentMessageId' in params ? params.parentMessageId : undefined;
-    const snapshot = tip ? runs.get(tip)?.snapshot : undefined;
-    if (!snapshot) {
-      throw new Error('A wake requires the committed selection of the run it follows');
-    }
-    return snapshot;
   }
 
   /** The thread that delegated `threadId`; undefined for a top-level thread. */
@@ -751,6 +738,15 @@ export class HostChildRuns {
       items: [
         { event: action, threadId: run.threadId },
         { event: { origin, type: 'thread.started' }, threadId },
+        // ADR-0019: the child thread starts on its parent run's selection.
+        {
+          event: {
+            modelId: run.modelId,
+            ...(run.input?.configuration ? { configuration: run.input.configuration } : {}),
+            type: 'thread.selection.updated',
+          },
+          threadId,
+        },
         { event: started, threadId },
       ],
       model: childAdmission.model,

@@ -1,12 +1,11 @@
 /**
  * Capability resolution for what the composer's MCP prompt affordance needs
- * (BST-1592): the `window.mcp` content members and the MCP status capability.
+ * (BST-1592): the MCP content and status capabilities.
  *
- * Desktop-only by construction: the visible-UI preload exposes the
- * `mcp:content:*` bridge and the desktop provides the agent host's server
- * status (BST-1930 c5b); web has neither, so `resolveMcpPromptBridge()` reports
- * `unsupported` and the affordance is never constructed. There is no
- * `isElectron()` branch anywhere.
+ * Desktop-only by construction: the desktop provides the agent host's content
+ * and server status (BST-1930 c5b-c5d); web provides neither, so
+ * `resolveMcpPromptBridge()` reports `unsupported` and the affordance is never
+ * constructed. There is no `isElectron()` branch anywhere.
  *
  * Lives beside the hook/host so the component modules export only components
  * (react-refresh) and so the required-member set can be pinned by tests.
@@ -18,6 +17,7 @@ import type {
   McpHostWatchEvent,
 } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
+import type { McpContentCapability } from '../mcp-content-capability';
 import type { McpStatusCapability } from '../mcp-status-capability';
 
 const logger = createLogger('McpPromptBridge');
@@ -76,7 +76,7 @@ export const MCP_PROMPT_BRIDGE_REQUIRED_METHODS = Object.keys(
   MCP_PROMPT_BRIDGE_REQUIRED_METHOD_SET
 ) as readonly (keyof McpPromptBridge)[];
 
-/** The content members `window.mcp` carries; the status members come from the host. */
+/** The members the content capability supplies; the status capability supplies the rest. */
 const MCP_PROMPT_CONTENT_METHODS = [
   'complete',
   'getPrompt',
@@ -100,44 +100,31 @@ export type McpPromptBridgeResolution =
   | { readonly status: 'unsupported' };
 
 /**
- * Resolve the prompt bridge from the `window.mcp` content members and the MCP
- * status capability.
+ * Resolve the prompt bridge from the MCP content and status capabilities.
  *
- * `unsupported` when there is no content bridge at all (web/SSR, or a preload
- * that exposes `window.mcp` with none of the content members) and no status.
- * `malformed` when some but not all members are present — a partial bridge can
- * never be used, and the caller must say so out loud instead of silently
- * presenting web's empty surface.
+ * `unsupported` when neither is provided (web/SSR). `malformed` when only one
+ * is: a partial bridge can never be used, and the caller must say so out loud
+ * instead of silently presenting web's empty surface.
  */
 export function resolveMcpPromptBridge(
-  status: McpStatusCapability | null
+  status: McpStatusCapability | null,
+  content: McpContentCapability | null
 ): McpPromptBridgeResolution {
-  const candidate =
-    typeof window === 'undefined'
-      ? undefined
-      : (window as Window & { mcp?: Partial<McpPromptBridge> }).mcp;
-  const complete = candidate?.complete;
-  const getPrompt = candidate?.getPrompt;
-  if (typeof complete === 'function' && typeof getPrompt === 'function' && status) {
+  if (content && status) {
     return {
       bridge: {
-        complete,
-        getPrompt,
+        complete: (request) => content.complete(request),
+        getPrompt: (request) => content.getPrompt(request),
         getServerStatusSnapshot: () => status.read(),
         onServerStatusUpdated: (callback) => status.subscribe(callback),
       },
       status: 'ready',
     };
   }
-  const missing: (keyof McpPromptBridge)[] = MCP_PROMPT_CONTENT_METHODS.filter(
-    (method) => typeof candidate?.[method] !== 'function'
-  );
-  if (!status) {
-    missing.push(...MCP_PROMPT_STATUS_METHODS);
-  }
-  if (missing.length === MCP_PROMPT_BRIDGE_REQUIRED_METHODS.length) {
+  if (!(content || status)) {
     return { status: 'unsupported' };
   }
+  const missing = content ? [...MCP_PROMPT_STATUS_METHODS] : [...MCP_PROMPT_CONTENT_METHODS];
   logger.error('MCP prompt bridge is malformed; composer MCP prompts disabled', { missing });
   return { missing, status: 'malformed' };
 }
