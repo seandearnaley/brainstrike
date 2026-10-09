@@ -25,10 +25,14 @@ export const PlatformRunRequestSchema = z.strictObject({
   modelId: Id,
   planMode: z.literal(true).optional(),
   prompt: z.string().optional(),
+  /** The run this admission is for (HostRunAdmissionRequest.runId). */
+  runId: Id,
   snapshot: HostRunSnapshotSchema.optional(),
   threadId: Id,
   workspaceBinding: ThreadWorkspaceBindingSchema.optional(),
 });
+/** A run's intent before any run exists (thread/memory/read): the request without its run. */
+export const PlatformRunIntentSchema = PlatformRunRequestSchema.omit({ runId: true });
 export const PlatformWorkspaceBindingRequestSchema = z.strictObject({
   binding: ThreadWorkspaceBindingSchema,
   threadId: Id,

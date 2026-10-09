@@ -44,6 +44,7 @@ import type {
   HostRunAdmissionRequest,
   HostRunContext,
   HostRunHooks,
+  HostRunIntentRequest,
   HostTool,
 } from './ports.js';
 import type { HostObserverAwaitingReason, HostRunSnapshot } from './protocol.js';
@@ -121,7 +122,7 @@ export interface ProductionHostPlatformOptions {
   readonly readLegacyMemory?: () => Promise<unknown>;
   /** thread/memory/read's preconditions; absent where the host has no composer. */
   readonly readMemoryPreconditions?: (
-    request: HostRunAdmissionRequest
+    request: HostRunIntentRequest
   ) => Promise<HostMemoryPreconditions>;
   readPermissionPolicy(
     threadId?: string

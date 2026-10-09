@@ -13,6 +13,7 @@ import {
 import type {
   HostDelegation,
   HostRunAdmissionRequest,
+  HostRunIntentRequest,
   HostTool,
   HostToolContext,
 } from '@brainstrike/agent-host';
@@ -93,7 +94,7 @@ interface DesktopCatalogSelection {
 }
 
 /** Supplied by the existing settings owner, never parsed from client configuration. */
-export type DesktopCliOwnerIntentReader = (request: HostRunAdmissionRequest) => Promise<unknown>;
+export type DesktopCliOwnerIntentReader = (request: HostRunIntentRequest) => Promise<unknown>;
 
 function desktopSystemFields(system: string | undefined): { readonly system?: string } {
   return system === undefined ? {} : { system };
@@ -238,7 +239,7 @@ async function readDesktopCatalogSelection(
 }
 
 async function readDesktopIntent(
-  request: HostRunAdmissionRequest,
+  request: HostRunIntentRequest,
   catalog: DesktopCatalogSelection,
   readPersistedPolicy?: () => Promise<PermissionToolGateSnapshot | undefined>,
   readCliOwnerIntent?: DesktopCliOwnerIntentReader
@@ -720,7 +721,7 @@ export function productionDesktopCapabilities(
    * settings, observer resolution and the recall-embedder plan. A run
    * admission and thread/memory/read both start here; nothing is acquired.
    */
-  const readPreconditions = async (request: HostRunAdmissionRequest) => {
+  const readPreconditions = async (request: HostRunIntentRequest) => {
     const db = await getDatabase();
     request.signal.throwIfAborted();
     const catalog = await readDesktopCatalogSelection(db, request.modelId);

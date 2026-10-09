@@ -21,6 +21,7 @@ import type {
   HostPreparedModelRequest,
   HostRunAdmission,
   HostRunAdmissionRequest,
+  HostRunIntentRequest,
   HostRunOwner,
 } from './ports.js';
 import type { HostEvent, HostRunSnapshot } from './protocol.js';
@@ -204,8 +205,8 @@ export function hostMcpUnavailableEvents(
   }));
 }
 
-/** A new run command's admission request; only a live client supplies an origin. */
-export function hostRunCommandRequest(
+/** What a new run command would be admitted with; only a live client supplies an origin. */
+export function hostRunIntentRequest(
   params: {
     readonly configuration?: HostRunAdmissionRequest['configuration'] | undefined;
     readonly modelId: string;
@@ -218,7 +219,7 @@ export function hostRunCommandRequest(
   signal: AbortSignal,
   /** BST-1932: a wake continues its turn by reopening the run it follows. */
   snapshot?: HostRunSnapshot
-): Omit<HostRunAdmissionRequest, 'workspaceBinding'> {
+): Omit<HostRunIntentRequest, 'workspaceBinding'> {
   return {
     ...(params.configuration ? { configuration: params.configuration } : {}),
     modelId: params.modelId,
@@ -229,6 +230,17 @@ export function hostRunCommandRequest(
     ...(snapshot ? { snapshot } : {}),
     threadId: params.threadId,
   };
+}
+
+/** A new run command's admission request: its intent, for the run being admitted. */
+export function hostRunCommandRequest(
+  params: Parameters<typeof hostRunIntentRequest>[0] & { readonly runId: string },
+  origin: HostClientOrigin | undefined,
+  prompt: string | undefined,
+  signal: AbortSignal,
+  snapshot?: HostRunSnapshot
+): Omit<HostRunAdmissionRequest, 'workspaceBinding'> {
+  return { ...hostRunIntentRequest(params, origin, prompt, signal, snapshot), runId: params.runId };
 }
 
 /** The platform's fixed default selection, for hosts without a per-run `admitRun`. */
@@ -408,12 +420,13 @@ export async function bindHostRunAdmission(
 
 /** The request that reopens a committed run's selection from its snapshot. */
 export function hostRunReopenRequest(
-  run: Pick<HostRunState, 'modelId' | 'planMode' | 'snapshot' | 'threadId'>,
+  run: Pick<HostRunState, 'id' | 'modelId' | 'planMode' | 'snapshot' | 'threadId'>,
   signal: AbortSignal
 ): HostRunAdmissionRequest {
   return {
     modelId: run.modelId,
     ...(run.planMode ? { planMode: true } : {}),
+    runId: run.id,
     signal,
     ...(run.snapshot ? { snapshot: run.snapshot } : {}),
     ...(run.snapshot?.workspaceBinding ? { workspaceBinding: run.snapshot.workspaceBinding } : {}),

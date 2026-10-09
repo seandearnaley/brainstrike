@@ -350,6 +350,13 @@ export interface HostRunAdmissionRequest {
   /** Plan mode: admit only what reads and proposes a plan, and say so to the model. */
   readonly planMode?: true;
   readonly prompt?: string;
+  /**
+   * The run this admission is for, minted before admission and committed with
+   * its run.started (a reopen passes the committed run's). A platform keys what
+   * it binds at admission by it, so a child borrowing this admission and the
+   * thread's next run never share one platform selection.
+   */
+  readonly runId: string;
   readonly signal: AbortSignal;
   /** Reopen the committed selection, rejecting changed executors rather than substituting. */
   readonly snapshot?: HostRunSnapshot;
@@ -357,6 +364,12 @@ export interface HostRunAdmissionRequest {
   /** Core-owned immutable thread binding; the adapter must resolve its live IDs. */
   readonly workspaceBinding?: ThreadWorkspaceBinding;
 }
+
+/**
+ * What a run would be admitted with, before any run exists: an admission
+ * request without its run. thread/memory/read evaluates preconditions on it.
+ */
+export type HostRunIntentRequest = Omit<HostRunAdmissionRequest, 'runId'>;
 
 /** A configured MCP server whose tools a run proceeds without, and why. */
 export interface HostMcpUnavailableServer {
@@ -463,7 +476,7 @@ export interface HostPlatform {
    * configure for `threadId`. Absent where the host has no composer.
    */
   readMemoryReadiness?(
-    request: HostRunAdmissionRequest,
+    request: HostRunIntentRequest,
     threadId: string
   ): Promise<HostResults['thread/memory/read']>;
   readPermissionPolicy(
@@ -487,6 +500,11 @@ export interface HostPlatform {
   readonly tools?: Readonly<Record<string, HostTool>> | undefined;
   validateWorkspaceBinding?(request: {
     readonly binding: ThreadWorkspaceBinding;
+    /**
+     * The run being admitted, when this checks an admission: the platform
+     * revalidates that run's selection. A binding update names no run.
+     */
+    readonly runId?: string;
     readonly signal: AbortSignal;
     readonly threadId: string;
   }): Promise<void>;

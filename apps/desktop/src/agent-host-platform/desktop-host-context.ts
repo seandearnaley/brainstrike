@@ -10,7 +10,7 @@ import {
   injectWorkspaceRootManifestContext,
 } from '@brainstrike/agent/tool-runtime';
 import {
-  type HostRunAdmissionRequest,
+  type HostRunIntentRequest,
   type HostTool,
   hostToolDiscoveryEnabled,
 } from '@brainstrike/agent-host';
@@ -58,7 +58,7 @@ export async function readDesktopHostSystemContext(options: {
   /** Plan mode: the instructions say the run may only read and propose a plan. */
   readonly planMode: boolean;
   readonly readWorkspaceFile?: WorkspaceFileReader;
-  readonly request: HostRunAdmissionRequest;
+  readonly request: HostRunIntentRequest;
   readonly runtime: RuntimeData;
   readonly tools: Readonly<Record<string, HostTool>>;
   readonly workspaceSkills?: ScannedWorkspaceSkills;

@@ -6,6 +6,7 @@ import {
   type HostDelegation,
   type HostPlatform,
   type HostRunAdmissionRequest,
+  type HostRunIntentRequest,
   type HostTool,
 } from '@brainstrike/agent-host';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
@@ -31,6 +32,7 @@ import {
   PlatformLocalWarmupSchema,
   PlatformMemoryReadinessSchema,
   PlatformPolicySchema,
+  PlatformRunIntentSchema,
   PlatformRunRequestSchema,
   type PlatformSelection,
   PlatformSelectionSchema,
@@ -67,7 +69,7 @@ export interface DesktopPlatformCapabilities {
   readLegacyMemory(): Promise<PgliteLegacyMemory>;
   /** thread/memory/read: the same preconditions `readConfiguration` starts with, nothing acquired. */
   readMemoryReadiness?(
-    request: HostRunAdmissionRequest
+    request: HostRunIntentRequest
   ): Promise<z.input<typeof PlatformMemoryReadinessSchema>>;
   readPermissionPolicy(
     threadId?: string
@@ -136,10 +138,10 @@ interface DesktopSelectionOwner {
   readonly workspaceBinding?: HostRunAdmissionRequest['workspaceBinding'];
 }
 
-function desktopAdmissionRequest(
-  request: ReturnType<typeof PlatformRunRequestSchema.parse>,
+function desktopIntentRequest(
+  request: ReturnType<typeof PlatformRunIntentSchema.parse>,
   signal: AbortSignal
-): HostRunAdmissionRequest {
+): HostRunIntentRequest {
   return {
     ...(request.configuration ? { configuration: request.configuration } : {}),
     ...(request.snapshot ? { snapshot: request.snapshot } : {}),
@@ -150,6 +152,13 @@ function desktopAdmissionRequest(
     signal,
     threadId: request.threadId,
   };
+}
+
+function desktopAdmissionRequest(
+  request: ReturnType<typeof PlatformRunRequestSchema.parse>,
+  signal: AbortSignal
+): HostRunAdmissionRequest {
+  return { ...desktopIntentRequest(request, signal), runId: request.runId };
 }
 
 /** One private connection borrows existing owners; it constructs no platform store. */
@@ -337,9 +346,9 @@ export function serveDesktopPlatform(
         if (!read) {
           throw new Error('Desktop memory readiness is unavailable');
         }
-        const request = PlatformRunRequestSchema.parse(input);
+        const request = PlatformRunIntentSchema.parse(input);
         return PlatformMemoryReadinessSchema.parse(
-          await read(desktopAdmissionRequest(request, signal))
+          await read(desktopIntentRequest(request, signal))
         );
       })
   );

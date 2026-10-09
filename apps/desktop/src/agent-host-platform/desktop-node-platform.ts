@@ -12,6 +12,7 @@ import {
   type HostPlatform,
   type HostPlatformLaunchOptions,
   type HostRunAdmissionRequest,
+  type HostRunIntentRequest,
   type HostStartupContext,
   type ProductionHostRunConfiguration,
 } from '@brainstrike/agent-host';
@@ -169,16 +170,20 @@ function platformDelegation(
 
 /** Electron-free production entry: Node owns the model loop, Memory and committed log. */
 /** The wire request for one admission, shared by `platform/admit` and memory readiness. */
-function platformRunRequest(admission: HostRunAdmissionRequest): Record<string, unknown> {
+function platformRunIntent(intent: HostRunIntentRequest): Record<string, unknown> {
   return {
-    ...(admission.configuration ? { configuration: admission.configuration } : {}),
-    ...(admission.snapshot ? { snapshot: admission.snapshot } : {}),
-    ...(admission.workspaceBinding ? { workspaceBinding: admission.workspaceBinding } : {}),
-    modelId: admission.modelId,
-    ...(admission.planMode ? { planMode: true } : {}),
-    ...(admission.prompt === undefined ? {} : { prompt: admission.prompt }),
-    threadId: admission.threadId,
+    ...(intent.configuration ? { configuration: intent.configuration } : {}),
+    ...(intent.snapshot ? { snapshot: intent.snapshot } : {}),
+    ...(intent.workspaceBinding ? { workspaceBinding: intent.workspaceBinding } : {}),
+    modelId: intent.modelId,
+    ...(intent.planMode ? { planMode: true } : {}),
+    ...(intent.prompt === undefined ? {} : { prompt: intent.prompt }),
+    threadId: intent.threadId,
   };
+}
+
+function platformRunRequest(admission: HostRunAdmissionRequest): Record<string, unknown> {
+  return { ...platformRunIntent(admission), runId: admission.runId };
 }
 
 export async function createHostPlatform(
@@ -328,7 +333,7 @@ export async function createHostPlatform(
     // Main's admission preconditions, then the memory credentials, nothing acquired.
     readMemoryPreconditions: async (admission) => {
       const readiness = PlatformMemoryReadinessSchema.parse(
-        await request('platform/memory/readiness', platformRunRequest(admission), admission.signal)
+        await request('platform/memory/readiness', platformRunIntent(admission), admission.signal)
       );
       return readiness.ready
         ? await desktopMemoryPreconditions(readiness, (provider) =>
