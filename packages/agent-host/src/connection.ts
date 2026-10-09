@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import type { HostRecord } from '@brainstrike/host-lease';
-import type { MessageConnection } from 'vscode-jsonrpc';
+import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { bindHostAuthMethods } from './auth-connection.js';
 import type { HostCore } from './core.js';
 import { hostChildStatusChanged } from './core-child-runs.js';
@@ -73,17 +73,26 @@ export function bindHostConnection(
   });
   const handle = <M extends HostMethod>(
     method: M,
-    request: (params: HostParams<M>) => unknown
+    request: (params: HostParams<M>, signal: AbortSignal) => unknown
   ): void => {
     disposables.push(
-      connection.onRequest(method, async (input: unknown) => {
+      connection.onRequest(method, async (input: unknown, token: CancellationToken) => {
         if (disposed || (!initialized && method !== 'initialize')) {
           throw new Error('Host connection requires authentication');
         }
         if (lifecycle?.closing) {
           throw new Error('Host is closing');
         }
-        return request(parseHostParams(method, input));
+        // The client's `$/cancelRequest` aborts the work its request started.
+        const controller = new AbortController();
+        const cancelled = token.onCancellationRequested(() =>
+          controller.abort(new Error('The client cancelled the request'))
+        );
+        try {
+          return await request(parseHostParams(method, input), controller.signal);
+        } finally {
+          cancelled.dispose();
+        }
       })
     );
   };
@@ -139,6 +148,8 @@ export function bindHostConnection(
   handle('run/verdict', (params) => core.recordVerdict(params));
   handle('interaction/respond', (params) => core.respond(params));
   handle('interaction/resume', (params) => core.resume(params));
+  handle('mcp/app/admit', (params) => core.mcpApps.admit(params));
+  handle('mcp/app/call', (params, signal) => core.mcpApps.call(params, signal));
   handle('mcp/input/read', (params) => core.readMcpInput(params));
   handle('mcp/input/stage', (params) => core.stageMcpInput(params, mcpClient));
   handle('mcp/input/settle', (params) => core.settleMcpInput(params, mcpClient));
