@@ -98,6 +98,42 @@ async function prepareSocketDirectory(root: string): Promise<string> {
   }
   return directory;
 }
+/**
+ * "A host forked by the app dies with the app" (ADR-0017): `lost` runs once the app parent is gone.
+ *
+ * POSIX: the host is the app's direct child, so the kernel reparents it when the app exits and
+ * `process.ppid` (getppid(2), no child process) stops naming the app. That is also the PID-reuse
+ * guard: a later process that takes the app's pid never becomes this host's parent, so no start
+ * time is read per tick. Windows never reparents, so it still compares the app's OS start time.
+ * A host running inside its app's own process (an in-process launcher) cannot outlive it.
+ */
+function watchAppParent(
+  parent: { readonly pid: number; readonly start: string },
+  lost: (cause?: unknown) => void
+): NodeJS.Timeout | undefined {
+  if (parent.pid === process.pid) {
+    return undefined;
+  }
+  if (process.platform !== 'win32') {
+    if (process.ppid !== parent.pid) {
+      throw new Error(`An app host must be its app's direct child (parent ${process.ppid})`);
+    }
+    return setInterval(() => {
+      if (process.ppid !== parent.pid) {
+        lost();
+      }
+    }, 100);
+  }
+  return setInterval(() => {
+    try {
+      if (processStartTime(parent.pid) !== parent.start) {
+        lost();
+      }
+    } catch (cause) {
+      lost(cause);
+    }
+  }, 100);
+}
 
 export async function startHost(
   input: HostStartOptions,
@@ -361,16 +397,14 @@ export async function startHost(
       }
       await owner.acquire(
         async () =>
-          setInterval(() => {
-            try {
-              if (processStartTime(parent.pid) !== parent.start) {
-                close().catch(() => undefined);
-              }
-            } catch (cause) {
-              close(cause).catch(() => undefined);
-            }
-          }, 100),
-        async (timer) => clearInterval(timer)
+          watchAppParent(parent, (cause) => {
+            close(cause).catch(() => undefined);
+          }),
+        async (timer) => {
+          if (timer) {
+            clearInterval(timer);
+          }
+        }
       );
     }
     return {
