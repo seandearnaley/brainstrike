@@ -1,14 +1,11 @@
-import { type StateStore, ThreadDamagedError } from '@brainstrike/state-store';
+import type { HydrationThread, LogRow, StateStore } from '@brainstrike/state-store';
 import { readHostRow } from './event-storage.js';
 import type { HostHookTrustStore } from './hook-trust.js';
 import type { HostLogRow } from './protocol.js';
 
 /** The Root store Core opens over and commits to. */
 export type HostEventStore = HostHookTrustStore &
-  Pick<
-    StateStore,
-    'append' | 'holdBlobGc' | 'read' | 'root' | 'syncBoundary' | 'threads' | 'threadTimes'
-  > & {
+  Pick<StateStore, 'append' | 'holdBlobGc' | 'read' | 'readHydration' | 'root' | 'syncBoundary'> & {
     readonly deleteThread?: StateStore['deleteThread'];
   };
 
@@ -17,38 +14,44 @@ interface ThreadTimes {
   readonly updatedAt: number;
 }
 
-/** A damaged thread's first row, when it is still readable: its origin lists a child under its parent. */
-async function readHead(store: HostEventStore, threadId: string): Promise<HostLogRow | undefined> {
+type DecodedThread =
+  | { readonly rows: readonly HostLogRow[] }
+  | { readonly damage: string; readonly head?: HostLogRow };
+
+const messageOf = (cause: unknown): string =>
+  cause instanceof Error ? cause.message : String(cause);
+
+/** A damaged thread keeps its first row when that still decodes: its origin lists a child under its parent. */
+async function damaged(
+  store: HostEventStore,
+  damage: string,
+  first: LogRow | undefined
+): Promise<DecodedThread> {
+  if (first?.seq !== 1) {
+    return { damage };
+  }
   try {
-    const [head] = await store.read(threadId, 1, 1);
-    return head ? await readHostRow(store, head) : undefined;
+    return { damage, head: await readHostRow(store, first) };
   } catch {
-    return;
+    return { damage };
   }
 }
 
-/** A stored row that cannot be read: the store's verification failed, or the host cannot decode it. */
-class UnreadableThread extends Error {}
-
 /**
- * A thread's rows, decoded. Damage the store reports (a crc or seq failure) and a row the host cannot decode (a
- * missing or altered blob, an event its schema rejects) make the thread unreadable; any other failure (the writer
- * failing, the store closing) is the store's and still fails the open.
+ * A thread's hydration rows, decoded. Damage the store reports (a crc or seq failure) and a row the host cannot decode
+ * (a missing or altered blob, an event its schema rejects) make the thread unreadable.
  */
-async function readStoredThread(store: HostEventStore, threadId: string): Promise<HostLogRow[]> {
-  let stored: Awaited<ReturnType<HostEventStore['read']>>;
-  try {
-    stored = await store.read(threadId);
-  } catch (cause) {
-    if (cause instanceof ThreadDamagedError) {
-      throw new UnreadableThread(cause.message);
-    }
-    throw cause;
+async function decodeThread(
+  store: HostEventStore,
+  stored: HydrationThread
+): Promise<DecodedThread> {
+  if (stored.damage) {
+    return damaged(store, stored.damage.message, stored.rows[0]);
   }
   try {
-    return await Promise.all(stored.map((row) => readHostRow(store, row)));
+    return { rows: await Promise.all(stored.rows.map((row) => readHostRow(store, row))) };
   } catch (cause) {
-    throw new UnreadableThread(cause instanceof Error ? cause.message : String(cause));
+    return damaged(store, messageOf(cause), stored.rows[0]);
   }
 }
 
@@ -63,34 +66,27 @@ export class HostThreadCatalog {
   private releaseGc: (() => Promise<void>) | undefined;
 
   /**
-   * Folds every stored thread: a readable thread's rows, and a damaged thread's first row only, so one unreadable row
-   * never stops the host from opening.
+   * Folds every stored thread from one hydration read: a readable thread's rows, and a damaged thread's first row only,
+   * so one unreadable row never stops the host from opening.
    */
   async hydrate(
     store: HostEventStore,
     threads: Set<string>,
     fold: (row: HostLogRow) => void
   ): Promise<void> {
-    for (const { threadId, ...times } of await store.threadTimes()) {
-      this.times.set(threadId, times);
-    }
-    for (const threadId of await store.threads()) {
+    for (const stored of await store.readHydration()) {
+      const { createdAt, threadId, updatedAt } = stored;
       threads.add(threadId);
-      let rows: HostLogRow[];
-      try {
-        rows = await readStoredThread(store, threadId);
-      } catch (cause) {
-        if (!(cause instanceof UnreadableThread)) {
-          throw cause;
-        }
-        this.damaged.set(threadId, cause.message);
-        const head = await readHead(store, threadId);
-        if (head) {
-          fold(head);
+      this.times.set(threadId, { createdAt, updatedAt });
+      const decoded = await decodeThread(store, stored);
+      if ('damage' in decoded) {
+        this.damaged.set(threadId, decoded.damage);
+        if (decoded.head) {
+          fold(decoded.head);
         }
         continue;
       }
-      for (const row of rows) {
+      for (const row of decoded.rows) {
         fold(row);
       }
     }

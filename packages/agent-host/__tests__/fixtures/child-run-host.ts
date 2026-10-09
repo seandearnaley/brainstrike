@@ -274,12 +274,11 @@ export async function setupChildRunHost(
       deleteSetting: (key) => store.deleteSetting(key),
       getSetting: (key) => store.getSetting(key),
       holdBlobGc: () => store.holdBlobGc(),
-      read: (threadId, fromSeq, limit, filter) => store.read(threadId, fromSeq, limit, filter),
+      read: (threadId, fromSeq) => store.read(threadId, fromSeq),
+      readHydration: () => store.readHydration(),
       root: store.root,
       setSetting: (key, value) => store.setSetting(key, value),
       syncBoundary: (threadId) => store.syncBoundary(threadId),
-      threads: () => store.threads(),
-      threadTimes: () => store.threadTimes(),
     };
     return state;
   };

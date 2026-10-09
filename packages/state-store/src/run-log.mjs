@@ -10,8 +10,9 @@ import { checkpointTruncate } from './sqlite-checkpoint.mjs';
 /** @typedef {import('better-sqlite3').Database} Db */
 /** @typedef {{ kind: 'ok'; tail: number } | { kind: 'damaged'; atSeq: number; error: string }} ThreadStatus */
 /** @typedef {{ seq: number; payload: string; crc: number; rawCount: number | null; ts: number }} Row */
-/** One appended row: [threadId, type, runId, body (event JSON without seq), rawCount]. */
-/** @typedef {[string, string, string | null, string, number | null]} AppendRow */
+/** One appended row: [threadId, type, runId, body (event JSON without seq), rawCount, hydrate (0 | 1)]. */
+/** @typedef {[string, string, string | null, string, number | null, 0 | 1]} AppendRow */
+/** @typedef {{ threadId: string; createdAt: number; updatedAt: number; rows: Row[]; damage: ThreadDamage | null }} HydrationThread */
 /** @typedef {{ log: number; checkpointed: number; busy: number }} CheckpointRow */
 
 /**
@@ -147,17 +148,17 @@ export class RunLog {
       tails.set(t, s.tail);
     }
     const ins = this.db.prepare(
-      'INSERT INTO run_events (thread_id, seq, type, run_id, payload, crc, raw_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO run_events (thread_id, seq, type, run_id, payload, crc, raw_count, created_at, hydrate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     /** @type {number[]} */
     const seqs = [];
     const next = new Map(tails);
     this.db.transaction(() => {
-      for (const [t, type, runId, body, rawCount] of rows) {
+      for (const [t, type, runId, body, rawCount, hydrate] of rows) {
         const seq = (next.get(t) ?? 0) + 1;
         next.set(t, seq);
         const payload = withSeq(seq, body);
-        ins.run(t, seq, type, runId, payload, crcOf(payload), rawCount, now);
+        ins.run(t, seq, type, runId, payload, crcOf(payload), rawCount, now, hydrate);
         this.db
           .prepare(
             'INSERT INTO threads (id,last_seq,created_at,updated_at) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET last_seq=excluded.last_seq, updated_at=excluded.updated_at'
@@ -234,50 +235,58 @@ export class RunLog {
   }
 
   /**
-   * Verified rows from `fromSeq` minus the `stream.chunk` rows a hydrating reader does not fold: a chunk row is kept
-   * when its inline `chunk.type` is one of `keepChunkTypes`, when it is spooled (no inline chunk: the reader decides
-   * after decoding), or when its payload no longer parses (so its crc check reports it). Contiguity comes from the seq
-   * index alone, so a skipped row is never read; every returned row is crc-verified. Skipped rows are not verified, so
-   * this read never marks the thread `ok`: a full read or the first append still verifies every row.
-   * @param {string} id
-   * @param {number} fromSeq
-   * @param {readonly string[]} keepChunkTypes
-   * @returns {{ rows: Row[]; damage: ThreadDamage | null }}
+   * Every thread's hydration rows in one pass: its catalog times from `threads` and its rows still marked `hydrate`, in
+   * seq order, each one crc-verified. Contiguity is checked from the seq index (the row count and the highest seq
+   * against the thread's last seq), so an unmarked row is never read; a gap sends the thread through the full
+   * verification to find where it starts. Unmarked rows are not verified, so this read never marks a thread `ok`: a
+   * full read or the first append still verifies every row.
+   * @returns {HydrationThread[]}
    */
-  readHydration(id, fromSeq, keepChunkTypes) {
-    const from = Math.max(1, fromSeq);
-    const cached = this.st.get(id);
-    if (cached?.kind === 'damaged' && from >= cached.atSeq) {
-      return { damage: new ThreadDamage(id, cached.atSeq, cached.error), rows: [] };
-    }
-    const span = /** @type {{ n: number; lo: number | null; hi: number | null }} */ (
-      this.db
-        .prepare(
-          'SELECT count(*) AS n, min(seq) AS lo, max(seq) AS hi FROM run_events WHERE thread_id = ?'
-        )
-        .get(id)
-    );
-    if (span.n > 0 && (span.lo !== 1 || span.hi !== span.n)) {
-      // A real gap: the full verification finds where it starts.
-      this.st.delete(id);
-      return this.readFrom(id, from, Number.MAX_SAFE_INTEGER);
-    }
-    const last = cached?.kind === 'damaged' ? cached.atSeq - 1 : (span.hi ?? 0);
-    /** @type {Row[]} */
-    const rows = [];
-    try {
-      const it = /** @type {IterableIterator<Row>} */ (
+  readHydration() {
+    const threads =
+      /** @type {Array<{ id: string; last: number; createdAt: number; updatedAt: number }>} */ (
         this.db
           .prepare(
-            `SELECT seq, payload, crc, raw_count AS rawCount, created_at AS ts FROM run_events
-             WHERE thread_id = ? AND seq >= ? AND seq <= ? AND NOT (
-               type = 'stream.chunk' AND json_valid(payload) AND json_extract(payload, '$.blob') IS NULL
-               AND COALESCE(json_extract(payload, '$.chunk.type'), '') NOT IN (SELECT value FROM json_each(?))
-             ) ORDER BY seq`
+            'SELECT id, last_seq AS last, created_at AS createdAt, updated_at AS updatedAt FROM threads ORDER BY id'
           )
-          .iterate(id, from, last, JSON.stringify(keepChunkTypes))
+          .all()
       );
-      for (const r of it) {
+    const span = this.db.prepare(
+      'SELECT count(*) AS n, max(seq) AS hi FROM run_events WHERE thread_id = ?'
+    );
+    const marked = this.db.prepare(
+      'SELECT seq, payload, crc, raw_count AS rawCount, created_at AS ts FROM run_events WHERE thread_id = ? AND hydrate = 1 AND seq <= ? ORDER BY seq'
+    );
+    return threads.map(({ id, last, createdAt, updatedAt }) => ({
+      createdAt,
+      threadId: id,
+      updatedAt,
+      ...this.hydrationRows(id, last, span, marked),
+    }));
+  }
+
+  /**
+   * One thread's marked rows up to its damage, if any (see readHydration).
+   * @private
+   * @param {string} id
+   * @param {number} last the thread's last seq, from `threads`
+   * @param {import('better-sqlite3').Statement} span
+   * @param {import('better-sqlite3').Statement} marked
+   * @returns {{ rows: Row[]; damage: ThreadDamage | null }}
+   */
+  hydrationRows(id, last, span, marked) {
+    /** @type {Row[]} */
+    const rows = [];
+    let known = this.st.get(id);
+    try {
+      if (!known) {
+        const { n, hi } = /** @type {{ n: number; hi: number | null }} */ (span.get(id));
+        if (this.dbDamage || n !== last || hi !== last) {
+          known = this.status(id);
+        }
+      }
+      const end = known?.kind === 'damaged' ? known.atSeq - 1 : (known?.tail ?? last);
+      for (const r of /** @type {IterableIterator<Row>} */ (marked.iterate(id, end))) {
         if (!verified(r)) {
           /** @type {ThreadStatus} */
           const d = { atSeq: r.seq, error: 'row crc mismatch', kind: 'damaged' };
@@ -290,30 +299,14 @@ export class RunLog {
       if (!isCorrupt(e)) {
         throw e;
       }
-      const at = (rows.at(-1)?.seq ?? from - 1) + 1;
+      const at = (rows.at(-1)?.seq ?? 0) + 1;
       const error = String(/** @type {Error} */ (e).message);
       this.st.set(id, { atSeq: at, error, kind: 'damaged' });
       return { damage: new ThreadDamage(id, at, error), rows };
     }
-    if (cached?.kind === 'damaged') {
-      return { damage: new ThreadDamage(id, cached.atSeq, cached.error), rows };
-    }
-    return { damage: null, rows };
-  }
-
-  /**
-   * Every thread's first and latest append time, from the `threads` row the append maintains. A damaged thread keeps
-   * honest times: no payload is read.
-   * @returns {Array<{ threadId: string; createdAt: number; updatedAt: number }>}
-   */
-  threadTimes() {
-    return /** @type {Array<{ threadId: string; createdAt: number; updatedAt: number }>} */ (
-      this.db
-        .prepare(
-          'SELECT id AS threadId, created_at AS createdAt, updated_at AS updatedAt FROM threads ORDER BY id'
-        )
-        .all()
-    );
+    return known?.kind === 'damaged'
+      ? { damage: new ThreadDamage(id, known.atSeq, known.error), rows }
+      : { damage: null, rows };
   }
 
   /**

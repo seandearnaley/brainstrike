@@ -1,5 +1,5 @@
 // A thread whose stored rows fail verification must still list with honest dates and stay
-// deletable, and a filtered hydration read returns only the rows a reader folds.
+// deletable, and the hydration read returns every thread's marked rows in one writer round trip.
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -60,7 +60,10 @@ test("a thread's catalog times are its first and latest append, even once a row 
   damageRow(root, 'a', 2);
   await withStore(root, async (store) => {
     await expect(store.read('a')).rejects.toThrow(ThreadDamagedError);
-    expect(await store.threadTimes()).toEqual([{ threadId: 'a', ...appended }]);
+    const [thread] = await store.readHydration();
+    expect(thread).toMatchObject({ threadId: 'a', ...appended });
+    expect(thread?.damage).toBeInstanceOf(ThreadDamagedError);
+    expect(thread?.rows.map(({ seq }) => seq)).toEqual([1]);
   });
 });
 
@@ -83,7 +86,7 @@ test('a crc-damaged thread deletes with its blobs and stays gone after a reopen'
   });
   await withStore(root, async (store) => {
     expect(await store.threads()).toEqual(['b']);
-    expect((await store.threadTimes()).map(({ threadId }) => threadId)).toEqual(['b']);
+    expect((await store.readHydration()).map(({ threadId }) => threadId)).toEqual(['b']);
   });
 });
 
@@ -122,45 +125,80 @@ test('a held collection defers unlinking until its release', async () => {
   });
 });
 
-test('a hydration read skips streamed text but keeps tool calls, spooled chunks and every other row', async () => {
+const seqs = (thread: { rows: readonly { seq: number }[] } | undefined): number[] =>
+  (thread?.rows ?? []).map(({ seq }) => seq);
+
+test('the hydration read returns each thread its marked rows only, across a reopen', async () => {
   const root = freshDir('hydration-read');
-  const keep = { excludeStreamChunksExceptTypes: ['tool-call', 'tool-error'] } as const;
   await withStore(root, async (store) => {
-    await store.append(
-      [
-        { event: { type: 'thread.started' }, threadId: 'a' },
-        {
-          event: { chunk: { delta: 'one', type: 'text-delta' }, type: 'stream.chunk' },
-          threadId: 'a',
-        },
-        { event: { chunk: { type: 'tool-call' }, type: 'stream.chunk' }, threadId: 'a' },
-        {
-          event: { chunk: { delta: 'two', type: 'text-delta' }, type: 'stream.chunk' },
-          threadId: 'a',
-        },
-        { event: { chunk: { type: 'tool-error' }, type: 'stream.chunk' }, threadId: 'a' },
-        // A spooled row carries no inline chunk: the reader decides after decoding.
-        { event: { blob: sha256Hex('x'), type: 'stream.chunk' }, threadId: 'a' },
-        { event: { type: 'run.finished' }, threadId: 'a' },
-      ].map((item, index) =>
-        index === 5 ? { ...item, blobs: [{ content: 'x', hash: sha256Hex('x') }] } : item
-      )
-    );
-    expect((await store.read('a', 1, 0, keep)).map(({ seq }) => seq)).toEqual([1, 3, 5, 6, 7]);
-    expect((await store.read('a', 4, 0, keep)).map(({ seq }) => seq)).toEqual([5, 6, 7]);
+    await store.append([
+      { event: { type: 'thread.started' }, threadId: 'a' },
+      { event: { type: 'thread.started' }, threadId: 'b' },
+      {
+        event: { chunk: { type: 'text-delta' }, type: 'stream.chunk' },
+        hydrate: false,
+        threadId: 'a',
+      },
+      { event: { chunk: { type: 'tool-call' }, type: 'stream.chunk' }, threadId: 'a' },
+      {
+        event: { chunk: { type: 'text-delta' }, type: 'stream.chunk' },
+        hydrate: false,
+        threadId: 'a',
+      },
+      { event: { type: 'run.finished' }, threadId: 'a' },
+    ]);
+    // Every row stays in the log; the mark only keeps a row out of the hydration read.
+    expect((await store.read('a')).map(({ seq }) => seq)).toEqual([1, 2, 3, 4, 5]);
   });
-  // A skipped row is not damage the filtered read reports; a returned row's crc still is.
-  damageRow(root, 'a', 2);
   await withStore(root, async (store) => {
-    expect((await store.read('a', 1, 0, keep)).map(({ seq }) => seq)).toEqual([1, 3, 5, 6, 7]);
-  });
-  damageRow(root, 'a', 3);
-  await withStore(root, async (store) => {
-    await expect(store.read('a', 1, 0, keep)).rejects.toThrow(ThreadDamagedError);
+    const threads = await store.readHydration();
+    expect(threads.map(({ threadId }) => threadId)).toEqual(['a', 'b']);
+    expect(seqs(threads[0])).toEqual([1, 3, 5]);
+    expect(seqs(threads[1])).toEqual([1]);
+    expect(threads.every((thread) => thread.damage === undefined)).toBe(true);
+    expect(threads[0]?.rows[1]?.event).toEqual({
+      chunk: { type: 'tool-call' },
+      seq: 3,
+      type: 'stream.chunk',
+    });
   });
 });
 
-test('a hydration read reports a missing seq as damage', async () => {
+test('the hydration read verifies every row it returns, and one damaged thread spares the rest', async () => {
+  const root = freshDir('hydration-damage');
+  await withStore(root, async (store) => {
+    await store.append([
+      { event: { type: 'thread.started' }, threadId: 'a' },
+      {
+        event: { chunk: { type: 'text-delta' }, type: 'stream.chunk' },
+        hydrate: false,
+        threadId: 'a',
+      },
+      { event: { type: 'note' }, threadId: 'a' },
+      { event: { type: 'note' }, threadId: 'a' },
+      { event: { type: 'thread.started' }, threadId: 'b' },
+    ]);
+  });
+  // An unmarked row is not read here; the full verification (a read, the first append) still finds it.
+  damageRow(root, 'a', 2);
+  await withStore(root, async (store) => {
+    const [a] = await store.readHydration();
+    expect(a?.damage).toBeUndefined();
+    expect(seqs(a)).toEqual([1, 3, 4]);
+    await expect(store.read('a')).rejects.toThrow(ThreadDamagedError);
+  });
+  damageRow(root, 'a', 3);
+  await withStore(root, async (store) => {
+    const [a, b] = await store.readHydration();
+    expect(a?.damage).toBeInstanceOf(ThreadDamagedError);
+    expect(a?.damage?.atSeq).toBe(3);
+    expect(seqs(a)).toEqual([1]);
+    expect(b?.damage).toBeUndefined();
+    expect(seqs(b)).toEqual([1]);
+  });
+});
+
+test('the hydration read reports a missing seq as damage', async () => {
   const root = freshDir('hydration-gap');
   await withStore(root, async (store) => {
     await store.append(
@@ -171,8 +209,9 @@ test('a hydration read reports a missing seq as damage', async () => {
   db.prepare('DELETE FROM run_events WHERE thread_id = ? AND seq = 2').run('a');
   db.close();
   await withStore(root, async (store) => {
-    await expect(
-      store.read('a', 1, 0, { excludeStreamChunksExceptTypes: ['tool-call'] })
-    ).rejects.toThrow(ThreadDamagedError);
+    const [a] = await store.readHydration();
+    expect(a?.damage).toBeInstanceOf(ThreadDamagedError);
+    expect(a?.damage?.atSeq).toBe(2);
+    expect(seqs(a)).toEqual([1]);
   });
 });

@@ -95,12 +95,11 @@ test('Stop fences and joins a physical child even when accepting the durable com
       deleteSetting: (key) => store.deleteSetting(key),
       getSetting: (key) => store.getSetting(key),
       holdBlobGc: () => store.holdBlobGc(),
-      read: (threadId, fromSeq, limit, filter) => store.read(threadId, fromSeq, limit, filter),
+      read: (threadId, fromSeq) => store.read(threadId, fromSeq),
+      readHydration: () => store.readHydration(),
       root: store.root,
       setSetting: (key, value) => store.setSetting(key, value),
       syncBoundary: (threadId) => store.syncBoundary(threadId),
-      threads: () => store.threads(),
-      threadTimes: () => store.threadTimes(),
     },
     platform({
       readPermissionPolicy: () => ({
@@ -579,7 +578,7 @@ test('rejected platform shutdown holds the real store and reports the same failu
     await expect(host.close()).rejects.toThrow();
     expect(closes).toBe(1);
     await expect(StateStore.open(dataRoot)).rejects.toBeInstanceOf(RootLockedError);
-    expect(await host.core.store.threads()).toEqual([]);
+    expect(await host.core.store.readHydration()).toEqual([]);
   } finally {
     await store.close();
     await rm(dataRoot, { force: true, recursive: true });
@@ -693,12 +692,11 @@ test('failed terminal append retains run admission and does not retry persistenc
     deleteSetting: (key) => store.deleteSetting(key),
     getSetting: (key) => store.getSetting(key),
     holdBlobGc: () => store.holdBlobGc(),
-    read: (threadId, fromSeq, limit, filter) => store.read(threadId, fromSeq, limit, filter),
+    read: (threadId, fromSeq) => store.read(threadId, fromSeq),
+    readHydration: () => store.readHydration(),
     root: store.root,
     setSetting: (key, value) => store.setSetting(key, value),
     syncBoundary: (threadId) => store.syncBoundary(threadId),
-    threads: () => store.threads(),
-    threadTimes: () => store.threadTimes(),
   };
   const core = await HostCore.open(port, platform(), () => {
     active += 1;
@@ -749,7 +747,7 @@ test('held platform cleanup keeps the SQLite owner live through host shutdown', 
     const closing = host.close();
     await entered.promise;
     await expect(StateStore.open(dataRoot)).rejects.toBeInstanceOf(RootLockedError);
-    expect(await host.core.store.threads()).toEqual([]);
+    expect(await host.core.store.readHydration()).toEqual([]);
     drained.resolve();
     await closing;
     const reopened = await StateStore.open(dataRoot);
@@ -821,12 +819,11 @@ test('failed atomic terminal FULL commit keeps live and replay views running and
     deleteSetting: (key) => store.deleteSetting(key),
     getSetting: (key) => store.getSetting(key),
     holdBlobGc: () => store.holdBlobGc(),
-    read: (threadId, fromSeq, limit, filter) => store.read(threadId, fromSeq, limit, filter),
+    read: (threadId, fromSeq) => store.read(threadId, fromSeq),
+    readHydration: () => store.readHydration(),
     root: store.root,
     setSetting: (key, value) => store.setSetting(key, value),
     syncBoundary: (threadId) => store.syncBoundary(threadId),
-    threads: () => store.threads(),
-    threadTimes: () => store.threadTimes(),
   };
   const core = await HostCore.open(port, platform(), () => {
     active += 1;

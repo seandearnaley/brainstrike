@@ -38,20 +38,19 @@ import type { MemoryDomainPort, MemoryDomainRequest, MemorySnapshot } from './me
 import { blobsOf, TOMBSTONE_BODY, withSeq } from './run-log-format.mjs';
 import type { AppendItem, BlobContent, LogRow, RunEvent, ThreadStatus } from './run-log-types.js';
 import { openRo, vacuumInto } from './sqlite.js';
-import { CheckpointBlockedError } from './sqlite-checkpoint.mjs';
 import { readAll, SqliteReader } from './sqlite-reader.js';
 import type {
   ExportedThread,
-  HydrationReadFilter,
+  HydrationThread,
   IndexerPort,
   Manifest,
   PurgeReport,
   StateStoreOptions,
   StoreSettings,
   SyncSpan,
-  ThreadTimes,
 } from './state-store-types.js';
 import { assertNotSyncedRoot } from './sync-roots.js';
+import { errorOf, logRowOf, type WorkerRow } from './worker-reply.js';
 
 export const STATE_DB = 'state.db';
 export const BLOBS_DIR = 'blobs';
@@ -67,7 +66,7 @@ export const STORE_ENTRIES: readonly string[] = [
 export type {
   CheckpointRow,
   ExportedThread,
-  HydrationReadFilter,
+  HydrationThread,
   IndexerPort,
   Manifest,
   PurgeReport,
@@ -75,7 +74,6 @@ export type {
   StateStoreOptions,
   StoreSettings,
   SyncSpan,
-  ThreadTimes,
   WriteSpan,
 } from './state-store-types.js';
 
@@ -144,20 +142,6 @@ interface Ready {
 
 const runIdOf = (e: RunEvent): string | null =>
   typeof e['runId'] === 'string' ? e['runId'] : null;
-
-function errorOf(r: Readonly<Record<string, unknown>>): Error {
-  const message = String(r['error']);
-  switch (r['errorKind']) {
-    case 'readonly':
-      return new ThreadReadOnlyError(String(r['threadId']), message);
-    case 'damaged':
-      return new ThreadDamagedError(String(r['threadId']), Number(r['atSeq']), String(r['detail']));
-    case 'checkpoint-blocked':
-      return new CheckpointBlockedError(message);
-    default:
-      return new Error(message);
-  }
-}
 
 function waitReady(worker: Worker): Promise<Ready> {
   return new Promise((resolve, reject) => {
@@ -434,6 +418,7 @@ export class StateStore implements MemoryDomainPort {
       runIdOf(it.event),
       bodies[i],
       it.rawCount ?? null,
+      it.hydrate === false ? 0 : 1,
     ]);
     return this.run(async () => {
       for (const it of items) {
@@ -502,19 +487,10 @@ export class StateStore implements MemoryDomainPort {
     return p;
   }
 
-  /**
-   * Verified rows from `fromSeq` (all of them unless `limit`). Rejects with ThreadDamagedError on reaching damage.
-   * `filter` skips the `stream.chunk` rows a hydrating reader does not fold (RunLog.readHydration).
-   */
-  async read(
-    threadId: string,
-    fromSeq = 1,
-    limit = 0,
-    filter?: HydrationReadFilter
-  ): Promise<LogRow[]> {
+  /** Verified rows from `fromSeq` (all of them unless `limit`). Rejects with ThreadDamagedError on reaching damage. */
+  async read(threadId: string, fromSeq = 1, limit = 0): Promise<LogRow[]> {
     const r = await this.call({
       fromSeq,
-      ...(filter ? { keepChunkTypes: [...filter.excludeStreamChunksExceptTypes] } : {}),
       limit: limit > 0 ? limit : Number.MAX_SAFE_INTEGER,
       op: 'read',
       threadId,
@@ -522,17 +498,37 @@ export class StateStore implements MemoryDomainPort {
     if (r['damage']) {
       throw errorOf(r['damage'] as Readonly<Record<string, unknown>>);
     }
-    return (
-      r['rows'] as Array<{ seq: number; payload: string; rawCount: number | null; ts: number }>
-    ).map((x) => {
-      const row = {
-        event: JSON.parse(x.payload) as RunEvent,
-        raw: x.payload,
-        seq: x.seq,
+    return (r['rows'] as WorkerRow[]).map((x) => logRowOf(threadId, x));
+  }
+
+  /**
+   * Every thread with its catalog times and the rows a hydrating reader folds, in one writer round trip: the verified
+   * rows not appended with `hydrate: false`, up to the thread's damage, which is returned rather than thrown so one
+   * damaged thread never fails the read.
+   */
+  async readHydration(): Promise<HydrationThread[]> {
+    const threads = (await this.call({ op: 'readHydration' }))['threads'] as Array<{
+      createdAt: number;
+      damage: Readonly<Record<string, unknown>> | null;
+      rows: WorkerRow[];
+      threadId: string;
+      updatedAt: number;
+    }>;
+    return threads.map(({ createdAt, damage, rows, threadId, updatedAt }) => {
+      const thread = {
+        createdAt,
+        rows: rows.map((x) => logRowOf(threadId, x)),
         threadId,
-        ts: x.ts,
+        updatedAt,
       };
-      return x.rawCount === null ? row : { ...row, rawCount: x.rawCount };
+      if (!damage) {
+        return thread;
+      }
+      const error = errorOf(damage);
+      if (!(error instanceof ThreadDamagedError)) {
+        throw error;
+      }
+      return { ...thread, damage: error };
     });
   }
 
@@ -583,11 +579,6 @@ export class StateStore implements MemoryDomainPort {
 
   async threads(): Promise<string[]> {
     return (await this.call({ op: 'threads' }))['threads'] as string[];
-  }
-
-  /** Each thread's first and latest append time (ms since epoch); honest for a damaged thread too. */
-  async threadTimes(): Promise<ThreadTimes[]> {
-    return (await this.call({ op: 'threadTimes' }))['threads'] as ThreadTimes[];
   }
 
   /**

@@ -1,6 +1,8 @@
 // The store's public shapes: its options, the indexer port it drives, and what its reads, purges and exports report.
 // Split from state-store.ts so the facade stays one module of behaviour.
+import type { ThreadDamagedError } from './errors.js';
 import type { LockOptions } from './lock.js';
+import type { LogRow } from './run-log-types.js';
 import type { StateStoreStartupOwner } from './state-store.js';
 
 /**
@@ -86,14 +88,14 @@ export interface PurgeReport {
   readonly truthMs: number;
 }
 
-/** `stream.chunk` rows a hydrating reader skips: all but those of these inline chunk types (spooled ones stay). */
-export interface HydrationReadFilter {
-  readonly excludeStreamChunksExceptTypes: readonly string[];
-}
-
-/** A thread's first and latest append, from the store's `threads` row (ms since epoch). */
-export interface ThreadTimes {
+/**
+ * One thread as the hydration read returns it: its first and latest append (ms since epoch, from the store's `threads`
+ * row, so a damaged thread still dates honestly) and its verified rows not marked `hydrate: false`, up to its damage.
+ */
+export interface HydrationThread {
   readonly createdAt: number;
+  readonly damage?: ThreadDamagedError;
+  readonly rows: readonly LogRow[];
   readonly threadId: string;
   readonly updatedAt: number;
 }
