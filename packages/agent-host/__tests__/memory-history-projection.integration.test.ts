@@ -33,9 +33,11 @@ import attempts from '@brainstrike/test-utils/fixtures/committed-host-run-attemp
 import rich from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json' with {
   type: 'json',
 };
+import type { MastraDBMessage } from '@mastra/core/agent';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import { committedMemoryTranscript } from '../src/adapters/committed-memory-transcript.js';
+import { StateStoreMemoryStorage } from '../src/adapters/memory-storage.js';
 import {
   StateStoreHostMemory,
   type StateStoreHostMemoryOptions,
@@ -190,4 +192,50 @@ test("a run's projected history equals the store's decoded rows, at commit and a
     throw new Error('The reopened run opened no Memory owner');
   }
   expect(await expectProjectionMatchesStore(store, hydratedContext)).toBeGreaterThan(atCommit);
+
+  // Memory's thread-scoped queries answer from their threads' transcript
+  // exactly what they answered from the whole resource's transcript.
+  const allThreads = new Set((await store.readAll()).map((row) => row.threadId));
+  const transcript = (threadIds?: ReadonlySet<string>): Promise<MastraDBMessage[]> =>
+    Promise.resolve(
+      committedMemoryTranscript(
+        hydratedContext.readCommittedRows(threadIds ?? allThreads),
+        RESOURCE_ID
+      )
+    );
+  const scoped = new StateStoreMemoryStorage(RESOURCE_ID, store, { read: transcript });
+  const whole = new StateStoreMemoryStorage(RESOURCE_ID, store, { read: () => transcript() });
+  cleanup.push(async () => {
+    await scoped.close();
+    await whole.close();
+  });
+  const [own, other] = seeded;
+  const included = (await transcript(new Set([other ?? '']))).at(-1);
+  if (!(own && other && included)) {
+    throw new Error('The seeded threads have no committed messages');
+  }
+  const queries: Parameters<StateStoreMemoryStorage['listMessages']>[0][] = [
+    ...seeded.map((threadId) => ({
+      includeTotal: false,
+      orderBy: { direction: 'DESC' as const, field: 'createdAt' as const },
+      perPage: 10,
+      resourceId: RESOURCE_ID,
+      threadId,
+    })),
+    { perPage: false, threadId: own },
+    { page: 1, perPage: 2, threadId: own },
+    {
+      include: [{ id: included.id, threadId: other, withPreviousMessages: 1 }],
+      perPage: 3,
+      threadId: own,
+    },
+    { include: [{ id: included.id, withNextMessages: 1 }], perPage: 3, threadId: own },
+  ];
+  for (const query of queries) {
+    const answer = await scoped.listMessages(query);
+    expect(answer.messages.length).toBeGreaterThan(0);
+    expect(answer).toEqual(await whole.listMessages(query));
+  }
+  const messages = await transcript(new Set([own]));
+  expect(await scoped.saveMessages({ messages })).toEqual(await whole.saveMessages({ messages }));
 }, 120_000);

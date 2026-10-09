@@ -8,8 +8,29 @@ import { InMemoryStore, MemoryStorage } from '@mastra/core/storage';
 import { decodeMemory, encodeMemory, memoryConfiguration } from './memory-storage-codec.js';
 
 export interface CommittedMemoryTranscript {
-  /** One consistent canonical projection, using committed host identities. */
-  read(): Promise<readonly MastraDBMessage[]>;
+  /**
+   * One consistent canonical projection, using committed host identities: the
+   * given threads' messages, or every thread of the resource without them.
+   */
+  read(threadIds?: ReadonlySet<string>): Promise<readonly MastraDBMessage[]>;
+}
+
+/**
+ * The threads a thread-scoped message query can answer from: its own and any
+ * included message's thread. An include without a thread may name a message
+ * of any thread, so that query reads the whole resource.
+ */
+function queriedThreads(
+  args: Parameters<MemoryStorage['listMessages']>[0]
+): ReadonlySet<string> | undefined {
+  const include = args.include ?? [];
+  if (include.some((entry) => entry.threadId === undefined)) {
+    return;
+  }
+  return new Set([
+    ...(Array.isArray(args.threadId) ? args.threadId : [args.threadId]),
+    ...include.flatMap((entry) => (entry.threadId === undefined ? [] : [entry.threadId])),
+  ]);
 }
 
 /** Native storage surface over the existing SQLite writer and committed transcript. */
@@ -263,9 +284,10 @@ export class StateStoreMemoryStorage extends MemoryStorage {
   }
 
   private async withTranscript<Value>(
+    threadIds: ReadonlySet<string> | undefined,
     operation: (native: MemoryStorage) => Promise<Value>
   ): Promise<Value> {
-    const messages = await this.transcript.read();
+    const messages = await this.transcript.read(threadIds);
     if (messages.some((message) => message.resourceId !== this.resourceId)) {
       throw new Error('Canonical transcript crossed its resource owner');
     }
@@ -302,29 +324,36 @@ export class StateStoreMemoryStorage extends MemoryStorage {
   override listMessages(
     ...args: Parameters<MemoryStorage['listMessages']>
   ): ReturnType<MemoryStorage['listMessages']> {
-    return this.admit(() => this.withTranscript((native) => native.listMessages(...args)));
+    return this.admit(() =>
+      this.withTranscript(queriedThreads(args[0]), (native) => native.listMessages(...args))
+    );
   }
 
   override listMessagesByResourceId(
     ...args: Parameters<MemoryStorage['listMessagesByResourceId']>
   ): ReturnType<MemoryStorage['listMessagesByResourceId']> {
     return this.admit(() =>
-      this.withTranscript((native) => native.listMessagesByResourceId(...args))
+      this.withTranscript(undefined, (native) => native.listMessagesByResourceId(...args))
     );
   }
 
   override listMessagesById(
     ...args: Parameters<MemoryStorage['listMessagesById']>
   ): ReturnType<MemoryStorage['listMessagesById']> {
-    return this.admit(() => this.withTranscript((native) => native.listMessagesById(...args)));
+    return this.admit(() =>
+      this.withTranscript(undefined, (native) => native.listMessagesById(...args))
+    );
   }
 
   override saveMessages({
     messages,
   }: Parameters<MemoryStorage['saveMessages']>[0]): ReturnType<MemoryStorage['saveMessages']> {
     return this.admit(async () => {
+      const threads = new Set(
+        messages.flatMap((message) => (message.threadId === undefined ? [] : [message.threadId]))
+      );
       const committed = new Map(
-        (await this.transcript.read()).map((message) => [message.id, message])
+        (await this.transcript.read(threads)).map((message) => [message.id, message])
       );
       const selected = messages.map((message) => {
         const row = committed.get(message.id);
