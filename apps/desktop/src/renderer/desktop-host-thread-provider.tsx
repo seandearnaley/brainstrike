@@ -7,7 +7,6 @@ import {
 import { AssistantThreadHostContext } from '@brainstrike/app-shell/assistant-thread-host-context';
 import {
   BudgetGuardrailProvider,
-  ChangesReviewProvider,
   CommittedAssistantConversation,
   DebugBundleProvider,
   EditCheckpointProvider,
@@ -43,6 +42,7 @@ import {
   type ProviderReadErrors,
   useDesktopHostPresentation,
 } from './use-desktop-host-presentation';
+import { useHostLastTurn } from './use-host-last-turn';
 import { useHostThreadUsage } from './use-host-thread-usage';
 
 /** The existing checkpoint undo controls, fed from the thread's committed edits. */
@@ -145,6 +145,8 @@ function HostThread({
   // Badges and OS notifications read this view's committed run state.
   const { onRunNotification } = useAssistantRunNotifications();
   const effects = useCommittedEffectCount(conversation);
+  // The Changes surface's "Last Turn" follows this thread's committed runs.
+  useHostLastTurn(threadId, conversation?.source);
   useEffect(
     () =>
       conversation ? runs.observe(threadId, conversation.source, onRunNotification) : undefined,
@@ -179,31 +181,27 @@ function HostThread({
       <div className="min-h-0 flex-1">
         <CommittedCheckpoints checkpoints={conversation.checkpoints}>
           <CommittedVerdicts verdicts={conversation.verdicts}>
-            {/* Host runs record no workspace snapshots yet, so their edits offer no
-                Changes review until a run's changeset resolves (gap 3). */}
-            <ChangesReviewProvider value={null}>
-              <BudgetGuardrailProvider value={budgetGuardrail}>
-                <DebugBundleProvider value={debugBundle}>
-                  <HostChildConversations revision={effects} threadId={threadId}>
-                    <CommittedAssistantConversation
-                      {...presentation}
-                      agentColor={agentColor}
-                      approvalStrip={
-                        <HostApprovalStrip client={client} tree={conversation.approvals} />
-                      }
-                      commands={conversation.commands}
-                      {...(cumulativeUsage ? { cumulativeUsage } : {})}
-                      label={label}
-                      onRunningChange={onRunningChange}
-                      onSendActiveInput={child ? conversation.sendInput : undefined}
-                      onSteerActiveRun={steer}
-                      store={conversation.store}
-                      workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
-                    />
-                  </HostChildConversations>
-                </DebugBundleProvider>
-              </BudgetGuardrailProvider>
-            </ChangesReviewProvider>
+            <BudgetGuardrailProvider value={budgetGuardrail}>
+              <DebugBundleProvider value={debugBundle}>
+                <HostChildConversations revision={effects} threadId={threadId}>
+                  <CommittedAssistantConversation
+                    {...presentation}
+                    agentColor={agentColor}
+                    approvalStrip={
+                      <HostApprovalStrip client={client} tree={conversation.approvals} />
+                    }
+                    commands={conversation.commands}
+                    {...(cumulativeUsage ? { cumulativeUsage } : {})}
+                    label={label}
+                    onRunningChange={onRunningChange}
+                    onSendActiveInput={child ? conversation.sendInput : undefined}
+                    onSteerActiveRun={steer}
+                    store={conversation.store}
+                    workspaceBar={<CommittedWorkspaceControls threadId={threadId} />}
+                  />
+                </HostChildConversations>
+              </DebugBundleProvider>
+            </BudgetGuardrailProvider>
           </CommittedVerdicts>
         </CommittedCheckpoints>
       </div>
