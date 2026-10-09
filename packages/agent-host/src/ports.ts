@@ -479,10 +479,13 @@ export interface HostProviderService {
 /**
  * The desktop host's MCP settings authority (BST-1930 c5a): the config file, the
  * global extension dials, and the discovered tools with their saved preferences.
+ * It also reports the runtime's server status and runs lifecycle control (c5b).
  */
 export interface HostMcpSettingsService {
   configPath(): Promise<HostResults['mcp/config/path']>;
   configStatus(): Promise<HostResults['mcp/config/status']>;
+  /** A connect, disconnect or reauthorize also reloads the discovered tools. */
+  control(request: HostParams<'mcp/server/control'>): Promise<HostResults['mcp/server/control']>;
   createSampleConfig(): Promise<HostResults['mcp/config/sample']>;
   extensions(): Promise<HostResults['mcp/extensions/read']>;
   readConfigText(): Promise<HostResults['mcp/config/read']>;
@@ -497,7 +500,8 @@ export interface HostMcpSettingsService {
   setServerToolsEnabled(request: HostParams<'mcp/tools/server/set'>): Promise<void>;
   setToolsEnabled(request: HostParams<'mcp/tools/set'>): Promise<void>;
   snapshot(): Promise<HostResults['mcp/settings/subscribe']>;
-  /** Every later settings change; the returned function stops them. */
+  status(): HostResults['mcp/status/read'];
+  /** Every later settings and status change; the returned function stops them. */
   subscribe(listener: (event: McpSettingsEvent) => void): () => void;
   toolStats(): Promise<HostResults['mcp/tools/stats']>;
   tools(): Promise<HostResults['mcp/tools/list']>;
