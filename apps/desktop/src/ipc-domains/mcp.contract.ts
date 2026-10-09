@@ -13,7 +13,6 @@ import type {
 } from '@brainstrike/assistant-contract';
 import type {
   McpContentApplicationError,
-  McpContentApplicationRequest,
   McpContentApplicationResult,
 } from '@brainstrike/assistant-service/mcp-content-application-port';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
@@ -112,25 +111,7 @@ export type McpPathSelectionContractBridge = Bridge<typeof mcpPathSelectionContr
 export type McpContentContractBridge = Bridge<typeof mcpContentContract>;
 export type McpAppsContractBridge = Bridge<typeof mcpAppsContract>;
 
-type McpContentRequest<Type extends McpContentApplicationRequest['type']> = Omit<
-  Extract<McpContentApplicationRequest, { type: Type }>,
-  'type'
->;
-type McpContentResult<Type extends McpContentApplicationResult['type']> = Extract<
-  McpContentApplicationResult,
-  { type: Type }
->;
-
 /** Renderer-facing MCP shape after the preload's intentional compositions. */
 export type McpBridge = McpPathSelectionContractBridge & {
   readonly apps?: McpAppsContractBridge & Pick<McpAppBridge, 'readResource'>;
-  readonly complete: (
-    request: McpContentRequest<'completion/complete'>
-  ) => Promise<McpContentResult<'completion/complete'>>;
-  readonly getPrompt: (
-    request: McpContentRequest<'prompts/get'>
-  ) => Promise<McpContentResult<'prompts/get'>>;
-  readonly readResource: (
-    request: McpContentRequest<'resources/read'>
-  ) => Promise<McpContentResult<'resources/read'>>;
 };

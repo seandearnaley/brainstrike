@@ -222,15 +222,9 @@ describe('preload contract-derived bridges', () => {
 
   it('exposes the composed MCP bridge with contract-derived root and Apps keys', () => {
     const mcp = exposedApi('mcp');
-    // Server status, lifecycle control, Tasks cards and global server input
-    // are agent-host methods (BST-1930 c5b-c5c).
-    const expectedRootKeys = new Set([
-      ...Object.keys(mcpPathSelectionContract),
-      'apps',
-      'complete',
-      'getPrompt',
-      'readResource',
-    ]);
+    // Server status, lifecycle control, Tasks cards, global server input and
+    // content browsing are agent-host methods (BST-1930 c5b-c5d).
+    const expectedRootKeys = new Set([...Object.keys(mcpPathSelectionContract), 'apps']);
     expect(new Set(Object.keys(mcp))).toEqual(expectedRootKeys);
     expect(Object.keys(mcp['apps'] as object).sort()).toEqual(
       [...Object.keys(mcpAppsContract), 'readResource'].sort()
@@ -286,23 +280,6 @@ describe('preload contract-derived bridges', () => {
         { authority: { configuredServerId: 'fixture', generation: 7 }, uri },
       ],
     ]);
-  });
-
-  it('unwraps MCP content replies into the established public promise behavior', async () => {
-    const mcp = exposedApi('mcp');
-    const result = { completion: { values: ['done'] }, type: 'completion/complete' };
-    mockInvoke.mockResolvedValueOnce({ ok: true, result });
-    await expect(mcp['complete']?.({ argument: { name: 'n', value: 'v' } })).resolves.toBe(result);
-
-    mockInvoke.mockResolvedValueOnce({
-      error: { category: 'protocol', code: 'invalid-result', message: 'bad content' },
-      ok: false,
-    });
-    await expect(mcp['complete']?.({})).rejects.toMatchObject({
-      category: 'protocol',
-      code: 'invalid-result',
-      message: 'bad content (protocol · invalid-result)',
-    });
   });
 
   it('derives the visible database invokes and path capability from their contracts', async () => {

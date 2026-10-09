@@ -541,9 +541,9 @@ contextBridge.exposeInMainWorld('agent', {
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.chat, messages, runtime),
 });
 
-// MCP content, Apps, Tasks and elicitation (desktop-only). The channel methods
-// and subscriptions are derived from pure contracts; MCP settings, status,
-// Tasks cards and global server input belong to the agent host. `apps.readResource` stays a composed preload
+// MCP Apps (desktop-only). The channel methods are derived from pure
+// contracts; MCP settings, status, Tasks cards, global server input and content
+// browsing belong to the agent host. `apps.readResource` stays a composed preload
 // operation: it resolves the live server generation (the preload-internal
 // status read) before using the content contract, so there is intentionally no
 // dedicated IPC channel for it.
@@ -557,9 +557,6 @@ contextBridge.exposeInMainWorld('mcp', {
     ...mcpAppsBridge,
     readResource: (origin: McpAppOrigin) => readMcpAppResource(origin),
   } satisfies McpAppBridge,
-  complete: (request: unknown) => unwrapMcpContent(mcpContentBridge.complete(request)),
-  getPrompt: (request: unknown) => unwrapMcpContent(mcpContentBridge.getPrompt(request)),
-  readResource: (request: unknown) => unwrapMcpContent(mcpContentBridge.readResource(request)),
 });
 
 // Assistant selection events. Tool execution deliberately stays behind the
