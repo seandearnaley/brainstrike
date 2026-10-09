@@ -44,7 +44,8 @@ import { HostLedgerThreadSchema } from './ledger-wire.js';
 // `ledger/read` (every thread's runs and costed provider calls, as Core folds
 // them), the threads `thread/delete` deleted (`threadIds`), and an MCP App's
 // own tool calls (`mcp/app/admit`, `mcp/app/call`), which Core decides under
-// the owning thread's policy. These additions are optional fields, new
+// the owning thread's policy, and `worktree.created` (a worktree a call's
+// shell command made, which the desktop adopted). These additions are optional fields, new
 // variants and new methods, so a v11 reader that uses none of them sees
 // nothing new.
 export const AGENT_HOST_PROTOCOL_VERSION = 11;
@@ -842,6 +843,19 @@ export const HostEventSchema = z.union([
   }),
   /** Committed with the approval that granted it; the run's later decisions include it. */
   z.strictObject({ type: z.literal('permission.granted'), ...RunFields, grant: PermissionGrant }),
+  /**
+   * A worktree this call's shell command made, which the desktop's worktree
+   * ledger adopted: the host observed it, it did not perform it.
+   */
+  z.strictObject({
+    type: z.literal('worktree.created'),
+    ...RunFields,
+    branch: z.string().min(1).nullable(),
+    path: z.string().min(1),
+    toolCallId: Id,
+    via: z.literal('shell'),
+    worktreeId: Id,
+  }),
   /**
    * Context a lifecycle hook added for the model: a UserPromptSubmit hook's
    * for its run's instructions, or a PostToolUse hook's for one tool result.
