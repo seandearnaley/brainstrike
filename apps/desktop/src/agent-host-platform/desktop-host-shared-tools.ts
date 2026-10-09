@@ -44,6 +44,8 @@ export function desktopHostSharedTools(options: {
   readonly appPaths?: HostAppPaths | undefined;
   readonly readFileCursorRegistry: ReadWorkspaceFileCursorRegistry;
   readonly request: (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
+  /** The host's own Tavily key owner, never Main's view of the store. */
+  readonly resolveTavilyApiKey: () => Promise<string | undefined>;
   readonly selected: PlatformSelection;
   readonly threadId: string;
 }): Record<string, HostTool> {
@@ -83,6 +85,7 @@ export function desktopHostSharedTools(options: {
     readFileCursorRegistry: options.readFileCursorRegistry,
     resolvedToolResultBudget: resolveScaledToolResultBudget(selected.contextWindow),
     runtime,
+    webSearch: { resolveApiKey: options.resolveTavilyApiKey },
   });
   const byCatalogId = new Map(
     Object.values(local).map((tool) => [tool.permissionToolId, tool] as const)

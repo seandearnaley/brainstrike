@@ -63,10 +63,11 @@ import {
 } from '@brainstrike/assistant-contract';
 import { resolveEnvAwsRegion } from '@brainstrike/assistant-service/provider-credential-projection';
 import { runWithTimeout } from '@brainstrike/effect-kit';
+import { TAVILY_SECRET_PROVIDER } from './native-tools/web-search-tool.js';
 import { resolveProviderBaseUrl } from './provider-base-url.js';
 
 /** Tavily owns a Settings key slot but is not a chat provider in the registry. */
-export const TAVILY_SECRET_PROVIDER = 'tavily' as const;
+export { TAVILY_SECRET_PROVIDER };
 
 const DEFAULT_SUCCESS_TTL_MS = 60 * 1000;
 const DEFAULT_FAILURE_TTL_MS = 3 * 1000;

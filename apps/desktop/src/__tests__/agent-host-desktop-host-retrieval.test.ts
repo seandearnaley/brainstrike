@@ -172,6 +172,7 @@ function hostTools(request: ReturnType<typeof mainReads>): Record<string, HostTo
   return desktopHostSharedTools({
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
+    resolveTavilyApiKey: async () => undefined,
     selected: PlatformSelectionSchema.parse({
       configuration: { model: 'gpt-6-sol', provider: 'openai' },
       contextWindow: 32_000,

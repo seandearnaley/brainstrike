@@ -1,4 +1,4 @@
-import { projectToolOutputArtifactPage } from '@brainstrike/agent';
+import { projectToolOutputArtifactPage } from '@brainstrike/agent/tool-runtime';
 
 /** The central model-projection wrapper invokes this with the sanitized tool as receiver, including its exact callable id. */
 export function createArtifactReaderModelProjection(

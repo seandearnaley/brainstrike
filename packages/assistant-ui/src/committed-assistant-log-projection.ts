@@ -22,6 +22,7 @@ import {
 } from '@brainstrike/assistant-contract/context-breakdown';
 import {
   createDeclinedToolCallResult,
+  isCodeExecutionApprovalContext,
   TOOL_CALL_BLOCKED_MESSAGE,
   TOOL_CALL_DECLINED_MESSAGE,
 } from '@brainstrike/assistant-contract/tool-approval';
@@ -31,6 +32,7 @@ import {
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { parsePartialJsonObject } from 'assistant-stream/utils';
 import { committedApprovalOptions } from './committed-approval-options';
+import { HOST_CONTEXT_COMPACTED_DATA_NAME } from './compaction-summary-message';
 import type { ThreadTokenUsage } from './context-usage-store';
 
 /** Structural consumer boundary for the owner's validated HostLogRow, not a wire schema. */
@@ -115,7 +117,12 @@ type ProjectedRunEvent = Pick<
   'detail' | 'kind' | 'label' | 'metadata' | 'status'
 >;
 
-const ATTEMPT_REASONS = new Set<unknown>(['stalled', 'provider-error', 'empty-response']);
+const ATTEMPT_REASONS = new Set<unknown>([
+  'context-overflow',
+  'empty-response',
+  'provider-error',
+  'stalled',
+]);
 const ATTEMPT_REFUSALS = new Set<unknown>(['budget-exhausted', 'tool-parts', 'committed-output']);
 
 /** A committed host `run.attempt` row, read strictly like every other committed event. */
@@ -317,6 +324,27 @@ function committedToolCatalogId(event: Readonly<Record<string, unknown>>): strin
   return typeof event['toolCatalogId'] === 'string'
     ? event['toolCatalogId']
     : requiredString(event, 'toolId');
+}
+
+/**
+ * What the card reads beside the approval: a question or plan's kind, or a
+ * code-execution approval's host facts (validated by the card before use).
+ */
+function interactionFacts(
+  kind: 'approval' | 'question' | 'plan',
+  executionContext: unknown
+): NonNullable<ToolPart['providerMetadata']>[string] | undefined {
+  if (kind !== 'approval') {
+    return { interactionKind: kind };
+  }
+  // A shape this build does not fully understand falls to the card's
+  // absent-context path (no fact rows, no grants), never a partial render.
+  // The owner has already validated JSON at the public HostLogRow boundary.
+  if (!isCodeExecutionApprovalContext(executionContext)) {
+    return;
+  }
+  const facts: Readonly<Record<string, unknown>> = { executionContext };
+  return facts as NonNullable<ToolPart['providerMetadata']>[string];
 }
 
 /** A permission approval answers with its grant options; a question or plan with text. */
@@ -669,8 +697,9 @@ export class CommittedAssistantLogProjection {
   }
 
   /**
-   * A host event with no message part of its own: a withheld memory reason
-   * becomes thread view state, anything else stays as host-event data.
+   * A host event with no message part of its own: an attempt record becomes
+   * its run's attempt notice, a compaction its compaction-card part, a
+   * withheld memory reason thread view state, and anything else host-event data.
    */
   private other(run: ProjectedRun, row: CommittedAssistantLogRow): void {
     const event = row.event;
@@ -686,6 +715,15 @@ export class CommittedAssistantLogProjection {
     }
     if (event['type'] === 'run.attempt') {
       this.attempt(run, row);
+      return;
+    }
+    if (event['type'] === 'context.compacted') {
+      const kind = event['kind'];
+      if (kind !== 'agentic' && kind !== 'deterministic') {
+        throw new Error('Committed compaction has an unsupported kind.');
+      }
+      const summary = requiredString(event, 'summary');
+      this.data(run, row, { kind, summary }, HOST_CONTEXT_COMPACTED_DATA_NAME);
       return;
     }
     if (event['type'] === 'provider.request.prepared' && event['breakdown'] !== undefined) {
@@ -837,20 +875,21 @@ export class CommittedAssistantLogProjection {
       throw new Error('Committed interaction has an unsupported kind.');
     }
     const risk = isToolRiskCategory(event['risk']) ? event['risk'] : undefined;
+    const facts = interactionFacts(kind, event['executionContext']);
     this.updateTool(run, id, (part) => ({
       ...part,
       approval: {
         id: interactionId,
         ...interactionAnswers(kind, risk),
       },
-      ...(kind === 'approval'
-        ? {}
-        : {
+      ...(facts
+        ? {
             providerMetadata: {
               ...part.providerMetadata,
-              brainstrike: { ...part.providerMetadata?.['brainstrike'], interactionKind: kind },
+              brainstrike: { ...part.providerMetadata?.['brainstrike'], ...facts },
             },
-          }),
+          }
+        : {}),
     }));
     this.view = {
       ...this.view,

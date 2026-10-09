@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ASSISTANT_TASK_STATUSES, type AssistantTaskItem } from '@brainstrike/agent';
+import { buildCurrentTaskListNote } from '@brainstrike/agent/tool-runtime';
 import type { HostToolState } from '@brainstrike/agent-host';
 import { canvasHtmlWithinByteCeiling, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { z } from 'zod';
@@ -31,6 +32,15 @@ const TaskItemsSchema = z.array(
     status: z.enum(ASSISTANT_TASK_STATUSES),
   })
 );
+/** The legacy `<current-task-list>` note over the thread's committed list. */
+export function hostTaskListNote(state: Pick<HostToolState, 'read'>): string | undefined {
+  const current = state.read(TASK_LIST_KEY);
+  return (
+    buildCurrentTaskListNote(current === undefined ? undefined : TaskItemsSchema.parse(current)) ??
+    undefined
+  );
+}
+
 export function hostTaskListStore(state: HostToolState): TaskListStore {
   return {
     replace: async (next) => {

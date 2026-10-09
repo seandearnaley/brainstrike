@@ -2,8 +2,8 @@ import {
   MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
-import { decodedWorkspaceTextModelOutputChars as decodedChars } from '@brainstrike/host-capabilities/native-tools';
-import { isValidWebSearchCitationUrl } from './web-search-citation-url';
+import { isValidWebSearchCitationUrl } from './web-search-citation-url.js';
+import { decodedWorkspaceTextModelOutputChars as decodedChars } from './workspace-model-projection-helpers.js';
 
 export interface WebSearchTextModelOutput {
   type: 'text';

@@ -4,11 +4,7 @@
  * object for ONE catalog definition; `native-tool-executors.ts` assembles the
  * exhaustive map.
  */
-import {
-  NATIVE_TOOL_INPUT_SCHEMAS,
-  type WebExtractInput,
-  type WebSearchInput,
-} from '@brainstrike/agent';
+import { NATIVE_TOOL_INPUT_SCHEMAS, type WebExtractInput } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import {
   logToolFailure,
@@ -25,8 +21,6 @@ import { retrievalToolExecutors } from './native-tool-executors-retrieval';
 import { pgliteRetrievalStore } from './retrieval-store-pglite';
 import { projectWebExtractModelOutput } from './web-extract-model-projection';
 import { runWebExtract } from './web-extract-tool';
-import { projectWebSearchModelOutput } from './web-search-model-projection';
-import { runWebSearch } from './web-search-tool';
 
 /** Main's retrieval reads its own PGlite catalog beside its native index capability. */
 function mainRetrieval(
@@ -46,27 +40,6 @@ function mainRetrieval(
 export const SEARCH_TOOL_EXECUTORS = executorGroup({
   // Main's grep reads its own PGlite file-chunk index.
   [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor(pgliteGrepIndex),
-  [NATIVE_TOOL_ID.webSearch]: ({ dependencies, resolveActiveDomainCharBudget }) => ({
-    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.webSearch],
-    // The Tavily key is resolved server-side inside runWebSearch and never
-    // returned to the model. No injected deps here → real fetch + keychain.
-    execute: async (input: ToolExecuteInput<WebSearchInput>) => {
-      const resolvedInput = parseToolExecuteInput(
-        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webSearch],
-        input
-      );
-      try {
-        return await runWebSearch(resolvedInput, dependencies.webSearch);
-      } catch (error) {
-        logToolFailure('webSearch failed', error, resolvedInput);
-        throw error;
-      }
-    },
-    id: NATIVE_TOOL_ID.webSearch,
-    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.webSearch],
-    toModelOutput: (output: unknown) =>
-      projectWebSearchModelOutput(output, resolveActiveDomainCharBudget()),
-  }),
   [NATIVE_TOOL_ID.webExtract]: ({ dependencies, resolveActiveDomainCharBudget }) => ({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.webExtract],
     // The Tavily key is resolved server-side inside runWebExtract and never

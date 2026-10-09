@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { HostToolContext } from '@brainstrike/agent-host';
-import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import type { GitResult, WorktreeCreateResult, WorktreeListEntry } from '@brainstrike/types';
 import { afterEach, expect, test, vi } from 'vitest';
@@ -166,6 +166,8 @@ test('the desktop host runs lspInspect in its own process, revalidating roots th
   const tools = desktopHostSharedTools({
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
+    // These cases build no web search; the host's Tavily owner is never read.
+    resolveTavilyApiKey: async () => undefined,
     selected: selection(root),
     threadId: 'host-thread',
   });
@@ -197,6 +199,8 @@ test('the desktop host reads the curated context selection in its own process', 
   const tools = desktopHostSharedTools({
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
+    // These cases build no web search; the host's Tavily owner is never read.
+    resolveTavilyApiKey: async () => undefined,
     selected: selection(root, {
       selectionFilePaths: ['notes.txt'],
       selectionFolderId: 'root-a',
@@ -250,6 +254,8 @@ test('the desktop host runs executeCommand in its own process and correlates wor
   const tools = desktopHostSharedTools({
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
+    // These cases build no web search; the host's Tavily owner is never read.
+    resolveTavilyApiKey: async () => undefined,
     selected: selection(root),
     threadId: 'host-thread',
   });
@@ -319,6 +325,8 @@ test('the desktop host greps in its own process, reading only the indexed half f
   const tools = desktopHostSharedTools({
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
+    // These cases build no web search; the host's Tavily owner is never read.
+    resolveTavilyApiKey: async () => undefined,
     selected: selection(root),
     threadId: 'host-thread',
   });
@@ -417,6 +425,7 @@ test('the desktop host runs the worktree tools in its own process over Main’s 
   const tools = desktopHostSharedTools({
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
+    resolveTavilyApiKey: async () => undefined,
     selected: selection(root),
     threadId: 'host-thread',
   });
@@ -484,6 +493,7 @@ test('the desktop host runs the browser tools, asking Main to drive the window-b
   const tools = desktopHostSharedTools({
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
+    resolveTavilyApiKey: async () => undefined,
     selected: selection(root),
     threadId: 'host-thread',
   });
@@ -532,6 +542,7 @@ test('the desktop host validates a context selection in its own process and asks
   const tools = desktopHostSharedTools({
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
+    resolveTavilyApiKey: async () => undefined,
     selected: selection(root, { selectionFolderId: 'folder-a', workspaceRootPath: root }),
     threadId: 'host-thread',
   });
@@ -609,6 +620,7 @@ test('the desktop host runs querySelf and queryDiagnostics, reading only Main’
   const tools = desktopHostSharedTools({
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
+    resolveTavilyApiKey: async () => undefined,
     selected: selection(root),
     threadId: 'host-thread',
   });
@@ -623,12 +635,19 @@ test('the desktop host runs querySelf and queryDiagnostics, reading only Main’
   // The engine's own message reaches the model as a correctable input error.
   await expect(
     querySelf.execute({ mode: 'query', sql: 'SELEC 1', target: 'app' }, execution())
-  ).rejects.toBeInstanceOf(ToolInputError);
+  ).resolves.toEqual({
+    error: {
+      code: 'tool_input_invalid',
+      message: 'syntax error at or near "SELEC"',
+      toolName: NATIVE_TOOL_ID.querySelf,
+    },
+    ok: false,
+  });
   // A local input error never reaches Main.
   request.mockClear();
   await expect(
     querySelf.execute({ analyze: true, mode: 'query', sql: 'SELECT 1', target: 'app' }, execution())
-  ).rejects.toBeInstanceOf(ToolInputError);
+  ).resolves.toMatchObject({ error: { code: 'tool_input_invalid' }, ok: false });
   expect(request.mock.calls.map(([method]) => method)).not.toContain('desktop-read/query-self');
 
   await expect(
@@ -663,6 +682,7 @@ test('the desktop host runs run_python against the bundled runtime its launch ap
     appPaths: { isPackaged: true, resourcesPath, userDataPath },
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
+    resolveTavilyApiKey: async () => undefined,
     selected,
     threadId: 'host-thread',
   });
@@ -736,6 +756,7 @@ test('the desktop host activates, reads and runs the skills Main admitted, readi
     appPaths: { isPackaged: true, resourcesPath: home, userDataPath: home },
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
+    resolveTavilyApiKey: async () => undefined,
     selected,
     threadId: 'host-thread',
   });
@@ -786,6 +807,7 @@ test('a run on the built-in local provider is admitted without workspace skills'
     desktopHostSharedTools({
       readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
       request: vi.fn(),
+      resolveTavilyApiKey: async () => undefined,
       selected,
       threadId: 'host-thread',
     })

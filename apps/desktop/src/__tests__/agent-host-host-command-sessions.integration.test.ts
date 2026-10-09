@@ -138,6 +138,7 @@ test('a host run’s command session lives in the agent host and Main’s Termin
   const manage = desktopHostSharedTools({
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
+    resolveTavilyApiKey: async () => undefined,
     selected: selection(root),
     threadId: 'host-thread',
   })['brainstrike_manageCommandSession'];
