@@ -113,9 +113,10 @@ export async function startAgentHost(
   };
   const clientCapabilities = (): Pick<
     HostConnectionOptions,
-    'auth' | 'mcpPresentation' | 'mcpSettings' | 'providers'
+    'auth' | 'mcpContent' | 'mcpPresentation' | 'mcpSettings' | 'providers'
   > => ({
     ...(platform?.auth ? { auth: platform.auth } : {}),
+    ...(platform?.mcpContent ? { mcpContent: platform.mcpContent } : {}),
     ...(platform?.mcpPresentation ? { mcpPresentation: platform.mcpPresentation } : {}),
     ...(platform?.mcpSettings ? { mcpSettings: platform.mcpSettings } : {}),
     ...(platform?.providers ? { providers: platform.providers } : {}),

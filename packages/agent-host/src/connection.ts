@@ -5,11 +5,13 @@ import { bindHostAuthMethods } from './auth-connection.js';
 import type { HostCore } from './core.js';
 import { hostChildStatusChanged } from './core-child-runs.js';
 import { bindHostHookTrustMethods } from './hook-trust.js';
+import { bindHostMcpContentMethods } from './mcp-content-connection.js';
 import { bindHostMcpPresentationMethods } from './mcp-presentation-connection.js';
 import { bindHostMcpSettingsMethods } from './mcp-settings-connection.js';
 import type {
   HostAuthService,
   HostClientOrigin,
+  HostMcpContentService,
   HostMcpPresentationService,
   HostMcpSettingsService,
   HostProviderService,
@@ -33,6 +35,8 @@ export interface HostConnectionOptions {
   /** The platform's credential authority, where the host owns one. */
   readonly auth?: HostAuthService;
   readonly lifecycle?: HostConnectionLifecycle;
+  /** The desktop's MCP content browsing, where the host serves it. */
+  readonly mcpContent?: HostMcpContentService;
   /** The desktop's MCP Tasks cards and server input, where the host presents them. */
   readonly mcpPresentation?: HostMcpPresentationService;
   /** The desktop's MCP settings authority, where the host owns one. */
@@ -54,6 +58,7 @@ export function bindHostConnection(
   const {
     auth,
     lifecycle,
+    mcpContent,
     mcpPresentation,
     mcpSettings,
     origin = 'public-socket',
@@ -137,6 +142,7 @@ export function bindHostConnection(
   bindHostProviderMethods(handle, providers, origin);
   disposables.push(bindHostMcpSettingsMethods(handle, connection, mcpSettings, origin));
   disposables.push(bindHostMcpPresentationMethods(handle, connection, mcpPresentation, origin));
+  bindHostMcpContentMethods(handle, mcpContent, origin);
   bindHostHookTrustMethods(handle, core.store);
   handle('thread/start', (params) => core.startThread(params));
   handle('thread/list', () => ({ threads: core.listThreads() }));

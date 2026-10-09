@@ -112,6 +112,8 @@ export interface ProductionHostPlatformOptions {
   readonly forgetThread?: HostPlatform['forgetThread'];
   /** Desktop platform selections already include the existing qualified MCP executors. */
   readonly mcp?: HostMcpRuntime;
+  /** The desktop's MCP content browsing (BST-1930 c5d). */
+  readonly mcpContent?: HostPlatform['mcpContent'];
   /** The desktop's MCP Tasks cards and server input (BST-1930 c5c). */
   readonly mcpPresentation?: HostPlatform['mcpPresentation'];
   /** The desktop's MCP settings authority (BST-1930 c5a). */
@@ -577,6 +579,7 @@ export async function createProductionHostPlatform(
       : {}),
     stateIndexer: index.indexer,
     ...(options.auth ? { auth: options.auth } : {}),
+    ...(options.mcpContent ? { mcpContent: options.mcpContent } : {}),
     ...(options.mcpPresentation ? { mcpPresentation: options.mcpPresentation } : {}),
     ...(options.mcpSettings ? { mcpSettings: options.mcpSettings } : {}),
     ...(options.providers ? { providers: options.providers } : {}),
