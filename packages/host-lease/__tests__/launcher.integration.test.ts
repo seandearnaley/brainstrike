@@ -7,7 +7,7 @@ import { afterEach, expect, test } from 'vitest';
 import type { HostAttachment } from '../src/client.js';
 import { LiveHostUnavailableError, launchHost } from '../src/launcher.js';
 import { decodeHostRecord } from '../src/record.js';
-import { readHostRecord } from '../src/record-file.js';
+import { readHostRecord, secureDirectory } from '../src/record-file.js';
 import { type HostRuntime, startHost } from '../src/runtime.js';
 
 const roots: string[] = [];
@@ -142,6 +142,7 @@ test('the shared startup deadline bounds an injected starter and supplies its ab
 
 test('waits for an exiting owner to release the root, then starts a host instead of failing', async () => {
   const root = await freshRoot();
+  await secureDirectory(root);
   // An exiting host has removed its record and still holds the root while its store closes.
   const exiting = await RootLock.acquire(root);
   let started = 0;
@@ -163,6 +164,7 @@ test('waits for an exiting owner to release the root, then starts a host instead
 
 test('a root that stays held past the startup deadline is still refused, bounded', async () => {
   const root = await freshRoot();
+  await secureDirectory(root);
   const held = await RootLock.acquire(root);
   try {
     let started = false;

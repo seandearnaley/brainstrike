@@ -102,7 +102,12 @@ Memory's own `listTools()` tools and stores recall/observation vectors in its
 state index under the state root, acquired per memory resource; Main lends its
 hidden llm-host and embedding host to a thread's admitted local observer and
 recall embedder (ADR-0007). Component evidence does not establish physical
-Stop/delete retirement under load, populated old-schema upgrade, or the full M3
-regression. Those composed acceptance checks remain open until demonstrated.
+Stop/delete retirement under load, populated current-schema reopen, or the full M3
+regression. Those composed acceptance checks require their own evidence.
+[ADR-0020](../../../../docs/adr/0020-greenfield-data-lifecycle.md) removes populated
+old-schema upgrade from acceptance: Brainstrike has no users and no legacy-data
+migration obligation. Current Memory recall, working/observational memory, strict
+purge and factory reset remain required; this ruling does not claim legacy code
+has already been removed.
 
 CI is disabled due to cost; validation must run locally.

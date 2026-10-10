@@ -1,5 +1,7 @@
 // @vitest-environment node
+
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { createConnection } from 'node:net';
 import { join, resolve } from 'node:path';
 import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost } from '@brainstrike/agent-host';
@@ -22,7 +24,7 @@ import {
   startModelProviderShim,
 } from '../../../e2e/utils/model-provider-shim';
 import { createDisposableAppProfile } from './disposable-app-profile';
-import { killAppWithLauncher } from './electron-launcher-watchdog';
+import { launchAppWithLauncher } from './electron-launcher-watchdog';
 
 const desktop = resolve(import.meta.dirname, '../../..');
 // Reuse the recorded public metadata fixture; no provider grant or inference.
@@ -241,22 +243,19 @@ export async function qualifyOrdinaryAppIndexedText(
     });
     expect(RootLock.inspect(profile)).toBeNull();
     checkpoint('ordinary-search-launch-start');
-    application = await _electron.launch({
-      args: [
-        join(desktop, 'dist/main.js'),
-        '--test-mode',
-        `--user-data-dir=${disposable}`,
-        '--brainstrike-desktop-launch-mode=test-built',
-      ],
-      env,
-      executablePath:
-        process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ??
-        join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
-    });
+    application = await launchAppWithLauncher(() =>
+      _electron.launch({
+        args: [
+          join(desktop, 'dist/main.js'),
+          '--test-mode',
+          `--user-data-dir=${disposable}`,
+          '--brainstrike-desktop-launch-mode=test-built',
+        ],
+        env,
+        executablePath: process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ?? electronPath(),
+      })
+    );
     const appProcess = application.process();
-    if (appProcess.pid) {
-      killAppWithLauncher(appProcess.pid);
-    }
     const appStart = appProcess.pid && processStartTime(appProcess.pid);
     if (appProcess.pid && appStart) {
       owners.push({ pid: appProcess.pid, start: appStart });
@@ -630,4 +629,12 @@ export async function qualifyOrdinaryAppIndexedText(
   if (failure) {
     throw failure;
   }
+}
+
+function electronPath(): string {
+  const value: unknown = createRequire(import.meta.url)('electron');
+  if (typeof value !== 'string') {
+    throw new TypeError('Electron package did not expose its executable path');
+  }
+  return value;
 }

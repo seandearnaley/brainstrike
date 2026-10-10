@@ -1519,7 +1519,9 @@ Evidence: `assistant-subagents/child-run-controls-and-composer.md`.
   80-message pages; an empty branch prefix reads no message page. Its baseline
   excludes events whose canonical native-message owner (or, absent that, turn
   owner) is outside the branch, and Retry also excludes turn-owned events for the
-  replaced answer. Legacy ownerless events keep chronological assignment.
+  replaced answer. Current events retain explicit canonical ownership. Remaining
+  chronological assignment for ownerless legacy events is existing code under
+  [ADR-0020](../adr/0020-greenfield-data-lifecycle.md), not an inference requirement.
 - Idle input and historical branch actions WAIT for a valid admitted persona. A
   malformed latest execution receipt displays a concise explicit error while
   retaining the original admitted persona and tool/step limits; raw schema issue
@@ -1548,16 +1550,17 @@ Evidence: `assistant-subagents/child-run-controls-and-composer.md`.
   (`resolveChildToolCallConcurrency`; `assistant-runtime.md`, "Parallel tool
   calls"); otherwise Mastra's parallel foreach resume re-raises approval for the
   allowed siblings of the approved call.
-- Migration 137 persists an execution configuration on each continuation receipt.
+- The current schema persists an execution configuration on each continuation receipt.
   Admission validates the current host model and image capability, combines root
   permissions under the deny-only ceiling, prevents disabling root plan mode, and
   permits only REDUCTIONS of the original admitted tool catalog. Resume reads the
   receipt's exact profile and generation settings and applies current root
   permissions under that same ceiling. A pending decision is unaffected by future
   draft edits, reload or a different parent effort, child settings never replace
-  the parent outcome leg's settings, null legacy execution configurations keep
-  the original-profile compatibility path, and migration rollback refuses to
-  discard non-null execution snapshots.
+  the parent outcome leg's settings. Current receipts must preserve their exact
+  execution snapshots through restart; the null legacy configuration path and
+  old-schema rollback are not supported-data obligations under ADR-0020. Remaining
+  compatibility code does not create another cleanup requirement.
 
 Evidence: `assistant-subagents/child-run-controls-and-composer.md`.
 Guard: `packages/agent/src/mastra/__tests__/child-run-configuration.spec.ts`.
@@ -1580,11 +1583,11 @@ Guard: `packages/agent/src/mastra/__tests__/child-run-configuration.spec.ts`.
   signal replaces only its input-context tag: absent or empty context clears the
   older tag without altering admitted persona or workspace authority.
 - A stable receipt binds the entire normalized payload, image bytes included,
-  through acknowledgement loss and restart. Migration 136 stores that payload on
-  the existing reset-owned continuation receipt; legacy text-only receipts stay
-  readable, and downgrade permits only payloads losslessly represented by the
-  retained input text. Acknowledgement clears only the sent attachment cohort and
-  unchanged text, preserving newly staged input; an unconfirmed changed payload
+  through acknowledgement loss and restart. The current schema stores that payload
+  on the existing reset-owned continuation receipt. Legacy text-only readers and
+  payload downgrade code do not create compatibility or additional cleanup requirements.
+  Acknowledgement clears only the sent attachment cohort and unchanged text,
+  preserving newly staged input; an unconfirmed changed payload
   requires explicit discard.
 - The shared effort control offers an OpenRouter ladder only from the selected
   model's declared or matching live metadata, never direct OpenAI defaults while

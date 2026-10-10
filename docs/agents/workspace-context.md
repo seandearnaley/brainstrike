@@ -373,9 +373,11 @@ snapshot, not from stored content. Desktop-only, capability-gated.
 - Gate capture on an active memory context and keep it NON-FATAL — debug when the DB
   is absent, error when it throws. The tool result contract never changes.
 - Store IDENTITY ONLY: op, paths, before/after sha256 and size, timestamps,
-  `reverted_at`. Never populate `before_content`; that column and the
-  `skipped_binary`/`skipped_too_large`/`expired` states stay readable for legacy rows
-  only, and new rows are always `ok`/`created`/`rename`.
+  `reverted_at`. Never populate `before_content`; current rows use
+  `ok`/`created`/`rename` and the canonical snapshot ledger. Remaining readers for
+  old content and `skipped_binary`/`skipped_too_large`/`expired` rows are existing code;
+  under [ADR-0020](../adr/0020-greenfield-data-lifecycle.md), they create no legacy restore obligation or new cleanup task.
+  Preserve current-data revert, reload and explicit unavailable/corrupt evidence.
 - `BRAINSTRIKE_CHECKPOINT_MAX_ROWS` is strict-parsed with no silent fallback and
   hard-deletes the oldest rows after every insert — the whole retention policy.
   Snapshot-side retention lives in `docs/agents/changeset-diff.md`.

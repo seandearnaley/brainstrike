@@ -9,6 +9,14 @@ dated plans/research under `docs/superpowers/`, `docs/archive/`, or other
 date-stamped paths as historical evidence—not current behavior. Prefer code,
 tests, and live contracts when they disagree with a historical document.
 
+**Greenfield scope (owner ruling, 10 October 2026):** Brainstrike has no users.
+Do not build legacy-data migrations, old-thread compatibility, credential imports,
+or populated old-schema upgrade gates. Create the current schema and preserve
+freshly created data across reopen, recovery, deletion and reset. Existing DDL
+ledgers do not imply a legacy-upgrade obligation. Never access or reset the owner's
+protected profile. This supersedes conflicting historical migration directives;
+see `docs/adr/0020-greenfield-data-lifecycle.md`.
+
 | Touching… | Read first |
 | --- | --- |
 | Assistant stream/tool chain: guards, watchdog, error processors, tool approval / permission engine, lifecycle hooks, plan mode & tool suspension, thread viewport scrolling | `docs/agents/assistant-runtime.md` |
@@ -48,7 +56,7 @@ Cross-cutting invariants (full detail + rationale in the docs):
 
 These override any older directive, contract or "settled" marker that conflicts with them. "Settled" and "do not relitigate" markers in `docs/agents/` are historical evidence, not binding rulings; binding decisions live in `docs/adr/`.
 
-Index: `docs/adr/` (0001–0017).
+Index: `docs/adr/` (0001–0020).
 
 1. **One owner per fact.** Every fact has one durable record, one writer process and one ID, named in an ADR. A fix that needs a new alias, ID kind, backfill or reconciliation step is a design change: stop and escalate to the owner.
 2. **Vendor primitive first, mature tech only.** Use the library's documented primitive before building around it. Anything experimental or pre-1.0 needs a spike that proves the capabilities you need. A workaround is a code comment with an upstream link and a removal condition.

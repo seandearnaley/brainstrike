@@ -1,7 +1,8 @@
 # SQLite state store
 
-> Read before changing `packages/state-store`. The package is an unwired storage
-> foundation: application chat continues using its existing persistence path.
+> Read before changing `packages/state-store`. It owns the host's canonical state
+> through the existing writer boundary. [ADR-0020](../adr/0020-greenfield-data-lifecycle.md)
+> requires current-schema creation and fresh-data durability, not legacy-data upgrades.
 
 ## Writer and durability
 
@@ -20,11 +21,15 @@
 - Keep WAL torn-tail qualification exhaustive at both commit endpoints and every
   byte between them. Report bounded sequential cases and reject gaps/duplicates
   in both planned and completed offsets without changing recovery or deadlines.
-- Apply forward schema versions transactionally and reject a newer database.
-  Preserve existing run rows and settings when upgrading the initial scaffold.
+- Create the current schema transactionally and validate its version on reopen.
+  Qualify populated current-schema run rows and settings across reopen and recovery.
+  Initial-scaffold upgrade compatibility is not an acceptance requirement; existing
+  upgrade code creates no new cleanup or compatibility requirement. Unsupported state must not be silently
+  repaired, deleted or treated as an empty store.
 - SQLite authoritative records use validated JSON TEXT, checked boolean
   INTEGERs, UTC timestamp TEXT and caller-minted UUID TEXT. Preserve exact billed
-  cost decimals as TEXT. Keep absent legacy-parent FK boundaries explicit.
+  cost decimals as TEXT. Keep current relational ownership explicit; do not infer
+  legacy parents.
 
 Guard: `packages/state-store/__tests__/m0-sqlite.test.ts`, `schema.test.ts`,
 `i3-corruption.test.ts`, `wal-cut-cases.test.ts`, `kill-harness.integration.test.ts`,
@@ -62,7 +67,7 @@ Evidence: `state-store/foundation.md`, `state-store/windows-release-2026-10-05.m
 - Purge requires the indexer port. Persist and replay the purge intent, reindex
   the tombstone, require explicit nonnegative reference counts and truncate WAL
   before claiming deletion. A pinned reader rejects purge; retry completes it.
-- Use the production indexer's state adapter for physical FTS/reference-count qualification. Keep its truth reader on the existing indexer writer worker; do not model state events as canonical files or wire application chat in this foundation.
+- Use the production indexer's state adapter for physical FTS/reference-count qualification. Keep its truth reader on the existing indexer writer worker; do not model state events as canonical files or add another application-state writer.
 - Export complete state through a consistent VACUUM INTO snapshot. Defer blob GC
   while exports reference older snapshots; import verifies every manifest hash.
   Validate the complete canonical relative-path manifest before payload reads or
@@ -76,8 +81,9 @@ Evidence: `state-store/foundation.md`, `state-store/windows-release-2026-10-05.m
   Complete authoritative records use the state bundle instead.
 - Reset closes writer and indexer handles before deleting every owned store entry
   and removing the root lock. Preserve unrelated files in a shared profile.
-- Keep desktop factory-reset profile deletion covering these unwired store files;
-  wiring chat or creating a separate reset authority requires a later change.
+- Keep desktop factory reset covering all currently owned store files and joining
+  the existing host/index lifecycles. Greenfield scope does not permit removing
+  cleanup for an owner that is still present or creating another reset authority.
 
 Guard: `packages/state-store/__tests__/blobs.test.ts`, `i1-purge.test.ts`,
 `i2-reset.test.ts`, `i5-export.test.ts`, `bundle-import-paths.test.ts`, `jsonl.test.ts`,

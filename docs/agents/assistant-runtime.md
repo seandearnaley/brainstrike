@@ -2299,9 +2299,10 @@ version ceiling in `mastra-boundary.md`.
   Resume vocab is the builtin-compatible `{action:'approved'|'rejected', feedback?}`.
 - **`askUser`** takes `{question, options?, selectionMode?}` and resumes with the
   `{answer: string | string[]}` ENVELOPE — an object so the `approved: true` rider
-  can attach when askUser is ask-gated. It still accepts the LEGACY bare
-  `string | string[]` so pre-migration runs stay resumable; multi-select joins with
-  ", ".
+  can attach when askUser is ask-gated; multi-select joins with ", ". Current-format
+  runs must retain this envelope across restart. Existing bare `string | string[]`
+  compatibility is existing code under
+  [ADR-0020](../adr/0020-greenfield-data-lifecycle.md), not an old-run resume obligation.
 - The renderer structurally narrows both tools' `suspendPayload` before displaying
   or resuming it. An absent payload retains the generic actionable fallback. Core
   plan terms and the question/options must be readable; one unreadable decision

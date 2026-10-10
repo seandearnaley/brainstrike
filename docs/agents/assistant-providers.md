@@ -1958,10 +1958,11 @@ Purpose-built projections:
   in paths are escaped, so a hostile filename can never create a new projection
   line nor mimic an indented match row. A filename that merely resembles a header
   is an accepted residual — do not reintroduce per-row quoting to chase it.
-- Stored text projections replay byte-for-byte on a later same-run step rather
-  than being reparsed as raw results. Legacy stored JSON projections are unwrapped
-  and re-rendered; legacy raw results without topology fields degrade to an
-  unprefixed header without losing content.
+- Current stored text projections replay byte-for-byte on a later same-run step
+  rather than being reparsed as raw results. Legacy JSON re-rendering and missing-
+  topology degradation are existing compatibility code under
+  [ADR-0020](../adr/0020-greenfield-data-lifecycle.md), not old-data support obligations.
+  This does not change external MCP protocol compatibility or transport selection.
 - An authoritatively resolved zero-root Desktop workspace is a SUCCESSFUL compact
   result with `workspaceRoots: []` and an explicit `roots=0` line; an absent or
   malformed root-resolution result still fails visibly.
