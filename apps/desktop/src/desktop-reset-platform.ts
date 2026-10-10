@@ -56,6 +56,8 @@ export interface DesktopFactoryReset {
    * profile only until it reopens it: whoever needs the profile meanwhile waits.
    */
   idle(): Promise<void>;
+  /** The accepted reset, including its reopen or original failed outcome. */
+  inFlight(): Promise<DesktopFactoryResetResult> | null;
   reset(): Promise<DesktopFactoryResetResult>;
 }
 
@@ -248,6 +250,7 @@ export function createDesktopFactoryResetHandler({
         await resetInFlight;
       }
     },
+    inFlight: () => resetInFlight,
     reset: () => {
       if (closed) {
         return Promise.resolve({

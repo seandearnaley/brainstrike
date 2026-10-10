@@ -14,6 +14,7 @@ import {
   mockApp,
   mockBrowserWindowInstance,
   nativeCloseForShutdown,
+  nativePrepareForPause,
   nativeReconfigureForReset,
   probeMock,
   recoverInterruptedMaintenanceMock,
@@ -137,6 +138,155 @@ describe('main boot order', () => {
     await close;
     expect(purge).toHaveBeenCalledOnce();
   });
+
+  it.each(['completed', 'replacement-failed', 'resume-failed', 'quit'] as const)(
+    'defers a reset renderer native-settings notification through replacement and reopen: %s',
+    async (outcome) => {
+      getDatabaseMock.mockResolvedValue({});
+      const notified = Promise.withResolvers<void>();
+      const replacement = Promise.withResolvers<void>();
+      const resuming = Promise.withResolvers<void>();
+      const resumed = Promise.withResolvers<void>();
+      let reopened = false;
+      const failure =
+        outcome === 'resume-failed'
+          ? new AggregateError(
+              [new Error('Native resume failed'), new Error('MCP resume failed')],
+              'Reset resume failed'
+            )
+          : new Error('Replacement renderer failed');
+      const { NativeAuthorityTransitionError } = await import('../../native-authority-transition');
+      nativePrepareForPause.mockImplementation(async () => {
+        if (!reopened) {
+          throw new NativeAuthorityTransitionError(
+            'Native Pause was superseded by terminal retirement.'
+          );
+        }
+        return null;
+      });
+      const reconfigure = vi.fn(async () => {});
+      nativeReconfigureForReset.current = reconfigure;
+      const resetData = await import('../../desktop-factory-reset');
+      const purge = vi.spyOn(resetData, 'resetDesktopApplicationData').mockResolvedValue({
+        deletedPaths: [],
+        pendingDeletionPaths: [],
+        preservedPaths: [],
+      });
+      const { NATIVE_INDEX_SETTINGS_KEY } = await import('../../native-index-settings');
+      const resetPlatform = await import('../../desktop-reset-platform');
+      const createReset = resetPlatform.createDesktopFactoryResetHandler;
+      const compose = vi
+        .spyOn(resetPlatform, 'createDesktopFactoryResetHandler')
+        .mockImplementation((ports) =>
+          createReset({
+            ...ports,
+            completeSuccessfulReset: async () => {
+              applicationDomainCapture.options?.onStorageChanged?.(NATIVE_INDEX_SETTINGS_KEY);
+              notified.resolve();
+              await replacement.promise;
+            },
+            resetPersistentStorageAfterDataDeletion: async () => {},
+            resumeAfterReset: async () => {
+              resuming.resolve();
+              await resumed.promise;
+              reopened = true;
+            },
+            runtimes: [],
+          })
+        );
+      await import('../../main');
+      const reset = applicationDomainCapture.options?.onResetLocal?.();
+      if (!reset) {
+        throw new Error('Main reset callback was not captured');
+      }
+      onTestFinished(async () => {
+        replacement.resolve();
+        resumed.resolve();
+        await reset;
+        purge.mockRestore();
+        compose.mockRestore();
+      });
+      await notified.promise;
+      expect(nativePrepareForPause).not.toHaveBeenCalled();
+      expect(reconfigure).not.toHaveBeenCalled();
+      let closing: Promise<void> | undefined;
+      if (outcome === 'quit') {
+        isDesktopShuttingDownMock.mockReturnValue(true);
+        const plan = shutdownPlanCapture.current?.();
+        if (!plan) {
+          throw new Error('Missing actual Main shutdown plan');
+        }
+        closing = Promise.resolve(plan.steps['factory-reset'](new AbortController().signal));
+      }
+      if (outcome === 'replacement-failed') {
+        replacement.reject(failure);
+      } else {
+        replacement.resolve();
+        await resuming.promise;
+        expect(nativePrepareForPause).not.toHaveBeenCalled();
+        if (outcome === 'resume-failed') {
+          resumed.reject(failure);
+        } else {
+          resumed.resolve();
+        }
+      }
+      if (outcome === 'replacement-failed' || outcome === 'resume-failed') {
+        await expect(reset).resolves.toEqual({ message: failure.message, success: false });
+        expect(requireMainLogger().error).toHaveBeenCalledWith(
+          'Failed to reset desktop application data:',
+          failure
+        );
+      } else {
+        await expect(reset).resolves.toEqual({ success: true });
+      }
+      await closing;
+      if (outcome === 'completed') {
+        await vi.waitFor(() => expect(reconfigure).toHaveBeenCalledOnce());
+        expect(nativePrepareForPause).toHaveBeenCalledOnce();
+      } else {
+        expect(nativePrepareForPause).not.toHaveBeenCalled();
+        expect(reconfigure).not.toHaveBeenCalled();
+      }
+      expect(requireMainLogger().error).not.toHaveBeenCalledWith(
+        'Saved native index configuration could not activate',
+        expect.anything()
+      );
+    }
+  );
+
+  it.each(['none', 'typed', 'independent'] as const)(
+    'prepares saved settings synchronously outside reset and preserves failure=%s',
+    async (kind) => {
+      getDatabaseMock.mockResolvedValue({});
+      const { NativeAuthorityTransitionError } = await import('../../native-authority-transition');
+      const failure =
+        kind === 'typed'
+          ? new NativeAuthorityTransitionError(
+              'Native Pause was superseded by terminal retirement.'
+            )
+          : new Error('Independent settings read failed');
+      if (kind !== 'none') {
+        nativePrepareForPause.mockRejectedValue(failure);
+      }
+      const reconfigure = vi.fn(async () => {});
+      nativeReconfigureForReset.current = reconfigure;
+      await import('../../main');
+      const { NATIVE_INDEX_SETTINGS_KEY } = await import('../../native-index-settings');
+      applicationDomainCapture.options?.onStorageChanged?.(NATIVE_INDEX_SETTINGS_KEY);
+      expect(nativePrepareForPause).toHaveBeenCalledOnce();
+      if (kind === 'none') {
+        await vi.waitFor(() => expect(reconfigure).toHaveBeenCalledOnce());
+      } else {
+        await vi.waitFor(() =>
+          expect(requireMainLogger().error).toHaveBeenCalledWith(
+            'Saved native index configuration could not activate',
+            { error: failure }
+          )
+        );
+        expect(reconfigure).not.toHaveBeenCalled();
+      }
+    }
+  );
 
   it('creates and shows the main window without waiting for DB init or the capability probe', async () => {
     let resolveDatabase: ((db: unknown) => void) | undefined;
