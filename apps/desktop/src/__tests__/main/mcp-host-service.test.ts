@@ -139,7 +139,7 @@ function setup(
   };
 }
 describe('McpHostService', () => {
-  it('joins actual actor cleanup and reports the watch already disposed by Settings once', async () => {
+  it('disposes the last Settings watch before terminal close and joins actual actor cleanup', async () => {
     const userDataDir = await mkdtemp(path.join(tmpdir(), 'bs-settings-host-close-'));
     const joined = deferred<McpHostCloseReport>();
     const { host, publisher, records } = setup([joined.promise]);
@@ -160,7 +160,19 @@ describe('McpHostService', () => {
     });
     try {
       await host.replaceConfig(config([alpha, 'auto']));
-      const watch = vi.spyOn(host, 'watch');
+      const actualWatch = host.watch.bind(host);
+      const statusDelivery = vi.fn();
+      const disposeStatusWatch = vi.fn();
+      const watch = vi.spyOn(host, 'watch').mockImplementation((filter, listener) => {
+        const dispose = actualWatch(filter, (event) => {
+          statusDelivery(event);
+          listener(event);
+        });
+        return () => {
+          disposeStatusWatch();
+          dispose();
+        };
+      });
       const listener = vi.fn();
       const leave = authority.subscribe(listener);
       const secondLeave = authority.subscribe(vi.fn());
@@ -170,12 +182,20 @@ describe('McpHostService', () => {
       await yieldOneMicrotask();
       expect(listener).toHaveBeenCalledOnce();
 
-      await authority.close();
+      expect(statusDelivery).toHaveBeenCalledOnce();
+      leave();
+      expect(disposeStatusWatch).not.toHaveBeenCalled();
+      secondLeave();
+      expect(disposeStatusWatch).toHaveBeenCalledOnce();
       leave();
       secondLeave();
+      expect(disposeStatusWatch).toHaveBeenCalledOnce();
       publisher.publishActorTransition({ ...actor.snapshot(), state: 'closing' });
       await yieldOneMicrotask();
+      expect(statusDelivery).toHaveBeenCalledOnce();
       expect(listener).toHaveBeenCalledOnce();
+      await authority.close();
+      expect(disposeStatusWatch).toHaveBeenCalledOnce();
       expect(host.retiredCleanupReport()).toEqual({ ...CLEAN, clientsClosed: 0 });
 
       const closing = host.close();
@@ -187,10 +207,11 @@ describe('McpHostService', () => {
       expect(actor.close).toHaveBeenCalledOnce();
       joined.resolve(CLEAN);
       const report = await closing;
-      expect(report).toEqual({ ...CLEAN, subscriptionsClosed: 1 });
+      expect(report).toEqual(CLEAN);
       expect(await host.close()).toBe(report);
       expect(host.retiredCleanupReport()).toEqual(CLEAN);
       expect(actor.close).toHaveBeenCalledOnce();
+      expect(disposeStatusWatch).toHaveBeenCalledOnce();
     } finally {
       joined.resolve(CLEAN);
       await authority.close();

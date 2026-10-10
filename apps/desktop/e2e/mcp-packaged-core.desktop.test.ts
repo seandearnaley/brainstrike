@@ -806,7 +806,7 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
       failures: [],
       loopbackPortsClosed: 1,
       probesClosed: 0,
-      subscriptionsClosed: 1,
+      subscriptionsClosed: 0,
     });
     expect(firstCloseReport['childProcessesClosed']).toBeGreaterThanOrEqual(3);
     expect(firstCloseReport['clientsClosed']).toBeGreaterThanOrEqual(6);
