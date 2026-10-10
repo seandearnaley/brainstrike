@@ -448,9 +448,9 @@ describe('main workspace-open lifecycle', () => {
   });
 
   it('registers the open-file listener at module scope, before app.whenReady() ever resolves', async () => {
-    // main-bootstrap constructs this owner before waiting for Electron readiness.
-    // Exercise that real registration boundary; full Main loading and delivery
-    // remain covered by the cases below, after the early listener exists.
+    // Exercise the actual entry and registration owner while readiness is held.
+    // Full Main loading and delivery remain covered by the cases below.
+    process.argv.push('--test-mode');
     const registered = Promise.withResolvers<void>();
     mockApp.on.mockImplementation((event) => {
       if (event === 'open-file') {
@@ -466,10 +466,11 @@ describe('main workspace-open lifecycle', () => {
       return operation;
     });
     mockApp.whenReady.mockReturnValue(readyGate.promise);
-    const bootstrapImport = import('../../desktop-bootstrap-runtime').then(
-      ({ getDesktopBootstrapRuntime }) => getDesktopBootstrapRuntime()
-    );
+    const bootstrapImport = import('../../main-bootstrap');
     const finishBootstrap = async () => {
+      // Fence the entry's existing startup callback before releasing readiness:
+      // this ordering test must not acquire a host or load full Main in cleanup.
+      isDesktopShuttingDownMock.mockReturnValue(true);
       readyGate.resolve();
       try {
         const imported = await Promise.allSettled([bootstrapImport]);
