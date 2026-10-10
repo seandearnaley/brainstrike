@@ -7,6 +7,7 @@ import type { CanonicalFileIdentity, CanonicalScanReceipt } from '@brainstrike/c
 import type { IndexFileBinding } from '@brainstrike/indexer';
 import { openIndexer } from '@brainstrike/indexer';
 import { expect, it } from 'vitest';
+import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createNativeCanonicalPublication } from '../native-canonical-publication';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from '../native-index-runtime';
 
@@ -82,10 +83,13 @@ it.each(['mounted-first', 'retained-first'] as const)(
           start: () => starting,
         };
       },
-      createProfileOwner: () => ({ acquire: async () => {}, close: async () => {} }),
       getAuthority: async () => authority,
       getFileInvalidator: () => publication?.invalidateFile,
       installQueryTarget: () => {},
+      profile: createDesktopProfileRuntime(() => ({
+        acquire: async () => {},
+        close: async () => {},
+      })),
     });
     try {
       const writer = await runtime.acquire();

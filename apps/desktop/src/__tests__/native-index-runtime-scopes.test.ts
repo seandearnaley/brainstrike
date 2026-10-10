@@ -6,6 +6,7 @@ import type {
   ScopedIndexerPort,
 } from '@brainstrike/indexer';
 import { expect, it, vi } from 'vitest';
+import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createNativeIndexRuntime } from '../native-index-runtime';
 
 interface Authority {
@@ -79,11 +80,14 @@ function fixture(initial: Authority) {
   const dependencies = {
     closeQueries,
     createIndexOwner,
-    createProfileOwner: () => ({ acquire: async () => undefined, close: async () => undefined }),
     getAuthority: async () => authority,
     getFileInvalidator: () => vi.fn(),
     getRootIds: async () => authority.rootIds,
     installQueryTarget,
+    profile: createDesktopProfileRuntime(() => ({
+      acquire: async () => undefined,
+      close: async () => undefined,
+    })),
   };
   const runtime = createNativeIndexRuntime(dependencies);
   return {

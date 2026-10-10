@@ -3,6 +3,8 @@ import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { beforeEach, expect, it, vi } from 'vitest';
+import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
+import { createDesktopHostLease } from '../host-lease-manager';
 import { registerStoragePreferencesIpcHandlers } from '../ipc-domains/storage-preferences-ipc';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { registerIndexSearchIpcHandlers } from '../ipc-index-search';
@@ -145,6 +147,7 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
     embedding: transport,
     onError: vi.fn(),
     onReceipt,
+    profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
     storage,
   });
   return { activation, onReceipt, storage, transport };

@@ -78,6 +78,16 @@ function harness(
   };
 }
 
+it('acknowledges capability binding through the private platform readiness request', async () => {
+  const f = harness(mainReads());
+  try {
+    await expect(f.client.sendRequest('platform/ready', {})).resolves.toBeNull();
+    await expect(f.client.sendRequest('platform/ready', { partial: true })).rejects.toThrow();
+  } finally {
+    f.destroy();
+  }
+});
+
 it.each([false, true])(
   'private close joins Main Root borrowers and retains their failure (failure=%s)',
   async (failed) => {

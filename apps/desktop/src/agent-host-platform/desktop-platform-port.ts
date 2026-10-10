@@ -8,8 +8,7 @@ export function createDesktopPlatformPort(capabilities: DesktopPlatformCapabilit
   close(): Promise<void>;
 } {
   const channel = new MessageChannelMain();
-  const connection = mainPlatformConnection(channel.port1);
-  const owner = serveDesktopPlatform(connection, capabilities);
+  const owner = bindDesktopPlatformPort(channel.port1, capabilities);
   let closing: Promise<void> | undefined;
   return {
     close: () =>
@@ -19,4 +18,14 @@ export function createDesktopPlatformPort(capabilities: DesktopPlatformCapabilit
       })),
     port: channel.port2,
   };
+}
+
+/** Full Main binds the port bootstrap allocated before loading its service graph. */
+export function bindDesktopPlatformPort(
+  port: MessagePortMain,
+  capabilities: DesktopPlatformCapabilities
+): { close(): Promise<void> } {
+  const connection = mainPlatformConnection(port);
+  const owner = serveDesktopPlatform(connection, capabilities);
+  return owner;
 }

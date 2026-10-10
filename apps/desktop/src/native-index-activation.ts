@@ -8,12 +8,13 @@ import type {
   CanonicalWorkspaceLease,
 } from '@brainstrike/canonical-ingestion';
 import { getFileSizeConfig } from '@brainstrike/file-system';
+import type { HostAttachment } from '@brainstrike/host-lease';
 import type { IndexerPort, ScopedIndexerPort, VectorProfile } from '@brainstrike/indexer';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { getDatabase } from './db-main';
 import { resolveDesktopDatabaseProfileDirectory } from './desktop-database-location';
+import type { DesktopProfileRuntime } from './desktop-profile-runtime';
 import type { EmbeddingHostManager } from './embedding-host-manager';
-import { createDesktopHostLease, type DesktopAgentHostPlatform } from './host-lease-manager';
 import { generateHostedEmbeddings } from './hosted-embeddings';
 import {
   acquireIndexerHost,
@@ -71,11 +72,11 @@ import {
 
 type WithoutSource<T> = T extends unknown ? Omit<T, 'source'> : never;
 interface Dependencies {
-  readonly agentHostPlatform?: DesktopAgentHostPlatform;
   readonly application: ApplicationIpcDomain;
   readonly embedding: Pick<EmbeddingHostManager, 'documentEmbeddings'>;
   readonly onError: (operation: string, error: unknown) => void;
   readonly onReceipt?: (receipt: CanonicalScanReceipt) => void;
+  readonly profile: DesktopProfileRuntime<HostAttachment>;
   readonly storage: Pick<ElectronStorageAdapter, 'getItem'>;
 }
 interface Graph {
@@ -248,16 +249,11 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         },
       };
     },
-    createProfileOwner: () =>
-      createDesktopHostLease({
-        ...dependencies.agentHostPlatform,
-        closeTimeoutMs: 1000,
-        root: resolveDesktopDatabaseProfileDirectory(),
-      }),
     getAuthority: authority,
     getFileInvalidator: () => graph?.publication?.invalidateFile,
     installQueryTarget: () =>
       installIndexQueryTarget(getReadyIndexerHost, { deadlineMs: 1000, startupDeadlineMs: 5000 }),
+    profile: dependencies.profile,
   });
   const suspendSources = (current: Graph): Promise<void> => {
     const sources = current.sources;
@@ -992,6 +988,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     close,
     closeRootCapabilities: profileAdmission.releaseRootForHost,
     destroyAndRetireProfile,
+    fenceTerminal,
     getReadiness: () => (graph ? catalogReadiness(graph) : []),
     getSearchAuthority: readAuthority.getSearchAuthority,
     rebuild: () => transition(true),
