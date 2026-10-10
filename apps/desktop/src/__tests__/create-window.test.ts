@@ -42,7 +42,7 @@ vi.mock('electron', () => ({
 }));
 
 const DEV_RENDERER_TARGET = createDesktopRendererTarget({
-  builtRendererPath: '/mock/app/dist/renderer/index.html',
+  builtRendererPath: path.resolve('/mock/app/dist/renderer/index.html'),
   devRendererUrl: DESKTOP_DEV_RENDERER_URL,
   launchMode: 'dev-server',
 });
