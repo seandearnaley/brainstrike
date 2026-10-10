@@ -123,6 +123,9 @@ export function waitForWorkerIdle(
   options: WaitForWorkerIdleOptions
 ): Promise<{ drained: boolean }> {
   const pollMs = options.pollMs ?? DEFAULT_IDLE_POLL_MS;
+  if (options.signal?.aborted) {
+    return Promise.reject(options.signal.reason);
+  }
   if (!options.isActive()) {
     return Promise.resolve({ drained: true });
   }
@@ -138,7 +141,8 @@ export function waitForWorkerIdle(
     };
     const onAbort = (): void => {
       cleanup();
-      reject(new Error('waitForWorkerIdle aborted'));
+      // Keep the request owner's cancellation discriminator through IPC settlement.
+      reject(options.signal?.reason);
     };
     options.signal?.addEventListener('abort', onAbort, { once: true });
     const poll = (): void => {

@@ -200,7 +200,7 @@ describe('public streamed background and foreground drain ownership', () => {
       (error: unknown) => error
     );
     controller.abort();
-    expect(await outcome).toMatchObject({ message: 'waitForWorkerIdle aborted' });
+    expect(await outcome).toBe(controller.signal.reason);
     expect(run.isActive()).toBe(true);
     expect(run.add.mock.calls.length).toBe(0);
     expect(run.worker.terminate).not.toHaveBeenCalled();
