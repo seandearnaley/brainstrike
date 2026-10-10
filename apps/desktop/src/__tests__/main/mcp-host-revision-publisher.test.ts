@@ -229,4 +229,54 @@ describe('McpHostRevisionPublisher', () => {
       })
     );
   });
+
+  it('accounts for a disposed registration once without retaining its queued callback', async () => {
+    const listener = vi.fn();
+    const publisher = new McpHostRevisionPublisher({ onDiagnostic: vi.fn() });
+    const unsubscribe = publisher.watch({}, listener);
+    publisher.publishConfigSet([server('alpha')]);
+    unsubscribe();
+    unsubscribe();
+    await flush();
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(publisher.close()).toBe(1);
+    unsubscribe();
+    expect(publisher.close()).toBe(0);
+  });
+
+  it('accounts for retired and active registrations without double-counting terminal disposal', () => {
+    const publisher = new McpHostRevisionPublisher({ onDiagnostic: vi.fn() });
+    const retired = publisher.watch({}, vi.fn());
+    const active = publisher.watch({}, vi.fn());
+    retired();
+    retired();
+
+    expect(publisher.close()).toBe(2);
+    active();
+    retired();
+    expect(publisher.close()).toBe(0);
+  });
+
+  it('counts both real detach/reopen registrations while preserving revision fencing', async () => {
+    const publisher = new McpHostRevisionPublisher({ onDiagnostic: vi.fn() });
+    const oldListener = vi.fn();
+    const oldUnsubscribe = publisher.watch({}, oldListener);
+    publisher.publishConfigSet([server('alpha')]);
+    oldUnsubscribe();
+    const newListener = vi.fn();
+    const newUnsubscribe = publisher.watch({}, newListener);
+    await flush();
+
+    expect(oldListener).not.toHaveBeenCalled();
+    expect(newListener).not.toHaveBeenCalled();
+    publisher.publishConfigSet([]);
+    await flush();
+    expect(newListener).toHaveBeenCalledOnce();
+    expect(newListener).toHaveBeenCalledWith({ revision: 2, servers: [] });
+    newUnsubscribe();
+
+    expect(publisher.close()).toBe(2);
+    expect(publisher.close()).toBe(0);
+  });
 });

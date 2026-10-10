@@ -1,4 +1,8 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import {
+  MCP_EXTENSIONS_ENABLED,
   type McpHostCloseReport,
   type McpHostConfig,
   type McpHostOperationResult,
@@ -6,6 +10,7 @@ import {
   parseConfiguredMcpServerId,
   parseMcpHostConfig,
 } from '@brainstrike/assistant-contract';
+import { createMcpConfigFile } from '@brainstrike/host-capabilities/mcp/config-file';
 import { McpHostRevisionPublisher } from '@brainstrike/host-capabilities/mcp/host-revision-publisher';
 import {
   type McpHostActor,
@@ -13,6 +18,7 @@ import {
   McpHostService,
   McpHostServiceError,
 } from '@brainstrike/host-capabilities/mcp/host-service';
+import { McpSettingsAuthority } from '@brainstrike/host-capabilities/mcp/settings-authority';
 import { describe, expect, it, vi } from 'vitest';
 
 const alpha = parseConfiguredMcpServerId('alpha');
@@ -133,6 +139,66 @@ function setup(
   };
 }
 describe('McpHostService', () => {
+  it('joins actual actor cleanup and reports the watch already disposed by Settings once', async () => {
+    const userDataDir = await mkdtemp(path.join(tmpdir(), 'bs-settings-host-close-'));
+    const joined = deferred<McpHostCloseReport>();
+    const { host, publisher, records } = setup([joined.promise]);
+    const authority = new McpSettingsAuthority({
+      configFile: createMcpConfigFile(userDataDir),
+      extensionStore: {
+        deleteSetting: vi.fn(async () => false),
+        getSetting: vi.fn(async () => undefined),
+        setSetting: vi.fn(async () => undefined),
+      },
+      runtime: {
+        host,
+        mcpExtensionPreferences: MCP_EXTENSIONS_ENABLED,
+        replaceResolvedConfig: vi.fn(async () => host.snapshot()),
+        setMcpExtensionPreferences: vi.fn(async () => host.snapshot()),
+      },
+      userDataDir,
+    });
+    try {
+      await host.replaceConfig(config([alpha, 'auto']));
+      const watch = vi.spyOn(host, 'watch');
+      const listener = vi.fn();
+      const leave = authority.subscribe(listener);
+      const secondLeave = authority.subscribe(vi.fn());
+      expect(watch).toHaveBeenCalledOnce();
+      const actor = records[0]!;
+      publisher.publishActorTransition({ ...actor.snapshot(), state: 'connecting' });
+      await yieldOneMicrotask();
+      expect(listener).toHaveBeenCalledOnce();
+
+      await authority.close();
+      leave();
+      secondLeave();
+      publisher.publishActorTransition({ ...actor.snapshot(), state: 'closing' });
+      await yieldOneMicrotask();
+      expect(listener).toHaveBeenCalledOnce();
+      expect(host.retiredCleanupReport()).toEqual({ ...CLEAN, clientsClosed: 0 });
+
+      const closing = host.close();
+      expect(host.close()).toBe(closing);
+      const completed = vi.fn();
+      void closing.then(completed);
+      await yieldOneMicrotask();
+      expect(completed).not.toHaveBeenCalled();
+      expect(actor.close).toHaveBeenCalledOnce();
+      joined.resolve(CLEAN);
+      const report = await closing;
+      expect(report).toEqual({ ...CLEAN, subscriptionsClosed: 1 });
+      expect(await host.close()).toBe(report);
+      expect(host.retiredCleanupReport()).toEqual(CLEAN);
+      expect(actor.close).toHaveBeenCalledOnce();
+    } finally {
+      joined.resolve(CLEAN);
+      await authority.close();
+      await host.close();
+      await rm(userDataDir, { force: true, recursive: true });
+    }
+  });
+
   it('publishes the retiring generation until its physical close joins while fencing invocation', async () => {
     const { diagnostic, host, records } = setup();
     await host.replaceConfig(config([alpha, 'auto']));

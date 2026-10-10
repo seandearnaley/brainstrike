@@ -78,6 +78,7 @@ function cloneAndSort(servers: readonly McpHostServerSnapshot[]): readonly McpHo
 export class McpHostRevisionPublisher {
   private closed = false;
   private nextWatchId = 0;
+  private retiredWatches = 0;
   private revision = 0;
   private servers: readonly McpHostServerSnapshot[] = [];
   private readonly watches = new Map<number, WatchRegistration>();
@@ -174,7 +175,9 @@ export class McpHostRevisionPublisher {
       registeredRevision: this.revision,
     });
     return () => {
-      this.watches.delete(watchId);
+      if (this.watches.delete(watchId)) {
+        this.retiredWatches += 1;
+      }
     };
   }
 
@@ -184,7 +187,8 @@ export class McpHostRevisionPublisher {
     }
     this.closed = true;
     // The closed watch DTO has no terminal variant; terminal host close invalidates registrations.
-    const subscriptionsClosed = this.watches.size;
+    const subscriptionsClosed = this.retiredWatches + this.watches.size;
+    this.retiredWatches = 0;
     this.watches.clear();
     return subscriptionsClosed;
   }
