@@ -1,3 +1,4 @@
+import { hasFactoryResetPreparationStarted } from '@brainstrike/app-state/factory-reset';
 import {
   type AssistantMemoryThread,
   createPgliteAssistantThreadRepository,
@@ -366,7 +367,7 @@ export function AssistantThreadTabsWorkspace({
   }, [closes, createNewThread, handleReorderThreadTabs, newThreadDisabled, resourceId, threadById]);
 
   useEffect(() => {
-    if (!repository) {
+    if (!repository || hasFactoryResetPreparationStarted()) {
       return;
     }
     ensureResourceThreads(repository, resourceId).catch(() => {
