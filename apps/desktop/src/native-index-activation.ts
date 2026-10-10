@@ -255,26 +255,30 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       installIndexQueryTarget(getReadyIndexerHost, { deadlineMs: 1000, startupDeadlineMs: 5000 }),
     profile: dependencies.profile,
   });
-  const suspendSources = (current: Graph): Promise<void> => {
+  const suspendSources = async (current: Graph): Promise<void> => {
     const sources = current.sources;
     if (!sources) {
-      return Promise.resolve();
+      return;
     }
-    return retireNativeIndexSources(sources, () =>
-      getReadyIndexerHost().retireCanonicalSources()
-    ).then(() => {
-      if (current.sources === sources) {
-        current.sources = undefined;
-      }
-    });
+    await retireNativeIndexSources(sources, () => getReadyIndexerHost().retireCanonicalSources());
+    if (current.sources === sources) {
+      current.sources = undefined;
+    }
   };
   const retireSources = async (): Promise<void> => {
     closed = true;
     graph?.controller.abort(new TransitionError('Native indexing admission closed.'));
-    await runtime.retireReads();
-    const current = graph;
-    if (current) {
-      await suspendSources(current);
+    const results = await Promise.allSettled([
+      runtime.retireReads(),
+      graph ? suspendSources(graph) : undefined,
+    ]);
+    const failures = results.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason as unknown] : []
+    );
+    if (failures.length > 0) {
+      throw failures.length === 1
+        ? failures[0]
+        : new AggregateError(failures, 'Retirement failed.');
     }
     await startup?.catch(() => undefined);
     // Startup can acquire a graph or late source owner while its caller closes admission.

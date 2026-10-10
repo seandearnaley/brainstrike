@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import type { DesktopShutdownRunPlan } from '../../main/desktop-graceful-shutdown';
 import { captureProcessSignalHandlers } from '../helpers/process-signal-capture';
 
@@ -206,6 +206,22 @@ vi.mock('../../ipc-handlers', async () => {
   };
 });
 
+const { nativeCloseForShutdown } = vi.hoisted(() => ({
+  nativeCloseForShutdown: vi.fn(async (): Promise<void> => undefined),
+}));
+vi.mock('../../native-index-activation', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../native-index-activation')>();
+  return {
+    ...actual,
+    createNativeIndexActivation: (
+      ...args: Parameters<typeof actual.createNativeIndexActivation>
+    ) => {
+      const owner = actual.createNativeIndexActivation(...args);
+      return { ...owner, close: nativeCloseForShutdown };
+    },
+  };
+});
+
 const { shutdownPlanCapture } = vi.hoisted(() => ({
   shutdownPlanCapture: {
     current: null as null | (() => DesktopShutdownRunPlan),
@@ -296,6 +312,7 @@ describe('main boot order', () => {
     unhandledRejectionListenersBeforeMain = new Set(process.listeners('unhandledRejection'));
     vi.resetModules();
     vi.clearAllMocks();
+    nativeCloseForShutdown.mockReset().mockResolvedValue(undefined);
     shutdownPlanCapture.current = null;
     shutdownPlanCapture.run = null;
     applicationDomainCapture.close = null;
@@ -326,6 +343,61 @@ describe('main boot order', () => {
       }
     }
   });
+
+  it.each([false, true])(
+    'starts and retains hidden disposal beside native close with independent failure=%s',
+    async (fail) => {
+      getDatabaseMock.mockResolvedValue({});
+      const native = Promise.withResolvers<void>();
+      const physical = Promise.withResolvers<void>();
+      nativeCloseForShutdown.mockReturnValue(native.promise);
+      const { EmbeddingHostManager } = await import('../../embedding-host-manager');
+      const dispose = vi
+        .spyOn(EmbeddingHostManager.prototype, 'dispose')
+        .mockReturnValue(physical.promise);
+      await import('../../main');
+      const plan = shutdownPlanCapture.current?.();
+      if (!plan) {
+        throw new Error('Missing actual Main shutdown plan');
+      }
+      const signal = new AbortController().signal;
+      let nativeSettled = false;
+      const nativeStep = Promise.resolve(plan.steps['native-index'](signal)).then(
+        () => {
+          nativeSettled = true;
+          return null;
+        },
+        (error: unknown) => {
+          nativeSettled = true;
+          return error;
+        }
+      );
+      onTestFinished(async () => {
+        native.resolve();
+        physical.resolve();
+        await nativeStep;
+        dispose.mockRestore();
+      });
+      await vi.waitFor(() => expect(nativeCloseForShutdown).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(dispose).toHaveBeenCalledOnce());
+      expect(nativeSettled).toBe(false);
+      const nativeError = new Error('Independent native retirement failure');
+      const embeddingError = new Error('Independent physical embedding retirement failure');
+      if (fail) {
+        native.reject(nativeError);
+        physical.reject(embeddingError);
+      } else {
+        native.resolve();
+        physical.resolve();
+      }
+      expect(await nativeStep).toBe(fail ? nativeError : null);
+      const embeddingStep = Promise.resolve(plan.steps['embedding-host'](signal)).catch(
+        (error: unknown) => error
+      );
+      expect(await embeddingStep).toBe(fail ? embeddingError : undefined);
+      expect(dispose).toHaveBeenCalledOnce();
+    }
+  );
 
   it('creates and shows the main window without waiting for DB init or the capability probe', async () => {
     let resolveDatabase: ((db: unknown) => void) | undefined;

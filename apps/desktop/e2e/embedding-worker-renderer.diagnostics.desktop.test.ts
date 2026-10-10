@@ -1,3 +1,11 @@
+import { rm } from 'node:fs/promises';
+import {
+  createNativeImportRoot,
+  type NativeCollectionWork,
+  observeNativeCollectionWork,
+  pauseNativeCollectionSources,
+} from './embedding-worker-renderer.native-search';
+import { captureNativeShutdown } from './embedding-worker-renderer.retirement';
 import type {
   ImportedPathCounts,
   MainProcessHealthSample,
@@ -450,40 +458,67 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
   });
 
   test('@desktop-embedding-mixed keeps search working and backfill actionable during a real mixed-state desktop session', async ({
+    electron,
     electronApp,
     window,
   }) => {
     test.setTimeout(540_000);
     const electronStderrBaselineCount = (await getRelevantElectronStderr(electronApp.app)).length;
-    const scenario = await prepareRealWorldMixedStateScenario(electronApp.app, window);
-    const { importEmbeddingSetId, searchableCollectionName } = scenario;
-    const activeWindow = scenario.activeWindow;
+    const nativeImportRoot = await createNativeImportRoot(
+      REAL_WORLD_MIXED_STATE_FILE_COUNT,
+      ACTUAL_IMPORT_SENTENCES_PER_FILE
+    );
+    const assertCleanShutdown = captureNativeShutdown(electronApp.app);
     try {
-      // Semantic search runs on Workspace Search now. The scenario has already
-      // attributed the searchable fixture's files to the mounted workspace root
-      // (workspace search is root-scoped and drops NULL-root rows).
+      const scenario = await prepareRealWorldMixedStateScenario(electronApp.app, window, {
+        nativeImportRoot,
+      });
+      const { importEmbeddingSetId, searchableCollectionName } = scenario;
+      const activeWindow = scenario.activeWindow;
+      // Native collection scope searches the retained imported files without
+      // inventing a workspace root for them. Native workspace ingestion stays active.
       const searchPanel = await openWorkspaceSearchPanel(activeWindow);
       await selectWorkspaceSearchCollection(searchPanel, searchableCollectionName);
+      await expect
+        .poll(
+          async () =>
+            await observeNativeCollectionWork(activeWindow, scenario.searchableEmbeddingSetId),
+          { timeout: 120_000 }
+        )
+        .toMatchObject({ hostActive: true, incomplete: true });
+      const nativeBeforeSearch = await observeNativeCollectionWork(
+        activeWindow,
+        scenario.searchableEmbeddingSetId
+      );
+      if (!nativeBeforeSearch) {
+        throw new Error('Native work observation invalidated before search');
+      }
       await runWorkspaceSemanticSearch(searchPanel, 'desktop import backfill regression');
 
       const mixedStateFailures: string[] = [];
 
       const semanticSearchStartedAt = Date.now();
       let searchWorked = false;
-      let sawBackgroundQueuePressureDuringSearch = false;
+      let sawNativePublicationDuringSearch = false;
+      let nativeDuringSearch: NativeCollectionWork | null = null;
       let lastSemanticSearchSnapshot: WorkspaceSemanticSearchSnapshot | null = null;
       while (Date.now() - semanticSearchStartedAt < 60_000) {
-        const [semanticSearchSnapshot, rendererLogs, embeddingHostStatus, queueStats] =
+        const [semanticSearchSnapshot, rendererLogs, embeddingHostStatus, nativeWork] =
           await Promise.all([
             getWorkspaceSemanticSearchSnapshot(searchPanel),
             getRendererLogRecords(activeWindow),
             getEmbeddingHostStatus(activeWindow),
-            getEmbeddingQueueStats(activeWindow),
+            observeNativeCollectionWork(activeWindow, scenario.searchableEmbeddingSetId),
           ]);
 
         lastSemanticSearchSnapshot = semanticSearchSnapshot;
-        if (queueStats.queued + queueStats.running > 0) {
-          sawBackgroundQueuePressureDuringSearch = true;
+        if (
+          nativeWork?.incomplete &&
+          nativeWork.publicationFiles > nativeBeforeSearch.publicationFiles &&
+          nativeWork.vectors > nativeBeforeSearch.vectors
+        ) {
+          sawNativePublicationDuringSearch = true;
+          nativeDuringSearch = nativeWork;
         }
 
         const queueFailureLog = rendererLogs.find((record) =>
@@ -506,11 +541,11 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
         }
 
         if (
-          queueStats.queued + queueStats.running > 0 &&
+          nativeWork?.incomplete &&
           (embeddingHostStatus.state === 'error' || embeddingHostStatus.state === 'stopped')
         ) {
           mixedStateFailures.push(
-            `embedding host stopped during active mixed-state backfill: hostStatus=${JSON.stringify(embeddingHostStatus)} queueStats=${JSON.stringify(queueStats)}`
+            `embedding host stopped during active mixed-state backfill: hostStatus=${JSON.stringify(embeddingHostStatus)} nativeWork=${JSON.stringify(nativeWork)}`
           );
           break;
         }
@@ -537,18 +572,18 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
       // the HOST, not about which surface did the interacting.
       await showDatabaseDemoPanel(activeWindow);
 
-      const [embeddingHostStatusAfterInteraction, queueStatsAfterInteraction] = await Promise.all([
+      const [embeddingHostStatusAfterInteraction, nativeWorkAfterInteraction] = await Promise.all([
         getEmbeddingHostStatus(activeWindow),
-        getEmbeddingQueueStats(activeWindow),
+        observeNativeCollectionWork(activeWindow, scenario.searchableEmbeddingSetId),
       ]);
 
       if (
-        queueStatsAfterInteraction.queued + queueStatsAfterInteraction.running > 0 &&
+        nativeWorkAfterInteraction?.incomplete &&
         (embeddingHostStatusAfterInteraction.state === 'error' ||
           embeddingHostStatusAfterInteraction.state === 'stopped')
       ) {
         mixedStateFailures.push(
-          `embedding host stopped during active mixed-state backfill after heavy UI interaction: hostStatus=${JSON.stringify(embeddingHostStatusAfterInteraction)} queueStats=${JSON.stringify(queueStatsAfterInteraction)}`
+          `embedding host stopped during active mixed-state backfill after heavy UI interaction: hostStatus=${JSON.stringify(embeddingHostStatusAfterInteraction)} nativeWork=${JSON.stringify(nativeWorkAfterInteraction)}`
         );
       }
 
@@ -566,7 +601,7 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
 
       const [
         backfillEnabled,
-        globalQueueStats,
+        nativeWorkAtEnd,
         importCollectionQueueStats,
         importCollectionCounts,
         importSnapshotAfterChecks,
@@ -578,7 +613,7 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
         chunkingHostStatus,
       ] = await Promise.all([
         importCollectionBackfillButton.isEnabled(),
-        getEmbeddingQueueStats(activeWindow),
+        observeNativeCollectionWork(activeWindow, scenario.searchableEmbeddingSetId),
         getEmbeddingSetQueueStats(activeWindow, importEmbeddingSetId),
         getEmbeddingSetCounts(activeWindow, importEmbeddingSetId),
         getDatabaseDemoImportSnapshot(activeWindow),
@@ -596,11 +631,8 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
           'semantic search returned no results while background embedding work was active'
         );
       }
-      if (
-        !sawBackgroundQueuePressureDuringSearch &&
-        globalQueueStats.queued + globalQueueStats.running === 0
-      ) {
-        failures.push('background queue pressure drained before mixed-state search checks');
+      if (!sawNativePublicationDuringSearch) {
+        failures.push('native source publication did not advance during semantic search');
       }
       if (!backfillEnabled) {
         failures.push(
@@ -620,8 +652,8 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
       if (failures.length > 0) {
         throw new Error(
           `Mixed-state desktop regression reproduced: ${failures.join('; ')}\n` +
-            `globalQueueStats=${JSON.stringify(globalQueueStats)}\n` +
-            `sawBackgroundQueuePressureDuringSearch=${sawBackgroundQueuePressureDuringSearch}\n` +
+            `nativeBeforeSearch=${JSON.stringify(nativeBeforeSearch)}\nnativeWorkAtEnd=${JSON.stringify(nativeWorkAtEnd)}\n` +
+            `sawNativePublicationDuringSearch=${sawNativePublicationDuringSearch}\n` +
             `importCollectionQueueStats=${JSON.stringify(importCollectionQueueStats)}\n` +
             `importCollectionCounts=${JSON.stringify(importCollectionCounts)}\n` +
             `semanticSearchSnapshot=${JSON.stringify(lastSemanticSearchSnapshot)}\n` +
@@ -635,7 +667,18 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
         );
       }
 
-      expect(sawBackgroundQueuePressureDuringSearch).toBe(true);
+      console.log(
+        'NATIVE-MIXED-STATE-OVERLAP',
+        JSON.stringify({
+          nativeBeforeSearch,
+          nativeDuringSearch,
+          nativeWorkAtEnd,
+          searchWorked,
+          selectedFileCount: fileExplorerSnapshotAfterChecks?.selectedFilePathCount,
+        })
+      );
+      expect(sawNativePublicationDuringSearch).toBe(true);
+      expect(await getRendererTimeOrigin(activeWindow)).toBe(scenario.initialTimeOrigin);
       expect(importCollectionQueueStats.queued + importCollectionQueueStats.running).toBe(0);
       expect(importCollectionCounts.fileCount).toBe(REAL_WORLD_MIXED_STATE_FILE_COUNT);
       expect(importCollectionCounts.totalChunks).toBeGreaterThan(0);
@@ -643,8 +686,17 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
       expect(searchWorked).toBe(true);
       expect(backfillEnabled).toBe(true);
       expect(electronStderr).toEqual([]);
-    } finally {
+
+      // Preserve the original case's explicit post-assertion cancellation and
+      // physical host join before quit. Pause cannot weaken the measured overlap.
+      await pauseNativeCollectionSources(activeWindow);
       await cleanupRealWorldMixedStateTest(electronApp, activeWindow);
+    } finally {
+      // App shutdown joins the native watcher and inference owners before their
+      // real source directory is removed, including when scenario setup fails.
+      await electron.closeForStateSeeding();
+      assertCleanShutdown();
+      await rm(nativeImportRoot, { force: true, recursive: true });
     }
   });
 

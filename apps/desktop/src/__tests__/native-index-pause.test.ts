@@ -6,7 +6,7 @@ import type {
 } from '@brainstrike/canonical-ingestion';
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { beforeEach, expect, it, onTestFinished, vi } from 'vitest';
 import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
@@ -530,6 +530,64 @@ it('joins actual document adapter cancellation before Pause acknowledges and kee
   });
   expect(mocks.acquire).toHaveBeenCalledOnce();
   await activation.close();
+});
+
+it('starts exact document cancellation before waiting for an admitted native read on close', async () => {
+  const { activation, storage, transport, profile } = vectorPauseFixture();
+  await savePause(storage, false);
+  const physical = Promise.withResolvers<void>();
+  let inferenceSignal: AbortSignal | undefined;
+  transport.documentEmbeddings.mockImplementation(async (_payload, options) => {
+    inferenceSignal = options?.signal;
+    await physical.promise;
+    throw options?.signal?.reason;
+  });
+  mocks.manager.attachCanonicalCollection.mockImplementation(
+    async (dependencies: CanonicalCollectionDependencies) => {
+      if (dependencies.mode !== 'VECTOR') {
+        throw new Error('Expected explicit VECTOR source.');
+      }
+      return {
+        close: async () => {},
+        scan: async () => {
+          await dependencies.inference.generate({
+            chunks: [{ chunkId: 'chunk', content: 'actual canonical text' }],
+            profile,
+            requestId: 'held-documents',
+          });
+          throw new Error('Unexpected completed inference.');
+        },
+      };
+    }
+  );
+  const starting = activation.acquire().catch((error: unknown) => error);
+  await vi.waitFor(() => expect(transport.documentEmbeddings).toHaveBeenCalledOnce());
+  const read = Promise.withResolvers<void>();
+  const readEntered = Promise.withResolvers<void>();
+  const reading = activation.withRead(async () => {
+    readEntered.resolve();
+    await read.promise;
+  });
+  await readEntered.promise;
+  let paused = false;
+  const pausing = activation.close().then(() => {
+    paused = true;
+  });
+  onTestFinished(async () => {
+    read.resolve();
+    physical.resolve();
+    await Promise.allSettled([reading, pausing, starting]);
+  });
+  await vi.waitFor(() => expect(inferenceSignal?.aborted).toBe(true));
+  expect(paused).toBe(false);
+  expect(mocks.close).not.toHaveBeenCalled();
+  physical.resolve();
+  expect(paused).toBe(false);
+  read.resolve();
+  await reading;
+  await pausing;
+  expect(await starting).toBeInstanceOf(Error);
+  expect(mocks.close).toHaveBeenCalledOnce();
 });
 
 it('retires source borrows on Pause while the original mounted read-authority borrow remains live', async () => {

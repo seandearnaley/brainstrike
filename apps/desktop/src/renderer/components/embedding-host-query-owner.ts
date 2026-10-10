@@ -64,6 +64,27 @@ export function enqueueQueryEmbeddingOperation(
   return execution;
 }
 
+/** Every terminal request path joins the same physical owner without joining itself. */
+export async function joinQueryEmbeddingFailure(
+  owner: QueryEmbeddingRuntimeOwner,
+  error: unknown
+): Promise<unknown> {
+  try {
+    await owner.physicalRetirementRef.current;
+  } catch (retirementError) {
+    if (
+      error !== retirementError &&
+      !(error instanceof AggregateError && error.errors.includes(retirementError))
+    ) {
+      return new AggregateError(
+        [error, retirementError],
+        'Embedding request and physical retirement failed'
+      );
+    }
+  }
+  return error;
+}
+
 /** The public queue signal requests cancellation; ownership lasts until actual settlement. */
 export async function runOwnedQueryEmbeddingInference<Result>(
   owner: QueryEmbeddingRuntimeOwner,

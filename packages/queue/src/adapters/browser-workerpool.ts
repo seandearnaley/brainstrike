@@ -495,6 +495,9 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
   const cancelWaiters: Array<() => void> = [];
   const emitter = new ProgressEmitter<WorkerEvent>();
   let activeTasks = 0;
+  const terminalCancellations = new Set<() => void>();
+  let physicalRetirement: Promise<void> | null = null;
+  let termination: Promise<void> | null = null;
   const drainWaiters: Array<() => void> = [];
 
   const notifyDrain = () => {
@@ -524,11 +527,27 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     });
   };
 
+  const joinPhysicalFailure = async (failure: unknown): Promise<unknown> => {
+    try {
+      await physicalRetirement;
+    } catch (retirementError) {
+      if (retirementError !== failure) {
+        return new AggregateError(
+          [failure, retirementError],
+          'Embedding execution and physical retirement failed'
+        );
+      }
+    }
+    return failure;
+  };
+
   const execute = async (
     task: TaskPayload,
     opts?: QueueAddOptions | QueueAddBulkOptions
   ): Promise<QueueResult> => {
-    await waitForResume();
+    if (paused) {
+      await waitForResume();
+    }
     const recovery = workerLifetimeRecovery;
     if (recovery !== null) {
       await recovery;
@@ -540,6 +559,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
       onTaskError(task, now(), reason);
       throw reason;
     }
+    assertAcceptingWork();
     let abortRequested = false;
     const postRequestControl = (type: EmbedWorkerRequestControl['type']): void => {
       if (managedChannelsClosed) {
@@ -552,18 +572,26 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
       postRequestControl('cancel-request');
     };
     let cancelRebroadcastedAfterWorkerEvent = false;
-    const { promise, startedAt, telemetrySource } = createExecutionPromise(task, () => {
-      // BroadcastChannel does not retain messages posted before a newly spawned worker
-      // subscribes. Re-send once after its first event proves the channel is ready.
-      if (abortRequested && !cancelRebroadcastedAfterWorkerEvent) {
-        cancelRebroadcastedAfterWorkerEvent = true;
-        postRequestControl('cancel-request');
-      }
-    });
+    const { promise, startedAt, telemetrySource, cancelForRetirement, isTerminalCancellation } =
+      createExecutionPromise(task, () => {
+        // BroadcastChannel does not retain messages posted before a newly spawned worker
+        // subscribes. Re-send once after its first event proves the channel is ready.
+        if (abortRequested && !cancelRebroadcastedAfterWorkerEvent) {
+          cancelRebroadcastedAfterWorkerEvent = true;
+          postRequestControl('cancel-request');
+        }
+      });
     const detachAbort = attachAbort(signal, requestAbort, task.id);
+    const cancelOwned = (): void => {
+      if (signal?.aborted) {
+        cancelForRetirement();
+      }
+    };
+    terminalCancellations.add(cancelOwned);
     activeTasks += 1;
     try {
       const result = await promise;
+      await physicalRetirement;
       signal?.throwIfAborted();
       if (result.vectors.length > 0) {
         if (telemetrySource.current === null) {
@@ -586,16 +614,18 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
       onTaskComplete(task, startedAt);
       return result;
     } catch (error) {
-      // Only the exact worker-owned cancellation restores the caller's reason,
-      // after real execution has settled. Independent failures stay unchanged.
-      if (signal?.aborted && isEmbedWorkerRequestCancellation(error, task.id)) {
-        const reason: unknown = signal.reason;
-        onTaskError(task, startedAt, reason);
-        throw reason;
-      }
-      onTaskError(task, startedAt, error);
-      throw error;
+      // Ordinary abort stays cooperative. Terminal owner cancellation uses the
+      // exact rejection emitted by our public vendor cancel, then joins the pool.
+      const executionFailure: unknown =
+        signal?.aborted &&
+        (isEmbedWorkerRequestCancellation(error, task.id) || isTerminalCancellation(error))
+          ? signal.reason
+          : error;
+      const failure = await joinPhysicalFailure(executionFailure);
+      onTaskError(task, startedAt, failure);
+      throw failure;
     } finally {
+      terminalCancellations.delete(cancelOwned);
       detachAbort();
       if (abortRequested) {
         postRequestControl('clear-request-control');
@@ -652,6 +682,8 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     if (telemetryError.current) {
       cancelable.cancel();
     }
+    let issuingTerminalCancellation = false;
+    let terminalCancellation: unknown;
     const checkedExecution = cancelable.then(
       (result) => {
         if (telemetryError.current) {
@@ -660,6 +692,9 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
         return result;
       },
       (error: unknown) => {
+        if (issuingTerminalCancellation && error instanceof workerpool.Promise.CancellationError) {
+          terminalCancellation = error;
+        }
         if (telemetryError.current) {
           throw telemetryError.current;
         }
@@ -682,7 +717,24 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     };
     emitQueueTelemetry(telemetry);
 
-    return { cancelable, promise, startedAt, telemetrySource };
+    return {
+      cancelable,
+      cancelForRetirement: (): void => {
+        issuingTerminalCancellation = true;
+        try {
+          cancelable.cancel();
+        } finally {
+          issuingTerminalCancellation = false;
+        }
+      },
+      isTerminalCancellation: (error: unknown): boolean =>
+        terminalCancellation !== undefined &&
+        error === terminalCancellation &&
+        telemetryError.current === null,
+      promise,
+      startedAt,
+      telemetrySource,
+    };
   };
 
   const onTaskComplete = (task: TaskPayload, startedAt: number) => {
@@ -782,28 +834,59 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     }
   };
 
-  const terminateInternal = async (nextState: 'canceled' | 'disposed'): Promise<void> => {
-    if (terminalState !== 'active') {
-      return;
+  const terminateInternal = (nextState: 'canceled' | 'disposed'): Promise<void> => {
+    if (termination) {
+      return termination;
     }
     terminalState = nextState;
     paused = true;
     logger.debug(`Workerpool adapter ${nextState === 'canceled' ? 'canceling' : 'disposing'}`, {
       activeTasks,
     });
-    try {
-      await pool.terminate(true);
+    const physical = Promise.withResolvers<void>();
+    physicalRetirement = physical.promise;
+    // Observed here as well as by executions; the retained join still rejects.
+    physical.promise.catch(() => undefined);
+    const completed = Promise.withResolvers<void>();
+    termination = completed.promise.finally(() => {
+      closeManagedChannels();
+      clearEmbeddingTelemetrySources();
+      forgetManagedWorkerIdentities();
+    });
+    // Retain both joins before invoking synchronous vendor cancellation callbacks.
+    void (async () => {
+      const failures: unknown[] = [];
+      for (const cancel of terminalCancellations) {
+        try {
+          cancel();
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      try {
+        await pool.terminate(true);
+      } catch (error) {
+        failures.push(error);
+      }
+      if (failures.length > 0) {
+        const failure =
+          failures.length === 1
+            ? failures[0]
+            : new AggregateError(failures, 'Embedding pool retirement failed');
+        physical.reject(failure);
+      } else {
+        physical.resolve();
+      }
+      // Execution joins only physical, never this full task-accounting join.
       if (activeTasks > 0) {
         await new Promise<void>((resolve) => {
           cancelWaiters.push(resolve);
         });
       }
-    } finally {
-      closeManagedChannels();
-      clearEmbeddingTelemetrySources();
-      forgetManagedWorkerIdentities();
-    }
-    logger.debug(`Workerpool adapter ${nextState}`);
+      await physical.promise;
+      logger.debug(`Workerpool adapter ${nextState}`);
+    })().then(completed.resolve, completed.reject);
+    return termination;
   };
 
   return {

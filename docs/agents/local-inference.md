@@ -344,8 +344,12 @@ Environment variables: `VITE_EMBED_CONCURRENCY` (default 1), `VITE_EMBED_LEASE_M
 - Keep worker-global diagnostics on the pool-unique `BroadcastChannel` and
   request-scoped cancellation on the separate derived channel, so siblings never consume
   one another's telemetry as control traffic. Abort between inference batches with
-  `AbortError`, never workerpool's destructive `Promise.cancel()`, so the loaded
-  pipeline stays reusable. Failures keep their request identity — only an idle global
+  `AbortError`, never workerpool's destructive `Promise.cancel()` for ordinary
+  request cancellation, so the loaded pipeline stays reusable. Terminal retirement
+  of the whole fenced owner may cancel its exact already-aborted vendor promises
+  before `Pool.terminate(true)`; only that invocation's actual vendor cancellation
+  may restore the original caller reason, after the physical pool join. Preserve
+  independent execution, telemetry and retirement failures. Failures keep their request identity — only an idle global
   failure uses the `global` sentinel — and a worker self-terminates after a global
   failure only once it has notified an active owning transport.
 - Browser memory sampling uses only cross-origin-isolated

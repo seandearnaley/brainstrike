@@ -79,6 +79,49 @@ describe('embedding query listener request ownership', () => {
     expect(queryEmbeddingCancelListenerRef.current).toBeNull();
   });
 
+  it('joins physical retirement and retains queued cancellation after the generation closes', async () => {
+    const owner = createQueryEmbeddingRuntimeOwner(
+      dbHandle as unknown as QueryEmbeddingRuntimeOwner['db']
+    );
+    const fifo = Promise.withResolvers<void>();
+    const physical = Promise.withResolvers<void>();
+    owner.executionTailRef.current = fifo.promise;
+    const handle = vi.fn(async () => {});
+    const unsubscribe = subscribeQueryEmbeddingRequests({
+      handle,
+      isStopping: () => false,
+      ownerRef: { current: owner },
+      runtimeIdRef: { current: 'runtime-a' },
+    });
+    const queued = createEmbeddingHostQueryEmbeddingRequest('runtime-a', payload);
+    queryEmbeddingListenerRef.current?.(queued);
+    queryEmbeddingCancelListenerRef.current?.(createEmbeddingHostQueryEmbeddingCancel(queued));
+    const closing = closeQueryEmbeddingRuntimeOwner(owner, () => physical.promise, {
+      current: 'runtime-a',
+    });
+    onTestFinished(async () => {
+      fifo.resolve();
+      physical.resolve();
+      await closing;
+      unsubscribe();
+    });
+    fifo.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(reportQueryEmbeddingResponseMock).not.toHaveBeenCalled();
+    physical.resolve();
+    await closing;
+    await owner.executionTailRef.current;
+    expect(handle).not.toHaveBeenCalled();
+    expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ code: EMBEDDING_HOST_QUERY_CANCELED_CODE }),
+        requestId: queued.requestId,
+      })
+    );
+  });
+
   it('clears every admitted request on generation close while joining active inference settlement', async () => {
     const owner = createQueryEmbeddingRuntimeOwner(
       dbHandle as unknown as QueryEmbeddingRuntimeOwner['db']

@@ -55,6 +55,7 @@ import {
   closeQueryEmbeddingRuntimeOwner,
   createQueryEmbeddingRuntimeOwner,
   disposeQueryEmbeddingService,
+  joinQueryEmbeddingFailure,
   type QueryEmbeddingRuntimeOwner,
   runOwnedQueryEmbeddingInference,
   stopEmbeddingHostAfterRestartLimit,
@@ -380,7 +381,8 @@ async function handleQueryEmbeddingRequest(options: {
     } else {
       throw new Error('Embedding response did not match request kind.');
     }
-  } catch (error) {
+  } catch (requestError) {
+    const error = await joinQueryEmbeddingFailure(queryOwner, requestError);
     logger.error('Embedding host query embedding request failed', {
       error: error instanceof Error ? error.message : String(error),
       modelKey: request.payload.modelKey,
