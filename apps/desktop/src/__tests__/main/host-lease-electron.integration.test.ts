@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { createConnection } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -66,7 +66,9 @@ function electronPath(): string {
 beforeAll(async () => {
   await mkdir(resolve('dist'), { recursive: true });
   directory = await mkdtemp(join(resolve('dist'), 'host-lease-proof-'));
-  profilesDirectory = await mkdtemp(join(tmpdir(), 'brainstrike-host-lease-profiles-'));
+  profilesDirectory = await realpath(
+    await mkdtemp(join(tmpdir(), 'brainstrike-host-lease-profiles-'))
+  );
   entrypoint = join(directory, 'host-lease-entry.js');
   driver = join(directory, 'driver.js');
   agentEntrypoint = join(directory, 'agent-host-entry.js');
