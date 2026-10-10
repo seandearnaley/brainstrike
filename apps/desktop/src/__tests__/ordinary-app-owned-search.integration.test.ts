@@ -3,6 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { join, resolve } from 'node:path';
 import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost } from '@brainstrike/agent-host';
+import { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
 import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/app-state/stores/assistant-preferences-store-version';
 import {
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
@@ -12,7 +13,7 @@ import { decodeHostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { _electron, type ElectronApplication } from 'playwright';
-import { expect, test } from 'vitest';
+import { expect, onTestFinished, test } from 'vitest';
 import { z } from 'zod';
 import { ensureAssistantShellVisible } from '../../e2e/utils/layout-helpers';
 import {
@@ -88,6 +89,7 @@ async function qualifyOrdinarySearch(fault: 'none' | 'mcp-setup-failure'): Promi
   let client: Awaited<ReturnType<typeof attachAgentHost>> | undefined;
   let failure: unknown;
   const errors: unknown[] = [];
+  const cleanupDone = Promise.withResolvers<void>();
   const outputs: string[] = [];
   const owners: { pid: number; start: string }[] = [];
   const capture = async (app: ElectronApplication): Promise<void> => {
@@ -293,13 +295,32 @@ async function qualifyOrdinarySearch(fault: 'none' | 'mcp-setup-failure'): Promi
       .getByRole('textbox', { name: 'Message input' });
     await input.fill('Find FRESH_ROOT_SEARCH_SENTINEL_6724 in fresh-root-search.txt.');
     await input.press('Enter');
-    await expect
-      .poll(async () =>
-        (await client?.request('thread/read', { fromSeq: 0, threadId }))?.rows.some(
-          ({ event }) => event.type === 'run.finished'
-        )
-      )
-      .toBe(true);
+    const session = new CommittedThreadSession(client, threadId);
+    const completion = Promise.withResolvers<void>();
+    const release = session.subscribe(() => {
+      const snapshot = session.getSnapshot();
+      if (snapshot.error) {
+        completion.reject(new Error(snapshot.error));
+      } else if (!snapshot.connected) {
+        completion.reject(new Error('Host disconnected before the committed run finished'));
+      } else if (snapshot.rows.some(({ event }) => event.type === 'run.finished')) {
+        completion.resolve();
+      }
+    });
+    const disconnect = session.connect();
+    onTestFinished(async () => {
+      completion.reject(new Error('Test cleanup ended the pending host run wait'));
+      await cleanupDone.promise;
+    });
+    try {
+      await completion.promise;
+      expect(session.getSnapshot().rows.some(({ event }) => event.type === 'run.finished')).toBe(
+        true
+      );
+    } finally {
+      release();
+      await disconnect();
+    }
     const rows = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
     // Retain committed execution and actual provider tool messages, excluding
     // the transient host authorization token, before any result assertion.
@@ -373,64 +394,68 @@ async function qualifyOrdinarySearch(fault: 'none' | 'mcp-setup-failure'): Promi
       )
     );
   } finally {
-    let providerClosed = false;
     try {
-      await client?.close();
-      await client?.closed;
-    } catch (cause) {
-      errors.push(cause);
-    }
-    try {
-      if (application) {
-        await capture(application);
+      let providerClosed = false;
+      try {
+        await client?.close();
+        await client?.closed;
+      } catch (cause) {
+        errors.push(cause);
       }
-    } catch (cause) {
-      errors.push(cause);
-    }
-    try {
-      await application?.close();
-    } catch (cause) {
-      errors.push(cause);
-    }
-    try {
-      await model.close();
-      providerClosed = await providerPortRefused(model.baseUrl);
-      if (!providerClosed) {
-        errors.push(new Error('Acquired model provider listener remains open'));
+      try {
+        if (application) {
+          await capture(application);
+        }
+      } catch (cause) {
+        errors.push(cause);
       }
-    } catch (cause) {
-      errors.push(cause);
+      try {
+        await application?.close();
+      } catch (cause) {
+        errors.push(cause);
+      }
+      try {
+        await model.close();
+        providerClosed = await providerPortRefused(model.baseUrl);
+        if (!providerClosed) {
+          errors.push(new Error('Acquired model provider listener remains open'));
+        }
+      } catch (cause) {
+        errors.push(cause);
+      }
+      const remaining = owners.filter(({ pid, start }) => processStartTime(pid) === start);
+      const root = RootLock.inspect(profile);
+      const rootReleased = root?.owner.released ?? null;
+      if (remaining.length > 0) {
+        errors.push(new Error('Owned app or Root process remains live'));
+      }
+      if (application && rootReleased !== true) {
+        errors.push(new Error('Ordinary app-owned Root did not release its lock'));
+      }
+      await writeFile(join(evidence, 'output.log'), outputs.join(''));
+      await writeFile(
+        join(evidence, 'cleanup.json'),
+        JSON.stringify(
+          {
+            appLaunched: application !== undefined,
+            errors: errors.map(String),
+            failure: failure ? String(failure) : null,
+            fault,
+            owners,
+            providerBaseUrl: model.baseUrl,
+            providerClosed,
+            remaining,
+            rootAbsent: root === null,
+            rootReleased,
+          },
+          null,
+          2
+        )
+      );
+      process.stderr.write(`App-owned search evidence: ${evidence}\n`);
+    } finally {
+      cleanupDone.resolve();
     }
-    const remaining = owners.filter(({ pid, start }) => processStartTime(pid) === start);
-    const root = RootLock.inspect(profile);
-    const rootReleased = root?.owner.released ?? null;
-    if (remaining.length > 0) {
-      errors.push(new Error('Owned app or Root process remains live'));
-    }
-    if (application && rootReleased !== true) {
-      errors.push(new Error('Ordinary app-owned Root did not release its lock'));
-    }
-    await writeFile(join(evidence, 'output.log'), outputs.join(''));
-    await writeFile(
-      join(evidence, 'cleanup.json'),
-      JSON.stringify(
-        {
-          appLaunched: application !== undefined,
-          errors: errors.map(String),
-          failure: failure ? String(failure) : null,
-          fault,
-          owners,
-          providerBaseUrl: model.baseUrl,
-          providerClosed,
-          remaining,
-          rootAbsent: root === null,
-          rootReleased,
-        },
-        null,
-        2
-      )
-    );
-    process.stderr.write(`App-owned search evidence: ${evidence}\n`);
   }
   if (errors.length > 0) {
     throw new AggregateError(
