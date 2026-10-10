@@ -1,3 +1,4 @@
+import { prepareFactoryReset } from '@brainstrike/app-state/factory-reset';
 import type { ThreadWorkspaceRepository, WorkspaceSnapshotV1 } from '@brainstrike/assistant-data';
 import {
   EMPTY_WORKSPACE_SNAPSHOT,
@@ -237,6 +238,55 @@ describe('useThreadWorkspaceCoordinator', () => {
       }
     );
   }
+
+  it('factory reset joins an admitted save before its owner can retire', async () => {
+    const harness = createHarness();
+    const mounted = render(harness, 'thread-a');
+    await waitFor(() => expect(harness.rows.has('thread-a')).toBe(true));
+    const pending = Promise.withResolvers<void>();
+    vi.mocked(harness.repository.setThreadWorkspace).mockImplementationOnce(() => pending.promise);
+    act(() => {
+      harness.state.openAppIds = ['changes'];
+      harness.notify();
+    });
+    let prepared = false;
+    const preparation = prepareFactoryReset().then(() => {
+      prepared = true;
+    });
+    try {
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(prepared).toBe(false);
+    } finally {
+      pending.resolve();
+      await act(async () => {
+        await preparation;
+      });
+      mounted.unmount();
+    }
+    expect(prepared).toBe(true);
+  });
+
+  it('factory reset cancels pending hydration and store-clear saves through unmount', async () => {
+    const harness = createHarness();
+    const read = Promise.withResolvers<WorkspaceSnapshotV1 | null>();
+    vi.mocked(harness.repository.getThreadWorkspace).mockReturnValue(read.promise);
+    const mounted = render(harness, 'thread-a');
+    const preparation = prepareFactoryReset();
+    await act(async () => {
+      harness.state.openAppIds = [];
+      harness.notify();
+      read.resolve(null);
+      await read.promise;
+      await preparation;
+    });
+    mounted.unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(harness.repository.setThreadWorkspace).not.toHaveBeenCalled();
+  });
 
   it('debounce-persists live store changes under the active thread', async () => {
     const harness = createHarness();

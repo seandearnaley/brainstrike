@@ -3,6 +3,7 @@ import {
   type ClearPersistentUiStateOptions,
   type ClearPersistentUiStateResult,
   clearPersistentUiStateWithResult,
+  prepareFactoryReset,
 } from '@brainstrike/app-state/factory-reset';
 import { useFactoryReset } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
@@ -95,15 +96,15 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
       return;
     }
 
-    let rendererStorageResetStarted = false;
+    let rendererResetStarted = false;
     try {
       setRunning(true);
       if (desktopResetBridge) {
-        // Desktop CacheStorage must be cleared while the live renderer still owns
-        // a valid backing store. Mark the renderer as partially reset before
-        // clearing storage because localStorage/sessionStorage are cleared first,
-        // which makes same-session toast recovery unreliable.
-        rendererStorageResetStarted = true;
+        // Preparation retires renderer writers. Even a failed preparation must
+        // reload this renderer; deletion begins only after every writer settles.
+        rendererResetStarted = true;
+        await prepareFactoryReset();
+        // Clear CacheStorage while the live renderer still owns its backing store.
         await runDesktopFactoryReset(desktopResetBridge);
       } else {
         // Direct web/PGlite reset must close/delete the active DB before IndexedDB cleanup.
@@ -111,14 +112,14 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
           throw new Error('Factory reset is unavailable.');
         }
         await resetFn();
-        rendererStorageResetStarted = true;
+        rendererResetStarted = true;
         await clearPersistentUiStateOrThrow({ skipIndexedDb: true });
       }
       // Ensure a full reload so the renderer boots cleanly.
       await requestFactoryResetReload('factory-reset');
     } catch (err) {
-      if (rendererStorageResetStarted) {
-        logger.error('Factory reset failed after renderer storage was already cleared', {
+      if (rendererResetStarted) {
+        logger.error('Factory reset failed after renderer reset preparation began', {
           error: err,
         });
         await requestFactoryResetReload('factory-reset-failed-after-renderer-clear');

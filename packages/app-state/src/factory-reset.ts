@@ -370,6 +370,30 @@ function isMissingStorageEntryError(error: unknown): boolean {
  * reset per the FACTORY RESET CONTRACT so session state does not survive a reset
  * that (on the web path) may not force a reload.
  */
+/** Renderer owners retire before reset mutates their stores or closes storage.
+ * Preparation is terminal for this renderer; the reset UI must reload on either outcome.
+ */
+const factoryResetPreparations = new Set<() => Promise<void>>();
+
+export function registerFactoryResetPreparation(prepare: () => Promise<void>): () => void {
+  factoryResetPreparations.add(prepare);
+  return () => {
+    factoryResetPreparations.delete(prepare);
+  };
+}
+
+export async function prepareFactoryReset(): Promise<void> {
+  const results = await Promise.allSettled(
+    [...factoryResetPreparations].map(async (prepare) => await prepare())
+  );
+  const failures: unknown[] = results.flatMap((result) =>
+    result.status === 'rejected' ? [result.reason] : []
+  );
+  if (failures.length > 0) {
+    throw new AggregateError(failures, 'Factory reset renderer preparation failed');
+  }
+}
+
 const sessionStoreResetters = new Set<() => void>();
 
 export function registerFactoryResetSessionStore(reset: () => void): () => void {

@@ -253,6 +253,10 @@ never used. Wiping the database alone is not enough.
   its only consumer accepts a strictly later generation than a snapshot captured
   before its first failed read, so a stale counter is unreachable — while
   clearing it mid-session strands an in-flight waiter through its full timeout.
+- The reset panel first prepares renderer writers before clearing live stores.
+  Thread workspace preparation cancels pending hydration/debounce work and joins
+  admitted saves before Main retires the host. Preparation is terminal for that
+  renderer; failures retain their causes, skip deletion and force a reload.
 - Desktop reset order: quiesce background runtimes, clear UI state, purge DB
   tables, reload the renderer. Do not skip the reload. MCP admission stays closed
   across all four steps, and main waits for the replacement tree's renderer-ready
