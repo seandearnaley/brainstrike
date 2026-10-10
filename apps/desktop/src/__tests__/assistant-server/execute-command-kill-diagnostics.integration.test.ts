@@ -55,12 +55,13 @@ async function makeLongRunningCommand(root: string, pidFile: string): Promise<st
       "const { spawn } = require('node:child_process');",
       "const { writeFileSync } = require('node:fs');",
       "spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'inherit' });",
-      `writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
+      "const leaderPid = process.platform === 'win32' ? process.ppid : process.pid;",
+      `writeFileSync(${JSON.stringify(pidFile)}, String(leaderPid));`,
     ].join('\n'),
     'utf8'
   );
   const command = `"${process.execPath}" "${fixture}"`;
-  // POSIX exec retains the shell's PID/group leader; cmd runs the real Node child.
+  // POSIX exec retains the shell's PID/group leader; the cmd child records its parent PID.
   // The child and its descendant replace echo $$ / sleep, not the teardown assertions.
   return process.platform === 'win32' ? command : `exec ${command}`;
 }
