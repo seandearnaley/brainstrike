@@ -4,7 +4,7 @@
  * short-circuit stream, PostToolUse context, and the terminal Stop hook — all
  * over the REAL HookManager/executor with temp hook scripts.
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -47,6 +47,27 @@ function writeProjectHooks(rootAbsPath: string, content: string): string {
 
 function sha256OfFile(path: string): string {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+function writeHookCommand(rootAbsPath: string, program: string): string {
+  const filename = `hook-${randomUUID()}.cjs`;
+  writeFileSync(join(rootAbsPath, filename), program, 'utf8');
+  // Keep the real native shell; a relative filename needs no temp-path quoting.
+  return `node ${filename}`;
+}
+
+function writeStdoutHook(rootAbsPath: string, stdout: string, exitCode = 0): string {
+  return writeHookCommand(
+    rootAbsPath,
+    `process.stdout.write(${JSON.stringify(`${stdout}\n`)});\nprocess.exitCode = ${exitCode};\n`
+  );
+}
+
+function writeStdinHook(rootAbsPath: string, marker: string): string {
+  return writeHookCommand(
+    rootAbsPath,
+    `const { readFileSync, writeFileSync } = require('node:fs');\nwriteFileSync(${JSON.stringify(marker)}, readFileSync(0));\n`
+  );
 }
 
 function runtimeWithRoot(rootId: string, absPath: string): RuntimeData {
@@ -96,7 +117,9 @@ describe('makeHookBlockedStream', () => {
 describe('buildHookManager (roots + trust + config)', () => {
   it('loads a project root hooks file only when the approved hash matches disk', async () => {
     const config = JSON.stringify({
-      PreToolUse: [{ command: `echo '{"reason":"blocked"}'; exit 2`, type: 'command' }],
+      PreToolUse: [
+        { command: writeStdoutHook(tmpRoot, '{"reason":"blocked"}', 2), type: 'command' },
+      ],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const runtimeData = runtimeWithRoot('root-1', tmpRoot);
@@ -175,7 +198,9 @@ describe('buildHookManager (roots + trust + config)', () => {
 describe('prepareRequestHooks reads project hook trust from the agent host', () => {
   it("runs a mounted root's hooks at the host-trusted hash, and none without it", async () => {
     const config = JSON.stringify({
-      PreToolUse: [{ command: `echo '{"reason":"blocked"}'; exit 2`, type: 'command' }],
+      PreToolUse: [
+        { command: writeStdoutHook(tmpRoot, '{"reason":"blocked"}', 2), type: 'command' },
+      ],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const asked: unknown[] = [];
@@ -215,7 +240,7 @@ describe('hooks primaryCwd follows the declared main root (roots[0] after reorde
     mkdirSync(rootB, { recursive: true });
     const marker = join(tmpRoot, 'stop-payload.json');
     const config = JSON.stringify({
-      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+      Stop: [{ command: writeStdinHook(rootA, marker), type: 'command' }],
     });
     const file = writeProjectHooks(rootA, config);
     const trust = new Map([['db-a', sha256OfFile(file)]]);
@@ -263,7 +288,7 @@ describe('withStopHook', () => {
   it('fires the Stop hook with the resolved reason when the stream completes', async () => {
     const marker = join(tmpRoot, 'stop.json');
     const config = JSON.stringify({
-      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+      Stop: [{ command: writeStdinHook(tmpRoot, marker), type: 'command' }],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
@@ -326,7 +351,7 @@ describe('withStopHook', () => {
   it('passes the accumulated assistant text as assistant_message (bounded tail)', async () => {
     const marker = join(tmpRoot, 'stop-message.json');
     const config = JSON.stringify({
-      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+      Stop: [{ command: writeStdinHook(tmpRoot, marker), type: 'command' }],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
@@ -367,7 +392,7 @@ describe('withStopHook', () => {
   it('separates generation steps with a newline so line-anchored graders still match', async () => {
     const marker = join(tmpRoot, 'stop-boundary.json');
     const config = JSON.stringify({
-      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+      Stop: [{ command: writeStdinHook(tmpRoot, marker), type: 'command' }],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
@@ -416,7 +441,7 @@ describe('withStopHook', () => {
   it('omits assistant_message when the stream produced no text', async () => {
     const marker = join(tmpRoot, 'stop-no-text.json');
     const config = JSON.stringify({
-      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+      Stop: [{ command: writeStdinHook(tmpRoot, marker), type: 'command' }],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
@@ -447,7 +472,7 @@ describe('withStopHook', () => {
   it('passes stop_reason "error" when the finish chunk is an error finish', async () => {
     const marker = join(tmpRoot, 'stop-error.json');
     const config = JSON.stringify({
-      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+      Stop: [{ command: writeStdinHook(tmpRoot, marker), type: 'command' }],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
@@ -481,7 +506,7 @@ describe('withStopHook', () => {
     // default `complete`.
     const marker = join(tmpRoot, 'stop-throw.json');
     const config = JSON.stringify({
-      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+      Stop: [{ command: writeStdinHook(tmpRoot, marker), type: 'command' }],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
@@ -514,7 +539,10 @@ describe('withStopHook', () => {
     const config = JSON.stringify({
       Stop: [
         {
-          command: `echo 'test output line'; echo '{"brainstrikeRunVerdict":{"verdict":"failed","detail":"3 tests failing"}}'`,
+          command: writeStdoutHook(
+            tmpRoot,
+            'test output line\n{"brainstrikeRunVerdict":{"verdict":"failed","detail":"3 tests failing"}}'
+          ),
           type: 'command',
         },
       ],
@@ -567,7 +595,7 @@ describe('withStopHook', () => {
     const config = JSON.stringify({
       Stop: [
         {
-          command: `echo '{"brainstrikeRunVerdict":{"verdict":"succeeded"}}'`,
+          command: writeStdoutHook(tmpRoot, '{"brainstrikeRunVerdict":{"verdict":"succeeded"}}'),
           type: 'command',
         },
       ],
@@ -600,7 +628,7 @@ describe('withStopHook', () => {
     const config = JSON.stringify({
       Stop: [
         {
-          command: `echo '{"brainstrikeRunVerdict":{"verdict":"passed"}}'`,
+          command: writeStdoutHook(tmpRoot, '{"brainstrikeRunVerdict":{"verdict":"passed"}}'),
           type: 'command',
         },
       ],
@@ -647,7 +675,7 @@ describe('withStopHook', () => {
     const config = JSON.stringify({
       Stop: [
         {
-          command: `echo '{"brainstrikeRunVerdict":{"verdict":"failed"}}'`,
+          command: writeStdoutHook(tmpRoot, '{"brainstrikeRunVerdict":{"verdict":"failed"}}'),
           type: 'command',
         },
       ],
@@ -690,7 +718,7 @@ describe('withStopHook', () => {
     const config = JSON.stringify({
       PostToolUse: [
         {
-          command: `echo '{"brainstrikeRunVerdict":{"verdict":"failed"}}'`,
+          command: writeStdoutHook(tmpRoot, '{"brainstrikeRunVerdict":{"verdict":"failed"}}'),
           type: 'command',
         },
       ],
@@ -715,8 +743,14 @@ describe('withStopHook', () => {
   it('lets the LAST Stop hook with a valid verdict win across multiple hooks', async () => {
     const config = JSON.stringify({
       Stop: [
-        { command: `echo '{"brainstrikeRunVerdict":{"verdict":"succeeded"}}'`, type: 'command' },
-        { command: `echo '{"brainstrikeRunVerdict":{"verdict":"mixed"}}'`, type: 'command' },
+        {
+          command: writeStdoutHook(tmpRoot, '{"brainstrikeRunVerdict":{"verdict":"succeeded"}}'),
+          type: 'command',
+        },
+        {
+          command: writeStdoutHook(tmpRoot, '{"brainstrikeRunVerdict":{"verdict":"mixed"}}'),
+          type: 'command',
+        },
       ],
     });
     const file = writeProjectHooks(tmpRoot, config);

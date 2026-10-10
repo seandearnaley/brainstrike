@@ -7,7 +7,7 @@
  * (BST-1028 slice 4). Integration lane: both tests write real files and run
  * real shell commands through the hook runner.
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -97,6 +97,17 @@ describe('tool-lifecycle hooks P2 (Stop notice + blocked-run status)', () => {
     return createHash('sha256').update(readFileSync(path)).digest('hex');
   }
 
+  function writeStdoutHook(rootAbsPath: string, stdout: string, exitCode = 0): string {
+    const filename = `hook-${randomUUID()}.cjs`;
+    writeFileSync(
+      join(rootAbsPath, filename),
+      `process.stdout.write(${JSON.stringify(`${stdout}\n`)});\nprocess.exitCode = ${exitCode};\n`,
+      'utf8'
+    );
+    // Keep the real native shell; a relative filename needs no temp-path quoting.
+    return `node ${filename}`;
+  }
+
   // FINDING A: the live data-stream consumer (AssistantDataStreamSession) stops
   // pulling the source the moment the mapper emits `finish`. If the terminal
   // Stop hook only runs AFTER the finish chunk is yielded, its queued
@@ -108,7 +119,12 @@ describe('tool-lifecycle hooks P2 (Stop notice + blocked-run status)', () => {
     try {
       const noteText = 'stop-note-visible-xyz';
       const file = writeHooksFile(tmp, {
-        Stop: [{ command: `echo '{"additionalContext":"${noteText}"}'`, type: 'command' }],
+        Stop: [
+          {
+            command: writeStdoutHook(tmp, JSON.stringify({ additionalContext: noteText })),
+            type: 'command',
+          },
+        ],
       });
       const runId = 'run-A';
       const queuedRunEvents: AssistantRunEvent[] = [];
@@ -174,7 +190,7 @@ describe('tool-lifecycle hooks P2 (Stop notice + blocked-run status)', () => {
     try {
       const file = writeHooksFile(tmp, {
         UserPromptSubmit: [
-          { command: `echo '{"reason":"nope-blocked"}'; exit 2`, type: 'command' },
+          { command: writeStdoutHook(tmp, '{"reason":"nope-blocked"}', 2), type: 'command' },
         ],
       });
       const { streamResponse } = await import('../../assistant-server/http');
