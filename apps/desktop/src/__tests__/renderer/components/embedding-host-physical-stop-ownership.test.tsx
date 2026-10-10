@@ -175,7 +175,9 @@ describe('committed readiness fix physical query ownership controls', () => {
       { isDestroyed: () => false, once: vi.fn(), webContents: requester } as never,
       'visible-ui'
     );
-    const unregister = registerEmbeddingHostIpcHandlers(run.manager);
+    const unregister = registerEmbeddingHostIpcHandlers(run.manager, {
+      stop: () => run.manager.stop(),
+    });
     onTestFinished(() => {
       unregister();
       clearWindowRoleByWebContentsId(requester.id);

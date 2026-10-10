@@ -61,7 +61,7 @@ describe('embedding host IPC handlers', () => {
       stop: vi.fn().mockResolvedValue({ state: 'stopped' }),
     };
 
-    registerEmbeddingHostIpcHandlers(manager as never);
+    registerEmbeddingHostIpcHandlers(manager as never, { stop: () => manager.stop() });
 
     const ensureStartedHandler = handlers.get(EMBEDDING_HOST_ENSURE_STARTED_CHANNEL);
     const getStatusHandler = handlers.get(EMBEDDING_HOST_GET_STATUS_CHANNEL);
@@ -115,7 +115,7 @@ describe('embedding host IPC handlers', () => {
       stop: vi.fn(),
     };
 
-    registerEmbeddingHostIpcHandlers(manager as never);
+    registerEmbeddingHostIpcHandlers(manager as never, { stop: () => manager.stop() });
 
     const statusListener = listeners.get(EMBEDDING_HOST_REPORT_STATUS_CHANNEL);
     if (!statusListener) {
@@ -148,7 +148,7 @@ describe('embedding host IPC handlers', () => {
       stop: vi.fn(),
     };
 
-    registerEmbeddingHostIpcHandlers(manager as never);
+    registerEmbeddingHostIpcHandlers(manager as never, { stop: () => manager.stop() });
 
     const queryResponseListener = listeners.get(
       EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL
@@ -188,7 +188,9 @@ describe('embedding host IPC handlers', () => {
       stop: vi.fn(),
     };
 
-    const unregister = registerEmbeddingHostIpcHandlers(manager as never);
+    const unregister = registerEmbeddingHostIpcHandlers(manager as never, {
+      stop: () => manager.stop(),
+    });
     const sender = Object.assign(new EventEmitter(), { id: 17 });
     assignWindowRole({ once: vi.fn(), webContents: sender } as never, 'visible-ui');
 
@@ -235,7 +237,9 @@ describe('embedding host IPC handlers', () => {
       stop: vi.fn(),
     };
 
-    const unregister = registerEmbeddingHostIpcHandlers(manager as never);
+    const unregister = registerEmbeddingHostIpcHandlers(manager as never, {
+      stop: () => manager.stop(),
+    });
     unregister();
 
     expect(removeHandler).toHaveBeenCalledWith(EMBEDDING_HOST_ENSURE_STARTED_CHANNEL);
@@ -265,8 +269,15 @@ describe('document IPC cancellation sender ownership', () => {
       });
       return pending.promise;
     });
-    const manager = { documentEmbeddings };
-    const unregister = registerEmbeddingHostIpcHandlers(manager as never);
+    const manager = {
+      documentEmbeddings,
+      stop: async () => {
+        throw new Error('This document-only fixture does not stop the embedding host.');
+      },
+    };
+    const unregister = registerEmbeddingHostIpcHandlers(manager as never, {
+      stop: () => manager.stop(),
+    });
     const senderA = Object.assign(new EventEmitter(), { id: 301 });
     const senderB = Object.assign(new EventEmitter(), { id: 302 });
     for (const sender of [senderA, senderB]) {
