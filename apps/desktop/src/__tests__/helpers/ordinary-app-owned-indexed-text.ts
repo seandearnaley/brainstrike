@@ -22,7 +22,7 @@ import {
   startModelProviderShim,
 } from '../../../e2e/utils/model-provider-shim';
 import { createDisposableAppProfile } from './disposable-app-profile';
-import { killAppWithLauncher } from './electron-launcher-watchdog';
+import { launchAppWithLauncher } from './electron-launcher-watchdog';
 
 const desktop = resolve(import.meta.dirname, '../../..');
 // Reuse the recorded public metadata fixture; no provider grant or inference.
@@ -241,22 +241,21 @@ export async function qualifyOrdinaryAppIndexedText(
     });
     expect(RootLock.inspect(profile)).toBeNull();
     checkpoint('ordinary-search-launch-start');
-    application = await _electron.launch({
-      args: [
-        join(desktop, 'dist/main.js'),
-        '--test-mode',
-        `--user-data-dir=${disposable}`,
-        '--brainstrike-desktop-launch-mode=test-built',
-      ],
-      env,
-      executablePath:
-        process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ??
-        join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
-    });
+    application = await launchAppWithLauncher(() =>
+      _electron.launch({
+        args: [
+          join(desktop, 'dist/main.js'),
+          '--test-mode',
+          `--user-data-dir=${disposable}`,
+          '--brainstrike-desktop-launch-mode=test-built',
+        ],
+        env,
+        executablePath:
+          process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ??
+          join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
+      })
+    );
     const appProcess = application.process();
-    if (appProcess.pid) {
-      killAppWithLauncher(appProcess.pid);
-    }
     const appStart = appProcess.pid && processStartTime(appProcess.pid);
     if (appProcess.pid && appStart) {
       owners.push({ pid: appProcess.pid, start: appStart });

@@ -1,7 +1,29 @@
 import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
+import type { ElectronApplication } from 'playwright';
+
+/** Acquire Windows Job ownership before Playwright creates the app's process tree. */
+export async function launchAppWithLauncher(
+  launch: () => Promise<ElectronApplication>
+): Promise<ElectronApplication> {
+  if (process.platform === 'win32') {
+    const windowsJob: typeof import('@brainstrike/windows-job-native') = createRequire(
+      import.meta.url
+    )('@brainstrike/windows-job-native');
+    windowsJob.initialize();
+    return launch();
+  }
+
+  const application = await launch();
+  const appPid = application.process().pid;
+  if (appPid) {
+    killAppWithLauncher(appPid);
+  }
+  return application;
+}
 
 /**
- * Playwright launches Electron detached, as the leader of its own process
+ * On POSIX, Playwright launches Electron detached, as the leader of its own process
  * group, and kills it only from the launcher's exit and signal handlers. A
  * launcher killed outright (SIGKILL, or a tool timeout that kills the test
  * run's process group) runs none of them, and the app lives on under launchd.
@@ -10,7 +32,7 @@ import { spawn } from 'node:child_process';
  * gone. It exits by itself as soon as the app does, so it never outlives the
  * app it watches.
  */
-export function killAppWithLauncher(appPid: number): void {
+function killAppWithLauncher(appPid: number): void {
   const watcher = spawn(
     '/bin/sh',
     [
