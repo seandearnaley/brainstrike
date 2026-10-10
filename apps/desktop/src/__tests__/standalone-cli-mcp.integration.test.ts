@@ -6,7 +6,7 @@
  * server on loopback.
  */
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -14,9 +14,10 @@ import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
 import { HOST_RESULT_SCHEMAS, type HostLogRow } from '@brainstrike/agent-host/protocol';
-import { decodeHostRecord } from '@brainstrike/host-lease';
-import { processStartTime, RootLock, STATE_DB } from '@brainstrike/state-store';
-import { afterEach, expect, test } from 'vitest';
+import { removeFixtureRoot } from '@brainstrike/agent-host/test-fixtures/cooperative-host';
+import { ResourceOwner } from '@brainstrike/host-lease';
+import { STATE_DB } from '@brainstrike/state-store';
+import { afterEach, beforeEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import type { McpLabSession } from '../../../../packages/mcp-test-lab/dist/index.js';
 import {
@@ -24,6 +25,10 @@ import {
   resolveProviderEgressEnvironment,
   startModelProviderShim,
 } from '../../e2e/utils/model-provider-shim';
+import {
+  createStandaloneCliMcpFixture,
+  type StandaloneCli,
+} from './fixtures/standalone-cli-mcp-fixture';
 
 const require = createRequire(import.meta.url);
 const bin = join(
@@ -44,16 +49,15 @@ const TOOL = `${SERVER}_test_simple_text`;
 const MODEL = 'openai::gpt-6-sol';
 const FINAL = 'The reference server answered.';
 
-const cleanup: (() => Promise<void>)[] = [];
+let resources = new ResourceOwner();
+beforeEach(() => {
+  resources = new ResourceOwner();
+});
 afterEach(async () => {
-  for (const close of cleanup.splice(0).reverse()) {
-    await close();
-  }
+  await resources.close();
 });
 
-type Cli = (args: readonly string[]) => Promise<{ code: number; stderr: string; stdout: string }>;
-
-function cli(dataRoot: string, environment: Record<string, string>): Cli {
+function cli(dataRoot: string, environment: Record<string, string>): StandaloneCli {
   return (args) =>
     new Promise((resolveRun, reject) => {
       execFile(
@@ -84,7 +88,7 @@ function cli(dataRoot: string, environment: Record<string, string>): Cli {
     });
 }
 
-async function rows(run: Cli, threadId: string): Promise<HostLogRow[]> {
+async function rows(run: StandaloneCli, threadId: string): Promise<HostLogRow[]> {
   const shown = await run(['threads', 'show', '--thread', threadId]);
   expect(shown).toMatchObject({ code: 0, stderr: '' });
   return HOST_RESULT_SCHEMAS['thread/read'].parse(JSON.parse(shown.stdout)).rows;
@@ -93,10 +97,12 @@ async function rows(run: Cli, threadId: string): Promise<HostLogRow[]> {
 async function labUrl(
   id: 'legacy-reference' | 'modern-reference' | 'tasks-reference'
 ): Promise<string> {
-  const session = await lab.startMcpLabScenario(id, { execution: 'loopback' });
-  cleanup.push(async () => {
-    await session.close();
-  });
+  const session = await resources.acquire(
+    () => lab.startMcpLabScenario(id, { execution: 'loopback' }),
+    async (owned) => {
+      await owned.close();
+    }
+  );
   if (session.endpoint.kind !== 'loopback-http') {
     throw new Error(`The ${id} scenario has no loopback HTTP endpoint`);
   }
@@ -117,33 +123,34 @@ async function refusedUrl(): Promise<string> {
 
 /** A started standalone host over `servers`, whose model calls `tool` once. */
 async function startHost(servers: readonly Record<string, string>[], tool = TOOL) {
-  const dataRoot = await mkdtemp(join(tmpdir(), 'bs-c2-cli-mcp-'));
+  const owner = resources;
+  const dataRoot = await owner.acquire(
+    () => mkdtemp(join(tmpdir(), 'bs-m3-cli-mcp-')),
+    removeFixtureRoot
+  );
   // Hosted discovery defers MCP tools: the model loads the configured MCP tool,
   // calls it, then answers. A turn without discovery (the title request) ends
   // with a reply naming what was offered.
-  const shim: ModelProviderShim = await startModelProviderShim((request) =>
-    request.toolNames.includes('load_tool')
-      ? { deferredTool: true, finalText: FINAL, toolCall: { arguments: {}, name: tool } }
-      : { finalText: `No load_tool offered: ${request.toolNames.join(', ')}` }
+  const shim: ModelProviderShim = await owner.acquire(
+    () =>
+      startModelProviderShim((request) =>
+        request.toolNames.includes('load_tool')
+          ? { deferredTool: true, finalText: FINAL, toolCall: { arguments: {}, name: tool } }
+          : { finalText: `No load_tool offered: ${request.toolNames.join(', ')}` }
+      ),
+    (owned) => owned.close()
   );
-  const run = cli(dataRoot, {
-    ...resolveProviderEgressEnvironment(shim, []),
-    BRAINSTRIKE_OPENAI_API_KEY: 'offline-standalone-fixture',
-  });
-  cleanup.push(async () => {
-    await shim.close();
-    await rm(dataRoot, { force: true, recursive: true });
-  });
-  cleanup.push(async () => {
-    const owner = RootLock.inspect(dataRoot)?.owner;
-    if (owner && !owner.released) {
-      const { pid } = decodeHostRecord(
-        JSON.parse(await readFile(join(dataRoot, 'host.json'), 'utf8'))
-      );
-      expect(await run(['host', 'stop'])).toMatchObject({ code: 0 });
-      await expect.poll(() => processStartTime(pid)).toBeNull();
-    }
-  });
+  const { run } = await owner.acquire(
+    async () =>
+      createStandaloneCliMcpFixture(
+        dataRoot,
+        cli(dataRoot, {
+          ...resolveProviderEgressEnvironment(shim, []),
+          BRAINSTRIKE_OPENAI_API_KEY: 'offline-standalone-fixture',
+        })
+      ),
+    (owned) => owned.close()
+  );
   const mcpConfig = join(dataRoot, 'mcp.json');
   await writeFile(
     mcpConfig,
@@ -163,7 +170,7 @@ async function startHost(servers: readonly Record<string, string>[], tool = TOOL
 }
 
 /** One completed `run --json` over the reference tool; its committed events. */
-async function runReferenceTool(run: Cli) {
+async function runReferenceTool(run: StandaloneCli) {
   const finished = await run([
     'run',
     'Call the reference server.',
