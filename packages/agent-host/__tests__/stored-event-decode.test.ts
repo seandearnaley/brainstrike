@@ -29,7 +29,9 @@ import rich from '@brainstrike/test-utils/fixtures/committed-rich-host-runs.json
 import { expect, test } from 'vitest';
 import { z } from 'zod';
 import { decodeStoredHostEvent } from '../src/event-storage.js';
-import { HostEventSchema, HostLogRowSchema } from '../src/protocol.js';
+import { HOST_METHOD_SCHEMAS, HostEventSchema, HostLogRowSchema } from '../src/protocol.js';
+import { foldHostRunAdmission, type HostRunAdmissionCommand } from '../src/run-branch.js';
+import configured from './fixtures/committed-configured-run-command.json' with { type: 'json' };
 
 const recordings = [
   approved,
@@ -84,6 +86,76 @@ test("a stored row's JSON values are accepted as JSON.parse produced them, never
   // The envelope is validated; the payload and result are the stored values.
   expect(decoded).toMatchObject({ commandId: accepted.commandId, type: 'command.accepted' });
   expect(reads.count).toBe(0);
+});
+
+test('committed run admission preserves recorded configuration values without walking them again', () => {
+  const reads = { count: 0 };
+  const { seq: _seq, ...event } = configured.row;
+  const configuration = Object.fromEntries(
+    Object.entries(event.payload.configuration).map(([key, value]) => [key, watched(value, reads)])
+  );
+  const accepted = decodeStoredHostEvent({
+    ...event,
+    payload: { ...event.payload, configuration },
+  });
+  if (accepted.type !== 'command.accepted') {
+    throw new Error('The recorded configured run has no accepted command');
+  }
+  const admitted = new Map<string, HostRunAdmissionCommand>();
+  const conversationIds = new Set<string>();
+
+  foldHostRunAdmission(admitted, conversationIds, accepted);
+
+  expect(reads.count).toBe(0);
+  expect(conversationIds.has(event.commandId)).toBe(true);
+  const admission = admitted.get(event.result.runId);
+  expect(admission).toEqual({
+    commandId: event.commandId,
+    input: { configuration },
+    method: event.method,
+  });
+  for (const [key, value] of Object.entries(configuration)) {
+    expect(admission?.input?.configuration?.[key]).toBe(value);
+  }
+});
+
+test('producer and wire decoding still validate nested run configuration JSON', () => {
+  const { seq: _seq, ...event } = configured.row;
+  expect(HostEventSchema.parse(event)).toEqual(event);
+  expect(HOST_METHOD_SCHEMAS['run/start'].parse(event.payload)).toEqual(event.payload);
+  const { parentMessageId: _parent, prompt: _prompt, ...regenerate } = event.payload;
+  const regenerateParams = { ...regenerate, userMessageId: event.commandId };
+  expect(HOST_METHOD_SCHEMAS['run/regenerate'].parse(regenerateParams)).toEqual(regenerateParams);
+
+  for (const invalid of [undefined, Number.NaN, () => null]) {
+    const configuration = { ...event.payload.configuration, invalid: { nested: invalid } };
+    const payload = { ...event.payload, configuration };
+    expect(() => HostEventSchema.parse({ ...event, payload })).toThrow();
+    expect(() => HOST_METHOD_SCHEMAS['run/start'].parse(payload)).toThrow();
+    expect(() =>
+      HOST_METHOD_SCHEMAS['run/regenerate'].parse({ ...regenerateParams, configuration })
+    ).toThrow();
+  }
+});
+
+test('committed run admission still refuses malformed configuration and result structure', () => {
+  const { seq: _seq, ...event } = configured.row;
+  const malformed = [
+    ...[null, [], 7, { missing: undefined }].map((configuration) => ({
+      ...event,
+      payload: { ...event.payload, configuration },
+    })),
+    { ...event, payload: null },
+    { ...event, result: { runId: 7 } },
+    { ...event, result: {} },
+  ];
+  for (const stored of malformed) {
+    const accepted = decodeStoredHostEvent(stored);
+    if (accepted.type !== 'command.accepted') {
+      throw new Error('The recorded configured run has no accepted command');
+    }
+    expect(() => foldHostRunAdmission(new Map(), new Set(), accepted)).toThrow();
+  }
 });
 
 test('stored-row decoding equals the full producer decode on every recorded event', () => {

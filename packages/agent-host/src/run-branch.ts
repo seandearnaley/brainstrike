@@ -26,6 +26,7 @@ import {
   type HostThreadGrants,
   recordHostConversationId,
 } from './core-state.js';
+import { storedJson } from './json-value.js';
 import {
   HOST_RESULT_SCHEMAS,
   type HostChildDelivery,
@@ -38,7 +39,7 @@ import { assertHostRunStartAvailable } from './run-admission.js';
 
 /** The configuration a committed run command carried; its other fields have their own readers. */
 const CommittedRunInputSchema = z.looseObject({
-  configuration: z.record(z.string(), z.json()).optional(),
+  configuration: z.record(z.string(), storedJson()).optional(),
 });
 
 type Started = Extract<HostEvent, { type: 'run.started' }>;
