@@ -1,6 +1,6 @@
 # ADR-0018: Isolated derived SQLite indexer
 
-Status: Accepted for the independent package boundary; product cutover is pending.
+Status: Accepted. The historical upgrade decision below is superseded by [ADR-0020](0020-greenfield-data-lifecycle.md).
 
 ## Decision
 
@@ -48,8 +48,9 @@ forwards the parser output it already produced; the indexer does not parse again
 Retain canonical PG file and collection identities in the same derived file/chunk/graph
 relations, with nullable workspace metadata and actual scalar embedding-set membership.
 Main supplies trusted exact file/profile bindings through the additive scoped owner port;
-owner binding replacement/removal and writer restart invalidate prepared work. Keep the
-legacy workspace APIs during consumer transition.
+owner binding replacement/removal and writer restart invalidate prepared work.
+Remaining legacy workspace APIs are consumer-cutover work, not a promise to read
+or convert old data. Their removal belongs to the separate M4 branch under ADR-0020.
 
 A complete profile hash includes provider, model, dimensions, distance and the local
 revision/dtype/token-cap where defined. Store Float32 vectors by chunk/profile, retaining
@@ -59,15 +60,15 @@ followed by exact cosine rerank. Unsupported metrics/dimensions reject explicitl
 storage extension qualifies no new model inference or retrieval-quality policy. Unknown
 derived layouts require explicit rebuilding; refusal preserves their files and PG data.
 
-The M3 owner accepted a bounded additive schema 8/9-to-10 upgrade in
-[the milestone decision](https://github.com/seandearnaley/brainstrike/pull/3543#issuecomment-6049877807).
-Only the acquired existing derived writer upgrades exact known definitions after native
-integrity, retained vector-byte, profile, Root/projection and resource-grant validation.
-The same immediate transaction adds the new empty tables and retirement fences, then
-stamps the version last. Existing rows, identities, grants and vector bytes survive.
-A schema 8 index has no saved resource grant; only its empty grant can be retained.
-Read-only metadata readers never stamp a version or perform DDL. This component upgrade
-does not qualify a production profile's capability admission or new inference.
+The bounded schema 8/9-to-10 upgrade accepted in
+[the historical milestone decision](https://github.com/seandearnaley/brainstrike/pull/3543#issuecomment-6049877807)
+is superseded by ADR-0020: Brainstrike has no users and no legacy-data migration
+requirement. Existing upgrade code and its receipts are not evidence of a continuing
+support obligation or of its removal. Acceptance covers current-schema creation and
+populated same-schema reopen, preserving identities, grants, vector bytes and integrity.
+Unsupported derived layouts refuse without deletion; rebuilding remains explicit through
+the existing owner. Read-only metadata readers never stamp a version or perform DDL.
+Package acceptance does not qualify product capability admission or new inference.
 
 ## Consequences
 
@@ -96,10 +97,10 @@ a deliberate rebuild and newly produced vectors. Text search results carry store
 identity and explicit embedding state; text mode invents no vector profile/hash. The current line chunker is a deterministic
 package input contract, not a replacement for product parser/chunker policy.
 
-The package is unwired. Hardware inference throughput, retrieval-quality gates,
-full application before/after measurements, packaged utility-process qualification and product
-factory-reset wiring remain separate acceptance work. Native package integration
-checks qualify process isolation, root filtering, persistence and lifecycle; they
+The package is wired through the current desktop and host adapters. Hardware inference
+throughput, retrieval-quality gates, full application before/after measurements, packaged
+utility-process behavior and product factory reset require their own acceptance
+evidence. Native package integration checks qualify process isolation, root filtering, persistence and lifecycle; they
 do not establish those product outcomes.
 
 ## References

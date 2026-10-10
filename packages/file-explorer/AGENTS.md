@@ -128,10 +128,10 @@ Use **Turbo filters** to avoid repo-wide work; `turbo run` supports package sele
 
 ---
 
-## Persistence (Zustand `persist`) & migrations
+## Persistence (Zustand `persist`)
 
-* Storage key: **`file-explorer-storage-v4`**. Legacy key **`fileExplorerSettings`** is auto-migrated on startup only when no current-key snapshot exists.
-* We persist only a **partialized** slice (no functions, no cache) and **merge** back into current defaults on hydration. Schema changes use `version` + `migrate`; because this app is still greenfield, older file-explorer snapshots are discarded rather than migrated when their semantics are no longer trusted. See Zustand docs for `persist` options (`partialize`, `merge`, `version`, `migrate`). ([Zustand Documentation][2])
+* Storage key: **`file-explorer-storage-v4`**. [ADR-0020](../../docs/adr/0020-greenfield-data-lifecycle.md) requires current-version persistence, not old-key conversion. The remaining `fileExplorerSettings` conversion is existing code, not a new M4 cleanup task; this contract does not claim it is removed.
+* We persist only a **partialized** slice (no functions, no cache) and **merge** back into current defaults on hydration. Version and validate the current serialized shape, proving fresh-data round-trip and reset. Zustand's `migrate` option does not create a legacy-data support obligation. See Zustand docs for `persist` options (`partialize`, `merge`, `version`, `migrate`). ([Zustand Documentation][2])
 * Invalid JSON, corrupt same-version shapes, and unsupported versions recover to
   the empty serialized state and set the ephemeral
   `persistenceRecoveryNotice`. Missing first-run state and valid hydration do
@@ -292,10 +292,10 @@ const content = store.getState().getFileContent('repo-root|@|src/a.ts');
 
 1. **Types first**: update `@brainstrike/types` (`FileExplorerState`, `FolderState`, and if persisted, `SerializedState`).
 2. **Defaults**: add to `DEFAULT_STATE`.
-3. **Persistence**: wire up in `serializeState`/`mergeState` and bump `version` + `migrate` if schemas change. ([Zustand Documentation][2])
+3. **Persistence**: wire up in `serializeState`/`mergeState`, version the current shape and preserve current-format round-trip/reset; no legacy conversion mandate. ([Zustand Documentation][2])
 4. **Actions**: implement in the appropriate `create*Actions` module; keep pure and deterministic.
 5. **Tests**: add Vitest (edge cases + round-trip persist) and keep Stryker score healthy. ([Stryker Mutator][8])
-6. **Docs**: update this file—especially invariants, limits, and persistence/migration notes.
+6. **Docs**: update this file—especially invariants, limits, and current-format persistence notes.
 
 ---
 

@@ -29,6 +29,20 @@
 
 ### Review and CI budget
 
+- Optimize elapsed time to accepted delivery, not code or test count. Before a
+  milestone implementation, inventory the complete existing acceptance surface,
+  reusable source/runtime-bound receipts, shared failure families and exact
+  verification commands. Do not rediscover the scope one failing test at a time.
+- For M4, each failure family has one predefined diagnostic invocation and one
+  coherent correction with one complete affected-family retest. A failed retest
+  stops autonomous patching of that family for a consolidated root-cause
+  disposition; renaming it or changing workers does not reset the budget. State
+  at least five competing hypotheses with evidence before another fix. Preserve
+  the existing third-strike design-approval rule and all acceptance assertions.
+- Full regression runs on the composed candidate, not after each leaf. Reuse
+  passing checks whose relevant source/runtime inputs remain unchanged. Another
+  broad run needs an identified changed boundary or unresolved concern; never
+  retry unchanged failures or expand the campaign merely to obtain green.
 - Before implementing, record acceptance criteria and the PR base; search open
   and recent PRs for the same fix. Keep the branch focused on one logical change.
 - Collect a review's findings, classify them, fix the in-scope batch, and validate
