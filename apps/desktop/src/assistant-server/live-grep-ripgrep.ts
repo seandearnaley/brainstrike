@@ -386,7 +386,7 @@ export function runRipgrep(args: {
 }
 
 function normalizeRipgrepCandidatePath(value: string): string | null {
-  const normalized = value.replace(/^\.\//, '').replaceAll('\\', '/');
+  const normalized = value.replaceAll('\\', '/').replace(/^\.\//, '');
   return normalized.length > 0 ? normalized : null;
 }
 
