@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -13,7 +14,7 @@ import {
 import type { DesktopWindowRole } from '../window-role';
 import { TEST_DESKTOP_RENDERER_TARGET } from './helpers/desktop-ipc-sender-frame-test-allowlist';
 
-const BUILT_RENDERER_PATH = '/opt/brainstrike/dist/renderer/index.html';
+const BUILT_RENDERER_PATH = resolve('/opt/brainstrike/dist/renderer/index.html');
 const DEV_RENDERER_URL = 'http://localhost:38181';
 
 /**
@@ -46,7 +47,7 @@ describe('desktop renderer target', () => {
   it('maps built and test-built launch modes to the normalized built renderer file', () => {
     expect(
       createDesktopRendererTarget({
-        builtRendererPath: '/opt/brainstrike/dist/./renderer/index.html',
+        builtRendererPath: `${resolve('/opt/brainstrike')}/dist/./renderer/index.html`,
         devRendererUrl: DEV_RENDERER_URL,
         launchMode: 'built',
       })

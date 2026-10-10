@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -10,8 +11,9 @@ import {
   resolveDesktopIpcSenderFrameAllowlist,
 } from '../../platform/desktop-ipc-sender-frame';
 
-const BUILT_RENDERER_PATH =
-  '/Applications/Brainstrike.app/Contents/Resources/app.asar/dist/renderer/index.html';
+const BUILT_RENDERER_PATH = resolve(
+  '/Applications/Brainstrike.app/Contents/Resources/app.asar/dist/renderer/index.html'
+);
 const BUILT_RENDERER_URL = pathToFileURL(BUILT_RENDERER_PATH).href;
 const DEV_RENDERER_URL = 'http://localhost:38181';
 
