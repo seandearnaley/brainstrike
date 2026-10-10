@@ -949,6 +949,7 @@ describe('main workspace-open lifecycle', () => {
     };
     await vi.waitFor(() => {
       expect(findOpenFolderItem()).not.toBeNull();
+      expect(mockWindowInstances).toHaveLength(1);
     });
 
     const win = latestWindow();
