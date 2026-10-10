@@ -85,6 +85,7 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
       // 1-based line for the model (LSP is 0-based on the wire).
       expect(first?.line).toBe(1);
     } finally {
+      await disposeLspServers();
       await fsPromises.rm(root, { force: true, recursive: true });
     }
   }, 30_000);
@@ -105,6 +106,7 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
       expect(result.available).toBe(true);
       expect(result.diagnostics ?? []).toEqual([]);
     } finally {
+      await disposeLspServers();
       await fsPromises.rm(root, { force: true, recursive: true });
     }
   }, 30_000);
@@ -161,6 +163,7 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
       expect(restored.available, restored.message ?? restored.reason).toBe(true);
       expect(restored.diagnostics ?? []).toEqual([]);
     } finally {
+      await disposeLspServers();
       await fsPromises.rm(fixtureRoot, { force: true, recursive: true });
     }
   }, 45_000);
@@ -183,6 +186,7 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
       // Nothing was spawned for an unsupported language.
       expect(countPooledLspServers()).toBe(0);
     } finally {
+      await disposeLspServers();
       await fsPromises.rm(root, { force: true, recursive: true });
     }
   }, 30_000);
@@ -211,6 +215,7 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
       const pidsAfterSecond = await __getPooledPidsForTest();
       expect(pidsAfterSecond).toEqual(pidsAfterFirst);
     } finally {
+      await disposeLspServers();
       await fsPromises.rm(root, { force: true, recursive: true });
     }
   }, 30_000);
@@ -251,6 +256,7 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
       expect(pids).toHaveLength(1);
       expect(isProcessAlive(pids[0] ?? -1)).toBe(true);
     } finally {
+      await disposeLspServers();
       await fsPromises.rm(root, { force: true, recursive: true });
     }
   }, 30_000);
@@ -274,6 +280,7 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
       expect(countPooledLspServers()).toBe(0);
       expect(isProcessAlive(pid)).toBe(false);
     } finally {
+      await disposeLspServers();
       await fsPromises.rm(root, { force: true, recursive: true });
     }
   }, 30_000);
@@ -298,6 +305,7 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
 
       expect(isProcessAlive(pid)).toBe(false);
     } finally {
+      await disposeLspServers();
       await fsPromises.rm(root, { force: true, recursive: true });
     }
   }, 30_000);
@@ -322,6 +330,7 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
       expect(second).toBe(first);
       await first;
     } finally {
+      await disposeLspServers();
       await fsPromises.rm(root, { force: true, recursive: true });
     }
   }, 30_000);
@@ -347,6 +356,7 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
         await lifecycle.forceKill();
       }
     } finally {
+      await disposeLspServers();
       await fsPromises.rm(root, { force: true, recursive: true });
     }
   }, 30_000);
@@ -385,6 +395,7 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
       // One pooled server served both (per-file lock, not per-call spawn).
       expect(countPooledLspServers()).toBe(1);
     } finally {
+      await disposeLspServers();
       await fsPromises.rm(root, { force: true, recursive: true });
     }
   }, 30_000);
@@ -417,6 +428,7 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
       expect(def?.line).toBe(1);
       expect(def?.preview).toMatch(/greeting/);
     } finally {
+      await disposeLspServers();
       await fsPromises.rm(root, { force: true, recursive: true });
     }
   }, 30_000);
@@ -436,6 +448,7 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
       expect(result.reason).toBe('unsupported-language');
       expect(countPooledLspServers()).toBe(0);
     } finally {
+      await disposeLspServers();
       await fsPromises.rm(root, { force: true, recursive: true });
     }
   }, 30_000);
@@ -463,6 +476,7 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
       await evictLspServersForRoot('root-a');
       expect(countPooledLspServers()).toBe(1);
     } finally {
+      await disposeLspServers();
       await fsPromises.rm(rootA, { force: true, recursive: true });
       await fsPromises.rm(rootB, { force: true, recursive: true });
     }
@@ -485,6 +499,7 @@ describe('lsp-diagnostics manager (real typescript-language-server subprocess)',
       expect(result.message).toMatch(/language server/i);
       expect(countPooledLspServers()).toBe(0);
     } finally {
+      await disposeLspServers();
       await fsPromises.rm(root, { force: true, recursive: true });
     }
   }, 30_000);
