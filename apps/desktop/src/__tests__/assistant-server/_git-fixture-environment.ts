@@ -16,7 +16,7 @@ const execFileAsync = promisify(execFile);
 const fixtureDirectory = mkdtempSync(join(tmpdir(), 'bs-git-fixture-config-'));
 const fixtureConfigPath = join(fixtureDirectory, 'config');
 afterAll(() => rm(fixtureDirectory, { force: true, recursive: true }));
-writeFileSync(fixtureConfigPath, '');
+writeFileSync(fixtureConfigPath, '[core]\nlongpaths = true\n');
 
 // Windows qualification inherited system autocrlf/symlink settings. Pass owned
 // config explicitly: production runners intentionally scrub inherited GIT_*.

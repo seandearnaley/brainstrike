@@ -84,7 +84,11 @@ async function writeFabricatedWorktreeAdmin(
   const adminDir = path.join(stagingDir, name);
   await fsPromises.mkdir(adminDir);
   await fsPromises.writeFile(path.join(adminDir, 'locked'), 'security fixture\n', 'utf8');
-  await fsPromises.writeFile(path.join(adminDir, 'gitdir'), `${targetGitPath}\n`, 'utf8');
+  await fsPromises.writeFile(
+    path.join(adminDir, 'gitdir'),
+    `${targetGitPath.split(path.sep).join('/')}\n`,
+    'utf8'
+  );
   await fsPromises.writeFile(path.join(adminDir, 'HEAD'), 'ref: refs/heads/master\n', 'utf8');
   await fsPromises.writeFile(path.join(adminDir, 'commondir'), '../..\n', 'utf8');
   await fsPromises.rename(stagingDir, worktreesDir);
