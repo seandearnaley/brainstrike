@@ -148,8 +148,10 @@ Guard: `packages/embeddings/src/__tests__/inference-plan.test.ts`,
   computed by every producer through `buildEmbeddingJobInputHashes` before enqueue.
   The worker requires the persisted source hash to match the loaded chunk, fails
   changed chunks terminally, and never recomputes the hash on the claim path. Add no
-  legacy hashing fallback: migration 105 backfills provable jobs and visibly cancels
-  those whose chunk/model identity cannot be proven.
+  legacy hashing fallback. [ADR-0020](../adr/0020-greenfield-data-lifecycle.md)
+  removes old-job conversion as an acceptance gate; migration 105's existing backfill
+  is historical implementation, not a requirement for future schemas. Fresh embedding
+  backfill remains supported and every current producer must supply these hashes.
 - Desktop backfill admission bounds queued/running jobs by target `embedding_set_id`,
   takes earliest runnable jobs, and stays single-flight per set at IPC; the runtime budget is global.
 - Settle each worker completion (at most 64 distinct chunks) before the next; count already embedded completions and failures only from

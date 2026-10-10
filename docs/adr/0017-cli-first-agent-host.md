@@ -60,9 +60,12 @@ Host-owned thread bindings use the existing Core thread log and durable command
 identities, through `thread/workspace/binding/read` and
 `thread/workspace/binding/update`. `workspace.binding.updated` stores the merged
 existing operating-root, checkout, secondary-root and Forge metadata keys.
-Legacy thread metadata retains its original writer. No shadow history row,
-new table, identity or backfill is introduced. Checkout transitions borrow the
-existing atomic metadata projection; switching to Local removes prior branch,
+The transitional legacy-thread writer is not a supported old-data route under
+[ADR-0020](0020-greenfield-data-lifecycle.md). Its removal belongs to the separate
+M4 integration branch; this amendment does not claim that code is already removed.
+Current-schema threads have one host owner, with no shadow history row, new table,
+identity or backfill. Checkout transitions borrow the existing atomic metadata
+projection; switching to Local removes prior branch,
 worktree and local-return hints in the same commit.
 
 The live platform validates scope changes before committing them. Each admitted
@@ -82,8 +85,8 @@ supplies a versioned immutable non-secret description; Core captures it in the
 existing run snapshot, keyed by the existing admitted tool IDs. Reconstruction
 compares that capture before constructing the replacement binding or accepting
 approval. No second store, writer, identity, alias or backfill is introduced.
-Missing legacy capture refuses explicitly. Private arguments, environment,
-headers, destination credentials and unproved OAuth/bearer principals have no
+Missing required current-format capture refuses explicitly. Private arguments,
+environment, headers, destination credentials and unproved OAuth/bearer principals have no
 secret hash or surrogate comparison; they remain visible restart capability
 gaps. Existing bearer credential record IDs can detect replacement but cannot
 prove the principal remained unchanged when their private values were edited.
