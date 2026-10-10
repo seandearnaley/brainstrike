@@ -1,9 +1,10 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { redactSecrets, runHooksForEvent } from '../../src/hooks/executor.js';
 import type { HookStdin, LoadedHook } from '../../src/hooks/types.js';
+import { writeHookCommand, writeStdoutHook } from '../fixtures/native-hook-command.js';
 
 let tmpRoot: string;
 
@@ -67,7 +68,7 @@ describe('runHooksForEvent', () => {
 
   it('blocks on exit 2 for a blocking event and reads reason from stdout', async () => {
     const result = await runHooksForEvent(
-      [makeLoadedHook(`echo '{"reason":"nope"}'; exit 2`)],
+      [makeLoadedHook(writeStdoutHook(tmpRoot, { reason: 'nope' }, 2))],
       () => toolStdin(),
       { blocking: true, logger }
     );
@@ -95,7 +96,7 @@ describe('runHooksForEvent', () => {
 
   it('SIGKILLs a hook that exceeds its timeout, warns, and does not hang', async () => {
     const result = await runHooksForEvent(
-      [makeLoadedHook('sleep 5', { timeout: 50 })],
+      [makeLoadedHook(writeHookCommand(tmpRoot, 'setTimeout(() => {}, 5000);'), { timeout: 50 })],
       () => toolStdin(),
       { blocking: true, logger }
     );
@@ -111,7 +112,7 @@ describe('runHooksForEvent', () => {
   // greppable. Assert the logged payload carries only non-reversible metadata
   // (length + a hash prefix), never the command string itself.
   it('never logs raw command text on hook timeout — only length + fingerprint', async () => {
-    const command = 'sleep 5 # secret-looking-command-text';
+    const command = `${writeHookCommand(tmpRoot, 'setTimeout(() => {}, 5000);')} secret-looking-command-text`;
     await runHooksForEvent([makeLoadedHook(command, { timeout: 50 })], () => toolStdin(), {
       blocking: true,
       logger,
@@ -131,7 +132,7 @@ describe('runHooksForEvent', () => {
   });
 
   it('never logs raw command text when a hook exits non-zero — only length + fingerprint', async () => {
-    const command = 'echo secret-looking-command-text; exit 1';
+    const command = `${writeHookCommand(tmpRoot, 'process.stdout.write("secret-looking-command-text\\n"); process.exitCode = 1;')} secret-looking-command-text`;
     await runHooksForEvent([makeLoadedHook(command)], () => toolStdin(), {
       blocking: true,
       logger,
@@ -156,7 +157,10 @@ describe('runHooksForEvent', () => {
     // surfacing a loud warning and proceeding (timeout == warn-and-continue).
     const started = Date.now();
     const result = await runHooksForEvent(
-      [makeLoadedHook('sleep 5'), makeLoadedHook('sleep 5')],
+      [
+        makeLoadedHook(writeHookCommand(tmpRoot, 'setTimeout(() => {}, 5000);')),
+        makeLoadedHook(writeHookCommand(tmpRoot, 'setTimeout(() => {}, 5000);')),
+      ],
       () => toolStdin(),
       { aggregateTimeoutMs: 200, blocking: true, logger }
     );
@@ -172,8 +176,8 @@ describe('runHooksForEvent', () => {
   it('aggregates additionalContext from every hook stdout', async () => {
     const result = await runHooksForEvent(
       [
-        makeLoadedHook(`echo '{"additionalContext":"a"}'`),
-        makeLoadedHook(`echo '{"additionalContext":"b"}'`),
+        makeLoadedHook(writeStdoutHook(tmpRoot, { additionalContext: 'a' })),
+        makeLoadedHook(writeStdoutHook(tmpRoot, { additionalContext: 'b' })),
       ],
       () => toolStdin(),
       { blocking: false, logger }
@@ -191,12 +195,13 @@ describe('runHooksForEvent', () => {
 
   it('redacts secret-bearing stdin fields before the hook sees them', async () => {
     const outFile = join(tmpRoot, 'stdin-capture.json');
-    const script = join(tmpRoot, 'capture.sh');
-    writeFileSync(script, `#!/bin/sh\ncat > "${outFile}"\n`, 'utf8');
-    chmodSync(script, 0o755);
+    const command = writeHookCommand(
+      tmpRoot,
+      `const { readFileSync, writeFileSync } = require('node:fs');\nwriteFileSync(${JSON.stringify(outFile)}, readFileSync(0));\n`
+    );
 
     const result = await runHooksForEvent(
-      [makeLoadedHook(`sh "${script}"`)],
+      [makeLoadedHook(command)],
       () =>
         toolStdin({
           tool_input: { apiKey: 'sk-secret', cmd: 'ls' },
@@ -220,12 +225,14 @@ describe('runHooksForEvent', () => {
     process.env['BRAINSTRIKE_HOOK_TEST_VALUE'] = 'ordinary-value';
 
     try {
-      const command =
-        'node -e "process.stdout.write(JSON.stringify({' +
-        'credential:process.env.OPENAI_API_KEY??null,' +
-        'event:process.env.BRAINSTRIKE_HOOK_EVENT??null,' +
-        'ordinary:process.env.BRAINSTRIKE_HOOK_TEST_VALUE??null' +
-        '}))"';
+      const command = writeHookCommand(
+        tmpRoot,
+        'process.stdout.write(JSON.stringify({' +
+          'credential:process.env.OPENAI_API_KEY??null,' +
+          'event:process.env.BRAINSTRIKE_HOOK_EVENT??null,' +
+          'ordinary:process.env.BRAINSTRIKE_HOOK_TEST_VALUE??null' +
+          '}));'
+      );
       const result = await runHooksForEvent([makeLoadedHook(command)], () => toolStdin(), {
         blocking: true,
         logger,
@@ -288,7 +295,12 @@ describe('runHooksForEvent', () => {
 
   it('uses each hook source cwd for the spawn', async () => {
     const outFile = join(tmpRoot, 'pwd.txt');
-    const hook = makeLoadedHook(`pwd > "${outFile}"`);
+    const hook = makeLoadedHook(
+      writeHookCommand(
+        tmpRoot,
+        `require('node:fs').writeFileSync(${JSON.stringify(outFile)}, process.cwd());\n`
+      )
+    );
     const result = await runHooksForEvent([hook], () => toolStdin(), {
       blocking: false,
       logger,
