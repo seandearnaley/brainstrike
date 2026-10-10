@@ -2,7 +2,8 @@ import { collectCombinedTools } from '@brainstrike/agent/mcp-client';
 import type { HostStartupContext } from '@brainstrike/agent-host';
 import type { SecretsService } from '@brainstrike/agent-host/credential-contract';
 import { isMcpOAuthCredentialAccount } from '@brainstrike/agent-host/file-credentials';
-import { createLogger } from '@brainstrike/logging';
+import type { McpHostCloseReport, McpHostSnapshot } from '@brainstrike/assistant-contract';
+import { addLogListener, createLogger, redactSensitiveLogValue } from '@brainstrike/logging';
 import type { MessageConnection } from 'vscode-jsonrpc';
 import { createSecretsMcpBearerCredentialAuthority } from './bearer-credential.js';
 import { createMcpConfigFile } from './config-file.js';
@@ -14,15 +15,98 @@ import {
 import { readStoredMcpExtensionPreferences } from './extension-preferences.js';
 import { createMcpHostServices, type McpHostServices } from './mcp-host-services.js';
 import { serveMcpRuntimeToMain } from './mcp-runtime-server.js';
-import { MCP_STORE_METHODS } from './mcp-runtime-wire.js';
+import {
+  MCP_STORE_METHODS,
+  type McpDiagnosticEvent,
+  McpDiagnosticEventSchema,
+  McpDiagnosticScopeSchema,
+} from './mcp-runtime-wire.js';
 import { identityKey, parseRecords } from './oauth-client-provider.js';
 import { McpPresentationService } from './presentation-service.js';
-import { McpSettingsAuthority } from './settings-authority.js';
+import { McpSettingsAuthority, type McpSettingsAuthorityOptions } from './settings-authority.js';
 import { stateStoreMcpTaskStorage } from './state-store-task-storage.js';
 
 const logger = createLogger('DesktopNodeMcpHost');
 
 type Request = (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
+
+/** A scoped MCP tap; Main acknowledges records through its existing logger. */
+export function createDesktopMcpDiagnostics(request: Request) {
+  // This scope is deliberately outside the tap: reporting delivery failure must
+  // remain loud on host stderr without recursively attempting the same delivery.
+  const deliveryLogger = createLogger('DesktopMcpDiagnosticDelivery');
+  const failures: unknown[] = [];
+  let tail = Promise.resolve();
+  const failed = (cause: unknown): void => {
+    failures.push(cause);
+    deliveryLogger.error('MCP diagnostic delivery failed', { error: cause });
+  };
+  const enqueue = (event: McpDiagnosticEvent): void => {
+    tail = tail
+      .then(async () => {
+        await request(MCP_STORE_METHODS.diagnostics, event);
+      })
+      .catch(failed);
+  };
+  const remove = addLogListener((record) => {
+    if (!McpDiagnosticScopeSchema.safeParse(record.scope).success) {
+      return;
+    }
+    try {
+      // LogRecord is already redacted by the producer. Keep its typed payload,
+      // and bound cyclic/Error values before the JSON-RPC serialization boundary.
+      const wireRecord: unknown = JSON.parse(
+        JSON.stringify(
+          redactSensitiveLogValue(record, [], new WeakMap(), {
+            maxDepth: 32,
+            repeatedValue: '[REPEATED: MCP diagnostic value]',
+          })
+        )
+      );
+      enqueue(McpDiagnosticEventSchema.parse({ record: wireRecord, type: 'record' }));
+    } catch (cause) {
+      failed(cause);
+    }
+  });
+  const drain = async (): Promise<void> => {
+    let joined: Promise<void>;
+    do {
+      joined = tail;
+      await joined;
+    } while (joined !== tail);
+    if (failures.length > 0) {
+      throw new AggregateError(failures, 'MCP diagnostic delivery failed');
+    }
+  };
+  return {
+    dispose: remove,
+    drain,
+    async reset(hostCloseReport: McpHostCloseReport, snapshot: McpHostSnapshot): Promise<void> {
+      await drain();
+      enqueue(McpDiagnosticEventSchema.parse({ hostCloseReport, snapshot, type: 'reset' }));
+      await drain();
+    },
+    async shutdown(hostCloseReport: McpHostCloseReport): Promise<void> {
+      await drain();
+      enqueue(McpDiagnosticEventSchema.parse({ hostCloseReport, type: 'shutdown' }));
+      await drain();
+    },
+  };
+}
+
+/** The desktop composition observes the canonical settings reset after it joins. */
+class DesktopMcpSettingsAuthority extends McpSettingsAuthority {
+  constructor(
+    options: McpSettingsAuthorityOptions,
+    private readonly resetCompleted: () => Promise<void>
+  ) {
+    super(options);
+  }
+  override async reset(): Promise<void> {
+    await super.reset();
+    await this.resetCompleted();
+  }
+}
 
 /** The profile credential store Main and this host share. */
 export interface DesktopNodeMcpCredentials {
@@ -88,6 +172,7 @@ export async function createDesktopNodeMcpHost(
       }
     }
   };
+  const diagnostics = createDesktopMcpDiagnostics(request);
   let services: McpHostServices;
   try {
     services = await createMcpHostServices({
@@ -112,14 +197,28 @@ export async function createDesktopNodeMcpHost(
     });
   } catch (cause) {
     oauthStore.unregister();
+    try {
+      await diagnostics.drain();
+    } catch (delivery) {
+      throw new AggregateError(
+        [cause, delivery],
+        'Desktop MCP host startup and diagnostics failed'
+      );
+    } finally {
+      diagnostics.dispose();
+    }
     throw cause;
   }
-  const settings = new McpSettingsAuthority({
-    configFile: createMcpConfigFile(userDataDir),
-    extensionStore: startup.store,
-    runtime: services.runtime,
-    userDataDir,
-  });
+  const settings = new DesktopMcpSettingsAuthority(
+    {
+      configFile: createMcpConfigFile(userDataDir),
+      extensionStore: startup.store,
+      runtime: services.runtime,
+      userDataDir,
+    },
+    () =>
+      diagnostics.reset(services.runtime.retiredCleanupReport(), services.runtime.host.snapshot())
+  );
   const presentation = new McpPresentationService(services.runtime);
   const content = new McpContentService({
     admit: () => settings.admitContent(),
@@ -132,13 +231,20 @@ export async function createDesktopNodeMcpHost(
   } catch (cause) {
     server?.close();
     presentation.close();
-    try {
-      await settings.close();
-      await closeServices(services);
-    } catch (cleanup) {
-      throw new AggregateError([cause, cleanup], 'Desktop MCP host startup and cleanup failed');
+    const failures: unknown[] = [cause];
+    for (const cleanup of [
+      () => settings.close(),
+      () => closeServices(services),
+      () => diagnostics.drain(),
+    ]) {
+      try {
+        await cleanup();
+      } catch (failure) {
+        failures.push(failure);
+      }
     }
-    throw cause;
+    diagnostics.dispose();
+    throw new AggregateError(failures, 'Desktop MCP host startup and cleanup failed');
   }
   // Config load and discovery reach servers over the network: host readiness never
   // waits for them. Settings requests queue behind this start on its lifecycle.
@@ -157,8 +263,22 @@ export async function createDesktopNodeMcpHost(
         } catch (cause) {
           failures.push(cause);
         }
-        const report = await closeServices(services);
-        failures.push(...report.failures);
+        try {
+          const report = await closeServices(services);
+          failures.push(...report.failures);
+          if (failures.length === 0) {
+            await diagnostics.shutdown(report);
+          }
+        } catch (cause) {
+          failures.push(cause);
+        }
+        try {
+          await diagnostics.drain();
+        } catch (cause) {
+          failures.push(cause);
+        } finally {
+          diagnostics.dispose();
+        }
         if (failures.length > 0) {
           throw new AggregateError(failures, 'Desktop MCP host cleanup failed');
         }

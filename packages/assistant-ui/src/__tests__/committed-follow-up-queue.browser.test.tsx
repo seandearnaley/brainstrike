@@ -14,12 +14,12 @@ import {
   useFollowUpQueueStore,
 } from '../follow-up-queue-store';
 import {
+  answerStepLength,
   committedRows,
   RecordedCommittedSource,
   recordedStore,
   recordedThreadId,
   settleFrames,
-  textStartLength,
 } from './committed-assistant-browser-support';
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
@@ -75,7 +75,7 @@ async function mount(source: RecordedCommittedSource, onNew: CommittedAssistantC
 test('a message written during an active committed run is queued and sent once at its committed finish', async () => {
   const onNew = vi.fn<CommittedAssistantCommands['onNew']>(async () => undefined);
   const source = new RecordedCommittedSource();
-  source.publishPrefix(textStartLength);
+  source.publishPrefix(answerStepLength);
   const { ui } = await mount(source, onNew);
   const input = ui.getByRole('textbox', { name: 'Message input' });
   await act(async () => {
@@ -111,7 +111,7 @@ test('a queued message waits through replay loading and a replayed active run', 
   await settleFrames();
   expect(onNew).not.toHaveBeenCalled();
 
-  await act(async () => source.replayed(textStartLength));
+  await act(async () => source.replayed(answerStepLength));
   await settleFrames();
   expect(onNew).not.toHaveBeenCalled();
   expect(ui.getByRole('list', { name: 'Queued follow-up messages' })).toHaveTextContent(QUEUED);
