@@ -8,11 +8,9 @@
  * never shell-interpreted): the repo is unharmed and the literal string is the
  * commit message.
  */
-import { execFile } from 'node:child_process';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createGitService,
@@ -22,9 +20,7 @@ import {
   type GitDiffParams,
   parsePorcelainV2,
 } from '../../assistant-server/git-service';
-import { execFileGitRunner } from '../../git-ipc-handlers';
-
-const execFileAsync = promisify(execFile);
+import { execFixtureGit, fixtureGitRunner } from './_git-fixture-environment';
 
 const createdRoots: string[] = [];
 
@@ -33,10 +29,10 @@ async function makeRepo(prefix = 'brainstrike-git-unit-'): Promise<string> {
   // realpath so the macOS /var → /private/var symlink does not trip containment.
   const real = await fsPromises.realpath(root);
   createdRoots.push(real);
-  await execFileAsync('git', ['init', '-q'], { cwd: real });
-  await execFileAsync('git', ['config', 'user.email', 'test@brainstrike.dev'], { cwd: real });
-  await execFileAsync('git', ['config', 'user.name', 'Brainstrike Test'], { cwd: real });
-  await execFileAsync('git', ['config', 'commit.gpgsign', 'false'], { cwd: real });
+  await execFixtureGit(['init', '-q'], { cwd: real });
+  await execFixtureGit(['config', 'user.email', 'test@brainstrike.dev'], { cwd: real });
+  await execFixtureGit(['config', 'user.name', 'Brainstrike Test'], { cwd: real });
+  await execFixtureGit(['config', 'commit.gpgsign', 'false'], { cwd: real });
   return real;
 }
 
@@ -52,7 +48,7 @@ async function writeFile(repo: string, name: string, content: string): Promise<v
 }
 
 function serviceFor(cwd: string) {
-  return createGitService({ cwd, run: execFileGitRunner });
+  return createGitService({ cwd, run: fixtureGitRunner });
 }
 
 afterEach(async () => {
@@ -123,7 +119,7 @@ describe('git service — status', () => {
       const marker = path.join(repo, 'FSMONITOR_EXECUTED');
       const fsmonitor = path.join(repo, 'fsmonitor.sh');
       await fsPromises.writeFile(fsmonitor, `#!/bin/sh\ntouch "${marker}"\n`, { mode: 0o755 });
-      await execFileAsync('git', ['config', 'core.fsmonitor', fsmonitor], { cwd: repo });
+      await execFixtureGit(['config', 'core.fsmonitor', fsmonitor], { cwd: repo });
 
       expect((await serviceFor(repo).status()).ok).toBe(true);
       await expect(fsPromises.access(marker)).rejects.toThrow();
@@ -133,8 +129,8 @@ describe('git service — status', () => {
   it('reports a clean repo after an initial commit', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'a.txt', 'hello\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
 
     const result = await serviceFor(repo).status();
     expect(result.ok).toBe(true);
@@ -150,14 +146,14 @@ describe('git service — status', () => {
   it('classifies staged, unstaged, and untracked changes', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'tracked.txt', 'v1\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
 
     // unstaged modification to the tracked file
     await writeFile(repo, 'tracked.txt', 'v2\n');
     // staged new file
     await writeFile(repo, 'staged.txt', 's\n');
-    await execFileAsync('git', ['add', 'staged.txt'], { cwd: repo });
+    await execFixtureGit(['add', 'staged.txt'], { cwd: repo });
     // untracked file
     await writeFile(repo, 'untracked.txt', 'u\n');
 
@@ -199,7 +195,8 @@ describe('git service — status', () => {
 
   it('preserves whitespace in the opened-subfolder prefix returned by Git', async () => {
     const repo = await makeRepo('brainstrike-git-prefix-space-');
-    const scopedFolder = '  scoped folder  ';
+    const scopedFolder =
+      process.platform === 'win32' ? '\u2003scoped folder\u2003' : '  scoped folder  ';
     await fsPromises.mkdir(path.join(repo, scopedFolder));
     await writeFile(repo, `${scopedFolder}/inside.txt`, 'inside\n');
 
@@ -234,8 +231,8 @@ describe('git service — status', () => {
     await fsPromises.mkdir(path.join(repo, 'sibling'), { recursive: true });
     await writeFile(repo, 'opened/inside.txt', 'a\n');
     await writeFile(repo, 'sibling/outside.txt', 'b\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
     // Dirty BOTH a file inside the opened root and a sibling outside it.
     await writeFile(repo, 'opened/inside.txt', 'a-changed\n');
     await writeFile(repo, 'sibling/outside.txt', 'b-changed\n');
@@ -255,8 +252,8 @@ describe('git service — status', () => {
   it('preserves tabs and newlines in status paths via NUL-delimited porcelain', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'initial.txt', 'initial\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'initial'], { cwd: repo });
     const unusualPath = 'line\nbreak\tname.txt';
     await writeFile(repo, unusualPath, 'unusual\n');
 
@@ -280,21 +277,19 @@ describe('git service — diff', () => {
       const fsmonitorMarker = path.join(repo, 'FSMONITOR_EXECUTED');
       const fsmonitor = path.join(repo, 'fsmonitor.sh');
       await writeFile(repo, 'tracked.txt', 'base\n');
-      await execFileAsync('git', ['add', '.'], { cwd: repo });
-      await execFileAsync('git', ['commit', '-qm', 'base'], { cwd: repo });
+      await execFixtureGit(['add', '.'], { cwd: repo });
+      await execFixtureGit(['commit', '-qm', 'base'], { cwd: repo });
       const marker = path.join(repo, 'DIFF_HOOK_EXECUTED');
-      await execFileAsync('git', ['config', 'hook.sentinel-diff.command', `touch "${marker}"`], {
+      await execFixtureGit(['config', 'hook.sentinel-diff.command', `touch "${marker}"`], {
         cwd: repo,
       });
-      await execFileAsync(
-        'git',
-        ['config', '--add', 'hook.sentinel-diff.event', 'post-index-change'],
-        { cwd: repo }
-      );
+      await execFixtureGit(['config', '--add', 'hook.sentinel-diff.event', 'post-index-change'], {
+        cwd: repo,
+      });
       await fsPromises.writeFile(fsmonitor, `#!/bin/sh\ntouch "${fsmonitorMarker}"\n`, {
         mode: 0o755,
       });
-      await execFileAsync('git', ['config', 'core.fsmonitor', fsmonitor], { cwd: repo });
+      await execFixtureGit(['config', 'core.fsmonitor', fsmonitor], { cwd: repo });
       const stat = await fsPromises.stat(file);
       await fsPromises.utimes(file, stat.atime, new Date(stat.mtimeMs + 2000));
 
@@ -330,8 +325,8 @@ describe('git service — diff', () => {
   it('returns the unified diff for a modified file', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'file.txt', 'line1\nline2\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
     await writeFile(repo, 'file.txt', 'line1\nCHANGED\n');
 
     const result = await serviceFor(repo).diff({ mode: 'working', path: 'file.txt' });
@@ -348,10 +343,10 @@ describe('git service — diff', () => {
   it('returns the staged (--cached) diff', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'file.txt', 'base\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
     await writeFile(repo, 'file.txt', 'staged-change\n');
-    await execFileAsync('git', ['add', 'file.txt'], { cwd: repo });
+    await execFixtureGit(['add', 'file.txt'], { cwd: repo });
 
     const result = await serviceFor(repo).diff({ mode: 'staged', path: 'file.txt' });
     expect(result.ok).toBe(true);
@@ -370,8 +365,8 @@ describe('git service — diff', () => {
     const lineCount = 260_000;
     const original = `${Array.from({ length: lineCount }, (_, i) => `original-line-${i}`).join('\n')}\n`;
     await writeFile(repo, 'big.txt', original);
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
     const rewritten = `${Array.from({ length: lineCount }, (_, i) => `changed-line-${i}`).join('\n')}\n`;
     await writeFile(repo, 'big.txt', rewritten);
 
@@ -416,7 +411,7 @@ describe('git service — diff', () => {
     let calls = 0;
     const spyRunner: GitCommandRunner = (params) => {
       calls += 1;
-      return execFileGitRunner(params);
+      return fixtureGitRunner(params);
     };
     const service = createGitService({ cwd: '/tmp/whatever', run: spyRunner });
 
@@ -440,8 +435,8 @@ describe('git service — diff', () => {
     await fsPromises.mkdir(path.join(repo, 'sibling'));
     await writeFile(repo, 'opened/inside.txt', 'inside\n');
     await writeFile(repo, 'sibling/outside.txt', 'secret-before\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'initial'], { cwd: repo });
     await writeFile(repo, 'sibling/outside.txt', 'secret-after\n');
 
     const result = await serviceFor(path.join(repo, 'opened')).diff({
@@ -566,48 +561,49 @@ describe('git service — stage / unstage round-trip', () => {
     await fsPromises.mkdir(path.join(repo, 'sibling'));
     await writeFile(repo, 'opened/inside.txt', 'inside\n');
     await writeFile(repo, 'sibling/outside.txt', 'before\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'initial'], { cwd: repo });
     await writeFile(repo, 'sibling/outside.txt', 'after\n');
     const service = serviceFor(path.join(repo, 'opened'));
     const magicPath = ':(top)sibling/outside.txt';
 
     const staged = await service.stage({ path: magicPath });
     expect(staged.ok).toBe(false);
-    expect(
-      (await execFileAsync('git', ['diff', '--cached', '--name-only'], { cwd: repo })).stdout
-    ).toBe('');
+    expect((await execFixtureGit(['diff', '--cached', '--name-only'], { cwd: repo })).stdout).toBe(
+      ''
+    );
 
-    await execFileAsync('git', ['add', 'sibling/outside.txt'], { cwd: repo });
+    await execFixtureGit(['add', 'sibling/outside.txt'], { cwd: repo });
     const unstaged = await service.unstage({ path: magicPath });
     expect(unstaged.ok).toBe(false);
-    expect(
-      (await execFileAsync('git', ['diff', '--cached', '--name-only'], { cwd: repo })).stdout
-    ).toBe('sibling/outside.txt\n');
+    expect((await execFixtureGit(['diff', '--cached', '--name-only'], { cwd: repo })).stdout).toBe(
+      'sibling/outside.txt\n'
+    );
   });
 
   it('stages and unstages an exact all-whitespace path without widening to the opened root', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'base.txt', 'base\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'base'], { cwd: repo });
-    await writeFile(repo, '   ', 'spaces\n');
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'base'], { cwd: repo });
+    const whitespacePath = process.platform === 'win32' ? '\u2003\u2003\u2003' : '   ';
+    await writeFile(repo, whitespacePath, 'spaces\n');
     await writeFile(repo, 'other.txt', 'other\n');
     const service = serviceFor(repo);
 
-    const staged = await service.stage({ path: '   ' });
+    const staged = await service.stage({ path: whitespacePath });
 
     expect(staged.ok).toBe(true);
     expect(
-      (await execFileAsync('git', ['diff', '--cached', '--name-only', '-z'], { cwd: repo })).stdout
-    ).toBe('   \0');
+      (await execFixtureGit(['diff', '--cached', '--name-only', '-z'], { cwd: repo })).stdout
+    ).toBe(`${whitespacePath}\0`);
 
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    const unstaged = await service.unstage({ path: '   ' });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    const unstaged = await service.unstage({ path: whitespacePath });
 
     expect(unstaged.ok).toBe(true);
     expect(
-      (await execFileAsync('git', ['diff', '--cached', '--name-only', '-z'], { cwd: repo })).stdout
+      (await execFixtureGit(['diff', '--cached', '--name-only', '-z'], { cwd: repo })).stdout
     ).toBe('other.txt\0');
   });
 
@@ -622,8 +618,7 @@ describe('git service — stage / unstage round-trip', () => {
 
       expect(result.ok).toBe(true);
       expect(
-        (await execFileAsync('git', ['diff', '--cached', '--name-only', '-z'], { cwd: repo }))
-          .stdout
+        (await execFixtureGit(['diff', '--cached', '--name-only', '-z'], { cwd: repo })).stdout
       ).toBe('literal\\name.txt\0');
     }
   );
@@ -631,8 +626,8 @@ describe('git service — stage / unstage round-trip', () => {
   it('stages then unstages a path', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'init.txt', 'x\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
     await writeFile(repo, 'new.txt', 'n\n');
 
     const service = serviceFor(repo);
@@ -653,19 +648,15 @@ describe('git service — stage / unstage round-trip', () => {
     async () => {
       const repo = await makeRepo();
       await writeFile(repo, 'tracked.txt', 'base\n');
-      await execFileAsync('git', ['add', '.'], { cwd: repo });
-      await execFileAsync('git', ['commit', '-qm', 'base'], { cwd: repo });
+      await execFixtureGit(['add', '.'], { cwd: repo });
+      await execFixtureGit(['commit', '-qm', 'base'], { cwd: repo });
       const marker = path.join(repo, 'INDEX_HOOK_EXECUTED');
-      await execFileAsync('git', ['config', 'hook.sentinel-index.command', `touch "${marker}"`], {
+      await execFixtureGit(['config', 'hook.sentinel-index.command', `touch "${marker}"`], {
         cwd: repo,
       });
-      await execFileAsync(
-        'git',
-        ['config', '--add', 'hook.sentinel-index.event', 'post-index-change'],
-        {
-          cwd: repo,
-        }
-      );
+      await execFixtureGit(['config', '--add', 'hook.sentinel-index.event', 'post-index-change'], {
+        cwd: repo,
+      });
       await writeFile(repo, 'tracked.txt', 'changed\n');
       const service = serviceFor(repo);
 
@@ -681,7 +672,7 @@ describe('git service — commit', () => {
   it('commits staged changes and returns the short hash + branch', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'committed.txt', 'data\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
 
     const result = await serviceFor(repo).commit({
       description: 'A detailed body.\n\nWith a second paragraph.',
@@ -692,9 +683,9 @@ describe('git service — commit', () => {
       return;
     }
     expect(result.value.commit).toMatch(/^[0-9a-f]{7,}$/);
-    const log = await execFileAsync('git', ['log', '-1', '--pretty=%s'], { cwd: repo });
+    const log = await execFixtureGit(['log', '-1', '--pretty=%s'], { cwd: repo });
     expect(log.stdout.trim()).toBe('a normal message with spaces');
-    const body = await execFileAsync('git', ['log', '-1', '--pretty=%b'], { cwd: repo });
+    const body = await execFixtureGit(['log', '-1', '--pretty=%b'], { cwd: repo });
     expect(body.stdout.trim()).toBe('A detailed body.\n\nWith a second paragraph.');
   });
 
@@ -716,18 +707,15 @@ describe('git service — commit', () => {
         `#!/bin/sh\ntouch "${postCommitMarker}"\n`,
         { mode: 0o755 }
       );
-      await execFileAsync(
-        'git',
+      await execFixtureGit(
         ['config', '--local', 'hook.sentinel.command', `touch "${configuredHookMarker}"`],
         { cwd: repo }
       );
-      await execFileAsync(
-        'git',
-        ['config', '--local', '--add', 'hook.sentinel.event', 'pre-commit'],
-        { cwd: repo }
-      );
+      await execFixtureGit(['config', '--local', '--add', 'hook.sentinel.event', 'pre-commit'], {
+        cwd: repo,
+      });
       await writeFile(repo, 'safe.txt', 'safe\n');
-      await execFileAsync('git', ['add', '.'], { cwd: repo });
+      await execFixtureGit(['add', '.'], { cwd: repo });
 
       const result = await serviceFor(repo).commit({ summary: 'safe commit' });
 
@@ -741,8 +729,8 @@ describe('git service — commit', () => {
   it('returns a structured error (not a throw) when nothing is staged', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'init.txt', 'x\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
 
     const result = await serviceFor(repo).commit({ summary: 'nothing to commit' });
     expect(result.ok).toBe(false);
@@ -765,7 +753,7 @@ describe('git service — commit', () => {
   it('SECURITY: shell metacharacters in a commit message are inert (no injection)', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'safe.txt', 'safe\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
 
     // If this string were ever passed through a shell, `rm -rf` would delete the
     // file (and `$(...)` / backticks would execute). With execFile args it is the
@@ -781,7 +769,7 @@ describe('git service — commit', () => {
     await expect(fsPromises.access(path.join(repo, 'ALSO_HACKED'))).rejects.toThrow();
 
     // The literal string is the commit subject.
-    const log = await execFileAsync('git', ['log', '-1', '--pretty=%s'], { cwd: repo });
+    const log = await execFixtureGit(['log', '-1', '--pretty=%s'], { cwd: repo });
     expect(log.stdout.trim()).toBe(evil);
   });
 
@@ -809,7 +797,7 @@ describe('git service — commit', () => {
     await fsPromises.mkdir(path.join(repo, 'sibling'));
     await writeFile(repo, 'opened/inside.txt', 'inside\n');
     await writeFile(repo, 'sibling/outside.txt', 'outside\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
 
     const result = await serviceFor(path.join(repo, 'opened')).commit({
       description: '',
@@ -821,7 +809,7 @@ describe('git service — commit', () => {
       ok: false,
     });
     await expect(
-      execFileAsync('git', ['rev-parse', '--verify', 'HEAD'], { cwd: repo })
+      execFixtureGit(['rev-parse', '--verify', 'HEAD'], { cwd: repo })
     ).rejects.toThrow();
   });
 
@@ -830,9 +818,9 @@ describe('git service — commit', () => {
     await fsPromises.mkdir(path.join(repo, 'opened'));
     await fsPromises.mkdir(path.join(repo, 'sibling'));
     await writeFile(repo, 'sibling/outside.txt', 'outside\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
-    await execFileAsync('git', ['mv', 'sibling/outside.txt', 'opened/moved.txt'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'initial'], { cwd: repo });
+    await execFixtureGit(['mv', 'sibling/outside.txt', 'opened/moved.txt'], { cwd: repo });
 
     const result = await serviceFor(path.join(repo, 'opened')).commit({
       summary: 'must not move a sibling through a scoped commit',
@@ -842,9 +830,9 @@ describe('git service — commit', () => {
       error: expect.stringMatching(/outside the opened folder/i),
       ok: false,
     });
-    expect(
-      (await execFileAsync('git', ['status', '--short'], { cwd: repo })).stdout.trim()
-    ).toContain('sibling/outside.txt -> opened/moved.txt');
+    expect((await execFixtureGit(['status', '--short'], { cwd: repo })).stdout.trim()).toContain(
+      'sibling/outside.txt -> opened/moved.txt'
+    );
   });
 });
 
@@ -860,7 +848,7 @@ describe('git service — repository browser', () => {
           timedOut: false,
         });
       }
-      return execFileGitRunner(params);
+      return fixtureGitRunner(params);
     };
 
     const result = await createGitService({ cwd: repo, run: oldGitRunner }).repository();
@@ -877,11 +865,14 @@ describe('git service — repository browser', () => {
     );
     const parentReal = await fsPromises.realpath(parent);
     createdRoots.push(parentReal);
-    const repo = path.join(parentReal, 'repository ');
+    const repo = path.join(
+      parentReal,
+      process.platform === 'win32' ? 'repository\u2003' : 'repository '
+    );
     await fsPromises.mkdir(repo);
-    await execFileAsync('git', ['init', '-q'], { cwd: repo });
-    await execFileAsync('git', ['config', 'user.email', 'test@brainstrike.dev'], { cwd: repo });
-    await execFileAsync('git', ['config', 'user.name', 'Brainstrike Test'], { cwd: repo });
+    await execFixtureGit(['init', '-q'], { cwd: repo });
+    await execFixtureGit(['config', 'user.email', 'test@brainstrike.dev'], { cwd: repo });
+    await execFixtureGit(['config', 'user.name', 'Brainstrike Test'], { cwd: repo });
 
     const result = await serviceFor(repo).repository();
 
@@ -895,20 +886,20 @@ describe('git service — repository browser', () => {
   it('returns repository, linked-worktree, branch, and remote identity', async () => {
     const repo = await makeRepo('brainstrike-git-repository-');
     await writeFile(repo, 'README.md', '# repository\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'initial'], { cwd: repo });
 
     const linked = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-worktree-'));
     const linkedReal = await fsPromises.realpath(linked);
     createdRoots.push(linkedReal);
-    await execFileAsync('git', ['worktree', 'add', '-q', '-b', 'feature/worktree', linkedReal], {
+    await execFixtureGit(['worktree', 'add', '-q', '-b', 'feature/worktree', linkedReal], {
       cwd: repo,
     });
 
     const invokedArgs: string[][] = [];
     const recordingRunner: GitCommandRunner = (params) => {
       invokedArgs.push([...params.args]);
-      return execFileGitRunner(params);
+      return fixtureGitRunner(params);
     };
     const result = await createGitService({ cwd: repo, run: recordingRunner }).repository();
 
@@ -938,11 +929,11 @@ describe('git service — repository browser', () => {
   it('paginates NUL-safe commit history with full metadata', async () => {
     const repo = await makeRepo('brainstrike-git-history-');
     await writeFile(repo, 'first.txt', 'first\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'first commit'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'first commit'], { cwd: repo });
     await writeFile(repo, 'second.txt', 'second\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-q', '-m', 'second commit', '-m', 'Detailed body.'], {
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-q', '-m', 'second commit', '-m', 'Detailed body.'], {
       cwd: repo,
     });
 
@@ -967,12 +958,12 @@ describe('git service — repository browser', () => {
   it('ignores an inherited graft file that would rewrite repository history', async () => {
     const repo = await makeRepo('brainstrike-git-graft-env-');
     await writeFile(repo, 'first.txt', 'first\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'first'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'first'], { cwd: repo });
     await writeFile(repo, 'second.txt', 'second\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'second'], { cwd: repo });
-    const head = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo })).stdout.replace(
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'second'], { cwd: repo });
+    const head = (await execFixtureGit(['rev-parse', 'HEAD'], { cwd: repo })).stdout.replace(
       /\r?\n$/,
       ''
     );
@@ -999,28 +990,26 @@ describe('git service — repository browser', () => {
   it('includes empty and merge commits and renders first-parent merge details', async () => {
     const repo = await makeRepo('brainstrike-git-merge-history-');
     await writeFile(repo, 'base.txt', 'base\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'base'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'base'], { cwd: repo });
     const initialBranch = (
-      await execFileAsync('git', ['branch', '--show-current'], { cwd: repo })
+      await execFixtureGit(['branch', '--show-current'], { cwd: repo })
     ).stdout.trim();
 
-    await execFileAsync('git', ['switch', '-qc', 'feature/history'], { cwd: repo });
+    await execFixtureGit(['switch', '-qc', 'feature/history'], { cwd: repo });
     await writeFile(repo, 'feature.txt', 'feature\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'feature commit'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'feature commit'], { cwd: repo });
 
-    await execFileAsync('git', ['switch', '-q', initialBranch], { cwd: repo });
+    await execFixtureGit(['switch', '-q', initialBranch], { cwd: repo });
     await writeFile(repo, 'main.txt', 'main\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'main commit'], { cwd: repo });
-    await execFileAsync('git', ['merge', '--no-ff', '-qm', 'merge feature', 'feature/history'], {
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'main commit'], { cwd: repo });
+    await execFixtureGit(['merge', '--no-ff', '-qm', 'merge feature', 'feature/history'], {
       cwd: repo,
     });
-    const mergeId = (
-      await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo })
-    ).stdout.trim();
-    await execFileAsync('git', ['commit', '--allow-empty', '-qm', 'empty checkpoint'], {
+    const mergeId = (await execFixtureGit(['rev-parse', 'HEAD'], { cwd: repo })).stdout.trim();
+    await execFixtureGit(['commit', '--allow-empty', '-qm', 'empty checkpoint'], {
       cwd: repo,
     });
 
@@ -1040,12 +1029,12 @@ describe('git service — repository browser', () => {
   it('returns changed files (with rename pairing) for a commit', async () => {
     const repo = await makeRepo('brainstrike-git-commit-detail-');
     await writeFile(repo, 'before.txt', 'shared line one\nshared line two\nbefore\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
-    await execFileAsync('git', ['mv', 'before.txt', 'after.txt'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'initial'], { cwd: repo });
+    await execFixtureGit(['mv', 'before.txt', 'after.txt'], { cwd: repo });
     await writeFile(repo, 'after.txt', 'shared line one\nshared line two\nafter\n');
-    await execFileAsync('git', ['commit', '-qam', 'rename'], { cwd: repo });
-    const oid = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo })).stdout.trim();
+    await execFixtureGit(['commit', '-qam', 'rename'], { cwd: repo });
+    const oid = (await execFixtureGit(['rev-parse', 'HEAD'], { cwd: repo })).stdout.trim();
 
     const files = await serviceFor(repo).commitFiles({ commit: oid });
     expect(files.ok).toBe(true);
@@ -1063,9 +1052,9 @@ describe('git service — repository browser', () => {
     await fsPromises.mkdir(path.join(repo, 'sibling'));
     await writeFile(repo, 'opened/inside.txt', 'inside\n');
     await writeFile(repo, 'sibling/outside.txt', 'outside\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'scoped history'], { cwd: repo });
-    const oid = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo })).stdout.trim();
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'scoped history'], { cwd: repo });
+    const oid = (await execFixtureGit(['rev-parse', 'HEAD'], { cwd: repo })).stdout.trim();
     const service = serviceFor(path.join(repo, 'opened'));
 
     const files = await service.commitFiles({ commit: oid });
@@ -1079,9 +1068,9 @@ describe('git service — repository browser', () => {
   it('creates and checks out a new local branch from an explicit start point', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'file.txt', 'initial\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
-    const service = createGitService({ cwd: repo, run: execFileGitRunner });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'initial'], { cwd: repo });
+    const service = createGitService({ cwd: repo, run: fixtureGitRunner });
 
     const created = await service.createBranch({ branch: 'bs/bright-fox', startPoint: 'HEAD' });
     expect(created).toEqual({ ok: true, value: { branch: 'bs/bright-fox' } });
@@ -1093,17 +1082,15 @@ describe('git service — repository browser', () => {
   it('creates the branch at the GIVEN start point, not silently at HEAD (Minor 4)', async () => {
     const repo = await makeRepo('brainstrike-git-create-branch-startpoint-');
     await writeFile(repo, 'file.txt', 'first\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'first commit'], { cwd: repo });
-    const firstCommit = (
-      await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo })
-    ).stdout.trim();
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'first commit'], { cwd: repo });
+    const firstCommit = (await execFixtureGit(['rev-parse', 'HEAD'], { cwd: repo })).stdout.trim();
 
     // A second commit moves HEAD forward, so "starts at HEAD" and "starts at
     // the first commit" become distinguishable outcomes.
     await writeFile(repo, 'file.txt', 'second\n');
-    await execFileAsync('git', ['commit', '-qam', 'second commit'], { cwd: repo });
-    const service = createGitService({ cwd: repo, run: execFileGitRunner });
+    await execFixtureGit(['commit', '-qam', 'second commit'], { cwd: repo });
+    const service = createGitService({ cwd: repo, run: fixtureGitRunner });
 
     const created = await service.createBranch({
       branch: 'bs/from-first-commit',
@@ -1112,7 +1099,7 @@ describe('git service — repository browser', () => {
     expect(created).toEqual({ ok: true, value: { branch: 'bs/from-first-commit' } });
 
     const resolved = (
-      await execFileAsync('git', ['rev-parse', 'bs/from-first-commit'], { cwd: repo })
+      await execFixtureGit(['rev-parse', 'bs/from-first-commit'], { cwd: repo })
     ).stdout.trim();
     expect(resolved).toBe(firstCommit);
   });
@@ -1120,9 +1107,9 @@ describe('git service — repository browser', () => {
   it('refuses a branch name that already exists rather than silently switching', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'file.txt', 'initial\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
-    const service = createGitService({ cwd: repo, run: execFileGitRunner });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'initial'], { cwd: repo });
+    const service = createGitService({ cwd: repo, run: fixtureGitRunner });
 
     await service.createBranch({ branch: 'bs/bright-fox', startPoint: 'HEAD' });
     const again = await service.createBranch({ branch: 'bs/bright-fox', startPoint: 'HEAD' });
@@ -1132,9 +1119,9 @@ describe('git service — repository browser', () => {
   it('rejects an empty branch name and the "-" shorthand', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'file.txt', 'initial\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
-    const service = createGitService({ cwd: repo, run: execFileGitRunner });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'initial'], { cwd: repo });
+    const service = createGitService({ cwd: repo, run: fixtureGitRunner });
 
     expect(await service.createBranch({ branch: '' })).toEqual({
       error: 'branch must be a non-empty string',
@@ -1154,9 +1141,9 @@ describe('git service — repository browser', () => {
     // rather than silently treating it as the `--force` flag to `switch`.
     const repo = await makeRepo('brainstrike-git-create-branch-option-');
     await writeFile(repo, 'file.txt', 'initial\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
-    const service = createGitService({ cwd: repo, run: execFileGitRunner });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'initial'], { cwd: repo });
+    const service = createGitService({ cwd: repo, run: fixtureGitRunner });
 
     const created = await service.createBranch({ branch: '--force' });
 
@@ -1164,16 +1151,16 @@ describe('git service — repository browser', () => {
     if (!created.ok) {
       expect(created.error).not.toBe('');
     }
-    const branches = await execFileAsync('git', ['branch', '--list'], { cwd: repo });
+    const branches = await execFixtureGit(['branch', '--list'], { cwd: repo });
     expect(branches.stdout).not.toContain('force');
   });
 
   it('rejects an empty startPoint rather than silently falling back to HEAD (Minor 6)', async () => {
     const repo = await makeRepo('brainstrike-git-create-branch-empty-startpoint-');
     await writeFile(repo, 'file.txt', 'initial\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
-    const service = createGitService({ cwd: repo, run: execFileGitRunner });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'initial'], { cwd: repo });
+    const service = createGitService({ cwd: repo, run: fixtureGitRunner });
 
     // Exercises the SAME path the IPC handler now forwards an explicit ''
     // startPoint through (git-ipc-handlers.ts no longer drops it on
@@ -1187,9 +1174,9 @@ describe('git service — repository browser', () => {
   it('switches only to an existing local branch and reports the new branch', async () => {
     const repo = await makeRepo('brainstrike-git-switch-');
     await writeFile(repo, 'file.txt', 'main\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
-    await execFileAsync('git', ['branch', 'feature/local'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'initial'], { cwd: repo });
+    await execFixtureGit(['branch', 'feature/local'], { cwd: repo });
 
     const switched = await serviceFor(repo).switchBranch({ branch: 'feature/local' });
 
@@ -1204,24 +1191,24 @@ describe('git service — repository browser', () => {
   it('switches to an option-looking local branch without detaching HEAD', async () => {
     const repo = await makeRepo('brainstrike-git-switch-option-');
     await writeFile(repo, 'file.txt', 'main\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
-    await execFileAsync('git', ['update-ref', 'refs/heads/--detach', 'HEAD'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'initial'], { cwd: repo });
+    await execFixtureGit(['update-ref', 'refs/heads/--detach', 'HEAD'], { cwd: repo });
 
     const switched = await serviceFor(repo).switchBranch({ branch: '--detach' });
 
     expect(switched).toEqual({ ok: true, value: { branch: '--detach' } });
-    const current = await execFileAsync('git', ['branch', '--show-current'], { cwd: repo });
+    const current = await execFixtureGit(['branch', '--show-current'], { cwd: repo });
     expect(current.stdout.replace(/\r?\n$/, '')).toBe('--detach');
   });
 
   it('fails closed for the local branch named "-" instead of switching to the previous branch', async () => {
     const repo = await makeRepo('brainstrike-git-switch-dash-');
     await writeFile(repo, 'file.txt', 'main\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
-    await execFileAsync('git', ['update-ref', 'refs/heads/-', 'HEAD'], { cwd: repo });
-    await execFileAsync('git', ['switch', '-qc', 'feature/current'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'initial'], { cwd: repo });
+    await execFixtureGit(['update-ref', 'refs/heads/-', 'HEAD'], { cwd: repo });
+    await execFixtureGit(['switch', '-qc', 'feature/current'], { cwd: repo });
 
     const switched = await serviceFor(repo).switchBranch({ branch: '-' });
 
@@ -1229,7 +1216,7 @@ describe('git service — repository browser', () => {
       error: expect.stringMatching(/not supported/i),
       ok: false,
     });
-    const current = await execFileAsync('git', ['branch', '--show-current'], { cwd: repo });
+    const current = await execFixtureGit(['branch', '--show-current'], { cwd: repo });
     expect(current.stdout.replace(/\r?\n$/, '')).toBe('feature/current');
   });
 
@@ -1241,33 +1228,30 @@ describe('git service — repository browser', () => {
       );
       const remoteReal = await fsPromises.realpath(remote);
       createdRoots.push(remoteReal);
-      await execFileAsync('git', ['init', '--bare', '-q'], { cwd: remoteReal });
+      await execFixtureGit(['init', '--bare', '-q'], { cwd: remoteReal });
 
       const repo = await makeRepo('brainstrike-git-fetch-');
       await writeFile(repo, 'file.txt', 'local\n');
-      await execFileAsync('git', ['add', '.'], { cwd: repo });
-      await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
-      await execFileAsync('git', ['remote', 'add', 'origin', remoteReal], { cwd: repo });
-      await execFileAsync('git', ['push', '-q', '-u', 'origin', 'HEAD'], { cwd: repo });
+      await execFixtureGit(['add', '.'], { cwd: repo });
+      await execFixtureGit(['commit', '-qm', 'initial'], { cwd: repo });
+      await execFixtureGit(['remote', 'add', 'origin', remoteReal], { cwd: repo });
+      await execFixtureGit(['push', '-q', '-u', 'origin', 'HEAD'], { cwd: repo });
       const hookMarker = path.join(repo, 'REFERENCE_HOOK_EXECUTED');
-      await execFileAsync(
-        'git',
-        ['config', 'hook.sentinel-reference.command', `touch "${hookMarker}"`],
-        { cwd: repo }
-      );
-      await execFileAsync(
-        'git',
+      await execFixtureGit(['config', 'hook.sentinel-reference.command', `touch "${hookMarker}"`], {
+        cwd: repo,
+      });
+      await execFixtureGit(
         ['config', '--add', 'hook.sentinel-reference.event', 'reference-transaction'],
         { cwd: repo }
       );
       await writeFile(repo, 'uncommitted.txt', 'keep me\n');
-      const beforeHead = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo })).stdout;
+      const beforeHead = (await execFixtureGit(['rev-parse', 'HEAD'], { cwd: repo })).stdout;
 
       const fetched = await serviceFor(repo).fetch({ remote: 'origin' });
 
       expect(fetched.ok).toBe(true);
       await expect(fsPromises.access(hookMarker)).rejects.toThrow();
-      const afterHead = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo })).stdout;
+      const afterHead = (await execFixtureGit(['rev-parse', 'HEAD'], { cwd: repo })).stdout;
       expect(afterHead).toBe(beforeHead);
       await expect(fsPromises.readFile(path.join(repo, 'uncommitted.txt'), 'utf8')).resolves.toBe(
         'keep me\n'
@@ -1280,8 +1264,8 @@ describe('git service — aheadBehind', () => {
   it('reports no upstream cleanly when none is configured', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'a.txt', 'x\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
 
     const result = await serviceFor(repo).aheadBehind();
     expect(result.ok).toBe(true);
@@ -1299,19 +1283,19 @@ describe('git service — aheadBehind', () => {
     const remote = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-remote-'));
     const remoteReal = await fsPromises.realpath(remote);
     createdRoots.push(remoteReal);
-    await execFileAsync('git', ['init', '--bare', '-q'], { cwd: remoteReal });
+    await execFixtureGit(['init', '--bare', '-q'], { cwd: remoteReal });
 
     const repo = await makeRepo();
     await writeFile(repo, 'a.txt', 'x\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
-    await execFileAsync('git', ['remote', 'add', 'origin', remoteReal], { cwd: repo });
-    await execFileAsync('git', ['push', '-q', '-u', 'origin', 'HEAD'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['remote', 'add', 'origin', remoteReal], { cwd: repo });
+    await execFixtureGit(['push', '-q', '-u', 'origin', 'HEAD'], { cwd: repo });
 
     // Now make a local commit that is NOT pushed → ahead by 1.
     await writeFile(repo, 'b.txt', 'y\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'second'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'second'], { cwd: repo });
 
     const result = await serviceFor(repo).aheadBehind();
     expect(result.ok).toBe(true);
@@ -1330,28 +1314,27 @@ describe('git service — push', () => {
     const remote = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-remote-'));
     const remoteReal = await fsPromises.realpath(remote);
     createdRoots.push(remoteReal);
-    await execFileAsync('git', ['init', '--bare', '-q'], { cwd: remoteReal });
+    await execFixtureGit(['init', '--bare', '-q'], { cwd: remoteReal });
 
     const repo = await makeRepo('brainstrike-git-push-scope-');
     await fsPromises.mkdir(path.join(repo, 'opened'));
     await writeFile(repo, 'opened/file.txt', 'initial\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
-    await execFileAsync('git', ['remote', 'add', 'origin', remoteReal], { cwd: repo });
-    await execFileAsync('git', ['push', '-q', '-u', 'origin', 'HEAD'], { cwd: repo });
-    const remoteBefore = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: remoteReal }))
-      .stdout;
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'initial'], { cwd: repo });
+    await execFixtureGit(['remote', 'add', 'origin', remoteReal], { cwd: repo });
+    await execFixtureGit(['push', '-q', '-u', 'origin', 'HEAD'], { cwd: repo });
+    const remoteBefore = (await execFixtureGit(['rev-parse', 'HEAD'], { cwd: remoteReal })).stdout;
 
     await writeFile(repo, 'opened/file.txt', 'local-only\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'local-only'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'local-only'], { cwd: repo });
 
     const invokedArgs: string[][] = [];
     const service = createGitService({
       cwd: path.join(repo, 'opened'),
       run: async (params) => {
         invokedArgs.push([...params.args]);
-        return await execFileGitRunner(params);
+        return await fixtureGitRunner(params);
       },
     });
     const pushed = await service.push();
@@ -1361,8 +1344,7 @@ describe('git service — push', () => {
       ok: false,
     });
     expect(invokedArgs.some((args) => args[0] === 'push')).toBe(false);
-    const remoteAfter = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: remoteReal }))
-      .stdout;
+    const remoteAfter = (await execFixtureGit(['rev-parse', 'HEAD'], { cwd: remoteReal })).stdout;
     expect(remoteAfter).toBe(remoteBefore);
   });
 
@@ -1374,9 +1356,9 @@ describe('git service — push', () => {
       createdRoots.push(parentReal);
       const repo = path.join(parentReal, 'repository\r');
       await fsPromises.mkdir(repo);
-      await execFileAsync('git', ['init', '-q'], { cwd: repo });
-      await execFileAsync('git', ['config', 'user.email', 'test@brainstrike.dev'], { cwd: repo });
-      await execFileAsync('git', ['config', 'user.name', 'Brainstrike Test'], { cwd: repo });
+      await execFixtureGit(['init', '-q'], { cwd: repo });
+      await execFixtureGit(['config', 'user.email', 'test@brainstrike.dev'], { cwd: repo });
+      await execFixtureGit(['config', 'user.name', 'Brainstrike Test'], { cwd: repo });
 
       const repository = await serviceFor(repo).repository();
 
@@ -1395,14 +1377,14 @@ describe('git service — push', () => {
       const remote = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-remote-'));
       const remoteReal = await fsPromises.realpath(remote);
       createdRoots.push(remoteReal);
-      await execFileAsync('git', ['init', '--bare', '-q'], { cwd: remoteReal });
+      await execFixtureGit(['init', '--bare', '-q'], { cwd: remoteReal });
 
       const repo = await makeRepo();
       await writeFile(repo, 'a.txt', 'x\n');
-      await execFileAsync('git', ['add', '.'], { cwd: repo });
-      await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+      await execFixtureGit(['add', '.'], { cwd: repo });
+      await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
       const remoteName = 'origin\r';
-      await execFileAsync('git', ['config', `remote.${remoteName}.url`, remoteReal], { cwd: repo });
+      await execFixtureGit(['config', `remote.${remoteName}.url`, remoteReal], { cwd: repo });
 
       const pushed = await serviceFor(repo).push({ remote: remoteName });
 
@@ -1420,14 +1402,14 @@ describe('git service — push', () => {
     const remote = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-remote-'));
     const remoteReal = await fsPromises.realpath(remote);
     createdRoots.push(remoteReal);
-    await execFileAsync('git', ['init', '--bare', '-q'], { cwd: remoteReal });
+    await execFixtureGit(['init', '--bare', '-q'], { cwd: remoteReal });
 
     const repo = await makeRepo();
     await writeFile(repo, 'a.txt', 'x\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
     const remoteName = ' origin ';
-    await execFileAsync('git', ['config', `remote.${remoteName}.url`, remoteReal], { cwd: repo });
+    await execFixtureGit(['config', `remote.${remoteName}.url`, remoteReal], { cwd: repo });
 
     const pushed = await serviceFor(repo).push({ remote: remoteName });
 
@@ -1444,21 +1426,21 @@ describe('git service — push', () => {
     const remote = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-remote-'));
     const remoteReal = await fsPromises.realpath(remote);
     createdRoots.push(remoteReal);
-    await execFileAsync('git', ['init', '--bare', '-q'], { cwd: remoteReal });
+    await execFixtureGit(['init', '--bare', '-q'], { cwd: remoteReal });
 
     const repo = await makeRepo();
-    await execFileAsync('git', ['branch', '-m', 'trunk'], { cwd: repo });
+    await execFixtureGit(['branch', '-m', 'trunk'], { cwd: repo });
     await writeFile(repo, 'a.txt', 'x\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
-    await execFileAsync('git', ['remote', 'add', '--', '--all', remoteReal], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['remote', 'add', '--', '--all', remoteReal], { cwd: repo });
 
     const pushed = await serviceFor(repo).push({ remote: '--all' });
     const fetched = await serviceFor(repo).fetch({ remote: '--all' });
 
     expect(pushed.ok).toBe(true);
     expect(fetched.ok).toBe(true);
-    const remoteHead = await execFileAsync('git', ['show-ref', '--verify', 'refs/heads/trunk'], {
+    const remoteHead = await execFixtureGit(['show-ref', '--verify', 'refs/heads/trunk'], {
       cwd: remoteReal,
     });
     expect(remoteHead.stdout).toContain('refs/heads/trunk');
@@ -1468,15 +1450,15 @@ describe('git service — push', () => {
     const remote = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-remote-'));
     const remoteReal = await fsPromises.realpath(remote);
     createdRoots.push(remoteReal);
-    await execFileAsync('git', ['init', '--bare', '-q'], { cwd: remoteReal });
+    await execFixtureGit(['init', '--bare', '-q'], { cwd: remoteReal });
 
     const repo = await makeRepo();
     await writeFile(repo, 'a.txt', 'x\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
     // origin exists but the branch has NO upstream yet → a bare `git push` would
     // fail; the caller must explicitly select the remote for the first push.
-    await execFileAsync('git', ['remote', 'add', 'origin', remoteReal], { cwd: repo });
+    await execFixtureGit(['remote', 'add', 'origin', remoteReal], { cwd: repo });
 
     const before = await serviceFor(repo).aheadBehind();
     expect(before.ok && before.value.hasUpstream).toBe(false);
@@ -1497,13 +1479,13 @@ describe('git service — push', () => {
     const remote = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-remote-'));
     const remoteReal = await fsPromises.realpath(remote);
     createdRoots.push(remoteReal);
-    await execFileAsync('git', ['init', '--bare', '-q'], { cwd: remoteReal });
+    await execFixtureGit(['init', '--bare', '-q'], { cwd: remoteReal });
 
     const repo = await makeRepo();
     await writeFile(repo, 'a.txt', 'x\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
-    await execFileAsync('git', ['remote', 'add', 'origin', remoteReal], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['remote', 'add', 'origin', remoteReal], { cwd: repo });
 
     const pushed = await serviceFor(repo).push();
     expect(pushed).toEqual({
@@ -1511,8 +1493,7 @@ describe('git service — push', () => {
       ok: false,
     });
 
-    const remoteHead = await execFileAsync(
-      'git',
+    const remoteHead = await execFixtureGit(
       ['show-ref', '--verify', '--quiet', 'refs/heads/main'],
       {
         cwd: remoteReal,
@@ -1527,19 +1508,19 @@ describe('git service — push', () => {
       const remote = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-git-remote-'));
       const remoteReal = await fsPromises.realpath(remote);
       createdRoots.push(remoteReal);
-      await execFileAsync('git', ['init', '--bare', '-q'], { cwd: remoteReal });
+      await execFixtureGit(['init', '--bare', '-q'], { cwd: remoteReal });
 
       const repo = await makeRepo();
       await writeFile(repo, 'a.txt', 'x\n');
-      await execFileAsync('git', ['add', '.'], { cwd: repo });
-      await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
-      await execFileAsync('git', ['remote', 'add', 'origin', remoteReal], { cwd: repo });
-      await execFileAsync('git', ['push', '-q', '-u', 'origin', 'HEAD'], { cwd: repo });
+      await execFixtureGit(['add', '.'], { cwd: repo });
+      await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
+      await execFixtureGit(['remote', 'add', 'origin', remoteReal], { cwd: repo });
+      await execFixtureGit(['push', '-q', '-u', 'origin', 'HEAD'], { cwd: repo });
 
       // A second local commit, then push through the service with the upstream set.
       await writeFile(repo, 'b.txt', 'y\n');
-      await execFileAsync('git', ['add', '.'], { cwd: repo });
-      await execFileAsync('git', ['commit', '-qm', 'second'], { cwd: repo });
+      await execFixtureGit(['add', '.'], { cwd: repo });
+      await execFixtureGit(['commit', '-qm', 'second'], { cwd: repo });
       const hookMarker = path.join(repo, 'PRE_PUSH_EXECUTED');
       const configuredHookMarker = path.join(repo, 'CONFIGURED_PRE_PUSH_EXECUTED');
       await fsPromises.writeFile(
@@ -1547,12 +1528,11 @@ describe('git service — push', () => {
         `#!/bin/sh\ntouch "${hookMarker}"\n`,
         { mode: 0o755 }
       );
-      await execFileAsync(
-        'git',
+      await execFixtureGit(
         ['config', 'hook.sentinel-push.command', `touch "${configuredHookMarker}"`],
         { cwd: repo }
       );
-      await execFileAsync('git', ['config', '--add', 'hook.sentinel-push.event', 'pre-push'], {
+      await execFixtureGit(['config', '--add', 'hook.sentinel-push.event', 'pre-push'], {
         cwd: repo,
       });
 
@@ -1571,8 +1551,8 @@ describe('git service — structuredFileDiff (real repos)', () => {
   it('working mode: modify — full content both sides, correct absolute hunk ranges, additions/deletions', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'a.txt', 'line1\nline2\nline3\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
     await writeFile(repo, 'a.txt', 'line1\nline2-edited\nline3\n');
 
     const result = await serviceFor(repo).structuredFileDiff({ mode: 'working', path: 'a.txt' });
@@ -1595,8 +1575,8 @@ describe('git service — structuredFileDiff (real repos)', () => {
   it('working mode: delete — newContent null, oldContent from HEAD', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'a.txt', 'hello\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
     await fsPromises.rm(path.join(repo, 'a.txt'));
 
     const result = await serviceFor(repo).structuredFileDiff({ mode: 'working', path: 'a.txt' });
@@ -1616,11 +1596,11 @@ describe('git service — structuredFileDiff (real repos)', () => {
   it('staged mode: rename+edit — status "renamed", oldPath set, old content read from oldPath', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'old.txt', 'line1\nline2\nline3\nline4\nline5\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
-    await execFileAsync('git', ['mv', 'old.txt', 'new.txt'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['mv', 'old.txt', 'new.txt'], { cwd: repo });
     await writeFile(repo, 'new.txt', 'line1\nline2-edited\nline3\nline4\nline5\n');
-    await execFileAsync('git', ['add', 'new.txt'], { cwd: repo });
+    await execFixtureGit(['add', 'new.txt'], { cwd: repo });
 
     const result = await serviceFor(repo).structuredFileDiff({ mode: 'staged', path: 'new.txt' });
 
@@ -1695,10 +1675,10 @@ describe('git service — structuredFileDiff (real repos)', () => {
   it('staged mode: modify — new side reads the INDEX (:0:), not a later unstaged worktree edit', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'a.txt', 'v1\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
     await writeFile(repo, 'a.txt', 'v2\n');
-    await execFileAsync('git', ['add', 'a.txt'], { cwd: repo });
+    await execFixtureGit(['add', 'a.txt'], { cwd: repo });
     // Further edit AFTER staging, left unstaged — staged mode must NOT see this.
     await writeFile(repo, 'a.txt', 'v3-unstaged\n');
 
@@ -1718,8 +1698,8 @@ describe('git service — structuredFileDiff (real repos)', () => {
       path.join(repo, 'img.png'),
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d])
     );
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init binary'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init binary'], { cwd: repo });
     await fsPromises.writeFile(
       path.join(repo, 'img.png'),
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x01, 0x0e])
@@ -1740,8 +1720,8 @@ describe('git service — structuredFileDiff (real repos)', () => {
   it('a file over the 2MB per-side cap degrades to hunks-only, with a visible truncation marker when the diff text also overflows', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'big.txt', 'small\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
     const line = `${'x'.repeat(100)}\n`;
     const lineCount = 25_000; // ~2.5MB, over both the 2MB content cap and the 1MB diff-output cap.
     await writeFile(repo, 'big.txt', line.repeat(lineCount));
@@ -1768,9 +1748,9 @@ describe('git service — structuredFileDiff (real repos)', () => {
     await fsPromises.mkdir(path.join(repo, 'sibling'));
     await writeFile(repo, 'opened/inside.txt', 'inside\n');
     await writeFile(repo, 'sibling/outside.txt', 'historical-secret\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
-    const oid = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo })).stdout.trim();
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'initial'], { cwd: repo });
+    const oid = (await execFixtureGit(['rev-parse', 'HEAD'], { cwd: repo })).stdout.trim();
 
     const result = await serviceFor(path.join(repo, 'opened')).structuredFileDiff({
       commitId: oid,
@@ -1791,9 +1771,9 @@ describe('git service — structuredFileDiff (real repos)', () => {
     await fsPromises.mkdir(path.join(repo, 'sibling'));
     await writeFile(repo, 'opened/inside.txt', 'inside\n');
     await writeFile(repo, 'sibling/outside.txt', 'outside\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'scoped history'], { cwd: repo });
-    const oid = (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo })).stdout.trim();
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'scoped history'], { cwd: repo });
+    const oid = (await execFixtureGit(['rev-parse', 'HEAD'], { cwd: repo })).stdout.trim();
     const service = serviceFor(path.join(repo, 'opened'));
 
     const inside = await service.structuredFileDiff({
@@ -1822,8 +1802,8 @@ describe('git service — structuredFileDiff (real repos)', () => {
   it('working mode: a zero-numstat, actually-untracked path is directed to mode "untracked", not a generic "no differences"', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'tracked.txt', 'v1\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
     await writeFile(repo, 'brand-new.txt', 'hi\n');
 
     const result = await serviceFor(repo).structuredFileDiff({
@@ -1842,8 +1822,8 @@ describe('git service — structuredFileDiff (real repos)', () => {
   it('working mode: an unchanged tracked path reports a generic "no differences" error', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'tracked.txt', 'v1\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
 
     const result = await serviceFor(repo).structuredFileDiff({
       mode: 'working',
@@ -1860,9 +1840,9 @@ describe('git service — structuredFileDiff (real repos)', () => {
   it('working mode: rename+edit — status "renamed", oldPath set (uncommitted, HEAD vs. worktree combined)', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'old.txt', 'line1\nline2\nline3\nline4\nline5\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
-    await execFileAsync('git', ['mv', 'old.txt', 'new.txt'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['mv', 'old.txt', 'new.txt'], { cwd: repo });
     await writeFile(repo, 'new.txt', 'line1\nline2-edited\nline3\nline4\nline5\n');
     // Deliberately NOT staged again — `git mv` auto-stages the rename, and this
     // further edit is left unstaged. `working` mode (HEAD vs. worktree) must
@@ -1920,8 +1900,8 @@ describe('git service — structuredFileDiff (real repos)', () => {
     async () => {
       const repo = await makeRepo();
       await fsPromises.symlink('old-target.txt', path.join(repo, 'link.txt'));
-      await execFileAsync('git', ['add', '.'], { cwd: repo });
-      await execFileAsync('git', ['commit', '-qm', 'init symlink'], { cwd: repo });
+      await execFixtureGit(['add', '.'], { cwd: repo });
+      await execFixtureGit(['commit', '-qm', 'init symlink'], { cwd: repo });
 
       await fsPromises.rm(path.join(repo, 'link.txt'));
       await fsPromises.symlink('new-target.txt', path.join(repo, 'link.txt'));
@@ -1951,8 +1931,8 @@ describe('git service — structuredFileDiff (real repos)', () => {
     const repo = await makeRepo();
     await fsPromises.mkdir(path.join(repo, 'sub', 'dir'), { recursive: true });
     await writeFile(repo, 'sub/dir/file.txt', 'line1\nline2\nline3\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
     await writeFile(repo, 'sub/dir/file.txt', 'line1\nline2-edited\nline3\n');
 
     // The service is created with cwd PINNED TO THE SUBDIRECTORY, not the
@@ -1982,8 +1962,8 @@ describe('git service — structuredFileDiff (real repos)', () => {
     const line = `${'y'.repeat(100)}\n`;
     const lineCount = 45_000; // ~4.5MB — over the OLD hard maxBuffer ceiling (GIT_MAX_BUFFER_BYTES, 4MB).
     await writeFile(repo, 'huge.txt', line.repeat(lineCount));
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'add huge file'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'add huge file'], { cwd: repo });
     // New side is deliberately SMALL (a near-total deletion) so only the OLD
     // side is over cap — proves the size probe gates each side independently
     // rather than only ever tripping when both sides happen to be huge.
@@ -2005,25 +1985,23 @@ describe('git service — structuredFileDiff (real repos)', () => {
   it('an unresolved merge conflict (staged mode) surfaces ok:false naming the path, never status "deleted"', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'conflict.txt', 'base\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
-    const { stdout: originalBranch } = await execFileAsync(
-      'git',
-      ['symbolic-ref', '--short', 'HEAD'],
-      { cwd: repo }
-    );
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
+    const { stdout: originalBranch } = await execFixtureGit(['symbolic-ref', '--short', 'HEAD'], {
+      cwd: repo,
+    });
 
-    await execFileAsync('git', ['checkout', '-qb', 'branch-a'], { cwd: repo });
+    await execFixtureGit(['checkout', '-qb', 'branch-a'], { cwd: repo });
     await writeFile(repo, 'conflict.txt', 'from branch-a\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'branch-a change'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'branch-a change'], { cwd: repo });
 
-    await execFileAsync('git', ['checkout', '-q', originalBranch.trim()], { cwd: repo });
+    await execFixtureGit(['checkout', '-q', originalBranch.trim()], { cwd: repo });
     await writeFile(repo, 'conflict.txt', 'from main\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'main change'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'main change'], { cwd: repo });
 
-    await execFileAsync('git', ['merge', '-q', 'branch-a'], { cwd: repo }).catch(() => {
+    await execFixtureGit(['merge', '-q', 'branch-a'], { cwd: repo }).catch(() => {
       // A conflicting merge exits non-zero — expected, that's the fixture.
     });
 
@@ -2050,12 +2028,12 @@ describe('git service — structuredFileDiff commit/range modes (real repos, BST
   it('commit mode: ordinary commit — correct old/new content, hunks, additions/deletions, status "modified"', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'a.txt', 'line1\nline2\nline3\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
     await writeFile(repo, 'a.txt', 'line1\nline2-edited\nline3\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'edit'], { cwd: repo });
-    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'edit'], { cwd: repo });
+    const { stdout } = await execFixtureGit(['rev-parse', 'HEAD'], { cwd: repo });
     const commitId = stdout.trim();
 
     const result = await serviceFor(repo).structuredFileDiff({
@@ -2082,14 +2060,14 @@ describe('git service — structuredFileDiff commit/range modes (real repos, BST
   it('commit mode: a ROOT commit (no parent) falls back to the empty-tree old ref — status "added", oldContent null', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'a.txt', 'root content\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'root commit'], { cwd: repo });
-    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'root commit'], { cwd: repo });
+    const { stdout } = await execFixtureGit(['rev-parse', 'HEAD'], { cwd: repo });
     const commitId = stdout.trim();
     // Confirm this really is a root commit (no parent) — the fixture the
     // fallback path needs, not an assumption.
     await expect(
-      execFileAsync('git', ['rev-parse', '--verify', `${commitId}^`], { cwd: repo })
+      execFixtureGit(['rev-parse', '--verify', `${commitId}^`], { cwd: repo })
     ).rejects.toThrow();
 
     const result = await serviceFor(repo).structuredFileDiff({
@@ -2113,12 +2091,12 @@ describe('git service — structuredFileDiff commit/range modes (real repos, BST
   it('commit mode: a file DELETED in that commit — newContent null, status "deleted"', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'a.txt', 'hello\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
     await fsPromises.rm(path.join(repo, 'a.txt'));
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'delete a.txt'], { cwd: repo });
-    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'delete a.txt'], { cwd: repo });
+    const { stdout } = await execFixtureGit(['rev-parse', 'HEAD'], { cwd: repo });
     const commitId = stdout.trim();
 
     const result = await serviceFor(repo).structuredFileDiff({
@@ -2142,17 +2120,17 @@ describe('git service — structuredFileDiff commit/range modes (real repos, BST
   it("range mode: baseRef vs HEAD — modified path's old side comes from baseRef; a path added since baseRef has oldContent null", async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'a.txt', 'v1\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
-    const { stdout: baseStdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
+    const { stdout: baseStdout } = await execFixtureGit(['rev-parse', 'HEAD'], { cwd: repo });
     const baseRef = baseStdout.trim();
 
     await writeFile(repo, 'a.txt', 'v2\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'edit a'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'edit a'], { cwd: repo });
     await writeFile(repo, 'new.txt', 'brand new\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'add new'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'add new'], { cwd: repo });
 
     const modified = await serviceFor(repo).structuredFileDiff({
       baseRef,
@@ -2190,14 +2168,14 @@ describe('git service — structuredFileDiff commit/range modes (real repos, BST
   it('range mode: new side is HEAD, NOT the live worktree — an uncommitted edit left on disk is invisible', async () => {
     const repo = await makeRepo();
     await writeFile(repo, 'a.txt', 'v1\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init'], { cwd: repo });
-    const { stdout: baseStdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init'], { cwd: repo });
+    const { stdout: baseStdout } = await execFixtureGit(['rev-parse', 'HEAD'], { cwd: repo });
     const baseRef = baseStdout.trim();
 
     await writeFile(repo, 'a.txt', 'v2\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'edit a'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'edit a'], { cwd: repo });
     // Left dirty AFTER the commit HEAD sits at — range mode must not see this.
     await writeFile(repo, 'a.txt', 'v3-uncommitted\n');
 
@@ -2219,12 +2197,12 @@ describe('git service — structuredFileDiff commit/range modes (real repos, BST
     const line = `${'y'.repeat(100)}\n`;
     const lineCount = 45_000; // ~4.5MB — over the content cap and the old hard maxBuffer ceiling.
     await writeFile(repo, 'huge.txt', line.repeat(lineCount));
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'add huge file'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'add huge file'], { cwd: repo });
     await writeFile(repo, 'huge.txt', 'shrunk\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'shrink huge file'], { cwd: repo });
-    const { stdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'shrink huge file'], { cwd: repo });
+    const { stdout } = await execFixtureGit(['rev-parse', 'HEAD'], { cwd: repo });
     const commitId = stdout.trim();
 
     const result = await serviceFor(repo).structuredFileDiff({
@@ -2250,16 +2228,16 @@ describe('git service — structuredFileDiff commit/range modes (real repos, BST
       path.join(repo, 'img.png'),
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0d])
     );
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'init binary'], { cwd: repo });
-    const { stdout: baseStdout } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'init binary'], { cwd: repo });
+    const { stdout: baseStdout } = await execFixtureGit(['rev-parse', 'HEAD'], { cwd: repo });
     const baseRef = baseStdout.trim();
     await fsPromises.writeFile(
       path.join(repo, 'img.png'),
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x01, 0x0e])
     );
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'edit binary'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'edit binary'], { cwd: repo });
 
     const result = await serviceFor(repo).structuredFileDiff({
       baseRef,
@@ -2282,13 +2260,13 @@ describe('git service — forgeRepositoryContext (real repos, BST-1391 review)',
   async function makeRepoWithCommit(prefix?: string): Promise<string> {
     const repo = await makeRepo(prefix);
     await writeFile(repo, 'README.md', '# repository\n');
-    await execFileAsync('git', ['add', '.'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-qm', 'initial'], { cwd: repo });
+    await execFixtureGit(['add', '.'], { cwd: repo });
+    await execFixtureGit(['commit', '-qm', 'initial'], { cwd: repo });
     return repo;
   }
 
   async function currentBranch(repo: string): Promise<string> {
-    const { stdout } = await execFileAsync('git', ['symbolic-ref', '--short', 'HEAD'], {
+    const { stdout } = await execFixtureGit(['symbolic-ref', '--short', 'HEAD'], {
       cwd: repo,
     });
     return stdout.trim();
@@ -2296,8 +2274,8 @@ describe('git service — forgeRepositoryContext (real repos, BST-1391 review)',
 
   it('reports branch: null on a detached HEAD', async () => {
     const repo = await makeRepoWithCommit('brainstrike-git-forge-detached-');
-    const { stdout: headSha } = await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: repo });
-    await execFileAsync('git', ['checkout', '-q', '--detach', headSha.trim()], { cwd: repo });
+    const { stdout: headSha } = await execFixtureGit(['rev-parse', 'HEAD'], { cwd: repo });
+    await execFixtureGit(['checkout', '-q', '--detach', headSha.trim()], { cwd: repo });
 
     const result = await serviceFor(repo).forgeRepositoryContext();
 
@@ -2323,10 +2301,10 @@ describe('git service — forgeRepositoryContext (real repos, BST-1391 review)',
 
   it('states a reason for multiple remotes with no "origin" (resolveDefaultRemote leaves it unconfigured)', async () => {
     const repo = await makeRepoWithCommit('brainstrike-git-forge-multiremote-');
-    await execFileAsync('git', ['remote', 'add', 'upstream', 'https://example.com/upstream.git'], {
+    await execFixtureGit(['remote', 'add', 'upstream', 'https://example.com/upstream.git'], {
       cwd: repo,
     });
-    await execFileAsync('git', ['remote', 'add', 'fork', 'https://example.com/fork.git'], {
+    await execFixtureGit(['remote', 'add', 'fork', 'https://example.com/fork.git'], {
       cwd: repo,
     });
 
@@ -2344,11 +2322,11 @@ describe('git service — forgeRepositoryContext (real repos, BST-1391 review)',
 
   it('states a reason when the branch tracks a configured remote that no longer exists', async () => {
     const repo = await makeRepoWithCommit('brainstrike-git-forge-unknownremote-');
-    await execFileAsync('git', ['remote', 'add', 'origin', 'https://example.com/origin.git'], {
+    await execFixtureGit(['remote', 'add', 'origin', 'https://example.com/origin.git'], {
       cwd: repo,
     });
     const branch = await currentBranch(repo);
-    await execFileAsync('git', ['config', `branch.${branch}.remote`, 'ghost'], { cwd: repo });
+    await execFixtureGit(['config', `branch.${branch}.remote`, 'ghost'], { cwd: repo });
 
     const result = await serviceFor(repo).forgeRepositoryContext();
 
@@ -2362,7 +2340,7 @@ describe('git service — forgeRepositoryContext (real repos, BST-1391 review)',
 
   it('states a reason when `git remote get-url` fails', async () => {
     const repo = await makeRepoWithCommit('brainstrike-git-forge-geturlfail-');
-    await execFileAsync('git', ['remote', 'add', 'origin', 'https://example.com/origin.git'], {
+    await execFixtureGit(['remote', 'add', 'origin', 'https://example.com/origin.git'], {
       cwd: repo,
     });
     const failGetUrlRunner: GitCommandRunner = (params) => {
@@ -2374,7 +2352,7 @@ describe('git service — forgeRepositoryContext (real repos, BST-1391 review)',
           timedOut: false,
         });
       }
-      return execFileGitRunner(params);
+      return fixtureGitRunner(params);
     };
 
     const result = await createGitService({
@@ -2398,14 +2376,14 @@ describe('git service — forgeRepositoryContext (real repos, BST-1391 review)',
   // remoteUrl is null") and sending '' into parseForgeRemote downstream.
   it('treats an empty `git remote get-url` stdout as a stated failure, never `remoteUrl: ""`', async () => {
     const repo = await makeRepoWithCommit('brainstrike-git-forge-emptyurl-');
-    await execFileAsync('git', ['remote', 'add', 'origin', 'https://example.com/origin.git'], {
+    await execFixtureGit(['remote', 'add', 'origin', 'https://example.com/origin.git'], {
       cwd: repo,
     });
     const emptyGetUrlRunner: GitCommandRunner = (params) => {
       if (params.args[0] === 'remote' && params.args[1] === 'get-url') {
         return Promise.resolve({ exitCode: 0, stderr: '', stdout: '', timedOut: false });
       }
-      return execFileGitRunner(params);
+      return fixtureGitRunner(params);
     };
 
     const result = await createGitService({

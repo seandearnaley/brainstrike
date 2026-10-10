@@ -25,17 +25,14 @@
  * is indistinguishable from a tool edit.
  */
 
-import { execFile } from 'node:child_process';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import type { CheckpointReindexAction } from '../../assistant-server/checkpoint-reindex-deps';
 import type { EditCheckpointDatabase } from '../../assistant-server/edit-checkpoint-journal';
 import type { RewindServiceDeps } from '../../assistant-server/rewind-service';
-import { execFileSnapshotGitRunner } from '../../assistant-server/snapshot-git';
 import {
   createSnapshotRepository,
   type SnapshotRepository,
@@ -44,8 +41,7 @@ import {
   createSnapshotService,
   type SnapshotService,
 } from '../../assistant-server/snapshot-service';
-
-const execFileAsync = promisify(execFile);
+import { execFixtureGit, fixtureSnapshotGitRunner } from './_git-fixture-environment';
 
 export const THREAD_ID = 'thread-rewind';
 export const RESOURCE_ID = 'workspace-rewind';
@@ -65,7 +61,7 @@ export async function makeTempDir(prefix = 'bs-rewind-'): Promise<string> {
 
 export async function makeGitRepo(prefix = 'bs-rewind-repo-'): Promise<string> {
   const dir = await makeTempDir(prefix);
-  await execFileAsync('git', ['init', '--quiet'], { cwd: dir });
+  await execFixtureGit(['init', '--quiet'], { cwd: dir });
   return dir;
 }
 
@@ -202,7 +198,7 @@ export async function createSnapshotHarness(db: PGlite): Promise<SnapshotHarness
   return {
     repository: createSnapshotRepository(db as unknown as EditCheckpointDatabase),
     service: createSnapshotService({
-      runner: execFileSnapshotGitRunner,
+      runner: fixtureSnapshotGitRunner,
       snapshotsBaseDir,
     }),
   };
