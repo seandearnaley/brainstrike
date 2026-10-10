@@ -9,11 +9,9 @@
  * attack, a broken repo tolerated alongside a healthy one, and an unborn-HEAD
  * repo.
  */
-import { execFile } from 'node:child_process';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import type { GitInventoryRepository, WorktreeDescriptor } from '@brainstrike/types';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -21,19 +19,18 @@ import {
   type InventoryFs,
 } from '../../assistant-server/git-inventory-discovery';
 import { buildInventorySnapshot } from '../../assistant-server/git-inventory-service';
-import { execFileGitRunner } from '../../git-ipc-handlers';
+import { execFixtureGit, fixtureGitRunner } from './_git-fixture-environment';
 
-const execFileAsync = promisify(execFile);
 const createdRoots: string[] = [];
 
 async function makeRepo(prefix = 'brainstrike-git-inventory-'): Promise<string> {
   const root = await fsPromises.mkdtemp(path.join(os.tmpdir(), prefix));
   const real = await fsPromises.realpath(root);
   createdRoots.push(real);
-  await execFileAsync('git', ['init', '-q'], { cwd: real });
-  await execFileAsync('git', ['config', 'user.email', 'test@brainstrike.dev'], { cwd: real });
-  await execFileAsync('git', ['config', 'user.name', 'Brainstrike Test'], { cwd: real });
-  await execFileAsync('git', ['config', 'commit.gpgsign', 'false'], { cwd: real });
+  await execFixtureGit(['init', '-q'], { cwd: real });
+  await execFixtureGit(['config', 'user.email', 'test@brainstrike.dev'], { cwd: real });
+  await execFixtureGit(['config', 'user.name', 'Brainstrike Test'], { cwd: real });
+  await execFixtureGit(['config', 'commit.gpgsign', 'false'], { cwd: real });
   return real;
 }
 
@@ -52,17 +49,17 @@ async function makeDir(prefix: string): Promise<string> {
  * too (flaky: races with unrelated cleanup, e.g. ENOENT mid-walk).
  */
 async function initRepoAt(dir: string): Promise<string> {
-  await execFileAsync('git', ['init', '-q'], { cwd: dir });
-  await execFileAsync('git', ['config', 'user.email', 'test@brainstrike.dev'], { cwd: dir });
-  await execFileAsync('git', ['config', 'user.name', 'Brainstrike Test'], { cwd: dir });
-  await execFileAsync('git', ['config', 'commit.gpgsign', 'false'], { cwd: dir });
+  await execFixtureGit(['init', '-q'], { cwd: dir });
+  await execFixtureGit(['config', 'user.email', 'test@brainstrike.dev'], { cwd: dir });
+  await execFixtureGit(['config', 'user.name', 'Brainstrike Test'], { cwd: dir });
+  await execFixtureGit(['config', 'commit.gpgsign', 'false'], { cwd: dir });
   return dir;
 }
 
 async function commitFile(repo: string, name: string, content: string): Promise<void> {
   await fsPromises.writeFile(path.join(repo, name), content, 'utf8');
-  await execFileAsync('git', ['add', name], { cwd: repo });
-  await execFileAsync('git', ['commit', '-q', '-m', `add ${name}`], { cwd: repo });
+  await execFixtureGit(['add', name], { cwd: repo });
+  await execFixtureGit(['commit', '-q', '-m', `add ${name}`], { cwd: repo });
 }
 
 /**
@@ -124,7 +121,7 @@ describe('buildInventorySnapshot', () => {
   it('returns an empty snapshot for no roots', async () => {
     const snapshot = await buildInventorySnapshot({
       loadRoots: loadRootsFrom([]),
-      run: execFileGitRunner,
+      run: fixtureGitRunner,
     });
     expect(snapshot.errors).toEqual([]);
     expect(snapshot.repositories).toEqual([]);
@@ -142,7 +139,7 @@ describe('buildInventorySnapshot', () => {
         { id: 'root-a', path: repoA },
         { id: 'root-b', path: repoB },
       ]),
-      run: execFileGitRunner,
+      run: fixtureGitRunner,
     });
 
     expect(snapshot.errors).toEqual([]);
@@ -172,14 +169,14 @@ describe('buildInventorySnapshot', () => {
     await fsPromises.mkdir(repo, { recursive: true });
     await initRepoAt(repo);
     await commitFile(repo, 'a.txt', 'a');
-    await execFileAsync('git', ['branch', 'feat'], { cwd: repo });
+    await execFixtureGit(['branch', 'feat'], { cwd: repo });
     const linkedPath = path.join(container, 'main-repo-linked');
-    await execFileAsync('git', ['worktree', 'add', '-q', linkedPath, 'feat'], { cwd: repo });
+    await execFixtureGit(['worktree', 'add', '-q', linkedPath, 'feat'], { cwd: repo });
     const linkedReal = await fsPromises.realpath(linkedPath);
 
     const snapshot = await buildInventorySnapshot({
       loadRoots: loadRootsFrom([{ id: 'root-parent', path: container }]),
-      run: execFileGitRunner,
+      run: fixtureGitRunner,
     });
 
     expect(snapshot.errors).toEqual([]);
@@ -200,16 +197,16 @@ describe('buildInventorySnapshot', () => {
   it('reports a REAL linked worktree OUTSIDE every root as outside-roots but still validated', async () => {
     const repo = await makeRepo();
     await commitFile(repo, 'a.txt', 'a');
-    await execFileAsync('git', ['branch', 'feat'], { cwd: repo });
+    await execFixtureGit(['branch', 'feat'], { cwd: repo });
     const outsideParent = await makeDir('brainstrike-git-inventory-outside-');
     const linkedPath = path.join(outsideParent, 'linked-wt');
-    await execFileAsync('git', ['worktree', 'add', '-q', linkedPath, 'feat'], { cwd: repo });
+    await execFixtureGit(['worktree', 'add', '-q', linkedPath, 'feat'], { cwd: repo });
     const linkedReal = await fsPromises.realpath(linkedPath);
 
     // Only the main repo is an active root — the linked worktree's parent is NOT.
     const snapshot = await buildInventorySnapshot({
       loadRoots: loadRootsFrom([{ id: 'root-main', path: repo }]),
-      run: execFileGitRunner,
+      run: fixtureGitRunner,
     });
 
     expect(snapshot.errors).toEqual([]);
@@ -229,17 +226,17 @@ describe('buildInventorySnapshot', () => {
     // entry — now marked `prunable` — and its `gitdir` no longer resolves.
     const repo = await makeRepo();
     await commitFile(repo, 'a.txt', 'a');
-    await execFileAsync('git', ['branch', 'feat'], { cwd: repo });
+    await execFixtureGit(['branch', 'feat'], { cwd: repo });
     const outsideParent = await makeDir('brainstrike-git-inventory-prunable-');
     const linkedPath = path.join(outsideParent, 'linked-wt');
-    await execFileAsync('git', ['worktree', 'add', '-q', linkedPath, 'feat'], { cwd: repo });
+    await execFixtureGit(['worktree', 'add', '-q', linkedPath, 'feat'], { cwd: repo });
     const linkedReal = await fsPromises.realpath(linkedPath);
 
     await fsPromises.rm(linkedPath, { force: true, recursive: true });
 
     const snapshot = await buildInventorySnapshot({
       loadRoots: loadRootsFrom([{ id: 'root-main', path: repo }]),
-      run: execFileGitRunner,
+      run: fixtureGitRunner,
     });
 
     // The realpath failure on a PRUNABLE worktree is routine housekeeping,
@@ -269,7 +266,7 @@ describe('buildInventorySnapshot', () => {
     // repo path) still classifies as contained.
     const snapshot = await buildInventorySnapshot({
       loadRoots: loadRootsFrom([{ id: 'root-symlinked', path: symlinkPath }]),
-      run: execFileGitRunner,
+      run: fixtureGitRunner,
     });
 
     expect(snapshot.errors).toEqual([]);
@@ -315,7 +312,7 @@ describe('buildInventorySnapshot', () => {
     const snapshot = await buildInventorySnapshot({
       fs: recordingFs,
       loadRoots: loadRootsFrom([{ id: 'root-main', path: repo }]),
-      run: execFileGitRunner,
+      run: fixtureGitRunner,
     });
 
     // The fabrication is surfaced, never silently dropped — no snapshot-level
@@ -348,13 +345,13 @@ describe('buildInventorySnapshot', () => {
     // fabricated `gitdir` file says: LEXICALLY inside the root.
     const insideLinkPath = path.join(repo, 'inside-link');
     await fsPromises.symlink(outsideTarget, insideLinkPath, 'dir');
-    await execFileAsync('git', ['add', 'inside-link'], { cwd: repo });
-    await execFileAsync('git', ['commit', '-q', '-m', 'add inside-link symlink'], { cwd: repo });
+    await execFixtureGit(['add', 'inside-link'], { cwd: repo });
+    await execFixtureGit(['commit', '-q', '-m', 'add inside-link symlink'], { cwd: repo });
 
     await writeFabricatedWorktreeAdmin(repo, 'evil', path.join(insideLinkPath, '.git'));
     // Maintenance must leave the locked malicious entry visible to inventory;
     // the lock is attacker-constructible and does not establish trust.
-    await execFileAsync('git', ['worktree', 'prune', '--expire=now'], { cwd: repo });
+    await execFixtureGit(['worktree', 'prune', '--expire=now'], { cwd: repo });
     await expect(
       fsPromises.readFile(path.join(repo, '.git', 'worktrees', 'evil', 'locked'), 'utf8'),
       'Git pruning must preserve the complete locked attack fixture before inventory runs'
@@ -362,7 +359,7 @@ describe('buildInventorySnapshot', () => {
 
     const snapshot = await buildInventorySnapshot({
       loadRoots: loadRootsFrom([{ id: 'root-main', path: repo }]),
-      run: execFileGitRunner,
+      run: fixtureGitRunner,
     });
 
     expect(snapshot.errors).toEqual([]);
@@ -404,7 +401,7 @@ describe('buildInventorySnapshot', () => {
 
     const snapshot = await buildInventorySnapshot({
       loadRoots: loadRootsFrom([{ id: 'root-main', path: repo }]),
-      run: execFileGitRunner,
+      run: fixtureGitRunner,
     });
 
     expect(snapshot.errors).toEqual([]);
@@ -428,15 +425,15 @@ describe('buildInventorySnapshot', () => {
     // then reports the full inventory including the outside main worktree.
     const repo = await makeRepo();
     await commitFile(repo, 'a.txt', 'a');
-    await execFileAsync('git', ['branch', 'feat'], { cwd: repo });
+    await execFixtureGit(['branch', 'feat'], { cwd: repo });
     const container = await makeDir('brainstrike-git-inventory-linked-only-root-');
     const linkedPath = path.join(container, 'linked-wt');
-    await execFileAsync('git', ['worktree', 'add', '-q', linkedPath, 'feat'], { cwd: repo });
+    await execFixtureGit(['worktree', 'add', '-q', linkedPath, 'feat'], { cwd: repo });
     const linkedReal = await fsPromises.realpath(linkedPath);
 
     const snapshot = await buildInventorySnapshot({
       loadRoots: loadRootsFrom([{ id: 'root-linked-only', path: container }]),
-      run: execFileGitRunner,
+      run: fixtureGitRunner,
     });
 
     expect(snapshot.errors).toEqual([]);
@@ -475,7 +472,7 @@ describe('buildInventorySnapshot', () => {
         { id: 'root-healthy', path: healthyRepo },
         { id: 'root-broken', path: brokenContainer },
       ]),
-      run: execFileGitRunner,
+      run: fixtureGitRunner,
     });
 
     expect(snapshot.errors.length).toBeGreaterThan(0);
@@ -493,7 +490,7 @@ describe('buildInventorySnapshot', () => {
 
     const snapshot = await buildInventorySnapshot({
       loadRoots: loadRootsFrom([{ id: 'root-unborn', path: unbornRepo }]),
-      run: execFileGitRunner,
+      run: fixtureGitRunner,
     });
 
     expect(snapshot.errors).toEqual([]);
@@ -507,7 +504,7 @@ describe('buildInventorySnapshot', () => {
   it('reports a root that cannot be resolved as a visible error and skips it, not silently', async () => {
     const snapshot = await buildInventorySnapshot({
       loadRoots: loadRootsFrom([{ id: 'root-missing', path: '/does/not/exist/at/all' }]),
-      run: execFileGitRunner,
+      run: fixtureGitRunner,
     });
 
     expect(snapshot.repositories).toEqual([]);
