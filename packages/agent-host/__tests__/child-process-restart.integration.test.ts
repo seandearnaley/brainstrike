@@ -28,7 +28,12 @@ import {
 
 const cliPath = fileURLToPath(new URL('../dist/cli.js', import.meta.url));
 const platformPath = fileURLToPath(
-  new URL('./fixtures/process-platform-children.mjs', import.meta.url)
+  new URL(
+    process.platform === 'win32'
+      ? './fixtures/process-platform-cooperative.mjs'
+      : './fixtures/process-platform-children.mjs',
+    import.meta.url
+  )
 );
 const exec = promisify(execFile);
 const STALE = /is stale or belongs to another run/u;

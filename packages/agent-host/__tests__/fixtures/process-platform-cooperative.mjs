@@ -81,5 +81,9 @@ export async function createHostPlatform(options, context) {
     server.once('error', reject);
     server.listen(control.endpoint, done);
   });
-  return createRecordedPlatform(options, context);
+  // Child-restart scenarios keep their recorded model/effects behind the same close control.
+  const createPlatform = process.env.BRAINSTRIKE_CHILD_RESTART_TOOL
+    ? (await import('./process-platform-children.mjs')).createHostPlatform
+    : createRecordedPlatform;
+  return createPlatform(options, context);
 }
