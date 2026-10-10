@@ -517,6 +517,7 @@ describe('createDesktopFactoryResetHandler', () => {
     const first = owner.reset();
     const repeated = owner.reset();
     expect(repeated).toBe(first);
+    expect(owner.inFlight()).toBe(first);
     let closed = false;
     let idle = false;
     const close = owner.close().then(() => {
@@ -537,12 +538,14 @@ describe('createDesktopFactoryResetHandler', () => {
     expect(idle).toBe(false);
     prior.resolve();
     await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
+    expect(owner.inFlight()).toBe(first);
     expect(closed).toBe(false);
     expect(idle).toBe(false);
     replacement.resolve();
     await expect(first).resolves.toEqual({ success: true });
     await expect(repeated).resolves.toEqual({ success: true });
     await Promise.all([close, join]);
+    expect(owner.inFlight()).toBeNull();
     expect(resetDesktopApplicationDataMock).toHaveBeenCalledOnce();
     expect(resumeAfterReset).toHaveBeenCalledExactlyOnceWith('succeeded');
   });

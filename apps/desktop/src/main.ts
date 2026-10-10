@@ -929,22 +929,32 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
     if (key !== NATIVE_INDEX_SETTINGS_KEY) {
       return;
     }
-    nativeRootDataDeletion
-      .prepareTransition(
-        () => nativeIndexActivation.prepareSavedPause(),
-        (prepared) => (prepared ? prepared.complete() : nativeIndexActivation.reconfigure())
-      )
-      .catch((error: unknown) =>
-        reportNativeIndexActivationError(
-          'Saved native index configuration could not activate',
-          error
-        )
-      );
+    activateSavedNativeIndexSettings().catch((error: unknown) =>
+      reportNativeIndexActivationError('Saved native index configuration could not activate', error)
+    );
   },
   onWorkspaceRootGranted: (grantedPath: string) => {
     pendingRootGrantSubscriber?.(grantedPath);
   },
 });
+function activateSavedNativeIndexSettings(): Promise<void> {
+  if (isDesktopShuttingDown()) {
+    return Promise.resolve();
+  }
+  const resetting = handleResetLocal.inFlight();
+  if (resetting) {
+    return resetting.then((result) => {
+      // The reset owner retains its original failed outcome; this notification
+      // must not start activation after an unsuccessful reset.
+      return result.success ? activateSavedNativeIndexSettings() : undefined;
+    });
+  }
+  return nativeRootDataDeletion.prepareTransition(
+    () => nativeIndexActivation.prepareSavedPause(),
+    (prepared) => (prepared ? prepared.complete() : nativeIndexActivation.reconfigure())
+  );
+}
+
 export function reportAgentHostStartupFailure(error: unknown): void {
   reportNativeIndexActivationError('Agent host startup failed', error);
 }
