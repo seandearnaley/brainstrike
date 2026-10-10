@@ -2,11 +2,12 @@
  * Hermetic coverage for the desktop `git` IPC domain's pure service core.
  *
  * Every test runs against a REAL temp git repository (git init + a local user),
- * exercised through the production `execFile`-backed runner — there is no
- * network and no mocking of git itself. The injection test proves that shell
- * metacharacters in a commit message / path are inert (passed as execFile args,
- * never shell-interpreted): the repo is unharmed and the literal string is the
- * commit message.
+ * exercised through the production `execFile`-backed runner without network.
+ * The Windows LF/TAB case replays recorded status bytes for a pathname Win32
+ * cannot create; repository setup and prefix resolution still use real Git.
+ * The injection test proves that shell metacharacters in a commit message / path
+ * are inert (passed as execFile args, never shell-interpreted): the repo is
+ * unharmed and the literal string is the commit message.
  */
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
@@ -20,6 +21,7 @@ import {
   type GitDiffParams,
   parsePorcelainV2,
 } from '../../assistant-server/git-service';
+import recordedStatus from '../fixtures/git-status-lf-tab.json';
 import { execFixtureGit, fixtureGitRunner } from './_git-fixture-environment';
 
 const createdRoots: string[] = [];
@@ -255,9 +257,21 @@ describe('git service — status', () => {
     await execFixtureGit(['add', '.'], { cwd: repo });
     await execFixtureGit(['commit', '-qm', 'initial'], { cwd: repo });
     const unusualPath = 'line\nbreak\tname.txt';
-    await writeFile(repo, unusualPath, 'unusual\n');
+    if (process.platform !== 'win32') {
+      await writeFile(repo, unusualPath, 'unusual\n');
+    }
 
-    const result = await serviceFor(repo).status();
+    const result = await createGitService({
+      cwd: repo,
+      run: (params) => {
+        if (process.platform === 'win32' && params.args.includes('status')) {
+          // Qualify NUL parsing with real vendor bytes, not invalid Win32 filenames.
+          expect(params.args).toEqual(recordedStatus.args);
+          return Promise.resolve(recordedStatus.result);
+        }
+        return fixtureGitRunner(params);
+      },
+    }).status();
 
     expect(result.ok).toBe(true);
     if (result.ok) {
