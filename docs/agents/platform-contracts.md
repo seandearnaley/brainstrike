@@ -52,6 +52,10 @@ Guard: `packages/sqlite-native/test/packaged-smoke.cjs`.
 - Test with `addLogListener`, never a console mock; a suite that silences output
   uses `configureLogger({ console: false })`, which builds a disabled Pino
   instance rather than falling back to stdout.
+- A failed Node transport emits `Log transport failed` through the same redacted
+  listener/buffer path. Pino's destroyed destination receives no later writes or
+  drain calls; records remain available to listeners without replacing the failed
+  output or recursively logging its error into the dead worker.
 
 There is one gate and one redaction pass, and `instanceof` is not the gate.
 See ADR-0015. Evidence: `platform-contracts/logging-error-serializer.md`.
