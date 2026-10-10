@@ -121,7 +121,11 @@ export function resolveDbHostEntryPath(currentModuleFilename?: string): string {
 
 function createDbHostEnvironment(): Record<string, string> {
   const environment: Record<string, string> = {};
-  const allowedKeys = ['NODE_ENV', 'LOG_LEVEL'] as const;
+  // Windows ASAR fs.open/createReadStream extracts extension bundles through
+  // Chromium's temp directory. Stripping TEMP/TMP makes packaged PGlite fail
+  // before SQL with misleading ENOENT errors for archives that are present.
+  // https://www.electronjs.org/docs/latest/tutorial/asar-archives#extra-unpacking-on-some-apis
+  const allowedKeys = ['NODE_ENV', 'LOG_LEVEL', 'TEMP', 'TMP'] as const;
   for (const key of allowedKeys) {
     const value = process.env[key];
     if (value !== undefined) {
