@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { HookManager, type HookRunEventInput } from '../../src/hooks/manager.js';
 import type { HooksConfigLoadResult, LoadedHook } from '../../src/hooks/types.js';
+import { writeHookCommand, writeStdoutHook } from '../fixtures/native-hook-command.js';
 
 let tmpRoot: string;
 
@@ -116,7 +117,7 @@ describe('HookManager', () => {
     const manager = makeManager(
       {
         hooks: {
-          PostToolUse: [makeHook(`echo '{"additionalContext":"lint ok"}'`)],
+          PostToolUse: [makeHook(writeStdoutHook(tmpRoot, { additionalContext: 'lint ok' }))],
         },
       },
       events
@@ -141,7 +142,7 @@ describe('HookManager', () => {
     const manager = makeManager(
       {
         hooks: {
-          UserPromptSubmit: [makeHook(`echo '{"reason":"no"}'; exit 2`)],
+          UserPromptSubmit: [makeHook(writeStdoutHook(tmpRoot, { reason: 'no' }, 2))],
         },
       },
       events
@@ -169,7 +170,14 @@ describe('HookManager', () => {
     // budget, skip the rest, and surface a loud warning (warn-and-continue).
     const events: HookRunEventInput[] = [];
     const manager = makeManager(
-      { hooks: { Stop: [makeHook('sleep 3'), makeHook('sleep 3')] } },
+      {
+        hooks: {
+          Stop: [
+            makeHook(writeHookCommand(tmpRoot, 'setTimeout(() => {}, 3000);')),
+            makeHook(writeHookCommand(tmpRoot, 'setTimeout(() => {}, 3000);')),
+          ],
+        },
+      },
       events,
       300
     );

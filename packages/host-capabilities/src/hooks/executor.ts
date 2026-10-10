@@ -10,9 +10,11 @@
 
 import type { ChildProcess } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { createCredentialIsolatedChildEnvironment } from '@brainstrike/assistant-contract/credential-child-environment';
 import type { ScopedLogger } from '@brainstrike/logging';
 import { spawnNativeChild } from '@brainstrike/state-store/native-children';
+import { createWindowsCommandProcess, type WindowsCommandJob } from '../windows-command-process.js';
 import { type HookRunVerdict, scanStdoutForRunVerdict } from './run-verdict.js';
 import {
   DEFAULT_HOOK_TIMEOUT_MS,
@@ -108,6 +110,117 @@ interface ExecuteHookOptions {
   readonly timeoutOverrideMs?: number;
 }
 
+// A failed physical Job wait must keep its owner reachable. Only the owner's
+// joined settlement callback removes an entry, exactly as for desktop commands.
+const windowsHooks = new Set<ReturnType<typeof createWindowsCommandProcess>>();
+
+async function executeWindowsHook(
+  hook: LoadedHook,
+  stdin: HookStdin,
+  logger: HookLogger,
+  options: ExecuteHookOptions,
+  childEnvironment: NodeJS.ProcessEnv,
+  startTime: number,
+  timeout: number
+): Promise<HookResult> {
+  const require = createRequire(import.meta.url);
+  const wrapperPath = require.resolve('@brainstrike/host-capabilities/windows-command-entry');
+  const native = require('@brainstrike/windows-job-native') as {
+    createCommandJob(): WindowsCommandJob;
+  };
+  const userEnvironment = Object.fromEntries(
+    Object.entries(childEnvironment).filter(
+      (entry): entry is [string, string] =>
+        entry[1] !== undefined && !/^NODE_CHANNEL_(?:FD|SERIALIZATION_MODE)$/iu.test(entry[0])
+    )
+  );
+  const wrapperEnvironment = Object.fromEntries(
+    Object.entries(userEnvironment).filter(
+      ([name]) =>
+        !/^(?:NODE_OPTIONS|NODE_PATH|NODE_CHANNEL_FD|NODE_CHANNEL_SERIALIZATION_MODE|ELECTRON_RUN_AS_NODE)$/iu.test(
+          name
+        )
+    )
+  );
+  wrapperEnvironment['ELECTRON_RUN_AS_NODE'] = '1';
+  let stdout = '';
+  let stderr = '';
+  let timedOut = false;
+  let joined = false;
+  const owner = createWindowsCommandProcess({
+    command: {
+      argv: ['/c', hook.definition.command],
+      cwd: hook.source.cwd,
+      env: userEnvironment,
+      executable: 'cmd',
+      stdin: JSON.stringify(redactSecrets(stdin)),
+      windowsVerbatimArguments: false,
+    },
+    createJob: () => native.createCommandJob(),
+    onOutput: (kind, chunk) => {
+      if (kind === 'stdout') {
+        stdout += chunk.toString();
+      } else {
+        stderr += chunk.toString();
+      }
+    },
+    onSettled: () => {
+      joined = true;
+      windowsHooks.delete(owner);
+    },
+    onStdinError: (message) =>
+      logger.debug('hook stdin write failed', {
+        command: hook.definition.command,
+        error: message,
+      }),
+    spawnWrapper: () =>
+      spawnNativeChild(process.execPath, [wrapperPath], {
+        cwd: hook.source.cwd,
+        detached: false,
+        env: wrapperEnvironment,
+        stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+        windowsHide: true,
+      }),
+  });
+  windowsHooks.add(owner);
+  const timer = setTimeout(() => {
+    timedOut = true;
+    // start() observes the same retirement failure. Never release an unjoined Job.
+    void owner.retire().catch(() => {});
+  }, timeout);
+  timer.unref();
+  try {
+    const result = await owner.start();
+    const parsedStdout = parseStdout(stdout);
+    const verdictScan = options.captureRunVerdict ? scanStdoutForRunVerdict(stdout) : undefined;
+    return {
+      exitCode: result.exitCode ?? 1,
+      hook: hook.definition,
+      ...(parsedStdout ? { stdout: parsedStdout } : {}),
+      ...(verdictScan?.verdict ? { runVerdict: verdictScan.verdict } : {}),
+      ...(verdictScan && verdictScan.warnings.length > 0
+        ? { runVerdictWarnings: verdictScan.warnings }
+        : {}),
+      ...(stderr.trim() ? { stderr: stderr.trim() } : {}),
+      durationMs: Date.now() - startTime,
+      timedOut,
+    };
+  } catch (error) {
+    if (!joined) {
+      throw error;
+    }
+    return {
+      durationMs: Date.now() - startTime,
+      exitCode: 1,
+      hook: hook.definition,
+      stderr: error instanceof Error ? error.message : String(error),
+      timedOut,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function executeHook(
   hook: LoadedHook,
   stdin: HookStdin,
@@ -116,23 +229,35 @@ function executeHook(
 ): Promise<HookResult> {
   const timeout = options.timeoutOverrideMs ?? hook.definition.timeout ?? DEFAULT_HOOK_TIMEOUT_MS;
   const startTime = Date.now();
-  const shell = isWindows ? 'cmd' : '/bin/sh';
-  const shellArgs = isWindows ? ['/c', hook.definition.command] : ['-c', hook.definition.command];
+  // Hooks need ordinary shell/runtime variables, but repository-controlled
+  // commands must never inherit provider credentials resolved into the
+  // privileged Desktop main-process environment.
+  const childEnvironment = createCredentialIsolatedChildEnvironment(process.env);
+  const strippedCredentialCount =
+    Object.keys(process.env).length - Object.keys(childEnvironment).length;
+  if (strippedCredentialCount > 0) {
+    logger.debug('hook environment removed provider credentials', {
+      strippedCredentialCount,
+    });
+  }
+  if (isWindows) {
+    return executeWindowsHook(
+      hook,
+      stdin,
+      logger,
+      options,
+      {
+        ...childEnvironment,
+        BRAINSTRIKE_HOOK_EVENT: stdin.hook_event_name,
+      },
+      startTime,
+      timeout
+    );
+  }
 
   return new Promise<HookResult>((resolve) => {
-    // Hooks need ordinary shell/runtime variables, but repository-controlled
-    // commands must never inherit provider credentials resolved into the
-    // privileged Desktop main-process environment.
-    const childEnvironment = createCredentialIsolatedChildEnvironment(process.env);
-    const strippedCredentialCount =
-      Object.keys(process.env).length - Object.keys(childEnvironment).length;
-    if (strippedCredentialCount > 0) {
-      logger.debug('hook environment removed provider credentials', {
-        strippedCredentialCount,
-      });
-    }
     // In the agent host the hook inherits the Root's flock (ADR-0017).
-    const child = spawnNativeChild(shell, shellArgs, {
+    const child = spawnNativeChild('/bin/sh', ['-c', hook.definition.command], {
       cwd: hook.source.cwd,
       // POSIX: own process group so the timeout can group-kill the whole tree
       // (see killHookTree). Windows has no process groups here.

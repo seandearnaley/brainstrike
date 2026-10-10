@@ -1,10 +1,11 @@
 import { statSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import { vi } from 'vitest';
 
 /** Source tests execute the actual bundled wrapper; packaged tests use the production resolver. */
 export function builtWindowsCommandEntry(): string {
-  const entry = fileURLToPath(new URL('../../../dist/windows-command-entry.js', import.meta.url));
+  // A native executable path must not enter Vite's new-URL asset transform.
+  const entry = resolve(import.meta.dirname, '../../../dist/windows-command-entry.js');
   if (!statSync(entry).isFile()) {
     throw new Error('Build Desktop main before running Windows command integration tests.');
   }
