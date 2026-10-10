@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { resetEmbeddingTelemetryForTests } from '@brainstrike/embedding-worker/testing';
 import { beforeEach, vi } from 'vitest';
 
@@ -122,7 +123,7 @@ const createHostWindowMock = vi.hoisted(() =>
 );
 
 vi.mock('electron', () => ({
-  app: { getAppPath: () => '/test/app', isPackaged: false },
+  app: { getAppPath: () => resolve('/test/app'), isPackaged: false },
   BrowserWindow: createHostWindowMock,
   powerSaveBlocker: { isStarted: vi.fn(), start: vi.fn(), stop: vi.fn() },
 }));

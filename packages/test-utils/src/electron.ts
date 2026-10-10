@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import type { Mock } from 'vitest';
 import { vi } from 'vitest';
 
@@ -86,7 +87,7 @@ export function createAppMock(opts?: {
 
   return {
     commandLine: { appendSwitch: vi.fn() },
-    getAppPath: vi.fn(() => '/app'),
+    getAppPath: vi.fn(() => resolve('/app')),
     getPath: vi.fn((key: string) => (key === 'documents' ? documentsPath : '/mock/path')),
     getVersion: vi.fn(() => '0.0.0-test'),
     isPackaged: false,

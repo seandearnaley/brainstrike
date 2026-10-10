@@ -16,7 +16,7 @@ const { MockBrowserWindow } = vi.hoisted(() => ({
 
 vi.mock('electron', () => ({
   app: {
-    getAppPath: vi.fn(() => '/tmp/brainstrike'),
+    getAppPath: vi.fn(() => path.resolve('/tmp/brainstrike')),
     isPackaged: false,
   },
   BrowserWindow: MockBrowserWindow,
@@ -158,7 +158,7 @@ function createFakeWindow(id: number): FakeWindow {
   };
 }
 
-const BUILT_RENDERER_PATH = '/tmp/brainstrike/dist/renderer/index.html';
+const BUILT_RENDERER_PATH = path.resolve('/tmp/brainstrike/dist/renderer/index.html');
 const DEV_RENDERER_URL = `http://localhost:${DESKTOP_DEV_RENDERER_PORT}`;
 const DEV_RENDERER_TARGET = createDesktopRendererTarget({
   builtRendererPath: BUILT_RENDERER_PATH,
@@ -448,7 +448,7 @@ describe('RendererHostLifecycle', () => {
         expect.objectContaining({
           webPreferences: expect.objectContaining({
             additionalArguments: [`--brainstrike-hidden-renderer-role=${role}`],
-            preload: path.join('/tmp/brainstrike/dist/hidden-preload.js'),
+            preload: path.resolve('/tmp/brainstrike/dist/hidden-preload.js'),
           }),
         })
       );
@@ -526,7 +526,7 @@ describe('RendererHostLifecycle', () => {
     await lifecycle.ensureStarted({ waitForRunning: false });
 
     expect(hostWindow.loadFile).toHaveBeenCalledWith(
-      path.join('/tmp/brainstrike/dist/renderer/index.html'),
+      BUILT_RENDERER_PATH,
       expect.objectContaining({
         query: expect.objectContaining({
           mode: 'embedding-host',

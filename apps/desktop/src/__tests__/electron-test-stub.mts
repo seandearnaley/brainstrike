@@ -19,13 +19,15 @@
  * did not bother to mock.
  */
 
+import { resolve } from 'node:path';
+
 const noop = (): void => undefined;
 
 const makeFn = (): ((...args: unknown[]) => undefined) => () => undefined;
 
 export const app = {
   exit: noop,
-  getAppPath: () => '/mock/app',
+  getAppPath: () => resolve('/mock/app'),
   getLocale: () => 'en-US',
   getName: () => 'Brainstrike',
   getPath: () => '/mock/path',

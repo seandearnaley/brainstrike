@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import {
   configureDesktopRendererTarget,
@@ -12,7 +13,7 @@ import type { DesktopWindowRole } from '../../window-role';
 /**
  * Deterministic renderer target + sender-frame allowlist for the desktop unit
  * lane (BST-1641). Matches the electron test harness's
- * `app.getAppPath() === '/mock/app'` so a production-shaped
+ * `app.getAppPath() === resolve('/mock/app')` so a production-shaped
  * `dist/renderer/index.html` URL is the trusted document — and so a suite that
  * boots `main.ts` under that mock configures an equal target.
  * `src/__tests__/setup.ts` installs the target process-wide before every
@@ -21,7 +22,7 @@ import type { DesktopWindowRole } from '../../window-role';
  * This module deliberately imports no window-role RUNTIME so suites that mock
  * `window-role` can still build allowlisted frames.
  */
-const TEST_BUILT_RENDERER_PATH = '/mock/app/dist/renderer/index.html';
+const TEST_BUILT_RENDERER_PATH = resolve('/mock/app/dist/renderer/index.html');
 export const TEST_DESKTOP_RENDERER_TARGET = createDesktopRendererTarget({
   builtRendererPath: TEST_BUILT_RENDERER_PATH,
   devRendererUrl: 'http://localhost:38181',
