@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { resolve } from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
 
 /**
@@ -426,6 +427,7 @@ describe('main workspace-open lifecycle', () => {
     mockWindowInstances = [];
     isDesktopShuttingDownMock.mockReturnValue(false);
     mockApp.isPackaged = false;
+    mockApp.whenReady.mockResolvedValue();
     getDatabaseMock.mockResolvedValue({});
     existsSyncMock.mockReturnValue(true);
     statSyncMock.mockReturnValue({ isDirectory: () => true });
@@ -446,16 +448,47 @@ describe('main workspace-open lifecycle', () => {
   });
 
   it('registers the open-file listener at module scope, before app.whenReady() ever resolves', async () => {
-    // If registration ever moved inside `app.whenReady().then(...)`, this
-    // never-resolving promise would mean the `.then` callback never runs —
-    // the ONLY way to discriminate "at module scope" from "asserted by name
-    // only" (a whenReady that resolves immediately can't tell them apart,
-    // since `await import(...)` drains microtasks either way).
-    mockApp.whenReady.mockReturnValueOnce(new Promise(() => undefined));
+    // Observe registration while readiness is held, then join the actual
+    // Main bootstrap callback as well as module evaluation before the next case.
+    const registered = Promise.withResolvers<void>();
+    mockApp.on.mockImplementation((event) => {
+      if (event === 'open-file') {
+        registered.resolve();
+      }
+    });
+    const readyGate = Promise.withResolvers<void>();
+    const readyOperations: Promise<unknown>[] = [];
+    const then = readyGate.promise.then.bind(readyGate.promise);
+    vi.spyOn(readyGate.promise, 'then').mockImplementation((onFulfilled, onRejected) => {
+      const operation = then(onFulfilled, onRejected);
+      readyOperations.push(operation);
+      return operation;
+    });
+    mockApp.whenReady.mockReturnValue(readyGate.promise);
+    const mainImport = import('../../main');
+    const finishMain = async () => {
+      readyGate.resolve();
+      try {
+        const imported = await Promise.allSettled([mainImport]);
+        const bootstrapped = await Promise.allSettled(readyOperations);
+        const failures = [...imported, ...bootstrapped].flatMap((result) =>
+          result.status === 'rejected' ? [result.reason] : []
+        );
+        if (failures.length > 0) {
+          throw new AggregateError(failures, 'Main fixture bootstrap did not settle successfully');
+        }
+      } finally {
+        mockApp.on.mockImplementation(() => undefined);
+      }
+    };
+    onTestFinished(finishMain);
 
-    await import('../../main');
-
-    expect(mockApp.on).toHaveBeenCalledWith('open-file', expect.any(Function));
+    try {
+      await Promise.race([registered.promise, mainImport.then(() => registered.promise)]);
+      expect(mockApp.on).toHaveBeenCalledWith('open-file', expect.any(Function));
+    } finally {
+      await finishMain();
+    }
   });
 
   it('queues an open-file request fired before the window loads, then delivers it once the window is created', async () => {
@@ -495,6 +528,7 @@ describe('main workspace-open lifecycle', () => {
   });
 
   it('second-instance argv is enqueued and delivered end to end, not just accepted by arity', async () => {
+    const folderPath = resolve('/work/second-instance-repo');
     await import('../../main');
 
     const secondInstanceHandler = findHandler<
@@ -519,7 +553,7 @@ describe('main workspace-open lifecycle', () => {
         '--no-sandbox',
         '--allow-file-access-from-files',
         '/mock/app',
-        '/work/second-instance-repo',
+        folderPath,
       ],
       '/cwd'
     );
@@ -531,7 +565,7 @@ describe('main workspace-open lifecycle', () => {
 
     expect(latestWindow().webContents.send).toHaveBeenCalledWith(OPEN_PATH_CHANNEL, {
       origin: 'second-instance',
-      path: '/work/second-instance-repo',
+      path: folderPath,
     });
   });
 
@@ -583,7 +617,8 @@ describe('main workspace-open lifecycle', () => {
   });
 
   it('enqueues and delivers a launch-argv folder exactly once', async () => {
-    process.argv = [...process.argv, '/work/argv-repo'];
+    const folderPath = resolve('/work/argv-repo');
+    process.argv = [...process.argv, folderPath];
 
     await import('../../main');
 
@@ -594,7 +629,7 @@ describe('main workspace-open lifecycle', () => {
 
     expect(latestWindow().webContents.send).toHaveBeenCalledExactlyOnceWith(OPEN_PATH_CHANNEL, {
       origin: 'argv',
-      path: '/work/argv-repo',
+      path: folderPath,
     });
 
     // A later, unrelated MAIN-FRAME reload (did-start-loading +
