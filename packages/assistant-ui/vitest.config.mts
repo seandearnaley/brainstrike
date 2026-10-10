@@ -7,6 +7,7 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 import type { BrowserCommand, BrowserConfigOptions } from 'vitest/node';
 import { createBrowserProject } from '../config/src/vitest-browser.ts';
+import { measureCommittedProduction } from './committed-production-command.mts';
 
 const emulateReducedMotion: BrowserCommand<[options: { enabled: boolean | null }]> = async (
   { page },
@@ -139,7 +140,11 @@ export default defineConfig({
           ...browserProject.test,
           browser: {
             ...sharedBrowserOptions,
-            commands: { ...sharedBrowserOptions.commands, emulateReducedMotion },
+            commands: {
+              ...sharedBrowserOptions.commands,
+              emulateReducedMotion,
+              measureCommittedProduction,
+            },
           },
           globals: true,
           sequence: {
