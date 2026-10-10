@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS, type RuntimeData } from '@brainstrike/agent';
 import { app } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
@@ -451,7 +452,7 @@ describe('agent-stream-init runtime composition and memory', () => {
     const { streamResponse } = await import('../../assistant-server/http');
 
     mockDesktopDatabase.query.mockResolvedValueOnce({
-      rows: [{ displayName: 'Server Root', id: 'db-root-id', path: '/work/server-root' }],
+      rows: [{ displayName: 'Server Root', id: 'db-root-id', path: resolve('/work/server-root') }],
     });
     (readWorkspaceTextFile as Mock).mockResolvedValueOnce({
       content: 'export const answer = 42;',
@@ -487,7 +488,7 @@ describe('agent-stream-init runtime composition and memory', () => {
 
     expect(readWorkspaceTextFile).toHaveBeenCalledWith({
       requestedPath: 'src/answer.ts',
-      rootPath: '/work/server-root',
+      rootPath: resolve('/work/server-root'),
     });
     const [messages] = (toAiSdkStyleStream as Mock).mock.calls[0] as [
       Array<{ role: string; parts: Array<{ text?: string }> }>,
@@ -506,7 +507,7 @@ describe('agent-stream-init runtime composition and memory', () => {
     const { streamResponse } = await import('../../assistant-server/http');
 
     mockDesktopDatabase.query.mockResolvedValueOnce({
-      rows: [{ displayName: 'Server Root', id: 'db-root-id', path: '/work/server-root' }],
+      rows: [{ displayName: 'Server Root', id: 'db-root-id', path: resolve('/work/server-root') }],
     });
     (convertAssistantUiMessages as Mock).mockReturnValueOnce([
       { parts: [{ text: 'Read the project', type: 'text' }], role: 'user' },
@@ -544,7 +545,7 @@ describe('agent-stream-init runtime composition and memory', () => {
     expect(runtime.workspaceRoots).toEqual([
       {
         displayName: 'Server Root',
-        path: '/work/server-root',
+        path: resolve('/work/server-root'),
         rootId: 'db-root-id',
       },
     ]);
