@@ -131,13 +131,20 @@ test('the standalone CLI host runs the shared file tool over its --workspace lau
       'approve',
     ])
   ).toMatchObject({ code: 0 });
-  let finished: Awaited<ReturnType<typeof rows>> = [];
-  await expect
-    .poll(async () => {
-      finished = await rows(dataRoot, threadId);
-      return finished.find((row) => row.event.type === 'run.finished')?.event;
-    })
-    .toMatchObject({ outcome: 'completed' });
+  const attached = await command(dataRoot, [
+    'attach',
+    '--thread',
+    threadId,
+    '--run',
+    runId,
+    '--json',
+    '--non-interactive',
+  ]);
+  expect(attached, attached.stderr).toMatchObject({ code: 0, stderr: '' });
+  const finished = await rows(dataRoot, threadId);
+  expect(finished.find((row) => row.event.type === 'run.finished')?.event).toMatchObject({
+    outcome: 'completed',
+  });
   expect(await readFile(join(workspace, 'notes.txt'), 'utf8')).toBe(EDIT.content);
   expect(finished.filter((row) => row.event.type === 'workspace.edit.recorded')).toEqual([
     expect.objectContaining({

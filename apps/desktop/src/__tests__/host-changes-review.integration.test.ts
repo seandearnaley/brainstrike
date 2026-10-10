@@ -28,6 +28,7 @@ import {
   startAgentHost,
 } from '@brainstrike/agent-host';
 import { scriptedModel } from '@brainstrike/agent-host/test-fixtures/scripted-model';
+import { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
@@ -154,14 +155,32 @@ async function rowsUntil(
   threadId: string,
   done: (row: HostLogRow) => boolean
 ): Promise<readonly HostLogRow[]> {
-  let rows: readonly HostLogRow[] = [];
-  await expect
-    .poll(async () => {
-      rows = (await client.request('thread/read', { fromSeq: 0, threadId })).rows;
-      return rows.some(done);
-    })
-    .toBe(true);
-  return rows;
+  const session = new CommittedThreadSession(client, threadId);
+  const ready = Promise.withResolvers<readonly HostLogRow[]>();
+  const release = session.subscribe(() => {
+    const snapshot = session.getSnapshot();
+    if (snapshot.error) {
+      ready.reject(new Error(snapshot.error));
+    } else if (!snapshot.connected) {
+      ready.reject(new Error('Host disconnected before the required committed event'));
+    } else if (snapshot.rows.some(done)) {
+      ready.resolve(snapshot.rows);
+    }
+  });
+  const disconnect = session.connect();
+  const close = async (): Promise<void> => {
+    release();
+    ready.reject(new Error('Test cleanup ended the pending host row wait'));
+    await disconnect();
+  };
+  cleanup.push(close);
+  try {
+    const rows = await ready.promise;
+    expect(rows.some(done)).toBe(true);
+    return rows;
+  } finally {
+    await close();
+  }
 }
 
 interface HostRunOptions {
