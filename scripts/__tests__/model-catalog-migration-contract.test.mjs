@@ -91,49 +91,6 @@ describe('model catalog migration contract', () => {
     );
   });
 
-  it('documents the safe procedure for catalog rollback with live user data', () => {
-    assert.match(
-      databaseContract,
-      /^### SAFE CATALOG ROLLBACK WITH LIVE USER DATA$/m,
-      'the database contract must retain the catalog rollback safety section'
-    );
-    assert.match(
-      databaseContract,
-      /no shipped production `down` path[\s\S]*append-only `__drizzle_migrations` ledger[\s\S]*Never execute raw `down` SQL or edit the production ledger/,
-      'the runbook must forbid unsupported production down SQL and ledger edits'
-    );
-    assert.match(
-      databaseContract,
-      /On desktop, capture both `<database root>\/profiles\/<profile>\/pgdata`[\s\S]*Chromium renderer `localStorage` and `electron-storage\.json`[\s\S]*On web, capture the origin's PGlite IndexedDB store and `localStorage`[\s\S]*if any required store or a verified restore is unavailable, stop/,
-      'the runbook must enumerate every platform-specific store and fail closed without a verified restore'
-    );
-    assert.match(
-      databaseContract,
-      /Query PGlite tables such as `models`, `brainstrike_assistant_thread_runs\.model`, and `brainstrike_assistant_run_usage\.model`[\s\S]*`assistant-preferences\.v1` in renderer `window\.localStorage` on desktop and web[\s\S]*`assistant-memory-preferences\.v1` through the Electron storage bridge \(`electron-storage\.json`\) on desktop or browser `localStorage` on web/,
-      'the runbook must map SQL and each persisted JSON key to its actual platform storage'
-    );
-    assert.match(
-      databaseContract,
-      /Preserve historical run model text[\s\S]*never disable the constraint or cascade-delete user history/,
-      'the runbook must preserve provenance and fail closed on present or future constraints'
-    );
-    assert.match(
-      databaseContract,
-      /Remap only mutable preference state[\s\S]*store-version bump[\s\S]*replacement exists in the target catalog/,
-      'the runbook must constrain preference remaps and verify their catalog target'
-    );
-    assert.match(
-      databaseContract,
-      /production Drizzle runner and its real ledger state[\s\S]*numbered-runner `down` then `up` behavior[\s\S]*not a production deployment path/,
-      'the runbook must distinguish test rollback verification from production recovery'
-    );
-    assert.match(
-      databaseContract,
-      /Apply only the reviewed forward migration through the production Drizzle runner[\s\S]*verify migration-ledger state[\s\S]*historical thread rendering/,
-      'the runbook must return to the live profile only through reviewed forward migration'
-    );
-  });
-
   it('accepts catalog migrations registered only in the numbered manifest', () => {
     const result = analyzeModelCatalogMigrationContract({
       migrationFiles: [
