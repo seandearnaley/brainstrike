@@ -8,6 +8,7 @@ import { migrate, wasmLoader } from '@brainstrike/db';
 import { resetToolCallLoopGuards } from '@brainstrike/host-capabilities/native-tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { disposeLspServers } from '../../assistant-server/lsp-diagnostics';
 import { requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 import { createWorkspaceFixture } from './_workspace-fixture';
 import { createBudgetedHost } from './fixtures/budgeted-host';
@@ -170,6 +171,7 @@ describe('read-before-write staleness guard', () => {
       expect((await git(['status', '--porcelain'])).stdout.trim().split('\n')).toHaveLength(3);
       expect((await git(['rev-list', '--count', 'HEAD'])).stdout.trim()).toBe('1');
     } finally {
+      await disposeLspServers();
       await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
     }
   });
@@ -586,6 +588,7 @@ describe('read-before-write staleness guard', () => {
         })
       ).rejects.toThrow(/changed on disk since/i);
     } finally {
+      await disposeLspServers();
       await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
     }
   });
