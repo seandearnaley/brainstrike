@@ -1,5 +1,6 @@
 import { rm } from 'node:fs/promises';
 import {
+  configureNativeCollectionSearch,
   createNativeImportRoot,
   type NativeCollectionWork,
   observeNativeCollectionWork,
@@ -703,19 +704,28 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
   });
 
   test('@desktop-embedding-mixed keeps the import collection backfill and search path working during a real mixed-state desktop session', async ({
+    electron,
     electronApp,
     window,
   }) => {
     test.setTimeout(540_000);
     const electronStderrBaselineCount = (await getRelevantElectronStderr(electronApp.app)).length;
 
-    const scenario = await prepareRealWorldMixedStateScenario(electronApp.app, window);
-    const activeWindow = scenario.activeWindow;
+    const nativeImportRoot = await createNativeImportRoot(
+      REAL_WORLD_MIXED_STATE_FILE_COUNT,
+      ACTUAL_IMPORT_SENTENCES_PER_FILE
+    );
+    const assertCleanShutdown = captureNativeShutdown(electronApp.app);
 
     // Clicks in this stress test use 30s timeouts because the collection browser's loading
     // overlay (z-20, aria-busy) stays visible for 15–30s while refetching data after heavy
     // import/backfill/search operations. This is a known collection browser perf issue.
     try {
+      const scenario = await prepareRealWorldMixedStateScenario(electronApp.app, window, {
+        nativeCollectionSearch: false,
+        nativeImportRoot,
+      });
+      const activeWindow = scenario.activeWindow;
       const importCollectionOption = activeWindow.locator(
         `#collection-option-${scenario.importEmbeddingSetId}`
       );
@@ -877,6 +887,17 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
 
       expect(embeddedChunkCount).toBeGreaterThan(0);
 
+      // Imported collection contents are retained sources for the native index.
+      // Catalog backfill alone does not configure desktop semantic search.
+      await configureNativeCollectionSearch(activeWindow, scenario.importCollectionName);
+      await expect
+        .poll(
+          async () =>
+            (await observeNativeCollectionWork(activeWindow, scenario.importEmbeddingSetId))
+              ?.vectors ?? 0,
+          { timeout: 120_000 }
+        )
+        .toBeGreaterThan(0);
       const searchPanel = await openWorkspaceSearchPanel(activeWindow);
       await selectWorkspaceSearchCollection(searchPanel, scenario.importCollectionName);
       await runWorkspaceSemanticSearch(searchPanel, 'stress-file-42-sentence-0');
@@ -1032,8 +1053,12 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
       expect(embeddingHostStatusAfterExpand.state).not.toBe('error');
       expect(chunkingHostStatusAfterExpand.state).not.toBe('error');
       expect(importSnapshotAfterExpand?.activeCollectionId).not.toBeNull();
-    } finally {
+      await pauseNativeCollectionSources(activeWindow);
       await cleanupRealWorldMixedStateTest(electronApp, activeWindow);
+    } finally {
+      await electron.closeForStateSeeding();
+      assertCleanShutdown();
+      await rm(nativeImportRoot, { force: true, recursive: true });
     }
   });
 

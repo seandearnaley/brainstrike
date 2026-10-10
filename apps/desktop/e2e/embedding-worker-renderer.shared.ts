@@ -3024,8 +3024,12 @@ export async function waitForReclaimCycleAndResumedProcessing(
 export async function prepareRealWorldMixedStateScenario(
   electronApp: ElectronApplication,
   window: Page,
-  options: { readonly nativeImportRoot?: string } = {}
+  options: {
+    readonly nativeImportRoot?: string;
+    readonly nativeCollectionSearch?: boolean;
+  } = {}
 ): Promise<RealWorldMixedStateScenario> {
+  const nativeCollectionSearch = options.nativeCollectionSearch ?? !!options.nativeImportRoot;
   let activeWindow = await showDatabaseDemoPanel(window);
 
   if (await isDatabaseError(activeWindow)) {
@@ -3069,7 +3073,7 @@ export async function prepareRealWorldMixedStateScenario(
 
   const searchableCollectionName = `Searchable Mixed State ${Date.now()}`;
   let searchableEmbeddingSetId: string;
-  if (options.nativeImportRoot) {
+  if (nativeCollectionSearch) {
     const fixture = await createNativeImportedSearchFixture(activeWindow, searchableCollectionName);
     searchableEmbeddingSetId = fixture.embeddingSetId;
     await configureNativeCollectionSearch(activeWindow, searchableCollectionName);
@@ -3252,7 +3256,7 @@ export async function prepareRealWorldMixedStateScenario(
   await waitForDatabaseDemoImportIdle(activeWindow);
 
   let backgroundFixture: BackfillCorpusFixture | null = null;
-  if (options.nativeImportRoot) {
+  if (nativeCollectionSearch) {
     await resumeNativeCollectionSources(activeWindow);
   } else {
     backgroundFixture = await createLargeBackfillCorpusFixture(activeWindow, {
