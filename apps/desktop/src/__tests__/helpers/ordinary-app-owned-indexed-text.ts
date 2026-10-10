@@ -1,5 +1,7 @@
 // @vitest-environment node
+
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { createConnection } from 'node:net';
 import { join, resolve } from 'node:path';
 import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost } from '@brainstrike/agent-host';
@@ -250,9 +252,7 @@ export async function qualifyOrdinaryAppIndexedText(
           '--brainstrike-desktop-launch-mode=test-built',
         ],
         env,
-        executablePath:
-          process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ??
-          join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
+        executablePath: process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ?? electronPath(),
       })
     );
     const appProcess = application.process();
@@ -629,4 +629,12 @@ export async function qualifyOrdinaryAppIndexedText(
   if (failure) {
     throw failure;
   }
+}
+
+function electronPath(): string {
+  const value: unknown = createRequire(import.meta.url)('electron');
+  if (typeof value !== 'string') {
+    throw new TypeError('Electron package did not expose its executable path');
+  }
+  return value;
 }
