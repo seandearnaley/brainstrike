@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { render } from '@testing-library/react';
 import { createElement } from 'react';
@@ -16,7 +16,7 @@ const readSource = (relativePath: string): string =>
 function listComponentSourceFiles(): string[] {
   return readdirSync(sourceRoot, { recursive: true })
     .map((entry) => entry.toString())
-    .filter((entry) => entry.endsWith('.tsx') && !entry.includes('__tests__/'));
+    .filter((entry) => entry.endsWith('.tsx') && !entry.split(sep).includes('__tests__'));
 }
 
 /**
