@@ -406,6 +406,11 @@ test('URL capabilities stay ephemeral while accept without form content resolves
   await client.request('mcp/input/stage', input);
   await client.request('mcp/input/settle', settle);
   await expect.poll(() => delivered.length).toBe(1);
+  await expect
+    .poll(async () =>
+      (await host.core.read(input.threadId, 0)).some((row) => row.event.type === 'run.finished')
+    )
+    .toBe(true);
   expect(JSON.stringify(await host.core.read(input.threadId, 0)).includes(secret)).toBe(false);
   expect(await rootFilesContain(root, secret)).toBe(false);
 });
