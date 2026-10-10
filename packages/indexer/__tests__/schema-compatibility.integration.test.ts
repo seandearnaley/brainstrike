@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { openIndexer } from '@brainstrike/indexer';
 import { openConnection } from '@brainstrike/sqlite-native';
@@ -163,11 +164,15 @@ for (const version of [8, 9] as const) {
       writeFileSync(optionsPath, JSON.stringify(f.options));
       await expect(
         promisify(execFile)(process.execPath, [
-          new URL('./fixtures/schema-compatibility-crash.mjs', import.meta.url).pathname,
+          fileURLToPath(new URL('./fixtures/schema-compatibility-crash.mjs', import.meta.url)),
           optionsPath,
           receiptPath,
         ])
-      ).rejects.toMatchObject({ signal: 'SIGKILL' });
+      ).rejects.toMatchObject(
+        process.platform === 'win32'
+          ? { code: 1, killed: false, signal: null, stderr: '', stdout: '' }
+          : { signal: 'SIGKILL' }
+      );
       expect(JSON.parse(readFileSync(receiptPath, 'utf8'))).toEqual({
         added: 1,
         inTransaction: true,

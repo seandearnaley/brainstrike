@@ -3,9 +3,20 @@ const { app, utilityProcess } = require('electron');
 const path = require('node:path');
 const assert = require('node:assert/strict');
 const { DatabaseSync } = require('node:sqlite');
+const userData = process.env.BRAINSTRIKE_SCOPED_PROOF_USER_DATA;
+assert.ok(userData && path.isAbsolute(userData), 'Disposable Electron userData is required');
+app.setPath('userData', userData);
+app.setPath('sessionData', path.join(userData, 'session-data'));
 app
   .whenReady()
   .then(async () => {
+    const actualProfile = {
+      sessionData: app.getPath('sessionData'),
+      userData: app.getPath('userData'),
+    };
+    assert.equal(actualProfile.userData, userData);
+    assert.equal(actualProfile.sessionData, path.join(userData, 'session-data'));
+    console.log(`SCOPED_ELECTRON_PROFILE:${JSON.stringify(actualProfile)}`);
     const { createIndexerConnection } = await import('@brainstrike/indexer/transport');
     const { sqliteVecExtensionPath } = await import('@brainstrike/sqlite-native');
     const { decodeIndexIdentityRow } = await import('@brainstrike/indexer/metadata');
