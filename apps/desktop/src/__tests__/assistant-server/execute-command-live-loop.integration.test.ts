@@ -3,7 +3,7 @@
  *
  * Drives the REAL Mastra agent loop (`streamMastraAgent`) against the REAL
  * desktop shell tool from `buildDesktopAssistantTools` — its real `execute`,
- * which spawns `/bin/sh` and runs `echo hello`, against a real temp-dir
+ * which spawns the native shell and runs a Node fixture, against a real temp-dir
  * workspace. Only the language model is scripted (provider 'local' with an
  * injected `LocalLlmHostClient`, mirroring glob-workspace-live-loop.test.ts —
  * no API key, no network).
@@ -90,6 +90,12 @@ async function makeWorkspace(): Promise<string> {
   return real;
 }
 
+async function writeCommandFixture(root: string, source: string): Promise<string> {
+  const fixture = path.join(root, 'live-command.cjs');
+  await fsPromises.writeFile(fixture, source, 'utf8');
+  return `"${process.execPath}" "${fixture}"`;
+}
+
 afterEach(async () => {
   disposeLiveChildProcesses();
   while (createdRoots.length > 0) {
@@ -120,7 +126,16 @@ describe('executeCommand live Mastra loop (real agent, real shell execute)', () 
     const tools = buildDesktopAssistantTools(singleRootRuntime(root));
     const executeTool = requireTool(tools, 'brainstrike.executeCommand');
 
-    const hostClient = createScriptedHostClient(`echo hello-from-shell > "${marker}"; echo done`);
+    const hostClient = createScriptedHostClient(
+      await writeCommandFixture(
+        root,
+        [
+          "const { writeFileSync } = require('node:fs');",
+          `writeFileSync(${JSON.stringify(marker)}, 'hello-from-shell\\n');`,
+          "process.stdout.write('done\\n');",
+        ].join('\n')
+      )
+    );
 
     const iterator = await streamMastraAgent(
       [
@@ -174,7 +189,9 @@ describe('executeCommand live Mastra loop (real agent, real shell execute)', () 
 
     // A command that emits a distinctive marker to stdout the tool must stream
     // live (via the Mastra writer) BEFORE the final result is captured.
-    const hostClient = createScriptedHostClient(`printf 'LIVE_STREAM_MARKER\n'`);
+    const hostClient = createScriptedHostClient(
+      await writeCommandFixture(root, "process.stdout.write('LIVE_STREAM_MARKER\\n');")
+    );
 
     const iterator = await streamMastraAgent(
       [{ id: 'u-exec-stream', parts: [{ text: 'run it', type: 'text' }], role: 'user' }],
