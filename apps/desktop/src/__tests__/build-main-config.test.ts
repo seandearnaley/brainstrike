@@ -78,6 +78,7 @@ describe('main-process bundle config', () => {
       'parser-host-entry': 'src/parser-host-entry.ts',
       preload: 'src/preload.ts',
       'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
+      'windows-command-entry': 'src/windows-command-entry.ts',
     });
     expect(AGENT_HOST_PLATFORM_BUILD_OPTIONS.entryPoints).toEqual({
       'agent-host-platform-entry': 'src/agent-host-platform-entry.ts',

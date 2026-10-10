@@ -780,9 +780,8 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     // true fresh start with no orphaned subprocess surviving the wipe.
     {
       name: 'shell-children',
-      stop: () => {
-        disposeLiveChildProcesses();
-        return Promise.resolve();
+      stop: async () => {
+        await disposeLiveChildProcesses();
       },
     },
     // Reap any live terminal pty so a factory reset is a true fresh start with

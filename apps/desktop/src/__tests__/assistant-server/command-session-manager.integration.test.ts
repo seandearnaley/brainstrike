@@ -1,3 +1,4 @@
+import './_windows-command-fixture';
 /**
  * Real node-pty coverage for persistent command sessions. These tests prove the
  * lifecycle property that mocks cannot: a server remains reachable after

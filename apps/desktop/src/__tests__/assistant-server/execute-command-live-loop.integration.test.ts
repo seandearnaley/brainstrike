@@ -1,3 +1,4 @@
+import './_windows-command-fixture';
 /**
  * LIVE-loop coverage for the desktop `brainstrike.executeCommand` tool.
  *
@@ -101,7 +102,7 @@ async function writeCommandFixture(
 }
 
 afterEach(async () => {
-  disposeLiveChildProcesses();
+  await disposeLiveChildProcesses();
   while (createdRoots.length > 0) {
     const root = createdRoots.pop();
     if (root) {

@@ -65,6 +65,7 @@ export const MAIN_PROCESS_ENTRY_POINTS = {
   'parser-host-entry': 'src/parser-host-entry.ts',
   preload: 'src/preload.ts',
   'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
+  'windows-command-entry': 'src/windows-command-entry.ts',
 };
 
 /** Each existing process-wide owner is emitted once, shared by bootstrap and Main. */
