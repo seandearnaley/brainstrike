@@ -3,7 +3,7 @@ import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost, readHostRow } from '@brainstrike/agent-host';
 import { makeThrowingDecoder, runWithTimeout } from '@brainstrike/effect-kit';
 import {
@@ -24,6 +24,9 @@ const decodeReport = makeThrowingDecoder(
     event: Schema.String,
     message: Schema.optional(Schema.String),
     owned: Schema.optional(Schema.Boolean),
+    profile: Schema.optional(
+      Schema.Struct({ sessionData: Schema.String, userData: Schema.String })
+    ),
     record: Schema.optional(Schema.Unknown),
   }),
   { onExcessProperty: 'error' }
@@ -127,11 +130,13 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
   } else {
     Reflect.deleteProperty(env, 'BRAINSTRIKE_M3_OWNED_PLATFORM_MODULE');
   }
+  const userData = join(directory, `electron-profile-${randomUUID()}`);
   const args = [
     driver,
     root,
     platformModule ? agentEntrypoint : entrypoint,
     String(startupTimeoutMs ?? 10_000),
+    `--user-data-dir=${userData}`,
   ];
   if (process.platform === 'linux' && process.getuid?.() === 0) {
     // Chromium refuses root in this isolated test container without this flag.
@@ -143,6 +148,7 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
   let buffered = '';
   let stderr = '';
   let owned = false;
+  let profileReported = false;
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', (chunk: string) => {
     stderr += chunk;
@@ -163,7 +169,19 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
       buffered = buffered.slice(newline + 1);
       try {
         const report = decodeReport(JSON.parse(line));
-        if (report.event === 'attached') {
+        if (report.event === 'profile') {
+          if (!report.profile) {
+            throw new Error('Electron fixture omitted its actual profile paths');
+          }
+          expect(resolve(report.profile.userData)).toBe(resolve(userData));
+          const sessionPath = relative(userData, report.profile.sessionData);
+          expect(isAbsolute(sessionPath)).toBe(false);
+          expect(sessionPath.split(sep)).not.toContain('..');
+          profileReported = true;
+        } else if (report.event === 'attached') {
+          if (!profileReported) {
+            throw new Error('Electron fixture attached before reporting its disposable profile');
+          }
           if (report.owned === undefined) {
             throw new Error('Electron fixture omitted host ownership');
           }
