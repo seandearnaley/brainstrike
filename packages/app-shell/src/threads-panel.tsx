@@ -1,3 +1,4 @@
+import { hasFactoryResetPreparationStarted } from '@brainstrike/app-state/factory-reset';
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import {
@@ -2184,7 +2185,7 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
   useThreadsPanelDropMonitor(handlePanelDrop);
 
   useEffect(() => {
-    if (!(repository && resourceId)) {
+    if (!(repository && resourceId) || hasFactoryResetPreparationStarted()) {
       return;
     }
     ensureResourceThreads(repository, resourceId).catch(() => {

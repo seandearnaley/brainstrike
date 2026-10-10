@@ -1,3 +1,4 @@
+import { hasFactoryResetPreparationStarted } from '@brainstrike/app-state/factory-reset';
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
@@ -798,7 +799,7 @@ export function AssistantUiPanelWrapper({
   }, [localChatTransport, skillsDisabledKeys, skillsMasterEnabled]);
 
   useEffect(() => {
-    if (!assistantThreadRepository) {
+    if (!assistantThreadRepository || hasFactoryResetPreparationStarted()) {
       return;
     }
     ensureResourceThreads(assistantThreadRepository, memoryResourceId).catch(() => {
