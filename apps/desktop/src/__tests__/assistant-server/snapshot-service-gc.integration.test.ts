@@ -150,19 +150,19 @@ describe('restorePathsFromSnapshot', () => {
   it('a glob-looking journal path matches itself literally, never expands', {
     timeout: HEAVY_TIMEOUT_MS,
   }, async () => {
-    await write('star*.txt', 'literal star\n');
-    await write('starABC.txt', 'not this one\n');
+    await write('bracket[ab].txt', 'literal star\n');
+    await write('bracketa.txt', 'not this one\n');
     const oid = await snap();
-    await write('star*.txt', 'changed\n');
-    await write('starABC.txt', 'changed too\n');
+    await write('bracket[ab].txt', 'changed\n');
+    await write('bracketa.txt', 'changed too\n');
 
     const outcomes = await service.restorePathsFromSnapshot(handle, oid, [
-      { expectAbsent: false, path: 'star*.txt' },
+      { expectAbsent: false, path: 'bracket[ab].txt' },
     ]);
-    expect(outcomes).toEqual([{ outcome: 'restored', path: 'star*.txt' }]);
-    expect(await readOrNull('star*.txt')).toBe('literal star\n');
+    expect(outcomes).toEqual([{ outcome: 'restored', path: 'bracket[ab].txt' }]);
+    expect(await readOrNull('bracket[ab].txt')).toBe('literal star\n');
     // The sibling the glob WOULD have matched stays untouched.
-    expect(await readOrNull('starABC.txt')).toBe('changed too\n');
+    expect(await readOrNull('bracketa.txt')).toBe('changed too\n');
   });
 });
 
