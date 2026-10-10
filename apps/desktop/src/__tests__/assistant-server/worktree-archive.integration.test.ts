@@ -52,7 +52,6 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
   let managedDirectory: string;
   let repo: string;
   const workspace = createTestWorkspace();
-
   const buildService = () => buildTestService({ db, managedDirectory, repo });
 
   /** Seed the real migrated run relation and owning thread, never a stand-in table. */
@@ -77,9 +76,10 @@ describe('WorktreeService archive and branch attachment (real git + real PGlite)
     db = new PGlite({ extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector } });
     await runMigrations(db);
     repo = workspace.freshRepo('archive-repo');
+    // These fixtures assert authored LF bytes through Git's archive/restore pipeline.
+    git(repo, ['config', '--local', 'core.autocrlf', 'false']);
     managedDirectory = workspace.freshManagedDir();
   });
-
   afterEach(async () => {
     await db.close();
     workspace.cleanup();

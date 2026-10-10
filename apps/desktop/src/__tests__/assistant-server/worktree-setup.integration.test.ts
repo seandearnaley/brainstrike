@@ -112,6 +112,16 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
     };
   }
 
+  function configuredInput(script: string): WorktreeSetupInput {
+    const scriptPath = path.join(tempRoot, 'configured-setup.cjs');
+    writeFileSync(scriptPath, script);
+    const input = baseInput();
+    return {
+      ...input,
+      settings: { ...input.settings, setupCommand: [process.execPath, scriptPath] },
+    };
+  }
+
   beforeEach(() => {
     tempRoot = mkdtempSync(path.join(tmpdir(), 'brainstrike-worktree-setup-'));
     repo = path.join(tempRoot, 'repo');
@@ -157,12 +167,12 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
     expect(existsSync(path.join(worktreePath, 'hostcfg', 'credentials'))).toBe(false);
     expect(outcome.skippedCopies).toEqual([
       expect.objectContaining({
-        path: 'hostcfg/credentials',
+        path: path.join('hostcfg', 'credentials'),
         pattern: 'hostcfg/credentials',
         reason: expect.stringContaining('outside the repository root'),
       }),
     ]);
-    expect(outcome.output).toContain('hostcfg/credentials');
+    expect(outcome.output).toContain(path.join('hostcfg', 'credentials'));
     expect(outcome.status).toBe('succeeded');
   });
 
@@ -179,11 +189,11 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
     expect(existsSync(path.join(outside, 'config.json'))).toBe(false);
     expect(outcome.skippedCopies).toEqual([
       expect.objectContaining({
-        path: 'evil/config.json',
+        path: path.join('evil', 'config.json'),
         reason: expect.stringContaining('outside the worktree root'),
       }),
     ]);
-    expect(outcome.output).toContain('evil/config.json');
+    expect(outcome.output).toContain(path.join('evil', 'config.json'));
     expect(outcome.status).toBe('succeeded');
   });
 
@@ -194,7 +204,7 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
 
     const outcome = await runWorktreeSetup(baseInput());
 
-    expect(outcome.copiedPaths).toEqual(['config/nested/app.json']);
+    expect(outcome.copiedPaths).toEqual([path.join('config', 'nested', 'app.json')]);
     expect(readFileSync(path.join(worktreePath, 'config', 'nested', 'app.json'), 'utf8')).toBe(
       '{"enabled":true}\n'
     );
@@ -212,14 +222,25 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
     expect(lstatSync(path.join(worktreePath, '.env')).isSymbolicLink()).toBe(true);
   });
 
-  it('runs .brainstrike/worktree-setup.sh with the BRAINSTRIKE_* env and captures its output', async () => {
+  it('runs approved repository setup on POSIX or configured setup on Windows with the BRAINSTRIKE_* env', async () => {
     const script = '#!/bin/sh\necho "name=$BRAINSTRIKE_WORKSPACE_NAME"\n';
     mkdirSync(path.join(repo, '.brainstrike'), { recursive: true });
     writeFileSync(path.join(repo, '.brainstrike', 'worktree-setup.sh'), script);
-    const outcome = await runWorktreeSetup({
+    let outcome = await runWorktreeSetup({
       ...baseInput(),
       repositorySetupDecision: { decision: 'approved', scriptSha256: sha256(script) },
     });
+    if (process.platform === 'win32') {
+      expect(outcome).toMatchObject({
+        output: '',
+        reason: expect.stringContaining('needs a POSIX shell'),
+        status: 'skipped',
+      });
+      // Explicit configuration is a separate authorization path from repository consent.
+      outcome = await runWorktreeSetup(
+        configuredInput("process.stdout.write('name=' + process.env.BRAINSTRIKE_WORKSPACE_NAME)")
+      );
+    }
     expect(outcome.status).toBe('succeeded');
     expect(outcome.output).toContain('name=bright-fox');
   });
@@ -287,10 +308,20 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
     const script = '#!/bin/sh\necho "boom" >&2\nexit 3\n';
     mkdirSync(path.join(repo, '.brainstrike'), { recursive: true });
     writeFileSync(path.join(repo, '.brainstrike', 'worktree-setup.sh'), script);
-    const outcome = await runWorktreeSetup({
+    let outcome = await runWorktreeSetup({
       ...baseInput(),
       repositorySetupDecision: { decision: 'approved', scriptSha256: sha256(script) },
     });
+    if (process.platform === 'win32') {
+      expect(outcome).toMatchObject({
+        output: '',
+        reason: expect.stringContaining('needs a POSIX shell'),
+        status: 'skipped',
+      });
+      outcome = await runWorktreeSetup(
+        configuredInput("process.stderr.write('boom\\n'); process.exitCode = 3")
+      );
+    }
     expect(outcome.status).toBe('failed');
     expect(outcome.reason).toBe('Setup command exited with code 3.');
     expect(outcome.output).toContain('boom');
@@ -299,11 +330,7 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
   it('prefers an explicit settings setupCommand over the repository script', async () => {
     mkdirSync(path.join(repo, '.brainstrike'), { recursive: true });
     writeFileSync(path.join(repo, '.brainstrike', 'worktree-setup.sh'), '#!/bin/sh\necho script\n');
-    const input = baseInput();
-    const outcome = await runWorktreeSetup({
-      ...input,
-      settings: { ...input.settings, setupCommand: ['echo', 'configured'] },
-    });
+    const outcome = await runWorktreeSetup(configuredInput("process.stdout.write('configured')"));
     expect(outcome.output).toContain('configured');
     expect(outcome.output).not.toContain('script');
   });
@@ -349,15 +376,17 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
   });
 
   it('surfaces a non-ENOENT error while resolving the repository setup script', async () => {
-    writeFileSync(path.join(repo, '.brainstrike'), 'not a directory\n');
+    if (process.platform === 'win32') {
+      mkdirSync(path.join(repo, '.brainstrike', 'worktree-setup.sh'), { recursive: true });
+    } else {
+      writeFileSync(path.join(repo, '.brainstrike'), 'not a directory\n');
+    }
 
     const outcome = await runWorktreeSetup(baseInput());
 
     expect(outcome.status).toBe('failed');
-    expect(outcome.reason).toContain('ENOTDIR');
+    expect(outcome.reason).toContain(process.platform === 'win32' ? 'EISDIR' : 'ENOTDIR');
   });
-
-  // The repository-script refusal branch for win32 is intentionally untestable on macOS CI.
 
   it('copies included files before the setup command runs', async () => {
     mkdirSync(path.join(repo, 'config'));
@@ -367,10 +396,25 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
     const script = '#!/bin/sh\ncat config/setup-token\n';
     writeFileSync(path.join(repo, '.brainstrike', 'worktree-setup.sh'), script);
 
-    const outcome = await runWorktreeSetup({
+    let outcome = await runWorktreeSetup({
       ...baseInput(),
       repositorySetupDecision: { decision: 'approved', scriptSha256: sha256(script) },
     });
+    if (process.platform === 'win32') {
+      expect(outcome).toMatchObject({
+        output: '',
+        reason: expect.stringContaining('needs a POSIX shell'),
+        status: 'skipped',
+      });
+      // The refused repository invocation already copied it; prove this invocation copies too.
+      rmSync(path.join(worktreePath, 'config', 'setup-token'));
+      expect(existsSync(path.join(worktreePath, 'config', 'setup-token'))).toBe(false);
+      outcome = await runWorktreeSetup(
+        configuredInput(
+          "process.stdout.write(require('node:fs').readFileSync('config/setup-token'))"
+        )
+      );
+    }
 
     expect(outcome.status).toBe('succeeded');
     expect(outcome.output).toContain('copied-before-command');
@@ -380,10 +424,20 @@ describe('runWorktreeSetup (real fs + real processes)', () => {
     const script = '#!/bin/sh\nfor i in $(seq 1 4000); do echo "0123456789"; done\n';
     mkdirSync(path.join(repo, '.brainstrike'), { recursive: true });
     writeFileSync(path.join(repo, '.brainstrike', 'worktree-setup.sh'), script);
-    const outcome = await runWorktreeSetup({
+    let outcome = await runWorktreeSetup({
       ...baseInput(),
       repositorySetupDecision: { decision: 'approved', scriptSha256: sha256(script) },
     });
+    if (process.platform === 'win32') {
+      expect(outcome).toMatchObject({
+        output: '',
+        reason: expect.stringContaining('needs a POSIX shell'),
+        status: 'skipped',
+      });
+      outcome = await runWorktreeSetup(
+        configuredInput("process.stdout.write('0123456789\\n'.repeat(4000))")
+      );
+    }
     expect(outcome.truncated).toBe(true);
     expect(Buffer.byteLength(outcome.output, 'utf8')).toBeLessThanOrEqual(
       WORKTREE_SETUP_OUTPUT_CAP_BYTES
