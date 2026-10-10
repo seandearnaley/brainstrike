@@ -495,13 +495,13 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     };
     const firstReceipts: Promise<CanonicalScanReceipt>[] = [];
     for (const lease of sources.leases.values()) {
-      const first = Promise.withResolvers<CanonicalScanReceipt>();
-      const onAbort = (): void => first.reject(sources.controller.signal.reason);
-      sources.controller.signal.addEventListener('abort', onAbort, { once: true });
-      first.promise
-        .finally(() => sources.controller.signal.removeEventListener('abort', onAbort))
-        .catch(() => undefined);
-      firstReceipts.push(first.promise);
+      const signal = AbortSignal.any([current.controller.signal, sources.controller.signal]);
+      signal.throwIfAborted();
+      const { promise, reject, resolve } = Promise.withResolvers<CanonicalScanReceipt>();
+      const onAbort = (): void => reject(signal.reason);
+      signal.addEventListener('abort', onAbort, { once: true });
+      promise.finally(() => signal.removeEventListener('abort', onAbort)).catch(() => undefined);
+      firstReceipts.push(promise);
       const scope = { kind: 'workspace', rootId: lease.rootId } as const;
       let workspace: Awaited<ReturnType<typeof manager.attachCanonicalWorkspace>> | undefined;
       workspace = await manager.attachCanonicalWorkspace({
@@ -512,7 +512,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
           if (operation === 'sync' || operation === 'sync loop') {
             scanAdmission.failWorkspace(lease.rootId, error);
           }
-          first.reject(error);
+          reject(error);
           dependencies.onError(operation, error);
         },
         onReceipt: (receipt, sourceInvalidated) => {
@@ -524,9 +524,9 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
           scanAdmission.completeWorkspace(receipt);
           dependencies.onReceipt?.(receipt);
           if (receipt.scanComplete) {
-            first.resolve(receipt);
+            resolve(receipt);
           } else {
-            first.reject(new Error(`Initial native workspace scan was ${receipt.reason}.`));
+            reject(new Error(`Initial native workspace scan was ${receipt.reason}.`));
           }
           if (sources.scanCollection && !sources.controller.signal.aborted) {
             sources

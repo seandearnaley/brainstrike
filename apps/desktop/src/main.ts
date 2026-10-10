@@ -754,6 +754,7 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     }
     await resumeMcpRuntimeAfterFactoryReset(getMainMcpHostControl(), outcome);
   },
+  runTransition: (work) => nativeRootDataDeletion.transition(work),
   runtimes: [
     { name: 'native-index-sources', stop: () => nativeIndexActivation.stopSources() },
     {
@@ -916,7 +917,7 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
       : 'unmanaged';
   },
   onDeleteRootData: (rootId) => nativeRootDataDeletion.deleteRootData(rootId),
-  onResetLocal: () => nativeRootDataDeletion.transition(() => handleResetLocal.reset()),
+  onResetLocal: () => handleResetLocal.reset(),
   onStorageChanged: (key) => {
     if (!app.isReady() || isDesktopShuttingDown()) {
       return;

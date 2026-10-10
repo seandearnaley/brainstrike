@@ -559,6 +559,8 @@ test.describe('Embedding Host Renderer - diagnostics', () => {
           semanticSearchSnapshot.resultFileCount > 0
         ) {
           searchWorked = true;
+        }
+        if (searchWorked && sawNativePublicationDuringSearch) {
           break;
         }
 

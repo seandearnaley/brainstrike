@@ -185,6 +185,9 @@ const { applicationDomainCapture, cleanupSubscriptionsMock, waitForDatabaseIdleM
   () => ({
     applicationDomainCapture: {
       close: null as null | ReturnType<typeof vi.fn<() => Promise<void>>>,
+      options: null as
+        | null
+        | Parameters<typeof import('../../ipc-handlers').createApplicationIpcDomain>[3],
     },
     cleanupSubscriptionsMock: vi.fn(async (): Promise<void> => undefined),
     waitForDatabaseIdleMock: vi.fn(async (): Promise<void> => undefined),
@@ -200,14 +203,16 @@ vi.mock('../../ipc-handlers', async () => {
       const domain = actual.createApplicationIpcDomain(...args);
       const close = vi.fn(() => domain.close());
       applicationDomainCapture.close = close;
+      applicationDomainCapture.options = args[3];
       return { ...domain, close };
     },
     waitForDesktopDatabaseWorkSchedulerIdle: waitForDatabaseIdleMock,
   };
 });
 
-const { nativeCloseForShutdown } = vi.hoisted(() => ({
+const { nativeCloseForShutdown, nativeReconfigureForReset } = vi.hoisted(() => ({
   nativeCloseForShutdown: vi.fn(async (): Promise<void> => undefined),
+  nativeReconfigureForReset: { current: null as null | (() => Promise<void>) },
 }));
 vi.mock('../../native-index-activation', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../native-index-activation')>();
@@ -217,7 +222,11 @@ vi.mock('../../native-index-activation', async (importOriginal) => {
       ...args: Parameters<typeof actual.createNativeIndexActivation>
     ) => {
       const owner = actual.createNativeIndexActivation(...args);
-      return { ...owner, close: nativeCloseForShutdown };
+      return {
+        ...owner,
+        close: nativeCloseForShutdown,
+        reconfigure: () => nativeReconfigureForReset.current?.() ?? owner.reconfigure(),
+      };
     },
   };
 });
@@ -316,6 +325,8 @@ describe('main boot order', () => {
     shutdownPlanCapture.current = null;
     shutdownPlanCapture.run = null;
     applicationDomainCapture.close = null;
+    applicationDomainCapture.options = null;
+    nativeReconfigureForReset.current = null;
     isDesktopShuttingDownMock.mockReturnValue(false);
     closeDatabaseMock.mockResolvedValue(undefined);
     cleanupSubscriptionsMock.mockResolvedValue(undefined);
@@ -398,6 +409,65 @@ describe('main boot order', () => {
       expect(dispose).toHaveBeenCalledOnce();
     }
   );
+
+  it('joins an accepted reset before quit while an earlier native transition is held', async () => {
+    getDatabaseMock.mockResolvedValue({});
+    const held = Promise.withResolvers<void>();
+    const entered = Promise.withResolvers<void>();
+    nativeReconfigureForReset.current = () => {
+      entered.resolve();
+      return held.promise;
+    };
+    const resetData = await import('../../desktop-factory-reset');
+    const purge = vi.spyOn(resetData, 'resetDesktopApplicationData').mockResolvedValue({
+      deletedPaths: [],
+      pendingDeletionPaths: [],
+      preservedPaths: [],
+    });
+    const resetPlatform = await import('../../desktop-reset-platform');
+    const createReset = resetPlatform.createDesktopFactoryResetHandler;
+    const compose = vi
+      .spyOn(resetPlatform, 'createDesktopFactoryResetHandler')
+      .mockImplementation((ports) =>
+        createReset({
+          ...ports,
+          completeSuccessfulReset: async () => {},
+          resetPersistentStorageAfterDataDeletion: async () => {},
+          resumeAfterReset: async () => {},
+          runtimes: [],
+        })
+      );
+    onTestFinished(() => {
+      purge.mockRestore();
+      compose.mockRestore();
+    });
+    await import('../../main');
+    const options = applicationDomainCapture.options;
+    const plan = shutdownPlanCapture.current?.();
+    if (!(options?.onStorageChanged && options.onResetLocal && plan)) {
+      throw new Error('Main reset and storage callbacks were not captured');
+    }
+    const { NATIVE_INDEX_SETTINGS_KEY } = await import('../../native-index-settings');
+    options.onStorageChanged(NATIVE_INDEX_SETTINGS_KEY);
+    await entered.promise;
+    const reset = options.onResetLocal();
+    let closed = false;
+    const close = Promise.resolve(plan.steps['factory-reset'](new AbortController().signal)).then(
+      () => {
+        closed = true;
+      }
+    );
+    onTestFinished(async () => {
+      held.resolve();
+      await Promise.allSettled([reset, close]);
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(closed).toBe(false);
+    held.resolve();
+    await expect(reset).resolves.toEqual({ success: true });
+    await close;
+    expect(purge).toHaveBeenCalledOnce();
+  });
 
   it('creates and shows the main window without waiting for DB init or the capability probe', async () => {
     let resolveDatabase: ((db: unknown) => void) | undefined;
