@@ -26,16 +26,16 @@ import {
   mainPlatformConnection,
   type PlatformMessagePort,
 } from '../agent-host-platform/connection';
-import { createHostPlatform } from '../agent-host-platform/desktop-node-platform';
 import type { DesktopAdmissionReads } from '../agent-host-platform/desktop-run-admission';
-import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
+import { createHostPlatform } from '../agent-host-platform-entry';
 import { FAILED_SNAPSHOT_CAPTURE_OID } from '../assistant-server/snapshot-repository';
 import { createSnapshotService } from '../assistant-server/snapshot-service';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
 import { desktopCredentialStoreSelection } from '../secrets';
 import { desktopAppPaths } from './fixtures/desktop-host-profile';
+import { serveInProcessDesktopPlatform } from './fixtures/in-process-desktop-platform';
 
 /** Actual Node ports expose the same MessageEvent contract as the utility transport. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -122,7 +122,7 @@ test('the host admits each run from Main’s reads: the catalog decides, Main’
     admitted.push('platform/admit');
     throw new Error('Main admits no run');
   });
-  const main = serveDesktopPlatform(connection, {
+  const main = serveInProcessDesktopPlatform(connection, {
     admission: mainReads(project, catalog, reads),
     // Production's Main MCP stores; this scenario configures no MCP server.
     mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
@@ -222,7 +222,7 @@ test('the host gates tools by the policy saved in its own StateStore, not Main�
     asked.push('platform/policy');
     return null;
   });
-  const main = serveDesktopPlatform(connection, {
+  const main = serveInProcessDesktopPlatform(connection, {
     admission: mainReads(project, { enabled: true }, []),
     mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
   });

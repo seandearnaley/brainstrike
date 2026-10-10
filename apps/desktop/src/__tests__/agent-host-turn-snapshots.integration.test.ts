@@ -13,12 +13,9 @@ import {
   mainPlatformConnection,
   type PlatformMessagePort,
 } from '../agent-host-platform/connection';
-import { createHostPlatform } from '../agent-host-platform/desktop-node-platform';
-import {
-  type DesktopPlatformCapabilities,
-  serveDesktopPlatform,
-} from '../agent-host-platform/main-platform';
+import type { DesktopPlatformCapabilities } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
+import { createHostPlatform } from '../agent-host-platform-entry';
 import { execFileSnapshotGitRunner } from '../assistant-server/snapshot-git';
 import { FAILED_SNAPSHOT_CAPTURE_OID } from '../assistant-server/snapshot-repository';
 import { createSnapshotService, type SnapshotService } from '../assistant-server/snapshot-service';
@@ -27,6 +24,7 @@ import { MainMcpHostControl } from '../mcp/main-host-control';
 import { desktopCredentialStoreSelection } from '../secrets';
 import { capturedIntent, mainReads } from './fixtures/desktop-admission-reads';
 import { desktopAppPaths } from './fixtures/desktop-host-profile';
+import { serveInProcessDesktopPlatform } from './fixtures/in-process-desktop-platform';
 
 /** Actual Node ports expose the same MessageEvent contract as the utility transport. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -70,7 +68,7 @@ async function withAdmittedRun(
   const nodePort = new UtilityPort(channel.port2);
   const connection = mainPlatformConnection(mainPort);
   const cleanup: (() => Promise<void>)[] = [];
-  const main = serveDesktopPlatform(connection, {
+  const main = serveInProcessDesktopPlatform(connection, {
     // Main's live roots are what the run admits; the host's turn start snapshots them.
     admission: mainReads({
       liveWorkspaceRoots: async () =>

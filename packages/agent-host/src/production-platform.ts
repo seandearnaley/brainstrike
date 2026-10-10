@@ -294,10 +294,32 @@ function productionMemoryReadiness(
   };
 }
 
+type ProductionConfiguration = Omit<ProductionHostPlatformOptions, 'startup' | 'memoryResourceIds'>;
+
+interface StagedProductionOptions<Configuration extends ProductionConfiguration> {
+  readonly configure: (startup: HostStartupContext) => Promise<Configuration>;
+  readonly memoryResourceIds: readonly string[];
+  readonly startup: HostStartupContext;
+}
+
+interface StagedProductionPlatform<Configuration extends ProductionConfiguration> {
+  readonly configuration: Configuration;
+  readonly platform: HostPlatform;
+}
+
 /** Node-only production composition; Core remains the sole dispatcher and event writer. */
-export async function createProductionHostPlatform(
+export function createProductionHostPlatform(
   options: ProductionHostPlatformOptions
-): Promise<HostPlatform> {
+): Promise<HostPlatform>;
+export function createProductionHostPlatform<Configuration extends ProductionConfiguration>(
+  options: StagedProductionOptions<Configuration>
+): Promise<StagedProductionPlatform<Configuration>>;
+export async function createProductionHostPlatform<Configuration extends ProductionConfiguration>(
+  input: ProductionHostPlatformOptions | StagedProductionOptions<Configuration>
+): Promise<HostPlatform | StagedProductionPlatform<ProductionConfiguration>> {
+  let configuration: PromiseSettledResult<ProductionConfiguration> | undefined =
+    'configure' in input ? undefined : { status: 'fulfilled', value: input };
+  let options: ProductionHostPlatformOptions;
   const selections = new Set<() => Promise<void>>();
   let closing: Promise<void> | undefined;
   let stateIndex: Promise<HostStateIndex> | undefined;
@@ -305,7 +327,12 @@ export async function createProductionHostPlatform(
     closing ??= (async () => {
       const joined = await Promise.allSettled([...selections].map((release) => release()));
       // Capability transports remain available until their borrowed selections join.
-      joined.push(...(await Promise.allSettled([options.close()])));
+      if (configuration?.status === 'fulfilled') {
+        const configured = configuration.value;
+        joined.push(
+          ...(await Promise.allSettled([Promise.resolve().then(() => configured.close())]))
+        );
+      }
       // A failed open already failed startup; only an opened index has a close to join.
       joined.push(
         ...(await Promise.allSettled([
@@ -363,10 +390,58 @@ export async function createProductionHostPlatform(
     }
   };
   // Register ownership before the first provider, Memory, MCP or index side effect.
-  await options.startup.register(close);
-  // The host owns its derived state index: thread deletion, purge and blob GC need it.
-  stateIndex = openHostStateIndex(options.startup.store.root, options.memoryResourceIds);
-  const index = await stateIndex;
+  await input.startup.register(close);
+  // The same owner starts the worker before evaluating desktop configuration.
+  stateIndex = openHostStateIndex(input.startup.store.root, input.memoryResourceIds);
+  const configuring =
+    'configure' in input
+      ? Promise.resolve().then(() =>
+          input.configure({
+            ...input.startup,
+            register: (release) =>
+              input.startup.register(async () => {
+                // Effect may release inline when registration races a closed Scope.
+                // Never await incomplete configuration from its own registration.
+                if (configuration?.status === 'fulfilled') {
+                  // The earliest production finalizer reports this same close failure.
+                  // This barrier only preserves transport lifetime; release still runs.
+                  await Promise.allSettled([close()]);
+                }
+                await release();
+              }),
+          })
+        )
+      : Promise.resolve(input);
+  const [indexed, configured] = await Promise.allSettled([
+    stateIndex,
+    configuring.then(
+      (value) => {
+        configuration = { status: 'fulfilled', value };
+        return value;
+      },
+      (reason: unknown) => {
+        configuration = { reason, status: 'rejected' };
+        throw reason;
+      }
+    ),
+  ]);
+  // Both acquisitions remain owned through cancellation or either failure.
+  if (indexed.status === 'rejected' && configured.status === 'rejected') {
+    throw new AggregateError(
+      [indexed.reason, configured.reason],
+      'Production host acquisition failed'
+    );
+  }
+  if (indexed.status === 'rejected') {
+    throw indexed.reason;
+  }
+  if (configured.status === 'rejected') {
+    throw configured.reason;
+  }
+  input.startup.signal.throwIfAborted();
+  const index = indexed.value;
+  options = { ...configured.value, startup: input.startup };
+
   // One run's captured vector bridge over the host's own state index.
   const runVectorBridge = (
     selected: ProductionHostRunConfiguration,
@@ -383,7 +458,7 @@ export async function createProductionHostPlatform(
         })
       : undefined;
   };
-  return {
+  const platform: HostPlatform = {
     ...(options.validateWorkspaceBinding
       ? { validateWorkspaceBinding: options.validateWorkspaceBinding }
       : {}),
@@ -592,4 +667,5 @@ export async function createProductionHostPlatform(
     ...(options.mcpSettings ? { mcpSettings: options.mcpSettings } : {}),
     ...(options.providers ? { providers: options.providers } : {}),
   };
+  return 'configure' in input ? { configuration: configured.value, platform } : platform;
 }

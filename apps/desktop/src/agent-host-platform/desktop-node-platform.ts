@@ -9,19 +9,17 @@ import type {
 } from '@brainstrike/agent/provider-runtime';
 import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import {
-  createProductionHostPlatform,
-  type HostPlatform,
   type HostPlatformLaunchOptions,
   type HostRunAdmissionRequest,
   type HostStartupContext,
   hostPermissionGate,
+  type ProductionHostPlatformOptions,
   type ProductionHostRunConfiguration,
   readHostPermissionPolicy,
 } from '@brainstrike/agent-host';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { SupportedProvider } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
-import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
 import {
@@ -35,7 +33,6 @@ import {
   ReadWorkspaceFileCursorRegistry,
   selectHostProjectionRewrites,
 } from '@brainstrike/host-capabilities/native-tools';
-import type { HostStartOptions } from '@brainstrike/host-lease';
 import { createLogger } from '@brainstrike/logging';
 import { type NativeChild, observeNativeChildren } from '@brainstrike/state-store/native-children';
 import { CancellationTokenSource } from 'vscode-jsonrpc/node';
@@ -240,11 +237,15 @@ export function mainAdmissionReads(request: PlatformRequest): DesktopAdmissionRe
   };
 }
 
-export async function createHostPlatform(
-  _options: HostStartOptions,
+interface DesktopHostConfiguration
+  extends Omit<ProductionHostPlatformOptions, 'startup' | 'memoryResourceIds'> {
+  confirmMainReady(): Promise<void>;
+}
+
+export async function createDesktopHostConfiguration(
   startup: HostStartupContext,
   platformOptions?: HostPlatformLaunchOptions
-): Promise<HostPlatform> {
+): Promise<DesktopHostConfiguration> {
   const port = await parentPlatformPort();
   const connection = mainPlatformConnection(port);
   // The profile's one credential authority: the single writer, token holder and
@@ -333,7 +334,7 @@ export async function createHostPlatform(
     userDataDir,
   });
   await startup.register(() => mcpHost.close());
-  const platform = await createProductionHostPlatform({
+  return {
     auth: host.auth,
     close: async () => {
       // The MCP runtime joins while Main's platform connection is still open.
@@ -342,13 +343,14 @@ export async function createHostPlatform(
       await disposeHostTools();
       await request('platform/close', {});
     },
+    confirmMainReady: async () => {
+      z.null().parse(await request('platform/ready', {}, startup.signal));
+    },
     forgetThread: (threadId) => forgetSharedNativeToolThread(threadId, readFileCursorRegistry),
     mcp: mcpHost.services.mcp,
     mcpContent: mcpHost.content,
     mcpPresentation: mcpHost.presentation,
     mcpSettings: mcpHost.settings,
-    // Main admits every desktop run under the workspace memory resource.
-    memoryResourceIds: [WORKSPACE_MEMORY_RESOURCE_ID],
     providers: host.providers,
     readConfiguration: async (admission) => {
       const selected = await runAdmission.readConfiguration(admission);
@@ -485,7 +487,6 @@ export async function createHostPlatform(
         PlatformRewindConflictsSchema.parse(await request('platform/rewind/redo-conflicts', input)),
     },
     selectProjectionRewrites: selectHostProjectionRewrites,
-    startup,
     validateWorkspaceBinding: async ({ binding, runId, signal, threadId }) => {
       // An admission's check revalidates the binding that run itself holds.
       const admitted = runId ? admittedRuns.get(runId) : undefined;
@@ -498,9 +499,5 @@ export async function createHostPlatform(
         await request('platform/workspace/validate', { binding, threadId }, signal)
       );
     },
-  });
-  // Full store/index acquisition completes above; Main must also have bound all
-  // capabilities before Core can publish this app-owned host as ready.
-  z.null().parse(await request('platform/ready', {}, startup.signal));
-  return platform;
+  };
 }
