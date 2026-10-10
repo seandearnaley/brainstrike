@@ -3,7 +3,9 @@ import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { join, resolve } from 'node:path';
+import { createConnection } from 'node:net';
+import { tmpdir } from 'node:os';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost, readHostRow } from '@brainstrike/agent-host';
 import { makeThrowingDecoder, runWithTimeout } from '@brainstrike/effect-kit';
 import {
@@ -18,12 +20,16 @@ import { processStartTime, RootLock, StateStore } from '@brainstrike/state-store
 import { Schema } from 'effect';
 import { build } from 'esbuild';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { createFixtureCloseControl } from '../../../../../packages/agent-host/__tests__/fixtures/cooperative-host-fixture.js';
 
 const decodeReport = makeThrowingDecoder(
   Schema.Struct({
     event: Schema.String,
     message: Schema.optional(Schema.String),
     owned: Schema.optional(Schema.Boolean),
+    profile: Schema.optional(
+      Schema.Struct({ sessionData: Schema.String, userData: Schema.String })
+    ),
     record: Schema.optional(Schema.Unknown),
   }),
   { onExcessProperty: 'error' }
@@ -34,8 +40,10 @@ interface AppChild {
   readonly exited: Promise<number | null>;
   ownsHost(): boolean;
   readonly process: ChildProcessWithoutNullStreams;
+  releaseLifetime(): Promise<void>;
 }
 let directory: string;
+let profilesDirectory: string;
 let entrypoint: string;
 let driver: string;
 let agentEntrypoint: string;
@@ -58,6 +66,7 @@ function electronPath(): string {
 beforeAll(async () => {
   await mkdir(resolve('dist'), { recursive: true });
   directory = await mkdtemp(join(resolve('dist'), 'host-lease-proof-'));
+  profilesDirectory = await mkdtemp(join(tmpdir(), 'brainstrike-host-lease-profiles-'));
   entrypoint = join(directory, 'host-lease-entry.js');
   driver = join(directory, 'driver.js');
   agentEntrypoint = join(directory, 'agent-host-entry.js');
@@ -103,6 +112,7 @@ afterAll(async () => {
     }
   }
   await rm(directory, { force: true, recursive: true });
+  await rm(profilesDirectory, { force: true, recursive: true });
   if (cleanupFailures.length > 0) {
     throw new AggregateError(cleanupFailures, 'Electron test child cleanup failed');
   }
@@ -127,22 +137,35 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
   } else {
     Reflect.deleteProperty(env, 'BRAINSTRIKE_M3_OWNED_PLATFORM_MODULE');
   }
+  const userData = join(profilesDirectory, `electron-profile-${randomUUID()}`);
+  const control = process.platform === 'win32' ? createFixtureCloseControl(userData) : undefined;
+  if (control) {
+    env['BRAINSTRIKE_M3_ELECTRON_FIXTURE_CONTROL'] = JSON.stringify(control);
+  } else {
+    Reflect.deleteProperty(env, 'BRAINSTRIKE_M3_ELECTRON_FIXTURE_CONTROL');
+  }
   const args = [
     driver,
     root,
     platformModule ? agentEntrypoint : entrypoint,
     String(startupTimeoutMs ?? 10_000),
+    `--user-data-dir=${userData}`,
   ];
   if (process.platform === 'linux' && process.getuid?.() === 0) {
     // Chromium refuses root in this isolated test container without this flag.
     args.push('--no-sandbox');
   }
   const child = spawn(electronPath(), args, { env, stdio: 'pipe' });
+  const childPid = child.pid;
+  const childStart = childPid === undefined ? undefined : processStartTime(childPid);
   const completion = Promise.withResolvers<HostRecord>();
   completion.promise.catch(() => undefined);
   let buffered = '';
   let stderr = '';
   let owned = false;
+  let profileReported = false;
+  let attachmentReported = false;
+  let startupFailed = false;
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', (chunk: string) => {
     stderr += chunk;
@@ -161,15 +184,38 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
     while (newline !== -1) {
       const line = buffered.slice(0, newline);
       buffered = buffered.slice(newline + 1);
+      // Recorded Windows Electron CRLF framing: PR #3543, comment 6092088324.
+      // Upstream entry: https://github.com/electron/electron/blob/v44.4.5/shell/app/electron_main_win.cc
+      // Remove this accommodation when supported Electron builds omit empty framing.
+      if (line.trim() === '') {
+        newline = buffered.indexOf('\n');
+        continue;
+      }
       try {
         const report = decodeReport(JSON.parse(line));
-        if (report.event === 'attached') {
+        if (report.event === 'profile') {
+          if (!report.profile) {
+            throw new Error('Electron fixture omitted its actual profile paths');
+          }
+          expect(resolve(report.profile.userData)).toBe(resolve(userData));
+          const sessionPath = relative(userData, report.profile.sessionData);
+          expect(isAbsolute(sessionPath)).toBe(false);
+          expect(sessionPath.split(sep)).not.toContain('..');
+          profileReported = true;
+        } else if (report.event === 'attached') {
+          if (!profileReported) {
+            throw new Error('Electron fixture attached before reporting its disposable profile');
+          }
           if (report.owned === undefined) {
             throw new Error('Electron fixture omitted host ownership');
           }
           owned = report.owned;
+          attachmentReported = true;
           completion.resolve(decodeHostRecord(report.record));
         } else if (report.event === 'failed') {
+          if (!attachmentReported) {
+            startupFailed = true;
+          }
           stderr += `${report.message}\n`;
           completion.reject(new Error(report.message));
         }
@@ -179,19 +225,54 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
       newline = buffered.indexOf('\n');
     }
   });
+  const sendControl = async (event: 'close' | 'release-lifetime'): Promise<void> => {
+    if (!control) {
+      child.stdin.write(`${event}\n`);
+      return;
+    }
+    if (childPid === undefined || childStart === undefined) {
+      throw new Error('Electron fixture Main identity was unavailable');
+    }
+    await new Promise<void>((accepted, reject) => {
+      const socket = createConnection(control.endpoint);
+      let response = '';
+      socket.setEncoding('utf8');
+      socket.once('error', reject);
+      socket.once('connect', () => {
+        socket.end(
+          `${JSON.stringify({ event, pid: childPid, start: childStart, token: control.token })}\n`
+        );
+      });
+      socket.on('data', (value: string) => {
+        response += value;
+      });
+      socket.once('close', () => {
+        if (response !== 'accepted\n') {
+          reject(new Error('Electron fixture Main rejected its private control'));
+          return;
+        }
+        accepted();
+      });
+    });
+  };
   const app: AppChild = {
     attached: runWithTimeout(() => completion.promise, {
       onTimeout: () => new Error(`Electron did not attach: ${stderr}`),
       timeoutMs: 10_000,
     }),
     close: async () => {
-      if (child.exitCode === null && child.signalCode === null) {
-        child.stdin.write('close\n');
-      }
-      const code = await runWithTimeout(() => exited, {
-        onTimeout: () => new Error('Electron did not close'),
-        timeoutMs: 5000,
-      });
+      const code = await runWithTimeout(
+        async () => {
+          if (!startupFailed && child.exitCode === null && child.signalCode === null) {
+            await sendControl('close');
+          }
+          return await exited;
+        },
+        {
+          onTimeout: () => new Error('Electron did not close'),
+          timeoutMs: 5000,
+        }
+      );
       activeApps.delete(app);
       if (code !== 0 && child.signalCode === null) {
         throw new Error(`Electron close exited ${code}: ${stderr}`);
@@ -200,6 +281,7 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
     exited,
     ownsHost: () => owned,
     process: child,
+    releaseLifetime: () => sendControl('release-lifetime'),
   };
   app.attached.catch(() => undefined);
   activeApps.add(app);
@@ -327,7 +409,7 @@ describe('real Electron host lease acquisition', () => {
     try {
       const app = startApp(root, 300);
       await expect(app.attached).rejects.toThrow(`pid ${lock.owner.pid}`);
-      await app.close();
+      await Promise.all([app.close(), app.close()]);
       expect(RootLock.inspect(root)?.owner).toEqual(lock.owner);
       expect(processStartTime(lock.owner.pid)).toBe(lock.owner.start);
     } finally {
@@ -365,7 +447,7 @@ describe('real Electron host lease acquisition', () => {
       const app = startApp(root, undefined, kernel === 'agent' ? agentPlatform : undefined);
       const record = await app.attached;
       expect(app.ownsHost()).toBe(true);
-      app.process.stdin.write('release-lifetime\n');
+      await app.releaseLifetime();
       await waitGone(record.pid, record.start);
       expect(RootLock.inspect(root)?.owner.released).toBe(true);
       expect(app.process.exitCode).toBeNull();
