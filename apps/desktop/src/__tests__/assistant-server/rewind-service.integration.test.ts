@@ -601,6 +601,46 @@ describe('applyRewind — tombstone batch identity', () => {
     }
     expect(await tombstoneRows()).toHaveLength(4);
   });
+
+  it('orders successive rewind batches when the database clock is identical', async () => {
+    await seedTwoTurnThread();
+    // NOW() is fixed throughout this real transaction. The older batch owns
+    // msg-6, so breaking a timestamp tie by message id chooses the wrong batch.
+    const [first, second] = await fixture.db.transaction(async (db) => {
+      const older = await applyRewind(
+        db,
+        { messageId: 'msg-5', mode: 'conversation-only', threadId: THREAD_ID },
+        deps
+      );
+      const newer = await applyRewind(
+        db,
+        { messageId: 'msg-3', mode: 'conversation-only', threadId: THREAD_ID },
+        deps
+      );
+      return [older, newer] as const;
+    });
+    expect(first.ok && second.ok).toBe(true);
+    if (!(first.ok && second.ok)) {
+      return;
+    }
+    expect(first.tombstonedMessageIds).toEqual(['msg-5', 'msg-6']);
+    expect(second.tombstonedMessageIds).toEqual(['msg-3', 'msg-4']);
+
+    const refused = await redoRewind(fixture.db, { rewindId: first.rewindId }, deps);
+    expect(refused.ok).toBe(false);
+    if (!refused.ok) {
+      expect(refused.reason).toBe('not-latest-rewind');
+    }
+    expect(await tombstoneRows()).toHaveLength(4);
+
+    const redone = await redoRewind(fixture.db, { rewindId: second.rewindId }, deps);
+    expect(redone.ok).toBe(true);
+    expect((await tombstoneRows()).map((row) => row.messageId)).toEqual(['msg-5', 'msg-6']);
+    expect(await visibleMessageIds()).toEqual(['msg-1', 'msg-2', 'msg-3', 'msg-4']);
+
+    expect((await redoRewind(fixture.db, { rewindId: first.rewindId }, deps)).ok).toBe(true);
+    expect(await tombstoneRows()).toEqual([]);
+  });
 });
 
 describe('applyRewind — mode split', () => {

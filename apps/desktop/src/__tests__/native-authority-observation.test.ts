@@ -302,7 +302,11 @@ it('keeps the real persisted TEXT write and IPC status connected through seriali
     rebuild: f.activation.rebuild,
     withRead: f.activation.withRead,
   });
-  const unregisterSearch = registerIndexSearchIpcHandlers(capability);
+  const unregisterSearch = registerIndexSearchIpcHandlers(capability, {
+    rootsRegistered: async () => {
+      throw new Error('Unexpected root registration in read-only test');
+    },
+  });
   const senderId = 9498;
   assignWindowRole(
     { isDestroyed: () => false, once: vi.fn(), webContents: { id: senderId } } as never,

@@ -119,6 +119,26 @@ this replay in memory and never commits it.
   "Earlier reply text not shown (N KB)" until the step commits. Output is never
   dropped silently.
 
+## Amendment (2026-10-09): run configuration by reference
+
+A committed `run.started` keeps its run snapshot (the run configuration: the
+composed system prompt, the child system, the captured intent and the tool
+identities) as one content-addressed blob, named in the row's `blobRefs` and
+`snapshotRef`. Every run of the same configuration shares that blob through
+the store's existing reference counting, and a missing or damaged blob damages
+the thread like any spooled row. Reading the row resolves the reference to the
+exact snapshot the run committed, so replay, rewind, turn snapshots, debug
+packs and the wire see the inline snapshot as before. The desktop's snapshot is
+about 20 KB, and 17 KB of that is the system prompt repeated on every run. At
+1,000 threads x 5 runs, the hydration read was 128 MB, of which 102 MB was
+4,996 spooled `run.started` rows, each read, hashed and parsed at open.
+
+A stored row's JSON values are not walked again. The event schemas are built
+once over a JSON value schema: producers and the wire use `z.json()`, and the
+stored-row reader accepts the values JSON.parse produced, which `z.json()` can
+never reject. Every structural field of a stored row is still validated at
+open, and rows stay crc-verified by the store.
+
 ## Sources
 
 - `docs/agents/assistant-persistence.md:173` (line number at `43daec7fb`): readers

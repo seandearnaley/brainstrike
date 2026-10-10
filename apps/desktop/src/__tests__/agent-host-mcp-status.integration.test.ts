@@ -13,11 +13,7 @@ import {
   startAgentHost,
 } from '@brainstrike/agent-host';
 import type { McpSettingsEvent } from '@brainstrike/agent-host/protocol';
-import {
-  DEFAULT_PERMISSION_POLICIES,
-  type McpHostSnapshot,
-  parseConfiguredMcpServerId,
-} from '@brainstrike/assistant-contract';
+import { type McpHostSnapshot, parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { expect, test } from 'vitest';
 import {
   mainPlatformConnection,
@@ -28,6 +24,7 @@ import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
+import { noRunAdmission } from './fixtures/desktop-admission-reads';
 import { desktopAppPaths, writeDesktopMcpConfig } from './fixtures/desktop-host-profile';
 
 /** Same public MessageEvent shape as the Electron utility port, backed by real Node ports. */
@@ -97,11 +94,8 @@ test('the desktop client reads, follows and controls MCP server status on the ag
   const mainPort = new UtilityPort(channel.port1);
   const nodePort = new UtilityPort(channel.port2);
   const mainOwner = serveDesktopPlatform(mainPlatformConnection(mainPort), {
+    admission: noRunAdmission(),
     mcp: createDesktopMcpPlatformCapabilities(mainControl),
-    readConfiguration: async () => {
-      throw new Error('This scenario admits no run');
-    },
-    readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
   });
   let host: AgentHost | undefined;
   let desktop: HostClient | undefined;

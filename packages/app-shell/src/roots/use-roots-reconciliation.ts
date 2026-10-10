@@ -1,4 +1,5 @@
 import type { DbHandle } from '@brainstrike/db/react';
+import type { IndexRootRegistrationCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import type { FileSystemAdapter, RootDescriptor } from '@brainstrike/types';
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -52,6 +53,24 @@ function refreshGitInventoryAfterRootRegistration(bridge: ChangesBridge | null):
     .catch((error: unknown) => {
       logger.warn('git inventory refresh after root registration failed', { error });
     });
+}
+
+/** The committed roots writer notifies Main; the renderer never supplies authority. */
+function refreshNativeIndexAfterRootRegistration(): void {
+  const bridge = (window as Window & { indexSearch?: Partial<IndexRootRegistrationCapability> })
+    .indexSearch;
+  if (!bridge) {
+    return;
+  }
+  if (typeof bridge.rootsRegistered !== 'function') {
+    logger.error('Native root registration capability is unavailable');
+    return;
+  }
+  // Main retains and joins reconfiguration. Folder selection waits only for its
+  // canonical write, while the index status owns ingestion progress and failure.
+  void bridge.rootsRegistered().catch((error: unknown) => {
+    logger.error('Native index refresh after root registration failed', { error });
+  });
 }
 
 // Module-level set of root identities already warned about, so each unmapped
@@ -287,6 +306,7 @@ async function performRootRegistration({
       notifyRootRegistered([descriptor.rootId, descriptor.handle.path]);
       // The root is now in the `roots` table the inventory's loadRoots() reads.
       refreshGitInventoryAfterRootRegistration(resolveChangesBridge());
+      refreshNativeIndexAfterRootRegistration();
     }
   } catch (err) {
     logger.error('Mid-session root registration failed', {
@@ -476,6 +496,7 @@ export function useRootsReconciliation({
           // discovered — nudging for that would be one wasted extra inventory
           // build every session, not a follow-up on anything actually new.
           refreshGitInventoryAfterRootRegistration(resolveChangesBridge());
+          refreshNativeIndexAfterRootRegistration();
         }
         resolve(dbRootIdMap);
         publishReconciliationSettled(true);

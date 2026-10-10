@@ -35,18 +35,19 @@ function runtimeWorkspaceContext({
 
 /**
  * The admitted shared native tools, executed in this host process with Core's
- * edit tracker and thread state. Main stays the catalog and root owner: its
- * descriptors must match these executors, and every call revalidates the
- * admitted roots through `platform/workspace/roots`.
+ * edit tracker and thread state. Their descriptors must match these
+ * executors, and every call revalidates the admission's roots.
  */
 export function desktopHostSharedTools(options: {
   /** The launching desktop app's facts (bundled runtimes); a standalone host has none. */
   readonly appPaths?: HostAppPaths | undefined;
+  /** The admission's roots, revalidated against their live owners. */
+  readonly freshRoots: () => Promise<unknown>;
   readonly readFileCursorRegistry: ReadWorkspaceFileCursorRegistry;
   readonly request: (method: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
   /** The host's own Tavily key owner, never Main's view of the store. */
   readonly resolveTavilyApiKey: () => Promise<string | undefined>;
-  readonly selected: PlatformSelection;
+  readonly selected: Omit<PlatformSelection, 'delegation'>;
   readonly threadId: string;
 }): Record<string, HostTool> {
   const { selected } = options;
@@ -77,10 +78,7 @@ export function desktopHostSharedTools(options: {
       selected.nativeRuntime,
       options.appPaths
     ),
-    freshRoots: async (signal) =>
-      CliWorkspaceRootsSchema.parse(
-        await options.request('platform/workspace/roots', { threadId: options.threadId }, signal)
-      ),
+    freshRoots: async () => CliWorkspaceRootsSchema.parse(await options.freshRoots()),
     ids,
     readFileCursorRegistry: options.readFileCursorRegistry,
     resolvedToolResultBudget: resolveScaledToolResultBudget(selected.contextWindow),

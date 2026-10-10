@@ -41,13 +41,12 @@ export function hostIndexSearch(request: MainRequest, threadId: string): IndexSe
 
 /** The renderer query embedding through Main; the call's signal cancels it there. */
 export function hostQueryEmbedding(
-  request: MainRequest,
-  threadId: string
+  request: MainRequest
 ): NonNullable<RetrievalToolDependencies['embeddingHostManager']> {
   return {
     queryEmbedding: async (payload, options) =>
       QueryEmbeddingResultSchema.parse(
-        await request('platform/embedding/query', { request: payload, threadId }, options?.signal)
+        await request('platform/embedding/query', { request: payload }, options?.signal)
       ),
   };
 }

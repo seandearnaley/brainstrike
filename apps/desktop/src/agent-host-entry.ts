@@ -1,3 +1,4 @@
+import './agent-host-compile-cache';
 import { type AgentHost, runAgentHostProcess } from '@brainstrike/agent-host';
 import type { StartupMessage } from '@brainstrike/host-lease';
 import { bindDesktopClientPort } from './agent-host-platform/desktop-client-port';

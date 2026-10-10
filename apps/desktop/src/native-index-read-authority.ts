@@ -7,6 +7,7 @@ import type {
   NativeIndexRuntime,
 } from './native-index-runtime';
 import type { NativeIndexSettings } from './native-index-settings';
+import type { NativeIndexSetupRequiredError } from './native-index-setup-required';
 import type { NativeScopedRead, NativeSearchAuthority } from './native-scoped-search';
 
 interface ReadGraph {
@@ -27,6 +28,11 @@ interface Dependencies {
   ): Promise<Awaited<ReturnType<NativeCanonicalProfileResolver['resolve']>> | null>;
   readonly runtime: NativeIndexRuntime;
   readonly settingsReads: ReadonlySet<Promise<NativeIndexSettings>>;
+  /**
+   * The saved choice a reconfiguration found missing when it closed reads. Reads
+   * report it to the user instead of the runtime's routine closed admission.
+   */
+  setupRequired(): NativeIndexSetupRequiredError | undefined;
 }
 
 /** Revalidate live grants/settings while a runtime read owns its actual acknowledged inventory. */
@@ -74,8 +80,12 @@ export function createNativeIndexReadAuthority(dependencies: Dependencies) {
   };
   return {
     getSearchAuthority: () => getSearchAuthority(),
-    withRead: async <T>(work: (read: NativeScopedRead) => Promise<T>): Promise<T> =>
-      dependencies.runtime.withRead(dependencies.acquireRead, (captured) =>
+    withRead: async <T>(work: (read: NativeScopedRead) => Promise<T>): Promise<T> => {
+      const setup = dependencies.setupRequired();
+      if (setup) {
+        throw setup;
+      }
+      return dependencies.runtime.withRead(dependencies.acquireRead, (captured) =>
         work({
           getAuthority: async () => {
             const result = await getSearchAuthority(captured.readAuthority());
@@ -84,6 +94,7 @@ export function createNativeIndexReadAuthority(dependencies: Dependencies) {
           },
           port: captured.port,
         })
-      ),
+      );
+    },
   };
 }

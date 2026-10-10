@@ -5,6 +5,7 @@
  * credential store. protocol.ts spreads each table into its own.
  */
 import { z } from 'zod';
+import type { JsonSchemaFactory } from './json-value.js';
 
 const Id = z.string().min(1);
 const Command = { commandId: Id };
@@ -26,7 +27,13 @@ export const SELECTION_RESULT_SCHEMAS = {
   'thread/selection/set': z.strictObject({ accepted: z.literal(true) }),
 } as const;
 
-export const SELECTION_EVENT_SCHEMAS = [
-  /** A pick, or a run command whose pair differs from the current selection. */
-  z.strictObject({ ...RunSelection, type: z.literal('thread.selection.updated') }),
-] as const;
+export function selectionEventSchemas(json: JsonSchemaFactory) {
+  return [
+    /** A pick, or a run command whose pair differs from the current selection. */
+    z.strictObject({
+      configuration: z.record(z.string(), json()).optional(),
+      modelId: Id,
+      type: z.literal('thread.selection.updated'),
+    }),
+  ] as const;
+}

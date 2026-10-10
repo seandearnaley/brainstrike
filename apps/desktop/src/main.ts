@@ -22,17 +22,12 @@ import {
 import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
-import { z } from 'zod';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import { registerAgentHostClientIpc } from './agent-host-client-ipc';
 import { createAgentHostMainClient } from './agent-host-main-client';
 import { createDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
 import { DesktopWorkspaceBindingAuthority } from './agent-host-platform/desktop-workspace-binding';
 import { readEmbeddingHostDevice } from './agent-host-platform/memory-vector-selection';
-import {
-  PlatformPolicySchema,
-  platformPermissionPolicy,
-} from './agent-host-platform/platform-wire';
 import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
 import { createAgentHostPrivateClients } from './agent-host-private-clients';
 import { buildFileMenuTemplate } from './application-file-menu';
@@ -211,6 +206,7 @@ import {
   observeNativeReaderStartup,
 } from './native-index-startup-window';
 import { createNativeRootDataDeletion } from './native-root-data-deletion';
+import { createNativeRootRegistration } from './native-root-registration';
 import { createNativeScopedSearchCapability } from './native-scoped-search';
 import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
@@ -995,16 +991,6 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
   },
   onWorkspaceRootGranted: (grantedPath: string) => {
     pendingRootGrantSubscriber?.(grantedPath);
-    if (app.isReady() && !isDesktopShuttingDown()) {
-      nativeRootDataDeletion
-        .transition(() => nativeIndexActivation.reconfigure())
-        .catch((error: unknown) =>
-          reportNativeIndexActivationError(
-            'Mounted native source configuration could not activate',
-            error
-          )
-        );
-    }
   },
 });
 function reportNativeIndexActivationError(message: string, error: unknown): void {
@@ -1034,18 +1020,6 @@ const nativeIndexActivation = createNativeIndexActivation({
             nativeIndexSearch,
             resolveForgeService: () => forgeService ?? null,
             resolveWorktreeService: () => worktreeService,
-          },
-          async () => {
-            const stored = await storage.getItem('permission-policy.v1');
-            if (!stored) {
-              return;
-            }
-            const envelope = z
-              .object({ state: PlatformPolicySchema.extend({ enforce: z.boolean() }) })
-              .parse(JSON.parse(stored));
-            const { enforce, ...input } = envelope.state;
-            const policy = platformPermissionPolicy(input);
-            return { ...policy, yolo: policy.yolo || !enforce };
           },
           undefined,
           workspace,
@@ -1142,10 +1116,12 @@ const readHostThreadIds = async (): Promise<ReadonlySet<string>> =>
   new Set(
     (await agentHostMainClient.request('thread/list', {})).threads.map(({ threadId }) => threadId)
   );
-const agentHostClientIpc = registerAgentHostClientIpc(
-  nativeIndexActivation.acquireProfile,
-  agentHostPrivateClients.open
-);
+const agentHostClientIpc = registerAgentHostClientIpc(async () => {
+  // A factory reset retires the profile until it reopens it, after its replacement
+  // renderer is ready: that renderer's clients connect once it has, not into the fence.
+  await handleResetLocal.idle();
+  return await nativeIndexActivation.acquireProfile();
+}, agentHostPrivateClients.open);
 ipcDisposers.add('agent-host-client', agentHostClientIpc.unregister);
 const nativeRootDataDeletion = createNativeRootDataDeletion({
   acquire: () => nativeIndexActivation.acquire(),
@@ -1170,7 +1146,18 @@ const nativeIndexSearch = createNativeScopedSearchCapability({
   rebuild: () => nativeRootDataDeletion.transition(() => nativeIndexActivation.rebuild()),
   withRead: nativeIndexActivation.withRead,
 });
-ipcDisposers.add('index-search', registerIndexSearchIpcHandlers(nativeIndexSearch));
+ipcDisposers.add(
+  'index-search',
+  registerIndexSearchIpcHandlers(
+    nativeIndexSearch,
+    createNativeRootRegistration({
+      isShuttingDown: isDesktopShuttingDown,
+      reconfigure: () => nativeIndexActivation.reconfigure(),
+      reportError: reportNativeIndexActivationError,
+      transition: (operation) => nativeRootDataDeletion.transition(operation),
+    })
+  )
+);
 ipcDisposers.add('main', () => {
   // The graceful filesystem step joins physical retirement. This late ledger
   // entry repeats idempotent bookkeeping and reports any retained cleanup error.

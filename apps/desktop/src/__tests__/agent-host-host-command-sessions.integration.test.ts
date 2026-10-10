@@ -131,12 +131,13 @@ test('a host run’s command session lives in the agent host and Main’s Termin
 
   // The host starts the session in its own process, inside the run's admitted root.
   const request = vi.fn(async (method: string) => {
-    if (method !== 'platform/workspace/roots') {
+    if (method !== 'admission/fresh-roots') {
       throw new Error(`Unexpected Main request ${method}`);
     }
     return [{ displayName: 'A', path: root, rootId: 'root-a' }];
   });
   const manage = desktopHostSharedTools({
+    freshRoots: () => request('admission/fresh-roots'),
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
@@ -174,8 +175,8 @@ test('a host run’s command session lives in the agent host and Main’s Termin
     value: { sessions: [expect.objectContaining({ id: started.id, status: 'exited' })] },
   });
   expect(request.mock.calls.map(([method]) => method)).toEqual([
-    'platform/workspace/roots',
-    'platform/workspace/roots',
+    'admission/fresh-roots',
+    'admission/fresh-roots',
   ]);
 });
 
@@ -197,8 +198,9 @@ test('disconnecting a root in Main stops and forgets the host run sessions there
   });
   cleanups.push(() => disposeHostTools());
   const manage = desktopHostSharedTools({
+    freshRoots: async () => [{ displayName: 'A', path: root, rootId: 'root-a' }],
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
-    request: vi.fn(async () => [{ displayName: 'A', path: root, rootId: 'root-a' }]),
+    request: vi.fn(),
     resolveTavilyApiKey: async () => undefined,
     selected: selection(root),
     threadId: 'host-thread',

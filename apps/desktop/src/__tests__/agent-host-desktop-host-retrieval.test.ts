@@ -99,15 +99,16 @@ function coverage(scope: IndexerCoverageRequest) {
   };
 }
 
-/** Main's typed reads for one admitted thread, as host-tool-services answers them. */
+/** Main's typed reads for one host thread, as host-tool-services answers them; and the admission's roots. */
 function mainReads() {
   return vi.fn(async (method: string, input: unknown): Promise<unknown> => {
     const { request, threadId } = (input ?? {}) as { request?: unknown; threadId?: string };
-    if (threadId !== 'host-thread') {
-      throw new Error(`Unadmitted thread for ${method}`);
+    // Every index and catalog read names the thread it serves.
+    if (method.startsWith('desktop-read/') && threadId !== 'host-thread') {
+      throw new Error(`Unscoped read ${method}`);
     }
     switch (method) {
-      case 'platform/workspace/roots':
+      case 'admission/fresh-roots':
         return [{ displayName: 'A', path: '/workspace/a', rootId: 'root-a' }];
       case 'desktop-read/index/status':
         return status;
@@ -170,6 +171,7 @@ function hostTools(request: ReturnType<typeof mainReads>): Record<string, HostTo
     risk: 'read',
   });
   return desktopHostSharedTools({
+    freshRoots: () => request('admission/fresh-roots', {}),
     readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     request,
     resolveTavilyApiKey: async () => undefined,
@@ -237,11 +239,11 @@ function tool(tools: Record<string, HostTool>, name: string): HostTool {
   return found;
 }
 
-/** Only Main's typed reads and the renderer query embedding cross to Main. */
+/** Only the admission's roots, Main's typed reads and the renderer query embedding are asked for. */
 function expectOnlyReads(request: ReturnType<typeof mainReads>): void {
   for (const [method] of request.mock.calls) {
     expect(method).toMatch(
-      /^(platform\/workspace\/roots|desktop-read\/(index|retrieval)\/.+|platform\/embedding\/query)$/u
+      /^(admission\/fresh-roots|desktop-read\/(index|retrieval)\/.+|platform\/embedding\/query)$/u
     );
   }
 }
@@ -255,10 +257,7 @@ test('the desktop host runs queryEmbeddingSpace in its own process over Main’s
   expect(JSON.stringify(output)).toContain('Selected A marker');
   expect(request).toHaveBeenCalledWith(
     'platform/embedding/query',
-    {
-      request: expect.objectContaining({ modelKey: queryPlan.modelKey, query: 'marker' }),
-      threadId: 'host-thread',
-    },
+    { request: expect.objectContaining({ modelKey: queryPlan.modelKey, query: 'marker' }) },
     expect.any(AbortSignal)
   );
   expectOnlyReads(request);

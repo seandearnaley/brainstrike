@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { committedRowAddress, committedRunSource } from './committed-identities.js';
 import { decodeStoredHostEvent, hostEventSpool } from './event-storage.js';
 import { type HostEvent, HostEventSchema, type HostLogRow, HostLogRowSchema } from './protocol.js';
+import { readRunSnapshotSync } from './run-snapshot-blobs.js';
 
 export { observationChunks, observations } from './observation-projection.js';
 
@@ -30,12 +31,13 @@ export function decode(raw: string, mode: Mode, stateRoot?: string): DecodedHost
       return { seq, type: 'purged' };
     }
     const spool = hostEventSpool(body);
-    if (spool && !stateRoot) {
+    if ((spool || 'snapshotRef' in body) && !stateRoot) {
       throw new Error('Host blob projection requires its acquired truth root');
     }
     const event = decodeStoredHostEvent(
       body,
-      spool && stateRoot ? readFileSync(join(stateRoot, BLOBS_DIR, spool.blob)) : undefined
+      spool && stateRoot ? readFileSync(join(stateRoot, BLOBS_DIR, spool.blob)) : undefined,
+      stateRoot ? (hash) => readRunSnapshotSync(stateRoot, hash) : undefined
     );
     return { ...event, seq };
   } catch (cause) {

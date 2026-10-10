@@ -6,13 +6,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
 import type { HostPlatform, HostRunAdmission } from '@brainstrike/agent-host';
-import {
-  DEFAULT_PERMISSION_POLICIES,
-  DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
-  DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-  DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
-} from '@brainstrike/assistant-contract';
-import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
 import { createHostCredentials } from '@brainstrike/host-capabilities/credentials';
 import { StateStore } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
@@ -23,7 +16,6 @@ import {
 import { createHostPlatform } from '../agent-host-platform/desktop-node-platform';
 import {
   type DesktopPlatformCapabilities,
-  type DesktopPlatformSelection,
   serveDesktopPlatform,
 } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
@@ -33,6 +25,7 @@ import { createSnapshotService, type SnapshotService } from '../assistant-server
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
 import { desktopCredentialStoreSelection } from '../secrets';
+import { capturedIntent, mainReads } from './fixtures/desktop-admission-reads';
 import { desktopAppPaths } from './fixtures/desktop-host-profile';
 
 /** Actual Node ports expose the same MessageEvent contract as the utility transport. */
@@ -78,40 +71,12 @@ async function withAdmittedRun(
   const connection = mainPlatformConnection(mainPort);
   const cleanup: (() => Promise<void>)[] = [];
   const main = serveDesktopPlatform(connection, {
-    mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
-    readConfiguration: async (): Promise<DesktopPlatformSelection> => ({
-      close: async () => undefined,
-      configuration: { model: 'gpt-4o-mini', provider: 'openai' },
-      contextWindow: 128_000,
-      durableConfiguration: {},
-      freshWorkspaceRoots: async () =>
+    // Main's live roots are what the run admits; the host's turn start snapshots them.
+    admission: mainReads({
+      liveWorkspaceRoots: async () =>
         roots.map(({ path, rootId }) => ({ displayName: rootId, path, rootId })),
-      inputTokenLimit: 24_000,
-      maxSteps: 5,
-      memory: {
-        options: {
-          lastMessages: DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
-          workingMemory: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
-        },
-        settings: {
-          ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-          observationalMemory: {
-            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.observationalMemory,
-            enabled: false,
-          },
-          semanticRecall: {
-            ...DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS.semanticRecall,
-            enabled: false,
-          },
-        },
-      },
-      nativeRuntime: { provider: 'openai', workspaceRoots: [] },
-      resourceId: WORKSPACE_MEMORY_RESOURCE_ID,
-      tools: {},
-      toolTimeoutMs: 5000,
     }),
-    // Gap 17's import capability; this proof reads no legacy memory.
-    readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
+    mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
     ...(workspaceSnapshots ? { workspaceSnapshots } : {}),
     ...(resolveWorkspaceRoot ? { resolveWorkspaceRoot } : {}),
   });
@@ -143,7 +108,12 @@ async function withAdmittedRun(
     }
     const threadId = randomUUID();
     const admission = await admitRun({
-      modelId: 'gpt-4o-mini',
+      configuration: capturedIntent({
+        agentLoop: { maxSteps: 5 },
+        model: 'gpt-6-sol',
+        provider: 'openai',
+      }),
+      modelId: 'openai::gpt-6-sol',
       runId: randomUUID(),
       signal: new AbortController().signal,
       threadId,
