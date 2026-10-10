@@ -166,9 +166,11 @@ export const MAIN_PROCESS_BUILD_OPTIONS = {
  */
 export const AGENT_HOST_PLATFORM_BUILD_OPTIONS = {
   ...MAIN_PROCESS_BUILD_OPTIONS,
+  chunkNames: '[name]-[hash]',
   define: { __dirname: 'import.meta.dirname', __filename: 'import.meta.filename' },
   entryPoints: { 'agent-host-platform-entry': 'src/agent-host-platform-entry.ts' },
   format: 'esm',
   outExtension: { '.js': '.mjs' },
   plugins: [],
+  splitting: true,
 };

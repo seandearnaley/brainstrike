@@ -12,13 +12,13 @@ import {
   mainPlatformConnection,
   type PlatformMessagePort,
 } from '../agent-host-platform/connection';
-import { createHostPlatform } from '../agent-host-platform/desktop-node-platform';
-import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
+import { createHostPlatform } from '../agent-host-platform-entry';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
 import { capturedIntent, mainReads } from './fixtures/desktop-admission-reads';
 import { desktopAppPaths } from './fixtures/desktop-host-profile';
+import { serveInProcessDesktopPlatform } from './fixtures/in-process-desktop-platform';
 
 /** Same public MessageEvent shape as the Electron utility port, backed by real Node ports. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -71,7 +71,7 @@ test('a CLI socket client attached to the desktop host cannot resolve the openai
     type: 'oauth',
   });
   await seed.close();
-  const mainOwner = serveDesktopPlatform(mainPlatformConnection(mainPort), {
+  const mainOwner = serveInProcessDesktopPlatform(mainPlatformConnection(mainPort), {
     admission: mainReads(),
     // Production's Main MCP stores; this scenario configures no MCP server.
     mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
