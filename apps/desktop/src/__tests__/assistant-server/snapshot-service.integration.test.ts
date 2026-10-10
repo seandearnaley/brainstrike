@@ -331,6 +331,8 @@ describe('SnapshotService — restore plans', () => {
       await write(root, 'keep/keep.txt', 'kept\n');
       await fsPromises.symlink('modified.txt', path.join(root, 'link.txt'));
       const handle = await service.ensureShadowRepo({ path: root, rootId: 'restore-root' });
+      // This fixture requires Git's native symlink checkout representation.
+      await git(root, `--git-dir=${handle.gitDir}`, 'config', 'core.symlinks', 'true');
       const { commitOid: target } = await service.snapshot(handle, {
         kind: 'turn-start',
         threadId: 'thread-1',
