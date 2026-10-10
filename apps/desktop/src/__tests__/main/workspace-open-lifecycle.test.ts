@@ -448,8 +448,9 @@ describe('main workspace-open lifecycle', () => {
   });
 
   it('registers the open-file listener at module scope, before app.whenReady() ever resolves', async () => {
-    // Observe registration while readiness is held, then join the actual
-    // Main bootstrap callback as well as module evaluation before the next case.
+    // main-bootstrap constructs this owner before waiting for Electron readiness.
+    // Exercise that real registration boundary; full Main loading and delivery
+    // remain covered by the cases below, after the early listener exists.
     const registered = Promise.withResolvers<void>();
     mockApp.on.mockImplementation((event) => {
       if (event === 'open-file') {
@@ -465,29 +466,34 @@ describe('main workspace-open lifecycle', () => {
       return operation;
     });
     mockApp.whenReady.mockReturnValue(readyGate.promise);
-    const mainImport = import('../../main');
-    const finishMain = async () => {
+    const bootstrapImport = import('../../desktop-bootstrap-runtime').then(
+      ({ getDesktopBootstrapRuntime }) => getDesktopBootstrapRuntime()
+    );
+    const finishBootstrap = async () => {
       readyGate.resolve();
       try {
-        const imported = await Promise.allSettled([mainImport]);
+        const imported = await Promise.allSettled([bootstrapImport]);
         const bootstrapped = await Promise.allSettled(readyOperations);
         const failures = [...imported, ...bootstrapped].flatMap((result) =>
           result.status === 'rejected' ? [result.reason] : []
         );
         if (failures.length > 0) {
-          throw new AggregateError(failures, 'Main fixture bootstrap did not settle successfully');
+          throw new AggregateError(
+            failures,
+            'Workspace bootstrap fixture did not settle successfully'
+          );
         }
       } finally {
         mockApp.on.mockImplementation(() => undefined);
       }
     };
-    onTestFinished(finishMain);
+    onTestFinished(finishBootstrap);
 
     try {
-      await Promise.race([registered.promise, mainImport.then(() => registered.promise)]);
+      await Promise.race([registered.promise, bootstrapImport.then(() => registered.promise)]);
       expect(mockApp.on).toHaveBeenCalledWith('open-file', expect.any(Function));
     } finally {
-      await finishMain();
+      await finishBootstrap();
     }
   });
 
