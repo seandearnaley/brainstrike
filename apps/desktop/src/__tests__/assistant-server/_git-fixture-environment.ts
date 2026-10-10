@@ -1,6 +1,10 @@
 import { execFile } from 'node:child_process';
-import { devNull } from 'node:os';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { afterAll } from 'vitest';
 import type { GitCommandRunner } from '../../assistant-server/git-service';
 import {
   execFileSnapshotGitRunner,
@@ -9,14 +13,19 @@ import {
 import { execFileGitRunner } from '../../git-ipc-handlers';
 
 const execFileAsync = promisify(execFile);
+const fixtureDirectory = mkdtempSync(join(tmpdir(), 'bs-git-fixture-config-'));
+const fixtureConfigPath = join(fixtureDirectory, 'config');
+afterAll(() => rm(fixtureDirectory, { force: true, recursive: true }));
+writeFileSync(fixtureConfigPath, '');
 
 // Windows qualification inherited system autocrlf/symlink settings. Pass owned
 // config explicitly: production runners intentionally scrub inherited GIT_*.
 // Repository-local configuration and the product's safety pins remain intact.
+// Git for Windows rejects Node's device path; its config input is a real file.
 const fixtureConfig = {
-  GIT_CONFIG_GLOBAL: devNull,
+  GIT_CONFIG_GLOBAL: fixtureConfigPath,
   GIT_CONFIG_NOSYSTEM: '1',
-  GIT_CONFIG_SYSTEM: devNull,
+  GIT_CONFIG_SYSTEM: fixtureConfigPath,
 };
 
 export function execFixtureGit(
