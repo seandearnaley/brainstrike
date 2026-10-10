@@ -15,6 +15,15 @@
     },
     "./credentials": { "types": "./dist/credentials.d.ts", "default": "./dist/credentials.js" },
     "./hooks": { "types": "./dist/hooks/index.d.ts", "default": "./dist/hooks/index.js" },
+    "./windows-command-entry": "./bin/windows-command-entry.mjs",
+    "./windows-command-process": {
+      "types": "./dist/windows-command-process.d.ts",
+      "default": "./dist/windows-command-process.js"
+    },
+    "./windows-command-wrapper": {
+      "types": "./dist/windows-command-wrapper.d.ts",
+      "default": "./dist/windows-command-wrapper.js"
+    },
     "./native-tools": {
       "types": "./dist/native-tools/index.d.ts",
       "default": "./dist/native-tools/index.js"
@@ -84,6 +93,7 @@
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/utils": "workspace:*",
+    "@brainstrike/windows-job-native": "workspace:*",
     "@modelcontextprotocol/client": "catalog:",
     "effect": "catalog:",
     "jsonc-parser": "^3.3.1",

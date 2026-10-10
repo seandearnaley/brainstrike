@@ -17,6 +17,7 @@ import { decodeHostRecord } from '@brainstrike/host-lease';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
+import { writeStdoutHook } from './fixtures/native-hook-command.js';
 
 const bin = fileURLToPath(new URL('../bin/brainstrike.mjs', import.meta.url));
 const httpFixture = new URL('./fixtures/standalone-production-http.mjs', import.meta.url).href;
@@ -67,7 +68,7 @@ afterEach(async () => {
 
 /** A started CLI host under an optional global hooks file and launch workspace root. */
 async function startCliHost(options: {
-  readonly hooks?: Record<string, unknown>;
+  readonly hooks?: (home: string) => Record<string, unknown>;
   readonly workspace?: string;
 }) {
   const dataRoot = await mkdtemp(join(tmpdir(), 'bs-m3-host-hooks-'));
@@ -86,7 +87,7 @@ async function startCliHost(options: {
   });
   await mkdir(join(home, '.brainstrike'));
   if (options.hooks) {
-    await writeFile(join(home, '.brainstrike', 'hooks.json'), JSON.stringify(options.hooks));
+    await writeFile(join(home, '.brainstrike', 'hooks.json'), JSON.stringify(options.hooks(home)));
   }
   const cli = (args: readonly string[]) => command(dataRoot, home, args);
   const workspace = options.workspace ? ['--workspace', options.workspace] : [];
@@ -112,19 +113,21 @@ async function startCliHost(options: {
 }
 
 /** A CLI host under a global hooks file, running the offline question fixture once. */
-async function runUnderHooks(hooks: Record<string, unknown>) {
+async function runUnderHooks(hooks: (home: string) => Record<string, unknown>) {
   return await (await startCliHost({ hooks })).run();
 }
 
 /** The question tool, blocked by a PreToolUse hook so the run completes instead of pausing. */
-const blockQuestion = {
-  command: `echo '{"decision":"block","reason":"${REASON}"}'; exit 2`,
+const blockQuestion = (root: string) => ({
+  command: writeStdoutHook(root, { decision: 'block', reason: REASON }, 2),
   matcher: { tool_name: 'askUser' },
   type: 'command',
-};
+});
 
 test('a global PreToolUse hook blocks a tool on the CLI host, with its reason committed', async () => {
-  const { code, rows, stderr } = await runUnderHooks({ PreToolUse: [blockQuestion] });
+  const { code, rows, stderr } = await runUnderHooks((home) => ({
+    PreToolUse: [blockQuestion(home)],
+  }));
   // The blocked question is never asked: the run completes instead of pausing.
   expect(code, stderr).toBe(0);
   expect(rows.some(({ event }) => event.type === 'interaction.requested')).toBe(false);
@@ -142,15 +145,17 @@ test('a global PreToolUse hook blocks a tool on the CLI host, with its reason co
 });
 
 test('a Stop hook’s verdict labels the CLI run with a committed hook verdict', async () => {
-  const { rows, runId } = await runUnderHooks({
-    PreToolUse: [blockQuestion],
+  const { rows, runId } = await runUnderHooks((home) => ({
+    PreToolUse: [blockQuestion(home)],
     Stop: [
       {
-        command: `echo '{"brainstrikeRunVerdict":{"verdict":"succeeded","detail":"Graded"}}'`,
+        command: writeStdoutHook(home, {
+          brainstrikeRunVerdict: { detail: 'Graded', verdict: 'succeeded' },
+        }),
         type: 'command',
       },
     ],
-  });
+  }));
   const events = rows.map(({ event }) => event);
   const types = events.map((event) => event.type);
   expect(types.indexOf('run.verdict')).toBe(types.indexOf('run.finished') - 1);
@@ -164,14 +169,14 @@ test('a Stop hook’s verdict labels the CLI run with a committed hook verdict',
 });
 
 test('a UserPromptSubmit hook that blocks the prompt ends the CLI run with its reason', async () => {
-  const { rows } = await runUnderHooks({
+  const { rows } = await runUnderHooks((home) => ({
     UserPromptSubmit: [
       {
-        command: `echo '{"decision":"block","reason":"Prompts are paused"}'; exit 2`,
+        command: writeStdoutHook(home, { decision: 'block', reason: 'Prompts are paused' }, 2),
         type: 'command',
       },
     ],
-  });
+  }));
   expect(rows.some(({ event }) => event.type === 'model.step')).toBe(false);
   expect(rows.find(({ event }) => event.type === 'run.finished')?.event).toMatchObject({
     detail: 'The request was blocked by a hook: Prompts are paused',
@@ -182,7 +187,7 @@ test('a UserPromptSubmit hook that blocks the prompt ends the CLI run with its r
 test("a launch root's project hook runs on the CLI host only once hooks trust pins its hash", async () => {
   const workspace = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-hooks-ws-')));
   cleanup.push(() => rm(workspace, { force: true, recursive: true }));
-  const hooks = JSON.stringify({ PreToolUse: [blockQuestion] });
+  const hooks = JSON.stringify({ PreToolUse: [blockQuestion(workspace)] });
   await mkdir(join(workspace, '.brainstrike'));
   await writeFile(join(workspace, '.brainstrike', 'hooks.json'), hooks);
   const sha256 = createHash('sha256').update(hooks).digest('hex');

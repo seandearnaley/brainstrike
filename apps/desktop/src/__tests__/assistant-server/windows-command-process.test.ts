@@ -3,11 +3,14 @@ import { ChildProcess, type Serializable } from 'node:child_process';
 import { PassThrough } from 'node:stream';
 import { acquireWorkspaceMutationLease } from '@brainstrike/host-capabilities/native-tools';
 import { expect, test, vi } from 'vitest';
-import { createWindowsCommandProcess } from '../../assistant-server/windows-command-process';
+import {
+  createWindowsCommandProcess,
+  decodeWindowsCommandStart,
+} from '../../assistant-server/windows-command-process';
 
 const identity = { creationTime: '134050464000000001', pid: 31_001 };
 
-function harness(onSettlement?: () => void) {
+function harness(onSettlement?: () => void, stdin?: string) {
   const physical = Promise.withResolvers<void>();
   const child = new ChildProcess();
   Object.defineProperty(child, 'pid', { configurable: true, value: identity.pid });
@@ -32,6 +35,7 @@ function harness(onSettlement?: () => void) {
   };
   const onSettled = vi.fn(onSettlement);
   const onOutput = vi.fn();
+  const onStdinError = vi.fn();
   const spawnWrapper = vi.fn(() => child);
   const owner = createWindowsCommandProcess({
     command: {
@@ -39,11 +43,13 @@ function harness(onSettlement?: () => void) {
       cwd: 'C:\\workspace',
       env: {},
       executable: 'cmd.exe',
+      ...(stdin === undefined ? {} : { stdin }),
       windowsVerbatimArguments: true,
     },
     createJob: () => job,
     onOutput,
     onSettled,
+    onStdinError,
     spawnWrapper,
   });
   const close = (code = 1) => {
@@ -59,6 +65,7 @@ function harness(onSettlement?: () => void) {
     kill,
     onOutput,
     onSettled,
+    onStdinError,
     owner,
     physical,
     ready,
@@ -80,6 +87,26 @@ test('no wrapper starts until retained, and native identity assignment precedes 
   h.close();
   await expect(result).resolves.toEqual({ exitCode: 7, signal: null });
   expect(h.onSettled).toHaveBeenCalledTimes(1);
+});
+
+test('optional hook stdin crosses START only after native assignment, and write errors remain observable', async () => {
+  const stdin = JSON.stringify({
+    hook_event_name: 'PreToolUse',
+    tool_input: { token: '[REDACTED]' },
+  });
+  const h = harness(undefined, stdin);
+  const result = h.owner.start();
+  expect(h.send).not.toHaveBeenCalled();
+  h.ready();
+  const start = decodeWindowsCommandStart(h.send.mock.calls[0]?.[0]);
+  expect(start.command.stdin).toBe(stdin);
+  expect(h.events).toEqual(['assign', 'start']);
+  h.child.emit('message', { message: 'write EPIPE', type: 'stdin-error' });
+  expect(h.onStdinError).toHaveBeenCalledExactlyOnceWith('write EPIPE');
+  h.child.emit('message', { exitCode: 0, signal: null, type: 'completed' });
+  h.physical.resolve();
+  h.close();
+  await expect(result).resolves.toEqual({ exitCode: 0, signal: null });
 });
 
 test('completion keeps the owner until both physical Job settlement and captured-pipe closure', async () => {

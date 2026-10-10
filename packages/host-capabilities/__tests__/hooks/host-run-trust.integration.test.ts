@@ -11,6 +11,7 @@ import { trustHostHooks } from '@brainstrike/agent-host';
 import { StateStore } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
 import { createHostRunHooks, trustedHookRoots } from '../../src/hooks/host-run-hooks.js';
+import { writeStdoutHook } from '../fixtures/native-hook-command.js';
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -25,20 +26,19 @@ function tempDir(): string {
   return dir;
 }
 
-const blockingReads = {
-  PreToolUse: [
-    {
-      command: `printf '%s\\n' '{"reason":"Project hook blocks reads"}'; exit 2`,
-      matcher: { tool_name: 'readFile' },
-      type: 'command',
-    },
-  ],
-};
-
 test('a project hook runs only at the hash the host trusted its root at', async () => {
   const store = await StateStore.open(tempDir());
   try {
     const workspace = tempDir();
+    const blockingReads = {
+      PreToolUse: [
+        {
+          command: writeStdoutHook(workspace, { reason: 'Project hook blocks reads' }, 2),
+          matcher: { tool_name: 'readFile' },
+          type: 'command',
+        },
+      ],
+    };
     mkdirSync(join(workspace, '.brainstrike'));
     const file = join(workspace, '.brainstrike', 'hooks.json');
     writeFileSync(file, JSON.stringify(blockingReads));

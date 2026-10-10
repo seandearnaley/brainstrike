@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, test } from 'vitest';
 import { createHostRunHooks } from '../../src/hooks/host-run-hooks.js';
+import { writeStdoutHook } from '../fixtures/native-hook-command.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -11,10 +12,15 @@ afterEach(() => {
   }
 });
 
-/** A run's hooks from one global hooks file, as the CLI and desktop hosts compose them. */
-function hooksFrom(config: Record<string, unknown>) {
+function tempRoot(): string {
   const root = mkdtempSync(join(tmpdir(), 'bs-host-run-lifecycle-'));
   roots.push(root);
+  return root;
+}
+
+/** A run's hooks from one global hooks file, as the CLI and desktop hosts compose them. */
+function hooksFrom(config: Record<string, unknown>) {
+  const root = tempRoot();
   const globalPath = join(root, 'hooks.json');
   writeFileSync(globalPath, JSON.stringify(config));
   const hooks = createHostRunHooks({
@@ -30,7 +36,7 @@ function hooksFrom(config: Record<string, unknown>) {
 }
 
 const command = (stdout: unknown, exit = 0) => ({
-  command: `printf '%s\\n' '${JSON.stringify(stdout)}'; exit ${exit}`,
+  command: writeStdoutHook(tempRoot(), stdout, exit),
   type: 'command',
 });
 

@@ -2955,6 +2955,9 @@ importers:
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../utils
+      '@brainstrike/windows-job-native':
+        specifier: workspace:*
+        version: link:../windows-job-native
       '@modelcontextprotocol/client':
         specifier: 'catalog:'
         version: 2.1.0

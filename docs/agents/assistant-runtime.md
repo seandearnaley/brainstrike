@@ -2070,7 +2070,11 @@ NO hook runner (capability-gated, no `isElectron()` checks).
   It receives a secret-redacted JSON payload on **stdin** and returns optional JSON
   on **stdout** (`{decision, reason, additionalContext}`); its **exit code** is
   authoritative: `2` = hard block on a blocking event, other non-zero =
-  warn-and-continue, `0` = ok. Per-hook timeout → SIGKILL.
+    warn-and-continue, `0` = ok. Per-hook timeout → SIGKILL on POSIX. Windows
+    hooks reuse the command Job owner in `host-capabilities`: native assignment
+    precedes START (including redacted stdin), and completion/timeout joins the
+    Job and output pipes before returning. A failed physical join retains the
+    owner and rejects; it is never reported as a completed warning-only hook.
 - **Insertion points (do not move).** `applyToolHooks`
   (`packages/agent/src/tools/hook-tool-wrap.ts`) is a SIBLING of `applyToolGuards`,
   composed OUTSIDE the guard and BEFORE the permission gate:
