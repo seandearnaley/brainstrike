@@ -242,6 +242,7 @@ test('the desktop host reads the curated context selection in its own process', 
 test('the desktop host runs executeCommand in its own process and correlates worktree commands through Main', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-shell-')));
   directories.push(root);
+  await writeFile(join(root, 'host-command.cjs'), 'process.stdout.write(process.argv[2]);\n');
   const request = vi.fn(async (method: string, _input: unknown) => {
     switch (method) {
       case 'admission/fresh-roots':
@@ -269,7 +270,7 @@ test('the desktop host runs executeCommand in its own process and correlates wor
   }
   // An ordinary command runs here; only root revalidation reaches Main.
   await expect(
-    tool.execute({ command: 'printf host-ran', cwd: '.' }, execution())
+    tool.execute({ command: 'node ./host-command.cjs host-ran', cwd: '.' }, execution())
   ).resolves.toMatchObject({ exitCode: 0, stdout: 'host-ran' });
   expect(request.mock.calls.map(([method]) => method)).toEqual([
     'admission/fresh-roots',
@@ -278,7 +279,7 @@ test('the desktop host runs executeCommand in its own process and correlates wor
 
   // A worktree-shaped command snapshots Main's paths first, then reports its completion.
   request.mockClear();
-  const command = 'git worktree prune --dry-run 2>/dev/null; printf done';
+  const command = `git worktree prune --dry-run ${process.platform === 'win32' ? '&' : ';'} node ./host-command.cjs done`;
   await expect(tool.execute({ command, cwd: '.' }, execution())).resolves.toMatchObject({
     stdout: 'done',
   });
@@ -668,7 +669,7 @@ test('the desktop host runs querySelf and queryDiagnostics, reading only Main’
   });
 });
 
-test('the desktop host runs run_python against the bundled runtime its launch app paths name', async () => {
+test('the desktop host checks run_python capability before resolving its bundled runtime from launch app paths', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-python-')));
   const resourcesPath = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-resources-')));
   const userDataPath = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-user-data-')));
@@ -700,11 +701,17 @@ test('the desktop host runs run_python against the bundled runtime its launch ap
   if (!tool) {
     throw new Error('run_python was not built for the host');
   }
-  // This launch's resources hold no bundled runtime: the host resolved the interpreter
-  // from its own app paths and reports that, typed, without asking Main.
+  // Windows has no supported OS fence. Supported hosts resolve this launch's
+  // missing bundled interpreter from their own app paths, without asking Main.
   const output = await tool.execute({ code: 'print(1)' }, execution());
-  expect(output).toMatchObject({ kind: 'unavailable', reason: 'interpreter_unavailable' });
-  expect(JSON.stringify(output)).toContain(join(resourcesPath, 'python-runtime', 'manifest.json'));
+  if (process.platform === 'win32') {
+    expect(output).toMatchObject({ kind: 'unavailable', reason: 'sandbox_unsupported_runtime' });
+  } else {
+    expect(output).toMatchObject({ kind: 'unavailable', reason: 'interpreter_unavailable' });
+    expect(JSON.stringify(output)).toContain(
+      join(resourcesPath, 'python-runtime', 'manifest.json')
+    );
+  }
   expect(new Set(request.mock.calls.map(([method]) => method))).toEqual(
     new Set(['admission/fresh-roots'])
   );
@@ -719,10 +726,13 @@ async function skillWorkspace(): Promise<{ readonly home: string; readonly root:
   await mkdir(join(skill, 'scripts'), { recursive: true });
   await writeFile(
     join(skill, 'SKILL.md'),
-    '---\nname: demo-skill\ndescription: Says hello from a skill.\n---\nRun scripts/hello.sh to greet.\n'
+    '---\nname: demo-skill\ndescription: Says hello from a skill.\n---\nRun scripts/hello.cjs to greet.\n'
   );
   await writeFile(join(skill, 'references', 'notes.md'), 'skill reference notes\n');
-  await writeFile(join(skill, 'scripts', 'hello.sh'), 'printf hello-from-skill\n');
+  await writeFile(
+    join(skill, 'scripts', 'hello.cjs'),
+    "process.stdout.write('hello-from-skill');\n"
+  );
   return { home, root };
 }
 
@@ -778,7 +788,7 @@ test('the desktop host activates, reads and runs the skills Main admitted, readi
     throw new Error('The skill tools were not built for the host');
   }
   expect(JSON.stringify(await activate.execute({ name: 'demo-skill' }, execution()))).toContain(
-    'Run scripts/hello.sh to greet.'
+    'Run scripts/hello.cjs to greet.'
   );
   expect(
     JSON.stringify(
@@ -790,8 +800,8 @@ test('the desktop host activates, reads and runs the skills Main admitted, readi
       {
         cwd: '.',
         root: 'root-a',
-        runtime: 'bash',
-        scriptPath: 'scripts/hello.sh',
+        runtime: 'node',
+        scriptPath: 'scripts/hello.cjs',
         skillName: 'demo-skill',
       },
       execution()
