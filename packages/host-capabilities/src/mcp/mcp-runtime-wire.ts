@@ -1,19 +1,67 @@
+import { parseMcpHostCloseReport } from '@brainstrike/assistant-contract/mcp-host-runtime';
+import { parseMcpHostSnapshot } from '@brainstrike/assistant-contract/mcp-host-status';
 import { ResponseError } from 'vscode-jsonrpc';
 import { z } from 'zod';
 
 /**
  * Private Main and Node methods (BST-1930 c5e). Two groups:
  *
- * - Node to Main `platform/*` adapters: Electron `shell.openExternal`, and the
- *   readiness handshake that opens `mcp-runtime/*` to Main.
+ * - Node to Main `platform/*` adapters: Electron `shell.openExternal`, scoped
+ *   MCP diagnostics, and the readiness handshake that opens `mcp-runtime/*` to Main.
  * - Main to Node `mcp-runtime/*`: the native picker's chosen config file, the
  *   factory reset's retire and reopen, and the tools persona availability
  *   reads. Everything else MCP is a public host method; Main owns no runtime.
  */
 export const MCP_STORE_METHODS = {
+  diagnostics: 'platform/mcp/diagnostics',
   openExternal: 'platform/open-external',
   ready: 'platform/mcp/ready',
 } as const;
+
+/** Only records from the desktop's owned MCP composition cross this adapter. */
+export const McpDiagnosticScopeSchema = z.enum([
+  'DesktopMcpHostConnection',
+  'DesktopNodeMcpHost',
+  'McpConfigFile',
+  'McpContentService',
+  'McpDesktopTaskHost',
+  'McpHostRuntime',
+  'McpHostServices',
+  'McpLifecycleErrors',
+  'McpOAuthClientProvider',
+  'McpPresentationService',
+  'McpSettingsAuthority',
+  'McpToolDiscovery',
+]);
+
+const McpDiagnosticRecordSchema = z.strictObject({
+  args: z.array(z.json()),
+  bindings: z.record(z.string(), z.json()),
+  level: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']),
+  message: z.string().optional(),
+  scope: McpDiagnosticScopeSchema,
+  timestamp: z.number().nonnegative(),
+});
+const McpSuccessfulCloseReportSchema = z
+  .unknown()
+  .transform(parseMcpHostCloseReport)
+  .refine((report) => report.failures.length === 0, 'MCP cleanup did not complete successfully');
+const McpResetSnapshotSchema = z
+  .unknown()
+  .transform(parseMcpHostSnapshot)
+  .refine((snapshot) => snapshot.servers.length === 0, 'MCP reset left configured servers');
+
+/** Redacted producer records and receipts from actual joined MCP cleanup. */
+export const McpDiagnosticEventSchema = z.discriminatedUnion('type', [
+  z.strictObject({ record: McpDiagnosticRecordSchema, type: z.literal('record') }),
+  z.strictObject({ hostCloseReport: McpSuccessfulCloseReportSchema, type: z.literal('shutdown') }),
+  z.strictObject({
+    hostCloseReport: McpSuccessfulCloseReportSchema,
+    snapshot: McpResetSnapshotSchema,
+    type: z.literal('reset'),
+  }),
+]);
+export type McpDiagnosticEvent = z.infer<typeof McpDiagnosticEventSchema>;
 
 export const MCP_RUNTIME_METHODS = {
   /** Main's native picker chose an MCP config file; the host selects it. */
