@@ -167,7 +167,8 @@ declare global {
      * proof keeps it equal to app-shell's `GitBridge`.
      */
     git?: Bridge<typeof gitContract>;
-    indexSearch?: import('@brainstrike/indexing-contract/indexer-client').IndexSearchCapability;
+    indexSearch?: import('@brainstrike/indexing-contract/indexer-client').IndexSearchCapability &
+      import('@brainstrike/indexing-contract/indexer-client').IndexRootRegistrationCapability;
     llmHost: {
       ensureStarted: () => Promise<LlmHostStatus>;
       stop: () => Promise<LlmHostStatus>;

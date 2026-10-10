@@ -11,10 +11,9 @@
  * helpers, and both are load-bearing for any fixture that wants to be visible
  * here:
  *
- * 1. **Workspace-scoped.** Every query passes `rootIds` = the live mounted
- *    workspace roots, and legacy NULL-root rows are excluded. A collection
- *    whose `file_records` carry no `root_id` matches NOTHING, however many
- *    embeddings it has — see {@link attachCollectionFilesToWorkspaceRoot}.
+ * 1. **Explicit scope.** Native collection search retains imported rootless
+ *    files. Legacy search requires live workspace roots; its fixtures use
+ *    {@link attachCollectionFilesToWorkspaceRoot}.
  * 2. **Line-attributed chunks.** The semantic executor drops any chunk missing
  *    `start_line`/`end_line` (it cannot build a navigable range) and reports it
  *    as `skippedMissingLineMetadata`. Synthetic chunk fixtures must therefore
@@ -24,8 +23,8 @@
  * `window.__brainstrikeDatabaseDemoSemanticSearchTestHooks__` bridge mounted by
  * production code, and there is no reason to grow a second one when the panel
  * renders every state we need to assert (searching status, error card, empty
- * state, and a "Select N shown" header whose N is exactly the rendered file-row
- * count).
+ * state, and level-1 file rows). Rootless imported results have no context
+ * selection checkbox, so that optional control cannot count search results.
  */
 
 import { expect, type Locator, type Page } from '@playwright/test';
@@ -44,9 +43,6 @@ export interface WorkspaceSemanticSearchSnapshot {
   /** Number of rendered FILE rows, read from the select-all header. */
   resultFileCount: number;
 }
-
-/** Matches the select-all header label built in `search-results-tree.tsx`. */
-const SELECT_ALL_LABEL_PATTERN = /^Select (\d+) shown$/;
 
 /**
  * Point a collection's imported files at the live workspace root so
@@ -125,9 +121,9 @@ export async function openWorkspaceSearchPanel(page: Page): Promise<Locator> {
 /**
  * Select an embedding set in the search panel's collection picker.
  *
- * `SearchCollectionPicker` only renders a combobox with 2+ sets; with a single
- * set it renders quiet text and the store's effective-set resolution already
- * points at it, so there is nothing to click.
+ * Imported collections always require an explicit picker choice. The sole
+ * managed workspace-index collection renders quiet text because the default
+ * workspace scope already identifies it.
  */
 export async function selectWorkspaceSearchCollection(
   panel: Locator,
@@ -160,8 +156,8 @@ export async function selectWorkspaceSearchCollection(
 /**
  * Put the panel in semantic mode and submit `query`.
  *
- * The Semantic button is `aria-disabled` until the effective set reports a
- * non-zero embedded-chunk count, so this asserts the gate is open rather than
+ * The Semantic button is `aria-disabled` until its capability confirms
+ * searchable coverage, so this asserts the gate is open rather than
  * clicking into a no-op — a gated click would leave the panel in text mode and
  * silently make the search assertions test the wrong engine.
  */
@@ -188,23 +184,14 @@ export async function getWorkspaceSemanticSearchSnapshot(
   const errorLocator = panel.getByTestId('workspace-search-results-error');
   const searchingLocator = panel.getByText('Searching…', { exact: true });
   const emptyLocator = panel.getByText('No matches found', { exact: true });
-  const selectAllLocator = panel.getByRole('checkbox', { name: SELECT_ALL_LABEL_PATTERN });
-  const resultRows = panel.getByRole('row');
+  const resultRows = panel.getByRole('row').and(panel.locator('[aria-level="1"]'));
 
-  const [errorCount, searchingCount, emptyCount, selectAllCount, rowCount] = await Promise.all([
+  const [errorCount, searchingCount, emptyCount, rowCount] = await Promise.all([
     errorLocator.count(),
     searchingLocator.count(),
     emptyLocator.count(),
-    selectAllLocator.count(),
     resultRows.count(),
   ]);
-
-  let resultFileCount = 0;
-  if (selectAllCount > 0) {
-    const label = await selectAllLocator.first().getAttribute('aria-label');
-    const matched = label ? SELECT_ALL_LABEL_PATTERN.exec(label) : null;
-    resultFileCount = matched ? Number(matched[1]) : 0;
-  }
 
   return {
     emptyState: emptyCount > 0,
@@ -212,7 +199,7 @@ export async function getWorkspaceSemanticSearchSnapshot(
     firstResultLabel:
       rowCount > 0 ? ((await resultRows.first().textContent()) ?? '').trim() || null : null,
     isSearching: searchingCount > 0,
-    resultFileCount,
+    resultFileCount: rowCount,
   };
 }
 

@@ -23,8 +23,8 @@ export interface SearchCollectionPickerProps {
 /**
  * Embedding-set picker for workspace search. With only the managed
  * workspace-index set present, renders quiet text (no combobox — there is
- * nothing to choose). With 2+ sets, renders a select; the workspace-index
- * row carries a "Managed" badge.
+ * nothing to choose). Imported sets require an explicit collection scope even
+ * when only one exists. The workspace-index row carries a "Managed" badge.
  */
 export function SearchCollectionPicker({ onCollectionChange }: SearchCollectionPickerProps) {
   const collectionId = useWorkspaceSearchStore((state) => state.collectionId);
@@ -50,8 +50,8 @@ export function SearchCollectionPicker({ onCollectionChange }: SearchCollectionP
     [setCollectionId, onCollectionChange]
   );
 
-  if (rows.length < 2) {
-    const [only] = rows;
+  const [only] = rows;
+  if (rows.length === 0 || (rows.length === 1 && only?.systemRole === 'workspace-index')) {
     return (
       <span
         className="flex min-w-0 items-center gap-1.5 text-muted-foreground text-sm"
