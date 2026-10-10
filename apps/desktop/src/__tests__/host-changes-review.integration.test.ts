@@ -34,7 +34,6 @@ import { z } from 'zod';
 import { createHostThreadTurns } from '../assistant-server/changeset-host-turns';
 import { createSnapshotChangesetResolver } from '../assistant-server/changeset-snapshot-view';
 import type { EditCheckpointDatabase } from '../assistant-server/edit-checkpoint-journal';
-import { execFileSnapshotGitRunner } from '../assistant-server/snapshot-git';
 import {
   FAILED_SNAPSHOT_CAPTURE_OID,
   type SnapshotRepository,
@@ -42,6 +41,7 @@ import {
 import { createSnapshotService, type SnapshotService } from '../assistant-server/snapshot-service';
 import { captureRootSnapshot } from '../assistant-server/snapshot-turn-boundaries';
 import { createSnapshotTurnRegistry } from '../assistant-server/snapshot-turn-registry';
+import { fixtureSnapshotGitRunner } from './assistant-server/_git-fixture-environment';
 
 const cleanup: (() => Promise<void>)[] = [];
 afterEach(async () => {
@@ -178,7 +178,7 @@ async function startedHostRun(options: HostRunOptions = {}) {
   const file = join(workspace, 'permitted.txt');
   await writeFile(file, ORIGINAL);
   const service = createSnapshotService({
-    runner: execFileSnapshotGitRunner,
+    runner: fixtureSnapshotGitRunner,
     snapshotsBaseDir: shadow,
   });
   const model = scriptedModel('write_file');
@@ -404,7 +404,7 @@ test('a host run whose turn-start capture failed has no Changes review, visibly'
 test('a host run that ended without its turn end, or recorded no turn, has no Changes review, visibly', async () => {
   const shadow = await temporaryDirectory('bs-m3-host-changes-shadow-');
   const service = createSnapshotService({
-    runner: execFileSnapshotGitRunner,
+    runner: fixtureSnapshotGitRunner,
     snapshotsBaseDir: shadow,
   });
   const threadId = randomUUID();
@@ -444,7 +444,7 @@ test('a host run that ended without its turn end, or recorded no turn, has no Ch
 test('a thread the host does not own keeps the legacy engine answer', async () => {
   const shadow = await temporaryDirectory('bs-m3-host-changes-shadow-');
   const service = createSnapshotService({
-    runner: execFileSnapshotGitRunner,
+    runner: fixtureSnapshotGitRunner,
     snapshotsBaseDir: shadow,
   });
   const { resolver } = mainResolver(service, {

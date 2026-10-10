@@ -26,15 +26,12 @@
  *   concurrent snapshots ..." (the second commit loses its parent).
  */
 
-import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  execFileSnapshotGitRunner,
   SHADOW_INFO_EXCLUDE,
   type SnapshotGitCommandParams,
   type SnapshotGitCommandRunner,
@@ -44,8 +41,7 @@ import {
   createSnapshotService,
   type SnapshotService,
 } from '../../assistant-server/snapshot-service';
-
-const execFileAsync = promisify(execFile);
+import { execFixtureGit, fixtureSnapshotGitRunner } from './_git-fixture-environment';
 
 const HEAVY_TIMEOUT_MS = 60_000;
 
@@ -75,7 +71,7 @@ async function write(root: string, relative: string, content: string): Promise<v
 }
 
 async function git(cwd: string, ...args: string[]): Promise<string> {
-  const { stdout } = await execFileAsync('git', args, { cwd });
+  const { stdout } = await execFixtureGit(args, { cwd });
   return stdout;
 }
 
@@ -121,7 +117,7 @@ async function makeFixture(runner?: SnapshotGitCommandRunner): Promise<Fixture> 
   const baseDir = await makeTempDir('brainstrike-snap-base-');
   const root = await makeTempDir('brainstrike-snap-root-');
   const service = createSnapshotService({
-    runner: runner ?? execFileSnapshotGitRunner,
+    runner: runner ?? fixtureSnapshotGitRunner,
     snapshotsBaseDir: baseDir,
   });
   return { baseDir, root, service };
@@ -208,7 +204,7 @@ describe('SnapshotService — shadow repo init and user-repo isolation', () => {
 
   it('refuses a runner that does not honor per-command env — no silent shared index', async () => {
     const envBlindRunner: SnapshotGitCommandRunner = (params) =>
-      execFileSnapshotGitRunner({ ...params, env: undefined });
+      fixtureSnapshotGitRunner({ ...params, env: undefined });
     const { root, service } = await makeFixture(envBlindRunner);
     await expect(service.ensureShadowRepo({ path: root, rootId: 'env-blind' })).rejects.toThrow(
       expect.objectContaining({ code: 'runner-env-unsupported' })
@@ -478,7 +474,7 @@ describe('SnapshotService — concurrency and GC', () => {
             indexUseOrder.push(indexFile);
           }
         }
-        return execFileSnapshotGitRunner(params);
+        return fixtureSnapshotGitRunner(params);
       };
       const { root, service } = await makeFixture(recordingRunner);
       await write(root, 'a.txt', 'v1\n');
