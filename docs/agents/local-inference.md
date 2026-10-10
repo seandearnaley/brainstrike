@@ -103,6 +103,13 @@ Guard: `embedding-input-plan.spec.ts`, `streaming-worker-client-completion.spec.
   owner; both public query and document promises and pending identities settle only after completion or joined retirement on every outcome.
 - Preserve caller cancellation reasons; distinguish the host's exact cancel code from independent failures. Aggregate Stop and every failed destruction attempt in the shared retirement outcome before publishing inference rejection. Sending cancel never proves settlement.
 - Restore a queue caller's abort reason only after settled worker-owned cancellation matches its exact task ID and discriminator; preserve independent errors, including unrelated `AbortError`s.
+  Whole-hidden-owner retirement instead fences the private pool and joins its single
+  `Pool.terminate(true)` call. Restore only an already-aborted pending caller's exact
+  reason from the raw rejection emitted synchronously by that owned force call;
+  previously settled failures, telemetry errors and later rejections retain their
+  independent identity. Join physical pool retirement before any public result.
+  Do not combine per-task vendor cancellation with pool retirement: Web worker
+  cleanup can otherwise create a `minWorkers` replacement outside its snapshot.
 - Keep AbortSignal in the caller renderer. Visible query and document bridges carry
   a plain token; main authorizes the visible sender/frame and maps token cancellation
   to the exact hidden runtime/request, including host startup. Refuse an unavailable

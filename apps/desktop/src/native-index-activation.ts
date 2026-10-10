@@ -793,16 +793,16 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     }
     await closeOwned();
   };
-  const fenceTerminal = (): Promise<void> | undefined => {
+  const fenceTerminal = (): void => {
     terminalRequested = true;
     terminalEpoch += 1;
     closed = true;
     generation += 1;
     graph?.controller.abort(new TransitionError('Native owner terminal retirement requested.'));
-    return Promise.allSettled([...settingsReads, reconfiguration]).then(() => undefined);
   };
   const stopSources = async (): Promise<void> => {
-    const pending = fenceTerminal();
+    fenceTerminal();
+    const pending = Promise.allSettled([...settingsReads, reconfiguration]).then(() => undefined);
     return joinNativeSourceRetirement(stopSourcesOwned(), pending);
   };
   const closeRootCapabilities = async (): Promise<void> => {

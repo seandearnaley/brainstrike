@@ -1,7 +1,12 @@
+import { EMBED_WORKER_INSTANCE_NAME_PREFIX } from '@brainstrike/indexing-contract';
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import workerpool from 'workerpool';
 import type { QueueResult } from '../types.js';
-import { createTask } from './browser-workerpool-test-fixtures.js';
+import {
+  createPipelineCacheDiagnostic,
+  createResult,
+  createTask,
+} from './browser-workerpool-test-fixtures.js';
 
 const { poolExec, poolTerminate, poolFactory } = vi.hoisted(() => ({
   poolExec: vi.fn(),
@@ -84,7 +89,7 @@ describe('terminal owner cancellation with the real vendor Promise', () => {
     f.controller.abort(f.reason);
     const closing = f.adapter.dispose?.();
     await vi.waitFor(() => expect(poolTerminate).toHaveBeenCalledOnce());
-    expect(f.cancel).toHaveBeenCalledOnce();
+    expect(f.cancel).not.toHaveBeenCalled();
     expect(f.settled).not.toHaveBeenCalled();
     f.physical.resolve();
     expect(await f.result).toBe(f.reason);
@@ -132,6 +137,11 @@ describe('terminal owner cancellation with the real vendor Promise', () => {
       await sibling;
     });
     await vi.waitFor(() => expect(poolExec).toHaveBeenCalledTimes(2));
+    poolTerminate.mockImplementationOnce(() => {
+      f.reject(new Error('Worker terminated'));
+      reject(new Error('Pool terminated'));
+      return f.physical.promise;
+    });
     f.controller.abort(f.reason);
     controller.abort(reason);
     const closing = f.adapter.dispose?.();
@@ -168,4 +178,122 @@ describe('terminal owner cancellation with the real vendor Promise', () => {
     expect((result as AggregateError).errors).toEqual([f.reason, failure]);
     expect(await closing).toBe(failure);
   });
+
+  it.each(['not-aborted', 'aborted-during-force', 'rejected-after-force'] as const)(
+    'preserves a raw rejection outside exact pending aborted ownership: %s',
+    async (scenario) => {
+      const f = await fixture();
+      const failure = new Error('Independent raw failure');
+      poolTerminate.mockImplementationOnce(() => {
+        if (scenario === 'aborted-during-force') {
+          f.controller.abort(f.reason);
+        }
+        if (scenario !== 'rejected-after-force') {
+          f.reject(failure);
+        }
+        return f.physical.promise;
+      });
+      if (scenario === 'rejected-after-force') {
+        f.controller.abort(f.reason);
+      }
+      const closing = f.adapter.dispose?.();
+      f.reject(failure);
+      f.physical.resolve();
+      expect(await f.result).toBe(failure);
+      await closing;
+      expect(f.cancel).not.toHaveBeenCalled();
+    }
+  );
+});
+
+it('physically retires every real vendor Web worker once without a replacement or raw task cancellation', async () => {
+  const actual = await vi.importActual<typeof import('workerpool')>('workerpool');
+  let pool: ReturnType<typeof actual.pool> | undefined;
+  poolFactory.mockImplementation((...args: Parameters<typeof actual.pool>) => {
+    pool = actual.pool(...args);
+    return pool;
+  });
+  const workers: ControlledWorker[] = [];
+  class ControlledWorker extends EventTarget {
+    held = false;
+    closed = false;
+    readonly requests: string[] = [];
+    readonly workerInstanceId: string;
+    readonly terminate = vi.fn(() => {
+      this.closed = true;
+    });
+    constructor(_url: string, options: WorkerOptions) {
+      super();
+      this.workerInstanceId = options.name!.slice(EMBED_WORKER_INSTANCE_NAME_PREFIX.length);
+      workers.push(this);
+      queueMicrotask(() => this.dispatchEvent(new MessageEvent('message', { data: 'ready' })));
+    }
+    postMessage(message: unknown): void {
+      if (this.closed || this.held) {
+        return;
+      }
+      const rpc = message as { id: number; params: [{ id: string }] };
+      const taskId = rpc.params[0].id;
+      this.requests.push(taskId);
+      queueMicrotask(() => {
+        this.dispatchEvent(
+          new MessageEvent('message', {
+            data: {
+              id: rpc.id,
+              isEvent: true,
+              payload: createPipelineCacheDiagnostic(taskId, this.workerInstanceId),
+            },
+          })
+        );
+        this.dispatchEvent(
+          new MessageEvent('message', { data: { id: rpc.id, result: createResult(taskId) } })
+        );
+      });
+    }
+  }
+  vi.stubGlobal('Worker', ControlledWorker);
+  const removeSource = vi.fn();
+  const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
+  const adapter = createWorkerpoolAdapter({
+    maxWorkers: 1,
+    minWorkers: 1,
+    telemetry: {
+      recordBatch: vi.fn(),
+      recordFailure: vi.fn(),
+      recordPipelineCache: vi.fn(),
+      removeSource,
+    },
+    workerUrl: '/worker.js',
+  });
+  await adapter.add(createTask('warm'));
+  const first = workers[0]!;
+  first.held = true;
+  const controller = new AbortController();
+  const reason = new DOMException('Exact owner cancellation', 'AbortError');
+  const active = adapter
+    .add(createTask('active'), { signal: controller.signal })
+    .catch((error: unknown) => error);
+  const queued = adapter
+    .add(createTask('queued'), { signal: controller.signal })
+    .catch((error: unknown) => error);
+  onTestFinished(async () => {
+    await pool?.terminate(true).catch(() => undefined);
+    await Promise.all([active, queued]);
+    await adapter.dispose?.().catch(() => undefined);
+  });
+  expect(pool?.stats()).toMatchObject({ activeTasks: 1, pendingTasks: 1, totalWorkers: 1 });
+  controller.abort(reason);
+  const retirement = await adapter.dispose?.().catch((error: unknown) => error);
+  expect(retirement).toBeUndefined();
+  expect(await active).toBe(reason);
+  expect(await queued).toBe(reason);
+  expect(workers).toHaveLength(1);
+  expect(first.terminate).toHaveBeenCalledOnce();
+  expect(removeSource).toHaveBeenCalledExactlyOnceWith(
+    `workerpool-embedding-${first.workerInstanceId}`
+  );
+  expect(pool?.stats()).toMatchObject({ totalWorkers: 0 });
+  await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  expect(pool?.stats()).toMatchObject({ totalWorkers: 0 });
+  expect(workers).toHaveLength(1);
 });

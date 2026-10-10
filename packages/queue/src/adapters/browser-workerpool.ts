@@ -495,7 +495,8 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
   const cancelWaiters: Array<() => void> = [];
   const emitter = new ProgressEmitter<WorkerEvent>();
   let activeTasks = 0;
-  const terminalCancellations = new Set<() => void>();
+  const prepareTerminalRetirements = new Set<() => void>();
+  let issuingPhysicalTermination = false;
   let physicalRetirement: Promise<void> | null = null;
   let termination: Promise<void> | null = null;
   const drainWaiters: Array<() => void> = [];
@@ -572,7 +573,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
       postRequestControl('cancel-request');
     };
     let cancelRebroadcastedAfterWorkerEvent = false;
-    const { promise, startedAt, telemetrySource, cancelForRetirement, isTerminalCancellation } =
+    const { promise, startedAt, telemetrySource, prepareForRetirement, isTerminalCancellation } =
       createExecutionPromise(task, () => {
         // BroadcastChannel does not retain messages posted before a newly spawned worker
         // subscribes. Re-send once after its first event proves the channel is ready.
@@ -582,12 +583,12 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
         }
       });
     const detachAbort = attachAbort(signal, requestAbort, task.id);
-    const cancelOwned = (): void => {
+    const prepareOwnedRetirement = (): void => {
       if (signal?.aborted) {
-        cancelForRetirement();
+        prepareForRetirement();
       }
     };
-    terminalCancellations.add(cancelOwned);
+    prepareTerminalRetirements.add(prepareOwnedRetirement);
     activeTasks += 1;
     try {
       const result = await promise;
@@ -625,7 +626,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
       onTaskError(task, startedAt, failure);
       throw failure;
     } finally {
-      terminalCancellations.delete(cancelOwned);
+      prepareTerminalRetirements.delete(prepareOwnedRetirement);
       detachAbort();
       if (abortRequested) {
         postRequestControl('clear-request-control');
@@ -682,19 +683,22 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     if (telemetryError.current) {
       cancelable.cancel();
     }
-    let issuingTerminalCancellation = false;
+    let executionPending = true;
+    let captureTerminalRejection = false;
     let terminalCancellation: unknown;
     const checkedExecution = cancelable.then(
       (result) => {
+        executionPending = false;
         if (telemetryError.current) {
           throw telemetryError.current;
         }
         return result;
       },
       (error: unknown) => {
-        if (issuingTerminalCancellation && error instanceof workerpool.Promise.CancellationError) {
+        if (issuingPhysicalTermination && captureTerminalRejection) {
           terminalCancellation = error;
         }
+        executionPending = false;
         if (telemetryError.current) {
           throw telemetryError.current;
         }
@@ -719,18 +723,13 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
 
     return {
       cancelable,
-      cancelForRetirement: (): void => {
-        issuingTerminalCancellation = true;
-        try {
-          cancelable.cancel();
-        } finally {
-          issuingTerminalCancellation = false;
-        }
-      },
       isTerminalCancellation: (error: unknown): boolean =>
         terminalCancellation !== undefined &&
         error === terminalCancellation &&
         telemetryError.current === null,
+      prepareForRetirement: (): void => {
+        captureTerminalRejection = executionPending;
+      },
       promise,
       startedAt,
       telemetrySource,
@@ -834,6 +833,17 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     }
   };
 
+  const terminatePool = (): ReturnType<Pool['terminate']> => {
+    issuingPhysicalTermination = true;
+    try {
+      // Capture only this synchronous vendor call's rejections of already-aborted work.
+      // Per-task cancel would re-enter worker cleanup and create a minWorkers replacement.
+      return pool.terminate(true);
+    } finally {
+      issuingPhysicalTermination = false;
+    }
+  };
+
   const terminateInternal = (nextState: 'canceled' | 'disposed'): Promise<void> => {
     if (termination) {
       return termination;
@@ -856,15 +866,15 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     // Retain both joins before invoking synchronous vendor cancellation callbacks.
     void (async () => {
       const failures: unknown[] = [];
-      for (const cancel of terminalCancellations) {
+      for (const prepare of prepareTerminalRetirements) {
         try {
-          cancel();
+          prepare();
         } catch (error) {
           failures.push(error);
         }
       }
       try {
-        await pool.terminate(true);
+        await terminatePool();
       } catch (error) {
         failures.push(error);
       }

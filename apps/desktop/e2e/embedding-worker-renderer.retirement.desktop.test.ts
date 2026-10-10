@@ -1,5 +1,5 @@
 import { rm } from 'node:fs/promises';
-import type { Page } from '@playwright/test';
+import type { ElectronApplication, Page } from '@playwright/test';
 import {
   configureNativeCollectionSearch,
   createNativeImportedSearchFixture,
@@ -44,6 +44,24 @@ async function requestReset(page: Page): Promise<void> {
     };
   });
   await page.getByTestId('factory-reset-button').click();
+}
+
+function observeReset(app: ElectronApplication, milestone: string) {
+  const reached = Promise.withResolvers<void>();
+  let output = '';
+  app.process().stdout?.on('data', (chunk: Buffer) => {
+    output += chunk.toString('utf8');
+    if (output.includes('Failed to reset desktop application data')) {
+      reached.reject(new Error('Factory reset failed before native retirement joined.'));
+      return;
+    }
+    if (output.includes(milestone)) {
+      reached.resolve();
+    }
+  });
+  // The click can still be awaiting its acknowledgement when Main reports failure.
+  reached.promise.catch(() => undefined);
+  return { output: () => output, reached: reached.promise };
 }
 
 async function assertFreshDefaults(page: Page): Promise<void> {
@@ -98,7 +116,9 @@ for (const mode of ['quit-and-relaunch', 'reset-and-reuse', 'quit-during-reset']
         await search(reopened, scenario.searchableCollectionName);
         expect((await getEmbeddingHostStatus(reopened)).runtimeId).not.toBe(previous.runtimeId);
       } else if (mode === 'reset-and-reuse') {
+        const reset = observeReset(current.app, 'Desktop factory reset completed');
         await requestReset(page);
+        await reset.reached;
         await assertFreshDefaults(page);
         const fresh = await showDatabaseDemoPanel(page);
         const name = 'Post-reset native generation';
@@ -109,20 +129,16 @@ for (const mode of ['quit-and-relaunch', 'reset-and-reuse', 'quit-during-reset']
         expect((await getEmbeddingHostStatus(fresh)).runtimeId).not.toBe(previous.runtimeId);
       } else {
         // This existing runtime event occurs after reset's parallel Stop joins and before purge.
-        const resetStarted = Promise.withResolvers<void>();
-        let output = '';
-        current.app.process().stdout?.on('data', (chunk: Buffer) => {
-          output += chunk.toString('utf8');
-          if (output.includes('Browser pane session storage cleared (factory reset)')) {
-            resetStarted.resolve();
-          }
-        });
+        const reset = observeReset(
+          current.app,
+          'Browser pane session storage cleared (factory reset)'
+        );
         await requestReset(page);
-        await resetStarted.promise;
+        await reset.reached;
         await electron.closeForStateSeeding();
         assertCleanShutdown();
-        expect(output).toContain('Desktop factory reset completed');
-        expect(output).not.toContain('Failed to reset desktop application data');
+        expect(reset.output()).toContain('Desktop factory reset completed');
+        expect(reset.output()).not.toContain('Failed to reset desktop application data');
         current = await electron.ensureContext();
         assertCleanShutdown = captureNativeShutdown(current.app);
         await assertFreshDefaults(await electron.ensureWindow({ preserveState: true }));

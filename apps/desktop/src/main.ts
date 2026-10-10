@@ -620,7 +620,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       renderers: async () => {
         // The admitted reset has joined. Fence new profile work while an
         // initial load finishes, before closing the window it is creating.
-        await nativeIndexActivation.fenceTerminal();
+        nativeIndexActivation.fenceTerminal();
         await initialWindowCreation;
         await closeDesktopRenderers(
           BrowserWindow.getAllWindows(),
