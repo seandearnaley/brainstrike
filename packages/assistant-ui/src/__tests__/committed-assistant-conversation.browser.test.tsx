@@ -2,12 +2,10 @@ import '@testing-library/jest-dom/vitest';
 // Must evaluate before anything that loads React DOM: it installs the React
 // DevTools hook and Scheduler MessageChannel timing used by the render-cost suite.
 import './committed-assistant-browser-support';
-import { TooltipProvider } from '@brainstrike/ui';
-import { act, getConfig, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, getConfig, render, screen, waitFor, within } from '@testing-library/react';
 import { Profiler, type ReactElement, version as reactVersion, useCallback } from 'react';
 import { afterAll, beforeAll, describe, expect, onTestFinished, test, vi } from 'vitest';
-import { page, userEvent } from 'vitest/browser';
-import { CommittedAssistantConversation } from '../committed-assistant-conversation';
+import { commands, page, userEvent } from 'vitest/browser';
 import {
   type CommittedAssistantCommands,
   type CommittedAssistantSnapshot,
@@ -65,7 +63,9 @@ import {
   ZERO_COUNTS,
 } from './committed-assistant-browser-support';
 import { PublishedConversation } from './committed-assistant-test-support';
+import { conversation, Surface } from './committed-conversation-surface';
 import { publishLiveText, TEXT_PUBLICATIONS } from './committed-live-text-support';
+import type {} from './committed-production/receipt';
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
 import './assistant-conversation-panel.browser.css';
@@ -79,52 +79,11 @@ import './assistant-conversation-panel.browser.css';
  * success that writes transcript state.
  */
 
-const LABEL = 'Committed conversation';
 const APPROVE = `Approve ${recordedToolName}`;
 const DECLINE = `Decline ${recordedToolName}`;
 const COMPLETED_TEXT = 'Host run completed.';
 const UNAVAILABLE = 'The agent host is unavailable.';
 const DISCONNECTED = 'Agent host disconnected. Reconnect to continue.';
-
-function Surface({
-  store,
-  actions,
-  width = 900,
-  height = 620,
-  label = LABEL,
-}: {
-  readonly store: CommittedAssistantStore;
-  readonly actions: CommittedAssistantCommands;
-  readonly width?: number;
-  readonly height?: number;
-  readonly label?: string;
-}): ReactElement {
-  return (
-    <TooltipProvider>
-      <div style={{ height, width }}>
-        <CommittedAssistantConversation commands={actions} label={label} store={store} />
-      </div>
-    </TooltipProvider>
-  );
-}
-
-/** The shipped region plus the committed wrapper that also hosts owner status and alerts. */
-function conversation(label = LABEL) {
-  const region = screen.getByRole('region', { name: label });
-  const root = region.parentElement;
-  if (!root) {
-    throw new Error('The committed conversation wrapper is missing.');
-  }
-  const ui = within(region);
-  return {
-    host: within(root),
-    input: ui.getByRole('textbox', { name: 'Message input' }),
-    region,
-    root,
-    ui,
-    viewport: ui.getByTestId('assistant-ui-viewport'),
-  };
-}
 
 describe('same-thread connection changes', () => {
   test.each([390, 900])(
@@ -405,7 +364,11 @@ async function mountPendingApproval(
   };
 }
 
-const EXACT_APPROVAL = { approvalId: recordedInteractionId, approved: true };
+const EXACT_APPROVAL = {
+  approvalId: recordedInteractionId,
+  approved: true,
+  optionId: 'approve',
+};
 
 describe('keyboard approval and errors', () => {
   test('keyboard approval dispatches the exact committed interaction once; only the committed response suffix settles the card', async () => {
@@ -912,8 +875,14 @@ const mountMeasuredTrial: MountTrial = async ({ baseline, firstChild, saved }) =
     savedRow,
     toolCard: root.ui.getByTestId('tool-fallback'),
     unmount: () => {
-      view.unmount();
+      // Trials share beforeAll: per-test cleanup runs only after all 45 mounts.
+      // Release RTL's container/root registry between independent measurements.
+      cleanup();
       store.dispose();
+      expect(
+        view.container,
+        'each trial releases its Testing Library container'
+      ).not.toBeInTheDocument();
     },
     views,
   };
@@ -928,8 +897,9 @@ async function warmUp(): Promise<void> {
   const store = await recordedStore(source, baseline);
   const warm = render(<Surface actions={{ onNew: rejectingNew() }} store={store} />);
   await screen.findByText(COMPLETED_TEXT);
-  warm.unmount();
+  cleanup();
   store.dispose();
+  expect(warm.container, 'warm-up releases its Testing Library container').not.toBeInTheDocument();
 }
 
 describe('recorded text publication cost (BST-1929 spike s-ui budget)', () => {
@@ -1010,16 +980,30 @@ describe('recorded text publication cost (BST-1929 spike s-ui budget)', () => {
     }
   });
 
-  test('p95 per recorded token stays within 8 ms over the spike s-ui interval', () => {
-    const tokens = measured().samples['text-delta'];
-    expect(tokens).toHaveLength(TRIALS);
-    // Every commit must fall inside a timed slice, or the interval misses work.
-    expect(tokens.map((token) => token.commitsOutsideTimedWork)).toEqual(tokens.map(() => 0));
-    expect(
-      percentile(
-        tokens.map((token) => token.reactMs),
-        95
-      )
-    ).toBeLessThanOrEqual(8);
-  });
+  // FIXME(BST-1929): Sean approved this single M4 quarantine on 2026-10-09.
+  // The M3-only workload has no qualified shipped-main baseline. Keep the full
+  // production measurement and 8 ms target; re-enable when this gate passes.
+  // Vitest has no test.fixme, so use the repository's ticket-linked test.skip.
+  test.skip(
+    'p95 per recorded token stays within 8 ms over the spike s-ui interval',
+    async () => {
+      // Development JSX captures owner stacks. Keep its attribution/Profiler
+      // assertions above; apply the unchanged budget to the shipped artifact.
+      const production = await commands.measureCommittedProduction({
+        timeout: MEASUREMENT_TIMEOUT_MS,
+      });
+      console.info('COMMITTED_UI_PRODUCTION_MEASUREMENT', JSON.stringify(production));
+      const tokens = production.timings;
+      expect(tokens).toHaveLength(TRIALS);
+      // Every commit must fall inside a timed slice, or the interval misses work.
+      expect(tokens.map((token) => token.commitsOutsideTimedWork)).toEqual(tokens.map(() => 0));
+      expect(
+        percentile(
+          tokens.map((token) => token.reactMs),
+          95
+        )
+      ).toBeLessThanOrEqual(8);
+    },
+    MEASUREMENT_TIMEOUT_MS
+  );
 });
