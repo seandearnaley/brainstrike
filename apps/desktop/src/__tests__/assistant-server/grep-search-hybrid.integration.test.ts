@@ -255,7 +255,7 @@ describe('grepSearch hybrid — rg-absent fallback (non-silent)', () => {
     const statSpy = vi
       .spyOn(fsPromises, 'stat')
       .mockImplementation(async (target: Parameters<typeof realStat>[0]) => {
-        if (typeof target === 'string' && target.endsWith('/rg')) {
+        if (typeof target === 'string' && ['rg', 'rg.exe'].includes(path.basename(target))) {
           throw new Error('ENOENT: ripgrep not found');
         }
         return realStat(target);

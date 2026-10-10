@@ -1,4 +1,4 @@
-import { linkSync, mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -47,14 +47,13 @@ describe('explicit-file live grep candidate scope', () => {
     const root = largeRoot;
     await write(root, 'a-unrelated/seed.ts', 'value = 12345\n');
     await write(root, 'z-selected/keep.ts', 'selected = 98765\n');
-    // Real directory entries beyond the walk ceiling; hard links keep fixture
-    // storage small without faking candidate work or the authoritative reads.
-    const seed = path.join(root.path, 'a-unrelated/seed.ts');
+    // Real independent files beyond the walk ceiling preserve candidate work
+    // without exhausting Windows' per-file hard-link limit.
     for (let batch = 0; batch < MAX_FILES_WALKED_PER_ROOT / 500; batch += 1) {
       const directory = path.join(root.path, `a-unrelated/batch-${batch}`);
       mkdirSync(directory);
       for (let index = 0; index < 500; index += 1) {
-        linkSync(seed, path.join(directory, `entry-${index}.ts`));
+        writeFileSync(path.join(directory, `entry-${index}.ts`), 'value = 12345\n');
       }
     }
   });
