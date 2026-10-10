@@ -13,6 +13,8 @@ import {
   CanonicalUtilityParent,
 } from '../canonical-utility-parent';
 import { decodeCanonicalFrame } from '../canonical-utility-protocol';
+import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
+import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import type { NativeCanonicalInference } from '../native-canonical-profile';
 import { createNativeIndexActivation } from '../native-index-activation';
@@ -165,6 +167,7 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
     embedding: transport,
     onError: vi.fn(),
     onReceipt,
+    profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
     storage,
   });
   return { activation, onReceipt, storage, transport };

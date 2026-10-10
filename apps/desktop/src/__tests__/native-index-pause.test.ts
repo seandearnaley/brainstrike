@@ -8,7 +8,9 @@ import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
+import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
+import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
 import { createNativeIndexActivation } from '../native-index-activation';
@@ -143,6 +145,7 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
     embedding: transport,
     onError: vi.fn(),
     onReceipt,
+    profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
     storage,
   });
   return { activation, onReceipt, storage, transport };

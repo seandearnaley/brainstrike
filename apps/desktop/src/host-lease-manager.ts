@@ -52,6 +52,8 @@ export interface DesktopHostLeaseOptions {
   };
   /** A ready child this lease spawned; only it can receive private client ports. */
   readonly onChildReady?: (child: DesktopHostChild) => void;
+  /** The owned utility is forked and its lifetime/platform ports are transferred. */
+  readonly onChildStarted?: () => void;
   /**
    * Created only when this desktop actually owns a new Root child. Its platform connection
    * feeds `nativeChildren`, through which Main supervises that host's native processes.
@@ -277,6 +279,7 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
           if (platform) {
             child.handle.postMessage({ event: 'platform-capabilities' }, [platform.port]);
           }
+          options.onChildStarted?.();
           await ready;
           child.ready = true;
           options.onChildReady?.({

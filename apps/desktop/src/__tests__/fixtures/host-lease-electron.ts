@@ -1,4 +1,5 @@
 import { app, MessageChannelMain, type MessagePortMain, utilityProcess } from 'electron';
+import { createDesktopProfileRuntime } from '../../desktop-profile-runtime';
 import { createDesktopHostLease } from '../../host-lease-manager';
 import { createNativeIndexRuntime } from '../../native-index-runtime';
 
@@ -36,10 +37,10 @@ const unused = (): Promise<never> => Promise.reject(new Error('No index requeste
 const runtime = createNativeIndexRuntime({
   closeQueries: async () => {},
   createIndexOwner: unused,
-  createProfileOwner: () => owner,
   getAuthority: unused,
   getFileInvalidator: () => undefined,
   installQueryTarget: () => {},
+  profile: createDesktopProfileRuntime(() => owner),
 });
 let closing: Promise<void> | undefined;
 function close(): void {

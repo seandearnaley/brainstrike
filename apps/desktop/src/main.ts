@@ -2,7 +2,6 @@
 // import (PGlite, tokenizers, xxhash-wasm) can instantiate a module.
 import './diagnostics/install-webassembly-counter';
 import { randomUUID } from 'node:crypto';
-import fs from 'node:fs';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-metadata';
@@ -22,14 +21,12 @@ import {
 import { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { app, BrowserWindow, dialog, Menu, powerMonitor, shell } from 'electron';
 import ElectronStore from 'electron-store';
-import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
 import { registerAgentHostClientIpc } from './agent-host-client-ipc';
 import { createAgentHostMainClient } from './agent-host-main-client';
-import { createDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
+import { bindDesktopPlatformPort } from './agent-host-platform/desktop-platform-port';
 import { DesktopWorkspaceBindingAuthority } from './agent-host-platform/desktop-workspace-binding';
 import { readEmbeddingHostDevice } from './agent-host-platform/memory-vector-selection';
 import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
-import { createAgentHostPrivateClients } from './agent-host-private-clients';
 import { buildFileMenuTemplate } from './application-file-menu';
 import { registerAssetProtocol } from './asset-protocol';
 import { startAssistantServer } from './assistant-server';
@@ -60,7 +57,6 @@ import {
   setActiveBrowserPaneHost,
 } from './browser/browser-pane-registry';
 import { createBrowserIpcHandlers } from './browser-ipc-handlers';
-import { resolveBundledSiblingPath } from './bundled-sibling-path';
 import { registerCanvasProtocol } from './canvas-protocol';
 import { createChangesIpcHandlers } from './changes-ipc-handlers';
 import { ChunkingHostManager } from './chunking-host-manager';
@@ -76,8 +72,8 @@ import {
   prepareDatabaseProfileReset,
   resetLocalDatabase,
 } from './db-main';
+import { getDesktopBootstrapRuntime } from './desktop-bootstrap-runtime';
 import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
-import { getDesktopEnvironmentBootstrapResult } from './desktop-env';
 import { buildDesktopEnvBootstrapReport } from './desktop-env-report';
 import { serializeDesktopError } from './desktop-error-serialization';
 import { createDesktopHookTrust } from './desktop-hook-trust';
@@ -133,7 +129,6 @@ import { EmbeddingHostManager } from './embedding-host-manager';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
 import { resolveFolderCandidatesFromArgv } from './folder-argv';
 import { createDatabaseRootResolver } from './git-ipc-handlers';
-import { DISABLED_CHROMIUM_FEATURES } from './gpu-flags';
 import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerBrowserIpcHandlers } from './ipc-browser';
 import { registerChangesIpcHandlers } from './ipc-changes';
@@ -212,8 +207,7 @@ import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { VECTOR_PREFERENCES_STORAGE_KEY } from './platform/vector-preferences-storage-key';
-import { registerPrivilegedSchemes } from './privileged-schemes';
-import { createDesktopSettingsSecrets, desktopCredentialStoreSelection } from './secrets';
+import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
 import { installIndexCallerRead, openIndexQuery } from './sqlite-query-host-manager';
 import type { DesktopSettingsStoreSchema } from './store-schema';
@@ -221,74 +215,14 @@ import { disposeAllTerminals } from './terminal-ipc-handlers';
 import { registerWindowFocusIpcHandlers } from './window-focus-ipc';
 import { resolveSourceWindowRole } from './window-role';
 import { readStoredWindowState, registerWindowStatePersistence } from './window-state';
-import {
-  createWorkspaceOpenQueue,
-  enqueueFolderCandidates,
-  filterDirectoryOpenCandidates,
-} from './workspace-open-queue';
+import { enqueueFolderCandidates, filterDirectoryOpenCandidates } from './workspace-open-queue';
 import { registerWorkspaceOpenReadyIpcHandlers } from './workspace-open-ready-ipc';
 import { createWorktreesIpcHandlers } from './worktrees-ipc-handlers';
 
-// The running bundled entry's own on-disk path (dist/main.js in every real
-// launch), threaded to `resolveFolderCandidatesFromArgv` so the FILE-entry
-// launch spelling (`electron <path>/dist/main.js`, BST-1459) is recognized
-// as the implicit app argument.
-// biome-ignore lint/correctness/noGlobalDirnameFilename: esbuild's cjs output leaves import.meta EMPTY and Vitest's shim has no module.filename — __filename is the only identifier populated in both; see bundled-sibling-path.ts's docblock (BST-1459).
-const MAIN_ENTRY_PATH = __filename;
-
-const desktopEnvLoadResult = getDesktopEnvironmentBootstrapResult();
+const desktopBootstrap = getDesktopBootstrapRuntime();
+const MAIN_ENTRY_PATH = desktopBootstrap.mainEntryPath;
+const desktopEnvLoadResult = desktopBootstrap.environment;
 const disableFileLogs = process.env['BRAINSTRIKE_DISABLE_FILE_LOGS'] === '1';
-const E2E_USER_DATA_DIR_ENV = 'BRAINSTRIKE_E2E_USER_DATA_DIR';
-
-const agentDevtoolsConfig = configureAgentDevtoolsCommandLine(
-  app.commandLine,
-  process.env,
-  process.argv
-);
-
-// MUST run before app.whenReady(), and exactly once for ALL privileged
-// schemes: Electron honors a single registerSchemesAsPrivileged call per
-// launch (see privileged-schemes.ts).
-registerPrivilegedSchemes();
-
-function readExplicitE2eUserDataDir(): string | null {
-  const candidate = process.env[E2E_USER_DATA_DIR_ENV]?.trim();
-  if (!candidate || candidate.toLowerCase() === 'undefined') {
-    return null;
-  }
-  if (!path.isAbsolute(candidate)) {
-    throw new Error(`${E2E_USER_DATA_DIR_ENV} must be an absolute path.`);
-  }
-  return candidate;
-}
-
-function applyExplicitPathIsolation(): void {
-  const electronE2ETestMode = isElectronE2ETestMode();
-  if (!(electronE2ETestMode || agentDevtoolsConfig.enabled)) {
-    return;
-  }
-
-  const userDataDir = readExplicitE2eUserDataDir();
-  if (!userDataDir) {
-    if (agentDevtoolsConfig.enabled) {
-      throw new Error(`${E2E_USER_DATA_DIR_ENV} is required when Agent DevTools is enabled.`);
-    }
-    return;
-  }
-
-  fs.mkdirSync(userDataDir, { recursive: true });
-  app.setPath('userData', userDataDir);
-
-  const sessionDataDir = path.join(userDataDir, 'session-data');
-  fs.mkdirSync(sessionDataDir, { recursive: true });
-  app.setPath('sessionData', sessionDataDir);
-
-  const logsDir = path.join(userDataDir, 'logs');
-  fs.mkdirSync(logsDir, { recursive: true });
-  app.setPath('logs', logsDir);
-}
-
-applyExplicitPathIsolation();
 
 function tryShowStartupErrorDialog(message: string): void {
   try {
@@ -523,6 +457,7 @@ let desktopMaintenanceTriggerGraph: DesktopMaintenanceTriggerGraph | null = null
 let desktopDimensionIndexStrategy: DimensionIndexBuildStrategy | null = null;
 let allowImmediateQuit = false;
 let gracefulShutdownInFlight = false;
+let initialWindowCreation: Promise<BrowserWindow | undefined> | undefined;
 const SIGNAL_SHUTDOWN_TIMEOUT_MS = 5000 as const;
 const FACTORY_RESET_RENDERER_READY_TIMEOUT_MS = 30_000 as const;
 let completeFactoryResetRendererReplacement: (() => Promise<void>) | null = null;
@@ -673,14 +608,19 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       // producers first, while their DB/chunking/assistant dependencies still
       // live. Hidden renderer hosts must retain command listeners until their
       // own stop.
-      renderers: () =>
-        closeDesktopRenderers(
+      renderers: async () => {
+        // The admitted reset has joined. Fence new profile work while an
+        // initial load finishes, before closing the window it is creating.
+        await nativeIndexActivation.fenceTerminal();
+        await initialWindowCreation;
+        await closeDesktopRenderers(
           BrowserWindow.getAllWindows(),
           (window) =>
             chunkingHostManager.isHostWindow(window) ||
             embeddingHostManager.isHostWindow(window) ||
             llmHostManager.isHostWindow(window)
-        ),
+        );
+      },
     },
   };
 }
@@ -993,99 +933,21 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
     pendingRootGrantSubscriber?.(grantedPath);
   },
 });
+export function reportAgentHostStartupFailure(error: unknown): void {
+  reportNativeIndexActivationError('Agent host startup failed', error);
+}
 function reportNativeIndexActivationError(message: string, error: unknown): void {
   reportNativeIndexFailure(message, error, isDesktopShuttingDown(), logger);
 }
-const agentHostPrivateClients = createAgentHostPrivateClients();
+const agentHostPrivateClients = desktopBootstrap.privateClients;
 const nativeIndexActivation = createNativeIndexActivation({
-  agentHostPlatform: {
-    onChildReady: (child) => {
-      agentHostPrivateClients.attach(child);
-    },
-    platform: (nativeChildren) => {
-      const ledger = createWorktreeLedger(getDatabase);
-      const workspace = new DesktopWorkspaceBindingAuthority({
-        borrowRoot: (root) =>
-          applicationIpcDomain.roots.borrowSourceRootForPath(
-            root.path,
-            applicationIpcDomain.watches.subscribe.bind(applicationIpcDomain.watches)
-          ),
-        readRoots: async () => loadWorkspaceRootsFromDatabase(await getDatabase()),
-        readWorktree: (id) => ledger.get(id),
-      });
-      return createDesktopPlatformPort({
-        ...productionDesktopCapabilities(
-          {
-            embeddingHostManager,
-            nativeIndexSearch,
-            resolveForgeService: () => forgeService ?? null,
-            resolveWorktreeService: () => worktreeService,
-          },
-          undefined,
-          workspace,
-          // Local recall loads as the embedding host's unpinned query did (BST-1929).
-          (signal) => readEmbeddingHostDevice(embeddingHostManager, signal)
-        ),
-        // BST-1977: app-owned host/stop released Root with the native writer live.
-        // Retiring the profile here would wait on this same Core close request.
-        closeRootCapabilities: async () => {
-          const results = await Promise.allSettled([
-            workspace.close(),
-            nativeIndexActivation.closeRootCapabilities(),
-          ]);
-          const failures = results.flatMap((result) =>
-            result.status === 'rejected' ? [result.reason] : []
-          );
-          if (failures.length > 0) {
-            throw new AggregateError(
-              failures,
-              'Desktop workspace and native Root retirement failed'
-            );
-          }
-        },
-        // ADR-0007: a host thread's admitted local chat model or observer borrows the hidden
-        // llm-host (an isolated E2E launch may script it instead of downloading the model).
-        localLlm: createMainLlmHostClient(createE2eScriptedLlmHost() ?? llmHostManager),
-        // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
-        mcp: createDesktopMcpPlatformCapabilities(getMainMcpHostControl()),
-        // ADR-0017: the host reports its native processes; Main ends them if it dies.
-        nativeChildren,
-        // BST-1977: host runs' turns snapshot through legacy turns' one shadow-git owner.
-        workspaceSnapshots: () => snapshotService,
-      });
-    },
-    platformModule: resolveBundledSiblingPath(
-      'Agent host platform',
-      'agent-host-platform-entry.mjs'
-    ),
-    // The host owns the profile store Main reads.
-    platformOptions: async () => {
-      // An isolated E2E launch's egress boundary may stand in for the Codex
-      // sign-in issuer on loopback; the host refuses any other origin.
-      const e2eCodexIssuer = isElectronE2ETestMode()
-        ? process.env['BRAINSTRIKE_E2E_OPENAI_CODEX_ISSUER']
-        : undefined;
-      return {
-        appPaths: {
-          isPackaged: app.isPackaged,
-          resourcesPath: process.resourcesPath,
-          userDataPath: app.getPath('userData'),
-        },
-        credentialStore: desktopCredentialStoreSelection(),
-        // Main loaded the env files; the host gates provider status on rejections.
-        ...(desktopEnvLoadResult.failures.length > 0
-          ? { envFileFailures: [...desktopEnvLoadResult.failures] }
-          : {}),
-        ...(e2eCodexIssuer ? { openAiCodexIssuer: e2eCodexIssuer } : {}),
-      };
-    },
-  },
   application: applicationIpcDomain,
   embedding: embeddingHostManager,
   onError: (operation, error) =>
     reportNativeIndexActivationError(`Native indexing ${operation} failed`, error),
   onReceipt: (receipt) =>
     logger.info('Canonical native scan settled', { receipt, settledAt: new Date().toISOString() }),
+  profile: desktopBootstrap.profile,
   storage,
 });
 installIndexCallerRead(createNativeCallerRead(nativeIndexActivation.withRead));
@@ -1324,11 +1186,7 @@ process.on('unhandledRejection', (reason, promise) => {
   });
 });
 
-const singleInstanceLockAcquired = isElectronE2ETestMode()
-  ? true
-  : typeof app.requestSingleInstanceLock === 'function'
-    ? app.requestSingleInstanceLock()
-    : true;
+const singleInstanceLockAcquired = desktopBootstrap.singleInstanceLockAcquired;
 
 if (singleInstanceLockAcquired) {
   const e2eTestMode = isElectronE2ETestMode();
@@ -1337,7 +1195,7 @@ if (singleInstanceLockAcquired) {
     installE2eForegroundLatencyProbes();
   }
 
-  const workspaceOpenQueue = createWorkspaceOpenQueue(DESKTOP_IPC_CHANNELS.workspace.openPath);
+  const workspaceOpenQueue = desktopBootstrap.workspaceOpenQueue;
 
   // Renderer→main ready ping (`WorkspaceConnectHost`, immediately after it
   // subscribes via `onOpenPath`). Registered ONCE here, at module scope,
@@ -1385,80 +1243,27 @@ if (singleInstanceLockAcquired) {
     await factoryResetRendererReplacement.replace(visibleWindows);
   };
 
-  // macOS delivers this before `whenReady` (Dock drop, "Open With", a click in
-  // the Dock's recent-documents list that `app.addRecentDocument` populates),
-  // so the listener is registered at module scope and the queue holds the
-  // request until a renderer is listening. Registered in E2E mode too — the
-  // desktop e2e drives it with `app.emit('open-file', …)`, which is the only
-  // way this entry point is observable end to end.
-  app.on('open-file', (event, openedPath) => {
-    event.preventDefault();
-    if (isDesktopShuttingDown()) {
+  desktopBootstrap.bindSecondInstanceFocus(() => {
+    const existingWindow =
+      BrowserWindow.getAllWindows().find(
+        (window) =>
+          !(
+            embeddingHostManager.isHostWindow(window) ||
+            chunkingHostManager.isHostWindow(window) ||
+            llmHostManager.isHostWindow(window)
+          )
+      ) ?? null;
+    if (!existingWindow) {
       return;
     }
-    enqueueFolderCandidates(
-      workspaceOpenQueue,
-      filterDirectoryOpenCandidates([openedPath], 'open-file'),
-      'open-file'
-    );
+
+    if (typeof existingWindow.show === 'function') {
+      existingWindow.show();
+    }
+    if (typeof existingWindow.focus === 'function') {
+      existingWindow.focus();
+    }
   });
-
-  // REMOVED: enable-gpu-rasterization + enable-zero-copy
-  // These push rasterization onto the same GPU command queue that ONNX/Dawn
-  // uses for WebGPU inference. Under sustained background embedding load,
-  // the Metal command queue race causes a Dawn CHECK() → SIGTRAP at ~4 min.
-
-  // Prevent macOS from deprioritizing the renderer's GPU context when the
-  // window is occluded (behind another window). Without this, the GPU process
-  // may starve WebGPU command submissions after ~4 minutes.
-  app.commandLine.appendSwitch('disable-features', DISABLED_CHROMIUM_FEATURES.join(','));
-
-  if (!e2eTestMode) {
-    // Honest coverage note (BST-1393 ruling L3): this listener is registered
-    // only in non-e2e mode, and E2E cannot launch a second process against
-    // the harness's app. Its argv parse is covered by folder-argv.test.ts and
-    // its delivery path is the SAME queue + channel the open-file e2e
-    // exercises end to end. No e2e is invented for it.
-    app.on('second-instance', (_event, secondInstanceArgv, workingDirectory) => {
-      if (isDesktopShuttingDown()) {
-        return;
-      }
-      enqueueFolderCandidates(
-        workspaceOpenQueue,
-        filterDirectoryOpenCandidates(
-          resolveFolderCandidatesFromArgv({
-            appEntryPath: MAIN_ENTRY_PATH,
-            appPath: app.getAppPath(),
-            argv: secondInstanceArgv,
-            isPackaged: app.isPackaged,
-            workingDirectory,
-          }),
-          'second-instance'
-        ),
-        'second-instance'
-      );
-
-      const existingWindow =
-        BrowserWindow.getAllWindows().find(
-          (window) =>
-            !(
-              embeddingHostManager.isHostWindow(window) ||
-              chunkingHostManager.isHostWindow(window) ||
-              llmHostManager.isHostWindow(window)
-            )
-        ) ?? null;
-      if (!existingWindow) {
-        return;
-      }
-
-      if (typeof existingWindow.show === 'function') {
-        existingWindow.show();
-      }
-      if (typeof existingWindow.focus === 'function') {
-        existingWindow.focus();
-      }
-    });
-  }
 
   // Push one payload to every live renderer window (ipc-mcp precedent): the
   // git-awareness pushes can land in any window.
@@ -1472,6 +1277,9 @@ if (singleInstanceLockAcquired) {
   };
 
   app.whenReady().then(async () => {
+    if (isDesktopShuttingDown()) {
+      return;
+    }
     registerShutdownSignalHandlers();
     try {
       emitBootMeasurementMark('app-ready', app.isPackaged);
@@ -2310,7 +2118,7 @@ if (singleInstanceLockAcquired) {
       // If the main thread stops sending heartbeats, the worker writes
       // diagnostics directly to stderr and the log file.
       // ---------------------------------------------------------------
-      const mainWindow = await startMainWatchdogBeforeWindow(
+      initialWindowCreation = startMainWatchdogBeforeWindow(
         () => {
           const workerPath = resolveMainWatchdogWorkerPath(app.getAppPath(), app.isPackaged);
           const watchdog = new Worker(workerPath);
@@ -2376,7 +2184,8 @@ if (singleInstanceLockAcquired) {
           );
         }
       );
-      if (!mainWindow) {
+      const mainWindow = await initialWindowCreation;
+      if (!mainWindow || isDesktopShuttingDown()) {
         return;
       }
       logger.debug('Main window created successfully');
@@ -2515,6 +2324,56 @@ app.on('will-quit', () => {
   }
   worktreeService = null;
   removeLogBufferListener();
+});
+
+desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
+  const ledger = createWorktreeLedger(getDatabase);
+  const workspace = new DesktopWorkspaceBindingAuthority({
+    borrowRoot: (root) =>
+      applicationIpcDomain.roots.borrowSourceRootForPath(
+        root.path,
+        applicationIpcDomain.watches.subscribe.bind(applicationIpcDomain.watches)
+      ),
+    readRoots: async () => loadWorkspaceRootsFromDatabase(await getDatabase()),
+    readWorktree: (id) => ledger.get(id),
+  });
+  return bindDesktopPlatformPort(platformPort, {
+    ...productionDesktopCapabilities(
+      {
+        embeddingHostManager,
+        nativeIndexSearch,
+        resolveForgeService: () => forgeService ?? null,
+        resolveWorktreeService: () => worktreeService,
+      },
+      undefined,
+      workspace,
+      // Local recall loads as the embedding host's unpinned query did (BST-1929).
+      (signal) => readEmbeddingHostDevice(embeddingHostManager, signal)
+    ),
+    // BST-1977: app-owned host/stop released Root with the native writer live.
+    // Retiring the profile here would wait on this same Core close request.
+    closeRootCapabilities: async () => {
+      const results = await Promise.allSettled([
+        workspace.close(),
+        nativeIndexActivation.closeRootCapabilities(),
+      ]);
+      const failures = results.flatMap((result) =>
+        result.status === 'rejected' ? [result.reason] : []
+      );
+      if (failures.length > 0) {
+        throw new AggregateError(failures, 'Desktop workspace and native Root retirement failed');
+      }
+    },
+    // ADR-0007: a host thread's admitted local chat model or observer borrows the hidden
+    // llm-host (an isolated E2E launch may script it instead of downloading the model).
+    localLlm: createMainLlmHostClient(createE2eScriptedLlmHost() ?? llmHostManager),
+    // BST-1930 c1: the forked host owns the one MCP runtime; Main serves its stores.
+    mcp: createDesktopMcpPlatformCapabilities(getMainMcpHostControl()),
+    // ADR-0017: the host reports its native processes; Main ends them if it dies.
+    nativeChildren,
+    // BST-1977: host runs' turns snapshot through legacy turns' one shadow-git owner.
+    workspaceSnapshots: () => snapshotService,
+  });
 });
 
 export { createWindow, registerIpcHandlers, setupSecurity };

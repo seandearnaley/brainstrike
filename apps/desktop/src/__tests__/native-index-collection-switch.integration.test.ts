@@ -11,6 +11,7 @@ import type {
 // The native process entry needs the built public artifact, independent of source test aliases.
 import { openIndexer } from '@brainstrike/indexer';
 import { expect, it } from 'vitest';
+import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from '../native-index-runtime';
 
 const local = {
@@ -118,10 +119,13 @@ it.each(['TEXT', 'VECTOR'] as const)(
           start: () => starting,
         };
       },
-      createProfileOwner: () => ({ acquire: async () => {}, close: async () => {} }),
       getAuthority: async () => authority,
       getFileInvalidator: () => () => {},
       installQueryTarget: () => {},
+      profile: createDesktopProfileRuntime(() => ({
+        acquire: async () => {},
+        close: async () => {},
+      })),
     });
     try {
       const original = await runtime.acquire();

@@ -22,6 +22,8 @@ import {
   type CanonicalCollectionDependencies,
   CanonicalUtilityParent,
 } from '../canonical-utility-parent';
+import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
+import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
 import { createNativeIndexActivation } from '../native-index-activation';
@@ -81,7 +83,6 @@ vi.mock('../sqlite-query-host-manager', () => ({
     };
   },
 }));
-
 const scope = { embeddingSetId: 'selected', kind: 'collection' } as const;
 const source = 'retained canonical marker';
 const contentHash = createHash('sha256').update(source).digest('hex');
@@ -162,7 +163,7 @@ async function fixture(withWorkspace = false) {
     await coverageGate.promise;
   });
   const receiptAssertions = createNativePublicationReceiptAssertions(native);
-  const expectReadiness = receiptAssertions.expectReadiness;
+  const { expectReadiness } = receiptAssertions;
   const writer = {
     ...native,
     prepareScopedFile: receiptAssertions.prepareScopedFile,
@@ -382,6 +383,7 @@ async function fixture(withWorkspace = false) {
     } as unknown as ApplicationIpcDomain,
     embedding: { documentEmbeddings: vi.fn() },
     onError,
+    profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
     storage: {
       getItem: async () =>
         JSON.stringify({
@@ -612,7 +614,6 @@ it('queues a newer inventory until the actual host and private channel join the 
     await test.close();
   }
 });
-
 it.each([false, true])(
   'refuses an actually missing native row through the actual host/channel with newer inventory=%s',
   async (newer) => {
@@ -683,7 +684,6 @@ it('observes catalog population before the initial collection scan so concurrent
     await test.close();
   }
 });
-
 it.each([false, true])(
   'preserves genuine aggregate verification failure across the actual host/channel with newer inventory=%s',
   async (newer) => {
@@ -759,7 +759,6 @@ it('joins a queued inventory that reverts before the old verified scan settles w
     await test.close();
   }
 });
-
 it.each([false, true])(
   'keeps the admitted real native inventory during catalog loading with newer inventory=%s',
   async (newer) => {

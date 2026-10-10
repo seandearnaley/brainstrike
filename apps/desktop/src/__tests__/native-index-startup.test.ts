@@ -4,6 +4,8 @@ import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader
 import { createIndexerConnection, type IndexerConnection } from '@brainstrike/indexer/transport';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
+import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
+import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeIndexActivation } from '../native-index-activation';
 import { NativeIndexBlockedError } from '../native-index-blocked';
@@ -134,6 +136,7 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
     embedding: transport,
     onError,
     onReceipt,
+    profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
     storage,
   });
   return { activation, onError, onReceipt, storage, transport };
@@ -306,3 +309,13 @@ it.each(['validated', 'deadline', 'request'] as const)(
     }
   }
 );
+
+it('fences late profile acquisition before physical retirement while window startup joins', async () => {
+  const { activation } = fixture();
+  await activation.acquireProfile();
+  await activation.fenceTerminal();
+  await expect(activation.acquireProfile()).rejects.toThrow('terminal retirement');
+  expect(mocks.closeProfile).not.toHaveBeenCalled();
+  await activation.close();
+  expect(mocks.closeProfile).toHaveBeenCalledOnce();
+});

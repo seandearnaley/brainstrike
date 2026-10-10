@@ -333,7 +333,7 @@ export async function createHostPlatform(
     userDataDir,
   });
   await startup.register(() => mcpHost.close());
-  return createProductionHostPlatform({
+  const platform = await createProductionHostPlatform({
     auth: host.auth,
     close: async () => {
       // The MCP runtime joins while Main's platform connection is still open.
@@ -499,4 +499,8 @@ export async function createHostPlatform(
       );
     },
   });
+  // Full store/index acquisition completes above; Main must also have bound all
+  // capabilities before Core can publish this app-owned host as ready.
+  z.null().parse(await request('platform/ready', {}, startup.signal));
+  return platform;
 }

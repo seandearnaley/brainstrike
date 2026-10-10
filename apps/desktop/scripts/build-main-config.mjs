@@ -4,7 +4,9 @@
  * without loading esbuild inside the jsdom test environment.
  *
  * Output layout is a runtime contract:
- * - dist/main.js            package.json "main"
+ * - dist/main.js            small package.json "main" bootstrap
+ * - dist/main-runtime.js    full Main, loaded after utility fork
+ * - dist/desktop-*.js       shared bootstrap/profile process owners
  * - dist/preload.js         visible BrowserWindow preload
  * - dist/hidden-preload.js  role-selected hidden renderer capability manifest
  * - dist/db-host-entry.js   utilityProcess.fork target, resolved as a SIBLING
@@ -48,16 +50,47 @@ const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 export const MAIN_PROCESS_ENTRY_POINTS = {
   'agent-host-entry': 'src/agent-host-entry.ts',
   'db-host-entry': 'src/db-host-entry.ts',
+  'desktop-bootstrap-runtime': 'src/desktop-bootstrap-runtime.ts',
+  'desktop-database-location': 'src/desktop-database-location.ts',
+  'desktop-env': 'src/desktop-env.ts',
+  'desktop-shutdown-state': 'src/desktop-shutdown-state.ts',
   'hidden-preload': 'src/hidden-preload.ts',
   'host-lease-entry': 'src/host-lease-entry.ts',
   'indexer-host-entry': 'src/indexer-host-entry.ts',
   main: 'src/main-bootstrap.ts',
   'main-log-transport': 'src/diagnostics/main-log-transport.ts',
+  'main-runtime': 'src/main.ts',
   'main-watchdog-worker': 'src/diagnostics/main-watchdog-worker.ts',
   'official-conformance-client-entry': 'src/official-conformance-client-entry.ts',
   'parser-host-entry': 'src/parser-host-entry.ts',
   preload: 'src/preload.ts',
   'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
+};
+
+/** Each existing process-wide owner is emitted once, shared by bootstrap and Main. */
+const sharedMainModules = new Map(
+  [
+    ['main', 'main-runtime'],
+    ['desktop-bootstrap-runtime', 'desktop-bootstrap-runtime'],
+    ['desktop-database-location', 'desktop-database-location'],
+    ['desktop-env', 'desktop-env'],
+    ['desktop-shutdown-state', 'desktop-shutdown-state'],
+  ].map(([source, output]) => [path.join(appRoot, 'src', `${source}.ts`), output])
+);
+
+/** @type {import('esbuild').Plugin} */
+const sharedMainOwners = {
+  name: 'shared-main-owners',
+  setup(build) {
+    build.onResolve({ filter: /^\./ }, (args) => {
+      const source = path.resolve(args.resolveDir, args.path).replace(/\.js$/, '');
+      const output = sharedMainModules.get(`${source}.ts`);
+      if (!output) {
+        return;
+      }
+      return { external: true, path: `./${output}.js` };
+    });
+  },
 };
 
 /** @type {import('esbuild').BuildOptions} */
@@ -111,6 +144,7 @@ export const MAIN_PROCESS_BUILD_OPTIONS = {
   // is bundled.
   packages: 'external',
   platform: 'node',
+  plugins: [sharedMainOwners],
   sourcemap: false,
   // Electron 43 ships Node 24.
   target: 'node24',
@@ -136,4 +170,5 @@ export const AGENT_HOST_PLATFORM_BUILD_OPTIONS = {
   entryPoints: { 'agent-host-platform-entry': 'src/agent-host-platform-entry.ts' },
   format: 'esm',
   outExtension: { '.js': '.mjs' },
+  plugins: [],
 };

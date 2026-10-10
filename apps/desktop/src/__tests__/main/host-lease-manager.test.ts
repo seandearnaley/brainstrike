@@ -50,6 +50,27 @@ beforeEach(() => {
 });
 
 describe('desktop host lease ownership', () => {
+  it('reports the real fork with its lifetime port transferred before host readiness', async () => {
+    const { createDesktopHostLease } = await import('../../host-lease-manager');
+    const child = new Child();
+    const launched = Promise.withResolvers<void>();
+    const fork = vi.fn(() => child);
+    const owner = createDesktopHostLease({ fork, onChildStarted: () => launched.resolve(), root });
+    let ready = false;
+    const acquisition = owner.acquire().then(() => {
+      ready = true;
+    });
+    try {
+      await launched.promise;
+      expect(fork).toHaveBeenCalledOnce();
+      expect(child.posts).toEqual([{ event: 'lifetime' }]);
+      expect(ready).toBe(false);
+      child.emit('message', { event: 'ready' });
+      await acquisition;
+    } finally {
+      await owner.close();
+    }
+  });
   it('joins its child even when attachment cleanup fails and preserves that failure', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
     const cause = new Error('socket cleanup failed');

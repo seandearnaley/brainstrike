@@ -234,6 +234,13 @@ export function serveDesktopPlatform(
     task.then(settled, settled);
     return task;
   };
+  connection.onRequest('platform/ready', (input: unknown, token: CancellationToken) =>
+    execute(token, async (signal) => {
+      z.strictObject({}).parse(input);
+      signal.throwIfAborted();
+      return null;
+    })
+  );
   // ADR-0007: the host decides which admitted model may borrow the llm-host.
   const localLlm = (): LocalLlmHostClient => {
     if (!capabilities.localLlm) {
