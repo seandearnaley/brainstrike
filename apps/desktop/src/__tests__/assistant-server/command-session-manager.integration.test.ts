@@ -74,7 +74,7 @@ async function waitForPidDead(pid: number): Promise<boolean> {
   }
 }
 
-async function writeHttpServerFixture(root: string): Promise<string> {
+async function writeHttpServerFixture(root: string): Promise<void> {
   const fixture = path.join(root, 'server.cjs');
   await fsPromises.writeFile(
     fixture,
@@ -85,7 +85,6 @@ async function writeHttpServerFixture(root: string): Promise<string> {
     ].join('\n'),
     'utf8'
   );
-  return fixture;
 }
 
 function readPort(manager: CommandSessionManager, sessionId: string): number | undefined {
@@ -108,12 +107,12 @@ afterEach(async () => {
 describe('persistent command session lifecycle', () => {
   it('keeps a real HTTP server reachable after start returns, then stops it', async () => {
     const root = await makeWorkspace();
-    const fixture = await writeHttpServerFixture(root);
+    await writeHttpServerFixture(root);
     const manager = createManager(root);
 
     const startedAt = Date.now();
     const session = await manager.start({
-      command: `node ${JSON.stringify(fixture)}`,
+      command: 'node server.cjs',
       rootId: 'root-a',
     });
     expect(Date.now() - startedAt).toBeLessThan(1000);
@@ -131,9 +130,14 @@ describe('persistent command session lifecycle', () => {
 
   it('records a natural non-zero exit and keeps its output readable', async () => {
     const root = await makeWorkspace();
+    await fsPromises.writeFile(
+      path.join(root, 'nonzero-exit.cjs'),
+      "process.stdout.write('before-exit'); process.exit(7);",
+      'utf8'
+    );
     const manager = createManager(root);
     const session = await manager.start({
-      command: `node -e "process.stdout.write('before-exit'); process.exit(7)"`,
+      command: 'node nonzero-exit.cjs',
       rootId: 'root-a',
     });
 
@@ -160,7 +164,7 @@ describe('persistent command session lifecycle', () => {
     );
     const manager = createManager(root);
     const session = await manager.start({
-      command: `node ${JSON.stringify(fixture)}`,
+      command: 'node process-tree.cjs',
       rootId: 'root-a',
     });
     const childPid = await waitFor(() => {
@@ -185,9 +189,46 @@ describe('persistent command session lifecycle', () => {
     );
     const pidFile = path.join(root, 'server.pid');
 
+    let command = `node ${JSON.stringify(fixture)} & echo $! > ${JSON.stringify(pidFile)}; exit 0`;
+    if (process.platform === 'win32') {
+      await fsPromises.writeFile(
+        fixture,
+        [
+          "const fs = require('node:fs');",
+          "const server = require('node:http').createServer((_request, response) => response.end('unexpected'));",
+          "server.listen(0, '127.0.0.1', () => {",
+          "  fs.writeFileSync('server-parent.pid', String(process.ppid));",
+          "  fs.writeFileSync('server.pid.tmp', String(process.pid));",
+          "  fs.renameSync('server.pid.tmp', 'server.pid');",
+          '});',
+        ].join('\n'),
+        'utf8'
+      );
+      await fsPromises.writeFile(
+        path.join(root, 'await-server.cjs'),
+        [
+          "const assert = require('node:assert/strict');",
+          "const fs = require('node:fs');",
+          'function ready() {',
+          "  if (!fs.existsSync('server.pid')) return;",
+          "  const pid = Number(fs.readFileSync('server.pid', 'utf8'));",
+          "  assert.equal(Number(fs.readFileSync('server-parent.pid', 'utf8')), process.ppid);",
+          '  process.kill(pid, 0);',
+          '  watcher.close();',
+          '}',
+          "const watcher = fs.watch('.', ready);",
+          'ready();',
+        ].join('\n'),
+        'utf8'
+      );
+      // Both commands are children of the same cmd.exe. The waiter proves the
+      // background server is live before the shell exits and one-shot cleanup runs.
+      command = 'start /b node background-server.cjs & node await-server.cjs';
+    }
+
     const result = await runExecuteCommand(
       {
-        command: `node ${JSON.stringify(fixture)} & echo $! > ${JSON.stringify(pidFile)}; exit 0`,
+        command,
         timeoutMs: 30_000,
       },
       {
