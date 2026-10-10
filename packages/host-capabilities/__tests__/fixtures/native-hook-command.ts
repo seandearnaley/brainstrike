@@ -6,7 +6,8 @@ import { join } from 'node:path';
 export function writeHookCommand(root: string, program: string): string {
   const script = join(root, `hook-${randomUUID()}.cjs`);
   writeFileSync(script, program, 'utf8');
-  return `node "${script}"`;
+  // Windows qualification uses a controlled, space-free TEMP path.
+  return process.platform === 'win32' ? `node ${script}` : `node "${script}"`;
 }
 
 export function writeStdoutHook(root: string, stdout: unknown, exitCode = 0): string {
