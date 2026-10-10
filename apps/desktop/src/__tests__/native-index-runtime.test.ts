@@ -2,6 +2,7 @@
 import { IndexerError, type IndexerPort, type ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthority } from '@brainstrike/indexer/coverage-reader';
 import { expect, it, vi } from 'vitest';
+import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { isolateNativeCoverage } from '../native-coverage-reader';
 import {
   createNativeIndexRuntime,
@@ -79,13 +80,13 @@ function fixture() {
   const runtime = createNativeIndexRuntime({
     closeQueries,
     createIndexOwner,
-    createProfileOwner: () => ({
-      acquire: acquireProfile,
-      close: closeProfile,
-    }),
     getAuthority,
     getFileInvalidator: () => () => {},
     installQueryTarget,
+    profile: createDesktopProfileRuntime(() => ({
+      acquire: acquireProfile,
+      close: closeProfile,
+    })),
   });
   return {
     acquireProfile,
@@ -137,6 +138,34 @@ it('shares the existing profile attachment between clients and index acquisition
   await expect(f.runtime.acquireProfile()).rejects.toThrow('admission is closed');
   await f.runtime.retireProfile();
   expect(f.closeProfile).toHaveBeenCalledOnce();
+});
+
+it('closes and joins a profile whose startup still awaits Main capability binding', async () => {
+  const f = fixture();
+  const pending = Promise.withResolvers<typeof f.profileAttachment>();
+  const exited = Promise.withResolvers<void>();
+  f.acquireProfile.mockImplementationOnce(() => pending.promise);
+  f.closeProfile.mockImplementationOnce(async () => {
+    pending.reject(new Error('Main bootstrap aborted'));
+    await exited.promise;
+  });
+  const starting = f.runtime.acquireProfile();
+  const outcome = starting.catch((error: unknown) => error);
+  await vi.waitFor(() => expect(f.acquireProfile).toHaveBeenCalledOnce());
+  let retired = false;
+  const closing = f.runtime.retireProfile().then(() => {
+    retired = true;
+  });
+  try {
+    await vi.waitFor(() => expect(f.closeProfile).toHaveBeenCalledOnce());
+    expect(retired).toBe(false);
+  } finally {
+    pending.reject(new Error('Main bootstrap aborted'));
+    exited.resolve();
+    await closing;
+  }
+  expect(await outcome).toEqual(new Error('Main bootstrap aborted'));
+  expect(retired).toBe(true);
 });
 
 it('reuses the app profile attachment after physical index reconfiguration', async () => {

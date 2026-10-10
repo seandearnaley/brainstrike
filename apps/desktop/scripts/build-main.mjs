@@ -15,7 +15,10 @@ import { readdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
-import { MAIN_PROCESS_BUILD_OPTIONS } from './build-main-config.mjs';
+import {
+  AGENT_HOST_PLATFORM_BUILD_OPTIONS,
+  MAIN_PROCESS_BUILD_OPTIONS,
+} from './build-main-config.mjs';
 import {
   assertPreloadBundleRequires,
   PRELOAD_BUNDLE_ENTRY_NAMES,
@@ -56,4 +59,5 @@ async function assertPreloadBundlesAreSandboxSafe() {
 
 await cleanMainProcessOutputs();
 await build(MAIN_PROCESS_BUILD_OPTIONS);
+await build(AGENT_HOST_PLATFORM_BUILD_OPTIONS);
 await assertPreloadBundlesAreSandboxSafe();

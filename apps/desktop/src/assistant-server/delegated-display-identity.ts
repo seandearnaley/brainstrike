@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { hostChildCallSign } from '@brainstrike/agent-host';
+import { hostChildCallSign } from '@brainstrike/agent-host/child-presentation';
 import { DELEGATED_CONVERSATION_COLOR_IDS, type DelegatedConversationColor } from '@brainstrike/db';
 
 /** Display identity only: never derive ownership or ancestry from a native id. */

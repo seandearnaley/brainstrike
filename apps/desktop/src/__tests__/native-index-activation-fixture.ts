@@ -3,6 +3,8 @@ import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import { vi } from 'vitest';
 import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
+import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
+import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeIndexActivation } from '../native-index-activation';
 
@@ -28,9 +30,12 @@ export { mocks };
 
 /** Load the product constructor through the module that owns these hoisted mocks. */
 export function createActivation(
-  options: Parameters<typeof createNativeIndexActivation>[0]
+  options: Omit<Parameters<typeof createNativeIndexActivation>[0], 'profile'>
 ): ReturnType<typeof createNativeIndexActivation> {
-  return createNativeIndexActivation(options);
+  return createNativeIndexActivation({
+    ...options,
+    profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
+  });
 }
 
 vi.mock('../db-main', () => ({ getDatabase: async () => mocks.database }));
@@ -166,6 +171,7 @@ export function fixture(applicationOverride?: ApplicationIpcDomain) {
     embedding: transport,
     onError,
     onReceipt,
+    profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
     storage,
   });
   return { activation, onError, onReceipt, storage, transport };

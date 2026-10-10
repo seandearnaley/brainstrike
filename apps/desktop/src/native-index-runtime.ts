@@ -9,6 +9,8 @@ import type {
   ScopedIndexerPort,
 } from '@brainstrike/indexer';
 
+import type { DesktopProfileRuntime } from './desktop-profile-runtime';
+
 export { NativeReadAuthorityRetiredError } from '@brainstrike/assistant-service/node-native-text-services';
 
 type NativePort = IndexerPort & ScopedIndexerPort;
@@ -19,10 +21,6 @@ export interface NativeIndexAuthority {
   readonly scopes: readonly IndexScope[];
 }
 
-interface ProfileOwner<Attachment> {
-  acquire(): Promise<Attachment>;
-  close(): Promise<void>;
-}
 interface IndexOwner {
   close(): Promise<void>;
   readonly databasePath: string;
@@ -32,10 +30,10 @@ interface IndexOwner {
 interface Dependencies<Attachment> {
   closeQueries(): Promise<void>;
   createIndexOwner(authority: NativeIndexAuthority): Promise<IndexOwner>;
-  createProfileOwner(): ProfileOwner<Attachment>;
   getAuthority(): Promise<NativeIndexAuthority>;
   getFileInvalidator(): ((file: IndexFileBinding) => void) | undefined;
   installQueryTarget(owner: IndexOwner): void;
+  readonly profile: DesktopProfileRuntime<Attachment>;
 }
 export interface CapturedNativeIndexAuthority {
   readonly port: NativePort;
@@ -141,10 +139,6 @@ function workspaceRemoval(file: IndexFileBinding): {
 export function createNativeIndexRuntime<Attachment>(
   dependencies: Dependencies<Attachment>
 ): NativeIndexRuntime<Attachment> {
-  let profileOwner: ProfileOwner<Attachment> | undefined;
-  let profileAcquisition: Promise<Attachment> | undefined;
-  let profileRetirement: Promise<void> | undefined;
-  let failedProfileOwner: ProfileOwner<Attachment> | undefined;
   let indexOwner: IndexOwner | undefined;
   let scopes = '';
   let bindings = '';
@@ -170,30 +164,11 @@ export function createNativeIndexRuntime<Attachment>(
   }): Promise<Attachment> => {
     // BST-1977: ordinary New Thread was rejected on a fresh "Setup required"
     // profile. Root admission does not reopen a closed scan/index authority.
-    if (profileRetirement) {
-      await profileRetirement;
-    }
     if (closed && !options?.indexIndependent) {
       throw new NativeAuthorityTransitionError('Native index admission is closed.');
     }
-    profileOwner ??= dependencies.createProfileOwner();
-    const owner = profileOwner;
-    profileAcquisition ??= owner.acquire();
-    const acquiring = profileAcquisition;
-    let attachment: Attachment;
-    try {
-      attachment = await acquiring;
-    } catch (cause) {
-      // A failed acquisition already rolled back. The next admission starts a new
-      // owner whose launcher waits for this one's Root; its release is still joined.
-      if (profileAcquisition === acquiring) {
-        failedProfileOwner = owner;
-        profileOwner = undefined;
-        profileAcquisition = undefined;
-      }
-      throw cause;
-    }
-    if ((closed && !options?.indexIndependent) || profileRetirement) {
+    const attachment = await dependencies.profile.acquire();
+    if ((closed && !options?.indexIndependent) || dependencies.profile.isRetiring()) {
       throw new NativeAuthorityTransitionError('Native profile ownership closed during startup.');
     }
     return attachment;
@@ -495,40 +470,15 @@ export function createNativeIndexRuntime<Attachment>(
       return operation;
     },
     resume: async (): Promise<void> => {
-      if (indexOwner || profileRetirement || closing || acquisition) {
+      if (indexOwner || dependencies.profile.isRetiring() || closing || acquisition) {
         throw new Error('Previous native ownership must retire before reset resumes.');
       }
       closed = false;
       readsClosed = false;
       await acquireProfile();
     },
-    retireFailedProfile: async (): Promise<boolean> => {
-      const failed = failedProfileOwner;
-      if (!failed) {
-        return false;
-      }
-      await failed.close();
-      if (failedProfileOwner === failed) {
-        failedProfileOwner = undefined;
-      }
-      return true;
-    },
-    retireProfile: async (): Promise<void> => {
-      const retirement = (async (): Promise<void> => {
-        await closeIndex();
-        await failedProfileOwner?.close();
-        failedProfileOwner = undefined;
-        await profileAcquisition?.catch(() => undefined);
-        await profileOwner?.close();
-        profileOwner = undefined;
-        profileAcquisition = undefined;
-      })();
-      profileRetirement = retirement;
-      await retirement;
-      if (profileRetirement === retirement) {
-        profileRetirement = undefined;
-      }
-    },
+    retireFailedProfile: dependencies.profile.retireFailed,
+    retireProfile: () => dependencies.profile.retire(closeIndex()),
     retireReads: async (): Promise<void> => {
       readsClosed = true;
       await joinReads();

@@ -5,15 +5,15 @@ import type {
   CanonicalOperationContext,
   CanonicalScanReceipt,
   CanonicalSourceScope,
-  CanonicalWorkspaceLease,
 } from '@brainstrike/canonical-ingestion';
 import { getFileSizeConfig } from '@brainstrike/file-system';
+import type { HostAttachment } from '@brainstrike/host-lease';
 import type { IndexerPort, ScopedIndexerPort, VectorProfile } from '@brainstrike/indexer';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { getDatabase } from './db-main';
 import { resolveDesktopDatabaseProfileDirectory } from './desktop-database-location';
+import type { DesktopProfileRuntime } from './desktop-profile-runtime';
 import type { EmbeddingHostManager } from './embedding-host-manager';
-import { createDesktopHostLease, type DesktopAgentHostPlatform } from './host-lease-manager';
 import { generateHostedEmbeddings } from './hosted-embeddings';
 import {
   acquireIndexerHost,
@@ -50,10 +50,16 @@ import { createNativeScanAdmission } from './native-index-scan-admission';
 import {
   NATIVE_INDEX_SETTINGS_KEY,
   type NativeIndexSettings,
-  nativeIndexConfigurationIdentity,
   readNativeIndexSettings,
   readNativeManagedCollectionId,
 } from './native-index-settings';
+import {
+  type NativeIndexActivationGraph as Graph,
+  joinInvalidNativeSettingsRetirement,
+  prepareNativeSavedPause,
+  readTrackedNativeSettings,
+  reconfigureNativeSavedSettings,
+} from './native-index-settings-preparation';
 import { NativeIndexSetupRequiredError as SetupRequired } from './native-index-setup-required';
 import { createNativeSourceInventory } from './native-index-source-inventory';
 import {
@@ -71,24 +77,12 @@ import {
 
 type WithoutSource<T> = T extends unknown ? Omit<T, 'source'> : never;
 interface Dependencies {
-  readonly agentHostPlatform?: DesktopAgentHostPlatform;
   readonly application: ApplicationIpcDomain;
   readonly embedding: Pick<EmbeddingHostManager, 'documentEmbeddings'>;
   readonly onError: (operation: string, error: unknown) => void;
   readonly onReceipt?: (receipt: CanonicalScanReceipt) => void;
+  readonly profile: DesktopProfileRuntime<HostAttachment>;
   readonly storage: Pick<ElectronStorageAdapter, 'getItem'>;
-}
-interface Graph {
-  readonly controller: AbortController;
-  readonly generation: number;
-  readonly leases: Map<string, CanonicalWorkspaceLease>;
-  observedCatalogFingerprint?: string;
-  observedCatalogRecords?: readonly NativeCanonicalCatalogRecord[];
-  publication?: ReturnType<typeof createNativeCanonicalPublication>;
-  queuedCatalogRecords?: readonly NativeCanonicalCatalogRecord[] | undefined;
-  settings: NativeIndexSettings;
-  sources?: NativeIndexSources | undefined;
-  readonly watchFailures: Map<string, string>;
 }
 /** Desktop main's actual catalog/grant/inference callbacks; the utility owns parsing and scans. */
 export function createNativeIndexActivation(dependencies: Dependencies) {
@@ -248,37 +242,36 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         },
       };
     },
-    createProfileOwner: () =>
-      createDesktopHostLease({
-        ...dependencies.agentHostPlatform,
-        closeTimeoutMs: 1000,
-        root: resolveDesktopDatabaseProfileDirectory(),
-      }),
     getAuthority: authority,
     getFileInvalidator: () => graph?.publication?.invalidateFile,
     installQueryTarget: () =>
       installIndexQueryTarget(getReadyIndexerHost, { deadlineMs: 1000, startupDeadlineMs: 5000 }),
+    profile: dependencies.profile,
   });
-  const suspendSources = (current: Graph): Promise<void> => {
+  const suspendSources = async (current: Graph): Promise<void> => {
     const sources = current.sources;
     if (!sources) {
-      return Promise.resolve();
+      return;
     }
-    return retireNativeIndexSources(sources, () =>
-      getReadyIndexerHost().retireCanonicalSources()
-    ).then(() => {
-      if (current.sources === sources) {
-        current.sources = undefined;
-      }
-    });
+    await retireNativeIndexSources(sources, () => getReadyIndexerHost().retireCanonicalSources());
+    if (current.sources === sources) {
+      current.sources = undefined;
+    }
   };
   const retireSources = async (): Promise<void> => {
     closed = true;
     graph?.controller.abort(new TransitionError('Native indexing admission closed.'));
-    await runtime.retireReads();
-    const current = graph;
-    if (current) {
-      await suspendSources(current);
+    const results = await Promise.allSettled([
+      runtime.retireReads(),
+      graph ? suspendSources(graph) : undefined,
+    ]);
+    const failures = results.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason as unknown] : []
+    );
+    if (failures.length > 0) {
+      throw failures.length === 1
+        ? failures[0]
+        : new AggregateError(failures, 'Retirement failed.');
     }
     await startup?.catch(() => undefined);
     // Startup can acquire a graph or late source owner while its caller closes admission.
@@ -495,13 +488,13 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     };
     const firstReceipts: Promise<CanonicalScanReceipt>[] = [];
     for (const lease of sources.leases.values()) {
-      const first = Promise.withResolvers<CanonicalScanReceipt>();
-      const onAbort = (): void => first.reject(sources.controller.signal.reason);
-      sources.controller.signal.addEventListener('abort', onAbort, { once: true });
-      first.promise
-        .finally(() => sources.controller.signal.removeEventListener('abort', onAbort))
-        .catch(() => undefined);
-      firstReceipts.push(first.promise);
+      const signal = AbortSignal.any([current.controller.signal, sources.controller.signal]);
+      signal.throwIfAborted();
+      const { promise, reject, resolve } = Promise.withResolvers<CanonicalScanReceipt>();
+      const onAbort = (): void => reject(signal.reason);
+      signal.addEventListener('abort', onAbort, { once: true });
+      promise.finally(() => signal.removeEventListener('abort', onAbort)).catch(() => undefined);
+      firstReceipts.push(promise);
       const scope = { kind: 'workspace', rootId: lease.rootId } as const;
       let workspace: Awaited<ReturnType<typeof manager.attachCanonicalWorkspace>> | undefined;
       workspace = await manager.attachCanonicalWorkspace({
@@ -512,7 +505,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
           if (operation === 'sync' || operation === 'sync loop') {
             scanAdmission.failWorkspace(lease.rootId, error);
           }
-          first.reject(error);
+          reject(error);
           dependencies.onError(operation, error);
         },
         onReceipt: (receipt, sourceInvalidated) => {
@@ -524,9 +517,9 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
           scanAdmission.completeWorkspace(receipt);
           dependencies.onReceipt?.(receipt);
           if (receipt.scanComplete) {
-            first.resolve(receipt);
+            resolve(receipt);
           } else {
-            first.reject(new Error(`Initial native workspace scan was ${receipt.reason}.`));
+            reject(new Error(`Initial native workspace scan was ${receipt.reason}.`));
           }
           if (sources.scanCollection && !sources.controller.signal.aborted) {
             sources
@@ -793,16 +786,16 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     }
     await closeOwned();
   };
-  const fenceTerminal = (): Promise<void> | undefined => {
+  const fenceTerminal = (): void => {
     terminalRequested = true;
     terminalEpoch += 1;
     closed = true;
     generation += 1;
     graph?.controller.abort(new TransitionError('Native owner terminal retirement requested.'));
-    return Promise.allSettled([...settingsReads, reconfiguration]).then(() => undefined);
   };
   const stopSources = async (): Promise<void> => {
-    const pending = fenceTerminal();
+    fenceTerminal();
+    const pending = Promise.allSettled([...settingsReads, reconfiguration]).then(() => undefined);
     return joinNativeSourceRetirement(stopSourcesOwned(), pending);
   };
   const closeRootCapabilities = async (): Promise<void> => {
@@ -872,57 +865,11 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     );
     return reconfiguration;
   };
-  const reconfigure = async (): Promise<void> => {
-    if (terminalRequested) {
-      throw new TransitionError(
-        'Native owner terminal retirement has closed transition admission.'
-      );
-    }
-    const epoch = terminalEpoch;
-    const reading = dependencies.storage
-      .getItem(NATIVE_INDEX_SETTINGS_KEY)
-      .then(readNativeIndexSettings);
-    settingsReads.add(reading);
-    let settings: NativeIndexSettings;
-    try {
-      settings = await reading;
-    } catch (error) {
-      if (terminalRequested || terminalEpoch !== epoch) {
-        throw new TransitionError('Native configuration was superseded by terminal retirement.');
-      }
-      closed = true;
-      generation += 1;
-      graph?.controller.abort(error);
-      reconfiguration = (reconfiguration?.catch(() => undefined) ?? Promise.resolve()).then(
-        async () => {
-          try {
-            await closeForReconfiguration();
-          } catch (cleanupError) {
-            throw new AggregateError(
-              [error, cleanupError],
-              'Invalid native settings retained cleanup ownership.'
-            );
-          }
-          lastError = terminalEpoch === epoch ? error : lastError; // reads report it (setupRequired)
-          throw error;
-        }
-      );
-      return reconfiguration;
-    } finally {
-      settingsReads.delete(reading);
-    }
-    if (terminalRequested || terminalEpoch !== epoch) {
-      throw new TransitionError('Native configuration was superseded by terminal retirement.');
-    }
-    const current = graph;
-    if (
-      !current ||
-      nativeIndexConfigurationIdentity(current.settings) !==
-        nativeIndexConfigurationIdentity(settings) ||
-      (settings.paused === current.settings.paused && !current.sources?.controller.signal.aborted)
-    ) {
-      return transition(false);
-    }
+  const applySourceSettings = (
+    current: Graph,
+    settings: NativeIndexSettings,
+    retire: () => Promise<void>
+  ): Promise<void> => {
     current.settings = settings;
     if (settings.paused) {
       current.sources?.controller.abort(new TransitionError('Native ingestion paused.'));
@@ -930,7 +877,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     reconfiguration = (reconfiguration?.catch(() => undefined) ?? Promise.resolve())
       .then(async () => {
         assertCurrent(current);
-        await suspendSources(current);
+        await retire();
         assertCurrent(current);
         await getReadyIndexerHost().start();
         startupFailed = false;
@@ -949,6 +896,58 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         throw error;
       });
     return reconfiguration;
+  };
+  const prepareInvalidSettings = (error: unknown, epoch: number) => {
+    closed = true;
+    generation += 1;
+    graph?.controller.abort(error);
+    const physical = stopSourcesOwned();
+    physical.catch(() => undefined);
+    return {
+      complete: (): Promise<void> => {
+        reconfiguration = (reconfiguration?.catch(() => undefined) ?? Promise.resolve()).then(
+          async () => {
+            await joinInvalidNativeSettingsRetirement(physical, closeForReconfiguration, error);
+            lastError = terminalEpoch === epoch ? error : lastError;
+            throw error;
+          }
+        );
+        return reconfiguration;
+      },
+      physical,
+    };
+  };
+  const settingsOwner = {
+    apply: applySourceSettings,
+    current: () => graph,
+    readSettings: () => readTrackedNativeSettings(dependencies.storage, settingsReads),
+    suspend: suspendSources,
+    transition: () => transition(false),
+  };
+  const assertSettingsEpoch = (epoch: number, operation: string): void => {
+    if (terminalRequested || terminalEpoch !== epoch) {
+      throw new TransitionError(`Native ${operation} was superseded by terminal retirement.`);
+    }
+  };
+  const prepareSavedPause = () => {
+    const epoch = terminalEpoch;
+    return prepareNativeSavedPause({
+      ...settingsOwner,
+      active: Boolean(startup && (graph || !startupFailed)),
+      assertAdmission: () => assertSettingsEpoch(epoch, 'Pause'),
+      assertCurrent,
+      invalidate: (error) => prepareInvalidSettings(error, epoch),
+      readerReady: () => readerReady,
+    });
+  };
+  const reconfigure = (): Promise<void> => {
+    const epoch = terminalEpoch;
+    return reconfigureNativeSavedSettings({
+      ...settingsOwner,
+      assertAdmission: () => assertSettingsEpoch(epoch, 'configuration'),
+      invalidate: (error) => prepareInvalidSettings(error, epoch),
+      terminalRequested,
+    });
   };
   const readAuthority = createNativeIndexReadAuthority({
     acquireRead,
@@ -992,8 +991,10 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     close,
     closeRootCapabilities: profileAdmission.releaseRootForHost,
     destroyAndRetireProfile,
+    fenceTerminal,
     getReadiness: () => (graph ? catalogReadiness(graph) : []),
     getSearchAuthority: readAuthority.getSearchAuthority,
+    prepareSavedPause,
     rebuild: () => transition(true),
     reconfigure,
     resume,

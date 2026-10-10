@@ -2,8 +2,10 @@
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import { createIndexerConnection, type IndexerConnection } from '@brainstrike/indexer/transport';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, onTestFinished, vi } from 'vitest';
 import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
+import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
+import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeIndexActivation } from '../native-index-activation';
 import { NativeIndexBlockedError } from '../native-index-blocked';
@@ -134,6 +136,7 @@ function fixture(applicationOverride?: ApplicationIpcDomain) {
     embedding: transport,
     onError,
     onReceipt,
+    profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
     storage,
   });
   return { activation, onError, onReceipt, storage, transport };
@@ -304,5 +307,95 @@ it.each(['validated', 'deadline', 'request'] as const)(
         code: 'indexer-startup-timeout',
       });
     }
+  }
+);
+
+it('fences late profile acquisition before physical retirement while window startup joins', async () => {
+  const { activation } = fixture();
+  await activation.acquireProfile();
+  await activation.fenceTerminal();
+  await expect(activation.acquireProfile()).rejects.toThrow('terminal retirement');
+  expect(mocks.closeProfile).not.toHaveBeenCalled();
+  await activation.close();
+  expect(mocks.closeProfile).toHaveBeenCalledOnce();
+});
+
+it.each([false, true])(
+  'fences admission synchronously during blocked source reconfiguration and retains cleanup failure=%s',
+  async (fail) => {
+    const entered = Promise.withResolvers<void>();
+    const canceled = Promise.withResolvers<void>();
+    const joined = Promise.withResolvers<void>();
+    const failure = new Error('Independent source retirement failure');
+    const closeSource = vi.fn(async () => {
+      canceled.resolve();
+      if (fail) {
+        throw failure;
+      }
+    });
+    mocks.manager.attachCanonicalCollection.mockImplementation(
+      (dependencies: CanonicalCollectionDependencies) => {
+        const collection = emptyCollection(dependencies, closeSource);
+        return {
+          ...collection,
+          scan: async (requestId: string) => {
+            entered.resolve();
+            await canceled.promise;
+            await joined.promise;
+            return collection.scan(requestId);
+          },
+        };
+      }
+    );
+    const { activation, storage } = fixture();
+    const settings = JSON.parse(await storage.getItem()) as { state: { paused: boolean } };
+    settings.state.paused = true;
+    storage.getItem.mockResolvedValue(JSON.stringify(settings));
+    await activation.acquire();
+    settings.state.paused = false;
+    storage.getItem.mockResolvedValue(JSON.stringify(settings));
+    const reconfiguration = activation.reconfigure().catch((error: unknown) => error);
+    onTestFinished(async () => {
+      canceled.resolve();
+      joined.resolve();
+      await reconfiguration;
+      closeSource.mockResolvedValue(undefined);
+      await activation.close();
+    });
+    await entered.promise;
+    let fenced = false;
+    const fence = Promise.resolve(activation.fenceTerminal()).then(() => {
+      fenced = true;
+    });
+    await Promise.resolve();
+    expect(fenced).toBe(true);
+    await expect(activation.acquireProfile()).rejects.toThrow('terminal retirement');
+    expect(closeSource).not.toHaveBeenCalled();
+    let retired = false;
+    const retirement = activation.close().then(
+      () => {
+        retired = true;
+        return;
+      },
+      (error: unknown) => {
+        retired = true;
+        return error;
+      }
+    );
+    await canceled.promise;
+    expect(closeSource).toHaveBeenCalledOnce();
+    expect(retired).toBe(false);
+    expect(mocks.closeProfile).not.toHaveBeenCalled();
+    joined.resolve();
+    const outcome = await retirement;
+    if (fail) {
+      expect(outcome).toMatchObject({ errors: [failure] });
+      expect(mocks.closeProfile).not.toHaveBeenCalled();
+    } else {
+      expect(outcome).toBeUndefined();
+      expect(mocks.closeProfile).toHaveBeenCalledOnce();
+    }
+    await fence;
+    expect(await reconfiguration).toBeInstanceOf(Error);
   }
 );

@@ -14,6 +14,7 @@ import {
 } from './embedding-host-lifecycle';
 import {
   enqueueQueryEmbeddingOperation,
+  joinQueryEmbeddingFailure,
   type QueryEmbeddingRuntimeOwner,
 } from './embedding-host-query-owner';
 
@@ -92,14 +93,17 @@ export function subscribeDocumentEmbeddingsRequests(options: {
       request.runtimeId === options.runtimeIdRef.current;
     void enqueueQueryEmbeddingOperation(queryOwner, async () => {
       try {
+        controller.signal.throwIfAborted();
         if (!isCurrent()) {
           throw new Error('Embedding host document runtime is no longer available.');
         }
-        controller.signal.throwIfAborted();
         await options.handle({ isCurrent, queryOwner, request, signal: controller.signal });
       } catch (error) {
         reportDocumentEmbeddingsResponse(
-          createEmbeddingHostDocumentEmbeddingsErrorReport(request, error)
+          createEmbeddingHostDocumentEmbeddingsErrorReport(
+            request,
+            await joinQueryEmbeddingFailure(queryOwner, error)
+          )
         );
       } finally {
         if (queryOwner.requests.get(request.requestId) === controller) {

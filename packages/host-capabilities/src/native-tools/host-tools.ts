@@ -5,11 +5,8 @@ import {
   type RuntimeWorkspaceRoot,
   type ScaledToolResultBudget,
 } from '@brainstrike/agent';
-import {
-  createAgentHostToolBindings,
-  type HostTool,
-  type HostToolContext,
-} from '@brainstrike/agent-host';
+import type { HostTool, HostToolContext } from '@brainstrike/agent-host';
+import { createAgentHostToolBindings } from '@brainstrike/agent-host/canonical-tool-bindings';
 import {
   LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS,
   NATIVE_TOOL_ID,

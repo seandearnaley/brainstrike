@@ -1,4 +1,4 @@
-import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host';
+import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host/protocol';
 import type { HostAttachment } from '@brainstrike/host-lease';
 import { ipcMain, type MessagePortMain } from 'electron';
 import { z } from 'zod';

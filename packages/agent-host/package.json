@@ -8,6 +8,12 @@
   "exports": {
     ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
     "./protocol": { "types": "./dist/protocol.d.ts", "default": "./dist/protocol.js" },
+    "./hook-trust": { "types": "./dist/hook-trust.d.ts", "default": "./dist/hook-trust.js" },
+    "./child-presentation": { "types": "./dist/child-presentation.d.ts", "default": "./dist/child-presentation.js" },
+    "./canonical-tool-bindings": {
+      "types": "./dist/adapters/canonical-tool-bindings.d.ts",
+      "default": "./dist/adapters/canonical-tool-bindings.js"
+    },
     "./state-projection": { "types": "./dist/state-projection.d.ts", "default": "./dist/state-projection.js" },
     "./run-verdicts": { "types": "./dist/run-verdicts.d.ts", "default": "./dist/run-verdicts.js" },
     "./memory-storage-calculator": { "types": "./dist/adapters/memory-storage-calculator.d.ts", "default": "./dist/adapters/memory-storage-calculator.js" },

@@ -1,4 +1,5 @@
 import { app, MessageChannelMain, type MessagePortMain, utilityProcess } from 'electron';
+import { createDesktopProfileRuntime } from '../../desktop-profile-runtime';
 import { createDesktopHostLease } from '../../host-lease-manager';
 import { createNativeIndexRuntime } from '../../native-index-runtime';
 
@@ -10,6 +11,10 @@ const entryPath = process.argv[3];
 if (!(root && entryPath)) {
   throw new Error('Electron host lease test requires explicit root and entry path');
 }
+report({
+  event: 'profile',
+  profile: { sessionData: app.getPath('sessionData'), userData: app.getPath('userData') },
+});
 const startupTimeoutMs = process.argv[4] === undefined ? undefined : Number(process.argv[4]);
 let ownPid: number | undefined;
 // Main's end of each host's lifetime channel, so a live Main can let its host go.
@@ -36,10 +41,10 @@ const unused = (): Promise<never> => Promise.reject(new Error('No index requeste
 const runtime = createNativeIndexRuntime({
   closeQueries: async () => {},
   createIndexOwner: unused,
-  createProfileOwner: () => owner,
   getAuthority: unused,
   getFileInvalidator: () => undefined,
   installQueryTarget: () => {},
+  profile: createDesktopProfileRuntime(() => owner),
 });
 let closing: Promise<void> | undefined;
 function close(): void {

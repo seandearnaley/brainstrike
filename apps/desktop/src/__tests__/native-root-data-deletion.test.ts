@@ -1,6 +1,6 @@
 // @vitest-environment node
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
-import { expect, it, vi } from 'vitest';
+import { expect, it, onTestFinished, vi } from 'vitest';
 import {
   createNativeRootDataDeletion,
   type RootDataDeletionReservation,
@@ -126,6 +126,57 @@ function fixture() {
     service: createNativeRootDataDeletion(dependencies),
   };
 }
+
+it('admits preparation before a held transition while retaining its physical join in FIFO', async () => {
+  const f = fixture();
+  const held = Promise.withResolvers<void>();
+  const physical = Promise.withResolvers<void>();
+  const entered = Promise.withResolvers<void>();
+  const first = f.service.transition(async () => {
+    entered.resolve();
+    await held.promise;
+  });
+  onTestFinished(() => {
+    held.resolve();
+    physical.resolve();
+  });
+  await entered.promise;
+  const complete = vi.fn(async (prepared: { physical: Promise<void> }) => prepared.physical);
+  const next = f.service.prepareTransition(async () => {
+    f.events.push('cancel-admitted');
+    return { physical: physical.promise };
+  }, complete);
+  await vi.waitFor(() => expect(f.events).toContain('cancel-admitted'));
+  expect(complete).not.toHaveBeenCalled();
+  await expect(f.service.deleteRootData('root')).rejects.toThrow('transition already owns');
+  held.resolve();
+  await first;
+  await vi.waitFor(() => expect(complete).toHaveBeenCalledOnce());
+  let settled = false;
+  void next.then(() => {
+    settled = true;
+  });
+  await Promise.resolve();
+  expect(settled).toBe(false);
+  physical.resolve();
+  await next;
+});
+
+it('refuses prepared cancellation before any side effect when root deletion owns admission', async () => {
+  const f = fixture();
+  const deletion = f.service.deleteRootData('root');
+  onTestFinished(async () => {
+    f.ack.resolve(true);
+    await deletion;
+  });
+  const prepare = vi.fn(async () => undefined);
+  const complete = vi.fn(async () => undefined);
+  await expect(f.service.prepareTransition(prepare, complete)).rejects.toThrow(
+    'root deletion owns'
+  );
+  expect(prepare).not.toHaveBeenCalled();
+  expect(complete).not.toHaveBeenCalled();
+});
 
 it('joins source/read/inference work and held native ACK before PG cascade, then resumes remaining authority', async () => {
   const f = fixture();

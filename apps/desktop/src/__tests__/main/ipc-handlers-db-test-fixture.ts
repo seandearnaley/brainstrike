@@ -364,6 +364,7 @@ vi.mock('electron', async () => {
     documentsPath: '/mock/documents',
     whenReadyResolved: true,
   });
+  Object.assign(app, { requestSingleInstanceLock: vi.fn(() => true) });
   const mockBrowserWindowInstance = {
     destroy: vi.fn(),
     getBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
