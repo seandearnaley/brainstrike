@@ -76,6 +76,7 @@ Evidence: `database/query-telemetry-scheduled-handles.md` (file-record, token-ca
 - Packaged roots: macOS `<userData>/data`; Windows `%LOCALAPPDATA%\BrainStrike Desktop\data`; Linux `$XDG_DATA_HOME` (absolute only) or `~/.local/share`, then `BrainStrike Desktop/data`. A missing or relative `LOCALAPPDATA` throws; there is no fallback. The database is always `<root>/profiles/<profile>/pgdata`. Why: Windows `userData` is Roaming, which Electron warns may be backed up to cloud storage.
 - `PACKAGED_PRODUCT_DIR_NAME` equals `build.productName`; changing either renames the data folder and strands existing data.
 - Main ALWAYS hands the DB host both fields through `BRAINSTRIKE_DB_ROOT_PATH` and `BRAINSTRIKE_DB_PROFILE`. The utility process reads only those two variables and throws when either is missing; it never derives from cwd or git. Why: a host respawned after a branch switch would otherwise open a different profile than the one main's reset deletes.
+- The DB host environment also preserves `TEMP` and `TMP`. Electron's Windows ASAR stream reads extract extension archives to temporary files; omitting these paths caused packaged PGlite startup to fail with `ENOENT` despite intact extension assets. Provider credentials remain excluded.
 
 Evidence: `database/desktop-database-location.md`.
 Guard: `apps/desktop/src/__tests__/database-location.test.ts`, `main/desktop-database-location.test.ts`, `main/db-host-manager-location.test.ts`, `main/db-main.utility-env.test.ts`, `main/desktop-factory-reset-packaged-layout.test.ts`.
