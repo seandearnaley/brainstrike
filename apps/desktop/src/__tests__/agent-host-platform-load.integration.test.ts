@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { execFile } from 'node:child_process';
+import { exec, execFile } from 'node:child_process';
 import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -8,6 +8,7 @@ import { promisify } from 'node:util';
 import { beforeAll, expect, it } from 'vitest';
 
 const execute = promisify(execFile);
+const executeShell = promisify(exec);
 const desktop = resolve(import.meta.dirname, '../..');
 
 function isolatedEnvironment(home: string): NodeJS.ProcessEnv {
@@ -26,7 +27,7 @@ function isolatedEnvironment(home: string): NodeJS.ProcessEnv {
 }
 
 beforeAll(async () => {
-  await execute(process.execPath, ['scripts/build-main.mjs'], { cwd: desktop });
+  await executeShell('pnpm run build:main', { cwd: desktop });
 }, 30_000);
 
 it('loads the built host platform without a second CommonJS Mastra runtime', async () => {

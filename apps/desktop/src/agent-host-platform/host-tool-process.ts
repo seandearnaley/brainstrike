@@ -60,7 +60,15 @@ export function serveHostCommandSessions(connection: MessageConnection): void {
 
 /** The language servers, command trees and command sessions this host spawned. */
 export async function disposeHostTools(): Promise<void> {
-  await disposeLspServers();
-  disposeLiveChildProcesses();
-  await sessions?.dispose();
+  const outcomes = await Promise.allSettled([
+    Promise.resolve().then(disposeLspServers),
+    Promise.resolve().then(disposeLiveChildProcesses),
+    Promise.resolve().then(() => sessions?.dispose()),
+  ]);
+  const failures = outcomes.flatMap((outcome) =>
+    outcome.status === 'rejected' ? [outcome.reason] : []
+  );
+  if (failures.length > 0) {
+    throw new AggregateError(failures, 'Host tool cleanup failed');
+  }
 }

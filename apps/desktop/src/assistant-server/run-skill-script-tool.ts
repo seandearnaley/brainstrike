@@ -16,8 +16,8 @@ import {
 } from '@brainstrike/assistant-contract';
 import type { ShellOutputStreamer } from '@brainstrike/host-capabilities/native-tools';
 import {
+  acquireWorkspaceMutationLease,
   isWithinRoot,
-  withWorkspaceMutationLease,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import stripAnsi from 'strip-ansi';
@@ -211,10 +211,11 @@ export async function runSkillScript(
     throw error;
   });
   let spawned = false;
-  const outcome = await withWorkspaceMutationLease(
-    rootPath,
-    'opaque',
-    async () => {
+  const outcome = await (async () => {
+    const release = await acquireWorkspaceMutationLease(rootPath, 'opaque', executionSignal);
+    let transferred = false;
+    try {
+      executionSignal.throwIfAborted();
       const remainingTimeoutMs = timeoutMs - (Date.now() - startedAt);
       if (remainingTimeoutMs <= 0) {
         // Runtime resolution and workspace admission share the same budget.
@@ -222,18 +223,23 @@ export async function runSkillScript(
         throw new ToolInputError(preparationTimeoutMessage);
       }
       spawned = true;
-      return runDetachedProcess({
+      transferred = true;
+      return await runDetachedProcess({
         argv: [resolved.absolutePath, ...(input.args ?? [])],
         cwd,
         ...(runtime.env ? { env: runtime.env } : {}),
         executable: runtime.executable,
+        releaseWorkspaceLease: release,
         signal: options?.signal,
         streamer: options?.stream,
         timeoutMs: remainingTimeoutMs,
       });
-    },
-    executionSignal
-  ).catch((error: unknown) => {
+    } finally {
+      if (!transferred) {
+        release();
+      }
+    }
+  })().catch((error: unknown) => {
     if (!spawned && executionSignal.aborted) {
       throw new ToolInputError(
         options?.signal?.aborted

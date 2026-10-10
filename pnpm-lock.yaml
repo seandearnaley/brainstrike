@@ -602,6 +602,9 @@ importers:
       '@brainstrike/utils':
         specifier: workspace:*
         version: link:../../packages/utils
+      '@brainstrike/windows-job-native':
+        specifier: workspace:*
+        version: link:../../packages/windows-job-native
       '@brainstrike/worker-runtime':
         specifier: workspace:*
         version: link:../../packages/worker-runtime
@@ -702,9 +705,6 @@ importers:
       '@brainstrike/vector-management':
         specifier: workspace:*
         version: link:../../packages/vector-management
-      '@brainstrike/windows-job-native':
-        specifier: workspace:*
-        version: link:../../packages/windows-job-native
       '@effect/tsgo':
         specifier: 'catalog:'
         version: 0.45.0

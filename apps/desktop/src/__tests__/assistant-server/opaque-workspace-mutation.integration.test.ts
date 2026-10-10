@@ -1,3 +1,4 @@
+import './_windows-command-fixture';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -219,9 +220,13 @@ it('cancels a queued native mutation without applying it while a disjoint root r
   let output = '';
   let ownerExited = false;
   try {
+    await writeFile(
+      path.join(root, 'opaque-owner.cjs'),
+      'console.error("OWNER_DIAGNOSTIC"); console.log("LEASE_READY"); setInterval(() => {}, 1000);'
+    );
     running = runExecuteCommand(
       {
-        command: `node -e 'console.error("OWNER_DIAGNOSTIC"); console.log("LEASE_READY"); setInterval(() => {}, 1000)'`,
+        command: 'node opaque-owner.cjs',
         timeoutMs: 3000,
       },
       runtime,

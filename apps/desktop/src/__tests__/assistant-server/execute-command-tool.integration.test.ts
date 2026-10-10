@@ -1,7 +1,8 @@
+import './_windows-command-fixture';
 /**
  * Safety coverage for the desktop `brainstrike.executeCommand` tool.
  *
- * These run in CI (unlike rg-backed grep) because `/bin/sh` is always present.
+ * These use the native shell with real Node command fixtures on every platform.
  * The critical tests use REAL subprocesses and assert the process tree is
  * actually dead after a timeout/abort — a leaking shell tool is unacceptable,
  * so the no-orphan and process-group-kill proofs are the heart of this file.
@@ -56,6 +57,8 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 });
 
 const execFileAsync = promisify(execFile);
+const NUMBERED_OUTPUT_FIXTURE =
+  "process.stdout.write(Array.from({ length: 50000 }, (_, i) => String(i + 1)).join('\\n') + '\\n');";
 
 const createdRoots: string[] = [];
 
@@ -65,6 +68,18 @@ async function makeWorkspace(prefix = 'brainstrike-exec-unit-'): Promise<string>
   const real = await fsPromises.realpath(root);
   createdRoots.push(real);
   return real;
+}
+
+async function writeCommandFixture(
+  root: string,
+  source: string,
+  filename = 'command-fixture.cjs'
+): Promise<string> {
+  await fsPromises.writeFile(path.join(root, filename), source, 'utf8');
+  const command = `node ${filename}`;
+  // Keep the shell alive as the parent until Node exits, including shells that
+  // otherwise replace themselves with the last command. Preserve Node's exit code.
+  return process.platform === 'win32' ? command : `${command}; exit $?`;
 }
 
 function singleRoot(rootPath: string): RuntimeData {
@@ -88,7 +103,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  disposeLiveChildProcesses();
+  await disposeLiveChildProcesses();
   while (createdRoots.length > 0) {
     const root = createdRoots.pop();
     if (root) {
@@ -190,7 +205,10 @@ describe('runExecuteCommand — happy path', () => {
 
   it('starts in the workspace root by default (pwd === root)', async () => {
     const root = await makeWorkspace();
-    const result = await runExecuteCommand({ command: 'pwd' }, singleRoot(root));
+    const result = await runExecuteCommand(
+      { command: await writeCommandFixture(root, 'process.stdout.write(process.cwd());') },
+      singleRoot(root)
+    );
     expect(result.exitCode).toBe(0);
     expect(result.stdout.trim()).toBe(root);
   });
@@ -204,7 +222,9 @@ describe('runExecuteCommand — happy path', () => {
     );
     const toModelOutput = requireExecuteCommandModelOutput(tools);
 
-    const result = await execute({ command: 'echo hello' });
+    const result = await execute({
+      command: await writeCommandFixture(root, "process.stdout.write('hello\\n');"),
+    });
 
     expect(toModelOutput(result)).toEqual({
       type: 'text',
@@ -288,7 +308,8 @@ describe('runExecuteCommand — truncated flag (no false positive on empty strea
   it('still reports truncated=true when stdout genuinely exceeds the budget', async () => {
     const root = await makeWorkspace();
     // ~50k numbered lines vastly exceeds the per-stream char budget.
-    const result = await runExecuteCommand({ command: 'seq 1 50000' }, singleRoot(root));
+    const command = await writeCommandFixture(root, NUMBERED_OUTPUT_FIXTURE);
+    const result = await runExecuteCommand({ command }, singleRoot(root));
     expect(result.exitCode).toBe(0);
     expect(result.truncated).toBe(true);
     expect(result.hint).toBeTruthy();
@@ -306,7 +327,13 @@ describe('runExecuteCommand — non-zero exit (surfaced, not swallowed)', () => 
   it('redacts non-zero command text from logs', async () => {
     const root = await makeWorkspace();
     await runExecuteCommand(
-      { command: 'echo OPENAI_API_KEY=sk-sensitive >&2; exit 7' },
+      {
+        command: await writeCommandFixture(
+          root,
+          "process.stderr.write('OPENAI_API_KEY=sk-sensitive\\n'); process.exitCode = 7;",
+          'sk-sensitive.cjs'
+        ),
+      },
       singleRoot(root)
     );
 
@@ -324,7 +351,15 @@ describe('runExecuteCommand — non-zero exit (surfaced, not swallowed)', () => 
 
   it('captures stderr for a failing command', async () => {
     const root = await makeWorkspace();
-    const result = await runExecuteCommand({ command: 'echo oops 1>&2; exit 1' }, singleRoot(root));
+    const result = await runExecuteCommand(
+      {
+        command: await writeCommandFixture(
+          root,
+          "process.stderr.write('oops\\n'); process.exitCode = 1;"
+        ),
+      },
+      singleRoot(root)
+    );
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain('oops');
   });
@@ -333,18 +368,23 @@ describe('runExecuteCommand — non-zero exit (surfaced, not swallowed)', () => 
 describe('runExecuteCommand — timeout + no orphan (CRITICAL)', () => {
   it('times out a long sleep and kills the process so no orphan survives', async () => {
     const root = await makeWorkspace();
-    // Capture the spawned shell pid via the live registry indirectly: run a
-    // command that writes its own group pid to a file, then assert that pid is
-    // dead after the timeout. We write $$ (the shell pid == group leader pid).
+    // The real Node child records its shell parent's pid, then remains alive.
+    // On POSIX that shell is also the detached process-group leader.
     const pidFile = path.join(root, 'shell.pid');
     const result = await runExecuteCommand(
-      { command: `echo $$ > "${pidFile}"; sleep 30`, timeoutMs: 500 },
+      {
+        command: await writeCommandFixture(
+          root,
+          `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.ppid)); setTimeout(() => {}, 30000);`
+        ),
+        timeoutMs: 500,
+      },
       singleRoot(root)
     );
 
     expect(result.timedOut).toBe(true);
     // Killed by signal → exitCode is null (never silently coerced to 0).
-    expect(result.exitCode).toBeNull();
+    expect(result.exitCode).toBe(process.platform === 'win32' ? 1 : null);
 
     const shellPid = Number.parseInt((await fsPromises.readFile(pidFile, 'utf8')).trim(), 10);
     expect(Number.isInteger(shellPid)).toBe(true);
@@ -356,7 +396,14 @@ describe('runExecuteCommand — timeout + no orphan (CRITICAL)', () => {
     const root = await makeWorkspace();
 
     await runExecuteCommand(
-      { command: 'echo OPENAI_API_KEY=sk-sensitive; sleep 30', timeoutMs: 500 },
+      {
+        command: await writeCommandFixture(
+          root,
+          "process.stdout.write('OPENAI_API_KEY=sk-sensitive\\n'); setTimeout(() => {}, 30000);",
+          'sk-sensitive.cjs'
+        ),
+        timeoutMs: 500,
+      },
       singleRoot(root)
     );
 
@@ -377,12 +424,14 @@ describe('runExecuteCommand — process-group kill reaps the grandchild (CRITICA
   it('kills a background grandchild on timeout, not just the shell', async () => {
     const root = await makeWorkspace();
     const childPidFile = path.join(root, 'child.pid');
-    // The shell backgrounds a `sleep 30` (the grandchild) and records ITS pid,
-    // then waits. On timeout, a shell-only kill would leave the grandchild
-    // running; the process-GROUP kill must reap it too.
+    // The shell waits for its real Node child (the test's grandchild), which
+    // records ITS pid. A shell-only kill would leave that grandchild running.
     const result = await runExecuteCommand(
       {
-        command: `sleep 30 & echo $! > "${childPidFile}"; wait`,
+        command: await writeCommandFixture(
+          root,
+          `require('node:fs').writeFileSync(${JSON.stringify(childPidFile)}, String(process.pid)); setTimeout(() => {}, 30000);`
+        ),
         timeoutMs: 500,
       },
       singleRoot(root)
@@ -406,7 +455,13 @@ describe('runExecuteCommand — abort kills the tree', () => {
     const pidFile = path.join(root, 'abort.pid');
     const controller = new AbortController();
     const run = runExecuteCommand(
-      { command: `echo $$ > "${pidFile}"; sleep 30`, timeoutMs: 30_000 },
+      {
+        command: await writeCommandFixture(
+          root,
+          `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.ppid)); setTimeout(() => {}, 30000);`
+        ),
+        timeoutMs: 30_000,
+      },
       singleRoot(root),
       { signal: controller.signal }
     );
@@ -443,7 +498,13 @@ describe('runExecuteCommand — a guard timeout leaves no orphan (BST-1777 Task 
     let childPid: number | undefined;
     try {
       const run = runExecuteCommand(
-        { command: `echo $$ > "${pidFile}"; sleep 30`, timeoutMs: 600_000 },
+        {
+          command: await writeCommandFixture(
+            root,
+            `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.ppid)); setTimeout(() => {}, 30000);`
+          ),
+          timeoutMs: 600_000,
+        },
         singleRoot(root),
         { signal: resolveGuardedToolSignal(context) }
       );
@@ -490,10 +551,8 @@ describe('runExecuteCommand — output bounding (no unbounded result)', () => {
   it('truncates huge output with a hint instead of returning it all', async () => {
     const root = await makeWorkspace();
     // ~50k numbered lines — far above the model budget but below the raw cap.
-    const result = await runExecuteCommand(
-      { command: 'seq 1 50000', timeoutMs: 30_000 },
-      singleRoot(root)
-    );
+    const command = await writeCommandFixture(root, NUMBERED_OUTPUT_FIXTURE);
+    const result = await runExecuteCommand({ command, timeoutMs: 30_000 }, singleRoot(root));
     expect(result.exitCode).toBe(0);
     expect(result.truncated).toBe(true);
     expect(result.hint).toBeTruthy();
@@ -510,10 +569,8 @@ describe('runExecuteCommand — output bounding (no unbounded result)', () => {
 
   it('describes head+tail retention in the truncation hint (not stale tail-only wording)', async () => {
     const root = await makeWorkspace();
-    const result = await runExecuteCommand(
-      { command: 'seq 1 50000', timeoutMs: 30_000 },
-      singleRoot(root)
-    );
+    const command = await writeCommandFixture(root, NUMBERED_OUTPUT_FIXTURE);
+    const result = await runExecuteCommand({ command, timeoutMs: 30_000 }, singleRoot(root));
 
     expect(result.truncated).toBe(true);
     // Regression guard: the hint must describe the CURRENT retention shape.
@@ -528,11 +585,16 @@ describe('runExecuteCommand — output bounding (no unbounded result)', () => {
 describe('runExecuteCommand — ANSI stripping', () => {
   it('strips ANSI color/escape codes from stdout (red text, no escapes)', async () => {
     const root = await makeWorkspace();
-    // printf interprets the \033 (ESC) escapes, emitting a real coloured string:
+    // Node emits the real ANSI escape bytes in a coloured string:
     // ESC[31m red ESC[0m. The result must contain the visible text without any
     // escape codes (no ESC byte, no "[31m"/"[0m" sequences).
     const result = await runExecuteCommand(
-      { command: String.raw`printf '\033[31mred\033[0m\n'` },
+      {
+        command: await writeCommandFixture(
+          root,
+          String.raw`process.stdout.write('\u001b[31mred\u001b[0m\n');`
+        ),
+      },
       singleRoot(root)
     );
     expect(result.exitCode).toBe(0);
@@ -547,7 +609,12 @@ describe('runExecuteCommand — ANSI stripping', () => {
   it('strips ANSI from stderr too', async () => {
     const root = await makeWorkspace();
     const result = await runExecuteCommand(
-      { command: String.raw`printf '\033[33mwarn\033[0m\n' 1>&2` },
+      {
+        command: await writeCommandFixture(
+          root,
+          String.raw`process.stderr.write('\u001b[33mwarn\u001b[0m\n');`
+        ),
+      },
       singleRoot(root)
     );
     const ESC = String.fromCharCode(27);
@@ -586,7 +653,13 @@ describe('runExecuteCommand — cwd containment', () => {
     const root = await makeWorkspace();
     const sub = path.join(root, 'pkg', 'src');
     await fsPromises.mkdir(sub, { recursive: true });
-    const result = await runExecuteCommand({ command: 'pwd', cwd: 'pkg/src' }, singleRoot(root));
+    const result = await runExecuteCommand(
+      {
+        command: await writeCommandFixture(sub, 'process.stdout.write(process.cwd());'),
+        cwd: 'pkg/src',
+      },
+      singleRoot(root)
+    );
     expect(result.exitCode).toBe(0);
     expect(result.stdout.trim()).toBe(await fsPromises.realpath(sub));
   });
@@ -604,13 +677,19 @@ describe('disposeLiveChildProcesses — shutdown reaping', () => {
     const pidFile = path.join(root, 'dispose.pid');
     // Start a long run but DO NOT await it; capture the pid from the file.
     const run = runExecuteCommand(
-      { command: `echo $$ > "${pidFile}"; sleep 30`, timeoutMs: 30_000 },
+      {
+        command: await writeCommandFixture(
+          root,
+          `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.ppid)); setTimeout(() => {}, 30000);`
+        ),
+        timeoutMs: 30_000,
+      },
       singleRoot(root)
     );
     // Wait for the shell to write its pid.
     const shellPid = await readPidWhenWritten(pidFile);
 
-    const reaped = disposeLiveChildProcesses();
+    const reaped = await disposeLiveChildProcesses();
     expect(reaped).toBeGreaterThanOrEqual(1);
     expect(await waitForPidDead(shellPid)).toBe(true);
     // The run still settles (killed → close event) so we never leak a promise.
@@ -626,7 +705,12 @@ describe('runExecuteCommand — runs node', () => {
     // Confirm node is on PATH in this CI before asserting (no silent skip).
     await execFileAsync('node', ['-e', 'process.stdout.write("ok")']);
     const result = await runExecuteCommand(
-      { command: 'node -e "process.stdout.write(String(1+1))"' },
+      {
+        command:
+          process.platform === 'win32'
+            ? 'node -e process.stdout.write(String(1+1))'
+            : 'node -e "process.stdout.write(String(1+1))"',
+      },
       singleRoot(root)
     );
     expect(result.exitCode).toBe(0);
@@ -642,7 +726,10 @@ describe('runExecuteCommand — incremental streaming via the stream callback', 
       {
         // Emit three markers spaced in time so they arrive as distinct pipe reads
         // (not one coalesced buffer) — proving the output streams as it is produced.
-        command: `printf 'ALPHA\n'; sleep 0.15; printf 'BRAVO\n'; sleep 0.15; printf 'CHARLIE\n'`,
+        command: await writeCommandFixture(
+          root,
+          "process.stdout.write('ALPHA\\n'); setTimeout(() => { process.stdout.write('BRAVO\\n'); setTimeout(() => process.stdout.write('CHARLIE\\n'), 150); }, 150);"
+        ),
         timeoutMs: 30_000,
       },
       singleRoot(root),
@@ -669,7 +756,10 @@ describe('runExecuteCommand — incremental streaming via the stream callback', 
     const root = await makeWorkspace();
     const parts: ShellOutputStreamPart[] = [];
     await runExecuteCommand(
-      { command: `printf 'to-stderr\n' 1>&2`, timeoutMs: 30_000 },
+      {
+        command: await writeCommandFixture(root, "process.stderr.write('to-stderr\\n');"),
+        timeoutMs: 30_000,
+      },
       singleRoot(root),
       { stream: (part) => parts.push(part) }
     );
@@ -686,7 +776,7 @@ describe('runExecuteCommand — incremental streaming via the stream callback', 
     // Emit ~2 MB to stdout — far above the streaming cap AND the capture cap.
     const result = await runExecuteCommand(
       {
-        command: `node -e "process.stdout.write('z'.repeat(2*1024*1024))"`,
+        command: await writeCommandFixture(root, "process.stdout.write('z'.repeat(2*1024*1024));"),
         timeoutMs: 30_000,
       },
       singleRoot(root),
@@ -703,7 +793,7 @@ describe('runExecuteCommand — incremental streaming via the stream callback', 
     expect(totalStreamed).toBeLessThan(2 * 1024 * 1024);
 
     // No leaked child: after the run settles nothing remains in the live registry.
-    expect(disposeLiveChildProcesses()).toBe(0);
+    expect(await disposeLiveChildProcesses()).toBe(0);
   });
 
   it('still tears the tree down on timeout while streaming is active (no leak)', async () => {
@@ -713,7 +803,10 @@ describe('runExecuteCommand — incremental streaming via the stream callback', 
     const result = await runExecuteCommand(
       {
         // Stream some output, record the shell pid, then hang so the timeout fires.
-        command: `echo $$ > "${pidFile}"; printf 'early\n'; sleep 30`,
+        command: await writeCommandFixture(
+          root,
+          `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.ppid)); process.stdout.write('early\\n'); setTimeout(() => {}, 30000);`
+        ),
         timeoutMs: 600,
       },
       singleRoot(root),
@@ -721,7 +814,7 @@ describe('runExecuteCommand — incremental streaming via the stream callback', 
     );
 
     expect(result.timedOut).toBe(true);
-    expect(result.exitCode).toBeNull();
+    expect(result.exitCode).toBe(process.platform === 'win32' ? 1 : null);
     // Output produced before the timeout still streamed.
     expect(parts.map((part) => part.chunk).join('')).toContain('early');
     // The SIGTERM→SIGKILL teardown still reaps the tree with streaming active.
@@ -814,11 +907,13 @@ describe('runExecuteCommand — credential isolation', () => {
     try {
       const result = await runExecuteCommand(
         {
-          command:
-            'node -e "process.stdout.write(JSON.stringify({' +
-            'credential:process.env.OPENAI_API_KEY??null,' +
-            'ordinary:process.env.BRAINSTRIKE_COMMAND_TEST_VALUE??null' +
-            '}))"',
+          command: await writeCommandFixture(
+            root,
+            'process.stdout.write(JSON.stringify({' +
+              'credential:process.env.OPENAI_API_KEY??null,' +
+              'ordinary:process.env.BRAINSTRIKE_COMMAND_TEST_VALUE??null' +
+              '}));'
+          ),
         },
         singleRoot(root)
       );
@@ -847,11 +942,21 @@ describe('runExecuteCommand — reaps background work the shell left running (CR
   it('kills a backgrounded grandchild even when the shell exits 0', async () => {
     const root = await makeWorkspace();
     const childPidFile = path.join(root, 'bg.pid');
-    // The shell backgrounds a long sleep, records its pid, and EXITS 0 normally
+    // A real child leaves a long-running descendant, then the shell EXITS 0 normally
     // (no timeout, no abort). Without best-effort group-reap-on-exit, that
     // detached grandchild would survive the tool returning.
     const result = await runExecuteCommand(
-      { command: `sleep 30 & echo $! > "${childPidFile}"; exit 0`, timeoutMs: 30_000 },
+      {
+        command: await writeCommandFixture(
+          root,
+          [
+            "const child = require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'inherit' });",
+            `require('node:fs').writeFileSync(${JSON.stringify(childPidFile)}, String(child.pid));`,
+            'child.unref();',
+          ].join('\n')
+        ),
+        timeoutMs: 30_000,
+      },
       singleRoot(root)
     );
 
@@ -877,7 +982,10 @@ describe('runExecuteCommand — fair stdout/stderr tail split', () => {
     // must preserve the stdout marker.
     const result = await runExecuteCommand(
       {
-        command: 'seq 1 100000 | sed "s/.*/noise/" 1>&2; echo RESULT_MARKER',
+        command: await writeCommandFixture(
+          root,
+          "process.stderr.write('noise\\n'.repeat(100000), () => process.stdout.write('RESULT_MARKER\\n'));"
+        ),
         timeoutMs: 30_000,
       },
       singleRoot(root)

@@ -1,4 +1,5 @@
 // @vitest-environment node
+import './assistant-server/_windows-command-fixture';
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
