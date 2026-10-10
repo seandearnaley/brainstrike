@@ -8,6 +8,7 @@ import type { QueueAdapter } from '@brainstrike/queue';
 import { createBrowserEmbeddingQueue } from '@brainstrike/queue/browser';
 
 let singletonQueue: QueueAdapter | null = null;
+let retirement: Promise<void> | null = null;
 
 function registerEmbeddingWorkerRuntime(): string {
   const embeddingWorkerUrl: string = resolveViteEmbeddingWorkerUrlHref();
@@ -43,16 +44,50 @@ function createSingletonQueue(): QueueAdapter {
 
   // Register the canonical renderer queue only after it exists so lazy queue
   // consumers never observe a half-initialized bootstrap module.
-  registerEmbeddingQueueFactory(() => queue);
+  registerEmbeddingQueueFactory(() => getEmbeddingQueue());
   return queue;
 }
 
 export function getEmbeddingQueue(): QueueAdapter {
+  if (retirement) {
+    throw new Error('Embedding queue admission is closed for retirement.');
+  }
   if (singletonQueue) {
     return singletonQueue;
   }
   singletonQueue = createSingletonQueue();
   return singletonQueue;
+}
+
+/** Retain the first physical join; repeated adapter disposal alone is not a join. */
+export function retireEmbeddingQueue(): Promise<void> {
+  if (retirement) {
+    return retirement;
+  }
+  const queue = singletonQueue;
+  retirement = Promise.resolve().then(async () => {
+    if (!queue) {
+      return;
+    }
+    if (!queue.dispose) {
+      throw new Error('The renderer embedding queue has no physical disposal capability.');
+    }
+    await queue.dispose();
+  });
+  return retirement;
+}
+
+/** Only the runtime that has joined its old owner may open a fresh lazy queue. */
+export async function reopenEmbeddingQueue(isCurrent: () => boolean): Promise<void> {
+  await retirement;
+  if (!isCurrent()) {
+    return;
+  }
+  if (retirement) {
+    singletonQueue = null;
+    retirement = null;
+  }
+  getEmbeddingQueue();
 }
 
 export { createBrowserEmbeddingQueue };

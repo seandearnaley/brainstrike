@@ -55,8 +55,10 @@ import {
   closeQueryEmbeddingRuntimeOwner,
   createQueryEmbeddingRuntimeOwner,
   disposeQueryEmbeddingService,
+  joinQueryEmbeddingFailure,
   type QueryEmbeddingRuntimeOwner,
   runOwnedQueryEmbeddingInference,
+  stopEmbeddingHostAfterRestartLimit,
 } from './embedding-host-query-owner';
 import {
   createBackendMismatchError,
@@ -72,70 +74,20 @@ const QUERY_DRAIN_TIMEOUT_MS = 5000;
 const MAX_RECOVERABLE_WEBGPU_DEVICE_LOSS_RESTARTS = 2;
 const AUTOMATIC_WASM_RECOMMENDATION_ERROR =
   'Workspace Index requires WebGPU for automatic local embedding execution. Device detection recommended WASM, which is a slow/debug backend and will not be selected automatically.';
-let embeddingQueueBootstrapPromise: Promise<void> | null = null;
 
 interface HydratedEmbeddingWorkerPreferences {
   readonly devicePref: EmbeddingDeviceType;
   readonly reinitEveryN: number;
 }
 
-async function ensureEmbeddingQueueBootstrapLoaded(): Promise<void> {
-  if (!embeddingQueueBootstrapPromise) {
-    embeddingQueueBootstrapPromise = import('../create-embedding-queue')
-      .then((module) => {
-        module.getEmbeddingQueue();
-      })
-      .catch((error: unknown) => {
-        embeddingQueueBootstrapPromise = null;
-        throw error;
-      });
-  }
-  await embeddingQueueBootstrapPromise;
+async function ensureEmbeddingQueueBootstrapLoaded(isCurrent: () => boolean): Promise<void> {
+  const module = await import('../create-embedding-queue');
+  await module.reopenEmbeddingQueue(isCurrent);
 }
 
-async function stopEmbeddingHostAfterRestartLimit(options: {
-  readonly queryOwner: QueryEmbeddingRuntimeOwner;
-  readonly controller: EmbeddingWorkerController | null;
-  readonly embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>;
-  readonly isDisposed: () => boolean;
-  readonly runtimeIdRef: MutableRefObject<string>;
-  readonly terminalError: string;
-}): Promise<void> {
-  const { controller, embeddingRuntimeRef, isDisposed, queryOwner, runtimeIdRef, terminalError } =
-    options;
-  const closeQueries = closeQueryEmbeddingRuntimeOwner(queryOwner);
-  let lastError = terminalError;
-  const [workerStop, queryClose] = await Promise.allSettled([controller?.stop(), closeQueries]);
-  if (workerStop.status === 'rejected') {
-    const error: unknown = workerStop.reason;
-    lastError = `${terminalError}; worker stop failed: ${error instanceof Error ? error.message : String(error)}`;
-    logger.error('Embedding host worker stop after restart limit failed', {
-      error: error instanceof Error ? error.message : String(error),
-      runtimeId: runtimeIdRef.current,
-    });
-  }
-  try {
-    if (queryClose.status === 'rejected') {
-      throw queryClose.reason;
-    }
-    await disposeQueryEmbeddingService(runtimeIdRef, queryOwner);
-  } catch (error) {
-    lastError = `${lastError}; query service disposal failed: ${error instanceof Error ? error.message : String(error)}`;
-  }
-  const currentMetadata = embeddingRuntimeRef.current;
-  if (currentMetadata) {
-    embeddingRuntimeRef.current = {
-      ...currentMetadata,
-      telemetry: getEmbeddingTelemetrySnapshot(),
-    };
-  }
-  if (isDisposed()) {
-    return;
-  }
-  reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
-    embeddingRuntime: embeddingRuntimeRef.current,
-    lastError,
-  });
+async function retireEmbeddingQueue(): Promise<void> {
+  const module = await import('../create-embedding-queue');
+  await module.retireEmbeddingQueue();
 }
 
 function createFatalErrorHandler(
@@ -429,7 +381,8 @@ async function handleQueryEmbeddingRequest(options: {
     } else {
       throw new Error('Embedding response did not match request kind.');
     }
-  } catch (error) {
+  } catch (requestError) {
+    const error = await joinQueryEmbeddingFailure(queryOwner, requestError);
     logger.error('Embedding host query embedding request failed', {
       error: error instanceof Error ? error.message : String(error),
       modelKey: request.payload.modelKey,
@@ -524,7 +477,10 @@ async function startEmbeddingHostWorkerRuntime({
   reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'starting');
 
   try {
-    await ensureEmbeddingQueueBootstrapLoaded();
+    await ensureEmbeddingQueueBootstrapLoaded(() => !(isDisposed() || isStopping()));
+    if (isDisposed() || isStopping()) {
+      return;
+    }
     const hydratedPreferences = await resolveHydratedEmbeddingWorkerPreferences();
     const hydratedDevicePref = hydratedPreferences.devicePref;
     embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(hydratedDevicePref, null, {
@@ -722,14 +678,18 @@ export function EmbeddingHostRuntime(): null {
       }
 
       const stoppingQueryOwner = queryOwner;
-      const closeQueries = closeQueryEmbeddingRuntimeOwner(stoppingQueryOwner);
+      const closeQueries = closeQueryEmbeddingRuntimeOwner(
+        stoppingQueryOwner,
+        retireEmbeddingQueue,
+        runtimeIdRef
+      );
       const stopPromise = (async () => {
         logger.info('Stopping embedding host worker', {
           reason,
           reportRuntimeId,
           runtimeId: runtimeIdRef.current,
         });
-        await Promise.all([
+        const stopped = await Promise.allSettled([
           closeQueries,
           (async () => {
             if (startPromiseRef.current) {
@@ -740,10 +700,29 @@ export function EmbeddingHostRuntime(): null {
             fatalErrorRef.current = null;
             activeRef.current = false;
             queryEmbeddingActiveCountRef.current = 0;
-            await controller?.stop();
+            try {
+              await controller?.stop();
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              fatalErrorRef.current = message;
+              reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
+                active: stoppingQueryOwner.inferenceRef.current !== null,
+                embeddingRuntime: embeddingRuntimeRef.current,
+                lastError: message,
+              });
+              throw error;
+            }
           })(),
         ]);
-        await disposeQueryEmbeddingService(runtimeIdRef, stoppingQueryOwner);
+        const failures = stopped.flatMap((result) =>
+          result.status === 'rejected' ? [result.reason] : []
+        );
+        if (failures.length === 1) {
+          throw failures[0];
+        }
+        if (failures.length > 1) {
+          throw new AggregateError(failures, 'Embedding host Stop failed');
+        }
         if (disposed) {
           return;
         }
@@ -788,6 +767,7 @@ export function EmbeddingHostRuntime(): null {
           embeddingRuntimeRef,
           isDisposed: () => disposed,
           queryOwner,
+          retireQueue: retireEmbeddingQueue,
           runtimeIdRef,
           terminalError,
         }).finally(() => {

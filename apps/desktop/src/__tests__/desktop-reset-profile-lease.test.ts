@@ -47,6 +47,7 @@ describe('desktop reset profile ownership', () => {
       prepareDatabaseProfileReset: state.prepare,
       resetLocalDatabase: state.reset,
       resetPersistentStorageAfterDataDeletion: state.storage,
+      runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: async (work) => {
         await work();

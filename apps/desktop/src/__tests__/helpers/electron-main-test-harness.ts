@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { type Mock, vi } from 'vitest';
 
 type IpcMainHandler = (...args: unknown[]) => unknown;
@@ -71,7 +72,7 @@ const electronMainMockSurface = {
   ...electronTestStub,
   app: {
     ...electronTestStub.app,
-    getAppPath: vi.fn(() => '/mock/app'),
+    getAppPath: vi.fn(() => resolve('/mock/app')),
     getName: vi.fn(() => 'Brainstrike'),
     getPath: vi.fn(() => '/mock/path'),
     getVersion: vi.fn(() => '0.0.0-test'),
@@ -161,7 +162,7 @@ function restoreOwnedMockImplementations(): void {
   mockIpcMain.removeAllListeners.mockImplementation(removeAllIpcMainListeners);
   mockIpcMain.removeHandler.mockImplementation(removeIpcMainHandler);
   mockIpcMain.removeListener.mockImplementation(removeIpcMainListener);
-  electronMainMock.app.getAppPath.mockImplementation(() => '/mock/app');
+  electronMainMock.app.getAppPath.mockImplementation(() => resolve('/mock/app'));
   electronMainMock.app.getName.mockImplementation(() => 'Brainstrike');
   electronMainMock.app.getPath.mockImplementation(() => '/mock/path');
   electronMainMock.app.getVersion.mockImplementation(() => '0.0.0-test');

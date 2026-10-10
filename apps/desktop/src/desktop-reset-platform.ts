@@ -32,6 +32,11 @@ export interface CreateDesktopFactoryResetHandlerOptions {
    * deleted, before a replacement renderer can read or repersist stale data. */
   readonly resetPersistentStorageAfterDataDeletion: () => Promise<void>;
   readonly resumeAfterReset?: (outcome: 'failed' | 'succeeded') => Promise<void>;
+  /** The same Main transition queue owns retirement, purge and reopen; the
+   * reset owner retains its accepted request while waiting for this admission. */
+  readonly runTransition: (
+    work: () => Promise<DesktopFactoryResetResult>
+  ) => Promise<DesktopFactoryResetResult>;
   readonly runtimes: readonly DesktopResetRuntime[];
   readonly runWithDatabaseResetBarrier: (work: () => Promise<void>) => Promise<void>;
   readonly userDataPath: string;
@@ -156,6 +161,7 @@ export function createDesktopFactoryResetHandler({
   resetPersistentStorageAfterDataDeletion,
   resumeAfterReset,
   runtimes,
+  runTransition,
   runWithDatabaseResetBarrier,
   userDataPath,
   waitForDatabaseWorkSchedulerIdle,
@@ -242,14 +248,17 @@ export function createDesktopFactoryResetHandler({
         await resetInFlight;
       }
     },
-    reset: async () => {
+    reset: () => {
       if (closed) {
-        return { message: 'The app is quitting: the factory reset did not start.', success: false };
+        return Promise.resolve({
+          message: 'The app is quitting: the factory reset did not start.',
+          success: false,
+        });
       }
-      resetInFlight ??= runReset().finally(() => {
+      resetInFlight ??= runTransition(runReset).finally(() => {
         resetInFlight = null;
       });
-      return await resetInFlight;
+      return resetInFlight;
     },
   };
 }

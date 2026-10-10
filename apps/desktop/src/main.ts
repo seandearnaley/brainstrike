@@ -470,6 +470,15 @@ let completeFactoryResetRendererReplacement: (() => Promise<void>) | null = null
 function planDesktopShutdownRun(): DesktopShutdownRunPlan {
   const stopServer = stopAssistantServer;
   let assistantServerDrained = stopServer === null;
+  let embeddingRetirement: Promise<void> | undefined;
+  const retireEmbeddings = (): Promise<void> => {
+    if (!embeddingRetirement) {
+      embeddingRetirement = embeddingHostManager.dispose();
+      // The later named step reports this same retained outcome.
+      embeddingRetirement.catch(() => undefined);
+    }
+    return embeddingRetirement;
+  };
   return {
     // The reserved slice: `desktop-graceful-shutdown.ts` runs it after the ordered
     // steps even when the deadline aborted one. `database-drain` has already
@@ -550,9 +559,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
           throw databaseDrainError;
         }
       },
-      'embedding-host': async () => {
-        await embeddingHostManager.dispose();
-      },
+      'embedding-host': () => retireEmbeddings(),
       // A reset in flight finishes, reopen included; later resets are refused.
       'factory-reset': () => handleResetLocal.close(),
       'file-system': () => applicationIpcDomain.close(),
@@ -598,7 +605,9 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         await agentHostMainClient.close();
         // Fence profile admission before joining the renderer's in-flight host connect:
         // a host start that fails during shutdown is then never retried as a second host.
-        await nativeIndexActivation.close();
+        const nativeRetirement = nativeIndexActivation.close();
+        void retireEmbeddings();
+        await nativeRetirement;
         await agentHostClientIpc.close();
       },
       'parser-host': async () => {
@@ -611,7 +620,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       renderers: async () => {
         // The admitted reset has joined. Fence new profile work while an
         // initial load finishes, before closing the window it is creating.
-        await nativeIndexActivation.fenceTerminal();
+        nativeIndexActivation.fenceTerminal();
         await initialWindowCreation;
         await closeDesktopRenderers(
           BrowserWindow.getAllWindows(),
@@ -745,6 +754,7 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     }
     await resumeMcpRuntimeAfterFactoryReset(getMainMcpHostControl(), outcome);
   },
+  runTransition: (work) => nativeRootDataDeletion.transition(work),
   runtimes: [
     { name: 'native-index-sources', stop: () => nativeIndexActivation.stopSources() },
     {
@@ -907,7 +917,7 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
       : 'unmanaged';
   },
   onDeleteRootData: (rootId) => nativeRootDataDeletion.deleteRootData(rootId),
-  onResetLocal: () => nativeRootDataDeletion.transition(() => handleResetLocal.reset()),
+  onResetLocal: () => handleResetLocal.reset(),
   onStorageChanged: (key) => {
     if (!app.isReady() || isDesktopShuttingDown()) {
       return;

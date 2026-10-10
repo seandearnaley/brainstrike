@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { vi } from 'vitest';
 
 export interface EmbeddingLifecycleStatus {
@@ -74,7 +75,7 @@ const { powerSaveBlockerIsStartedMock, powerSaveBlockerStartMock, powerSaveBlock
 
 vi.mock('electron', () => ({
   app: {
-    getAppPath: vi.fn(() => '/mock/app'),
+    getAppPath: vi.fn(() => resolve('/mock/app')),
     isPackaged: false,
   },
   BrowserWindow: vi.fn(),

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 
 const resetDesktopApplicationDataMock = vi.hoisted(() => vi.fn());
 const completeSuccessfulResetMock = vi.hoisted(() => vi.fn(async () => undefined));
@@ -47,6 +47,7 @@ describe('createDesktopFactoryResetHandler', () => {
       logger: { error: vi.fn(), info: vi.fn() },
       resetLocalDatabase: vi.fn(async () => undefined),
       resetPersistentStorageAfterDataDeletion,
+      runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
       userDataPath: '/mock/userData',
@@ -75,6 +76,7 @@ describe('createDesktopFactoryResetHandler', () => {
       logger: { error: vi.fn(), info: vi.fn() },
       resetLocalDatabase,
       resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
+      runTransition: (work) => work(),
       runtimes: [
         { name: 'embedding-host', stop: embeddingHostStop },
         { name: 'chunking-host', stop: chunkingHostStop },
@@ -149,6 +151,7 @@ describe('createDesktopFactoryResetHandler', () => {
       logger: { error: vi.fn(), info: vi.fn() },
       resetLocalDatabase: vi.fn(async () => undefined),
       resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
+      runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => {
         await work();
@@ -178,6 +181,7 @@ describe('createDesktopFactoryResetHandler', () => {
       resetLocalDatabase: vi.fn(async () => undefined),
       resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
+      runTransition: (work) => work(),
       runtimes: [{ name: 'llm-host', stop: vi.fn(async () => undefined) }],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => {
         await work();
@@ -211,6 +215,7 @@ describe('createDesktopFactoryResetHandler', () => {
       resetLocalDatabase: vi.fn(async () => undefined),
       resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
+      runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
       userDataPath: '/mock/userData',
@@ -243,6 +248,7 @@ describe('createDesktopFactoryResetHandler', () => {
       resetLocalDatabase: vi.fn(async () => undefined),
       resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
+      runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
       userDataPath: '/mock/userData',
@@ -275,6 +281,7 @@ describe('createDesktopFactoryResetHandler', () => {
       resetLocalDatabase: vi.fn(async () => undefined),
       resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
+      runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
       userDataPath: '/mock/userData',
@@ -306,6 +313,7 @@ describe('createDesktopFactoryResetHandler', () => {
         resetLocalDatabase: vi.fn(async () => undefined),
         resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
         resumeAfterReset,
+        runTransition: (work) => work(),
         runtimes: [],
         runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
         userDataPath: '/mock/userData',
@@ -340,6 +348,7 @@ describe('createDesktopFactoryResetHandler', () => {
       resetLocalDatabase: vi.fn(async () => undefined),
       resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
+      runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
       userDataPath: '/mock/userData',
@@ -369,6 +378,7 @@ describe('createDesktopFactoryResetHandler', () => {
       resetLocalDatabase: vi.fn(async () => undefined),
       resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
+      runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
       userDataPath: '/mock/userData',
@@ -406,6 +416,7 @@ describe('createDesktopFactoryResetHandler', () => {
       logger,
       resetLocalDatabase: vi.fn(async () => undefined),
       resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
+      runTransition: (work) => work(),
       runtimes: [
         { name: 'embedding-host', stop: embeddingHostStop },
         { name: 'chunking-host', stop: chunkingHostStop },
@@ -441,6 +452,7 @@ describe('createDesktopFactoryResetHandler', () => {
       resetLocalDatabase: vi.fn(async () => undefined),
       resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
+      runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
       userDataPath: '/mock/userData',
@@ -464,6 +476,105 @@ describe('createDesktopFactoryResetHandler', () => {
     expect(logger.error).not.toHaveBeenCalled();
   });
 
+  it('owns queued repeated resets through serialized retirement and reopen when quit arrives', async () => {
+    const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
+    const { createNativeRootDataDeletion } = await import('../native-root-data-deletion');
+    const unexpected = (): never => {
+      throw new Error('Unexpected root deletion operation');
+    };
+    const queue = createNativeRootDataDeletion({
+      acquire: async () => {},
+      captureOwner: async () => unexpected(),
+      closeOwner: async () => {},
+      deleteCanonicalRoot: async () => {},
+      reserveRoot: unexpected,
+      resume: async () => {},
+      stopSources: async () => {},
+    });
+    const prior = Promise.withResolvers<void>();
+    const replacement = Promise.withResolvers<void>();
+    const predecessor = queue.transition(() => prior.promise);
+    const stop = vi.fn(async () => {});
+    resetDesktopApplicationDataMock.mockImplementation(async (options) => {
+      await options.stopBackgroundRuntimes();
+      return { deletedPaths: [], pendingDeletionPaths: [], preservedPaths: [] };
+    });
+    const resumeAfterReset = vi.fn(async () => {});
+    const options = {
+      cleanupLiveSubscriptionsForShutdown: async () => {},
+      completeSuccessfulReset: () => replacement.promise,
+      logger: { error: vi.fn(), info: vi.fn() },
+      resetLocalDatabase: async () => {},
+      resetPersistentStorageAfterDataDeletion: async () => {},
+      resumeAfterReset,
+      runTransition: queue.transition,
+      runtimes: [{ name: 'physical-owner', stop }],
+      runWithDatabaseResetBarrier: async (work: () => Promise<void>) => work(),
+      userDataPath: '/mock/userData',
+      waitForDatabaseWorkSchedulerIdle: async () => {},
+    };
+    const owner = createDesktopFactoryResetHandler(options);
+    const first = owner.reset();
+    const repeated = owner.reset();
+    expect(repeated).toBe(first);
+    let closed = false;
+    let idle = false;
+    const close = owner.close().then(() => {
+      closed = true;
+    });
+    const join = owner.idle().then(() => {
+      idle = true;
+    });
+    onTestFinished(async () => {
+      prior.resolve();
+      replacement.resolve();
+      await Promise.allSettled([predecessor, first, repeated, close, join]);
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(resetDesktopApplicationDataMock).not.toHaveBeenCalled();
+    expect(stop).not.toHaveBeenCalled();
+    expect(closed).toBe(false);
+    expect(idle).toBe(false);
+    prior.resolve();
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
+    expect(closed).toBe(false);
+    expect(idle).toBe(false);
+    replacement.resolve();
+    await expect(first).resolves.toEqual({ success: true });
+    await expect(repeated).resolves.toEqual({ success: true });
+    await Promise.all([close, join]);
+    expect(resetDesktopApplicationDataMock).toHaveBeenCalledOnce();
+    expect(resumeAfterReset).toHaveBeenCalledExactlyOnceWith('succeeded');
+  });
+
+  it('preserves refused transition admission without stopping or resetting any runtime', async () => {
+    const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
+    const refusal = new Error('Native root deletion owns admission; retry its cleanup first.');
+    const stop = vi.fn(async () => {});
+    const resumeAfterReset = vi.fn(async () => {});
+    const options = {
+      cleanupLiveSubscriptionsForShutdown: async () => {},
+      completeSuccessfulReset: completeSuccessfulResetMock,
+      logger: { error: vi.fn(), info: vi.fn() },
+      resetLocalDatabase: async () => {},
+      resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
+      resumeAfterReset,
+      runTransition: vi.fn(async (): Promise<never> => {
+        throw refusal;
+      }),
+      runtimes: [{ name: 'physical-owner', stop }],
+      runWithDatabaseResetBarrier: async (work: () => Promise<void>) => work(),
+      userDataPath: '/mock/userData',
+      waitForDatabaseWorkSchedulerIdle: async () => {},
+    };
+    const owner = createDesktopFactoryResetHandler(options);
+    await expect(owner.reset()).rejects.toBe(refusal);
+    await owner.close();
+    expect(stop).not.toHaveBeenCalled();
+    expect(resumeAfterReset).not.toHaveBeenCalled();
+    expect(resetDesktopApplicationDataMock).not.toHaveBeenCalled();
+  });
+
   it('refuses a reset once shutdown has closed it, touching nothing', async () => {
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
@@ -472,6 +583,7 @@ describe('createDesktopFactoryResetHandler', () => {
       logger: { error: vi.fn(), info: vi.fn() },
       resetLocalDatabase: vi.fn(async () => undefined),
       resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
+      runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
       userDataPath: '/mock/userData',
@@ -498,6 +610,7 @@ describe('createDesktopFactoryResetHandler', () => {
       resetLocalDatabase: vi.fn(async () => undefined),
       resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
       resumeAfterReset,
+      runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
       userDataPath: '/mock/userData',

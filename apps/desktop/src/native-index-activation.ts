@@ -255,26 +255,30 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       installIndexQueryTarget(getReadyIndexerHost, { deadlineMs: 1000, startupDeadlineMs: 5000 }),
     profile: dependencies.profile,
   });
-  const suspendSources = (current: Graph): Promise<void> => {
+  const suspendSources = async (current: Graph): Promise<void> => {
     const sources = current.sources;
     if (!sources) {
-      return Promise.resolve();
+      return;
     }
-    return retireNativeIndexSources(sources, () =>
-      getReadyIndexerHost().retireCanonicalSources()
-    ).then(() => {
-      if (current.sources === sources) {
-        current.sources = undefined;
-      }
-    });
+    await retireNativeIndexSources(sources, () => getReadyIndexerHost().retireCanonicalSources());
+    if (current.sources === sources) {
+      current.sources = undefined;
+    }
   };
   const retireSources = async (): Promise<void> => {
     closed = true;
     graph?.controller.abort(new TransitionError('Native indexing admission closed.'));
-    await runtime.retireReads();
-    const current = graph;
-    if (current) {
-      await suspendSources(current);
+    const results = await Promise.allSettled([
+      runtime.retireReads(),
+      graph ? suspendSources(graph) : undefined,
+    ]);
+    const failures = results.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason as unknown] : []
+    );
+    if (failures.length > 0) {
+      throw failures.length === 1
+        ? failures[0]
+        : new AggregateError(failures, 'Retirement failed.');
     }
     await startup?.catch(() => undefined);
     // Startup can acquire a graph or late source owner while its caller closes admission.
@@ -491,13 +495,13 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     };
     const firstReceipts: Promise<CanonicalScanReceipt>[] = [];
     for (const lease of sources.leases.values()) {
-      const first = Promise.withResolvers<CanonicalScanReceipt>();
-      const onAbort = (): void => first.reject(sources.controller.signal.reason);
-      sources.controller.signal.addEventListener('abort', onAbort, { once: true });
-      first.promise
-        .finally(() => sources.controller.signal.removeEventListener('abort', onAbort))
-        .catch(() => undefined);
-      firstReceipts.push(first.promise);
+      const signal = AbortSignal.any([current.controller.signal, sources.controller.signal]);
+      signal.throwIfAborted();
+      const { promise, reject, resolve } = Promise.withResolvers<CanonicalScanReceipt>();
+      const onAbort = (): void => reject(signal.reason);
+      signal.addEventListener('abort', onAbort, { once: true });
+      promise.finally(() => signal.removeEventListener('abort', onAbort)).catch(() => undefined);
+      firstReceipts.push(promise);
       const scope = { kind: 'workspace', rootId: lease.rootId } as const;
       let workspace: Awaited<ReturnType<typeof manager.attachCanonicalWorkspace>> | undefined;
       workspace = await manager.attachCanonicalWorkspace({
@@ -508,7 +512,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
           if (operation === 'sync' || operation === 'sync loop') {
             scanAdmission.failWorkspace(lease.rootId, error);
           }
-          first.reject(error);
+          reject(error);
           dependencies.onError(operation, error);
         },
         onReceipt: (receipt, sourceInvalidated) => {
@@ -520,9 +524,9 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
           scanAdmission.completeWorkspace(receipt);
           dependencies.onReceipt?.(receipt);
           if (receipt.scanComplete) {
-            first.resolve(receipt);
+            resolve(receipt);
           } else {
-            first.reject(new Error(`Initial native workspace scan was ${receipt.reason}.`));
+            reject(new Error(`Initial native workspace scan was ${receipt.reason}.`));
           }
           if (sources.scanCollection && !sources.controller.signal.aborted) {
             sources
@@ -789,16 +793,16 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     }
     await closeOwned();
   };
-  const fenceTerminal = (): Promise<void> | undefined => {
+  const fenceTerminal = (): void => {
     terminalRequested = true;
     terminalEpoch += 1;
     closed = true;
     generation += 1;
     graph?.controller.abort(new TransitionError('Native owner terminal retirement requested.'));
-    return Promise.allSettled([...settingsReads, reconfiguration]).then(() => undefined);
   };
   const stopSources = async (): Promise<void> => {
-    const pending = fenceTerminal();
+    fenceTerminal();
+    const pending = Promise.allSettled([...settingsReads, reconfiguration]).then(() => undefined);
     return joinNativeSourceRetirement(stopSourcesOwned(), pending);
   };
   const closeRootCapabilities = async (): Promise<void> => {

@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { resetEmbeddingTelemetryForTests } from '@brainstrike/embedding-worker/testing';
 import { beforeEach, vi } from 'vitest';
 
@@ -8,6 +9,7 @@ const {
   embeddingCacheRepository,
   embeddingQueueBootstrapMock,
   getEmbeddingQueueMock,
+  retireEmbeddingQueueMock,
   createEmbeddingCacheRepositoryMock,
   detectDeviceCapabilitiesMock,
   disposeQueryEmbeddingServiceMock,
@@ -73,6 +75,7 @@ const {
   reportDocumentEmbeddingsResponseMock: vi.fn(),
   reportQueryEmbeddingResponseMock: vi.fn(),
   reportStatusMock: vi.fn(),
+  retireEmbeddingQueueMock: vi.fn(async () => {}),
   setDetectedDevicePrefMock: vi.fn(),
   startEmbeddingWorkerMock: vi.fn(),
   stopMock: vi.fn(),
@@ -120,7 +123,7 @@ const createHostWindowMock = vi.hoisted(() =>
 );
 
 vi.mock('electron', () => ({
-  app: { getAppPath: () => '/test/app', isPackaged: false },
+  app: { getAppPath: () => resolve('/test/app'), isPackaged: false },
   BrowserWindow: createHostWindowMock,
   powerSaveBlocker: { isStarted: vi.fn(), start: vi.fn(), stop: vi.fn() },
 }));
@@ -180,6 +183,12 @@ vi.mock('../../../renderer/create-embedding-queue', () => ({
     embeddingQueueBootstrapMock();
     return {
       getEmbeddingQueue: getEmbeddingQueueMock,
+      reopenEmbeddingQueue: async (isCurrent: () => boolean) => {
+        if (isCurrent()) {
+          getEmbeddingQueueMock();
+        }
+      },
+      retireEmbeddingQueue: retireEmbeddingQueueMock,
     };
   })(),
 }));
@@ -195,6 +204,7 @@ export function installEmbeddingHostRuntimeFixture(): void {
     hostWindow.removeAllListeners();
     hostWindow.webContents.removeAllListeners();
     vi.clearAllMocks();
+    retireEmbeddingQueueMock.mockReset().mockResolvedValue(undefined);
     generateDocumentEmbeddingsMock.mockReset();
     reportStatusMock.mockReset();
     stopMock.mockResolvedValue(undefined);
@@ -295,6 +305,7 @@ export {
   reportDocumentEmbeddingsResponseMock,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
+  retireEmbeddingQueueMock,
   setDetectedDevicePrefMock,
   startEmbeddingWorkerMock,
   stopMock,

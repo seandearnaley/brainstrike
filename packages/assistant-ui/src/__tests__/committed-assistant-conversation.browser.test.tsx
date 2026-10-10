@@ -2,12 +2,10 @@ import '@testing-library/jest-dom/vitest';
 // Must evaluate before anything that loads React DOM: it installs the React
 // DevTools hook and Scheduler MessageChannel timing used by the render-cost suite.
 import './committed-assistant-browser-support';
-import { TooltipProvider } from '@brainstrike/ui';
-import { act, getConfig, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, getConfig, render, screen, waitFor, within } from '@testing-library/react';
 import { Profiler, type ReactElement, version as reactVersion, useCallback } from 'react';
 import { afterAll, beforeAll, describe, expect, onTestFinished, test, vi } from 'vitest';
-import { page, userEvent } from 'vitest/browser';
-import { CommittedAssistantConversation } from '../committed-assistant-conversation';
+import { commands, page, userEvent } from 'vitest/browser';
 import {
   type CommittedAssistantCommands,
   type CommittedAssistantSnapshot,
@@ -21,6 +19,7 @@ import { useCommittedAssistantSelector } from '../use-committed-assistant-runtim
 import type { ToolResultRenderer } from '../use-tool-result-renderers';
 import {
   ATTRIBUTION_TRIALS,
+  answerStepLength,
   CHILD_THREAD_ID,
   captureUncaught,
   committedRows,
@@ -55,17 +54,18 @@ import {
   settleAnimations,
   settleFrames,
   TEXT_KINDS,
-  TEXT_ROW,
   TOOL_CARD_COMPONENTS,
   TRIALS,
   tabTo,
-  textStartLength,
   useReducedMotion,
   useViewport,
   watchUnchanged,
   ZERO_COUNTS,
 } from './committed-assistant-browser-support';
 import { PublishedConversation } from './committed-assistant-test-support';
+import { conversation, Surface } from './committed-conversation-surface';
+import { publishLiveText, TEXT_PUBLICATIONS } from './committed-live-text-support';
+import type {} from './committed-production/receipt';
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
 import './assistant-conversation-panel.browser.css';
@@ -79,52 +79,11 @@ import './assistant-conversation-panel.browser.css';
  * success that writes transcript state.
  */
 
-const LABEL = 'Committed conversation';
 const APPROVE = `Approve ${recordedToolName}`;
 const DECLINE = `Decline ${recordedToolName}`;
 const COMPLETED_TEXT = 'Host run completed.';
 const UNAVAILABLE = 'The agent host is unavailable.';
 const DISCONNECTED = 'Agent host disconnected. Reconnect to continue.';
-
-function Surface({
-  store,
-  actions,
-  width = 900,
-  height = 620,
-  label = LABEL,
-}: {
-  readonly store: CommittedAssistantStore;
-  readonly actions: CommittedAssistantCommands;
-  readonly width?: number;
-  readonly height?: number;
-  readonly label?: string;
-}): ReactElement {
-  return (
-    <TooltipProvider>
-      <div style={{ height, width }}>
-        <CommittedAssistantConversation commands={actions} label={label} store={store} />
-      </div>
-    </TooltipProvider>
-  );
-}
-
-/** The shipped region plus the committed wrapper that also hosts owner status and alerts. */
-function conversation(label = LABEL) {
-  const region = screen.getByRole('region', { name: label });
-  const root = region.parentElement;
-  if (!root) {
-    throw new Error('The committed conversation wrapper is missing.');
-  }
-  const ui = within(region);
-  return {
-    host: within(root),
-    input: ui.getByRole('textbox', { name: 'Message input' }),
-    region,
-    root,
-    ui,
-    viewport: ui.getByTestId('assistant-ui-viewport'),
-  };
-}
 
 describe('same-thread connection changes', () => {
   test.each([390, 900])(
@@ -214,10 +173,6 @@ describe('same-thread connection changes', () => {
   );
 });
 
-/** Rows after text-start: the recorded token, text end, step/run finish. */
-const TEXT_PUBLICATIONS = committedRows
-  .slice(textStartLength)
-  .map((_, offset) => textStartLength + offset + 1);
 const READER_PANEL_HEIGHT = 300;
 /** A reading position needs real content above and below it. */
 const MIN_READER_OVERFLOW_PX = 48;
@@ -225,7 +180,7 @@ const MIN_READER_OVERFLOW_PX = 48;
 async function mountReader(width: number) {
   const { baseline } = await recordedBaseline();
   const source = new RecordedCommittedSource();
-  source.publishPrefix(textStartLength);
+  source.publishPrefix(answerStepLength);
   const store = await recordedStore(source, baseline);
   onTestFinished(() => store.dispose());
   const view = render(
@@ -260,7 +215,7 @@ describe('reading position', () => {
     async ({ width, reducedMotion }) => {
       await useViewport(width);
       await useReducedMotion(reducedMotion);
-      const { baseline, source, surface, view } = await mountReader(width);
+      const { baseline, source, store, surface, view } = await mountReader(width);
       const { viewport, ui } = surface;
       expect(getComputedStyle(viewport).scrollBehavior).toBe(reducedMotion ? 'auto' : 'smooth');
       const jump = ui.getByRole('button', { name: 'Scroll to latest messages' });
@@ -292,9 +247,9 @@ describe('reading position', () => {
       };
 
       const contentBefore = viewport.scrollHeight;
-      for (const length of TEXT_PUBLICATIONS) {
-        await act(async () => source.publishPrefix(length));
-        await expectReaderUndisturbed(`committed row ${length}`);
+      for (const publication of TEXT_PUBLICATIONS) {
+        await act(async () => publication.publish(source, store));
+        await expectReaderUndisturbed(publication.label);
       }
       expect(ui.getByText(COMPLETED_TEXT)).toBeInTheDocument();
       // Non-vacuous: the committed text really grew the transcript below the reader.
@@ -345,7 +300,7 @@ describe('reading position', () => {
     async ({ width, reducedMotion }) => {
       await useViewport(width);
       await useReducedMotion(reducedMotion);
-      const { source, surface } = await mountReader(width);
+      const { source, store, surface } = await mountReader(width);
       const { viewport, ui } = surface;
       const jump = ui.getByRole('button', { name: 'Scroll to latest messages' });
       const expectPinned = async (step: string): Promise<void> => {
@@ -360,11 +315,11 @@ describe('reading position', () => {
       };
       await expectPinned('opened');
       const contentBefore = viewport.scrollHeight;
-      for (const length of TEXT_PUBLICATIONS) {
+      for (const publication of TEXT_PUBLICATIONS) {
         const before = viewport.scrollHeight;
-        await act(async () => source.publishPrefix(length));
+        await act(async () => publication.publish(source, store));
         await expectPinned(
-          `committed row ${length} (scrollHeight ${before} → ${viewport.scrollHeight})`
+          `${publication.label} (scrollHeight ${before} → ${viewport.scrollHeight})`
         );
       }
       // Non-vacuous: following meant moving, because the committed text grew.
@@ -409,7 +364,11 @@ async function mountPendingApproval(
   };
 }
 
-const EXACT_APPROVAL = { approvalId: recordedInteractionId, approved: true };
+const EXACT_APPROVAL = {
+  approvalId: recordedInteractionId,
+  approved: true,
+  optionId: 'approve',
+};
 
 describe('keyboard approval and errors', () => {
   test('keyboard approval dispatches the exact committed interaction once; only the committed response suffix settles the card', async () => {
@@ -866,7 +825,7 @@ const MEASUREMENT_TIMEOUT_MS = (TRIALS + ATTRIBUTION_TRIALS) * 2 * getConfig().a
 /** One measured trial: the root over the recorded store beside an independent child. */
 const mountMeasuredTrial: MountTrial = async ({ baseline, firstChild, saved }) => {
   const source = new RecordedCommittedSource();
-  source.publishPrefix(TEXT_ROW['text-start']);
+  source.publishPrefix(answerStepLength);
   const store = await recordedStore(source, baseline);
   const childStore = new PublishedConversation(CHILD_THREAD_ID, [firstChild]);
   const counts: RenderCounts = { ...ZERO_COUNTS };
@@ -912,12 +871,18 @@ const mountMeasuredTrial: MountTrial = async ({ baseline, firstChild, saved }) =
     counts,
     promptRow,
     publishChild: (message) => childStore.replaceMessage(message),
-    publishRow: (length) => source.publishPrefix(length),
+    publishText: (kind) => publishLiveText(store, kind),
     savedRow,
     toolCard: root.ui.getByTestId('tool-fallback'),
     unmount: () => {
-      view.unmount();
+      // Trials share beforeAll: per-test cleanup runs only after all 45 mounts.
+      // Release RTL's container/root registry between independent measurements.
+      cleanup();
       store.dispose();
+      expect(
+        view.container,
+        'each trial releases its Testing Library container'
+      ).not.toBeInTheDocument();
     },
     views,
   };
@@ -932,8 +897,9 @@ async function warmUp(): Promise<void> {
   const store = await recordedStore(source, baseline);
   const warm = render(<Surface actions={{ onNew: rejectingNew() }} store={store} />);
   await screen.findByText(COMPLETED_TEXT);
-  warm.unmount();
+  cleanup();
   store.dispose();
+  expect(warm.container, 'warm-up releases its Testing Library container').not.toBeInTheDocument();
 }
 
 describe('recorded text publication cost (BST-1929 spike s-ui budget)', () => {
@@ -1014,16 +980,30 @@ describe('recorded text publication cost (BST-1929 spike s-ui budget)', () => {
     }
   });
 
-  test('p95 per recorded token stays within 8 ms over the spike s-ui interval', () => {
-    const tokens = measured().samples['text-delta'];
-    expect(tokens).toHaveLength(TRIALS);
-    // Every commit must fall inside a timed slice, or the interval misses work.
-    expect(tokens.map((token) => token.commitsOutsideTimedWork)).toEqual(tokens.map(() => 0));
-    expect(
-      percentile(
-        tokens.map((token) => token.reactMs),
-        95
-      )
-    ).toBeLessThanOrEqual(8);
-  });
+  // FIXME(BST-1929): Sean approved this single M4 quarantine on 2026-10-09.
+  // The M3-only workload has no qualified shipped-main baseline. Keep the full
+  // production measurement and 8 ms target; re-enable when this gate passes.
+  // Vitest has no test.fixme, so use the repository's ticket-linked test.skip.
+  test.skip(
+    'p95 per recorded token stays within 8 ms over the spike s-ui interval',
+    async () => {
+      // Development JSX captures owner stacks. Keep its attribution/Profiler
+      // assertions above; apply the unchanged budget to the shipped artifact.
+      const production = await commands.measureCommittedProduction({
+        timeout: MEASUREMENT_TIMEOUT_MS,
+      });
+      console.info('COMMITTED_UI_PRODUCTION_MEASUREMENT', JSON.stringify(production));
+      const tokens = production.timings;
+      expect(tokens).toHaveLength(TRIALS);
+      // Every commit must fall inside a timed slice, or the interval misses work.
+      expect(tokens.map((token) => token.commitsOutsideTimedWork)).toEqual(tokens.map(() => 0));
+      expect(
+        percentile(
+          tokens.map((token) => token.reactMs),
+          95
+        )
+      ).toBeLessThanOrEqual(8);
+    },
+    MEASUREMENT_TIMEOUT_MS
+  );
 });

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -42,11 +42,11 @@ afterEach(() => {
 
 describe('getProjectHooksPath / getGlobalHooksPath', () => {
   it('resolves the project hooks path under <root>/.brainstrike/hooks.json', () => {
-    expect(getProjectHooksPath('/abs/root')).toBe('/abs/root/.brainstrike/hooks.json');
+    expect(getProjectHooksPath(tmpRoot)).toBe(join(tmpRoot, '.brainstrike', 'hooks.json'));
   });
 
   it('resolves the global hooks path under the home .brainstrike dotfile', () => {
-    expect(getGlobalHooksPath().endsWith('/.brainstrike/hooks.json')).toBe(true);
+    expect(getGlobalHooksPath()).toBe(join(homedir(), '.brainstrike', 'hooks.json'));
   });
 });
 
