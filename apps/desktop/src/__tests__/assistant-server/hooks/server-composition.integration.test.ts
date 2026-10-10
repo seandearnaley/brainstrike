@@ -318,8 +318,12 @@ describe('withStopHook', () => {
     // run and the `finally` run from both firing (a regression that double-fires
     // spawns the subprocess twice → two marker lines).
     const marker = join(tmpRoot, 'runs.txt');
+    const command = writeHookCommand(
+      tmpRoot,
+      `require('node:fs').appendFileSync(${JSON.stringify(marker)}, 'run\\n');\n`
+    );
     const config = JSON.stringify({
-      Stop: [{ command: `echo run >> "${marker}"`, type: 'command' }],
+      Stop: [{ command, type: 'command' }],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
