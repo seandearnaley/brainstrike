@@ -469,15 +469,21 @@ describe('main boot order', () => {
     // that rejection is an EXPECTED teardown per desktop-shutdown-state and
     // must not produce an alarming error-level log on every fast quit.
     getDatabaseMock.mockResolvedValue({});
-    probeMock.mockImplementationOnce(async () => {
-      isDesktopShuttingDownMock.mockReturnValue(true);
-      throw new Error('db host disposed');
-    });
+    const probe = Promise.withResolvers<Awaited<ReturnType<typeof probeMock>>>();
+    probeMock.mockReturnValueOnce(probe.promise);
 
     await import('../../main');
 
     await vi.waitFor(() => expect(probeMock).toHaveBeenCalledTimes(1));
     await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalled());
+    isDesktopShuttingDownMock.mockReturnValue(true);
+    probe.reject(new Error('db host disposed'));
+    await vi.waitFor(() =>
+      expect(requireMainLogger().info).toHaveBeenCalledWith(
+        'Dimension index maintenance capability probe aborted by shutdown',
+        { error: expect.objectContaining({ message: 'db host disposed' }) }
+      )
+    );
     expect(maintenanceStartMock).not.toHaveBeenCalled();
 
     const mainLogger = createLoggerMock.mock.results

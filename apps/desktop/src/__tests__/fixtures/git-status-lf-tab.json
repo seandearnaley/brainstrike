@@ -1,0 +1,26 @@
+{
+  "args": [
+    "-c",
+    "core.fsmonitor=false",
+    "status",
+    "--porcelain=v2",
+    "--branch",
+    "--untracked-files=all",
+    "-z",
+    "--",
+    "."
+  ],
+  "recording": {
+    "gitVersion": "git version 2.54.0 (Apple Git-157)\n",
+    "platform": "darwin",
+    "recordedAt": "2026-10-10T18:36:45.239Z",
+    "sourceCommit": "93b2600f9623e2184a62596033d473cc2ce780b7",
+    "test": "preserves tabs and newlines in status paths via NUL-delimited porcelain"
+  },
+  "result": {
+    "exitCode": 0,
+    "stderr": "",
+    "stdout": "# branch.oid f9af1f58c07f073fe1dfa512ad6758fc68e149a4\u0000# branch.head master\u0000? line\nbreak\tname.txt\u0000",
+    "timedOut": false
+  }
+}
