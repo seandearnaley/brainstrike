@@ -75,7 +75,8 @@ describe('WorktreeService (real git + real PGlite)', () => {
       return;
     }
     const worktreePath = created.value.worktree.path;
-    expect(git(repo, ['worktree', 'list', '--porcelain'])).toContain(worktreePath);
+    const porcelainPath = worktreePath.split(path.sep).join('/');
+    expect(git(repo, ['worktree', 'list', '--porcelain'])).toContain(porcelainPath);
     rmSync(worktreePath, { force: true, recursive: true });
 
     const archived = await service.archive({ worktreeId: created.value.worktree.id });
@@ -91,7 +92,7 @@ describe('WorktreeService (real git + real PGlite)', () => {
     ).toMatch(/^[0-9a-f]{40}$/u);
     expect(git(repo, ['ls-tree', '-r', '--name-only', archived.value.snapshotRef])).toBe('');
     expect(() => git(repo, ['rev-parse', '--verify', `${archived.value.snapshotRef}^`])).toThrow();
-    expect(git(repo, ['worktree', 'list', '--porcelain'])).not.toContain(worktreePath);
+    expect(git(repo, ['worktree', 'list', '--porcelain'])).not.toContain(porcelainPath);
   });
 
   it('refuses to restore an archive captured after its worktree vanished', async () => {
@@ -379,7 +380,9 @@ describe('WorktreeService (real git + real PGlite)', () => {
 
     expect(created.ok).toBe(false);
     expect(created.ok === false && created.error).toMatch(/duplicate key|unique/iu);
-    expect(git(repo, ['worktree', 'list', '--porcelain'])).not.toContain(`worktree ${target}`);
+    expect(git(repo, ['worktree', 'list', '--porcelain'])).not.toContain(
+      `worktree ${target.split(path.sep).join('/')}`
+    );
     expect(git(repo, ['branch', '--list', 'bs/ledger-race']).trim()).toBe('');
   });
 
