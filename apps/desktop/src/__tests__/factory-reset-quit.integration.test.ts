@@ -3,8 +3,10 @@
 // to run its steps under the reset: the process exited with the reset
 // abandoned, or the reset's reopen found the agent host fenced and reported the
 // reset failed although its purge had run.
+
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { _electron } from 'playwright';
@@ -48,9 +50,7 @@ test('quitting while a factory reset finishes lets the reset complete', {
       '--brainstrike-desktop-launch-mode=test-built',
     ],
     env,
-    executablePath:
-      process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ??
-      join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
+    executablePath: process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ?? electronPath(),
   });
   const main = app.process();
   let output = '';
@@ -97,3 +97,11 @@ test('quitting while a factory reset finishes lets the reset complete', {
     await app.close();
   }
 });
+
+function electronPath(): string {
+  const value: unknown = createRequire(import.meta.url)('electron');
+  if (typeof value !== 'string') {
+    throw new TypeError('Electron package did not expose its executable path');
+  }
+  return value;
+}

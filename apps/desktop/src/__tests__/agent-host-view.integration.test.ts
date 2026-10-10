@@ -1,7 +1,9 @@
 // @vitest-environment node
+
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -213,9 +215,7 @@ test('CLI and Electron share an authenticated Node host, approved file action, r
   };
   const { threadId } = z.object({ threadId: z.string() }).parse(await cli(['thread', 'start']));
   checkpoint('cli-thread');
-  const executablePath =
-    process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ??
-    join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron');
+  const executablePath = process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ?? electronPath();
   await access(executablePath);
   const electronEnvironment: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -375,3 +375,11 @@ test('CLI and Electron share an authenticated Node host, approved file action, r
     );
   }
 });
+
+function electronPath(): string {
+  const value: unknown = createRequire(import.meta.url)('electron');
+  if (typeof value !== 'string') {
+    throw new TypeError('Electron package did not expose its executable path');
+  }
+  return value;
+}

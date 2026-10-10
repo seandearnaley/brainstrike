@@ -1,6 +1,8 @@
 // @vitest-environment node
+
 import { execFile } from 'node:child_process';
 import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import {
@@ -298,9 +300,7 @@ test(
           '--brainstrike-desktop-launch-mode=test-built',
         ],
         env,
-        executablePath:
-          process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ??
-          join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
+        executablePath: process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ?? electronPath(),
       };
       application = await _electron.launch(launchOptions);
       const pid = application.process().pid;
@@ -565,3 +565,11 @@ test(
   },
   getAdjustedTimeout('e2e')
 );
+
+function electronPath(): string {
+  const value: unknown = createRequire(import.meta.url)('electron');
+  if (typeof value !== 'string') {
+    throw new TypeError('Electron package did not expose its executable path');
+  }
+  return value;
+}

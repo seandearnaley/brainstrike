@@ -5,8 +5,10 @@
 // second host utility spawned during shutdown. It also fences that admission
 // before Main's MCP control closes: the starting host's MCP handshake was refused
 // ("MCP is unavailable") when the control closed first.
+
 import { existsSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
@@ -66,9 +68,7 @@ test('quitting while the agent host is starting spawns no second host utility', 
       '--brainstrike-desktop-launch-mode=test-built',
     ],
     env,
-    executablePath:
-      process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ??
-      join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
+    executablePath: process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ?? electronPath(),
   });
   const main = app.process();
   let output = '';
@@ -121,3 +121,11 @@ test('quitting while the agent host is starting spawns no second host utility', 
     await app.close();
   }
 });
+
+function electronPath(): string {
+  const value: unknown = createRequire(import.meta.url)('electron');
+  if (typeof value !== 'string') {
+    throw new TypeError('Electron package did not expose its executable path');
+  }
+  return value;
+}

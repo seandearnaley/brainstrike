@@ -4,7 +4,7 @@ import { appendFileSync, createReadStream, realpathSync } from 'node:fs';
 import { copyFile, mkdir, open, readdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { createConnection } from 'node:net';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost } from '@brainstrike/agent-host';
 import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/app-state/stores/assistant-preferences-store-version';
 import {
@@ -211,9 +211,7 @@ async function qualifyVectorSearch(): Promise<void> {
         '--brainstrike-desktop-launch-mode=test-built',
       ],
       env,
-      executablePath:
-        process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ??
-        join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
+      executablePath: process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ?? electronPath(),
     });
     const appProcess = application.process();
     const appStart = appProcess.pid && processStartTime(appProcess.pid);
@@ -833,7 +831,7 @@ async function copyExistingModelCache(disposable: string): Promise<CachedModelAs
   if (!(index.includes('file:///') && index.includes('transformers-cache'))) {
     throw new Error('Installed model cache has the wrong origin or cache name');
   }
-  const origin = source.split('/').at(-1);
+  const origin = basename(source);
   if (!(origin && /^[a-f0-9]{40}$/u.test(origin))) {
     throw new Error('Installed model cache has no canonical storage origin');
   }
@@ -940,4 +938,12 @@ async function existingOrtAssets(): Promise<ReadonlyMap<string, InstalledRuntime
     });
   }
   return assets;
+}
+
+function electronPath(): string {
+  const value: unknown = createRequire(import.meta.url)('electron');
+  if (typeof value !== 'string') {
+    throw new TypeError('Electron package did not expose its executable path');
+  }
+  return value;
 }

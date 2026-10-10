@@ -1,5 +1,7 @@
 // @vitest-environment node
+
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 import { createSanitizedToolNameMap } from '@brainstrike/agent';
 import { startStatefulMcpHostServer } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
@@ -192,9 +194,7 @@ setInterval(() => {}, 1000);
         '--brainstrike-desktop-launch-mode=test-built',
       ],
       env,
-      executablePath:
-        process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ??
-        join(desktop, 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'),
+      executablePath: process.env['BRAINSTRIKE_TEST_ELECTRON_EXEC_PATH'] ?? electronPath(),
     };
     let application: Awaited<ReturnType<typeof _electron.launch>> | undefined;
     let client: Awaited<ReturnType<typeof attachAgentHost>> | undefined;
@@ -995,3 +995,11 @@ setInterval(() => {}, 1000);
     }
   }
 );
+
+function electronPath(): string {
+  const value: unknown = createRequire(import.meta.url)('electron');
+  if (typeof value !== 'string') {
+    throw new TypeError('Electron package did not expose its executable path');
+  }
+  return value;
+}
