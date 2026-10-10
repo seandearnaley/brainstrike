@@ -4,12 +4,13 @@
  * message's image parts on this turn and every later turn on the branch, and
  * refused at admission when they break the shared attachment contract.
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, readdir, readFile, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { createStateStoreIndexer, openIndexer } from '@brainstrike/indexer';
+import { BLOBS_DIR } from '@brainstrike/state-store';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
 import { attachAgentHost, type HostClient } from '../src/client.js';
@@ -192,7 +193,7 @@ async function filesContaining(root: string, needle: string): Promise<string[]> 
     }
     const path = join(entry.parentPath, entry.name);
     if ((await readFile(path)).includes(needle)) {
-      matches.push(path.slice(root.length + 1));
+      matches.push(relative(root, path));
     }
   }
   return matches.sort();
@@ -224,7 +225,12 @@ test('an attached image is stored once, in one blob, and thread deletion drops i
   });
   const stored = await filesContaining(harness.root, base64);
   expect(stored).toHaveLength(1);
-  expect(stored[0]).toMatch(/^blobs\//);
+  const [blobPath] = stored;
+  if (!blobPath) {
+    throw new Error('The image must have one stored blob');
+  }
+  const blob = await readFile(join(harness.root, blobPath));
+  expect(stored).toEqual([join(BLOBS_DIR, createHash('sha256').update(blob).digest('hex'))]);
 
   await harness.client().request('thread/delete', { threadId: harness.threadId });
   await expect.poll(() => filesContaining(harness.root, base64)).toEqual([]);

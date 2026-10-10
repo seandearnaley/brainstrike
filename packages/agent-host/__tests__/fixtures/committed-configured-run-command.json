@@ -1,0 +1,149 @@
+{
+  "provenance": {
+    "source": "Disposable startup-scale store-e2e-1000/state.db, run_events.payload",
+    "threadId": "2151797f-cf83-4672-8475-751eda2ed78c",
+    "seq": 5,
+    "payloadSha256": "09e3cd8af9b40e52f6448dabfbe137e05c61ca65f1b2cc4f8d1458aa78248d57",
+    "recording": "Desktop loopback model-provider shim with fake credentials; exact recorded payload, no fields changed."
+  },
+  "row": {
+    "seq": 5,
+    "commandId": "bc202165-e674-49e8-a65d-baa800e4773e",
+    "method": "run/start",
+    "payload": {
+      "commandId": "bc202165-e674-49e8-a65d-baa800e4773e",
+      "threadId": "2151797f-cf83-4672-8475-751eda2ed78c",
+      "configuration": {
+        "agentLoop": {
+          "inputTokenLimit": 918000
+        },
+        "enabledNativeToolIds": [
+          "brainstrike.askUser",
+          "brainstrike.browserGetPageText",
+          "brainstrike.browserNavigate",
+          "brainstrike.browserReadPage",
+          "brainstrike.deleteWorkspaceFile",
+          "brainstrike.executeCommand",
+          "brainstrike.findWorkspaceSymbol",
+          "brainstrike.globWorkspace",
+          "brainstrike.grepSearch",
+          "brainstrike.hybridSearch",
+          "brainstrike.inspectCommandSessions",
+          "brainstrike.listEmbeddingSpaces",
+          "brainstrike.listWorkspaceContext",
+          "brainstrike.listWorktrees",
+          "brainstrike.lspInspect",
+          "brainstrike.manageCanvas",
+          "brainstrike.manageCommandSession",
+          "brainstrike.manageTaskList",
+          "brainstrike.manageWorktree",
+          "brainstrike.queryDiagnostics",
+          "brainstrike.queryEmbeddingSpace",
+          "brainstrike.querySelf",
+          "brainstrike.readToolOutputArtifact",
+          "brainstrike.readWorkspaceContext",
+          "brainstrike.readWorkspaceDirectory",
+          "brainstrike.readWorkspaceFile",
+          "brainstrike.renameWorkspaceFile",
+          "brainstrike.runPython",
+          "brainstrike.runSkillScript",
+          "brainstrike.stringReplaceWorkspaceFile",
+          "brainstrike.submitPlan",
+          "brainstrike.updateWorkspaceContextSelection",
+          "brainstrike.updateWorkspaceTapestrySelections",
+          "brainstrike.webExtract",
+          "brainstrike.webSearch",
+          "brainstrike.writeWorkspaceFile"
+        ],
+        "memoryOptions": {
+          "lastMessages": 40,
+          "workingMemory": {
+            "enabled": true,
+            "scope": "thread",
+            "template": "# Session\n- **Active task**:\n- **Workspace / roots**:\n\n# Decisions\n- (settled choices and why)\n\n# Open questions\n- (unresolved, needs the user)\n\n# Key paths\n- (files central to this task)\n"
+          }
+        },
+        "memorySettings": {
+          "observationalMemory": {
+            "enabled": true,
+            "messageTokens": 30000,
+            "modelTarget": "auto",
+            "observationTokens": 40000,
+            "retrievalMode": "off",
+            "scope": "thread"
+          },
+          "semanticRecall": {
+            "embeddingModelTarget": "openai/text-embedding-3-small",
+            "enabled": false,
+            "messageRange": 2,
+            "scope": "resource",
+            "topK": 5
+          }
+        },
+        "modelConfiguration": {
+          "model": "anthropic/claude-sonnet-4.6",
+          "modelSettings": {
+            "maxOutputTokens": 32000
+          },
+          "provider": "openrouter",
+          "providerOptions": {
+            "openrouter": {
+              "provider": {
+                "require_parameters": true
+              }
+            }
+          }
+        },
+        "permissionPolicy": {
+          "perToolOverrides": {},
+          "policies": {
+            "edit": "ask",
+            "execute": "ask",
+            "mcp": "allow",
+            "read": "allow"
+          },
+          "yolo": false
+        },
+        "skillsPreference": {
+          "disabledSkillKeys": [],
+          "masterEnabled": true
+        },
+        "subagents": {
+          "delegationEnabled": true,
+          "disabledPersonaIds": [],
+          "settings": {
+            "maxChildOutputTokens": 32768,
+            "maxChildRuntimeMs": null,
+            "maxChildSteps": 100,
+            "maxConcurrentWork": 6,
+            "maxDepth": 3,
+            "maxInvocations": 200,
+            "maxStepOutputTokens": 8192,
+            "maxTreeOutputTokens": 6553600,
+            "synthesisOutputTokens": 2048
+          }
+        },
+        "workspaceContext": {
+          "files": [],
+          "includeProjectTree": true,
+          "projectTreeApproxTokens": 0,
+          "projectTreeTokenCountLoading": false,
+          "selectedOutputApproxTokens": 0,
+          "selectedSourceApproxTokens": 0,
+          "tokenBudget": 100000
+        },
+        "workspaceInstructionsPreference": {
+          "masterEnabled": true,
+          "oversizedOptInByRootId": {}
+        }
+      },
+      "modelId": "openrouter::anthropic/claude-sonnet-4.6",
+      "parentMessageId": null,
+      "prompt": "review the memory release error embedding session renderer worker query. fix the cache folder schema schema token migration handler worker commit model error commit request handler. rename the tool request commit thread vector index memory. check the stream stream query index memory stream test query latency request release stream. measure the search session folder cache query schema thread session folder test adapter model cache folder commit."
+    },
+    "result": {
+      "runId": "0515d207-01ea-4229-bc21-55b0f8c178fc"
+    },
+    "type": "command.accepted"
+  }
+}

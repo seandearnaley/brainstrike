@@ -234,6 +234,7 @@ test('a run’s create, overwrite, delete and rename revert, after restart, to e
   await writeFile(join(state.workspace, 'keep.txt'), 'keep v0');
   await writeFile(join(state.workspace, 'doomed.bin'), binary);
   await chmod(join(state.workspace, 'doomed.bin'), 0o755);
+  const originalMode = (await stat(join(state.workspace, 'doomed.bin'))).mode & 0o777;
   await writeFile(join(state.workspace, 'from.txt'), 'renamed source');
   let opened = await open(state);
   const { threadId } = await opened.client.request('thread/start', { commandId: randomUUID() });
@@ -264,6 +265,7 @@ test('a run’s create, overwrite, delete and rename revert, after restart, to e
     ['content'],
     ['content', 'absent'],
   ]);
+  expect(edits[3]?.baselines[0]).toMatchObject({ kind: 'content', mode: originalMode });
   for (const edit of edits) {
     for (const baseline of edit.baselines) {
       if (baseline.kind === 'content') {
@@ -292,7 +294,7 @@ test('a run’s create, overwrite, delete and rename revert, after restart, to e
   expect(await exists(join(state.workspace, 'new'))).toBe(false);
   expect(await readFile(join(state.workspace, 'keep.txt'), 'utf8')).toBe('keep v0');
   expect(await readFile(join(state.workspace, 'doomed.bin'))).toEqual(binary);
-  expect((await stat(join(state.workspace, 'doomed.bin'))).mode & 0o777).toBe(0o755);
+  expect((await stat(join(state.workspace, 'doomed.bin'))).mode & 0o777).toBe(originalMode);
   expect(await readFile(join(state.workspace, 'from.txt'), 'utf8')).toBe('renamed source');
   expect(await exists(join(state.workspace, 'moved'))).toBe(false);
 
