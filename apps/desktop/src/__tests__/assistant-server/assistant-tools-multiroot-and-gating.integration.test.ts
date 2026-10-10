@@ -655,6 +655,7 @@ describe('assistant-tools multi-root read tools', () => {
         expect(result.lsp?.diagnostics?.length ?? 0).toBeGreaterThan(0);
         expect(result.lsp?.diagnostics?.[0]?.message).toMatch(/not assignable/i);
       } finally {
+        await disposeLspServers();
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     }, 30_000);
@@ -672,6 +673,7 @@ describe('assistant-tools multi-root read tools', () => {
         expect(result.created).toBe(true);
         expect(result.lsp).toBeUndefined();
       } finally {
+        await disposeLspServers();
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     }, 30_000);
@@ -700,6 +702,7 @@ describe('assistant-tools multi-root read tools', () => {
         expect(result.definition?.[0]?.path).toBe('/src/sym.ts');
         expect(result.definition?.[0]?.line).toBe(1);
       } finally {
+        await disposeLspServers();
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     }, 30_000);
@@ -734,6 +737,7 @@ describe('assistant-tools multi-root read tools', () => {
         expect(result.definition?.[0]?.path).toBe('/src/sym.ts');
         expect(result.definition?.[0]?.line).toBe(1);
       } finally {
+        await disposeLspServers();
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     }, 30_000);
@@ -757,6 +761,7 @@ describe('assistant-tools multi-root read tools', () => {
         expect(result.hover).toMatch(/string/);
         expect(result.definition?.[0]?.line).toBe(1);
       } finally {
+        await disposeLspServers();
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     }, 30_000);
@@ -780,6 +785,7 @@ describe('assistant-tools multi-root read tools', () => {
           })
         ).rejects.toThrow(/pass a unique line fragment with exactly one "<<<"/i);
       } finally {
+        await disposeLspServers();
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     }, 30_000);
@@ -803,6 +809,7 @@ describe('assistant-tools multi-root read tools', () => {
           })
         ).rejects.toThrow(/identifier occurs on line 2; retry with line 2/i);
       } finally {
+        await disposeLspServers();
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     }, 30_000);
@@ -832,6 +839,7 @@ describe('assistant-tools multi-root read tools', () => {
           })
         ).rejects.toThrow(/occurs on line 2.*retry with line 2/i);
       } finally {
+        await disposeLspServers();
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     }, 30_000);
@@ -856,6 +864,7 @@ describe('assistant-tools multi-root read tools', () => {
         await expect(inspection).rejects.toBeInstanceOf(ToolInputError);
         await expect(inspection).rejects.toThrow(/not found on line 1/i);
       } finally {
+        await disposeLspServers();
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     }, 30_000);
@@ -878,6 +887,7 @@ describe('assistant-tools multi-root read tools', () => {
           })
         ).rejects.toThrow(/more than once/i);
       } finally {
+        await disposeLspServers();
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     }, 30_000);
@@ -915,6 +925,7 @@ describe('assistant-tools multi-root read tools', () => {
         expect(result.definition?.[0]?.line).toBe(1);
         expect(result.definition?.[0]?.preview).toBeUndefined();
       } finally {
+        await disposeLspServers();
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     }, 30_000);
@@ -937,6 +948,7 @@ describe('assistant-tools multi-root read tools', () => {
           })
         ).rejects.toThrow(/exactly one/i);
       } finally {
+        await disposeLspServers();
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     }, 30_000);
