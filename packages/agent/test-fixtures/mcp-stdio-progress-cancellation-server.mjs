@@ -24,25 +24,14 @@ if (!Number.isSafeInteger(progressIntervalMs) || progressIntervalMs < 1) {
 
 const state = { cancelled: false, progressSent: 0 };
 
-// Write-then-rename, never write-in-place: `writeFile` truncates before it
-// writes, and the specs poll this file with `JSON.parse` while it is being
-// rewritten every few milliseconds. A read landing inside the truncation window
-// would see '' or half an object, and `expect.poll` would swallow the parse
-// error — turning a real regression into an opaque timeout message instead of
-// "cancelled never became true". `rename` is atomic on POSIX, so a reader sees
-// either the previous state or the next one. The queue already serialises the
-// writers; this closes the reader-side race.
+// Both consumers need only the terminal cancellation receipt. Publish it once
+// into the absent destination: replacing a polled file failed with EPERM on
+// Windows. Writing the temporary file first keeps readers from seeing partial JSON.
 const stateTempFile = `${stateFile}.tmp`;
-let stateQueue = Promise.resolve();
-function persistState() {
-  stateQueue = stateQueue.then(async () => {
-    await writeFile(stateTempFile, JSON.stringify(state), 'utf8');
-    await rename(stateTempFile, stateFile);
-  });
-  return stateQueue;
+async function persistCancellationReceipt() {
+  await writeFile(stateTempFile, JSON.stringify(state), 'utf8');
+  await rename(stateTempFile, stateFile);
 }
-
-await persistState();
 
 const server = new Server(
   { name: 'brainstrike-desktop-stdio-progress-fixture', version: '1.0.0' },
@@ -73,7 +62,6 @@ server.setRequestHandler('tools/call', async (request, ctx) => {
           method: 'notifications/progress',
           params: { progress: state.progressSent, progressToken },
         })
-        .then(persistState)
         .catch((error) => {
           clearInterval(timer);
           reject(error);
@@ -84,7 +72,7 @@ server.setRequestHandler('tools/call', async (request, ctx) => {
       () => {
         clearInterval(timer);
         state.cancelled = true;
-        persistState().then(
+        persistCancellationReceipt().then(
           () => resolve({ content: [{ text: 'cancelled', type: 'text' }] }),
           reject
         );
