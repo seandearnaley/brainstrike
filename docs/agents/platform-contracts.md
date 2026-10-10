@@ -256,7 +256,8 @@ never used. Wiping the database alone is not enough.
 - The reset panel first prepares renderer writers before clearing live stores.
   Thread workspace preparation cancels pending hydration/debounce work and joins
   admitted saves before Main retires the host. Preparation is terminal for that
-  renderer; failures retain their causes, skip deletion and force a reload.
+  renderer, including replacement coordinators mounted when the explorer clears
+  its content lifecycle. Failures retain their causes, skip deletion and force a reload.
 - Desktop reset order: quiesce background runtimes, clear UI state, purge DB
   tables, reload the renderer. Do not skip the reload. MCP admission stays closed
   across all four steps, and main waits for the replacement tree's renderer-ready

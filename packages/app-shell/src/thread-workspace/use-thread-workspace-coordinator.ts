@@ -1,4 +1,7 @@
-import { registerFactoryResetPreparation } from '@brainstrike/app-state/factory-reset';
+import {
+  hasFactoryResetPreparationStarted,
+  registerFactoryResetPreparation,
+} from '@brainstrike/app-state/factory-reset';
 import type {
   ThreadWorkspaceRepository,
   WorkspaceSnapshotEditor,
@@ -355,7 +358,9 @@ export function useThreadWorkspaceCoordinator({
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const switchIntentRef = useRef(0);
   const facadeRef = useRef(facade);
-  const resetPreparedRef = useRef(false);
+  // FileExplorerProvider remounts its children while reset clears live stores.
+  // A replacement owner belongs to the same terminal renderer reset lifecycle.
+  const resetPreparedRef = useRef(hasFactoryResetPreparationStarted());
   const pendingOperationsRef = useRef(new Set<Promise<unknown>>());
   const repository = useMemo<ThreadWorkspaceRepository | null>(() => {
     if (!sourceRepository) {
@@ -396,7 +401,14 @@ export function useThreadWorkspaceCoordinator({
       );
     }
   });
-  useEffect(() => registerFactoryResetPreparation(prepareReset), []);
+  useEffect(() => {
+    // Preparation may have started between render and this effect's admission.
+    if (hasFactoryResetPreparationStarted()) {
+      resetPreparedRef.current = true;
+      return;
+    }
+    return registerFactoryResetPreparation(prepareReset);
+  }, []);
 
   const handlePersistError = useEffectEvent((threadId: string, error: unknown, message: string) => {
     if (error instanceof ThreadWorkspaceUnavailableError) {

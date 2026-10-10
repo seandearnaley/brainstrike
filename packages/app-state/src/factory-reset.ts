@@ -374,6 +374,11 @@ function isMissingStorageEntryError(error: unknown): boolean {
  * Preparation is terminal for this renderer; the reset UI must reload on either outcome.
  */
 const factoryResetPreparations = new Set<() => Promise<void>>();
+let factoryResetPreparationStarted = false;
+
+export function hasFactoryResetPreparationStarted(): boolean {
+  return factoryResetPreparationStarted;
+}
 
 export function registerFactoryResetPreparation(prepare: () => Promise<void>): () => void {
   factoryResetPreparations.add(prepare);
@@ -383,6 +388,7 @@ export function registerFactoryResetPreparation(prepare: () => Promise<void>): (
 }
 
 export async function prepareFactoryReset(): Promise<void> {
+  factoryResetPreparationStarted = true;
   const results = await Promise.allSettled(
     [...factoryResetPreparations].map(async (prepare) => await prepare())
   );
