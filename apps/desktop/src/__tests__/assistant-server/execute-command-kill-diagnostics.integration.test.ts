@@ -11,6 +11,7 @@
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import type treeKill from 'tree-kill';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   disposeLiveChildProcesses,
@@ -37,7 +38,53 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   };
 });
 
+// Windows tree-kill uses taskkill, so process.kill denial cannot leave a live
+// survivor there. Fail only the owned tree's vendor callback while armed; every
+// other request still executes the installed implementation.
+const treeKillDenial = vi.hoisted(() => ({ pid: undefined as number | undefined }));
+
+vi.mock('tree-kill', async (importOriginal) => {
+  const actual = await importOriginal<{ default: typeof treeKill }>();
+  return {
+    default: (pid: number, signal: string | number, callback: (error?: Error) => void): void => {
+      if (pid !== treeKillDenial.pid) {
+        actual.default(pid, signal, callback);
+        return;
+      }
+      const denied = new Error('kill EPERM') as NodeJS.ErrnoException;
+      denied.code = 'EPERM';
+      queueMicrotask(() => callback(denied));
+    },
+  };
+});
+
 const createdRoots: string[] = [];
+
+async function writeSleepingFixture(root: string, pidFile: string): Promise<string> {
+  await fsPromises.writeFile(
+    path.join(root, 'sleeping-fixture.cjs'),
+    `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.ppid));
+setTimeout(() => {}, 30_000);`,
+    'utf8'
+  );
+  // Preserve the shell parent and Node's exit status on shells that otherwise
+  // replace themselves with their final command.
+  const command = 'node sleeping-fixture.cjs';
+  return process.platform === 'win32' ? command : `${command}; exit $?`;
+}
+
+async function killFixtureTree(pid: number): Promise<void> {
+  const actual = await vi.importActual<{ default: typeof treeKill }>('tree-kill');
+  await new Promise<void>((resolve, reject) => {
+    actual.default(pid, 'SIGKILL', (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
 
 async function makeWorkspace(): Promise<string> {
   const root = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-exec-kill-'));
@@ -88,10 +135,8 @@ describe('killProcessTree — teardown log diagnostics', () => {
   it('does not log when the group signal reports EPERM but the tree is gone', async () => {
     const root = await makeWorkspace();
     const pidFile = path.join(root, 'eperm-stub.pid');
-    const run = runExecuteCommand(
-      { command: `echo $$ > "${pidFile}"; sleep 30`, timeoutMs: 30_000 },
-      singleRootRuntime(root)
-    );
+    const command = await writeSleepingFixture(root, pidFile);
+    const run = runExecuteCommand({ command, timeoutMs: 30_000 }, singleRootRuntime(root));
     const shellPid = await readPidWhenWritten(pidFile);
     loggerWarnMock.mockReset();
 
@@ -137,10 +182,8 @@ describe('killProcessTree — teardown log diagnostics', () => {
   it('still logs when EPERM hides a member that really survived', async () => {
     const root = await makeWorkspace();
     const pidFile = path.join(root, 'eperm-live.pid');
-    const run = runExecuteCommand(
-      { command: `echo $$ > "${pidFile}"; sleep 30`, timeoutMs: 30_000 },
-      singleRootRuntime(root)
-    );
+    const command = await writeSleepingFixture(root, pidFile);
+    const run = runExecuteCommand({ command, timeoutMs: 30_000 }, singleRootRuntime(root));
     const shellPid = await readPidWhenWritten(pidFile);
     loggerWarnMock.mockReset();
 
@@ -158,26 +201,32 @@ describe('killProcessTree — teardown log diagnostics', () => {
       denied.code = 'EPERM';
       throw denied;
     }) as typeof process.kill);
+    if (process.platform === 'win32') {
+      treeKillDenial.pid = shellPid;
+    }
     let loggedTreeKillFailure = false;
+    let survivorWasAlive = false;
     try {
       disposeLiveChildProcesses();
       loggedTreeKillFailure = await waitForWarn('tree-kill failed');
+      survivorWasAlive = realKill(shellPid, 0);
     } finally {
       killSpy.mockRestore();
+      treeKillDenial.pid = undefined;
+      // The denied native tree really survives. Restore every injected failure
+      // before joining the installed platform implementation and command exit.
+      await killFixtureTree(shellPid);
+      await run;
     }
 
     // Tear the tree down BEFORE asserting, guarded: the spy denied every kill,
     // so this test is the one most likely to leave the 30s sleep behind, and an
     // assertion failure must not be what decides whether it does.
-    try {
-      realKill(-shellPid, 'SIGKILL');
-    } catch {
-      // already reaped
-    }
     expect(await waitForPidDead(shellPid)).toBe(true);
     await run;
 
     expect(loggedTreeKillFailure).toBe(true);
+    expect(survivorWasAlive).toBe(true);
   });
 
   // The real-kernel proof. Darwin's killpg1() drops zombies from its signalable
@@ -231,10 +280,8 @@ describe('killProcessTree — teardown log diagnostics', () => {
   it('still logs a group-kill failure that is not the already-gone window', async () => {
     const root = await makeWorkspace();
     const pidFile = path.join(root, 'realfail.pid');
-    const run = runExecuteCommand(
-      { command: `echo $$ > "${pidFile}"; sleep 30`, timeoutMs: 30_000 },
-      singleRootRuntime(root)
-    );
+    const command = await writeSleepingFixture(root, pidFile);
+    const run = runExecuteCommand({ command, timeoutMs: 30_000 }, singleRootRuntime(root));
     const shellPid = await readPidWhenWritten(pidFile);
     loggerWarnMock.mockReset();
 
@@ -255,13 +302,8 @@ describe('killProcessTree — teardown log diagnostics', () => {
     } finally {
       killSpy.mockRestore();
     }
-    // Tear the tree down BEFORE asserting: an assertion failure here must not
-    // also leave a 30s sleep behind.
-    try {
-      realKill(-shellPid, 'SIGKILL');
-    } catch {
-      // already reaped by the tree-kill fallback
-    }
+    // Disposal uses the real platform tree-kill implementation; join physical
+    // termination before checking diagnostics.
     expect(await waitForPidDead(shellPid)).toBe(true);
     await run;
 
