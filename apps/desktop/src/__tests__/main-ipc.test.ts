@@ -12,10 +12,16 @@ const registeredIpcHandlers = vi.hoisted(
 // Hoist the Electron mock to avoid factory/temporal dead zone issues
 vi.mock('electron', async () => {
   const electronUtils = await import('@brainstrike/test-utils');
-  const app = electronUtils.createAppMock({
-    documentsPath: '/mock/userData',
-    whenReadyResolved: true,
-  });
+  const electronStub = await vi.importActual<typeof import('./electron-test-stub.mts')>(
+    './electron-test-stub.mts'
+  );
+  const app = {
+    ...electronStub.app,
+    ...electronUtils.createAppMock({
+      documentsPath: '/mock/userData',
+      whenReadyResolved: true,
+    }),
+  };
   app.on.mockImplementation((event: string, listener: () => void) => {
     lifecycleHandlers.set(event, listener);
     return app;
@@ -66,6 +72,7 @@ vi.mock('electron', async () => {
     getAllWindows: vi.fn(() => []),
   });
   return {
+    ...electronStub,
     app,
     BrowserWindow,
     clipboard: {
@@ -87,7 +94,10 @@ vi.mock('electron', async () => {
     },
     protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
     screen,
-    session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
+    session: {
+      ...electronStub.session,
+      defaultSession: { webRequest: { onHeadersReceived: vi.fn() } },
+    },
     shell: {
       openPath: vi.fn().mockResolvedValue(''),
       showItemInFolder: vi.fn(),

@@ -6,7 +6,7 @@
 // before Main's MCP control closes: the starting host's MCP handshake was refused
 // ("MCP is unavailable") when the control closed first.
 import { existsSync } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
@@ -58,9 +58,27 @@ test('quitting while the agent host is starting spawns no second host utility', 
     BRAINSTRIKE_E2E_USER_DATA_DIR: root,
     ELECTRON_IS_E2E_TEST: 'true',
   });
+  // Hold the existing bootstrap admission promise after the real utility forks.
+  // A visible window means Main has already bound the host platform, so waiting
+  // for firstWindow cannot establish the starting phase this test exercises.
+  const entry = join(root, 'hold-main-admission.cjs');
+  const phaseMarker = join(root, 'main-admission-held');
+  await writeFile(
+    entry,
+    `const { getDesktopBootstrapRuntime } = require(${JSON.stringify(join(desktop, 'dist/desktop-bootstrap-runtime.js'))});
+const runtime = getDesktopBootstrapRuntime();
+const waitForProfileLaunch = runtime.waitForProfileLaunch;
+runtime.waitForProfileLaunch = async (acquisition) => {
+  await waitForProfileLaunch(acquisition);
+  require('node:fs').writeFileSync(${JSON.stringify(phaseMarker)}, 'host forked; Main admission held');
+  await new Promise(() => {});
+};
+require(${JSON.stringify(join(desktop, 'dist/main.js'))});
+`
+  );
   const app = await _electron.launch({
     args: [
-      join(desktop, 'dist/main.js'),
+      entry,
       '--test-mode',
       `--user-data-dir=${root}`,
       '--brainstrike-desktop-launch-mode=test-built',
@@ -86,8 +104,7 @@ test('quitting while the agent host is starting spawns no second host utility', 
   });
   const spawned = new Set<string>();
   try {
-    await app.firstWindow();
-    // The renderer connects on load, which starts the first host utility.
+    // Bootstrap starts the real host while Main admission remains held.
     await expect
       .poll(async () => {
         for (const utility of (await hostUtilities(app)) ?? []) {
@@ -96,6 +113,9 @@ test('quitting while the agent host is starting spawns no second host utility', 
         return spawned.size;
       })
       .toBe(1);
+    // A file retains this observation even when the fork precedes launch()'s
+    // return and therefore the test's stdout listener attachment.
+    expect(existsSync(phaseMarker)).toBe(true);
     // Still starting: a ready host would publish its record.
     expect(existsSync(join(profile, 'host.json'))).toBe(false);
 

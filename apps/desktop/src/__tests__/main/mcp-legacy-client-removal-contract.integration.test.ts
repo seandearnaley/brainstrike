@@ -9,7 +9,10 @@ import {
 import type * as esbuildTypes from 'esbuild';
 import esbuild from 'esbuild';
 import { describe, expect, it } from 'vitest';
-import { MAIN_PROCESS_BUILD_OPTIONS } from '../../../scripts/build-main-config.mjs';
+import {
+  MAIN_PROCESS_BUILD_OPTIONS,
+  MAIN_PROCESS_ENTRY_POINTS,
+} from '../../../scripts/build-main-config.mjs';
 
 const desktopRoot = path.resolve(import.meta.dirname, '../../..');
 const sourceRoot = path.join(desktopRoot, 'src');
@@ -130,18 +133,16 @@ describe('legacy desktop MCP client removal contract', () => {
     const buildOptions: esbuildTypes.BuildOptions = {
       ...(MAIN_PROCESS_BUILD_OPTIONS as Omit<esbuildTypes.BuildOptions, 'entryPoints'>),
       absWorkingDir: desktopRoot,
-      entryPoints: { main: path.join(sourceRoot, 'main-bootstrap.ts') },
+      entryPoints: MAIN_PROCESS_ENTRY_POINTS,
       logLevel: 'silent',
       write: false,
     };
     const result = await esbuild.build(buildOptions);
-    const mainOutput = result.outputFiles?.find(
-      (output) => path.basename(output.path) === 'main.js'
-    );
-    if (!mainOutput) {
-      throw new Error('Production MCP removal verifier did not receive the Electron main bundle');
+    const outputs = result.outputFiles ?? [];
+    for (const entry of Object.keys(MAIN_PROCESS_ENTRY_POINTS)) {
+      expect(outputs.some((output) => path.basename(output.path) === `${entry}.js`)).toBe(true);
     }
-    const bundle = mainOutput.text;
+    const bundle = outputs.map((output) => output.text).join('\n');
     expect(bundle).toContain('Ready-dependent IPC handlers registered successfully');
 
     for (const marker of [
