@@ -13,17 +13,15 @@ import {
   mainPlatformConnection,
   type PlatformMessagePort,
 } from '../agent-host-platform/connection';
-import { createHostPlatform } from '../agent-host-platform/desktop-node-platform';
 import type { DesktopAdmissionReads } from '../agent-host-platform/desktop-run-admission';
-import {
-  type DesktopPlatformCapabilities,
-  serveDesktopPlatform,
-} from '../agent-host-platform/main-platform';
+import type { DesktopPlatformCapabilities } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
+import { createHostPlatform } from '../agent-host-platform-entry';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
 import { type CapturedIntent, capturedIntent, mainReads } from './fixtures/desktop-admission-reads';
 import { desktopAppPaths } from './fixtures/desktop-host-profile';
+import { serveInProcessDesktopPlatform } from './fixtures/in-process-desktop-platform';
 
 /** Same public MessageEvent shape as the Electron utility port, backed by real Node ports. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -110,7 +108,7 @@ async function borrowedHost(
   const channel = new MessageChannel();
   const mainPort = new UtilityPort(channel.port1);
   const nodePort = new UtilityPort(channel.port2);
-  const mainOwner = serveDesktopPlatform(mainPlatformConnection(mainPort), {
+  const mainOwner = serveInProcessDesktopPlatform(mainPlatformConnection(mainPort), {
     ...local,
     admission,
     mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),

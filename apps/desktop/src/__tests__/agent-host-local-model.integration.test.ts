@@ -18,13 +18,13 @@ import {
   mainPlatformConnection,
   type PlatformMessagePort,
 } from '../agent-host-platform/connection';
-import { createHostPlatform } from '../agent-host-platform/desktop-node-platform';
-import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
+import { createHostPlatform } from '../agent-host-platform-entry';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
 import { capturedIntent, mainReads } from './fixtures/desktop-admission-reads';
 import { desktopAppPaths } from './fixtures/desktop-host-profile';
+import { serveInProcessDesktopPlatform } from './fixtures/in-process-desktop-platform';
 
 const LOCAL_MODEL = 'onnx-community/gemma-4-E2B-it-ONNX';
 const REPLY = 'Answered by the hidden llm-host renderer.';
@@ -105,7 +105,7 @@ test('a host thread on the built-in local model generates through the hidden llm
   const channel = new MessageChannel();
   const mainPort = new UtilityPort(channel.port1);
   const nodePort = new UtilityPort(channel.port2);
-  const mainOwner = serveDesktopPlatform(mainPlatformConnection(mainPort), {
+  const mainOwner = serveInProcessDesktopPlatform(mainPlatformConnection(mainPort), {
     admission: mainReads(),
     localLlm: inference,
     mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),

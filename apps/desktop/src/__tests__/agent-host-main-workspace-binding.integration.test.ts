@@ -13,14 +13,14 @@ import {
   mainPlatformConnection,
   type PlatformMessagePort,
 } from '../agent-host-platform/connection';
-import { createHostPlatform } from '../agent-host-platform/desktop-node-platform';
-import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
+import { createHostPlatform } from '../agent-host-platform-entry';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
 import { desktopCredentialStoreSelection } from '../secrets';
 import { capturedIntent, mainReads } from './fixtures/desktop-admission-reads';
 import { desktopAppPaths } from './fixtures/desktop-host-profile';
+import { serveInProcessDesktopPlatform } from './fixtures/in-process-desktop-platform';
 
 /** Actual Node ports expose the same MessageEvent contract as the utility transport. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -82,7 +82,7 @@ test('actual Core binding commands reach the live Main owner over the private pl
     }),
     validateWorkspaceBinding: validate,
   };
-  const main = serveDesktopPlatform(connection, capabilities);
+  const main = serveInProcessDesktopPlatform(connection, capabilities);
   let store: StateStore | undefined;
   let platform: HostPlatform | undefined;
   let core: HostCore | undefined;
@@ -208,4 +208,17 @@ test('actual Core binding commands reach the live Main owner over the private pl
     }
     await rm(root, { force: true, recursive: true });
   }
+  expect(main.diagnostics).toContainEqual({
+    hostCloseReport: {
+      callbacksClosed: 0,
+      childProcessesClosed: 0,
+      clientsClosed: 0,
+      failures: [],
+      loopbackPortsClosed: 0,
+      probesClosed: 0,
+      requestsSettled: 0,
+      subscriptionsClosed: 0,
+    },
+    type: 'shutdown',
+  });
 });

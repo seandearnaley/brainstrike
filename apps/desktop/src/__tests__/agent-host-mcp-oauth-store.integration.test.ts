@@ -21,13 +21,13 @@ import {
   mainPlatformConnection,
   type PlatformMessagePort,
 } from '../agent-host-platform/connection';
-import { createHostPlatform } from '../agent-host-platform/desktop-node-platform';
-import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { installParentPlatformPort } from '../agent-host-platform/parent-platform-port';
+import { createHostPlatform } from '../agent-host-platform-entry';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
 import { noRunAdmission } from './fixtures/desktop-admission-reads';
 import { desktopAppPaths, writeDesktopMcpConfig } from './fixtures/desktop-host-profile';
+import { serveInProcessDesktopPlatform } from './fixtures/in-process-desktop-platform';
 
 /** Same public MessageEvent shape as the Electron utility port, backed by real Node ports. */
 class UtilityPort extends EventEmitter implements PlatformMessagePort {
@@ -111,7 +111,7 @@ test('the host reads its MCP OAuth records from the profile store and its reset 
   const channel = new MessageChannel();
   const mainPort = new UtilityPort(channel.port1);
   const nodePort = new UtilityPort(channel.port2);
-  const mainOwner = serveDesktopPlatform(mainPlatformConnection(mainPort), {
+  const mainOwner = serveInProcessDesktopPlatform(mainPlatformConnection(mainPort), {
     admission: noRunAdmission(),
     mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
   });
