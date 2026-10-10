@@ -159,11 +159,12 @@ function deriveUserDataDir(
   const shardSuffix = Number.isInteger(shardIndex) ? shardIndex : 0;
   const workerSuffix = Number.isInteger(workerIndex) ? workerIndex : 0;
   const retrySuffix = Number.isInteger(retry) ? retry : 0;
-  const testSuffix = createHash('sha256').update(testId).digest('hex').slice(0, 12);
-  return path.join(
-    os.tmpdir(),
-    `brainstrike-test-user-data-${runSalt}-shard-${shardSuffix}-worker-${workerSuffix}-test-${testSuffix}-retry-${retrySuffix}`
-  );
+  // Windows M3 reset failed in caches.open: Chromium adds 144 characters below
+  // userData for CacheStorage. Hash the complete isolation identity so the
+  // descriptive directory name does not consume its native path allowance.
+  const identity = JSON.stringify([runSalt, shardSuffix, workerSuffix, testId, retrySuffix]);
+  const suffix = createHash('sha256').update(identity).digest('hex').slice(0, 20);
+  return path.join(os.tmpdir(), `bs-${suffix}`);
 }
 
 async function removeElectronUserDataDir(userDataDir: string | undefined): Promise<void> {
