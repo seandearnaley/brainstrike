@@ -106,7 +106,9 @@ describe('embedding query listener request ownership', () => {
     await waitFor(() => expect(handle).toHaveBeenCalledOnce());
     const controllers = [...owner.requests.values()];
     let closed = false;
-    const closing = closeQueryEmbeddingRuntimeOwner(owner).then(() => {
+    const closing = closeQueryEmbeddingRuntimeOwner(owner, async () => {}, {
+      current: 'runtime-a',
+    }).then(() => {
       closed = true;
     });
     expect(owner.requests.size).toBe(0);

@@ -1,7 +1,11 @@
 import type { usePGliteDatabase } from '@brainstrike/db/react';
+import { getEmbeddingTelemetrySnapshot } from '@brainstrike/embedding-worker';
 import type { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
+import type { EmbeddingWorkerController } from '@brainstrike/embeddings/worker';
 import { createLogger } from '@brainstrike/logging';
 import type { MutableRefObject } from 'react';
+import type { EmbeddingHostRuntimeMetadata } from '../../embedding-host-shared';
+import { reportEmbeddingHostRuntimeStatus } from './embedding-host-bridge';
 
 const logger = createLogger('EmbeddingHostRuntime');
 
@@ -18,11 +22,13 @@ interface QueryEmbeddingStateRefs {
 
 export interface QueryEmbeddingRuntimeOwner extends QueryEmbeddingStateRefs {
   closed: boolean;
+  readonly closeRef: MutableRefObject<Promise<void> | null>;
   readonly db: NonNullable<ReturnType<typeof usePGliteDatabase>>;
   readonly disposalRef: MutableRefObject<Promise<void> | null>;
   readonly executionTailRef: MutableRefObject<Promise<void>>;
   readonly inferenceController: AbortController;
   readonly inferenceRef: MutableRefObject<Promise<unknown> | null>;
+  readonly physicalRetirementRef: MutableRefObject<Promise<void> | null>;
   readonly requests: Map<string, AbortController>;
 }
 
@@ -33,11 +39,13 @@ export function createQueryEmbeddingRuntimeOwner(
   return {
     activeCountRef,
     closed: false,
+    closeRef: { current: null },
     db,
     disposalRef: { current: null },
     executionTailRef: { current: Promise.resolve() },
     inferenceController: new AbortController(),
     inferenceRef: { current: null },
+    physicalRetirementRef: { current: null },
     requests: new Map(),
     serviceStateRef: { current: null },
   };
@@ -69,7 +77,26 @@ export async function runOwnedQueryEmbeddingInference<Result>(
     ? AbortSignal.any([owner.inferenceController.signal, requestSignal])
     : owner.inferenceController.signal;
   signal.throwIfAborted();
-  const inference = generate(signal);
+  const inference = (async () => {
+    const [execution] = await Promise.allSettled([generate(signal)]);
+    try {
+      // Pool termination can reject execution before its workers physically retire.
+      // Join only the pool here: full owner close itself waits for this inference.
+      await owner.physicalRetirementRef.current;
+    } catch (retirementError) {
+      if (execution.status === 'rejected') {
+        throw new AggregateError(
+          [execution.reason, retirementError],
+          'Embedding inference and physical retirement failed'
+        );
+      }
+      throw retirementError;
+    }
+    if (execution.status === 'rejected') {
+      throw execution.reason;
+    }
+    return execution.value;
+  })();
   owner.inferenceRef.current = inference;
   try {
     return await inference;
@@ -80,24 +107,52 @@ export async function runOwnedQueryEmbeddingInference<Result>(
   }
 }
 
-/** Fence preparation immediately, joining only owned inference and cached-service disposal. */
-export async function closeQueryEmbeddingRuntimeOwner(
-  owner: QueryEmbeddingRuntimeOwner
+/** Fence preparation immediately; retain physical retirement separately from owner close. */
+export function closeQueryEmbeddingRuntimeOwner(
+  owner: QueryEmbeddingRuntimeOwner,
+  retireQueue: () => Promise<void>,
+  runtimeIdRef: MutableRefObject<string>
 ): Promise<void> {
+  if (owner.closeRef.current) {
+    return owner.closeRef.current;
+  }
   owner.closed = true;
+  const physical = Promise.resolve().then(retireQueue);
+  owner.physicalRetirementRef.current = physical;
   owner.inferenceController.abort();
   for (const controller of owner.requests.values()) {
     controller.abort();
   }
   owner.requests.clear();
   const inference = owner.inferenceRef.current;
-  if (inference) {
-    await inference.then(
-      () => undefined,
-      () => undefined
-    );
-  }
-  await owner.disposalRef.current;
+  owner.closeRef.current = (async () => {
+    const results = await Promise.allSettled([
+      physical,
+      // Its public caller retains an independent inference failure.
+      inference?.then(
+        () => undefined,
+        () => undefined
+      ),
+      owner.disposalRef.current,
+    ]);
+    const serviceDisposal = await Promise.allSettled([
+      disposeQueryEmbeddingService(runtimeIdRef, owner),
+    ]);
+    const failures = [
+      ...new Set(
+        [...results, ...serviceDisposal].flatMap((result) =>
+          result.status === 'rejected' ? [result.reason] : []
+        )
+      ),
+    ];
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'Embedding owner retirement failed');
+    }
+  })();
+  return owner.closeRef.current;
 }
 
 /** Keep the cached service reachable until disposal settles; never retry a failed disposal. */
@@ -134,4 +189,53 @@ export async function disposeQueryEmbeddingService(
   if (owner.disposalRef.current === disposal) {
     owner.disposalRef.current = null;
   }
+}
+
+export async function stopEmbeddingHostAfterRestartLimit(options: {
+  readonly queryOwner: QueryEmbeddingRuntimeOwner;
+  readonly retireQueue: () => Promise<void>;
+  readonly controller: EmbeddingWorkerController | null;
+  readonly embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>;
+  readonly isDisposed: () => boolean;
+  readonly runtimeIdRef: MutableRefObject<string>;
+  readonly terminalError: string;
+}): Promise<void> {
+  const {
+    controller,
+    embeddingRuntimeRef,
+    isDisposed,
+    queryOwner,
+    retireQueue,
+    runtimeIdRef,
+    terminalError,
+  } = options;
+  const closeQueries = closeQueryEmbeddingRuntimeOwner(queryOwner, retireQueue, runtimeIdRef);
+  let lastError = terminalError;
+  const [workerStop, queryClose] = await Promise.allSettled([controller?.stop(), closeQueries]);
+  if (workerStop.status === 'rejected') {
+    const error: unknown = workerStop.reason;
+    lastError = `${terminalError}; worker stop failed: ${error instanceof Error ? error.message : String(error)}`;
+    logger.error('Embedding host worker stop after restart limit failed', {
+      error: error instanceof Error ? error.message : String(error),
+      runtimeId: runtimeIdRef.current,
+    });
+  }
+  if (queryClose.status === 'rejected') {
+    const error: unknown = queryClose.reason;
+    lastError = `${lastError}; query owner retirement failed: ${error instanceof Error ? error.message : String(error)}`;
+  }
+  const currentMetadata = embeddingRuntimeRef.current;
+  if (currentMetadata) {
+    embeddingRuntimeRef.current = {
+      ...currentMetadata,
+      telemetry: getEmbeddingTelemetrySnapshot(),
+    };
+  }
+  if (isDisposed()) {
+    return;
+  }
+  reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
+    embeddingRuntime: embeddingRuntimeRef.current,
+    lastError,
+  });
 }

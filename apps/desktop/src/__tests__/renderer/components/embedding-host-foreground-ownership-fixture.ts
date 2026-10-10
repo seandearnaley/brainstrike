@@ -9,6 +9,7 @@ const {
   embeddingCacheRepository,
   embeddingQueueBootstrapMock,
   getEmbeddingQueueMock,
+  retireEmbeddingQueueMock,
   createEmbeddingCacheRepositoryMock,
   detectDeviceCapabilitiesMock,
   ensureVectorPreferencesHydratedMock,
@@ -57,6 +58,7 @@ const {
   },
   reportQueryEmbeddingResponseMock: vi.fn(),
   reportStatusMock: vi.fn(),
+  retireEmbeddingQueueMock: vi.fn(async () => {}),
   setDetectedDevicePrefMock: vi.fn(),
   startEmbeddingWorkerMock: vi.fn(),
   stopMock: vi.fn(),
@@ -154,6 +156,12 @@ vi.mock('../../../renderer/create-embedding-queue', () => ({
     embeddingQueueBootstrapMock();
     return {
       getEmbeddingQueue: getEmbeddingQueueMock,
+      reopenEmbeddingQueue: async (isCurrent: () => boolean) => {
+        if (isCurrent()) {
+          getEmbeddingQueueMock();
+        }
+      },
+      retireEmbeddingQueue: retireEmbeddingQueueMock,
     };
   })(),
 }));
@@ -169,6 +177,7 @@ export function installEmbeddingHostRuntimeFixture(): void {
     hostWindow.removeAllListeners();
     hostWindow.webContents.removeAllListeners();
     vi.clearAllMocks();
+    retireEmbeddingQueueMock.mockReset().mockResolvedValue(undefined);
     reportStatusMock.mockReset();
     stopMock.mockResolvedValue(undefined);
     resetEmbeddingTelemetryForTests();
@@ -256,6 +265,7 @@ export {
   queryEmbeddingListenerRef,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
+  retireEmbeddingQueueMock,
   setDetectedDevicePrefMock,
   startEmbeddingWorkerMock,
   stopMock,
