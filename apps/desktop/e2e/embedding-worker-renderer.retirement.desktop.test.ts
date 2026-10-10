@@ -119,10 +119,10 @@ for (const mode of ['quit-and-relaunch', 'reset-and-reuse', 'quit-during-reset']
         const reset = observeReset(current.app, 'Desktop factory reset completed');
         await requestReset(page);
         await reset.reached;
-        await assertFreshDefaults(page);
         const fresh = await showDatabaseDemoPanel(page);
         const name = 'Post-reset native generation';
         const fixture = await createNativeImportedSearchFixture(fresh, name);
+        await assertFreshDefaults(page);
         await configureNativeCollectionSearch(fresh, name);
         await waitForNativeCollectionCoverage(fresh, fixture.embeddingSetId, fixture.fileCount);
         await search(fresh, name);

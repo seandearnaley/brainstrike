@@ -931,7 +931,10 @@ const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, get
       return;
     }
     nativeRootDataDeletion
-      .transition(() => nativeIndexActivation.reconfigure())
+      .prepareTransition(
+        () => nativeIndexActivation.prepareSavedPause(),
+        (prepared) => (prepared ? prepared.complete() : nativeIndexActivation.reconfigure())
+      )
       .catch((error: unknown) =>
         reportNativeIndexActivationError(
           'Saved native index configuration could not activate',
@@ -1039,7 +1042,52 @@ ipcDisposers.add('main', () => {
 });
 ipcDisposers.add('chunking-host', registerChunkingHostIpcHandlers(chunkingHostManager));
 ipcDisposers.add('parser-host', registerParserHostIpcHandlers(parserHostManager));
-ipcDisposers.add('embedding-host', registerEmbeddingHostIpcHandlers(embeddingHostManager));
+ipcDisposers.add(
+  'embedding-host',
+  registerEmbeddingHostIpcHandlers(embeddingHostManager, {
+    stop: async () => {
+      const admitted = Promise.withResolvers<{
+        paused: boolean;
+        stop: ReturnType<EmbeddingHostManager['stop']>;
+      }>();
+      const completion = nativeRootDataDeletion.prepareTransition(
+        async () => {
+          try {
+            const pause = await nativeIndexActivation.prepareSavedPause();
+            // The native caller's cancellation must precede host Stop. Start physical
+            // Stop here: the earlier FIFO entry may itself be waiting for inference.
+            const stop = embeddingHostManager.stop();
+            stop.catch(() => undefined);
+            admitted.resolve({ paused: pause !== null, stop });
+            return { pause, stop };
+          } catch (error) {
+            admitted.reject(error);
+            throw error;
+          }
+        },
+        async ({ pause, stop }) => {
+          const [native, host] = await Promise.allSettled([pause?.complete(), stop]);
+          if (native.status === 'rejected' && host.status === 'rejected') {
+            throw new AggregateError(
+              [native.reason, host.reason],
+              'Saved native Pause and embedding Stop did not settle.'
+            );
+          }
+          if (native.status === 'rejected') {
+            throw native.reason;
+          }
+          if (host.status === 'rejected') {
+            throw host.reason;
+          }
+          return host.value;
+        }
+      );
+      completion.catch(admitted.reject);
+      const ready = await admitted.promise;
+      return ready.paused ? completion : ready.stop;
+    },
+  })
+);
 ipcDisposers.add('llm-host', registerLlmHostIpcHandlers(llmHostManager));
 ipcDisposers.add(
   'desktop-diagnostics',

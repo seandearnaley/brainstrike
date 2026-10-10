@@ -21,7 +21,10 @@ import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry, type DesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import { registerBackgroundRuntimeLifecycleIpcHandlers } from './register-background-runtime-lifecycle-ipc';
 
-export function registerEmbeddingHostIpcHandlers(manager: EmbeddingHostManager): () => void {
+export function registerEmbeddingHostIpcHandlers(
+  manager: EmbeddingHostManager,
+  lifecycle: Pick<EmbeddingHostManager, 'stop'>
+): () => void {
   const unregisterLifecycle =
     registerBackgroundRuntimeLifecycleIpcHandlers<EmbeddingHostStatusReport>({
       assertStatus: assertEmbeddingHostStatus,
@@ -33,7 +36,13 @@ export function registerEmbeddingHostIpcHandlers(manager: EmbeddingHostManager):
         stop: EMBEDDING_HOST_STOP_CHANNEL,
       },
       domain: 'embeddings',
-      manager,
+      manager: {
+        acceptStatusReport: (senderId, report) => manager.acceptStatusReport(senderId, report),
+        ensureStarted: (options) => manager.ensureStarted(options),
+        getStatus: () => manager.getStatus(),
+        reset: () => manager.reset(),
+        stop: lifecycle.stop,
+      },
     });
   const registry = createDesktopIpcRegistry({ ipcMain });
 

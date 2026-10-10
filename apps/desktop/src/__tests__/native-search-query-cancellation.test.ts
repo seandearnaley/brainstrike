@@ -123,7 +123,7 @@ describe('actual native search to query IPC physical owner', () => {
       waitForStatus: vi.fn(),
     };
     manager = new EmbeddingHostManager({ platform: 'linux' });
-    unregister = registerEmbeddingHostIpcHandlers(manager);
+    unregister = registerEmbeddingHostIpcHandlers(manager, { stop: () => manager.stop() });
     senderA = sender(301);
     senderB = sender(302);
     for (const requester of [senderA, senderB]) {
