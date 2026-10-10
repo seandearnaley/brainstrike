@@ -47,6 +47,24 @@ async function makeWorkspace(): Promise<string> {
   return real;
 }
 
+async function makeLongRunningCommand(root: string, pidFile: string): Promise<string> {
+  const fixture = path.join(root, 'long-running-command.cjs');
+  await fsPromises.writeFile(
+    fixture,
+    [
+      "const { spawn } = require('node:child_process');",
+      "const { writeFileSync } = require('node:fs');",
+      "spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'inherit' });",
+      `writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));`,
+    ].join('\n'),
+    'utf8'
+  );
+  const command = `"${process.execPath}" "${fixture}"`;
+  // POSIX exec retains the shell's PID/group leader; cmd runs the real Node child.
+  // The child and its descendant replace echo $$ / sleep, not the teardown assertions.
+  return process.platform === 'win32' ? command : `exec ${command}`;
+}
+
 /**
  * Poll for a logged warning instead of sleeping a fixed span. tree-kill's
  * ps/pgrep walk is async, and a fixed wait races the spy restore on a loaded
@@ -89,7 +107,7 @@ describe('killProcessTree — teardown log diagnostics', () => {
     const root = await makeWorkspace();
     const pidFile = path.join(root, 'eperm-stub.pid');
     const run = runExecuteCommand(
-      { command: `echo $$ > "${pidFile}"; sleep 30`, timeoutMs: 30_000 },
+      { command: await makeLongRunningCommand(root, pidFile), timeoutMs: 30_000 },
       singleRootRuntime(root)
     );
     const shellPid = await readPidWhenWritten(pidFile);
@@ -138,7 +156,7 @@ describe('killProcessTree — teardown log diagnostics', () => {
     const root = await makeWorkspace();
     const pidFile = path.join(root, 'eperm-live.pid');
     const run = runExecuteCommand(
-      { command: `echo $$ > "${pidFile}"; sleep 30`, timeoutMs: 30_000 },
+      { command: await makeLongRunningCommand(root, pidFile), timeoutMs: 30_000 },
       singleRootRuntime(root)
     );
     const shellPid = await readPidWhenWritten(pidFile);
@@ -188,7 +206,7 @@ describe('killProcessTree — teardown log diagnostics', () => {
     const root = await makeWorkspace();
     const pidFile = path.join(root, 'zombie.pid');
     const run = runExecuteCommand(
-      { command: `echo $$ > "${pidFile}"; sleep 30`, timeoutMs: 30_000 },
+      { command: await makeLongRunningCommand(root, pidFile), timeoutMs: 30_000 },
       singleRootRuntime(root)
     );
     const shellPid = await readPidWhenWritten(pidFile);
@@ -232,7 +250,7 @@ describe('killProcessTree — teardown log diagnostics', () => {
     const root = await makeWorkspace();
     const pidFile = path.join(root, 'realfail.pid');
     const run = runExecuteCommand(
-      { command: `echo $$ > "${pidFile}"; sleep 30`, timeoutMs: 30_000 },
+      { command: await makeLongRunningCommand(root, pidFile), timeoutMs: 30_000 },
       singleRootRuntime(root)
     );
     const shellPid = await readPidWhenWritten(pidFile);
