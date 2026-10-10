@@ -221,10 +221,14 @@ describe('brainstrike.runSkillScript', () => {
 
   it('runs the python3 runtime through the injected bundled-Python resolver', async () => {
     const fixture = await createFixture();
-    // /bin/echo stands in for the interpreter: its stdout is the argv it was
-    // handed, which proves the spawned executable came from the resolver
-    // rather than a PATH `python3`.
-    const resolvePythonExecutable = async () => '/bin/echo';
+    // The running Node executable stands in for the interpreter and prints
+    // its script argv, proving execution uses the resolver rather than PATH python3.
+    await fsPromises.writeFile(
+      path.join(fixture.scriptsDir, 'inspect.mjs'),
+      'console.log(process.argv[1]);',
+      'utf8'
+    );
+    const resolvePythonExecutable = async () => process.execPath;
     const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
       resolvePythonExecutable,
       skillScriptResolver: fixture.resolver,
