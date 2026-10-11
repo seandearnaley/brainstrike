@@ -1528,6 +1528,15 @@ Guard: `packages/db/__tests__/migration-068-tool-output-artifacts.test.ts`,
 
 ## THREADS PANEL HYBRID SEARCH
 
+Current host threads (ADR-0011/0018) search their committed prompts, assistant
+text, tool outputs, human decisions and terminal diagnostics through the existing
+derived state index. Tool/decision hits retain the source run and sequence and
+navigate to that run's existing assistant message; they introduce no message IDs
+or history writer. Ordinary successful completion adds no content-free search
+row. Scope, selected-branch filtering, explicit rebuild and deletion remain the
+existing host/indexer operations. The legacy Mastra/PGlite path below remains a
+separate removal boundary, not the current host's search authority.
+
 Hybrid lexical + semantic + title search over threads. Mastra has no cross-thread
 content search, so this is Brainstrike-owned derived state under the same ownership
 ruling as thread groups: never ALTER the Mastra tables.

@@ -143,3 +143,57 @@ test('the Threads panel finds host threads by content and title, in one list wit
   });
   expect(modelProvider.refusals()).toEqual([]);
 });
+
+test('a committed decision and tool result are searchable and open their original host thread', async ({
+  modelProvider,
+  window: page,
+}) => {
+  await ensureMockWorkspaceOpen(page);
+  await configureAssistantProvider(page);
+  const title = 'Deployment choice';
+  modelProvider.setScript((request) => {
+    if ((request.requestBody as { stream?: unknown }).stream !== true) {
+      return { finalText: title };
+    }
+    const name = request.toolNames.find((tool) => tool.endsWith('askUser'));
+    if (!name) {
+      throw new Error('The production host must offer askUser');
+    }
+    return {
+      finalText: 'Your selection is recorded.',
+      toolCall: {
+        arguments: {
+          options: [{ label: 'Canary' }, { label: 'Stable' }],
+          question: 'Which deployment target?',
+          selectionMode: 'multi_select',
+        },
+        name,
+      },
+    };
+  });
+  await ensureAssistantShellVisible(page);
+  const region = page.getByRole('region', { exact: true, name: 'Assistant' });
+  await region.getByRole('textbox', { name: 'Message input' }).fill('Ask me where to deploy.');
+  await region.getByRole('button', { exact: true, name: 'Send' }).click();
+  const question = region.getByRole('group', { name: 'Question for you' });
+  await expect(question).toBeVisible();
+  await question.getByRole('checkbox', { name: 'Canary' }).check();
+  await question.getByRole('button', { name: 'Send answer' }).click();
+  await expect(region.getByText('Your selection is recorded.', { exact: true })).toBeVisible();
+  const strip = page.getByRole('tablist', { name: 'Open assistant threads' });
+  await expect(strip.getByRole('tab', { name: title })).toHaveCount(1);
+  await page.getByTestId('assistant-new-thread-button').click();
+  await expect(strip.getByRole('tab', { name: 'New Thread', selected: true })).toBeVisible();
+  await openThreadsPanel(page);
+  await page.getByRole('combobox', { name: 'Search threads' }).fill('Canary');
+  // Neither the prompt nor the assistant's prose contains this answer.
+  const hit = page
+    .getByTestId('thread-search-result')
+    .filter({ hasText: title })
+    .filter({ hasText: 'Canary' });
+  await expect(hit).toHaveCount(1);
+  await hit.click();
+  await expect(strip.getByRole('tab', { name: title, selected: true })).toBeVisible();
+  await expect(region.getByText('Your selection is recorded.', { exact: true })).toBeVisible();
+  expect(modelProvider.refusals()).toEqual([]);
+});

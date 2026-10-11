@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { createStateStoreIndexer, openIndexer } from '@brainstrike/indexer';
 import { BLOBS_DIR, StateStore, UnknownEventError } from '@brainstrike/state-store';
 import approved from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json' with {
@@ -17,9 +18,11 @@ import { expect, test } from 'vitest';
 import { z } from 'zod';
 import { committedMemoryTranscript } from '../src/adapters/committed-memory-transcript.js';
 import { committedRowAddress } from '../src/committed-identities.js';
+import { HostCore } from '../src/core.js';
 import { readHostRow, storedHostEvent } from '../src/event-storage.js';
 import { HostLogRowSchema } from '../src/protocol.js';
 import { decode, messages, text } from '../src/state-projection.js';
+import { searchHostThreads } from '../src/thread-search.js';
 
 const recordings = { approved, plan, question, rich };
 
@@ -206,5 +209,114 @@ test('producer and Core decode the same owned blob and expose damage without cha
   } finally {
     await store.close();
     await rm(root, { force: true, recursive: true });
+  }
+});
+
+test('recorded tool and decision history searches retain addresses through rebuild and deletion', async () => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m4-history-search-')));
+  const port = await openIndexer(
+    {
+      dbPath: join(root, 'index.sqlite'),
+      embedding: { indexMode: 'text-only' },
+      rootIds: [root],
+      stateProjection: {
+        mode: 'dev',
+        module: new URL('../dist/state-projection.js', import.meta.url).href,
+      },
+      stateRoot: root,
+    },
+    { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
+  );
+  const store = await StateStore.open(root, { indexer: createStateStoreIndexer(port) });
+  let core: HostCore | undefined;
+  try {
+    const captured = z.array(HostLogRowSchema).parse([...approved, ...question, ...plan]);
+    await store.append(captured.map((row) => storedHostEvent(row.threadId, row.event)));
+    const threads = [...new Set(captured.map(({ threadId }) => threadId))];
+    await port.catchUpState(threads);
+    core = await HostCore.open(
+      store,
+      {
+        close: async () => undefined,
+        readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
+      },
+      () => () => undefined
+    );
+    const cases = [
+      { query: 'fixture', role: 'user', rows: approved, seq: 5 },
+      { query: 'approve', role: 'assistant', rows: approved, seq: 14 },
+      { query: 'permitted', role: 'assistant', rows: approved, seq: 19 },
+      { query: 'environment', role: 'assistant', rows: question, seq: 8 },
+      { query: 'Preview', role: 'assistant', rows: question, seq: 13 },
+      { query: 'rejected', role: 'assistant', rows: plan, seq: 16 },
+    ] as const;
+    const assertSearch = async () => {
+      for (const scenario of cases) {
+        const source = z
+          .array(HostLogRowSchema)
+          .parse(scenario.rows)
+          .find(({ seq }) => seq === scenario.seq);
+        if (!(source && 'runId' in source.event && core)) {
+          throw new Error('Runtime recording must contain the original run address');
+        }
+        expect(
+          await port.searchState({ limit: 20, query: scenario.query, threadIds: threads })
+        ).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              role: scenario.role,
+              runId: source.event.runId,
+              seq: source.seq,
+              threadId: source.threadId,
+            }),
+          ])
+        );
+        if (scenario.role === 'assistant') {
+          const result = await searchHostThreads(
+            core,
+            (request) => port.searchState(request),
+            undefined,
+            { query: scenario.query }
+          );
+          expect(result.messages).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({
+                messageId: source.event.runId,
+                rootThreadId: source.threadId,
+                threadId: source.threadId,
+              }),
+            ])
+          );
+        }
+        expect(
+          await port.searchState({
+            limit: 20,
+            query: scenario.query,
+            threadIds: ['unowned-thread'],
+          })
+        ).toEqual([]);
+      }
+    };
+    await assertSearch();
+    const original = await store.readAll();
+    for (const thread of threads) {
+      await port.rebuildState(thread);
+    }
+    await assertSearch();
+    expect(await store.readAll()).toEqual(original);
+    const deleted = z.array(HostLogRowSchema).parse(plan)[0]?.threadId;
+    if (!deleted) {
+      throw new Error('Recorded plan thread is missing');
+    }
+    await core.deleteThread({ threadId: deleted });
+    await port.rebuildState(deleted);
+    expect(await port.searchState({ limit: 20, query: 'rejected', threadIds: [deleted] })).toEqual(
+      []
+    );
+  } finally {
+    await core?.close();
+    await port.close();
+    await store.close();
+    await rm(root, { recursive: true });
   }
 });
