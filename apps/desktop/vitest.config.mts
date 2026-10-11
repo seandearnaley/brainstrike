@@ -43,9 +43,12 @@ export const ELECTRON_RUNTIME_TESTS = [
 ];
 export const UNDER_ELECTRON = process.versions.electron !== undefined;
 
-const MAIN_BOOT_TEST = 'src/__tests__/main/boot-order.test.ts';
+const MAIN_IMPORT_TESTS = [
+  'src/__tests__/main/boot-order.test.ts',
+  'src/__tests__/main/workspace-open-lifecycle.test.ts',
+];
 
-// The Windows cold boot case spent 13.3s reading Vitest fork-cache files before
+// The Windows cold Main import spent 13.3s reading Vitest fork-cache files before
 // Main executed. Threads transports the same transformed source in memory;
 // the real Main wiring, isolation and 15s assertion deadline stay unchanged.
 // https://vitest.dev/config/pool
@@ -53,7 +56,7 @@ export const WINDOWS_DESKTOP_TEST_PROJECTS: TestProjectConfiguration[] = [
   {
     extends: true,
     test: {
-      include: [MAIN_BOOT_TEST],
+      include: MAIN_IMPORT_TESTS,
       name: 'main-boot',
       pool: 'threads',
       sequence: { groupOrder: 0 },
@@ -62,7 +65,7 @@ export const WINDOWS_DESKTOP_TEST_PROJECTS: TestProjectConfiguration[] = [
   {
     extends: true,
     test: {
-      exclude: [MAIN_BOOT_TEST],
+      exclude: MAIN_IMPORT_TESTS,
       name: 'desktop',
       pool: 'forks',
       sequence: { groupOrder: 1 },
