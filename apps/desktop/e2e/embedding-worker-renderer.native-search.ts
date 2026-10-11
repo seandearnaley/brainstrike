@@ -100,10 +100,27 @@ export async function configureNativeCollectionSearch(
   await page.getByRole('button', { name: 'Search & Indexing' }).click();
   await page.getByRole('combobox', { name: 'Managed collection' }).click();
   await page.getByRole('option', { exact: true, name: collectionName }).click();
+  // Select the explicit execution plan before allowing source inference.
+  // Headless fixtures have no automatic WebGPU execution target.
+  const wasPaused = await page
+    .getByRole('button', { exact: true, name: 'Resume workspace index' })
+    .isVisible();
+  if (!wasPaused) {
+    await page.getByRole('button', { exact: true, name: 'Pause workspace index' }).click();
+    await expect(
+      page.getByRole('button', { exact: true, name: 'Resume workspace index' })
+    ).toBeVisible();
+  }
   await page.getByRole('combobox', { name: 'Search mode' }).click();
   await page.getByRole('option', { exact: true, name: 'Text and semantic search' }).click();
   await page.getByRole('combobox', { name: 'Local model execution' }).click();
   await page.getByRole('option', { exact: true, name: 'WASM · Q8' }).click();
+  if (!wasPaused) {
+    await page.getByRole('button', { exact: true, name: 'Resume workspace index' }).click();
+    await expect(
+      page.getByRole('button', { exact: true, name: 'Pause workspace index' })
+    ).toBeVisible();
+  }
   await home.leaveSettings();
 }
 

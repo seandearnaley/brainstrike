@@ -17,9 +17,12 @@
 // partition the base suite by construction — no file can be orphaned. Base
 // `test:coverage` keeps the base config's full include so coverage still
 // measures every file in one process.
-import path from 'node:path';
 import { defineConfig } from 'vitest/config';
-import baseConfig, { ELECTRON_RUNTIME_TESTS, UNDER_ELECTRON } from './vitest.config.mts';
+import baseConfig, {
+  ELECTRON_RUNTIME_TESTS,
+  NATIVE_PROCESS_ALIASES,
+  UNDER_ELECTRON,
+} from './vitest.config.mts';
 
 const baseTest = baseConfig.test ?? {};
 
@@ -29,29 +32,7 @@ export default defineConfig({
     ...baseConfig.resolve,
     // Native process proofs consume the built public entries, before source aliases.
     alias: [
-      {
-        find: /^@brainstrike\/agent-host$/,
-        replacement: path.resolve(import.meta.dirname, '../../packages/agent-host/dist/index.js'),
-      },
-      {
-        find: /^@brainstrike\/agent-host\/test-fixtures\/scripted-model$/,
-        replacement: path.resolve(
-          import.meta.dirname,
-          '../../packages/agent-host/dist/test-fixtures/scripted-model.js'
-        ),
-      },
-      {
-        find: /^@brainstrike\/indexer$/,
-        replacement: path.resolve(import.meta.dirname, '../../packages/indexer/dist/index.js'),
-      },
-      {
-        find: /^@brainstrike\/indexer\/transport$/,
-        replacement: path.resolve(import.meta.dirname, '../../packages/indexer/dist/transport.js'),
-      },
-      {
-        find: /^@brainstrike\/sqlite-query$/,
-        replacement: path.resolve(import.meta.dirname, '../../packages/sqlite-query/dist/index.js'),
-      },
+      ...NATIVE_PROCESS_ALIASES,
       ...(Array.isArray(baseConfig.resolve?.alias) ? baseConfig.resolve.alias : []),
     ],
   },

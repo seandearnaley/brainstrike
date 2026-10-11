@@ -6,6 +6,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   resolve: { alias: [...workspaceSrcAliases(resolve(import.meta.dirname, '..'))] },
   test: {
+    coverage: { reportOnFailure: true },
     environment: 'node',
     exclude: ['dist', 'node_modules'],
     include: ['src/__tests__/**/*.test.ts'],

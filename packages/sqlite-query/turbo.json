@@ -13,6 +13,18 @@
         "COVERAGE",
         "SQLITE_QUERY_TEST_EXEC_PATH"
       ]
+    },
+    "test:coverage": {
+      "dependsOn": [
+        "$TURBO_EXTENDS$",
+        "build"
+      ],
+      "passThroughEnv": [
+        "CI",
+        "COVERAGE",
+        "SQLITE_QUERY_TEST_EXEC_PATH"
+      ],
+      "cache": false
     }
   }
 }

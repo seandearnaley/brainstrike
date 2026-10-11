@@ -70,8 +70,12 @@
         "$TURBO_EXTENDS$",
         "@brainstrike/agent#build",
         "@brainstrike/agent-host#build",
+        "@brainstrike/assistant-contract#build",
         "@brainstrike/assistant-data#build",
-        "@brainstrike/assistant-service#build"
+        "@brainstrike/assistant-service#build",
+        "@brainstrike/db#build",
+        "@brainstrike/indexer#build",
+        "@brainstrike/sqlite-query#build"
       ],
       // Same cross-package input: the coverage lane runs the full suite
       // including vite-config.test.ts.

@@ -81,3 +81,39 @@ test('native grep refuses foreign provenance rather than returning it', async ()
     'outside its requested scope'
   );
 });
+
+test('unconfigured indexing contributes no candidates to the existing fresh-file grep', async () => {
+  const grep = vi.fn<IndexSearchCapability['grep']>();
+  const search = nativeGrepIndex({
+    grep,
+    status: async () => ({
+      kind: 'unavailable',
+      phase: 'setup-required',
+      reason: 'Choose a search mode in Search & Indexing settings.',
+    }),
+  });
+  expect(await search({ pattern: 'needle', rootId: 'root' })).toMatchObject({
+    candidatesTruncated: false,
+    matches: [],
+    scanLimited: false,
+    totalMatches: 0,
+    truncated: false,
+  });
+  expect(grep).not.toHaveBeenCalled();
+  await expect(search({ embeddingSetId: 'selected', pattern: 'needle' })).rejects.toThrow(
+    'Choose a search mode'
+  );
+});
+
+test.each(['preparing', 'blocked'] as const)(
+  'native grep retains the %s index failure rather than hiding it behind live search',
+  async (phase) => {
+    const grep = vi.fn<IndexSearchCapability['grep']>();
+    const search = nativeGrepIndex({
+      grep,
+      status: async () => ({ kind: 'unavailable', phase, reason: 'Index is unavailable' }),
+    });
+    await expect(search({ pattern: 'needle' })).rejects.toThrow('Index is unavailable');
+    expect(grep).not.toHaveBeenCalled();
+  }
+);

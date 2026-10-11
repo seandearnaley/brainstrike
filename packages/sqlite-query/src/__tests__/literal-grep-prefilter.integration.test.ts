@@ -246,12 +246,27 @@ it('retains fatal non-finite file record IDs in the root-authorized join', () =>
 });
 
 it.each([9_223_372_036_854_775_807n, -9_223_372_036_854_775_808n])(
-  'retains native integer conversion errors for %s on nonmatching rows',
+  'retains native integer conversion behavior for %s on nonmatching rows',
   (value) => {
     insert('ordinary');
     writer.prepare('UPDATE file_chunks SET token_count=?').run(value);
-    expect(() => canonical(defaults)).toThrow('too large');
-    expect(() => sandbox.grep(defaults)).toThrow('too large');
+    // Electron's Node 24 accepts INT64_MIN; Node 26 rejects it. Preserve the
+    // actual native conversion, including errors, rather than pinning a runtime.
+    let nativeError: unknown;
+    try {
+      writer.prepare('SELECT token_count FROM file_chunks').get();
+    } catch (error) {
+      nativeError = error;
+    }
+    if (nativeError !== undefined) {
+      expect(nativeError).toBeInstanceOf(RangeError);
+      expect(() => canonical(defaults)).toThrow(nativeError as Error);
+      expect(() => sandbox.grep(defaults)).toThrow(nativeError as Error);
+      return;
+    }
+    const expected = canonical(defaults);
+    expect(expected.rows).toEqual([]);
+    expect(sandbox.grep(defaults)).toEqual(expected);
   }
 );
 

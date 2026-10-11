@@ -66,26 +66,27 @@ function parseRepoRootArgument(argv) {
  */
 export const WORKSPACE_SRC_ALIAS_ALLOWLIST = Object.freeze({
   '@brainstrike/agent-host': {
-    configs: ['vitest.integration.config.mts'],
+    configs: ['vitest.config.mts', 'vitest.integration.config.mts'],
     reason:
-      'Core producer integration launches the real emitted indexer process and writer worker; the lane declares the indexer dependency build edge (BST-1977).',
-    specifiers: ['@brainstrike/indexer'],
+      'Core native integration and coverage launch emitted indexer process/host entries and their real writer sibling; source aliasing points to nonexistent JavaScript workers (BST-1977, BST-1935).',
+    specifiers: ['@brainstrike/indexer', '@brainstrike/indexer/host'],
   },
   '@brainstrike/canonical-ingestion': {
-    configs: ['vitest.integration.config.mts'],
+    configs: ['vitest.config.mts', 'vitest.integration.config.mts'],
     reason:
-      'The vector host integration proof launches the real compiled index process; the lane declares its indexer build edge.',
+      'Native integration and coverage execute the same real compiled index process; source aliasing cannot launch its emitted JavaScript sibling.',
     specifiers: ['@brainstrike/indexer'],
   },
   '@brainstrike/desktop': {
-    configs: ['vitest.integration.config.mts'],
+    configs: ['vitest.config.mts', 'vitest.integration.config.mts'],
     reason:
-      'The uncached native integration lane launches compiled Core/index/query processes and the public scripted model; explicit build edges prepare their public artifacts.',
+      'Native integration and coverage launch the same compiled Core/index/query processes and public scripted model; explicit builds prepare their artifacts.',
     specifiers: [
       '@brainstrike/agent-host',
       '@brainstrike/agent-host/test-fixtures/scripted-model',
       '@brainstrike/indexer',
       '@brainstrike/indexer/transport',
+      '@brainstrike/indexer/coverage-reader',
       '@brainstrike/sqlite-query',
     ],
   },

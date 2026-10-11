@@ -470,7 +470,7 @@ it.each([
   ['GET', '/assistant/active-run'],
   ['GET', '/assistant/suspended-runs'],
   ['GET', '/assistant/run-status'],
-  ['GET', '/assistant/stream'],
+  ['GET', '/assistant/resume'],
 ])('retired %s %s cannot start a second agent runtime', async (method, url) => {
   const response = await runRequest({ method, url });
   expect(response.status).toBe(404);

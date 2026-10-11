@@ -5,6 +5,7 @@
  * the host's rows; the search runs after that, so its rows are deterministic.
  */
 import type { Page } from '@playwright/test';
+import { setVectorDevicePreference } from './embedding-worker-renderer.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { readHostSearchVectorCounts } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
@@ -57,7 +58,9 @@ test('the Threads panel finds host threads by content and title, in one list wit
   window: page,
 }) => {
   test.setTimeout(300_000);
-  const { mockFileSystemOperations } = await loadElectronHelpers();
+  await setVectorDevicePreference(page, 'wasm');
+  const { mockFileSystemOperations, reloadRenderer } = await loadElectronHelpers();
+  await reloadRenderer(page, 'host-thread-panel-search-device');
   await mockFileSystemOperations(page);
   await ensureMockWorkspaceOpen(page);
   await configureAssistantProvider(page);

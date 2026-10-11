@@ -3,6 +3,15 @@ import { GrepSearchService } from '@brainstrike/db';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { GrepIndexSearch } from '../assistant-server/grep-search-core';
 
+function hasNoConfiguredIndex(
+  status: Awaited<ReturnType<IndexSearchCapability['status']>>,
+  collectionId: string | undefined
+): boolean {
+  return (
+    status.kind === 'unavailable' && status.phase === 'setup-required' && collectionId === undefined
+  );
+}
+
 export function nativeGrepIndex(
   index: Pick<IndexSearchCapability, 'grep' | 'status'>
 ): GrepIndexSearch {
@@ -12,6 +21,11 @@ export function nativeGrepIndex(
     const result = await new GrepSearchService({
       findGrepCandidates: async (selection) => {
         const status = await index.status();
+        // A fresh profile contributes no indexed candidates to the existing
+        // live-file grep. Configured or explicitly selected indexes still refuse.
+        if (hasNoConfiguredIndex(status, options.embeddingSetId)) {
+          return [];
+        }
         if (status.kind !== 'ready') {
           throw new Error(status.reason);
         }

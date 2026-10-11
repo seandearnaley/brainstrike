@@ -112,7 +112,6 @@ export const MANUAL_PRODUCTION_REGISTRATIONS: readonly ManualIpcRegistration[] =
       [DESKTOP_IPC_CHANNELS.providerAuth.disconnect, 'invoke'],
       [DESKTOP_IPC_CHANNELS.providerAuth.start, 'invoke'],
       [DESKTOP_IPC_CHANNELS.providerAuth.status, 'invoke'],
-      [DESKTOP_IPC_CHANNELS.agent.chat, 'invoke'],
       [DESKTOP_IPC_CHANNELS.runtime.listModels, 'invoke'],
       [DESKTOP_IPC_CHANNELS.runtime.probe, 'invoke'],
       [DESKTOP_IPC_CHANNELS.runtime.resolveOllamaCapabilities, 'invoke'],

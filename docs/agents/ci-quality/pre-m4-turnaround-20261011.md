@@ -1,113 +1,109 @@
-# Pre-M4 test turnaround handoff — 2026-10-11
+# Pre-M4 test-turnaround receipt — 2026-10-11
 
 CI is disabled due to cost; validation must run locally.
 
-Use `codex/pre-m4-test-turnaround-20261011` as the test-turnaround layer after
-M3. Its base is `d552870db`; M3's later `4e4a71a82` already corrects the
-refused-host EPIPE fixture. Keep those M3 changes when composing the M4 base.
-This branch does not qualify M3 or authorize an unverified integration merge.
+Implementation is published through `be4d3136c1976ce1af3a7538174906d825ed4815`
+on `codex/pre-m4-test-turnaround-20261011`. The final receipt commit also removes
+an ineffective agent worker setting. M4's coordinator reports composing
+`08fbdd948` with final M3 on `codex/m4-delivery-20261011`; also pick up
+`be4d3136c` (required destructive tagging) and this receipt's cleanup.
 
-## Usable changes
+## Whole-path outcome: failed, not accepted under 30 minutes
 
-- `e0c1819a9`: remove the lock race's 250-second fixed waiting floor with a
-  readiness/decision/release handshake; retain ten-round explicit stress.
-  Separate six unchanged embedding soaks from routine correctness checks,
-  reduce routine live-query repetition, reuse the canonical build cache,
-  and provide `check:routine`, `check:release`, and `test:affected`.
-- `7096af30d`: repair moved-owner/static validation references, wildcard build
-  output validation, and logging's unit/integration partition.
-- `6f55fd69a`: incremental desktop type checks, Vitest transform caching for
-  file-import and assistant-service, the packaging assertion matching cached
-  builds, current native-text fixture profile/read APIs, and local pnpm store
-  settings preserved while Playwright receives CI semantics.
+Command: `pnpm check:routine --no-install`.
 
-## Commands and actual evidence
+- Candidate: `ce9aedd69dfed51d25363249ab72a5958a55d4ad`.
+- Tree: `036a95cfd65065d4c5a8668f9654ec125626da00`.
+- Parents: `be4d3136c1976ce1af3a7538174906d825ed4815` and M3
+  `4e4a71a821fa91b1bac3b48a1ca7c31fa13a5ab1`.
+- Started 10:45:00.952 UTC; finished 11:03:27.707 UTC. Exit 1 after
+  **18m26.756s wall time**. Checkout clean before and after.
+- Mac mini: arm64, 12 logical CPUs, 32 GB, macOS 27.0.1;
+  Node 26.8.2, pnpm 11.15.0, Electron 44.4.5.
+- Installed workspace, existing Turbo/transform caches retained. Every pnpm
+  command used `pnpm_config_verify_deps_before_run=error` and
+  `COREPACK_ENABLE_PROJECT_SPEC=0`. Unsigned local execution.
 
-During edits use relevant package tests or `pnpm test:affected` with
-`TURBO_SCM_BASE` and `TURBO_SCM_HEAD` set to the reviewed base and candidate.
-Use `pnpm check:routine` for composed routine acceptance. It must finish in
-under 30 minutes. It omits complete desktop/agent-host integration matrices,
-full E2E, coverage and deliberate stress. Use `pnpm check:release` for full
-release acceptance; a routine pass is not a full-regression pass.
+| Stage | Actual result | Elapsed |
+| --- | --- | --- |
+| Secret scan, boundaries, lockfile | Passed | 1.892s combined |
+| Script tests | 1,787 passed, 2 skipped, 0 failed | 17.488s |
+| Lint | Passed; existing warning baselines retained | 75.501s |
+| Type check | 122 tasks passed, 76 cached | 48.612s |
+| MCP representative verification | Passed | 2.179s |
+| Build | 60 tasks passed, 58 cached | 2.461s |
+| CSS validation | Passed | 0.039s |
+| All units | 77 tasks passed, 50 cached | 522.554s |
+| Other package integrations | 61/63 tasks passed, 38 cached; failed | 435.725s |
 
-Every pnpm invocation uses `pnpm_config_verify_deps_before_run=error` and
-`COREPACK_ENABLE_PROJECT_SPEC=0`. Runtime: Node 26.8.2, pnpm 11.15.0.
-Mac mini: arm64, 12 logical CPUs, 32 GB, macOS 27.0.1.
+Failure: `packages/host-capabilities/__tests__/cli-bin.integration.test.ts`
+rejects a missing/non-JavaScript `npm_execpath` with “Run CLI executable
+integration with pnpm run test:integration”, despite running that script.
+Four installation cases fail this fixture precondition: two executable aliases
+and two frozen-install store-setting variants. Host-capabilities totals:
+127 passed, 4 failed, 1 skipped across 20 files. The agent integration task was
+interrupted when Turbo failed; it has no complete passing receipt.
 
-Measured results:
+The later explicit desktop/agent-host integrations, browser stage and smoke
+lanes were NOT reached in this whole-path run. The tested M3 parent is older
+than the coordinator's final `6815d2323`; this receipt does not qualify that
+newer M3/M4 composition. No further benchmark campaign was started.
 
-- Windows D5 routine: 8 passed, 2.81 seconds total; ten-round stress: all ten
-  eight-contender races passed, 5.09 seconds total.
-- Windows static repair selection: 48 passed, 6.07 seconds. Normal commit
-  hooks for `7096af30d`: 62 tasks passed, 3m40s.
-- Mac desktop `pnpm --filter @brainstrike/desktop run type-check`: 28.076s
-  cold, 16.901s warm; both pass, 800 selected tests and strict Effect diagnostics.
-- Mac file-import unit run: cache disabled 4.310s, cold 4.350s, warm 3.696s;
-  assistant-service: 2.353s, 2.325s, 1.474s. All pass; transform caching
-  preserves isolated execution and does not cache test verdicts.
-- Mac assistant-service integration after fixture repairs: 7 passed, 1 skipped
-  in 11.01s. Query refusal passes; the query-success variant is skipped because
-  this Node SQLite runtime disables memory accounting.
-- Mac packaging assertion: passed in 1.177s wall time.
+## Demonstrated improvements and separate passes
 
+- D5 lock race: readiness/decision/release handshake removes the fixed
+  250-second waiting floor. Windows routine: 8 passed in 2.81s; explicit
+  ten-round/eight-contender stress: all rounds passed in 5.09s.
+- Desktop units: all 523 files and 6,346 tests passed in **285.73s** during
+  the composed run, versus the earlier serialized root-plan run's 501.38s
+  (6,345 tests). The standalone two-fork run passed in 230.14s. Load/cache
+  conditions differed; these are observed timings, not a controlled A/B claim.
+  Only local Mac units use two isolated forks. Native integrations, coverage,
+  Windows, Linux, CI and explicit shards remain serialized.
+- Desktop type check: `pnpm --filter @brainstrike/desktop run type-check`
+  passed in 28.076s cold and 16.901s warm on Mac. Incremental invalidation was
+  separately checked with a deliberate exported-type mismatch and restoration.
+- File-import transform-cache run: 4.310s disabled / 4.350s cold / 3.696s warm;
+  assistant-service: 2.353s / 2.325s / 1.474s. All passed; isolation retained.
+- Assistant UI `test:browser`: 29 files, 174 passed, one existing skip, 51.28s
+  after restoring stylesheet aliases and explicitly parking the real pointer.
+- On `165cfd89f`, exact check-runner smoke commands with
+  `CI=true pnpm_config_ci=false` passed: web 28/28 in 34.063s; desktop
+  35 passed/1 existing skip in 159.762s; delegated desktop 14/14 in 109.035s.
+- `playwright test e2e/database-live-query-memory.desktop.test.ts
+  --project=regression --workers=1 --retries=0`: both passed in 29.149s.
+  Routine repetitions were reduced; original memory and handle assertions remain.
+- Native-text fixture repair passed again in the composed integration stage:
+  7 passed/1 skipped. Query success needs SQLite memory accounting absent from
+  this Node build; the query-refusal case passed.
 
-The final unit batch introduces a separate desktop unit config. Local Mac
-unit files run in two isolated forks; native integrations, coverage, Windows,
-Linux, CI and explicit shards retain serialized execution. The complete
-`pnpm --filter @brainstrike/desktop run test` candidate passed 523 files and
-6,345 tests in 230.14s (230.69s wall), versus 501.38s for the earlier serial
-root-plan run. The serial run shared the machine with other packages while
-this measurement ran alone; final composed timing remains the acceptance
-criterion. No isolation or assertions were removed. The existing native-shard
-discovery check now resolves the actual unit config.
+Rejected DB/app-shell/app-state worker caps made those packages slower and
+were removed. The agent's apparent improvement was also NOT attributable to
+its added cap: unit, integration and coverage commands already use
+`--no-file-parallelism`, which Vitest resolves to one worker. This receipt
+removes that redundant cap; effective official-command worker settings are
+verified unchanged. Do not credit it with a speedup.
 
-## Remaining acceptance work
+Other delivered repairs include native addon build ordering for state-store,
+canonical build-cache reuse, stale validation references, portable compiler
+launching, and destructive tagging with all three retirement cases still
+selected. No specs or acceptance assertions were deleted.
 
-No complete under-30-minute pass exists yet. The baseline profiling run on
-`e0c1819a9` plus two boundary comments took 20m32.667s but was RED and its E2E
-lanes never launched. It is not an acceptance time. Units consumed 13m11.563s
-(76/77 Turbo tasks passed); desktop had one stale packaging assertion,
-6,344 passing tests. Other failures: native-text fixture API drift, the
-M3-corrected EPIPE, nine assistant-ui browser file import syntax errors, and
-pnpm refusing the synthetic CI store-setting change. The fixes above address
-these earlier failures; the browser repair below resolves its import problem.
-Composed acceptance remains pending.
+## Limits and evidence
 
-`165cfd89f` fixes browser setup (the web theme needs two asset
-aliases; the hover fixture must explicitly park the real pointer), orders
-state-store tests after native addon builds, and limits the agent package to
-two workers when the root plan runs packages concurrently.
+Routine selection omits the complete desktop/agent-host integration matrices,
+full E2E, coverage and deliberate stress. `pnpm check:release` retains those
+longer checks. Full release, cold-cache timing, install time, Linux qualification
+and the final M3/M4 composition remain unverified here. **There is no complete
+passing under-30-minute receipt.** Do not turn the 18m27s failure into one.
 
-- `pnpm --filter @brainstrike/assistant-ui run test:browser`: 29 files passed,
-  174 tests passed, one existing skip, 51.28s. Original UI assertions retained.
-- Root routine unit command: 77/77 Turbo tasks passed, 45 cached, 667.170s.
-  Desktop: 523 files and 6,345 tests passed, 501.38s. Agent: 237 files and
-  3,197 tests passed, one skip, 156.62s versus baseline 245.69s.
-- The measured candidate also capped DB, app-shell and app-state at two workers.
-  Those changes were rejected: DB rose from 406.76s to 601.91s, app-shell from
-  98.35s to 185.05s, and app-state from 9.84s to 21.88s. Their configs remain
-  unchanged in the delivered batch. Peak sampled load fell from 69 to 40,
-  but cache reuse and concurrent browser work differed; this is not a controlled
-  whole-suite speedup claim. The final retained configuration still needs the
-  composed routine run.
-The provisioned Mac then passed all three smoke lanes on `165cfd89f`:
-`pnpm check`'s exact commands set `CI=true pnpm_config_ci=false` before
-`pnpm --filter <package> run <lane>`:
-
-- web `test:e2e:lane:smoke`: 28 passed, 34.063s wall time;
-- desktop `test:e2e:lane:smoke`: 35 passed, one existing skip, 159.762s;
-- desktop `test:e2e:lane:smoke-delegated`: 14 passed, 109.035s;
-- desktop `playwright test e2e/database-live-query-memory.desktop.test.ts
-  --project=regression --workers=1 --retries=0`: both passed, 29.149s, proving
-  the reduced routine repetitions with the original memory/handle assertions.
-
-The preceding full build passed in 27.151s. These are separate stage results,
-not an end-to-end acceptance receipt. `remaining-e2e-validation.{json,log}`
-retains exact commands and output. Full release,
-coverage and non-Mac qualification remain unverified.
-
-Raw local evidence is retained alongside the Windows and Mac
-`pre-m4-test-turnaround/brainstrike` worktrees in `../evidence/`, including
-`profile-remaining.{json,log}`, `focused-optimizations.json`, and per-command
-logs. The integration coordinator can read this thread directly; no further
-routing through Sean is needed.
+Raw evidence is retained beside both `pre-m4-test-turnaround/brainstrike`
+worktrees in `../evidence/`: `composed-routine.{log,mjs}`,
+`composed-routine-receipt.json`, `composed-routine-candidate.bundle`,
+`remaining-e2e-validation.{json,log}`, `desktop-parallel-units.log`,
+`worker-budget-units.{json,log}`, `focused-optimizations.json`, normal hook logs,
+and `agent-workers-before.json` / `agent-workers-after.json`.
+The composed checkout was clean at completion and no processes from that
+worktree remained in the post-run process listing. The composition is retained
+on the Mac validation branch and in the bundle; the worktree returns to the
+published pre-M4 base for handoff. No new M4 product work was done here.
