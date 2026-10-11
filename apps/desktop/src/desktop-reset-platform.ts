@@ -54,7 +54,8 @@ export interface DesktopFactoryResetResult {
 }
 
 export interface DesktopFactoryReset {
-  /** Joins accepted deletion and cancels replacement startup; refuses new resets. */
+  /** Joins accepted deletion with its original failure, cancels replacement
+   * startup and refuses new resets. */
   close(): Promise<void>;
   /**
    * Settles once no reset is in flight, its reopen included. A reset retires the
@@ -242,29 +243,30 @@ export function createDesktopFactoryResetHandler({
       signal: shutdown.signal,
     });
     if (failure.kind === 'failed') {
-      const message =
-        failure.error instanceof Error ? failure.error.message : String(failure.error);
       logger.error('Failed to reset desktop application data:', failure.error);
-      return { message, success: false };
+      throw failure.error;
     }
 
     logger.info('Desktop factory reset completed');
     return { success: true };
   };
-  let resetInFlight: Promise<DesktopFactoryResetResult> | null = null;
+  let resetInFlight: {
+    readonly completion: Promise<DesktopFactoryResetResult>;
+    readonly result: Promise<DesktopFactoryResetResult>;
+  } | null = null;
   return {
     // Quit joins accepted deletion but cancels replacement readiness/startup.
     // The same signal fences subsequent reset requests; purge never observes it.
     close: async () => {
       shutdown.abort(new Error('Factory reset replacement cancelled by terminal quit'));
-      await resetInFlight;
+      await resetInFlight?.completion;
     },
     idle: async () => {
       while (resetInFlight) {
-        await resetInFlight;
+        await resetInFlight.result;
       }
     },
-    inFlight: () => resetInFlight,
+    inFlight: () => resetInFlight?.result ?? null,
     reset: () => {
       if (shutdown.signal.aborted) {
         return Promise.resolve({
@@ -272,10 +274,31 @@ export function createDesktopFactoryResetHandler({
           success: false,
         });
       }
-      resetInFlight ??= runTransition(runReset).finally(() => {
-        resetInFlight = null;
+      if (resetInFlight) {
+        return resetInFlight.result;
+      }
+      let admitted = false;
+      const completion = runTransition(() => {
+        admitted = true;
+        return runReset();
       });
-      return resetInFlight;
+      // Only the renderer boundary converts an accepted reset's rejection to a
+      // result envelope. Terminal close must join its original completion.
+      const result = completion
+        .catch((error: unknown): DesktopFactoryResetResult => {
+          if (!admitted) {
+            throw error;
+          }
+          return {
+            message: error instanceof Error ? error.message : String(error),
+            success: false,
+          };
+        })
+        .finally(() => {
+          resetInFlight = null;
+        });
+      resetInFlight = { completion, result };
+      return result;
     },
   };
 }
