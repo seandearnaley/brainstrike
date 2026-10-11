@@ -1,7 +1,7 @@
 import type { ProfileResetLease } from '@brainstrike/host-lease';
 import { RootLock } from '@brainstrike/state-store';
 import { disposeActiveBrowserPaneViews } from './browser/browser-pane-host';
-import { clearBrowserPaneSession } from './browser/browser-session';
+import { clearDesktopBrowserSessions } from './browser/browser-session';
 import { resetDesktopApplicationData } from './desktop-factory-reset';
 
 export interface DesktopResetRuntime {
@@ -39,6 +39,8 @@ export interface CreateDesktopFactoryResetHandlerOptions {
   ) => Promise<DesktopFactoryResetResult>;
   readonly runtimes: readonly DesktopResetRuntime[];
   readonly runWithDatabaseResetBarrier: (work: () => Promise<void>) => Promise<void>;
+  /** Electron owns this dedicated container; clear its sessions before purge. */
+  readonly sessionDataPath: string;
   readonly userDataPath: string;
   readonly waitForDatabaseWorkSchedulerIdle: () => Promise<void>;
 }
@@ -165,6 +167,7 @@ export function createDesktopFactoryResetHandler({
   runtimes,
   runTransition,
   runWithDatabaseResetBarrier,
+  sessionDataPath,
   userDataPath,
   waitForDatabaseWorkSchedulerIdle,
 }: CreateDesktopFactoryResetHandlerOptions): DesktopFactoryReset {
@@ -180,7 +183,7 @@ export function createDesktopFactoryResetHandler({
           if (!profileResetLease || profileResetLease.isReleased) {
             throw new Error('Desktop factory reset requires an owned profile reset lease');
           }
-          return [RootLock.dirOf(profileResetLease.root)];
+          return [RootLock.dirOf(profileResetLease.root), sessionDataPath];
         },
         resetDatabaseProfile: async () => {
           await resetDesktopDatabaseProfile({
@@ -200,10 +203,10 @@ export function createDesktopFactoryResetHandler({
           // view can rewrite cookies/localStorage into `persist:browser-pane`
           // between the clear and the reset's reload, leaving site state behind
           // (codex P1) — disposing the views makes the storage quiescent before
-          // we wipe it. The partition itself is also deleted on disk with the
-          // userData directory below.
+          // we wipe it. Electron owns the live session container; its API
+          // clears both sessions without renaming Chromium's locked files.
           disposeActiveBrowserPaneViews();
-          await clearBrowserPaneSession();
+          await clearDesktopBrowserSessions();
         },
         userDataPath,
       });

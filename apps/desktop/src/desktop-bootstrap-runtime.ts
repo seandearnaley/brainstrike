@@ -54,7 +54,9 @@ function readExplicitE2eUserDataDir(): string | null {
   return candidate;
 }
 
-function applyExplicitPathIsolation(agentDevtoolsConfig: { readonly enabled: boolean }): void {
+function applyExplicitPathIsolation(agentDevtoolsConfig: {
+  readonly enabled: boolean;
+}): string | undefined {
   const electronE2ETestMode = isElectronE2ETestMode();
   if (!(electronE2ETestMode || agentDevtoolsConfig.enabled)) {
     return;
@@ -71,13 +73,10 @@ function applyExplicitPathIsolation(agentDevtoolsConfig: { readonly enabled: boo
   fs.mkdirSync(userDataDir, { recursive: true });
   app.setPath('userData', userDataDir);
 
-  const sessionDataDir = path.join(userDataDir, 'session-data');
-  fs.mkdirSync(sessionDataDir, { recursive: true });
-  app.setPath('sessionData', sessionDataDir);
-
   const logsDir = path.join(userDataDir, 'logs');
   fs.mkdirSync(logsDir, { recursive: true });
   app.setPath('logs', logsDir);
+  return userDataDir;
 }
 
 function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
@@ -88,7 +87,13 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
     process.argv
   );
   registerPrivilegedSchemes();
-  applyExplicitPathIsolation(agentDevtoolsConfig);
+  const userDataDir = applyExplicitPathIsolation(agentDevtoolsConfig) ?? app.getPath('userData');
+  // Windows cannot rename Chromium's live files during factory reset. Give
+  // its Session owner a separate container in ordinary launches too; reset
+  // clears it through Electron before physically purging app-owned files.
+  const sessionDataDir = path.join(userDataDir, 'session-data');
+  fs.mkdirSync(sessionDataDir, { recursive: true });
+  app.setPath('sessionData', sessionDataDir);
   const e2e = isElectronE2ETestMode();
   const singleInstanceLockAcquired = e2e ? true : app.requestSingleInstanceLock();
   const mainEntryPath = resolveBundledSiblingPath('Desktop bootstrap', 'main.js');

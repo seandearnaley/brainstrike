@@ -111,13 +111,19 @@ const electronMainMockSurface = {
   session: {
     ...electronTestStub.session,
     defaultSession: {
+      clearAuthCache: vi.fn(async () => undefined),
+      clearData: vi.fn(async () => undefined),
+      closeAllConnections: vi.fn(async () => undefined),
       on: vi.fn(),
       setPermissionCheckHandler: vi.fn(),
       setPermissionRequestHandler: vi.fn(),
       webRequest: { onHeadersReceived: vi.fn() },
     },
     fromPartition: vi.fn(() => ({
+      clearAuthCache: vi.fn(async () => undefined),
+      clearData: vi.fn(async () => undefined),
       clearStorageData: vi.fn(async () => undefined),
+      closeAllConnections: vi.fn(async () => undefined),
       on: vi.fn(),
       setPermissionCheckHandler: vi.fn(),
       setPermissionRequestHandler: vi.fn(),
@@ -186,7 +192,10 @@ function restoreOwnedMockImplementations(): void {
     workArea: { height: 1080, width: 1920, x: 0, y: 0 },
   }));
   electronMainMock.session.fromPartition.mockImplementation(() => ({
+    clearAuthCache: vi.fn(async () => undefined),
+    clearData: vi.fn(async () => undefined),
     clearStorageData: vi.fn(async () => undefined),
+    closeAllConnections: vi.fn(async () => undefined),
     on: vi.fn(),
     setPermissionCheckHandler: vi.fn(),
     setPermissionRequestHandler: vi.fn(),

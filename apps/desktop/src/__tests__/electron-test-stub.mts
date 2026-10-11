@@ -94,7 +94,10 @@ export const screen = {
 };
 
 const makePartitionSession = () => ({
+  clearAuthCache: () => Promise.resolve(),
+  clearData: () => Promise.resolve(),
   clearStorageData: () => Promise.resolve(),
+  closeAllConnections: () => Promise.resolve(),
   on: makeFn(),
   setPermissionCheckHandler: makeFn(),
   setPermissionRequestHandler: makeFn(),
@@ -102,9 +105,7 @@ const makePartitionSession = () => ({
 });
 
 export const session = {
-  defaultSession: {
-    webRequest: { onHeadersReceived: makeFn() },
-  },
+  defaultSession: makePartitionSession(),
   fromPartition: () => makePartitionSession(),
 };
 

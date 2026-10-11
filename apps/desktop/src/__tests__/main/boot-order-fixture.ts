@@ -60,6 +60,7 @@ const mockApp = {
   on: vi.fn(),
   quit: vi.fn(),
   requestSingleInstanceLock: vi.fn(() => true),
+  setPath: vi.fn(),
   whenReady: vi.fn(() => Promise.resolve()),
 };
 
@@ -104,6 +105,7 @@ vi.mock('node:fs', () => ({
     accessSync: accessSyncMock,
     constants: { W_OK: 0o200 },
     existsSync: existsSyncMock,
+    mkdirSync: vi.fn(),
     statSync: statSyncMock,
   },
   existsSync: existsSyncMock,

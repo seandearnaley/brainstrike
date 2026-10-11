@@ -50,6 +50,7 @@ describe('createDesktopFactoryResetHandler', () => {
       runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
+      sessionDataPath: '/mock/userData/session-data',
       userDataPath: '/mock/userData',
       waitForDatabaseWorkSchedulerIdle: vi.fn(async () => undefined),
     });
@@ -83,6 +84,7 @@ describe('createDesktopFactoryResetHandler', () => {
         { name: 'llm-host', stop: llmHostStop },
       ],
       runWithDatabaseResetBarrier,
+      sessionDataPath: '/mock/userData/session-data',
       userDataPath: '/mock/userData',
       waitForDatabaseWorkSchedulerIdle,
     });
@@ -156,6 +158,7 @@ describe('createDesktopFactoryResetHandler', () => {
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => {
         await work();
       }),
+      sessionDataPath: '/mock/userData/session-data',
       userDataPath: '/mock/userData',
       waitForDatabaseWorkSchedulerIdle: vi.fn(async () => undefined),
     });
@@ -186,6 +189,7 @@ describe('createDesktopFactoryResetHandler', () => {
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => {
         await work();
       }),
+      sessionDataPath: '/mock/userData/session-data',
       userDataPath: '/mock/userData',
       waitForDatabaseWorkSchedulerIdle: vi.fn(async () => undefined),
     });
@@ -218,6 +222,7 @@ describe('createDesktopFactoryResetHandler', () => {
       runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
+      sessionDataPath: '/mock/userData/session-data',
       userDataPath: '/mock/userData',
       waitForDatabaseWorkSchedulerIdle: vi.fn(async () => undefined),
     });
@@ -251,6 +256,7 @@ describe('createDesktopFactoryResetHandler', () => {
       runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
+      sessionDataPath: '/mock/userData/session-data',
       userDataPath: '/mock/userData',
       waitForDatabaseWorkSchedulerIdle: vi.fn(async () => undefined),
     });
@@ -284,6 +290,7 @@ describe('createDesktopFactoryResetHandler', () => {
       runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
+      sessionDataPath: '/mock/userData/session-data',
       userDataPath: '/mock/userData',
       waitForDatabaseWorkSchedulerIdle: vi.fn(async () => undefined),
     });
@@ -316,6 +323,7 @@ describe('createDesktopFactoryResetHandler', () => {
         runTransition: (work) => work(),
         runtimes: [],
         runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
+        sessionDataPath: '/mock/userData/session-data',
         userDataPath: '/mock/userData',
         waitForDatabaseWorkSchedulerIdle: vi.fn(async () => undefined),
       });
@@ -351,6 +359,7 @@ describe('createDesktopFactoryResetHandler', () => {
       runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
+      sessionDataPath: '/mock/userData/session-data',
       userDataPath: '/mock/userData',
       waitForDatabaseWorkSchedulerIdle: vi.fn(async () => undefined),
     });
@@ -381,6 +390,7 @@ describe('createDesktopFactoryResetHandler', () => {
       runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
+      sessionDataPath: '/mock/userData/session-data',
       userDataPath: '/mock/userData',
       waitForDatabaseWorkSchedulerIdle: vi.fn(async () => undefined),
     });
@@ -424,6 +434,7 @@ describe('createDesktopFactoryResetHandler', () => {
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => {
         await work();
       }),
+      sessionDataPath: '/mock/userData/session-data',
       userDataPath: '/mock/userData',
       waitForDatabaseWorkSchedulerIdle: vi.fn(async () => undefined),
     });
@@ -455,6 +466,7 @@ describe('createDesktopFactoryResetHandler', () => {
       runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
+      sessionDataPath: '/mock/userData/session-data',
       userDataPath: '/mock/userData',
       waitForDatabaseWorkSchedulerIdle: vi.fn(async () => undefined),
     });
@@ -510,6 +522,7 @@ describe('createDesktopFactoryResetHandler', () => {
       runTransition: queue.transition,
       runtimes: [{ name: 'physical-owner', stop }],
       runWithDatabaseResetBarrier: async (work: () => Promise<void>) => work(),
+      sessionDataPath: '/mock/userData/session-data',
       userDataPath: '/mock/userData',
       waitForDatabaseWorkSchedulerIdle: async () => {},
     };
@@ -567,6 +580,7 @@ describe('createDesktopFactoryResetHandler', () => {
       }),
       runtimes: [{ name: 'physical-owner', stop }],
       runWithDatabaseResetBarrier: async (work: () => Promise<void>) => work(),
+      sessionDataPath: '/mock/userData/session-data',
       userDataPath: '/mock/userData',
       waitForDatabaseWorkSchedulerIdle: async () => {},
     };
@@ -589,6 +603,7 @@ describe('createDesktopFactoryResetHandler', () => {
       runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
+      sessionDataPath: '/mock/userData/session-data',
       userDataPath: '/mock/userData',
       waitForDatabaseWorkSchedulerIdle: vi.fn(async () => undefined),
     });
@@ -616,6 +631,7 @@ describe('createDesktopFactoryResetHandler', () => {
       runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: vi.fn(async (work: () => Promise<void>) => await work()),
+      sessionDataPath: '/mock/userData/session-data',
       userDataPath: '/mock/userData',
       waitForDatabaseWorkSchedulerIdle: vi.fn(async () => undefined),
     });

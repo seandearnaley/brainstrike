@@ -3,10 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ResetDesktopApplicationDataOptions } from '../desktop-factory-reset';
 
 const purge = vi.hoisted(() => vi.fn());
+const clearSessions = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock('../desktop-factory-reset', () => ({ resetDesktopApplicationData: purge }));
 vi.mock('../browser/browser-pane-host', () => ({ disposeActiveBrowserPaneViews: vi.fn() }));
 vi.mock('../browser/browser-session', () => ({
-  clearBrowserPaneSession: vi.fn(async () => undefined),
+  clearDesktopBrowserSessions: clearSessions,
 }));
 
 describe('desktop reset profile ownership', () => {
@@ -52,6 +53,7 @@ describe('desktop reset profile ownership', () => {
       runWithDatabaseResetBarrier: async (work) => {
         await work();
       },
+      sessionDataPath: '/userData/session-data',
       userDataPath: '/userData',
       waitForDatabaseWorkSchedulerIdle: async () => undefined,
     }).reset;
@@ -61,10 +63,22 @@ describe('desktop reset profile ownership', () => {
     purge.mockImplementation(async (options: ResetDesktopApplicationDataOptions) => {
       await options.stopBackgroundRuntimes();
       await options.resetDatabaseProfile();
-      expect(options.getProtectedPaths?.()).toEqual(['/profile/lock']);
+      expect(options.getProtectedPaths?.()).toEqual(['/profile/lock', '/userData/session-data']);
       return { deletedPaths: [], pendingDeletionPaths: [], preservedPaths: ['/profile/lock'] };
     });
   }
+
+  it('refuses data deletion and renderer replacement when Electron cannot clear browser state', async () => {
+    const state = setup();
+    performProfileReset();
+    clearSessions.mockRejectedValueOnce(new Error('Chromium data clear failed'));
+    const run = await handler(state);
+    await expect(run()).resolves.toEqual({ message: 'Chromium data clear failed', success: false });
+    expect(state.prepare).not.toHaveBeenCalled();
+    expect(state.clear).not.toHaveBeenCalled();
+    expect(state.storage).not.toHaveBeenCalled();
+    expect(state.renderer).not.toHaveBeenCalled();
+  });
 
   it('owns the profile throughout userData and storage purge, releasing before renderer replacement', async () => {
     const state = setup();
