@@ -80,7 +80,7 @@ test('quitting while a factory reset finishes lets the reset complete', {
     });
     // Quit inside the reset: it has stopped the browser pane and not yet purged the data.
     await expect
-      .poll(() => output.includes('Browser pane session storage cleared (factory reset)'), {
+      .poll(() => output.includes('Desktop browser sessions cleared (factory reset)'), {
         timeout: 60_000,
       })
       .toBe(true);

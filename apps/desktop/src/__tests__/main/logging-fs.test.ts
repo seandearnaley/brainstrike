@@ -14,6 +14,7 @@ vi.mock('node:fs', async () => {
 
   const mockedFs = {
     ...actual,
+    mkdirSync: vi.fn(),
     promises: {
       ...actual.promises,
       access: accessAsync,

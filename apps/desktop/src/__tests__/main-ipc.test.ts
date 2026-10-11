@@ -3,6 +3,12 @@ import type { createIpcMainMock, createIpcRendererMock } from '@brainstrike/test
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTrustedInvokeEvent } from './helpers/desktop-ipc-sender-test-helpers';
 
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
+  const mockedFs = { ...actual, mkdirSync: vi.fn() };
+  return { ...mockedFs, default: mockedFs };
+});
+
 const lifecycleHandlers = vi.hoisted(() => new Map<string, () => void>());
 const ipcInvokeState = vi.hoisted(() => ({ event: null as unknown }));
 const registeredIpcHandlers = vi.hoisted(

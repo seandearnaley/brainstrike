@@ -129,10 +129,7 @@ for (const mode of ['quit-and-relaunch', 'reset-and-reuse', 'quit-during-reset']
         expect((await getEmbeddingHostStatus(fresh)).runtimeId).not.toBe(previous.runtimeId);
       } else {
         // This existing runtime event occurs after reset's parallel Stop joins and before purge.
-        const reset = observeReset(
-          current.app,
-          'Browser pane session storage cleared (factory reset)'
-        );
+        const reset = observeReset(current.app, 'Desktop browser sessions cleared (factory reset)');
         await requestReset(page);
         await reset.reached;
         await electron.closeForStateSeeding();

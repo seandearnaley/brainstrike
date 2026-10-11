@@ -8,6 +8,12 @@ import {
   createTrustedInvokeEvent,
   trackTestWindowRole,
 } from '../helpers/desktop-ipc-sender-test-helpers';
+
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
+  const mockedFs = { ...actual, mkdirSync: vi.fn() };
+  return { ...mockedFs, default: mockedFs };
+});
 export function createWindowWithWebContents(sender: {
   id?: number;
   isDestroyed?: () => boolean;

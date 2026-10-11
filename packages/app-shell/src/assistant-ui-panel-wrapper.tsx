@@ -656,13 +656,12 @@ export function AssistantUiPanelWrapper({
     desktopAssistantBackendAvailable,
     selectedProvider,
   });
-  // Resolve the 'auto' observer sentinel into CONCRETE settings once, here —
-  // request data, memory validation, and the OM meter all consume the same
-  // effective settings, so 'auto' never reaches the provider/model validator
-  // and an unresolved auto can never disable thread memory (BST-940). The
-  // selected CHAT provider gates hosted-observer resolution (privacy ruling:
-  // no new data egress) and the loaded model catalog gates candidate
-  // eligibility exactly like the settings dropdown.
+  // Resolve 'auto' once for request data, memory validation and the OM meter.
+  // Concrete settings keep the sentinel out of provider/model validation
+  // and prevent unresolved auto from disabling thread memory (BST-940).
+  // The selected chat provider gates hosted resolution; the loaded model
+  // catalog gates eligibility exactly like the settings dropdown.
+  // This preserves the privacy rule against new data egress.
   const { autoResolution: omAutoResolution, settings: observationalMemorySettings } = useMemo(
     () =>
       resolveEffectiveObservationalMemorySettings({
