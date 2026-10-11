@@ -152,7 +152,9 @@ export function createWindowsCommandProcess(options: {
         return;
       }
       if (message.type === 'failed') {
-        throw new Error(`Windows command wrapper failed (${message.code}).`);
+        throw Object.assign(new Error(`Windows command wrapper failed (${message.code}).`), {
+          code: message.code,
+        });
       }
       if (!(child && job) || assigned || message.identity.pid !== child.pid) {
         throw new Error('Unexpected Windows command wrapper identity.');

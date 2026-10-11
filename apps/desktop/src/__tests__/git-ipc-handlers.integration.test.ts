@@ -5,6 +5,7 @@
  * construction) plus the structured error mapping — never a real push.
  */
 import { execFile } from 'node:child_process';
+import './assistant-server/_windows-command-fixture';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
