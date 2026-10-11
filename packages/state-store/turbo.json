@@ -21,10 +21,10 @@
       "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/secure-fs-native#build", "@brainstrike/windows-job-native#build"]
     },
     "test:coverage": {
-      // Runs the IDENTICAL suite (`pnpm run test --coverage`), so it needs the
-      // same `cache: false`; see `test` above.
+      // Coverage includes the integration suites and native writer processes.
+      // The memory-domain suite imports the production token calculator.
       "cache": false,
-      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/secure-fs-native#build", "@brainstrike/windows-job-native#build"]
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/secure-fs-native#build", "@brainstrike/windows-job-native#build", "@brainstrike/agent-host#build"]
     }
   }
 }

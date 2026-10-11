@@ -18,6 +18,15 @@ nodeEnvironment.SQLITE_QUERY_TEST_EXEC_PATH = executable;
 nodeEnvironment.INDEXER_TEST_EXEC_PATH = process.execPath;
 // The sandbox requires Electron's SQLite memory-accounting build in coverage too.
 const coverage = process.argv.includes('--coverage');
+if (coverage) {
+  const preload = fileURLToPath(
+    new URL('../../../scripts/native-ipc-coverage.cjs', import.meta.url)
+  );
+  nodeEnvironment.BRAINSTRIKE_NATIVE_COVERAGE_ENTRY = fileURLToPath(
+    new URL('../dist/query-host.js', import.meta.url)
+  );
+  nodeEnvironment.NODE_OPTIONS = `${nodeEnvironment.NODE_OPTIONS ?? ''} --require ${JSON.stringify(preload)}`;
+}
 const child = spawn(
   executable,
   [

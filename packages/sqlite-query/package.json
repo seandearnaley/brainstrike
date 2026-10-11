@@ -45,6 +45,6 @@
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
     "test:integration": "node test/run-integration.mjs",
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict",
-    "test:coverage": "node test/run-integration.mjs --coverage"
+    "test:coverage": "node ../../scripts/run-native-coverage.mjs test/run-integration.mjs --coverage"
   }
 }

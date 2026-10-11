@@ -280,8 +280,10 @@ export default defineConfig({
     ],
   },
   test: {
-    // Package-local coverage for reliability (root still consolidates)
+    // Include the shared Core sources exercised by Desktop; workspace preparation
+    // attributes those hits to their source package instead of the app shell.
     coverage: {
+      allowExternal: true,
       enabled: coverageEnabled,
       exclude: [
         '**/*.test.*',
@@ -293,7 +295,21 @@ export default defineConfig({
         'src/main.ts',
         'src/preload.ts',
       ],
-      include: ['src/**/*.{ts,tsx}'],
+      include: [
+        'src/**/*.{ts,tsx}',
+        path
+          .resolve(import.meta.dirname, '../../packages/assistant-service/src/**/*.{ts,mjs}')
+          .split(path.sep)
+          .join('/'),
+        path
+          .resolve(import.meta.dirname, '../../packages/host-capabilities/src/**/*.{ts,mjs}')
+          .split(path.sep)
+          .join('/'),
+        path
+          .resolve(import.meta.dirname, '../../packages/file-system/src/**/*.{ts,tsx}')
+          .split(path.sep)
+          .join('/'),
+      ],
       // Preserve the expensive native pass even if one assertion fails (BST-1935).
       reportOnFailure: true,
     },

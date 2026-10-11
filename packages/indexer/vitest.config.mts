@@ -18,6 +18,7 @@ export default defineConfig({
     ],
   },
   test: {
+    coverage: { reportOnFailure: true },
     environment: 'node',
     include: ['__tests__/**/*.test.ts'],
     reporters: ['default', new LostTestFileReporter()],

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 const SKIPPED_DIRECTORIES = new Set(['.git', '.turbo', 'node_modules']);
@@ -29,7 +29,7 @@ function walk(dir) {
 }
 
 function findPackageRoot(filePath) {
-  let current = path.dirname(filePath);
+  let current = path.dirname(path.resolve(filePath));
   const root = path.parse(current).root;
   while (current !== root) {
     if (existsSync(path.join(current, 'package.json'))) {
@@ -40,6 +40,20 @@ function findPackageRoot(filePath) {
   return null;
 }
 
+function sourcePackageRoot(source, roots) {
+  for (const root of roots) {
+    const relative = path.relative(path.resolve(root), source);
+    if (relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      continue;
+    }
+    const owner = path.resolve(root, relative.split(path.sep)[0]);
+    if (existsSync(path.join(owner, 'package.json'))) {
+      return owner;
+    }
+  }
+  throw new Error(`Coverage source is outside the workspace packages: ${source}`);
+}
+
 function groupCoverageFiles(roots) {
   const groups = new Map();
   for (const root of roots) {
@@ -47,13 +61,24 @@ function groupCoverageFiles(roots) {
       continue;
     }
     for (const file of walk(root)) {
-      const packageRoot = findPackageRoot(file);
-      if (!packageRoot) {
+      const reportOwner = findPackageRoot(file);
+      if (!reportOwner) {
         continue;
       }
-      const files = groups.get(packageRoot) ?? [];
-      files.push(file);
-      groups.set(packageRoot, files);
+      // Desktop still exercises shared modules extracted into Core. Credit the
+      // actual source owner, retaining its uncovered entries and existing floor.
+      const partitions = new Map([[reportOwner, {}]]);
+      for (const [source, coverage] of Object.entries(JSON.parse(readFileSync(file, 'utf8')))) {
+        const owner = sourcePackageRoot(source, roots);
+        const entries = partitions.get(owner) ?? {};
+        entries[source] = coverage;
+        partitions.set(owner, entries);
+      }
+      for (const [owner, entries] of partitions) {
+        const inputs = groups.get(owner) ?? [];
+        inputs.push({ entries, file, reportOwner });
+        groups.set(owner, inputs);
+      }
     }
   }
   return groups;
@@ -71,7 +96,12 @@ function mergePackageCoverage(packageRoot, files, tempRoot) {
   const canonicalFile = path.join(canonicalDir, 'coverage-final.json');
   mkdirSync(canonicalDir, { recursive: true });
 
-  if (files.length === 1 && path.resolve(files[0]) === path.resolve(canonicalFile)) {
+  if (
+    files.length === 1 &&
+    path.resolve(files[0].file) === path.resolve(canonicalFile) &&
+    Object.keys(files[0].entries).length ===
+      Object.keys(JSON.parse(readFileSync(canonicalFile, 'utf8'))).length
+  ) {
     return { cleaned: 0, files: 1, merged: false, packageRoot };
   }
 
@@ -79,8 +109,8 @@ function mergePackageCoverage(packageRoot, files, tempRoot) {
   rmSync(inputDir, { force: true, recursive: true });
   mkdirSync(inputDir, { recursive: true });
 
-  files.forEach((file, index) => {
-    cpSync(file, path.join(inputDir, `${index}.json`));
+  files.forEach(({ entries }, index) => {
+    writeFileSync(path.join(inputDir, `${index}.json`), JSON.stringify(entries));
   });
 
   const result = spawnSync('pnpm', ['exec', 'nyc', 'merge', inputDir, canonicalFile], {
@@ -100,8 +130,8 @@ function mergePackageCoverage(packageRoot, files, tempRoot) {
   }
 
   let cleaned = 0;
-  for (const file of files) {
-    if (path.resolve(file) === path.resolve(canonicalFile)) {
+  for (const { file, reportOwner } of files) {
+    if (reportOwner !== packageRoot || path.resolve(file) === path.resolve(canonicalFile)) {
       continue;
     }
     const reportDir = path.dirname(file);
@@ -124,7 +154,7 @@ export function prepareWorkspaceCoverage({ roots = ['packages', 'apps'] } = {}) 
   for (const [packageRoot, files] of [...groups.entries()].sort(([left], [right]) =>
     left.localeCompare(right)
   )) {
-    results.push(mergePackageCoverage(packageRoot, files.sort(), tempRoot));
+    results.push(mergePackageCoverage(packageRoot, files, tempRoot));
   }
   return results;
 }

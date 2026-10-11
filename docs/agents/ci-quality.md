@@ -529,6 +529,16 @@ parenthesised `scripts/__tests__/<name>.test.mjs` contracts above.
   all seven archives arrive. Add no generated planner or larger shared timeout.
 - Only scripts invoking `--coverage` owe a JSON artifact; a native package's
   `test:coverage` may run uninstrumented.
+- Coverage includes existing native integration cases in state-store, file-system
+  and MCP lab.
+  Indexer, state-store and SQLite query also collect owned-process V8 execution
+  through `run-native-coverage.mjs`, remapped with the pinned Vitest converter.
+  Desktop collects shared Core modules it exercises; workspace preparation merges
+  hits into the source package, preserving uncovered entries and existing floors.
+  External include globs are absolute (Vitest matches external source by absolute
+  path); owning-package reports supply the complete unexecuted-source baseline.
+  The SQLite reader coverage preload flushes V8 before IPC responses so the
+  existing forced-close lifecycle cannot discard its execution data.
 
 Evidence: `ci-quality/coverage-workflow.md`.
 

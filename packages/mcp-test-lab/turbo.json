@@ -12,6 +12,8 @@
       ]
     },
     "test:coverage": {
+      "cache": false,
+      "dependsOn": ["$TURBO_EXTENDS$", "build"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/test-utils/workspace-src-aliases.mjs",

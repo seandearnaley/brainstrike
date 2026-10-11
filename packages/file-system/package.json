@@ -94,7 +94,7 @@
     "dev": "tsc --build --watch --preserveWatchOutput",
     "mutation": "stryker run",
     "test": "vitest run --exclude \"**/*.integration.test.*\"",
-    "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
+    "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
     "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:packaged": "node ../../scripts/run-env.mjs ELECTRON_RUN_AS_NODE=1 -- pnpm --filter @brainstrike/desktop exec electron ../../packages/file-system/test/parcel-packaged-smoke.cjs",
     "test:watch": "vitest",

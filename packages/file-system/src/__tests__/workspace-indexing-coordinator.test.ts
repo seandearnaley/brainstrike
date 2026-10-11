@@ -3,7 +3,7 @@ import {
   WorkspaceIndexingCoordinator,
   type WorkspaceIndexingCoordinatorInputs,
   type WorkspaceIndexingCoordinatorService,
-} from '../workspace-indexing-coordinator';
+} from '../workspace-indexing-coordinator.js';
 
 const ROOT = {
   kind: 'directory' as const,
