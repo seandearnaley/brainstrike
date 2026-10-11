@@ -80,9 +80,9 @@ function createThreadScrollFollow(): ThreadScrollFollow {
   let lastObservedScrollHeight = 0;
   let lastObservedClientHeight = 0;
   /**
-   * The `scrollTop` a `measure` write moved to and has not yet seen echoed back
-   * as a `scroll` event, or null when no echo is outstanding. Claimed only in
-   * `measure`; consumed only in `onScroll`.
+   * The `scrollTop` already judged by `measure` after its write or an observed
+   * native bottom clamp, awaiting its `scroll` event. Claimed only in `measure`;
+   * consumed only in `onScroll`. Ordinary no-op writes leave no claim.
    */
   let unechoedWriteTop: number | null = null;
   const stateListeners = new Set<() => void>();
@@ -108,19 +108,11 @@ function createThreadScrollFollow(): ThreadScrollFollow {
   };
 
   /**
-   * Parity port of the library's scroll bookkeeping. The one misread this
-   * inherits — a scrollHeight clamp arriving with no in-flight follow reads
-   * as a user scroll — is unreachable in practice because `measure` below
-   * re-sticks (arming `pendingFollow`) from a LIVE observer before the
-   * clamp's scroll event is dispatched; the upstream bug was precisely that
-   * its observer was being reconstructed at that moment and missed the
-   * window.
-   *
-   * The related misread that WAS reachable — the engine's own write echoing
-   * back after a resize — is filtered before this runs; see `onScroll` in
-   * `attach`. Nothing here may assume `lastScrollTop` is the position
-   * immediately before the current event: it is the last one this function
-   * PROCESSED, and coalesced events skip over intermediate positions.
+   * Parity port of the library's scroll bookkeeping. A measured native clamp
+   * or follow write can echo after a later resize. Its already-judged event is
+   * consumed in `onScroll` before it can misclassify that new geometry as reader
+   * intent. `lastScrollTop` is the last position PROCESSED here, not necessarily
+   * the position immediately before an event: native events may coalesce.
    */
   const handleScroll = (el: HTMLElement): void => {
     const nextAtBottom =
@@ -170,6 +162,12 @@ function createThreadScrollFollow(): ThreadScrollFollow {
     }
     lastObservedScrollHeight = scrollHeight;
     lastObservedClientHeight = clientHeight;
+    // M3 delegated-command failure: Chromium clamped to the new bottom before
+    // measure, so our follow write was a no-op but its native event was pending.
+    const observedBottomClamp =
+      isAtBottom &&
+      lastScrollTop > scrollHeight - clientHeight + 1 &&
+      Math.abs(scrollHeight - clientHeight - topBefore) <= 1;
     if (pendingFollow) {
       // Complete an in-flight follow/explicit scroll through the resize.
       write(el);
@@ -193,17 +191,10 @@ function createThreadScrollFollow(): ThreadScrollFollow {
     // must never be swallowed; keeping the claim out of `write` makes that
     // structural rather than a rule someone has to remember.
     //
-    // Only a write that MOVED the position is claimed. A no-op write (already
-    // at the bottom — the steady state while pinned) dispatches no scroll
-    // event, so its claim could never be consumed and would sit there until
-    // some unrelated event happened to land on that exact pixel. A CSS
-    // (possibly smooth) write has not moved yet either, and is guarded for its
-    // whole animation by `pendingFollow` instead.
-    //
-    // Best-effort by construction: if the browser moves `scrollTop` between the
-    // write and its echo (scroll anchoring, a clamp), the claim simply misses
-    // and the event is judged as it was before this guard existed — no worse.
-    unechoedWriteTop = el.scrollTop === topBefore ? null : el.scrollTop;
+    // Claim a moving write or a native bottom clamp this measure already judged.
+    // Ordinary no-op writes produce no event and must leave no lingering claim.
+    // A CSS smooth write has not moved yet; pendingFollow guards its animation.
+    unechoedWriteTop = el.scrollTop !== topBefore || observedBottomClamp ? el.scrollTop : null;
   };
 
   return {
@@ -253,11 +244,10 @@ function createThreadScrollFollow(): ThreadScrollFollow {
        * `measure` is what will re-stick through the resize. See the claim site
        * for why it lives in `measure` and not in `write`.
        *
-       * Authorship is the discriminator, NOT "did scrollTop move" — scroll
-       * events coalesce, so a user round trip to the end and back reaches this
-       * as a single event whose net movement against the last PROCESSED
-       * position is zero (the tier-switch suite does exactly that, and it must
-       * still disengage). Anything the engine did not write is the user's.
+       * A claim requires a moving write or a measured native bottom clamp,
+       * NOT merely an unchanged scrollTop. User events coalesce too: a round
+       * trip can have zero net movement and must still disengage. User intent
+       * clears the claim before such an event is delivered.
        */
       const onScroll = () => {
         if (el.clientHeight === 0) {

@@ -1297,17 +1297,17 @@ Evidence: `assistant-runtime/streaming-spec-layout.md`.
   after appending; a reader who scrolled up is never yanked. Do not remove this as
   redundant with the engine's resize re-stick — that path loses the clamp-ordering
   race.
-- **A `scroll` event the engine itself authored never disengages follow.** A
-  `measure` write claims the `scrollTop` it MOVED to (`unechoedWriteTop`) and the
-  listener swallows that one echo. Two rules follow: **authorship is the
-  discriminator, not movement** (events coalesce, so a user round trip arrives as
-  ONE net-zero event that must still disengage), and **`lastScrollTop` is the last
-  position `handleScroll` PROCESSED**, not the position before the current event.
-- Two placement rules keep the claim honest: make it in `measure` and NOT in
-  `write`, because only `measure` performs the synchronous `handleScroll` that
-  justifies swallowing an echo — the explicit-request writes never judge, so their
-  echo is the ONLY thing that can re-pin the thread. And claim only a write that
-  MOVED the position; a no-op write dispatches no event, so its claim would linger.
+- **An already-judged scroll event never disengages follow.** A `measure` write
+  claims the `scrollTop` it MOVED to (`unechoedWriteTop`) and the listener consumes
+  that one echo. A measured native bottom clamp also claims its pending event:
+  the previously processed position must exceed the new scroll range, and the
+  current position must be at the new bottom within the existing 1px tolerance.
+  This covers a native clamp followed by another viewport resize before its event.
+- Claim only in `measure`, where synchronous `handleScroll` has judged the position;
+  explicit-request writes never judge, so their event must still re-pin the thread.
+  Ordinary no-op writes leave no claim. User intent clears any claim, and a user
+  round trip with zero net movement must still disengage. `lastScrollTop` is the
+  last position `handleScroll` PROCESSED, not the position before the current event.
 
 Evidence: `assistant-runtime/thread-scroll-follow.md`.
 Guard: `packages/assistant-ui/src/__tests__/assistant-scroll-to-bottom.browser.test.tsx`,
