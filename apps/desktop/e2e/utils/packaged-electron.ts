@@ -14,6 +14,8 @@ export const PACKAGED_DESKTOP_INHERITED_ENV_KEYS = Object.freeze([
   'DISPLAY',
   'GNOME_KEYRING_CONTROL',
   'HOME',
+  // libuv supplies these Windows process variables even for a filtered environment.
+  ...(process.platform === 'win32' ? ['HOMEDRIVE', 'HOMEPATH', 'SYSTEMDRIVE', 'USERNAME'] : []),
   'LANG',
   'LC_ALL',
   'LC_CTYPE',
@@ -22,7 +24,7 @@ export const PACKAGED_DESKTOP_INHERITED_ENV_KEYS = Object.freeze([
   'PATH',
   'PATHEXT',
   'SHELL',
-  'SystemRoot',
+  'SYSTEMROOT',
   'TEMP',
   'TMP',
   'TMPDIR',
