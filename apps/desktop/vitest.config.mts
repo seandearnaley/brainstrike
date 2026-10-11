@@ -3,7 +3,7 @@ import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vitest/config';
+import { defineConfig, type TestProjectConfiguration } from 'vitest/config';
 import { createAgentBrowserSafeAliasMap } from '../../packages/agent/config/browser-safe-subpath-aliases.mjs';
 
 // Native file sharding keeps each integration runner serialized. Local runs
@@ -42,6 +42,33 @@ export const ELECTRON_RUNTIME_TESTS = [
   'src/__tests__/assistant-server/query-self-scoped-callers.integration.test.ts',
 ];
 export const UNDER_ELECTRON = process.versions.electron !== undefined;
+
+const MAIN_BOOT_TEST = 'src/__tests__/main/boot-order.test.ts';
+
+// The Windows cold boot case spent 13.3s reading Vitest fork-cache files before
+// Main executed. Threads transports the same transformed source in memory;
+// the real Main wiring, isolation and 15s assertion deadline stay unchanged.
+// https://vitest.dev/config/pool
+export const WINDOWS_DESKTOP_TEST_PROJECTS: TestProjectConfiguration[] = [
+  {
+    extends: true,
+    test: {
+      include: [MAIN_BOOT_TEST],
+      name: 'main-boot',
+      pool: 'threads',
+      sequence: { groupOrder: 0 },
+    },
+  },
+  {
+    extends: true,
+    test: {
+      exclude: [MAIN_BOOT_TEST],
+      name: 'desktop',
+      pool: 'forks',
+      sequence: { groupOrder: 1 },
+    },
+  },
+];
 
 const coverageEnabled =
   process.env['COVERAGE'] !== 'false' &&
@@ -250,13 +277,8 @@ export default defineConfig({
     // surfaces with process-wide module state. Keep this package serialized so
     // those globals cannot bleed across files under load.
     maxWorkers: 1,
-    // Default pool for bare/editor `vitest` invocations. threads avoids process
-    // forks (which can trigger EPERM kills in constrained sandboxes). NOTE: the
-    // package's `test`, `test:integration`, and `test:coverage` scripts OVERRIDE
-    // this with `--pool=forks` on the CLI, so the effective pool for every lane
-    // that CI and `pnpm test` run is FORKS, not threads. This default only
-    // applies when vitest is invoked directly without that flag.
-    pool: 'threads',
+    pool: 'forks',
+    projects: process.platform === 'win32' ? WINDOWS_DESKTOP_TEST_PROJECTS : undefined,
     reporters: ['default', new LostTestFileReporter()],
     server: {
       deps: {

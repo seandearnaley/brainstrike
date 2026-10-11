@@ -25,7 +25,9 @@ if (typeof electron !== 'string') {
 const args = process.argv.slice(2);
 const coverage = args.includes('--coverage');
 const passthrough = args.filter((arg) => arg !== '--coverage');
-const serial = ['--pool=forks', '--maxWorkers=1', '--no-file-parallelism'];
+// Config owns the pool: native integrations use forks; Windows coverage also
+// includes the isolated Main boot thread project from the base config.
+const serial = ['--maxWorkers=1', '--no-file-parallelism'];
 
 /** The dedicated cache's single storage origin, if one was provisioned. */
 function dedicatedTransformersCache() {

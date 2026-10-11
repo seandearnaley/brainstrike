@@ -5,8 +5,8 @@
 // (node-pty, git, /bin/sh, ripgrep, oxc-parser N-API, secure-fs-native), a
 // real stdio MCP child process, a loopback HTTP server, and several real-clock
 // timeout/abort/benchmark/mtime assertions. Executed by the `test:integration`
-// script (with the same --pool=forks --maxWorkers=1 --no-file-parallelism
-// serialization flags as the pure `test` script), which turbo routes through
+// script (with --maxWorkers=1 --no-file-parallelism and this config's forks
+// pool), which turbo routes through
 // the root uncached `test:integration` task (turbo.jsonc, `cache: false`) so
 // these env-sensitive lanes are never replayed from cache.
 //
@@ -82,5 +82,8 @@ export default defineConfig({
     // lane must not attempt to run them.
     // Under Electron (scripts/run-integration.mjs) only the files that need it run.
     include: UNDER_ELECTRON ? ELECTRON_RUNTIME_TESTS : ['**/*.integration.test.?(c|m)[jt]s?(x)'],
+    // The unit-only cold boot project does not belong in the native lane.
+    pool: 'forks',
+    projects: undefined,
   },
 });
