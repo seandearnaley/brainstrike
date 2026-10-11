@@ -134,6 +134,7 @@ beforeEach(async () => {
   harness = await createSnapshotHarness(fixture.db);
   deps = rewindDeps(harness, probe);
   await seedThread();
+  await seedThreeRootHistory();
 });
 
 afterEach(async () => {
@@ -143,8 +144,6 @@ afterEach(async () => {
 
 describe('applyRewind — multi-root range', () => {
   it('restores two repositories and one plain root, removes the shell-created file, reports every root, and redo round-trips', async () => {
-    await seedThreeRootHistory();
-
     const preview = await rewindToMessage(
       fixture.db,
       { messageId: 'msg-2', threadId: THREAD_ID },
@@ -212,7 +211,6 @@ describe('applyRewind — multi-root range', () => {
   });
 
   it('a post-preview drift in ONE root blocks every other root too', async () => {
-    await seedThreeRootHistory();
     await previewFor('msg-2');
     await writeDiskFile(rootPath(REPO_B), '/src/index.ts', 'hand edited in repo B');
 
@@ -249,7 +247,6 @@ describe('applyRewind — multi-root range', () => {
   });
 
   it('a disconnected root is reported by name, never silently skipped', async () => {
-    await seedThreeRootHistory();
     await disconnectRoot(fixture.db, PLAIN_C);
     await previewFor('msg-2');
 
@@ -301,7 +298,6 @@ describe('applyRewind — multi-root range', () => {
   });
 
   it('a mid-loop restore throw becomes an honest per-root failed outcome — the batch and recorded pre-reverts survive and redo works', async () => {
-    await seedThreeRootHistory();
     await previewFor('msg-2');
 
     // Shadow-git dies for REPO_B's pre-revert capture only — the other roots
