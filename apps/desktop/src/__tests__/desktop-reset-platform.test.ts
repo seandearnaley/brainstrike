@@ -451,6 +451,67 @@ describe('createDesktopFactoryResetHandler', () => {
     );
   });
 
+  it.each([new Error('profile deletion failed'), undefined])(
+    'rejects terminal close with the original accepted reset failure (%s)',
+    async (failure) => {
+      const purge = Promise.withResolvers<void>();
+      resetDesktopApplicationDataMock.mockImplementationOnce(() => purge.promise);
+      const logger = { error: vi.fn(), info: vi.fn() };
+      const resumeAfterReset = vi.fn(async () => undefined);
+      const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
+      const owner = createDesktopFactoryResetHandler({
+        cleanupLiveSubscriptionsForShutdown: async () => {},
+        completeSuccessfulReset: completeSuccessfulResetMock,
+        logger,
+        resetLocalDatabase: async () => {},
+        resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
+        resumeAfterReset,
+        runTransition: (work) => work(),
+        runtimes: [],
+        runWithDatabaseResetBarrier: (work) => work(),
+        sessionDataPath: '/mock/userData/session-data',
+        userDataPath: '/mock/userData',
+        waitForDatabaseWorkSchedulerIdle: async () => {},
+      });
+      const reset = owner.reset();
+      expect(owner.reset()).toBe(reset);
+      expect(owner.inFlight()).toBe(reset);
+      const closing = Promise.allSettled([owner.close(), owner.close()]);
+      const idle = owner.idle();
+      onTestFinished(async () => {
+        purge.resolve();
+        await Promise.allSettled([reset, closing, idle]);
+      });
+
+      purge.reject(failure);
+
+      const closed = await closing;
+      expect(closed).toEqual([
+        { reason: failure, status: 'rejected' },
+        { reason: failure, status: 'rejected' },
+      ]);
+      for (const result of closed) {
+        if (result.status !== 'rejected') {
+          throw new Error('Terminal close concealed the reset failure');
+        }
+        expect(result.reason).toBe(failure);
+      }
+      await expect(reset).resolves.toEqual({
+        message: failure instanceof Error ? failure.message : String(failure),
+        success: false,
+      });
+      await idle;
+      expect(owner.inFlight()).toBeNull();
+      expect(logger.error).toHaveBeenCalledExactlyOnceWith(
+        'Failed to reset desktop application data:',
+        failure
+      );
+      expect(logger.info).not.toHaveBeenCalled();
+      expect(resumeAfterReset).not.toHaveBeenCalled();
+      expect(completeSuccessfulResetMock).not.toHaveBeenCalled();
+    }
+  );
+
   it('cancels replacement readiness when quit arrives after deletion', async () => {
     const replacement = Promise.withResolvers<void>();
     const logger = { error: vi.fn(), info: vi.fn() };
