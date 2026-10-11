@@ -119,6 +119,7 @@ type VisibleDesktopDatabaseBridge = Pick<
   | 'clearAll'
   | 'diagnostics'
   | 'exec'
+  | 'factoryResetUnavailableReason'
   | 'insertChunksAndEnqueueEmbeddingJobs'
   | 'invalidateManagedCacheEntriesByIdentity'
   | 'ping'
@@ -284,6 +285,7 @@ const VISIBLE_DATABASE_KEYS = defineExactKeys<VisibleDesktopDatabaseBridge>()([
   'clearAll',
   'diagnostics',
   'exec',
+  'factoryResetUnavailableReason',
   'insertChunksAndEnqueueEmbeddingJobs',
   'invalidateManagedCacheEntriesByIdentity',
   'ping',

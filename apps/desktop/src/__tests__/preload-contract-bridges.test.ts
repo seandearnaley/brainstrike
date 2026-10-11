@@ -247,7 +247,9 @@ describe('preload contract-derived bridges', () => {
       getUserDataPath: () => Promise<unknown>;
     };
 
-    expect(Object.keys(electronApi.db).sort()).toEqual(Object.keys(databaseContract).sort());
+    expect(Object.keys(electronApi.db).sort()).toEqual(
+      [...Object.keys(databaseContract), 'factoryResetUnavailableReason'].sort()
+    );
     expect(Object.keys(electronApi.dbLive).sort()).toEqual(
       Object.keys(databaseLiveContract).sort()
     );

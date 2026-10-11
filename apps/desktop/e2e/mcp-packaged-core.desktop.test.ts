@@ -854,55 +854,62 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     ).toEqual([]);
     await new HomePage(restarted.window).openSettings();
     await new SettingsPage(restarted.window).openCategory(/Factory Reset/i, 'factory-reset');
-    await restarted.window.evaluate(() => {
-      window.confirm = () => true;
-    });
-    const replacementLoaded = restarted.window.waitForEvent('domcontentloaded', {
-      timeout: 60_000,
-    });
-    await restarted.window.getByTestId('factory-reset-button').click();
-    await replacementLoaded;
-    await openToolsSettings(restarted.window);
-    await restarted.window.getByRole('tab', { name: 'Tools' }).click();
-    await expect(restarted.window.getByTestId('mcp-server-status-empty')).toHaveText(
-      'No MCP servers configured.'
-    );
-    await expectOwnedProcessGone(restartedStdioPid);
-    const resetEvidence = (
-      await findLogRecords(userDataDir, 'brainstrike.log', 'MCP runtime reset cleanup completed')
-    ).at(-1);
-    // Counts include the oauth server this phase reconnected: one more client,
-    // its provider's extra callback, and the loopback port that provider owns.
-    expect(resetEvidence).toMatchObject({
-      hostCloseReport: {
-        callbacksClosed: 6,
-        childProcessesClosed: 2,
-        clientsClosed: 5,
-        failures: [],
-        loopbackPortsClosed: 1,
-        probesClosed: 0,
-        subscriptionsClosed: 0,
-      },
-      legacyClientsClosed: true,
-      snapshot: { servers: [] },
-    });
-    const resetCloseReport = Reflect.get(resetEvidence ?? {}, 'hostCloseReport') as CloseReport;
-    expect(resetCloseReport['requestsSettled']).toBeGreaterThanOrEqual(3);
-    const afterResetDiagnostics = await readLifecycleDiagnostics(restarted.window);
-    expect(afterResetDiagnostics.reset).toMatchObject({
-      lastCompletedAt: expect.any(String),
-      lastError: null,
-      status: 'completed',
-    });
-    expect(afterResetDiagnostics.hostPid).not.toBe(beforeResetDiagnostics.hostPid);
-    await configureThroughUi(
-      restarted.window,
-      JSON.stringify({ servers: [oauthServer(oauth.manifest.url)] })
-    );
-    await waitForServerState(restarted.window, 'oauth', /authentication-required/i);
-    await expect(serverRow(restarted.window, 'oauth')).toContainText(
-      'OAuth credentials not stored'
-    );
+    if (process.platform === 'win32') {
+      await expect(restarted.window.getByTestId('factory-reset-button')).toBeDisabled();
+      await expect(
+        restarted.window.getByText('Factory reset is unavailable on Windows in this version.')
+      ).toBeVisible();
+    } else {
+      await restarted.window.evaluate(() => {
+        window.confirm = () => true;
+      });
+      const replacementLoaded = restarted.window.waitForEvent('domcontentloaded', {
+        timeout: 60_000,
+      });
+      await restarted.window.getByTestId('factory-reset-button').click();
+      await replacementLoaded;
+      await openToolsSettings(restarted.window);
+      await restarted.window.getByRole('tab', { name: 'Tools' }).click();
+      await expect(restarted.window.getByTestId('mcp-server-status-empty')).toHaveText(
+        'No MCP servers configured.'
+      );
+      await expectOwnedProcessGone(restartedStdioPid);
+      const resetEvidence = (
+        await findLogRecords(userDataDir, 'brainstrike.log', 'MCP runtime reset cleanup completed')
+      ).at(-1);
+      // Counts include the oauth server this phase reconnected: one more client,
+      // its provider's extra callback, and the loopback port that provider owns.
+      expect(resetEvidence).toMatchObject({
+        hostCloseReport: {
+          callbacksClosed: 6,
+          childProcessesClosed: 2,
+          clientsClosed: 5,
+          failures: [],
+          loopbackPortsClosed: 1,
+          probesClosed: 0,
+          subscriptionsClosed: 0,
+        },
+        legacyClientsClosed: true,
+        snapshot: { servers: [] },
+      });
+      const resetCloseReport = Reflect.get(resetEvidence ?? {}, 'hostCloseReport') as CloseReport;
+      expect(resetCloseReport['requestsSettled']).toBeGreaterThanOrEqual(3);
+      const afterResetDiagnostics = await readLifecycleDiagnostics(restarted.window);
+      expect(afterResetDiagnostics.reset).toMatchObject({
+        lastCompletedAt: expect.any(String),
+        lastError: null,
+        status: 'completed',
+      });
+      expect(afterResetDiagnostics.hostPid).not.toBe(beforeResetDiagnostics.hostPid);
+      await configureThroughUi(
+        restarted.window,
+        JSON.stringify({ servers: [oauthServer(oauth.manifest.url)] })
+      );
+      await waitForServerState(restarted.window, 'oauth', /authentication-required/i);
+      await expect(serverRow(restarted.window, 'oauth')).toContainText(
+        'OAuth credentials not stored'
+      );
+    }
   } catch (error) {
     testFailed = true;
     failure = error;

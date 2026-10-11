@@ -102,6 +102,32 @@ describe('FactoryResetPanel', () => {
     mockConfirm.mockReturnValue(true);
   });
 
+  it('disables an explicitly unavailable desktop reset without using the database reset', () => {
+    const resetLocal = vi.fn(async () => ({ success: true }));
+    const resetDatabase = vi.fn(async () => {});
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: {
+        db: {
+          factoryResetUnavailableReason: 'Factory reset is unavailable on Windows in this version.',
+          resetLocal,
+        },
+      },
+      writable: true,
+    });
+    render(<FactoryResetPanel doFactoryReset={resetDatabase} />);
+    expect(
+      screen.getByText('Factory reset is unavailable on Windows in this version.')
+    ).toBeVisible();
+    expect(screen.getByTestId('factory-reset-button')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('factory-reset-button'));
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(mockPrepareFactoryReset).not.toHaveBeenCalled();
+    expect(mockClearPersistentUiState).not.toHaveBeenCalled();
+    expect(resetLocal).not.toHaveBeenCalled();
+    expect(resetDatabase).not.toHaveBeenCalled();
+  });
+
   it('joins renderer preparation before clearing stores or calling desktop reset', async () => {
     const preparation = Promise.withResolvers<void>();
     mockPrepareFactoryReset.mockReturnValueOnce(preparation.promise);

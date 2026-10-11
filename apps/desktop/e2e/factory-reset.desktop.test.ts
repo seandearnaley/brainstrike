@@ -151,7 +151,49 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     });
   });
 
+  test('Windows refuses factory reset without changing persisted state', async ({
+    window,
+    homePage,
+    electronApp,
+  }) => {
+    test.skip(process.platform !== 'win32', 'Windows-only disabled capability.');
+    const userDataDir = await electronApp.app.evaluate(({ app }) => app.getPath('userData'));
+    const sentinel = path.join(userDataDir, 'disabled-reset-sentinel');
+    fs.writeFileSync(sentinel, 'preserve', 'utf8');
+    await window.evaluate(() => localStorage.setItem('disabled-reset-probe', 'preserve'));
+    await openFactoryResetSettings(homePage, new SettingsPage(window));
+    await expect(window.getByTestId('factory-reset-button')).toBeDisabled();
+    await expect(
+      window.getByText('Factory reset is unavailable on Windows in this version.')
+    ).toBeVisible();
+    const result = await window.evaluate(async () => {
+      const bridge = (
+        globalThis as typeof globalThis & {
+          electronAPI?: {
+            db?: { resetLocal?: () => Promise<{ success: boolean; message?: string }> };
+          };
+        }
+      ).electronAPI?.db;
+      if (!bridge?.resetLocal) {
+        throw new Error('Missing desktop reset IPC');
+      }
+      return await bridge.resetLocal();
+    });
+    expect(result).toEqual({
+      message: 'Factory reset is unavailable on Windows in this version.',
+      success: false,
+    });
+    expect(fs.readFileSync(sentinel, 'utf8')).toBe('preserve');
+    expect(await window.evaluate(() => localStorage.getItem('disabled-reset-probe'))).toBe(
+      'preserve'
+    );
+  });
+
   test('cancel path leaves persisted state untouched', async ({ window, homePage }) => {
+    test.skip(
+      process.platform === 'win32',
+      'Windows Factory Reset is disabled for M3 by owner decision.'
+    );
     await updateSettingsTestOverrides(window, { accurateRuntimeAvailable: true });
 
     const settingsPage = new SettingsPage(window);
@@ -186,6 +228,10 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     electronApp,
     electronHarness,
   }) => {
+    test.skip(
+      process.platform === 'win32',
+      'Windows Factory Reset is disabled for M3 by owner decision.'
+    );
     await updateSettingsTestOverrides(window, { accurateRuntimeAvailable: true });
     const userDataDir = await electronApp.app.evaluate(async ({ app }) => app.getPath('userData'));
     const staleMcpDir = path.join(userDataDir, 'mcp');

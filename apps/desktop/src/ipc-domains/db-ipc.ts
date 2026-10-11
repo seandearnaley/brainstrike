@@ -24,6 +24,7 @@ import {
   parseInsertChunksAndEnqueueEmbeddingJobsArgs,
   parseManagedCacheInvalidationsArgs,
 } from '../db-shared';
+import { getFactoryResetUnavailableReason } from '../factory-reset-availability';
 import { isDisposedRenderFrameSendError } from '../ipc-embedding-backfill';
 import {
   getDesktopDatabaseWorkSchedulerSnapshot,
@@ -930,6 +931,10 @@ export function registerDatabaseIpcHandlers(
   );
 
   registerEventAwareDatabaseInvoke(registry, databaseContract.resetLocal, async () => {
+    const unavailableReason = getFactoryResetUnavailableReason(process.platform);
+    if (unavailableReason) {
+      return { message: unavailableReason, success: false };
+    }
     if (options?.onResetLocal) {
       return options.onResetLocal();
     }

@@ -17,6 +17,10 @@ export interface FactoryResetPanelProps {
 }
 
 type DesktopResetBridge = () => Promise<{ message?: string; success: boolean }>;
+interface DesktopResetCapability {
+  readonly factoryResetUnavailableReason?: string;
+  readonly resetLocal?: DesktopResetBridge;
+}
 
 async function requestFactoryResetReload(reason: string): Promise<void> {
   try {
@@ -30,19 +34,21 @@ async function requestFactoryResetReload(reason: string): Promise<void> {
   }
 }
 
-function getDesktopResetBridge(): DesktopResetBridge | null {
+function getDesktopResetCapability(): DesktopResetCapability | undefined {
   if (typeof window === 'undefined') {
-    return null;
+    return undefined;
   }
-  const resetLocal = (
+  return (
     window as Window & {
       electronAPI?: {
-        db?: {
-          resetLocal?: () => Promise<{ message?: string; success: boolean }>;
-        };
+        db?: DesktopResetCapability;
       };
     }
-  ).electronAPI?.db?.resetLocal;
+  ).electronAPI?.db;
+}
+
+function getDesktopResetBridge(): DesktopResetBridge | null {
+  const resetLocal = getDesktopResetCapability()?.resetLocal;
   return typeof resetLocal === 'function' ? resetLocal : null;
 }
 
@@ -80,9 +86,14 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
     [doFactoryReset, providerFactoryReset]
   );
   const desktopResetAvailable = getDesktopResetBridge() !== null;
-  const resetAvailable = desktopResetAvailable || typeof resetFn === 'function';
+  const unavailableReason = getDesktopResetCapability()?.factoryResetUnavailableReason;
+  const resetAvailable =
+    !unavailableReason && (desktopResetAvailable || typeof resetFn === 'function');
 
   const handleClick = useCallback(async () => {
+    if (getDesktopResetCapability()?.factoryResetUnavailableReason) {
+      return;
+    }
     const desktopResetBridge = getDesktopResetBridge();
     if (!(desktopResetBridge || typeof resetFn === 'function')) {
       return;
@@ -153,8 +164,8 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
       </Button>
       {resetAvailable ? null : (
         <p className="mt-1 text-muted-foreground text-xs">
-          Factory reset is unavailable until the database is ready. Restart the app if this does not
-          clear.
+          {unavailableReason ??
+            'Factory reset is unavailable until the database is ready. Restart the app if this does not clear.'}
         </p>
       )}
     </div>

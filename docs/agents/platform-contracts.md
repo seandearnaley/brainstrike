@@ -209,6 +209,13 @@ Guard: `apps/desktop/src/__tests__/main/ipc-global-manifest.test.ts`,
 
 ## FACTORY RESET CONTRACT
 
+Factory Reset is explicitly unavailable on Windows for M3 (owner decision,
+11 October 2026). Preload exposes the refusal reason, Settings disables the
+action without clearing renderer state, and Main rejects `db:resetLocal`
+before invoking any destructive owner. macOS and web reset behavior is unchanged.
+Windows reset and quit-during-reset acceptance are excluded by this feature cut,
+not reported as passing; ordinary Windows startup and shutdown remain required.
+
 "Factory Reset Brainstrike" means a true fresh start: the renderer boots as if
 never used. Wiping the database alone is not enough.
 

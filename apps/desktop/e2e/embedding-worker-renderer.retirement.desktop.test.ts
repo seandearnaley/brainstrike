@@ -83,6 +83,10 @@ for (const mode of ['quit-and-relaunch', 'reset-and-reuse', 'quit-during-reset']
     electronApp,
     window,
   }) => {
+    test.skip(
+      process.platform === 'win32' && mode !== 'quit-and-relaunch',
+      'Windows Factory Reset is disabled for M3 by owner decision.'
+    );
     test.setTimeout(540_000);
     const root = await createNativeImportRoot(
       REAL_WORLD_MIXED_STATE_FILE_COUNT,

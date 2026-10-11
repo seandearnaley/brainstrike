@@ -5,6 +5,7 @@
 // graph, and build-main.mjs refuses a bundle that requires anything else.
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
+import { getFactoryResetUnavailableReason } from './factory-reset-availability';
 import { changesContract } from './ipc-domains/changes.contract';
 import { clipboardContract } from './ipc-domains/clipboard.contract';
 import { commandSessionsContract } from './ipc-domains/command-sessions.contract';
@@ -162,10 +163,10 @@ function subscribeToDbLiveUpdates(callback: DbLiveUpdateCallback): () => void {
   };
 }
 
-const databaseBridge = createIpcBridge(
-  ipcRenderer,
-  databaseContract
-) as unknown as VisibleDesktopElectronApi['db'];
+const databaseBridge = {
+  ...createIpcBridge(ipcRenderer, databaseContract),
+  factoryResetUnavailableReason: getFactoryResetUnavailableReason(process.platform),
+} as unknown as VisibleDesktopElectronApi['db'];
 const databasePathBridge: DatabasePathBridge = createIpcBridge(ipcRenderer, databasePathContract);
 const databaseLiveBridge: DatabaseLiveBridge = {
   ...createIpcBridge(ipcRenderer, databaseLiveContract),

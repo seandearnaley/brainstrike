@@ -12,6 +12,8 @@ import { createDisposableAppProfile } from './helpers/disposable-app-profile';
 const desktop = resolve(import.meta.dirname, '../..');
 
 test('quitting while a factory reset finishes lets the reset complete', {
+  // Owner excluded Windows Factory Reset from M3; ordinary quit stays covered.
+  skip: process.platform === 'win32',
   timeout: getAdjustedTimeout('e2e'),
 }, async () => {
   const { root } = await createDisposableAppProfile('brainstrike-reset-quit-');
