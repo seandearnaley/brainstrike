@@ -5,11 +5,12 @@ import { expect, it, vi } from 'vitest';
 import { receiveAgentHostParentMessage } from '../../agent-host-parent-control';
 import { createUtilityParentInbox, loadUtilityStartup } from '../../utility-parent-inbox';
 
-it('retains early close and rejects malformed controls with the existing decoder', () => {
+it('retains early close and rejects malformed controls with the existing decoder', async () => {
   const parent = new EventEmitter();
   const inbox = createUtilityParentInbox(parent);
   const close = { data: { method: 'close' }, ports: [] };
   parent.emit('message', close);
+  await inbox.received;
   const cancel = vi.fn();
   const receive = vi.fn((input: unknown) =>
     receiveAgentHostParentMessage(input, undefined, cancel)

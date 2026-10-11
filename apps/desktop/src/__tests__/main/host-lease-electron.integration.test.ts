@@ -37,6 +37,7 @@ interface AppChild {
   readonly exited: Promise<number | null>;
   ownsHost(): boolean;
   readonly process: ChildProcessWithoutNullStreams;
+  sendControl(command: 'close' | 'release-lifetime'): Promise<void>;
 }
 let directory: string;
 let entrypoint: string;
@@ -142,7 +143,14 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
     // Chromium refuses root in this isolated test container without this flag.
     args.push('--no-sandbox');
   }
-  const child = spawn(electronPath(), args, { env, stdio: 'pipe' });
+  const child = spawn(electronPath(), args, {
+    env,
+    stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+  }) as ChildProcessWithoutNullStreams;
+  const sendControl = (command: 'close' | 'release-lifetime'): Promise<void> =>
+    new Promise<void>((resolve, reject) => {
+      child.send(command, (error: Error | null) => (error ? reject(error) : resolve()));
+    });
   const completion = Promise.withResolvers<HostRecord>();
   completion.promise.catch(() => undefined);
   let buffered = '';
@@ -212,7 +220,7 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
     }),
     close: async () => {
       if (child.exitCode === null && child.signalCode === null) {
-        child.stdin.write('close\n');
+        await sendControl('close');
       }
       const code = await runWithTimeout(() => exited, {
         onTimeout: () => new Error('Electron did not close'),
@@ -232,6 +240,7 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
     exited,
     ownsHost: () => owned,
     process: child,
+    sendControl,
   };
   app.attached.catch(() => undefined);
   activeApps.add(app);
@@ -397,7 +406,7 @@ describe('real Electron host lease acquisition', () => {
       const app = startApp(root, undefined, kernel === 'agent' ? agentPlatform : undefined);
       const record = await app.attached;
       expect(app.ownsHost()).toBe(true);
-      app.process.stdin.write('release-lifetime\n');
+      await app.sendControl('release-lifetime');
       await waitGone(record.pid, record.start);
       expect(RootLock.inspect(root)?.owner.released).toBe(true);
       expect(app.process.exitCode).toBeNull();

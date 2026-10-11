@@ -7,10 +7,13 @@ interface UtilityParent {
 export function createUtilityParentInbox(parent: UtilityParent): {
   bind(receive: (input: unknown) => void): void;
   close(): void;
+  readonly received: Promise<void>;
 } {
   const pending: unknown[] = [];
+  const received = Promise.withResolvers<void>();
   let receiver: ((input: unknown) => void) | undefined;
   const message = (input: unknown): void => {
+    received.resolve();
     if (receiver) {
       receiver(input);
     } else {
@@ -29,6 +32,7 @@ export function createUtilityParentInbox(parent: UtilityParent): {
       }
     },
     close: () => parent.off('message', message),
+    received: received.promise,
   };
 }
 

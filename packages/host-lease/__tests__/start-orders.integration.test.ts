@@ -104,7 +104,14 @@ afterEach(async () => {
   for (const record of fixtureHosts) {
     if (processStartTime(record.pid) === record.start) {
       // Only a proved test-owned host may be terminated during fixture cleanup.
-      process.kill(record.pid, 'SIGTERM');
+      try {
+        process.kill(record.pid, 'SIGTERM');
+      } catch (error) {
+        // The owned host can exit between the identity query and this signal.
+        if (!(error instanceof Error && 'code' in error && error.code === 'ESRCH')) {
+          throw error;
+        }
+      }
       await waitForGone(record);
     }
   }

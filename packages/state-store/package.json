@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/secure-fs-native": "workspace:*",
+    "@brainstrike/windows-job-native": "workspace:*",
     "better-sqlite3": "catalog:"
   },
   "devDependencies": {

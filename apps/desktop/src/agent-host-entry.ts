@@ -30,6 +30,10 @@ async function main(): Promise<void> {
   let controlFailure: unknown;
   let host: AgentHost | undefined;
   try {
+    // Wait for the parent's existing lifetime channel before evaluating the
+    // dependency graph. An initial setImmediate can precede Electron's first
+    // native message dispatch, leaving an already queued Close behind imports.
+    await loadUtilityStartup(() => inbox.received, controller.signal);
     const { receiveAgentHostParentMessage } = await loadUtilityStartup(
       () => import('./agent-host-parent-control'),
       controller.signal

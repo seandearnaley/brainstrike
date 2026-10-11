@@ -57,16 +57,18 @@ function close(): void {
     app.exit(1);
   });
 }
-process.stdin.setEncoding('utf8');
-process.stdin.on('data', (chunk: string) => {
-  if (chunk.trim() === 'close') {
+// BST-1977: the Windows fixture lost stdin controls after attachment. Use
+// Node's inherited IPC channel for this fixture's control lane.
+process.on('message', (command: unknown) => {
+  if (command === 'close') {
     close();
-  }
-  if (chunk.trim() === 'release-lifetime') {
+  } else if (command === 'release-lifetime') {
     for (const end of lifetimeEnds.splice(0)) {
       end.close();
     }
     report({ event: 'lifetime-released' });
+  } else {
+    throw new TypeError('Invalid Electron fixture control');
   }
 });
 app.on('window-all-closed', () => undefined);

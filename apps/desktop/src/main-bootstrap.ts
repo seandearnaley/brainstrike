@@ -7,7 +7,11 @@ function reportBootstrapFailure(error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   process.stderr.write(`Desktop environment bootstrap failed: ${message}\n`);
   try {
-    dialog.showErrorBox('BrainStrike Desktop failed to start', message);
+    // An early quit failure must exit after reporting, not wait indefinitely
+    // for acknowledgement of a modal startup dialog while shutdown is in flight.
+    if (!isDesktopShuttingDown()) {
+      dialog.showErrorBox('BrainStrike Desktop failed to start', message);
+    }
   } finally {
     app.exit(1);
   }

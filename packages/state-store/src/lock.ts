@@ -19,7 +19,7 @@
 // Owner identity = { pid, start, host, root, token }. `start` is the OS-reported start time of `pid`, read the SAME way
 // for the owner (at acquisition) and for a checker, so the comparison is exact and defeats pid reuse:
 //   darwin/linux: `ps -o lstart= -p <pid>` with LC_ALL=C TZ=UTC (1 s resolution);
-//   win32: the creation time from GetProcessTimes, read through PowerShell's .NET Process.StartTime (100 ns FILETIME).
+//   win32: the creation time from GetProcessTimes (100 ns FILETIME).
 import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import {
@@ -122,33 +122,24 @@ function posixStartTime(pid: number): string | null {
 }
 
 /**
- * The process creation time from GetProcessTimes, via .NET Process.StartTime (which calls it), as a UTC FILETIME
- * (100 ns ticks). Only "no such process" (GetProcessById's ArgumentException) means null; anything else (e.g. access
- * denied) throws: guessing "gone" would let a live owner's lock be taken over.
+ * Keep the same lossless FILETIME previously returned by .NET Process.StartTime.
+ * Only a missing/exited process means null; access and identity-source failures
+ * throw. Native handle queries avoid blocking every contender on PowerShell.
  */
 export const WIN_START_PS = (pid: number): string =>
   `$ErrorActionPreference='Stop'; try { $p = [System.Diagnostics.Process]::GetProcessById(${pid}) } catch [System.ArgumentException] { 'NOPROC'; exit 0 }; 'START ' + $p.StartTime.ToFileTimeUtc()`;
 
+type ProcessIdentityAddon = Pick<
+  typeof import('@brainstrike/windows-job-native'),
+  'getProcessCreationTime'
+>;
+let processIdentityAddon: ProcessIdentityAddon | undefined;
+
 function windowsStartTime(pid: number): string | null {
-  const out = execFileSync(
-    'powershell.exe',
-    ['-NoProfile', '-NonInteractive', '-Command', WIN_START_PS(pid)],
-    {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-    }
-  ).trim();
-  if (out === 'NOPROC') {
-    return null;
-  }
-  const m = /^START (\d+)$/.exec(out);
-  if (!m?.[1]) {
-    throw new Error(
-      `lock: unexpected PowerShell start-time output for pid ${pid}: ${JSON.stringify(out)}`
-    );
-  }
-  return m[1];
+  processIdentityAddon ??= createRequire(import.meta.url)(
+    '@brainstrike/windows-job-native'
+  ) as ProcessIdentityAddon;
+  return processIdentityAddon.getProcessCreationTime(pid);
 }
 
 /** kill(pid, 0): ESRCH = gone; EPERM = exists (another user's process). */

@@ -402,6 +402,45 @@ Napi::Value GetCurrentProcessIdentity(const Napi::CallbackInfo& info) {
   return identity;
 }
 
+Napi::Value GetProcessCreationTime(const Napi::CallbackInfo& info) {
+  const Napi::Env env = info.Env();
+  if (info.Length() != 1 || !info[0].IsNumber()) {
+    Napi::TypeError::New(env, "Process PID must be a positive integer.")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  const double value = info[0].As<Napi::Number>().DoubleValue();
+  if (!std::isfinite(value) || value <= 0 || value > UINT32_MAX || std::floor(value) != value) {
+    Napi::TypeError::New(env, "Process PID must be a positive integer.")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE,
+                               static_cast<DWORD>(value));
+  if (process == nullptr) {
+    const DWORD error = GetLastError();
+    if (error == ERROR_INVALID_PARAMETER) return env.Null();
+    Napi::Error::New(env, WindowsError("OpenProcess", error)).ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  const DWORD wait = WaitForSingleObject(process, 0);
+  std::string creation, error;
+  if (wait == WAIT_TIMEOUT) {
+    ReadCreationTime(process, &creation, &error);
+  } else if (wait != WAIT_OBJECT_0) {
+    error = WindowsError("WaitForSingleObject", GetLastError());
+  }
+  if (!CloseHandle(process) && error.empty()) {
+    error = WindowsError("CloseHandle", GetLastError());
+  }
+  if (!error.empty()) {
+    Napi::Error::New(env, error).ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+  if (wait == WAIT_OBJECT_0) return env.Null();
+  return Napi::String::New(env, creation);
+}
+
 bool ReadCommandMembers(HANDLE job, std::vector<ULONG_PTR>* members, std::string* error) {
   JOBOBJECT_BASIC_ACCOUNTING_INFORMATION accounting{};
   if (!QueryInformationJobObject(job, JobObjectBasicAccountingInformation, &accounting,
@@ -756,6 +795,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
 #ifdef _WIN32
   exports.Set("createCommandJob", Napi::Function::New(env, CommandJob::Create));
   exports.Set("getCurrentProcessIdentity", Napi::Function::New(env, GetCurrentProcessIdentity));
+  exports.Set("getProcessCreationTime", Napi::Function::New(env, GetProcessCreationTime));
   exports.Set("activeProcessCount", Napi::Function::New(env, ActiveProcessCount));
   exports.Set("drainOtherProcesses", Napi::Function::New(env, DrainOtherProcesses));
   exports.Set("initialize", Napi::Function::New(env, Initialize));
@@ -763,6 +803,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
 #else
   exports.Set("createCommandJob", Napi::Function::New(env, Unsupported));
   exports.Set("getCurrentProcessIdentity", Napi::Function::New(env, Unsupported));
+  exports.Set("getProcessCreationTime", Napi::Function::New(env, Unsupported));
   exports.Set("activeProcessCount", Napi::Function::New(env, Unsupported));
   exports.Set("drainOtherProcesses", Napi::Function::New(env, UnsupportedDrain));
   exports.Set("initialize", Napi::Function::New(env, Unsupported));

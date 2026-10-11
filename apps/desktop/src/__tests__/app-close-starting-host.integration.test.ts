@@ -135,6 +135,7 @@ require(${JSON.stringify(join(desktop, 'dist/main.js'))});
       await delay(20);
     }
     await exited;
+    expect(main.exitCode).toBe(0);
     expect([...spawned]).toHaveLength(1);
     expect(output).not.toContain('MCP is unavailable');
   } finally {

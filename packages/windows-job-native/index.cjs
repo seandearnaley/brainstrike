@@ -12,6 +12,7 @@ module.exports = {
   createCommandJob: native.createCommandJob,
   drainOtherProcesses: native.drainOtherProcesses,
   getCurrentProcessIdentity: native.getCurrentProcessIdentity,
+  getProcessCreationTime: native.getProcessCreationTime,
   initialize: native.initialize,
   observeLinuxProcess: native.observeLinuxProcess,
   terminateOtherProcesses: native.terminateOtherProcesses,

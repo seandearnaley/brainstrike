@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
   quit: vi.fn(),
   quitting: false,
   reportHostFailure: vi.fn(),
+  showErrorBox: vi.fn(),
 }));
 const bootstrapEvents = vi.hoisted(() => [] as string[]);
 const runtime = vi.hoisted(() => ({
@@ -40,7 +41,7 @@ vi.mock('electron', () => ({
     removeListener: (event: string) => state.handlers.delete(event),
     whenReady: vi.fn(() => appReady.current.promise),
   },
-  dialog: { showErrorBox: vi.fn() },
+  dialog: { showErrorBox: state.showErrorBox },
 }));
 
 vi.mock('../../desktop-bootstrap-runtime', () => ({ getDesktopBootstrapRuntime: () => runtime }));
@@ -62,6 +63,7 @@ beforeEach(() => {
   state.exit.mockReset();
   state.reportHostFailure.mockReset();
   state.quit.mockReset();
+  state.showErrorBox.mockReset();
   runtime.profile.acquire.mockReset().mockImplementation(async () => {
     bootstrapEvents.push('profile');
   });
@@ -151,4 +153,15 @@ it('hands a refused early host start to Main reporting while preserving the shel
   expect(runtime.profile.acquire).toHaveBeenCalledOnce();
   expect(bootstrapEvents).toEqual(['environment', 'main']);
   expect(state.exit).not.toHaveBeenCalled();
+});
+
+it('reports a failed early quit without blocking exit on a startup dialog', async () => {
+  runtime.profile.retire.mockRejectedValueOnce(new Error('Owned host close failed'));
+  await import('../../main-bootstrap');
+  const preventDefault = vi.fn();
+  state.handlers.get('before-quit')?.({ preventDefault });
+  await vi.waitFor(() => expect(state.exit).toHaveBeenCalledWith(1));
+  expect(preventDefault).toHaveBeenCalledOnce();
+  expect(state.showErrorBox).not.toHaveBeenCalled();
+  expect(state.quit).not.toHaveBeenCalled();
 });

@@ -4,6 +4,9 @@ export interface WindowsProcessIdentity {
   readonly pid: number;
 }
 
+/** Native live-process FILETIME, or null for a missing/exited PID. Other failures throw. */
+export function getProcessCreationTime(pid: number): string | null;
+
 export interface CommandJob {
   /** Verify the wrapper's private READY identity on an opened handle before assignment. */
   assign(identity: WindowsProcessIdentity): void;

@@ -3007,6 +3007,9 @@ importers:
       '@brainstrike/effect-kit':
         specifier: workspace:*
         version: link:../effect-kit
+      '@brainstrike/secure-fs-native':
+        specifier: workspace:*
+        version: link:../secure-fs-native
       '@brainstrike/state-store':
         specifier: workspace:*
         version: link:../state-store
@@ -3611,6 +3614,9 @@ importers:
       '@brainstrike/secure-fs-native':
         specifier: workspace:*
         version: link:../secure-fs-native
+      '@brainstrike/windows-job-native':
+        specifier: workspace:*
+        version: link:../windows-job-native
       better-sqlite3:
         specifier: 'catalog:'
         version: 13.0.3
