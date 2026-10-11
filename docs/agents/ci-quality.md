@@ -135,6 +135,10 @@ Guard: `packages/config/__tests__/vitest-browser.test.ts`.
   allocation. `Unit` accepts skipped shards only for a verified empty selection;
   failed selection, missing output, or an unsuccessful selected shard fails it.
   Push/manual and local validation retain the complete suite.
+- Local Mac desktop unit tests use two isolated forks through
+  `vitest.unit.config.mts`. Native integrations and coverage retain the base
+  serialized config; Windows, Linux, CI and explicit native shards remain at
+  one worker. The unit and integration suffix partition is unchanged.
 - Job and `--global-timeout` values are failure ceilings; aim for a PR verdict
   in 15 minutes. Judge a ceiling as a ratio to measured runtime and raise or
   split the lane when you add work. An `interrupted` test plus a missing

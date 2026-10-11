@@ -50,6 +50,17 @@ Measured results:
   this Node SQLite runtime disables memory accounting.
 - Mac packaging assertion: passed in 1.177s wall time.
 
+
+The final unit batch introduces a separate desktop unit config. Local Mac
+unit files run in two isolated forks; native integrations, coverage, Windows,
+Linux, CI and explicit shards retain serialized execution. The complete
+`pnpm --filter @brainstrike/desktop run test` candidate passed 523 files and
+6,345 tests in 230.14s (230.69s wall), versus 501.38s for the earlier serial
+root-plan run. The serial run shared the machine with other packages while
+this measurement ran alone; final composed timing remains the acceptance
+criterion. No isolation or assertions were removed. The existing native-shard
+discovery check now resolves the actual unit config.
+
 ## Remaining acceptance work
 
 No complete under-30-minute pass exists yet. The baseline profiling run on
@@ -62,7 +73,7 @@ pnpm refusing the synthetic CI store-setting change. The fixes above address
 these earlier failures; the browser repair below resolves its import problem.
 Composed acceptance remains pending.
 
-The next measured batch fixes browser setup (the web theme needs two asset
+`165cfd89f` fixes browser setup (the web theme needs two asset
 aliases; the hover fixture must explicitly park the real pointer), orders
 state-store tests after native addon builds, and limits the agent package to
 two workers when the root plan runs packages concurrently.
@@ -79,7 +90,20 @@ two workers when the root plan runs packages concurrently.
   but cache reuse and concurrent browser work differed; this is not a controlled
   whole-suite speedup claim. The final retained configuration still needs the
   composed routine run.
-Live-query repetition changes still need runtime validation. Full release,
+The provisioned Mac then passed all three smoke lanes on `165cfd89f`:
+`pnpm check`'s exact commands set `CI=true pnpm_config_ci=false` before
+`pnpm --filter <package> run <lane>`:
+
+- web `test:e2e:lane:smoke`: 28 passed, 34.063s wall time;
+- desktop `test:e2e:lane:smoke`: 35 passed, one existing skip, 159.762s;
+- desktop `test:e2e:lane:smoke-delegated`: 14 passed, 109.035s;
+- desktop `playwright test e2e/database-live-query-memory.desktop.test.ts
+  --project=regression --workers=1 --retries=0`: both passed, 29.149s, proving
+  the reduced routine repetitions with the original memory/handle assertions.
+
+The preceding full build passed in 27.151s. These are separate stage results,
+not an end-to-end acceptance receipt. `remaining-e2e-validation.{json,log}`
+retains exact commands and output. Full release,
 coverage and non-Mac qualification remain unverified.
 
 Raw local evidence is retained alongside the Windows and Mac
