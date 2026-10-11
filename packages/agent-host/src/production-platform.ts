@@ -392,7 +392,7 @@ export async function createProductionHostPlatform<Configuration extends Product
   // Register ownership before the first provider, Memory, MCP or index side effect.
   await input.startup.register(close);
   // The same owner starts the worker before evaluating desktop configuration.
-  stateIndex = openHostStateIndex(input.startup.store.root, input.memoryResourceIds);
+  stateIndex = openHostStateIndex(input.startup.store.root, input.memoryResourceIds, input.startup);
   const configuring =
     'configure' in input
       ? Promise.resolve().then(() =>
