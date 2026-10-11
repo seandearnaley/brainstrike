@@ -1,4 +1,4 @@
-import { once } from 'node:events';
+import type { ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
@@ -68,7 +68,12 @@ function inheritedEnvironment(): Record<string, string> {
 export async function launchPackagedDesktop(options: {
   readonly environment?: Readonly<Record<string, string>>;
   readonly userDataDir: string;
-}): Promise<{ readonly app: ElectronApplication; readonly window: Page }> {
+}): Promise<{
+  readonly app: ElectronApplication;
+  readonly window: Page;
+  readonly process: ChildProcess;
+  readonly exited: Promise<void>;
+}> {
   // Every launch has a provider egress boundary (BST-1931), owned by this app.
   const boundary = await startModelProviderShim();
   let app: ElectronApplication;
@@ -81,10 +86,18 @@ export async function launchPackagedDesktop(options: {
     await boundary.close();
     throw error;
   }
-  closeModelProviderShimWithProcess(boundary, app.process());
+  const child = app.process();
+  const exited = new Promise<void>((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      resolve();
+    } else {
+      child.once('exit', () => resolve());
+    }
+  });
+  closeModelProviderShimWithProcess(boundary, child);
   const window = await app.firstWindow({ timeout: 60_000 });
   await window.waitForLoadState('domcontentloaded');
-  return { app, window };
+  return { app, exited, process: child, window };
 }
 function launchWithEgressBoundary(
   options: {
@@ -119,13 +132,22 @@ function launchWithEgressBoundary(
   });
 }
 export async function closePackagedDesktop(context: {
-  readonly app: ElectronApplication;
-  readonly window: Page;
+  readonly app: Pick<ElectronApplication, 'close'>;
+  readonly process: Pick<ChildProcess, 'exitCode' | 'signalCode'>;
+  readonly exited: Promise<void>;
 }): Promise<void> {
-  const child = context.app.process();
-  const exited = child.exitCode === null ? once(child, 'exit') : Promise.resolve();
-  await context.app.close();
-  await exited;
+  const child = context.process;
+  // Playwright may already have disposed its application channel after quit.
+  // The launcher retains the physical child and exit join before that happens.
+  if (child.exitCode === null && child.signalCode === null) {
+    try {
+      await context.app.close();
+    } finally {
+      await context.exited;
+    }
+  } else {
+    await context.exited;
+  }
   if (child.exitCode !== 0 || child.signalCode !== null) {
     throw new Error(
       `Packaged desktop did not exit gracefully (code=${child.exitCode}, signal=${child.signalCode})`

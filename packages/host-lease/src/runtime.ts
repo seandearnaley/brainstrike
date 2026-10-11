@@ -38,6 +38,8 @@ export interface HostRuntimeBindings {
   acquireRoot(
     retainRun: () => () => void
   ): Promise<{ readonly lock: RootLock; close(): Promise<void> }>;
+  /** Fence/start retirement now; acquireRoot.close must join that same retirement. */
+  beginClose?(): void;
   readonly protocolVersion: number;
 }
 export interface HostSocketLifecycle {
@@ -129,9 +131,30 @@ export async function startHost(
   let attachedOnce = false;
   const close = (cause?: unknown): Promise<void> => {
     if (!closing) {
-      const rootClosing = owner.close();
+      // BST-1977: fence Core before metadata/ACL and transport finalizers.
+      // Latch first: retirement can synchronously release a run or reenter close.
+      closing = completion.promise;
+      const failures: unknown[] = [];
+      try {
+        bindings?.beginClose?.();
+      } catch (failure) {
+        failures.push(failure);
+      }
+      const rootClosing = owner.close().then(
+        () => {
+          if (failures.length > 0) {
+            throw failures[0];
+          }
+        },
+        (failure: unknown) => {
+          if (failures.length > 0 && failures[0] !== failure) {
+            throw new AggregateError([...failures, failure], 'Host retirement and cleanup failed');
+          }
+          throw failure;
+        }
+      );
       rootClosing.then(rootJoined.resolve, rootJoined.reject);
-      closing = (async () => {
+      void (async () => {
         try {
           await rootClosing;
           if (cause !== undefined) {
@@ -148,8 +171,7 @@ export async function startHost(
             await serverClosing;
           }
         }
-      })();
-      closing.then(completion.resolve, completion.reject);
+      })().then(completion.resolve, completion.reject);
     }
     return closing;
   };

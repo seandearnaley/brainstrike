@@ -15,9 +15,11 @@ async function main(): Promise<void> {
   }
   let host: HostRuntime | undefined;
   let stopRequested = false;
+  const controller = new AbortController();
   let controlFailure: unknown;
   const stop = (): void => {
     stopRequested = true;
+    controller.abort(new Error('Host process cancelled'));
     host?.close().catch((cause: unknown) => {
       process.stderr.write(`${String(cause)}\n`);
       process.exitCode = 1;
@@ -40,7 +42,7 @@ async function main(): Promise<void> {
   process.once('SIGINT', stop);
   try {
     const options = decodeStartOptions(JSON.parse(process.argv[2] ?? 'null'));
-    host = await startHost(options);
+    host = await startHost(options, undefined, controller.signal);
     if (stopRequested) {
       await host.close();
     } else {

@@ -147,6 +147,8 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
   completion.promise.catch(() => undefined);
   let buffered = '';
   let stderr = '';
+  let stdout = '';
+  const reportFailures: unknown[] = [];
   let owned = false;
   let profileReported = false;
   child.stderr.setEncoding('utf8');
@@ -162,11 +164,16 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
   child.once('error', (cause) => completion.reject(cause));
   child.stdout.setEncoding('utf8');
   child.stdout.on('data', (chunk: string) => {
+    stdout += chunk;
     buffered += chunk;
     let newline = buffered.indexOf('\n');
     while (newline !== -1) {
       const line = buffered.slice(0, newline);
       buffered = buffered.slice(newline + 1);
+      if (/^\r*$/.test(line)) {
+        newline = buffered.indexOf('\n');
+        continue;
+      }
       try {
         const report = decodeReport(JSON.parse(line));
         if (report.event === 'profile') {
@@ -192,6 +199,7 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
           completion.reject(new Error(report.message));
         }
       } catch (cause) {
+        reportFailures.push(cause);
         completion.reject(cause);
       }
       newline = buffered.indexOf('\n');
@@ -211,6 +219,12 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
         timeoutMs: 5000,
       });
       activeApps.delete(app);
+      if (reportFailures.length > 0) {
+        throw new AggregateError(
+          reportFailures,
+          `Invalid Electron reports; stdout=${JSON.stringify(stdout)}; stderr=${JSON.stringify(stderr)}`
+        );
+      }
       if (code !== 0 && child.signalCode === null) {
         throw new Error(`Electron close exited ${code}: ${stderr}`);
       }

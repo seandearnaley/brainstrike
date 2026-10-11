@@ -291,6 +291,11 @@ export async function startAgentHost(
             lock: store.lock,
           };
         },
+        beginClose: () => {
+          // The Root finalizer below joins this exact idempotent Core promise.
+          // Observe early rejection without consuming it or releasing the store.
+          void core?.close().catch(() => undefined);
+        },
         protocolVersion: AGENT_HOST_PROTOCOL_VERSION,
       },
       signal

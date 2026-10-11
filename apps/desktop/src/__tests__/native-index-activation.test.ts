@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { join } from 'node:path';
 import type {
   CanonicalIngestionDependencies,
   CanonicalScanReceipt,
@@ -196,7 +197,7 @@ it('acquires the workspace index.sqlite with no state truth root or projection',
   // The host's own state-index.sqlite owns state rows; this file must never project them too.
   expect(mocks.acquire).toHaveBeenCalledOnce();
   const [options] = mocks.acquire.mock.calls[0] ?? [];
-  expect(options).toMatchObject({ dbPath: '/owned/profile/index.sqlite' });
+  expect(options).toMatchObject({ dbPath: join('/owned/profile', 'index.sqlite') });
   expect(options).not.toHaveProperty('stateRoot');
   expect(options).not.toHaveProperty('stateProjection');
   expect(options).not.toHaveProperty('stateResources');
