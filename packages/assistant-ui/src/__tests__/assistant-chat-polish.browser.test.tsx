@@ -11,6 +11,7 @@ import { CodeBlockBody, CodeBlockHeader } from '@brainstrike/ui/code-block';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
+import { userEvent as browserUserEvent } from 'vitest/browser';
 import { ActivityTrace } from '../activity-trace';
 import type { ActivitySummary } from '../activity-trace-model';
 import { UserMessage } from '../assistant-ui-panel';
@@ -538,8 +539,8 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
   /**
    * Keeps every message root clear of the browser's RESTING POINTER (BST-1687).
    *
-   * Headless Chromium parks its pointer on the viewport origin even though this
-   * suite never dispatches a real mouse event. Measured in the CI container
+   * Headless Chromium can park its pointer on the viewport origin without a
+   * mouse event. Measured in the CI container
    * image (mcr.microsoft.com/playwright:v1.63.0-noble), not assumed: the live
    * hover chain there reads
    *
@@ -559,10 +560,9 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
    * non-last message, and the row-height and rect assertions below are only
    * about the hover the test itself performs.
    *
-   * The offset only has to be greater than zero; the pointer assertions in the
-   * test prove it did its job rather than trusting that it did. macOS headless
-   * Chromium parks no pointer at all, which is why this was green on every
-   * local run and red on the first CI run at 397c71a.
+   * The test now explicitly parks the real pointer in this padding because
+   * earlier browser files can leave it elsewhere, including over a root on
+   * macOS. The pointer assertions still prove both roots start unhovered.
    */
   const POINTER_PARK_OFFSET_PX = 64;
 
@@ -600,6 +600,9 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
 
   test('hovering the NON-LAST user message floats its action bar at the same spot the in-flow bar occupies on the last message, without growing the row', async () => {
     render(<TwoUserMessagesHarness />);
+    // Browser files share a real pointer; earlier interaction tests can leave
+    // it over a message. Park it in the fixture's top padding before measuring.
+    await browserUserEvent.hover(document.body, { position: { x: 1, y: 1 } });
 
     // initialMessages hydrate asynchronously (see user-action-bar-copy.test.tsx);
     // the LAST message's bar is always mounted (autohide="not-last" never
@@ -645,7 +648,7 @@ describe('user action bar float-on-hover (real browser, BST-898)', () => {
       expect(root).toHaveTextContent(USER_MESSAGE_TEXT);
       // 3. The REAL pointer rests clear of BOTH roots, so the only hover in
       //    this test is the one it performs itself. Established by the
-      //    harness's POINTER_PARK_OFFSET_PX: drop that offset and the non-last
+      //    pointer park and POINTER_PARK_OFFSET_PX: drop that offset and the non-last
       //    root sits on the viewport origin, where headless Chromium parks its
       //    pointer, and this is true before a single event is dispatched.
       expect(root.matches(':hover')).toBe(false);

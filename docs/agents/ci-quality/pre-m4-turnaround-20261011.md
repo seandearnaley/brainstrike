@@ -16,7 +16,7 @@ This branch does not qualify M3 or authorize an unverified integration merge.
   and provide `check:routine`, `check:release`, and `test:affected`.
 - `7096af30d`: repair moved-owner/static validation references, wildcard build
   output validation, and logging's unit/integration partition.
-- This batch: incremental desktop type checks, Vitest transform caching for
+- `6f55fd69a`: incremental desktop type checks, Vitest transform caching for
   file-import and assistant-service, the packaging assertion matching cached
   builds, current native-text fixture profile/read APIs, and local pnpm store
   settings preserved while Playwright receives CI semantics.
@@ -59,11 +59,26 @@ lanes never launched. It is not an acceptance time. Units consumed 13m11.563s
 6,344 passing tests. Other failures: native-text fixture API drift, the
 M3-corrected EPIPE, nine assistant-ui browser file import syntax errors, and
 pnpm refusing the synthetic CI store-setting change. The fixes above address
-all except the browser import problem; composed acceptance remains pending.
+these earlier failures; the browser repair below resolves its import problem.
+Composed acceptance remains pending.
 
-Worker caps in agent/db/app-shell/app-state are a separate, uncommitted
-candidate. Baseline machine load reached 69 on 12 CPUs. Do not count those
-caps as delivered or improved until the complete affected unit run is measured.
+The next measured batch fixes browser setup (the web theme needs two asset
+aliases; the hover fixture must explicitly park the real pointer), orders
+state-store tests after native addon builds, and limits the agent package to
+two workers when the root plan runs packages concurrently.
+
+- `pnpm --filter @brainstrike/assistant-ui run test:browser`: 29 files passed,
+  174 tests passed, one existing skip, 51.28s. Original UI assertions retained.
+- Root routine unit command: 77/77 Turbo tasks passed, 45 cached, 667.170s.
+  Desktop: 523 files and 6,345 tests passed, 501.38s. Agent: 237 files and
+  3,197 tests passed, one skip, 156.62s versus baseline 245.69s.
+- The measured candidate also capped DB, app-shell and app-state at two workers.
+  Those changes were rejected: DB rose from 406.76s to 601.91s, app-shell from
+  98.35s to 185.05s, and app-state from 9.84s to 21.88s. Their configs remain
+  unchanged in the delivered batch. Peak sampled load fell from 69 to 40,
+  but cache reuse and concurrent browser work differed; this is not a controlled
+  whole-suite speedup claim. The final retained configuration still needs the
+  composed routine run.
 Live-query repetition changes still need runtime validation. Full release,
 coverage and non-Mac qualification remain unverified.
 

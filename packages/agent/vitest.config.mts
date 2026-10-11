@@ -54,6 +54,9 @@ export default defineConfig({
     environment: 'node',
     hookTimeout: 15_000,
     include: ['src/**/__tests__/*.spec.ts'],
+    // The root test plan runs four packages concurrently; do not give each
+    // package the entire machine's worker pool as well.
+    ...(process.env['TURBO_TEST_MODE'] ? { maxWorkers: 2 } : {}),
     reporters: ['default', new LostTestFileReporter()],
     setupFiles: ['@brainstrike/test-utils/vitest.event-loop-watchdog.setup', './vitest.setup.ts'],
     // Longer timeout for MCP/Mastra integration tests under parallel load
