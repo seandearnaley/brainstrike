@@ -31,6 +31,7 @@ const [mode, fixture, capturedPath, ownerBundles] = process.argv.slice(2);
 assert.ok(mode && fixture && capturedPath && ownerBundles);
 assert.equal(process.versions.electron, undefined);
 const original = (name) => import(pathToFileURL(path.join(ownerBundles, `${name}.mjs`)).href);
+const { createDesktopProfileRuntime } = await original('desktop-profile-runtime');
 const { createNativeIndexRuntime, NativeReadAuthorityRetiredError: desktopRetired } =
   await original('native-index-runtime');
 const { createNativeIndexReadAuthority } = await original('native-index-read-authority');
@@ -362,11 +363,14 @@ try {
           },
         };
       },
-      // Borrow the existing service; never call a profile or cold factory again.
-      createProfileOwner: () => ({ acquire: async () => services, close: closeServices }),
       getAuthority: authority,
       getFileInvalidator: () => publication && ((file) => publication.invalidateFile(file)),
       installQueryTarget: () => undefined,
+      // Borrow the existing service; never call a profile or cold factory again.
+      profile: createDesktopProfileRuntime(() => ({
+        acquire: async () => services,
+        close: closeServices,
+      })),
     });
     port = await runtime.acquire();
     const initialAuthority = runtime.captureAcknowledgedAuthority().readAuthority();
@@ -427,6 +431,7 @@ try {
       resolveProfile: async () => null,
       runtime,
       settingsReads: new Set(),
+      setupRequired: () => undefined,
     });
     const capability = createNativeScopedSearchCapability({
       openQuery,

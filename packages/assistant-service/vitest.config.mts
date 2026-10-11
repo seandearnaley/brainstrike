@@ -27,6 +27,7 @@ export default defineConfig({
   test: {
     environment: 'node',
     exclude: ['node_modules', 'dist'],
+    fsModuleCache: true,
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],
     reporters: ['default', new LostTestFileReporter()],
     setupFiles: ['@brainstrike/test-utils/vitest.event-loop-watchdog.setup'],

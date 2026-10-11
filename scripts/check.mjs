@@ -229,7 +229,10 @@ export function uncoveredCiGates(plan) {
  * these Playwright invocations and nothing else.
  */
 function playwrightLane(pkg, script) {
-  return `node scripts/run-env.mjs CI=true -- pnpm -s --filter ${pkg} run ${script}`;
+  // Keep synthetic CI semantics in Playwright without changing pnpm's local
+  // dependency-store defaults. pnpm 11 otherwise refuses the installed workspace
+  // because CI flips enableGlobalVirtualStore; dependency verification stays on.
+  return `node scripts/run-env.mjs CI=true pnpm_config_ci=false -- pnpm -s --filter ${pkg} run ${script}`;
 }
 
 const KNOWN_FLAGS = new Set([
