@@ -1169,6 +1169,37 @@ test('the documented flags stay coherent', () => {
   assert.throws(() => parseFlags(['--no-coverage']), /only applies with --full/);
 });
 
+test('routine selection discloses the complete integration matrices it omits', () => {
+  const plan = buildPlan(parseFlags(['--routine', '--no-install']));
+  const ids = new Set(plan.map((step) => step.id));
+  for (const id of [
+    'unit-tests',
+    'browser-tests',
+    'routine-integration-packages',
+    'desktop-routine-integration',
+    'agent-host-routine-integration',
+    'desktop-e2e-smoke',
+    'desktop-e2e-delegated-smoke',
+  ]) {
+    assert.ok(ids.has(id), id);
+  }
+  assert.ok(!ids.has('integration-tests'));
+  assert.ok(uncoveredCiGates(plan).some((gate) => gate.step.includes('integration tests')));
+  assert.throws(() => parseFlags(['--routine', '--full']), /separate plan/);
+  assert.throws(() => parseFlags(['--routine', '--fast']), /separate plan/);
+});
+
+test('stress qualification is explicit and cannot silently omit E2E', () => {
+  const ordinary = new Set(buildPlan(parseFlags(['--full'])).map((step) => step.id));
+  const stress = new Set(buildPlan(parseFlags(['--full', '--stress'])).map((step) => step.id));
+  for (const id of ['lock-stress', 'desktop-stress', 'desktop-native-retirement']) {
+    assert.ok(stress.has(id));
+    assert.ok(!ordinary.has(id));
+  }
+  assert.throws(() => parseFlags(['--stress']), /requires --full/);
+  assert.throws(() => parseFlags(['--full', '--stress', '--no-e2e']), /requires --full/);
+});
+
 test('mode flags report every required gate they omit', () => {
   const omittedByFast = new Set(
     uncoveredCiGates(buildPlan(parseFlags(['--fast']))).map((gate) => gate.step)

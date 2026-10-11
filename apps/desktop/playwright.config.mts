@@ -50,10 +50,9 @@ const playwrightConfig: PlaywrightTestConfig = {
       grepInvert: /@smoke|@perf/,
       name: 'regression',
     },
-    // Benchmarks that take minutes and report numbers instead of asserting
-    // behaviour. Opt-in: the project exists only with BRAINSTRIKE_E2E_PERF=1,
-    // which test:e2e:lane:foreground-latency sets, so a `playwright test`
-    // without it never starts one. Nightly and dispatch only, never on PRs.
+    // Long-running benchmarks and soak assertions run only when explicitly
+    // invoked. test:e2e:stress and test:e2e:lane:foreground-latency set this
+    // flag; ordinary correctness runs retain the other crash/lifecycle tests.
     ...(process.env['BRAINSTRIKE_E2E_PERF'] === '1'
       ? [
           {

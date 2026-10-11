@@ -512,7 +512,7 @@ test.describe('Embedding Host Renderer - crash a', () => {
     await electronHarness.restart();
   });
 
-  test('@desktop-embedding-crash-a renderer stays alive for 5 minutes of idle after completing a backfill (crash repro test 3)', async ({
+  test('@desktop-embedding-crash-a @perf @embedding-soak renderer stays alive for 5 minutes of idle after completing a backfill (crash repro test 3)', async ({
     electronApp,
     electronHarness,
     window,

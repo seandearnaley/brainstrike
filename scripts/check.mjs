@@ -235,6 +235,8 @@ function playwrightLane(pkg, script) {
 const KNOWN_FLAGS = new Set([
   '--fast',
   '--full',
+  '--routine',
+  '--stress',
   '--no-install',
   '--no-e2e',
   '--no-coverage',
@@ -254,11 +256,17 @@ export function parseFlags(argv) {
   }
 
   const args = new Set(argv);
+  if (args.has('--routine') && (args.has('--full') || args.has('--fast'))) {
+    throw new Error('--routine is a separate plan; do not combine it with --full or --fast.');
+  }
   if (args.has('--fast') && args.has('--full')) {
     throw new Error('--fast and --full select different plans; pass one.');
   }
   if (args.has('--no-coverage') && !args.has('--full')) {
     throw new Error('--no-coverage only applies with --full.');
+  }
+  if (args.has('--stress') && (!args.has('--full') || args.has('--no-e2e'))) {
+    throw new Error('--stress requires --full with E2E enabled.');
   }
 
   return {
@@ -269,6 +277,8 @@ export function parseFlags(argv) {
     full: args.has('--full'),
     headless: args.has('--headless'),
     install: !args.has('--no-install'),
+    routine: args.has('--routine'),
+    stress: args.has('--stress'),
     verbose: args.has('--verbose'),
   };
 }
@@ -285,6 +295,8 @@ export function buildPlan(options = {}) {
     coverage = true,
     fixLint = false,
     headless = false,
+    stress = false,
+    routine = false,
   } = options;
 
   // `--fast` drops the runner-heavy lanes CI fans out across separate
@@ -397,12 +409,27 @@ export function buildPlan(options = {}) {
     id: 'unit-tests',
     label: 'test',
   });
-  plan.push({
-    command:
-      'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-test-command.mjs -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:integration --concurrency=2 --summarize --log-order=grouped',
-    id: 'integration-tests',
-    label: 'test:integration',
-  });
+  const integrationCommand =
+    'node scripts/run-env.mjs TURBO_TEST_MODE=unit COVERAGE=false TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-test-command.mjs -- node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run test:integration --concurrency=2 --summarize --log-order=grouped';
+  if (routine) {
+    // The 92-minute baseline spent 22 minutes in these two integration matrices.
+    // Keep all other packages, plus explicit real-process core scenarios below.
+    // --full still executes both complete matrices without these filters.
+    plan.push({
+      command: `${integrationCommand} --filter=!@brainstrike/desktop --filter=!@brainstrike/agent-host`,
+      id: 'routine-integration-packages',
+      label: 'integration tests outside desktop/agent-host',
+    });
+    for (const pkg of ['agent-host', 'desktop']) {
+      plan.push({
+        command: `node scripts/run-env.mjs TEST_TIMEOUT_MULTIPLIER=2 -- node scripts/run-test-command.mjs -- pnpm --filter @brainstrike/${pkg} run test:integration:routine`,
+        id: `${pkg}-routine-integration`,
+        label: `${pkg} core integration scenarios`,
+      });
+    }
+  } else {
+    plan.push({ command: integrationCommand, id: 'integration-tests', label: 'test:integration' });
+  }
 
   // --- Browser tests -----------------------------------------------------
   // CI filters to db/storage/ui because its Playwright container has no C
@@ -475,6 +502,21 @@ export function buildPlan(options = {}) {
     });
   }
 
+  if (stress) {
+    // These local model/soak workloads must not inherit CI=true: some explicitly
+    // refuse CI execution. Each command owns its opt-in and retains all assertions.
+    for (const [id, command] of [
+      ['lock-stress', 'pnpm --filter @brainstrike/state-store run test:stress'],
+      ['desktop-stress', 'pnpm --filter @brainstrike/desktop run test:e2e:stress'],
+      [
+        'desktop-native-retirement',
+        'pnpm --filter @brainstrike/desktop run test:e2e:qualification:native-retirement',
+      ],
+    ]) {
+      plan.push({ command, id, label: id });
+    }
+  }
+
   return plan;
 }
 
@@ -522,6 +564,12 @@ export async function main(argv = process.argv.slice(2)) {
     console.log(`  - ${step.label}`);
   }
   console.log('');
+  if (options.routine) {
+    console.log(
+      'Routine plan: all units, all other package integrations, desktop/agent-host core integrations, browser tests and E2E smoke. Complete integration matrices, full E2E, coverage and stress are not included.'
+    );
+    console.log('Acceptance requirement: finish in under 30 minutes.');
+  }
   console.log(`${BOLD}CI gates this run does NOT cover:${RESET}`);
   for (const gate of uncoveredCiGates(steps)) {
     console.log(`  - ${gate.step}`);
@@ -549,10 +597,19 @@ export async function main(argv = process.argv.slice(2)) {
 
   const totalMs = Math.round(performance.now() - startedAll);
   console.log('');
-  console.log(`${GREEN}${BOLD}All checks passed${RESET} in ${YELLOW}${totalMs} ms${RESET}`);
+  const overRoutineBudget = options.routine && totalMs >= 30 * 60 * 1000;
+  console.log(
+    `${GREEN}${BOLD}Selected correctness checks passed${RESET} in ${YELLOW}${totalMs} ms${RESET}`
+  );
   console.log(`${BOLD}Step timings:${RESET}`);
   for (const result of results) {
     console.log(`  - ${result.label} (${result.ms} ms)`);
+  }
+  if (overRoutineBudget) {
+    console.error(
+      'Routine validation exceeded the required 30 minutes. Turnaround acceptance failed.'
+    );
+    return 1;
   }
   return 0;
 }

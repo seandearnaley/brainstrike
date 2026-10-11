@@ -18,9 +18,13 @@ import {
   waitForTrackedRuntimeWorkingSetMB,
 } from './embedding-worker-renderer.shared';
 
-const LIVE_QUERY_MUTATION_COUNT = 100;
+// Routine coverage exercises replacement, midpoint collection, and later
+// collection with more generations than the retained-array bound. The longer
+// drift observation remains in the explicit stress command.
+const stress = process.env['BRAINSTRIKE_TEST_STRESS'] === '1';
+const LIVE_QUERY_MUTATION_COUNT = stress ? 100 : 12;
 const LIVE_QUERY_MUTATION_PAYLOAD_BYTES = 8192;
-const LIVE_QUERY_SWITCH_CYCLE_COUNT = 10;
+const LIVE_QUERY_SWITCH_CYCLE_COUNT = stress ? 10 : 3;
 const LIVE_QUERY_TEST_FILE_COUNT = 50;
 const LIVE_QUERY_VISIBLE_HEAP_DRIFT_LIMIT_MB = 16;
 const LIVE_QUERY_MUTATION_VISIBLE_WORKING_SET_DRIFT_LIMIT_MB = 32;
@@ -306,7 +310,7 @@ async function expectCurrentLiveProbeState(
 test.describe('Database live-query memory', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test('@desktop-embedding-memory releases superseded live-query results across 100 committed mutations', async ({
+  test('@desktop-embedding-memory releases superseded live-query results across committed mutations', async ({
     electronApp,
     window,
   }) => {
@@ -438,7 +442,7 @@ test.describe('Database live-query memory', () => {
         const midpointDiagnostics = await getDatabaseMemoryTestSnapshot(activeWindow);
         midpointRecordArrayGeneration = requireCurrentRecordArrayGeneration(
           midpointDiagnostics,
-          '50 committed mutations'
+          'the mutation midpoint'
         );
         expect(midpointDiagnostics.recordArrayRetention.aliveGenerations).not.toContain(
           baselineRecordArrayGeneration
@@ -447,7 +451,7 @@ test.describe('Database live-query memory', () => {
     }
 
     if (!(midpointMemory && midpointRecordArrayGeneration !== null)) {
-      throw new Error('Expected a visible-memory midpoint after 50 committed mutations.');
+      throw new Error('Expected a visible-memory midpoint after half the committed mutations.');
     }
 
     await expectLiveQueryOwnership(electronApp.app, activeWindow, expectedActiveOwnership);
@@ -490,7 +494,7 @@ test.describe('Database live-query memory', () => {
       midpointRecordArrayGeneration
     );
     expect(finalMemoryDiagnostics.recordArrayRetention.aliveGenerations).toContain(
-      requireCurrentRecordArrayGeneration(finalMemoryDiagnostics, '100 committed mutations')
+      requireCurrentRecordArrayGeneration(finalMemoryDiagnostics, 'the final committed mutation')
     );
     expect(finalMemoryDiagnostics.recordArrayRetention.aliveGenerations.length).toBeLessThanOrEqual(
       4

@@ -8,6 +8,28 @@ import {
   listPlaywrightTitleEntries,
 } from '../e2e-playwright-title-tags.mjs';
 
+test('literal mode tables produce all registered titles and inherited tags', () => {
+  const source = `
+test.describe('Retirement @desktop-embedding-retirement', () => {
+  for (const mode of ['quit-and-relaunch', 'reset-and-reuse', 'quit-during-reset'] as const) {
+    test(\`\${mode} joins active native inference\`, async () => {});
+  }
+});
+test('after loop', async () => {});
+`;
+  assert.deepEqual(
+    listPlaywrightTitleEntries(source, 'retirement.test.ts')
+      .filter((entry) => entry.kind === 'test')
+      .map((entry) => entry.titlePath),
+    [
+      'Retirement @desktop-embedding-retirement quit-and-relaunch joins active native inference',
+      'Retirement @desktop-embedding-retirement reset-and-reuse joins active native inference',
+      'Retirement @desktop-embedding-retirement quit-during-reset joins active native inference',
+      'after loop',
+    ]
+  );
+});
+
 test('findTaggedPlaywrightTitleRanges uses AST ranges instead of brace counting', () => {
   const source = `
 test.describe('Factory Reset recovery @destructive', () => {

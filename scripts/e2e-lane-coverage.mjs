@@ -360,7 +360,16 @@ function collectPackageE2eScripts(app, packageJson) {
       const origin = `${APP_DIRECTORIES[app]}#${name}`;
       const invocation = parsePlaywrightInvocation(segment, origin, { requireProject: isLane });
       if (invocation) {
-        const packageInvocation = { ...invocation, app, name, scriptName: name };
+        const packageInvocation = {
+          ...invocation,
+          app,
+          explicitPerformance:
+            app === 'desktop' &&
+            invocation.project === 'perf' &&
+            tokenize(segment, origin).includes('BRAINSTRIKE_E2E_PERF=1'),
+          name,
+          scriptName: name,
+        };
         if (isLane) {
           lanes.push(packageInvocation);
         } else if (invocation.files.length > 0) {
@@ -657,6 +666,14 @@ export async function analyzeE2eLaneCoverage({
     assertFloor(lanes.length, minimums.lanes, `${app} CI-invoked E2E lane invocation(s)`);
     assertFloor(allSpecs.length, minimums.specs, `${app} E2E spec file(s)`);
 
+    // Explicit local qualification commands preserve reachability while hosted
+    // CI is disabled. Ordinary uninvoked lanes still cannot rescue an orphan.
+    const manualQualifications = targetedE2eInvocations.filter(
+      (invocation) =>
+        invocation.explicitPerformance || invocation.name.startsWith('test:e2e:qualification:')
+    );
+    const coverageInvocations = [...lanes, ...manualQualifications];
+
     // Reachability is resolved PER TITLE, not per file. A file-granular answer
     // cannot see a test-granular hole: one ordinary test picked up by the broad
     // pass would mark the whole file covered while an untagged `@stateful`
@@ -664,7 +681,8 @@ export async function analyzeE2eLaneCoverage({
     // one level down.
     for (const spec of allSpecs) {
       spec.darkTitles = spec.titles.filter(
-        ({ titlePath }) => !lanes.some((lane) => selectsTitle(lane, spec.relativeToApp, titlePath))
+        ({ titlePath }) =>
+          !coverageInvocations.some((lane) => selectsTitle(lane, spec.relativeToApp, titlePath))
       );
       spec.fullyDark = spec.titles.length > 0 && spec.darkTitles.length === spec.titles.length;
     }
@@ -724,7 +742,7 @@ export async function analyzeE2eLaneCoverage({
 
     for (const [tag, carriers] of [...titlePathsByTag.entries()].sort()) {
       const routed = carriers.some(({ spec, titlePath }) =>
-        lanes.some((lane) => selectsTitle(lane, spec.relativeToApp, titlePath))
+        coverageInvocations.some((lane) => selectsTitle(lane, spec.relativeToApp, titlePath))
       );
       if (!routed) {
         violations.push({
@@ -810,6 +828,7 @@ export async function analyzeE2eLaneCoverage({
       e2eScriptCount: e2eScriptCountByApp[app],
       laneNames: lanes.map((lane) => lane.name).sort(),
       laneTagCount: titlePathsByTag.size,
+      manualQualificationNames: manualQualifications.map((invocation) => invocation.name).sort(),
       specCount: allSpecs.length,
       targetedE2eScriptCount: targetedE2eInvocations.length,
       titleCount,
@@ -831,6 +850,9 @@ export function formatReport(report) {
     );
     for (const laneName of app.laneNames) {
       lines.push(`    lane: ${laneName}`);
+    }
+    for (const name of app.manualQualificationNames) {
+      lines.push(`    explicit local qualification (not a default or CI run): ${name}`);
     }
     for (const laneName of app.uninvokedLaneNames) {
       lines.push(`    lane (NOT reached by any CI entrypoint, supplies no coverage): ${laneName}`);

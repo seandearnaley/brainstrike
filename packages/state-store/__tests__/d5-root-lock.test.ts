@@ -221,10 +221,13 @@ describe('D5: data-root lock', () => {
     expect(existsSync(join(ld, 'g000000000001'))).toBe(false); // X dropped the generation it raced into
   });
 
-  test('8 processes racing for one stale lock: exactly one wins, the rest are refused (10 rounds)', async () => {
+  test('8 processes racing for one stale lock: exactly one wins, the rest are refused', async () => {
     const rounds: Array<{ won: number; refused: number; errors: string[] }> = [];
     const lateness: number[][] = [];
-    for (let round = 0; round < 10; round++) {
+    // One real eight-process race covers the ownership contract. Repeated
+    // scheduling stress is explicit, rather than paid for on every unit run.
+    const roundCount = process.env['BRAINSTRIKE_TEST_STRESS'] === '1' ? 10 : 1;
+    for (let round = 0; round < roundCount; round++) {
       const root = newRoot();
       // a stale owner: a process that existed and is gone
       plant(root, {
@@ -233,15 +236,30 @@ describe('D5: data-root lock', () => {
         start: 'gone',
         token: `stale-${round}`,
       });
-      // On Windows, tsx + a PowerShell start-time read take seconds, so the barrier and the hold are longer: the winner
-      // must still hold the lock when the slowest contender decides, or a later (legitimate) owner looks like a 2nd winner.
-      const win = process.platform === 'win32';
-      const at = Date.now() + (win ? 10_000 : 2500);
-      const cs = Array.from({ length: 8 }, () =>
-        runTs(CONTENDER, [root, String(at), String(win ? 15_000 : 1000)])
-      );
+      const cs = Array.from({ length: 8 }, () => runTs(CONTENDER, [root]));
+      // Start together after every real process is ready. Retain the winner
+      // until every contender decides, so a slow machine cannot turn this
+      // into sequential ownership. No platform-specific sleeps are needed.
+      await Promise.all(cs.map((c) => c.line('READY')));
+      const at = Date.now();
+      for (const c of cs) {
+        c.p.stdin?.write(`ACQUIRE ${at}\n`);
+      }
+      const decisions = await Promise.all(cs.map((c) => c.line('DECIDED')));
+      for (const [index, c] of cs.entries()) {
+        if (decisions[index]?.startsWith('DECIDED WON')) {
+          c.p.stdin?.write('RELEASE\n');
+        }
+      }
       await Promise.all(cs.map((c) => c.exit()));
-      const outs = cs.map((c) => c.out().trim());
+      const outs = cs.map(
+        (c) =>
+          c
+            .out()
+            .split('\n')
+            .find((line) => /^(WON|REFUSED|ERROR) /.test(line))
+            ?.trim() ?? ''
+      );
       const r = {
         errors: outs.filter((o) => !(o.startsWith('WON') || o.startsWith('REFUSED'))),
         refused: outs.filter((o) => o.startsWith('REFUSED')).length,

@@ -44,7 +44,9 @@ pre-commit:
       glob: "*.{ts,tsx,mts,cts}"
       # Only type-checks packages whose files changed since HEAD (the diff
       # filter does the package resolution via turbo's --filter flag).
-      run: pnpm turbo run type-check --filter="[HEAD]"
+      # Use the same per-worktree cache as build/check and retain the existing
+      # Windows concurrency cap instead of opening a second cold cache here.
+      run: node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run type-check --filter="[HEAD]"
 
 commit-msg:
   jobs:

@@ -51,9 +51,23 @@ function isPlaywrightTitleCall(expression) {
   return chain.length === 1 && PLAYWRIGHT_TITLE_MODIFIERS.has(chain[0]);
 }
 
-function getLiteralText(node) {
+function getLiteralText(node, bindings = new Map()) {
   if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
     return node.text;
+  }
+  if (ts.isIdentifier(node)) {
+    return bindings.get(node.text) ?? null;
+  }
+  if (ts.isTemplateExpression(node)) {
+    let text = node.head.text;
+    for (const span of node.templateSpans) {
+      const value = getLiteralText(span.expression, bindings);
+      if (value === null) {
+        return null;
+      }
+      text += value + span.literal.text;
+    }
+    return text;
   }
   return null;
 }
@@ -167,12 +181,36 @@ export function listPlaywrightTitleEntries(source, fileName) {
 
   // `inherited` mirrors Playwright's `_collectGrepTitlePath`: each ancestor
   // suite contributes its title followed immediately by its own tags.
-  function visit(node, inherited, inheritedUnresolved) {
+  function visit(node, inherited, inheritedUnresolved, bindings = new Map()) {
+    // Native-retirement tests register one case per literal mode. Expand that
+    // finite table without executing the spec or guessing a dynamic title.
+    if (ts.isForOfStatement(node) && ts.isVariableDeclarationList(node.initializer)) {
+      const [declaration] = node.initializer.declarations;
+      let values = node.expression;
+      while (ts.isAsExpression(values) || ts.isParenthesizedExpression(values)) {
+        values = values.expression;
+      }
+      if (
+        node.initializer.declarations.length === 1 &&
+        ts.isIdentifier(declaration.name) &&
+        ts.isArrayLiteralExpression(values)
+      ) {
+        const literals = values.elements.map((element) => getLiteralText(element, bindings));
+        if (literals.every((literal) => literal !== null)) {
+          for (const literal of literals) {
+            const iteration = new Map(bindings);
+            iteration.set(declaration.name.text, literal);
+            visit(node.statement, inherited, inheritedUnresolved, iteration);
+          }
+          return;
+        }
+      }
+    }
     let childInherited = inherited;
     let childUnresolved = inheritedUnresolved;
 
     if (ts.isCallExpression(node) && isPlaywrightTitleCall(node.expression)) {
-      const title = node.arguments[0] ? getLiteralText(node.arguments[0]) : null;
+      const title = node.arguments[0] ? getLiteralText(node.arguments[0], bindings) : null;
       if (title !== null) {
         const isDescribe = isPlaywrightDescribeCall(node.expression);
         const { tags, unresolved } = getOwnTagsFromDetails(node);
@@ -194,7 +232,7 @@ export function listPlaywrightTitleEntries(source, fileName) {
       }
     }
 
-    ts.forEachChild(node, (child) => visit(child, childInherited, childUnresolved));
+    ts.forEachChild(node, (child) => visit(child, childInherited, childUnresolved, bindings));
   }
 
   visit(sourceFile, [], false);

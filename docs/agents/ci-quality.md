@@ -57,6 +57,50 @@ Evidence: `ci-quality/local-only-validation.md`, `ci-quality/ci-minute-audit.md`
 `ci-quality/vercel-parser-dependencies.md`, `ci-quality/build-tooling-dependencies.md`.
 Guard: `scripts/__tests__/check-ci-parity.test.mjs`.
 
+### Developer feedback and deliberate stress qualification
+
+- `pnpm check:routine` has an under-30-minute acceptance requirement on an
+  installed workspace. It keeps all unit tests, integrations outside desktop
+  and agent-host, explicit core integrations for those two packages, browser
+  tests, and web/desktop smoke. The core integrations exercise authentication,
+  approval/denial, committed persistence, restart/reconnect, physical Stop and
+  root ownership. This is not the complete integration or full E2E matrix.
+  The runner prints that omission and fails turnaround acceptance at 30 minutes.
+- `pnpm check --full` retains the complete integration matrices and broader
+  regression/coverage plan. `pnpm check:release` adds deliberate stress and
+  native-retirement qualification; it is not subject to the routine time target.
+- During iteration, `pnpm test:affected` uses the existing Turbo affected-input
+  selection for unit and integration tests, with the same dependency graph,
+  native-test cache exclusions, fatal-process reporting, and concurrency caps as
+  `pnpm test`. Set `TURBO_SCM_BASE` to the reviewed integration base and
+  `TURBO_SCM_HEAD` to the candidate SHA. This is selected feedback, not a full
+  regression result; native/runtime changes still need the affected platform.
+- Run the composed candidate's required acceptance once. Reuse results only
+  when their source, runtime, build, and environment inputs are unchanged.
+  Keep package verification against the artifact actually being delivered;
+  do not repack an identical artifact between scenarios or cache native passes.
+- Six embedding idle/memory/scale cases retain their original workloads,
+  assertions, and observation periods under `@perf @embedding-soak`. Invoke them
+  with `pnpm --filter @brainstrike/desktop run test:e2e:stress`. They are absent
+  from ordinary `regression` selection and are reported as deliberate local
+  qualification, never as a default pass. Run them for embedding memory/idle
+  lifecycle changes and deliberate stress qualification. Immediate crash,
+  forced host-loss, backfill completion, ownership, and permission checks stay
+  in their existing correctness/integration selections.
+- Routine lock testing uses one eight-process race; state-store `test:stress`
+  retains ten rounds. Routine live-query testing uses 12 mutations and three
+  three-collection switch cycles; desktop `test:e2e:stress:live-query` retains
+  100 mutations and ten cycles with the original assertions and memory bounds.
+  A readiness
+  handshake opens each race and the winner is released only after every
+  contender decides; fixed startup/hold sleeps are not correctness evidence.
+- Commit type-checks use the same per-worktree Turbo cache wrapper as normal
+  builds and checks. Do not reintroduce a separate raw-Turbo cache in hooks.
+- Local desktop E2E setup and unsigned `pack` use the existing Turbo build
+  graph and artifact cache. Source and dependency changes invalidate the build;
+  renderer flags (`VITE_*`, `EMBED_QUEUE_ENABLED`, `NODE_ENV`) are hashed too.
+  A missing main or renderer entry fails setup before starting test workers.
+
 ### Web Chromium provisioning
 
 - Web Chromium E2E uses the explicit provisioned CfT executable; a missing

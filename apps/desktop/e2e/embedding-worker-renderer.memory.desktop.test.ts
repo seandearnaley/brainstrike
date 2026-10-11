@@ -129,7 +129,7 @@ test.describe('Embedding Host Renderer - memory', () => {
     expect(retainedGrowthMB).toBeLessThan(60);
   });
 
-  test('@desktop-embedding-diagnostic keeps hidden-host, visible-renderer, and main-process memory bounded during a 20k chunk backfill', async ({
+  test('@perf @embedding-soak @desktop-embedding-diagnostic keeps hidden-host, visible-renderer, and main-process memory bounded during a 20k chunk backfill', async ({
     electronApp,
     electronHarness,
     window,
@@ -254,7 +254,7 @@ test.describe('Embedding Host Renderer - memory', () => {
     await electronHarness.restart();
   });
 
-  test('@desktop-embedding-memory keeps the visible renderer bounded when opening a 50k chunk collection in the database tab', async ({
+  test('@perf @embedding-soak @desktop-embedding-memory keeps the visible renderer bounded when opening a 50k chunk collection in the database tab', async ({
     electronApp,
     window,
   }) => {
@@ -337,7 +337,7 @@ test.describe('Embedding Host Renderer - memory', () => {
     );
   });
 
-  test('@desktop-embedding-memory keeps the database tab source-paginated and memory-bounded when opening a 50k file collection', async ({
+  test('@perf @embedding-soak @desktop-embedding-memory keeps the database tab source-paginated and memory-bounded when opening a 50k file collection', async ({
     electronApp,
     window,
   }) => {

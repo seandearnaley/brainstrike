@@ -1,10 +1,12 @@
-import { exec } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import type { FullConfig } from '@playwright/test';
 import { E2E_CREDENTIAL_ENV_NAMES } from './utils/model-provider-shim';
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
+const appRoot = fileURLToPath(new URL('../', import.meta.url));
 const isVerboseE2eLoggingEnabled = process.env['BRAINSTRIKE_E2E_VERBOSE'] === '1';
 
 function verboseLog(...args: unknown[]): void {
@@ -38,7 +40,20 @@ async function globalSetup(_config: FullConfig) {
   } else {
     verboseLog('📦 Building Electron app...');
     try {
-      await execAsync('pnpm build', { cwd: process.cwd() });
+      // Use the same source/dependency hashes and artifact cache as `pnpm check`.
+      // Direct `pnpm build` reran Vite and esbuild for every local lane.
+      await execFileAsync(
+        process.execPath,
+        [
+          path.resolve(appRoot, '../../scripts/run-turbo-command.mjs'),
+          '--windows-concurrency=1',
+          '--',
+          'run',
+          'build',
+          '--filter=@brainstrike/desktop',
+        ],
+        { cwd: appRoot }
+      );
       verboseLog('✅ Electron app built successfully');
     } catch (error) {
       console.error('❌ Failed to build Electron app:', error);
@@ -47,8 +62,8 @@ async function globalSetup(_config: FullConfig) {
   }
 
   // Ensure the main process file exists
-  const mainPath = path.join(process.cwd(), 'dist', 'main.js');
-  const rendererPath = path.join(process.cwd(), 'dist', 'renderer', 'index.html');
+  const mainPath = path.join(appRoot, 'dist', 'main.js');
+  const rendererPath = path.join(appRoot, 'dist', 'renderer', 'index.html');
   const fs = await import('node:fs/promises');
 
   try {
@@ -64,8 +79,7 @@ async function globalSetup(_config: FullConfig) {
     verboseLog('✅ Renderer entry point found at:', rendererPath);
   } catch {
     console.error('❌ Renderer entry point not found at:', rendererPath);
-    // Don't throw yet, let the test fail naturally but log it clearly
-    console.warn('⚠️ WARNING: Renderer file missing. Tests may fail or hang.');
+    throw new Error(`Renderer entry point not found. Expected at: ${rendererPath}`);
   }
 
   verboseLog('🚀 Electron E2E setup complete');
