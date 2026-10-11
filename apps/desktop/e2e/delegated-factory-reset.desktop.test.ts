@@ -1,244 +1,207 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import os from 'node:os';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
-import { readDelegatedResetState, seedDelegatedResetState } from './utils/delegated-reset-seed';
+import { readHostThreadTree } from './utils/agent-host-log';
+import { configureAssistantProvider } from './utils/assistant-mock';
 import {
   ensureAssistantShellVisible,
   ensureMockWorkspaceOpen,
   waitForDatabaseReady,
 } from './utils/layout-helpers';
-import { startModelProviderShim } from './utils/model-provider-shim';
+import { E2E_TIMEOUTS } from './utils/timeouts';
+
+const ENABLED = 'RESET_RELEASE_ENABLED';
+const DISABLED = 'RESET_RELEASE_DISABLED';
+const RESTORED = 'RESET_RELEASE_RESTORED';
+const CHILD_TASK = 'RESET_CHILD_TASK';
+const CHILD_REPLY = 'Reset child durable evidence';
+const ROOT_REPLY = 'Reset root received its child';
+const FOLLOWUP = 'RESET_CHILD_FOLLOWUP';
+const FOLLOWUP_REPLY = 'Reset child continuation evidence';
+const LEDGER = 'Background invocations of this turn';
+
+test.use({ electronEnv: { BRAINSTRIKE_OPENAI_API_KEY: 'offline-reset-fixture' } });
 
 async function openSubagents(page: Page): Promise<void> {
   await new HomePage(page).openSettings();
   await new SettingsPage(page).openCategory(/Subagents/i, 'subagents');
 }
 
-async function sendInventoryProbe(page: Page, marker: string): Promise<void> {
+async function send(page: Page, prompt: string, response: string): Promise<void> {
   await ensureAssistantShellVisible(page);
-  const panel = page
-    .getByRole('region', { exact: true, name: 'Assistant' })
-    .filter({ visible: true });
-  await panel.getByRole('textbox', { name: 'Message input' }).fill(marker);
+  const panel = page.getByRole('region', { exact: true, name: 'Assistant' });
+  await panel.getByRole('textbox', { name: 'Message input' }).fill(prompt);
   await panel.getByRole('button', { exact: true, name: 'Send' }).click();
-  await expect(panel.getByText(`${marker} complete`, { exact: true })).toBeVisible();
+  await expect(panel.getByText(response, { exact: true }).last()).toBeVisible({
+    timeout: E2E_TIMEOUTS.messageVisibility,
+  });
 }
 
-const ENABLED_PROBE = 'RESET_RELEASE_ENABLED';
-const DISABLED_PROBE = 'RESET_RELEASE_DISABLED';
-const RESTORED_PROBE = 'RESET_RELEASE_RESTORED';
+async function confirmReset(page: Page, confirmed: boolean): Promise<void> {
+  await page.evaluate((confirmed) => {
+    const original = window.confirm;
+    window.confirm = () => {
+      window.confirm = original;
+      return confirmed;
+    };
+  }, confirmed);
+  await page.getByTestId('factory-reset-button').click();
+}
 
-test.fixme(
-  'Settings disables actual delegation tools and factory reset removes delegated state @destructive @desktop-ipc-reset',
-  { annotation: { description: 'BST-1959', type: 'quarantine' } },
-  async ({ electron }, testInfo) => {
-    async function confirmReset(page: Page, confirmed: boolean): Promise<void> {
-      // Exercise the product's existing native-confirm branch exactly once.
-      await page.evaluate((confirmed) => {
-        const original = window.confirm;
-        window.confirm = () => {
-          window.confirm = original;
-          return confirmed;
-        };
-      }, confirmed);
-      await page.getByTestId('factory-reset-button').click();
+/** BST-1959: exercise current host truth through actual runs, never legacy SQL seed rows. */
+test('Settings disables actual delegation tools and factory reset removes delegated state @destructive @desktop-ipc-reset', async ({
+  electron,
+  modelProvider,
+}, testInfo) => {
+  const catalogs = new Map<string, readonly string[]>();
+  modelProvider.setScript(({ messages, requestBody, toolNames }) => {
+    if ((requestBody as { stream?: unknown }).stream !== true) {
+      return { finalText: 'Delegated reset root' };
     }
-
-    const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-delegated-reset-'));
-    const sentinel = path.join(workspace, 'keep-user-workspace.txt');
-    await writeFile(sentinel, 'USER_WORKSPACE_MUST_SURVIVE_RESET\n');
-    const catalogs = new Map<string, readonly string[]>();
-    const provider = await startModelProviderShim(({ messages, toolNames }) => {
-      if (toolNames.length === 0) {
-        return { finalText: 'Reset inventory verification' };
-      }
-      const currentUser = messages.findLast(
+    const history = JSON.stringify(messages);
+    const latest = JSON.stringify(
+      messages.findLast(
         (value) => value && typeof value === 'object' && 'role' in value && value.role === 'user'
-      );
-      if (!currentUser) {
-        throw new Error('Reset inventory probe requires a native user message.');
-      }
-      const current = JSON.stringify(currentUser);
-      const marker = [ENABLED_PROBE, DISABLED_PROBE, RESTORED_PROBE].find((value) =>
-        current.includes(value)
-      );
-      if (!marker) {
-        throw new Error('Unexpected native provider probe');
-      }
+      )
+    );
+    const marker = [ENABLED, DISABLED, RESTORED].find((value) => latest?.includes(value));
+    if (marker) {
       catalogs.set(marker, [...toolNames]);
       return { finalText: `${marker} complete` };
-    });
-    const environment = {
-      BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace,
-      BRAINSTRIKE_OPENROUTER_API_KEY: 'isolated-reset-provider-key',
-      OPENROUTER_BASE_URL: provider.baseUrl,
-    };
-    const previous = Object.fromEntries(
-      Object.keys(environment).map((key) => [key, process.env[key]])
-    );
-    Object.assign(process.env, environment);
-    const failures: unknown[] = [];
-    const hostErrors: string[] = [];
-    const attachProviderCatalogs = async (): Promise<void> => {
-      try {
-        await testInfo.attach('delegation-provider-catalogs', {
-          body: JSON.stringify(Object.fromEntries(catalogs), null, 2),
-          contentType: 'application/json',
-        });
-      } catch (error) {
-        failures.push(error);
-      }
-    };
-    let page: Page | undefined;
-    try {
-      (await electron.ensureContext()).app
-        .process()
-        .stderr?.on('data', (chunk: Buffer) => hostErrors.push(chunk.toString()));
-      page = await electron.ensureWindow();
-      await ensureMockWorkspaceOpen(page);
-      await configureAssistantProvider(page, {
-        compositeModelKey: 'openrouter::openai/gpt-5.4',
-        provider: 'openrouter',
-      });
-      await enableAssistantCatalogModel(page, 'openrouter::openai/gpt-5.4');
-      await sendInventoryProbe(page, ENABLED_PROBE);
-      expect(catalogs.get(ENABLED_PROBE)).toContain('agent-worker');
-      await openSubagents(page);
-      const toggle = page.getByTestId('subagent-delegation-toggle');
-      await expect(toggle).toHaveAttribute('aria-checked', 'true');
-      await toggle.click();
-      await expect(toggle).toHaveAttribute('aria-checked', 'false');
-      await sendInventoryProbe(page, DISABLED_PROBE);
-      const disabled = catalogs.get(DISABLED_PROBE);
-      expect(disabled).toContain('search_tools');
-      expect(disabled?.filter((name) => name.startsWith('agent-'))).toEqual([]);
-      await waitForDatabaseReady(page);
-      const seed = await seedDelegatedResetState(page);
-      await page.reload();
-      await ensureAssistantShellVisible(page);
-      await page
-        .getByTestId('thread-row')
-        .getByRole('button')
-        .filter({ has: page.getByText('Delegated reset root', { exact: true }) })
-        .click();
-      await expect(page.getByRole('tab', { exact: true, name: 'Reset Cedar' })).toBeVisible();
-      await expect(page.getByText('Reset child durable evidence', { exact: true })).toBeVisible();
-      await new HomePage(page).openSettings();
-      await new SettingsPage(page).openCategory(/Factory Reset/i, 'factory-reset');
-      const beforeCancel = await readDelegatedResetState(page, seed);
-      expect(Object.entries(beforeCancel).filter(([, rows]) => rows.length === 0)).toEqual([]);
-      await confirmReset(page, false);
-      expect(await readDelegatedResetState(page, seed)).toEqual(beforeCancel);
-      await openSubagents(page);
-      await expect(page.getByTestId('subagent-delegation-toggle')).toHaveAttribute(
-        'aria-checked',
-        'false'
-      );
-      await new SettingsPage(page).openCategory(/Factory Reset/i, 'factory-reset');
-      const reloaded = page.waitForEvent('load');
-      await confirmReset(page, true);
-      await reloaded;
-      await waitForDatabaseReady(page);
-      expect(
-        Object.entries(await readDelegatedResetState(page, seed)).filter(
-          ([, rows]) => rows.length > 0
-        )
-      ).toEqual([]);
-      await expect(page.getByRole('tab', { exact: true, name: 'Reset Cedar' })).toHaveCount(0);
-      await openSubagents(page);
-      await expect(page.getByTestId('subagent-delegation-toggle')).toHaveAttribute(
-        'aria-checked',
-        'true'
-      );
-      expect(await readFile(sentinel, 'utf8')).toBe('USER_WORKSPACE_MUST_SURVIVE_RESET\n');
-      const restarted = await electron.restart();
-      page = restarted.window;
-      restarted.app
-        .process()
-        .stderr?.on('data', (chunk: Buffer) => hostErrors.push(chunk.toString()));
-      await waitForDatabaseReady(page);
-      expect(
-        Object.entries(await readDelegatedResetState(page, seed)).filter(
-          ([, rows]) => rows.length > 0
-        )
-      ).toEqual([]);
-      await expect(page.getByRole('tab', { exact: true, name: 'Reset Cedar' })).toHaveCount(0);
-      await openSubagents(page);
-      await expect(page.getByTestId('subagent-delegation-toggle')).toHaveAttribute(
-        'aria-checked',
-        'true'
-      );
-      expect(await readFile(sentinel, 'utf8')).toBe('USER_WORKSPACE_MUST_SURVIVE_RESET\n');
-      await ensureMockWorkspaceOpen(page);
-      await configureAssistantProvider(page, {
-        compositeModelKey: 'openrouter::openai/gpt-5.4',
-        provider: 'openrouter',
-      });
-      await enableAssistantCatalogModel(page, 'openrouter::openai/gpt-5.4');
-      await sendInventoryProbe(page, RESTORED_PROBE);
-      expect(catalogs.get(RESTORED_PROBE)).toContain('agent-worker');
-      await attachProviderCatalogs();
-    } catch (error) {
-      failures.push(error);
-      if (page && !page.isClosed()) {
-        try {
-          await testInfo.attach('delegated-reset-failure-dom', {
-            body: await page.content(),
-            contentType: 'text/html',
-          });
-          await testInfo.attach('delegated-reset-failure-screen', {
-            body: await page.screenshot(),
-            contentType: 'image/png',
-          });
-        } catch (captureError) {
-          failures.push(captureError);
-        }
-      }
-      await attachProviderCatalogs();
     }
-    let disposed = false;
-    for (const cleanup of [
-      async () => {
-        await electron.dispose();
-        disposed = true;
-      },
-      provider.close,
-    ]) {
-      try {
-        await cleanup();
-      } catch (error) {
-        failures.push(error);
-      }
+    if (toolNames.includes('agent-explore')) {
+      return history.includes(LEDGER) || history.includes('<child_continuation_result>')
+        ? { finalText: ROOT_REPLY }
+        : {
+            finalText: 'Starting the reset child.',
+            toolCall: { arguments: { prompt: CHILD_TASK }, name: 'agent-explore' },
+          };
     }
-    for (const key of Object.keys(environment)) {
-      if (previous[key] === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = previous[key];
-      }
-    }
-    if (disposed) {
-      try {
-        await rm(workspace, { force: true, recursive: true });
-      } catch (error) {
-        failures.push(error);
-      }
-    }
-    try {
-      expect(hostErrors.join('')).not.toContain('Error occurred in handler for');
-      expect(hostErrors.join('')).not.toContain(
-        'Runtime status must not include non-canonical status field'
-      );
-    } catch (error) {
-      failures.push(error);
-    }
-    if (failures.length > 0) {
-      throw new AggregateError(failures, 'Delegated reset release verification failed');
-    }
+    return { finalText: history.includes(FOLLOWUP) ? FOLLOWUP_REPLY : CHILD_REPLY };
+  });
+  let page = await electron.ensureWindow();
+  const app = (await electron.ensureContext()).app;
+  const workspace = await app.evaluate(() => process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH']);
+  if (!workspace) {
+    throw new Error('Disposable workspace is missing');
   }
-);
+  const sentinel = path.join(workspace, 'keep-user-workspace.txt');
+  await writeFile(sentinel, 'USER_WORKSPACE_MUST_SURVIVE_RESET\n');
+  const readTree = () => readHostThreadTree(electron.getUserDataDir());
+  try {
+    await ensureMockWorkspaceOpen(page);
+    await configureAssistantProvider(page, {
+      apiKey: 'offline-reset-fixture',
+      compositeModelKey: 'openai::gpt-6-sol',
+      provider: 'openai',
+    });
+    await send(page, ENABLED, `${ENABLED} complete`);
+    expect(catalogs.get(ENABLED)).toContain('agent-worker');
+    await send(page, 'Delegate one reset child', ROOT_REPLY);
+    await expect
+      .poll(
+        async () =>
+          (await readTree()).filter((thread) => thread.parentThreadId !== undefined).length
+      )
+      .toBe(1);
+    const child = (await readTree()).find((thread) => thread.parentThreadId !== undefined);
+    if (!child?.child) {
+      throw new Error('The real host child is missing');
+    }
+    const callSign = child.child.callSign;
+    const rootPanel = page.getByRole('region', { exact: true, name: 'Assistant' });
+    await rootPanel.getByRole('button', { exact: true, name: 'Expand activity' }).last().click();
+    await rootPanel
+      .getByRole('button', { exact: true, name: `Open ${callSign} conversation` })
+      .click();
+    const childPanel = page.getByRole('region', { exact: true, name: callSign });
+    await expect(childPanel.getByText(CHILD_REPLY, { exact: true })).toBeVisible();
+    await childPanel.getByRole('textbox', { name: 'Message input' }).fill(FOLLOWUP);
+    await childPanel.getByRole('button', { exact: true, name: 'Send' }).click();
+    await expect(childPanel.getByText(FOLLOWUP_REPLY, { exact: true })).toBeVisible();
+    await page.reload();
+    await expect(page.getByRole('tab', { exact: true, name: callSign })).toBeVisible();
+    await expect(
+      page
+        .getByRole('region', { exact: true, name: callSign })
+        .getByText(FOLLOWUP_REPLY, { exact: true })
+    ).toBeVisible();
+    await openSubagents(page);
+    const toggle = page.getByTestId('subagent-delegation-toggle');
+    await expect(toggle).toHaveAttribute('aria-checked', 'true');
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-checked', 'false');
+    await send(page, DISABLED, `${DISABLED} complete`);
+    expect(catalogs.get(DISABLED)?.filter((name) => name.startsWith('agent-'))).toEqual([]);
+    expect(catalogs.get(DISABLED)).toContain('search_tools');
+    await new HomePage(page).openSettings();
+    await new SettingsPage(page).openCategory(/Factory Reset/i, 'factory-reset');
+    await expect
+      .poll(async () => {
+        const tree = await readTree();
+        return tree.every(({ rows }) =>
+          rows.every(
+            ({ event }) =>
+              event.type !== 'run.started' ||
+              rows.some(
+                ({ event: terminal }) =>
+                  terminal.type === 'run.finished' && terminal.runId === event.runId
+              )
+          )
+        );
+      })
+      .toBe(true);
+    const before = await readTree();
+    expect(before.some((thread) => thread.threadId === child.threadId)).toBe(true);
+    expect(child.rows.some(({ event }) => event.type === 'run.finished')).toBe(true);
+    const outcomes = before.flatMap(({ rows }) =>
+      rows.flatMap(({ event }) => (event.type === 'run.finished' ? [event.outcome] : []))
+    );
+    expect(outcomes.length).toBeGreaterThan(4);
+    expect(outcomes.every((outcome) => outcome === 'completed')).toBe(true);
+    await confirmReset(page, false);
+    expect(await readTree()).toEqual(before);
+    await openSubagents(page);
+    await expect(page.getByTestId('subagent-delegation-toggle')).toHaveAttribute(
+      'aria-checked',
+      'false'
+    );
+    await new SettingsPage(page).openCategory(/Factory Reset/i, 'factory-reset');
+    const reloaded = page.waitForEvent('load');
+    await confirmReset(page, true);
+    await reloaded;
+    await waitForDatabaseReady(page);
+    const oldIds = new Set(before.map((thread) => thread.threadId));
+    const assertCleared = async (): Promise<void> => {
+      expect((await readTree()).filter((thread) => oldIds.has(thread.threadId))).toEqual([]);
+      await expect(page.getByRole('tab', { exact: true, name: callSign })).toHaveCount(0);
+      await openSubagents(page);
+      await expect(page.getByTestId('subagent-delegation-toggle')).toHaveAttribute(
+        'aria-checked',
+        'true'
+      );
+      expect(await readFile(sentinel, 'utf8')).toBe('USER_WORKSPACE_MUST_SURVIVE_RESET\n');
+    };
+    await assertCleared();
+    page = (await electron.restart()).window;
+    await waitForDatabaseReady(page);
+    await assertCleared();
+    await ensureMockWorkspaceOpen(page);
+    await configureAssistantProvider(page, {
+      apiKey: 'offline-reset-fixture',
+      compositeModelKey: 'openai::gpt-6-sol',
+      provider: 'openai',
+    });
+    await send(page, RESTORED, `${RESTORED} complete`);
+    expect(catalogs.get(RESTORED)).toContain('agent-worker');
+    expect(modelProvider.refusals()).toEqual([]);
+  } finally {
+    await testInfo.attach('delegation-provider-catalogs', {
+      body: JSON.stringify(Object.fromEntries(catalogs)),
+      contentType: 'application/json',
+    });
+  }
+});
