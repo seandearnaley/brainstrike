@@ -1,3 +1,4 @@
+import './_windows-command-fixture';
 import { execFile } from 'node:child_process';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
