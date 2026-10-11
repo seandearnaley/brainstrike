@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
+import { buildModelSettingsOption } from '@brainstrike/agent/provider-request';
 import type { HostRunIntentRequest } from '@brainstrike/agent-host';
 import {
   materializeCliWorkspaceIntent,
@@ -154,7 +155,11 @@ export async function readDesktopIntent(
         workingMemory: DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
       },
       memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-      modelConfiguration: { model: catalog.model, provider: catalog.provider },
+      modelConfiguration: {
+        model: catalog.model,
+        provider: catalog.provider,
+        ...buildModelSettingsOption({ model: catalog.model, provider: catalog.provider }),
+      },
       permissionPolicy: (await readPersistedPolicy?.()) ?? {
         policies: DEFAULT_PERMISSION_POLICIES,
         yolo: false,
