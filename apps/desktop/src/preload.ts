@@ -482,12 +482,6 @@ contextBridge.exposeInMainWorld('parserHost', {
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.files.parserHostParse, request),
 });
 
-// Local Agent API (non-streaming aggregate; renderer can pseudo-stream chunks)
-contextBridge.exposeInMainWorld('agent', {
-  chat: (messages: unknown[], runtime?: unknown) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.chat, messages, runtime),
-});
-
 // The MCP config picker and MCP App shell (desktop-only), derived from pure
 // contracts. MCP settings, status, Tasks cards, global server input and
 // content, an App's document included, belong to the agent host.

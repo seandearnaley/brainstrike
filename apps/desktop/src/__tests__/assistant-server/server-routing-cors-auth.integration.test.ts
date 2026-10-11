@@ -10,11 +10,7 @@
 import type http from 'node:http';
 import { app } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  discoveryForRequest,
-  handleAssistantRequest,
-  startAssistantServer,
-} from '../../assistant-server';
+import { handleAssistantRequest, startAssistantServer } from '../../assistant-server';
 import { DESKTOP_DEV_RENDERER_URL } from '../../desktop-renderer-url';
 import { createRunRequest, MockRequest, MockResponse } from './_harness';
 
@@ -46,40 +42,6 @@ vi.mock('../../agent-client-loader', async (importOriginal) => {
 });
 
 const runRequest = createRunRequest(handleAssistantRequest);
-
-it('retains exact child-followup user echo and branch parent for reload discovery', () => {
-  const discovery = discoveryForRequest({
-    finalInputMessage: {
-      id: 'child-echo',
-      parts: [{ text: 'Continue child', type: 'text' }],
-      role: 'user',
-    },
-    inputParentMessageId: 'durable-root-assistant',
-    isToolDecisionLeg: false,
-    resourceId: 'owner',
-    runId: 'host-leg',
-    threadId: 'root-thread',
-  });
-  expect(discovery).toMatchObject({
-    inputMessage: { id: 'child-echo', role: 'user' },
-    inputParentMessageId: 'durable-root-assistant',
-    parentMessageId: 'child-echo',
-  });
-  expect(
-    discoveryForRequest({
-      finalInputMessage: {
-        id: 'first-child-echo',
-        parts: [{ text: 'Continue', type: 'text' }],
-        role: 'user',
-      },
-      inputParentMessageId: null,
-      isToolDecisionLeg: false,
-      resourceId: 'owner',
-      runId: 'first-leg',
-      threadId: 'root-thread',
-    })
-  ).toMatchObject({ inputMessage: { id: 'first-child-echo' }, inputParentMessageId: null });
-});
 
 let server: { url: string; stop: () => Promise<void>; authToken?: string } | undefined;
 
@@ -246,7 +208,7 @@ describe('auth token gate', () => {
     expect(data.error).toBe('unauthorized');
   });
 
-  it('authenticates active-run discovery before exposing a thread session', async () => {
+  it('authenticates retired discovery requests before returning not found', async () => {
     const url = '/assistant/active-run?resourceId=workspace&threadId=thread-1';
     const rejected = await runRequest(
       { headers: { origin: desktopRendererOrigin }, method: 'GET', url },
@@ -265,8 +227,7 @@ describe('auth token gate', () => {
       },
       withToken
     );
-    expect(accepted.status).toBe(200);
-    expect(JSON.parse(accepted.body)).toEqual({ activeRun: null });
+    expect(accepted.status).toBe(404);
   });
 
   it('rejects requests with a wrong token with 401', async () => {
@@ -373,36 +334,6 @@ describe('auth token gate', () => {
     server = await startAssistantServer(undefined, { auth: 'disabled', listen: false });
     expect(server.authToken).toBeUndefined();
   });
-});
-
-it('publishes and releases initializing discovery across slow credential preparation', async () => {
-  const credential = Promise.withResolvers<{
-    access: string;
-    expires: number;
-    refresh: string;
-    type: 'oauth';
-  }>();
-  mockSecretsService.getCredential.mockReset().mockReturnValue(credential.promise);
-  const scopeUrl = '/assistant/active-run?resourceId=workspace&threadId=thread-slow-prep';
-  const pending = runRequest({
-    body: JSON.stringify({
-      data: {
-        memory: { resourceId: 'workspace', runId: 'run-slow-prep', threadId: 'thread-slow-prep' },
-        provider: 'openai',
-      },
-      messages: [{ id: 'user-slow-prep', parts: [{ text: 'Hello', type: 'text' }], role: 'user' }],
-    }),
-    method: 'POST',
-    url: '/assistant',
-  });
-  await vi.waitFor(() => expect(mockSecretsService.getCredential).toHaveBeenCalled());
-  const during = await runRequest({ method: 'GET', url: scopeUrl });
-  expect(JSON.parse(during.body)).toEqual({ activeRun: null, initializing: true });
-  credential.resolve({ access: 'access', expires: 1, refresh: 'refresh', type: 'oauth' });
-  const rejected = await pending;
-  expect(rejected.status).toBe(400);
-  const after = await runRequest({ method: 'GET', url: scopeUrl });
-  expect(JSON.parse(after.body)).toEqual({ activeRun: null });
 });
 
 describe('origin enforcement', () => {
@@ -526,4 +457,21 @@ describe('routing', () => {
     expect(response.status).toBe(404);
     expect(response.body).toBe('not found');
   }, 10_000);
+});
+
+it.each([
+  ['POST', '/assistant'],
+  ['POST', '/'],
+  ['POST', '/assistant/steer'],
+  ['POST', '/assistant/cancel'],
+  ['POST', '/assistant/cancel-child'],
+  ['POST', '/assistant/child-input'],
+  ['POST', '/assistant/decide'],
+  ['GET', '/assistant/active-run'],
+  ['GET', '/assistant/suspended-runs'],
+  ['GET', '/assistant/run-status'],
+  ['GET', '/assistant/stream'],
+])('retired %s %s cannot start a second agent runtime', async (method, url) => {
+  const response = await runRequest({ method, url });
+  expect(response.status).toBe(404);
 });

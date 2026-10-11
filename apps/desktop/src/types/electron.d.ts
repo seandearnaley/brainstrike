@@ -42,9 +42,6 @@ import type {
 // Type definitions for the Electron API exposed via contextBridge
 declare global {
   interface Window {
-    agent: {
-      chat: <T = unknown>(messages: T[], runtime?: unknown) => Promise<unknown[]>; // StreamChunk[] shape
-    };
     agentHost?: { connect(requestId: string): Promise<void> };
     /**
      * Desktop-only subagent persona discovery bridge. Absent on web (no

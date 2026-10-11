@@ -61,6 +61,8 @@ Guard: `packages/indexer/__tests__/checked-checkpoint.test.ts`, `packages/indexe
 
 ### Retrieval and root authority
 
+- `brainstrike workspace search --thread <id> --scope-root <id> --mode bm25|trigram --query <text>` reads the composing host's existing native index. Thread binding and native root authority are validated. Hosts without the capability refuse; the command starts no indexer or inference engine. Results preserve canonical chunk/file/root/path/line identities and truncation flags. Cancellation propagates through the existing private platform channel and joins the read before returning.
+
 - Pin the native boundary to sqlite-vec 0.1.9. Keep external-content FTS5 BM25 (`porter unicode61`) and trigram indexes synchronized transactionally with file chunks.
 - Restrict requests to roots authorized when the host opened the index. Query each root's vec0 `root_id TEXT PARTITION KEY` before coarse top100 selection and rescore its auxiliary Float32 embeddings by exact cosine distance.
 - Preserve empty-root results and reject unauthorized roots; never substitute unrestricted retrieval. Do not perform Node inference or silently fuse a different search mode.

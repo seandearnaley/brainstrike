@@ -1,3 +1,9 @@
+Current Desktop execution boundary (M4): the shared agent host owns runs,
+children, log replay and decisions. Desktop assistant HTTP serves provider status,
+verification and OpenRouter metadata only; old execution/discovery/resume routes
+and `agent:chat` IPC have been removed. Historical Mastra/PGlite sections below
+continue to describe shared/web code where still consumed, not Desktop execution.
+
 # Assistant Persistence, Notifications, Context Meter
 
 > Read before changing message persistence or reload hydration, run
