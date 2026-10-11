@@ -61,15 +61,28 @@ export function getBrowserPaneSession(): Session {
 }
 
 /**
- * Clear the pane's persistent session storage (cookies, localStorage, cache).
- * Called by the desktop factory reset so a `persist:` partition does not
- * survive a reset that only reloads the renderer. No-op if the session was
- * never configured this run.
+ * Clear both persistent sessions through their owner. Chromium holds its
+ * directory open on Windows even after clearing; raw directory deletion is
+ * not a substitute for Session.clearData(). Call after renderer preparation
+ * and browser-pane disposal, before replacing the visible renderer.
+ * https://www.electronjs.org/docs/latest/api/session#sescleardataoptions
  */
-export async function clearBrowserPaneSession(): Promise<void> {
-  const paneSession = session.fromPartition(BROWSER_PANE_PARTITION);
-  await paneSession.clearStorageData();
-  logger.info('Browser pane session storage cleared (factory reset)');
+export async function clearDesktopBrowserSessions(): Promise<void> {
+  const sessions = [session.defaultSession, session.fromPartition(BROWSER_PANE_PARTITION)];
+  const results = await Promise.allSettled(
+    sessions.map(async (owned) => {
+      await owned.clearData();
+      await owned.clearAuthCache();
+      await owned.closeAllConnections();
+    })
+  );
+  const failures = results.flatMap((result) =>
+    result.status === 'rejected' ? [result.reason] : []
+  );
+  if (failures.length > 0) {
+    throw new AggregateError(failures, 'Failed to clear desktop browser sessions');
+  }
+  logger.info('Desktop browser sessions cleared (factory reset)');
 }
 
 /** Test-only reset of the memoized session (the module is a singleton). */

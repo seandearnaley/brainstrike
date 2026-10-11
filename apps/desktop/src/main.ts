@@ -830,6 +830,7 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     },
   ],
   runWithDatabaseResetBarrier: runWithDesktopDatabaseResetBarrier,
+  sessionDataPath: app.getPath('sessionData'),
   userDataPath: app.getPath('userData'),
   waitForDatabaseWorkSchedulerIdle: waitForDesktopDatabaseWorkSchedulerIdle,
 });

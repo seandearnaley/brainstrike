@@ -74,6 +74,18 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 
+it('separates Chromium session storage from app-owned data in ordinary startup', async () => {
+  vi.stubEnv('ELECTRON_IS_E2E_TEST', 'false');
+  const userData = resolve('/disposable/ordinary-user-data');
+  fixture.paths.set('userData', userData);
+  fixture.paths.set('home', resolve('/disposable/home'));
+  fixture.paths.set('documents', resolve('/disposable/documents'));
+  const { getDesktopBootstrapRuntime } = await import('../../desktop-bootstrap-runtime');
+  getDesktopBootstrapRuntime();
+  expect(fixture.paths.get('sessionData')).toBe(join(userData, 'session-data'));
+  expect(fixture.options).toBeUndefined();
+});
+
 it('resolves the explicit test profile before the single lease opens its StateStore', async () => {
   const { getDesktopBootstrapRuntime } = await import('../../desktop-bootstrap-runtime');
   const runtime = getDesktopBootstrapRuntime();
@@ -87,8 +99,8 @@ it('resolves the explicit test profile before the single lease opens its StateSt
   expect(fixture.events).toEqual([
     'schemes',
     'path:userData',
-    'path:sessionData',
     'path:logs',
+    'path:sessionData',
     'owner',
   ]);
   expect(getDesktopBootstrapRuntime()).toBe(runtime);

@@ -25,6 +25,16 @@ NDJSON backstop sits on the logging choke points.
   caught. The registry owns the set. Module-scope reads of imported constants stay
   banned, and migration 066 stays as it is. Whole-profile no-resurrection coverage
   exists and does not replace table-by-table `db:clearAll` proofs.
+  **Session ownership amendment, approved by Sean on 2026-10-10:** Chromium owns
+  a dedicated `session-data` container in every desktop launch. Reset clears the
+  default and browser-pane sessions through Electron's APIs after writer
+  preparation, retaining only their engine container during the app-owned file
+  purge. Windows holds that directory open even after the owner clears its data;
+  physical rename is not a valid Session reset primitive. Clearing failures stay
+  visible and prevent successful reset, and no browser/app user state may return
+  after renderer replacement or a full restart. The existing Main coordinator
+  and profile reset lease remain the reset authority; no cross-process owner or
+  migration is introduced.
 - **Diagnostics.** Logging has one gate and one redaction pass, and `instanceof` is
   not the gate. Diagnostic events stay separate from the run-scoped run-event
   timeline, with a different scope, retention and sanitization contract. The NDJSON

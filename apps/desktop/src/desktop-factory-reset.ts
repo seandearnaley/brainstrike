@@ -23,7 +23,8 @@ export interface ResetDesktopApplicationDataOptions {
    * though the DB rows it mirrors do not. Optional so callers/tests that
    * don't exercise this behavior can omit it. */
   errorLogFilePaths?: readonly string[];
-  /** Resolved after profile reset acquires its guard, before staging userData. */
+  /** Resolved after profile reset acquires its guard and Electron clears its
+   * sessions: retain the lock and the live, owner-cleared Chromium container. */
   getProtectedPaths?: () => readonly string[];
   resetDatabaseProfile: () => Promise<void>;
   stopBackgroundRuntimes: () => Promise<void>;
@@ -177,14 +178,17 @@ export async function resetDesktopApplicationData({
     const trashPath = createResetTrashPath(userDataPath);
     mkdirSync(trashPath, { recursive: true });
 
-    const protectedPaths = [...(getProtectedPaths?.() ?? [])];
-    for (const protectedPath of protectedPaths) {
+    const requestedProtectedPaths = [...(getProtectedPaths?.() ?? [])];
+    for (const protectedPath of requestedProtectedPaths) {
       if (!path.isAbsolute(protectedPath)) {
         throw new Error(
           `Desktop factory reset requires an absolute protected path: ${protectedPath}`
         );
       }
     }
+    const protectedPaths = requestedProtectedPaths.map((protectedPath) =>
+      realpathSync(protectedPath)
+    );
     // RootLock owns a canonical path; compare against the same namespace even
     // when Electron's userData path reaches it through a filesystem alias.
     const canonicalUserDataPath =

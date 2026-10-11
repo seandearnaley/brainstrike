@@ -236,8 +236,17 @@ never used. Wiping the database alone is not enough.
   auth, and MCP bearer resolution, and the transport caches no token material, so
   the existing `clearAll` is the complete reset authority. Token caching would
   change this contract and its tests together.
-- Desktop userData is wiped except for logs and the active reset lock namespace
-  plus its ancestor directories. Purge all other entries inside those ancestors;
+- Desktop userData is wiped except for logs, the active reset lock namespace,
+  and the dedicated Chromium `session-data` container. Sean approved Session-owned
+  clearing on 10 October 2026 after Windows proved that Chromium retains live
+  directory handles even after clearing browser data. Configure that container
+  before any session opens in ordinary launches and tests alike. After writer
+  preparation and browser-pane disposal, clear both the default and browser-pane
+  sessions through Electron `clearData()` without origin exclusions, clear HTTP
+  authentication and close connections. A rejected clear fails reset before
+  filesystem deletion; the container is retained only after its owner clears it.
+  Prove app/browser state stays absent after renderer replacement and full restart.
+  Preserve the reset lock's ancestor directories. Purge all other entries inside those ancestors;
   preserving an ancestor never preserves its unrelated data. The main-process storage keys, the
   bundled CPython unpack directory, and the shadow-git dirs need no per-key
   wiring. If one moves outside `userData`, or `logs` gains a preserved sibling,

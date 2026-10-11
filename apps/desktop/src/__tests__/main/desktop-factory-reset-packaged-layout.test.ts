@@ -47,12 +47,15 @@ describe('factory reset with the packaged macOS database layout', () => {
   it('preserves the live reset namespace and every ancestor through the packaged userData purge', async () => {
     const { pgdata, root } = seedPackagedProfile();
     const profile = path.dirname(pgdata);
+    const sessionData = path.join(userData, 'session-data');
+    mkdirSync(sessionData);
+    writeFileSync(path.join(sessionData, 'engine-container'), 'Electron-owned container');
     writeFileSync(path.join(profile, 'state.db'), 'state');
     writeFileSync(path.join(profile, 'index.db-wal'), 'index');
     const lease = await acquireProfileResetLease(profile);
     try {
       const result = await resetDesktopApplicationData({
-        getProtectedPaths: () => [RootLock.dirOf(lease.root)],
+        getProtectedPaths: () => [RootLock.dirOf(lease.root), sessionData],
         resetDatabaseProfile: async () => {
           await lease.clearRootContents();
           expect(existsSync(path.join(profile, 'state.db'))).toBe(false);
@@ -66,6 +69,7 @@ describe('factory reset with the packaged macOS database layout', () => {
       expect(existsSync(RootLock.dirOf(lease.root))).toBe(true);
       expect(existsSync(path.join(root, 'backups'))).toBe(false);
       expect(existsSync(path.join(userData, 'Local Storage'))).toBe(false);
+      expect(existsSync(path.join(sessionData, 'engine-container'))).toBe(true);
       expect(result.preservedPaths).toContain(RootLock.dirOf(lease.root));
       await expect(RootLock.acquire(profile)).rejects.toMatchObject({ name: 'RootLockedError' });
     } finally {

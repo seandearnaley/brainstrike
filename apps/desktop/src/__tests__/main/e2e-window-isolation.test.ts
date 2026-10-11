@@ -2,6 +2,11 @@ import path from 'node:path';
 import type { createAppMock } from '@brainstrike/test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('node:fs', async (original) => {
+  const fs = await original<typeof import('node:fs')>();
+  return { ...fs, default: { ...fs, mkdirSync: vi.fn() } };
+});
+
 const electronMockState = vi.hoisted(() => ({
   app: null as
     | (ReturnType<typeof createAppMock> & {
