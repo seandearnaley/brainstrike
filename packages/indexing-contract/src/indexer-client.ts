@@ -135,6 +135,8 @@ export interface IndexerSearchResult {
 export interface IndexerGrepRequest {
   readonly caseSensitive: boolean;
   readonly collectionId?: string;
+  /** Exact canonical relative paths, selected before the candidate limit. */
+  readonly filePaths?: readonly string[];
   readonly isRegex: boolean;
   readonly limit: number;
   readonly pattern: string;

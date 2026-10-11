@@ -657,6 +657,11 @@ export interface HostPlatform {
   readonly searchState?: HostStateSearch;
   /** The semantic arm's index operations, for `thread/search` and its backlog methods. */
   readonly searchStateVectors?: HostStateSearchVectors;
+  /** Read scoped source text from the composing platform's existing native index. */
+  searchWorkspace?(
+    request: HostParams<'workspace/search'>,
+    signal: AbortSignal
+  ): Promise<HostResults['workspace/search']>;
   /** The native-tool output rewrite policy; Core commits what it selects. */
   selectProjectionRewrites?(
     request: HostProjectionRewriteRequest

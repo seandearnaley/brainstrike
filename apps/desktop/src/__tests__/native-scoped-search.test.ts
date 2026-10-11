@@ -701,3 +701,47 @@ it.each(['status', 'coverageBatch'] as const)(
     expect(f.coverageBatch).not.toHaveBeenCalled();
   }
 );
+
+it('restricts canonical file membership before the native grep candidate limit', async () => {
+  const f = fixture();
+  const recorded = await f.grep();
+  f.grep.mockClear();
+  f.replaceAuthority({
+    ...f.getAuthority(),
+    bindings: [
+      { ...binding, profile: null, relativePath: 'selected.md', rootId: 'root' },
+      {
+        ...binding,
+        fileId: 'unselected',
+        profile: null,
+        relativePath: 'unselected.md',
+        rootId: 'root',
+      },
+    ],
+    rootIds: ['root'],
+  });
+  f.grep.mockResolvedValueOnce({
+    ...recorded,
+    rows: recorded.rows.map((row) =>
+      row.map((value, i) => (i === 1 ? 'root' : i === 3 ? 'selected.md' : value))
+    ),
+  });
+  const result = await f.capability.grep({
+    caseSensitive: false,
+    filePaths: ['selected.md'],
+    isRegex: false,
+    limit: 1,
+    pattern: 'marker',
+    rootIds: ['root'],
+  });
+  expect(f.grep).toHaveBeenCalledExactlyOnceWith({
+    caseSensitive: false,
+    fileIds: ['retained'],
+    isRegex: false,
+    maxRows: 1,
+    pattern: 'marker',
+    rootIds: ['root'],
+  });
+  expect(result.hits.map(({ fileId }) => fileId)).toEqual(['retained']);
+  expect(f.close).toHaveBeenCalledOnce();
+});

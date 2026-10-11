@@ -68,6 +68,13 @@ export const SEARCH_METHOD_SCHEMAS = {
       ])
     ),
   }),
+  'workspace/search': z.strictObject({
+    limit: z.number().int().positive().max(200),
+    mode: z.enum(['bm25', 'trigram']),
+    query: z.string().trim().min(1),
+    rootId: Id,
+    threadId: Id,
+  }),
 } as const;
 
 export const SEARCH_RESULT_SCHEMAS = {
@@ -99,5 +106,24 @@ export const SEARCH_RESULT_SCHEMAS = {
     failed: z.number().int().nonnegative(),
     stale: z.number().int().nonnegative(),
     stored: z.number().int().nonnegative(),
+  }),
+  'workspace/search': z.strictObject({
+    candidateCount: Seq,
+    candidatesTruncated: z.boolean(),
+    hits: z.array(
+      z.strictObject({
+        chunkId: Id,
+        content: z.string(),
+        endLine: z.number().int().positive(),
+        fileId: Id,
+        path: Id,
+        rootId: Id,
+        score: z.number(),
+        startLine: z.number().int().positive(),
+      })
+    ),
+    scanLimited: z.boolean(),
+    storeId: Id,
+    truncated: z.boolean(),
   }),
 } as const;
