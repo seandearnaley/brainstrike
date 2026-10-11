@@ -232,6 +232,9 @@ setInterval(() => {}, 1000);
       checkpoint('ordinary-main-launched');
       await capture(application);
       const page = await application.firstWindow();
+      // Windows M3: a never-shown test window made native scroll/layout take ~1s
+      // per content change. Exercise the visible UI, without taking user focus.
+      await (await application.browserWindow(page)).evaluate((win) => win.showInactive());
       await ensureAssistantShellVisible(page);
       await page.getByRole('textbox', { name: 'Message input' }).waitFor();
       await page.evaluate(
@@ -837,6 +840,7 @@ setInterval(() => {}, 1000);
       await routeRecordedModelMetadata(application);
       await capture(application);
       const reopened = await application.firstWindow();
+      await (await application.browserWindow(reopened)).evaluate((win) => win.showInactive());
       await ensureAssistantShellVisible(reopened);
       await reopened.getByTestId(`assistant-thread-panel-${threadId}`).waitFor();
       let next: HostRecord | undefined;
