@@ -1,7 +1,7 @@
 import './agent-host-compile-cache';
 import type { AgentHost } from '@brainstrike/agent-host';
 import type { StartupMessage } from '@brainstrike/host-lease';
-import { createUtilityParentInbox } from './utility-parent-inbox';
+import { createUtilityParentInbox, loadUtilityStartup } from './utility-parent-inbox';
 
 /** Electron provides a launcher channel; all agent work stays in the Node kernel. */
 async function main(): Promise<void> {
@@ -30,7 +30,10 @@ async function main(): Promise<void> {
   let controlFailure: unknown;
   let host: AgentHost | undefined;
   try {
-    const { receiveAgentHostParentMessage } = await import('./agent-host-parent-control');
+    const { receiveAgentHostParentMessage } = await loadUtilityStartup(
+      () => import('./agent-host-parent-control'),
+      controller.signal
+    );
     inbox.bind((input) => {
       try {
         receiveAgentHostParentMessage(input, host, cancel);
@@ -42,7 +45,10 @@ async function main(): Promise<void> {
     // Deliver queued native parent/port events before synchronous CJS evaluation.
     await new Promise<void>((resolve) => setImmediate(resolve));
     controller.signal.throwIfAborted();
-    const { runAgentHostProcess } = await import('@brainstrike/agent-host');
+    const { runAgentHostProcess } = await loadUtilityStartup(
+      () => import('@brainstrike/agent-host'),
+      controller.signal
+    );
     await new Promise<void>((resolve) => setImmediate(resolve));
     controller.signal.throwIfAborted();
     kernelStarted = true;

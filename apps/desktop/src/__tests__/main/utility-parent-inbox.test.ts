@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events';
 import { MessageChannel } from 'node:worker_threads';
 import { expect, it, vi } from 'vitest';
 import { receiveAgentHostParentMessage } from '../../agent-host-parent-control';
-import { createUtilityParentInbox } from '../../utility-parent-inbox';
+import { createUtilityParentInbox, loadUtilityStartup } from '../../utility-parent-inbox';
 
 it('retains early close and rejects malformed controls with the existing decoder', () => {
   const parent = new EventEmitter();
@@ -46,4 +46,28 @@ it('retains the transferred lifetime port and observes parent loss before Core e
     channel.port1.close();
     channel.port2.close();
   }
+});
+
+it('cancels a held module load before its continuation can acquire the host', async () => {
+  const loaded = Promise.withResolvers<() => void>();
+  const controller = new AbortController();
+  const acquired = vi.fn();
+  const failure = new Error('Recorded parent close during kernel import');
+  const starting = loadUtilityStartup(() => loaded.promise, controller.signal).then((start) =>
+    start()
+  );
+  controller.abort(failure);
+  await expect(starting).rejects.toBe(failure);
+  loaded.resolve(acquired);
+  await Promise.resolve();
+  expect(acquired).not.toHaveBeenCalled();
+});
+
+it('does not start an import after cancellation was already received', async () => {
+  const controller = new AbortController();
+  const failure = new Error('Recorded early parent close');
+  controller.abort(failure);
+  const load = vi.fn(async () => undefined);
+  await expect(loadUtilityStartup(load, controller.signal)).rejects.toBe(failure);
+  expect(load).not.toHaveBeenCalled();
 });

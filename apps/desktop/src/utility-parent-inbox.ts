@@ -31,3 +31,19 @@ export function createUtilityParentInbox(parent: UtilityParent): {
     close: () => parent.off('message', message),
   };
 }
+
+/** Importing code owns no Root; cancellation must not wait for module loading. */
+export async function loadUtilityStartup<Value>(
+  load: () => Promise<Value>,
+  signal: AbortSignal
+): Promise<Value> {
+  signal.throwIfAborted();
+  const cancelled = Promise.withResolvers<never>();
+  const abort = (): void => cancelled.reject(signal.reason);
+  signal.addEventListener('abort', abort, { once: true });
+  try {
+    return await Promise.race([load(), cancelled.promise]);
+  } finally {
+    signal.removeEventListener('abort', abort);
+  }
+}
