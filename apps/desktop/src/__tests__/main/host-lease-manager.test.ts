@@ -136,19 +136,25 @@ describe('desktop host lease ownership', () => {
     expect(fork).not.toHaveBeenCalled();
     expect(attachment.close).toHaveBeenCalledTimes(1);
   });
-  it('closes a newly spawned process when startup is cancelled before ready', async () => {
-    const { createDesktopHostLease } = await import('../../host-lease-manager');
-    const child = new Child();
-    const owner = createDesktopHostLease({ fork: () => child, root });
-    const acquiring = owner.acquire();
-    const rejected = expect(acquiring).rejects.toThrow('closing');
-    await vi.waitFor(() => expect(child.listenerCount('message')).toBe(1));
-    await owner.close();
-    await rejected;
-    expect(child.posts).toEqual([{ event: 'lifetime' }, { method: 'close' }]);
-    expect(child.listenerCount('message')).toBe(0);
-    expect(child.listenerCount('exit')).toBe(0);
-  });
+  it.each([undefined, new Error('Reset replacement cancelled by quit')])(
+    'closes startup with the original cancellation cause: %s',
+    async (reason) => {
+      const { createDesktopHostLease } = await import('../../host-lease-manager');
+      const child = new Child();
+      const owner = createDesktopHostLease({ fork: () => child, root });
+      const acquiring = owner.acquire();
+      const rejected =
+        reason === undefined
+          ? expect(acquiring).rejects.toThrow('closing')
+          : expect(acquiring).rejects.toBe(reason);
+      await vi.waitFor(() => expect(child.listenerCount('message')).toBe(1));
+      await owner.close(reason);
+      await rejected;
+      expect(child.posts).toEqual([{ event: 'lifetime' }, { method: 'close' }]);
+      expect(child.listenerCount('message')).toBe(0);
+      expect(child.listenerCount('exit')).toBe(0);
+    }
+  );
   it('preserves malformed startup failure while still closing its process', async () => {
     const { createDesktopHostLease } = await import('../../host-lease-manager');
     const child = new Child();

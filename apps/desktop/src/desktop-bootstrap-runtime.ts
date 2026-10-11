@@ -140,10 +140,8 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
   let binding: BindPlatform | undefined;
   const launched = Promise.withResolvers<void>();
   const profile = createDesktopProfileRuntime(() => {
-    // Before Main binds, bootstrap alone owns early quit. After binding,
-    // Main's existing reset/native admission owns retirement: an in-flight
-    // reset must finish its reopen while graceful shutdown joins it.
-    if (!binding && isDesktopShuttingDown()) {
+    // Terminal quit never admits a replacement profile, including after reset.
+    if (isDesktopShuttingDown()) {
       throw new Error('Desktop profile is shutting down');
     }
     const unbound = new Set<() => void>();
@@ -211,13 +209,13 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
     });
     return {
       acquire: lease.acquire,
-      close: () => {
+      close: (reason?: unknown) => {
         // No Main capabilities were lent on an unbound port. Closing it rejects
         // the utility's queued readiness request before joining startup rollback.
         for (const close of unbound) {
           close();
         }
-        return lease.close();
+        return lease.close(reason);
       },
     };
   });

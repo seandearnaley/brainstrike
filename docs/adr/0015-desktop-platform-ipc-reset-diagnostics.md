@@ -35,6 +35,13 @@ NDJSON backstop sits on the logging choke points.
   after renderer replacement or a full restart. The existing Main coordinator
   and profile reset lease remain the reset authority; no cross-process owner or
   migration is introduced.
+  **Terminal quit amendment, approved by Sean on 2026-10-10:** An accepted
+  reset completes deletion under its existing lease even when quit arrives.
+  Quit cancels replacement readiness and prevents a new profile session; an
+  already-admitted replacement host is cancelled and physically joined by its
+  existing owner. Ordinary reset still waits for renderer readiness before
+  reopening. Only the exact terminal cancellation is expected; unrelated
+  failures and existing shutdown deadlines remain unchanged.
 - **Diagnostics.** Logging has one gate and one redaction pass, and `instanceof` is
   not the gate. Diagnostic events stay separate from the run-scoped run-event
   timeline, with a different scope, retention and sanitization contract. The NDJSON

@@ -68,7 +68,7 @@ import {
   retireNativeIndexSources,
 } from './native-index-source-retirement';
 import { createNativeIndexWatchHealthHandler } from './native-index-watch-health';
-import { createProfileAdmission } from './native-profile-admission';
+import { createProfileAdmission, resumeProfileForReset } from './native-profile-admission';
 import {
   closeAllIndexQueries,
   installIndexQueryTarget,
@@ -759,11 +759,12 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       });
     return stopping;
   };
-  const resumeOwned = async (): Promise<void> => {
-    await runtime.resume().catch((error: unknown) => {
+  const resumeOwned = async (signal?: AbortSignal): Promise<void> => {
+    await runtime.resume(signal).catch((error: unknown) => {
       lastError = error;
       throw error;
     });
+    signal?.throwIfAborted();
     if (terminalRequested) {
       throw new TransitionError('Native resume was superseded by terminal retirement.');
     }
@@ -802,38 +803,31 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     await stopSources();
     await closeOwned();
   };
-  const profileAdmission = createProfileAdmission(
-    runtime,
-    {
-      epoch: () => terminalEpoch,
-      reconfiguration: () => reconfiguration,
-      reopen: () => {
-        terminalRequested = false;
-      },
-      requested: () => terminalRequested,
+  const profileFence = {
+    epoch: () => terminalEpoch,
+    reconfiguration: () => reconfiguration,
+    reopen: () => {
+      terminalRequested = false;
     },
-    closeRootCapabilities
-  );
-  const close = async (): Promise<void> => {
+    requested: () => terminalRequested,
+  };
+  const profileAdmission = createProfileAdmission(runtime, profileFence, closeRootCapabilities);
+  const close = async (reason?: unknown): Promise<void> => {
     await closeRootCapabilities();
-    await runtime.retireProfile();
+    await runtime.retireProfile(reason);
   };
   const destroyAndRetireProfile = async (): Promise<void> => {
     await stopSources();
     await destroyOwned();
     await runtime.retireProfile();
   };
-  const resume = async (): Promise<void> => {
-    const epoch = terminalEpoch;
-    if (reconfiguration) {
-      await reconfiguration.catch(() => undefined);
-    }
-    if (terminalEpoch !== epoch) {
-      throw new TransitionError('Native resume was superseded by terminal retirement.');
-    }
-    terminalRequested = false;
-    await resumeOwned();
-  };
+  const resume = (signal?: AbortSignal): Promise<void> =>
+    resumeProfileForReset({
+      fence: profileFence,
+      resume: () => resumeOwned(signal),
+      retire: close,
+      signal,
+    });
   const transition = (destroy: boolean): Promise<void> => {
     if (terminalRequested) {
       return Promise.reject(

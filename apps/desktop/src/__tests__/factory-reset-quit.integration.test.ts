@@ -1,8 +1,6 @@
 // @vitest-environment node
-// Quitting while a factory reset runs must let the reset finish. Shutdown used
-// to run its steps under the reset: the process exited with the reset
-// abandoned, or the reset's reopen found the agent host fenced and reported the
-// reset failed although its purge had run.
+// Quitting during reset must finish accepted deletion and join existing owners,
+// without opening another app session under the terminal shutdown deadline.
 import { existsSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -89,6 +87,7 @@ test('quitting while a factory reset finishes lets the reset complete', {
     });
     await exited;
 
+    expect(main.exitCode).toBe(0);
     expect(output).not.toContain('Failed to reset desktop application data');
     expect(output).not.toContain('MCP is unavailable');
     expect(output).toContain('Desktop factory reset completed');

@@ -460,7 +460,7 @@ let gracefulShutdownInFlight = false;
 let initialWindowCreation: Promise<BrowserWindow | undefined> | undefined;
 const SIGNAL_SHUTDOWN_TIMEOUT_MS = 5000 as const;
 const FACTORY_RESET_RENDERER_READY_TIMEOUT_MS = 30_000 as const;
-let completeFactoryResetRendererReplacement: (() => Promise<void>) | null = null;
+let completeFactoryResetRendererReplacement: ((signal: AbortSignal) => Promise<void>) | null = null;
 
 // One shutdown run's step BODIES, built when the run starts so they capture
 // its state. They live here beside the module state they read and clear. The
@@ -560,7 +560,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         }
       },
       'embedding-host': () => retireEmbeddings(),
-      // A reset in flight finishes, reopen included; later resets are refused.
+      // Finish accepted deletion; terminal quit cancels replacement startup.
       'factory-reset': () => handleResetLocal.close(),
       'file-system': () => applicationIpcDomain.close(),
       // Its own step, deliberately NOT nested inside 'git-inventory':
@@ -729,12 +729,12 @@ function createDatabaseResetMarkingReplaced(
 
 const handleResetLocal = createDesktopFactoryResetHandler({
   cleanupLiveSubscriptionsForShutdown: cleanupDesktopLiveSubscriptionsForShutdown,
-  completeSuccessfulReset: async () => {
+  completeSuccessfulReset: async (signal) => {
     const completeRendererReplacement = completeFactoryResetRendererReplacement;
     if (completeRendererReplacement === null) {
       throw new Error('Factory reset renderer replacement coordinator is unavailable');
     }
-    await completeRendererReplacement();
+    await completeRendererReplacement(signal);
   },
   // The durable NDJSON backstop (Flight Recorder P2a) is a plaintext mirror
   // of `brainstrike_diagnostic_events`, which factory reset already wipes —
@@ -748,10 +748,11 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     }),
   resetLocalDatabase: createDatabaseResetMarkingReplaced('factory-reset'),
   resetPersistentStorageAfterDataDeletion: () => storage.clear(),
-  resumeAfterReset: async (outcome) => {
+  resumeAfterReset: async (outcome, signal) => {
     if (outcome === 'succeeded') {
-      await nativeIndexActivation.resume();
+      await nativeIndexActivation.resume(signal);
     }
+    signal.throwIfAborted();
     await resumeMcpRuntimeAfterFactoryReset(getMainMcpHostControl(), outcome);
   },
   runTransition: (work) => nativeRootDataDeletion.transition(work),
@@ -1299,7 +1300,7 @@ if (singleInstanceLockAcquired) {
     })
   );
 
-  completeFactoryResetRendererReplacement = async () => {
+  completeFactoryResetRendererReplacement = async (signal) => {
     const visibleWindows = BrowserWindow.getAllWindows().filter(
       (window) =>
         !(
@@ -1308,7 +1309,7 @@ if (singleInstanceLockAcquired) {
           llmHostManager.isHostWindow(window)
         )
     );
-    await factoryResetRendererReplacement.replace(visibleWindows);
+    await factoryResetRendererReplacement.replace(visibleWindows, signal);
   };
 
   desktopBootstrap.bindSecondInstanceFocus(() => {

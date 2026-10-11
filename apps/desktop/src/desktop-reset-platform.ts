@@ -18,8 +18,8 @@ export interface CreateDesktopFactoryResetHandlerOptions {
   readonly cleanupLiveSubscriptionsForShutdown: () => Promise<void>;
   /** Replaces the stale visible renderer and resolves only after its explicit
    * renderer-ready acknowledgement. MCP admission remains closed while this
-   * promise is pending. */
-  readonly completeSuccessfulReset: () => Promise<void>;
+   * promise is pending. Terminal quit cancels readiness through the signal. */
+  readonly completeSuccessfulReset: (signal: AbortSignal) => Promise<void>;
   /** Every on-disk path the durable NDJSON error-log backstop (Flight
    * Recorder P2a) can occupy — forwarded to `resetDesktopApplicationData` so
    * factory reset purges it alongside the database, even though it lives
@@ -31,7 +31,10 @@ export interface CreateDesktopFactoryResetHandlerOptions {
   /** Clears the long-lived main-process storage cache after userData has been
    * deleted, before a replacement renderer can read or repersist stale data. */
   readonly resetPersistentStorageAfterDataDeletion: () => Promise<void>;
-  readonly resumeAfterReset?: (outcome: 'failed' | 'succeeded') => Promise<void>;
+  readonly resumeAfterReset?: (
+    outcome: 'failed' | 'succeeded',
+    signal: AbortSignal
+  ) => Promise<void>;
   /** The same Main transition queue owns retirement, purge and reopen; the
    * reset owner retains its accepted request while waiting for this admission. */
   readonly runTransition: (
@@ -51,7 +54,7 @@ export interface DesktopFactoryResetResult {
 }
 
 export interface DesktopFactoryReset {
-  /** Joins the reset in flight, if any; resets requested from now on are refused. */
+  /** Joins accepted deletion and cancels replacement startup; refuses new resets. */
   close(): Promise<void>;
   /**
    * Settles once no reset is in flight, its reopen included. A reset retires the
@@ -84,19 +87,24 @@ async function resumeDesktopResetRuntime({
   rendererReplacementSucceeded,
   resetDataSucceeded,
   resumeAfterReset,
+  signal,
 }: {
+  signal: AbortSignal;
   failure: ResetFailure;
   rendererReplacementSucceeded: boolean;
   resetDataSucceeded: boolean;
   resumeAfterReset: CreateDesktopFactoryResetHandlerOptions['resumeAfterReset'];
 }): Promise<ResetFailure> {
-  if (resetDataSucceeded && !rendererReplacementSucceeded) {
+  if (signal.aborted || (resetDataSucceeded && !rendererReplacementSucceeded)) {
     return failure;
   }
   try {
-    await resumeAfterReset?.(resetDataSucceeded ? 'succeeded' : 'failed');
+    await resumeAfterReset?.(resetDataSucceeded ? 'succeeded' : 'failed', signal);
     return failure;
   } catch (error) {
+    if (signal.aborted && error === signal.reason) {
+      return failure;
+    }
     return {
       error: failure.kind === 'none' ? error : combineResetFailure(failure.error, error),
       kind: 'failed',
@@ -171,6 +179,7 @@ export function createDesktopFactoryResetHandler({
   userDataPath,
   waitForDatabaseWorkSchedulerIdle,
 }: CreateDesktopFactoryResetHandlerOptions): DesktopFactoryReset {
+  const shutdown = new AbortController();
   let profileResetLease: ProfileResetLease | null = null;
   const runReset = async (): Promise<DesktopFactoryResetResult> => {
     let failure: ResetFailure = NO_RESET_FAILURE;
@@ -214,20 +223,23 @@ export function createDesktopFactoryResetHandler({
       await resetPersistentStorageAfterDataDeletion();
       profileResetLease?.release();
       profileResetLease = null;
-      await completeSuccessfulReset();
-      rendererReplacementSucceeded = true;
+      if (!shutdown.signal.aborted) {
+        await completeSuccessfulReset(shutdown.signal);
+        rendererReplacementSucceeded = !shutdown.signal.aborted;
+      }
     } catch (error) {
       failure = { error, kind: 'failed' };
     }
 
-    // A failed purge must restore the pre-reset runtime snapshot. A successful
+    // While continuing the app, a failed purge restores its runtime snapshot. A successful
     // purge may reopen only after the replacement renderer explicitly reports
-    // ready. If renderer replacement itself fails, keep admission closed.
+    // ready. Terminal quit never reopens; unrelated failures stay visible.
     failure = await resumeDesktopResetRuntime({
       failure,
       rendererReplacementSucceeded,
       resetDataSucceeded,
       resumeAfterReset,
+      signal: shutdown.signal,
     });
     if (failure.kind === 'failed') {
       const message =
@@ -240,12 +252,11 @@ export function createDesktopFactoryResetHandler({
     return { success: true };
   };
   let resetInFlight: Promise<DesktopFactoryResetResult> | null = null;
-  let closed = false;
   return {
-    // Shutdown fences new resets, then lets the one in flight finish: a reset
-    // abandoned mid-way would leave its purge without its reopen or restore.
+    // Quit joins accepted deletion but cancels replacement readiness/startup.
+    // The same signal fences subsequent reset requests; purge never observes it.
     close: async () => {
-      closed = true;
+      shutdown.abort(new Error('Factory reset replacement cancelled by terminal quit'));
       await resetInFlight;
     },
     idle: async () => {
@@ -255,7 +266,7 @@ export function createDesktopFactoryResetHandler({
     },
     inFlight: () => resetInFlight,
     reset: () => {
-      if (closed) {
+      if (shutdown.signal.aborted) {
         return Promise.resolve({
           message: 'The app is quitting: the factory reset did not start.',
           success: false,

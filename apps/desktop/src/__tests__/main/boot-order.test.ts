@@ -220,6 +220,8 @@ describe('main boot order', () => {
       }
       if (outcome === 'replacement-failed') {
         replacement.reject(failure);
+      } else if (outcome === 'quit') {
+        replacement.resolve();
       } else {
         replacement.resolve();
         await resuming.promise;

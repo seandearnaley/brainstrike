@@ -199,7 +199,7 @@ describe('createDesktopFactoryResetHandler', () => {
       success: false,
     });
     expect(logger.error).toHaveBeenCalledWith('Failed to reset desktop application data:', error);
-    expect(resumeAfterReset).toHaveBeenCalledWith('failed');
+    expect(resumeAfterReset).toHaveBeenCalledWith('failed', expect.any(AbortSignal));
   });
 
   it('resumes MCP only after purge and explicit renderer replacement complete', async () => {
@@ -235,7 +235,7 @@ describe('createDesktopFactoryResetHandler', () => {
     expect(resumeAfterReset).not.toHaveBeenCalled();
     rendererReplacement.resolve();
     await expect(result).resolves.toEqual({ success: true });
-    expect(resumeAfterReset).toHaveBeenCalledWith('succeeded');
+    expect(resumeAfterReset).toHaveBeenCalledWith('succeeded', expect.any(AbortSignal));
   });
 
   it('coalesces overlapping reset requests through one purge and one resume', async () => {
@@ -302,8 +302,8 @@ describe('createDesktopFactoryResetHandler', () => {
     await expect(handleReset.reset()).resolves.toEqual({ success: true });
 
     expect(resetDesktopApplicationDataMock).toHaveBeenCalledTimes(2);
-    expect(resumeAfterReset).toHaveBeenNthCalledWith(1, 'failed');
-    expect(resumeAfterReset).toHaveBeenNthCalledWith(2, 'succeeded');
+    expect(resumeAfterReset).toHaveBeenNthCalledWith(1, 'failed', expect.any(AbortSignal));
+    expect(resumeAfterReset).toHaveBeenNthCalledWith(2, 'succeeded', expect.any(AbortSignal));
   });
 
   it.each([undefined, null, '', 0, false])(
@@ -336,7 +336,7 @@ describe('createDesktopFactoryResetHandler', () => {
         'Failed to reset desktop application data:',
         reason
       );
-      expect(resumeAfterReset).toHaveBeenCalledWith('failed');
+      expect(resumeAfterReset).toHaveBeenCalledWith('failed', expect.any(AbortSignal));
     }
   );
 
@@ -368,7 +368,7 @@ describe('createDesktopFactoryResetHandler', () => {
       message: 'purge failed; reset runtime resume failed: watcher failed',
       success: false,
     });
-    expect(resumeAfterReset).toHaveBeenCalledWith('failed');
+    expect(resumeAfterReset).toHaveBeenCalledWith('failed', expect.any(AbortSignal));
     expect(logger.error).toHaveBeenCalledWith(
       'Failed to reset desktop application data:',
       expect.objectContaining({ errors: [purgeFailure, resumeFailure] })
@@ -451,14 +451,17 @@ describe('createDesktopFactoryResetHandler', () => {
     );
   });
 
-  it('lets a reset in flight finish when shutdown closes it, reopen included (BST-1930)', async () => {
+  it('cancels replacement readiness when quit arrives after deletion', async () => {
     const replacement = Promise.withResolvers<void>();
     const logger = { error: vi.fn(), info: vi.fn() };
     const resumeAfterReset = vi.fn(async () => undefined);
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const handleReset = createDesktopFactoryResetHandler({
       cleanupLiveSubscriptionsForShutdown: vi.fn(async () => undefined),
-      completeSuccessfulReset: () => replacement.promise,
+      completeSuccessfulReset: (signal: AbortSignal) => {
+        signal.addEventListener('abort', () => replacement.resolve(), { once: true });
+        return replacement.promise;
+      },
       logger,
       resetLocalDatabase: vi.fn(async () => undefined),
       resetPersistentStorageAfterDataDeletion: resetPersistentStorageAfterDataDeletionMock,
@@ -479,16 +482,20 @@ describe('createDesktopFactoryResetHandler', () => {
     });
     await Promise.resolve();
     expect(closed).toBe(false);
-    replacement.resolve();
+    onTestFinished(async () => {
+      replacement.resolve();
+      await Promise.allSettled([reset, closing]);
+    });
+    await vi.waitFor(() => expect(closed).toBe(true));
 
     await closing;
     await expect(reset).resolves.toEqual({ success: true });
-    expect(resumeAfterReset).toHaveBeenCalledWith('succeeded');
+    expect(resumeAfterReset).not.toHaveBeenCalled();
     expect(logger.info).toHaveBeenCalledWith('Desktop factory reset completed');
     expect(logger.error).not.toHaveBeenCalled();
   });
 
-  it('owns queued repeated resets through serialized retirement and reopen when quit arrives', async () => {
+  it('joins queued repeated resets through deletion without reopening when quit arrives', async () => {
     const { createDesktopFactoryResetHandler } = await import('../desktop-reset-platform');
     const { createNativeRootDataDeletion } = await import('../native-root-data-deletion');
     const unexpected = (): never => {
@@ -506,7 +513,7 @@ describe('createDesktopFactoryResetHandler', () => {
     const prior = Promise.withResolvers<void>();
     const replacement = Promise.withResolvers<void>();
     const predecessor = queue.transition(() => prior.promise);
-    const stop = vi.fn(async () => {});
+    const stop = vi.fn(() => replacement.promise);
     resetDesktopApplicationDataMock.mockImplementation(async (options) => {
       await options.stopBackgroundRuntimes();
       return { deletedPaths: [], pendingDeletionPaths: [], preservedPaths: [] };
@@ -514,7 +521,7 @@ describe('createDesktopFactoryResetHandler', () => {
     const resumeAfterReset = vi.fn(async () => {});
     const options = {
       cleanupLiveSubscriptionsForShutdown: async () => {},
-      completeSuccessfulReset: () => replacement.promise,
+      completeSuccessfulReset: completeSuccessfulResetMock,
       logger: { error: vi.fn(), info: vi.fn() },
       resetLocalDatabase: async () => {},
       resetPersistentStorageAfterDataDeletion: async () => {},
@@ -560,7 +567,8 @@ describe('createDesktopFactoryResetHandler', () => {
     await Promise.all([close, join]);
     expect(owner.inFlight()).toBeNull();
     expect(resetDesktopApplicationDataMock).toHaveBeenCalledOnce();
-    expect(resumeAfterReset).toHaveBeenCalledExactlyOnceWith('succeeded');
+    expect(resumeAfterReset).not.toHaveBeenCalled();
+    expect(completeSuccessfulResetMock).not.toHaveBeenCalled();
   });
 
   it('preserves refused transition admission without stopping or resetting any runtime', async () => {
@@ -648,7 +656,7 @@ describe('createDesktopFactoryResetHandler', () => {
     replacement.resolve();
 
     await waiting;
-    expect(resumeAfterReset).toHaveBeenCalledWith('succeeded');
+    expect(resumeAfterReset).toHaveBeenCalledWith('succeeded', expect.any(AbortSignal));
     await expect(reset).resolves.toEqual({ success: true });
   });
 });

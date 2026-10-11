@@ -272,13 +272,17 @@ never used. Wiping the database alone is not enough.
   renderer, including replacement coordinators mounted when the explorer clears
   its content lifecycle. Failures retain their causes, skip deletion and force a reload.
 - Desktop reset order: quiesce background runtimes, clear UI state, purge DB
-  tables, reload the renderer. Do not skip the reload. MCP admission stays closed
+  tables, reload the renderer. Ordinary reset requires reload. MCP admission stays closed
   across all four steps, and main waits for the replacement tree's renderer-ready
   ping — `did-finish-load` alone is not completion — before reopening authority.
   A failed purge restores the captured pre-reset MCP authority, config
   projection, path grant and tool projection while admission is still closed; a
   renderer replacement that fails after a successful purge leaves admission
-  closed and the failure visible.
+  closed and the failure visible. Terminal quit instead joins accepted destructive
+  work under the same reset lease, cancels replacement readiness, and prevents a
+  replacement profile from opening. If replacement startup was already admitted,
+  the existing profile owner cancels and physically joins it. Only that exact
+  cancellation is expected; purge, replacement and cleanup failures stay visible.
 - Every reset runtime is attempted even when another fails. The original
   rejections stay ordered in one `AggregateError` and the message names every
   failed runtime; never replace those causes with a names-only error.

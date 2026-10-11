@@ -87,3 +87,51 @@ export function createProfileAdmission<Attachment>(
     },
   };
 }
+
+/** Terminal reset cancellation uses the existing owner and joins its physical retirement. */
+export async function resumeProfileForReset({
+  fence,
+  resume,
+  retire,
+  signal,
+}: {
+  readonly fence: ProfileAdmissionFence;
+  readonly resume: () => Promise<void>;
+  readonly retire: (reason?: unknown) => Promise<void>;
+  readonly signal: AbortSignal | undefined;
+}): Promise<void> {
+  signal?.throwIfAborted();
+  let retirement: Promise<void> | undefined;
+  const onAbort = (): void => {
+    retirement = retire(signal?.reason);
+    // The finally block owns the result, including a physical-close failure.
+    retirement.catch(() => undefined);
+  };
+  signal?.addEventListener('abort', onAbort, { once: true });
+  const failures: unknown[] = [];
+  try {
+    const epoch = fence.epoch();
+    await fence.reconfiguration()?.catch(() => undefined);
+    signal?.throwIfAborted();
+    if (fence.epoch() !== epoch) {
+      throw new TransitionError('Native resume was superseded by terminal retirement.');
+    }
+    fence.reopen();
+    await resume();
+  } catch (error) {
+    failures.push(error);
+  } finally {
+    signal?.removeEventListener('abort', onAbort);
+    try {
+      await retirement;
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  if (failures.length === 1) {
+    throw failures[0];
+  }
+  if (failures.length > 1) {
+    throw new AggregateError(failures, 'Native reset resume and retirement failed');
+  }
+}

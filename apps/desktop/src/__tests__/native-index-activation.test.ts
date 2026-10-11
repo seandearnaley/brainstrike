@@ -19,7 +19,7 @@ import {
   type ScopedIndexerPort,
   vectorProfileHash,
 } from '@brainstrike/indexer';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, onTestFinished, vi } from 'vitest';
 import { CanonicalUtilityChild } from '../canonical-utility-child';
 import {
   type CanonicalCollectionDependencies,
@@ -49,6 +49,66 @@ import {
 beforeEach(resetActivationFixture);
 
 afterEach(resetFileSizeConfig);
+
+it.each(['cancelled', 'startup-failed', 'cleanup-failed'] as const)(
+  'joins replacement host startup on quit and preserves %s outcomes',
+  async (outcome) => {
+    const { activation } = fixture();
+    const quit = new AbortController();
+    const starting = Promise.withResolvers<void>();
+    const physicalExit = Promise.withResolvers<void>();
+    const unrelated = new Error('Independent host startup failure');
+    const cleanupFailure = new Error('Physical host close failed');
+    mocks.acquireProfile.mockReturnValueOnce(starting.promise);
+    mocks.closeProfile.mockImplementationOnce(async (reason: unknown) => {
+      starting.reject(outcome === 'startup-failed' ? unrelated : reason);
+      await physicalExit.promise;
+      if (outcome === 'cleanup-failed') {
+        throw cleanupFailure;
+      }
+    });
+    let settled = false;
+    const resuming = activation.resume(quit.signal);
+    const result = resuming.then(
+      () => {
+        settled = true;
+        return;
+      },
+      (error: unknown) => {
+        settled = true;
+        return error;
+      }
+    );
+    onTestFinished(async () => {
+      quit.abort(new Error('Test cleanup'));
+      physicalExit.resolve();
+      starting.reject(quit.signal.reason);
+      await result;
+    });
+    await vi.waitFor(() => expect(mocks.acquireProfile).toHaveBeenCalledOnce());
+    quit.abort(new Error('Terminal quit'));
+    await vi.waitFor(() => expect(mocks.closeProfile).toHaveBeenCalledOnce());
+    expect(settled).toBe(false);
+    physicalExit.resolve();
+    const failure = await result;
+    if (outcome === 'cleanup-failed') {
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect((failure as AggregateError).errors).toEqual([quit.signal.reason, cleanupFailure]);
+    } else {
+      expect(failure).toBe(outcome === 'startup-failed' ? unrelated : quit.signal.reason);
+    }
+    expect(mocks.createProfileOwner).toHaveBeenCalledOnce();
+    await expect(activation.acquireProfile()).rejects.toThrow('terminal retirement');
+  }
+);
+
+it('refuses reset resume before profile admission when quit is already terminal', async () => {
+  const { activation } = fixture();
+  const quit = new AbortController();
+  quit.abort(new Error('Terminal quit'));
+  await expect(activation.resume(quit.signal)).rejects.toBe(quit.signal.reason);
+  expect(mocks.createProfileOwner).not.toHaveBeenCalled();
+});
 
 it('retains the assistant profile through index settings replacement and rebuild until terminal close', async () => {
   mocks.manager.attachCanonicalCollection.mockImplementation(

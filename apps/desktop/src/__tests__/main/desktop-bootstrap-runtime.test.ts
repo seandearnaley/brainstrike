@@ -150,7 +150,7 @@ it('does not open a new owner if Main finishes loading after early quit retired 
   expect(fixture.events.filter((event) => event === 'owner')).toHaveLength(1);
 });
 
-it('leaves an in-flight reset reopen to Main after successful capability binding', async () => {
+it('refuses a replacement profile during quit after successful capability binding', async () => {
   const { getDesktopBootstrapRuntime } = await import('../../desktop-bootstrap-runtime');
   const { markDesktopShuttingDown } = await import('../../desktop-shutdown-state');
   const runtime = getDesktopBootstrapRuntime();
@@ -160,10 +160,9 @@ it('leaves an in-flight reset reopen to Main after successful capability binding
   markDesktopShuttingDown();
   fixture.exited.resolve();
   await runtime.profile.retire();
-  // Full Main's reset barrier joins this already-admitted reopen before it
-  // closes native/profile admission. Bootstrap must not add a second fence.
-  await expect(runtime.profile.acquire()).resolves.toEqual({ kind: 'owned' });
-  expect(fixture.events.filter((event) => event === 'owner')).toHaveLength(2);
+  // Accepted reset deletion joins without admitting another app session.
+  await expect(runtime.profile.acquire()).rejects.toThrow('shutting down');
+  expect(fixture.events.filter((event) => event === 'owner')).toHaveLength(1);
   await runtime.profile.retire();
 });
 

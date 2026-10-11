@@ -80,7 +80,7 @@ export type DesktopAgentHostPlatform = Pick<
 >;
 export interface DesktopHostLease {
   acquire(): Promise<HostAttachment>;
-  close(): Promise<void>;
+  close(reason?: unknown): Promise<void>;
 }
 
 interface OwnedChild {
@@ -316,9 +316,9 @@ export function createDesktopHostLease(options: DesktopHostLeaseOptions): Deskto
       acquiring ??= acquire();
       return acquiring;
     },
-    close: () => {
+    close: (reason = new Error('Desktop host lease owner is closing')) => {
       retired = true;
-      abort.abort(new Error('Desktop host lease owner is closing'));
+      abort.abort(reason);
       // The acquire path owns failure rollback; close still joins every finalizer.
       return (acquiring?.catch(() => undefined) ?? Promise.resolve()).then(closeScope);
     },

@@ -1,12 +1,12 @@
 interface ProfileOwner<Attachment> {
   acquire(): Promise<Attachment>;
-  close(): Promise<void>;
+  close(reason?: unknown): Promise<void>;
 }
 
 export interface DesktopProfileRuntime<Attachment> {
-  acquire(): Promise<Attachment>;
+  acquire(signal?: AbortSignal): Promise<Attachment>;
   isRetiring(): boolean;
-  retire(beforeClose?: Promise<void>): Promise<void>;
+  retire(beforeClose?: Promise<void>, reason?: unknown): Promise<void>;
   retireFailed(): Promise<boolean>;
 }
 
@@ -32,8 +32,9 @@ export function createDesktopProfileRuntime<Attachment>(
     return true;
   };
   return {
-    acquire: async () => {
+    acquire: async (signal) => {
       await retirement;
+      signal?.throwIfAborted();
       owner ??= createOwner();
       const retained = owner;
       acquisition ??= retained.acquire();
@@ -50,7 +51,7 @@ export function createDesktopProfileRuntime<Attachment>(
       }
     },
     isRetiring: () => retirement !== undefined,
-    retire: (beforeClose = Promise.resolve()) => {
+    retire: (beforeClose = Promise.resolve(), reason?: unknown) => {
       if (retirement && retirementPending) {
         return retirement;
       }
@@ -60,7 +61,7 @@ export function createDesktopProfileRuntime<Attachment>(
         await retireFailed();
         // Startup may still await Main's binding. Close aborts startup; join both
         // tails before allowing reset to create the next profile owner.
-        const [closed] = await Promise.allSettled([owner?.close(), acquisition]);
+        const [closed] = await Promise.allSettled([owner?.close(reason), acquisition]);
         if (closed?.status === 'rejected') {
           throw closed.reason;
         }

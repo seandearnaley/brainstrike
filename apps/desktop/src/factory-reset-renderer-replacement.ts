@@ -9,7 +9,7 @@ import type { WorkspaceOpenReadySignal } from './workspace-open-ready-ipc';
 
 export interface FactoryResetRendererReplacementCoordinator {
   readonly handleRendererReady: (signal: WorkspaceOpenReadySignal) => void;
-  readonly replace: (windows: readonly BrowserWindow[]) => Promise<void>;
+  readonly replace: (windows: readonly BrowserWindow[], signal?: AbortSignal) => Promise<void>;
 }
 
 interface CoordinatorOptions {
@@ -67,8 +67,12 @@ export function createFactoryResetRendererReplacementCoordinator({
 }: CoordinatorOptions): FactoryResetRendererReplacementCoordinator {
   const readyHandlers = new Map<number, (signal: WorkspaceOpenReadySignal) => void>();
 
-  const replaceWindow = async (window: BrowserWindow): Promise<void> =>
+  const replaceWindow = async (window: BrowserWindow, signal?: AbortSignal): Promise<void> =>
     await new Promise<void>((resolve, reject) => {
+      if (signal?.aborted) {
+        resolve();
+        return;
+      }
       // Capture the object and id before installing `closed`: Electron's
       // BrowserWindow.webContents getter may itself throw after destruction.
       // No close-path cleanup reads that getter again.
@@ -93,6 +97,7 @@ export function createFactoryResetRendererReplacementCoordinator({
 
         const cleanupFailures = collectCleanupFailures([
           () => clearTimeout(timeout),
+          () => signal?.removeEventListener('abort', onAbort),
           () => readyHandlers.delete(webContentsId),
           () => window.removeListener('closed', onClosed),
           () => webContents.removeListener('did-start-navigation', onDidStartNavigation),
@@ -128,6 +133,9 @@ export function createFactoryResetRendererReplacementCoordinator({
           });
         }
       };
+      // Terminal quit cancels readiness, not deletion or window ownership.
+      // Main's existing renderer shutdown step still joins the window.
+      const onAbort = (): void => settle({ status: 'fulfilled' });
       const onClosed = (): void => {
         settle({
           reason: new Error(`Factory reset renderer ${webContentsId} closed before readiness`),
@@ -156,6 +164,7 @@ export function createFactoryResetRendererReplacementCoordinator({
         }
         settle({ status: 'fulfilled' });
       });
+      signal?.addEventListener('abort', onAbort, { once: true });
       window.once('closed', onClosed);
       webContents.on('did-start-navigation', onDidStartNavigation);
       webContents.on('dom-ready', onDomReady);
@@ -171,8 +180,10 @@ export function createFactoryResetRendererReplacementCoordinator({
     handleRendererReady: (signal) => {
       readyHandlers.get(signal.senderWebContentsId)?.(signal);
     },
-    replace: async (windows) => {
-      const results = await Promise.allSettled(windows.map(replaceWindow));
+    replace: async (windows, signal) => {
+      const results = await Promise.allSettled(
+        windows.map((window) => replaceWindow(window, signal))
+      );
       const failures = results.flatMap((result) =>
         result.status === 'rejected' ? [result.reason] : []
       );
