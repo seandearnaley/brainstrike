@@ -127,6 +127,10 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       'host status',
       'host stop',
       'help',
+      'children list',
+      'child send',
+      'child input',
+      'child stop',
       'thread start',
       'thread read',
       'threads list',
@@ -279,6 +283,25 @@ function cliWorkspaceConfiguration(input: CliWorkspaceRunInput | undefined): {
   return input ? { configuration: input } : {};
 }
 
+/** Named child controls refuse a top-level thread before issuing a mutation. */
+async function assertChildCommand(
+  client: HostClient,
+  command: string,
+  selected: string | undefined
+): Promise<void> {
+  if (!command.startsWith('child ')) {
+    return;
+  }
+  const { rows } = await client.request('thread/read', {
+    fromSeq: 0,
+    threadId: required(selected, 'thread'),
+  });
+  const started = rows.find(({ event }) => event.type === 'thread.started')?.event;
+  if (started?.type !== 'thread.started' || !('origin' in started)) {
+    throw new Error(`${command} requires a child thread`);
+  }
+}
+
 /** CLI is a client of the root owner; it never runs a second model/tool loop. */
 export async function runHostCli(
   args: string[],
@@ -298,6 +321,10 @@ host start | host status | host stop
 thread start | thread read --thread <id>
 run start --thread <id> --model <id> --prompt <text>
 run stop --thread <id> --run <id>
+children list --thread <parent-id>
+child send --thread <child-id> --model <id> --prompt <text>
+child input --thread <child-id> --run <id> --model <id> --prompt <text>
+child stop --thread <child-id> --run <id>
 interaction respond --thread <id> --run <id> --interaction <id> --decision approve|deny
 interaction resume --thread <id> --run <id> --interaction <id> --resume-data <json>
 log follow --thread <id> [--from-seq <n>]
@@ -371,6 +398,7 @@ Run signals stop and join its execution; attach signals detach.
   const runId = (): string => required(values.run, 'run');
   try {
     assertCredentialAuthority(spawned, values);
+    await assertChildCommand(client, command, values.thread);
     switch (command) {
       case 'hooks trust':
         print(
@@ -401,6 +429,9 @@ Run signals stop and join its execution; attach signals detach.
       }
       case 'thread start':
         print(await client.request('thread/start', { commandId }));
+        break;
+      case 'children list':
+        print(await client.request('thread/children', { threadId: threadId() }));
         break;
       case 'threads list':
         print(await client.request('thread/list', {}));
@@ -447,6 +478,7 @@ Run signals stop and join its execution; attach signals detach.
           threadId: threadId(),
         });
         break;
+      case 'child send':
       case 'run start':
         print(
           await client.request('run/start', {
@@ -458,6 +490,18 @@ Run signals stop and join its execution; attach signals detach.
           })
         );
         break;
+      case 'child input':
+        print(
+          await client.request('run/input', {
+            commandId,
+            modelId: required(values.model, 'model'),
+            prompt: required(values.prompt, 'prompt'),
+            runId: runId(),
+            threadId: threadId(),
+          })
+        );
+        break;
+      case 'child stop':
       case 'run stop':
         print(
           await client.request('run/stop', { commandId, runId: runId(), threadId: threadId() })

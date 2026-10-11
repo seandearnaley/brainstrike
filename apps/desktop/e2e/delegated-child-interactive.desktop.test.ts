@@ -1,13 +1,16 @@
 // Keep foreground decisions covered explicitly; delegated-worker-write covers background mode.
+import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 import type { TestInfo } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import type { ElectronHarness } from './fixtures/electron-harness';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { readHostThreadTree } from './utils/agent-host-log';
+import { readHostRoot, readHostThreadTree } from './utils/agent-host-log';
 import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { runInteractiveChildFixture } from './utils/interactive-child-fixture';
 import {
@@ -20,6 +23,7 @@ import {
   assembledMarkers,
   createAssembledSubagentFixture,
 } from './utils/subagent-integration-fixture';
+import { E2E_TIMEOUTS } from './utils/timeouts';
 
 type ChildDecisionScenario =
   | { decision: 'answer'; tool: 'askUser' }
@@ -39,6 +43,37 @@ test('rejects a reloaded delegated child plan @smoke', async ({ electron }, test
 test('assembles concurrent child control, reload, and durable results @smoke', async ({
   electron,
 }, testInfo) => {
+  await assertAssembledChildControl(electron, testInfo, 'gui');
+});
+
+test('real CLI controls GUI children with isolated Stop and committed reload @smoke', async ({
+  electron,
+}, testInfo) => {
+  await assertAssembledChildControl(electron, testInfo, 'cli');
+});
+
+const executeCli = promisify(execFile);
+const cliRequire = createRequire(import.meta.url);
+const cliPath = path.join(
+  path.dirname(cliRequire.resolve('@brainstrike/host-capabilities')),
+  '../bin/brainstrike.mjs'
+);
+
+async function appCli(electron: ElectronHarness, args: readonly string[]): Promise<unknown> {
+  const { stdout } = await executeCli(
+    process.execPath,
+    [cliPath, '--data-root', await readHostRoot(electron.getUserDataDir()), ...args],
+    { timeout: E2E_TIMEOUTS.messageVisibility }
+  );
+  const output: unknown = JSON.parse(stdout);
+  return output;
+}
+
+async function assertAssembledChildControl(
+  electron: ElectronHarness,
+  testInfo: TestInfo,
+  controls: 'gui' | 'cli'
+): Promise<void> {
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-assembled-subagents-'));
   const fixture = await createAssembledSubagentFixture(workspace);
   const tree = () => readAssembledTree(electron.getUserDataDir());
@@ -164,7 +199,32 @@ test('assembles concurrent child control, reload, and durable results @smoke', a
           ['STREAM_BETA_TASK_1770']: 'working',
         });
       expect(byTask(await tree(), ({ runIds }) => runIds.length)).toEqual(ONE_RUN_EACH);
-      await sessionGrant.click();
+      const cliHost = controls === 'cli' ? await appCli(electron, ['host', 'status']) : null;
+      if (controls === 'cli') {
+        const logs = await readHostThreadTree(electron.getUserDataDir());
+        for (const log of logs.filter(({ parentThreadId }) => parentThreadId !== undefined)) {
+          const pending = log.rows.find(
+            ({ event }) => event.type === 'interaction.requested'
+          )?.event;
+          if (pending?.type !== 'interaction.requested') {
+            continue;
+          }
+          await appCli(electron, [
+            'interaction',
+            'respond',
+            '--thread',
+            log.threadId,
+            '--run',
+            pending.runId,
+            '--interaction',
+            pending.interactionId,
+            '--decision',
+            'approve',
+          ]);
+        }
+      } else {
+        await sessionGrant.click();
+      }
       // The session grant answers both parked reads, but their tools cannot run
       // until a permit frees: both held model responses own the two.
       await expect
@@ -182,7 +242,25 @@ test('assembles concurrent child control, reload, and durable results @smoke', a
       const stopped = await openChild('stream-alpha', 'STREAM_ALPHA_TASK_1770');
       const stop = stopped.panel.getByRole('button', { exact: true, name: 'Stop' });
       await expect(stop).toBeVisible();
-      await stop.click();
+      if (controls === 'cli') {
+        const alpha = (await tree()).children.find(
+          ({ prompt }) => prompt === 'STREAM_ALPHA_TASK_1770'
+        );
+        expect(alpha).toBeDefined();
+        if (!alpha?.runIds[0]) {
+          throw new Error('The host did not commit Alpha’s run identity');
+        }
+        await appCli(electron, [
+          'child',
+          'stop',
+          '--thread',
+          alpha.threadId,
+          '--run',
+          alpha.runIds[0],
+        ]);
+      } else {
+        await stop.click();
+      }
       // Alpha's freed permit lets both parked tasks read and finish; Beta still streams.
       await expect
         .poll(async () => byTask(await tree(), ({ outcomes }) => outcomes))
@@ -221,6 +299,37 @@ test('assembles concurrent child control, reload, and durable results @smoke', a
       expect(byTask(afterReload, ({ status }) => status)['STREAM_BETA_TASK_1770']).toBe('working');
       expect(byTask(afterReload, ({ outcomes }) => outcomes)['STREAM_BETA_TASK_1770']).toEqual([]);
       fixture.releaseBeta();
+      if (controls === 'cli') {
+        const beta = afterReload.children.find(({ prompt }) => prompt === 'STREAM_BETA_TASK_1770');
+        expect(beta).toBeDefined();
+        await expect
+          .poll(async () => {
+            const logs = await readHostThreadTree(electron.getUserDataDir());
+            return logs
+              .find(({ threadId }) => threadId === beta?.threadId)
+              ?.rows.some(({ event }) => event.type === 'interaction.requested');
+          })
+          .toBe(true);
+        const logs = await readHostThreadTree(electron.getUserDataDir());
+        const pending = logs
+          .find(({ threadId }) => threadId === beta?.threadId)
+          ?.rows.find(({ event }) => event.type === 'interaction.requested')?.event;
+        if (!beta || pending?.type !== 'interaction.requested') {
+          throw new Error('The host did not commit Beta’s approval identity');
+        }
+        await appCli(electron, [
+          'interaction',
+          'respond',
+          '--thread',
+          beta.threadId,
+          '--run',
+          pending.runId,
+          '--interaction',
+          pending.interactionId,
+          '--decision',
+          'approve',
+        ]);
+      }
       await expect(root.getByText(assembledMarkers.parentResult, { exact: true })).toBeVisible();
       const survivor = await openChild('stream-beta', 'STREAM_BETA_TASK_1770');
       await expect(
@@ -312,10 +421,29 @@ test('assembles concurrent child control, reload, and durable results @smoke', a
       await expect(root.getByText(assembledMarkers.parentResult, { exact: true })).toBeVisible();
       expect(await tree()).toEqual(persisted);
       expect(modelCalls()).toBe(completedCalls);
+      if (controls === 'cli') {
+        expect(await appCli(electron, ['host', 'status'])).toEqual(cliHost);
+        for (const { threadId, rows } of await readHostThreadTree(electron.getUserDataDir())) {
+          expect(await appCli(electron, ['thread', 'read', '--thread', threadId])).toMatchObject({
+            rows,
+          });
+          const fromSeq = rows[Math.floor(rows.length / 2)]?.seq ?? 0;
+          expect(
+            await appCli(electron, [
+              'thread',
+              'read',
+              '--thread',
+              threadId,
+              '--from-seq',
+              String(fromSeq),
+            ])
+          ).toMatchObject({ rows: rows.filter(({ seq }) => seq > fromSeq) });
+        }
+      }
     },
     workspace,
   });
-});
+}
 
 const ONE_RUN_EACH = {
   ['PARKED_GRANT_TASK_1770']: 1,
