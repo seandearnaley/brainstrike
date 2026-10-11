@@ -146,7 +146,10 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
     }
     const unbound = new Set<() => void>();
     const lease = createDesktopHostLease({
-      closeTimeoutMs: 1000,
+      // A cold Windows host physically joined all owners and released Root in
+      // 3.731s. Keep the physical join within the existing 5s shutdown budget;
+      // the other platforms retain their existing allowance.
+      closeTimeoutMs: process.platform === 'win32' ? 5000 : 1000,
       onChildReady: privateClients.attach,
       onChildStarted: () => launched.resolve(),
       platform: (children) => {

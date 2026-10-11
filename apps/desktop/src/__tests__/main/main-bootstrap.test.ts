@@ -119,6 +119,7 @@ it('joins the profile when full Main evaluation rejects before reporting startup
   expect(state.exit).not.toHaveBeenCalled();
   released.resolve();
   await vi.waitFor(() => expect(state.exit).toHaveBeenCalledWith(1));
+  expect(state.showErrorBox).toHaveBeenCalledOnce();
 });
 
 it('keeps the early quit join while full Main is still loading', async () => {
@@ -164,4 +165,21 @@ it('reports a failed early quit without blocking exit on a startup dialog', asyn
   expect(preventDefault).toHaveBeenCalledOnce();
   expect(state.showErrorBox).not.toHaveBeenCalled();
   expect(state.quit).not.toHaveBeenCalled();
+});
+
+it('does not reopen a failure dialog when Main rejects after an early quit', async () => {
+  const loaded = Promise.withResolvers<void>();
+  const importing = Promise.withResolvers<void>();
+  vi.doMock('../../main', async () => {
+    importing.resolve();
+    await loaded.promise;
+    throw new Error('Main binding failed after quit');
+  });
+  appReady.current.resolve();
+  await import('../../main-bootstrap');
+  await importing.promise;
+  state.handlers.get('before-quit')?.({ preventDefault: vi.fn() });
+  loaded.resolve();
+  await vi.waitFor(() => expect(state.exit).toHaveBeenCalledWith(1));
+  expect(state.showErrorBox).not.toHaveBeenCalled();
 });

@@ -9,9 +9,10 @@ import {
   type StateMessageVectorPort,
   type StateObservationVectorPort,
 } from '@brainstrike/indexer';
-import { createIndexerConnection } from '@brainstrike/indexer/transport';
+import { createIndexerConnection, type IndexerConnection } from '@brainstrike/indexer/transport';
 import { createLogger } from '@brainstrike/logging';
 import type { IndexerPort as StateStoreIndexerPort } from '@brainstrike/state-store';
+import type { HostStartupContext } from './runtime.js';
 
 const logger = createLogger('AgentHostStateIndex');
 
@@ -59,7 +60,8 @@ function canonicalDistModule(file: string): string {
  */
 export async function openHostStateIndex(
   root: string,
-  memoryResourceIds: readonly string[] = []
+  memoryResourceIds: readonly string[] = [],
+  startup?: Pick<HostStartupContext, 'register' | 'signal'>
 ): Promise<HostStateIndex> {
   const stateRoot = realpathSync(root);
   const dbPath = join(stateRoot, HOST_STATE_INDEX_FILE);
@@ -72,7 +74,7 @@ export async function openHostStateIndex(
     stateRoot,
   } as const;
   try {
-    return await connectHostStateIndex(options);
+    return await connectHostStateIndex(options, startup);
   } catch (cause) {
     if (!isRebuildRequired(cause)) {
       throw cause;
@@ -87,7 +89,7 @@ export async function openHostStateIndex(
     await Promise.all(
       ['', '-wal', '-shm'].map((suffix) => rm(`${dbPath}${suffix}`, { force: true }))
     );
-    return await connectHostStateIndex(options);
+    return await connectHostStateIndex(options, startup);
   }
 }
 
@@ -104,44 +106,82 @@ function isRebuildRequired(cause: unknown): cause is Error {
   );
 }
 
-async function connectHostStateIndex(options: {
-  readonly dbPath: string;
-  readonly stateRoot: string;
-}): Promise<HostStateIndex> {
-  const worker = new Worker(new URL('host-state-index-worker.js', PACKAGE_DIST));
-  const connection = createIndexerConnection(options, HOST_STATE_INDEX_DEADLINES, {
-    kill: () => {
-      void worker.terminate();
-      return true;
-    },
-    onError: (listener) => {
-      worker.on('error', listener);
-      return () => {
-        worker.off('error', listener);
-      };
-    },
-    onExit: (listener) => {
-      const exited = (): void => listener();
-      worker.on('exit', exited);
-      return () => {
-        worker.off('exit', exited);
-      };
-    },
-    onMessage: (listener) => {
-      worker.on('message', listener);
-      return () => {
-        worker.off('message', listener);
-      };
-    },
-    send: (message) => worker.postMessage(message),
-  });
-  const port = await connection.ready;
-  return {
-    close: () => connection.close(),
-    indexer: createStateStoreIndexer(port),
-    rootId: options.stateRoot,
-    search: (request) => port.searchState(request),
-    searchVectors: port,
-    vectors: port,
+async function connectHostStateIndex(
+  options: { readonly dbPath: string; readonly stateRoot: string },
+  startup?: Pick<HostStartupContext, 'register' | 'signal'>
+): Promise<HostStateIndex> {
+  let worker: Worker | undefined;
+  let connection: IndexerConnection | undefined;
+  let closing: Promise<void> | undefined;
+  const close = (): Promise<void> => {
+    closing ??= Promise.resolve().then(async () => {
+      if (connection) {
+        await connection.close();
+      } else if (worker) {
+        await worker.terminate();
+      }
+    });
+    return closing;
   };
+  // BST-1977: Quit reached the utility while index readiness was still pending,
+  // but the former Promise-only acquisition hid Close behind that readiness.
+  // Register the existing connection's physical join before starting its worker.
+  await startup?.register(close);
+  startup?.signal.throwIfAborted();
+  if (closing) {
+    throw new Error('Host resource owner is closing');
+  }
+  const ownedWorker = new Worker(new URL('host-state-index-worker.js', PACKAGE_DIST));
+  worker = ownedWorker;
+  const cancel = (): void => {
+    // The startup owner observes the same retained rejection during rollback.
+    void close().catch(() => undefined);
+  };
+  try {
+    connection = createIndexerConnection(options, HOST_STATE_INDEX_DEADLINES, {
+      kill: () => {
+        void ownedWorker.terminate();
+        return true;
+      },
+      onError: (listener) => {
+        ownedWorker.on('error', listener);
+        return () => {
+          ownedWorker.off('error', listener);
+        };
+      },
+      onExit: (listener) => {
+        const exited = (): void => listener();
+        ownedWorker.on('exit', exited);
+        return () => {
+          ownedWorker.off('exit', exited);
+        };
+      },
+      onMessage: (listener) => {
+        ownedWorker.on('message', listener);
+        return () => {
+          ownedWorker.off('message', listener);
+        };
+      },
+      send: (message) => ownedWorker.postMessage(message),
+    });
+    startup?.signal.addEventListener('abort', cancel, { once: true });
+    if (startup?.signal.aborted) {
+      cancel();
+    }
+    const port = await connection.ready;
+    startup?.signal.throwIfAborted();
+    return {
+      close,
+      indexer: createStateStoreIndexer(port),
+      rootId: options.stateRoot,
+      search: (request) => port.searchState(request),
+      searchVectors: port,
+      vectors: port,
+    };
+  } catch (cause) {
+    await close();
+    throw startup?.signal.aborted ? startup.signal.reason : cause;
+  } finally {
+    startup?.signal.removeEventListener('abort', cancel);
+  }
 }

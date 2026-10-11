@@ -458,7 +458,7 @@ let desktopDimensionIndexStrategy: DimensionIndexBuildStrategy | null = null;
 let allowImmediateQuit = false;
 let gracefulShutdownInFlight = false;
 let initialWindowCreation: Promise<BrowserWindow | undefined> | undefined;
-const SIGNAL_SHUTDOWN_TIMEOUT_MS = 5000 as const;
+const SIGNAL_SHUTDOWN_TIMEOUT_MS = process.platform === 'win32' ? 10_000 : 5000;
 const FACTORY_RESET_RENDERER_READY_TIMEOUT_MS = 30_000 as const;
 let completeFactoryResetRendererReplacement: ((signal: AbortSignal) => Promise<void>) | null = null;
 

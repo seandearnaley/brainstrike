@@ -188,11 +188,12 @@ test('a partial configuration failure unwinds its resources before the index wit
 
 test('an inline release while registration closes never waits for its own incomplete configuration', async () => {
   const failure = new Error('Recorded closed Scope registration');
-  let registered = 0;
+  let configuring = false;
   let productionClose: (() => Promise<void>) | undefined;
   await expect(
     createProductionHostPlatform({
       configure: async (context) => {
+        configuring = true;
         await context.register(async () => {
           events.push('inline-release');
         });
@@ -202,9 +203,8 @@ test('an inline release while registration closes never waits for its own incomp
       startup: {
         ...startup,
         register: async (release) => {
-          registered += 1;
-          if (registered === 1) {
-            productionClose = release;
+          if (!configuring) {
+            productionClose ??= release;
             return;
           }
           // Effect.acquireRelease invokes a release inline when registration loses

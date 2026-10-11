@@ -80,8 +80,20 @@ async function startCliHost(options: {
       const record = decodeHostRecord(
         JSON.parse(await readFile(join(dataRoot, 'host.json'), 'utf8'))
       );
-      await command(dataRoot, home, ['host', 'stop']);
-      await expect.poll(() => processStartTime(record.pid)).toBeNull();
+      expect(await command(dataRoot, home, ['host', 'stop'])).toMatchObject({
+        code: 0,
+        stderr: '',
+      });
+      expect(RootLock.inspect(dataRoot)?.owner.released).toBe(true);
+      // Owner-approved Windows allowance (2026-10-11): the cold host spent
+      // 1.435s saving Node's compile cache after successful Root release.
+      // Still require physical retirement; a successful stop reply is not exit.
+      await expect
+        .poll(
+          () => processStartTime(record.pid),
+          process.platform === 'win32' ? { timeout: 5000 } : undefined
+        )
+        .toBeNull();
     }
     await removeFixtureRoot(dataRoot);
   });
