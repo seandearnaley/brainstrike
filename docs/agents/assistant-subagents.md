@@ -756,6 +756,15 @@ Guard: `apps/desktop/src/__tests__/assistant-server/delegated-resume-parity.inte
 
 ### Host-owned child view binding
 
+Desktop and standalone CLI compose the same Node persona resolver from
+`@brainstrike/host-capabilities/delegation`. Its secure file scan lives in
+`@brainstrike/assistant-service/node-workspace-services`; both shells keep the
+existing built-in/user persona precedence and Core-owned child scheduler.
+Standalone records canonical default subagent settings in its stateless run
+intent and narrows child tools to that host's admitted capabilities. This does
+not supply Desktop's saved settings or workspace/index capabilities to a
+standalone host.
+
 - The shared child view combines the baseline with its live leg through the
   public assistant-ui external-store runtime and converter, which updates a
   repeated tool-call id in place, preserves identical text either side of a

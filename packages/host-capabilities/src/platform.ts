@@ -27,6 +27,7 @@ import {
   DEFAULT_PERMISSION_POLICIES,
   DEFAULT_RUNTIME_ASSISTANT_LAST_MESSAGES,
   DEFAULT_RUNTIME_ASSISTANT_WORKING_MEMORY,
+  DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
   deriveAgentLoopInputTokenLimit,
   findLlmModelDefinition,
   findProviderDefinition,
@@ -37,6 +38,7 @@ import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assist
 import type { HostStartOptions } from '@brainstrike/host-lease';
 import { z } from 'zod';
 import { createHostCapabilities } from './capabilities.js';
+import { resolveHostDelegation } from './delegation.js';
 import { getGlobalHooksPath } from './hooks/config.js';
 import { loadHostRunHooks, trustedHookRoots } from './hooks/host-run-hooks.js';
 import {
@@ -66,6 +68,7 @@ const STANDALONE_NATIVE_TOOL_IDS = [...STANDALONE_HUMAN_TOOL_IDS, ...STANDALONE_
 const standaloneCapabilities = {
   browserOAuth: 'unavailable',
   configuredMcp: 'unavailable',
+  delegation: 'available',
   localInference: 'unavailable',
   mcpAppUi: 'text',
   nativeTools: { available: STANDALONE_NATIVE_TOOL_IDS, remaining: 'unavailable' },
@@ -141,7 +144,7 @@ function standaloneSystemPrompt(
     ? ', and the configured MCP servers with their Tasks (text Apps only)'
     : '';
   const unavailableMcp = configuredMcp ? '' : 'configured MCP/Tasks, ';
-  return `This standalone host supports the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob and symbol search, the task list, canvases and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. Content search, language-server inspection and shell tools, ${unavailableMcp}Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
+  return `This standalone host supports the shared persona children with narrowed tools and tree budgets, the canonical askUser and submitPlan tools, workspace file read, write, string-replace, delete, rename and directory listing, file-name glob and symbol search, the task list, canvases and paging of oversized tool results${mcpTools}. Its workspace roots: ${roots.map((root) => root.path).join(', ')}. Content search, language-server inspection and shell tools, ${unavailableMcp}Skills/workspace instructions, browser OAuth, local inference and vector Memory are unavailable. Use an existing desktop host for those capabilities.`;
 }
 
 /**
@@ -198,6 +201,11 @@ export async function createHostPlatform(
     ? { ...standaloneCapabilities, configuredMcp: 'available', tasks: 'available' }
     : standaloneCapabilities;
   const system = standaloneSystemPrompt(workspaceRoots, mcp !== undefined);
+  const subagents = {
+    delegationEnabled: true,
+    disabledPersonaIds: [],
+    settings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
+  };
   return createProductionHostPlatform({
     auth: host.auth,
     close: async () => {
@@ -245,6 +253,7 @@ export async function createHostPlatform(
         memorySettings: CONSTRUCTION_SAFE_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
         modelConfiguration: configuration,
         permissionPolicy: { policies: DEFAULT_PERMISSION_POLICIES, yolo: false },
+        subagents,
         workspaceInstructionsPreference: { masterEnabled: false, oversizedOptInByRootId: {} },
       });
       refuseStandalonePlanMode(request);
@@ -289,6 +298,7 @@ export async function createHostPlatform(
       });
       return {
         configuration,
+        delegation: resolveHostDelegation({ subagents }, catalog.provider, workspaceRoots, false),
         durableConfiguration: {
           capabilities,
           intent,

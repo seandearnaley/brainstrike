@@ -13,6 +13,7 @@
       "types": "./dist/native-tools/canvas-state.d.ts",
       "default": "./dist/native-tools/canvas-state.js"
     },
+    "./delegation": { "types": "./dist/delegation.d.ts", "default": "./dist/delegation.js" },
     "./credentials": { "types": "./dist/credentials.d.ts", "default": "./dist/credentials.js" },
     "./hooks": { "types": "./dist/hooks/index.d.ts", "default": "./dist/hooks/index.js" },
     "./windows-command-entry": "./bin/windows-command-entry.mjs",
