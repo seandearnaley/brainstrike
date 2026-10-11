@@ -3072,6 +3072,9 @@ importers:
       electron:
         specifier: 'catalog:'
         version: 44.4.5(supports-color@10.2.2)
+      esbuild:
+        specifier: 'catalog:'
+        version: 0.28.2
       typescript:
         specifier: 'catalog:'
         version: '@typescript/typescript6@6.0.2'
