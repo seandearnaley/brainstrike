@@ -159,6 +159,7 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
   const reportFailures: unknown[] = [];
   let owned = false;
   let profileReported = false;
+  let closingReported = false;
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', (chunk: string) => {
     stderr += chunk;
@@ -203,6 +204,8 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
           owned = report.owned;
           completion.resolve(decodeHostRecord(report.record));
         } else if (report.event === 'failed') {
+          // The fixture's refusal path has already started its own close.
+          closingReported = true;
           stderr += `${report.message}\n`;
           completion.reject(new Error(report.message));
         }
@@ -219,7 +222,7 @@ function startApp(root: string, startupTimeoutMs?: number, platformModule?: stri
       timeoutMs: 10_000,
     }),
     close: async () => {
-      if (child.exitCode === null && child.signalCode === null) {
+      if (!closingReported && child.exitCode === null && child.signalCode === null) {
         await sendControl('close');
       }
       const code = await runWithTimeout(() => exited, {

@@ -3,13 +3,13 @@ import { getDesktopBootstrapRuntime } from './desktop-bootstrap-runtime';
 import { initializeDesktopEnvironment } from './desktop-env';
 import { isDesktopShuttingDown, markDesktopShuttingDown } from './desktop-shutdown-state';
 
-function reportBootstrapFailure(error: unknown): void {
+function reportBootstrapFailure(error: unknown, quitting = isDesktopShuttingDown()): void {
   const message = error instanceof Error ? error.message : String(error);
   process.stderr.write(`Desktop environment bootstrap failed: ${message}\n`);
   try {
     // An early quit failure must exit after reporting, not wait indefinitely
     // for acknowledgement of a modal startup dialog while shutdown is in flight.
-    if (!isDesktopShuttingDown()) {
+    if (!quitting) {
       dialog.showErrorBox('BrainStrike Desktop failed to start', message);
     }
   } finally {
@@ -60,10 +60,16 @@ try {
           app.removeListener('before-quit', earlyQuit);
           void starting.catch(main.reportAgentHostStartupFailure);
         } catch (cause) {
+          const quitting = isDesktopShuttingDown();
           markDesktopShuttingDown();
-          await runtime.profile.retire();
-          await started;
-          throw cause;
+          try {
+            await runtime.profile.retire();
+            await started;
+          } catch (retirementFailure) {
+            reportBootstrapFailure(retirementFailure, quitting);
+            return;
+          }
+          reportBootstrapFailure(cause, quitting);
         }
       })
       .catch(reportBootstrapFailure);
