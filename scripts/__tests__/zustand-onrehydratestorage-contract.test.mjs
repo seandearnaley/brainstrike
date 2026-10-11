@@ -32,6 +32,11 @@ const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
  */
 const ALLOWLIST = new Map([
   [
+    'packages/app-state/src/stores/permission-policy-store.ts',
+    'Writes only usePermissionPolicyHydration, a separate store initialized before ' +
+      'the persisted permission store. Never reads its own store binding.',
+  ],
+  [
     'packages/app-shell/src/assistant-composer-command-store.ts',
     'Reports errors through an already initialized logger and imported toast function. ' +
       'Never reads its own store binding; draft reconstruction lives in merge.',

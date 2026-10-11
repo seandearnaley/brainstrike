@@ -13,7 +13,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
  * (or the reverse).
  */
 const TWINS = [
-  'apps/desktop/src/database-location.ts',
+  'packages/assistant-service/src/node-workspace/database-location.ts',
   'packages/db/src/database-snapshot-manifest.ts',
 ];
 

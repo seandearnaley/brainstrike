@@ -214,10 +214,7 @@ test('resource-mismatch process proof runs in the required desktop integration l
   assert.ok(existsSync(path.join(repoRoot, 'apps/desktop', relativeTestPath)));
 
   const desktop = JSON.parse(readRepoFile('apps/desktop/package.json'));
-  assert.match(
-    desktop.scripts['test:integration'],
-    /vitest run --config vitest\.integration\.config\.mts/u
-  );
+  assert.equal(desktop.scripts['test:integration'], 'node scripts/run-integration.mjs');
   const configUrl = pathToFileURL(
     path.join(repoRoot, 'apps/desktop/vitest.integration.config.mts')
   );

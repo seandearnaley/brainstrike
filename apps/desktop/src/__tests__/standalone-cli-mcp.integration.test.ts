@@ -19,6 +19,7 @@ import { ResourceOwner } from '@brainstrike/host-lease';
 import { STATE_DB } from '@brainstrike/state-store';
 import { afterEach, beforeEach, expect, test } from 'vitest';
 import { z } from 'zod';
+// @boundaries-ignore Test-only lab type: the verifier must stay outside the application dependency graph (docs/agents/mcp-conformance.md).
 import type { McpLabSession } from '../../../../packages/mcp-test-lab/dist/index.js';
 import {
   type ModelProviderShim,

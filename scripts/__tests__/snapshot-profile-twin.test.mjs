@@ -92,7 +92,7 @@ function loadFunction(sourceFile, name, maxLength) {
   return new Function('PROFILE_SEGMENT_MAX_LENGTH', `${outputText}\nreturn ${name};`)(maxLength);
 }
 
-const desktop = parse('apps/desktop/src/database-location.ts');
+const desktop = parse('packages/assistant-service/src/node-workspace/database-location.ts');
 const manifest = parse('packages/db/src/database-snapshot-manifest.ts');
 const desktopMaxLength = numberConstant(desktop, 'PROFILE_SEGMENT_MAX_LENGTH');
 const manifestMaxLength = numberConstant(manifest, 'PATH_SEGMENT_MAX_LENGTH');

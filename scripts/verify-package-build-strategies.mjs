@@ -375,7 +375,10 @@ export function findPackageBuildStrategyViolations({
       distCodeTargets([pkg.manifest.exports, pkg.manifest.main, pkg.manifest.module])
     )) {
       const resolvedTarget = path.resolve(pkg.packageDir, target);
-      if (!pkg.codeOutputs.has(resolvedTarget)) {
+      const emitted = resolvedTarget.includes('*')
+        ? [...pkg.codeOutputs].some((output) => path.matchesGlob(output, resolvedTarget))
+        : pkg.codeOutputs.has(resolvedTarget);
+      if (!emitted) {
         violations.push({
           kind: 'non-tsc-export-target',
           location: pkg.manifestPath,
