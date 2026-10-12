@@ -27,6 +27,19 @@
   ticket closes only when its `fixme` is removed in the same PR; never delete
   a spec to get green. These definitions remain disabled with cloud CI.
 
+### Merging to main while CI is disabled
+
+- Before a PR merges to `main`, its head passes `pnpm check:routine` locally, or
+  `pnpm check --full` for milestone-scale or cross-cutting changes. The PR
+  description records the command, head SHA and result. A red result blocks the
+  merge.
+- Native, packaging or platform-specific changes also run the affected platform's
+  checks: an unsigned pack plus the `@packaged` lanes on macOS, and Windows only
+  when the change touches Windows code paths.
+- Squash-merge; `main` keeps linear history. A failing spec is fixed or
+  quarantined against an owner-held ticket in the same PR, never deleted to get
+  green.
+
 ### Review and CI budget
 
 - Optimize elapsed time to accepted delivery, not code or test count. Before a
