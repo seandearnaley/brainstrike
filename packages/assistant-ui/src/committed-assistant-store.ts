@@ -53,6 +53,45 @@ export type CommittedAssistantCommands = Pick<
   | 'unstable_onBranchChange'
 >;
 
+/**
+ * Run commands (send, edit, regenerate) the owner has dispatched and not yet
+ * settled: the vendor's "submitted" state. The committed fold shows a run only
+ * once the host has admitted it, and the host commits that run before it
+ * answers the command, so a settled command means the fold already holds its
+ * run. Until then a second composer send would reach the host as a refused
+ * `run/start` (BST-1981), so the composer's sends wait for this.
+ */
+export class CommittedRunStarts {
+  private inFlight = 0;
+  private readonly listeners = new Set<() => void>();
+
+  readonly isStarting = (): boolean => this.inFlight > 0;
+
+  readonly subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  };
+
+  async track(start: () => Promise<void>): Promise<void> {
+    this.change(1);
+    try {
+      await start();
+    } finally {
+      this.change(-1);
+    }
+  }
+
+  private change(delta: 1 | -1): void {
+    const wasStarting = this.isStarting();
+    this.inFlight += delta;
+    if (wasStarting !== this.isStarting()) {
+      for (const listener of this.listeners) {
+        listener();
+      }
+    }
+  }
+}
+
 function connectedPort<Args extends readonly unknown[], Result>(
   store: CommittedAssistantStore,
   command: (...args: Args) => Result
@@ -75,7 +114,8 @@ function connectedPort<Args extends readonly unknown[], Result>(
 export function bindCommittedAssistantCommands(
   store: CommittedAssistantStore,
   commands: CommittedAssistantCommands,
-  onCommandError: (cause: unknown) => void
+  onCommandError: (cause: unknown) => void,
+  starts: CommittedRunStarts
 ): CommittedAssistantCommands {
   function observedPort<Args extends readonly unknown[]>(
     command: (...args: Args) => Promise<void>,
@@ -104,6 +144,14 @@ export function bindCommittedAssistantCommands(
       }
     };
   }
+  /** A command that starts a run is in flight until the host answers it. */
+  function startPort<Args extends readonly unknown[]>(
+    command: (...args: Args) => Promise<void>,
+    restoresDraft = false
+  ): (...args: Args) => Promise<void> {
+    return observedPort((...args: Args) => starts.track(() => command(...args)), restoresDraft);
+  }
+  const send = startPort(commands.onNew, true);
   function synchronousPort<Args extends readonly unknown[]>(
     command: (...args: Args) => void
   ): (...args: Args) => void {
@@ -124,7 +172,7 @@ export function bindCommittedAssistantCommands(
   return {
     onCancel: commands.onCancel ? observedPort(commands.onCancel) : undefined,
     onDelete: commands.onDelete ? connectedPort(store, commands.onDelete) : undefined,
-    onEdit: commands.onEdit ? observedPort(commands.onEdit, true) : undefined,
+    onEdit: commands.onEdit ? startPort(commands.onEdit, true) : undefined,
     // The vendor import API mutates its repository even without an import port.
     // Always reject/report unsupported imports so the hook restores the fold.
     onImport: synchronousPort(
@@ -133,11 +181,23 @@ export function bindCommittedAssistantCommands(
           throw new Error('The agent host does not support importing conversations.');
         })
     ),
-    onNew: observedPort(commands.onNew, true),
+    onNew: (message) => {
+      // The composer stops sending while a run command is in flight
+      // (`isSendDisabled`). Any other append in that window is held back
+      // here, unsent and reported; a composer send gets its draft back.
+      if (starts.isStarting()) {
+        const held = new MessageNotSentError(
+          'The previous message is still being sent, so this one was not sent.'
+        );
+        onCommandError(held);
+        return Promise.reject(held);
+      }
+      return send(message);
+    },
     onRefetchThread: commands.onRefetchThread
       ? connectedPort(store, commands.onRefetchThread)
       : undefined,
-    onReload: commands.onReload ? observedPort(commands.onReload) : undefined,
+    onReload: commands.onReload ? startPort(commands.onReload) : undefined,
     onRespondToToolApproval: commands.onRespondToToolApproval
       ? connectedPort(store, commands.onRespondToToolApproval)
       : undefined,

@@ -10,6 +10,7 @@ import {
   type CommittedAssistantCommands,
   type CommittedAssistantSnapshot,
   type CommittedAssistantStore,
+  CommittedRunStarts,
 } from './committed-assistant-store';
 
 /** Object.is compares the selected fold object, so unrelated tokens do not rerender a card. */
@@ -101,9 +102,13 @@ export function useCommittedAssistantRuntime({
       },
     };
   }, [commands, store]);
+  // One tracker per mounted conversation, so a rebound port still sees a run
+  // command dispatched through the previous binding.
+  const [starts] = useState(() => new CommittedRunStarts());
+  const isStarting = useSyncExternalStore(starts.subscribe, starts.isStarting, starts.isStarting);
   const ports = useMemo(
-    () => bindCommittedAssistantCommands(store, selecting, reportCommandError),
-    [store, selecting, reportCommandError]
+    () => bindCommittedAssistantCommands(store, selecting, reportCommandError, starts),
+    [store, selecting, reportCommandError, starts]
   );
   const selectedHeadId =
     selection && selection.committedHeadId === snapshot.repository.headId
@@ -138,7 +143,8 @@ export function useCommittedAssistantRuntime({
     isDisabled: snapshot.isDisabled,
     isLoading: snapshot.isLoading,
     isRunning: snapshot.isRunning,
-    isSendDisabled: snapshot.connection !== 'connected' || snapshot.error !== undefined,
+    isSendDisabled:
+      isStarting || snapshot.connection !== 'connected' || snapshot.error !== undefined,
     messageRepository: repository,
     // Installed branch switching checks this port before moving its local head.
     setMessages:
