@@ -88,6 +88,8 @@ test('the panel, Settings and the composer read provider facts from the host', a
   await expect(page.getByTestId('provider-verification-detail-openrouter')).toContainText(
     'HTTP 401'
   );
+  // BST-1981: the card face no longer pairs "Connected" with the rejection.
+  await expect(page.getByTestId('provider-connection-openrouter')).toHaveText('Key rejected');
   expect(modelProvider.refusals()).toContainEqual(
     expect.objectContaining({ knob: 'OPENROUTER_BASE_URL', method: 'GET', route: '/key' })
   );

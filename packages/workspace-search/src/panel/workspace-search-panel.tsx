@@ -161,12 +161,16 @@ export function WorkspaceSearchPanel({
   }, [onSubmit]);
 
   return (
-    <div className="grid h-full grid-rows-[auto_1fr_auto]">
-      {/* Fixed header: search controls, query input, coverage status. */}
+    // One column the panel's width: an `auto` track grew to its widest row's
+    // unbreakable content (311px in a 180px panel, BST-1981), pushing controls
+    // and results past the panel's clipped edge.
+    <div className="grid h-full grid-cols-[minmax(0,1fr)] grid-rows-[auto_1fr_auto]">
+      {/* Fixed header: search controls, query input, coverage status. Rows
+          wrap rather than overflow, so every control stays inside the panel. */}
       <div className="flex flex-col gap-2 border-b p-2">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <SearchModeToggle {...(semanticAvailability ? { semanticAvailability } : {})} />
-          <div className="min-w-0 flex-1">
+          <div className="min-w-32 flex-1">
             <SearchCollectionPicker />
           </div>
         </div>

@@ -1,12 +1,14 @@
 /**
- * MCP Configuration Alert
+ * MCP configuration setup guidance
  *
- * Warning banner displayed when MCP config file is missing.
+ * Shown while the MCP config file does not exist — the normal state of a fresh
+ * profile, so it is neutral setup guidance rather than a warning (BST-1981).
  * Provides actions to select, reset, or create a sample config.
  */
 
 import { Button } from '@brainstrike/ui';
-import { AlertTriangle, FileJson, FolderOpen, RotateCcw, X } from 'lucide-react';
+import { FileJson, FolderOpen, Info, RotateCcw, X } from 'lucide-react';
+import { useId } from 'react';
 import type { McpConfigInfo } from './types';
 
 /**
@@ -26,10 +28,8 @@ export interface McpConfigAlertProps {
 }
 
 /**
- * MCP Configuration Alert Component
- *
- * Displays a warning banner when the MCP config file is missing,
- * providing quick actions to resolve the issue.
+ * Names where MCP servers are read from and offers the ways to start, while
+ * no config file exists yet.
  */
 export function McpConfigAlert({
   configInfo,
@@ -38,26 +38,34 @@ export function McpConfigAlert({
   onCreateSample,
   onDismiss,
 }: McpConfigAlertProps) {
+  const titleId = useId();
   // Don't render if loading or config exists
   if (configInfo === null || configInfo.exists) {
     return null;
   }
 
   return (
-    <div
-      className="flex items-start gap-3 rounded-lg border border-yellow-500/50 bg-yellow-500/5 p-3"
+    <section
+      aria-labelledby={titleId}
+      className="flex items-start gap-3 rounded-lg border bg-muted/30 p-3"
       data-testid="mcp-config-alert"
     >
-      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+      <Info aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
 
       <div className="min-w-0 flex-1">
-        <p className="text-sm text-warning">
-          MCP config not found
-          {configInfo.path && (
-            <code className="ml-1.5 rounded bg-yellow-500/10 px-1 py-0.5 font-mono text-[11px]">
+        <h3 className="font-medium text-sm" id={titleId}>
+          No MCP servers configured yet
+        </h3>
+        <p className="mt-0.5 text-muted-foreground text-xs">
+          MCP servers are read from
+          {configInfo.path ? (
+            <code className="mx-1 break-all rounded bg-muted px-1 py-0.5 font-mono text-[11px]">
               {configInfo.path}
             </code>
+          ) : (
+            ' a config file '
           )}
+          once it exists. Create a sample config to start, or select an existing file.
         </p>
 
         <div className="mt-2 flex flex-wrap gap-2">
@@ -108,7 +116,7 @@ export function McpConfigAlert({
           <span className="sr-only">Dismiss</span>
         </Button>
       )}
-    </div>
+    </section>
   );
 }
 

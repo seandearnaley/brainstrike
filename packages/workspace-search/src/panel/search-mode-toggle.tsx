@@ -80,7 +80,11 @@ export function SearchModeToggle({
   return (
     <TooltipProvider>
       {/* biome-ignore lint/a11y/useSemanticElements: WAI-ARIA toolbar/toggle-group pattern for a button group, not a form fieldset. */}
-      <div aria-label="Search mode" className="inline-flex items-center gap-1" role="group">
+      <div
+        aria-label="Search mode"
+        className="inline-flex flex-wrap items-center gap-1"
+        role="group"
+      >
         <button
           aria-pressed={mode === 'text'}
           className={modeButtonClass(mode === 'text', false)}

@@ -836,6 +836,18 @@ export class CommittedAssistantLogProjection {
         status: 'completed',
       });
     }
+    if (outcome === 'interrupted') {
+      // A Stop's activity trace reads "Stopped after Ns". A run the host ended
+      // itself (closing, or recovery on restart) has no trace when it streamed
+      // only text, and the vendor shows no `other` status, so the committed
+      // outcome and the host's reason are this always-visible row (BST-1981).
+      this.runEvent(run, row, 'interrupted', {
+        ...(typeof event['detail'] === 'string' ? { detail: event['detail'] } : {}),
+        kind: 'run.cancelled',
+        label: 'Reply interrupted',
+        status: 'cancelled',
+      });
+    }
     const active = [...this.runs].findLast(([, candidate]) => !candidate.terminal)?.[0];
     this.view = {
       ...this.view,
