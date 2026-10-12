@@ -379,7 +379,10 @@ export function CredentialInventory({
   return (
     <div className="space-y-3">
       <CredentialLoadError message={visibleErrors} />
-      <Table aria-label="Credential inventory">
+      {/* Auto layout: the column widths are preferences, never narrower than
+          their content, so two row actions cannot spill over the Key column
+          (a fixed 16% Actions column did at 1536px, BST-1981). */}
+      <Table aria-label="Credential inventory" className="table-auto">
         <TableHeader>
           <TableRow>
             <TableHead className="w-[22%]">Name</TableHead>

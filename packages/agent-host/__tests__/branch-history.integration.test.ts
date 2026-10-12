@@ -317,14 +317,18 @@ test('an approval pending inside an edited branch resumes across a restart with 
   if (paused?.type !== 'interaction.requested') {
     throw new Error('The edited branch did not pause for approval');
   }
-  // A second start, or a regenerate, is refused while that run is active.
-  await expect(start(harness, 'Too early')).rejects.toThrow(/active root run/);
+  // A second start, or a regenerate, is refused while that run is active. A
+  // client reads the refusal as the host wrote it, without the transport's
+  // "Request … failed with message" wrapper (BST-1981).
+  await expect(start(harness, 'Too early')).rejects.toThrow(
+    /^Thread already has an active root run$/u
+  );
   await expect(
     regenerate(
       harness,
       committedRunIdentity(await rowsUntil(harness, () => true), second).userMessageId
     )
-  ).rejects.toThrow(/active root run/);
+  ).rejects.toThrow(/^Thread already has an active root run$/u);
 
   await harness.restart();
   await harness.client().request('interaction/respond', {

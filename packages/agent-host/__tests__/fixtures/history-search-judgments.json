@@ -1,0 +1,57 @@
+{
+  "provenance": "BST-1939: judged before any retrieval ran, by reading committed-history-search.json (recorded by record-history-search-log.mjs in a fresh data root). Each judgment names a committed row that answers the query; a thread is relevant when one of its judged rows is. Judgments are known answers, not exhaustive labels.",
+  "queries": [
+    {
+      "id": "history-1",
+      "query": "kitchen budget",
+      "rationale": "Only the Kitchen renovation budget thread is about the budget; both words are in its title, neither in its messages.",
+      "relevant": [{ "seq": 7, "threadId": "4f57d75a-b334-4473-9046-b07147fabeac" }]
+    },
+    {
+      "id": "history-2",
+      "query": "notarytool",
+      "rationale": "The release checklist's notes and answer name notarytool, as do the untitled failure thread's notes.",
+      "relevant": [
+        { "seq": 11, "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa" },
+        { "seq": 19, "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa" },
+        { "seq": 9, "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd" }
+      ]
+    },
+    {
+      "id": "history-3",
+      "query": "grep latency trigram",
+      "rationale": "The grep latency thread's notes and answer report the trigram candidate timings; its title holds the other two words.",
+      "relevant": [
+        { "seq": 11, "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd" },
+        { "seq": 19, "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd" }
+      ]
+    },
+    {
+      "id": "history-4",
+      "query": "release stapler",
+      "rationale": "The Release signing checklist thread's notes and answer describe the stapler step; no single message holds both words.",
+      "relevant": [
+        { "seq": 11, "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa" },
+        { "seq": 19, "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa" }
+      ]
+    },
+    {
+      "id": "history-5",
+      "query": "hardened runtime helper",
+      "rationale": "The untitled notarization failure thread's notes and answer blame the helper's missing hardened runtime.",
+      "relevant": [
+        { "seq": 9, "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd" },
+        { "seq": 17, "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd" }
+      ]
+    },
+    {
+      "id": "history-6",
+      "query": "tile quotes",
+      "rationale": "The kitchen thread's prompt asks to compare the tile quotes and its answer names the cheaper quote.",
+      "relevant": [
+        { "seq": 7, "threadId": "4f57d75a-b334-4473-9046-b07147fabeac" },
+        { "seq": 19, "threadId": "4f57d75a-b334-4473-9046-b07147fabeac" }
+      ]
+    }
+  ]
+}

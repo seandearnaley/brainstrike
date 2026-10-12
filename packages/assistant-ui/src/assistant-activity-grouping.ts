@@ -132,3 +132,40 @@ export function trailingGroupHasActivity(parts: readonly GroupablePart[]): boole
   }
   return false;
 }
+
+/** The fields `activityTraceShowsEnd` reads beyond the grouping key. */
+interface EndablePart extends GroupablePart {
+  readonly result?: unknown;
+  readonly status?: { readonly type: string };
+}
+
+/** A part whose own status is unfinished; a resultless call takes its message's. */
+function unfinishedPart(part: EndablePart): boolean {
+  if (part.status) {
+    return part.status.type === 'incomplete';
+  }
+  return part.type === 'tool-call' && part.result === undefined;
+}
+
+/**
+ * True when an activity group of this settled message will read the run's
+ * early end itself. A group's status is its LAST activity part's
+ * (`ActivityGroup`), so its trace reads "Stopped" / "Activity failed" only
+ * when that part never finished, as a call a Stop cut off. Grouped by the same
+ * classification as the renderer, so an end row the committed projection adds
+ * when no group shows the end can never be a second marker (BST-1982).
+ */
+export function activityTraceShowsEnd(parts: readonly EndablePart[]): boolean {
+  let last: EndablePart | undefined;
+  for (const part of parts) {
+    if (classifyPart(part) !== ACTIVITY_GROUP) {
+      if (last && unfinishedPart(last)) {
+        return true;
+      }
+      last = undefined;
+    } else if (isActivityPart(part)) {
+      last = part;
+    }
+  }
+  return last !== undefined && unfinishedPart(last);
+}

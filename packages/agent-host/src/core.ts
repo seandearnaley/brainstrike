@@ -330,6 +330,12 @@ export class HostCore {
     return this.projections.ledger.read();
   }
 
+  /** BST-1939: a thread's first and latest stored append, child threads included. */
+  threadTimes(threadId: string): { readonly createdAt: number; readonly updatedAt: number } {
+    const { createdAt, updatedAt } = this.catalog.entry(threadId);
+    return { createdAt, updatedAt };
+  }
+
   /** BST-1932: a thread's direct child threads, in delegation order, with their origins. */
   listChildren(threadId: string): HostResults['thread/children']['children'] {
     return this.children.listed(threadId, this.threads, this.presentations, this.runs);

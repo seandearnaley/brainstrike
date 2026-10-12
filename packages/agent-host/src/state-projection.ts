@@ -58,15 +58,32 @@ function projectedEvent(input: unknown): HostEvent | undefined {
   return HostEventSchema.parse(event);
 }
 
+/**
+ * A tool payload's string values, one per line. Indexing its JSON text would
+ * glue escapes onto words: unicode61 reads `\ntool` as the token `ntool`.
+ */
+function payloadText(value: unknown): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map(payloadText).filter(Boolean).join('\n');
+  }
+  if (value !== null && typeof value === 'object') {
+    return payloadText(Object.values(value));
+  }
+  return '';
+}
+
 /** Visible tool/decision history belongs to the run's existing assistant message. */
 function runHistoryText(event: HostEvent): string | null {
   switch (event.type) {
     case 'effect.finished':
-      return JSON.stringify(event.output);
+      return payloadText(event.output) || null;
     case 'interaction.requested':
-      return `${event.kind} ${event.toolId}\n${JSON.stringify(event.input)}`;
+      return `${event.kind} ${event.toolId}\n${payloadText(event.input)}`;
     case 'interaction.responded':
-      return 'decision' in event ? event.decision : JSON.stringify(event.resumeData);
+      return 'decision' in event ? event.decision : payloadText(event.resumeData) || null;
     case 'run.finished':
       return event.detail ? `${event.outcome} ${event.detail}` : null;
     default:

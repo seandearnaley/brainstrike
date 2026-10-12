@@ -20,10 +20,30 @@ export const HostSearchMessageSchema = z.strictObject({
   rootThreadId: Id,
   threadId: Id,
 });
+/**
+ * BST-1939: one root thread in the fused list. Messages fuse their lexical and
+ * semantic ranks; threads fuse their best message's rank with their title's,
+ * each by reciprocal rank (k = 60).
+ */
+const HostSearchResultSchema = z.strictObject({
+  /** Its best matches, best first, each with the arms that found it. */
+  matches: z.array(
+    HostSearchMessageSchema.extend({
+      score: z.number().positive(),
+      sources: z.array(z.enum(['lexical', 'semantic'])).min(1),
+    })
+  ),
+  score: z.number().positive(),
+  /** The root thread the Threads panel lists. */
+  threadId: Id,
+  title: ThreadTitle.optional(),
+  titleMatched: z.boolean(),
+});
 /** The caller's embedder identity; the state index validates and hashes it. */
 const SearchVectorProfile = z.record(z.string(), z.json());
 /** sha256 of the row text a vector was computed from. */
 const SearchSourceHash = z.string().regex(/^[a-f0-9]{64}$/u);
+const SearchTime = z.number().int().nonnegative();
 const SearchSemantic = z.strictObject({
   profile: SearchVectorProfile,
   threshold: z.number().min(-1).max(1),
@@ -32,12 +52,24 @@ const SearchSemantic = z.strictObject({
 
 export const SEARCH_METHOD_SCHEMAS = {
   /** Gap 10: the host's message and title arms for the Threads panel's fused search. */
-  'thread/search': z.strictObject({
-    limit: z.number().int().positive().max(100).optional(),
-    query: z.string().trim().min(1).max(500),
-    /** The semantic arm: the caller's query vector, its embedder profile and minimum cosine. */
-    semantic: SearchSemantic.optional(),
-  }),
+  'thread/search': z
+    .strictObject({
+      /** Each arm's pool, and the most fused threads returned (at most 20). */
+      limit: z.number().int().positive().max(100).optional(),
+      query: z.string().trim().min(1).max(500),
+      /** BST-1939: only threads whose root thread is bound to this workspace root. */
+      rootId: Id.optional(),
+      /** The semantic arm: the caller's query vector, its embedder profile and minimum cosine. */
+      semantic: SearchSemantic.optional(),
+      /** Messages committed at or after this time, in ms since the epoch; titles of threads active since. */
+      since: SearchTime.optional(),
+      /** Messages committed at or before this time; titles of threads created by then. */
+      until: SearchTime.optional(),
+    })
+    .refine(
+      ({ since, until }) => since === undefined || until === undefined || since <= until,
+      'A thread search window ends before it starts'
+    ),
   /** The semantic arm's coverage of every host thread under the caller's embedder profile. */
   'thread/search/coverage': z.strictObject({ profile: SearchVectorProfile }),
   /** The semantic arm's backlog: rows with no vector under the caller's embedder profile. */
@@ -79,11 +111,15 @@ export const SEARCH_METHOD_SCHEMAS = {
 
 export const SEARCH_RESULT_SCHEMAS = {
   'thread/search': z.strictObject({
+    /** BST-1939: whether the lexical arms matched every query word, or, finding nothing, any word. */
+    lexical: z.enum(['all-words', 'any-word']),
     /** Best match first; each on its thread's committed selected path. */
     messages: z.array(HostSearchMessageSchema),
+    /** BST-1939: the arms fused into one ranked list of root threads, best first. */
+    results: z.array(HostSearchResultSchema),
     /** The semantic arm's matches, nearest first, as `messages` and with a text snippet. */
     similar: z.array(HostSearchMessageSchema),
-    /** Root threads whose title holds every query word, most similar first. */
+    /** Root threads whose title holds the query words, most similar first. */
     titles: z.array(z.strictObject({ similarity: z.number(), threadId: Id, title: ThreadTitle })),
   }),
   /** Rows, rows with a vector, and rows whose last embedding failed within the retry window. */

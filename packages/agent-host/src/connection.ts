@@ -32,7 +32,6 @@ import {
   parseHostParams,
 } from './protocol.js';
 import { bindHostProviderMethods } from './provider-connection.js';
-import { HostThreadDamagedRefusal } from './thread-catalog.js';
 import {
   coverageHostSearchVectors,
   pendingHostSearchVectors,
@@ -145,9 +144,10 @@ export function bindHostConnection(
         try {
           return await request(parseHostParams(method, input), controller.signal);
         } catch (cause) {
-          // A damaged thread's refusal crosses as the host wrote it, without the
-          // transport's "Request … failed with message" wrapper.
-          throw cause instanceof HostThreadDamagedRefusal
+          // vscode-jsonrpc reports a plain Error as "Request <method> failed with
+          // message: …"; a client reads the host's refusal as the host wrote it,
+          // the reason its user is shown (BST-1981, as main-platform.ts does).
+          throw cause instanceof Error && !(cause instanceof ResponseError)
             ? new ResponseError(ErrorCodes.InternalError, cause.message)
             : cause;
         } finally {

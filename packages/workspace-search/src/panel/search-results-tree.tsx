@@ -149,7 +149,9 @@ function FileRow({
   return (
     <span className="flex min-w-0 items-center gap-2">
       <FileIcon aria-hidden="true" className="h-4 w-4 shrink-0 text-muted-foreground" />
-      <span className="truncate font-medium text-sm">{file.path}</span>
+      <span className="truncate font-medium text-sm" title={file.path}>
+        {file.path}
+      </span>
       <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
         {file.children.length} {file.children.length === 1 ? 'match' : 'matches'}
       </span>
@@ -218,7 +220,10 @@ function MatchRow({
       <span className="w-9 shrink-0 text-right font-mono text-muted-foreground/70 text-xs tabular-nums">
         {match.line}
       </span>
-      <span className="truncate font-mono text-foreground/80 text-xs">{content}</span>
+      {/* A narrow panel truncates the line; its title keeps the whole line readable. */}
+      <span className="truncate font-mono text-foreground/80 text-xs" title={match.lineText}>
+        {content}
+      </span>
     </span>
   );
 }

@@ -470,6 +470,27 @@ describe('ProvidersSettings — connect → models chaining', () => {
     expect(screen.queryByTestId('provider-card-body-openai')).not.toBeInTheDocument();
   });
 
+  it('never reads a credential the provider rejected as connected (BST-1981)', async () => {
+    let sources: unknown[] = [];
+    installSecretsBridge(() => Promise.resolve(sources));
+    const { verifyProvider } = makeVerifier('invalid');
+
+    render(<ProvidersSettings verifyProvider={verifyProvider} />);
+    await waitFor(() => expect(screen.getByTestId('provider-card-openai')).toBeInTheDocument());
+    sources = [{ provider: 'openai', source: 'stored' }];
+    act(() => {
+      useSecretsStore.getState().notifySecretsChanged();
+    });
+
+    await screen.findByTestId('provider-verdict-chip-openai');
+    const connection = screen.getByTestId('provider-connection-openai');
+    // The key is still stored, but the runtime cannot authenticate with it.
+    expect(connection).toHaveAttribute('data-connection', 'connected');
+    expect(connection).toHaveAttribute('data-verdict', 'invalid');
+    expect(connection).toHaveTextContent('Key rejected');
+    expect(connection).not.toHaveTextContent('Connected');
+  });
+
   it('does not open the model list when the probe rejects the credential', async () => {
     let sources: unknown[] = [];
     installSecretsBridge(() => Promise.resolve(sources));

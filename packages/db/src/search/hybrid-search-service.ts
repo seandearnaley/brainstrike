@@ -7,6 +7,12 @@
  * @see https://learn.microsoft.com/en-us/azure/search/hybrid-search-overview
  */
 
+import {
+  createRankedList,
+  type FusedResult,
+  fuseRankedLists,
+  type RRFOptions,
+} from '@brainstrike/utils/rrf';
 import type {
   ChunkSearchOptions,
   ChunkSearchResult,
@@ -15,7 +21,6 @@ import type {
   FTSSearchOptions,
   FTSSearchResult,
 } from '../models/file-chunk.js';
-import { createRankedList, type FusedResult, fuseRankedLists, type RRFOptions } from './rrf.js';
 
 /**
  * Minimal interface for repositories that support hybrid search.

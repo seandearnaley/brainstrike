@@ -5,18 +5,22 @@
  * vector the caller embedded. Search covers every branch, so each thread's
  * committed selected path filters the hits at query time; a match on a
  * sibling branch is not shown. Titles come from the committed presentations.
+ * BST-1939: the host also fuses the arms into one ranked list of threads.
  */
+import { fuseRankedLists, type RankedList } from '@brainstrike/utils/rrf';
 import { committedRunIdentity } from './committed-identities.js';
 import type { HostCore } from './core.js';
 import type { HostLogRow, HostParams, HostResults } from './protocol.js';
 
-/** Legacy `ThreadSearchService` pool sizes, per arm. */
+/** Legacy `ThreadSearchService` pool sizes, per arm, and its fused list sizes. */
 const MESSAGE_SOURCE_LIMIT = 50;
 const TITLE_SOURCE_LIMIT = 20;
+const THREAD_LIMIT = 20;
+const PER_THREAD_MATCH_LIMIT = 3;
 /** Legacy `ThreadSearchRepository`'s vector snippet length. */
 const SNIPPET_CHARS = 240;
 
-type HostThreadSearchCore = Pick<HostCore, 'listChildren' | 'listThreads' | 'read'>;
+type HostThreadSearchCore = Pick<HostCore, 'listChildren' | 'listThreads' | 'read' | 'threadTimes'>;
 
 /** One committed conversation row the derived state index matched (`searchState`). */
 export interface HostStateSearchHit {
@@ -32,6 +36,8 @@ export interface HostStateSearchHit {
 /** The derived state index's search over the requested threads, best match first. */
 export type HostStateSearch = (request: {
   readonly limit: number;
+  /** Every query word (the default) or any one of them. */
+  readonly match?: 'all' | 'any';
   readonly query: string;
   readonly threadIds: readonly string[];
 }) => Promise<readonly HostStateSearchHit[]>;
@@ -130,21 +136,71 @@ function similarity(left: string, right: string): number {
   return total === 0 ? 0 : shared / total;
 }
 
-/** Legacy's title arm: every query word appears in the title, ranked by trigram similarity. */
+/** Words as the state index's lexical arm reads a query: letter, digit and underscore runs. */
+function words(text: string): string[] {
+  return text.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [];
+}
+
+/**
+ * Legacy's title arm, ranked by trigram similarity: every query word appears
+ * in an admitted root thread's title. The any-word fallback matches whole
+ * title words, so a one-letter query word does not match every title.
+ */
 function titleMatches(
   core: HostThreadSearchCore,
-  query: string
+  owned: ReadonlyMap<string, string>,
+  query: string,
+  match: 'all' | 'any'
 ): HostResults['thread/search']['titles'] {
-  const words = query.toLowerCase().split(/\s+/u).filter(Boolean);
+  const queryWords = query.toLowerCase().split(/\s+/u).filter(Boolean);
+  const holds = (title: string): boolean => {
+    if (match === 'all') {
+      return queryWords.every((word) => title.toLowerCase().includes(word));
+    }
+    const titleWords = new Set(words(title));
+    return words(query).some((word) => titleWords.has(word));
+  };
   return core
     .listThreads()
     .flatMap(({ threadId, title }) =>
-      title !== undefined && words.every((word) => title.toLowerCase().includes(word))
+      owned.get(threadId) === threadId && title !== undefined && holds(title)
         ? [{ similarity: similarity(title, query), threadId, title }]
         : []
     )
     .sort((a, b) => b.similarity - a.similarity || a.threadId.localeCompare(b.threadId))
     .slice(0, TITLE_SOURCE_LIMIT);
+}
+
+/** The request's time window, in ms since the epoch. */
+interface SearchWindow {
+  readonly since: number;
+  readonly until: number;
+}
+
+/**
+ * The threads a request admits, each with its root: a child follows its root
+ * thread's workspace binding (operating or secondary root), and each thread
+ * must have stored an append inside the window.
+ */
+function admittedThreads(
+  core: HostThreadSearchCore,
+  rootId: string | undefined,
+  window: SearchWindow
+): Map<string, string> {
+  const bindings = new Map(core.listThreads().map(({ binding, threadId }) => [threadId, binding]));
+  const owned = ownedThreads(core);
+  for (const [threadId, rootThreadId] of owned) {
+    const binding = bindings.get(rootThreadId);
+    const bound =
+      rootId === undefined ||
+      binding?.operatingRootId === rootId ||
+      (binding?.secondaryRootIds ?? []).includes(rootId);
+    const { createdAt, updatedAt } = core.threadTimes(threadId);
+    if (!bound || updatedAt < window.since || createdAt > window.until) {
+      owned.delete(threadId);
+    }
+  }
+  return owned;
 }
 
 type HostSearchMessage = HostResults['thread/search']['messages'][number];
@@ -156,6 +212,7 @@ type HostSearchMessage = HostResults['thread/search']['messages'][number];
 async function selectedMessages(
   core: HostThreadSearchCore,
   owned: ReadonlyMap<string, string>,
+  window: SearchWindow,
   hits: readonly {
     readonly headline: string;
     readonly role: 'assistant' | 'user';
@@ -184,7 +241,12 @@ async function selectedMessages(
     const rootThreadId = owned.get(hit.threadId);
     const { path, rows } = await thread(hit.threadId);
     const row = rows.find(({ seq }) => seq === hit.seq);
-    if (rootThreadId === undefined || row?.ts === undefined) {
+    if (
+      rootThreadId === undefined ||
+      row?.ts === undefined ||
+      row.ts < window.since ||
+      row.ts > window.until
+    ) {
       continue;
     }
     // The ids the conversation renders: the run's user message, or its answer,
@@ -209,7 +271,73 @@ async function selectedMessages(
   return messages;
 }
 
-/** The host's lexical, semantic and title arms for one query, best first in each. */
+type HostSearchResult = HostResults['thread/search']['results'][number];
+
+/** An arm's ids in its own order, best first, as one reciprocal-rank list. */
+function ranked(source: string, ids: readonly string[]): RankedList<string> {
+  return { items: ids.map((id) => ({ id })), source };
+}
+
+/**
+ * Legacy `ThreadSearchService`'s two-level fusion: each message fuses its
+ * lexical and semantic ranks; each root thread then fuses its best message's
+ * rank with its title's. Equal weights, k = 60, the lexical headline first.
+ */
+function fuseResults(
+  core: HostThreadSearchCore,
+  arms: Pick<HostResults['thread/search'], 'messages' | 'similar' | 'titles'>,
+  limit: number
+): HostSearchResult[] {
+  const found = new Map<string, HostSearchMessage>();
+  for (const message of [...arms.messages, ...arms.similar]) {
+    if (!found.has(message.messageId)) {
+      found.set(message.messageId, message);
+    }
+  }
+  const lexical = new Set(arms.messages.map(({ messageId }) => messageId));
+  const semantic = new Set(arms.similar.map(({ messageId }) => messageId));
+  const matches = new Map<string, HostSearchResult['matches']>();
+  for (const { id, rrfScore } of fuseRankedLists([
+    ranked('lexical', [...lexical]),
+    ranked('semantic', [...semantic]),
+  ])) {
+    const message = found.get(id);
+    if (!message) {
+      continue;
+    }
+    const sources = [
+      ...(lexical.has(id) ? (['lexical'] as const) : []),
+      ...(semantic.has(id) ? (['semantic'] as const) : []),
+    ];
+    matches.set(message.rootThreadId, [
+      ...(matches.get(message.rootThreadId) ?? []),
+      { ...message, score: rrfScore, sources },
+    ]);
+  }
+  const titled = new Set(arms.titles.map(({ threadId }) => threadId));
+  const titles = new Map(
+    core.listThreads().flatMap(({ threadId, title }) => (title ? [[threadId, title]] : []))
+  );
+  // A thread's first fused message is its best: a Map keeps first insertion order.
+  return fuseRankedLists([ranked('content', [...matches.keys()]), ranked('title', [...titled])], {
+    limit,
+  }).map(({ id, rrfScore }) => {
+    const title = titles.get(id);
+    return {
+      matches: (matches.get(id) ?? []).slice(0, PER_THREAD_MATCH_LIMIT),
+      score: rrfScore,
+      threadId: id,
+      ...(title === undefined ? {} : { title }),
+      titleMatched: titled.has(id),
+    };
+  });
+}
+
+/**
+ * The host's lexical, semantic and title arms for one query, best first in
+ * each, and their fused list. When neither lexical arm finds every query word,
+ * both answer for any word instead, and the result says so.
+ */
 export async function searchHostThreads(
   core: HostThreadSearchCore,
   search: HostStateSearch | undefined,
@@ -222,27 +350,48 @@ export async function searchHostThreads(
   if (params.semantic && !vectors) {
     throw new Error("Semantic thread search requires the host's state index vectors");
   }
-  const owned = ownedThreads(core);
+  const window = { since: params.since ?? 0, until: params.until ?? Number.POSITIVE_INFINITY };
+  const owned = admittedThreads(core, params.rootId, window);
   const threadIds = [...owned.keys()];
   const limit = params.limit ?? MESSAGE_SOURCE_LIMIT;
-  const [hits, similar] = await Promise.all([
-    search({ limit, query: params.query, threadIds }),
+  const lexicalArms = async (match: 'all' | 'any') => {
+    const hits = await search({ limit, match, query: params.query, threadIds });
+    return {
+      messages: await selectedMessages(
+        core,
+        owned,
+        window,
+        hits.map((hit) => ({ ...hit, headline: hit.snippet }))
+      ),
+      titles: titleMatches(core, owned, params.query, match),
+    };
+  };
+  const [everyWord, nearest] = await Promise.all([
+    lexicalArms('all'),
     params.semantic && vectors
       ? vectors.similar({ ...params.semantic, limit, threadIds })
       : Promise.resolve([]),
   ]);
+  const relaxed =
+    everyWord.messages.length === 0 && everyWord.titles.length === 0
+      ? await lexicalArms('any')
+      : undefined;
+  // `any-word` reports a relaxation that found something; finding nothing changes nothing.
+  const anyWord =
+    relaxed !== undefined && (relaxed.messages.length > 0 || relaxed.titles.length > 0);
+  const { messages, titles } = relaxed ?? everyWord;
+  const similar = await selectedMessages(
+    core,
+    owned,
+    window,
+    nearest.map((hit) => ({ ...hit, headline: hit.text.slice(0, SNIPPET_CHARS) }))
+  );
   return {
-    messages: await selectedMessages(
-      core,
-      owned,
-      hits.map((hit) => ({ ...hit, headline: hit.snippet }))
-    ),
-    similar: await selectedMessages(
-      core,
-      owned,
-      similar.map((hit) => ({ ...hit, headline: hit.text.slice(0, SNIPPET_CHARS) }))
-    ),
-    titles: titleMatches(core, params.query),
+    lexical: anyWord ? 'any-word' : 'all-words',
+    messages,
+    results: fuseResults(core, { messages, similar, titles }, Math.min(limit, THREAD_LIMIT)),
+    similar,
+    titles,
   };
 }
 

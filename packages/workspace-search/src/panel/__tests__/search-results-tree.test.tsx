@@ -228,6 +228,16 @@ describe('SearchResultsTree', () => {
     expect(marks.length).toBeGreaterThan(0);
   });
 
+  it('names a truncated match line and file path in full (BST-1981: a narrow panel cuts them off)', () => {
+    const lineText = 'The zebra crossing outside the station is closed for repairs today.';
+    seedResults(makeResults([fileResult({ children: [textMatch({ lineText })] })]), {
+      query: 'zebra',
+    });
+    render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);
+    expect(screen.getByTitle(lineText)).toHaveTextContent(lineText);
+    expect(screen.getByTitle('src/a.ts')).toHaveTextContent('src/a.ts');
+  });
+
   it('renders ts_headline marks as <mark> elements without dangerouslySetInnerHTML', () => {
     seedResults(makeResults([fileResult({ children: [chunkHit()] })]), { mode: 'semantic' });
     render(<SearchResultsTree onOpenFile={vi.fn()} resolveAdapterRootId={resolveAdapterRootId} />);

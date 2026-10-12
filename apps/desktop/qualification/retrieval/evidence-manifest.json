@@ -1,0 +1,14 @@
+{
+  "evidence": "BST-1922 canonical corpus measurement, 2026-10-03 (docs/agents/retrieval-quality/2026-10-03-canonical-measurement.md)",
+  "rootId": "bst1922-ed97957e030dd3345c232650199dbc88929dad24",
+  "files": {
+    "canonical-files.jsonl": "366d67e7c88b4cb640fa012ab022dcbbdb32126c5ae31a9c905cea6ef4fe932e",
+    "corpus-manifest.json": "6df5dcbd46086bc94712af9bdb8e52da027e56c2fa47a68fe3b8783afe340bdf",
+    "fixture.json": "8f968116a9eebce827af9e637a6039dcc2b22856830f455646ba03d43d5cce82",
+    "grep-pools.json": "e9c597fbc2c0312193287fb60c1eaf044db77ae9378e867ba0fd40f61c4e8731",
+    "production-settings.json": "d072c69d18acdb1386d1d7945e694b0baea2065b33870dd4c90b6e168b094aba",
+    "retrieval-report.json": "38a72d1b962ba31fb2575488790c4c44e86473ddd1c8dd98cf3ea408e84cbac2",
+    "vectors-index.jsonl": "30f86f141b668da977ef46986a6ab1f3bedfe65ad76ec24f0684392f6f5c1c25",
+    "vectors.f32": "e5bd044377067f4e845626262b019179dbaa282ed6a4697b1a0313bea4bde802"
+  }
+}

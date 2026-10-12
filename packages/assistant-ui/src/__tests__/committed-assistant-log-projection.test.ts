@@ -2,11 +2,13 @@
 // shared unchanged through test-utils' public recorded fixture.
 // No private cross-package code/fixture imports or alternate wire decoder.
 
+import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
 import { TOOL_CALL_BLOCKED_MESSAGE } from '@brainstrike/assistant-contract/tool-approval';
 import recording from '@brainstrike/test-utils/fixtures/committed-approved-host-run.json';
 import granted from '@brainstrike/test-utils/fixtures/committed-host-granted-run.json';
 import hookBlocked from '@brainstrike/test-utils/fixtures/committed-host-hook-blocked.json';
 import { describe, expect, it } from 'vitest';
+import { isAlwaysVisibleRunEvent } from '../assistant-run-event-derivation';
 import { committedApprovalGrant, committedApprovalOptions } from '../committed-approval-options';
 import {
   CommittedAssistantLogProjection,
@@ -249,6 +251,16 @@ describe('rich committed-log presentation projection', () => {
     });
     expect(answer(projection).id).toBe(identity.assistantMessageId);
     expect(projection.getSnapshot().isRunning).toBe(false);
+    // BST-1981: the host's interruption is shown as a marker at every detail
+    // level, as a Stop shows "Stopped after Ns", carrying the host's reason.
+    const markers = content.flatMap((part) => {
+      const event = readAssistantRunEventDataPart(part);
+      return event?.runId === runId && event.label === 'Reply interrupted' ? [event] : [];
+    });
+    expect(markers).toEqual([
+      expect.objectContaining({ detail: 'Host restarted', kind: 'run.cancelled' }),
+    ]);
+    expect(isAlwaysVisibleRunEvent(markers[0])).toBe(true);
   });
 
   it('names a committed tool by its catalog ID; rows without one keep their recorded tool ID', () => {

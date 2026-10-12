@@ -113,6 +113,8 @@ export const stateSearchRowSchema = Schema.NullOr(
 export type StateSearchRow = typeof stateSearchRowSchema.Type;
 export const stateSearchSchema = Schema.Struct({
   limit: positive.check(Schema.isLessThanOrEqualTo(100)),
+  /** BST-1939: every query word (the default) or any one of them. */
+  match: Schema.optional(Schema.Literals(['all', 'any'])),
   query: nonblank,
   threadIds: Schema.Array(nonblank),
 });
