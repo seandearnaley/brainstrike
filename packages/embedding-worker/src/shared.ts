@@ -8,6 +8,7 @@ export type {
   EmbeddingDevice,
   EmbeddingDeviceHint,
   EmbeddingDType,
+  EmbeddingPooling,
   EmbedWorkerBatch,
   EmbedWorkerComplete,
   EmbedWorkerError,

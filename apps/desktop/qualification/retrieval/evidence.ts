@@ -104,6 +104,27 @@ export type RecordedReport = z.infer<typeof reportSchema>;
 export type RecordedGrepPools = z.infer<typeof grepPoolsSchema>;
 export type ProducerSettings = z.infer<typeof settingsSchema>;
 
+/** One produced vector set: corpus rows by chunk identity, query rows by fixture query ID. */
+export interface VectorSet {
+  readonly chunks: ReadonlyMap<string, Float32Array>;
+  readonly producerIds: ReadonlyMap<string, string>;
+  readonly queries: ReadonlyMap<string, Float32Array>;
+}
+
+/** The embedding profile a vector set was produced under, as the harness records it. */
+export type EmbeddingProfile = ProducerSettings['profile'] | CandidateProfile;
+const candidateProfileSchema = z.object({
+  device: z.literal('webgpu'),
+  dimensions: z.literal(384),
+  dtype: z.enum(['q8', 'fp16', 'fp32']),
+  modelId: z.string().min(1),
+  normalization: z.literal('l2'),
+  pooling: z.enum(['mean', 'cls']),
+  revision: z.string().regex(/^[a-f0-9]{40}$/u),
+  tokenCap: z.number().int().positive(),
+});
+export type CandidateProfile = z.infer<typeof candidateProfileSchema>;
+
 export interface RecordedEvidence {
   readonly corpusSources: readonly { readonly relativePath: string; readonly sha256: string }[];
   readonly directory: string;
@@ -115,12 +136,7 @@ export interface RecordedEvidence {
   readonly original: RecordedReport;
   readonly rootId: string;
   readonly settings: ProducerSettings;
-  /** Corpus vectors by `relativePath:chunkIndex:contentHash`; query vectors by query ID. */
-  readonly vectors: {
-    readonly chunks: ReadonlyMap<string, Float32Array>;
-    readonly producerIds: ReadonlyMap<string, string>;
-    readonly queries: ReadonlyMap<string, Float32Array>;
-  };
+  readonly vectors: VectorSet;
 }
 
 export const chunkKey = (relativePath: string, chunkIndex: number, contentHash: string): string =>
@@ -165,13 +181,32 @@ export async function loadEvidence(
 ): Promise<RecordedEvidence> {
   const manifest = await verifyEvidence(directory, manifestPath);
   const read = (name: string): Promise<string> => readFile(join(directory, name), 'utf8');
-  const index = jsonLines(await read('vectors-index.jsonl')).map((row) =>
-    vectorRowSchema.parse(row)
+  return {
+    corpusSources: corpusManifestSchema
+      .parse(JSON.parse(await read('corpus-manifest.json')))
+      .sources.map(({ relativePath, sha256: hash }) => ({ relativePath, sha256: hash })),
+    directory,
+    files: jsonLines(await read('canonical-files.jsonl')).map((row) =>
+      canonicalFileSchema.parse(row)
+    ),
+    fixture: JSON.parse(await read('fixture.json')),
+    grepPools: grepPoolsSchema.parse(JSON.parse(await read('grep-pools.json'))),
+    original: reportSchema.parse(JSON.parse(await read('retrieval-report.json'))),
+    rootId: manifest.rootId,
+    settings: settingsSchema.parse(JSON.parse(await read('production-settings.json'))),
+    vectors: await readVectorSet(directory),
+  };
+}
+
+/** Reads `vectors.f32` (384 little-endian float32 per row) through `vectors-index.jsonl`. */
+async function readVectorSet(directory: string): Promise<VectorSet> {
+  const index = jsonLines(await readFile(join(directory, 'vectors-index.jsonl'), 'utf8')).map(
+    (row) => vectorRowSchema.parse(row)
   );
   const bytes = await readFile(join(directory, 'vectors.f32'));
   const dimensions = 384;
   if (bytes.byteLength !== index.length * dimensions * 4) {
-    throw new Error('Recorded vectors do not match their index rows.');
+    throw new Error(`Vectors in ${directory} do not match their index rows.`);
   }
   const vector = (row: number): Float32Array =>
     Float32Array.from({ length: dimensions }, (_, column) =>
@@ -189,19 +224,28 @@ export async function loadEvidence(
     chunks.set(key, vector(row.vectorIndex));
     producerIds.set(key, row.id);
   }
+  return { chunks, producerIds, queries };
+}
+
+/**
+ * A candidate vector set produced by produce-hidden-host-vectors.ts, refused
+ * unless its artifacts match the hashes pinned for it in the repo.
+ */
+export async function loadCandidate(
+  directory: string,
+  manifestPath: string
+): Promise<{
+  readonly name: string;
+  readonly profile: CandidateProfile;
+  readonly vectors: VectorSet;
+}> {
+  await verifyEvidence(directory, manifestPath);
+  const settings = z
+    .object({ profile: candidateProfileSchema, profileName: z.string().min(1) })
+    .parse(JSON.parse(await readFile(join(directory, 'embedding-settings.json'), 'utf8')));
   return {
-    corpusSources: corpusManifestSchema
-      .parse(JSON.parse(await read('corpus-manifest.json')))
-      .sources.map(({ relativePath, sha256: hash }) => ({ relativePath, sha256: hash })),
-    directory,
-    files: jsonLines(await read('canonical-files.jsonl')).map((row) =>
-      canonicalFileSchema.parse(row)
-    ),
-    fixture: JSON.parse(await read('fixture.json')),
-    grepPools: grepPoolsSchema.parse(JSON.parse(await read('grep-pools.json'))),
-    original: reportSchema.parse(JSON.parse(await read('retrieval-report.json'))),
-    rootId: manifest.rootId,
-    settings: settingsSchema.parse(JSON.parse(await read('production-settings.json'))),
-    vectors: { chunks, producerIds, queries },
+    name: settings.profileName,
+    profile: settings.profile,
+    vectors: await readVectorSet(directory),
   };
 }

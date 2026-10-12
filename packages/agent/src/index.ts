@@ -161,6 +161,7 @@ export {
   type EvaluationEmbeddingProfile,
   type EvaluationHit,
   type EvaluationReport,
+  evaluateJudgedHits,
   evaluateTestCase,
   formatReport,
   formatReportJson,
