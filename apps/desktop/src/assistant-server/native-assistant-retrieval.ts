@@ -1,4 +1,5 @@
 import { ToolInputError } from '@brainstrike/assistant-contract';
+import { requestedEmbeddingPooling } from '@brainstrike/indexing-contract';
 import type {
   IndexerSearchHit,
   IndexerSearchResult,
@@ -394,13 +395,14 @@ function assertSelectedQueryIdentity(
         plan.inferencePlan.revision !== profile.revision ||
         plan.inferencePlan.dimensions !== profile.dimensions ||
         plan.inferencePlan.dtype !== profile.dtype ||
+        requestedEmbeddingPooling(plan.inferencePlan) !== requestedEmbeddingPooling(profile) ||
         !['wasm', 'webgpu'].includes(plan.inferencePlan.device)
       : profile.provider === undefined ||
         profile.provider === 'local' ||
         profile.provider === 'transformers')
   ) {
     refuse(
-      'Native query inference requires the exact saved model, revision, dimensions, dtype, device and distance profile.'
+      'Native query inference requires the exact saved model, revision, dimensions, dtype, pooling, device and distance profile.'
     );
   }
 }

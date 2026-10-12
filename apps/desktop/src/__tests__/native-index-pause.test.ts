@@ -425,6 +425,9 @@ function vectorPauseFixture() {
     rows: sql.includes('FROM embedding_sets')
       ? [
           {
+            // Its catalog row: a mean-pooled local model states no pooling or pins.
+            catalogCapabilities: { defaultDimension: 384, type: 'embedding' },
+            catalogParameters: null,
             dimensions: profile.dimensions,
             distance: profile.distance,
             id: 'selected',
@@ -736,6 +739,8 @@ it('revokes old read authority when new saved execution choices are invalid', as
     rows: sql.includes('FROM embedding_sets')
       ? [
           {
+            catalogCapabilities: { defaultDimension: 384, type: 'embedding' },
+            catalogParameters: { size: '~23MB' },
             dimensions: 384,
             distance: 'cosine',
             id: 'selected',

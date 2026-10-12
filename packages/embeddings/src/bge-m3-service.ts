@@ -86,6 +86,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
       device: deviceOverride || this._config.device || 'webgpu',
       modelId: modelConfig.id,
       quantized: shouldQuantize,
+      ...(modelConfig.pooling === undefined ? {} : { pooling: modelConfig.pooling }),
       ...(cacheDir ? { cacheDir } : {}),
     };
 

@@ -13,6 +13,10 @@ import {
 } from '@brainstrike/embeddings/inference-plan';
 import { isHostedProvider, parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
 import { type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
+import {
+  type CatalogEmbeddingModel,
+  decodeCatalogEmbeddingModel,
+} from '@brainstrike/indexing-contract';
 import { Schema } from 'effect';
 import type { EmbeddingHostDocumentEmbeddingsPayload } from './embedding-host-shared';
 import { generateHostedEmbeddings } from './hosted-embeddings';
@@ -27,6 +31,13 @@ const metadataSchema = Schema.Struct({
   modelKey: nonblank,
 });
 const decodeMetadata = makeThrowingDecoder(metadataSchema);
+const decodeSetRow = makeThrowingDecoder(
+  Schema.Struct({
+    ...metadataSchema.fields,
+    catalogCapabilities: Schema.optional(Schema.Unknown),
+    catalogParameters: Schema.optional(Schema.Unknown),
+  })
+);
 type ProfileMetadata = Pick<
   EmbeddingSet,
   'dimensions' | 'distance' | 'id' | 'modelId' | 'modelKey'
@@ -38,11 +49,17 @@ export interface NativeCanonicalProfile {
   readonly workerPlan: CatalogEmbeddingWorkerPlan | null;
 }
 
+/** The catalog facts a local plan takes from the model's `models` row (BST-1993). */
+export type NativeCatalogModel = Pick<
+  CatalogEmbeddingModel,
+  'contextWindow' | 'dimensions' | 'id' | 'pooling' | 'revision'
+>;
+
 /** Pure resolution. Reading a profile neither enables vectors nor changes saved choices. */
 export function resolveNativeCanonicalProfile(
   input: ProfileMetadata,
   selection?: SelectedEmbeddingRequestPlan,
-  model?: { readonly id: string; readonly dimensions: number; readonly contextWindow?: number }
+  model?: NativeCatalogModel
 ): NativeCanonicalProfile {
   const metadata = decodeMetadata(input);
   const parsed = parseProviderModelKey(metadata.modelKey);
@@ -119,26 +136,42 @@ export class NativeCanonicalProfileResolver {
     if (!id.trim() || (scope.kind === 'collection' && id !== scope.embeddingSetId)) {
       throw new Error('Canonical profile embedding set is not authorized for this scope.');
     }
+    // The set and its catalog row in one read: the catalog row owns a local model's pooling and pin.
     const result = await this.dependencies.query(
-      `SELECT id, model_key AS "modelKey", model_id AS "modelId", dimensions, distance
-         FROM embedding_sets WHERE id = $1`,
+      `SELECT e.id, e.model_key AS "modelKey", e.model_id AS "modelId", e.dimensions, e.distance,
+              m.capabilities AS "catalogCapabilities", m.parameters AS "catalogParameters"
+         FROM embedding_sets e LEFT JOIN models m ON m.id = e.model_id WHERE e.id = $1`,
       [id]
     );
     context.signal.throwIfAborted();
     if (result.rows.length !== 1) {
       throw new Error('Canonical profile embedding set is missing or ambiguous.');
     }
-    const metadata = decodeMetadata(result.rows[0]);
+    const { catalogCapabilities, catalogParameters, ...metadata } = decodeSetRow(result.rows[0]);
     if (metadata.id !== id) {
       throw new Error('Canonical profile query returned an unauthorized embedding set.');
     }
     const parsed = parseProviderModelKey(metadata.modelKey);
-    const selection =
-      parsed?.provider === 'local' || parsed?.provider === 'transformers'
-        ? await this.dependencies.readLocalSelection(metadata, context)
-        : undefined;
+    if (!(parsed?.provider === 'local' || parsed?.provider === 'transformers')) {
+      return resolveNativeCanonicalProfile(metadata);
+    }
+    if (catalogCapabilities === null || catalogCapabilities === undefined) {
+      throw new Error(`Local embedding model ${metadata.modelId} is not in the model catalog.`);
+    }
+    const catalog = decodeCatalogEmbeddingModel({
+      capabilities: catalogCapabilities,
+      id: metadata.modelId,
+      parameters: catalogParameters,
+    });
+    const selection = await this.dependencies.readLocalSelection(metadata, context);
     context.signal.throwIfAborted();
-    return resolveNativeCanonicalProfile(metadata, selection);
+    // The collection keeps its own dimensions (a local model may be truncated to fewer).
+    return resolveNativeCanonicalProfile(metadata, selection, {
+      dimensions: metadata.dimensions,
+      id: metadata.modelId,
+      ...(catalog.pooling === undefined ? {} : { pooling: catalog.pooling }),
+      ...(catalog.revision === undefined ? {} : { revision: catalog.revision }),
+    });
   }
 }
 

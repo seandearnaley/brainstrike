@@ -49,6 +49,23 @@ vi.mock('@brainstrike/db/react', () => ({
   usePGliteDatabase: () => null,
 }));
 
+// The granite catalog row migration 149 writes, as the model registry store loads it.
+const GRANITE_ID = 'onnx-community/granite-embedding-small-english-r2-ONNX';
+const GRANITE_REVISION = '1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8';
+const graniteModel = makeDbModel({
+  capabilities: { defaultDimension: 384, pooling: 'cls', type: 'embedding' },
+  description: 'Recommended local model for semantic search.',
+  id: GRANITE_ID,
+  isEnabled: true,
+  name: 'Granite Embedding Small R2',
+  parameters: {
+    execution: { wasm: 'q8', webgpu: 'fp16' },
+    revision: GRANITE_REVISION,
+    size: '~97MB',
+  },
+  providerId: 'local',
+});
+
 describe('SearchIndexingSettingsSection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -352,6 +369,51 @@ describe('SearchIndexingSettingsSection', () => {
     expect(useBackgroundIndexingPreferencesStore.getState().nativeLocalSelection?.revision).toBe(
       'a'.repeat(40)
     );
+  });
+
+  it('recommends granite from the catalog and says why (BST-1993)', async () => {
+    useModelRegistryStore.setState({
+      models: [...useModelRegistryStore.getState().models, graniteModel],
+      providers: [
+        ...useModelRegistryStore.getState().providers,
+        makeDbProvider('local', 'Local', 2),
+      ],
+    });
+    render(<SearchIndexingSettingsSection nativeIndex={{ rebuild: vi.fn() }} />);
+    const note = await screen.findByRole('note');
+    expect(note.textContent).toContain(graniteModel.name);
+    expect(note.textContent).toContain(graniteModel.description);
+  });
+
+  it('offers only granite catalog execution plans, pinned to its catalog revision (BST-1993)', async () => {
+    useModelRegistryStore.setState({
+      models: [...useModelRegistryStore.getState().models, graniteModel],
+    });
+    const collection = {
+      createdAt: '2026-10-12',
+      dimensions: 384,
+      id: 'granite-index',
+      modelId: GRANITE_ID,
+      modelKey: `local::${GRANITE_ID}`,
+      name: 'Workspace Index (Granite Embedding Small R2)',
+    };
+    findAllMock.mockResolvedValue([collection]);
+    getByIdMock.mockResolvedValue(collection);
+    const preferences = useBackgroundIndexingPreferencesStore.getState();
+    preferences.setManagedCollectionId(collection.id);
+    preferences.setNativeIndexMode('VECTOR');
+    render(<SearchIndexingSettingsSection nativeIndex={{ rebuild: vi.fn() }} />);
+    fireEvent.click(await screen.findByRole('combobox', { name: 'Local model execution' }));
+    const options = await screen.findAllByRole('option');
+    expect(options.map((option) => option.textContent)).toEqual(['WebGPU · FP16', 'WASM · Q8']);
+    fireEvent.click(screen.getByRole('option', { name: 'WebGPU · FP16' }));
+    expect(useBackgroundIndexingPreferencesStore.getState().nativeLocalSelection).toEqual({
+      device: 'webgpu',
+      dimensions: 384,
+      dtype: 'fp16',
+      modelId: GRANITE_ID,
+      revision: GRANITE_REVISION,
+    });
   });
 
   it('preserves newer selection even when it returns to the original collection during creation', async () => {

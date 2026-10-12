@@ -4,6 +4,8 @@ export interface IndexerEmbeddingProfile {
   readonly distance?: 'cosine' | 'l2' | 'ip';
   readonly dtype?: 'q4' | 'q8' | 'fp16' | 'fp32';
   readonly modelId: string;
+  /** A local model's pooling (BST-1993); absent means 'mean'. */
+  readonly pooling?: 'mean' | 'cls';
   readonly provider?:
     | 'local'
     | 'transformers'
@@ -69,6 +71,8 @@ export type IndexerStatus =
           readonly dimensions: number;
           readonly dtype: 'q4' | 'q8' | 'fp16' | 'fp32';
           readonly device: 'wasm' | 'webgpu';
+          /** The catalog model's pooling (BST-1993); absent means 'mean'. */
+          readonly pooling?: 'mean' | 'cls';
         };
       };
       readonly rootReadiness: readonly IndexerRootReadiness[];
@@ -184,10 +188,14 @@ export interface IndexSearchCapability {
   status(): Promise<IndexerStatus>;
 }
 
-/** Same canonical profile identity used by native scoped storage; legacy foundation stays unchanged. */
+/**
+ * Same canonical profile identity used by native scoped storage; legacy foundation stays unchanged.
+ * Mirrors the native pooling rule: the default 'mean' adds nothing and 'cls' is appended.
+ */
 export function indexerEmbeddingProfileValues(
   profile: IndexerEmbeddingProfile
 ): readonly (string | number | null)[] {
+  const pooling = profile.pooling === 'cls' ? ['cls'] : [];
   return profile.provider === undefined
     ? [
         profile.modelId,
@@ -195,6 +203,7 @@ export function indexerEmbeddingProfileValues(
         profile.dtype ?? null,
         profile.dimensions,
         profile.tokenCap ?? null,
+        ...pooling,
       ]
     : [
         profile.provider,
@@ -204,6 +213,7 @@ export function indexerEmbeddingProfileValues(
         profile.revision ?? null,
         profile.dtype ?? null,
         profile.tokenCap ?? null,
+        ...pooling,
       ];
 }
 export function validIndexerEmbeddingProfile(profile: IndexerEmbeddingProfile): boolean {
@@ -240,11 +250,13 @@ export function validIndexerEmbeddingProfile(profile: IndexerEmbeddingProfile): 
     return (
       ['cosine', 'l2', 'ip'].includes(profile.distance ?? '') &&
       profile.dtype === undefined &&
+      profile.pooling === undefined &&
       profile.revision === undefined &&
       profile.tokenCap === undefined
     );
   }
   return (
+    (profile.pooling === undefined || profile.pooling === 'mean' || profile.pooling === 'cls') &&
     (profile.provider === undefined || ['cosine', 'l2', 'ip'].includes(profile.distance ?? '')) &&
     profile.dtype !== undefined &&
     ['q4', 'q8', 'fp16', 'fp32'].includes(profile.dtype) &&

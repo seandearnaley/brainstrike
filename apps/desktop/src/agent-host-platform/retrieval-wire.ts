@@ -12,12 +12,14 @@ import { z } from 'zod';
 const Id = z.string().min(1);
 const Count = z.number().int().nonnegative();
 const Dtype = z.enum(['q4', 'q8', 'fp16', 'fp32']);
+const Pooling = z.enum(['mean', 'cls']);
 
 const EmbeddingProfileSchema = z.object({
   dimensions: z.number().int().positive(),
   distance: z.enum(['cosine', 'l2', 'ip']).exactOptional(),
   dtype: Dtype.exactOptional(),
   modelId: z.string(),
+  pooling: Pooling.exactOptional(),
   provider: z
     .enum(['local', 'transformers', 'openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio'])
     .exactOptional(),
@@ -39,6 +41,7 @@ export const InferencePlanSchema = z.object({
   dimensions: z.number().int().positive(),
   dtype: Dtype,
   modelId: z.string(),
+  pooling: Pooling.exactOptional(),
   revision: z.string().exactOptional(),
 });
 

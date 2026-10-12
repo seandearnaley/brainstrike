@@ -158,6 +158,7 @@ function createMockAdapter(): QueueAdapter & { simulateTaskComplete: (id: string
             elapsedMs: 10,
             fallbackApplied: false,
             model: 'test-model',
+            pooling: 'mean',
           },
           type: 'result',
           vectors: [new Float32Array([0.1, 0.2, 0.3])],

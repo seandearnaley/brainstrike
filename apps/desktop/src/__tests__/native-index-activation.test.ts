@@ -694,6 +694,9 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
       : sql.includes('FROM embedding_sets')
         ? [
             {
+              // Its catalog row: a mean-pooled local model states no pooling or pins.
+              catalogCapabilities: { defaultDimension: 384, type: 'embedding' },
+              catalogParameters: null,
               dimensions: 384,
               distance: 'cosine',
               id: 'selected',

@@ -11,10 +11,13 @@ const nonnegative = Schema.Int.check(
   Schema.isLessThanOrEqualTo(Number.MAX_SAFE_INTEGER)
 );
 const hash = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u));
+/** How a local model's token states become one vector; absent means 'mean' (see `poolingIdentity`). */
+const pooling = Schema.optionalKey(Schema.Literals(['mean', 'cls']));
 export const profileSchema = Schema.Struct({
   dimensions: positive,
   dtype: Schema.Literals(['q8', 'fp16', 'fp32']),
   modelId: nonblank,
+  pooling,
   revision: Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/u)),
   tokenCap: positive,
 });

@@ -1,7 +1,8 @@
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import { buildEmbeddingInputHash } from './embedding-input-hash.js';
-import type { EmbeddingDimensionParameter } from './embedding-worker-protocol.js';
+import type { EmbeddingDimensionParameter, EmbeddingPooling } from './embedding-worker-protocol.js';
 
+export * from './catalog-embedding-model.js';
 export * from './embedding-input-hash.js';
 export * from './embedding-worker-protocol.js';
 
@@ -606,6 +607,8 @@ export interface EmbeddingModelConfig {
   id: string;
   name: string;
   origin?: string;
+  /** The catalog row's pooling (BST-1993); absent asks the worker for 'mean'. */
+  pooling?: EmbeddingPooling;
   pricePer1MTokens?: number;
   quantized?: boolean;
   size?: string;

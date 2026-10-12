@@ -55,7 +55,13 @@ const {
     () => Promise<{
       embedding: number[];
       runtime?:
-        | { device: string; dtype: string; fallbackApplied: boolean; revision?: string }
+        | {
+            device: string;
+            dtype: string;
+            fallbackApplied: boolean;
+            pooling?: string;
+            revision?: string;
+          }
         | undefined;
     }>
   >(async () => ({
@@ -64,6 +70,7 @@ const {
       device: 'webgpu',
       dtype: 'fp32',
       fallbackApplied: false,
+      pooling: 'mean',
     },
   })),
   getEmbeddingQueueMock: vi.fn(() => ({ id: 'embedding-queue' })),

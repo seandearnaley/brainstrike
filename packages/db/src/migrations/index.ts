@@ -144,6 +144,7 @@ import { migration142OpenaiAnthropicOpenrouterBedrockCatalogModels } from './142
 import { migration143AgentIdentityPalettes } from './143-agent-identity-palettes.js';
 import { migration144AgentFamilyColors } from './144-agent-family-colors.js';
 import { migration145DropToolProjectionRewrites } from './145-drop-tool-projection-rewrites.js';
+import { migration149GraniteLocalEmbeddingProfile } from './149-granite-local-embedding-profile.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -294,6 +295,7 @@ export const migrations: Migration[] = [
   migration143AgentIdentityPalettes,
   migration144AgentFamilyColors,
   migration145DropToolProjectionRewrites,
+  migration149GraniteLocalEmbeddingProfile,
 ];
 
 // Export base migrations (without chunks table) for test environments

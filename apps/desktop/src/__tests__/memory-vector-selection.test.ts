@@ -34,12 +34,26 @@ function settings(
   };
 }
 
+const GRANITE_ID = 'onnx-community/granite-embedding-small-english-r2-ONNX';
+const GRANITE_REVISION = '1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8';
 function sources(device: Promise<'webgpu' | 'wasm'>) {
   return {
-    readDimensions: vi.fn(async (provider: string, modelId: string) =>
-      provider === 'local' ? 384 : modelId === 'text-embedding-3-small' ? 1536 : 0
+    readDimensions: vi.fn(async (_provider: string, modelId: string) =>
+      modelId === 'text-embedding-3-small' ? 1536 : 0
     ),
     readLocalDevice: vi.fn(() => device),
+    // The local catalog rows: MiniLM states no pooling, granite states CLS and its pins.
+    readLocalModel: vi.fn(async (modelId: string) =>
+      modelId === GRANITE_ID
+        ? {
+            dimensions: 384,
+            execution: { wasm: 'q8', webgpu: 'fp16' } as const,
+            id: modelId,
+            pooling: 'cls' as const,
+            revision: GRANITE_REVISION,
+          }
+        : { dimensions: 384, id: modelId }
+    ),
   };
 }
 
@@ -80,6 +94,33 @@ test('local recall pins the embedding host unpinned load of any local model', as
       dtype: 'fp16',
       modelId: localModel,
       provider: 'local',
+    },
+  });
+});
+
+test('local granite recall embeds with its catalog CLS pooling, pin and dtype (BST-1993)', async () => {
+  const resolved = await resolveDesktopMemoryVectors(
+    settings(`local/${GRANITE_ID}`),
+    sources(Promise.resolve('wasm'))
+  );
+  const workerPlan = {
+    device: 'wasm',
+    dimensions: 384,
+    dtype: 'q8',
+    modelId: GRANITE_ID,
+    pooling: 'cls',
+    revision: GRANITE_REVISION,
+  };
+  expect(resolved).toEqual({
+    local: { modelKey: `local::${GRANITE_ID}`, workerPlan },
+    profile: {
+      dimensions: 384,
+      distance: 'cosine',
+      dtype: 'q8',
+      modelId: GRANITE_ID,
+      pooling: 'cls',
+      provider: 'local',
+      revision: GRANITE_REVISION,
     },
   });
 });

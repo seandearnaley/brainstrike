@@ -2454,7 +2454,7 @@
     "_note": "transformers.js generate() is not streaming",
     "authType": "none",
     "capabilities": {
-      "embeddings": false,
+      "embeddings": true,
       "llm": true,
       "streaming": false
     },
@@ -2472,6 +2472,15 @@
         "tagline": "Runs privately on this device",
         "type": "llm",
         "vision": "unsupported"
+      },
+      {
+        "_note": "BST-1993: the recommended local embedding model for semantic search\n(`default` is the catalog's recommended flag). Its CLS pooling, pinned\nrevision and per-device execution dtype live in its DB catalog row\n(migration 149), which the embedding path reads.",
+        "default": true,
+        "defaultDimension": 384,
+        "id": "onnx-community/granite-embedding-small-english-r2-ONNX",
+        "label": "Granite Embedding Small R2",
+        "supportsStandardDimension": false,
+        "type": "embedding"
       }
     ],
     "runtime": "browser"

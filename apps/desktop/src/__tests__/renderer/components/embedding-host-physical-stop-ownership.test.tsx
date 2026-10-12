@@ -138,6 +138,7 @@ async function connectControlledQuery(options?: { cancellationCapability?: boole
         elapsedMs: 1,
         fallbackApplied: false,
         model: 'model-a',
+        pooling: 'mean',
       },
       type: 'result',
       vectors: [Float32Array.from([0.1, 0.2])],

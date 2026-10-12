@@ -50,7 +50,7 @@ function result(): EmbeddingResult {
     dimensions: plan.dimensions,
     embedding: Array.from({ length: plan.dimensions }, () => 0.1),
     model: plan.modelId,
-    runtime: { device: plan.device, dtype: plan.dtype, fallbackApplied: false },
+    runtime: { device: plan.device, dtype: plan.dtype, fallbackApplied: false, pooling: 'mean' },
   };
 }
 function connect(): EmbeddingHostManager {

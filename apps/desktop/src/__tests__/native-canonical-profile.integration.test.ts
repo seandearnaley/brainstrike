@@ -22,17 +22,24 @@ const localSelection: SelectedEmbeddingRequestPlan = {
   revision: '751bff37182d3f1213fa05d7196b954e230abad9',
 };
 
+const GRANITE_ID = 'onnx-community/granite-embedding-small-english-r2-ONNX';
+const GRANITE_REVISION = '1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8';
+
 beforeAll(async () => {
   database = await createEnginePglite();
-  // Actual collection metadata columns, with no jobs/models/preferences required by this read path.
+  // Actual collection metadata and catalog columns; no jobs or preferences are on this read path.
   await database.exec(`CREATE TABLE embedding_sets (
     id TEXT PRIMARY KEY, model_key TEXT NOT NULL, model_id TEXT NOT NULL,
     dimensions INTEGER NOT NULL, distance TEXT NOT NULL CHECK (distance IN ('cosine','l2','ip')),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP, name TEXT
+  );
+  CREATE TABLE models (
+    id TEXT PRIMARY KEY, provider_id TEXT NOT NULL, name TEXT NOT NULL,
+    capabilities JSONB, parameters JSONB
   );`);
   await database.query(
     `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, name)
-    VALUES ($1,$2,$3,$4,$5,$6), ($7,$8,$9,$10,$11,$12)`,
+    VALUES ($1,$2,$3,$4,$5,$6), ($7,$8,$9,$10,$11,$12), ($13,$14,$15,$16,$17,$18)`,
     [
       'local',
       'local::Xenova/bge-small-en-v1.5',
@@ -46,6 +53,25 @@ beforeAll(async () => {
       1536,
       'ip',
       'Local MiniLM (384D)',
+      'granite',
+      `local::${GRANITE_ID}`,
+      GRANITE_ID,
+      384,
+      'cosine',
+      'Workspace Index (Granite)',
+    ]
+  );
+  // The catalog rows as migrations 015 and 149 write them.
+  await database.query(
+    `INSERT INTO models (id, provider_id, name, capabilities, parameters)
+    VALUES ($1,'local','BGE Small',$2,$3), ($4,'local','Granite Embedding Small R2',$5,$6)`,
+    [
+      localSelection.modelId,
+      { defaultDimension: 384, type: 'embedding' },
+      { size: '~34MB' },
+      GRANITE_ID,
+      { defaultDimension: 384, pooling: 'cls', type: 'embedding' },
+      { execution: { wasm: 'q8', webgpu: 'fp16' }, revision: GRANITE_REVISION },
     ]
   );
 });
@@ -66,7 +92,7 @@ function resolver() {
       }
       if (
         requested.kind === 'collection' &&
-        ['local', 'hosted'].includes(requested.embeddingSetId)
+        ['local', 'hosted', 'granite'].includes(requested.embeddingSetId)
       ) {
         return requested.embeddingSetId;
       }
@@ -132,4 +158,23 @@ it('preserves unsupported local dimensions and rejects stale pins without a defa
   const unpinned = await f.instance.resolve(scope('local'), context());
   expect(unpinned.workerPlan?.revision).toBeUndefined();
   expect(unpinned.profile).not.toHaveProperty('tokenCap');
+});
+
+it('resolves the granite catalog pooling and pin through the real catalog join (BST-1993)', async () => {
+  const f = resolver();
+  const chosen = {
+    device: 'webgpu' as const,
+    dimensions: 384,
+    dtype: 'fp16',
+    modelId: GRANITE_ID,
+    revision: GRANITE_REVISION,
+  };
+  f.readLocalSelection.mockResolvedValue(chosen);
+  const resolved = await f.instance.resolve(scope('granite'), context());
+  expect(resolved.workerPlan).toEqual({ ...chosen, pooling: 'cls' });
+  expect(resolved.profile).toMatchObject({ pooling: 'cls', revision: GRANITE_REVISION });
+  f.readLocalSelection.mockResolvedValue(localSelection);
+  expect((await f.instance.resolve(scope('local'), context())).workerPlan).not.toHaveProperty(
+    'pooling'
+  );
 });

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { Schema } from 'effect';
-import { validateSnapshot } from './chunks.js';
+import { poolingIdentity, validateSnapshot } from './chunks.js';
 import {
   decoder,
   fileBindingsSchema,
@@ -26,6 +26,7 @@ export function vectorProfileHash(input: unknown): string {
         'revision' in profile ? profile.revision : null,
         'dtype' in profile ? profile.dtype : null,
         'tokenCap' in profile ? profile.tokenCap : null,
+        ...poolingIdentity('pooling' in profile ? profile.pooling : undefined),
       ])
     )
     .digest('hex');

@@ -1639,6 +1639,7 @@ describe('Embedding Worker Batch Optimization', () => {
       device: 'webgpu',
       dtype: 'fp16',
       fallbackApplied: false,
+      pooling: 'mean',
     });
     const disposeSpy = vi.spyOn(service, 'dispose');
 

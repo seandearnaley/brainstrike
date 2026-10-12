@@ -400,14 +400,13 @@ describe('native assistant retrieval cutover', () => {
       expect(pg.search).not.toHaveBeenCalled();
     }
   );
-  it.each(['revision', 'dimensions', 'dtype', 'modelId', 'device'] as const)(
+  it.each(['revision', 'dimensions', 'dtype', 'modelId', 'device', 'pooling'] as const)(
     'refuses a mismatched saved query %s before inference',
     async (field) => {
       const f = fixture();
-      const mismatch = {
-        ...queryPlan.inferencePlan,
-        [field]: field === 'dimensions' ? 768 : 'unsupported',
-      };
+      // BST-1993: a CLS query plan against the saved mean profile is another vector space.
+      const value = field === 'dimensions' ? 768 : field === 'pooling' ? 'cls' : 'unsupported';
+      const mismatch = { ...queryPlan.inferencePlan, [field]: value };
       f.setStatus({
         ...f.status,
         queryPlan: { ...queryPlan, inferencePlan: mismatch },
