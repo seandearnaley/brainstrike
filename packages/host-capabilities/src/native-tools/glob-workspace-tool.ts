@@ -4,7 +4,7 @@ import {
   type RuntimeData,
   type RuntimeWorkspaceRoot,
 } from '@brainstrike/agent';
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
 import {
   describeOpenRootTopology,
   getWorkspaceRoots,
@@ -281,7 +281,7 @@ export async function runGlobWorkspace(
   const scopedRoot = resolveOptionalWorkspaceRoot(runtimeData, input.root);
   const roots = scopedRoot ? [scopedRoot] : getWorkspaceRoots(runtimeData);
   if (roots.length === 0) {
-    throw new Error(
+    throw new ToolInputError(
       'No folder is open in the workspace. Add a folder in the left file tree first.'
     );
   }

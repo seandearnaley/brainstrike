@@ -265,12 +265,15 @@ describe('retrieval-tool error paths on the native index', () => {
     expect(f.queryEmbedding).not.toHaveBeenCalled();
   });
 
-  it('surfaces safe errors when embedding set lookup fails', async () => {
+  it('answers an embedding set lookup fault with the generic retrieval failure', async () => {
+    // A database fault is not the model's to act on. Its text was matched
+    // through as "safe", yet the execution guard still redacted it, so only a
+    // typed refusal reaches the model (BST-1985).
     dbQueryMock.mockRejectedValueOnce(new Error('db exploded'));
 
     await expect(
       hostSemantic({ embeddingSetId: 'selected', query: 'hello' }, undefined, dependencies)
-    ).rejects.toThrow('Unable to load embedding set metadata.');
+    ).rejects.toThrow('Unable to retrieve context right now. Try again.');
   });
 
   it('surfaces safe guidance when no embedding collection is resolvable', async () => {
@@ -337,7 +340,7 @@ describe('retrieval-tool error paths on the native index', () => {
 
     await expect(
       hostSemantic({ embeddingSetId: 'selected', query: 'hello' }, undefined, dependencies)
-    ).rejects.toThrow('Unable to load embedding set metadata.');
+    ).rejects.toThrow('Unable to retrieve context right now. Try again.');
 
     expect(loggerError).toHaveBeenCalledWith(
       'Failed to load embedding set metadata',

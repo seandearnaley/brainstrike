@@ -1,5 +1,6 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import { createWorkspaceIgnoreMatcher, type WorkspaceIgnoreSources } from '@brainstrike/utils';
 import {
   ancestorDirectoriesBetween,
@@ -316,7 +317,7 @@ export async function assertNotAgentIgnored(args: {
   // to gain by short-circuiting on the first.
   const verdicts = await Promise.all(candidates.map((candidate) => guard.ignoresFile(candidate)));
   if (verdicts.some((ignored) => ignored)) {
-    throw new Error(
+    throw new ToolInputError(
       `Path "${args.relativePath}" is excluded by an agent ignore file (.llmignore/.brainstrikeignore) and cannot be read.`
     );
   }
