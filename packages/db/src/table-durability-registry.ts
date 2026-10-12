@@ -167,11 +167,6 @@ export const TABLE_DURABILITY_REGISTRY: readonly TableDurabilityEntry[] = [
     'brainstrike_assistant_tool_output_artifacts',
     'Complete oversized tool outputs kept seven days by design; truncating shortens that window and older pages read as missing (the tool can be re-run).'
   ),
-  derived(
-    'brainstrike_assistant_tool_projection_rewrites',
-    'apps/desktop/src/assistant-server/tool-projection-rewrite-repository.ts#recordSuccessfulToolProjection',
-    'Prompt-time replay overlays over persisted tool results; re-detected per thread on its next tracked tool call, so an idle thread replays full results until then.'
-  ),
   precious(
     'brainstrike_canvas_versions',
     'Agent-authored Canvas document versions; LLM-generated HTML that would cost a model call to reproduce.'

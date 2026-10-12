@@ -77,10 +77,6 @@ It also includes `brainstrike_token_estimate_calibration` (migration 086), the
 FK-less numbers/ids/model/provider-only prompt-token reconciliation ledger. All
 three table-enumerating reset paths clear it explicitly, and thread deletion
 derives its cleanup stage from `THREAD_DELETE_SIDECAR_TABLES`.
-It also includes `brainstrike_assistant_tool_projection_rewrites` (migration
-084), the FK-less stale-tool-history replay overlay. All three table-enumerating
-reset paths clear it explicitly, and thread deletion derives its cleanup stage
-from `THREAD_DELETE_SIDECAR_TABLES`.
 It also includes `brainstrike_assistant_compaction_ranges` (migration 088), the
 FK-less exact-message conversation-compaction overlay. All three
 table-enumerating reset paths clear it explicitly, and thread deletion derives

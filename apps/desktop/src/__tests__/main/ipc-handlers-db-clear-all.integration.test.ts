@@ -53,7 +53,6 @@ const PRESENT_RELATIONS = [
   'brainstrike_assistant_message_parents',
   'brainstrike_assistant_message_tombstones',
   'brainstrike_assistant_compaction_ranges',
-  'brainstrike_assistant_tool_projection_rewrites',
   'brainstrike_assistant_thread_groups',
   'brainstrike_assistant_thread_placements',
   // Per-thread workspace snapshots (migration 095, BST-1268).

@@ -1,9 +1,5 @@
-import { PGlite } from '@electric-sql/pglite';
-import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
-import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
-import { vector } from '@electric-sql/pglite-pgvector';
+import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { runMigrations } from '../src/drizzle/migrate.js';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 import { createPGliteTestDataDir } from './test-data-dir';
@@ -107,32 +103,5 @@ describe('migration 087: tool projection rewrite kinds (BST-1200)', () => {
          VALUES ('bad-supersession', 'thread-1', 'rewrite-1', 'supersession', NULL, 'marker', 1)`
       )
     ).rejects.toThrow(/check constraint/i);
-  });
-});
-
-describe('migration 087 in the drizzle runner', () => {
-  let db: PGlite;
-
-  beforeEach(() => {
-    db = new PGlite({ extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector } });
-  });
-
-  afterEach(async () => db.close());
-
-  it('creates the final rewrite-kind shape in the production runner', {
-    timeout: 60_000,
-  }, async () => {
-    expect((await runMigrations(db)).success).toBe(true);
-    const columns = await db.query<{ columnName: string; isNullable: string }>(
-      `SELECT column_name AS "columnName", is_nullable AS "isNullable"
-       FROM information_schema.columns
-       WHERE table_name = $1 AND column_name IN ('kind', 'superseded_by_tool_call_id')
-       ORDER BY column_name`,
-      [TABLE]
-    );
-    expect(columns.rows).toEqual([
-      { columnName: 'kind', isNullable: 'NO' },
-      { columnName: 'superseded_by_tool_call_id', isNullable: 'YES' },
-    ]);
   });
 });

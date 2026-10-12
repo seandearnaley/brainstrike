@@ -238,8 +238,6 @@ async function purgeTablesTx(tx: { query: (sql: string) => Promise<unknown> }): 
   await clearRelationIfPresent(tx, 'brainstrike_tool_call_telemetry');
   // Estimator/provider prompt-token calibration pairs (migration 086).
   await clearRelationIfPresent(tx, 'brainstrike_token_estimate_calibration');
-  // Superseded native-tool projection overlays (migration 084).
-  await clearRelationIfPresent(tx, 'brainstrike_assistant_tool_projection_rewrites');
   // Durable conversation-compaction ranges (migration 088).
   await clearRelationIfPresent(tx, 'brainstrike_assistant_compaction_ranges');
   await clearRelationIfPresent(tx, 'brainstrike_thread_message_index');
@@ -486,8 +484,6 @@ export function createPgliteDirectTransport(
       await clearRelationIfPresent(tx, 'brainstrike_tool_call_telemetry');
       // Estimator/provider prompt-token calibration pairs (migration 086): FK-less.
       await clearRelationIfPresent(tx, 'brainstrike_token_estimate_calibration');
-      // Superseded native-tool projection overlays (migration 084): FK-less.
-      await clearRelationIfPresent(tx, 'brainstrike_assistant_tool_projection_rewrites');
       // Durable conversation-compaction ranges (migration 088): FK-less.
       await clearRelationIfPresent(tx, 'brainstrike_assistant_compaction_ranges');
       // Complete tool output can contain sensitive command results and has no FK
