@@ -94,7 +94,7 @@ function assertFiniteNonNegative(value: number, label: string): void {
  *
  * - `usage === null` → `usage_unavailable` (usage was never captured; takes
  *   precedence over unpriced so the meter explains the more fundamental gap).
- * - `pricing === undefined` → `unpriced_model` (the model has no list price).
+ * - Missing model pricing or a rate for a reported cache class → `unpriced_model`.
  * - Otherwise → exact cost: (inTok*inPerMTok + outTok*outPerMTok) / 1_000_000.
  *
  * Malformed inputs (negative or non-finite tokens/rates) THROW rather than
@@ -172,23 +172,24 @@ export function computeCost(
   const tier = selectLongContextTier(pricing.longContextTiers, usage.inputTokens);
   const inputPerMTok = tier?.inputPerMTok ?? pricing.inputPerMTok;
   const outputPerMTok = tier?.outputPerMTok ?? pricing.outputPerMTok;
-  if (cacheReadTokens > 0 && (tier?.cacheReadPerMTok ?? pricing.cacheReadPerMTok) === undefined) {
-    throw new Error(
-      'Usage reports cache-read tokens but the model pricing has no cacheReadPerMTok rate.'
-    );
+  const cacheReadRate = tier?.cacheReadPerMTok ?? pricing.cacheReadPerMTok;
+  const cacheWriteRate = tier?.cacheWritePerMTok ?? pricing.cacheWritePerMTok;
+  if (cacheReadRate !== undefined) {
+    assertFiniteNonNegative(cacheReadRate, 'cacheReadPerMTok');
   }
+  if (cacheWriteRate !== undefined) {
+    assertFiniteNonNegative(cacheWriteRate, 'cacheWritePerMTok');
+  }
+  // Automatic provider caching can report usage without a catalog rate.
+  // Keep the recorded tokens visible; an incomplete price is explicitly unavailable.
   if (
-    cacheWriteTokens > 0 &&
-    (tier?.cacheWritePerMTok ?? pricing.cacheWritePerMTok) === undefined
+    (cacheReadTokens > 0 && cacheReadRate === undefined) ||
+    (cacheWriteTokens > 0 && cacheWriteRate === undefined)
   ) {
-    throw new Error(
-      'Usage reports cache-write tokens but the model pricing has no cacheWritePerMTok rate.'
-    );
+    return { available: false, reason: 'unpriced_model' };
   }
-  const cacheReadPerMTok = tier?.cacheReadPerMTok ?? pricing.cacheReadPerMTok ?? 0;
-  const cacheWritePerMTok = tier?.cacheWritePerMTok ?? pricing.cacheWritePerMTok ?? 0;
-  assertFiniteNonNegative(cacheReadPerMTok, 'cacheReadPerMTok');
-  assertFiniteNonNegative(cacheWritePerMTok, 'cacheWritePerMTok');
+  const cacheReadPerMTok = cacheReadRate ?? 0;
+  const cacheWritePerMTok = cacheWriteRate ?? 0;
 
   const uncachedInputTokens = usage.inputTokens - cacheReadTokens - cacheWriteTokens;
   const usdAmount =

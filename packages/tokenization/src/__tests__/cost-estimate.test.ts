@@ -42,22 +42,22 @@ describe('computeCost with Anthropic cache tokens', () => {
     });
   });
 
-  it('throws when cache tokens are reported but the pricing has no cache rates', () => {
-    expect(() =>
+  it('reports unavailable when cache tokens have no published rate', () => {
+    expect(
       computeCost(
         { cacheReadInputTokens: 10, inputTokens: 100, outputTokens: 5 },
         { inputPerMTok: 3, outputPerMTok: 15 }
       )
-    ).toThrow(/cache/i);
+    ).toEqual({ available: false, reason: 'unpriced_model' });
   });
 
-  it('throws when cache-write tokens have no cache-write rate', () => {
-    expect(() =>
+  it('reports unavailable when cache-write tokens have no published rate', () => {
+    expect(
       computeCost(
         { cacheCreationInputTokens: 10, inputTokens: 100, outputTokens: 5 },
         { inputPerMTok: 3, outputPerMTok: 15 }
       )
-    ).toThrow(/cacheWritePerMTok/u);
+    ).toEqual({ available: false, reason: 'unpriced_model' });
   });
 
   it('throws when cache token classes exceed the total input tokens', () => {

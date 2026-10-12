@@ -65,6 +65,16 @@ export interface ModelProviderScript {
   readonly finalText: string;
   /** For a selector that begins a new scripted stage in an existing model turn. */
   readonly ignorePriorToolResults?: true;
+  /** Responses API usage classes as emitted by the OpenAI adapter (including automatic cache writes). */
+  readonly responsesUsage?: {
+    readonly ['input_tokens']: number;
+    readonly ['input_tokens_details']: {
+      readonly ['cached_tokens']: number;
+      readonly ['cache_write_tokens']: number;
+    };
+    readonly ['output_tokens']: number;
+    readonly ['total_tokens']: number;
+  };
   /**
    * Fail a streaming turn mid-stream: the response opens, then the provider's
    * own stream error event carries this message, as a provider outage does.
@@ -535,7 +545,8 @@ function writeJsonCompletion(response: ServerResponse, turn: ResolvedTurn): void
  */
 function responsesTurn(
   turn: ResolvedTurn,
-  model: string
+  model: string,
+  usage?: ModelProviderScript['responsesUsage']
 ): {
   readonly completed: Record<string, unknown>;
   readonly items: readonly Record<string, unknown>[];
@@ -565,7 +576,7 @@ function responsesTurn(
         ...response,
         output: [item],
         status: 'completed',
-        usage: { ['input_tokens']: 4, ['output_tokens']: 3, ['total_tokens']: 7 },
+        usage: usage ?? { ['input_tokens']: 4, ['output_tokens']: 3, ['total_tokens']: 7 },
       },
       items: [
         {
@@ -681,7 +692,7 @@ async function writeResponsesTurn(
   if ('finalText' in turn) {
     await script.beforeFinalText;
   }
-  const frames = responsesTurn(turn, model);
+  const frames = responsesTurn(turn, model, script.responsesUsage);
   if (stream !== true) {
     if (!('finalText' in turn)) {
       await script.beforeToolFinish;

@@ -70,30 +70,30 @@ describe('model pricing metadata', () => {
     }
   });
 
-  /**
-   * BST-1354 replaced the old "Anthropic first-party only" pin. Bedrock
-   * caching is real and separately billed, so the invariant is no longer about
-   * a provider NAME — it is that a cache RATE and a cache DIALECT travel
-   * together. A rate without `promptCaching` would price a discount the
-   * runtime never requests; a dialect without a rate would under-report spend.
-   */
-  it('declares cache rates on exactly the routes that declare a prompt-caching dialect', () => {
+  it('publishes cache-read pricing for explicit prompt-caching routes', () => {
     for (const provider of listProviders()) {
       for (const model of provider.models) {
-        if (model.type !== 'llm' || model.pricing === undefined) {
+        if (
+          model.type !== 'llm' ||
+          model.pricing === undefined ||
+          model.promptCaching === undefined
+        ) {
           continue;
         }
-        const label = `${provider.id}/${model.id}`;
-        if (model.promptCaching === undefined) {
-          expect(model.pricing.cacheReadPerMTok, label).toBeUndefined();
-          expect(model.pricing.cacheWritePerMTok, label).toBeUndefined();
-          continue;
-        }
-        // A caching route always publishes a read rate; the WRITE premium is
-        // optional because Nova bills writes at the ordinary input rate.
-        expect(model.pricing.cacheReadPerMTok, label).toBeGreaterThan(0);
+        expect(model.pricing.cacheReadPerMTok, `${provider.id}/${model.id}`).toBeGreaterThan(0);
       }
     }
+  });
+
+  it('prices Luna automatic caching without requesting an explicit cache dialect', () => {
+    const luna = listProviderLlmModels('openai').find((model) => model.id === 'gpt-6-luna');
+    expect(luna?.promptCaching).toBeUndefined();
+    expect(luna?.pricing).toEqual({
+      cacheReadPerMTok: 0.01,
+      cacheWritePerMTok: 0.125,
+      inputPerMTok: 0.1,
+      outputPerMTok: 0.5,
+    });
   });
 
   it('prices Anthropic-on-Bedrock cache tokens at the Anthropic multipliers', () => {

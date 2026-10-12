@@ -127,6 +127,7 @@ describe('resolveCumulativeUsageDisplay', () => {
       perModel: [
         entry({
           cacheReadTokens: 1000,
+          estimatedCacheReadTokens: 1000,
           inputTokens: 2000,
           model: 'gpt-5.2',
           outputTokens: 100,
@@ -140,6 +141,7 @@ describe('resolveCumulativeUsageDisplay', () => {
     const display = resolveCumulativeUsageDisplay(usage, resolvePricing);
     expect(display?.cacheReadTokens).toBe(1000);
     expect(display?.cacheSavings).toBeUndefined();
+    expect(display?.cost).toEqual({ available: false, reason: 'unpriced_model' });
   });
 
   it('reports unpriced_model (NOT a partial cost) when any model lacks pricing', () => {
