@@ -5,9 +5,8 @@ const primitiveMocks = vi.hoisted(() => ({
   markdownTextPrimitive: vi.fn((_props: unknown) => null),
 }));
 
-vi.mock('@assistant-ui/react-markdown', () => ({
-  MarkdownTextPrimitive: primitiveMocks.markdownTextPrimitive,
-  unstable_memoizeMarkdownComponents: <T,>(components: T) => components,
+vi.mock('@assistant-ui/react-streamdown', () => ({
+  StreamdownTextPrimitive: primitiveMocks.markdownTextPrimitive,
 }));
 
 vi.mock('@assistant-ui/react', () => ({
@@ -26,11 +25,10 @@ import { MarkdownText } from '../markdown-text';
 
 describe('MarkdownText streaming performance', () => {
   it('enables deferred parsing so streaming chunks do not synchronously re-parse the whole message', () => {
-    // MarkdownTextPrimitive defaults defer to false, which re-runs the full
-    // remark/GFM parse over ALL accumulated text on every streamed chunk at
-    // urgent priority. The library's escape hatch is `defer` (its
-    // useDeferredValue path); component memoization only spares unchanged
-    // rendered blocks, not the parse itself.
+    // StreamdownTextPrimitive defaults defer to false, which parses each
+    // streamed chunk at urgent priority. `defer` (its useDeferredValue path)
+    // keeps the composer responsive; block memoization separately limits each
+    // parse to the open block.
     render(<MarkdownText />);
 
     expect(primitiveMocks.markdownTextPrimitive).toHaveBeenCalled();

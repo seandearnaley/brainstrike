@@ -147,7 +147,7 @@ const CORE_APP_OPTIMIZE_DEPS_INCLUDE = [
 
 const ASSISTANT_OPTIMIZE_DEPS_INCLUDE = [
   '@assistant-ui/react',
-  '@assistant-ui/react-markdown',
+  '@assistant-ui/react-streamdown',
   'react-shiki/core',
   'remark-gfm',
   'shiki/wasm',

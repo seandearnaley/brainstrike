@@ -1,4 +1,4 @@
-import type { SyntaxHighlighterProps } from '@assistant-ui/react-markdown';
+import type { SyntaxHighlighterProps } from '@assistant-ui/react-streamdown';
 import { render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';

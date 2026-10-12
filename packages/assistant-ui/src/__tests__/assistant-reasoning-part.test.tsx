@@ -11,7 +11,7 @@ import { AssistantReasoningPart } from '../assistant-reasoning-part';
 
 describe('AssistantReasoningPart', () => {
   it('strips provider citation markers from reasoning text', () => {
-    // Reasoning renders raw, bypassing MarkdownTextPrimitive's `preprocess`,
+    // Reasoning renders raw, bypassing the markdown primitive's `preprocess`,
     // so it needs the strip applied directly — otherwise this is the one
     // visible model-authored surface where a marker would still leak.
     useMessagePartReasoningMock.mockReturnValue({
