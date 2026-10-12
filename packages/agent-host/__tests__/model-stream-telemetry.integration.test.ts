@@ -16,6 +16,7 @@ import { attachAgentHost, type HostClient } from '../src/client.js';
 import type { HostLogRow, HostRunTelemetry } from '../src/protocol.js';
 import { type AgentHost, startAgentHost } from '../src/runtime.js';
 import { foldHostRuns } from '../src/thread-view.js';
+import { setupChildRunHost } from './fixtures/child-run-host.js';
 import { scriptedModel, scriptedPartialThenHeld } from './fixtures/scripted-model.js';
 
 const roots: string[] = [];
@@ -36,19 +37,20 @@ const MODEL_STREAM_TYPES = new Set([
   'reasoning-end',
 ]);
 
+function platform(model: LanguageModel) {
+  return {
+    close: async () => undefined,
+    maxSteps: 3,
+    readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
+    resolveModel: async () => model,
+    tools: {},
+  };
+}
+
 async function connected(model: LanguageModel): Promise<HostClient> {
   const root = await mkdtemp(join(tmpdir(), 'bs-model-stream-telemetry-'));
   roots.push(root);
-  const host = await startAgentHost(
-    { lifetime: 'persistent', root },
-    {
-      close: async () => undefined,
-      maxSteps: 3,
-      readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
-      resolveModel: async () => model,
-      tools: {},
-    }
-  );
+  const host = await startAgentHost({ lifetime: 'persistent', root }, platform(model));
   hosts.push(host);
   const client = await attachAgentHost(host.record);
   clients.push(client);
@@ -173,4 +175,87 @@ test('a Stop mid-step keeps the partial text in the committed run', async () => 
     rows.flatMap(({ event }) => (event.type === 'model.messages' ? event.messages : []))
   ).toEqual([{ content: [{ text: partial, type: 'text' }], role: 'assistant' }]);
   expect(foldHostRuns(rows)[0]?.text).toBe(partial);
+});
+
+test('closing the host mid-step keeps the partial text; the reopened host reads one interrupted end (BST-1982)', async () => {
+  const partial = 'CLOSING_PARTIAL_1982 ';
+  const root = await mkdtemp(join(tmpdir(), 'bs-model-stream-close-'));
+  roots.push(root);
+  const host = await startAgentHost(
+    { lifetime: 'persistent', root },
+    platform(scriptedPartialThenHeld(partial))
+  );
+  const client = await attachAgentHost(host.record);
+  const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+  const live: string[] = [];
+  client.onTelemetry(({ chunk }) => {
+    const { text, type } = chunk as { text?: string; type: string };
+    if (type === 'text-delta' && text) {
+      live.push(text);
+    }
+  });
+  await client.request('log/subscribe', { fromSeq: 0, threadId });
+  await client.request('run/start', {
+    commandId: randomUUID(),
+    modelId: 'scripted',
+    prompt: 'Answer slowly',
+    threadId,
+  });
+  await expect.poll(() => live.join('')).toBe(partial);
+
+  // The app quits mid-reply: the host closes while the step is open.
+  await client.close();
+  await host.close();
+
+  const reopened = await startAgentHost(
+    { lifetime: 'persistent', root },
+    platform(scriptedModel())
+  );
+  hosts.push(reopened);
+  const reader = await attachAgentHost(reopened.record);
+  clients.push(reader);
+  const { rows } = await reader.request('thread/read', { fromSeq: 0, threadId });
+  expect(
+    rows.flatMap(({ event }) => (event.type === 'run.finished' ? [event.outcome] : []))
+  ).toEqual(['interrupted']);
+  expect(chunkTypes(rows).filter((type) => MODEL_STREAM_TYPES.has(type))).toEqual([]);
+  expect(
+    rows.flatMap(({ event }) => (event.type === 'model.messages' ? event.messages : []))
+  ).toEqual([{ content: [{ text: partial, type: 'text' }], role: 'assistant' }]);
+  expect(foldHostRuns(rows)[0]?.text).toBe(partial);
+});
+
+test('an unclean exit mid-step ends the run interrupted exactly once at restart (BST-1982)', async () => {
+  // A crash is not a close: the old process commits nothing more, so the
+  // open step's uncommitted text is gone (ADR-0011 amendment). The restarted
+  // host's recovery still owes the run one interrupted end.
+  const cleanup: (() => Promise<void>)[] = [];
+  try {
+    const harness = await setupChildRunHost(scriptedPartialThenHeld('CRASHED_PARTIAL '), cleanup);
+    const runId = await harness.start('Answer slowly');
+    await expect
+      .poll(async () =>
+        chunkTypes(await harness.core().read(harness.threadId, 0)).includes('start-step')
+      )
+      .toBe(true);
+
+    await harness.crash();
+
+    const rows = await harness.core().read(harness.threadId, 0);
+    expect(
+      rows.flatMap(({ event }) =>
+        event.type === 'run.finished' ? [{ detail: event.detail, outcome: event.outcome }] : []
+      )
+    ).toEqual([
+      { detail: 'Host restarted outside a committed decision boundary', outcome: 'interrupted' },
+    ]);
+    expect(rows.some(({ event }) => event.type === 'model.messages')).toBe(false);
+    expect(foldHostRuns(rows).map((run) => [run.runId, run.status])).toEqual([
+      [runId, 'interrupted'],
+    ]);
+  } finally {
+    for (const step of cleanup.reverse()) {
+      await step();
+    }
+  }
 });

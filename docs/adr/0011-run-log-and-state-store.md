@@ -79,11 +79,13 @@ counts and projection step keys read them. A step's `model.step` messages are
 the one durable owner of its text, and no reader folds text from deltas. A
 view shows a live overlay for the open step and replaces it with the step's
 committed parts when that step commits; the overlay is never dropped on the
-next `start-step`. Legacy's abort finalization is kept: a user's Stop, or a
-terminal watchdog abort, commits the open step's observed partial reply as
-`model.messages` through Core. A stall replaced by a new attempt keeps nothing,
-as in legacy. A SIGKILL mid-step loses the partial reply in both legacy and
-host. Measured with UI-panels' open harness at 1,000 threads x 5 runs, each
+next `start-step`. Legacy's abort finalization is kept: a user's Stop, a
+terminal watchdog abort, or the host closing mid-step (the app quitting,
+BST-1982) commits the open step's observed partial reply as `model.messages`
+through Core. A stall replaced by a new attempt keeps nothing, as in legacy. A
+SIGKILL or other unclean exit mid-step loses the partial reply in both legacy
+and host; the next host's recovery commits the run's one interrupted end.
+Measured with UI-panels' open harness at 1,000 threads x 5 runs, each
 reply 300 deltas long (2026-10-09, macOS arm64):
 
 - `state.db` fell from 642 MB to 35 MB. With content-addressed blobs (98 MB
