@@ -15,7 +15,12 @@ import type { CandidatePool, EvaluationHit, RetrievalArm } from '@brainstrike/ag
 import { embeddingProfileHash, openIndexer } from '@brainstrike/indexer';
 import { createGrepLineMatcher } from '@brainstrike/utils/grep-line-matcher';
 import { z } from 'zod';
-import { chunkKey, type RecordedEvidence } from './evidence.ts';
+import {
+  chunkKey,
+  type EmbeddingProfile,
+  type RecordedEvidence,
+  type VectorSet,
+} from './evidence.ts';
 
 type Port = Awaited<ReturnType<typeof openIndexer>>;
 type Profile = Parameters<typeof embeddingProfileHash>[0];
@@ -39,11 +44,15 @@ export interface NativeCorpus {
   readonly port: Port;
   readonly profile: Profile;
   readonly profileHash: string;
+  /** The vector set this index holds; its query rows answer vector search. */
+  readonly vectors: VectorSet;
 }
 
-/** Commits every recorded file with its provided chunks and recorded vectors, then reopens. */
+/** Commits every recorded file with its provided chunks and one vector set's vectors, then reopens. */
 export async function buildNativeCorpus(
   evidence: RecordedEvidence,
+  vectors: VectorSet,
+  embedding: EmbeddingProfile,
   directory: string
 ): Promise<NativeCorpus> {
   // Device, pooling and normalization are measured producer facts, not native identity (ADR-0018).
@@ -52,7 +61,7 @@ export async function buildNativeCorpus(
     normalization: _normalization,
     pooling: _pooling,
     ...profile
-  } = evidence.settings.profile;
+  } = embedding;
   const databasePath = join(directory, 'index.sqlite');
   const options = {
     dbPath: databasePath,
@@ -73,7 +82,7 @@ export async function buildNativeCorpus(
       const missing = new Set(plan.embeddingChunkIds);
       const embeddings = plan.chunks.flatMap((chunk) => {
         const key = chunkKey(file.relativePath, chunk.chunkIndex ?? -1, chunk.contentHash);
-        const vector = evidence.vectors.chunks.get(key);
+        const vector = vectors.chunks.get(key);
         if (!vector) {
           throw new Error(`No recorded vector for ${key}`);
         }
@@ -87,7 +96,14 @@ export async function buildNativeCorpus(
   }
   // As the recorded measurement did: search only after reopening the committed database.
   const port = await openIndexer(options, DEADLINES);
-  return { chunkIds, databasePath, port, profile, profileHash: embeddingProfileHash(profile) };
+  return {
+    chunkIds,
+    databasePath,
+    port,
+    profile,
+    profileHash: embeddingProfileHash(profile),
+    vectors,
+  };
 }
 
 /** The 2026-10-03 grep policy: full query, case-insensitive line literal, path then chunk order. */
@@ -240,7 +256,7 @@ export function openArms(input: {
       return grep(query, limit);
     }
     const queryId = input.queryIds.get(query);
-    const vector = queryId === undefined ? undefined : evidence.vectors.queries.get(queryId);
+    const vector = queryId === undefined ? undefined : corpus.vectors.queries.get(queryId);
     if (!vector) {
       throw new Error(`No recorded query vector for ${query}`);
     }

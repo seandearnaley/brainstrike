@@ -4,6 +4,9 @@ export type EmbeddingDeviceHint = EmbeddingDevice;
 
 export type EmbeddingDType = 'fp16' | 'q4' | 'q8' | 'fp32';
 
+/** How a model's token states become one vector: a property of the model, like its dtype. */
+export type EmbeddingPooling = 'mean' | 'cls';
+
 export type EmbeddingDimensionParameter =
   | 'dimensions'
   | 'output_dimensionality'
@@ -17,6 +20,8 @@ export interface EmbedWorkerRequest {
   readonly id: string;
   readonly maxBatchSize?: number;
   readonly model: string;
+  /** BST-1939: the model's pooling; absent means 'mean', every existing profile's. */
+  readonly pooling?: EmbeddingPooling;
   readonly provider?: string;
   readonly revision?: string;
   readonly targetDimension?: number;
