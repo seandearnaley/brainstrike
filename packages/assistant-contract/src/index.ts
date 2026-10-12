@@ -29,7 +29,6 @@ export * from './file-mention-directive.js';
 export * from './grep-match.js';
 export * from './guarded-tool-error.js';
 export * from './hook-skip-notices.js';
-export * from './lenses.js';
 export * from './local-llm.js';
 export * from './local-llm-artifacts.js';
 export * from './local-llm-device.js';

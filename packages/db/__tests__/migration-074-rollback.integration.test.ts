@@ -13,7 +13,9 @@ describe('migration 074 rollback semantics', () => {
     db = await wasmLoader.createPGlite(createPGliteTestDataDir('rollback-074'));
     runner = new MigrationRunner(db);
     await runner.initialize();
-    await runner.up(migrations);
+    // Migration 151 drops this role (BST-1995) by running 074's rollback, so
+    // these semantics are measured on the schema just before it.
+    await runner.up(migrations.filter((migration) => migration.version < 151));
     await db.exec(`
       CREATE TABLE rollback_user_data (id integer PRIMARY KEY, content text NOT NULL);
       INSERT INTO rollback_user_data VALUES (1, 'retain this user content');

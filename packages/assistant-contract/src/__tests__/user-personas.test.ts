@@ -186,18 +186,6 @@ describe('buildUserPersona', () => {
     expect(persona.source).toBe('user');
   });
 
-  it('keeps querySelf out of every default persona toolset', () => {
-    // Deliberate v1 decision, not an omission: a delegated child composing
-    // arbitrary SQL is a wider surface than the curated exploration set, and
-    // children cannot prompt for approval. See the rationale on
-    // DEFAULT_USER_PERSONA_TOOL_IDS. A persona author must opt in explicitly.
-    expect(DEFAULT_USER_PERSONA_TOOL_IDS).not.toContain(NATIVE_TOOL_ID.querySelf);
-
-    for (const persona of BUILT_IN_PERSONAS) {
-      expect(persona.allowedToolIds).not.toContain(NATIVE_TOOL_ID.querySelf);
-    }
-  });
-
   it('uses frontmatter name as the label and normalizes bare tool names', () => {
     const result = buildUserPersona({
       content: validFile(

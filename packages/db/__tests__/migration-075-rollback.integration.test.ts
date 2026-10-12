@@ -113,10 +113,6 @@ describe('migration 075 rollback semantics', () => {
     expect(await readGraph()).toEqual([]);
     await insertGraph();
     expect(await readGraph()).toEqual([{ ref: 'callee', symbol: 'a' }]);
-    const grants = await db.query(`SELECT
-      has_table_privilege('brainstrike_agent_readonly', 'file_symbols', 'SELECT') AS symbols,
-      has_table_privilege('brainstrike_agent_readonly', 'file_symbol_refs', 'SELECT') AS refs`);
-    expect(grants.rows).toEqual([{ refs: true, symbols: true }]);
     await expect(
       db.exec(`INSERT INTO file_symbol_refs
       (file_record_id, seq, from_symbol_seq, name, kind, line)

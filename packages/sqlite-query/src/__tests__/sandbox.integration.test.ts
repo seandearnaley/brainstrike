@@ -308,7 +308,7 @@ describe('qualified engine refuses unsafe SQL and retains index bytes', () => {
     }
   });
 
-  it('binds repeated numbered lens parameters without SQL interpolation', async () => {
+  it('binds repeated numbered parameters without SQL interpolation', async () => {
     const value = "x'; DROP TABLE file_records; --";
     const result = await client.query('SELECT $1 AS first, $1 AS repeated, $2 AS second', {
       bindings: { ['$1']: value, ['$2']: 2 },

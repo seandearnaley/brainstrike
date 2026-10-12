@@ -110,7 +110,6 @@ export const TOOL_VERBS: Readonly<Record<NativeToolId, ActivityVerb>> = Object.f
   [NATIVE_TOOL_ID.manageWorktree]: verb('Updating worktree', 'Updated worktree', 'worktree'),
   [NATIVE_TOOL_ID.queryDiagnostics]: verb('Inspecting', 'Inspected', 'search'),
   [NATIVE_TOOL_ID.queryEmbeddingSpace]: verb('Searching', 'Searched', 'search'),
-  [NATIVE_TOOL_ID.querySelf]: verb('Querying history', 'Queried history', 'search'),
   [NATIVE_TOOL_ID.readToolOutputArtifact]: verb('Reading output', 'Read output', 'read'),
   [NATIVE_TOOL_ID.readWorkspaceContext]: verb('Reading context', 'Read context', 'read'),
   [NATIVE_TOOL_ID.readWorkspaceDirectory]: verb('Listing', 'Listed', 'read'),
