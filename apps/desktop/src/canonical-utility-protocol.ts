@@ -146,10 +146,7 @@ export const configSchema = Schema.Struct({
   ),
   managedCollectionId: identifier,
   mode: Schema.Literals(['TEXT', 'VECTOR']),
-  parser: Schema.Struct({
-    parser: Schema.Literals(['oxc', 'babel']),
-    treeSitterLanguages: Schema.Array(Schema.Literal('python')),
-  }),
+  parser: Schema.Struct({ parser: Schema.Literals(['oxc', 'babel']) }),
   request: Schema.Struct({
     batchSize: positive.check(Schema.isLessThanOrEqualTo(64)),
     chunkingOptions: Schema.Struct({

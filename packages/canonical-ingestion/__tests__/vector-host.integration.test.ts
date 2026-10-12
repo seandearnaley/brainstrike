@@ -32,7 +32,7 @@ const profile: VectorProfile = {
   revision: 'a'.repeat(40),
   tokenCap: 256,
 };
-const parser: NodeChunkerOptions = { parser: 'oxc' as const, treeSitterLanguages: ['python'] };
+const parser: NodeChunkerOptions = { parser: 'oxc' as const };
 const deadlines = { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 };
 
 it.each([
