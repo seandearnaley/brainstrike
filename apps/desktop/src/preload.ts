@@ -544,15 +544,6 @@ contextBridge.exposeInMainWorld('tools', {
   },
 });
 
-// Assistant UI (data stream) endpoint helper. getAuth returns { url, token },
-// { startupError } when the server failed to start, or null while starting;
-// every renderer request to the assistant server must send the token — see
-// assistant-contract assistant-auth (AssistantServerAuthResult).
-contextBridge.exposeInMainWorld('assistant', {
-  getAuth: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.assistantGetAuth),
-  getUrl: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.assistantGetUrl),
-});
-
 // Main-process bridge for local-runtime probes. See ipc-runtime.ts for the
 // rationale: Chromium's CORS enforcement inside the renderer blocks fetches
 // to Ollama/LM Studio by default (the daemons' OLLAMA_ORIGINS / CORS config

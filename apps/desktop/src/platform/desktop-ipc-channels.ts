@@ -1,7 +1,5 @@
 export const DESKTOP_IPC_CHANNELS = {
   agent: {
-    assistantGetAuth: 'assistant:get-auth',
-    assistantGetUrl: 'assistant:get-url',
     hostConnect: 'agent:host-connect',
     hostConnected: 'agent:host-connected',
     hostDisconnected: 'agent:host-disconnected',

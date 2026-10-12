@@ -9,7 +9,6 @@ import { createMainLlmHostClient } from '@brainstrike/assistant-service/ports';
 import { recoverInterruptedDimensionIndexMaintenanceAtStartup } from '@brainstrike/db';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import { clearReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
-import { createProviderVerificationService } from '@brainstrike/host-capabilities/provider-verification';
 import type { ProfileResetLease } from '@brainstrike/host-lease';
 import {
   addLogListener,
@@ -29,7 +28,6 @@ import { readEmbeddingHostDevice } from './agent-host-platform/memory-vector-sel
 import { productionDesktopCapabilities } from './agent-host-platform/production-desktop-capabilities';
 import { buildFileMenuTemplate } from './application-file-menu';
 import { registerAssetProtocol } from './asset-protocol';
-import { startAssistantServer } from './assistant-server';
 import { createHostThreadTurns } from './assistant-server/changeset-host-turns';
 import {
   configureDesktopCommandSessionManager,
@@ -39,7 +37,6 @@ import { disposeLiveChildProcesses } from './assistant-server/execute-command-to
 import type { ForgeService } from './assistant-server/forge-service';
 import type { GitInventoryService } from './assistant-server/git-inventory-service';
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
-import { readMainVerificationCredential } from './assistant-server/provider-credentials';
 import { execFileSnapshotGitRunner } from './assistant-server/snapshot-git';
 import { createSnapshotRepository } from './assistant-server/snapshot-repository';
 import { createSnapshotService, type SnapshotService } from './assistant-server/snapshot-service';
@@ -205,6 +202,7 @@ import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
 import { VECTOR_PREFERENCES_STORAGE_KEY } from './platform/vector-preferences-storage-key';
+import { warmDesktopPythonRuntime } from './python-runtime';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
 import { installIndexCallerRead, openIndexQuery } from './sqlite-query-host-manager';
@@ -403,7 +401,6 @@ async function initializeDesktopDimensionIndexStrategy(): Promise<void> {
   }
 }
 
-let stopAssistantServer: null | (() => Promise<void>) = null;
 // BST-1330: gates the developer-menu database reset so a repeat accelerator
 // press surfaces "already in progress" instead of the reset barrier's throw.
 let developerDatabaseResetInFlight = false;
@@ -466,8 +463,6 @@ let completeFactoryResetRendererReplacement: ((signal: AbortSignal) => Promise<v
 // budget and logs are `main/desktop-graceful-shutdown.ts`'s
 // `DESKTOP_SHUTDOWN_STEP_ORDER`, which is where a new step is ordered.
 function planDesktopShutdownRun(): DesktopShutdownRunPlan {
-  const stopServer = stopAssistantServer;
-  let assistantServerDrained = stopServer === null;
   let embeddingRetirement: Promise<void> | undefined;
   const retireEmbeddings = (): Promise<void> => {
     if (!embeddingRetirement) {
@@ -496,28 +491,21 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
         errorLogSink = null;
       }
     },
-    isAssistantServerDrained: () => assistantServerDrained,
     steps: {
-      'assistant-server': async () => {
-        // Start every process reaper in the same settlement batch as the server
-        // drain. A hung or rejected drain must never prevent shell, terminal,
-        // command-session, or LSP cleanup from being attempted.
-        const [stopResult, ...cleanupResults] = await Promise.allSettled([
-          Promise.resolve().then(() => stopServer?.()),
+      'child-processes': async () => {
+        // Every reaper settles in one batch: a hung or rejected one must never
+        // prevent shell, terminal, command-session or LSP cleanup.
+        const results = await Promise.allSettled([
           Promise.resolve().then(disposeLiveChildProcesses),
           Promise.resolve().then(disposeAllTerminals),
           Promise.resolve().then(disposeDesktopCommandSessions),
           Promise.resolve().then(disposeLspServers),
         ]);
-        if (stopResult?.status === 'fulfilled') {
-          stopAssistantServer = null;
-          assistantServerDrained = true;
-        }
-        const causes = [stopResult, ...cleanupResults].flatMap((result) =>
-          result?.status === 'rejected' ? [result.reason] : []
+        const causes = results.flatMap((result) =>
+          result.status === 'rejected' ? [result.reason] : []
         );
         if (causes.length > 0) {
-          throw new AggregateError(causes, 'Assistant server shutdown cleanup failed');
+          throw new AggregateError(causes, 'Child process shutdown cleanup failed');
         }
       },
       'chunking-host': async () => {
@@ -1348,10 +1336,7 @@ if (singleInstanceLockAcquired) {
     registerShutdownSignalHandlers();
     try {
       emitBootMeasurementMark('app-ready', app.isPackaged);
-      // Validated up front (before assistant-server startup) so a malformed
-      // value fails loudly and clearly here, instead of being caught by the
-      // assistant-server try/catch below and mislabeled as an assistant
-      // startup failure.
+      // Validated up front so a malformed value fails loudly and clearly here.
       const quitAfterBootMeasurement = shouldQuitAfterBootMeasurement(app.isPackaged);
       logger.debug('App ready, starting initialization...');
 
@@ -1385,6 +1370,7 @@ if (singleInstanceLockAcquired) {
       // its existing owner before catalog discovery and renderer hydration.
       void nativeIndexActivation
         .acquireProfile()
+        .then(() => emitBootMeasurementMark('agent-host-ready', app.isPackaged))
         .catch((error: unknown) =>
           reportNativeIndexActivationError('Agent host profile unavailable', error)
         );
@@ -1833,57 +1819,19 @@ if (singleInstanceLockAcquired) {
 
       await rebuildApplicationMenu();
 
-      // Start local data stream server for desktop assistant-ui
-      let assistantUrl = '';
-      let assistantAuthToken: string | undefined;
-      let assistantStartupError: string | undefined;
-      try {
-        const { url, stop, authToken } = await startAssistantServer(undefined, {
-          deprecatedEnvVars: deprecatedEnvVarReports,
-          envFileFailures: desktopEnvLoadResult.failures,
-          // Subscription freshness through the host's one refresher; no token returns.
-          providerVerificationService: createProviderVerificationService({
-            readCredential: readMainVerificationCredential,
-            verifySubscriptionSession: (provider) =>
-              agentHostMainClient.request('auth/verify', { provider }),
-          }),
-        });
-        assistantUrl = url;
-        assistantAuthToken = authToken;
-        stopAssistantServer = stop;
-        // Emitted here (one microtask after the server's listen callback
-        // resolves) rather than inside startAssistantServer's listen callback:
-        // that promise has no reject path, so anything throwable inside the
-        // callback would wedge the await above instead of failing loudly.
-        emitBootMeasurementMark('assistant-listening', app.isPackaged);
-        logger.debug(`Assistant server started at ${assistantUrl}`);
-        if (quitAfterBootMeasurement) {
-          app.quit();
-          return;
-        }
-      } catch (err) {
-        // Captured and surfaced to the renderer via assistant:get-auth — the
-        // availability probe presents it as an error state instead of the app
-        // silently booting with a dead assistant (BST-574).
-        assistantStartupError = `Assistant server failed to start: ${
-          err instanceof Error ? err.message : String(err)
-        }`;
-        logger.error('Failed to start assistant server:', err);
+      // Unpack the bundled CPython once at boot: the first python3 skill script
+      // the agent host runs then reuses it (the host resolves the same userData path).
+      warmDesktopPythonRuntime();
+      if (quitAfterBootMeasurement) {
+        // The boot-measurement harness stops at agent-host ready, before any window work.
+        await nativeIndexActivation.acquireProfile();
+        app.quit();
+        return;
       }
 
       ipcDisposers.add(
         'main-platform',
         registerMainPlatformIpcHandlers({
-          getAssistantAuth: () => {
-            if (assistantUrl && assistantAuthToken) {
-              return { token: assistantAuthToken, url: assistantUrl };
-            }
-            if (assistantStartupError) {
-              return { startupError: assistantStartupError };
-            }
-            return null;
-          },
-          getAssistantUrl: () => assistantUrl,
           getPowerSnapshot: () => readDesktopPowerSnapshot(powerMonitor),
           noteNextWindowReload,
         })

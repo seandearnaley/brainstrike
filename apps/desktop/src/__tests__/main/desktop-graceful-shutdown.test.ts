@@ -16,7 +16,6 @@ interface HarnessExtras {
   readonly closeDatabase?: () => Promise<void> | void;
   readonly closeErrorLogSink?: () => void;
   readonly deadlineMs?: number;
-  readonly drained?: () => boolean;
 }
 
 interface Harness {
@@ -57,7 +56,6 @@ function createHarness(overrides: StepOverrides = {}, extra: HarnessExtras = {})
         events.push('close:error-log-sink');
         extra.closeErrorLogSink?.();
       },
-      isAssistantServerDrained: extra.drained ?? (() => true),
       steps,
     };
   });
@@ -116,7 +114,7 @@ describe('desktop graceful shutdown', () => {
     expect(DESKTOP_SHUTDOWN_STEP_ORDER).toEqual([
       'factory-reset',
       'renderers',
-      'assistant-server',
+      'child-processes',
       'native-index',
       'mcp-runtime',
       'file-system',
@@ -228,46 +226,6 @@ describe('desktop graceful shutdown', () => {
       })
     );
     expect(options.exitProcess).not.toHaveBeenCalled();
-  });
-
-  it('records McpShutdownOrderingError when MCP closed before the assistant server drained', async () => {
-    const { logger, options } = createHarness(
-      { 'mcp-runtime': () => Promise.reject(new Error('host close failed')) },
-      { drained: () => false }
-    );
-
-    await createDesktopGracefulShutdown(options).run('before-quit', 'before-quit');
-
-    expect(logger.warn).toHaveBeenCalledWith(
-      'Graceful shutdown completed with cleanup failures',
-      expect.objectContaining({
-        // The step's own failure first, then the ordering violation.
-        failures: [
-          expect.objectContaining({ message: 'host close failed', step: 'mcp-runtime' }),
-          {
-            message: 'Closed MCP host before assistant-server drain completed',
-            name: 'McpShutdownOrderingError',
-            step: 'mcp-runtime',
-          },
-        ],
-      })
-    );
-  });
-
-  it('reads the drain state after the MCP step, not when the run starts', async () => {
-    let drained = false;
-    const { logger, options } = createHarness(
-      {
-        'assistant-server': () => {
-          drained = true;
-        },
-      },
-      { drained: () => drained }
-    );
-
-    await createDesktopGracefulShutdown(options).run('before-quit', 'before-quit');
-
-    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   it('logs a failed sink close on its own and keeps it out of the aggregate failures', async () => {

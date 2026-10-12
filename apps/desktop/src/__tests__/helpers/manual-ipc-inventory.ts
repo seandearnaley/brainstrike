@@ -118,8 +118,6 @@ export const MANUAL_PRODUCTION_REGISTRATIONS: readonly ManualIpcRegistration[] =
       [DESKTOP_IPC_CHANNELS.runtime.verifyEmbeddingDimensions, 'invoke'],
       [DESKTOP_IPC_CHANNELS.runtime.noteReloadIntent, 'invoke'],
       [DESKTOP_IPC_CHANNELS.runtime.powerSnapshot, 'invoke'],
-      [DESKTOP_IPC_CHANNELS.agent.assistantGetAuth, 'invoke'],
-      [DESKTOP_IPC_CHANNELS.agent.assistantGetUrl, 'invoke'],
       [DESKTOP_IPC_CHANNELS.browser.closeTab, 'invoke'],
       [DESKTOP_IPC_CHANNELS.browser.createTab, 'invoke'],
       [DESKTOP_IPC_CHANNELS.browser.goBack, 'invoke'],

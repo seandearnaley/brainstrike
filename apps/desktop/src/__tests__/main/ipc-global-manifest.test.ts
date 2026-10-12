@@ -210,10 +210,6 @@ vi.mock('@brainstrike/logging', async () => {
   return { ...actual, createLogger: createLoggerMock };
 });
 
-vi.mock('../../assistant-server', () => ({
-  startAssistantServer: vi.fn(async () => ({ stop: vi.fn(), url: 'http://127.0.0.1:0' })),
-}));
-
 vi.mock('../../window-state', async () => {
   const actual = await vi.importActual<typeof import('../../window-state')>('../../window-state');
   return {

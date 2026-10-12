@@ -17,14 +17,11 @@ describe('hidden renderer preload contract', () => {
     expect(source).toContain('brainstrike-hidden-renderer-role');
   });
 
-  it('cannot expose provider secrets or assistant server credentials', () => {
+  it('cannot expose provider secrets', () => {
     const source = readHiddenPreloadSource();
 
     expect(source).not.toMatch(/exposeInMainWorld\(['"]secrets['"]/);
-    expect(source).not.toMatch(/exposeInMainWorld\(['"]assistant['"]/);
     expect(source).not.toContain('secrets:get');
-    expect(source).not.toContain('assistant:get-auth');
-    expect(source).not.toContain('assistant:get-url');
   });
 
   it('cannot expose the env bootstrap bridge (BST-1363: visible-ui settings surface only)', () => {

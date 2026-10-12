@@ -450,13 +450,9 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   cancel an embedding already executing.
 - Parser host Stop joins every owned generation’s exit and listeners with a 500ms caller wait; timeout rejects while actual cleanup stays owned. A failed kill remains visible and retryable, blocks parsing on that generation, and never acknowledges successful cleanup.
 - Interactive terminal cleanup retains ownership after renderer destruction or
-  IPC removal. The assistant-server shutdown batch and factory reset await both
+  IPC removal. The `child-processes` shutdown batch and factory reset await both
   the descendant tree walk and node-pty exit callback, including prior reaps;
   failures remain visible and the existing application deadline owns the wait.
-- The assistant HTTP server's stop ends live connections after `close()`; an
-  already-closed listener (`ERR_SERVER_NOT_RUNNING`) is a successful repeated
-  stop and other close failures stay visible. Why: plain `server.close()` waits
-  for every in-flight response.
 - The DB host is closed, not killed: close envelope → SIGTERM → awaited `exit` → SIGKILL on timeout
   (logged as a crash). A close is clean only if the host acknowledged it or, after exit,
   `<profile>/.db-clean-shutdown` names that host's pid; an exit code, even 0, is never proof. No host
