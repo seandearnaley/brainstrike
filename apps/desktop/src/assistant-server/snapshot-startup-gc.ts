@@ -84,7 +84,7 @@ import {
   ASSISTANT_MESSAGE_TOMBSTONES_TABLE,
   WORKSPACE_SNAPSHOTS_TABLE,
 } from '@brainstrike/assistant-contract';
-import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
+import type { MainQueryHandle } from './main-query-handle';
 import { resolveEarliestBatchTarget, resolveRewindRunRange } from './rewind-repository';
 import { hostChainBoundary, type SnapshotChainEntry } from './snapshot-chains';
 import { FAILED_SNAPSHOT_CAPTURE_OID, type SnapshotRepository } from './snapshot-repository';
@@ -109,7 +109,7 @@ function isPathAccessible(path: string): Promise<boolean> {
 export const DEFAULT_SNAPSHOT_TURN_RING = 50;
 
 export interface SnapshotStartupGcDeps {
-  readonly db: EditCheckpointDatabase;
+  readonly db: MainQueryHandle;
   /**
    * Probe for a root path's existence before opening its shadow repo.
    * Injectable for tests; production defaults to `fs.access`.
@@ -197,7 +197,7 @@ function hostThreadsReader(
   };
 }
 
-async function listSnapshotThreadIdsInLedger(db: EditCheckpointDatabase): Promise<string[]> {
+async function listSnapshotThreadIdsInLedger(db: MainQueryHandle): Promise<string[]> {
   const result = await db.query<{ threadId: string }>(
     `SELECT DISTINCT thread_id AS "threadId" FROM ${WORKSPACE_SNAPSHOTS_TABLE}`
   );
@@ -205,7 +205,7 @@ async function listSnapshotThreadIdsInLedger(db: EditCheckpointDatabase): Promis
 }
 
 async function listLiveThreadIds(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   candidateIds: readonly string[]
 ): Promise<Set<string>> {
   const result = await db.query<{ id: string }>(
@@ -272,7 +272,7 @@ interface OutstandingRevertBatch {
  * migration-backed (080), so no existence probe is needed.
  */
 async function listOutstandingRevertBatches(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   threadId: string
 ): Promise<readonly OutstandingRevertBatch[]> {
   const result = await db.query<{ messageId: string; rewindId: string }>(
@@ -309,7 +309,7 @@ type OutstandingBatchFloor =
  * under it (see the module doc comment's OUTSTANDING-REDO FLOOR invariant).
  */
 async function resolveOutstandingBatchFloor(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   threadId: string,
   batch: OutstandingRevertBatch,
   brackets: readonly SnapshotTurnBracket[]
@@ -390,7 +390,7 @@ async function trimThreadRing(
 
 /** Rows grouped `rootId → threadId → oldest surviving non-sentinel oid`. */
 async function survivingChainBoundaries(
-  db: EditCheckpointDatabase
+  db: MainQueryHandle
 ): Promise<Map<string, Map<string, string>>> {
   const result = await db.query<{ commitOid: string; rootId: string; threadId: string }>(
     `SELECT DISTINCT ON (root_id, thread_id)

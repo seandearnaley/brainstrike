@@ -119,7 +119,6 @@ import {
 import { ThreadsPanelSearch } from './threads-panel-search';
 import { ThreadsViewOptionsPopover } from './threads-panel-view-options';
 import { useActiveAssistantThreadIds } from './use-active-assistant-thread-ids';
-import { useDelegatedSidebar } from './use-delegated-sidebar';
 import { useHostChildSidebar } from './use-host-child-sidebar';
 import { type ThreadPanelSelection, useThreadPanelSelection } from './use-thread-panel-selection';
 import { useThreadSearchController } from './use-thread-search-controller';
@@ -519,7 +518,7 @@ function buildThreadPanelTreeNodes(
   return rows.map((row) => ({
     data: row,
     depth:
-      row.kind === 'delegated' || row.kind === 'delegated-state' || row.kind === 'host-child'
+      row.kind === 'delegated-state' || row.kind === 'host-child'
         ? row.depth
         : row.kind === 'group'
           ? 0
@@ -531,8 +530,7 @@ function buildThreadPanelTreeNodes(
     // and the shared Left/Right keyboard contract expose a symmetric tree.
     hasChildren:
       row.kind === 'group' ||
-      (delegatedEnabled &&
-        (row.kind === 'thread' || row.kind === 'delegated' || row.kind === 'host-child')),
+      (delegatedEnabled && (row.kind === 'thread' || row.kind === 'host-child')),
     id: row.id,
     parentId: row.kind === 'group' ? null : row.parentId,
     type: `thread-panel-${row.kind}`,
@@ -632,9 +630,6 @@ interface ThreadRowContextProps {
   readonly needsYouThreadIds: ReadonlySet<string>;
   readonly onDeleteThread: (threadId: string) => Promise<void>;
   readonly onMoveThreadToGroup: (threadId: string, groupId: string | null) => Promise<void>;
-  readonly onRefreshAgentColors?:
-    | ((threadId: string, ownerResourceId: string) => Promise<number>)
-    | undefined;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
   readonly onSelectThread: (threadId: string) => void;
   readonly onUpdateThreadMetadata: (
@@ -813,9 +808,7 @@ function ThreadPanelCell({
   onShowMore,
   row,
   rowsProps,
-  onShowMoreChildren,
 }: {
-  readonly onShowMoreChildren: (id: string) => void;
   readonly groupHandlers: ThreadGroupSectionHandlers;
   readonly onNewThreadInFolder: ((folder: ThreadFolderRow) => void) | null;
   readonly onShowMore: (sectionKey: string) => void;
@@ -825,8 +818,8 @@ function ThreadPanelCell({
   let content: ReactElement;
   if (row.kind === 'host-child') {
     content = <HostChildSidebarCell row={row} />;
-  } else if (row.kind === 'delegated' || row.kind === 'delegated-state') {
-    content = <DelegatedSidebarCell onShowMore={onShowMoreChildren} row={row} />;
+  } else if (row.kind === 'delegated-state') {
+    content = <DelegatedSidebarCell row={row} />;
   } else if (row.kind === 'thread') {
     const groupId = rowsProps.folderMode
       ? null
@@ -842,7 +835,6 @@ function ThreadPanelCell({
         moveTargets={rowsProps.moveTargets}
         onDeleteThread={rowsProps.onDeleteThread}
         onMoveThreadToGroup={rowsProps.onMoveThreadToGroup}
-        onRefreshAgentColors={rowsProps.onRefreshAgentColors}
         onRenameThread={rowsProps.onRenameThread}
         onSelectThread={rowsProps.onSelectThread}
         onUpdateThreadMetadata={rowsProps.onUpdateThreadMetadata}
@@ -1118,7 +1110,6 @@ function ThreadPanelTree({
   onMoveThreadToGroup,
   onNewThreadInFolder,
   onRenameThread,
-  onRefreshAgentColors,
   onSelectThread,
   onUpdateThreadMetadata,
   selectedThreadId,
@@ -1145,9 +1136,6 @@ function ThreadPanelTree({
   readonly onMoveThreadToGroup: (threadId: string, groupId: string | null) => Promise<void>;
   readonly onNewThreadInFolder: ((folder: ThreadFolderRow) => void) | null;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
-  readonly onRefreshAgentColors?:
-    | ((threadId: string, ownerResourceId: string) => Promise<number>)
-    | undefined;
   readonly onSelectThread: (threadId: string) => void;
   readonly onUpdateThreadMetadata: (
     threadId: string,
@@ -1169,16 +1157,15 @@ function ThreadPanelTree({
     selectedThreadIds: selectedAvailableThreadIds,
     visibleRows,
   } = selection;
-  const legacyChildren = useDelegatedSidebar(visibleRows.rows);
-  // BST-1932: a host thread's children come from the host; history's from history.
+  // BST-1932: a host thread's children come from the host.
   const hostChildren = useHostChildSidebar();
-  const delegated = useMemo(
-    () => ({ ...legacyChildren, rows: hostChildren.project(legacyChildren.rows) }),
-    [hostChildren, legacyChildren]
+  const panelRows = useMemo(
+    () => hostChildren.project(visibleRows.rows),
+    [hostChildren, visibleRows.rows]
   );
   const nodes = useMemo(
-    () => buildThreadPanelTreeNodes(delegated.rows, delegated.enabled || hostChildren.enabled),
-    [delegated.rows, delegated.enabled, hostChildren.enabled]
+    () => buildThreadPanelTreeNodes(panelRows, hostChildren.enabled),
+    [panelRows, hostChildren.enabled]
   );
   const colorByGroupId = useMemo(
     () =>
@@ -1200,13 +1187,12 @@ function ThreadPanelTree({
   const expandedGroupIds = useMemo(
     () =>
       new Set([
-        ...delegated.expandedIds,
         ...hostChildren.expandedIds,
         ...visibleRows.rows.flatMap((row) =>
           row.kind === 'group' && !row.collapsed ? [row.id] : []
         ),
       ]),
-    [delegated.expandedIds, hostChildren.expandedIds, visibleRows.rows]
+    [hostChildren.expandedIds, visibleRows.rows]
   );
   const bulkSelectionController = useThreadBulkSelectionController({
     onBulkColor,
@@ -1231,7 +1217,6 @@ function ThreadPanelTree({
       needsYouThreadIds,
       onDeleteThread,
       onMoveThreadToGroup,
-      onRefreshAgentColors,
       onRenameThread,
       onSelectThread,
       onUpdateThreadMetadata,
@@ -1251,7 +1236,6 @@ function ThreadPanelTree({
       onDeleteThread,
       onMoveThreadToGroup,
       onRenameThread,
-      onRefreshAgentColors,
       onSelectThread,
       onUpdateThreadMetadata,
       selectedThreadId,
@@ -1267,7 +1251,6 @@ function ThreadPanelTree({
             groupHandlers={groupHandlers}
             onNewThreadInFolder={onNewThreadInFolder}
             onShowMore={handleShowMore}
-            onShowMoreChildren={delegated.showMore}
             row={node.data}
             rowsProps={rowsProps}
           />
@@ -1280,7 +1263,7 @@ function ThreadPanelTree({
         treeControlsPosition: 'top',
       },
     ],
-    [delegated.showMore, groupHandlers, handleShowMore, onNewThreadInFolder, rowsProps]
+    [groupHandlers, handleShowMore, onNewThreadInFolder, rowsProps]
   );
 
   return (
@@ -1333,17 +1316,11 @@ function ThreadPanelTree({
             selectGroup(getThreadPanelMemberSectionId(row), nextState);
           }
         }}
-        onMultiSelectChange={(ids) =>
-          replaceSelection(filterThreadPanelSelection(ids, delegated.rows))
-        }
+        onMultiSelectChange={(ids) => replaceSelection(filterThreadPanelSelection(ids, panelRows))}
         onToggleExpand={(nodeId) => {
-          const row = delegated.rows.find((candidate) => candidate.id === nodeId);
+          const row = panelRows.find((candidate) => candidate.id === nodeId);
           if (row && hostChildren.owns(row)) {
             hostChildren.toggle(row);
-            return;
-          }
-          if (row?.kind === 'thread' || row?.kind === 'delegated') {
-            delegated.toggle(row);
             return;
           }
           if (row?.kind !== 'group') {
@@ -1431,7 +1408,6 @@ function ThreadsPanelContent({
   onMoveThreadToGroup,
   onNewThreadInFolder,
   onRenameThread,
-  onRefreshAgentColors,
   onSelectThread,
   onUpdateThreadMetadata,
   repository,
@@ -1464,9 +1440,6 @@ function ThreadsPanelContent({
   readonly onMoveThreadToGroup: (threadId: string, groupId: string | null) => Promise<void>;
   readonly onNewThreadInFolder: ((folder: ThreadFolderRow) => void) | null;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
-  readonly onRefreshAgentColors?:
-    | ((threadId: string, ownerResourceId: string) => Promise<number>)
-    | undefined;
   readonly onSelectThread: (threadId: string) => void;
   readonly onUpdateThreadMetadata: (
     threadId: string,
@@ -1516,7 +1489,6 @@ function ThreadsPanelContent({
       onDeleteThread={onDeleteThread}
       onMoveThreadToGroup={onMoveThreadToGroup}
       onNewThreadInFolder={onNewThreadInFolder}
-      onRefreshAgentColors={onRefreshAgentColors}
       onRenameThread={onRenameThread}
       onSelectThread={onSelectThread}
       onUpdateThreadMetadata={onUpdateThreadMetadata}

@@ -12,7 +12,6 @@ export default defineConfig({
   dts: false,
   entry: [
     'src/http.ts',
-    'src/local-provider-runtime.ts',
     'src/mcp-content-application-port.ts',
     'src/memory-model-targets.ts',
     'src/node-native-text-services.ts',
@@ -20,10 +19,7 @@ export default defineConfig({
     'src/ports.ts',
     'src/provider-credential-projection.ts',
     'src/request.ts',
-    'src/run-turn.ts',
     'src/secret-errors.ts',
-    'src/steering.ts',
-    'src/stream-init.ts',
     'src/types.ts',
   ],
   format: ['esm', 'cjs'],

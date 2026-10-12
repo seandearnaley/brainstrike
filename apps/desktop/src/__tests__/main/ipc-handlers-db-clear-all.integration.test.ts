@@ -48,11 +48,8 @@ const PRESENT_RELATIONS = [
   'brainstrike_assistant_run_outcomes',
   // Per-run experiment treatment records (migration 093, BST-1250).
   'brainstrike_assistant_run_treatments',
-  'brainstrike_assistant_task_lists',
-  'brainstrike_assistant_edit_checkpoints',
   'brainstrike_assistant_message_parents',
   'brainstrike_assistant_message_tombstones',
-  'brainstrike_assistant_compaction_ranges',
   'brainstrike_assistant_thread_groups',
   'brainstrike_assistant_thread_placements',
   // Per-thread workspace snapshots (migration 095, BST-1268).
@@ -67,7 +64,6 @@ const PRESENT_RELATIONS = [
   'brainstrike_delegated_conversations',
   'prompt_items',
   'brainstrike_assistant_tool_output_artifacts',
-  'brainstrike_canvas_versions',
   'brainstrike_tool_call_telemetry',
   'brainstrike_token_estimate_calibration',
   'brainstrike_diagnostic_events',

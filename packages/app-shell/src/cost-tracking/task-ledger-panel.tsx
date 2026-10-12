@@ -546,9 +546,9 @@ function RunTableSection({
                     </Badge>
                   ) : null}
                 </TableCell>
-                <TableCell>
-                  {row.editCount}
-                  {row.revertedEditCount > 0 ? (
+                <TableCell data-testid="task-ledger-edits">
+                  {row.editCount ?? '—'}
+                  {row.revertedEditCount !== undefined && row.revertedEditCount > 0 ? (
                     <Badge
                       className="ml-1"
                       data-testid="task-ledger-reverted-edits"

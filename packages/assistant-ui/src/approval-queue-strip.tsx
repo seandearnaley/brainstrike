@@ -18,7 +18,6 @@ import { usePendingApprovalsByCategory } from './approval-ranks-context';
 import { useAssistantDecisionRecoveryBlocked } from './assistant-decision-recovery-context';
 import { submitDecisionOrQueue } from './decision-dispatch';
 import { useDecisionRoute } from './decision-route-context';
-import { useLiveDecisionTransport } from './live-decision-transport';
 import { PendingApprovalReview } from './pending-approval-review';
 import { useToolApprovalGrants } from './tool-approval-grant-context';
 
@@ -54,7 +53,6 @@ export function ApprovalQueueStrip() {
   const pending = usePendingApprovalsByCategory();
   const index = useAnsweredApprovals();
   const grants = useToolApprovalGrants();
-  const deliverLive = useLiveDecisionTransport();
   const aui = useAui();
   const isRunning = useAuiState((state) => state.thread.isRunning);
   const threadKey = use(ActiveThreadKeyContext);
@@ -91,7 +89,6 @@ export function ApprovalQueueStrip() {
       ? decisionRoute.dispatch(decision.message)
       : submitDecisionOrQueue({
           append: (message) => aui.thread().append(message),
-          deliverLive,
           identityKey: decision.identityKey,
           isRunning,
           message: decision.message,

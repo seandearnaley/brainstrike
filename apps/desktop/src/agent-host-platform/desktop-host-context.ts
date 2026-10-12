@@ -11,7 +11,7 @@ import {
 } from '@brainstrike/agent/tool-runtime';
 import { type HostRunIntentRequest, hostToolDiscoveryEnabled } from '@brainstrike/agent-host';
 import { isSupportedProvider, type ToolRiskCategory } from '@brainstrike/assistant-contract';
-import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
+import type { WorkspaceFileReader } from '@brainstrike/assistant-service/ports';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-text-file-reader';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';

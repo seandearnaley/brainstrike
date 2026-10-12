@@ -47,7 +47,6 @@ import { createLogger } from '@brainstrike/logging';
 import { generateUUID } from '@brainstrike/utils';
 import type { MastraMemory } from '@mastra/core/memory';
 import type { ChunkType } from '@mastra/core/stream';
-import { isContextOverflowProviderErrorCode } from '../provider-error-metadata';
 import { createListingOnlyModel } from '../providers/listing-only-model';
 import {
   providerSupportsNativeWebSearch,
@@ -307,40 +306,6 @@ function warnForUnrecognizedMastraStreamPart(
     chunkType: formatDiagnosticChunkType(type),
     code: 'mastra_agent_unrecognized_stream_chunk',
   });
-}
-
-async function makeRecoveredProviderErrorTermination(
-  part: unknown,
-  error: unknown,
-  lifecycleState: ToolLifecycleState,
-  runtimeData?: RuntimeData
-): Promise<ProcessStreamPartResult> {
-  const providerError = resolveProviderError(error, runtimeData);
-  let detail = providerError.detail;
-  if (
-    isContextOverflowProviderErrorCode(providerError.runError.code) &&
-    runtimeData?.contextOverflowRecovery
-  ) {
-    try {
-      const recovery = await runtimeData.contextOverflowRecovery();
-      if (recovery.applied) {
-        detail =
-          'A deterministic compaction was applied after the provider reported a context overflow. Please resend this message or continue the conversation; the next request now has additional headroom.';
-      }
-    } catch (recoveryError) {
-      logger.warn('Deterministic context-overflow compaction failed', {
-        code: 'deterministic_compaction_failed',
-        error: recoveryError,
-      });
-    }
-  }
-  return makeProviderErrorTermination(
-    detail,
-    lifecycleState,
-    part,
-    runtimeData,
-    providerError.runError
-  );
 }
 
 /**
@@ -759,11 +724,13 @@ export async function processMastraStreamPart(
       // we threw here; the throw produced a data-stream error frame that the
       // renderer did not surface, leaving the thread hung on a forever-spinning
       // "Generation step started" (the "large white pause"). See docs/agents/assistant-runtime.md.
-      return makeRecoveredProviderErrorTermination(
-        part,
-        p.error ?? p.payload?.error,
+      const providerError = resolveProviderError(p.error ?? p.payload?.error, runtimeData);
+      return makeProviderErrorTermination(
+        providerError.detail,
         lifecycleState,
-        runtimeData
+        part,
+        runtimeData,
+        providerError.runError
       );
     }
     case 'tripwire': {

@@ -4,11 +4,6 @@ import type {
   DelegatedToolActionIdentity,
 } from '@brainstrike/assistant-contract';
 import {
-  ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES,
-  ASSISTANT_EDIT_CHECKPOINT_OPS,
-  type AssistantEditCheckpointCaptureStatus,
-  type AssistantEditCheckpointOp,
-  type AssistantEditCheckpointRecord,
   CHILD_INPUT_DELIVERY_METADATA_KEY,
   childInputDeliveryStateSchema,
   getToolActionIdentityKey,
@@ -402,15 +397,20 @@ export interface RunLedgerListOptions {
 
 /**
  * One Task Ledger row: a run joined with its usage totals, tool-call counts,
- * edit-checkpoint revert signals, and outcome label. `billedCostUsd` is absent
- * (never fabricated 0) when no usage row carried an exact provider-reported
- * cost. `durationMs` is null while the run is still open.
+ * edit signals, and outcome label. `billedCostUsd` is absent (never
+ * fabricated 0) when no usage row carried an exact provider-reported cost.
+ * `durationMs` is null while the run is still open.
  */
 export interface RunLedgerRow {
   readonly billedCostUsd?: number;
   readonly completedAt: Date | null;
   readonly durationMs: number | null;
-  readonly editCount: number;
+  /**
+   * Edits the run made. Only agent-host rows carry it (the host's run log
+   * records each edit); a PGlite row has no edit record, so it omits the
+   * count rather than claim zero.
+   */
+  readonly editCount?: number;
   /** Anthropic cache-write share of `estimatedInputTokens` (0 elsewhere). */
   readonly estimatedCacheCreationTokens: number;
   /** Anthropic cache-read share of `estimatedInputTokens` (0 elsewhere). */
@@ -432,7 +432,8 @@ export interface RunLedgerRow {
   readonly outcomeVerdict: AssistantRunOutcomeVerdict | null;
   readonly outputTokens: number;
   readonly provider: string;
-  readonly revertedEditCount: number;
+  /** Of `editCount`, the edits since reverted. Absent exactly when `editCount` is. */
+  readonly revertedEditCount?: number;
   readonly runId: string;
   readonly startedAt: Date;
   readonly status: AssistantThreadRunStatus;
@@ -462,7 +463,7 @@ const ASSISTANT_RUN_OUTCOME_VERDICTS: readonly AssistantRunOutcomeVerdict[] = [
  *
  * `$1` = resourceId, `$2` = limit. Each LEFT-JOINed subquery pre-groups its
  * fact table by run_id so one run yields exactly one row regardless of how
- * many usage/event/checkpoint rows it produced. Tool counts deliberately cover
+ * many usage/event rows it produced. Tool counts deliberately cover
  * only top-level `tool.*` events (subagent.tool.* belongs to the child run's
  * story, not the parent's v1 ledger). Outcome detail is display-bounded like
  * root display names.
@@ -499,8 +500,6 @@ export const RUN_LEDGER_AGGREGATION_SQL = `
     COALESCE(u.estimated_cache_creation_tokens, 0)::bigint AS "estimatedCacheCreationTokens",
     COALESCE(e.tool_call_count, 0)::bigint AS "toolCallCount",
     COALESCE(e.failed_tool_call_count, 0)::bigint AS "failedToolCallCount",
-    COALESCE(c.edit_count, 0)::bigint AS "editCount",
-    COALESCE(c.reverted_edit_count, 0)::bigint AS "revertedEditCount",
     o.verdict AS "outcomeVerdict",
     o.source AS "outcomeSource",
     SUBSTR(o.detail, 1, 512) AS "outcomeDetail"
@@ -531,14 +530,6 @@ export const RUN_LEDGER_AGGREGATION_SQL = `
     JOIN scope ON brainstrike_assistant_run_events.resource_id = scope.resource_id
     GROUP BY run_id
   ) e ON e.run_id = tr.id
-  LEFT JOIN (
-    SELECT run_id,
-      COUNT(*) AS edit_count,
-      COUNT(*) FILTER (WHERE reverted_at IS NOT NULL) AS reverted_edit_count
-    FROM brainstrike_assistant_edit_checkpoints
-    JOIN scope ON brainstrike_assistant_edit_checkpoints.resource_id = scope.resource_id
-    GROUP BY run_id
-  ) c ON c.run_id = tr.id
   LEFT JOIN brainstrike_assistant_run_outcomes o ON o.run_id = tr.id
   ORDER BY tr.started_at DESC, tr.id DESC
   LIMIT $2
@@ -589,7 +580,6 @@ export function mapRunLedgerRow(row: Record<string, unknown>): RunLedgerRow {
     ...(billedCostUsd === undefined ? {} : { billedCostUsd }),
     completedAt: normalizeNullableDate(row['completedAt']),
     durationMs: nullableNonNegativeInteger(row['durationMs'], 'durationMs'),
-    editCount: requireNonNegativeInteger(row['editCount'], 'editCount'),
     estimatedCacheCreationTokens: requireNonNegativeInteger(
       row['estimatedCacheCreationTokens'] ?? 0,
       'estimatedCacheCreationTokens'
@@ -617,7 +607,6 @@ export function mapRunLedgerRow(row: Record<string, unknown>): RunLedgerRow {
     outcomeVerdict: nullableOutcomeVerdict(row['outcomeVerdict']),
     outputTokens: requireNonNegativeInteger(row['outputTokens'], 'outputTokens'),
     provider: requireString(row['provider'], 'provider'),
-    revertedEditCount: requireNonNegativeInteger(row['revertedEditCount'], 'revertedEditCount'),
     runId: requireString(row['runId'], 'runId'),
     startedAt: normalizeDate(row['startedAt']),
     status: requireRunStatus(row['status']),
@@ -702,7 +691,6 @@ export interface AssistantThreadRepository {
     resourceId: string,
     options?: AssistantThreadMessageListOptions
   ) => Promise<readonly AssistantHistoryMessage[]>;
-  listThreadCheckpoints: (threadId: string) => Promise<readonly AssistantEditCheckpointRecord[]>;
   listThreadRunEvents: (
     threadId: string,
     resourceId: string,
@@ -842,7 +830,6 @@ const LATEST_THREAD_RUNS_BY_RESOURCE_SQL = `SELECT DISTINCT ON (thread_id)
   ORDER BY thread_id, started_at DESC, id DESC`;
 const ASSISTANT_RUN_EVENTS_TABLE = 'brainstrike_assistant_run_events';
 const ASSISTANT_RUN_USAGE_TABLE = 'brainstrike_assistant_run_usage';
-const ASSISTANT_EDIT_CHECKPOINTS_TABLE = 'brainstrike_assistant_edit_checkpoints';
 /** Workspace roots (migration 039); joined by the cross-root usage rollup. */
 const ROOTS_TABLE = 'roots';
 const ASSISTANT_RUN_OUTCOMES_TABLE = 'brainstrike_assistant_run_outcomes';
@@ -869,7 +856,6 @@ export function requiredAssistantMemoryRelations(): readonly string[] {
       ASSISTANT_RUN_EVENTS_TABLE,
       ASSISTANT_RUN_USAGE_TABLE,
       ASSISTANT_RUN_OUTCOMES_TABLE,
-      ASSISTANT_EDIT_CHECKPOINTS_TABLE,
       MIND_OPS_TABLE,
       'brainstrike_delegated_conversations',
       // `roots` is not assistant-owned (migration 039 creates it), but
@@ -1538,60 +1524,6 @@ function boundedNullableString(value: unknown, maxChars: number): string | null 
   // surrogate. `[...text]` iterates code points.
   const codePoints = [...text];
   return codePoints.length <= maxChars ? text : codePoints.slice(0, maxChars).join('');
-}
-
-function requireCheckpointOp(value: unknown): AssistantEditCheckpointOp {
-  if (
-    typeof value === 'string' &&
-    (ASSISTANT_EDIT_CHECKPOINT_OPS as readonly string[]).includes(value)
-  ) {
-    return value as AssistantEditCheckpointOp;
-  }
-  throw new Error(`Invalid edit checkpoint row: op "${String(value)}" is not valid.`);
-}
-
-function requireCheckpointCaptureStatus(value: unknown): AssistantEditCheckpointCaptureStatus {
-  if (
-    typeof value === 'string' &&
-    (ASSISTANT_EDIT_CHECKPOINT_CAPTURE_STATUSES as readonly string[]).includes(value)
-  ) {
-    return value as AssistantEditCheckpointCaptureStatus;
-  }
-  throw new Error(`Invalid edit checkpoint row: capture_status "${String(value)}" is not valid.`);
-}
-
-function nullableInteger(value: unknown): number | null {
-  if (value === null || value === undefined) {
-    return null;
-  }
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : null;
-}
-
-function toEditCheckpointRecord(row: Record<string, unknown>): AssistantEditCheckpointRecord {
-  const revertedAt = normalizeNullableDate(getRowValue(row, 'revertedAt', 'reverted_at'));
-  return {
-    afterExisted: Boolean(getRowValue(row, 'afterExisted', 'after_existed')),
-    afterHash: nullableString(getRowValue(row, 'afterHash', 'after_hash')),
-    beforeExisted: Boolean(getRowValue(row, 'beforeExisted', 'before_existed')),
-    beforeHash: nullableString(getRowValue(row, 'beforeHash', 'before_hash')),
-    beforeSize: nullableInteger(getRowValue(row, 'beforeSize', 'before_size')),
-    captureStatus: requireCheckpointCaptureStatus(
-      getRowValue(row, 'captureStatus', 'capture_status')
-    ),
-    fromPath: nullableString(getRowValue(row, 'fromPath', 'from_path')),
-    id: requireString(row['id'], 'id'),
-    occurredAt: normalizeDate(getRowValue(row, 'occurredAt', 'occurred_at')).toISOString(),
-    op: requireCheckpointOp(row['op']),
-    path: requireString(row['path'], 'path'),
-    resourceId: requireString(getRowValue(row, 'resourceId', 'resource_id'), 'resourceId'),
-    revertedAt: revertedAt ? revertedAt.toISOString() : null,
-    rootId: requireString(getRowValue(row, 'rootId', 'root_id'), 'rootId'),
-    runId: requireString(getRowValue(row, 'runId', 'run_id'), 'runId'),
-    threadId: requireString(getRowValue(row, 'threadId', 'thread_id'), 'threadId'),
-    toolCallId: nullableString(getRowValue(row, 'toolCallId', 'tool_call_id')),
-    toolName: requireString(getRowValue(row, 'toolName', 'tool_name'), 'toolName'),
-  };
 }
 
 function toThreadRunRecord(row: Record<string, unknown>): AssistantThreadRunRecord {
@@ -3117,42 +3049,6 @@ export function createPgliteAssistantThreadRepository(
     return result.rows.map(toThreadRunRecord);
   };
 
-  const listThreadCheckpoints = async (
-    threadId: string
-  ): Promise<readonly AssistantEditCheckpointRecord[]> => {
-    await initialize();
-    // Read-through only (Path A, like listThreadRunEvents). Queried across ALL
-    // runs (not narrowed to the latest run) so past turns' edit cards stay
-    // revertible after reload. before_content is intentionally NOT selected —
-    // the raw prior bytes never leave the main process; revert reads them there.
-    const result = await database.query<Record<string, unknown>>(
-      `SELECT
-          id,
-          run_id AS "runId",
-          resource_id AS "resourceId",
-          thread_id AS "threadId",
-          tool_call_id AS "toolCallId",
-          tool_name AS "toolName",
-          op,
-          root_id AS "rootId",
-          path,
-          from_path AS "fromPath",
-          before_existed AS "beforeExisted",
-          before_hash AS "beforeHash",
-          before_size AS "beforeSize",
-          after_existed AS "afterExisted",
-          after_hash AS "afterHash",
-          capture_status AS "captureStatus",
-          reverted_at AS "revertedAt",
-          occurred_at AS "occurredAt"
-       FROM ${ASSISTANT_EDIT_CHECKPOINTS_TABLE}
-       WHERE thread_id = $1
-       ORDER BY occurred_at ASC, id ASC`,
-      [threadId]
-    );
-    return result.rows.map(toEditCheckpointRecord);
-  };
-
   const listThreadRunEvents = async (
     threadId: string,
     resourceId: string,
@@ -3647,7 +3543,6 @@ export function createPgliteAssistantThreadRepository(
       await initialize();
       return readAssistantHistoryMessages(database, threadId, resourceId, options);
     },
-    listThreadCheckpoints,
     listThreadRunEvents,
     async listThreads(resourceId: string): Promise<readonly AssistantMemoryThread[]> {
       await initialize();

@@ -176,10 +176,7 @@ function targetsOfHostRun(
       to: end.commitOid,
     });
   }
-  return {
-    ok: true,
-    value: { attribution: { kind: 'committed', records: turn.attribution }, targets },
-  };
+  return { ok: true, value: { attribution: turn.attribution, targets } };
 }
 
 /** Each root's restore point from `fromRunId` on, against the live work-tree. */

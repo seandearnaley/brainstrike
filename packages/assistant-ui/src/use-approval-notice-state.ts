@@ -19,7 +19,6 @@ import { useApprovalSubmission } from './approval-submission-context';
 import { useAssistantDecisionRecoveryBlocked } from './assistant-decision-recovery-context';
 import { submitDecisionOrQueue } from './decision-dispatch';
 import { useDecisionRoute } from './decision-route-context';
-import { useLiveDecisionTransport } from './live-decision-transport';
 import {
   type RediscoveredPauseDisplay,
   readRediscoveredPauseDisplay,
@@ -124,7 +123,6 @@ export function useApprovalNoticeState(
   );
   const { delegationOwner, hostAnswer } = useDelegatedNoticeContext(approval);
   const { isRunning, queued, threadKey } = useDecisionQueueState(approval);
-  const deliverLive = useLiveDecisionTransport();
   const decisionRoute = useDecisionRoute();
   const recoveryBlocked = useAssistantDecisionRecoveryBlocked();
   const decisionLocked = rediscovered?.decisionState !== undefined || hostAnswer !== null;
@@ -180,7 +178,6 @@ export function useApprovalNoticeState(
         ? decisionRoute.dispatch(decision.message)
         : submitDecisionOrQueue({
             append: sendNow,
-            deliverLive,
             identityKey: decision.identityKey,
             isRunning,
             message: decision.message,
@@ -211,7 +208,6 @@ export function useApprovalNoticeState(
       aui,
       decisionLocked,
       decisionRoute,
-      deliverLive,
       isRunning,
       recoveryBlocked,
       submittedAction,

@@ -143,7 +143,7 @@ export interface ChangedFileEntry {
   readonly status: ChangedFileStatus;
   /**
    * ADDITIVE view-level attribution metadata (W7 snapshot engine, BST-1164):
-   * `true` when the edit-checkpoint attribution ledger records an
+   * `true` when a settled host run's committed log records an
    * assistant-tool edit touching this path within the changeset's range;
    * `false` when the snapshot engine captured the change with no tool record
    * (e.g. a shell side effect of an executed command). ABSENT (undefined)

@@ -526,7 +526,7 @@ describe('SnapshotService — concurrency and GC', () => {
     ],
     ['trailing-dot', 'abc.'],
   ])(
-    'captures, inventories, restores and prunes %s identities without losing another writer',
+    'captures, inventories and prunes %s identities without losing another writer',
     async (_kind, threadId) => {
       const { root, service } = await makeFixture();
       const handle = await service.ensureShadowRepo({ path: root, rootId: 'recursive-root' });
@@ -550,14 +550,8 @@ describe('SnapshotService — concurrency and GC', () => {
         await git(root, `--git-dir=${handle.gitDir}`, 'show', '-s', '--format=%P', after.commitOid)
       ).toContain(before.commitOid);
       expect(
-        await service.restorePathsFromSnapshot(handle, before.commitOid, [
-          { expectAbsent: false, path: 'child.txt' },
-        ])
-      ).toEqual([{ outcome: 'restored', path: 'child.txt' }]);
-      expect(await fsPromises.readFile(path.join(root, 'child.txt'), 'utf8')).toBe('before child');
-      expect(await fsPromises.readFile(path.join(root, 'sibling.txt'), 'utf8')).toBe(
-        'independent sibling effect'
-      );
+        await git(root, `--git-dir=${handle.gitDir}`, 'show', `${before.commitOid}:child.txt`)
+      ).toBe('before child');
       expect(await service.pruneThread(handle, threadId)).toEqual({ deleted: true });
       expect(await service.listSnapshotThreadIds(handle)).toEqual(['sibling']);
       expect(await service.pruneThread(handle, threadId)).toEqual({ deleted: false });

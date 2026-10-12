@@ -420,8 +420,6 @@ describe('DbProvider factoryReset', () => {
       await expect(result.current.reset?.()).resolves.toBeUndefined();
     });
     expect(query).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_run_usage');
-    expect(query).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_task_lists');
-    expect(query).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_edit_checkpoints');
     expect(query).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_message_parents');
   });
 

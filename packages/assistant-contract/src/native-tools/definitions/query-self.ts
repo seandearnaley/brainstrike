@@ -14,7 +14,7 @@ import { QuerySelfInputSchema } from '../schemas/schemas-diagnostics.js';
  * Keep them short: this text is paid for on every request that loads the tool.
  */
 export const QUERY_SELF_EXAMPLE_QUERIES: readonly string[] = [
-  'SELECT path, count(*) AS reverts FROM brainstrike_assistant_edit_checkpoints WHERE reverted_at IS NOT NULL GROUP BY path ORDER BY reverts DESC',
+  'SELECT state, count(*) AS jobs FROM job_queue GROUP BY state ORDER BY jobs DESC',
 ];
 
 // Read-only SQL over Brainstrike's OWN local database (run outcomes, edit

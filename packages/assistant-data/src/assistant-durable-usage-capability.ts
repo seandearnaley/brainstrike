@@ -1,34 +1,20 @@
-import { getAssistantBridge } from '@brainstrike/assistant-contract';
-
 /**
- * Single capability probe for "durable assistant usage is recorded here".
+ * Single capability probe for "a durable run owner records assistant usage here".
  *
  * brainstrike is local-first, so the WEB app ALSO runs under a PGlite
  * `DbProvider` — `usePGliteDatabase()` is NON-NULL on web. The presence of a
  * PGlite handle therefore does NOT mean durable assistant usage exists: web
- * assistant turns use the in-renderer LocalRuntimeChat (session-only) and never
- * call `recordRunUsage`. Durable usage rows are written only on DESKTOP, where
- * chat routes through the assistant server's Mastra loop.
+ * assistant turns run on a stateless server and record nothing durable.
  *
- * The authoritative signal is the desktop assistant server bridge
- * (`window.assistant.url` / `getUrl`) — the same capability that gates the
- * durable WRITE path (`hasDesktopAssistantBackend` in
- * assistant-ui-panel-wrapper.tsx) and the data-stream transport. The cost panel
- * READS the durable store, so it must gate on the same signal as the WRITE,
- * not on the raw PGlite handle, or web users see a durable-but-empty panel
- * instead of the intended honest session-only state.
+ * Desktop runs execute in the agent host, which owns and records each run; the
+ * renderer reaches it through the `window.agentHost` bridge. That bridge is the
+ * capability (ADR-0008), never the platform: the cost panels, the reload gate
+ * and the other durable-run readers gate on it, so web shows its honest
+ * session-only state instead of a durable-but-empty one.
  */
 export function hasDurableAssistantUsageCapability(): boolean {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-  const bridge = getAssistantBridge();
-  // Gate on the SHAPE of the capability, not a truthy proxy: a non-empty string
-  // `url` or a callable `getUrl`. A truthy-but-wrong value (e.g. `url: {}`) would
-  // otherwise pass here and throw downstream when the URL is actually used.
-  return Boolean(
-    bridge &&
-      ((typeof bridge.url === 'string' && bridge.url.length > 0) ||
-        typeof bridge.getUrl === 'function')
+  return (
+    typeof window !== 'undefined' &&
+    (window as Window & { agentHost?: unknown }).agentHost !== undefined
   );
 }

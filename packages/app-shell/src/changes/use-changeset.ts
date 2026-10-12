@@ -14,11 +14,10 @@
  * no state churns. `available` reflects ONLY the bridge's presence (per the
  * plan), independent of whether a changeset is currently selected.
  *
- * Generation-guarded loads copy the discipline from `use-edit-checkpoints.ts`:
- * the generation counter increments BEFORE the await, is captured, and every
- * `setState` (including error branches) is guarded against a stale resolve —
- * while the internal loader still RETURNS its result to the caller regardless
- * of staleness, mirroring `loadEntries`/`refetch` there.
+ * Generation-guarded loads: the generation counter increments BEFORE the
+ * await, is captured, and every `setState` (including error branches) is
+ * guarded against a stale resolve — while the internal loader still RETURNS
+ * its result to the caller regardless of staleness.
  *
  * STRUCTURAL `changeset` IDENTITY (review finding): `changeset` used to be
  * compared by REFERENCE in `loadView`/`fileDiff`'s dependency arrays. A

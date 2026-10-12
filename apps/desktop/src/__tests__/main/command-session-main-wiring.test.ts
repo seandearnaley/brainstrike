@@ -8,9 +8,9 @@ describe('command session manager lifecycle wiring', () => {
     expect(source).toContain(
       'configureDesktopCommandSessionManager({ resolver: createDatabaseRootResolver(getDatabase) });'
     );
-    const assistantStep = stepBody('assistant-server');
-    const settlement = assistantStep.indexOf('Promise.allSettled([');
-    const commandSessionReaper = assistantStep.indexOf(
+    const reaperStep = stepBody('child-processes');
+    const settlement = reaperStep.indexOf('Promise.allSettled([');
+    const commandSessionReaper = reaperStep.indexOf(
       'Promise.resolve().then(disposeDesktopCommandSessions)'
     );
     expect(settlement).toBeGreaterThan(0);

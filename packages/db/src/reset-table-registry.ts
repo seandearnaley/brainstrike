@@ -61,10 +61,6 @@ const BRAINSTRIKE_RESET_TABLES = [
   'brainstrike_delegated_continuations',
   'brainstrike_delegated_invocations',
   'brainstrike_delegated_conversations',
-  // Durable conversation-compaction ranges (migration 088, BST-1200). Exact
-  // message-id sets cannot outlive the conversation rows they summarize.
-  'brainstrike_assistant_compaction_ranges',
-  'brainstrike_assistant_edit_checkpoints',
   'brainstrike_assistant_message_parents',
   // Soft-rewind tombstones (migration 080, BST-1115). Hidden-message
   // bookkeeping over conversation content the clear just destroyed: keeping it
@@ -77,15 +73,10 @@ const BRAINSTRIKE_RESET_TABLES = [
   // like run_outcomes, but never a true fresh start.
   'brainstrike_assistant_run_treatments',
   'brainstrike_assistant_run_usage',
-  'brainstrike_assistant_task_lists',
   'brainstrike_assistant_thread_groups',
   'brainstrike_assistant_thread_placements',
   'brainstrike_assistant_thread_workspaces',
   'brainstrike_assistant_tool_output_artifacts',
-  // Versioned Canvas documents (migration 082, BST-1173). Their thread-owned
-  // content must not survive the conversation and resource identities a reset
-  // just destroyed.
-  'brainstrike_canvas_versions',
   // Durable counts/sizes-only per-tool telemetry (migration 083, BST-1190).
   // Baselines must survive restart, but never a true fresh start.
   'brainstrike_tool_call_telemetry',

@@ -1,9 +1,6 @@
 import type { ProcessLLMRequestArgs } from '@mastra/core/processors';
 import { describe, expect, it } from 'vitest';
-import {
-  buildToolProjectionRewriteInputProcessor,
-  ToolProjectionRewriteProcessor,
-} from '../mastra/tool-projection-rewrite-processor';
+import { rewriteToolProjectionPrompt } from '../mastra/tool-projection-rewrite-processor';
 import type { ToolProjectionRewriteEntry } from '../types';
 
 function promptWithCalls(
@@ -35,24 +32,6 @@ function promptWithCalls(
   ]);
 }
 
-async function process(
-  processor: ToolProjectionRewriteProcessor,
-  prompt: ProcessLLMRequestArgs['prompt']
-): Promise<ProcessLLMRequestArgs['prompt']> {
-  const result = await processor.processLLMRequest({
-    abort: (reason?: string): never => {
-      throw new Error(reason ?? 'processor aborted');
-    },
-    model: {} as ProcessLLMRequestArgs['model'],
-    prompt,
-    retryCount: 0,
-    state: {},
-    stepNumber: 1,
-    steps: [],
-  });
-  return result?.prompt ?? prompt;
-}
-
 function entry(overrides: Partial<ToolProjectionRewriteEntry> = {}): ToolProjectionRewriteEntry {
   return {
     kind: 'supersession',
@@ -63,79 +42,65 @@ function entry(overrides: Partial<ToolProjectionRewriteEntry> = {}): ToolProject
   };
 }
 
-describe('ToolProjectionRewriteProcessor', () => {
-  it('is constructed only when lookup capability and thread identity are present', () => {
-    const lookup = { listActiveRewrites: async () => new Map() };
-    expect(buildToolProjectionRewriteInputProcessor(lookup, 'thread-1')?.id).toBe(
-      'tool-projection-rewrite'
-    );
-    expect(buildToolProjectionRewriteInputProcessor(undefined, 'thread-1')).toBeUndefined();
-    expect(buildToolProjectionRewriteInputProcessor(lookup, undefined)).toBeUndefined();
-  });
-
-  it('rewrites only the old result when its superseding call remains in the current prompt', async () => {
+describe('rewriteToolProjectionPrompt', () => {
+  it('rewrites only the old result when its superseding call remains in the current prompt', () => {
     const original = promptWithCalls([
       { id: 'call-old', output: 'x'.repeat(80_000) },
       { id: 'call-new', output: 'fresh' },
     ]);
     const before = structuredClone(original);
-    const rewritten = await process(
-      new ToolProjectionRewriteProcessor('thread-1', {
-        listActiveRewrites: async () => new Map([['call-old', entry()]]),
-      }),
-      original
+    const { prompt: rewritten, rewrittenCount } = rewriteToolProjectionPrompt(
+      original,
+      new Map([['call-old', entry()]])
     );
 
+    expect(rewrittenCount).toBe(1);
     expect(original).toEqual(before);
     expect(JSON.stringify(rewritten)).toContain(entry().markerText);
     expect(JSON.stringify(rewritten)).toContain('fresh');
     expect(JSON.stringify(rewritten)).not.toContain('x'.repeat(1000));
   });
 
-  it('self-heals after rewind by replaying original content when the superseding call is gone', async () => {
+  it('self-heals after rewind by replaying original content when the superseding call is gone', () => {
     const original = promptWithCalls([{ id: 'call-old', output: 'original evidence' }]);
-    const rewritten = await process(
-      new ToolProjectionRewriteProcessor('thread-1', {
-        listActiveRewrites: async () => new Map([['call-old', entry()]]),
-      }),
-      original
+    const { prompt: rewritten, rewrittenCount } = rewriteToolProjectionPrompt(
+      original,
+      new Map([['call-old', entry()]])
     );
 
-    expect(rewritten).toBe(original);
+    expect(rewrittenCount).toBe(0);
+    expect(rewritten).toEqual(original);
     expect(JSON.stringify(rewritten)).toContain('original evidence');
     expect(JSON.stringify(rewritten)).not.toContain('[superseded');
   });
 
-  it('applies prune rows without a superseder while preserving the supersession presence gate', async () => {
+  it('applies prune rows without a superseder while preserving the supersession presence gate', () => {
     const original = promptWithCalls([
       { id: 'call-pruned', output: 'old prunable evidence' },
       { id: 'call-superseded', output: 'old superseded evidence' },
     ]);
     const pruneMarker =
       '[pruned old tool result — tool=brainstrike.readWorkspaceFile args=0123456789ab; re-run the tool to obtain it again]';
-    const rewritten = await process(
-      new ToolProjectionRewriteProcessor('thread-1', {
-        listActiveRewrites: async () =>
-          new Map([
-            [
-              'call-pruned',
-              entry({
-                kind: 'prune',
-                markerText: pruneMarker,
-                supersededByToolCallId: null,
-                toolCallId: 'call-pruned',
-              }),
-            ],
-            [
-              'call-superseded',
-              entry({
-                supersededByToolCallId: 'call-missing-superseder',
-                toolCallId: 'call-superseded',
-              }),
-            ],
-          ]),
-      }),
-      original
+    const { prompt: rewritten } = rewriteToolProjectionPrompt(
+      original,
+      new Map([
+        [
+          'call-pruned',
+          entry({
+            kind: 'prune',
+            markerText: pruneMarker,
+            supersededByToolCallId: null,
+            toolCallId: 'call-pruned',
+          }),
+        ],
+        [
+          'call-superseded',
+          entry({
+            supersededByToolCallId: 'call-missing-superseder',
+            toolCallId: 'call-superseded',
+          }),
+        ],
+      ])
     );
 
     expect(JSON.stringify(rewritten)).toContain(pruneMarker);
@@ -143,7 +108,7 @@ describe('ToolProjectionRewriteProcessor', () => {
     expect(JSON.stringify(rewritten)).not.toContain('old prunable evidence');
   });
 
-  it('keeps repeated growing-file rereads from bloating the next provider request', async () => {
+  it('keeps repeated growing-file rereads from bloating the next provider request', () => {
     const oldCalls = Array.from({ length: 12 }, (_, index) => ({
       id: `call-old-${index}`,
       output: 'x'.repeat(20_000 + index * 2000),
@@ -160,12 +125,7 @@ describe('ToolProjectionRewriteProcessor', () => {
       ])
     );
 
-    const rewritten = await process(
-      new ToolProjectionRewriteProcessor('thread-1', {
-        listActiveRewrites: async () => rewrites,
-      }),
-      original
-    );
+    const { prompt: rewritten } = rewriteToolProjectionPrompt(original, rewrites);
 
     expect(JSON.stringify(original).length).toBeGreaterThan(300_000);
     expect(JSON.stringify(rewritten).length).toBeLessThan(10_000);

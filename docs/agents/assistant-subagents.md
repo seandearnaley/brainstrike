@@ -1626,10 +1626,9 @@ identical text. The rules are stated once, above.
   checkpoint's resource and host-leg run with the same `delegatedHostRunId`
   function used by event persistence.
 - Desktop memory wiring supplies pre-execution snapshot capture to host
-  admission. The shared child view reuses `EditCheckpointProvider` /
-  `useEditCheckpoints` with the CHILD's thread ID and refreshes the ledger on
-  terminal store events; browser views without the checkpoint bridge neither
-  query nor expose native checkpoint controls.
+  admission. A host child thread's edit checkpoints come from its own committed
+  log, like any host thread's; browser views without the agent host expose no
+  native checkpoint controls.
 - Delegated native file mutations carry the selected execution's abort signal to
   the per-path mutation boundary: a child stopped while waiting for a shared file
   lock cannot mutate once the lock becomes available, completed child edits stay

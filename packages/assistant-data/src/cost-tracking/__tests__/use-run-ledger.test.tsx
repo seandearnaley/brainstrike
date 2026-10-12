@@ -20,10 +20,10 @@ vi.mock('@brainstrike/db/react', () => ({
 import { RUN_LEDGER_AGGREGATION_SQL } from '../../assistant-memory-repository';
 import { TASK_LEDGER_RUN_LIMIT, useRunLedger } from '../use-run-ledger';
 
-type AssistantBridge = { getUrl?: () => Promise<string>; url?: string } | undefined;
+type AgentHostBridge = { connect: (requestId: string) => Promise<void> } | undefined;
 
-function setDesktopAssistantBackend(bridge: AssistantBridge): void {
-  (window as unknown as { assistant?: AssistantBridge }).assistant = bridge;
+function setDesktopAgentHost(bridge: AgentHostBridge): void {
+  (window as unknown as { agentHost?: AgentHostBridge }).agentHost = bridge;
 }
 
 /** A raw aggregate row exactly as PGlite returns it (bigints as strings). */
@@ -32,7 +32,6 @@ function makeRawRow(overrides: Record<string, unknown> = {}): Record<string, unk
     billedCostUsd: null,
     completedAt: '2026-07-15T12:00:05.000Z',
     durationMs: '5000',
-    editCount: '2',
     estimatedInputTokens: '0',
     estimatedOutputTokens: '0',
     failedToolCallCount: '1',
@@ -43,7 +42,6 @@ function makeRawRow(overrides: Record<string, unknown> = {}): Record<string, unk
     outcomeVerdict: 'succeeded',
     outputTokens: '300',
     provider: 'openai',
-    revertedEditCount: '1',
     runId: 'run-1',
     startedAt: '2026-07-15T12:00:00.000Z',
     status: 'completed',
@@ -57,7 +55,7 @@ describe('useRunLedger', () => {
   beforeEach(() => {
     usePGliteDatabaseMock.mockReset();
     usePGliteLiveQueryMock.mockReset();
-    setDesktopAssistantBackend({ url: 'http://localhost:1234' });
+    setDesktopAgentHost({ connect: async () => undefined });
     usePGliteLiveQueryMock.mockReturnValue({
       error: null,
       loading: false,
@@ -67,7 +65,7 @@ describe('useRunLedger', () => {
   });
 
   afterEach(() => {
-    setDesktopAssistantBackend(undefined);
+    setDesktopAgentHost(undefined);
     vi.restoreAllMocks();
   });
 
@@ -84,7 +82,7 @@ describe('useRunLedger', () => {
 
   it('is unavailable on WEB even with a PGlite handle (no desktop assistant backend)', () => {
     usePGliteDatabaseMock.mockReturnValue({});
-    setDesktopAssistantBackend(undefined);
+    setDesktopAgentHost(undefined);
 
     const { result } = renderHook(() => useRunLedger());
 
@@ -125,7 +123,6 @@ describe('useRunLedger', () => {
         billedCostUsd: 0.42,
         completedAt: new Date('2026-07-15T12:00:05.000Z'),
         durationMs: 5000,
-        editCount: 2,
         estimatedCacheCreationTokens: 0,
         estimatedCacheReadTokens: 0,
         estimatedInputTokens: 0,
@@ -138,7 +135,6 @@ describe('useRunLedger', () => {
         outcomeVerdict: 'succeeded',
         outputTokens: 300,
         provider: 'openai',
-        revertedEditCount: 1,
         runId: 'run-1',
         startedAt: new Date('2026-07-15T12:00:00.000Z'),
         status: 'completed',

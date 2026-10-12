@@ -65,10 +65,6 @@ FK-less terminal provider-forensics store: clear it before the lazy parent
 run/thread relations in desktop `db:clearAll`, renderer direct clear, and
 renderer factory-reset purge so error text and allowlisted response metadata
 cannot survive a fresh start.
-It also includes `brainstrike_canvas_versions` (migration 082), the FK-less
-version ledger for thread-owned Canvas documents. All three table-enumerating
-reset paths clear it explicitly; thread deletion separately derives its Canvas
-stage from `THREAD_DELETE_SIDECAR_TABLES`.
 It also includes `brainstrike_tool_call_telemetry` (migration 083), the FK-less,
 counts/sizes/ids/booleans-only model-facing tool-cost ledger. All three
 table-enumerating reset paths clear it explicitly, and thread deletion derives
@@ -77,10 +73,6 @@ It also includes `brainstrike_token_estimate_calibration` (migration 086), the
 FK-less numbers/ids/model/provider-only prompt-token reconciliation ledger. All
 three table-enumerating reset paths clear it explicitly, and thread deletion
 derives its cleanup stage from `THREAD_DELETE_SIDECAR_TABLES`.
-It also includes `brainstrike_assistant_compaction_ranges` (migration 088), the
-FK-less exact-message conversation-compaction overlay. All three
-table-enumerating reset paths clear it explicitly, and thread deletion derives
-its cleanup stage from `THREAD_DELETE_SIDECAR_TABLES`.
 It also includes `brainstrike_forge_prs` (migration 110, BST-1391), the
 main-process-written pull-request cache keyed on `(repo_common_dir, branch)`.
 It is deliberately NOT a thread sidecar (a PR outlives the thread that opened
