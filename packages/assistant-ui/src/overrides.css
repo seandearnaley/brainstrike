@@ -1937,6 +1937,34 @@
   animation: bs-caret-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/*
+ * While a list streams, the caret follows the last item's text, as before,
+ * instead of sitting on its own line under the list. Streamdown sets
+ * --streamdown-caret on the root only while the caret shows.
+ */
+.assistant-ui-panel .aui-md > :is(ul, ol):last-child::after {
+  content: none;
+}
+
+.assistant-ui-panel .aui-md > :is(ul, ol):last-child > li:last-child:not(:has(* > li))::after,
+.assistant-ui-panel
+  .aui-md
+  > :is(ul, ol):last-child
+  > li:last-child
+  > :is(ul, ol):last-child
+  > li:last-child:not(:has(* > li))::after,
+.assistant-ui-panel
+  .aui-md
+  > :is(ul, ol):last-child
+  > li:last-child
+  > :is(ul, ol):last-child
+  > li:last-child
+  > :is(ul, ol):last-child
+  > li:last-child::after {
+  content: var(--streamdown-caret, none);
+  animation: bs-caret-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
 @keyframes bs-caret-pulse {
   50% {
     opacity: 0.5;
