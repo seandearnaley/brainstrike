@@ -22,6 +22,7 @@ import {
   readWorkspaceTextFile,
   redactToolErrorForLog,
   runReadWorkspaceFile,
+  WorkspacePathMissingError,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
@@ -332,7 +333,8 @@ function classifyReadContextError(
     return { message, path: workspacePath, reason: 'notFile' };
   }
   const code = (error as NodeJS.ErrnoException | undefined)?.code;
-  if (code === 'ENOENT') {
+  // readWorkspaceFile refuses a missing file (BST-1996); the ranged reader still throws ENOENT.
+  if (error instanceof WorkspacePathMissingError || code === 'ENOENT') {
     return { path: workspacePath, reason: 'missing' };
   }
   logger.warn('Skipped workspace context file read', {

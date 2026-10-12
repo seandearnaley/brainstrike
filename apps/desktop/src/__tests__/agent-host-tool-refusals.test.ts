@@ -242,6 +242,19 @@ test('deliberate path, read, write and context refusals reach the model verbatim
       { path: 'escape/private.txt' },
       'Path "escape/private.txt" is outside the selected workspace root.',
     ],
+    // BST-1996 reverses BST-1892 for a path inside the root: a missing file is the
+    // model's to correct, and the refusal echoes only the path the model sent.
+    [
+      NATIVE_TOOL_ID.readWorkspaceFile,
+      { path: 'src/missing.ts' },
+      'Path "src/missing.ts" does not exist.',
+    ],
+    // A missing file behind a symlink that escapes the root keeps the containment refusal.
+    [
+      NATIVE_TOOL_ID.readWorkspaceFile,
+      { path: 'escape/missing.txt' },
+      'Path "escape/missing.txt" is outside the selected workspace root.',
+    ],
     [NATIVE_TOOL_ID.readWorkspaceFile, { path: 'src' }, 'Path "src" is not a file.'],
     [
       NATIVE_TOOL_ID.readWorkspaceFile,

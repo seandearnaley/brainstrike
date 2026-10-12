@@ -37,14 +37,22 @@ export function resolveWorkspaceRootPath(runtimeData: RuntimeData | undefined): 
   return rootPath;
 }
 
+/** The model's path under the root, before any symlink is resolved. */
+function requestedAbsolutePath(
+  rootPath: string,
+  workspacePath: string
+): { normalizedWorkspacePath: string; absolutePath: string } {
+  const normalizedWorkspacePath = normalizeWorkspacePath(workspacePath);
+  const relativePath =
+    normalizedWorkspacePath === '/' ? '' : normalizedWorkspacePath.replace(/^\/+/, '');
+  return { absolutePath: path.resolve(rootPath, relativePath), normalizedWorkspacePath };
+}
+
 export async function resolveWorkspaceAbsolutePath(
   rootPath: string,
   workspacePath: string
 ): Promise<{ workspacePath: string; absolutePath: string }> {
-  const normalizedWorkspacePath = normalizeWorkspacePath(workspacePath);
-  const relativePath =
-    normalizedWorkspacePath === '/' ? '' : normalizedWorkspacePath.replace(/^\/+/, '');
-  const absolutePath = path.resolve(rootPath, relativePath);
+  const { absolutePath, normalizedWorkspacePath } = requestedAbsolutePath(rootPath, workspacePath);
   // Resolve symlinks on both sides, then check containment on the canonical
   // paths. ".." can't escape (clamped in normalizeWorkspacePath); this guards
   // the remaining vector — a symlink whose target lives outside the root.
@@ -57,6 +65,44 @@ export async function resolveWorkspaceAbsolutePath(
     absolutePath: canonicalAbsolutePath,
     workspacePath: normalizedWorkspacePath,
   };
+}
+
+/** A model-supplied path inside the root that does not exist, typed so callers can tell it apart. */
+export class WorkspacePathMissingError extends ToolInputError {
+  constructor(workspacePath: string) {
+    super(`Path "${workspacePath}" does not exist.`);
+    this.name = 'WorkspacePathMissingError';
+  }
+}
+
+/**
+ * BST-1996: the refusal for a model-supplied path that does not exist. A missing
+ * path is the model's to correct only inside the root: its nearest existing
+ * ancestor decides containment, so a path through a symlink that escapes the
+ * root keeps the containment refusal. Both echo only the model's path.
+ */
+export async function missingWorkspacePathRefusal(
+  rootPath: string,
+  workspacePath: string
+): Promise<ToolInputError> {
+  const { absolutePath } = requestedAbsolutePath(rootPath, workspacePath);
+  const canonicalRootPath = await fsPromises.realpath(rootPath);
+  const ancestor = await realpathOfNearestExistingAncestor(path.dirname(absolutePath));
+  return isWithinRoot(canonicalRootPath, ancestor)
+    ? new WorkspacePathMissingError(workspacePath)
+    : new ToolInputError(`Path "${workspacePath}" is outside the selected workspace root.`);
+}
+
+async function realpathOfNearestExistingAncestor(directory: string): Promise<string> {
+  try {
+    return await fsPromises.realpath(directory);
+  } catch (error) {
+    const parent = path.dirname(directory);
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT' || parent === directory) {
+      throw error;
+    }
+    return await realpathOfNearestExistingAncestor(parent);
+  }
 }
 
 const MAX_STABLE_WORKSPACE_FILE_LOCK_ATTEMPTS = 3;
