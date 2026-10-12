@@ -47,3 +47,6 @@ export class SecureRoot {
  * POSIX only; throws `ENOTSUP` on Windows.
  */
 export function tryExclusiveFlock(fd: number): boolean;
+
+/** Windows atomic same-directory replacement; existing readers retain old bytes. No retries or ACL bypass. */
+export function replaceFileSync(source: string, target: string): void;

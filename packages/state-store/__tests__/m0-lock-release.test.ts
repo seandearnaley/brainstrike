@@ -5,6 +5,15 @@ import { afterEach, expect, test, vi } from 'vitest';
 import { RootLock } from '../src/lock.js';
 import { cleanupDirs, freshDir } from './helpers/fs.js';
 
+// Keep authority/fault controls platform-independent; the Windows mapped-reader
+// integration exercises the actual native replacement primitive.
+vi.mock('../src/lock-file-replacement.js', () => ({
+  replaceLockFileSync: (source: string, target: string): void => {
+    const filesystem = createRequire(import.meta.url)('node:fs') as typeof import('node:fs');
+    filesystem.renameSync(source, target);
+  },
+}));
+
 const fs = createRequire(import.meta.url)('node:fs') as typeof import('node:fs');
 const original = { ...fs };
 const platform = Object.getOwnPropertyDescriptor(process, 'platform') as PropertyDescriptor;

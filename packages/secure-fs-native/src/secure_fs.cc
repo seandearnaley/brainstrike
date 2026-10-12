@@ -825,7 +825,7 @@ bool RemovePrivateTemporary(NativeHandle file, NativeHandle, const std::string&)
 }
 
 bool ReplacePrivateTemporary(NativeHandle file, NativeHandle parent, const std::string&,
-                             const std::string& target) {
+                             const std::string& target, bool posix = false) {
   // Use the NT handle-relative primitive, like traversal. The Win32 wrapper
   // rejects a non-null RootDirectory (ERROR_INVALID_PARAMETER) on SEAN9.
   // https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/nf-ntifs-ntsetinformationfile
@@ -842,12 +842,19 @@ bool ReplacePrivateTemporary(NativeHandle file, NativeHandle parent, const std::
   std::vector<uint8_t> buffer(bytes);
   auto* rename = reinterpret_cast<FILE_RENAME_INFO*>(buffer.data());
   rename->ReplaceIfExists = TRUE;
+  // M4 Windows release: classic replacement fails for a mapped target. POSIX
+  // replacement retains existing readers while atomically publishing new bytes.
+  // https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/ns-ntifs-_file_rename_information
+  if (posix) {
+    const ULONG flags = 0x00000001 | 0x00000002;
+    std::memcpy(buffer.data(), &flags, sizeof(flags));
+  }
   rename->RootDirectory = parent;
   rename->FileNameLength = static_cast<DWORD>(wide.size() * sizeof(wchar_t));
   std::memcpy(rename->FileName, wide.data(), rename->FileNameLength);
   IO_STATUS_BLOCK status{};
   const NTSTATUS result = set_information(file, &status, rename, static_cast<ULONG>(bytes),
-                                          static_cast<FILE_INFORMATION_CLASS>(10));
+                                          static_cast<FILE_INFORMATION_CLASS>(posix ? 65 : 10));
   if (result < 0) {
     using TranslateStatusFn = ULONG(WINAPI*)(NTSTATUS);
     const auto translate = reinterpret_cast<TranslateStatusFn>(
@@ -1418,8 +1425,61 @@ Napi::Value TryExclusiveFlock(const Napi::CallbackInfo& info) {
 #endif
 }
 
+
+// Caller owns both paths and performs its authority checks before each call.
+// This primitive performs one atomic replacement, with no deletion or retry.
+Napi::Value ReplaceFileSync(const Napi::CallbackInfo& info) {
+  const Napi::Env env = info.Env();
+  if (info.Length() != 2 || !info[0].IsString() || !info[1].IsString()) {
+    throw Napi::TypeError::New(env, "replaceFileSync expects source and target paths");
+  }
+#ifdef _WIN32
+  const auto source = info[0].As<Napi::String>().Utf8Value();
+  const auto target = info[1].As<Napi::String>().Utf8Value();
+  const auto source_split = source.find_last_of("/\\");
+  const auto target_split = target.find_last_of("/\\");
+  if (source.find('\0') != std::string::npos || target.find('\0') != std::string::npos ||
+      source_split == std::string::npos || target_split == std::string::npos ||
+      source.substr(0, source_split) != target.substr(0, target_split) ||
+      source == target || target_split + 1 == target.size()) {
+    throw Napi::TypeError::New(env, "replaceFileSync requires distinct files in one directory");
+  }
+  const auto fail = [&](DWORD code) {
+    const auto error = Napi::Error::New(env, "Atomic file replacement failed (Windows " +
+                                           std::to_string(code) + ")");
+    const char* name = "EIO";
+    if (code == ERROR_ACCESS_DENIED) name = "EACCES";
+    else if (code == ERROR_SHARING_VIOLATION || code == ERROR_LOCK_VIOLATION) name = "EBUSY";
+    else if (code == ERROR_FILE_NOT_FOUND || code == ERROR_PATH_NOT_FOUND) name = "ENOENT";
+    else if (code == ERROR_NOT_SUPPORTED || code == ERROR_INVALID_PARAMETER) name = "ENOTSUP";
+    error.Value().Set("code", name);
+    error.Value().Set("win32Code", Napi::Number::New(env, code));
+    throw error;
+  };
+  const auto wide_source = Utf8ToWide(source);
+  PrivateHandle file(CreateFileW(wide_source.c_str(), DELETE | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+      FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+  if (file.Get() == kInvalidHandle) fail(GetLastError());
+  const auto wide_parent = Utf8ToWide(target.substr(0, target_split));
+  PrivateHandle parent(CreateFileW(wide_parent.c_str(), FILE_LIST_DIRECTORY | SYNCHRONIZE,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+      FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+  if (parent.Get() == kInvalidHandle) fail(GetLastError());
+  if (!ReplacePrivateTemporary(file.Get(), parent.Get(), "", target.substr(target_split + 1), true)) {
+    fail(GetLastError());
+  }
+  return env.Undefined();
+#else
+  const auto error = Napi::Error::New(env, "Windows replacement is unavailable on this platform");
+  error.Value().Set("code", "ENOTSUP");
+  throw error;
+#endif
+}
+
 Napi::Object InitModule(Napi::Env env, Napi::Object exports) {
   exports.Set("tryExclusiveFlock", Napi::Function::New(env, TryExclusiveFlock));
+  exports.Set("replaceFileSync", Napi::Function::New(env, ReplaceFileSync));
   return SecureRoot::Init(env, exports);
 }
 
