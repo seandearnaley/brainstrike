@@ -107,8 +107,26 @@ TOPICS.forEach((topic, index) => {
   }
 });
 sections.push(
+  '## Quotes and emphasis',
+  [
+    '> The committed log is the **single source of truth**, and *every* view is a fold of its rows.',
+    '>',
+    '> > A nested quote keeps its *emphasis* and its **weight**.',
+    '>',
+    '> - A list inside the quote, with **bold** and *italic* words.',
+  ].join('\n'),
+  `**Bold**, *italic* and ***both*** read as they did before. ${paragraph(13, 2)}`
+);
+sections.push(
   '## Summary',
   `${paragraph(11, 3)} See the [run log contract](https://example.com/docs/run-log) and the [streaming guide](https://example.com/docs/streaming) for details. ${paragraph(12, 3)}`
+);
+// Last on purpose: once a footnote appears, Streamdown parses the whole reply as
+// one block (its block splitter keeps references and definitions together).
+sections.push(
+  '## Notes',
+  'The fold has one reader.[^fold]',
+  '[^fold]: Only the projection reads the committed rows.'
 );
 
 export const LONG_REPLY = sections.join('\n\n');
@@ -118,5 +136,22 @@ export const LONG_REPLY_LONGEST_BLOCK = Math.max(...sections.map((section) => se
 
 /** Model-like tokens: an optional leading space and up to five characters. */
 export const LONG_REPLY_TOKENS: readonly string[] = LONG_REPLY.match(/\s*\S{1,5}|\s+/g) ?? [];
+
+/**
+ * The index of the token that carries the start of the reply's footnote. From
+ * there on Streamdown parses the reply as one block, so incremental parsing is
+ * measured before it.
+ */
+export const LONG_REPLY_FOOTNOTE_TOKEN = ((): number => {
+  const footnote = LONG_REPLY.indexOf('[^');
+  let offset = 0;
+  for (const [index, token] of LONG_REPLY_TOKENS.entries()) {
+    if (offset + token.length > footnote) {
+      return index;
+    }
+    offset += token.length;
+  }
+  throw new Error('The long reply has no footnote.');
+})();
 
 export const LONG_REPLY_WORDS = LONG_REPLY.split(/\s+/).filter(Boolean).length;

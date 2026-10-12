@@ -1835,9 +1835,19 @@
 .assistant-ui-panel .aui-md blockquote {
   margin-block: 0.8em;
   padding: 0.7rem 0.9rem;
+  /* Streamdown's quote classes add a left bar and italicize the whole quote. */
+  border-left: 0;
   border-radius: 0.5rem;
   background: hsl(var(--muted) / 0.45);
   color: hsl(var(--muted-foreground));
+  font-style: normal;
+}
+
+/* Footnote references and other super/subscripts keep their small size
+   (Streamdown sets them to text-sm). */
+.assistant-ui-panel .aui-md :is(sup, sub) {
+  font-size: 75%;
+  line-height: 0;
 }
 
 .assistant-ui-panel .aui-md hr {

@@ -118,8 +118,11 @@ const defaultComponents = {
   CodeHeader,
   // biome-ignore lint/style/useNamingConvention: assistant-ui expects "SyntaxHighlighter" key
   SyntaxHighlighter: SyntaxHighlighterComponent,
+  // Streamdown renders bold as a styled span; keep the semantic element.
+  strong: 'strong',
 } satisfies {
   readonly a: ComponentType<ComponentPropsWithoutRef<'a'>>;
+  readonly strong: 'strong';
   // biome-ignore lint/style/useNamingConvention: assistant-ui expects "CodeHeader" key
   readonly CodeHeader: ComponentType<CodeHeaderProps>;
   // biome-ignore lint/style/useNamingConvention: assistant-ui expects "SyntaxHighlighter" key
