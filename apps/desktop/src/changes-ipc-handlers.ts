@@ -37,9 +37,9 @@ import {
 import type { HostThreadTurns } from './assistant-server/changeset-host-turns';
 import type { CheckpointRevertDeps } from './assistant-server/checkpoint-reindex-deps';
 import { createCheckpointReindexDeps } from './assistant-server/checkpoint-reindex-deps';
-import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
 import type { GitInventoryService } from './assistant-server/git-inventory-service';
 import type { GitCommandRunner } from './assistant-server/git-service';
+import type { MainQueryHandle } from './assistant-server/main-query-handle';
 import { createRewindFinalizationDeps } from './assistant-server/rewind-finalization-deps';
 import { resolveRewindMessageForRun } from './assistant-server/rewind-repository';
 import {
@@ -544,7 +544,7 @@ export interface ChangesIpcHandlers {
  * from `createRevertDeps` plus the injected snapshot options. */
 export interface RewindHandlerDependencies {
   readonly applyRewind: (
-    db: EditCheckpointDatabase,
+    db: MainQueryHandle,
     args: {
       readonly acknowledgeConflicts?: boolean;
       readonly messageId: string;
@@ -557,28 +557,28 @@ export interface RewindHandlerDependencies {
    * Resolves the hard-delete seam finalization runs through. Takes no database
    * argument because the store owns its own handle — the production factory
    * builds a `PgliteMemoryStore` over the SAME main-process database, and the
-   * narrower `EditCheckpointDatabase` view cannot satisfy it without a cast
+   * narrower `MainQueryHandle` view cannot satisfy it without a cast
    * that would lie about what a test double provides.
    */
   readonly createFinalizationDeps: () => Promise<RewindFinalizationDeps>;
-  readonly createRevertDeps: (db: EditCheckpointDatabase) => Promise<CheckpointRevertDeps>;
+  readonly createRevertDeps: (db: MainQueryHandle) => Promise<CheckpointRevertDeps>;
   readonly finalizeThreadRewinds: (
-    db: EditCheckpointDatabase,
+    db: MainQueryHandle,
     threadId: string,
     deps: RewindFinalizationDeps
   ) => Promise<AssistantRewindFinalization>;
   readonly redoRewind: (
-    db: EditCheckpointDatabase,
+    db: MainQueryHandle,
     args: { readonly acknowledgeConflicts?: boolean; readonly rewindId: string },
     deps: RewindServiceDeps
   ) => Promise<AssistantRewindRedoResult>;
   readonly resolveMessageForRun: (
-    db: EditCheckpointDatabase,
+    db: MainQueryHandle,
     threadId: string,
     runId: string
   ) => Promise<string | null>;
   readonly rewindToMessage: (
-    db: EditCheckpointDatabase,
+    db: MainQueryHandle,
     args: { readonly messageId: string; readonly threadId: string },
     deps: RewindSnapshotDeps
   ) => Promise<AssistantRewindPreviewResult>;
@@ -602,14 +602,14 @@ export interface ChangesIpcHandlersOptions {
    * both through this seam so neither edits main.ts. Defaults to the real
    * factory.
    */
-  readonly createSnapshotRepository?: (db: EditCheckpointDatabase) => SnapshotRepository;
+  readonly createSnapshotRepository?: (db: MainQueryHandle) => SnapshotRepository;
   /**
    * Host threads' turns, read from the agent host's committed log (BST-1977),
    * so a host thread's `agent-run` changeset resolves like a legacy turn.
    */
   readonly hostThreadTurns?: HostThreadTurns;
   /** Injectable for tests; defaults to a `getDatabase`-backed resolver. */
-  readonly resolveDatabase?: () => Promise<EditCheckpointDatabase>;
+  readonly resolveDatabase?: () => Promise<MainQueryHandle>;
   /**
    * Lazily resolves the app-lifetime {@link GitInventoryService}. Lazy because
    * the changes domain is registered at module load while the service is only
@@ -657,8 +657,7 @@ export function createChangesIpcHandlers(
   const resolver = options.resolver ?? createDatabaseRootResolver(getDatabase);
   const resolveDatabase =
     options.resolveDatabase ??
-    (async (): Promise<EditCheckpointDatabase> =>
-      (await getDatabase()) as unknown as EditCheckpointDatabase);
+    (async (): Promise<MainQueryHandle> => (await getDatabase()) as unknown as MainQueryHandle);
   const run = options.run ?? execFileGitRunner;
   const resolveInventoryService = options.resolveInventoryService ?? (() => null);
   const rewind = options.rewind ?? DEFAULT_REWIND_DEPENDENCIES;
@@ -673,7 +672,7 @@ export function createChangesIpcHandlers(
    * each handler's try/catch turns that into a visible typed failure, never
    * a silent conversation-only degradation of a files-mode rewind.
    */
-  const resolveSnapshotEngine = (db: EditCheckpointDatabase): RewindSnapshotDeps => {
+  const resolveSnapshotEngine = (db: MainQueryHandle): RewindSnapshotDeps => {
     const snapshotService = resolveSnapshotService();
     if (!snapshotService) {
       throw new Error(

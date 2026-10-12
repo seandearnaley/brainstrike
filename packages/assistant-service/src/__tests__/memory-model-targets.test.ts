@@ -1,32 +1,9 @@
-import {
-  OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
-  type RuntimeAssistantMemorySettings,
-} from '@brainstrike/agent/hosted-web';
 import { describe, expect, it } from 'vitest';
 import {
   parseObservationalMemoryModelTarget,
   parseSemanticRecallEmbeddingModelTarget,
-  resolveDesktopObserverUsageTarget,
   resolveRequestedProvider,
 } from '../memory-model-targets';
-
-const memorySettings = (enabled: boolean, modelTarget: string): RuntimeAssistantMemorySettings => ({
-  observationalMemory: {
-    enabled,
-    messageTokens: 30_000,
-    modelTarget,
-    observationTokens: 40_000,
-    retrievalMode: 'off',
-    scope: 'thread',
-  },
-  semanticRecall: {
-    embeddingModelTarget: 'openai/text-embedding-3-small',
-    enabled: false,
-    messageRange: 2,
-    scope: 'resource',
-    topK: 5,
-  },
-});
 
 describe('resolveRequestedProvider', () => {
   it.each([
@@ -77,25 +54,5 @@ describe('parseSemanticRecallEmbeddingModelTarget', () => {
     expect(() => parseSemanticRecallEmbeddingModelTarget('anthropic/claude-haiku-4-5')).toThrow(
       'supports hosted OpenAI/Google embedders or the built-in local embedder'
     );
-  });
-});
-
-describe('resolveDesktopObserverUsageTarget', () => {
-  it.each([
-    undefined,
-    memorySettings(false, 'openai/gpt-5.4-mini'),
-    memorySettings(true, OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET),
-    memorySettings(true, 'invalid'),
-  ])('returns no usage target when no observer can run', (settings) => {
-    expect(resolveDesktopObserverUsageTarget(settings)).toBeUndefined();
-  });
-
-  it('returns the exact explicit observer target', () => {
-    expect(
-      resolveDesktopObserverUsageTarget(memorySettings(true, 'google/gemini-2.5-flash'))
-    ).toEqual({
-      model: 'gemini-2.5-flash',
-      provider: 'google',
-    });
   });
 });

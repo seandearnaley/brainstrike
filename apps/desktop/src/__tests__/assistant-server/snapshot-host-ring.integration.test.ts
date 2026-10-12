@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, expect, test } from 'vitest';
-import type { EditCheckpointDatabase } from '../../assistant-server/edit-checkpoint-journal';
+import type { MainQueryHandle } from '../../assistant-server/main-query-handle';
 import { listThreadSnapshotChain } from '../../assistant-server/snapshot-chains';
 import { execFileSnapshotGitRunner } from '../../assistant-server/snapshot-git';
 import type { SnapshotRepository } from '../../assistant-server/snapshot-repository';
@@ -92,7 +92,7 @@ function sweep(turnRing?: number) {
   const unused = (): never => {
     throw new Error('no ledger row exists in this profile');
   };
-  const db: EditCheckpointDatabase = {
+  const db: MainQueryHandle = {
     query: async <T>(sql: string): Promise<{ rows: T[] }> => {
       if (sql.includes('SELECT DISTINCT thread_id') || sql.includes('SELECT DISTINCT ON')) {
         return { rows: [] };

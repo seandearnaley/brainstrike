@@ -10,7 +10,6 @@ import { type Contract, type Handlers, type IpcResult, ipcFailure, ipcOk } from 
 
 export type DesktopIpcDomain =
   | 'agent'
-  | 'assistantCheckpoint'
   | 'browser'
   | 'changes'
   | 'chunking-host'

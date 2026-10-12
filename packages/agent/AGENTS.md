@@ -187,8 +187,8 @@ When adding a new tool:
 ### `brainstrike.manageCanvas` tool (schema here, executed in desktop)
 
 Single tool with an `action` discriminated union — `create`, `update`,
-`rewrite`, `list` — persisting versioned Canvas documents
-(`brainstrike_canvas_versions`, migration 082) that the Canvas surface renders
+`rewrite`, `list` — persisting versioned Canvas documents (the agent host's
+`tool.state.updated` rows, one key per canvas) that the Canvas surface renders
 in the sandboxed CanvasFrame (BST-1173). The Zod schema lives in
 `packages/assistant-contract/src/native-tools/schemas/schemas-workspace.ts` (re-exported from
 `src/tools/schemas-workspace.ts`) (provider envelope is a strict root object

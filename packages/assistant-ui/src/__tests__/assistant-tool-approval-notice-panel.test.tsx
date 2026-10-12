@@ -11,7 +11,6 @@ import {
   resetFollowUpQueueStore,
   useFollowUpQueueStore,
 } from '../follow-up-queue-store';
-import { LiveDecisionProvider } from '../live-decision-context';
 import { expandApprovalRow } from './approval-row-helpers';
 import { renderWithApprovalSubmissions as render } from './approval-submission-test-utils';
 
@@ -876,77 +875,6 @@ describe('AssistantToolApprovalNotice while a run is active', () => {
     useFollowUpQueueStore.getState().remove(followUpQueueKey('root-thread'), item.id);
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Approve workspace.writeFile' })).toBeEnabled()
-    );
-  });
-
-  // The desktop delivers the decision INTO the running turn; the card locks
-  // for the round trip and stays locked once delivered (the host's answer
-  // chunk follows on the stream). A leg that settled meanwhile answers
-  // 'no-live-run' and the decision queues exactly as without a transport.
-  it('delivers into the running turn through the live transport and stays locked', async () => {
-    threadRunningMock.isRunning = true;
-    const transport = vi.fn(async (_message: unknown) => 'delivered' as const);
-    render(
-      <ActiveThreadKeyContext.Provider value="root-thread">
-        <LiveDecisionProvider transport={transport}>
-          <AssistantToolApprovalNotice data={baseApproval} />
-        </LiveDecisionProvider>
-      </ActiveThreadKeyContext.Provider>
-    );
-    await userEvent.click(screen.getByRole('button', { name: 'Approve workspace.writeFile' }));
-    await waitFor(() => expect(transport).toHaveBeenCalledOnce());
-    expect(transport.mock.calls[0]?.[0]).toMatchObject({
-      runConfig: { custom: { brainstrikeToolApproval: { action: 'approve' } } },
-    });
-    expect(appendMessageMock).not.toHaveBeenCalled();
-    expect(useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('root-thread')]).toBe(
-      undefined
-    );
-    await waitFor(() => expect(screen.getByText('Approved')).toBeInTheDocument());
-    await expandApprovalRow(userEvent.setup());
-    expect(screen.getByRole('button', { name: 'Approve workspace.writeFile' })).toBeDisabled();
-  });
-
-  it('queues and hands the card back when the transport reports no live run', async () => {
-    threadRunningMock.isRunning = true;
-    render(
-      <ActiveThreadKeyContext.Provider value="root-thread">
-        <LiveDecisionProvider transport={async () => 'no-live-run'}>
-          <AssistantToolApprovalNotice data={baseApproval} />
-        </LiveDecisionProvider>
-      </ActiveThreadKeyContext.Provider>
-    );
-    await userEvent.click(screen.getByRole('button', { name: 'Approve workspace.writeFile' }));
-    await waitFor(() => expect(screen.getByText('Queued')).toBeInTheDocument());
-    expect(
-      useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('root-thread')]
-    ).toHaveLength(1);
-    expect(appendMessageMock).not.toHaveBeenCalled();
-  });
-
-  it('unlocks the card when the host refuses the live decision', async () => {
-    threadRunningMock.isRunning = true;
-    render(
-      <ActiveThreadKeyContext.Provider value="root-thread">
-        <LiveDecisionProvider
-          transport={async () => {
-            throw new Error('The decision was not applied: refused');
-          }}
-        >
-          <AssistantToolApprovalNotice data={baseApproval} />
-        </LiveDecisionProvider>
-      </ActiveThreadKeyContext.Provider>
-    );
-    await userEvent.click(screen.getByRole('button', { name: 'Approve workspace.writeFile' }));
-    await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Approve workspace.writeFile' })).toBeEnabled()
-    );
-    expect(useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('root-thread')]).toBe(
-      undefined
-    );
-    expect(screen.getByText('Pending')).toBeInTheDocument();
-    expect(screen.getByRole('alert')).toHaveTextContent(
-      'Decision not sent: The decision was not applied: refused'
     );
   });
 

@@ -34,7 +34,7 @@ import type {
   AssistantRewindResult,
 } from '@brainstrike/assistant-contract';
 import type { GitResult } from '@brainstrike/types';
-import type { EditCheckpointDatabase } from '../../assistant-server/edit-checkpoint-journal';
+import type { MainQueryHandle } from '../../assistant-server/main-query-handle';
 import { resolveRewindMessageForRun } from '../../assistant-server/rewind-repository';
 import {
   applyRewind,
@@ -153,7 +153,7 @@ beforeEach(async () => {
     // The T1 injection seams, exactly as main.ts threads them: the handlers
     // must compose the snapshot deps from THESE, never construct their own.
     createSnapshotRepository: () => harness.repository,
-    resolveDatabase: async () => fixture.db as unknown as EditCheckpointDatabase,
+    resolveDatabase: async () => fixture.db as unknown as MainQueryHandle,
     resolveSnapshotService: () => harness.service,
     rewind: {
       applyRewind,
@@ -518,7 +518,7 @@ describe('changes:finalizeRewinds', () => {
   it('reports a store-seam failure as a VISIBLE transport failure, leaving the tombstones', async () => {
     const failing = createChangesIpcHandlers({
       createSnapshotRepository: () => harness.repository,
-      resolveDatabase: async () => fixture.db as unknown as EditCheckpointDatabase,
+      resolveDatabase: async () => fixture.db as unknown as MainQueryHandle,
       resolveSnapshotService: () => harness.service,
       rewind: {
         applyRewind,
@@ -553,7 +553,7 @@ describe('changes:finalizeRewinds', () => {
 
   it('fails VISIBLY when the snapshot service is not wired, instead of degrading', async () => {
     const unwired = createChangesIpcHandlers({
-      resolveDatabase: async () => fixture.db as unknown as EditCheckpointDatabase,
+      resolveDatabase: async () => fixture.db as unknown as MainQueryHandle,
       rewind: {
         applyRewind,
         createFinalizationDeps: async () => ({ deleteMessages: async () => undefined }),

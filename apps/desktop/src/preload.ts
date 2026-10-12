@@ -545,15 +545,6 @@ contextBridge.exposeInMainWorld('tools', {
   },
 });
 
-// Assistant UI (data stream) endpoint helper. getAuth returns { url, token },
-// { startupError } when the server failed to start, or null while starting;
-// every renderer request to the assistant server must send the token — see
-// assistant-contract assistant-auth (AssistantServerAuthResult).
-contextBridge.exposeInMainWorld('assistant', {
-  getAuth: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.assistantGetAuth),
-  getUrl: () => ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.assistantGetUrl),
-});
-
 // Main-process bridge for local-runtime probes. See ipc-runtime.ts for the
 // rationale: Chromium's CORS enforcement inside the renderer blocks fetches
 // to Ollama/LM Studio by default (the daemons' OLLAMA_ORIGINS / CORS config
@@ -1006,23 +997,6 @@ if (shouldExposeBridge('fileExports')) {
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.fileExports.saveToDownloads, payload),
   });
 }
-
-// Edit checkpoint (undo of agent file edits) — invoke-only revert bridge. Desktop
-// only: web never defines this (no assistant server / main process).
-contextBridge.exposeInMainWorld('assistantCheckpoints', {
-  availability: (threadId: string) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.assistantCheckpoint.availability, { threadId }),
-  revertEntry: (id: string, options?: { force?: boolean }) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.assistantCheckpoint.revertEntry, {
-      force: options?.force ?? false,
-      id,
-    }),
-  revertRun: (runId: string, options?: { force?: boolean }) =>
-    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.assistantCheckpoint.revertRun, {
-      force: options?.force ?? false,
-      runId,
-    }),
-});
 
 // Platform shell bridge: reveal/open absolute paths in the OS file manager.
 if (shouldExposeBridge('platform')) {

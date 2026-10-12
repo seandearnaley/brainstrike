@@ -91,10 +91,9 @@ export default function RootLayoutContent() {
   // so the queue stays singleton while avoiding startup-time workerpool construction.
   const sharedProps: RootLayoutContentProps = {
     // Canvas surface (BST-1173) deliberately OMITTED on web: nothing can WRITE
-    // brainstrike_canvas_versions here — manageCanvas is desktop-only
-    // (WebNativeToolId), web's PGlite is its own store, and sync will never
-    // cover it. A permanently-empty tab would violate the capability
-    // convention (omit, don't stub). The render tier stays web-capable
+    // a canvas here — manageCanvas is desktop-only (WebNativeToolId) and the
+    // agent host owns every canvas. A permanently-empty tab would violate the
+    // capability convention (omit, don't stub). The render tier stays web-capable
     // (CanvasFrame + /canvas-frame.html serving are live), so wiring
     // `canvasPanelContent` back is one line once web gains a write path.
     contextExplorerPageContent: <ContextExplorerPageContent />,

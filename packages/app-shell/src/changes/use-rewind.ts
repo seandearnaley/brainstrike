@@ -2,7 +2,7 @@
  * `useRewind` (BST-1115, W5 T4): load a Conversation Rewind preview through
  * the request's rewind port (`rewind-port.ts`) and bind its apply/redo.
  *
- * Generation-guarded exactly like `use-changeset.ts`/`use-edit-checkpoints.ts`:
+ * Generation-guarded exactly like `use-changeset.ts`:
  * the counter increments BEFORE the await, is captured, and every `setState`
  * — success AND error branches — is skipped when a newer load has started. A
  * rewind preview is slow enough (it scans the whole revert plan against disk)

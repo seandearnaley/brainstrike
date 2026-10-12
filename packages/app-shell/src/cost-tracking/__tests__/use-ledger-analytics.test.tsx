@@ -15,10 +15,10 @@ vi.mock('@brainstrike/db/react', () => ({
 
 import { useLedgerAnalytics } from '../use-ledger-analytics';
 
-type AssistantBridge = { getUrl?: () => Promise<string>; url?: string } | undefined;
+type AgentHostBridge = { connect: (requestId: string) => Promise<void> } | undefined;
 
-function setDesktopAssistantBackend(bridge: AssistantBridge): void {
-  (window as unknown as { assistant?: AssistantBridge }).assistant = bridge;
+function setDesktopAgentHost(bridge: AgentHostBridge): void {
+  (window as unknown as { agentHost?: AgentHostBridge }).agentHost = bridge;
 }
 
 const TREND_RAW_ROW: Record<string, unknown> = {
@@ -62,18 +62,18 @@ function makeQueryMock() {
 describe('useLedgerAnalytics', () => {
   beforeEach(() => {
     usePGliteDatabaseMock.mockReset();
-    setDesktopAssistantBackend({ url: 'http://localhost:1234' });
+    setDesktopAgentHost({ connect: async () => undefined });
   });
 
   afterEach(() => {
-    setDesktopAssistantBackend(undefined);
+    setDesktopAgentHost(undefined);
     vi.restoreAllMocks();
   });
 
   it('is unavailable on WEB and never issues the analytics queries', () => {
     const query = makeQueryMock();
     usePGliteDatabaseMock.mockReturnValue({ query });
-    setDesktopAssistantBackend(undefined);
+    setDesktopAgentHost(undefined);
 
     const { result } = renderHook(() => useLedgerAnalytics());
 

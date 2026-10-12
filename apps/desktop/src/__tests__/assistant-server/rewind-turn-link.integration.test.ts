@@ -18,7 +18,7 @@
  *   msg-d   00:03:10 (assistant)
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import type { EditCheckpointDatabase } from '../../assistant-server/edit-checkpoint-journal';
+import type { MainQueryHandle } from '../../assistant-server/main-query-handle';
 import {
   resolveRewindMessageForRun,
   resolveRewindRunRange,
@@ -70,7 +70,7 @@ async function seedLinkedResumedTurnThread(databaseName: string): Promise<Rewind
 }
 
 async function targetFor(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   messageId: string
 ): Promise<Parameters<typeof resolveRewindRunRange>[1]> {
   const target = await resolveRewindTarget(db, THREAD_ID, messageId);
@@ -83,7 +83,7 @@ async function targetFor(
 describe('resolveRewindMessageForRun — the stored link (BST-1163)', () => {
   it("a MID-TURN resume run resolves to ITS OWN turn's message, not the next turn's", async () => {
     const { db } = await seedLinkedResumedTurnThread('turn-link-inverse');
-    const handle = db as unknown as EditCheckpointDatabase;
+    const handle = db as unknown as MainQueryHandle;
 
     // The timestamp rule mapped run-a2 → msg-c (the NEXT turn's message);
     // the link closes that documented under-coverage.
@@ -94,7 +94,7 @@ describe('resolveRewindMessageForRun — the stored link (BST-1163)', () => {
 
   it('a NULL-link legacy run keeps the timestamp fallback', async () => {
     const { db } = await seedLinkedResumedTurnThread('turn-link-inverse-legacy');
-    const handle = db as unknown as EditCheckpointDatabase;
+    const handle = db as unknown as MainQueryHandle;
     await insertRun(db, {
       completedAt: '2026-01-01T00:02:10Z',
       id: 'run-legacy',
@@ -110,7 +110,7 @@ describe('resolveRewindMessageForRun — the stored link (BST-1163)', () => {
 
   it('the timestamp fallback resolves to a USER message, never an assistant upsert (PR #2291 review)', async () => {
     const { db } = await seedLinkedResumedTurnThread('turn-link-inverse-role');
-    const handle = db as unknown as EditCheckpointDatabase;
+    const handle = db as unknown as MainQueryHandle;
     // An assistant snapshot row lands between this legacy run's start and the
     // next user message. Resolving to it would feed the range resolver a
     // boundary that sorts AFTER the turn's own user-message anchor, making
@@ -133,7 +133,7 @@ describe('resolveRewindMessageForRun — the stored link (BST-1163)', () => {
 
   it('a link pointing at a DELETED message falls back to the timestamp rule instead of answering null', async () => {
     const { db } = await seedLinkedResumedTurnThread('turn-link-inverse-deleted');
-    const handle = db as unknown as EditCheckpointDatabase;
+    const handle = db as unknown as MainQueryHandle;
     await insertRun(db, {
       completedAt: '2026-01-01T00:02:10Z',
       id: 'run-orphan-link',
@@ -162,7 +162,7 @@ describe('resolveRewindMessageForRun — the stored link (BST-1163)', () => {
 describe('resolveRewindRunRange — linked runs group by TURN (BST-1163)', () => {
   it('rewinding to a turn boundary includes the whole later turn and excludes the whole earlier one', async () => {
     const { db } = await seedLinkedResumedTurnThread('turn-link-range');
-    const handle = db as unknown as EditCheckpointDatabase;
+    const handle = db as unknown as MainQueryHandle;
 
     const toC = await resolveRewindRunRange(handle, await targetFor(handle, 'msg-c'));
     expect(toC).toEqual({ fromRunId: 'run-b1', kind: 'runs', runIds: ['run-b1'] });
@@ -180,7 +180,7 @@ describe('resolveRewindRunRange — linked runs group by TURN (BST-1163)', () =>
 
   it("the link EXCLUDES an earlier turn's straggler leg even when the completed_at rule would sweep it in — the incident class timestamps cannot express", async () => {
     const { db } = await seedLinkedResumedTurnThread('turn-link-range-straggler');
-    const handle = db as unknown as EditCheckpointDatabase;
+    const handle = db as unknown as MainQueryHandle;
     // A turn-A resume leg whose terminal status write landed LATE — after
     // msg-c was already sent (crash-recovery bookkeeping, clock skew).
     // completed_at (00:03:05) > msg-c.createdAt (00:03:00), so the timestamp
@@ -200,7 +200,7 @@ describe('resolveRewindRunRange — linked runs group by TURN (BST-1163)', () =>
 
   it('a NULL-link legacy run keeps the completed_at fallback inside a mixed thread', async () => {
     const { db } = await seedLinkedResumedTurnThread('turn-link-range-mixed');
-    const handle = db as unknown as EditCheckpointDatabase;
+    const handle = db as unknown as MainQueryHandle;
     // Legacy row with no link, completed after msg-c: the fallback includes
     // it (pre-link behavior — over-revert risk is exactly why new rows carry
     // the link, but an unlinked row has nothing better to go on).

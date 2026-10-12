@@ -77,11 +77,17 @@ test.each([
           target: { value: 'Inspect the current change first.' },
         });
       }
-      const button = screen.getByRole('button', {
+      const decision = screen.getByRole('group', {
+        name: kind === 'question' ? 'Question for you' : 'Plan decision',
+      });
+      const button = within(decision).getByRole('button', {
         name: kind === 'question' ? 'Send answer' : 'Reject plan',
       });
       fireEvent.click(button);
-      await screen.findByRole('alert');
+      // Wait for the decision's own error, not any alert: the message's error
+      // live region (an empty role="alert") can mount first, before the
+      // rejection has rendered and re-enabled the button (BST-1991).
+      await within(decision).findByRole('alert');
       expect(button.hasAttribute('disabled')).toBe(false);
       expect(store.getCommittedView().pendingInteractions).toHaveLength(1);
       expect(dispatch).toHaveBeenCalledTimes(1);

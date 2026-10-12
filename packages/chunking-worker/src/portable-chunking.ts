@@ -872,10 +872,22 @@ export async function chunkContent(
   let sourceRangeSkippedChunks = 0;
   const sourceRangeResolution = resolveSourceRanges(content, pendingChunks, overlapChars);
   const sourceRanges = sourceRangeResolution.ranges;
+  // A chunk is its source span (BST-1989); the splitter's text only locates it.
+  // Markdown section splitting trims and rejoins sections, dropping the blank
+  // lines and line breaks between them, so keeping that text would put every
+  // later line of the chunk on the wrong line number.
+  const spanTexts = sourceRanges.map((range) =>
+    range ? content.slice(range.startOffset, range.endOffset) : null
+  );
 
   for (let i = 0; i < pendingChunks.length; i += HashBatchSize) {
     const batch = pendingChunks.slice(i, i + HashBatchSize);
-    const hashes = await Promise.all(batch.map((p) => generateContentHash(p.content)));
+    const hashes = await Promise.all(
+      batch.map((_, j) => {
+        const text = spanTexts[i + j];
+        return text === null || text === undefined ? null : generateContentHash(text);
+      })
+    );
 
     for (let j = 0; j < batch.length; j++) {
       const pending = batch[j];
@@ -883,9 +895,15 @@ export async function chunkContent(
         continue;
       }
       const sourceRange = sourceRanges[i + j];
-      if (!sourceRange) {
+      const text = spanTexts[i + j];
+      if (!sourceRange || text === null || text === undefined) {
         sourceRangeSkippedChunks += 1;
         continue;
+      }
+      let tokenCount = pending.tokenCount;
+      if (text !== pending.content) {
+        tokenCount = countTokens(text);
+        await maybeYieldAfterTokenCount();
       }
       chunks.push({
         // Preserve the splitter position even when an unresolved source range
@@ -894,15 +912,15 @@ export async function chunkContent(
         chunkIndex: i + j,
         chunkSize: effectiveMaxTokens,
         chunkType: pending.chunkType,
-        content: pending.content,
+        content: text,
         contentHash: hashes[j] ?? '',
         endLine: sourceRange.endLine,
         endOffset: sourceRange.endOffset,
         startLine: sourceRange.startLine,
         startOffset: sourceRange.startOffset,
-        tokenCount: pending.tokenCount,
+        tokenCount,
       });
-      totalTokens += pending.tokenCount;
+      totalTokens += tokenCount;
     }
   }
 

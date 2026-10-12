@@ -1,5 +1,5 @@
 import type { createLogger } from '@brainstrike/logging';
-import type { EditCheckpointDatabase } from '../assistant-server/edit-checkpoint-journal';
+import type { MainQueryHandle } from '../assistant-server/main-query-handle';
 import { listThreadSnapshotChain } from '../assistant-server/snapshot-chains';
 import { execFileSnapshotGitRunner } from '../assistant-server/snapshot-git';
 import { createSnapshotRepository } from '../assistant-server/snapshot-repository';
@@ -46,7 +46,7 @@ export function startSnapshotStartupMaintenance({
       // and GC below nor report itself under their step name.
       try {
         const reapReport = await reapOrphanedThreadRuns(
-          database as unknown as EditCheckpointDatabase,
+          database as unknown as MainQueryHandle,
           mainProcessStartedAt
         );
         if (reapReport.reaped.length > 0 || reapReport.reapedBackgroundTaskIds.length > 0) {
@@ -75,7 +75,7 @@ export function startSnapshotStartupMaintenance({
       // 50-turn retention ring, and shallow-cut history reclamation.
       // Same fire-and-forget block — logged, non-blocking, failures
       // visible per item.
-      const gcDatabase = database as unknown as EditCheckpointDatabase;
+      const gcDatabase = database as unknown as MainQueryHandle;
       const gcReport = await runSnapshotStartupGc({
         db: gcDatabase,
         liveRoots: rootRows.rows.map((row) => ({ path: row.path, rootId: row.id })),

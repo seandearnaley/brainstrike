@@ -20,6 +20,8 @@ export interface TimedTask {
 
 interface InstrumentationState {
   commits: number;
+  /** Commits in which each owner ("outside" or a message id) rendered, since `reset`. */
+  readonly commitsByOwner: Map<string, number>;
   commitTimes: number[];
   readonly handlerLabels: Set<TimedTask['label']>;
   recording: boolean;
@@ -31,6 +33,8 @@ interface InstrumentationState {
 
 export interface PublicationTiming {
   readonly commits: number;
+  /** Attribution samples only: commits in which each owner rendered. */
+  readonly commitsByOwner: Readonly<Record<string, number>>;
   /** Commits that landed outside every timed slice (would be uncounted work). */
   readonly commitsOutsideTimedWork: number;
   readonly deferredOtherMs: number;
@@ -71,9 +75,13 @@ export function nextFrame(): Promise<void> {
   });
 }
 
+/** A settle condition that never holds fails the measurement instead of hanging it. */
+const SETTLE_FRAME_LIMIT = 600;
+
 export function createPublicationInstrumentation(mode: 'named-vendor' | 'all-channels') {
   const state: InstrumentationState = {
     commits: 0,
+    commitsByOwner: new Map(),
     commitTimes: [],
     handlerLabels: new Set(),
     recording: false,
@@ -131,6 +139,7 @@ export function createPublicationInstrumentation(mode: 'named-vendor' | 'all-cha
   }
 
   function walk(root: Fiber): void {
+    const owners = new Set<string>();
     const stack: Fiber[] = [root];
     for (let fiber = stack.pop(); fiber; fiber = stack.pop()) {
       const previous = fiber.alternate;
@@ -139,15 +148,20 @@ export function createPublicationInstrumentation(mode: 'named-vendor' | 'all-cha
         (previous === null || (fiber.flags & PERFORMED_WORK) === PERFORMED_WORK)
       ) {
         const name = previous === null ? `${nameOf(fiber)} (mount)` : nameOf(fiber);
-        const names = state.rendered.get(ownerOf(fiber)) ?? new Map<string, number>();
+        const owner = ownerOf(fiber);
+        const names = state.rendered.get(owner) ?? new Map<string, number>();
         names.set(name, (names.get(name) ?? 0) + 1);
-        state.rendered.set(ownerOf(fiber), names);
+        state.rendered.set(owner, names);
+        owners.add(owner);
       }
       if (previous === null || fiber.child !== previous.child) {
         for (let child = fiber.child; child; child = child.sibling) {
           stack.push(child);
         }
       }
+    }
+    for (const owner of owners) {
+      state.commitsByOwner.set(owner, (state.commitsByOwner.get(owner) ?? 0) + 1);
     }
   }
 
@@ -279,6 +293,7 @@ export function createPublicationInstrumentation(mode: 'named-vendor' | 'all-cha
     },
     reset(): void {
       state.commitTimes = [];
+      state.commitsByOwner.clear();
       state.rendered.clear();
       state.tasks.length = 0;
     },
@@ -311,6 +326,32 @@ export function createPublicationInstrumentation(mode: 'named-vendor' | 'all-cha
   }
 
   /**
+   * BST-1929 quiescence: a publication is done once `settled` reports its result
+   * committed (the rendered text equals the published text), and then one
+   * animation frame and task pass with no new commit or timed task. Quiet frames
+   * alone cannot see work spaced further apart than they are.
+   */
+  async function waitForSettled(settled: () => boolean): Promise<void> {
+    for (let frame = 0; ; frame += 1) {
+      if (frame > SETTLE_FRAME_LIMIT) {
+        throw new Error(`The publication did not settle within ${SETTLE_FRAME_LIMIT} frames.`);
+      }
+      const commits = instrumentation.commits;
+      const tasks = instrumentation.tasks.length;
+      const wasSettled = settled();
+      await nextFrame();
+      await yieldTask();
+      if (
+        wasSettled &&
+        instrumentation.commits === commits &&
+        instrumentation.tasks.length === tasks
+      ) {
+        return;
+      }
+    }
+  }
+
+  /**
    * MEASURED INTERVAL (spike s-ui, aisdk-b4-ui report line ~218): the owner's
    * publication plus a 20-microtask drain, plus every React Scheduler and
    * assistant-ui tap MessageChannel task it caused, each timed from handler entry
@@ -327,7 +368,8 @@ export function createPublicationInstrumentation(mode: 'named-vendor' | 'all-cha
    */
   async function measurePublication(
     publish: () => void,
-    attributeRenders: boolean
+    attributeRenders: boolean,
+    settled?: () => boolean
   ): Promise<PublicationTiming> {
     instrumentation.reset();
     instrumentation.setRecording(true, attributeRenders);
@@ -336,7 +378,7 @@ export function createPublicationInstrumentation(mode: 'named-vendor' | 'all-cha
     publish();
     await drainMicrotasks();
     const publishEnd = performance.now();
-    await waitForQuiescence();
+    await (settled ? waitForSettled(settled) : waitForQuiescence());
     const end = performance.now();
     instrumentation.setRecording(false);
     const tasks = [...instrumentation.tasks];
@@ -353,6 +395,7 @@ export function createPublicationInstrumentation(mode: 'named-vendor' | 'all-cha
     }
     return {
       commits: instrumentation.commits - commitsBefore,
+      commitsByOwner: Object.fromEntries(state.commitsByOwner),
       commitsOutsideTimedWork: instrumentation.commitTimes.filter((time) => !timed(time)).length,
       deferredOtherMs: sum('other'),
       deferredSchedulerMs: sum('react-scheduler'),
@@ -371,5 +414,5 @@ export function createPublicationInstrumentation(mode: 'named-vendor' | 'all-cha
     };
   }
 
-  return { instrumentation, measurePublication, waitForQuiescence };
+  return { instrumentation, measurePublication, waitForQuiescence, waitForSettled };
 }

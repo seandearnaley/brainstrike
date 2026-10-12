@@ -68,7 +68,7 @@ function readTerminalRunEvent(value: unknown): AssistantRunEvent | undefined {
 
 /**
  * Native tool ids the shared registry classifies `riskCategory: 'edit'` —
- * the tools whose completion can have written the edit-checkpoint journal.
+ * the tools whose completion can have edited a workspace file.
  *
  * Derived from the registry, never hand-listed: a new mutation tool must not
  * be able to ship without the live Changes view noticing it. Built LAZILY on

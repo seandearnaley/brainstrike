@@ -1,8 +1,3 @@
-import type {
-  AssistantCheckpointRevertResult,
-  AssistantCheckpointRevertRunResult,
-  AssistantCheckpointUndoAvailabilityMap,
-} from '@brainstrike/assistant-contract';
 import type { SkillsBridge } from '@brainstrike/assistant-contract/skills-bridge';
 import type {
   AssistantSelectionUpdatePayload,
@@ -16,21 +11,6 @@ import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
 
 declare global {
   interface Window {
-    /**
-     * Edit checkpoint (undo of agent file edits) revert bridge. Desktop only —
-     * web never defines it (no assistant server / main process). Invoke-only.
-     */
-    assistantCheckpoints?: {
-      availability?: (threadId: string) => Promise<AssistantCheckpointUndoAvailabilityMap>;
-      revertEntry?: (
-        id: string,
-        options?: { force?: boolean }
-      ) => Promise<AssistantCheckpointRevertResult>;
-      revertRun?: (
-        runId: string,
-        options?: { force?: boolean }
-      ) => Promise<AssistantCheckpointRevertRunResult>;
-    };
     /**
      * Desktop-only changeset diff bridge (BST-1113/BST-1114). Absent on web
      * (no preload) — capability-check via `resolveChangesBridge()`
