@@ -21,8 +21,9 @@ import { committedRowAddress } from '../src/committed-identities.js';
 import { HostCore } from '../src/core.js';
 import { readHostRow, storedHostEvent } from '../src/event-storage.js';
 import { HostLogRowSchema } from '../src/protocol.js';
-import { decode, messages, text } from '../src/state-projection.js';
+import { decode, messages, search, text } from '../src/state-projection.js';
 import { searchHostThreads } from '../src/thread-search.js';
+import history from './fixtures/committed-history-search.json' with { type: 'json' };
 
 const recordings = { approved, plan, question, rich };
 
@@ -315,6 +316,64 @@ test('recorded tool and decision history searches retain addresses through rebui
     );
   } finally {
     await core?.close();
+    await port.close();
+    await store.close();
+    await rm(root, { recursive: true });
+  }
+});
+
+/** The recorded read tool's notes: the `content` string value of its output. */
+function recordedNotes(event: unknown): string {
+  return z.object({ output: z.object({ content: z.string() }) }).parse(event).output.content;
+}
+
+test('recorded multi-line tool output searches by each of its words, not JSON escapes', async () => {
+  const rows = z.array(HostLogRowSchema).parse(history);
+  const results = rows.filter((row) => row.event.type === 'effect.finished');
+  expect(results.length).toBeGreaterThan(0);
+  for (const row of results) {
+    const projected = search(row.event);
+    // The recorded value's own lines and tabs, never a JSON-escaped `\n` or `\t`.
+    expect(projected?.text.split('\n')).toEqual(
+      expect.arrayContaining(recordedNotes(row.event).split('\n'))
+    );
+    expect(projected?.text).not.toMatch(/\\[nt]/u);
+    expect(text(row.event)).toBe(projected?.text);
+  }
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m6-history-tokens-')));
+  const port = await openIndexer(
+    {
+      dbPath: join(root, 'index.sqlite'),
+      embedding: { indexMode: 'text-only' },
+      rootIds: [root],
+      stateProjection: {
+        mode: 'dev',
+        module: new URL('../dist/state-projection.js', import.meta.url).href,
+      },
+      stateRoot: root,
+    },
+    { closeMs: 5000, exitMs: 5000, requestMs: 5000, startupMs: 5000 }
+  );
+  const store = await StateStore.open(root, { indexer: createStateStoreIndexer(port) });
+  try {
+    await store.append(rows.map((row) => storedHostEvent(row.threadId, row.event)));
+    const threads = [...new Set(rows.map(({ threadId }) => threadId))];
+    await port.catchUpState(threads);
+    // Each word follows a recorded newline or tab inside a tool's output.
+    for (const query of ['notarytool', 'stapler', 'trigram', 'slate', 'status', 'issue']) {
+      const owner = results.find((row) =>
+        new RegExp(`[\\n\\t]${query}`, 'u').test(recordedNotes(row.event))
+      );
+      if (!owner) {
+        throw new Error(`The recording has no tool output line starting with ${query}`);
+      }
+      expect(await port.searchState({ limit: 20, query, threadIds: threads })).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ role: 'assistant', seq: owner.seq, threadId: owner.threadId }),
+        ])
+      );
+    }
+  } finally {
     await port.close();
     await store.close();
     await rm(root, { recursive: true });

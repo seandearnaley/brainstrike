@@ -1,0 +1,1923 @@
+[
+  {
+    "event": {
+      "commandId": "e98fff0c-0040-45ed-a134-b42806327b1c",
+      "method": "thread/start",
+      "payload": {
+        "commandId": "e98fff0c-0040-45ed-a134-b42806327b1c"
+      },
+      "result": {
+        "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 1,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794295973
+  },
+  {
+    "event": {
+      "commandId": "e98fff0c-0040-45ed-a134-b42806327b1c",
+      "type": "thread.started"
+    },
+    "seq": 2,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794295973
+  },
+  {
+    "event": {
+      "commandId": "d4e6f251-f064-4206-a180-83ec4de2e246",
+      "method": "thread/update",
+      "payload": {
+        "commandId": "d4e6f251-f064-4206-a180-83ec4de2e246",
+        "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+        "title": "Grep latency investigation"
+      },
+      "result": {
+        "accepted": true
+      },
+      "type": "command.accepted"
+    },
+    "seq": 3,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794295975
+  },
+  {
+    "event": {
+      "title": "Grep latency investigation",
+      "type": "thread.updated"
+    },
+    "seq": 4,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794295975
+  },
+  {
+    "event": {
+      "commandId": "2fb9ca54-20f7-4a9f-bde8-b2932783d220",
+      "method": "run/start",
+      "payload": {
+        "commandId": "2fb9ca54-20f7-4a9f-bde8-b2932783d220",
+        "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+        "modelId": "scripted-grep",
+        "prompt": "Summarize the regex grep benchmark notes."
+      },
+      "result": {
+        "runId": "2e77ad6b-9c15-40b3-9eb5-781fb71b001d"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 5,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794295990
+  },
+  {
+    "event": {
+      "modelId": "scripted-grep",
+      "type": "thread.selection.updated"
+    },
+    "seq": 6,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794295990
+  },
+  {
+    "event": {
+      "type": "run.started",
+      "runId": "2e77ad6b-9c15-40b3-9eb5-781fb71b001d",
+      "modelId": "scripted-grep",
+      "parentMessageId": null,
+      "prompt": "Summarize the regex grep benchmark notes.",
+      "snapshot": {
+        "configuration": {},
+        "maxSteps": 3,
+        "toolIdentities": {
+          "read_notes": "native-fixture-generation-1"
+        }
+      }
+    },
+    "seq": 7,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794295990
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "2e77ad6b-9c15-40b3-9eb5-781fb71b001d",
+      "chunk": {
+        "type": "start"
+      }
+    },
+    "seq": 8,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794296000
+  },
+  {
+    "event": {
+      "type": "effect.started",
+      "runId": "2e77ad6b-9c15-40b3-9eb5-781fb71b001d",
+      "input": {
+        "name": "notes.txt"
+      },
+      "toolCallId": "recorded-call-1",
+      "toolId": "read_notes",
+      "toolIdentity": "native-fixture-generation-1"
+    },
+    "seq": 9,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794296005
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "2e77ad6b-9c15-40b3-9eb5-781fb71b001d",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": []
+      }
+    },
+    "seq": 10,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794296005
+  },
+  {
+    "event": {
+      "type": "effect.finished",
+      "runId": "2e77ad6b-9c15-40b3-9eb5-781fb71b001d",
+      "output": {
+        "content": "exhaustive scan\tp95 412ms\ntrigram candidates\tp95 38ms\nresults stayed byte-identical\n",
+        "name": "notes.txt"
+      },
+      "toolCallId": "recorded-call-1"
+    },
+    "seq": 11,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794296006
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "2e77ad6b-9c15-40b3-9eb5-781fb71b001d",
+      "chunk": {
+        "type": "tool-call",
+        "toolCallId": "recorded-call-1",
+        "toolName": "read_notes",
+        "input": {
+          "name": "notes.txt"
+        }
+      }
+    },
+    "seq": 12,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794296006
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "2e77ad6b-9c15-40b3-9eb5-781fb71b001d",
+      "chunk": {
+        "type": "tool-approval-request",
+        "approvalId": "aitxt-2qAoD5FwetAtZ779eu8WHvlQ",
+        "toolCall": {
+          "type": "tool-call",
+          "toolCallId": "recorded-call-1",
+          "toolName": "read_notes",
+          "input": {
+            "name": "notes.txt"
+          }
+        },
+        "isAutomatic": true
+      }
+    },
+    "seq": 13,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794296006
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "2e77ad6b-9c15-40b3-9eb5-781fb71b001d",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool-call",
+              "toolCallId": "recorded-call-1",
+              "toolName": "read_notes",
+              "input": {
+                "name": "notes.txt"
+              }
+            },
+            {
+              "type": "tool-approval-request",
+              "approvalId": "aitxt-2qAoD5FwetAtZ779eu8WHvlQ",
+              "toolCallId": "recorded-call-1",
+              "isAutomatic": true
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": [
+            {
+              "type": "tool-approval-response",
+              "approvalId": "aitxt-2qAoD5FwetAtZ779eu8WHvlQ",
+              "approved": true
+            },
+            {
+              "type": "tool-result",
+              "toolCallId": "recorded-call-1",
+              "toolName": "read_notes",
+              "output": {
+                "type": "json",
+                "value": {
+                  "content": "exhaustive scan\tp95 412ms\ntrigram candidates\tp95 38ms\nresults stayed byte-identical\n",
+                  "name": "notes.txt"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "mock-provider",
+        "modelId": "mock-model-id"
+      },
+      "stepNumber": 0,
+      "usage": {
+        "inputTokens": 1,
+        "inputTokenDetails": {
+          "noCacheTokens": 1,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "outputTokens": 1,
+        "outputTokenDetails": {
+          "textTokens": 1,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 2
+      }
+    },
+    "seq": 14,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794296010
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "2e77ad6b-9c15-40b3-9eb5-781fb71b001d",
+      "chunk": {
+        "type": "tool-approval-response",
+        "approvalId": "aitxt-2qAoD5FwetAtZ779eu8WHvlQ",
+        "approved": true,
+        "toolCall": {
+          "type": "tool-call",
+          "toolCallId": "recorded-call-1",
+          "toolName": "read_notes",
+          "input": {
+            "name": "notes.txt"
+          }
+        }
+      }
+    },
+    "seq": 15,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794296015
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "2e77ad6b-9c15-40b3-9eb5-781fb71b001d",
+      "chunk": {
+        "type": "tool-result",
+        "toolCallId": "recorded-call-1",
+        "toolName": "read_notes",
+        "input": {
+          "name": "notes.txt"
+        },
+        "output": {
+          "content": "exhaustive scan\tp95 412ms\ntrigram candidates\tp95 38ms\nresults stayed byte-identical\n",
+          "name": "notes.txt"
+        },
+        "dynamic": false
+      }
+    },
+    "seq": 16,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794296017
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "2e77ad6b-9c15-40b3-9eb5-781fb71b001d",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "tool-calls",
+        "rawFinishReason": "tool_calls",
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        },
+        "performance": {
+          "stepTimeMs": 6.840334000000098,
+          "toolExecutionMs": {
+            "recorded-call-1": 2.118791999999985
+          },
+          "responseTimeMs": 1.8395410000000538,
+          "effectiveOutputTokensPerSecond": 543.6138688944528,
+          "outputTokensPerSecond": 1248.9602405997346,
+          "inputTokensPerSecond": 962.5797136324652,
+          "effectiveTotalTokensPerSecond": 1087.2277377889056,
+          "timeToFirstOutputMs": 1.0388750000000755
+        },
+        "response": {
+          "id": "aitxt-mKJ6pq5wu9xhsbackV0CxY1a",
+          "timestamp": "2026-10-12T08:38:16.001Z",
+          "modelId": "mock-model-id"
+        }
+      }
+    },
+    "seq": 17,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794296017
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "2e77ad6b-9c15-40b3-9eb5-781fb71b001d",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": []
+      }
+    },
+    "seq": 18,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794296022
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "2e77ad6b-9c15-40b3-9eb5-781fb71b001d",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "Trigram candidate selection cut regex grep p95 from 412ms to 38ms with identical rows."
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "mock-provider",
+        "modelId": "mock-model-id"
+      },
+      "stepNumber": 1,
+      "usage": {
+        "inputTokens": 1,
+        "inputTokenDetails": {
+          "noCacheTokens": 1,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "outputTokens": 1,
+        "outputTokenDetails": {
+          "textTokens": 1,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 2
+      }
+    },
+    "seq": 19,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794296022
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "2e77ad6b-9c15-40b3-9eb5-781fb71b001d",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "stop",
+        "rawFinishReason": "stop",
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        },
+        "performance": {
+          "stepTimeMs": 1.0165410000000747,
+          "toolExecutionMs": {},
+          "responseTimeMs": 0.4055839999999762,
+          "effectiveOutputTokensPerSecond": 2465.5804962721872,
+          "outputTokensPerSecond": 8736.752898416953,
+          "inputTokensPerSecond": 3434.9506225852083,
+          "effectiveTotalTokensPerSecond": 4931.1609925443745,
+          "timeToFirstOutputMs": 0.29112499999996544
+        },
+        "response": {
+          "id": "aitxt-Z7ZhOdddjM7At8MYGERMZoIN",
+          "timestamp": "2026-10-12T08:38:16.016Z",
+          "modelId": "mock-model-id"
+        }
+      }
+    },
+    "seq": 20,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794296027
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "2e77ad6b-9c15-40b3-9eb5-781fb71b001d",
+      "chunk": {
+        "type": "finish",
+        "finishReason": "stop",
+        "rawFinishReason": "stop",
+        "totalUsage": {
+          "inputTokens": 2,
+          "inputTokenDetails": {
+            "noCacheTokens": 2,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 2,
+          "outputTokenDetails": {
+            "textTokens": 2,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 4
+        }
+      }
+    },
+    "seq": 21,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794296033
+  },
+  {
+    "event": {
+      "type": "run.finished",
+      "runId": "2e77ad6b-9c15-40b3-9eb5-781fb71b001d",
+      "outcome": "completed"
+    },
+    "seq": 22,
+    "threadId": "5245d707-9193-4a20-8a95-0f2321f0ffbd",
+    "ts": 1791794296034
+  },
+  {
+    "event": {
+      "commandId": "d5eddc64-5e1e-4c8e-a0e1-7032bd6c0a77",
+      "method": "thread/start",
+      "payload": {
+        "commandId": "d5eddc64-5e1e-4c8e-a0e1-7032bd6c0a77"
+      },
+      "result": {
+        "threadId": "4f57d75a-b334-4473-9046-b07147fabeac"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 1,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296040
+  },
+  {
+    "event": {
+      "commandId": "d5eddc64-5e1e-4c8e-a0e1-7032bd6c0a77",
+      "type": "thread.started"
+    },
+    "seq": 2,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296040
+  },
+  {
+    "event": {
+      "commandId": "7d2bcb4d-3f3c-4178-aab9-044f87063268",
+      "method": "thread/update",
+      "payload": {
+        "commandId": "7d2bcb4d-3f3c-4178-aab9-044f87063268",
+        "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+        "title": "Kitchen renovation budget"
+      },
+      "result": {
+        "accepted": true
+      },
+      "type": "command.accepted"
+    },
+    "seq": 3,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296041
+  },
+  {
+    "event": {
+      "title": "Kitchen renovation budget",
+      "type": "thread.updated"
+    },
+    "seq": 4,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296041
+  },
+  {
+    "event": {
+      "commandId": "c69eb09d-fb46-4a4e-bf96-13fe4ccd82b5",
+      "method": "run/start",
+      "payload": {
+        "commandId": "c69eb09d-fb46-4a4e-bf96-13fe4ccd82b5",
+        "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+        "modelId": "scripted-kitchen",
+        "prompt": "Compare the tile quotes in my notes."
+      },
+      "result": {
+        "runId": "2288a976-24ea-4880-802e-c8757973c501"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 5,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296042
+  },
+  {
+    "event": {
+      "modelId": "scripted-kitchen",
+      "type": "thread.selection.updated"
+    },
+    "seq": 6,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296042
+  },
+  {
+    "event": {
+      "type": "run.started",
+      "runId": "2288a976-24ea-4880-802e-c8757973c501",
+      "modelId": "scripted-kitchen",
+      "parentMessageId": null,
+      "prompt": "Compare the tile quotes in my notes.",
+      "snapshot": {
+        "configuration": {},
+        "maxSteps": 3,
+        "toolIdentities": {
+          "read_notes": "native-fixture-generation-1"
+        }
+      }
+    },
+    "seq": 7,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296042
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "2288a976-24ea-4880-802e-c8757973c501",
+      "chunk": {
+        "type": "start"
+      }
+    },
+    "seq": 8,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296042
+  },
+  {
+    "event": {
+      "type": "effect.started",
+      "runId": "2288a976-24ea-4880-802e-c8757973c501",
+      "input": {
+        "name": "notes.txt"
+      },
+      "toolCallId": "recorded-call-1",
+      "toolId": "read_notes",
+      "toolIdentity": "native-fixture-generation-1"
+    },
+    "seq": 9,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296043
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "2288a976-24ea-4880-802e-c8757973c501",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": []
+      }
+    },
+    "seq": 10,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296044
+  },
+  {
+    "event": {
+      "type": "effect.finished",
+      "runId": "2288a976-24ea-4880-802e-c8757973c501",
+      "output": {
+        "content": "porcelain tile\t$1200\nslate tile\t$900\ngrout and labour\t$450\n",
+        "name": "notes.txt"
+      },
+      "toolCallId": "recorded-call-1"
+    },
+    "seq": 11,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296044
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "2288a976-24ea-4880-802e-c8757973c501",
+      "chunk": {
+        "type": "tool-call",
+        "toolCallId": "recorded-call-1",
+        "toolName": "read_notes",
+        "input": {
+          "name": "notes.txt"
+        }
+      }
+    },
+    "seq": 12,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296044
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "2288a976-24ea-4880-802e-c8757973c501",
+      "chunk": {
+        "type": "tool-approval-request",
+        "approvalId": "aitxt-hyQYv7guGD2eupvfPUAvtG9C",
+        "toolCall": {
+          "type": "tool-call",
+          "toolCallId": "recorded-call-1",
+          "toolName": "read_notes",
+          "input": {
+            "name": "notes.txt"
+          }
+        },
+        "isAutomatic": true
+      }
+    },
+    "seq": 13,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296044
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "2288a976-24ea-4880-802e-c8757973c501",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool-call",
+              "toolCallId": "recorded-call-1",
+              "toolName": "read_notes",
+              "input": {
+                "name": "notes.txt"
+              }
+            },
+            {
+              "type": "tool-approval-request",
+              "approvalId": "aitxt-hyQYv7guGD2eupvfPUAvtG9C",
+              "toolCallId": "recorded-call-1",
+              "isAutomatic": true
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": [
+            {
+              "type": "tool-approval-response",
+              "approvalId": "aitxt-hyQYv7guGD2eupvfPUAvtG9C",
+              "approved": true
+            },
+            {
+              "type": "tool-result",
+              "toolCallId": "recorded-call-1",
+              "toolName": "read_notes",
+              "output": {
+                "type": "json",
+                "value": {
+                  "content": "porcelain tile\t$1200\nslate tile\t$900\ngrout and labour\t$450\n",
+                  "name": "notes.txt"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "mock-provider",
+        "modelId": "mock-model-id"
+      },
+      "stepNumber": 0,
+      "usage": {
+        "inputTokens": 1,
+        "inputTokenDetails": {
+          "noCacheTokens": 1,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "outputTokens": 1,
+        "outputTokenDetails": {
+          "textTokens": 1,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 2
+      }
+    },
+    "seq": 14,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296045
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "2288a976-24ea-4880-802e-c8757973c501",
+      "chunk": {
+        "type": "tool-approval-response",
+        "approvalId": "aitxt-hyQYv7guGD2eupvfPUAvtG9C",
+        "approved": true,
+        "toolCall": {
+          "type": "tool-call",
+          "toolCallId": "recorded-call-1",
+          "toolName": "read_notes",
+          "input": {
+            "name": "notes.txt"
+          }
+        }
+      }
+    },
+    "seq": 15,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296050
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "2288a976-24ea-4880-802e-c8757973c501",
+      "chunk": {
+        "type": "tool-result",
+        "toolCallId": "recorded-call-1",
+        "toolName": "read_notes",
+        "input": {
+          "name": "notes.txt"
+        },
+        "output": {
+          "content": "porcelain tile\t$1200\nslate tile\t$900\ngrout and labour\t$450\n",
+          "name": "notes.txt"
+        },
+        "dynamic": false
+      }
+    },
+    "seq": 16,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296051
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "2288a976-24ea-4880-802e-c8757973c501",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "tool-calls",
+        "rawFinishReason": "tool_calls",
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        },
+        "performance": {
+          "stepTimeMs": 1.6382089999999607,
+          "toolExecutionMs": {
+            "recorded-call-1": 0.6332919999999831
+          },
+          "responseTimeMs": 0.6378750000000082,
+          "effectiveOutputTokensPerSecond": 1567.705271408955,
+          "outputTokensPerSecond": 1986.9220788768714,
+          "inputTokensPerSecond": 7430.303750816339,
+          "effectiveTotalTokensPerSecond": 3135.41054281791,
+          "timeToFirstOutputMs": 0.13458400000001802
+        },
+        "response": {
+          "id": "aitxt-SOvG84iB28KqwozcfUU5KqKz",
+          "timestamp": "2026-10-12T08:38:16.043Z",
+          "modelId": "mock-model-id"
+        }
+      }
+    },
+    "seq": 17,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296051
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "2288a976-24ea-4880-802e-c8757973c501",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": []
+      }
+    },
+    "seq": 18,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296056
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "2288a976-24ea-4880-802e-c8757973c501",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "Slate is the cheaper tile quote at $900 before grout and labour."
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "mock-provider",
+        "modelId": "mock-model-id"
+      },
+      "stepNumber": 1,
+      "usage": {
+        "inputTokens": 1,
+        "inputTokenDetails": {
+          "noCacheTokens": 1,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "outputTokens": 1,
+        "outputTokenDetails": {
+          "textTokens": 1,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 2
+      }
+    },
+    "seq": 19,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296056
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "2288a976-24ea-4880-802e-c8757973c501",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "stop",
+        "rawFinishReason": "stop",
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        },
+        "performance": {
+          "stepTimeMs": 0.6431670000000622,
+          "toolExecutionMs": {},
+          "responseTimeMs": 0.27195800000004056,
+          "effectiveOutputTokensPerSecond": 3677.0383662177646,
+          "outputTokensPerSecond": 12364.760432767867,
+          "inputTokensPerSecond": 5233.327925559809,
+          "effectiveTotalTokensPerSecond": 7354.076732435529,
+          "timeToFirstOutputMs": 0.19108300000004874
+        },
+        "response": {
+          "id": "aitxt-unxwHsP8hTSGMGjsy7YIA2yD",
+          "timestamp": "2026-10-12T08:38:16.051Z",
+          "modelId": "mock-model-id"
+        }
+      }
+    },
+    "seq": 20,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296061
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "2288a976-24ea-4880-802e-c8757973c501",
+      "chunk": {
+        "type": "finish",
+        "finishReason": "stop",
+        "rawFinishReason": "stop",
+        "totalUsage": {
+          "inputTokens": 2,
+          "inputTokenDetails": {
+            "noCacheTokens": 2,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 2,
+          "outputTokenDetails": {
+            "textTokens": 2,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 4
+        }
+      }
+    },
+    "seq": 21,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296067
+  },
+  {
+    "event": {
+      "type": "run.finished",
+      "runId": "2288a976-24ea-4880-802e-c8757973c501",
+      "outcome": "completed"
+    },
+    "seq": 22,
+    "threadId": "4f57d75a-b334-4473-9046-b07147fabeac",
+    "ts": 1791794296067
+  },
+  {
+    "event": {
+      "commandId": "5dc61bf3-d165-46ac-b753-33563a074e42",
+      "method": "thread/start",
+      "payload": {
+        "commandId": "5dc61bf3-d165-46ac-b753-33563a074e42"
+      },
+      "result": {
+        "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 1,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296073
+  },
+  {
+    "event": {
+      "commandId": "5dc61bf3-d165-46ac-b753-33563a074e42",
+      "type": "thread.started"
+    },
+    "seq": 2,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296073
+  },
+  {
+    "event": {
+      "commandId": "7e4580b0-1375-407e-8096-9caf449901db",
+      "method": "thread/update",
+      "payload": {
+        "commandId": "7e4580b0-1375-407e-8096-9caf449901db",
+        "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+        "title": "Release signing checklist"
+      },
+      "result": {
+        "accepted": true
+      },
+      "type": "command.accepted"
+    },
+    "seq": 3,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296073
+  },
+  {
+    "event": {
+      "title": "Release signing checklist",
+      "type": "thread.updated"
+    },
+    "seq": 4,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296073
+  },
+  {
+    "event": {
+      "commandId": "302600a1-8f69-47d5-beab-86a4678368aa",
+      "method": "run/start",
+      "payload": {
+        "commandId": "302600a1-8f69-47d5-beab-86a4678368aa",
+        "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+        "modelId": "scripted-release",
+        "prompt": "Read the signing notes and tell me which step staples the ticket."
+      },
+      "result": {
+        "runId": "40c459b1-0f55-4654-8b9a-772a1e8574ea"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 5,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296074
+  },
+  {
+    "event": {
+      "modelId": "scripted-release",
+      "type": "thread.selection.updated"
+    },
+    "seq": 6,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296074
+  },
+  {
+    "event": {
+      "type": "run.started",
+      "runId": "40c459b1-0f55-4654-8b9a-772a1e8574ea",
+      "modelId": "scripted-release",
+      "parentMessageId": null,
+      "prompt": "Read the signing notes and tell me which step staples the ticket.",
+      "snapshot": {
+        "configuration": {},
+        "maxSteps": 3,
+        "toolIdentities": {
+          "read_notes": "native-fixture-generation-1"
+        }
+      }
+    },
+    "seq": 7,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296074
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "40c459b1-0f55-4654-8b9a-772a1e8574ea",
+      "chunk": {
+        "type": "start"
+      }
+    },
+    "seq": 8,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296075
+  },
+  {
+    "event": {
+      "type": "effect.started",
+      "runId": "40c459b1-0f55-4654-8b9a-772a1e8574ea",
+      "input": {
+        "name": "notes.txt"
+      },
+      "toolCallId": "recorded-call-1",
+      "toolId": "read_notes",
+      "toolIdentity": "native-fixture-generation-1"
+    },
+    "seq": 9,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296076
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "40c459b1-0f55-4654-8b9a-772a1e8574ea",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": []
+      }
+    },
+    "seq": 10,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296076
+  },
+  {
+    "event": {
+      "type": "effect.finished",
+      "runId": "40c459b1-0f55-4654-8b9a-772a1e8574ea",
+      "output": {
+        "content": "codesign --deep --options runtime\n\tnotarytool submit --wait\nstapler staple Brainstrike.app\n",
+        "name": "notes.txt"
+      },
+      "toolCallId": "recorded-call-1"
+    },
+    "seq": 11,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296076
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "40c459b1-0f55-4654-8b9a-772a1e8574ea",
+      "chunk": {
+        "type": "tool-call",
+        "toolCallId": "recorded-call-1",
+        "toolName": "read_notes",
+        "input": {
+          "name": "notes.txt"
+        }
+      }
+    },
+    "seq": 12,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296076
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "40c459b1-0f55-4654-8b9a-772a1e8574ea",
+      "chunk": {
+        "type": "tool-approval-request",
+        "approvalId": "aitxt-JxbNitJEmu8YdjqLpkLcrfah",
+        "toolCall": {
+          "type": "tool-call",
+          "toolCallId": "recorded-call-1",
+          "toolName": "read_notes",
+          "input": {
+            "name": "notes.txt"
+          }
+        },
+        "isAutomatic": true
+      }
+    },
+    "seq": 13,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296076
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "40c459b1-0f55-4654-8b9a-772a1e8574ea",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool-call",
+              "toolCallId": "recorded-call-1",
+              "toolName": "read_notes",
+              "input": {
+                "name": "notes.txt"
+              }
+            },
+            {
+              "type": "tool-approval-request",
+              "approvalId": "aitxt-JxbNitJEmu8YdjqLpkLcrfah",
+              "toolCallId": "recorded-call-1",
+              "isAutomatic": true
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": [
+            {
+              "type": "tool-approval-response",
+              "approvalId": "aitxt-JxbNitJEmu8YdjqLpkLcrfah",
+              "approved": true
+            },
+            {
+              "type": "tool-result",
+              "toolCallId": "recorded-call-1",
+              "toolName": "read_notes",
+              "output": {
+                "type": "json",
+                "value": {
+                  "content": "codesign --deep --options runtime\n\tnotarytool submit --wait\nstapler staple Brainstrike.app\n",
+                  "name": "notes.txt"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "mock-provider",
+        "modelId": "mock-model-id"
+      },
+      "stepNumber": 0,
+      "usage": {
+        "inputTokens": 1,
+        "inputTokenDetails": {
+          "noCacheTokens": 1,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "outputTokens": 1,
+        "outputTokenDetails": {
+          "textTokens": 1,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 2
+      }
+    },
+    "seq": 14,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296077
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "40c459b1-0f55-4654-8b9a-772a1e8574ea",
+      "chunk": {
+        "type": "tool-approval-response",
+        "approvalId": "aitxt-JxbNitJEmu8YdjqLpkLcrfah",
+        "approved": true,
+        "toolCall": {
+          "type": "tool-call",
+          "toolCallId": "recorded-call-1",
+          "toolName": "read_notes",
+          "input": {
+            "name": "notes.txt"
+          }
+        }
+      }
+    },
+    "seq": 15,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296082
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "40c459b1-0f55-4654-8b9a-772a1e8574ea",
+      "chunk": {
+        "type": "tool-result",
+        "toolCallId": "recorded-call-1",
+        "toolName": "read_notes",
+        "input": {
+          "name": "notes.txt"
+        },
+        "output": {
+          "content": "codesign --deep --options runtime\n\tnotarytool submit --wait\nstapler staple Brainstrike.app\n",
+          "name": "notes.txt"
+        },
+        "dynamic": false
+      }
+    },
+    "seq": 16,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296083
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "40c459b1-0f55-4654-8b9a-772a1e8574ea",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "tool-calls",
+        "rawFinishReason": "tool_calls",
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        },
+        "performance": {
+          "stepTimeMs": 1.1755000000000564,
+          "toolExecutionMs": {
+            "recorded-call-1": 0.5741659999999911
+          },
+          "responseTimeMs": 0.23604199999999764,
+          "effectiveOutputTokensPerSecond": 4236.534176121241,
+          "outputTokensPerSecond": 10008.306894722127,
+          "inputTokensPerSecond": 7346.189164371375,
+          "effectiveTotalTokensPerSecond": 8473.068352242482,
+          "timeToFirstOutputMs": 0.13612499999999272
+        },
+        "response": {
+          "id": "aitxt-9WtIU3JsJSSpG0qKlTa1Tfvn",
+          "timestamp": "2026-10-12T08:38:16.075Z",
+          "modelId": "mock-model-id"
+        }
+      }
+    },
+    "seq": 17,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296083
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "40c459b1-0f55-4654-8b9a-772a1e8574ea",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": []
+      }
+    },
+    "seq": 18,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296088
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "40c459b1-0f55-4654-8b9a-772a1e8574ea",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "The stapler step attaches the notarization ticket after notarytool accepts the build."
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "mock-provider",
+        "modelId": "mock-model-id"
+      },
+      "stepNumber": 1,
+      "usage": {
+        "inputTokens": 1,
+        "inputTokenDetails": {
+          "noCacheTokens": 1,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "outputTokens": 1,
+        "outputTokenDetails": {
+          "textTokens": 1,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 2
+      }
+    },
+    "seq": 19,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296089
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "40c459b1-0f55-4654-8b9a-772a1e8574ea",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "stop",
+        "rawFinishReason": "stop",
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        },
+        "performance": {
+          "stepTimeMs": 0.612957999999935,
+          "toolExecutionMs": {},
+          "responseTimeMs": 0.2670420000000604,
+          "effectiveOutputTokensPerSecond": 3744.7292935185246,
+          "outputTokensPerSecond": 12532.58472027308,
+          "inputTokensPerSecond": 5340.45393858299,
+          "effectiveTotalTokensPerSecond": 7489.458587037049,
+          "timeToFirstOutputMs": 0.18725000000006276
+        },
+        "response": {
+          "id": "aitxt-RTNwz0BZshREyt5Vj2hMebzs",
+          "timestamp": "2026-10-12T08:38:16.083Z",
+          "modelId": "mock-model-id"
+        }
+      }
+    },
+    "seq": 20,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296092
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "40c459b1-0f55-4654-8b9a-772a1e8574ea",
+      "chunk": {
+        "type": "finish",
+        "finishReason": "stop",
+        "rawFinishReason": "stop",
+        "totalUsage": {
+          "inputTokens": 2,
+          "inputTokenDetails": {
+            "noCacheTokens": 2,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 2,
+          "outputTokenDetails": {
+            "textTokens": 2,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 4
+        }
+      }
+    },
+    "seq": 21,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296097
+  },
+  {
+    "event": {
+      "type": "run.finished",
+      "runId": "40c459b1-0f55-4654-8b9a-772a1e8574ea",
+      "outcome": "completed"
+    },
+    "seq": 22,
+    "threadId": "854d96a7-d175-401e-bba5-9ef6dc3335fa",
+    "ts": 1791794296097
+  },
+  {
+    "event": {
+      "commandId": "6cd455ae-242c-47b0-bac7-5f0ad27ecaf3",
+      "method": "thread/start",
+      "payload": {
+        "commandId": "6cd455ae-242c-47b0-bac7-5f0ad27ecaf3"
+      },
+      "result": {
+        "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 1,
+    "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+    "ts": 1791794296103
+  },
+  {
+    "event": {
+      "commandId": "6cd455ae-242c-47b0-bac7-5f0ad27ecaf3",
+      "type": "thread.started"
+    },
+    "seq": 2,
+    "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+    "ts": 1791794296103
+  },
+  {
+    "event": {
+      "commandId": "2fd644b2-7c87-4ae5-9376-e2a03de899ce",
+      "method": "run/start",
+      "payload": {
+        "commandId": "2fd644b2-7c87-4ae5-9376-e2a03de899ce",
+        "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+        "modelId": "scripted-untitled",
+        "prompt": "Why did notarization fail last night?"
+      },
+      "result": {
+        "runId": "4b043d57-4cb2-4687-b398-e394808cc355"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 3,
+    "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+    "ts": 1791794296104
+  },
+  {
+    "event": {
+      "modelId": "scripted-untitled",
+      "type": "thread.selection.updated"
+    },
+    "seq": 4,
+    "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+    "ts": 1791794296104
+  },
+  {
+    "event": {
+      "type": "run.started",
+      "runId": "4b043d57-4cb2-4687-b398-e394808cc355",
+      "modelId": "scripted-untitled",
+      "parentMessageId": null,
+      "prompt": "Why did notarization fail last night?",
+      "snapshot": {
+        "configuration": {},
+        "maxSteps": 3,
+        "toolIdentities": {
+          "read_notes": "native-fixture-generation-1"
+        }
+      }
+    },
+    "seq": 5,
+    "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+    "ts": 1791794296104
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "4b043d57-4cb2-4687-b398-e394808cc355",
+      "chunk": {
+        "type": "start"
+      }
+    },
+    "seq": 6,
+    "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+    "ts": 1791794296105
+  },
+  {
+    "event": {
+      "type": "effect.started",
+      "runId": "4b043d57-4cb2-4687-b398-e394808cc355",
+      "input": {
+        "name": "notes.txt"
+      },
+      "toolCallId": "recorded-call-1",
+      "toolId": "read_notes",
+      "toolIdentity": "native-fixture-generation-1"
+    },
+    "seq": 7,
+    "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+    "ts": 1791794296105
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "4b043d57-4cb2-4687-b398-e394808cc355",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": []
+      }
+    },
+    "seq": 8,
+    "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+    "ts": 1791794296105
+  },
+  {
+    "event": {
+      "type": "effect.finished",
+      "runId": "4b043d57-4cb2-4687-b398-e394808cc355",
+      "output": {
+        "content": "notarytool log 7f3a\n\tstatus: Invalid\n\tissue: hardened runtime missing on helper\n",
+        "name": "notes.txt"
+      },
+      "toolCallId": "recorded-call-1"
+    },
+    "seq": 9,
+    "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+    "ts": 1791794296106
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "4b043d57-4cb2-4687-b398-e394808cc355",
+      "chunk": {
+        "type": "tool-call",
+        "toolCallId": "recorded-call-1",
+        "toolName": "read_notes",
+        "input": {
+          "name": "notes.txt"
+        }
+      }
+    },
+    "seq": 10,
+    "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+    "ts": 1791794296106
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "4b043d57-4cb2-4687-b398-e394808cc355",
+      "chunk": {
+        "type": "tool-approval-request",
+        "approvalId": "aitxt-FRI92FSgXL44kfmsN7a4CagK",
+        "toolCall": {
+          "type": "tool-call",
+          "toolCallId": "recorded-call-1",
+          "toolName": "read_notes",
+          "input": {
+            "name": "notes.txt"
+          }
+        },
+        "isAutomatic": true
+      }
+    },
+    "seq": 11,
+    "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+    "ts": 1791794296106
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "4b043d57-4cb2-4687-b398-e394808cc355",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool-call",
+              "toolCallId": "recorded-call-1",
+              "toolName": "read_notes",
+              "input": {
+                "name": "notes.txt"
+              }
+            },
+            {
+              "type": "tool-approval-request",
+              "approvalId": "aitxt-FRI92FSgXL44kfmsN7a4CagK",
+              "toolCallId": "recorded-call-1",
+              "isAutomatic": true
+            }
+          ]
+        },
+        {
+          "role": "tool",
+          "content": [
+            {
+              "type": "tool-approval-response",
+              "approvalId": "aitxt-FRI92FSgXL44kfmsN7a4CagK",
+              "approved": true
+            },
+            {
+              "type": "tool-result",
+              "toolCallId": "recorded-call-1",
+              "toolName": "read_notes",
+              "output": {
+                "type": "json",
+                "value": {
+                  "content": "notarytool log 7f3a\n\tstatus: Invalid\n\tissue: hardened runtime missing on helper\n",
+                  "name": "notes.txt"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "mock-provider",
+        "modelId": "mock-model-id"
+      },
+      "stepNumber": 0,
+      "usage": {
+        "inputTokens": 1,
+        "inputTokenDetails": {
+          "noCacheTokens": 1,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "outputTokens": 1,
+        "outputTokenDetails": {
+          "textTokens": 1,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 2
+      }
+    },
+    "seq": 12,
+    "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+    "ts": 1791794296106
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "4b043d57-4cb2-4687-b398-e394808cc355",
+      "chunk": {
+        "type": "tool-approval-response",
+        "approvalId": "aitxt-FRI92FSgXL44kfmsN7a4CagK",
+        "approved": true,
+        "toolCall": {
+          "type": "tool-call",
+          "toolCallId": "recorded-call-1",
+          "toolName": "read_notes",
+          "input": {
+            "name": "notes.txt"
+          }
+        }
+      }
+    },
+    "seq": 13,
+    "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+    "ts": 1791794296111
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "4b043d57-4cb2-4687-b398-e394808cc355",
+      "chunk": {
+        "type": "tool-result",
+        "toolCallId": "recorded-call-1",
+        "toolName": "read_notes",
+        "input": {
+          "name": "notes.txt"
+        },
+        "output": {
+          "content": "notarytool log 7f3a\n\tstatus: Invalid\n\tissue: hardened runtime missing on helper\n",
+          "name": "notes.txt"
+        },
+        "dynamic": false
+      }
+    },
+    "seq": 14,
+    "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+    "ts": 1791794296112
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "4b043d57-4cb2-4687-b398-e394808cc355",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "tool-calls",
+        "rawFinishReason": "tool_calls",
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        },
+        "performance": {
+          "stepTimeMs": 1.0566670000000613,
+          "toolExecutionMs": {
+            "recorded-call-1": 0.5818329999999605
+          },
+          "responseTimeMs": 0.1895000000000664,
+          "effectiveOutputTokensPerSecond": 5277.0448548794175,
+          "outputTokensPerSecond": 13551.7881584423,
+          "inputTokensPerSecond": 8642.370083568878,
+          "effectiveTotalTokensPerSecond": 10554.089709758835,
+          "timeToFirstOutputMs": 0.11570900000003803
+        },
+        "response": {
+          "id": "aitxt-8l1Mfr0qMGDorJxSXI9vh27T",
+          "timestamp": "2026-10-12T08:38:16.105Z",
+          "modelId": "mock-model-id"
+        }
+      }
+    },
+    "seq": 15,
+    "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+    "ts": 1791794296113
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "4b043d57-4cb2-4687-b398-e394808cc355",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": []
+      }
+    },
+    "seq": 16,
+    "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+    "ts": 1791794296118
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "4b043d57-4cb2-4687-b398-e394808cc355",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "Notarization failed because the helper binary lacked the hardened runtime."
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "mock-provider",
+        "modelId": "mock-model-id"
+      },
+      "stepNumber": 1,
+      "usage": {
+        "inputTokens": 1,
+        "inputTokenDetails": {
+          "noCacheTokens": 1,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "outputTokens": 1,
+        "outputTokenDetails": {
+          "textTokens": 1,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 2
+      }
+    },
+    "seq": 17,
+    "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+    "ts": 1791794296118
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "4b043d57-4cb2-4687-b398-e394808cc355",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "stop",
+        "rawFinishReason": "stop",
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        },
+        "performance": {
+          "stepTimeMs": 0.5817499999999427,
+          "toolExecutionMs": {},
+          "responseTimeMs": 0.2502079999999296,
+          "effectiveOutputTokensPerSecond": 3996.674766595318,
+          "outputTokensPerSecond": 14159.292035408258,
+          "inputTokensPerSecond": 5568.45581151954,
+          "effectiveTotalTokensPerSecond": 7993.349533190636,
+          "timeToFirstOutputMs": 0.17958299999997962
+        },
+        "response": {
+          "id": "aitxt-ZZ7PcQrfQmwp4TH1JVAhfQGn",
+          "timestamp": "2026-10-12T08:38:16.112Z",
+          "modelId": "mock-model-id"
+        }
+      }
+    },
+    "seq": 18,
+    "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+    "ts": 1791794296123
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "4b043d57-4cb2-4687-b398-e394808cc355",
+      "chunk": {
+        "type": "finish",
+        "finishReason": "stop",
+        "rawFinishReason": "stop",
+        "totalUsage": {
+          "inputTokens": 2,
+          "inputTokenDetails": {
+            "noCacheTokens": 2,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 2,
+          "outputTokenDetails": {
+            "textTokens": 2,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 4
+        }
+      }
+    },
+    "seq": 19,
+    "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+    "ts": 1791794296128
+  },
+  {
+    "event": {
+      "type": "run.finished",
+      "runId": "4b043d57-4cb2-4687-b398-e394808cc355",
+      "outcome": "completed"
+    },
+    "seq": 20,
+    "threadId": "6a417da2-0612-44d5-98da-9a867f9545dd",
+    "ts": 1791794296128
+  }
+]
