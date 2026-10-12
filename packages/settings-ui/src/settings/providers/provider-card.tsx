@@ -95,24 +95,35 @@ export interface ProviderCardProps {
   readonly verifyProvider: VerifyProvider;
 }
 
+/**
+ * Whether the runtime can authenticate. A stored key the provider REJECTED is
+ * still stored, but it does not connect: the card face must not pair a green
+ * "Connected" with an "Invalid key" verdict (BST-1981).
+ */
 function ConnectionBadge({
   connection,
   providerId,
+  rejected,
 }: {
   readonly connection: ProviderConnectionState;
   readonly providerId: string;
+  readonly rejected: boolean;
 }) {
   return (
     <span
       className="flex items-center gap-1.5 text-muted-foreground text-xs"
       data-connection={connection}
       data-testid={`provider-connection-${providerId}`}
+      data-verdict={rejected ? 'invalid' : undefined}
     >
       <span
         aria-hidden="true"
-        className={cn('size-2 rounded-full', CONNECTION_DOT_CLASSES[connection])}
+        className={cn(
+          'size-2 rounded-full',
+          rejected ? 'bg-destructive' : CONNECTION_DOT_CLASSES[connection]
+        )}
       />
-      {CONNECTION_LABELS[connection]}
+      {rejected ? 'Key rejected' : CONNECTION_LABELS[connection]}
     </span>
   );
 }
@@ -292,12 +303,15 @@ export function ProviderCard({
   }, [chainTracker.awaitingChain, verify]);
 
   const enabledCount = models.filter((model) => model.isEnabled).length;
+  // A verdict describes the CURRENT credential only (see the probe below).
+  const verdict = card.connection === 'connected' ? lookup : IDLE_LOOKUP;
+  const rejected = verdict.state === 'resolved' && verdict.snapshot.result.status === 'invalid';
 
   return (
     <Card
       className={cn(
         'overflow-hidden transition-colors',
-        card.connection === 'connected' && 'border-emerald-500/30'
+        card.connection === 'connected' && !rejected && 'border-emerald-500/30'
       )}
       data-testid={`provider-card-${providerId}`}
     >
@@ -329,13 +343,14 @@ export function ProviderCard({
           <span className="flex flex-wrap items-center gap-2">
             <span className="truncate font-medium text-sm">{definition.displayName}</span>
             <ProviderKeySourceBadge card={card} sourceState={sourceState} />
-            <VerdictChip
-              lookup={card.connection === 'connected' ? lookup : IDLE_LOOKUP}
-              providerId={providerId}
-            />
+            <VerdictChip lookup={verdict} providerId={providerId} />
           </span>
           <span className="mt-1 flex flex-wrap items-center gap-3">
-            <ConnectionBadge connection={card.connection} providerId={providerId} />
+            <ConnectionBadge
+              connection={card.connection}
+              providerId={providerId}
+              rejected={rejected}
+            />
             {models.length > 0 ? (
               <span
                 className="text-muted-foreground text-xs"
@@ -389,7 +404,7 @@ export function ProviderCard({
               // A verdict describes a credential. Once that credential is
               // gone the verdict is stale, so it is dropped rather than left
               // on screen vouching for a key that no longer exists.
-              lookup={card.connection === 'connected' ? lookup : IDLE_LOOKUP}
+              lookup={verdict}
               onVerify={verify}
               providerId={providerId}
             />
