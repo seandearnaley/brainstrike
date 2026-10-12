@@ -39,11 +39,12 @@ interface PackagedFixture {
     readonly oauthState?: Readonly<Record<string, number>>;
   }>;
   readonly manifest: { readonly url: string };
+  releaseAuthorization(): void;
 }
 interface PackagedFixtureModule {
   startPackagedCoreFixture(
     id: 'legacy-reference' | 'modern-reference' | 'oauth-reference',
-    options?: { readonly authorizationDelayMs?: number }
+    options?: { readonly authorizationDelayMs?: number; readonly holdAuthorization?: boolean }
   ): Promise<PackagedFixture>;
 }
 type PackagedContext = Awaited<ReturnType<typeof launchPackagedDesktop>>;
@@ -315,6 +316,7 @@ async function connectOAuthThroughNativeBrowser(
     .toBe('authorization-observed');
   await page.getByRole('button', { exact: true, name: 'Cancel oauth' }).click();
   await waitForServerState(page, 'oauth', /authentication-required|disconnected/i);
+  cancellationFixture.releaseAuthorization();
   await expect.poll(() => cancellationFixture.authorizationDelaySettled()).toBe(true);
   await page.getByRole('button', { exact: true, name: 'Connect oauth' }).click();
   await waitForServerState(page, 'oauth', /Connected/i);
@@ -676,7 +678,10 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     const modern = await ownFixture(fixtureModule.startPackagedCoreFixture('modern-reference'));
     const legacy = await ownFixture(fixtureModule.startPackagedCoreFixture('legacy-reference'));
     const oauth = await ownFixture(
-      fixtureModule.startPackagedCoreFixture('oauth-reference', { authorizationDelayMs: 1000 }),
+      fixtureModule.startPackagedCoreFixture('oauth-reference', {
+        authorizationDelayMs: 1000,
+        holdAuthorization: true,
+      }),
       true
     );
     const diagnosticControlDirectory = path.join(fixtureStateDir, 'diagnostic-control');

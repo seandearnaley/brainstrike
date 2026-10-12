@@ -2,9 +2,9 @@ import { request } from 'node:http';
 import { expect, it, vi } from 'vitest';
 import { startPackagedCoreFixture } from '../src/packaged-core-fixture.js';
 
-function followAuthorization(url: URL): Promise<URL> {
+function followAuthorization(url: URL, signal?: AbortSignal): Promise<URL> {
   return new Promise((resolve, reject) => {
-    const outbound = request(url, { method: 'GET' }, (response) => {
+    const outbound = request(url, { method: 'GET', signal }, (response) => {
       const location = response.headers.location;
       response.resume();
       if (response.statusCode !== 302 || !location) {
@@ -53,57 +53,82 @@ it('owns bounded OAuth and legacy loopback fixtures for packaged Electron', asyn
     /Expected OAuth authorization redirect/u
   );
 });
-it('accepts one bounded OAuth authorization delay and rejects it elsewhere', async () => {
-  await using cleanup = new AsyncDisposableStack();
-  await expect(
-    startPackagedCoreFixture('legacy-reference', { authorizationDelayMs: 100 })
-  ).rejects.toThrow(/only for the OAuth fixture/u);
-  await expect(
-    startPackagedCoreFixture('oauth-reference', { authorizationDelayMs: 99 })
-  ).rejects.toThrow(/100 to 10000/u);
-  const oauth = await startPackagedCoreFixture('oauth-reference', {
-    authorizationDelayMs: 100,
-  });
-  cleanup.defer(async () => expect((await oauth.close()).clean).toBe(true));
-  expect(oauth.authorizationDelayObserved()).toBe(false);
-  expect(oauth.authorizationDelaySettled()).toBe(false);
-  const redirectUri = 'http://127.0.0.1:49876/mcp/oauth/callback';
-  const registration = await fetch(new URL('/register', oauth.manifest.authorizationUrl), {
-    body: JSON.stringify({
-      application_type: 'native',
-      client_name: 'Packaged core fixture verifier',
-      grant_types: ['authorization_code'],
-      redirect_uris: [redirectUri],
-      response_types: ['code'],
+it.each(['release', 'abort', 'close'] as const)(
+  'holds first OAuth authorization until %s and joins cleanup',
+  async (completion) => {
+    await using cleanup = new AsyncDisposableStack();
+    await expect(
+      startPackagedCoreFixture('legacy-reference', { authorizationDelayMs: 100 })
+    ).rejects.toThrow(/only for the OAuth fixture/u);
+    await expect(
+      startPackagedCoreFixture('oauth-reference', { authorizationDelayMs: 99 })
+    ).rejects.toThrow(/100 to 10000/u);
+    const oauth = await startPackagedCoreFixture('oauth-reference', {
+      authorizationDelayMs: 100,
+      holdAuthorization: true,
+    });
+    cleanup.defer(async () => expect((await oauth.close()).clean).toBe(true));
+    expect(oauth.authorizationDelayObserved()).toBe(false);
+    expect(oauth.authorizationDelaySettled()).toBe(false);
+    const redirectUri = 'http://127.0.0.1:49876/mcp/oauth/callback';
+    const registration = await fetch(new URL('/register', oauth.manifest.authorizationUrl), {
+      body: JSON.stringify({
+        application_type: 'native',
+        client_name: 'Packaged core fixture verifier',
+        grant_types: ['authorization_code'],
+        redirect_uris: [redirectUri],
+        response_types: ['code'],
+        scope: 'mcp',
+        token_endpoint_auth_method: 'none',
+      }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    });
+    expect(registration.status).toBe(201);
+    const registeredClient: unknown = await registration.json();
+    if (!(registeredClient && typeof registeredClient === 'object')) {
+      throw new Error('Packaged core registration response was not an object');
+    }
+    const clientId = Reflect.get(registeredClient, 'client_id');
+    if (typeof clientId !== 'string') {
+      throw new Error('Packaged core registration response omitted client_id');
+    }
+    const delayedAuthorize = new URL(oauth.manifest.authorizationUrl ?? '');
+    delayedAuthorize.search = new URLSearchParams({
+      client_id: clientId,
+      code_challenge: 'a'.repeat(43),
+      code_challenge_method: 'S256',
+      redirect_uri: redirectUri,
+      resource: oauth.manifest.url,
+      response_type: 'code',
       scope: 'mcp',
-      token_endpoint_auth_method: 'none',
-    }),
-    headers: { 'content-type': 'application/json' },
-    method: 'POST',
-  });
-  expect(registration.status).toBe(201);
-  const registeredClient: unknown = await registration.json();
-  if (!(registeredClient && typeof registeredClient === 'object')) {
-    throw new Error('Packaged core registration response was not an object');
+      state: 'packaged-core-delayed-state',
+    }).toString();
+    const abort = new AbortController();
+    const delayedResponse = followAuthorization(delayedAuthorize, abort.signal);
+    // Observe rejection immediately so fixture-close and request-abort cannot leak it.
+    void delayedResponse.catch(() => {});
+    await vi.waitFor(() => expect(oauth.authorizationDelayObserved()).toBe(true));
+    expect(oauth.authorizationDelaySettled()).toBe(false);
+    // Simulate UI stabilization outlasting the old timer, while the authorization
+    // must remain pending until the real cancellation action can complete.
+    await new Promise<void>((resolve) => setTimeout(resolve, 150));
+    expect(oauth.authorizationDelaySettled()).toBe(false);
+    if (completion === 'release') {
+      oauth.releaseAuthorization();
+      await expect(delayedResponse).resolves.toEqual(expect.any(URL));
+      delayedAuthorize.searchParams.set('state', 'packaged-core-reconnect-state');
+      await expect(followAuthorization(delayedAuthorize)).resolves.toEqual(expect.any(URL));
+    } else {
+      if (completion === 'abort') {
+        abort.abort();
+      } else {
+        await oauth.close();
+      }
+      await expect(delayedResponse).rejects.toThrow();
+      await vi.waitFor(() => expect(oauth.authorizationDelaySettled()).toBe(true));
+      oauth.releaseAuthorization();
+    }
+    expect(oauth.authorizationDelaySettled()).toBe(true);
   }
-  const clientId = Reflect.get(registeredClient, 'client_id');
-  if (typeof clientId !== 'string') {
-    throw new Error('Packaged core registration response omitted client_id');
-  }
-  const delayedAuthorize = new URL(oauth.manifest.authorizationUrl ?? '');
-  delayedAuthorize.search = new URLSearchParams({
-    client_id: clientId,
-    code_challenge: 'a'.repeat(43),
-    code_challenge_method: 'S256',
-    redirect_uri: redirectUri,
-    resource: oauth.manifest.url,
-    response_type: 'code',
-    scope: 'mcp',
-    state: 'packaged-core-delayed-state',
-  }).toString();
-  const delayedResponse = followAuthorization(delayedAuthorize);
-  await vi.waitFor(() => expect(oauth.authorizationDelayObserved()).toBe(true));
-  expect(oauth.authorizationDelaySettled()).toBe(false);
-  await expect(delayedResponse).resolves.toEqual(expect.any(URL));
-  expect(oauth.authorizationDelaySettled()).toBe(true);
-});
+);
