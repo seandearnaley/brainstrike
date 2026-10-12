@@ -27,6 +27,7 @@ import { RewindProvider } from '../rewind-context';
 import { ToolApprovalGrantProvider } from '../tool-approval-grant-context';
 import { ToolResultRendererProvider } from '../tool-result-renderer-context';
 import type { ToolResultRenderer } from '../use-tool-result-renderers';
+import { streamedText } from './streamed-text';
 
 function Conversation({
   agentColor,
@@ -1030,8 +1031,9 @@ describe('shared conversation panel', () => {
     const root = within(screen.getByRole('region', { name: 'Root' }));
     const child = within(screen.getByRole('region', { name: 'Cedar' }));
     expect(await root.findByText('Root answer.')).toBeVisible();
-    expect(await child.findByText('Child partial.')).toBeVisible();
-    expect(root.queryByText('Child partial.')).not.toBeInTheDocument();
+    // The child's reply is still running, so its words stream as spans.
+    expect(await child.findByText(streamedText('Child partial.'))).toBeVisible();
+    expect(root.queryByText(streamedText('Child partial.'))).not.toBeInTheDocument();
     expect(root.getByRole('button', { name: 'Send' })).toBeDisabled();
     expect(child.getByRole('button', { name: 'Stop' })).toBeEnabled();
     await user.type(root.getByRole('textbox', { name: 'Message input' }), 'Root draft');

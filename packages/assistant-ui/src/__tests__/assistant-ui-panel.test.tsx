@@ -79,8 +79,6 @@ let capturedLocalAdapterOptions: {
 window.HTMLElement.prototype.scrollIntoView = vi.fn();
 
 vi.mock('@assistant-ui/styles/index.css', () => ({}));
-vi.mock('@assistant-ui/react-markdown/styles/dot.css', () => ({}));
-
 vi.mock('../data-stream-runtime', () => ({
   AssistantRequestPreparationTimeoutError: class AssistantRequestPreparationTimeoutError extends Error {},
   AssistantRunAdmissionRejectedError: class AssistantRunAdmissionRejectedError extends Error {},

@@ -15,8 +15,6 @@ import { AssistantLinkCapabilitiesProvider } from '../assistant-link-capabilitie
 import { AssistantMessageText } from '../assistant-message-text';
 import { MarkdownLink } from '../markdown-link';
 
-vi.mock('@assistant-ui/react-markdown/styles/dot.css', () => ({}));
-
 const chatModel: ChatModelAdapter = {
   run: vi.fn().mockResolvedValue({
     content: [],
@@ -25,11 +23,11 @@ const chatModel: ChatModelAdapter = {
 };
 
 /**
- * Renders assistant markdown through the REAL `@assistant-ui/react-markdown`
- * pipeline — no mocked primitive. A mocked primitive cannot prove anything
- * here: the whole bug is what `react-markdown` emits for a link and how the
- * browser treats that element, so the test has to exercise the real component
- * map and a real DOM anchor.
+ * Renders assistant markdown through the REAL markdown pipeline
+ * (`@assistant-ui/react-streamdown`) — no mocked primitive. A mocked primitive
+ * cannot prove anything here: the whole bug is what the renderer emits for a
+ * link and how the browser treats that element, so the test has to exercise the
+ * real component map and a real DOM anchor.
  */
 function renderAssistantMarkdown(
   markdown: string,
@@ -351,6 +349,22 @@ describe('assistant markdown links', () => {
     });
     expect(observed?.defaultPrevented).toBe(true);
   });
+
+  it(
+    'rewrites an unsafe model link to an empty href through the real renderer',
+    async () => {
+      const { capabilities } = stubCapabilities();
+      // Streamdown's own URL default keeps every URL. MarkdownText passes
+      // react-markdown's `defaultUrlTransform`, so a `javascript:` link from the
+      // model still reaches the DOM as the empty href handled above.
+      renderAssistantMarkdown('Do not [run me](javascript:alert(1)) please.', capabilities);
+
+      const label = await screen.findByText('run me', undefined, { timeout: FIND_TIMEOUT_MS });
+
+      expect(label.closest('a')).toHaveAttribute('href', '');
+    },
+    TEST_TIMEOUT_MS
+  );
 
   it('leaves an anchor with no href inert instead of toasting at the user', async () => {
     const { capabilities, openLink } = stubCapabilities();

@@ -10,8 +10,6 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AssistantMessageText } from '../assistant-message-text';
 
-vi.mock('@assistant-ui/react-markdown/styles/dot.css', () => ({}));
-
 const chatModel: ChatModelAdapter = {
   run: vi.fn().mockResolvedValue({
     content: [],
@@ -52,7 +50,47 @@ function AssistantReasoningHarness() {
   );
 }
 
+function AssistantTextHarness({ text }: { readonly text: string }) {
+  const runtime = useLocalRuntime(chatModel, {
+    initialMessages: [
+      {
+        content: [{ text, type: 'text' }],
+        role: 'assistant',
+        status: { reason: 'stop', type: 'complete' },
+      },
+    ],
+  });
+
+  return (
+    <AssistantRuntimeProvider runtime={runtime}>
+      <ThreadPrimitive.Messages
+        components={{
+          AssistantMessage: () => (
+            <MessagePrimitive.Parts components={{ Text: AssistantMessageText }} />
+          ),
+          UserMessage: () => null,
+        }}
+      />
+    </AssistantRuntimeProvider>
+  );
+}
+
 describe('MarkdownText runtime integration', () => {
+  it('shows HTML in model output as literal text instead of rendering it', async () => {
+    // Streamdown's default pipeline renders raw HTML (sanitized). Model output
+    // keeps the react-markdown behaviour: the markup is shown, never parsed.
+    const { container } = render(
+      <AssistantTextHarness text={'Before <b>bold</b> <img src="x" onerror="alert(1)"> after.'} />
+    );
+
+    const paragraph = await screen.findByText(/Before/u, undefined, { timeout: 10_000 });
+
+    expect(paragraph).toHaveTextContent(
+      'Before <b>bold</b> <img src="x" onerror="alert(1)"> after.'
+    );
+    expect(container.querySelector('.aui-md b, .aui-md img')).toBeNull();
+  }, 15_000);
+
   it('renders reasoning parts through the real assistant-ui text hook', async () => {
     render(<AssistantReasoningHarness />);
 

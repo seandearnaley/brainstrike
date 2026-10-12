@@ -5,7 +5,7 @@
   "type": "module",
   "dependencies": {
     "@assistant-ui/react": "catalog:",
-    "@assistant-ui/react-markdown": "catalog:",
+    "@assistant-ui/react-streamdown": "catalog:",
     "@assistant-ui/styles": "catalog:",
     "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/assistant-wire": "workspace:*",
@@ -18,7 +18,9 @@
     "assistant-stream": "catalog:",
     "cmdk": "^1.1.1",
     "lucide-react": "catalog:",
+    "react-markdown": "^10.1.0",
     "remark-gfm": "catalog:",
+    "streamdown": "catalog:",
     "zustand": "catalog:"
   },
   "devDependencies": {
