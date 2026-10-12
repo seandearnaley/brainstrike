@@ -383,6 +383,81 @@ export async function markRootDisconnectedByPath(
 }
 
 /**
+ * Record a mounted folder under its one id and return that id (BST-1990). On
+ * desktop, Main's root registry is the only writer of `roots`.
+ *
+ * - A path's existing row keeps its id, so a re-added folder is the same folder
+ *   and its indexed rows resume. A disconnected row becomes live again; other
+ *   statuses (needs-regrant, snapshot-stale) keep waiting for their own remedies.
+ * - A new path is inserted under `preferredId`, as a worktree when the active
+ *   managed-worktree ledger names it.
+ */
+export async function recordWorkspaceRoot(
+  db: WorkspaceRootsQueryable,
+  root: { readonly path: string; readonly preferredId: string }
+): Promise<string> {
+  const existing = await db.query<{ id: string }>('SELECT id FROM roots WHERE path = $1', [
+    root.path,
+  ]);
+  if (existing.rows.length > 1) {
+    throw new Error('More than one workspace folder record exists for this path.');
+  }
+  const recorded = existing.rows[0];
+  if (recorded) {
+    await db.query(
+      `UPDATE roots SET status = 'live', last_verified_at = NOW()
+        WHERE id = $1 AND status = 'disconnected'`,
+      [recorded.id]
+    );
+    return recorded.id;
+  }
+  await db.query(
+    `INSERT INTO roots (id, kind, display_name, path, last_verified_at)
+     SELECT $1,
+            CASE WHEN EXISTS (
+              SELECT 1 FROM brainstrike_worktrees WHERE path = $3 AND archived_at IS NULL
+            ) THEN 'worktree' ELSE 'path' END,
+            $2, $3, NOW()`,
+    [root.preferredId, path.basename(root.path) || root.path, root.path]
+  );
+  return root.preferredId;
+}
+
+/**
+ * Restore makes sure every mounted, persisted folder has its record. A record
+ * under another id (written before Main owned `roots`) is reported, not rewritten:
+ * greenfield data has no such rows to migrate (ADR-0020).
+ */
+export async function recordRestoredWorkspaceRoots(
+  getDb: () => Promise<WorkspaceRootsQueryable>,
+  roots: readonly { readonly path: string; readonly rootId: string }[]
+): Promise<void> {
+  if (roots.length === 0) {
+    return;
+  }
+  try {
+    const db = await getDb();
+    for (const root of roots) {
+      const recordedId = await recordWorkspaceRoot(db, {
+        path: root.path,
+        preferredId: root.rootId,
+      });
+      if (recordedId !== root.rootId) {
+        logger.error(
+          'A restored workspace folder is mounted under a different id than its record',
+          {
+            recordedId,
+            rootId: root.rootId,
+          }
+        );
+      }
+    }
+  } catch (error) {
+    logger.error('Restored workspace folders could not be recorded', { error });
+  }
+}
+
+/**
  * Converge the DB roots table on the AUTHORITATIVE mounted set: every
  * `status = 'live'` row whose `path` is not in `mountedPaths` is transitioned to
  * 'disconnected'. Same semantics as {@link markRootDisconnectedByPath} (rows and

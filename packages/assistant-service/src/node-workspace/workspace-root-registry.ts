@@ -58,7 +58,12 @@ import type {
   StoredWorkspaceRoot,
   WorkspaceRootStorage,
 } from './workspace-root-types.js';
-import { markRootsDisconnectedExcept, type WorkspaceRootsQueryable } from './workspace-roots.js';
+import {
+  markRootsDisconnectedExcept,
+  recordRestoredWorkspaceRoots,
+  recordWorkspaceRoot,
+  type WorkspaceRootsQueryable,
+} from './workspace-roots.js';
 
 export type { SecureWorkspaceRoot, StoredWorkspaceRoot } from './workspace-root-types.js';
 
@@ -172,7 +177,12 @@ export class WorkspaceRootRegistry {
         const mountedMatch = this.mounts.findByCanonicalPath(canonicalPath);
         const existing = await this.findExistingStoredRoot(entries, mountedMatch, canonicalPath);
 
-        const rootId = existing?.rootId ?? mountedMatch?.rootId ?? crypto.randomUUID();
+        // The folder's one id is its `roots` record's, written before any window
+        // sees the mount, so a re-added path keeps its id (BST-1990).
+        const rootId = await recordWorkspaceRoot(await this.getRootsDatabase(), {
+          path: existing?.path ?? presentationPath,
+          preferredId: existing?.rootId ?? mountedMatch?.rootId ?? crypto.randomUUID(),
+        });
         const entry: StoredWorkspaceRoot = {
           addedAt: Date.now(),
           path: existing?.path ?? presentationPath,
@@ -183,10 +193,16 @@ export class WorkspaceRootRegistry {
         // which unconditionally disposes of it (adopts it or closes it as
         // redundant) — so once this resolves, the probe has been handled
         // exactly once and the finally below must not touch it again.
-        await this.reconcileAddMount(entry, mountedMatch, probe);
+        await this.reconcileAddMount(entry, mountedMatch, probe).catch(async (error: unknown) => {
+          await this.convergeDatabase(); // the record must not stay live without its mount
+          throw error;
+        });
         probeAdopted = true;
 
         const persisted = await this.persistAddedRoot(entries, existing, entry);
+        if (!persisted) {
+          await this.convergeDatabase(); // a session-only mount keeps no live record
+        }
         if (persisted) {
           await writeLastFolderBestEffort(this.storage, entry.path);
         }
@@ -680,6 +696,7 @@ export class WorkspaceRootRegistry {
         );
         await recordRecentRootsIfNew(this.storage, newRecentCandidates);
       }
+      await recordRestoredWorkspaceRoots(this.getRootsDatabase, recentRootCandidates);
       await this.convergeDatabase();
       return descriptors;
     });

@@ -82,11 +82,8 @@ async function withWorkspace(
       mount: async (name) => {
         const path = join(directory, name);
         await mkdir(path);
+        // Main's registry records the mount in `roots` itself (BST-1990).
         const descriptor = await mounted.addRoot(rootHandle(path));
-        await database.query(
-          'INSERT INTO roots (id,kind,display_name,path,last_verified_at) VALUES ($1,$2,$3,$4,NOW())',
-          [descriptor.rootId, 'path', name, path]
-        );
         return { displayName: name, path, rootId: descriptor.rootId };
       },
       registry,

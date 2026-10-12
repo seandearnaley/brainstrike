@@ -204,6 +204,8 @@ export function __resetFsWatchDispatcherForTest(): void {
 
 export class ElectronRendererFileSystemAdapter implements FileSystemAdapter {
   public readonly platform = 'electron' as const;
+  /** Main's root registry is the one writer of folder records (BST-1990). */
+  public readonly ownsRootRecords = true as const;
 
   async requestDirectoryAccess(): Promise<DirectoryHandle> {
     // Main owns the last-folder preference: fs:requestDirectoryAccess routes

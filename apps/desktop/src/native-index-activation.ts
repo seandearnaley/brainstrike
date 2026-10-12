@@ -159,7 +159,11 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     ) {
       throw new Error('Canonical catalog returned duplicated or unauthorized file identities.');
     }
-    return records;
+    // The authority covers the folders it leases. A folder disconnected with its
+    // indexed data kept, not granted, or a worktree not opted in keeps its rows,
+    // under its one id, for its return (BST-1990); they are outside this authority
+    // rather than a missing lease that blocks every folder.
+    return records.filter((record) => record.rootId === null || current.leases.has(record.rootId));
   };
   const resolver = (current: Graph): NativeCanonicalProfileResolver =>
     new NativeCanonicalProfileResolver({

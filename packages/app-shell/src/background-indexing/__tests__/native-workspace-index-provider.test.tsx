@@ -20,7 +20,11 @@ import { NativeWorkspaceIndexProvider } from '../native-workspace-index-provider
 
 const { adapter, roots, reconciliation } = vi.hoisted(() => ({
   adapter: { restoreRoots: vi.fn(async () => []) },
-  reconciliation: { dbRootIdByAdapterRootId: new Map<string, string>(), registerRoot: vi.fn() },
+  reconciliation: {
+    dbRootIdByAdapterRootId: new Map<string, string>(),
+    registerRoot: vi.fn(),
+    syncMountedRoots: vi.fn(async () => undefined),
+  },
   roots: [{ path: '/owned/repo', rootId: 'root' }],
 }));
 vi.mock('@brainstrike/db/react', () => ({ usePGliteDatabase: () => null }));
