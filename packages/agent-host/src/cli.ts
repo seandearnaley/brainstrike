@@ -327,7 +327,8 @@ function cliTime(value: string): number {
  * plain line per problem.
  */
 function threadSearchParams(values: HostCliArguments['values']): HostParams<'thread/search'> {
-  const query = required(values.query, 'query');
+  // A query of only whitespace searches for nothing: it is as missing as no query.
+  const query = required(values.query?.trim() ? values.query : undefined, 'query');
   const problems: string[] = [];
   if (query.trim().length > 500) {
     problems.push('--query must be at most 500 characters');

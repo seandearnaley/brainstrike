@@ -28,6 +28,11 @@ async function cli(dataRoot: string, args: string[]): Promise<{ code: number; st
 }
 
 test.each([
+  // Smoke of #3568: a whitespace-only query printed a zod issue array.
+  [['--query', '   '], 'Missing --query'],
+  // `--limit -3` is refused by node:util parseArgs as an ambiguous option
+  // before this command reads it; the `=` form reaches the plain check.
+  [['--query', 'smoke', '--limit=-3'], '--limit must be an integer from 1 to 100'],
   [['--query', 'smoke', '--limit', 'abc'], '--limit must be an integer from 1 to 100'],
   [['--query', 'smoke', '--limit', '0'], '--limit must be an integer from 1 to 100'],
   [['--query', 'smoke', '--limit', '101'], '--limit must be an integer from 1 to 100'],
