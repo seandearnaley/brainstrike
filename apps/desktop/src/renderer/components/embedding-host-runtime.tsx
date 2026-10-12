@@ -34,6 +34,7 @@ import { subscribeDocumentEmbeddingsRequests } from './embedding-host-document-l
 import {
   createEmbeddingHostCommandHandler,
   createEmbeddingHostLifecycleFailureHandler,
+  EmbeddingBackgroundAdmissionError,
   runEmbeddingHostCleanupStep,
 } from './embedding-host-lifecycle';
 import { subscribeQueryEmbeddingRequests } from './embedding-host-query-listener';
@@ -375,6 +376,7 @@ function resolveEmbeddingHostRuntimeId(): string {
 
 interface StartEmbeddingHostWorkerOptions {
   readonly activeRef: MutableRefObject<boolean>;
+  readonly backgroundAdmission: boolean;
   readonly backgroundWorker: boolean;
   readonly controllerRef: MutableRefObject<EmbeddingWorkerController | null>;
   readonly db: NonNullable<ReturnType<typeof usePGliteDatabase>>;
@@ -392,6 +394,7 @@ interface StartEmbeddingHostWorkerOptions {
 }
 
 async function startEmbeddingHostWorkerRuntime({
+  backgroundAdmission,
   backgroundWorker,
   activeRef,
   controllerRef,
@@ -417,8 +420,10 @@ async function startEmbeddingHostWorkerRuntime({
   }
 
   startingRef.current = true;
-  fatalErrorRef.current = null;
-  reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'starting');
+  if (!backgroundAdmission) {
+    fatalErrorRef.current = null;
+    reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'starting');
+  }
 
   try {
     await ensureEmbeddingQueueBootstrapLoaded(() => !(isDisposed() || isStopping()));
@@ -431,7 +436,14 @@ async function startEmbeddingHostWorkerRuntime({
       reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running');
       return;
     }
-    const hydratedPreferences = await resolveHydratedEmbeddingWorkerPreferences();
+    const hydratedPreferences = await resolveHydratedEmbeddingWorkerPreferences().catch(
+      (error: unknown) => {
+        if (backgroundAdmission) {
+          throw new EmbeddingBackgroundAdmissionError(error);
+        }
+        throw error;
+      }
+    );
     const hydratedDevicePref = hydratedPreferences.devicePref;
     embeddingRuntimeRef.current = createEmbeddingRuntimeMetadata(hydratedDevicePref, null, {
       hostDevice: hydratedDevicePref,
@@ -488,6 +500,9 @@ async function startEmbeddingHostWorkerRuntime({
       lastError: fatalError,
     });
   } catch (error) {
+    if (error instanceof EmbeddingBackgroundAdmissionError) {
+      throw error;
+    }
     const message = error instanceof Error ? error.message : String(error);
     logger.error('Failed to start embedding host worker', {
       error: message,
@@ -576,7 +591,7 @@ export function EmbeddingHostRuntime(): null {
       }
     );
 
-    const startWorker = async (): Promise<void> => {
+    const startWorker = async (backgroundAdmission = false): Promise<void> => {
       if (stoppedByCommandRef.current) {
         return;
       }
@@ -596,6 +611,7 @@ export function EmbeddingHostRuntime(): null {
       }
       const started = startEmbeddingHostWorkerRuntime({
         activeRef,
+        backgroundAdmission,
         backgroundWorker: backgroundWorkerRef.current,
         controllerRef,
         db,
@@ -793,8 +809,11 @@ export function EmbeddingHostRuntime(): null {
     controlsRef.current = {
       reset: resetWorker,
       startBackground: async () => {
+        if (fatalErrorRef.current) {
+          throw new Error(fatalErrorRef.current);
+        }
         backgroundWorkerRef.current = true;
-        await startWorker();
+        await startWorker(true);
         if (fatalErrorRef.current) {
           throw new Error(fatalErrorRef.current);
         }
@@ -899,6 +918,7 @@ export function EmbeddingHostRuntime(): null {
       createEmbeddingHostCommandHandler({
         getRuntimeId: () => runtimeIdRef.current,
         isDisposed: () => disposed,
+        isFailed: () => fatalErrorRef.current !== null,
         isStopping: () => stoppedByCommandRef.current || stopPromiseRef.current !== null,
         report: (runtimeId, state, commandId, lastError) =>
           reportEmbeddingHostRuntimeStatusForRuntimeId(runtimeId, state, {

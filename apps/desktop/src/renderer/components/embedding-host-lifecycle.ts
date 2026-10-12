@@ -9,6 +9,14 @@ import {
 
 const logger = createLogger('EmbeddingHostRuntime');
 
+/** A legacy preference admission failure leaves the shared inference owner healthy. */
+export class EmbeddingBackgroundAdmissionError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = 'EmbeddingBackgroundAdmissionError';
+  }
+}
+
 /** A disposed Effect still records failures, but cannot publish over its replacement. */
 export function createEmbeddingHostLifecycleFailureHandler(
   runtimeIdRef: MutableRefObject<string>,
@@ -80,6 +88,7 @@ export function createQueryEmbeddingRequestParseErrorReport(
 export function createEmbeddingHostCommandHandler(owner: {
   getRuntimeId(): string;
   isDisposed(): boolean;
+  isFailed(): boolean;
   isStopping(): boolean;
   stop(): Promise<void>;
   reset(nextRuntimeId: string): Promise<void>;
@@ -145,7 +154,9 @@ export function createEmbeddingHostCommandHandler(owner: {
         ) {
           owner.report(
             owner.getRuntimeId(),
-            'error',
+            error instanceof EmbeddingBackgroundAdmissionError && !owner.isFailed()
+              ? 'running'
+              : 'error',
             next.requestId,
             error instanceof Error ? error.message : String(error)
           );

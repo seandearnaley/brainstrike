@@ -64,6 +64,10 @@ export class EmbeddingHostStartup {
       if (acknowledged.runtimeId !== started.runtimeId || acknowledged.state === 'stopped') {
         throw new Error('Embedding host changed during background startup.');
       }
+      if (acknowledged.state === 'running' && acknowledged.lastError) {
+        this.backgroundWorkerRequested = false;
+        return { ...acknowledged, state: 'error' };
+      }
       return acknowledged;
     })();
     this.backgroundStartup = completion;

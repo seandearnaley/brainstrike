@@ -173,11 +173,32 @@ describe('pinned native hidden-host startup', () => {
       } else {
         expect(startEmbeddingWorkerMock).not.toHaveBeenCalled();
       }
-      expect(manager.getStatus()).toMatchObject({ active: true, state });
+      expect(manager.getStatus()).toMatchObject({ active: true, runtimeId, state: 'running' });
       expect(createHostWindowMock).toHaveBeenCalledOnce();
       expect(retireEmbeddingQueueMock).not.toHaveBeenCalled();
       generated.resolve([result()]);
       await expect(response).resolves.toEqual([result().embedding]);
+      generateDocumentEmbeddingsMock.mockResolvedValueOnce([result()]);
+      await expect(
+        manager.documentEmbeddings({ ...payload, texts: ['second document'] })
+      ).resolves.toEqual([result().embedding]);
+      expect(manager.getStatus()).toMatchObject({ runtimeId, state: 'running' });
+      expect(createHostWindowMock).toHaveBeenCalledOnce();
+      if (state === 'error') {
+        storeState.devicePrefConfigured = true;
+        storeState.devicePref = 'webgpu';
+        await act(async () => {
+          await expect(manager.ensureStarted()).resolves.toMatchObject({
+            runtimeId,
+            state: 'running',
+          });
+        });
+        expect(startEmbeddingWorkerMock).toHaveBeenCalledOnce();
+        expect(startEmbeddingWorkerMock).toHaveBeenCalledWith(
+          expect.objectContaining({ device: 'webgpu' })
+        );
+        expect(createHostWindowMock).toHaveBeenCalledOnce();
+      }
       await act(async () => {
         await manager.stop();
       });
