@@ -35,6 +35,7 @@
     "./test-timeouts": "./src/test-timeouts.ts",
     "./fixtures/committed-approved-host-run.json": "./fixtures/committed-approved-host-run.json",
     "./fixtures/committed-approved-host-run-telemetry.json": "./fixtures/committed-approved-host-run-telemetry.json",
+    "./fixtures/committed-host-ended-runs.json": "./fixtures/committed-host-ended-runs.json",
     "./fixtures/committed-host-granted-run.json": "./fixtures/committed-host-granted-run.json",
     "./fixtures/committed-host-hook-blocked.json": "./fixtures/committed-host-hook-blocked.json",
     "./fixtures/committed-host-hooks-skipped.json": "./fixtures/committed-host-hooks-skipped.json",

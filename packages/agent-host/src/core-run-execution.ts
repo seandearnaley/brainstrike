@@ -392,9 +392,11 @@ export async function runHostSdkLoop(
         continue;
       }
     }
-    // Legacy's abort finalization: a user's Stop or a terminal watchdog abort
-    // keeps the partial reply; a stall replaced by a new attempt does not.
-    if (ended.partial && !ports.closing() && (run.stopped || ended.outcome.stalled())) {
+    // Legacy's abort finalization: a user's Stop, a terminal watchdog abort or
+    // the host closing (the app quit mid-reply, BST-1982) keeps the partial
+    // reply; a stall replaced by a new attempt does not. Only an unclean exit
+    // loses it, since the text stream is uncommitted telemetry (ADR-0011).
+    if (ended.partial && (run.stopped || ports.closing() || ended.outcome.stalled())) {
       try {
         await ports.commitMessages(run, [ended.partial]);
       } catch (cause) {
