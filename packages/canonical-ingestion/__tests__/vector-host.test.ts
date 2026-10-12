@@ -24,7 +24,7 @@ const profile: VectorProfile = {
   revision: 'a'.repeat(40),
   tokenCap: 256,
 };
-const parser: NodeChunkerOptions = { parser: 'oxc' as const, treeSitterLanguages: ['python'] };
+const parser: NodeChunkerOptions = { parser: 'oxc' as const };
 const hash = (content: string): string => createHash('sha256').update(content).digest('hex');
 function deferred() {
   let resolve = (): void => {};

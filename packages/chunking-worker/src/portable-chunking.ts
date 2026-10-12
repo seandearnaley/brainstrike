@@ -415,6 +415,11 @@ function isTopLevelContainerType(type?: string): boolean {
   );
 }
 
+/** Export wrappers own their declaration's leading `export` / `export default`. */
+function isExportWrapperType(type?: string): boolean {
+  return type === 'ExportNamedDeclaration' || type === 'ExportDefaultDeclaration';
+}
+
 function hasFunctionAncestor(ancestors: readonly AstNode[]): boolean {
   return ancestors.some((ancestor) => isFunctionNode(ancestor.type));
 }
@@ -449,15 +454,18 @@ function collectTopLevelFunctionRanges(
   }
 
   const nodeType = node.type ?? '';
-  const parentType = ancestors.at(-1)?.type;
+  const parent = ancestors.at(-1);
+  // An exported declaration's chunk is its export wrapper's whole span, so the
+  // leading modifiers (and a default export's trailing `;`) stay with it.
+  const owner = parent && isExportWrapperType(parent.type) ? parent : node;
   if (
-    isTopLevelContainerType(parentType) &&
+    isTopLevelContainerType(parent?.type) &&
     !hasFunctionAncestor(ancestors) &&
     isFunctionNode(nodeType) &&
-    Number.isFinite(node.start) &&
-    Number.isFinite(node.end)
+    Number.isFinite(owner.start) &&
+    Number.isFinite(owner.end)
   ) {
-    ranges.push({ end: Number(node.end), start: Number(node.start) });
+    ranges.push({ end: Number(owner.end), start: Number(owner.start) });
   }
 
   // Use push/pop pattern instead of creating new arrays on every call
@@ -570,32 +578,66 @@ async function splitCodeByFunctions(
     pieces.push(...subPieces.map((piece: string) => piece.trim()).filter(Boolean));
   };
 
-  const appendRange = async (startIndex: number, endIndex: number) => {
-    const safeStart = Math.max(0, Math.min(startIndex, content.length));
-    const safeEnd = Math.max(safeStart, Math.min(endIndex, content.length));
-    await pushSegment(content.slice(safeStart, safeEnd));
-  };
-
+  const spans: SourceSpan[] = [];
   for (const range of ranges) {
     const clampedStart = Math.max(0, Math.min(range.start, content.length));
     const clampedEnd = Math.max(clampedStart, Math.min(range.end, content.length));
 
     if (clampedStart > cursor) {
-      await appendRange(cursor, clampedStart);
+      spans.push({ end: clampedStart, gap: true, start: cursor });
     }
 
     // Function ranges are intentionally emitted without cross-function padding.
     // The recursive splitter still applies overlap inside oversized segments,
     // while persisted source ranges stay exact for line-aware retrieval.
-    await appendRange(clampedStart, clampedEnd);
+    spans.push({ end: clampedEnd, gap: false, start: clampedStart });
     cursor = clampedEnd;
   }
 
   if (cursor < content.length) {
-    await appendRange(cursor, content.length);
+    spans.push({ end: content.length, gap: true, start: cursor });
+  }
+
+  for (const span of joinWordlessGaps(content, spans)) {
+    await pushSegment(content.slice(span.start, span.end));
   }
 
   return { pieces, symbols };
+}
+
+interface SourceSpan {
+  end: number;
+  /** Source between declarations, rather than a declaration's own range. */
+  readonly gap: boolean;
+  start: number;
+}
+
+/** Any letter, digit or identifier character: text a reader or a vector can use. */
+const WORD_CHARACTER = /[\p{L}\p{N}_$]/u;
+
+/**
+ * A gap holding only punctuation or whitespace (a class's closing `}`, a stray
+ * `;`) has no content of its own, and as its own chunk it embeds to the same
+ * vector in every file. It joins the span before it, or the one after it when
+ * it opens the file. Declaration ranges are never joined away.
+ */
+function joinWordlessGaps(content: string, spans: readonly SourceSpan[]): SourceSpan[] {
+  const joined: SourceSpan[] = [];
+  let leadingStart: number | null = null;
+  for (const span of spans) {
+    if (span.gap && !WORD_CHARACTER.test(content.slice(span.start, span.end))) {
+      const previous = joined.at(-1);
+      if (previous) {
+        previous.end = span.end;
+      } else {
+        leadingStart ??= span.start;
+      }
+      continue;
+    }
+    joined.push({ ...span, start: leadingStart ?? span.start });
+    leadingStart = null;
+  }
+  return joined;
 }
 
 /**

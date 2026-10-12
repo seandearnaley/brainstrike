@@ -137,7 +137,7 @@ it.each(['overflow', 'unexplained-mismatch', 'write-failure'] as const)(
       onError: error,
       onReceipt: receipt,
       onWatchHealth: () => {},
-      parser: { parser: 'oxc', treeSitterLanguages: ['python'] },
+      parser: { parser: 'oxc' },
       publication: test.publication,
       request: { batchSize: 2, chunkingOptions: { strategy: 'auto' }, maxFileBytes: 1024 },
       source: {
