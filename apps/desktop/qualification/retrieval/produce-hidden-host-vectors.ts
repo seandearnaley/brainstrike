@@ -11,8 +11,11 @@
  *   pnpm exec node apps/desktop/qualification/retrieval/produce-hidden-host-vectors.ts \
  *     --evidence <BST-1922 dir> --out <new dir outside the repo> --scratch <dir> --lock <dir> \
  *     --model <id> --revision main --dtype fp16 --pooling cls --profile-name <name> \
- *     [--fixture-out <path>]
+ *     [--token-cap <tokens>] [--fixture-out <path>]
  *
+ * --token-cap cuts each text to at most that many tokens, special tokens
+ * included, before embedding (default: the model's own maximum); the
+ * truncation control uses 256, the control profile's cap.
  * --fixture-out also records a tiny real ONNX feature-extraction output (the
  * control model's token states for two texts) for the worker's pooling test.
  */
