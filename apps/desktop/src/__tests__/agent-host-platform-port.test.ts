@@ -364,12 +364,12 @@ it('serves the workspace index, retrieval catalog and query embedding to the hos
         request: { embeddingSetId: 'selected' },
         threadId: 'thread',
       })
-    ).resolves.toEqual(set);
+    ).resolves.toEqual({ ok: true, result: set });
     expect(retrievalStore.embeddingSet).toHaveBeenCalledWith('selected');
     const payload = { dimensions: 2, modelId: 'model', modelKey: 'local::model', query: 'marker' };
     await expect(
       h.client.sendRequest('platform/embedding/query', { request: payload })
-    ).resolves.toEqual([0.5, 0.25]);
+    ).resolves.toEqual({ ok: true, result: [0.5, 0.25] });
     expect(queryEmbedding).toHaveBeenCalledWith(payload, expect.any(AbortSignal));
   } finally {
     h.destroy();

@@ -44,13 +44,13 @@ import {
   type DesktopAdmissionReads,
   type DesktopRunSelection,
 } from './desktop-run-admission';
+import { mainQueryEmbedding } from './host-retrieval-clients';
 import { disposeHostTools, serveHostCommandSessions } from './host-tool-process';
 import { createDesktopHostMemoryConfiguration } from './memory-model-configuration';
 import { desktopMemoryPreconditions } from './memory-readiness';
 import { parentPlatformPort } from './parent-platform-port';
 import {
   PlatformCatalogModelResultSchema,
-  PlatformEmbeddingResultSchema,
   PlatformLocalGenerationResultSchema,
   PlatformLocalProgressSchema,
   PlatformMemoryVectorsResultSchema,
@@ -155,20 +155,16 @@ export function borrowedLocalInference(
           throw new Error('Local embedding is not part of this admitted thread selection');
         }
         const { workerPlan } = local;
-        return PlatformEmbeddingResultSchema.parse(
-          await request(
-            'platform/embedding/query',
-            {
-              request: {
-                dimensions: workerPlan.dimensions,
-                inferencePlan: workerPlan,
-                modelId: workerPlan.modelId,
-                modelKey: local.modelKey,
-                query,
-              },
-            },
-            options?.signal
-          )
+        return await mainQueryEmbedding(
+          request,
+          {
+            dimensions: workerPlan.dimensions,
+            inferencePlan: workerPlan,
+            modelId: workerPlan.modelId,
+            modelKey: local.modelKey,
+            query,
+          },
+          options?.signal
         );
       },
     },

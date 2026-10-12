@@ -14,7 +14,11 @@ import type { EmbeddingHostManager } from '../embedding-host-manager';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
 import type { DesktopWorkspaceBindingBorrow } from './desktop-workspace-binding';
 import { serveHostRewindFiles } from './host-rewind-files';
-import { type HostToolServiceCapabilities, serveHostToolServices } from './host-tool-services';
+import {
+  type HostToolServiceCapabilities,
+  refusalOutcome,
+  serveHostToolServices,
+} from './host-tool-services';
 import { type DesktopWorkspaceSnapshots, serveHostTurnSnapshots } from './host-turn-snapshots';
 import { type DesktopMcpPlatformCapabilities, serveMainMcpStores } from './mcp-main-stores';
 import {
@@ -268,14 +272,15 @@ export function serveDesktopPlatform(
     })
   );
   connection.onRequest('platform/embedding/query', (input: unknown, token: CancellationToken) =>
-    execute(token, async (signal) => {
+    // The outcome union crosses as JSON; the host parses it (RefusableOutcomeSchema).
+    execute(token, async (signal): Promise<unknown> => {
       const { request } = PlatformEmbeddingQuerySchema.parse(input);
       const embeddings = capabilities.localEmbedding;
       if (!embeddings) {
         throw new Error('This desktop has no embedding host for host threads');
       }
       // A retrieval tool's query or an admitted local recall embedder's, as the host sent it.
-      return await embeddings.queryEmbedding(request, { signal });
+      return await refusalOutcome(() => embeddings.queryEmbedding(request, { signal }));
     })
   );
   connection.onRequest('platform/llm/warmup', (input: unknown, token: CancellationToken) =>

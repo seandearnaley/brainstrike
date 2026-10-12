@@ -35,6 +35,7 @@ import type {
 import type { BrowserWindow } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { refusalOutcome } from '../../agent-host-platform/host-tool-services';
 import {
   ContextSelectionDeliveryRequestSchema,
   GrepIndexRequestSchema,
@@ -192,7 +193,9 @@ function mainRequest(
         const { request } = threadScoped(z.strictObject({ includeStats: z.boolean() })).parse(
           input
         );
-        return overWire(await pgliteRetrievalStore().embeddingSpaces(request));
+        return overWire(
+          await refusalOutcome(() => pgliteRetrievalStore().embeddingSpaces(request))
+        );
       }
       case 'platform/workspace-context/selection': {
         const { payload } = ContextSelectionDeliveryRequestSchema.parse(input);
@@ -648,7 +651,10 @@ describe('assistant-tools read tools', () => {
     }
   );
 
-  it('keeps filesystem read faults redacted through the execution guard', async () => {
+  // BST-1996 reverses BST-1892 for this one case: a missing file inside the root
+  // is the model's to correct, so it gets the authored refusal. It echoes only the
+  // path the model sent, never the host root.
+  it('refuses a missing file inside the root with only the path the model sent', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const toolName = 'brainstrike.readWorkspaceFile';
     const tools = hostTools(workspaceRuntime(workspaceRootPath));
@@ -662,15 +668,47 @@ describe('assistant-tools read tools', () => {
       const result = await executeRead({ path: '/src/private-missing.ts' });
       expect(result).toEqual({
         error: {
+          code: 'tool_input_invalid',
+          message: 'Path "/src/private-missing.ts" does not exist.',
+          toolName,
+        },
+        ok: false,
+      });
+      expect(JSON.stringify(result)).not.toContain(workspaceRootPath);
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+    }
+  });
+
+  it('keeps filesystem read faults redacted through the execution guard', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const toolName = 'brainstrike.readWorkspaceFile';
+    const tools = hostTools(workspaceRuntime(workspaceRootPath));
+    const executeRead = requireToolExecute<GuardedToolError>(
+      {
+        [toolName]: guardToolExecution(requireTool(tools, toolName), { timeoutMs: 1000, toolName }),
+      },
+      toolName
+    );
+    const readError = Object.assign(
+      new Error(`EACCES: permission denied, open '${path.join(workspaceRootPath, 'src/main.ts')}'`),
+      { code: 'EACCES' }
+    );
+    const openSpy = vi.spyOn(fsPromises, 'open').mockRejectedValueOnce(readError);
+    try {
+      const result = await executeRead({ path: '/src/main.ts' });
+      expect(result).toEqual({
+        error: {
           code: 'tool_failed',
           message: 'The tool did not complete successfully. Try another approach.',
           toolName,
         },
         ok: false,
       });
+      expect(openSpy).toHaveBeenCalled();
       expect(JSON.stringify(result)).not.toContain(workspaceRootPath);
-      expect(JSON.stringify(result)).not.toContain('private-missing');
     } finally {
+      openSpy.mockRestore();
       await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
     }
   });
@@ -2987,13 +3025,18 @@ describe('assistant-tools read tools', () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = hostTools({
       ...singleRootRuntime(workspaceRootPath),
-      selectionFilePaths: ['/missing.ts'],
+      // The skip reason is decided by the refusal's type, never by its text: a
+      // missing file whose name reads like the size-limit message is missing.
+      selectionFilePaths: ['/missing.ts', '/exceeds-limit-name.txt'],
     } as RuntimeData);
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceContext');
 
     const result = await executeTool({ context: {} });
 
-    expect(result.skippedFiles).toEqual([{ path: '/missing.ts', reason: 'missing' }]);
+    expect(result.skippedFiles).toEqual([
+      { path: '/missing.ts', reason: 'missing' },
+      { path: '/exceeds-limit-name.txt', reason: 'missing' },
+    ]);
     expect(JSON.stringify(result.skippedFiles)).not.toContain(workspaceRootPath);
     await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
@@ -3350,10 +3393,12 @@ describe('assistant-tools read tools', () => {
       })
     ).rejects.toThrow();
 
+    // A missing file is the model's refusal now (BST-1996); its message, which
+    // names the path, still never reaches the log.
     expect(loggerErrorMock).toHaveBeenCalledWith('readWorkspaceFile failed', {
       error: expect.objectContaining({
-        code: 'ENOENT',
-        name: 'Error',
+        code: 'tool_input_invalid',
+        name: 'WorkspacePathRefusal',
         redacted: true,
       }),
       input: {
