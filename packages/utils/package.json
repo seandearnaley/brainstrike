@@ -2,6 +2,7 @@
   "name": "@brainstrike/utils",
   "version": "0.1.0",
   "dependencies": {
+    "@eslint-community/regexpp": "catalog:",
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "ignore": "catalog:",
@@ -126,6 +127,10 @@
     "./grep-line-matcher": {
       "types": "./dist/grep-line-matcher.d.ts",
       "default": "./dist/grep-line-matcher.js"
+    },
+    "./grep-trigram-plan": {
+      "types": "./dist/grep-trigram-plan.d.ts",
+      "default": "./dist/grep-trigram-plan.js"
     }
   },
   "files": [

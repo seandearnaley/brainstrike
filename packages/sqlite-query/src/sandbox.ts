@@ -3,6 +3,7 @@ import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import { decodeIndexIdentityRow, type IndexerIdentity } from '@brainstrike/indexer/metadata';
 import { sqliteVecExtensionPath } from '@brainstrike/sqlite-native';
 import { createGrepLineMatcher } from '@brainstrike/utils/grep-line-matcher';
+import { planGrepTrigramCandidates } from '@brainstrike/utils/grep-trigram-plan';
 import { Schema } from 'effect';
 import { CALLER_BINDING_NAMES, requireCallerVectors } from './caller-vectors.js';
 import type {
@@ -198,10 +199,15 @@ export class SqliteSandbox {
     return { columns, rows, truncated };
   }
 
-  /** Exhaustive authorized-scope scan in this killable reader, never the writer. */
+  /**
+   * Exhaustive authorized-scope grep in this killable reader, never the writer.
+   * A trigram plan narrows the chunks read for matching; the line matcher
+   * still decides every row, so results equal the exhaustive scan.
+   */
   grep(options: SqliteGrepOptions): SqliteGrepRows {
     validateGrepOptions(options);
     const matcher = createGrepLineMatcher(options.pattern, options.isRegex, options.caseSensitive);
+    const plan = planGrepTrigramCandidates(options.pattern, options.isRegex, options.caseSensitive);
     const selectedIds = options.fileIds ?? options.rootIds;
     const scopePredicate =
       options.fileIds === undefined
@@ -224,7 +230,16 @@ export class SqliteSandbox {
       'ch.token_count',
       ...(options.fileIds === undefined ? [] : ['fr.embedding_set_id', 'fr.source_path']),
     ];
-    const literalFilter = grepLiteralFilter(options);
+    // Trigram candidates replace the literal prefilter. The table's content_rowid
+    // is file_chunks.pk, the INTEGER PRIMARY KEY alias of each chunk's rowid.
+    const contentFilter =
+      plan.kind === 'candidates'
+        ? {
+            pattern: plan.match,
+            predicate:
+              'ch.rowid IN (SELECT rowid FROM file_chunks_trigram WHERE file_chunks_trigram MATCH ?)',
+          }
+        : grepLiteralFilter(options);
     // Keep every row that the existing decoder would reject, including nonmatching rows.
     const invalidValue = projection
       .map(
@@ -232,8 +247,8 @@ export class SqliteSandbox {
           `((typeof(${column})='real' AND (${column}>1.7976931348623157e308 OR ${column}<-1.7976931348623157e308)) OR (typeof(${column})='integer' AND (${column}>9007199254740991 OR ${column}<-9007199254740991)))`
       )
       .join(' OR ');
-    const contentPredicate = literalFilter
-      ? ` AND (typeof(ch.content)<>'text' OR ${invalidValue} OR ${literalFilter.predicate})`
+    const contentPredicate = contentFilter
+      ? ` AND (typeof(ch.content)<>'text' OR ${invalidValue} OR ${contentFilter.predicate})`
       : '';
     const statement = this.#database.prepare(
       `SELECT md.schema_version,md.store_id,md.index_mode,md.profile_json,md.profile_hash,native_chunks.* FROM index_metadata md LEFT JOIN (SELECT ${projection.join(',')} FROM file_chunks ch JOIN file_records fr ON fr.id=ch.file_record_id AND fr.root_id IS ch.root_id WHERE ${scopePredicate}${contentPredicate}) native_chunks ON 1=1 WHERE md.singleton=1 ORDER BY native_chunks.path,native_chunks.id`
@@ -247,8 +262,8 @@ export class SqliteSandbox {
     let matchedChunks = 0;
     let identity: IndexerIdentity | undefined;
     let resultBytes = columns.reduce((total, column) => total + Buffer.byteLength(column) + 16, 0);
-    const parameters = literalFilter
-      ? [JSON.stringify(selectedIds), literalFilter.pattern]
+    const parameters = contentFilter
+      ? [JSON.stringify(selectedIds), contentFilter.pattern]
       : [JSON.stringify(selectedIds)];
     for (const output of statement.iterate(...parameters)) {
       const snapshotRow = decodeRow(output);

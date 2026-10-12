@@ -1,0 +1,4765 @@
+{
+  "provenance": "BST-1939: unique Grep tool-call patterns (ripgrep regex, -i flag) recorded in local Claude Code sessions searching this repository, through 2026-10-12. Every pattern compiles as a JavaScript RegExp.",
+  "patterns": [
+    {
+      "caseInsensitive": false,
+      "pattern": "MAX_DELEGATED_ENVELOPE_UNWRAPS|createMastraToolExecutionPartKindReader|SUBAGENT_DELEGATION_TOOL_PREFIX"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "MAX_DELEGATED_ENVELOPE_UNWRAPS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readMastraToolExecutionPartKind"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "initialToolCallIds"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "toolExecutionPartKind"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "initializeProviderModelDefaults"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ProviderModelDefaultPolicy"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "toggleModel"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "owner\\.reserve|channel\\..*reserve|reserve\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "budgetFor|NATIVE_TOOL_EXECUTION_BUDGETS|declaredMaxMs"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "NATIVE_TOOL_EXECUTION_BUDGETS|NativeToolExecutionBudget|declaredMaxMs"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "applyToolGuards"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "NATIVE_TOOL_EXECUTION_BUDGETS|NativeToolExecutionBudget"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "parseConfiguredMcpServerId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "sanitizedLocalToolIds"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "runPython|executeCommand"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "toolExecutingMs|tool-executing"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "toolExecutingMs"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "streamReasoningGapMs"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "describeMastraStreamPartType"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ModelRegistrySettingsSection"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "model-registry-settings-section"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "finite backstop"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "tool-executing"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "toolNameMap"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "applyToolGuards|toolNameMap"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "tool-pipeline|applyToolGuards"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "applyToolGuards|toolNameMap|sanitizeTools|collectCombinedTools"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "sanitizeToolName|SUBAGENT_DELEGATION_TOOL_PREFIX"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "__resetModelRegistryStoreForTests"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "applyToolGuards|guardToolExecution"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "applyToolGuards\\(|guardToolExecution\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "tool-executing|toolExecutionPartKind|initialToolCallIds"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ResumedApprovalToolCall|resumedApprovalToolCall"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "setModelsEnabled|useModelBulkToggle|toggleMany"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "db\\.query"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "useModelToggle"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "onEnableModel"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ProviderModelHeader"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "onModelToggle"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "provider-model-header|ProviderModelHeader"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "toggleModel:|toggleModel =|toggleModel\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "findModelsUpdatedAtWriteFailures"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "findModelsUpdatedAtWriteFailures|MODELS_WRITE_STATEMENT_START_PATTERN|findModelsStatementEnd"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "NATIVE_TOOL_EXECUTION_BUDGETS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "declaredMaxMs|NativeToolExecutionBudget"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveToolGuardBudgetMs|resolve-tool-guard-budget"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "function namespaceServerTools"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "dangerouslySetInnerHTML|innerHTML|eval\\(|new Function"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "describeActiveFilters|CatalogFilterChip"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hasExecutionGuardBehindToolCall"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ExecutionGuard|providerExecuted|readMastraStreamPartString|readMastraStreamPartValue"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hasExecutionGuardBehindToolCall|ExecutionGuardBehind|providerExecuted"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readMastraToolExecutionPartKind|MASTRA_TOOL_EXECUTION_PART_KINDS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "MASTRA_TOOL_EXECUTION_PART_KINDS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "executionGuard|execution.guard|toolCallExecution|activeExecutions"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "agent-|DELEGATION_TOOL_PREFIX|delegation.*prefix|isDelegation"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isDelegationToolName|DELEGATION_.*_PREFIX|isAgentToolName|delegationToolPrefix"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "SUBAGENT_DELEGATION_TOOL_PREFIX\\s*=|SUBAGENT_DELEGATION_TOOL_PREFIX:"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "description"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "useModelToggle|toggleModelEnabled|toggle.*true"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ComposerModelPicker"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "composer-model-picker"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "getProviderModelDefaultPolicy"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "PROVIDER_MODEL_DEFAULT_POLICIES"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveToolGuardBudgetMs|TOOL_GUARD_MARGIN_MS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "NativeToolExecutionBudget"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "executionBudget|defaultGuardMs|toolGuard"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "timeoutMs"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "executionBudget"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "defaultMs.*maxMs|maxMs.*defaultMs"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "getProviderModelDefaultPolicy|ProviderModelDefaultPolicy"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "withInactivityTimeout"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "toolExecuting|toolExecutionPartKind"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "withInactivityTimeout|StreamInactivityWindows|reasoningGapMs"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createBackgroundResumeStream|LiveBackgroundOwner|reserve\\s*:"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "registerTaskContext|deregisterTaskContext"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "LiveBackgroundOwner|reserve\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "nightly-linear-alert"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "nightly-linear-alert.yml"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "updateThreadsMetadata|updateThreadMetadata"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "data-thread-id"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "LEGACY_READ_ONLY_MESSAGE"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "updateThreadsMetadata"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "listMessages|listThreadRunEvents"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "listMessages|listThreadRunEvents|renderThread|ownsThread"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "tool\\.resume\\.unsupported|tool\\.approval\\.requested|toolCallId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "async listMessages|async listThreadRunEvents|listMessages\\(|listThreadRunEvents\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resourceId|ownerResourceId|threadId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "brainstrike_delegated_continuation_decisions"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "brainstrike_delegated_tool_decisions"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "state.*=.*'(claimed|pending|running|awaiting)'"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "AssistantUiPanelWrapper"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "use-threads-awaiting-approval"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "AssistantThreadRepository\\s*=\\s*\\{|interface AssistantThreadRepository"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "interface AssistantThreadRepository"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "mastra_background_tasks"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "status.*(pending|running|suspended|completed|cancelled|cancelled|failed)"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "(status.*'awaiting'|'awaiting'.*status|background_tasks.*status|status.*'queued')"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "AssistantThreadRepository|interface AssistantThreadRepository"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "tool.resume.unsupported|interruptedByLegacyUpgrade"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isDisabled|isSendDisabled"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "useExternalStoreRuntime|ExternalStoreAdapter"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isSendDisabled|isDisabled"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "disabledReason|isComposerDisabled"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "configureAssistantProvider"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "retainHostRunAdmission"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "supplied|OPENAI_BASE_URL|ANTHROPIC_BASE_URL"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "console\\.(warn|log|error|info)"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "brainstrike_delegated_continuations"
+    },
+    {
+      "caseInsensitive": true,
+      "pattern": "state (text|VARCHAR|CHECK|DEFAULT)"
+    },
+    {
+      "caseInsensitive": true,
+      "pattern": "state (text|VARCHAR|CHECK|DEFAULT|IN)"
+    },
+    {
+      "caseInsensitive": true,
+      "pattern": "CREATE TABLE.*mastra_background_tasks"
+    },
+    {
+      "caseInsensitive": true,
+      "pattern": "CREATE TABLE.*mastra_workflow_snapshot"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "tool\\.resume\\.unsupported"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "subtree"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "subtree\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "deleteThread|thread/delete"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "thread/delete"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "thread/delete|deleteThread"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "thread/delete|deleted: true"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "deleteThread\\(|threadIds"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "pendingInteractions"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "permissionToolId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "pendingInteractions|permissionToolId|threadId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "PendingHostApproval|toolCatalogId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "onEvent|log/event|log/subscribe"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "scanUserPersonas|UserSlashCommandScanRoot"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "parseRuntimeSubagentSettings|runtimeSubagentSettingsSchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "acquireHostRunAdmission"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isChild|rootThread"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isChild"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "^const Thread |^export const Thread"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hasHostInteractionResponse"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "this.children.fold|children\\.fold"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "tenant|owner|principal"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "this\\.fold|\\.fold\\(row"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "AssistantChildAttachment"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostImageAttachmentSchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostImageAttachmentSchema|HostImageAttachment"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "run/input"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "run/input|RunInput"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "onSendActiveInput"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "SendActiveConversationInput|ActiveConversationInputProvider"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "SendActiveConversationInput"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "SendActiveConversationInput|type.*=.*AssistantChildInput"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "childCallSign"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "callSign"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assertHostAdmissionCleanup|abortHostThreadRuns"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "platform\\.delegation|\\.delegation\\b"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "platform\\.delegation|platform\\?\\.delegation"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "delegation:\\s*{|HostPlatform\\['delegation'\\]"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "delegation"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "bindDesktopClientPort"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "installParentPlatformPort|parentPlatformPort|parentPort"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createAgentHostPrivateClients|registerAgentHostClientIpc"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ensureHostRunAdmission|continueRun"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "validateImageAttachmentPart|SUPPORTED_IMAGE_ATTACHMENT_MEDIA_TYPES|ASSISTANT_ATTACHMENTS_MAX_PER_MESSAGE|ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "clientOrigin|HostClientOrigin"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "setCredential"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readPrivateCredentialFile"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "effect\\.started|foldHostRunEffect|hostStepInteractions"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "effect\\.started|'effect.started'|type: 'effect\\.started'"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createHostSdkTools|type: 'effect\\.started'|action:.*effect\\.started"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "effect\\.started|'effect\\.started'"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "branch\\.prompt|run\\.prompt|event\\.prompt"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "userPromptSubmit"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "runUserPromptSubmit"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hostStartCommandRecord|Command identity was reused"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "threadWorkspaceNavigation"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hostChildWorkspaceTabId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "openThreadTab"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "intersectChildPermissionCeilings"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "foldHostStartedRun"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function foldHostStartedRun"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "NATIVE_TOOL_ID = "
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "manageTaskList"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "runtimeLimits"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "run\\.deadline|\\.deadline"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "committedAttachments"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function openHostChildTab"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export (async )?function hostRunToolDecision"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function intersectChildPermissionCeilings"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "^(function|const) combine"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function acceptHostRunStop"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "personaMode"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "AssistantPersonaDefinition"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "personaMode|export.*label.*string|label:\\s*z\\.string"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "origin\\.profile|profile\\.label|\\.profile\\?\\.label"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostChildOrigin|childOrigin"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "user-personas"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "label:|\\.label\\s*=|labelFrom"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "profile\\?|profile:.*label|origin\\.profile|origin.*\\.label"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "dangerouslySetInnerHTML|innerHTML"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "\\.label\\.length|label\\.slice|MAX_LABEL"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function assertHostRunAdmissible"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hostRunCommandRequest"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assertHostRunAdmissible"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function admittedHostRun"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "CHILD_PROVIDER_SOURCE"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "useAssistantProviderSource|AssistantProviderSourceProvider"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "parseHostParams|HOST_METHOD_SCHEMAS|HOST_RESULT_SCHEMAS|HostEventSchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "parseHostParams"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "thread/children|thread/list|threadChildren|getChildren"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "thread/children"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "'thread/children'|threadChildren"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostChildOrigin|HostChildDelivery|'thread.started'"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "'thread.started'"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostMethod|HOST_METHOD_SCHEMAS\\[|HostMethod[\\]|)]|allowedMethods|methodAllowlist"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "damage"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "thread/selection/set|thread/selection/read|thread.selection.updated"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function captureDesktopHostIntent|captureDesktopHostIntent ="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function captureDesktopHostIntent"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createDesktopNodeMcpHost"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "rebuild-required"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "pull_request_target|secrets\\."
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "payloadText|runHistoryText"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "search\\s*\\(|searchState|state-projection"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "McpTaskInputWithdrawnError"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "error instanceof|signal.reason instanceof|InputWithdrawnError"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "InputWithdrawnError|retireSuperseded|controller\\.abort"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "McpTaskInteraction"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "withdrawInputs|McpTaskInputWithdrawnError"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "\\.cancel\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "withdrawInputs"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "registerSecretsIpcHandlers"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "clearAll|onClearAll"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "getSecretsService"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "desktopCredentialStoreSelection"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "LOCAL_DESKTOP_NATIVE_TOOL_IDS|DESKTOP_NATIVE_TOOL_IDS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isSupportedProvider"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "enabledNativeToolIds"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveProviderAuth"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createDesktopSettingsSecrets|DesktopCredentialWriter|openPrivateClientPort"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createFileCredentialBackend|FileCredentialBackend"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isElectronE2ETestMode"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "writePrivateCredentialFile|readPrivateCredentialFile"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "migrateLegacySecrets"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "interface KeyringCredentialStore|class.*CredentialStore|write.*account.*value"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "platform/embedding/query"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "QueryEmbeddingPayloadSchema|queryEmbedding"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "class EmbeddingHostManager|queryEmbedding\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "PlatformLocalEmbeddingQuerySchema|PlatformLocalEmbeddingResultSchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "VECTOR_PREFERENCES_STORAGE_KEY"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "onStorageChanged"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assertRendererWritableDesktopStorageKey|MAIN_OWNED_DESKTOP_STORAGE_KEYS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "DesktopLlmHostInference"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "providerForAccount"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createKeyringSecretsService"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isMcpOAuthCredentialAccount"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "listProviders"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createHostPlatform"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createKeyringSecretsService|providerForAccount"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "getTrackedWindowsByRole|assignWindowRole|getWindowRoleByWebContentsId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assignWindowRole.*visible-ui|'visible-ui'"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assignWindowRole\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "runAtPromiseBoundary"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "pollDeviceFlow|guardedFetchText|startDeviceFlow"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ProviderAuthFlowError|ProviderAuthRequestFailure|isProviderAuthFlowCancelled"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "pollDeviceFlow|startDeviceFlow|guardedFetchText"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "_tag|ProviderAuthFlowCancelledError|instanceof.*Cancel"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostClientOrigin|desktop-ui"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "pickConfigPath"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "admission\\.origin|origin.*desktop-ui|HostClientOrigin"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "oauth_subscription|subscription.*origin|resolveProviderAuth|resolveAuth"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "registerAuthorizedInvoke|visible-ui"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "private admit\\(|  admit\\(threadId|^\\s*admit\\(threadId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "this\\.admit\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "private admit|admit =|admit\\(threadId.*signal"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostPermissionPolicySchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resetPermissionPolicyStoreToDefaults|clearPersistentUiState|clearStorage"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resetPermissionPolicyStoreToDefaults"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createSanitizedPersistMerge"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostClientOrigin|desktop-ui.*origin|origin.*desktop-ui"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resetLiveStoreSafely|clearPersistentUiState"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "useLocalModelLoading"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createE2eScriptedLlmHost"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "getWindowRoleByWebContentsId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "llmHost.*onProgress|llmHost:.*onProgress|LLM_HOST_PROGRESS_EVENT"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "onProgress.*LLM_HOST_PROGRESS_EVENT|llmHost:.*\\{|window.llmHost"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostClientOrigin"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "PERMISSION_DECISIONS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "permission-policy.v1|permission-policy"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "getSetting|setSetting|deleteSetting"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readThreadMemory|thread/memory/read"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "getObservationalMemory|class StateStoreMemoryStorage"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostRunExecutionPorts|executionPorts"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function retainHostRunWork"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "acknowledged|bindTaskPresenter"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "private admit|^  admit\\b"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "handleResetLocal|registerAgentHostClientIpc"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "registerAgentHostClientIpc|export function registerAgentHostClientIpc|acquireProfile"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "acquireProfile|destroyAndRetireProfile"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "parseObservationalMemoryModelTarget"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function getToolActionIdentityKey"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ownerThread"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ApprovalOwnerThread\\b"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "useAnsweredApprovals"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "AnsweredApprovalsProvider"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "useAnsweredApprovals|answers\\.get"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "answers\\.get|answers\\[|\\.answers"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "function getToolActionIdentityKey"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "store.*false|codex.*fetch|codex-fetch"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "useDesktopHostPresentation|readConfiguration"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readConfiguration"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "thread/memory/read"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "thread/memory/read.*ParamsSchema|ParamsSchema.*thread/memory/read|threadmemory|ThreadMemoryRead"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export.*HostClient|class HostClient|interface HostClient"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "STATUS_BY_OUTCOME"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "electronAPI.*\\.db"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function isSupportedProvider|export function findProviderDefinition|export function getProviderDefinition"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "PlatformModelConfigurationSchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "\\.threadId\\s*="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostEventSchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "countToolChunk|HYDRATED_CHUNK_TYPES|chunk\\.type"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "\\.hydrate\\(|HostThreadCatalog|fold\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "stream\\.chunk|event\\.type ===|'stream\\.chunk'|type === 'stream"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "foldHostRunEffect|stream\\.chunk"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "threads\\(\\).*{|SELECT.*FROM threads"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "threads\\(\\)|FROM threads"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "store\\.append|\\.append\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "excludeStreamChunksExceptTypes|HydrationReadFilter|threadTimes\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readFailure"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readHostThreadHistory"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "finishHostRunWithProviderBilling"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "this\\.read\\(|core\\.read\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "read:.*threadId.*=>.*this\\.read"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "thread/list"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostLatestRunSchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readBinding|readLatestRun"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readHostRow"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "openConnection|sqlite-native"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "@brainstrike/sqlite-native"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "openConnection|sqliteVecExtensionPath|unpackedExtensionPath"
+    },
+    {
+      "caseInsensitive": true,
+      "pattern": "secret|token|password|api[_-]?key|credential|bearer"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "SHARED_NATIVE_TOOL_IDS|SHARED_NATIVE_TOOL_EXECUTORS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "workspaceRoots|workspaceRootPath|resolveWorkspacePath"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "workspaceRoots"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "workspaceRoots|boundWorkspaceRootId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveWorkspaceRootPath|workspaceRootPath"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveWorkspaceRootPath|resolveWorkspaceAbsolutePath|resolveWorkspaceWritePath|workspaceRoots"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveWorkspaceRoot\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function resolveWorkspaceRoot"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "workspaceBinding|freshWorkspaceRoots|workspaceRoots"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "freshWorkspaceRoots|boundWorkspaceRootId|operatingRootId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "rootId|root_id"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function resolveOptionalWorkspaceRoot"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveOptionalWorkspaceRoot"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "McpAppBridgeProvider"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "mcpAppBridge|useMcpAppBridge|MCPAppBridge"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "class McpAppToolCallAuthority"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "approved|approval"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readMcpAppToolInvocationResult"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assertHostCommandAdmissible"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "disposeDesktopCommandSessionsForRoot|disposeRoot"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "attachHostCommandSessions|hostCommandSessions|disposeDesktopAndHostCommandSessionsForRoot|serveHostCommandSessions"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "attachHostCommandSessions|serveHostCommandSessions"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assertRootId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "disposeRoot|withHostCommandSessions"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "platform/execute|platform/progress|platform/validate|platform/project"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "platformToolInputSchema|canonicalToolModelOutput|validateCanonicalToolInput|PlatformToolRequestSchema|PlatformProgressSchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resumeData"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveRunPythonExecutionContext"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "committedApprovalGrant"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "listAutoObservationalMemoryCandidates|resolveAutoObservationalMemoryModelTarget"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "listAutoObservationalMemoryCandidates|resolveAutoObservationalMemoryModelTarget|AUTO_.*MEMORY"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveAutoObservationalMemoryModelTarget"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "listAutoObservationalMemoryCandidates"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "CanvasFrame"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "tool\\.state\\.updated"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "manageCanvas:"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createdBy:\\s*'(user|assistant)'"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "CANVAS_CREATED_BY_VALUES\\s*="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "runWebExtract"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "refuseExtractUrl"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveTavilyApiKey"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "NATIVE_TOOL_EXECUTORS|webExtract"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createTavilyKeyResolver"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "serveHostToolServices|admitted:"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "queryEmbedding.*payload|async queryEmbedding"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "nativeIndexSearch:.*=|nativeIndexSearch:\\s|createNativeIndexSearch|IndexSearchCapability"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "search:|authoriz|rootIds"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "BLOBS_DIR|BlobContent|sha256Hex"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "sha256Hex|BLOBS_DIR|BlobContent"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createAgentHostToolBindings"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "threadId.*randomUUID|threadId:.*string|new.*Thread.*Id|threadId\\s*="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "thread/delete|thread/start"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "this\\.threads\\.add|threads\\.add\\(|this\\.threads = "
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assertRunnable"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "run\\.owner|\\.owner\\b"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "openRun\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "joinHostRunOwner|HostRunOwnerFailure"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "admitted|serveHostToolServices|hostTools"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function hostBranchDeliveries"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readCommittedRows"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "denormalizeNativeToolName"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function denormalizeNativeToolName|function denormalizeNativeToolName"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "REVERTIBLE_MUTATION_TOOL_NAMES"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isRevertibleCaptureStatus|SANITIZED_TO_DOTTED_NATIVE_TOOL"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "checkpoint/revert"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "getSnapshot|readonly rows"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hostEditScope"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "^const Id|^export const Id|const Id =|export const Id ="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "deletions|closing"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "tool\\.state\\.updated|HostToolState"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "reconcileFromShell"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "reconcileWorktreesFromShell|function reconcile|precedingWorktreePaths"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "rootId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "findProviderDefinition"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "runtime:\\s*['\\\"]local['\\\"]"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "runtime.*local"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "runtime"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ProviderRuntime|runtime: "
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "\"runtime\":\\s*\"local\""
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostRunAdmissionRequest"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "modelId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveModel|modelId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "request.modelId|modelId:\\s"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "DYNAMIC_LOCAL_MODEL_CONTEXT_WINDOW"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "onCommandCompleted|shellCorrelation|rootId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "executeCommandExecutor|shellCorrelation"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "shellWorktrees"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostShellWorktree"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "^const Id |^export const Id|Id = z"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "worktreeCreatedNotice|worktree\\.created"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "desktopHostSharedTools"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "freshRoots"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isLocalProvider\\s*\\?"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isLocalProvider"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "LOCAL_DESKTOP_NATIVE_TOOL_IDS|NATIVE_TOOL_EXECUTORS\\["
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "surfaces:.*'local'|localProvider:"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isLocalProvider\\s*(\\?|&&|\\|\\|)"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "NATIVE_TOOL_EXECUTORS\\[|SHARED_NATIVE_TOOL_EXECUTORS\\[|NATIVE_TOOL_EXECUTORS\\.|SHARED_NATIVE_TOOL_EXECUTORS\\."
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createSharedNativeHostTools"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "legacyNativeToolPorts|nativeToolPorts"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ports:|legacyNativeToolPorts\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "nativeToolPorts|legacyNativeToolPorts|DesktopToolBuildContext"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "nativeToolPorts|legacyNativeToolPorts"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostPlatformLaunchOptionsSchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "platformOptions\\?.appPaths|platformOptions\\.appPaths"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createFileCredentialBackend"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "AFTER_EXCERPT|BEFORE_EXCERPT|EXCERPT_FILE|extractRegion|runSearchChecks|SEARCH_CHECKS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createSearchReducer|filterFiles|openedPath|PROJECT_FILES"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "foreign_keys"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "brainstrike_mcp_tasks|brainstrike_mcp_task_authorities"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "CREATE TABLE.*threads|threads\\s*\\(id"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "openAuthority"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "\\.mcpTasks\\(|\\.openAuthority\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "service\\.invoke|McpHostService"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "caller|invoke.*options|options.*caller"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "options.*caller|caller.*options|McpHostInvokeOptions|invoke\\(.*options\\)|invoke\\(.*operation.*,.*options\\)"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "caller"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "invoke.*operation|operation.*options|client\\.invoke"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "codexIssuer"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createHostAuthority"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "openAiCodexIssuer"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "auth/login|storeProviderCredential"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostClientOrigin|public-socket|desktop-ui"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "setCredential.*oauth|type:\\s*['\"]oauth"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createDesktopSettingsSecrets|getSecretsService"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostLoginCredential|LoginCredential\\s*="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "McpTaskElicitationBinding|McpBoundTaskElicitationPresenter|bindTaskPresenter"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "\\.withdraw\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "host\\.track\\(|taskHost\\.track\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "brainstrike_mcp_task"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "mcp-discovery-diagnostics"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "McpDiscoverySkip"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "boundRunEventReason|boundMcpDiscoveryReason"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "boundRunEventReason|MAX_RUN_EVENT_REASON_CHARS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isAlwaysVisibleRunEvent|mcp.tools.unavailable"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "AssistantRunEventKind|mcp.tools.unavailable"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "onMcpDiscoverySkips"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "observationPort|publish\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "runWithOperation"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "attachElicitationPresenter|mcpInput.surface|surface\\.attach"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "AGENT_HOST_PROTOCOL_VERSION"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "protocolVersion\\s*[<>!=]"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "parseMcpConfigValue|ResolvedMcpConfig"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createLazySafeStorageMcpOAuthStore|identityKey|parseRecords"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "mcp/input/stage"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "mcp/input/stage|mcpInputStage|InputStage|McpInputStage"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "const McpContent|McpContent =|McpContent:"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "const McpInput|McpInput ="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "elicitationPresenter|attachElicitation"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "protocolVersion"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "bindHostAuthMethods|openPrivateClientPort|authenticateHostClient|desktop-ui|public-socket"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "bindClientConnection|openPrivateClientPort|desktop-ui|bindHostConnection.*desktop"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostLoginCredential"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "Encrypted"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "McpConfiguredAuthSchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "mcp/input/stage|McpInputStage|mcpInputStage|'mcp/input/stage'"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "sanitizeAssistantRunEventMetadata"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "sanitizeAssistantRunEventMetadata|session"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "sessionGrants|ToolRiskCategory"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "originalName"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "preludeChunks"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "toolNameMap.set|toolNameMap\\.set"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isAlwaysVisibleRunEvent"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readFinishReason"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "__brainstrike_e2e_foreground_latency_probes__"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "SqliteRuntimeRefusedError"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "startupError|response\\.name"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "kind: 'error'|kind: \\\"error\\\""
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "SqliteRuntimeRefused|runtime_refused|runtimeRefused|sqlite_runtime_refused"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "SUBAGENT_SETTINGS_LIMITS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ProviderSettingsPanel|useDraftField|agentMaxSteps"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "brainstrike_delegated_conversations"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "brainstrike_assistant_thread_runs"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "CREATE TABLE.*brainstrike_delegated_conversations"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveDelegatedHostScope"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readScope|scope\\.ownerResourceId|scope\\.rootThreadId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createDesktopDelegatedConversationHost|readScope"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createDelegatedStepBudget|readScope|hostRunId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "applyTurnSubagentLimits"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "insert into brainstrike_delegation_budgets|INSERT INTO brainstrike_delegation_budgets"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "admitDelegatedInvocation"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "maxDepth|maxInvocations|maxConcurrentWork|maxChildRuntimeMs|maxTreeOutputTokens"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "subagentSettings"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "DELEGATION_LIMITS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "admitDelegatedInvocation|reserveDelegatedInvocation"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createDesktopDelegatedConversationHost"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "nativeIndexActivation|agentHostClientIpc|agentHostMainClient"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createProfileAdmission|releaseRootForHost|hostReleasedEpoch"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createNodeHostSpawner"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "lifetime.*app"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hooks/trust"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hooks\\.json|HookManager"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "spawn|execFile|exec\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hook.*command|HookCommand|runHookCommand|execHook"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "approvedSha256|re-?hash|rehash"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "approvedSha256"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostHookSkip|hookSkips|hooks\\.skipped"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostHookSkip|hooks\\.skipped|hookSkips"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hookSkips|HostHookSkip"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostRewindFiles|rewindFiles"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "committed-benchmark"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "commit-tree|commit \\-m|commit \\['commit|JSON.stringify"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "listSnapshotThreadIds"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readSnapshotRefIdentity"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "redact|sanitiz|PII"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "platform/rewind/apply|platform/rewind/preview|serveHostRewindFiles"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createHostRewindPort"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "platform/rewind"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readHostThreadIds"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "workspace.edit.recorded"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "touched|resolveRelative|relativePath"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "committed-benchmark-sampler|committed-benchmark\\.config"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "identityOf|describeMatch|readProcesses"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "previewRewind|rewind/preview"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "rewindFiles"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "interface HostRewindFiles|type HostRewindFiles"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "omitDeniedHostTools|readPermissionPolicy"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "captureHostRunAdmission|bindHostRunWorkspace|acquireHostRunAdmission"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostRunSnapshotSchema|toolIdentities"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "rewindFiles|HostRewindFiles"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "thread/rewind"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostTurnSnapshotSchema|HostRewindConflictSchema|HostRewindFileOutcomeSchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "listThreadSnapshotChain|rewind-snapshot-engine|pre-revert"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "computeRestorePlan|applyRestorePlan"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveWorkspaceRoot"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "freshWorkspaceRoots|admittedRoots"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "worker_threads|new Worker|utilityProcess"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "freshRoots|boundWorkspaceRootId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hookSkips|HostHookSkip|hooks\\.skipped"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assertHostRunStartAvailable"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "previousCommittedMessage|parentMessageId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "committedRunIdentity"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveChangesBridge"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "\\.preview\\(\\{.*runId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "RewindPreviewPayload"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "foldRows|private accept|private fold\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "admittedWorkspaceRootIds"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveAdmittedRetrievalRoots"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "function resolveAdmittedRetrievalRoots"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "brainstrikeMcp"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "providerEnvKeys|providerDeprecatedEnvKeys|envKeys|deprecatedEnvKeys"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "envKeys|deprecatedEnvKeys"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "preparedPromptBreakdown"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "mcpTaskInputCanceller|resolveMcpTaskInputBridge"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostThreadPresentationState|presentations\\.request|thread-presentation-state"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function isPermissionDenied|export const isPermissionDenied"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isPermissionDenied"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "platformPermissionPolicy"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isPermissionDenied|readPermissionPolicy"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function platformPermissionPolicy|platformPermissionPolicy ="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "interface HostTool|type HostTool|risk:|readonly risk"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readDesktopHostSystemContext"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "committed-assistant-browser-support"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "runUserPromptSubmit|runPostToolUse|runStop"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "runStop|runVerdict|runPostToolUse|runUserPromptSubmit"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "runVerdict|brainstrikeRunVerdict|HookEventResult"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "additionalContext|additional_context"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "RunVerdictDetail|RunVerdict\\s*=|const RunVerdict"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "finishHostRunWithProviderBilling|run\\.completion"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostRewindFiles|rewindFiles|rewind"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "command.*method.*params.*perform|command:.*function|command\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "rewind|HostThreadRewind|thread/rewind"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createLogger"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "log/unsubscribe"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "startContentionDummy|stopContentionDummy|awaitDummyExit|ContentionDummy"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "decideHostSdkApproval"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "toolApproval.*:.*=>|type ToolApproval|ToolApprovalCallback|toolApproval\\?:"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "toolApproval\\?:|type ToolApproval[A-Z]|ToolApprovalFunction|toolApproval: "
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "toolApproval"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "envKeys:|envKeys: "
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ContentionMatch|readProcesses|identityOf|contentionIn|SAMPLE_INTERVAL_MS|CPU_TIME_RESOLUTION_SECONDS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostLogRowSchema|workspace.snapshot.recorded|turn-start\" ?\\{|rootPath"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "^export const (Id|WorkspaceRelativePath|Sha256) ?=|^const (Id|WorkspaceRelativePath|Sha256) ?="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createSnapshotChangesetResolver|resolveView|rangeTargetsOf|run-range"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isAlive|stopDummy|startContentionDummy"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "committed-benchmark-host|committed-benchmark|CONTROL_BIOME"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "permission-policy-store"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "grantSessionCategory|setToolOverride"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "risk:\\s*ToolRiskCategory|risk:\\s*z\\."
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assertHostAdmissionCleanup|threads\\.has|deletions\\.has"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assertCredentialAuthority|credential-service|credential-store|credential-file"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "type: 'run.started'|run\\.started"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ElicitRequestURLParamsSchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "McpElicitationSettlement|parseMcpElicitationSettlement"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "mcp/input/read"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "publishRunStatus|requires-action"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "PlatformTurnSnapshotRequestSchema|PlatformTurnSnapshotResultSchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostTurnSnapshotRootSchema|HostTurnSnapshotSchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ensureShadowRepo"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assertValidRootId|function.*RootId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assertValidRootId|VALID_ROOT_ID|ROOT_ID_PATTERN"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assertValidIdentifier"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "captureTurnBoundary"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "captureTurnBoundary\\s*\\(|captureTurnBoundary\\.|admission\\.captureTurnBoundary"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "agentHostMainClient|thread/list"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "thread/rename"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "thread/rename|thread\\.renamed|rename.*title|title.*max|title.*min|title.*length"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ThreadTitle\\s*=|const ThreadTitle"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "storedHostEvent|HostEventSchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "branch.*prompt|prompt.*branch"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "dangerouslySetInnerHTML"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "toolNameRegex"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "memory\\.observation\\.withheld|recordObservationWithheld|committedThreadBranches|withholdsObservation"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "memory\\.usage|'memory\\.|memory\\.observation"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "event\\.type === '|case 'memory\\.|run\\.finished|run\\.started.*fold"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "foldHostEvent|foldHost|readHostRow"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "aui-composer-input"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "respondToApproval"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "run\\.effects|effects\\.(?:add|delete|size)"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "finishHostRunWithProviderBilling|finishHostSdkLoop"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hook-trust.v1|LEGACY_HOOK_TRUST_STORAGE_KEY|hooks/trust|installDesktopHookApprovalReader"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "registerAgentHostClientIpc|acquireProfile|desktopHookTrust"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "allow-session|allow-always"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isCodeExecutionApprovalContext"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isCodeExecutionApprovalContext|CodeExecutionApprovalContext"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "interactionKind"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "providerMetadata.*brainstrike|brainstrike.*providerMetadata"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "providerMetadata"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "brainstrike.*executionContext|executionContext.*brainstrike"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "RunPythonInputSchema|allowedDomains|timeoutMs"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "RunPythonInputSchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "allowedDomains|timeoutMs"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "executionContext|isCodeExecutionApprovalContext"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "toolCatalogId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "toolName"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "denormalizeNativeToolName|NATIVE_TOOL_ID"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "denormalizeNativeToolName|normalizeNativeToolName"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "NATIVE_TOOL_ID\\s*=|writeWorkspaceFile:|writeWorkspaceFile\\s*:"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "writeWorkspaceFile|deleteWorkspaceFile|renameWorkspaceFile|stringReplaceWorkspaceFile"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isSubagentDelegationToolName|SUBAGENT_DELEGATION_TOOL_PREFIX"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "reindexOutcome"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function reindexOutcome|export const reindexOutcome|export async function reindexOutcome"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export (async )?function resolveWorkspaceWritePath|export const resolveWorkspaceWritePath"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export (async )?function createCheckpointReindexDeps|export const createCheckpointReindexDeps"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "serveHostRewindFiles"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export (async )?function triggerEditedFileReindex|export const triggerEditedFileReindex"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "PgliteLegacyMemory"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readLegacyMemory"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "addFolderDisabledReason|onDropItems|onAddFolder|onSwitchInNewWorktree|createDisabledReason|disabledReason"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assistantThreadRepository|enqueueThreadFoldersWrite"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assistantThreadRepository"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "onSelect|usable|disabledReason"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "onSelect|usable\\s*===|usable\\s*\\?"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "deleteThread"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "operation.*purge-thread"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "renameThread"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "renameThread\\(repository|renameThread\\(.*repository|renameThread"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createPgliteAssistantThreadRepository|withAssistantThreadHost|const repository"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assistantThreadRepository|forgePrUrl|updateThreadMetadata"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "systemError|data-testid=['\\\"]system-error"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "context.compacted"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "compacted.*usage|usage.*compact|compactedRunIds"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "event\\.usage|event\\['usage'\\]|\\.usage\\.inputTokens|\\.usage\\.outputTokens"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "commitCompaction"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "compactionNote|compaction-note|combineHostSystemContext"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "thread/workspace/binding/update"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "thread/workspace/binding/update|workspaceBinding|validateWorkspaceBinding"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "setBinding|workspaceBinding"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "validateWorkspaceBinding:"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "useOptionalPGliteDatabase"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function useOptionalPGliteDatabase"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "foreground-latency-bench|thread-message-corpus"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "index-build-corpus"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "NATIVE_TOOL_EXECUTION_BUDGETS|isNativeToolId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isNativeToolId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "NATIVE_TOOL_ID\\s*=\\s*|export const NATIVE_TOOL_ID"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "applyToolModelOutputProjections"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "askUser|submitPlan"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "private admit\\(|private accept\\(|private append\\(|private appendAcross\\(|async admit\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "admit\\(|accept\\(|appendAcross\\(|async command"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "this\\.admitRun|admitRun\\(|wakeRun"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostToolDiscovery|discovery\\?.activeTools|discovery\\.activeTools"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createAdmittedHostSdkTools"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function prepareHostProviderStep"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function committedMemoryTranscript|function committedMemoryTranscript"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "BRAINSTRIKE_E2E_REAL_ROOT_PATH"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "bindThreadRoot"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "prepareRunContext|rewriteRunContext"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "rewriteRunContext|prepareProjectionRewrites|prepareRunContext"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createProviderRequestMiddleware"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "rewrites"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "RuntimeWorkspaceRoot"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "killAppWithLauncher"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "withAssistantThreadHost|updateThreadMetadata"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "BINDING\\s*=|const BINDING"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "thread/delete|thread\\.delete|threadDelete"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "startup\\.store\\.root|store\\.root"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "openHostStateIndex|stateIndexer"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "thread/delete|'delete'|threadDelete"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "runtime\\.ts.*stateIndexer|platform\\.stateIndexer"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "deleteThread|thread.*delete|threadDelete"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "attachAgentHost|host\\.record|HostRecord"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "NON_DURABLE_NATIVE_TOOL_OUTPUT_IDS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createArtifactOutputs"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "nonDurableOutput"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readToolOutputArtifact|read_tool_output_artifact|readToolOutputArtifactCursor"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "history/search"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostHistoryHitSchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "host\\s*=.*useAssistantThreadHost|useAssistantThreadHost\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export (function|const) useAssistantThreadHost"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "host\\.request|HostClient"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "combineHostSystemContext"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "compactedRunIds|compacted\\.has"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "inputTokenLimit"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "validateHostRunWorkspaceBinding|bindHostRunWorkspace"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "changesThreadWorkspaceScope"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function changesThreadWorkspaceScope|changesThreadWorkspaceScope ="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createHostApprovalResponses|finishApprovedHostResults"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "contextNote"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hostTaskListNote|current-task-list"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hostTaskListNote"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "thread/search/vectors|thread/search/pending|thread/search\\b"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "'thread/search'"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "dangerouslySetInnerHTML.*headline|headline.*dangerouslySetInnerHTML"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "headline"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "headline|snippet.*mark|<mark>|rrfScore"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "\\.headline"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hostArtifactReader|artifacts:"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "outputCommittedAt|effectTools"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readToolOutputArtifact|ScopedToolOutputArtifactReader"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "artifacts\\s*[:?]|artifacts\\?\\.readRange|context\\.artifacts"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "execute:\\s*async|execute\\s*:\\s*\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "projectRunVerdicts|run\\.verdict|run/verdict|userRunVerdict|run_verdict|runVerdict"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "recordVerdict|run/verdict"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostClientOrigin|origin.*HostClientOrigin|origin:\\s*HostClientOrigin|public-socket|private-ipc"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isContextOverflowProviderErrorCode|extractProviderRunError"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isContextOverflowProviderErrorCode|CONTEXT_OVERFLOW_CODES|context_length_exceeded"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hostRunAncestors|hostRunContext"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "RunAttemptNoticeInput|run\\.attempt.*reason|attempt.*reason.*==="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "'stalled'|'provider-error'|'empty-response'"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "buildCurrentTaskListNote"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hostContextNotes"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "CompactionSummaryCard"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "context\\.compacted"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "event\\.usage|\\.compactedRunIds|readHostContextCompaction"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "beginHostRun"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "runtime:\\s*['\\\"]local['\\\"]|providerId:\\s*['\\\"]local['\\\"]|id:\\s*['\\\"]local['\\\"]"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "id:\\s*['\\\"]local['\\\"],?\\s*\\n\\s*(name|runtime|type)|'local':\\s*\\{[^}]*runtime"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "providerId:\\s*['\\\"](ollama|lmstudio|local)['\\\"]|'(ollama|lmstudio|local)':"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "runtime:\\s*['\\\"](local|cloud|openai)['\\\"]"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "providerId:\\s*['\\\"]local['\\\"],?\\s*runtime|runtime:[^,}]*,?\\s*providerId:\\s*['\\\"]local['\\\"]"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export const PROVIDER|providerDefinitions|PROVIDER_DEFINITIONS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "\\\"id\\\":\\s*\\\"(local|ollama|lmstudio)\\\"|^\\s*(local|ollama|lmstudio):|  id:\\s*(local|ollama|lmstudio)"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assertAllBulkThreadsFound"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assertAllBulkThreadsFound|updateThreadsMetadata"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ownsThread|host.createThread"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "thread/start|mastra.*threads|mastra_threads"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "MASTRA_MEMORY_TABLES|mastra_memory"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "withoutThreadFolderWrites"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "threadFoldersUnavailableReason"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "withoutThreadFolderWrites|threadFoldersUnavailableReason"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createSanitizedToolNameMap"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveHostedToolDiscoveryAdapter"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createHostToolDiscovery\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "permissionToolId.*="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "searchState"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "state-search|stateSearchSchema|searchState"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "^function quote|^const quote|export function quote|export const quote"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "thread-search-match|headline|&lt;mark&gt;"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "initialize.*token|z\\.string.*token|HOST_METHOD_SCHEMAS.*initialize"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "renderMarkedText"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "messageCreatedAt"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "artifacts"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "durableArtifactSettlement"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readToolOutputArtifact"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "offsetByte|limitBytes"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "stateView|hostContextNotes"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "stateView\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "\\.view\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "buildCurrentTaskListNote|hostTaskListNote"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "validateWorkspaceBinding"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "useWorktreeCheckoutIntentStore"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "projection.observations"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "observations\\s*[:(]|observationChunks"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "wrapWithThreadTag|replaceOrAppendThreadSection|activeObservations"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ThreadWorkspaceBindingSchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "interface AssistantThreadRepository|type AssistantThreadRepository"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "renameThread|AssistantThreadRepository = \\{|AssistantThreadRepository \\{"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "AssistantThreadMetadata = |type AssistantThreadMetadata"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "legacy-import"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "verify:mcp"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "mcp"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "RediscoveredPauseLines|rediscovered-pause-lines"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "endStalledExecution"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "watching\\(held\\)|heldWork\\.watching|subscribe\\(listener"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "subscribe|announce|listeners"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "manager\\.stream|BackgroundTaskManager.*stream"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readMastraStreamPartString|readMastraStreamPartValue"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveMastraInactivityOptions"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createMastraStreamPartRouter"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "MastraStreamPartRouter|streamPartRouter"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "routePart"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createMastraStreamPartRouter|BRAINSTRIKE_STREAM_INACTIVITY_MS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createMastraStreamPartRouter|streamInactivityMs|InactivityMs"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "useDailySpend"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "useRunLedger"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "useBudgetGuardrailBinding"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "useRunLedger\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "memory\\.usage"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "countTokensHeuristic"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "recordBreakdown"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "type.*HostEvent|HostEvent.*="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "context\\.compacted|ContextCompacted"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "memory\\.usage|model\\.step"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "parseHostParams|hostStartPosition"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hostStartPosition|run/start"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveComposerAttachmentsAvailability"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "attachment\\.name|attachments\\[.*\\]\\.name|\\.name.*attachment"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "admittedHostRun|hostStartPosition"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostCommandLedger|class HostCommandLedger|perform|Command identity was reused"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostImageAttachment"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "foldHostAcceptedCommand"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "run/regenerate|RegenerateSchema|Regenerate"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "deleteThread|blob|stateIndexer"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "interaction\\.requested|interactionId|HostEvent"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "type:\\s*'interaction\\.requested'|kind:\\s*'approval'|kind:\\s*'question'|kind:\\s*'plan'"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "interaction\\.requested|interaction\\.responded|kind:"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "interaction\\.responded|appendInteractionResponded|type:\\s*'interaction\\.responded'"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "nativeToolPorts|NativeToolPorts"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "nativeToolPorts|legacyNativeToolPorts|NativeToolPorts"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "replayedThrough"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ownsFollowUpQueue|FollowUpQueueOwnershipContext"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isReattaching"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostThreadSnapshot"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "CommittedThreadSession|snapshot: HostThreadSnapshot"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isLoading|replayedThrough|getSnapshot"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isLoading|replayedThrough|HostThreadSnapshot|CommittedThreadSession"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "record-module-loads"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "standalone-cli-tools"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "shell\\.openExternal|openExternal\\s*[:(]"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isTestMode|isElectronE2ETestMode"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "DesktopMcpPlatformCapabilities|serveMainMcpStores"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "bindDesktopClientPort|parentPort|processParentPort|parent-platform-port"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "postClientPort"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "findProviderDefinition|authType"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "interaction\\.(requested|responded)|HostEvent\\s*=|interactionId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "interaction\\.requested|interaction\\.responded|interactionId|'approval'|'question'|'plan'"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createRunNotificationDispatcher|RunNotificationEvent|new Notification"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "body|title|new Notification|showNotification"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ArtifactPageSizeSchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "boundRunEventReason|sanitizeAssistantRunEventMetadata|truncateStreamDetail"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "run\\.attempt|RunAttempt"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostLogRowSchema|HostEventSchema"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "run\\.stopped\\s*=\\s*true"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "boundRunEventReason"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function boundRunEventReason|function boundRunEventReason"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "run\\.stalled|run\\.resumed"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveProviderError"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function resolveProviderError|function resolveProviderError"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "describeRejectedCredential|REJECTED_CREDENTIAL"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "maxRetries"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "streamText\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isSubscriptionAuthProvider|isSubscriptionRateLimitError|SubscriptionQuotaExhaustedError"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "oauth_subscription|openai-codex"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "retryWithExponentialBackoff|isRetryable"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isRetryable.*===.*false|APICallError\\.isInstance"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "retryWithExponentialBackoff"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "classifySubscriptionQuotaError|SubscriptionQuotaExhaustedError"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "run\\.stalled|run\\.resumed|stallDetail|STALL_DETAIL"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveProviderError|describeStreamStall|describeToolCallInputTimeout"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "run\\.attempt"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "commitHostStep|hostRunContext|hostModelStepEvents"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createAdmittedHostSdkTools|decideHostSdkApproval"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "tool-approval-response|tool-approval-request"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "brainstrike_diagnostic_events"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "INSERT INTO brainstrike_diagnostic_events|INTO\\s+\\$\\{TABLE\\}|insertBatch"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "DiagnosticEvent[^s]"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "toStorableRowParams|toStorableJsonValue|toStorableText|StorableTextField|STORAGE_REPLACEMENTS_KEY|StorageReplacements"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "toStorableJsonValue|toStorableText|toStorableRowParams|StorageReplacements|STORAGE_REPLACEMENTS_KEY|StorableTextField"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "toStorableJsonValue|toStorableText|toStorableRowParams"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "toStorableRowParams"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "insertBatch|toStorableRowParams|storageReplacements"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "insertBatch"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readUnanswerableToolActionLeaves"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "async readUnanswerableToolActionLeaves"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readUnanswerableToolActionLeaves\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "Unanswerable|unanswerable"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "unanswerable AS \\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "unanswerable"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "commitHostStep"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "HostRunOwnerFailure|HostRunOwnerCleanupError|HostMemoryFailure"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "runHostSdkLoop"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "mcp-paths|mcp-lab|run-mcp-verification"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "mcp-paths|turbo-changed|mcp-test-lab|run-mcp-verification"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "Detect MCP lab|turbo ls|BASE_SHA|@brainstrike/mcp-test-lab"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "matrix:|shard:"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "store"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "DelegatedWakeupRecord|DelegatedWakeupInvocation|recordWakeup"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "WakeupRecord|WakeupInvocation|recordWakeup"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "recordWakeup|WakeupRecord"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "Wakeup"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "akeup"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "recordWakeup|WakeupRecord|WakeupInvocation"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "recordSwarmDiagnostic"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "describeBackgroundWakeup"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "recordLiveDecision|recordWakeup|recordPromptManifest"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "sendFollowup|recordPromptManifest|recordSwarmDiagnostic|readAdmittedPersonaConfiguration"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "recordSwarmDiagnostic|recordPromptManifest"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "function recordSwarmDiagnostic|recordSwarmDiagnostic ="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readAdmittedPersonaConfiguration|allowedToolIds"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "handleAssistantRequest|route.*decide|route === 'decide'"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "redactSensitiveLogValue|export function redactSensitiveLogValue"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function redactSensitiveLogValue"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "recordLiveDecision:|recordLiveDecision ="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "getToolActionIdentityKey"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readToolApprovalRunConfigAction"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function readToolApprovalRunConfigAction"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ActiveThreadKeyContext"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "getInvocation"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "getInvocation|WHERE.*owner_resource_id|WHERE.*root_thread_id"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "permissionEnforced"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readNativeStreamStatus"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "scopedOwnerKey|withholdPauseNotices|isChildPauseFinish"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "liveDecisions\\.remember\\(|channel\\.remember\\(|\\.remember\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "remember\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "data-user-message|data-om-|data-approval|data-suspend"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "startsWith\\('data-'"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "data-signal|data-user-message"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createToolApprovalIteratorFromRuntime|streamMastraToolApprovalAction"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "requireToolApproval"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "streamMastraToolApprovalAction|requireToolApproval"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "guardedTools:|guardedTools ="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "applyToolOutputArtifactSettlement|function applyToolOutputArtifactSettlement"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "function applyToolModelOutputProjections|export function applyToolModelOutputProjections"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "withholdPauseNotices|pausedOwners|heldPauseNotices|isPauseNoticeChunk|scopedOwnerKey"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "StreamChunkDelegatedConversation|child-continuation-chunk|delegated-conversation-chunk|ConversationStreamChunk"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "StreamChunkDelegatedConversation|child-continuation-chunk|delegated-conversation-chunk|ConversationStreamChunk|parentRuntimeRunId|parentToolCallId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "StreamChunkDelegatedConversation|StreamChunkChildContinuation|parentRuntimeRunId|parentToolCallId|continuationId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "pausePart|heldPauseNotices|withholdPauseNotices|isPauseNoticeChunk"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "heldPauseNotices|withholdPauseNotices|concludeClosedStream"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "heldPauseNotices"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "heldPauseNotices|withholdPauseNotices|concludeClosedStream|pausePart"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "setStreamPartFailure"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "SUBAGENT_TRUNCATED_OUTCOME|SUBAGENT_NO_ANSWER_OUTCOME|SUBAGENT_REJECTED_OUTCOME"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "SUBAGENT_TRUNCATED_OUTCOME"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "delegatedExecutionOptions"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "synthesisOutcomes"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "remembered"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "remember|remembered|sessionGrants"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "liveDecisions\\.remembered|channel\\.remembered|\\.remembered"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "approval-gate"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "approval-gate\\.ts|approval_gate|function-form flag"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "liveDecisions|createLiveDecisionChannel"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveSelfApprovalDecision|sessionGrants"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "deliverDesktopDelegatedDecision"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "mode.*worker|mode:.*['\\\"]worker"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "mode:\\s*['\\\"]worker|mode:\\s*['\\\"]read|type\\s+.*Mode|readonly mode\\??:"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "personaMode|persona.mode"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "function personaMode|personaMode ="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "agents:\\s*(async|\\()"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readAssistantRunEvent"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "makeRunDetailEventChunk"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "reserveStep|settleStep"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "withIdentityLogging|logIdentityRejections"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "admitInvocation"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "recordRejection|rejected\\(|rejected:"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "consultDurableAdmission"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "function consultDurableAdmission|consultDurableAdmission ="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "async function consultDurableAdmission"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "MASTRA_BACKGROUND_TASKS_TABLE|MASTRA_WORKFLOW_TABLE"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "concludeClosedStream|heldPauseNotices"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "concludeClosedStream|heldPauseNotices|makeCancelledDelegationRunEventChunks|makeMissingFinishStreamChunks"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "heldPauseNotices|held_pause|withheld"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "requireApproval|needsApprovalFn"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "requireApproval"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "Object\\.defineProperties|Object\\.getOwnPropertyDescriptors|Object\\.create.*getPrototypeOf"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "logIdentityRejections"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "function logIdentityRejections"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function createDesktopDelegatedContinuationHost"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createDelegatedConversationRepository|async get\\(scope"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "async get\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "class DelegatedConversationIdentityError"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "SUBAGENT_NO_ANSWER_OUTCOME|SUBAGENT_REJECTED_OUTCOME"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "async registerRoot"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export.*assertDelegatedConversationAdmission"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "withRootPauseNotices"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "backgroundOwners|backgroundCalls"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "parentRuntimeRunId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "describeTruncatedSynthesis|DELEGATED_SYNTHESIS_PART|readDelegatedSynthesisPart|synthesisOutcomes"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "describeTruncatedSynthesis"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "DELEGATION_LIMITS\\.(maxChildSteps|maxChildOutputTokens|maxStepOutputTokens|synthesisOutputTokens)"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "effectiveChildStepBudget|maxChildSteps|maxChildOutputTokens"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "subagentSettings|assistant-subagent-preferences"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "sanitizedRuntime|sanitizedRuntimeData|runtimeData\\.subagentSettings"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createDesktopDelegatedInputContext|readScope"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "reserveDelegatedInvocation|admitDelegatedInvocation"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "AUTHORIZED_DELEGATED_GRAPH"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "background-worker-runtime"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isAssistantToolApprovalAnswered"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isAssistantToolApprovalAnswered|AssistantToolApprovalAnswered"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveChildToolCallConcurrency"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isAssistantToolApprovalAction"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "approvalResumeLeg"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveRequestPermissionPolicy|isAssistantPermissionPolicyRequest"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "handleDecideRequest|/assistant/decide"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "handleDecideRequest|decide-endpoint|/assistant/decide"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "decide|handleDecideRequest"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assertDelegatedToolActionPending"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "registerDecisionControl|registerDesktopDelegatedDecision"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveSelfApprovalDecision"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function resolveSelfApprovalDecision|function resolveSelfApprovalDecision"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "parseRuntimeSubagentSettings|subagentSettings|RuntimeSubagentSettings"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveSelfApprovalDecision|PermissionAskToolMetadata|isApprovalExemptInternalTool"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "channel\\.remember|\\.remember\\(|remembered\\b"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createApprovalGate|resolveRequireToolApproval"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createApprovalGate|resolveRequireToolApproval|from '\\./approval-gate'|from '\\.\\./approval-gate'"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "StreamChunkToolApprovalRequired|StreamChunkToolSuspendRequired"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function getToolActionIdentityKey|function getToolActionIdentityKey"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "delegatedProjection.decorate|decorate\\(chunk\\)|delegation:.*path"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "withholdPauseNotices"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "decorate\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "child-continuation-chunk|StreamChunkChildContinuation"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "child-continuation-chunk.*tool-approval|type: 'child-continuation-chunk'"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "interface AssistantToolApprovalRequest|export interface AssistantToolSuspendRequest"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "parseRuntimeSubagentSettings|runtimeSubagentSettingsSchema|DEFAULT_RUNTIME_SUBAGENT_SETTINGS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveDiscoveredApprovalToolName|claimDelegatedToolAction"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "\\.dequeue\\(|state\\.dequeue"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "useAnsweredApprovals|answers:"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "Object\\.create|getOwnPropertyDescriptors|clone|new .*Tool|Object\\.assign|\\.\\.\\.tool"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ApprovalGate\\b|approval-gate"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "from ['\\\"].*approval-gate['\\\"]|from ['\\\"]\\./approval-gate"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveRequestPermissionPolicy"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createApprovalGate\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "concludeClosedStream|makeCancelledDelegationRunEventChunks"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "heldPause|held pause|params\\.heldPauseNotices"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "concludeClosedStream"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "PauseNotice|pauseNotic"
+    },
+    {
+      "caseInsensitive": true,
+      "pattern": "heldPause|withheldPause|withhold|held pause|withheld"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "background-stop|BackgroundStop|backgroundStop"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "tool.approval.requested"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "outputType"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createBackgroundResumeStream"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createBackgroundResumeStream|readNativeStreamStatus|\\.status"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createBackgroundFixture"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createToolResumeTurnAttempt"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createToolResumeTurnAttempt|resolveRequireToolApproval|approvalGate"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "buildStreamOptions"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "streamMastraAgent\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isCorruptionError|recoverRuntimeDatabaseCorruption|RuntimeDatabaseCorruptionHandler|DatabaseCorruptionRecoveredError"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isCorruptionError|function isCorruption"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "recoverRuntimeDatabaseAndReload|handleRuntimeCorruption"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "recoverRuntimeDatabaseAndReload"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isCorruptionError"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "recoverRuntimeDatabaseCorruption|RuntimeDatabaseCorruptionHandler|DatabaseCorruptionRecoveredError"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "MAINTENANCE_CORRUPTION_CONTEXT"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "SendFailure"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "sendError"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "getErrorMessage"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "The decision was not applied"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function getErrorMessage"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "refusedCompletions"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "refusedCompletions|resolveInvocation|isRefused"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "rejectedDelegations"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveParkedInvocation"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveParkedInvocation.*async|resolveParkedInvocation:.*\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "describeBackgroundWakeup|ledgerSource\\.read|source\\.read"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "getThreadRunTurnMessageId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readActionMessageHostRunId|readActionMessageRunId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readActionMessage"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hostRunId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readActionMessageRunId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readActionMessageHostRunId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readActionMessageRunId|hostRunId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isBoundedIdentifier"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hostRunId|readActionMessageRunId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "hostRunId|readActionMessageRunId|getThreadRunTurnMessageId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isBoundedIdentifier|function isBoundedIdentifier"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "host leg .* records no turn message"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "setSendError|sendError"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function getErrorMessage|export const getErrorMessage"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "useLiveDecisionTransport|LiveDecisionProvider|type LiveDecisionTransport"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "retainRun"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isEmptyCanvasDocument"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "manage-canvas-tool"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "@radix-ui/react-dropdown-menu"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "@brainstrike/types"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createResumedExecutors"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resuming\\.add|resuming\\.delete|deregisterUnresumed"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "deregisterTaskContext"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "unresumed|accepted\\.add|accepted\\.has"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "deregisterUnresumed"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "holdLiveRegistration|holdFirstRegistration"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isEmptyCanvasDocument|canvas-document-content"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readBackgroundGeneration"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "readBackgroundGeneration|background-generation-unmapped"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "BackgroundGeneration"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "background-generation-unmapped"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "BackgroundGeneration|background_generation|background-generation|generation_run_id"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "scrubs and counts a secret shape"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "scrubs and counts"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "describeHostItem|host\\.hostLog|host\\.processCounters"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "reason|scrub"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "joins the executor Mastra accepted"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "brainstrike_delegated_invocations"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "brainstrike_assistant_native_runs"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "assistant_native_runs"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "native_run_id"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "generation_run_id|migration.140|140-"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "recordNativeRootRun"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "recordNativeRootRun|readBackgroundGeneration"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "useAssistantComposerCommandStore|composerCommandStore|ComposerDraftCommand"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createResumedExecutors|prepareResumedExecutor|registrations|resuming"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "drained|createResumedExecutors|registerResumedExecutor"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "drained|createResumedExecutors|prepareResumedExecutor|registerResumedExecutor"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createNativeManager|createLiveDecisionChannel|startLeg|holdFirstRegistration"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createProcessCounterSampler|processCounterSampler|getDbHostManager|runDesktopScheduledDatabaseWork"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "^(const|function|import).*getDatabase|getDatabase\\s*[,=:]"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export.*getDatabase|function getDatabase"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ProcessCounterRing|processCounterRing"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "MASTRA_BACKGROUND_TASKS_TABLE\\s*="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "createResumedExecutors|ResumedExecutors|registerAll|resumeAll"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "scrubLikelySecretValues"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "THREAD_DELETE_SIDECAR_TABLES"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "generation_run_id|generationRunId"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "THREAD_DELETE_SIDECAR_TABLES\\s*=|THREAD_DELETE_SIDECAR_TABLES:\\s*readonly"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "desktop-e2e-fan-in|LANE_RESULTS|desktop-smoke-fan-in"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "LANE_RESULTS|desktop-e2e"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "Desktop smoke lane|desktop-e2e-smoke|desktop-e2e-delegated"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "desktop-e2e-delegated|desktop-e2e-smoke|Check lane results|LANE_RESULTS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "desktop-e2e-smoke:|desktop-e2e-delegated:|desktop-e2e:"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "const combine|function combine|combine ="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "combine\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "const admitted|const riskByTool|const decide|admitted =|riskByTool =|decide ="
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export function settleNativeStream|export async function settleNativeStream|function settleNativeStream"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "settleNativeStream"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "export (async )?function settleNativeStream"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "DelegationOutcomeCapture"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "rejected\\s*:|rejected\\(|DelegationOutcomeCapture"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "delegationOutcomes"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "driveBackgroundWork\\("
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "streamAbortContext\\.signal"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "streamAbortContext\\.signal,$"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "delegationOutcomes\\s*$"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "recordRejection"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "maxChildSteps"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "DELEGATION_LIMITS\\.maxInvocations|maxInvocations"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolvePersonaMaxSteps|MAX_USER_PERSONA_MAX_STEPS"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "parseRuntimeSubagentSettings|subagentSettings"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "writeRuntime|reject|MAX_RUNTIME_MINUTES"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "MAX_RUNTIME_MINUTES|writeRuntime|maxChildRuntimeMs"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "MAX_RUNTIME_MINUTES|writeRuntime|reject"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "writeRuntime"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "writeRuntime|maxChildRuntimeMs|MAX_RUNTIME_MINUTES"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "userDecisions"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "useApprovalRank|usePendingApprovalsByCategory|ApprovalRanks"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "isToolRiskCategory|ToolRiskCategory"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "grantCategoryForSession|grantAllToolsForSession|allowedBySnapshot|session-grant"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "usePendingApprovalsByCategory|ApprovalCategoryKey"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "approval-notice-status|RISK_CATEGORY_GRANT_NOUN"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "buildApprovalDecisionMessage"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ApprovalRanksProvider|AnsweredApprovalsProvider|ToolApprovalGrantProvider|LiveDecisionProvider|ActiveThreadKeyContext"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "resolveApprovalRunOutcome|ApprovalRunOutcome|decisionIndex"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "ApprovalRunOutcome|resolveApprovalRunOutcome"
+    },
+    {
+      "caseInsensitive": false,
+      "pattern": "pendingRequestsRef|tokenCacheRef|onTokenResolved"
+    }
+  ]
+}

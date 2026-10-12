@@ -44,6 +44,7 @@
     "./fixtures/committed-host-rewinds.json": "./fixtures/committed-host-rewinds.json",
     "./fixtures/committed-host-run-attempts.json": "./fixtures/committed-host-run-attempts.json",
     "./fixtures/committed-rich-host-runs.json": "./fixtures/committed-rich-host-runs.json",
+    "./fixtures/recorded-grep-patterns.json": "./fixtures/recorded-grep-patterns.json",
     "./fixtures/observation-memory": "./fixtures/observation-memory.mjs",
     "./vitest.base": {
       "types": "./dist/vitest.base.d.ts",

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SqliteQueryClient, spawnQueryProcess } from '../../dist/index.js';
+import { NATIVE_TRIGRAM_SCHEMA } from './fixtures/native-trigram-schema.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'brainstrike-sqlite-query-'));
 const databasePath = join(directory, 'index.sqlite');
@@ -108,6 +109,7 @@ describe('qualified engine refuses unsafe SQL and retains index bytes', () => {
       INSERT INTO index_metadata VALUES(1,8,'${'a'.repeat(64)}','text-only',NULL,NULL);
       CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT,path TEXT);
       CREATE TABLE file_chunks(id TEXT,root_id TEXT,file_record_id TEXT,content TEXT,content_hash TEXT,start_line INTEGER,end_line INTEGER,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER);
+    ${NATIVE_TRIGRAM_SCHEMA}
       INSERT INTO file_records VALUES('f-a','root-a','a.ts'),('f-b','root-b','b.ts');
       INSERT INTO file_chunks VALUES('chunk-1','root-a','f-a','CAFÉ Alpha','hash-1',1,1,0,10,'text',0,10,3),('chunk-2','root-a','f-a','alphabet','hash-2',2,2,1,8,'text',11,19,1),('chunk-3','root-b','f-b','café alpha','hash-3',1,1,0,10,'text',0,10,3);`);
     writer.close();
@@ -246,6 +248,7 @@ describe('qualified engine refuses unsafe SQL and retains index bytes', () => {
     writer.exec(`CREATE TABLE index_metadata(singleton INTEGER PRIMARY KEY,schema_version INTEGER,store_id TEXT,index_mode TEXT,profile_json TEXT,profile_hash TEXT);
       CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT,path TEXT);
       CREATE TABLE file_chunks(id TEXT,root_id TEXT,file_record_id TEXT,content TEXT,content_hash TEXT,start_line INTEGER,end_line INTEGER,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER);
+    ${NATIVE_TRIGRAM_SCHEMA}
       INSERT INTO file_records VALUES('file','root','a.ts');
       INSERT INTO file_chunks VALUES('chunk','root','file','budget match','hash',1,1,0,12,'text',0,12,2);`);
     const setProfile = (modelId: string): void => {
