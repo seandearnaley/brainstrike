@@ -424,11 +424,9 @@ async function assertAssembledChildControl(
       if (controls === 'cli') {
         expect(await appCli(electron, ['host', 'status'])).toEqual(cliHost);
         for (const { threadId, rows } of await readHostThreadTree(electron.getUserDataDir())) {
-          expect(await appCli(electron, ['thread', 'read', '--thread', threadId])).toMatchObject({
-            rows,
-          });
+          expectReadAfter(await appCli(electron, ['thread', 'read', '--thread', threadId]), rows);
           const fromSeq = rows[Math.floor(rows.length / 2)]?.seq ?? 0;
-          expect(
+          expectReadAfter(
             await appCli(electron, [
               'thread',
               'read',
@@ -436,8 +434,9 @@ async function assertAssembledChildControl(
               threadId,
               '--from-seq',
               String(fromSeq),
-            ])
-          ).toMatchObject({ rows: rows.filter(({ seq }) => seq > fromSeq) });
+            ]),
+            rows.filter(({ seq }) => seq > fromSeq)
+          );
         }
       }
     },
@@ -465,6 +464,29 @@ function byTask<T>(
 
 function reads({ children }: AssembledTree): number {
   return children.reduce((total, child) => total + child.reads, 0);
+}
+
+/**
+ * A CLI read of an append-only thread log, made after `rows` were read. The
+ * GUI commits its workspace snapshot after a reload whenever its renderer gets
+ * there, so the read holds `rows`, then nothing but that commit.
+ */
+function expectReadAfter(read: unknown, rows: readonly unknown[]): void {
+  const later: unknown = record(read)['rows'];
+  if (!Array.isArray(later)) {
+    throw new Error('The CLI read returned no rows');
+  }
+  const laterRows: readonly unknown[] = later;
+  expect({ rows: laterRows.slice(0, rows.length) }).toMatchObject({ rows });
+  expect(laterRows.slice(rows.length).filter((row) => !isWorkspaceCommit(row))).toEqual([]);
+}
+
+function isWorkspaceCommit(row: unknown): boolean {
+  const event = record(record(row)['event']);
+  return (
+    event['type'] === 'workspace.updated' ||
+    (event['type'] === 'command.accepted' && event['method'] === 'thread/workspace/set')
+  );
 }
 
 function record(value: unknown): Record<string, unknown> {
