@@ -1,29 +1,35 @@
 {
-  "commit": "7b09ad8c79e1b7b5bfd8c38057e704f3c5effb2b",
-  "recorded": "2026-10-12T16:02:12.834Z",
+  "commit": "a39ad02a71b56cf9020427438ab1a98d2f188c21",
+  "recorded": "2026-10-12T18:00:46.066Z",
   "react": "19.3.0",
   "runs": 5,
-  "slope": 0.89,
+  "slope": 1.06,
   "throttle": 4,
-  "tokens": 2648,
+  "tokens": 2788,
   "windows": {
     "10%": {
+      "commitMedian": 1,
+      "commitP95": 4.5,
       "commitsPerToken": 3,
-      "median": 0.9,
-      "p95": 5.5,
-      "samples": 600
+      "tokenMedian": 5.1,
+      "tokenP95": 6.6,
+      "tokens": 200
     },
     "50%": {
+      "commitMedian": 0.9,
+      "commitP95": 4.6,
       "commitsPerToken": 3,
-      "median": 0.8,
-      "p95": 4.1,
-      "samples": 600
+      "tokenMedian": 5.1,
+      "tokenP95": 6.3,
+      "tokens": 200
     },
-    "100%": {
+    "end": {
+      "commitMedian": 0.8,
+      "commitP95": 5.1,
       "commitsPerToken": 3,
-      "median": 0.8,
-      "p95": 6.5,
-      "samples": 600
+      "tokenMedian": 5.4,
+      "tokenP95": 6.6,
+      "tokens": 200
     }
   }
 }

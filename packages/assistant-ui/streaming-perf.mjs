@@ -38,7 +38,7 @@ const RUNS = Number(values.runs);
 const THROTTLE = Number(values.throttle);
 const SLOPE_LIMIT = 1.5;
 const REGRESSION_LIMIT = 1.3;
-const LABELS = ['10%', '50%', '100%'];
+const LABELS = ['10%', '50%', 'end'];
 const PAGE_TIMEOUT_MS = 600_000;
 const BASELINE = resolve(import.meta.dirname, 'streaming-perf.baseline.json');
 const CONFIG = resolve(import.meta.dirname, 'vite.streaming-perf.config.mts');
@@ -141,7 +141,7 @@ try {
   const result = {
     react: runs[0].react,
     runs: RUNS,
-    slope: round(windows['100%'].tokenMedian / windows['10%'].tokenMedian),
+    slope: round(windows.end.tokenMedian / windows['10%'].tokenMedian),
     throttle: THROTTLE,
     tokens: runs[0].tokens,
     windows,

@@ -13,7 +13,7 @@ import {
   recordedRunId,
   recordedStore,
 } from '../committed-recording-support';
-import { LONG_REPLY_TOKENS } from '../long-markdown-reply';
+import { LONG_REPLY_TOKENS, longReplyWindowStarts } from '../long-markdown-reply';
 import { instrumentation, waitForQuiescence } from './instrumentation';
 import '@brainstrike/ui/globals.css';
 import '../../overrides.css';
@@ -21,7 +21,7 @@ import '../assistant-conversation-panel.browser.css';
 
 /** Tokens measured one at a time in each window. */
 const WINDOW_TOKENS = 40;
-export type WindowLabel = '10%' | '50%' | '100%';
+export type WindowLabel = '10%' | '50%' | 'end';
 
 export interface WindowMeasurement {
   /** React `actualDuration` of every commit of the conversation while the window's tokens landed. */
@@ -54,7 +54,8 @@ function mount(element: ReactElement): void {
 /**
  * BST-1929 advisory perf lane: stream the long reply through the recorded run's
  * text-delta chunk and record the conversation's commit durations for 40 tokens
- * at 10%, 50% and 100% of it. The runner throttles the page's CPU over CDP.
+ * inside prose paragraphs at 10% and 50% of it and at its end, before its closing
+ * footnote. The runner throttles the page's CPU over CDP.
  * Token completion is two quiet frames: the reveal (Streamdown `animated`) runs
  * in CSS and adds no frame-paced commits.
  */
@@ -99,8 +100,8 @@ export async function run(): Promise<{
     cursor = end;
   };
 
-  const measureWindow = async (fraction: number): Promise<WindowMeasurement> => {
-    publish(Math.floor(LONG_REPLY_TOKENS.length * fraction) - WINDOW_TOKENS);
+  const measureWindow = async (start: number): Promise<WindowMeasurement> => {
+    publish(start);
     await waitForQuiescence();
     durations.length = 0;
     const commitsPerToken: number[] = [];
@@ -118,10 +119,12 @@ export async function run(): Promise<{
     return { commitDurations: [...durations], commitsPerToken, tokenDurations };
   };
   // Sequential on purpose: each window streams on from where the last stopped.
+  // Prose paragraph windows, as the structural guard uses (comparable open blocks).
+  const starts = longReplyWindowStarts(WINDOW_TOKENS);
   const windows = {
-    '10%': await measureWindow(0.1),
-    '50%': await measureWindow(0.5),
-    '100%': await measureWindow(1),
+    '10%': await measureWindow(starts['10%']),
+    '50%': await measureWindow(starts['50%']),
+    end: await measureWindow(starts.end),
   };
   return { react: version, tokens: LONG_REPLY_TOKENS.length, windows };
 }

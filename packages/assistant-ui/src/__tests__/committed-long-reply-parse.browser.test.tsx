@@ -20,7 +20,7 @@ import {
   waitForQuiescence,
 } from './committed-assistant-browser-support';
 import { publishLiveText, TEXT_TELEMETRY } from './committed-live-text-support';
-import { LONG_REPLY_FOOTNOTE_TOKEN, LONG_REPLY_TOKENS } from './long-markdown-reply';
+import { LONG_REPLY_TOKENS, longReplyWindowStarts } from './long-markdown-reply';
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
 import './assistant-conversation-panel.browser.css';
@@ -43,47 +43,6 @@ vi.mock('remark-gfm', async (importOriginal) => {
 });
 
 const WINDOW_TOKENS = 12;
-
-/** A token that opens a new prose paragraph: a blank line, then a capital letter. */
-const PARAGRAPH_START = /^\n\n[A-Z]/;
-
-/** Tokens until the next blank line, i.e. how long the paragraph opened at `start` streams. */
-function paragraphTokens(start: number): number {
-  const next = LONG_REPLY_TOKENS.findIndex(
-    (token, index) => index > start && token.includes('\n\n')
-  );
-  return (next === -1 ? LONG_REPLY_TOKENS.length : next) - start;
-}
-
-/**
- * Where to measure: the second token of a prose paragraph long enough for a
- * whole window, so every measured token extends the same open block and the
- * three windows parse comparable text. `end` takes the last such paragraph
- * that finishes streaming before the reply's closing footnote: from a footnote
- * on, Streamdown keeps references and definitions together by parsing the
- * whole reply as one block (a known vendor behaviour, documented in BST-1929).
- */
-function windowStarts(): Readonly<Record<'10%' | '50%' | 'end', number>> {
-  const starts = LONG_REPLY_TOKENS.flatMap((token, index) =>
-    PARAGRAPH_START.test(token) &&
-    paragraphTokens(index) > WINDOW_TOKENS + 1 &&
-    index + 1 + WINDOW_TOKENS <= LONG_REPLY_FOOTNOTE_TOKEN
-      ? [index + 1]
-      : []
-  );
-  const from = (fraction: number): number => {
-    const start = starts.find((index) => index >= LONG_REPLY_TOKENS.length * fraction);
-    if (start === undefined) {
-      throw new Error(`No prose paragraph starts after ${fraction * 100}% of the reply.`);
-    }
-    return start;
-  };
-  const end = starts.at(-1);
-  if (end === undefined) {
-    throw new Error('The long reply has no prose paragraph long enough to measure.');
-  }
-  return { '10%': from(0.1), '50%': from(0.5), end };
-}
 
 /** No commit for this long means the prefix's asynchronous work has finished. */
 const IDLE_MS = 500;
@@ -183,9 +142,11 @@ test('a streamed token costs the same parse and commits at 10% of a long reply a
     return work;
   };
 
-  const windows: Partial<Record<keyof ReturnType<typeof windowStarts>, readonly TokenWork[]>> = {};
-  for (const [label, start] of Object.entries(windowStarts()) as [
-    keyof ReturnType<typeof windowStarts>,
+  const windows: Partial<
+    Record<keyof ReturnType<typeof longReplyWindowStarts>, readonly TokenWork[]>
+  > = {};
+  for (const [label, start] of Object.entries(longReplyWindowStarts(WINDOW_TOKENS)) as [
+    keyof ReturnType<typeof longReplyWindowStarts>,
     number,
   ][]) {
     windows[label] = await tokensFrom(start);
