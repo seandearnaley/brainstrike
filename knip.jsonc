@@ -194,9 +194,7 @@
         // Configuration/test-only imports are outside this project's production glob.
         "@brainstrike/config",
         "@brainstrike/context-actions",
-        "react-shiki",
-        // Scanned by Tailwind's @source in styles.css (knip does not parse CSS).
-        "streamdown"
+        "react-shiki"
       ],
       "typescript": {
         "config": "tsconfig.json"

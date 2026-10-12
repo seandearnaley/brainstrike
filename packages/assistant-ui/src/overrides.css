@@ -1970,3 +1970,15 @@
     opacity: 0.5;
   }
 }
+
+/*
+ * The word-by-word reveal (Streamdown's `animated`) respects reduced motion,
+ * as the frame-paced reveal it replaced did: words and list markers appear at
+ * once. The vendor stylesheet has no such rule.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .assistant-ui-panel .aui-md [data-sd-animate],
+  .assistant-ui-panel .aui-md [data-sd-animate-marker]::marker {
+    animation: none;
+  }
+}

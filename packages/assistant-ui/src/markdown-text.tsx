@@ -10,11 +10,16 @@ import { CodeBlockHeader } from '@brainstrike/ui/code-block';
 import { type ComponentPropsWithoutRef, type ComponentType, memo } from 'react';
 import { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+// The keyframes behind `animated` (sd-fadeIn and the list-marker fade).
+import 'streamdown/styles.css';
 import { AssistantThinkingIndicator } from './assistant-thinking-indicator';
 import { MarkdownLink } from './markdown-link';
 import { SyntaxHighlighterComponent } from './shiki-highlighter';
 
 const REMARK_PLUGINS = [remarkGfm];
+
+// Module scope: a stable identity for the reveal options.
+const REVEAL = { animation: 'fadeIn', sep: 'word' } as const;
 
 // No rehype-raw / sanitize / harden: Streamdown's default pipeline renders raw
 // HTML from the model (sanitized). Model output keeps the react-markdown
@@ -47,18 +52,16 @@ function MarkdownTextImpl({ preprocess }: { preprocess?: ((text: string) => stri
       className="aui-md"
       components={defaultComponents}
       controls={false}
-      // Parse at deferred priority (useDeferredValue) so the composer stays
-      // responsive; under load intermediate parses coalesce and the final text
-      // always renders.
-      defer
       // Spread rather than `preprocess={preprocess}`: under
       // exactOptionalPropertyTypes an explicit `undefined` is not assignable to
       // the library's optional prop.
       {...(preprocess ? { preprocess } : {})}
+      // The reveal: Streamdown fades each arriving word in with CSS keyframes,
+      // so a token costs one React commit (BST-1929). The frame-paced
+      // `smooth` reveal committed on every animation frame instead.
+      animated={REVEAL}
       rehypePlugins={REHYPE_PLUGINS}
       remarkPlugins={REMARK_PLUGINS}
-      // The vendor reveal (`useSmooth`). Streamdown's primitive defaults it off.
-      smooth
       // The table owns its height, as before: no capped scroll box.
       tableMaxHeight={0}
       urlTransform={defaultUrlTransform}
