@@ -52,13 +52,17 @@ describe('McpConfigAlert', () => {
     expect(screen.getByTestId('mcp-config-alert')).toBeInTheDocument();
   });
 
-  it('renders path inline with message', () => {
+  it('presents a missing config as first-run setup guidance naming its path (BST-1981)', () => {
     const configInfo: McpConfigInfo = {
       exists: false,
       path: '/path/to/mcp.config.json',
     };
     render(<McpConfigAlert {...defaultProps} configInfo={configInfo} />);
-    expect(screen.getByText(/MCP config not found/)).toBeInTheDocument();
+    // A fresh profile has no config yet: that is the normal starting point,
+    // so it is a named setup section, never a warning or alert.
+    const guidance = screen.getByRole('region', { name: 'No MCP servers configured yet' });
+    expect(guidance).toHaveTextContent('/path/to/mcp.config.json');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('displays the expected path', () => {

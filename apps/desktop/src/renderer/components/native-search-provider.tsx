@@ -94,6 +94,21 @@ async function readMatchingStatus(
   }
   return next;
 }
+/** Why Semantic is unavailable under a saved Text search choice, and the setting that changes it. */
+const SEMANTIC_OFF_REASON =
+  'Semantic search is off. Choose “Text and semantic search” in Search & Indexing settings.';
+
+/** The saved Text choice is the reason over any transient status; otherwise the status's own. */
+function profileUnavailableReason(
+  mode: NativeIndexMode | null,
+  status: IndexerStatus
+): string | undefined {
+  if (mode === 'TEXT') {
+    return SEMANTIC_OFF_REASON;
+  }
+  return status.kind === 'unavailable' ? status.reason : undefined;
+}
+
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -195,17 +210,15 @@ export function NativeSearchProvider({
     },
     [capability, execution]
   );
-  const dependencies = useMemo<NativeWorkspaceSearchDependencies>(
-    () => ({
+  const dependencies = useMemo<NativeWorkspaceSearchDependencies>(() => {
+    const reason = profileUnavailableReason(mode, observation.status);
+    return {
       capability,
       embedQuery,
       profile,
-      ...(observation.status.kind === 'unavailable'
-        ? { profileUnavailableReason: observation.status.reason }
-        : {}),
-    }),
-    [capability, embedQuery, observation, profile]
-  );
+      ...(reason === undefined ? {} : { profileUnavailableReason: reason }),
+    };
+  }, [capability, embedQuery, mode, observation, profile]);
   return (
     <NativeWorkspaceSearchProvider dependencies={dependencies}>
       {children}

@@ -113,6 +113,21 @@ test.describe('Provider Hub Settings', { tag: '@smoke' }, () => {
     // Non-secret fingerprint: only the last four characters ever render.
     await expect(window.getByTestId('credential-fingerprint-anthropic')).toContainText('…-123');
     await expect(window.getByTestId('credential-editor-anthropic')).toHaveCount(0);
+    // BST-1981: at the default window the Key column is never painted under
+    // the row's Replace/Remove actions.
+    const keyCell = await window
+      .getByTestId('credential-fingerprint-anthropic')
+      .evaluate((fingerprint) => {
+        const cell = fingerprint.closest('td');
+        if (!cell) {
+          throw new Error('The fingerprint is not inside a table cell.');
+        }
+        const box = cell.getBoundingClientRect();
+        return { clipped: cell.scrollWidth > cell.clientWidth, right: box.right };
+      });
+    const replace = await window.getByTestId('credential-replace-anthropic').boundingBox();
+    expect(keyCell.clipped).toBe(false);
+    expect(replace?.x).toBeGreaterThanOrEqual(keyCell.right);
 
     // The card face follows the credential, and the probe becomes available.
     await expect(window.getByTestId('provider-connection-anthropic')).toHaveAttribute(

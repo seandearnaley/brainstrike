@@ -89,8 +89,8 @@ export function SearchInputBar({ onSubmit }: SearchInputBarProps) {
   return (
     <TooltipProvider>
       <div className="flex flex-col gap-1">
-        <div className="flex items-center gap-1">
-          <div className="relative min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-1">
+          <div className="relative min-w-32 flex-1">
             <Search
               aria-hidden="true"
               className="pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-muted-foreground"
@@ -104,24 +104,27 @@ export function SearchInputBar({ onSubmit }: SearchInputBarProps) {
               value={query}
             />
           </div>
-          <ToggleIconButton
-            active={caseSensitive}
-            icon={<CaseSensitive />}
-            label="Match case"
-            onClick={toggleCase}
-          />
-          <ToggleIconButton
-            active={wholeWord}
-            icon={<WholeWord />}
-            label="Match whole word"
-            onClick={toggleWholeWord}
-          />
-          <ToggleIconButton
-            active={isRegex}
-            icon={<Regex />}
-            label="Use regular expression"
-            onClick={toggleRegex}
-          />
+          {/* Wraps below the query as one group when the panel is narrow. */}
+          <div className="ml-auto flex shrink-0 items-center gap-1">
+            <ToggleIconButton
+              active={caseSensitive}
+              icon={<CaseSensitive />}
+              label="Match case"
+              onClick={toggleCase}
+            />
+            <ToggleIconButton
+              active={wholeWord}
+              icon={<WholeWord />}
+              label="Match whole word"
+              onClick={toggleWholeWord}
+            />
+            <ToggleIconButton
+              active={isRegex}
+              icon={<Regex />}
+              label="Use regular expression"
+              onClick={toggleRegex}
+            />
+          </div>
         </div>
         {blocksSubmit ? (
           <div className="text-destructive text-xs" role="alert">
