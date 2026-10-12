@@ -2,17 +2,10 @@ import type { GrepSearchInput, RuntimeData } from '@brainstrike/agent';
 import { projectGrepSearchModelOutput } from '@brainstrike/host-capabilities/native-tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { runGrepSearchWith } from '../../assistant-server/grep-search-core';
-import { runGrepSearch } from '../../assistant-server/grep-search-tool';
 import { nativeGrepFixture } from './_c1-a-helpers';
 
-const { loggerErrorMock, queryMock } = vi.hoisted(() => ({
+const { loggerErrorMock } = vi.hoisted(() => ({
   loggerErrorMock: vi.fn(),
-  queryMock: vi.fn(),
-}));
-
-// Only the legacy block at the bottom reads Main's PGlite grep index.
-vi.mock('../../db-main', () => ({
-  getDatabase: vi.fn(async () => ({ query: queryMock })),
 }));
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
@@ -495,6 +488,34 @@ describe('grep search tool multi-root', () => {
     );
     expect(f.grep).not.toHaveBeenCalled();
   });
+
+  // The native index attributes each hit to a root id only; the label comes
+  // from the run's own open roots.
+  it('labels file summaries with their root and keeps same-path files in different roots distinct', async () => {
+    f.serve([
+      { content: 'needle', path: 'README.md', root_id: 'db-root-a', start_line: 1 },
+      { content: 'needle', path: 'README.md', root_id: 'db-root-b', start_line: 1 },
+    ]);
+    const result = await grepSearch({ pattern: 'needle' }, TWO_ROOTS);
+    if (result.outputMode !== 'files') {
+      throw new Error('expected files mode result');
+    }
+    expect(result.files).toHaveLength(2);
+    expect(result.files.map((file) => `${file.rootName}/${file.path}`).sort()).toEqual([
+      'ProjectA/README.md',
+      'ProjectB/README.md',
+    ]);
+  });
+
+  it('labels content matches with rootId and rootName', async () => {
+    f.serve([{ content: 'needle line', path: 'src/x.ts', root_id: 'db-root-a', start_line: 5 }]);
+    const result = await grepSearch({ outputMode: 'content', pattern: 'needle' }, TWO_ROOTS);
+    if (result.outputMode !== 'content') {
+      throw new Error('expected content mode result');
+    }
+    expect(result.matches[0]?.rootName).toBe('ProjectA');
+    expect(result.matches[0]?.rootId).toBe('db-root-a');
+  });
 });
 
 /**
@@ -652,75 +673,5 @@ describe('grep search tool filePaths root pinning (BST-764 review)', () => {
     const arrays = stringArrayParams();
     expect(arrays).toContainEqual(['proof.html']);
     expect(arrays).not.toContainEqual(['db-root-a']);
-  });
-});
-
-/**
- * KEPT ON THE LEGACY IMPORT (BST-1980 C1, category 4, pending the lead's ruling).
- * Main's PGlite grep index joined each indexed chunk to its root's display
- * name; the host's native grep index (`nativeGrepIndex`) returns hits with a
- * root id only and nothing re-attaches the display name, so index-only matches
- * in a multi-root workspace lose `rootName` on host threads.
- */
-describe('grep search tool multi-root root labels (legacy PGlite index)', () => {
-  beforeEach(() => {
-    queryMock.mockReset();
-  });
-
-  const TWO_ROOTS = {
-    workspaceRoots: [
-      { displayName: 'ProjectA', path: '/work/ProjectA', rootId: 'db-root-a' },
-      { displayName: 'ProjectB', path: '/work/ProjectB', rootId: 'db-root-b' },
-    ],
-  } as unknown as RuntimeData;
-
-  it('labels file summaries with their root and keeps same-path files in different roots distinct', async () => {
-    queryMock.mockResolvedValue({
-      rows: [
-        {
-          content: 'needle',
-          display_name: 'ProjectA',
-          path: 'README.md',
-          root_id: 'db-root-a',
-          start_line: 1,
-        },
-        {
-          content: 'needle',
-          display_name: 'ProjectB',
-          path: 'README.md',
-          root_id: 'db-root-b',
-          start_line: 1,
-        },
-      ],
-    });
-    const result = await runGrepSearch({ pattern: 'needle' }, TWO_ROOTS);
-    if (result.outputMode !== 'files') {
-      throw new Error('expected files mode result');
-    }
-    expect(result.files).toHaveLength(2);
-    expect(result.files.map((f) => `${f.rootName}/${f.path}`).sort()).toEqual([
-      'ProjectA/README.md',
-      'ProjectB/README.md',
-    ]);
-  });
-
-  it('labels content matches with rootId and rootName', async () => {
-    queryMock.mockResolvedValue({
-      rows: [
-        {
-          content: 'needle line',
-          display_name: 'ProjectA',
-          path: 'src/x.ts',
-          root_id: 'db-root-a',
-          start_line: 5,
-        },
-      ],
-    });
-    const result = await runGrepSearch({ outputMode: 'content', pattern: 'needle' }, TWO_ROOTS);
-    if (result.outputMode !== 'content') {
-      throw new Error('expected content mode result');
-    }
-    expect(result.matches[0]?.rootName).toBe('ProjectA');
-    expect(result.matches[0]?.rootId).toBe('db-root-a');
   });
 });

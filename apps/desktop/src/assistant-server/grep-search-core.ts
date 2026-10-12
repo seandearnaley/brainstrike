@@ -588,6 +588,27 @@ async function runProbeIndexSearch(args: {
   return { matchCount: result.totalMatches };
 }
 
+/**
+ * The index attributes each hit to its root id only; the label is the display
+ * name of that root among the run's open roots, the same names the live pass
+ * and the root topology use.
+ */
+function labelIndexMatchRoots(
+  result: GrepSearchResult,
+  runtimeData: RuntimeData | undefined
+): GrepSearchResult {
+  const names = new Map(
+    (runtimeData?.workspaceRoots ?? []).map((root) => [root.rootId, root.displayName] as const)
+  );
+  return {
+    ...result,
+    matches: result.matches.map((match) => {
+      const rootName = match.rootId ? names.get(match.rootId) : undefined;
+      return rootName === undefined ? match : { ...match, rootName };
+    }),
+  };
+}
+
 export async function runGrepSearchWith(
   input: GrepSearchInput,
   runtimeData: RuntimeData | undefined,
@@ -655,16 +676,19 @@ export async function runGrepSearchWith(
       : liveRoots.filter((root) => scopedRootIds.includes(root.rootId));
 
   try {
-    const serviceResult = await runIndexSearch({
-      contextLines,
-      embeddingSetId,
-      filePaths,
-      input,
-      rootId,
-      ...(scopedRootIds === undefined ? {} : { rootIds: scopedRootIds }),
-      index,
-      serviceMaxResults,
-    });
+    const serviceResult = labelIndexMatchRoots(
+      await runIndexSearch({
+        contextLines,
+        embeddingSetId,
+        filePaths,
+        input,
+        rootId,
+        ...(scopedRootIds === undefined ? {} : { rootIds: scopedRootIds }),
+        index,
+        serviceMaxResults,
+      }),
+      runtimeData
+    );
 
     const liveResult = await runLiveGrepSafely({
       caseSensitive,

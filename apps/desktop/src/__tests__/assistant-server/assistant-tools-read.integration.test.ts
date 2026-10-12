@@ -2195,8 +2195,10 @@ describe('assistant-tools read tools', () => {
         line: 11,
         lineText: 'needle line',
         path: 'src/x.ts',
-        // Main's native index names the root of every indexed hit.
+        // Main's native index names the root of every indexed hit; its label
+        // is that open root's display name.
         rootId: '/tmp/workspace',
+        rootName: 'workspace',
         // The root '/tmp/workspace' is not on disk, so the live pass is skipped
         // and the hybrid result is index-only.
         source: 'index',
@@ -2216,7 +2218,14 @@ describe('assistant-tools read tools', () => {
 
     expect(result.outputMode).toBe('files');
     expect(result.files).toEqual([
-      { firstLine: 11, matchCount: 1, path: 'src/x.ts', rootId: '/tmp/workspace', source: 'index' },
+      {
+        firstLine: 11,
+        matchCount: 1,
+        path: 'src/x.ts',
+        rootId: '/tmp/workspace',
+        rootName: 'workspace',
+        source: 'index',
+      },
     ]);
   });
 
