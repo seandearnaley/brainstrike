@@ -281,6 +281,9 @@ Desktop-only by construction; web builds no bridge or engine.
   bounded-output/process-tree lifecycle and the normal `execute:ask` gate. Pin a
   workspace-local skill to its owning durable root; a global skill may target any
   explicitly selected mounted root.
+- On Windows, the Bash runtime resolves Git for Windows from its standard install
+  locations or a Git `cmd`/`bin` directory on PATH. It never invokes PATH's bare
+  `bash.exe` (which can launch WSL); missing Git Bash is an explicit tool error.
 - Activation guidance routes mutation through native workspace tools, forbids shell
   heredocs, and carries `runSkillScript`'s own recovery path (`load_tool` by exact
   name, callable on the next step of the same response). Why: the tool is DEFERRED on

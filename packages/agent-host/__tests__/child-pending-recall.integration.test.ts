@@ -170,4 +170,18 @@ test('resource recall keeps a pending parent approval out of all three children'
   });
   const completed = await rowsUntil(harness, harness.threadId, finished(runId));
   expect(completed.find(finished(runId))?.event).toMatchObject({ outcome: 'completed' });
+  // The three background outcomes are delivered in their own wake run. Closing
+  // after only the approval run interrupted that still-owned Memory on Windows.
+  const delivered = await rowsUntil(
+    harness,
+    harness.threadId,
+    (row) => row.event.type === 'run.finished' && row.event.runId !== runId
+  );
+  const wake = delivered.find(
+    (row) => row.event.type === 'run.started' && row.event.runId !== runId
+  );
+  expect(wake?.event).toMatchObject({ delivery: { via: 'wake' } });
+  expect(
+    delivered.find((row) => row.event.type === 'run.finished' && row.event.runId !== runId)?.event
+  ).toMatchObject({ outcome: 'completed' });
 });
