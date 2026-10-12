@@ -25,6 +25,7 @@ import {
 import {
   getEmbeddingHostBridge,
   getPowerBridge,
+  recordEmbeddingHostWebGpu,
   reportDocumentEmbeddingsResponse,
   reportEmbeddingHostRuntimeStatus,
   reportEmbeddingHostRuntimeStatusForRuntimeId,
@@ -58,6 +59,7 @@ import {
   embeddingHostDevice,
   withResolvedHostDevice,
 } from './embedding-host-runtime-metadata';
+import { detectEmbeddingHostWebGpu } from './embedding-host-webgpu';
 import {
   resolveHydratedEmbeddingWorkerPreferences,
   resolveHydratedVectorDevicePreference,
@@ -393,6 +395,18 @@ interface StartEmbeddingHostWorkerOptions {
   readonly stopPromiseRef: MutableRefObject<Promise<void> | null>;
 }
 
+/** Loads the queue bootstrap and records this host's WebGPU detection; false once superseded. */
+async function prepareEmbeddingHostStart(isCurrent: () => boolean): Promise<boolean> {
+  await ensureEmbeddingQueueBootstrapLoaded(isCurrent);
+  if (!isCurrent()) {
+    return false;
+  }
+  // Settings recommends a model by this host's own WebGPU detection (BST-1993). It only
+  // reports availability: a native plan keeps its device and the saved preference is untouched.
+  recordEmbeddingHostWebGpu(await detectEmbeddingHostWebGpu());
+  return isCurrent();
+}
+
 async function startEmbeddingHostWorkerRuntime({
   backgroundAdmission,
   backgroundWorker,
@@ -426,8 +440,7 @@ async function startEmbeddingHostWorkerRuntime({
   }
 
   try {
-    await ensureEmbeddingQueueBootstrapLoaded(() => !(isDisposed() || isStopping()));
-    if (isDisposed() || isStopping()) {
+    if (!(await prepareEmbeddingHostStart(() => !(isDisposed() || isStopping())))) {
       return;
     }
     // Native pinned requests own their execution plan. Opening their request queue

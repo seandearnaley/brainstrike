@@ -6,6 +6,7 @@ import type { EmbeddingDimensionParameter, EmbeddingPooling } from './embedding-
 export * from './catalog-embedding-model.js';
 export * from './embedding-input-hash.js';
 export * from './embedding-worker-protocol.js';
+export type * from './local-execution.js';
 
 export const STANDARD_EMBEDDING_DIMENSION = DEFAULT_EMBEDDING_DIMENSION;
 

@@ -100,6 +100,68 @@ async function mount(): Promise<void> {
 describe('pinned native hidden-host startup', () => {
   installEmbeddingHostRuntimeFixture();
 
+  it('reports its own WebGPU detection when started on demand, whatever the saved device (BST-1993)', async () => {
+    const manager = connect();
+    storeState.devicePref = 'wasm';
+    storeState.devicePrefConfigured = true;
+    detectDeviceCapabilitiesMock.mockResolvedValue({
+      detectedAt: 1,
+      recommendationReason: 'WebGPU acceleration available (Apple M3)',
+      recommendedDevice: 'webgpu',
+      wasmAvailable: true,
+      webgpuAdapterAvailable: true,
+      webgpuAdapterInfo: null,
+      webgpuApiPresent: true,
+      webgpuUnavailableReason: null,
+      webWorkersAvailable: true,
+    });
+    const detected = manager.webgpuAdapter();
+    await mount();
+    await expect(detected).resolves.toEqual({
+      available: true,
+      reason: 'WebGPU acceleration available (Apple M3)',
+    });
+    // Opening settings starts the host only: no legacy worker, no model, no session.
+    expect(startEmbeddingWorkerMock).not.toHaveBeenCalled();
+    expect(initializeMock).not.toHaveBeenCalled();
+    expect(ensureVectorPreferencesHydratedMock).not.toHaveBeenCalled();
+  });
+
+  it('reports a software adapter as unavailable with the detection reason (BST-1993)', async () => {
+    const manager = connect();
+    detectDeviceCapabilitiesMock.mockResolvedValue({
+      detectedAt: 1,
+      recommendationReason: 'WASM recommended (WebGPU using software fallback would be slower)',
+      recommendedDevice: 'wasm',
+      wasmAvailable: true,
+      webgpuAdapterAvailable: true,
+      webgpuAdapterInfo: null,
+      webgpuApiPresent: true,
+      webgpuUnavailableReason: null,
+      webWorkersAvailable: true,
+    });
+    const detected = manager.webgpuAdapter();
+    await mount();
+    await expect(detected).resolves.toEqual({
+      available: false,
+      reason: 'WASM recommended (WebGPU using software fallback would be slower)',
+    });
+  });
+
+  it('reports a detection failure instead of guessing availability (BST-1993)', async () => {
+    const manager = connect();
+    detectDeviceCapabilitiesMock.mockRejectedValue(new Error('GPU process crashed'));
+    const detected = manager.webgpuAdapter();
+    onTestFinished(() =>
+      detected.then(
+        () => {},
+        () => {}
+      )
+    );
+    await mount();
+    await expect(detected).rejects.toThrow('WebGPU detection failed: GPU process crashed');
+  });
+
   it.each(['document', 'query'] as const)(
     'starts a cold %s request without legacy device hydration',
     async (kind) => {
@@ -126,7 +188,8 @@ describe('pinned native hidden-host startup', () => {
       );
       expect(initializeMock).toHaveBeenCalledWith(expect.objectContaining(plan));
       expect(ensureVectorPreferencesHydratedMock).not.toHaveBeenCalled();
-      expect(detectDeviceCapabilitiesMock).not.toHaveBeenCalled();
+      // Start-up WebGPU detection (BST-1993) reports availability only; the plan's device stands.
+      expect(storeState.setDetectedDevicePref).not.toHaveBeenCalled();
       expect(startEmbeddingWorkerMock).not.toHaveBeenCalled();
       await act(async () => {
         await manager.stop();
@@ -157,9 +220,14 @@ describe('pinned native hidden-host startup', () => {
       if (state === 'error') {
         storeState.devicePrefConfigured = false;
         detectDeviceCapabilitiesMock.mockResolvedValue({
+          detectedAt: 1,
+          recommendationReason: 'WASM fallback (WebGPU not available)',
           recommendedDevice: 'wasm',
+          wasmAvailable: true,
           webgpuAdapterAvailable: false,
+          webgpuAdapterInfo: null,
           webgpuApiPresent: false,
+          webgpuUnavailableReason: 'WebGPU API not available in this browser',
           webWorkersAvailable: true,
         });
       }

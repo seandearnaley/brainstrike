@@ -35,6 +35,7 @@ import {
   EMBEDDING_HOST_RESET_CHANNEL,
   EMBEDDING_HOST_STATUS_EVENT,
   EMBEDDING_HOST_STOP_CHANNEL,
+  EMBEDDING_HOST_WEBGPU_ADAPTER_CHANNEL,
 } from '../../embedding-host-shared';
 import {
   LLM_HOST_CANCEL_CHANNEL,
@@ -178,6 +179,7 @@ describe('desktop IPC channel contract', () => {
       reset: EMBEDDING_HOST_RESET_CHANNEL,
       status: EMBEDDING_HOST_STATUS_EVENT,
       stop: EMBEDDING_HOST_STOP_CHANNEL,
+      webgpuAdapter: EMBEDDING_HOST_WEBGPU_ADAPTER_CHANNEL,
     });
     expect(DESKTOP_IPC_CHANNELS.llmHost).toEqual({
       cancel: LLM_HOST_CANCEL_CHANNEL,

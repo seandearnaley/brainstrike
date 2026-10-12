@@ -3,6 +3,7 @@ import {
   type EmbeddingTelemetrySnapshot,
 } from '@brainstrike/embedding-worker';
 import { isHostedProvider, parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
+import type { WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import { createRuntimeId } from '@brainstrike/worker-runtime';
 import { type BrowserWindow, powerSaveBlocker } from 'electron';
@@ -36,6 +37,8 @@ import {
   type EmbeddingHostQueryEmbeddingResponseReport,
   type EmbeddingHostStatus,
   type EmbeddingHostStatusReport,
+  readWebGpuAdapter,
+  reportedHostFields,
 } from './embedding-host-shared';
 import { waitForHostStartup } from './embedding-host-startup';
 import { HostedEmbeddingRequests } from './hosted-embedding-requests';
@@ -293,6 +296,11 @@ export class EmbeddingHostManager {
 
   async ensureStarted(options?: { waitForRunning?: boolean }): Promise<EmbeddingHostStatus> {
     return this.ensureHostStarted(options, true);
+  }
+
+  /** Settings' WebGPU detection: an on-demand start, like a native request, loads no model. */
+  async webgpuAdapter(): Promise<WebGpuAdapterAvailability> {
+    return readWebGpuAdapter(await this.ensureHostStarted({ waitForRunning: true }, false));
   }
 
   private async ensureHostStarted(
@@ -782,11 +790,7 @@ export class EmbeddingHostManager {
       runtimeId: report.runtimeId,
       state: report.state,
     });
-    const nextStatus: EmbeddingHostStatus = {
-      ...baseStatus,
-      ...(report.commandId ? { commandId: report.commandId } : {}),
-      ...(report.embeddingRuntime ? { embeddingRuntime: report.embeddingRuntime } : {}),
-    };
+    const nextStatus: EmbeddingHostStatus = { ...baseStatus, ...reportedHostFields(report) };
     // Keep this exact identity test aligned with reset()'s old-runtime waiter clause.
     const isPendingResetFailure =
       nextStatus.state === 'error' &&

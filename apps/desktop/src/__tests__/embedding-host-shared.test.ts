@@ -83,6 +83,42 @@ describe('embedding host shared command helpers', () => {
     expect(independent.payload).not.toHaveProperty('code');
   });
 
+  it('carries the host WebGPU detection, or why detection failed, across the status boundary (BST-1993)', () => {
+    const status = {
+      active: false,
+      lastError: null,
+      runtimeId: 'runtime',
+      runtimeKind: 'embedding-host',
+      state: 'running',
+    };
+    const detected = { available: false, reason: 'WASM fallback (WebGPU not available)' };
+    expect(assertEmbeddingHostStatus({ ...status, webgpuAdapter: detected }).webgpuAdapter).toEqual(
+      detected
+    );
+    expect(
+      assertEmbeddingHostStatus({ ...status, webgpuAdapterError: 'detection threw' })
+        .webgpuAdapterError
+    ).toBe('detection threw');
+    expect(assertEmbeddingHostStatus(status)).not.toHaveProperty('webgpuAdapter');
+    for (const webgpuAdapter of [
+      true,
+      { available: 'yes', reason: 'x' },
+      { available: true },
+      { available: true, reason: ' ' },
+      { available: true, extra: 1, reason: 'x' },
+    ]) {
+      expect(() => assertEmbeddingHostStatus({ ...status, webgpuAdapter })).toThrow(
+        'webgpuAdapter'
+      );
+    }
+    expect(() => assertEmbeddingHostStatus({ ...status, webgpuAdapterError: '' })).toThrow(
+      'webgpuAdapterError'
+    );
+    expect(() =>
+      assertEmbeddingHostStatus({ ...status, webgpuAdapter: detected, webgpuAdapterError: 'x' })
+    ).toThrow('webgpuAdapter');
+  });
+
   it('preserves exact control acknowledgement identity and rejects malformed identities', () => {
     const status = {
       active: false,

@@ -129,6 +129,7 @@ export const DESKTOP_IPC_CHANNELS = {
     reset: 'embedding-host:reset',
     status: 'embedding-host:status',
     stop: 'embedding-host:stop',
+    webgpuAdapter: 'embedding-host:webgpu-adapter',
   },
   fileExports: {
     saveToDownloads: 'file-exports:save-to-downloads',

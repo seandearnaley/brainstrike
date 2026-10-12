@@ -7,6 +7,7 @@ import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import { findProviderDefinition } from '@brainstrike/assistant-contract/provider-registry';
 import {
   EMBEDDING_SET_UPDATED_EVENT,
   QUEUE_DRAINED_EVENT,
@@ -376,18 +377,109 @@ describe('SearchIndexingSettingsSection', () => {
     );
   });
 
-  it('recommends granite from the catalog and says why (BST-1993)', async () => {
+  // BST-1993: the recommendation follows the embedding host's own WebGPU detection.
+  const bgeSmallModel = makeDbModel({
+    capabilities: {
+      defaultDimension: 384,
+      prompts: { document: '', query: 'Represent this sentence for searching relevant passages: ' },
+      type: 'embedding',
+    },
+    id: 'Xenova/bge-small-en-v1.5',
+    isEnabled: true,
+    name: 'BGE Small',
+    providerId: 'local',
+  });
+  function withLocalModels(): void {
     useModelRegistryStore.setState({
-      models: [...useModelRegistryStore.getState().models, graniteModel],
+      models: [...useModelRegistryStore.getState().models, graniteModel, bgeSmallModel],
       providers: [
         ...useModelRegistryStore.getState().providers,
         makeDbProvider('local', 'Local', 2),
       ],
     });
-    render(<SearchIndexingSettingsSection nativeIndex={{ rebuild: vi.fn() }} />);
+  }
+  function detection(result: Promise<{ available: boolean; reason: string }>) {
+    return { webgpuAdapter: vi.fn(() => result) };
+  }
+
+  it('recommends granite on WebGPU when the embedding host detects an adapter (BST-1993)', async () => {
+    withLocalModels();
+    const localExecution = detection(
+      Promise.resolve({ available: true, reason: 'WebGPU acceleration available (Apple M3)' })
+    );
+    render(
+      <SearchIndexingSettingsSection
+        localExecution={localExecution}
+        nativeIndex={{ rebuild: vi.fn() }}
+      />
+    );
     const note = await screen.findByRole('note');
-    expect(note.textContent).toContain(graniteModel.name);
-    expect(note.textContent).toContain(graniteModel.description);
+    expect(note.textContent).toMatch(
+      /^Recommended: Granite Embedding Small R2 \(WebGPU · FP16\)\./u
+    );
+    expect(localExecution.webgpuAdapter).toHaveBeenCalledOnce();
+  });
+
+  it('recommends BGE Small on WASM when the embedding host has no WebGPU (BST-1993)', async () => {
+    withLocalModels();
+    render(
+      <SearchIndexingSettingsSection
+        localExecution={detection(
+          Promise.resolve({ available: false, reason: 'WASM fallback (WebGPU not available)' })
+        )}
+        nativeIndex={{ rebuild: vi.fn() }}
+      />
+    );
+    const note = await screen.findByRole('note');
+    expect(note.textContent).toMatch(/^Recommended: BGE Small \(WASM · Q8\)\./u);
+  });
+
+  it('recommends nothing while detection is pending, and shows a detection failure (BST-1993)', async () => {
+    withLocalModels();
+    let fail: (error: Error) => void = () => {};
+    const pending = new Promise<{ available: boolean; reason: string }>((_resolve, reject) => {
+      fail = reject;
+    });
+    render(
+      <SearchIndexingSettingsSection
+        localExecution={detection(pending)}
+        nativeIndex={{ rebuild: vi.fn() }}
+      />
+    );
+    expect(await screen.findByRole('button', { name: 'Use embedding model' })).toBeTruthy();
+    expect(screen.queryByRole('note')).toBeNull();
+    await act(async () => {
+      fail(new Error('WebGPU detection failed: GPU process crashed'));
+      await Promise.resolve();
+    });
+    expect((await screen.findByRole('alert')).textContent).toContain(
+      'WebGPU detection failed: GPU process crashed'
+    );
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('describes the measured cost of a catalog WASM plan it does not recommend (BST-1993)', async () => {
+    withLocalModels();
+    const collection = {
+      createdAt: '2026-10-12',
+      dimensions: 384,
+      id: 'granite-index',
+      modelId: GRANITE_ID,
+      modelKey: `local::${GRANITE_ID}`,
+      name: 'Workspace Index (Granite Embedding Small R2)',
+    };
+    findAllMock.mockResolvedValue([collection]);
+    getByIdMock.mockResolvedValue(collection);
+    const preferences = useBackgroundIndexingPreferencesStore.getState();
+    preferences.setManagedCollectionId(collection.id);
+    preferences.setNativeIndexMode('VECTOR');
+    render(<SearchIndexingSettingsSection nativeIndex={{ rebuild: vi.fn() }} />);
+    const granite = findProviderDefinition('local')?.models.find(
+      (model) => model.id === GRANITE_ID
+    );
+    const wasmNote = granite?.type === 'embedding' ? granite.executionNotes?.wasm : undefined;
+    expect(wasmNote).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain(wasmNote));
   });
 
   it('offers only granite catalog execution plans, pinned to its catalog revision (BST-1993)', async () => {

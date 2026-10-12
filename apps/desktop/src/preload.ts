@@ -67,6 +67,7 @@ ipcRenderer.on(DESKTOP_IPC_CHANNELS.agent.hostDisconnected, (_event: unknown, pa
 const MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set<string>(MAIN_OWNED_DESKTOP_STORAGE_KEYS);
 
 import type { FileHandle } from '@brainstrike/file-system';
+import type { WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
 import type { LoggingPreferences, LogRecord } from '@brainstrike/logging';
 import type {
   AssistantSelectionUpdatePayload,
@@ -857,6 +858,8 @@ const embeddingHost = {
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.reset),
   stop: (): Promise<EmbeddingHostStatus> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.stop),
+  webgpuAdapter: (): Promise<WebGpuAdapterAvailability> =>
+    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.webgpuAdapter),
 } satisfies VisibleEmbeddingHostBridge;
 contextBridge.exposeInMainWorld('embeddingHost', embeddingHost);
 

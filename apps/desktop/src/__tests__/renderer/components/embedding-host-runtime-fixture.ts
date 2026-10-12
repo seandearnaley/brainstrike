@@ -1,6 +1,7 @@
 import { resolve } from 'node:path';
 import { resetEmbeddingTelemetryForTests } from '@brainstrike/embedding-worker/testing';
 import { beforeEach, vi } from 'vitest';
+import { recordEmbeddingHostWebGpu } from '../../../renderer/components/embedding-host-bridge';
 
 const {
   commandListenerRef,
@@ -216,6 +217,7 @@ export function installEmbeddingHostRuntimeFixture(): void {
     reportStatusMock.mockReset();
     stopMock.mockResolvedValue(undefined);
     resetEmbeddingTelemetryForTests();
+    recordEmbeddingHostWebGpu({});
     currentDbRef.current = dbHandle;
     storeState.hasHydrated = false;
     storeState.devicePref = 'webgpu';

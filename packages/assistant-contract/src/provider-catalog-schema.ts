@@ -140,8 +140,18 @@ const EmbeddingModelSchema = z.strictObject({
   dimensionParameter: z
     .enum(['dimensions', 'output_dimensionality', 'output_dimension'])
     .optional(),
+  executionNotes: z
+    .strictObject({ wasm: z.string().min(1).optional(), webgpu: z.string().min(1).optional() })
+    .optional(),
   id: z.string(),
   label: z.string().optional(),
+  recommendedExecution: z
+    .strictObject({
+      device: z.enum(['webgpu', 'wasm']),
+      dtype: z.enum(['fp16', 'fp32', 'q4', 'q8']),
+      reason: z.string().min(1),
+    })
+    .optional(),
   supportsCustomDimensions: z.boolean().optional(),
   supportsStandardDimension: z.boolean(),
   type: z.literal('embedding'),

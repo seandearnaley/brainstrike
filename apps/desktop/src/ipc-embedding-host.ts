@@ -15,6 +15,7 @@ import {
   EMBEDDING_HOST_REPORT_STATUS_CHANNEL,
   EMBEDDING_HOST_RESET_CHANNEL,
   EMBEDDING_HOST_STOP_CHANNEL,
+  EMBEDDING_HOST_WEBGPU_ADAPTER_CHANNEL,
   type EmbeddingHostStatusReport,
 } from './embedding-host-shared';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
@@ -104,6 +105,13 @@ export function registerEmbeddingHostIpcHandlers(
         .get(`${event.sender.id}:${requestId}`)
         ?.abort(new Error('Document embeddings canceled.'));
     }
+  );
+  // Settings asks the host that runs inference whether it has WebGPU (BST-1993).
+  registry.registerAuthorizedInvoke(
+    'embeddings',
+    EMBEDDING_HOST_WEBGPU_ADAPTER_CHANNEL,
+    { roles: ['visible-ui'] },
+    () => manager.webgpuAdapter()
   );
   registry.registerEvent(
     'embeddings',

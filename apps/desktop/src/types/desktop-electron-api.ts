@@ -2,6 +2,7 @@ import type { ElectronVectorPreferencesBridge } from '@brainstrike/app-state/sto
 import type { ChunkResult } from '@brainstrike/chunking-worker';
 import type { DatabaseWorkOptions, DesktopDatabaseBridge } from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
+import type { WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
 import type {
   FileSystemWatchEvent,
   IFileNode,
@@ -227,6 +228,8 @@ export interface VisibleEmbeddingHostBridge {
   reportStatus: (status: EmbeddingHostStatus) => void;
   reset: () => Promise<EmbeddingHostStatus>;
   stop: () => Promise<EmbeddingHostStatus>;
+  /** The host's WebGPU detection; starts it without loading a model (BST-1993). */
+  webgpuAdapter: () => Promise<WebGpuAdapterAvailability>;
 }
 
 export type EmbeddingHostRuntimeBridge = Pick<

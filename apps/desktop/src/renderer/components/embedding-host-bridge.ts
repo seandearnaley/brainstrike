@@ -13,6 +13,7 @@ import {
   createEmbeddingHostStatus,
   type EmbeddingHostStatusOptions,
 } from './embedding-host-status';
+import type { EmbeddingHostWebGpuFact } from './embedding-host-webgpu';
 
 export function getEmbeddingHostBridge(): {
   onDocumentEmbeddingsCancel?: (
@@ -70,8 +71,16 @@ export function getPowerBridge(): {
   return hostWindow.power ?? null;
 }
 
+/** This host's WebGPU detection (BST-1993); every status report carries it once known. */
+let webgpuFact: EmbeddingHostWebGpuFact = {};
+
+/** Record the detection a host start just ran, replacing an earlier start's. */
+export function recordEmbeddingHostWebGpu(fact: EmbeddingHostWebGpuFact): void {
+  webgpuFact = fact;
+}
+
 function reportStatus(status: EmbeddingHostStatus): void {
-  getEmbeddingHostBridge()?.reportStatus?.(status);
+  getEmbeddingHostBridge()?.reportStatus?.({ ...status, ...webgpuFact });
 }
 
 export function reportQueryEmbeddingResponse(

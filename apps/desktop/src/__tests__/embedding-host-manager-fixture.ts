@@ -8,6 +8,8 @@ export interface EmbeddingLifecycleStatus {
   runtimeId: string;
   runtimeKind?: 'embedding-host';
   state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+  webgpuAdapter?: { available: boolean; reason: string };
+  webgpuAdapterError?: string;
 }
 
 const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(() => {
