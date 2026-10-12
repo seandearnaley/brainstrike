@@ -7,7 +7,7 @@ import {
 } from '../source-range-validation';
 
 describe('canonical provided source span validation', () => {
-  it('uses the same source normalization and offsets as the existing chunker', () => {
+  it('accepts the exact span the chunker located, never its whitespace-normalized text (BST-1989)', () => {
     for (const [source, chunk] of [
       ['first\r\nsecond', 'first\nsecond'],
       ['before\n\n  after', 'beforeafter'],
@@ -15,8 +15,12 @@ describe('canonical provided source span validation', () => {
     ]) {
       const range = resolveSourceRanges(source, [{ content: chunk }], 0).ranges[0];
       expect(range).not.toBeNull();
-      expect(matchesChunkSourceRange(source, chunk, range!.startOffset, range!.endOffset)).toBe(
+      const span = source.slice(range!.startOffset, range!.endOffset);
+      expect(matchesChunkSourceRange(source, span, range!.startOffset, range!.endOffset)).toBe(
         true
+      );
+      expect(matchesChunkSourceRange(source, chunk, range!.startOffset, range!.endOffset)).toBe(
+        chunk === span
       );
       expect(findLineForOffset(buildLineStartOffsets(source), range!.endOffset - 1)).toBe(
         range!.endLine

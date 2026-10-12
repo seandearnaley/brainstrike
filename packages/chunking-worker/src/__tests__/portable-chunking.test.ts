@@ -203,9 +203,10 @@ describe('portable-chunking', () => {
           strategy: 'markdown',
         });
 
+        // Each chunk carries its CRLF source bytes, not the splitter's LF copy.
         expect(result.chunks.map((chunk) => chunk.content)).toEqual([
           '# Title',
-          'Alpha sentence\ncontinues here.',
+          'Alpha sentence\r\ncontinues here.',
           'Beta sentence.',
         ]);
         expect(result.chunks.map((chunk) => chunk.startLine)).toEqual([1, 3, 6]);
@@ -216,7 +217,7 @@ describe('portable-chunking', () => {
         warnSpy.mockRestore();
       });
 
-      it('resolves source ranges for semantic markdown chunks merged across sections', async () => {
+      it('keeps the source span when semantic markdown merges sections (BST-1989)', async () => {
         const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const text =
           '# Title\n\nIntro paragraph.\n\n## A\n\nAlpha paragraph.\n\n## B\n\nBeta paragraph.';
@@ -227,10 +228,10 @@ describe('portable-chunking', () => {
           strategy: 'auto',
         });
 
+        // The splitter trims and rejoins sections ("Intro paragraph.## A"); the
+        // chunk keeps the blank lines between them, so its lines are the file's.
         expect(result.chunks).toHaveLength(1);
-        expect(result.chunks[0]?.content).toBe(
-          '# Title\n\nIntro paragraph.## A\n\nAlpha paragraph.## B\n\nBeta paragraph.'
-        );
+        expect(result.chunks[0]?.content).toBe(text);
         expect(result.chunks[0]).toMatchObject({
           endLine: 11,
           endOffset: text.length,
@@ -281,6 +282,8 @@ describe('portable-chunking', () => {
         expect(text.slice(startOffset, endOffset).replace(/\r\n/g, '\n')).toBe(
           'Alpha target line\ncontinues with mixed newlines.'
         );
+        // The splitter's LF copy only locates the chunk; the chunk is the source span.
+        expect(result.chunks[0]?.content).toBe(text.slice(startOffset, endOffset));
         warnSpy.mockRestore();
       });
 
