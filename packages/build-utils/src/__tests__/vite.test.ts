@@ -156,7 +156,7 @@ describe('assistant vite helpers', () => {
     expect(entries).toEqual(
       expect.arrayContaining([
         '@assistant-ui/react',
-        '@assistant-ui/react-markdown',
+        '@assistant-ui/react-streamdown',
         'react-shiki/core',
         'remark-gfm',
         'shiki/wasm',

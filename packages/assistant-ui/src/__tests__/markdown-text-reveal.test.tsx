@@ -5,9 +5,8 @@ const primitiveMocks = vi.hoisted(() => ({
   markdownTextPrimitive: vi.fn((_props: unknown) => null),
 }));
 
-vi.mock('@assistant-ui/react-markdown', () => ({
-  MarkdownTextPrimitive: primitiveMocks.markdownTextPrimitive,
-  unstable_memoizeMarkdownComponents: <T,>(components: T) => components,
+vi.mock('@assistant-ui/react-streamdown', () => ({
+  StreamdownTextPrimitive: primitiveMocks.markdownTextPrimitive,
 }));
 
 vi.mock('@assistant-ui/react', () => ({
@@ -24,19 +23,19 @@ vi.mock('../shiki-highlighter', () => ({
 
 import { MarkdownText } from '../markdown-text';
 
-describe('MarkdownText streaming performance', () => {
-  it('enables deferred parsing so streaming chunks do not synchronously re-parse the whole message', () => {
-    // MarkdownTextPrimitive defaults defer to false, which re-runs the full
-    // remark/GFM parse over ALL accumulated text on every streamed chunk at
-    // urgent priority. The library's escape hatch is `defer` (its
-    // useDeferredValue path); component memoization only spares unchanged
-    // rendered blocks, not the parse itself.
+describe('MarkdownText streaming reveal', () => {
+  it('reveals words with Streamdown animation instead of a frame-paced re-render', () => {
+    // BST-1929: the vendor `smooth` reveal committed on every animation frame,
+    // and `defer` split each token into an urgent and a deferred commit.
+    // Streamdown's `animated` fades words in with CSS: one commit per token.
     render(<MarkdownText />);
 
     expect(primitiveMocks.markdownTextPrimitive).toHaveBeenCalled();
     const props = primitiveMocks.markdownTextPrimitive.mock.calls[0]?.[0] as
-      | { defer?: boolean }
+      | Readonly<Record<string, unknown>>
       | undefined;
-    expect(props?.defer).toBe(true);
+    expect(props?.['animated']).toEqual({ animation: 'fadeIn', sep: 'word' });
+    expect(props).not.toHaveProperty('smooth');
+    expect(props).not.toHaveProperty('defer');
   });
 });

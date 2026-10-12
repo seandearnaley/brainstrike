@@ -37,7 +37,7 @@ catalog:
   # browser-safe/hosted-web agent subpaths (verify-hosted-web-bundle.mjs).
   '@aws-sdk/credential-providers': 3.1127.0
   '@assistant-ui/react': '~0.15.18'
-  '@assistant-ui/react-markdown': ^0.14.14
+  '@assistant-ui/react-streamdown': 0.3.17
   '@assistant-ui/styles': ^0.3.7
   # BST-1427: gitignore semantics for the workspace walk. The de-facto Node
   # implementation (eslint/prettier/lint-staged/globby all use it); already
@@ -157,6 +157,10 @@ catalog:
   # BST-1920: loadable vec0 extension; one optional package per platform
   # (sqlite-vec-<os>-<arch>). Exact pin; resolved through app.asar.unpacked.
   sqlite-vec: 0.1.9
+  # BST-1929: the version @assistant-ui/react-streamdown renders with (pinned by
+  # the override below). A direct dependency only so Tailwind's @source can scan
+  # its dist for the utility classes it ships.
+  streamdown: 2.6.0
   tailwindcss: ^4.3.3
   tiktoken: ^1.0.22
   tsup: ^8.5.1
@@ -172,6 +176,14 @@ catalog:
   zod: ^4.6.5
   zustand: ^5.0.15
 overrides:
+  # BST-1929: hold react-streamdown's own dependencies at the newest releases at
+  # least 14 days old when it was added, so the lockfile has one react-markdown
+  # wrapper, one streamdown (the catalog pin that Tailwind's @source scans) and
+  # one remend (streamdown pins 1.3.1 exactly). Retire these edges with the next
+  # @assistant-ui/react-streamdown bump.
+  '@assistant-ui/react-streamdown@0.3.17>@assistant-ui/react-markdown': 0.14.17
+  '@assistant-ui/react-streamdown@0.3.17>remend': 1.3.1
+  '@assistant-ui/react-streamdown@0.3.17>streamdown': 2.6.0
   # BST-875: Drizzle's published CLI/API use tsx, never its deprecated loader.
   # Retire on owner update; do not reintroduce the unused esbuild 0.18 subtree.
   'drizzle-kit@0.31.10>@esbuild-kit/esm-loader': '-'
