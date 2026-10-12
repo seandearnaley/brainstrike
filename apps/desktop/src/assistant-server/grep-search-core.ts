@@ -4,7 +4,7 @@ import {
   type RuntimeData,
   type RuntimeWorkspaceRoot,
 } from '@brainstrike/agent';
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
 import type { GrepMatch, GrepSearchOptions, GrepSearchResult, LineMatcher } from '@brainstrike/db';
 import { createGrepLineMatcher } from '@brainstrike/db';
 import {
@@ -632,7 +632,7 @@ export async function runGrepSearchWith(
   // (BEFORE any DB or disk work), preserving the no-coercion contract, and the
   // SAME matcher instance drives the live pass so live + indexed match
   // semantics can never diverge.
-  const liveMatcher = createGrepLineMatcher(input.pattern, isRegex, caseSensitive);
+  const liveMatcher = createModelPatternMatcher(input.pattern, isRegex, caseSensitive);
   const liveRoots = resolveLiveRoots(runtimeData, scopedRoot);
 
   // BST-764. Resolve the `filePaths` allowlist ONCE, here, and feed the same
@@ -641,16 +641,16 @@ export async function runGrepSearchWith(
   // turned an absolute path into a never-matching relative one and reported a
   // clean zero-match for a file that plainly matched.
   //
-  // Thrown BEFORE the try/catch so the actionable message reaches the model
-  // intact, the same reason `resolveOptionalWorkspaceRoot` is resolved early;
-  // the catch below maps unknown errors to a generic string.
+  // The refusal names only paths the model supplied and the open folders it
+  // can already see, so it is a `ToolInputError`: the execution guard returns
+  // it verbatim, where a plain Error became its generic failure (BST-1985).
   const resolvedFilePaths = resolveGrepFilePaths({
     filePaths: input.filePaths,
     roots: liveRoots,
     scopedRoot,
   });
   if (!resolvedFilePaths.ok) {
-    throw new Error(resolvedFilePaths.message);
+    throw new ToolInputError(resolvedFilePaths.message);
   }
   const filePaths = resolvedFilePaths.filePaths;
   // Review follow-up on #2087: an absolute entry names ONE file in ONE root, so
@@ -755,30 +755,29 @@ export async function runGrepSearchWith(
           })
     );
   } catch (error) {
-    logger.error('grepSearch failed', { error, pattern: REDACTED_GREP_PATTERN_LOG_VALUE });
-    const message = error instanceof Error ? error.message : String(error);
-    // Rethrow only known-safe service validation messages; everything else
-    // (raw PGlite/SQL errors) maps to a generic message so internal details
-    // never reach the model (same convention as retrieval-tool.ts).
-    const knownSafeMessages = [
-      /^Invalid regular expression pattern:/,
-      /^Grep pattern must be at least \d+ characters/,
-      /^findGrepCandidates filePaths limit exceeded/,
-      // BST-764: the filePaths scope errors are authored for the model and
-      // contain only paths it supplied plus the open-folder list it can already
-      // see, so they must reach it rather than becoming "Try again."
-      //
-      // Review follow-up on #2087: this is a belt-and-braces entry — the
-      // resolver throws OUTSIDE the try, so these never reach this catch today.
-      // It is kept (and widened from `^filePaths entry ` to `^filePaths `) so it
-      // covers EVERY message the resolver can produce — including the
-      // blank-entry one, which starts "filePaths contains…" — if the resolve is
-      // ever moved inside the try.
-      /^filePaths /,
-    ];
-    if (knownSafeMessages.some((re) => re.test(message))) {
+    // A deliberate refusal is typed, never recognized by its text: it passes
+    // through, and everything else (raw PGlite/SQL errors, host paths) stays
+    // behind a generic message and the log (BST-1985).
+    if (error instanceof ToolInputError) {
       throw error;
     }
+    logger.error('grepSearch failed', { error, pattern: REDACTED_GREP_PATTERN_LOG_VALUE });
     throw new Error('Unable to perform grep search right now. Try again.');
+  }
+}
+
+/**
+ * The line matcher refuses only the model's own pattern (the ReDoS guard or a
+ * `RegExp` that does not compile), so each refusal is the model's to correct.
+ */
+function createModelPatternMatcher(
+  pattern: string,
+  isRegex: boolean,
+  caseSensitive: boolean
+): LineMatcher {
+  try {
+    return createGrepLineMatcher(pattern, isRegex, caseSensitive);
+  } catch (error) {
+    throw new ToolInputError(error instanceof Error ? error.message : String(error));
   }
 }

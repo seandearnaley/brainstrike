@@ -9,6 +9,7 @@
 import { constants as fsConstants } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import { isWithinRoot, normalizeWorkspacePath } from './workspace-path.js';
 
 /**
@@ -69,13 +70,13 @@ export async function resolveWorkspaceWritePath(
   const relativePath =
     normalizedWorkspacePath === '/' ? '' : normalizedWorkspacePath.replace(/^\/+/, '');
   if (relativePath.length === 0) {
-    throw new Error(`Path "${workspacePath}" is the workspace root, not a writable file.`);
+    throw new ToolInputError(`Path "${workspacePath}" is the workspace root, not a writable file.`);
   }
   const absolutePath = path.resolve(rootPath, relativePath);
   const canonicalRootPath = await fsPromises.realpath(rootPath);
   const canonicalAbsolutePath = await resolveCanonicalWritablePath(absolutePath);
   if (!isWithinRoot(canonicalRootPath, canonicalAbsolutePath)) {
-    throw new Error(`Path "${workspacePath}" is outside the selected workspace root.`);
+    throw new ToolInputError(`Path "${workspacePath}" is outside the selected workspace root.`);
   }
   return {
     // Canonical (symlink-resolved) target — correct for WRITE tools, which write
@@ -190,10 +191,10 @@ export async function writeContainedFileBytes(args: {
   try {
     const leafStats = await fsPromises.lstat(resolved.absolutePath);
     if (leafStats.isSymbolicLink()) {
-      throw new Error(`Path "${requestedPath}" is outside the selected workspace root.`);
+      throw new ToolInputError(`Path "${requestedPath}" is outside the selected workspace root.`);
     }
     if (leafStats.isDirectory()) {
-      throw new Error(
+      throw new ToolInputError(
         `Path "${requestedPath}" is a directory and cannot be overwritten with a file.`
       );
     }
