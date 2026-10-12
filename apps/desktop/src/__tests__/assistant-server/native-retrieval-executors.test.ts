@@ -1,16 +1,18 @@
 import { NATIVE_TOOL_INPUT_SCHEMAS, registerToolGuardDeadlineSignal } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { expect, it, vi } from 'vitest';
 import type { z } from 'zod';
-import { legacyNativeToolPorts } from '../../assistant-server/legacy-native-tool-ports';
-import { SEARCH_TOOL_EXECUTORS } from '../../assistant-server/native-tool-executors-search';
+import { retrievalToolExecutors } from '../../assistant-server/native-tool-executors-retrieval';
+import type { RetrievalStore } from '../../assistant-server/retrieval-store';
+import { hostExecutionPorts } from './_host-native-tools';
 
 const calls = vi.hoisted(() => ({
   hybrid: vi.fn().mockResolvedValue({}),
   semantic: vi.fn().mockResolvedValue({}),
 }));
-// The executors run the shared retrieval cores; Main supplies its own PGlite store.
+// The executors run the shared retrieval cores over the caller's store.
 vi.mock('../../assistant-server/retrieval-core', async (original) => ({
   ...(await original<typeof import('../../assistant-server/retrieval-core')>()),
   runQueryEmbeddingSpaceWith: calls.semantic,
@@ -32,15 +34,24 @@ const capability: IndexSearchCapability = {
   status: vi.fn(),
 };
 const embeddingHostManager = { queryEmbedding: vi.fn() };
+// The cores are mocked above, so the store is never read.
+const store: RetrievalStore = {
+  embeddingSet: vi.fn(),
+  embeddingSpaces: vi.fn(),
+  fileRecords: vi.fn(),
+};
+/** The factory `desktopHostToolExecutors` binds, with this suite's index and query embedding. */
 function entry(
   toolId: typeof NATIVE_TOOL_ID.queryEmbeddingSpace | typeof NATIVE_TOOL_ID.hybridSearch,
   native = true
 ) {
-  const tool = SEARCH_TOOL_EXECUTORS[toolId]({
+  const tool = retrievalToolExecutors(() => ({
     dependencies: { embeddingHostManager, ...(native ? { nativeIndexSearch: capability } : {}) },
+    store,
+  }))[toolId]({
     isLocalProvider: false,
-    ports: legacyNativeToolPorts(undefined),
-    readFileCursorRegistry: {} as never,
+    ports: hostExecutionPorts(),
+    readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
     resolveActiveDomainCharBudget: () => 6000,
     resolvedDomainCharBudget: 6000,
     runtimeData: undefined,

@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import { createIndexerConnection } from '@brainstrike/indexer/transport';
 import { SqliteQueryClient, spawnQueryProcess } from '@brainstrike/sqlite-query';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -24,10 +25,12 @@ vi.mock('@brainstrike/db', async (original) => ({
   },
 }));
 
-import { runHybridSearch } from '../../assistant-server/hybrid-search-tool';
-import { legacyNativeToolPorts } from '../../assistant-server/legacy-native-tool-ports';
-import { SEARCH_TOOL_EXECUTORS } from '../../assistant-server/native-tool-executors-search';
-import { runQueryEmbeddingSpace } from '../../assistant-server/retrieval-tool';
+import { runHybridSearchWith } from '../../assistant-server/hybrid-search-core';
+import { retrievalToolExecutors } from '../../assistant-server/native-tool-executors-retrieval';
+import { runQueryEmbeddingSpaceWith } from '../../assistant-server/retrieval-core';
+import { pgliteRetrievalStore } from '../../assistant-server/retrieval-store-pglite';
+import { catalogOnly } from './_c1-a-helpers';
+import { hostExecutionPorts } from './_host-native-tools';
 
 const profile = {
   dimensions: 384,
@@ -210,20 +213,24 @@ it('composes production tools with the scoped SQLite writer and real separate qu
       embeddingHostManager: { queryEmbedding },
       nativeIndexSearch: capability,
     };
-    const semantic = await runQueryEmbeddingSpace(
+    // The host's catalog reads: Main serves them from its PGlite store.
+    const store = catalogOnly(pgliteRetrievalStore());
+    const semantic = await runQueryEmbeddingSpaceWith(
       { embeddingSetId: 'selected', query: 'native marker' },
       undefined,
       dependencies,
+      store,
       signal
     );
     expect(
       'chunks' in semantic &&
         semantic.chunks.map((chunk) => chunk.metadata?.['fileRecordId']).sort()
     ).toEqual(['retained', 'rooted']);
-    const hybrid = await runHybridSearch(
+    const hybrid = await runHybridSearchWith(
       { embeddingSetId: 'selected', query: 'native marker', root: 'root' },
       { workspaceRoots: [{ displayName: 'Actual', path: '/actual/root', rootId: 'root' }] },
       dependencies,
+      store,
       signal
     );
     expect(hybrid.results).toHaveLength(1);
@@ -233,11 +240,12 @@ it('composes production tools with the scoped SQLite writer and real separate qu
       sourceCount: 3,
       vectorSimilarity: 1,
     });
-    const entry = SEARCH_TOOL_EXECUTORS[NATIVE_TOOL_ID.hybridSearch]({
-      dependencies,
+    const entry = retrievalToolExecutors(() => ({ dependencies, store }))[
+      NATIVE_TOOL_ID.hybridSearch
+    ]({
       isLocalProvider: false,
-      ports: legacyNativeToolPorts(undefined),
-      readFileCursorRegistry: {} as never,
+      ports: hostExecutionPorts(),
+      readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
       resolveActiveDomainCharBudget: () => 6000,
       resolvedDomainCharBudget: 6000,
       runtimeData: undefined,

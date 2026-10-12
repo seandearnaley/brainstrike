@@ -190,9 +190,27 @@ vi.mock('../../secrets', async () => {
   };
 });
 
-import { QueryEmbeddingSpaceInputSchema } from '@brainstrike/agent';
+import { type QueryEmbeddingSpaceInput, QueryEmbeddingSpaceInputSchema } from '@brainstrike/agent';
+import type {
+  IndexerSearchHit,
+  IndexerStatus,
+} from '@brainstrike/indexing-contract/indexer-client';
+import {
+  type RetrievalToolDependencies,
+  runQueryEmbeddingSpaceWith,
+} from '../../assistant-server/retrieval-core';
+import { pgliteRetrievalStore } from '../../assistant-server/retrieval-store-pglite';
 import { runQueryEmbeddingSpace } from '../../assistant-server/retrieval-tool';
 import { SecretReadError } from '../../secrets';
+import {
+  catalogOnly,
+  nativeCounts,
+  nativeEmbedding,
+  nativeEmbeddingSetRow,
+  nativeHit,
+  nativeProfile,
+  nativeRetrievalFixture,
+} from './_c1-a-helpers';
 
 /**
  * BST-1020: the suite previously drove ~30 cases through the deleted
@@ -232,7 +250,13 @@ function expectAvailable(
   return result;
 }
 
-describe('retrieval-tool', () => {
+/**
+ * Legacy-only (BST-1980): Main's PGlite similarity path, hosted query
+ * embeddings, runtime-status set resolution and selection snapshots. Host
+ * threads always read through the native index with a catalog-only store, so
+ * these cases are deleted with `LegacyRetrievalStore` in C2.
+ */
+describe('retrieval-tool legacy PG path', () => {
   const snapshotId = '550e8400-e29b-41d4-a716-446655440000';
 
   beforeEach(() => {
@@ -291,50 +315,6 @@ describe('retrieval-tool', () => {
     });
 
     getDatabaseMock.mockResolvedValue({ query: dbQueryMock });
-  });
-
-  it('retrieves and packs context with inline file paths', async () => {
-    const tool = liveRetrievalTool({
-      embeddingSetId: 'set-1',
-      selectionFilePaths: ['/repo/file.ts'],
-      tokenBudget: 10,
-    });
-
-    const result = expectAvailable(
-      await tool.execute({
-        context: {
-          embeddingSetId: 'set-1',
-          filePaths: ['/repo/file.ts'],
-          query: '  Hello  ',
-        },
-      })
-    );
-
-    expect(result.query).toBe('Hello');
-    expect(result.embeddingSetId).toBe('set-1');
-    expect(result.limit).toBe(20);
-    expect(result.threshold).toBe(0.3);
-    expect(result.totalTokens).toBe(1);
-    expect(result.context).toContain('Source 1: /repo/file.ts:10-12 (chunk 0)');
-    expect(result.context).toContain('Hello world');
-    expect(result.chunkContentIncludedInContext).toBe(true);
-    expect(result.chunks[0]).not.toHaveProperty('content');
-    expect(result.chunks[0]?.lineRange).toEqual({ end: 12, start: 10 });
-    expect(result.chunks[0]?.offsets).toEqual({ end: 155, start: 120 });
-    expect(result.selectionSnapshotId).toBeUndefined();
-    // The runtime's selectionFilePaths/tokenBudget above are INERT on the live
-    // path (omitImplicitContextRuntimeData strips them): the default budget —
-    // not the runtime's 10 — proves the strip is exercised, its first direct
-    // assertion anywhere in the suite.
-    expect(result.budget).toBe(4000);
-
-    expect(searchSimilarMock).toHaveBeenCalledWith([0.25, 0.5], {
-      embeddingSetId: 'set-1',
-      filePaths: ['/repo/file.ts'],
-      limit: 20,
-      threshold: 0.3,
-    });
-    expect(loggerWarn).not.toHaveBeenCalledWith('Embedding dimension mismatch', expect.anything());
   });
 
   it('preserves an unreadable stored embedding key when no environment key exists', async () => {
@@ -480,53 +460,6 @@ describe('retrieval-tool', () => {
     });
   });
 
-  it('returns structured workspace index status when the default workspace index is blocked', async () => {
-    const tool = liveRetrievalTool({
-      workspaceIndexBlockedReason: 'missing-provider-key',
-      workspaceIndexEmbeddingSetId: 'workspace-index-set',
-      workspaceIndexingEnabled: true,
-      workspaceIndexingPaused: false,
-      workspaceIndexLastError: 'OpenAI key is required for Workspace Index.',
-      workspaceIndexQueueProgress: {
-        failed: 1,
-        lastError: 'provider key unavailable',
-        pending: 3,
-        processed: 7,
-        totalQueued: 11,
-      },
-      workspaceIndexStatusState: 'blocked',
-    });
-
-    const result = await tool.execute({
-      context: {
-        query: 'Where is assistant retrieval wired?',
-      },
-    });
-
-    expect(result).toEqual({
-      message: 'Workspace Index is blocked: missing-provider-key.',
-      query: 'Where is assistant retrieval wired?',
-      reason: 'workspace-index-blocked',
-      status: 'unavailable',
-      workspaceIndex: {
-        blockedReason: 'missing-provider-key',
-        embeddingSetId: 'workspace-index-set',
-        enabled: true,
-        lastError: 'OpenAI key is required for Workspace Index.',
-        paused: false,
-        queueProgress: {
-          failed: 1,
-          lastError: 'provider key unavailable',
-          pending: 3,
-          processed: 7,
-          totalQueued: 11,
-        },
-        statusState: 'blocked',
-      },
-    });
-    expect(dbQueryMock).not.toHaveBeenCalled();
-  });
-
   it('does not require API keys for local runtime embedding providers', async () => {
     getKeyMock.mockResolvedValue(undefined);
     resolveHostedProviderApiKeyMock.mockResolvedValue(undefined);
@@ -641,81 +574,6 @@ describe('retrieval-tool', () => {
     });
   });
 
-  it('does not query the local host when the tool was already aborted', async () => {
-    const controller = new AbortController();
-    const reason = new Error('tool stopped');
-    controller.abort(reason);
-    const queryEmbeddingMock = vi.fn();
-    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
-      if (sql.includes('FROM embedding_sets')) {
-        return {
-          rows: [{ dimensions: 2, modelId: 'local-model', modelKey: 'local::local-model' }],
-        };
-      }
-      return { rows: [] };
-    });
-    await expect(
-      runQueryEmbeddingSpace(
-        { embeddingSetId: 'set-1', query: 'hello' },
-        undefined,
-        { embeddingHostManager: { queryEmbedding: queryEmbeddingMock } },
-        controller.signal
-      )
-    ).rejects.toBe(reason);
-    expect(queryEmbeddingMock).not.toHaveBeenCalled();
-  });
-
-  it('reports local host timeout stage without logging the query', async () => {
-    const queryEmbeddingMock = vi
-      .fn()
-      .mockRejectedValue(new Error('Embedding host request timed out'));
-    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
-      if (sql.includes('FROM embedding_sets')) {
-        return {
-          rows: [{ dimensions: 2, modelId: 'local-model', modelKey: 'local::local-model' }],
-        };
-      }
-      return { rows: [] };
-    });
-
-    await expect(
-      runQueryEmbeddingSpace({ embeddingSetId: 'set-1', query: 'private query text' }, undefined, {
-        embeddingHostManager: { queryEmbedding: queryEmbeddingMock },
-      })
-    ).rejects.toThrow('Unable to retrieve context right now');
-    expect(loggerWarn).toHaveBeenCalledWith(
-      'Query embedding interrupted',
-      expect.objectContaining({ provider: 'local', stage: 'local-host', timedOut: true })
-    );
-    expect(JSON.stringify(loggerWarn.mock.calls)).not.toContain('private query text');
-  });
-
-  it('surfaces a safe error when local embedding host is unavailable', async () => {
-    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
-      if (sql.includes('FROM embedding_sets')) {
-        return {
-          rows: [
-            {
-              dimensions: 2,
-              distance: null,
-              modelId: 'Xenova/all-MiniLM-L6-v2',
-              modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-            },
-          ],
-        };
-      }
-      return { rows: [] };
-    });
-
-    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
-
-    await expect(
-      tool.execute({
-        context: { embeddingSetId: 'set-1', query: 'where is database config' },
-      })
-    ).rejects.toThrow('Local embedding query host is unavailable.');
-  });
-
   it('creates a selection snapshot when file paths exceed limit', async () => {
     getKeyMock.mockResolvedValue(undefined);
     const filePaths = Array.from({ length: 501 }, (_, index) => `file-${index}.ts`);
@@ -739,37 +597,6 @@ describe('retrieval-tool', () => {
       threshold: 0.3,
     });
     expect(resolveHostedProviderApiKeyMock).toHaveBeenCalledWith('openai');
-  });
-
-  it('rejects when embedding dimensions do not match active set', async () => {
-    embedMock.mockResolvedValueOnce({ ok: true, value: { embedding: [0.25] } });
-    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
-
-    await expect(
-      tool.execute({
-        context: { embeddingSetId: 'set-1', query: 'hello' },
-      })
-    ).rejects.toThrow('Embedding dimensions do not match the active set.');
-
-    expect(loggerWarn).toHaveBeenCalledWith('Embedding dimension mismatch', {
-      actual: 1,
-      expected: 2,
-    });
-  });
-
-  it('returns empty context when no chunks are found', async () => {
-    searchSimilarMock.mockResolvedValueOnce([]);
-    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
-
-    const result = expectAvailable(
-      await tool.execute({
-        context: { embeddingSetId: 'set-1', query: 'hello' },
-      })
-    );
-
-    expect(result.context).toBe('');
-    expect(result.chunks).toEqual([]);
-    expect(result.totalTokens).toBe(0);
   });
 
   it('reports and skips chunks missing source ranges', async () => {
@@ -828,66 +655,229 @@ describe('retrieval-tool', () => {
   });
 });
 
-describe('retrieval-tool multi-root', () => {
+/**
+ * The host's queryEmbeddingSpace: the shared core `retrievalToolExecutors`
+ * runs, over Main's native index and catalog reads (no legacy PG path).
+ */
+function hostSemantic(
+  input: QueryEmbeddingSpaceInput,
+  runtimeData: RuntimeData | undefined,
+  dependencies: RetrievalToolDependencies,
+  signal?: AbortSignal
+) {
+  return runQueryEmbeddingSpaceWith(
+    input,
+    runtimeData,
+    dependencies,
+    catalogOnly(pgliteRetrievalStore()),
+    signal
+  );
+}
+
+const nativeChunk: IndexerSearchHit = {
+  ...nativeHit,
+  chunkId: 'chunk-1',
+  chunkType: 'text',
+  content: 'Hello world',
+  endLine: 12,
+  endOffset: 155,
+  fileId: 'file-1',
+  startLine: 10,
+  startOffset: 120,
+  tokenCount: 4,
+};
+
+function catalogQuery(fileRows: unknown[] = []) {
+  return async (sql: string): Promise<{ rows: unknown[] }> => {
+    if (sql.includes('FROM embedding_sets')) {
+      return { rows: [nativeEmbeddingSetRow] };
+    }
+    if (sql.includes('FROM file_records')) {
+      return { rows: fileRows };
+    }
+    return { rows: [] };
+  };
+}
+
+describe('retrieval-tool on the native index', () => {
+  let f = nativeRetrievalFixture();
+  let dependencies: RetrievalToolDependencies = {};
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    f = nativeRetrievalFixture();
+    f.result.hits = [nativeChunk];
+    dependencies = {
+      embeddingHostManager: { queryEmbedding: f.queryEmbedding },
+      nativeIndexSearch: f.capability,
+    };
+    findByIdsMock.mockResolvedValue([
+      { id: 'file-1', name: 'file.ts', path: '/repo/file.ts', tokenCount: 42 },
+    ]);
+    dbQueryMock.mockImplementation(catalogQuery());
+    getDatabaseMock.mockResolvedValue({ query: dbQueryMock });
+  });
+
+  it('retrieves and packs context', async () => {
+    const result = expectAvailable(
+      await hostSemantic(
+        { embeddingSetId: 'selected', query: '  Hello  ' },
+        { embeddingSetId: 'set-1', selectionFilePaths: ['/repo/file.ts'], tokenBudget: 10 },
+        dependencies
+      )
+    );
+
+    expect(result.query).toBe('Hello');
+    expect(result.embeddingSetId).toBe('selected');
+    // The native semantic search returns at most 10 results.
+    expect(result.limit).toBe(10);
+    expect(result.threshold).toBe(0.3);
+    expect(result.totalTokens).toBe(1);
+    expect(result.context).toContain('Source 1: /repo/file.ts:10-12 (chunk 0)');
+    expect(result.context).toContain('Hello world');
+    expect(result.chunkContentIncludedInContext).toBe(true);
+    expect(result.chunks[0]).not.toHaveProperty('content');
+    expect(result.chunks[0]?.lineRange).toEqual({ end: 12, start: 10 });
+    expect(result.chunks[0]?.offsets).toEqual({ end: 155, start: 120 });
+    expect(result.selectionSnapshotId).toBeUndefined();
+    // The runtime's selectionFilePaths/tokenBudget above are INERT on the live
+    // path (omitImplicitContextRuntimeData strips them): the default budget —
+    // not the runtime's 10 — proves the strip is exercised.
+    expect(result.budget).toBe(4000);
+    expect(f.capability.search).toHaveBeenCalledWith({
+      collectionId: 'selected',
+      limit: 100,
+      mode: 'vector',
+      profile: nativeProfile,
+      rootIds: [],
+      vector: Array.from({ length: 384 }, () => 0.1),
+    });
+    expect(searchSimilarMock).not.toHaveBeenCalled();
+    expect(loggerWarn).not.toHaveBeenCalledWith('Embedding dimension mismatch', expect.anything());
+  });
+
+  it('refuses retrieval while the native index is not ready', async () => {
+    f.setStatus({
+      kind: 'unavailable',
+      phase: 'blocked',
+      reason: 'OpenAI key is required for Workspace Index.',
+    });
+
+    await expect(
+      hostSemantic({ query: 'Where is assistant retrieval wired?' }, undefined, dependencies)
+    ).rejects.toThrow(
+      'Native search is unavailable. Rebuild or restore the native index before retrying.'
+    );
+    expect(dbQueryMock).not.toHaveBeenCalled();
+  });
+
+  it('does not query the local host when the tool was already aborted', async () => {
+    const controller = new AbortController();
+    const reason = new Error('tool stopped');
+    controller.abort(reason);
+    await expect(
+      hostSemantic(
+        { embeddingSetId: 'selected', query: 'hello' },
+        undefined,
+        dependencies,
+        controller.signal
+      )
+    ).rejects.toBe(reason);
+    expect(f.queryEmbedding).not.toHaveBeenCalled();
+  });
+
+  it('sanitizes a local host timeout without logging the query', async () => {
+    f.queryEmbedding.mockRejectedValue(new Error('Embedding host request timed out'));
+
+    await expect(
+      hostSemantic(
+        { embeddingSetId: 'selected', query: 'private query text' },
+        undefined,
+        dependencies
+      )
+    ).rejects.toThrow('Unable to retrieve context right now');
+    expect(JSON.stringify(loggerWarn.mock.calls)).not.toContain('private query text');
+    expect(JSON.stringify(loggerError.mock.calls)).not.toContain('private query text');
+  });
+
+  it('surfaces a safe error when local embedding host is unavailable', async () => {
+    await expect(
+      hostSemantic({ embeddingSetId: 'selected', query: 'where is database config' }, undefined, {
+        nativeIndexSearch: f.capability,
+      })
+    ).rejects.toThrow('Local embedding query host is unavailable.');
+  });
+
+  it('rejects a query embedding that does not match the saved profile', async () => {
+    f.queryEmbedding.mockResolvedValueOnce([0.25]);
+
+    await expect(
+      hostSemantic({ embeddingSetId: 'selected', query: 'hello' }, undefined, dependencies)
+    ).rejects.toThrow('Native query embedding is invalid for the saved profile.');
+    expect(f.capability.search).not.toHaveBeenCalled();
+  });
+
+  it('returns empty context when no chunks are found', async () => {
+    f.result.hits = [];
+
+    const result = expectAvailable(
+      await hostSemantic({ embeddingSetId: 'selected', query: 'hello' }, undefined, dependencies)
+    );
+
+    expect(result.context).toBe('');
+    expect(result.chunks).toEqual([]);
+    expect(result.totalTokens).toBe(0);
+  });
+});
+
+describe('retrieval-tool multi-root on the native index', () => {
   const ROOTED_RUNTIME = {
     workspaceRoots: [
       { displayName: 'ProjectA', path: '/work/ProjectA', rootId: 'root-a' },
       { displayName: 'ProjectB', path: '/work/ProjectB', rootId: 'root-b' },
     ],
   } as unknown as RuntimeData;
+  let f = nativeRetrievalFixture();
+  let dependencies: RetrievalToolDependencies = {};
 
   beforeEach(() => {
     vi.clearAllMocks();
-    getKeyMock.mockResolvedValue('test-api-key');
-    resolveHostedProviderApiKeyMock.mockResolvedValue('fallback-api-key');
-    embedMock.mockResolvedValue({ ok: true, value: { embedding: [0.25, 0.5] } });
+    f = nativeRetrievalFixture();
+    f.result.hits = [{ ...nativeChunk, relativePath: 'src/file.ts', rootId: 'root-a' }];
+    f.setStatus({
+      ...f.status,
+      authorizedRootIds: ['root-a', 'root-b'],
+      rootReadiness: [
+        { rootId: 'root-a', scanComplete: true },
+        { rootId: 'root-b', scanComplete: true },
+      ],
+    } as IndexerStatus);
+    vi.mocked(f.capability.coverage).mockImplementation(async ({ rootIds }) => ({
+      collections: [{ ...nativeCounts, embeddingSetId: 'selected' }],
+      embedding: nativeEmbedding,
+      roots: rootIds.map((rootId) => ({ ...nativeCounts, rootId })),
+      storeId: f.result.storeId,
+      totals: nativeCounts,
+      vectorCoverageComplete: true,
+    }));
+    dependencies = {
+      embeddingHostManager: { queryEmbedding: f.queryEmbedding },
+      nativeIndexSearch: f.capability,
+    };
     findByIdsMock.mockResolvedValue([
       { id: 'file-1', name: 'file.ts', path: 'src/file.ts', tokenCount: 42 },
     ]);
-    searchSimilarMock.mockResolvedValue([
-      {
-        chunk: {
-          chunkIndex: 0,
-          chunkType: 'code',
-          content: 'Hello world',
-          embeddingSetId: 'set-1',
-          endLine: 12,
-          endOffset: 155,
-          fileRecordId: 'file-1',
-          id: 'chunk-1',
-          startLine: 10,
-          startOffset: 120,
-          tokenCount: 4,
-        },
-        rank: 1,
-        similarity: 0.9,
-      },
-    ]);
-    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
-      if (sql.includes('FROM embedding_sets')) {
-        return {
-          rows: [
-            {
-              dimensions: 2,
-              distance: null,
-              modelId: 'text-embedding-3-small',
-              modelKey: 'openai:text-embedding-3-small',
-            },
-          ],
-        };
-      }
-      if (sql.includes('FROM file_records')) {
-        return { rows: [{ id: 'file-1', rootId: 'root-a', rootName: 'ProjectA' }] };
-      }
-      return { rows: [] };
-    });
+    dbQueryMock.mockImplementation(
+      catalogQuery([{ id: 'file-1', rootId: 'root-a', rootName: 'ProjectA' }])
+    );
     getDatabaseMock.mockResolvedValue({ query: dbQueryMock });
   });
 
   it('labels retrieved chunks and the context string with their workspace root', async () => {
-    const result = await runQueryEmbeddingSpace(
-      { embeddingSetId: 'set-1', query: 'hello' },
-      ROOTED_RUNTIME
+    const result = await hostSemantic(
+      { embeddingSetId: 'selected', query: 'hello' },
+      ROOTED_RUNTIME,
+      dependencies
     );
     if ('status' in result) {
       throw new Error('expected a retrieval result');
@@ -898,21 +888,23 @@ describe('retrieval-tool multi-root', () => {
   });
 
   it('scopes retrieval to the resolved root when `root` is provided', async () => {
-    await runQueryEmbeddingSpace(
-      { embeddingSetId: 'set-1', query: 'hello', root: 'ProjectB' },
-      ROOTED_RUNTIME
+    f.result.hits = [{ ...nativeChunk, relativePath: 'src/file.ts', rootId: 'root-b' }];
+    await hostSemantic(
+      { embeddingSetId: 'selected', query: 'hello', root: 'ProjectB' },
+      ROOTED_RUNTIME,
+      dependencies
     );
-    expect(searchSimilarMock).toHaveBeenCalledWith(
-      [0.25, 0.5],
-      expect.objectContaining({ rootId: 'root-b' })
+    expect(f.capability.search).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: 'vector', rootIds: ['root-b'] })
     );
   });
 
   it('errors clearly when `root` names a folder that is not open', async () => {
     await expect(
-      runQueryEmbeddingSpace(
-        { embeddingSetId: 'set-1', query: 'hello', root: 'Nope' },
-        ROOTED_RUNTIME
+      hostSemantic(
+        { embeddingSetId: 'selected', query: 'hello', root: 'Nope' },
+        ROOTED_RUNTIME,
+        dependencies
       )
     ).rejects.toThrow(/no folder "Nope"/i);
   });

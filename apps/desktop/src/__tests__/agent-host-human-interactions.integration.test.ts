@@ -10,6 +10,7 @@ import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import {
   type AgentHost,
   attachAgentHost,
+  createAgentHostToolBindings,
   type HostClient,
   type HostLogRow,
   startAgentHost,
@@ -24,7 +25,6 @@ import { DEFAULT_PERMISSION_POLICIES, NATIVE_TOOL_ID } from '@brainstrike/assist
 import { processStartTime } from '@brainstrike/state-store';
 import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
-import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
 
 const roots: string[] = [];
 const hosts: AgentHost[] = [];

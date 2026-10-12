@@ -7,13 +7,27 @@ import { NATIVE_TOOL_DEFAULTS, NATIVE_TOOL_INPUT_SCHEMAS } from '@brainstrike/ag
 import {
   DESKTOP_NATIVE_TOOL_IDS,
   NATIVE_TOOL_ID,
+  SKILL_NATIVE_TOOL_IDS,
   TOOL_DESCRIPTIONS,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
-import { resetToolCallLoopGuards } from '@brainstrike/host-capabilities/native-tools';
+import {
+  ReadWorkspaceFileCursorRegistry,
+  resetToolCallLoopGuards,
+} from '@brainstrike/host-capabilities/native-tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { desktopToolDescriptors } from '../../agent-host-platform/desktop-tool-descriptors';
+// LEGACY-ONLY (BST-1980 C1): used only by the legacy provider-gating block at the
+// bottom; deleted with `assistant-tools.ts` in C2.
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { disposeLspServers } from '../../assistant-server/lsp-diagnostics';
+import {
+  NATIVE_HYBRID_RETRIEVAL_DESCRIPTION,
+  NATIVE_SEMANTIC_RETRIEVAL_DESCRIPTION,
+  NativeHybridSearchInputSchema,
+  NativeQueryEmbeddingSpaceInputSchema,
+} from '../../assistant-server/native-retrieval-schemas';
+import { buildHostNativeTools, nativeRuntimeFor } from './_host-native-tools';
 import { requireTool, requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
@@ -23,41 +37,11 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
   };
 });
 
-const {
-  getDatabaseMock,
-  getAllWindowsMock,
-  invalidateManagedCacheMock,
-  loggerErrorMock,
-  loggerWarnMock,
-} = vi.hoisted(() => ({
+const { getAllWindowsMock, loggerErrorMock, loggerWarnMock } = vi.hoisted(() => ({
   getAllWindowsMock: vi.fn(),
-  getDatabaseMock: vi.fn(),
-  invalidateManagedCacheMock: vi.fn(),
   loggerErrorMock: vi.fn(),
   loggerWarnMock: vi.fn(),
 }));
-
-vi.mock('../../db-main', () => ({
-  getDatabase: getDatabaseMock,
-}));
-
-// Keep the real @brainstrike/db exports (EmbeddingSetsRepository, etc.) but stub
-// the index-invalidation seam so delete/rename tests assert this tool's honest
-// indexInvalidated reporting without emulating the invalidator's internals.
-vi.mock('@brainstrike/db', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/db')>();
-  return {
-    ...actual,
-    invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheMock,
-  };
-});
-vi.mock('@brainstrike/db/react', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/db/react')>();
-  return {
-    ...actual,
-    invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheMock,
-  };
-});
 
 vi.mock('electron', () => ({
   BrowserWindow: {
@@ -131,7 +115,7 @@ describe('assistant-tools multi-root read tools', () => {
         ...twoRootRuntime(rootA, rootB),
         boundWorkspaceRootId: 'id-b',
       } as RuntimeData;
-      const tools = buildDesktopAssistantTools(runtime);
+      const tools = buildHostNativeTools(runtime);
       const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const executeReplaceTool = requireToolExecute(
         tools,
@@ -183,7 +167,7 @@ describe('assistant-tools multi-root read tools', () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     try {
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
+        buildHostNativeTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceFile'
       );
 
@@ -209,7 +193,7 @@ describe('assistant-tools multi-root read tools', () => {
 
     try {
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
+        buildHostNativeTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceFile'
       );
       const first = await executeTool({
@@ -235,7 +219,7 @@ describe('assistant-tools multi-root read tools', () => {
 
     try {
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
+        buildHostNativeTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceFile'
       );
       const first = await executeTool({
@@ -266,7 +250,7 @@ describe('assistant-tools multi-root read tools', () => {
 
     try {
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
+        buildHostNativeTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceFile'
       );
       const first = await executeTool({
@@ -305,8 +289,10 @@ describe('assistant-tools multi-root read tools', () => {
 
     try {
       const runtime = twoRootRuntime(rootA, rootB);
+      // The host holds one cursor registry for its lifetime; every call's tools share it.
+      const readFileCursorRegistry = new ReadWorkspaceFileCursorRegistry();
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(runtime),
+        buildHostNativeTools(runtime, { readFileCursorRegistry }),
         'brainstrike.readWorkspaceFile'
       );
       const first = await executeTool({
@@ -316,7 +302,7 @@ describe('assistant-tools multi-root read tools', () => {
       });
 
       const executeRebuiltTool = requireToolExecute(
-        buildDesktopAssistantTools(runtime),
+        buildHostNativeTools(runtime, { readFileCursorRegistry }),
         'brainstrike.readWorkspaceFile'
       );
       const continued = await executeRebuiltTool({ cursor: first.nextCursor, maxChars: 30 });
@@ -333,7 +319,7 @@ describe('assistant-tools multi-root read tools', () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     try {
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
+        buildHostNativeTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceFile'
       );
       const result = await executeTool({ path: '/README.md', root: 'id-b' });
@@ -347,7 +333,7 @@ describe('assistant-tools multi-root read tools', () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     try {
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
+        buildHostNativeTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceFile'
       );
       await expect(executeTool({ path: '/README.md' })).rejects.toThrow(
@@ -362,7 +348,7 @@ describe('assistant-tools multi-root read tools', () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     try {
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
+        buildHostNativeTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceFile'
       );
       await expect(executeTool({ path: '/README.md', root: 'Nope' })).rejects.toThrow(
@@ -377,7 +363,7 @@ describe('assistant-tools multi-root read tools', () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     try {
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
+        buildHostNativeTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceDirectory'
       );
       const result = await executeTool({ path: '/', root: 'ProjectA' });
@@ -394,7 +380,7 @@ describe('assistant-tools multi-root read tools', () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     try {
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
+        buildHostNativeTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.findWorkspaceSymbol'
       );
       const result = await executeTool({ path: '/README.md', query: 'fromB', root: 'ProjectB' });
@@ -457,40 +443,456 @@ describe('assistant-tools multi-root read tools', () => {
 
     it('registers every desktop assistant tool in NATIVE_TOOL_DEFAULTS', () => {
       // Tools absent from NATIVE_TOOL_DEFAULTS are excluded from enabledNativeToolIds
-      // (built from NATIVE_TOOL_DEFAULTS) and dropped by buildDesktopAssistantTools
-      // in real assistant runs — so a tool registered here but not there works only
+      // (built from NATIVE_TOOL_DEFAULTS) and never admitted to a host run by Main's
+      // admission — so a tool the host fold registers but the catalog lacks works only
       // in tests. Guard against that drift.
-      const tools = buildDesktopAssistantTools(undefined);
+      const tools = buildHostNativeTools({} as RuntimeData);
       const missing = Object.keys(tools).filter((id) => !(id in NATIVE_TOOL_DEFAULTS));
       expect(missing).toEqual([]);
     });
 
     it('keeps the live desktop registry identical to the canonical catalog', () => {
-      const tools = buildDesktopAssistantTools({ provider: 'openai' } as RuntimeData, {
-        skillScriptResolver: {
-          resolveScriptExecution: async () => {
-            throw new Error('not executed by registry parity test');
-          },
-        },
-        toolOutputArtifactReader: {
-          readRange: async () => ({ status: 'not_found' }),
-        },
+      // Every gated executor present: admitted skills (which also bring the skill
+      // tools), a launching app, a Tavily key owner and an artifact reader.
+      const runtime = { provider: 'openai' } as RuntimeData;
+      const tools = buildHostNativeTools(runtime, {
+        appPaths: { isPackaged: false, resourcesPath: os.tmpdir(), userDataPath: os.tmpdir() },
+        native: nativeRuntimeFor(runtime, { skills: [] }),
+        ports: { artifactReader: { readRange: async () => ({ status: 'not_found' }) } },
+        webExtract: { resolveApiKey: async () => undefined },
+        webSearch: { resolveApiKey: async () => undefined },
       });
-
-      expect(Object.keys(tools).sort()).toEqual([...DESKTOP_NATIVE_TOOL_IDS].sort());
+      expect(Object.keys(tools).sort()).toEqual(
+        [...DESKTOP_NATIVE_TOOL_IDS, ...SKILL_NATIVE_TOOL_IDS].sort()
+      );
+      // The host retrieves through Main's native index: native text and schema.
+      const nativeRetrieval = new Map<string, readonly [string, unknown]>([
+        [
+          NATIVE_TOOL_ID.hybridSearch,
+          [NATIVE_HYBRID_RETRIEVAL_DESCRIPTION, NativeHybridSearchInputSchema],
+        ],
+        [
+          NATIVE_TOOL_ID.queryEmbeddingSpace,
+          [NATIVE_SEMANTIC_RETRIEVAL_DESCRIPTION, NativeQueryEmbeddingSpaceInputSchema],
+        ],
+      ]);
       for (const toolId of DESKTOP_NATIVE_TOOL_IDS) {
         const tool = requireTool(tools, toolId) as {
           description?: string;
           id?: string;
           inputSchema?: unknown;
         };
+        const [description, inputSchema] = nativeRetrieval.get(toolId) ?? [
+          TOOL_DESCRIPTIONS[toolId],
+          NATIVE_TOOL_INPUT_SCHEMAS[toolId],
+        ];
         expect(tool.id).toBe(toolId);
-        expect(tool.description).toBe(TOOL_DESCRIPTIONS[toolId]);
-        expect(tool.inputSchema).toBe(NATIVE_TOOL_INPUT_SCHEMAS[toolId]);
+        expect(tool.description).toBe(description);
+        expect(tool.inputSchema).toBe(inputSchema);
       }
     });
   });
 
+  describe('suspending tool registration (submitPlan / askUser)', () => {
+    it('registers the factory Tool objects directly so they keep suspendSchema', () => {
+      // Re-wrapping in the registry's { description, execute, id, inputSchema }
+      // literal shape would DROP suspendSchema and break suspension + the
+      // hasSuspendSchema fail-safe. The built entries must carry it.
+      const tools = buildHostNativeTools({ provider: 'anthropic' } as RuntimeData);
+      expect(
+        (tools['brainstrike.submitPlan'] as { suspendSchema?: unknown }).suspendSchema
+      ).toBeDefined();
+      expect(
+        (tools['brainstrike.submitPlan'] as { resumeSchema?: unknown }).resumeSchema
+      ).toBeDefined();
+      expect(
+        (tools['brainstrike.askUser'] as { suspendSchema?: unknown }).suspendSchema
+      ).toBeDefined();
+    });
+  });
+
+  // Main's admission (`desktopToolDescriptors`) now owns the enabled-tool allowlist.
+  describe('enabled-tool allowlist (admission descriptors)', () => {
+    const admission = { localProvider: false, skills: false, worktrees: true } as const;
+    it('passes the suspending tool ids through the enabled-tool allowlist filter', async () => {
+      const descriptors = await desktopToolDescriptors({
+        ...admission,
+        enabledNativeToolIds: ['brainstrike.submitPlan', 'brainstrike.askUser'],
+      });
+      const offered = Object.values(descriptors).map((descriptor) => descriptor.permissionToolId);
+      expect(offered).toContain('brainstrike.submitPlan');
+      expect(offered).toContain('brainstrike.askUser');
+      expect(offered).not.toContain('brainstrike.readWorkspaceFile');
+    });
+
+    it('rejects unknown enabled tool ids instead of silently filtering them', async () => {
+      await expect(
+        desktopToolDescriptors({
+          ...admission,
+          enabledNativeToolIds: ['brainstrike.readWorkspaceFile', 'brainstrike.removedNativeTool'],
+          localProvider: true,
+        })
+      ).rejects.toThrow('Enabled native tool preferences contain unknown tool IDs.');
+    });
+  });
+
+  describe('post-edit LSP diagnostics (report R2)', () => {
+    // Real typescript-language-server subprocess — dispose after each so no
+    // pooled server orphans across tests.
+    afterEach(async () => {
+      await disposeLspServers();
+    });
+
+    async function createLspWorkspace(): Promise<string> {
+      const root = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-lsp-edit-'));
+      await fsPromises.mkdir(path.join(root, 'src'), { recursive: true });
+      await fsPromises.writeFile(path.join(root, 'package.json'), '{"name":"fixture"}', 'utf8');
+      return realpathSync(root);
+    }
+
+    function lspRuntime(workspaceRootPath: string, threadId: string): RuntimeData {
+      return {
+        ...singleRootRuntime(workspaceRootPath),
+        memory: { resourceId: 'r', runId: 'run', threadId },
+      } as RuntimeData;
+    }
+
+    it('attaches diagnostics to a stringReplace that introduces a type error', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'typed.ts'),
+          'export const value: number = 1;\n',
+          'utf8'
+        );
+
+        const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-thread'));
+        const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
+        const executeReplaceTool = requireToolExecute(
+          tools,
+          'brainstrike.stringReplaceWorkspaceFile'
+        );
+        // Read first so the R8 staleness guard has a fresh observation.
+        await executeReadTool({
+          context: { path: '/src/typed.ts' },
+        });
+
+        const result = await executeReplaceTool({
+          context: {
+            newStr: 'export const value: number = "not a number";',
+            oldStr: 'export const value: number = 1;',
+            path: '/src/typed.ts',
+          },
+        });
+
+        expect(result.replaced).toBe(true);
+        expect(result.lsp?.available).toBe(true);
+        expect(result.lsp?.language).toBe('typescript');
+        expect(result.lsp?.diagnostics?.length ?? 0).toBeGreaterThan(0);
+        expect(result.lsp?.diagnostics?.[0]?.message).toMatch(/not assignable/i);
+      } finally {
+        await disposeLspServers();
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
+
+    it('omits the lsp field entirely for a non-code (markdown) write', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-thread-2'));
+        const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
+
+        const result = await executeTool({
+          context: { content: '# Notes\n', path: '/notes.md' },
+        });
+
+        expect(result.created).toBe(true);
+        expect(result.lsp).toBeUndefined();
+      } finally {
+        await disposeLspServers();
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
+
+    it('lspInspect returns hover + definition for a symbol via the <<< cursor (Phase B)', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'sym.ts'),
+          'export const greeting: string = "hi";\nexport const echo = greeting;\n',
+          'utf8'
+        );
+        const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-inspect'));
+        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
+
+        const result = await executeTool({
+          context: {
+            line: 2,
+            match: 'export const echo = <<<greeting;',
+            path: '/src/sym.ts',
+          },
+        });
+
+        expect(result.available).toBe(true);
+        expect(result.hover).toMatch(/string/);
+        expect(result.definition?.[0]?.path).toBe('/src/sym.ts');
+        expect(result.definition?.[0]?.line).toBe(1);
+      } finally {
+        await disposeLspServers();
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
+
+    it('lspInspect resolves a line-fragment match to the correct column (review)', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'sym.ts'),
+          'export const greeting: string = "hi";\nexport const pair = { a: greeting, b: greeting };\n',
+          'utf8'
+        );
+        const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-inspect-fragment'));
+        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
+
+        // A fragment of line 2 (not the full line): the cursor column must be
+        // fragment-start-in-line + marker-offset-in-fragment, pointing at the
+        // SECOND `greeting`. Raw indexOf on the fragment would yield column 3
+        // (mid-"export") and silently inspect nothing.
+        const result = await executeTool({
+          context: {
+            line: 2,
+            match: 'b: <<<greeting',
+            path: '/src/sym.ts',
+          },
+        });
+
+        expect(result.available).toBe(true);
+        expect(result.hover).toMatch(/string/);
+        expect(result.definition?.[0]?.path).toBe('/src/sym.ts');
+        expect(result.definition?.[0]?.line).toBe(1);
+      } finally {
+        await disposeLspServers();
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
+
+    it('lspInspect accepts a unique markerless identifier at its first character', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'sym.ts'),
+          'export const greeting: string = "hi";\nexport const echo = greeting;\n',
+          'utf8'
+        );
+        const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-markerless'));
+        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
+
+        const result = await executeTool({
+          context: { line: 2, match: 'greeting', path: '/src/sym.ts' },
+        });
+
+        expect(result.available).toBe(true);
+        expect(result.hover).toMatch(/string/);
+        expect(result.definition?.[0]?.line).toBe(1);
+      } finally {
+        await disposeLspServers();
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
+
+    it('lspInspect tells repeated markerless identifiers to use an explicit cursor marker', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'sym.ts'),
+          'export const greeting = greeting;\n',
+          'utf8'
+        );
+        const tools = buildHostNativeTools(
+          lspRuntime(workspaceRootPath, 'lsp-markerless-repeated')
+        );
+        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
+
+        await expect(
+          executeTool({
+            context: { line: 1, match: 'greeting', path: '/src/sym.ts' },
+          })
+        ).rejects.toThrow(/pass a unique line fragment with exactly one "<<<"/i);
+      } finally {
+        await disposeLspServers();
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
+
+    it('lspInspect does not match a markerless identifier inside a longer identifier', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'sym.ts'),
+          'export const greetingSuffix = 1;\nexport const greeting: string = "hi";\n',
+          'utf8'
+        );
+        const tools = buildHostNativeTools(
+          lspRuntime(workspaceRootPath, 'lsp-markerless-boundary')
+        );
+        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
+
+        await expect(
+          executeTool({
+            context: { line: 1, match: 'greeting', path: '/src/sym.ts' },
+          })
+        ).rejects.toThrow(/identifier occurs on line 2; retry with line 2/i);
+      } finally {
+        await disposeLspServers();
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
+
+    it('lspInspect gives candidate lines for a markerless identifier on the wrong line', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'sym.ts'),
+          'export const greeting = 1;\nexport function inspectTarget() {}\n',
+          'utf8'
+        );
+        const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-markerless-line'));
+        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
+
+        await expect(
+          executeTool({
+            context: { line: 1, match: 'export const x', path: '/src/sym.ts' },
+          })
+        ).rejects.toThrow(/must be one JavaScript\/TypeScript identifier/i);
+
+        await expect(
+          executeTool({
+            context: { line: 1, match: 'inspectTarget', path: '/src/sym.ts' },
+          })
+        ).rejects.toThrow(/occurs on line 2.*retry with line 2/i);
+      } finally {
+        await disposeLspServers();
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
+
+    it('lspInspect refuses a match that does not occur on the target line (review)', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'x.ts'),
+          'export const x = 1;\n',
+          'utf8'
+        );
+        const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-stale-match'));
+        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
+
+        const inspection = executeTool({
+          // Model quoted a line that isn't the real line 1 → must refuse with
+          // the actual line text, never inspect a wrong column.
+          context: { line: 1, match: 'const nonexistent = <<<thing;', path: '/src/x.ts' },
+        });
+
+        await expect(inspection).rejects.toBeInstanceOf(ToolInputError);
+        await expect(inspection).rejects.toThrow(/not found on line 1/i);
+      } finally {
+        await disposeLspServers();
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
+
+    it('lspInspect refuses an ambiguous line fragment (review)', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'dup.ts'),
+          'export const pair = { a: value, b: value };\nexport const value = 1;\n',
+          'utf8'
+        );
+        const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-ambiguous'));
+        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
+
+        await expect(
+          executeTool({
+            // "value" appears twice on line 1 → the column is ambiguous.
+            context: { line: 1, match: '<<<value', path: '/src/dup.ts' },
+          })
+        ).rejects.toThrow(/more than once/i);
+      } finally {
+        await disposeLspServers();
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
+
+    it('lspInspect omits the preview for an oversized definition target but keeps path/line (review)', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        // Definition target > 2 MB (a stand-in for a large generated .d.ts):
+        // the location must still resolve, but the accessory preview is skipped
+        // rather than slurping the whole file into memory.
+        const bigTarget = `export const bigSym = 1;\n// ${'a'.repeat(2_200_000)}\n`;
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'big.ts'),
+          bigTarget,
+          'utf8'
+        );
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'use.ts'),
+          "import { bigSym } from './big';\nexport const use = bigSym;\n",
+          'utf8'
+        );
+        const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-big-target'));
+        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
+
+        const result = await executeTool({
+          context: {
+            line: 2,
+            match: 'export const use = <<<bigSym;',
+            path: '/src/use.ts',
+          },
+        });
+
+        expect(result.available).toBe(true);
+        expect(result.definition?.[0]?.path).toBe('/src/big.ts');
+        expect(result.definition?.[0]?.line).toBe(1);
+        expect(result.definition?.[0]?.preview).toBeUndefined();
+      } finally {
+        await disposeLspServers();
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
+
+    it('lspInspect refuses a malformed cursor marker with an actionable error', async () => {
+      const workspaceRootPath = await createLspWorkspace();
+      try {
+        await fsPromises.writeFile(
+          path.join(workspaceRootPath, 'src', 'x.ts'),
+          'export const x = 1;\n',
+          'utf8'
+        );
+        const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-bad-cursor'));
+        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
+
+        await expect(
+          executeTool({
+            // Two markers → invalid.
+            context: { line: 1, match: 'export <<<const <<<x = 1;', path: '/src/x.ts' },
+          })
+        ).rejects.toThrow(/exactly one/i);
+      } finally {
+        await disposeLspServers();
+        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+      }
+    }, 30_000);
+  });
+});
+
+// LEGACY-ONLY (BST-1980 C1): provider gating inside the legacy builder
+// (`buildDesktopAssistantTools`). Host runs are gated by Main's admission
+// (`desktopToolDescriptors`: `localProvider` drops the catalog's `unregistered`
+// tools), covered by `agent-host-admitted-tool-descriptors.integration.test.ts`
+// (hosted vs local admissions recorded). Deleted with the legacy composition in C2.
+describe('legacy builder provider gating', () => {
   describe('manageTaskList provider gating', () => {
     it('registers manageTaskList for a hosted provider', () => {
       const tools = buildDesktopAssistantTools({ provider: 'openai' } as RuntimeData);
@@ -564,22 +966,6 @@ describe('assistant-tools multi-root read tools', () => {
       expect(tools['brainstrike.askUser']).toBeUndefined();
     });
 
-    it('registers the factory Tool objects directly so they keep suspendSchema', () => {
-      // Re-wrapping in the registry's { description, execute, id, inputSchema }
-      // literal shape would DROP suspendSchema and break suspension + the
-      // hasSuspendSchema fail-safe. The built entries must carry it.
-      const tools = buildDesktopAssistantTools({ provider: 'anthropic' } as RuntimeData);
-      expect(
-        (tools['brainstrike.submitPlan'] as { suspendSchema?: unknown }).suspendSchema
-      ).toBeDefined();
-      expect(
-        (tools['brainstrike.submitPlan'] as { resumeSchema?: unknown }).resumeSchema
-      ).toBeDefined();
-      expect(
-        (tools['brainstrike.askUser'] as { suspendSchema?: unknown }).suspendSchema
-      ).toBeDefined();
-    });
-
     it('passes the suspending tool ids through the enabled-tool allowlist filter', () => {
       const tools = buildDesktopAssistantTools({
         enabledNativeToolIds: ['brainstrike.submitPlan', 'brainstrike.askUser'],
@@ -598,359 +984,5 @@ describe('assistant-tools multi-root read tools', () => {
         } as RuntimeData)
       ).toThrow('Enabled native tool preferences contain unknown tool IDs.');
     });
-  });
-
-  describe('post-edit LSP diagnostics (report R2)', () => {
-    // Real typescript-language-server subprocess — dispose after each so no
-    // pooled server orphans across tests.
-    afterEach(async () => {
-      await disposeLspServers();
-    });
-
-    async function createLspWorkspace(): Promise<string> {
-      const root = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-lsp-edit-'));
-      await fsPromises.mkdir(path.join(root, 'src'), { recursive: true });
-      await fsPromises.writeFile(path.join(root, 'package.json'), '{"name":"fixture"}', 'utf8');
-      return realpathSync(root);
-    }
-
-    function lspRuntime(workspaceRootPath: string, threadId: string): RuntimeData {
-      return {
-        ...singleRootRuntime(workspaceRootPath),
-        memory: { resourceId: 'r', runId: 'run', threadId },
-      } as RuntimeData;
-    }
-
-    it('attaches diagnostics to a stringReplace that introduces a type error', async () => {
-      const workspaceRootPath = await createLspWorkspace();
-      try {
-        await fsPromises.writeFile(
-          path.join(workspaceRootPath, 'src', 'typed.ts'),
-          'export const value: number = 1;\n',
-          'utf8'
-        );
-
-        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-thread'));
-        const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
-        const executeReplaceTool = requireToolExecute(
-          tools,
-          'brainstrike.stringReplaceWorkspaceFile'
-        );
-        // Read first so the R8 staleness guard has a fresh observation.
-        await executeReadTool({
-          context: { path: '/src/typed.ts' },
-        });
-
-        const result = await executeReplaceTool({
-          context: {
-            newStr: 'export const value: number = "not a number";',
-            oldStr: 'export const value: number = 1;',
-            path: '/src/typed.ts',
-          },
-        });
-
-        expect(result.replaced).toBe(true);
-        expect(result.lsp?.available).toBe(true);
-        expect(result.lsp?.language).toBe('typescript');
-        expect(result.lsp?.diagnostics?.length ?? 0).toBeGreaterThan(0);
-        expect(result.lsp?.diagnostics?.[0]?.message).toMatch(/not assignable/i);
-      } finally {
-        await disposeLspServers();
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    }, 30_000);
-
-    it('omits the lsp field entirely for a non-code (markdown) write', async () => {
-      const workspaceRootPath = await createLspWorkspace();
-      try {
-        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-thread-2'));
-        const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
-
-        const result = await executeTool({
-          context: { content: '# Notes\n', path: '/notes.md' },
-        });
-
-        expect(result.created).toBe(true);
-        expect(result.lsp).toBeUndefined();
-      } finally {
-        await disposeLspServers();
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    }, 30_000);
-
-    it('lspInspect returns hover + definition for a symbol via the <<< cursor (Phase B)', async () => {
-      const workspaceRootPath = await createLspWorkspace();
-      try {
-        await fsPromises.writeFile(
-          path.join(workspaceRootPath, 'src', 'sym.ts'),
-          'export const greeting: string = "hi";\nexport const echo = greeting;\n',
-          'utf8'
-        );
-        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-inspect'));
-        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
-
-        const result = await executeTool({
-          context: {
-            line: 2,
-            match: 'export const echo = <<<greeting;',
-            path: '/src/sym.ts',
-          },
-        });
-
-        expect(result.available).toBe(true);
-        expect(result.hover).toMatch(/string/);
-        expect(result.definition?.[0]?.path).toBe('/src/sym.ts');
-        expect(result.definition?.[0]?.line).toBe(1);
-      } finally {
-        await disposeLspServers();
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    }, 30_000);
-
-    it('lspInspect resolves a line-fragment match to the correct column (review)', async () => {
-      const workspaceRootPath = await createLspWorkspace();
-      try {
-        await fsPromises.writeFile(
-          path.join(workspaceRootPath, 'src', 'sym.ts'),
-          'export const greeting: string = "hi";\nexport const pair = { a: greeting, b: greeting };\n',
-          'utf8'
-        );
-        const tools = buildDesktopAssistantTools(
-          lspRuntime(workspaceRootPath, 'lsp-inspect-fragment')
-        );
-        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
-
-        // A fragment of line 2 (not the full line): the cursor column must be
-        // fragment-start-in-line + marker-offset-in-fragment, pointing at the
-        // SECOND `greeting`. Raw indexOf on the fragment would yield column 3
-        // (mid-"export") and silently inspect nothing.
-        const result = await executeTool({
-          context: {
-            line: 2,
-            match: 'b: <<<greeting',
-            path: '/src/sym.ts',
-          },
-        });
-
-        expect(result.available).toBe(true);
-        expect(result.hover).toMatch(/string/);
-        expect(result.definition?.[0]?.path).toBe('/src/sym.ts');
-        expect(result.definition?.[0]?.line).toBe(1);
-      } finally {
-        await disposeLspServers();
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    }, 30_000);
-
-    it('lspInspect accepts a unique markerless identifier at its first character', async () => {
-      const workspaceRootPath = await createLspWorkspace();
-      try {
-        await fsPromises.writeFile(
-          path.join(workspaceRootPath, 'src', 'sym.ts'),
-          'export const greeting: string = "hi";\nexport const echo = greeting;\n',
-          'utf8'
-        );
-        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-markerless'));
-        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
-
-        const result = await executeTool({
-          context: { line: 2, match: 'greeting', path: '/src/sym.ts' },
-        });
-
-        expect(result.available).toBe(true);
-        expect(result.hover).toMatch(/string/);
-        expect(result.definition?.[0]?.line).toBe(1);
-      } finally {
-        await disposeLspServers();
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    }, 30_000);
-
-    it('lspInspect tells repeated markerless identifiers to use an explicit cursor marker', async () => {
-      const workspaceRootPath = await createLspWorkspace();
-      try {
-        await fsPromises.writeFile(
-          path.join(workspaceRootPath, 'src', 'sym.ts'),
-          'export const greeting = greeting;\n',
-          'utf8'
-        );
-        const tools = buildDesktopAssistantTools(
-          lspRuntime(workspaceRootPath, 'lsp-markerless-repeated')
-        );
-        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
-
-        await expect(
-          executeTool({
-            context: { line: 1, match: 'greeting', path: '/src/sym.ts' },
-          })
-        ).rejects.toThrow(/pass a unique line fragment with exactly one "<<<"/i);
-      } finally {
-        await disposeLspServers();
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    }, 30_000);
-
-    it('lspInspect does not match a markerless identifier inside a longer identifier', async () => {
-      const workspaceRootPath = await createLspWorkspace();
-      try {
-        await fsPromises.writeFile(
-          path.join(workspaceRootPath, 'src', 'sym.ts'),
-          'export const greetingSuffix = 1;\nexport const greeting: string = "hi";\n',
-          'utf8'
-        );
-        const tools = buildDesktopAssistantTools(
-          lspRuntime(workspaceRootPath, 'lsp-markerless-boundary')
-        );
-        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
-
-        await expect(
-          executeTool({
-            context: { line: 1, match: 'greeting', path: '/src/sym.ts' },
-          })
-        ).rejects.toThrow(/identifier occurs on line 2; retry with line 2/i);
-      } finally {
-        await disposeLspServers();
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    }, 30_000);
-
-    it('lspInspect gives candidate lines for a markerless identifier on the wrong line', async () => {
-      const workspaceRootPath = await createLspWorkspace();
-      try {
-        await fsPromises.writeFile(
-          path.join(workspaceRootPath, 'src', 'sym.ts'),
-          'export const greeting = 1;\nexport function inspectTarget() {}\n',
-          'utf8'
-        );
-        const tools = buildDesktopAssistantTools(
-          lspRuntime(workspaceRootPath, 'lsp-markerless-line')
-        );
-        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
-
-        await expect(
-          executeTool({
-            context: { line: 1, match: 'export const x', path: '/src/sym.ts' },
-          })
-        ).rejects.toThrow(/must be one JavaScript\/TypeScript identifier/i);
-
-        await expect(
-          executeTool({
-            context: { line: 1, match: 'inspectTarget', path: '/src/sym.ts' },
-          })
-        ).rejects.toThrow(/occurs on line 2.*retry with line 2/i);
-      } finally {
-        await disposeLspServers();
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    }, 30_000);
-
-    it('lspInspect refuses a match that does not occur on the target line (review)', async () => {
-      const workspaceRootPath = await createLspWorkspace();
-      try {
-        await fsPromises.writeFile(
-          path.join(workspaceRootPath, 'src', 'x.ts'),
-          'export const x = 1;\n',
-          'utf8'
-        );
-        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-stale-match'));
-        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
-
-        const inspection = executeTool({
-          // Model quoted a line that isn't the real line 1 → must refuse with
-          // the actual line text, never inspect a wrong column.
-          context: { line: 1, match: 'const nonexistent = <<<thing;', path: '/src/x.ts' },
-        });
-
-        await expect(inspection).rejects.toBeInstanceOf(ToolInputError);
-        await expect(inspection).rejects.toThrow(/not found on line 1/i);
-      } finally {
-        await disposeLspServers();
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    }, 30_000);
-
-    it('lspInspect refuses an ambiguous line fragment (review)', async () => {
-      const workspaceRootPath = await createLspWorkspace();
-      try {
-        await fsPromises.writeFile(
-          path.join(workspaceRootPath, 'src', 'dup.ts'),
-          'export const pair = { a: value, b: value };\nexport const value = 1;\n',
-          'utf8'
-        );
-        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-ambiguous'));
-        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
-
-        await expect(
-          executeTool({
-            // "value" appears twice on line 1 → the column is ambiguous.
-            context: { line: 1, match: '<<<value', path: '/src/dup.ts' },
-          })
-        ).rejects.toThrow(/more than once/i);
-      } finally {
-        await disposeLspServers();
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    }, 30_000);
-
-    it('lspInspect omits the preview for an oversized definition target but keeps path/line (review)', async () => {
-      const workspaceRootPath = await createLspWorkspace();
-      try {
-        // Definition target > 2 MB (a stand-in for a large generated .d.ts):
-        // the location must still resolve, but the accessory preview is skipped
-        // rather than slurping the whole file into memory.
-        const bigTarget = `export const bigSym = 1;\n// ${'a'.repeat(2_200_000)}\n`;
-        await fsPromises.writeFile(
-          path.join(workspaceRootPath, 'src', 'big.ts'),
-          bigTarget,
-          'utf8'
-        );
-        await fsPromises.writeFile(
-          path.join(workspaceRootPath, 'src', 'use.ts'),
-          "import { bigSym } from './big';\nexport const use = bigSym;\n",
-          'utf8'
-        );
-        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-big-target'));
-        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
-
-        const result = await executeTool({
-          context: {
-            line: 2,
-            match: 'export const use = <<<bigSym;',
-            path: '/src/use.ts',
-          },
-        });
-
-        expect(result.available).toBe(true);
-        expect(result.definition?.[0]?.path).toBe('/src/big.ts');
-        expect(result.definition?.[0]?.line).toBe(1);
-        expect(result.definition?.[0]?.preview).toBeUndefined();
-      } finally {
-        await disposeLspServers();
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    }, 30_000);
-
-    it('lspInspect refuses a malformed cursor marker with an actionable error', async () => {
-      const workspaceRootPath = await createLspWorkspace();
-      try {
-        await fsPromises.writeFile(
-          path.join(workspaceRootPath, 'src', 'x.ts'),
-          'export const x = 1;\n',
-          'utf8'
-        );
-        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-bad-cursor'));
-        const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
-
-        await expect(
-          executeTool({
-            // Two markers → invalid.
-            context: { line: 1, match: 'export <<<const <<<x = 1;', path: '/src/x.ts' },
-          })
-        ).rejects.toThrow(/exactly one/i);
-      } finally {
-        await disposeLspServers();
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    }, 30_000);
   });
 });

@@ -14,7 +14,24 @@ vi.mock('@brainstrike/db', () => ({
   },
 }));
 
-import { runListEmbeddingSpaces } from '../../assistant-server/list-embedding-spaces-tool';
+import type { ListEmbeddingSetsInput, RuntimeData } from '@brainstrike/agent';
+import { runListEmbeddingSpacesWith } from '../../assistant-server/list-embedding-spaces-core';
+import { pgliteRetrievalStore } from '../../assistant-server/retrieval-store-pglite';
+import { catalogOnly } from './_c1-a-helpers';
+
+/** The host's listEmbeddingSpaces: the shared core over Main's catalog reads. */
+function runListEmbeddingSpaces(
+  input: ListEmbeddingSetsInput,
+  runtimeData: RuntimeData | undefined,
+  nativeIndexSearch: IndexSearchCapability
+) {
+  return runListEmbeddingSpacesWith(
+    input,
+    runtimeData,
+    nativeIndexSearch,
+    catalogOnly(pgliteRetrievalStore())
+  );
+}
 
 const setId = '3a1a8c0b-01ee-4d13-9936-d8cc24edbd18';
 const profile = {

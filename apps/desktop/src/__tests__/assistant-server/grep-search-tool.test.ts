@@ -1,13 +1,16 @@
-import type { RuntimeData } from '@brainstrike/agent';
+import type { GrepSearchInput, RuntimeData } from '@brainstrike/agent';
 import { projectGrepSearchModelOutput } from '@brainstrike/host-capabilities/native-tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { runGrepSearchWith } from '../../assistant-server/grep-search-core';
 import { runGrepSearch } from '../../assistant-server/grep-search-tool';
+import { nativeGrepFixture } from './_c1-a-helpers';
 
-const queryMock = vi.fn();
-const { loggerErrorMock } = vi.hoisted(() => ({
+const { loggerErrorMock, queryMock } = vi.hoisted(() => ({
   loggerErrorMock: vi.fn(),
+  queryMock: vi.fn(),
 }));
 
+// Only the legacy block at the bottom reads Main's PGlite grep index.
 vi.mock('../../db-main', () => ({
   getDatabase: vi.fn(async () => ({ query: queryMock })),
 }));
@@ -25,30 +28,32 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
   };
 });
 
+// The host's grep index: Main's native index read (`desktop-read/grep-index`
+// is served by `nativeGrepIndex`), authorizing every root the case opens.
+let f = nativeGrepFixture();
+
+function grepSearch(input: GrepSearchInput, runtimeData: RuntimeData | undefined) {
+  return runGrepSearchWith(input, runtimeData, f.index);
+}
+
 beforeEach(() => {
-  queryMock.mockReset();
+  f = nativeGrepFixture();
   loggerErrorMock.mockReset();
 });
 
 describe('grep search tool', () => {
-  beforeEach(() => {
-    queryMock.mockReset();
-  });
-
   it('defaults to files mode: aggregated per-path summaries, no line content', async () => {
-    queryMock.mockResolvedValue({
-      rows: [
-        { content: 'needle one\nplain\nneedle two', path: 'src/x.ts', start_line: 1 },
-        { content: 'needle here', path: 'src/y.ts', start_line: 40 },
-      ],
-    });
-    const result = await runGrepSearch({ pattern: 'needle' }, undefined);
+    f.serve([
+      { content: 'needle one\nplain\nneedle two', path: 'src/x.ts', start_line: 1 },
+      { content: 'needle here', path: 'src/y.ts', start_line: 40 },
+    ]);
+    const result = await grepSearch({ pattern: 'needle' }, undefined);
     if (result.outputMode !== 'files') {
       throw new Error('expected files mode result');
     }
     expect(result.files).toEqual([
-      { firstLine: 1, matchCount: 2, path: 'src/x.ts', source: 'index' },
-      { firstLine: 40, matchCount: 1, path: 'src/y.ts', source: 'index' },
+      { firstLine: 1, matchCount: 2, path: 'src/x.ts', rootId: 'root', source: 'index' },
+      { firstLine: 40, matchCount: 1, path: 'src/y.ts', rootId: 'root', source: 'index' },
     ]);
     expect(result.totalFiles).toBe(2);
     expect(result.totalMatches).toBe(3);
@@ -59,10 +64,8 @@ describe('grep search tool', () => {
   });
 
   it('returns bare path:line matches in content mode — context is opt-in (BST-1193)', async () => {
-    queryMock.mockResolvedValue({
-      rows: [{ content: 'alpha\nneedle line\nomega', path: 'src/x.ts', start_line: 10 }],
-    });
-    const result = await runGrepSearch({ outputMode: 'content', pattern: 'needle' }, undefined);
+    f.serve([{ content: 'alpha\nneedle line\nomega', path: 'src/x.ts', start_line: 10 }]);
+    const result = await grepSearch({ outputMode: 'content', pattern: 'needle' }, undefined);
     if (result.outputMode !== 'content') {
       throw new Error('expected content mode result');
     }
@@ -77,6 +80,7 @@ describe('grep search tool', () => {
         line: 11,
         lineText: 'needle line',
         path: 'src/x.ts',
+        rootId: 'root',
         source: 'index',
       },
     ]);
@@ -88,10 +92,8 @@ describe('grep search tool', () => {
   });
 
   it('returns surrounding context when contextLines is requested explicitly', async () => {
-    queryMock.mockResolvedValue({
-      rows: [{ content: 'alpha\nneedle line\nomega', path: 'src/x.ts', start_line: 10 }],
-    });
-    const result = await runGrepSearch(
+    f.serve([{ content: 'alpha\nneedle line\nomega', path: 'src/x.ts', start_line: 10 }]);
+    const result = await grepSearch(
       { contextLines: 1, outputMode: 'content', pattern: 'needle' },
       undefined
     );
@@ -105,6 +107,7 @@ describe('grep search tool', () => {
         line: 11,
         lineText: 'needle line',
         path: 'src/x.ts',
+        rootId: 'root',
         source: 'index',
       },
     ]);
@@ -112,17 +115,15 @@ describe('grep search tool', () => {
 
   it('mentions contextLines in paging hints only when context was requested', async () => {
     const lines = Array.from({ length: 6 }, (_, i) => `needle ${i}`).join('\n');
-    queryMock.mockResolvedValue({
-      rows: [{ content: lines, path: 'src/x.ts', start_line: 1 }],
-    });
+    f.serve([{ content: lines, path: 'src/x.ts', start_line: 1 }]);
 
-    const withContext = await runGrepSearch(
+    const withContext = await grepSearch(
       { contextLines: 1, maxResults: 2, outputMode: 'content', pattern: 'needle' },
       undefined
     );
     expect(withContext.hint).toContain('contextLines: 0');
 
-    const defaultContext = await runGrepSearch(
+    const defaultContext = await grepSearch(
       { maxResults: 2, outputMode: 'content', pattern: 'needle' },
       undefined
     );
@@ -132,10 +133,8 @@ describe('grep search tool', () => {
 
   it('pages content matches with offset and emits a continuation hint', async () => {
     const lines = Array.from({ length: 6 }, (_, i) => `needle ${i}`).join('\n');
-    queryMock.mockResolvedValue({
-      rows: [{ content: lines, path: 'src/x.ts', start_line: 1 }],
-    });
-    const result = await runGrepSearch(
+    f.serve([{ content: lines, path: 'src/x.ts', start_line: 1 }]);
+    const result = await grepSearch(
       { contextLines: 0, maxResults: 2, offset: 2, outputMode: 'content', pattern: 'needle' },
       undefined
     );
@@ -155,28 +154,29 @@ describe('grep search tool', () => {
       path: `packages/some-package/src/deeply/nested/dir-${i}/file-with-a-long-name-${i}.ts`,
       start_line: 1,
     }));
-    queryMock.mockResolvedValue({ rows });
-    const result = await runGrepSearch({ pattern: 'needle' }, undefined);
+    f.serve(rows);
+    const result = await grepSearch({ pattern: 'needle' }, undefined);
     if (result.outputMode !== 'files') {
       throw new Error('expected files mode result');
     }
-    expect(result.totalFiles).toBe(400);
-    expect(result.files.length).toBeLessThan(400);
+    // The native grep protocol admits at most 200 candidate chunks per call.
+    expect(result.totalFiles).toBe(200);
+    expect(result.files.length).toBeLessThan(200);
     expect(result.truncated).toBe(true);
     expect(result.hint).toContain('outputMode');
     expect(JSON.stringify(result).length).toBeLessThanOrEqual(11_000);
   });
 
   it('does not advertise a non-advancing offset when candidate limits yield no matches', async () => {
-    queryMock.mockResolvedValue({
-      rows: Array.from({ length: 500 }, (_, i) => ({
+    f.serve(
+      Array.from({ length: 500 }, (_, i) => ({
         content: 'authoritative matcher finds no result',
         path: `src/candidate-${i}.ts`,
         start_line: 1,
-      })),
-    });
+      }))
+    );
 
-    const result = await runGrepSearch({ pattern: 'needle' }, undefined);
+    const result = await grepSearch({ pattern: 'needle' }, undefined);
 
     if (result.outputMode !== 'files') {
       throw new Error('expected files mode result');
@@ -192,15 +192,15 @@ describe('grep search tool', () => {
     // nothing: pagination is "complete", yet matches may exist in unexamined
     // candidates. The result must carry a hint (the model projection throws on
     // flagged results without guidance) and must not advertise an offset.
-    queryMock.mockResolvedValue({
-      rows: Array.from({ length: 500 }, (_, i) => ({
+    f.serve(
+      Array.from({ length: 500 }, (_, i) => ({
         content: 'authoritative matcher finds no result',
         path: `src/candidate-${i}.ts`,
         start_line: 1,
-      })),
-    });
+      }))
+    );
 
-    const result = await runGrepSearch({ outputMode: 'content', pattern: 'needle' }, undefined);
+    const result = await grepSearch({ outputMode: 'content', pattern: 'needle' }, undefined);
 
     if (result.outputMode !== 'content') {
       throw new Error('expected content mode result');
@@ -215,13 +215,11 @@ describe('grep search tool', () => {
 
   it('advances the offset past a single match too large to fit the budget', async () => {
     // One indexed line larger than the whole output budget (e.g. minified bundle).
-    queryMock.mockResolvedValue({
-      rows: [
-        { content: `${'x'.repeat(15_000)} needle`, path: 'dist/bundle.min.js', start_line: 1 },
-        { content: 'small needle line', path: 'src/ok.ts', start_line: 1 },
-      ],
-    });
-    const result = await runGrepSearch(
+    f.serve([
+      { content: `${'x'.repeat(15_000)} needle`, path: 'dist/bundle.min.js', start_line: 1 },
+      { content: 'small needle line', path: 'src/ok.ts', start_line: 1 },
+    ]);
+    const result = await grepSearch(
       { contextLines: 0, maxResults: 1, outputMode: 'content', pattern: 'needle' },
       undefined
     );
@@ -237,10 +235,8 @@ describe('grep search tool', () => {
 
   it('makes the pagination cap terminal instead of repeating an unreachable offset', async () => {
     const lines = Array.from({ length: 2100 }, (_, i) => `needle ${i}`).join('\n');
-    queryMock.mockResolvedValue({
-      rows: [{ content: lines, path: 'src/big.ts', start_line: 1 }],
-    });
-    const result = await runGrepSearch(
+    f.serve([{ content: lines, path: 'src/big.ts', start_line: 1 }]);
+    const result = await grepSearch(
       { contextLines: 0, offset: 2000, outputMode: 'content', pattern: 'needle' },
       undefined
     );
@@ -259,13 +255,11 @@ describe('grep search tool', () => {
     // literal, but the bounded scan covered the whole tiny workspace — the
     // result is exhaustive, must NOT be scan-limited, and must project cleanly
     // instead of killing the run.
-    queryMock.mockResolvedValue({
-      rows: [
-        { content: 'needle one\nplain', path: 'src/x.ts', start_line: 1 },
-        { content: 'thread two', path: 'src/y.ts', start_line: 1 },
-      ],
-    });
-    const result = await runGrepSearch({ isRegex: true, pattern: 'needle|thread' }, undefined);
+    f.serve([
+      { content: 'needle one\nplain', path: 'src/x.ts', start_line: 1 },
+      { content: 'thread two', path: 'src/y.ts', start_line: 1 },
+    ]);
+    const result = await grepSearch({ isRegex: true, pattern: 'needle|thread' }, undefined);
     if (result.outputMode !== 'files') {
       throw new Error('expected files mode result');
     }
@@ -281,14 +275,14 @@ describe('grep search tool', () => {
     // matcher and both are shown. Nothing more is pageable, so the hint must
     // advise refinement — a "Continue with offset: 2" of totalFiles=2 would
     // send the model to a guaranteed-empty page.
-    queryMock.mockResolvedValue({
-      rows: Array.from({ length: 500 }, (_, i) => ({
+    f.serve(
+      Array.from({ length: 500 }, (_, i) => ({
         content: i < 2 ? 'needle here' : 'no match in this chunk',
         path: `src/candidate-${i}.ts`,
         start_line: 1,
-      })),
-    });
-    const result = await runGrepSearch({ pattern: 'needle' }, undefined);
+      }))
+    );
+    const result = await grepSearch({ pattern: 'needle' }, undefined);
     if (result.outputMode !== 'files') {
       throw new Error('expected files mode result');
     }
@@ -308,14 +302,14 @@ describe('grep search tool', () => {
     // shown, but candidatesTruncated means the pool may have hidden more. The
     // projection contract requires guidance for ANY limited result — today this
     // shape has no hint and crashes the whole run at the projection seam.
-    queryMock.mockResolvedValue({
-      rows: Array.from({ length: 500 }, (_, i) => ({
+    f.serve(
+      Array.from({ length: 500 }, (_, i) => ({
         content: i < 2 ? 'needle here' : 'no match in this chunk',
         path: `src/candidate-${i}.ts`,
         start_line: 1,
-      })),
-    });
-    const result = await runGrepSearch(
+      }))
+    );
+    const result = await grepSearch(
       { contextLines: 0, outputMode: 'content', pattern: 'needle' },
       undefined
     );
@@ -334,14 +328,14 @@ describe('grep search tool', () => {
     // Unprefilterable regex AND the bounded scan hit its cap: the scan really
     // was limited. The hint must say how to search the rest of the workspace
     // (longer literal / isRegex: false), not offer an offset that cannot help.
-    queryMock.mockResolvedValue({
-      rows: Array.from({ length: 500 }, (_, i) => ({
+    f.serve(
+      Array.from({ length: 500 }, (_, i) => ({
         content: i < 2 ? 'version 1.5 shipped' : 'no digits here',
         path: `src/candidate-${i}.ts`,
         start_line: 1,
-      })),
-    });
-    const result = await runGrepSearch(
+      }))
+    );
+    const result = await grepSearch(
       { contextLines: 0, isRegex: true, outputMode: 'content', pattern: '\\d+\\.\\d+' },
       undefined
     );
@@ -360,37 +354,48 @@ describe('grep search tool', () => {
   });
 
   it('passes the workspace-index embedding set id from runtimeData', async () => {
-    queryMock.mockResolvedValue({ rows: [] });
     const runtimeData: Partial<RuntimeData> = {
       workspaceIndexEmbeddingSetId: 'set-1',
       workspaceIndexingEnabled: true,
       workspaceIndexStatusState: 'idle',
     };
-    await runGrepSearch({ pattern: 'needle' }, runtimeData as RuntimeData);
-    const [sql, params] = queryMock.mock.calls[0] ?? [];
-    expect(String(sql)).toContain('embedding_set_id');
-    expect(params).toContain('set-1');
+    // The native index scopes grep to the requested collection: it must be
+    // authorized, and every returned hit must belong to it.
+    f = nativeGrepFixture({ authorizedCollectionIds: ['set-1'] });
+    f.serve([{ content: 'needle', embedding_set_id: 'set-1', path: 'src/x.ts', start_line: 1 }]);
+    await expect(
+      grepSearch({ pattern: 'needle' }, runtimeData as RuntimeData)
+    ).resolves.toMatchObject({ totalMatches: 1 });
+    f.serve([{ content: 'needle', embedding_set_id: 'other', path: 'src/x.ts', start_line: 1 }]);
+    await expect(grepSearch({ pattern: 'needle' }, runtimeData as RuntimeData)).rejects.toThrow(
+      /Unable to perform grep search/
+    );
+    f = nativeGrepFixture({ authorizedCollectionIds: ['other'] });
+    await expect(grepSearch({ pattern: 'needle' }, runtimeData as RuntimeData)).rejects.toThrow(
+      /Unable to perform grep search/
+    );
+    expect(f.grep).not.toHaveBeenCalled();
   });
 
   it('surfaces invalid-regex errors without coercion', async () => {
-    await expect(runGrepSearch({ isRegex: true, pattern: '([' }, undefined)).rejects.toThrow(
+    await expect(grepSearch({ isRegex: true, pattern: '([' }, undefined)).rejects.toThrow(
       /Invalid regular expression pattern/
     );
-    expect(queryMock).not.toHaveBeenCalled();
+    expect(f.grep).not.toHaveBeenCalled();
   });
 
   it('sanitizes raw repository/db errors to a generic message', async () => {
-    queryMock.mockRejectedValue(new Error('relation "file_chunks" does not exist'));
-    const promise = runGrepSearch({ pattern: 'needle' }, undefined);
+    f.grep.mockRejectedValue(new Error('relation "file_chunks" does not exist'));
+    const promise = grepSearch({ pattern: 'needle' }, undefined);
     await expect(promise).rejects.toThrow(/Unable to perform grep search/);
     await expect(promise).rejects.not.toThrow(/file_chunks/);
   });
 
   it('redacts grep patterns from failure logs', async () => {
-    queryMock.mockRejectedValue(new Error('repository unavailable'));
+    f.grep.mockRejectedValue(new Error('repository unavailable'));
     const pattern = 'OPENAI_API_KEY=sk-sensitive';
 
-    await expect(runGrepSearch({ pattern }, undefined)).rejects.toThrow(
+    await expect(grepSearch({ pattern }, undefined)).rejects.toThrow(
       /Unable to perform grep search/
     );
 
@@ -402,11 +407,10 @@ describe('grep search tool', () => {
   });
 
   it('adds case-insensitive steering without leaking probe matches into the result', async () => {
-    queryMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({
-      rows: [{ content: 'needle lower-case', path: 'src/case.ts', start_line: 1 }],
-    });
+    f.serveOnce([]);
+    f.serveOnce([{ content: 'needle lower-case', path: 'src/case.ts', start_line: 1 }]);
 
-    const result = await runGrepSearch({ caseSensitive: true, pattern: 'Needle' }, undefined);
+    const result = await grepSearch({ caseSensitive: true, pattern: 'Needle' }, undefined);
 
     expect(result.totalMatches).toBe(0);
     if (result.outputMode !== 'files') {
@@ -416,53 +420,49 @@ describe('grep search tool', () => {
     expect(result.probeNote).toBe(
       "0 exact-case matches, but 1 case-insensitive matches — the pattern's casing may be wrong."
     );
-    expect(queryMock).toHaveBeenCalledTimes(2);
+    expect(f.grep).toHaveBeenCalledTimes(2);
   });
 
   it('adds literal steering for a regex zero-match', async () => {
-    queryMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({
-      rows: [{ content: String.raw`token\d+`, path: 'src/literal.ts', start_line: 1 }],
-    });
+    f.serveOnce([]);
+    f.serveOnce([{ content: String.raw`token\d+`, path: 'src/literal.ts', start_line: 1 }]);
 
-    const result = await runGrepSearch({ isRegex: true, pattern: String.raw`token\d+` }, undefined);
+    const result = await grepSearch({ isRegex: true, pattern: String.raw`token\d+` }, undefined);
 
     expect(result.totalMatches).toBe(0);
     expect(result.probeNote).toBe(
       '0 regex matches, but 1 literal matches — regex metacharacters may need escaping.'
     );
-    expect(queryMock).toHaveBeenCalledTimes(2);
+    expect(f.grep).toHaveBeenCalledTimes(2);
   });
 
   it('omits probeNote when every eligible index probe misses', async () => {
-    queryMock.mockResolvedValue({ rows: [] });
+    f.serve([]);
 
-    const result = await runGrepSearch(
+    const result = await grepSearch(
       { caseSensitive: true, isRegex: true, pattern: 'missing-token' },
       undefined
     );
 
     expect(result).not.toHaveProperty('probeNote');
-    expect(queryMock).toHaveBeenCalledTimes(3);
+    expect(f.grep).toHaveBeenCalledTimes(3);
   });
 
   it('does not run any probe query after the main pass finds a match', async () => {
-    queryMock.mockResolvedValue({
-      rows: [{ content: 'Needle exact', path: 'src/exact.ts', start_line: 1 }],
-    });
+    f.serve([{ content: 'Needle exact', path: 'src/exact.ts', start_line: 1 }]);
 
-    const result = await runGrepSearch({ caseSensitive: true, pattern: 'Needle' }, undefined);
+    const result = await grepSearch({ caseSensitive: true, pattern: 'Needle' }, undefined);
 
     expect(result.totalMatches).toBe(1);
     expect(result).not.toHaveProperty('probeNote');
-    expect(queryMock).toHaveBeenCalledOnce();
+    expect(f.grep).toHaveBeenCalledOnce();
   });
 
   it('round-trips a zero-match probe note through the model projection', async () => {
-    queryMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({
-      rows: [{ content: 'needle lower-case', path: 'src/case.ts', start_line: 1 }],
-    });
+    f.serveOnce([]);
+    f.serveOnce([{ content: 'needle lower-case', path: 'src/case.ts', start_line: 1 }]);
 
-    const result = await runGrepSearch({ caseSensitive: true, pattern: 'Needle' }, undefined);
+    const result = await grepSearch({ caseSensitive: true, pattern: 'Needle' }, undefined);
     const projection = projectGrepSearchModelOutput(result);
 
     expect(projection.value).toContain(
@@ -472,6 +472,197 @@ describe('grep search tool', () => {
 });
 
 describe('grep search tool multi-root', () => {
+  const TWO_ROOTS = {
+    workspaceRoots: [
+      { displayName: 'ProjectA', path: '/work/ProjectA', rootId: 'db-root-a' },
+      { displayName: 'ProjectB', path: '/work/ProjectB', rootId: 'db-root-b' },
+    ],
+  } as unknown as RuntimeData;
+
+  beforeEach(() => {
+    f = nativeGrepFixture({ authorizedRootIds: ['db-root-a', 'db-root-b'] });
+  });
+
+  it('scopes the query to the resolved root when `root` is provided', async () => {
+    f.serve([]);
+    await grepSearch({ pattern: 'needle', root: 'ProjectB' }, TWO_ROOTS);
+    expect(f.grep).toHaveBeenCalledWith(expect.objectContaining({ rootIds: ['db-root-b'] }));
+  });
+
+  it('errors clearly (and skips the DB) when `root` names a folder that is not open', async () => {
+    await expect(grepSearch({ pattern: 'needle', root: 'Nope' }, TWO_ROOTS)).rejects.toThrow(
+      /no folder "Nope"/i
+    );
+    expect(f.grep).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * BST-764. `runGrepSearch` forwarded the model's raw `filePaths` to BOTH the
+ * indexed and live passes, and only the live pass transformed it — with
+ * `p.replace(/^\/+/, '')`, which turns an absolute path into a never-matching
+ * relative one. The call succeeded with `totalMatches: 0` for a file that
+ * plainly matched.
+ *
+ * These are the tool-level half of the contract: the resolver's own unit tests
+ * prove the mapping, and these prove the tool actually USES it — for both
+ * passes, from one list.
+ */
+describe('grep search tool filePaths scope (BST-764)', () => {
+  const ONE_ROOT = {
+    workspaceRoots: [{ displayName: 'site-qa', path: '/work/site-qa', rootId: 'db-root-a' }],
+  } as unknown as RuntimeData;
+
+  beforeEach(() => {
+    f = nativeGrepFixture({ authorizedRootIds: ['db-root-a'] });
+  });
+
+  /**
+   * Every string-array scope handed to the indexed grep request. The request
+   * can carry BOTH a filePaths allowlist and a rootIds allowlist, so tests
+   * assert containment rather than picking by position — an index-based helper
+   * silently started reading rootIds when root pinning was added.
+   */
+  function indexedStringArrays(): string[][] {
+    const request = f.grep.mock.calls.at(0)?.[0];
+    return [request?.filePaths, request?.rootIds].flatMap((scope) => (scope ? [[...scope]] : []));
+  }
+
+  it('resolves an absolute path inside the root to the root-relative form the index stores', async () => {
+    f.serve([{ content: 'needle', path: 'proof.html', root_id: 'db-root-a', start_line: 1 }]);
+
+    const result = await grepSearch(
+      { filePaths: ['/work/site-qa/proof.html'], pattern: 'needle' },
+      ONE_ROOT
+    );
+
+    // The indexed pass must receive `proof.html`, NOT the absolute path and NOT
+    // the old `work/site-qa/proof.html` mangling.
+    expect(indexedStringArrays()).toContainEqual(['proof.html']);
+    if (result.outputMode !== 'files') {
+      throw new Error('expected files mode result');
+    }
+    // ...and the call actually finds the file, which is the whole point.
+    expect(result.totalMatches).toBe(1);
+  });
+
+  it('rejects a path outside every open folder instead of returning a clean zero-match', async () => {
+    await expect(
+      grepSearch({ filePaths: ['/etc/passwd'], pattern: 'needle' }, ONE_ROOT)
+    ).rejects.toThrow(/not inside any open folder/i);
+    // Rejected before any DB work.
+    expect(f.grep).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the scope error to the model rather than the generic fallback', async () => {
+    // `Unable to perform grep search right now` would tell the model nothing and
+    // invite a retry of the same broken call.
+    await expect(
+      grepSearch({ filePaths: ['/etc/passwd'], pattern: 'needle' }, ONE_ROOT)
+    ).rejects.toThrow(/Open folders:/);
+    await expect(
+      grepSearch({ filePaths: ['/etc/passwd'], pattern: 'needle' }, ONE_ROOT)
+    ).rejects.not.toThrow(/Try again/);
+  });
+
+  it('leaves a relative path untouched', async () => {
+    f.serve([]);
+    await grepSearch({ filePaths: ['src/x.ts'], pattern: 'needle' }, ONE_ROOT);
+    expect(indexedStringArrays()).toContainEqual(['src/x.ts']);
+  });
+
+  it('deduplicates an absolute and relative spelling of the same file', async () => {
+    f.serve([]);
+    await grepSearch(
+      { filePaths: ['/work/site-qa/proof.html', 'proof.html'], pattern: 'needle' },
+      ONE_ROOT
+    );
+    expect(indexedStringArrays()).toContainEqual(['proof.html']);
+  });
+
+  it('rejects an ambiguous path under nested roots', async () => {
+    const NESTED = {
+      workspaceRoots: [
+        { displayName: 'outer', path: '/work/site-qa', rootId: 'db-root-a' },
+        { displayName: 'inner', path: '/work/site-qa/inner', rootId: 'db-root-b' },
+      ],
+    } as unknown as RuntimeData;
+    await expect(
+      grepSearch({ filePaths: ['/work/site-qa/inner/f.ts'], pattern: 'needle' }, NESTED)
+    ).rejects.toThrow(/more than one open folder/i);
+  });
+
+  it('uses an explicit root to disambiguate nested roots', async () => {
+    const NESTED = {
+      workspaceRoots: [
+        { displayName: 'outer', path: '/work/site-qa', rootId: 'db-root-a' },
+        { displayName: 'inner', path: '/work/site-qa/inner', rootId: 'db-root-b' },
+      ],
+    } as unknown as RuntimeData;
+    f.serve([]);
+    await grepSearch(
+      { filePaths: ['/work/site-qa/inner/f.ts'], pattern: 'needle', root: 'inner' },
+      NESTED
+    );
+    expect(indexedStringArrays()).toContainEqual(['f.ts']);
+  });
+});
+
+/**
+ * Review follow-up on #2087. Flattening `/work/A/proof.html` to `proof.html`
+ * dropped the root the caller named, so with sibling roots mounted the search
+ * also matched `/work/B/proof.html`. That was NEWLY reachable — before the
+ * resolver, an absolute path simply matched nothing — which made it a
+ * regression introduced by the fix rather than a pre-existing gap.
+ */
+describe('grep search tool filePaths root pinning (BST-764 review)', () => {
+  const SIBLING_ROOTS = {
+    workspaceRoots: [
+      { displayName: 'A', path: '/work/A', rootId: 'db-root-a' },
+      { displayName: 'B', path: '/work/B', rootId: 'db-root-b' },
+    ],
+  } as unknown as RuntimeData;
+
+  beforeEach(() => {
+    f = nativeGrepFixture({ authorizedRootIds: ['db-root-a', 'db-root-b'] });
+  });
+
+  /** Every string-array scope handed to the indexed grep request. */
+  function stringArrayParams(): string[][] {
+    const request = f.grep.mock.calls.at(0)?.[0];
+    return [request?.filePaths, request?.rootIds].flatMap((scope) => (scope ? [[...scope]] : []));
+  }
+
+  it('pins the indexed pass to the root the absolute path named', async () => {
+    f.serve([]);
+    await grepSearch({ filePaths: ['/work/A/proof.html'], pattern: 'needle' }, SIBLING_ROOTS);
+
+    const arrays = stringArrayParams();
+    expect(arrays).toContainEqual(['proof.html']);
+    // ...and the root allowlist, so B's identically-named file cannot match.
+    expect(arrays).toContainEqual(['db-root-a']);
+  });
+
+  it('does not pin roots when the allowlist is purely relative', async () => {
+    // A relative path carries no root information; narrowing it to one root
+    // would be a silent scope reduction, the mirror of the widening bug.
+    f.serve([]);
+    await grepSearch({ filePaths: ['proof.html'], pattern: 'needle' }, SIBLING_ROOTS);
+
+    const arrays = stringArrayParams();
+    expect(arrays).toContainEqual(['proof.html']);
+    expect(arrays).not.toContainEqual(['db-root-a']);
+  });
+});
+
+/**
+ * KEPT ON THE LEGACY IMPORT (BST-1980 C1, category 4, pending the lead's ruling).
+ * Main's PGlite grep index joined each indexed chunk to its root's display
+ * name; the host's native grep index (`nativeGrepIndex`) returns hits with a
+ * root id only and nothing re-attaches the display name, so index-only matches
+ * in a multi-root workspace lose `rootName` on host threads.
+ */
+describe('grep search tool multi-root root labels (legacy PGlite index)', () => {
   beforeEach(() => {
     queryMock.mockReset();
   });
@@ -531,186 +722,5 @@ describe('grep search tool multi-root', () => {
     }
     expect(result.matches[0]?.rootName).toBe('ProjectA');
     expect(result.matches[0]?.rootId).toBe('db-root-a');
-  });
-
-  it('scopes the query to the resolved root when `root` is provided', async () => {
-    queryMock.mockResolvedValue({ rows: [] });
-    await runGrepSearch({ pattern: 'needle', root: 'ProjectB' }, TWO_ROOTS);
-    const [sql, params] = queryMock.mock.calls[0] ?? [];
-    expect(String(sql)).toContain('fr.root_id =');
-    expect(params).toContain('db-root-b');
-  });
-
-  it('errors clearly (and skips the DB) when `root` names a folder that is not open', async () => {
-    await expect(runGrepSearch({ pattern: 'needle', root: 'Nope' }, TWO_ROOTS)).rejects.toThrow(
-      /no folder "Nope"/i
-    );
-    expect(queryMock).not.toHaveBeenCalled();
-  });
-});
-
-/**
- * BST-764. `runGrepSearch` forwarded the model's raw `filePaths` to BOTH the
- * indexed and live passes, and only the live pass transformed it — with
- * `p.replace(/^\/+/, '')`, which turns an absolute path into a never-matching
- * relative one. The call succeeded with `totalMatches: 0` for a file that
- * plainly matched.
- *
- * These are the tool-level half of the contract: the resolver's own unit tests
- * prove the mapping, and these prove the tool actually USES it — for both
- * passes, from one list.
- */
-describe('grep search tool filePaths scope (BST-764)', () => {
-  beforeEach(() => {
-    queryMock.mockReset();
-  });
-
-  const ONE_ROOT = {
-    workspaceRoots: [{ displayName: 'site-qa', path: '/work/site-qa', rootId: 'db-root-a' }],
-  } as unknown as RuntimeData;
-
-  /**
-   * Every array-of-strings param handed to the indexed SQL query. The query
-   * can carry BOTH a filePaths allowlist and a rootIds allowlist, so tests
-   * assert containment rather than picking by position — an index-based helper
-   * silently started reading rootIds when root pinning was added.
-   */
-  function indexedStringArrays(): string[][] {
-    const params = (queryMock.mock.calls.at(0)?.[1] ?? []) as unknown[];
-    return params.filter(
-      (param): param is string[] =>
-        Array.isArray(param) && param.every((entry) => typeof entry === 'string')
-    );
-  }
-
-  it('resolves an absolute path inside the root to the root-relative form the index stores', async () => {
-    queryMock.mockResolvedValue({
-      rows: [{ content: 'needle', path: 'proof.html', root_id: 'db-root-a', start_line: 1 }],
-    });
-
-    const result = await runGrepSearch(
-      { filePaths: ['/work/site-qa/proof.html'], pattern: 'needle' },
-      ONE_ROOT
-    );
-
-    // The indexed pass must receive `proof.html`, NOT the absolute path and NOT
-    // the old `work/site-qa/proof.html` mangling.
-    expect(indexedStringArrays()).toContainEqual(['proof.html']);
-    if (result.outputMode !== 'files') {
-      throw new Error('expected files mode result');
-    }
-    // ...and the call actually finds the file, which is the whole point.
-    expect(result.totalMatches).toBe(1);
-  });
-
-  it('rejects a path outside every open folder instead of returning a clean zero-match', async () => {
-    await expect(
-      runGrepSearch({ filePaths: ['/etc/passwd'], pattern: 'needle' }, ONE_ROOT)
-    ).rejects.toThrow(/not inside any open folder/i);
-    // Rejected before any DB work.
-    expect(queryMock).not.toHaveBeenCalled();
-  });
-
-  it('surfaces the scope error to the model rather than the generic fallback', async () => {
-    // `Unable to perform grep search right now` would tell the model nothing and
-    // invite a retry of the same broken call.
-    await expect(
-      runGrepSearch({ filePaths: ['/etc/passwd'], pattern: 'needle' }, ONE_ROOT)
-    ).rejects.toThrow(/Open folders:/);
-    await expect(
-      runGrepSearch({ filePaths: ['/etc/passwd'], pattern: 'needle' }, ONE_ROOT)
-    ).rejects.not.toThrow(/Try again/);
-  });
-
-  it('leaves a relative path untouched', async () => {
-    queryMock.mockResolvedValue({ rows: [] });
-    await runGrepSearch({ filePaths: ['src/x.ts'], pattern: 'needle' }, ONE_ROOT);
-    expect(indexedStringArrays()).toContainEqual(['src/x.ts']);
-  });
-
-  it('deduplicates an absolute and relative spelling of the same file', async () => {
-    queryMock.mockResolvedValue({ rows: [] });
-    await runGrepSearch(
-      { filePaths: ['/work/site-qa/proof.html', 'proof.html'], pattern: 'needle' },
-      ONE_ROOT
-    );
-    expect(indexedStringArrays()).toContainEqual(['proof.html']);
-  });
-
-  it('rejects an ambiguous path under nested roots', async () => {
-    const NESTED = {
-      workspaceRoots: [
-        { displayName: 'outer', path: '/work/site-qa', rootId: 'db-root-a' },
-        { displayName: 'inner', path: '/work/site-qa/inner', rootId: 'db-root-b' },
-      ],
-    } as unknown as RuntimeData;
-    await expect(
-      runGrepSearch({ filePaths: ['/work/site-qa/inner/f.ts'], pattern: 'needle' }, NESTED)
-    ).rejects.toThrow(/more than one open folder/i);
-  });
-
-  it('uses an explicit root to disambiguate nested roots', async () => {
-    const NESTED = {
-      workspaceRoots: [
-        { displayName: 'outer', path: '/work/site-qa', rootId: 'db-root-a' },
-        { displayName: 'inner', path: '/work/site-qa/inner', rootId: 'db-root-b' },
-      ],
-    } as unknown as RuntimeData;
-    queryMock.mockResolvedValue({ rows: [] });
-    await runGrepSearch(
-      { filePaths: ['/work/site-qa/inner/f.ts'], pattern: 'needle', root: 'inner' },
-      NESTED
-    );
-    expect(indexedStringArrays()).toContainEqual(['f.ts']);
-  });
-});
-
-/**
- * Review follow-up on #2087. Flattening `/work/A/proof.html` to `proof.html`
- * dropped the root the caller named, so with sibling roots mounted the search
- * also matched `/work/B/proof.html`. That was NEWLY reachable — before the
- * resolver, an absolute path simply matched nothing — which made it a
- * regression introduced by the fix rather than a pre-existing gap.
- */
-describe('grep search tool filePaths root pinning (BST-764 review)', () => {
-  beforeEach(() => {
-    queryMock.mockReset();
-  });
-
-  const SIBLING_ROOTS = {
-    workspaceRoots: [
-      { displayName: 'A', path: '/work/A', rootId: 'db-root-a' },
-      { displayName: 'B', path: '/work/B', rootId: 'db-root-b' },
-    ],
-  } as unknown as RuntimeData;
-
-  /** Every array-of-strings param handed to the indexed SQL query. */
-  function stringArrayParams(): string[][] {
-    const params = (queryMock.mock.calls.at(0)?.[1] ?? []) as unknown[];
-    return params.filter(
-      (param): param is string[] =>
-        Array.isArray(param) && param.every((entry) => typeof entry === 'string')
-    );
-  }
-
-  it('pins the indexed pass to the root the absolute path named', async () => {
-    queryMock.mockResolvedValue({ rows: [] });
-    await runGrepSearch({ filePaths: ['/work/A/proof.html'], pattern: 'needle' }, SIBLING_ROOTS);
-
-    const arrays = stringArrayParams();
-    expect(arrays).toContainEqual(['proof.html']);
-    // ...and the root allowlist, so B's identically-named file cannot match.
-    expect(arrays).toContainEqual(['db-root-a']);
-  });
-
-  it('does not pin roots when the allowlist is purely relative', async () => {
-    // A relative path carries no root information; narrowing it to one root
-    // would be a silent scope reduction, the mirror of the widening bug.
-    queryMock.mockResolvedValue({ rows: [] });
-    await runGrepSearch({ filePaths: ['proof.html'], pattern: 'needle' }, SIBLING_ROOTS);
-
-    const arrays = stringArrayParams();
-    expect(arrays).toContainEqual(['proof.html']);
-    expect(arrays).not.toContainEqual(['db-root-a']);
   });
 });

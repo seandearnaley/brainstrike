@@ -189,8 +189,23 @@ vi.mock('../../secrets', async () => {
   };
 });
 
-import { QueryEmbeddingSpaceInputSchema } from '@brainstrike/agent';
+import {
+  type QueryEmbeddingSpaceInput,
+  QueryEmbeddingSpaceInputSchema,
+  type RuntimeData,
+} from '@brainstrike/agent';
+import {
+  type RetrievalToolDependencies,
+  runQueryEmbeddingSpaceWith,
+} from '../../assistant-server/retrieval-core';
+import { pgliteRetrievalStore } from '../../assistant-server/retrieval-store-pglite';
 import { runQueryEmbeddingSpace } from '../../assistant-server/retrieval-tool';
+import {
+  catalogOnly,
+  nativeEmbeddingSetRow,
+  nativeHit,
+  nativeRetrievalFixture,
+} from './_c1-a-helpers';
 
 /**
  * BST-1020: the suite previously drove ~30 cases through the deleted
@@ -230,7 +245,13 @@ function expectAvailable(
   return result;
 }
 
-describe('retrieval-tool error paths', () => {
+/**
+ * Legacy-only (BST-1980): hosted query-embedding failures, selection snapshots
+ * and the legacy input schema's filePaths cap. Host threads never reach Main's
+ * PGlite similarity path; these cases are deleted with `LegacyRetrievalStore`
+ * in C2.
+ */
+describe('retrieval-tool error paths (legacy PG path)', () => {
   const snapshotId = '550e8400-e29b-41d4-a716-446655440000';
 
   beforeEach(() => {
@@ -290,34 +311,6 @@ describe('retrieval-tool error paths', () => {
 
     getDatabaseMock.mockResolvedValue({ query: dbQueryMock });
   });
-  it('throws a safe rebuild hint when all retrieved chunks are missing source ranges', async () => {
-    searchSimilarMock.mockResolvedValueOnce([
-      {
-        chunk: {
-          chunkIndex: 0,
-          chunkType: 'code',
-          content: 'Old chunk without range',
-          embeddingSetId: 'set-1',
-          fileRecordId: 'file-1',
-          id: 'chunk-old',
-          tokenCount: 2,
-        },
-        rank: 1,
-        similarity: 0.91,
-      },
-    ]);
-    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
-
-    await expect(
-      tool.execute({ context: { embeddingSetId: 'set-1', query: 'hello' } })
-    ).rejects.toThrow(
-      'Retrieved chunks are missing source line metadata. Rebuild the embedding space.'
-    );
-    expect(loggerWarn).toHaveBeenCalledWith('All retrieved chunks are missing source ranges', {
-      skippedForMissingSourceRange: 1,
-    });
-  });
-
   it('preserves the safe embedding-generation failure message', async () => {
     embedMock.mockResolvedValueOnce({ error: new Error('provider down'), ok: false });
     const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
@@ -366,20 +359,6 @@ describe('retrieval-tool error paths', () => {
     expect(result.selectionSnapshotId).toBe(snapshotId);
   });
 
-  it('rejects invalid selection snapshot ids', async () => {
-    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
-
-    await expect(
-      tool.execute({
-        context: {
-          embeddingSetId: 'set-1',
-          query: 'hello',
-          selectionSnapshotId: 'not-a-uuid',
-        },
-      })
-    ).rejects.toThrow('Selection snapshot reference is invalid.');
-  });
-
   it('rejects oversized selection file path lists at the input schema', async () => {
     // BST-1020: the registry's schema parse (filePaths max 5000) is the LIVE
     // boundary; the core's selectionTooLarge throw behind it is defensive.
@@ -396,51 +375,107 @@ describe('retrieval-tool error paths', () => {
       })
     ).rejects.toThrow(/too big|at most 5000|5000/i);
   });
+});
 
-  it('surfaces safe errors when embedding set lookup fails', async () => {
-    dbQueryMock.mockRejectedValueOnce(new Error('db exploded'));
-    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
+/**
+ * The host's queryEmbeddingSpace: the shared core `retrievalToolExecutors`
+ * runs, over Main's native index and catalog reads (no legacy PG path).
+ */
+function hostSemantic(
+  input: QueryEmbeddingSpaceInput,
+  runtimeData: RuntimeData | undefined,
+  dependencies: RetrievalToolDependencies
+) {
+  return runQueryEmbeddingSpaceWith(
+    input,
+    runtimeData,
+    dependencies,
+    catalogOnly(pgliteRetrievalStore())
+  );
+}
 
-    await expect(
-      tool.execute({
-        context: { embeddingSetId: 'set-1', query: 'hello' },
-      })
-    ).rejects.toThrow('Unable to load embedding set metadata.');
+describe('retrieval-tool error paths on the native index', () => {
+  let f = nativeRetrievalFixture();
+  let dependencies: RetrievalToolDependencies = {};
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    f = nativeRetrievalFixture();
+    dependencies = {
+      embeddingHostManager: { queryEmbedding: f.queryEmbedding },
+      nativeIndexSearch: f.capability,
+    };
+    findByIdsMock.mockResolvedValue([
+      { id: 'file', name: 'file.ts', path: '/repo/file.ts', tokenCount: 42 },
+    ]);
+    dbQueryMock.mockImplementation(async (sql: string): Promise<{ rows: unknown[] }> => {
+      if (sql.includes('FROM embedding_sets')) {
+        return { rows: [nativeEmbeddingSetRow] };
+      }
+      return { rows: [] };
+    });
+    getDatabaseMock.mockResolvedValue({ query: dbQueryMock });
   });
 
-  it('surfaces safe selection guidance when no embedding space is resolvable', async () => {
-    await expect(runQueryEmbeddingSpace({ query: 'hello' }, undefined)).rejects.toThrow(
-      'Select an embedding space before querying semantic context.'
+  it('refuses retrieved chunks that are missing source metadata', async () => {
+    f.result.hits = [{ ...nativeHit, tokenCount: null }];
+
+    await expect(
+      hostSemantic({ embeddingSetId: 'selected', query: 'hello' }, undefined, dependencies)
+    ).rejects.toThrow(
+      'Native search returned a chunk outside the requested canonical scope or source metadata.'
     );
   });
 
-  it('sanitizes unexpected retrieval errors', async () => {
-    searchSimilarMock.mockRejectedValueOnce(new Error('bad'));
-    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
+  it('rejects selection snapshot ids, which the native index does not support', async () => {
+    await expect(
+      hostSemantic(
+        { embeddingSetId: 'selected', query: 'hello', selectionSnapshotId: 'not-a-uuid' },
+        undefined,
+        dependencies
+      )
+    ).rejects.toThrow(
+      'Native assistant retrieval does not support filePaths, selectionSnapshotId, or chunkType filters. Use a query and root scope.'
+    );
+    expect(f.queryEmbedding).not.toHaveBeenCalled();
+  });
+
+  it('surfaces safe errors when embedding set lookup fails', async () => {
+    dbQueryMock.mockRejectedValueOnce(new Error('db exploded'));
 
     await expect(
-      tool.execute({
-        context: { embeddingSetId: 'set-1', query: 'hello' },
-      })
+      hostSemantic({ embeddingSetId: 'selected', query: 'hello' }, undefined, dependencies)
+    ).rejects.toThrow('Unable to load embedding set metadata.');
+  });
+
+  it('surfaces safe guidance when no embedding collection is resolvable', async () => {
+    f.setStatus({ ...f.status, authorizedCollectionIds: [] } as typeof f.status);
+
+    await expect(hostSemantic({ query: 'hello' }, undefined, dependencies)).rejects.toThrow(
+      'Native assistant retrieval requires one saved authorized collection.'
+    );
+    expect(dbQueryMock).not.toHaveBeenCalled();
+  });
+
+  it('sanitizes unexpected retrieval errors', async () => {
+    vi.mocked(f.capability.search).mockRejectedValueOnce(new Error('bad'));
+
+    await expect(
+      hostSemantic({ embeddingSetId: 'selected', query: 'hello' }, undefined, dependencies)
     ).rejects.toThrow('Unable to retrieve context right now. Try again.');
   });
 
   it('does not expose raw unexpected retrieval errors in development mode', async () => {
     const originalNodeEnv = process.env['NODE_ENV'];
     process.env['NODE_ENV'] = 'development';
-    searchSimilarMock.mockRejectedValue(new Error('db failed for /private/workspace'));
-    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
+    vi.mocked(f.capability.search).mockRejectedValue(new Error('db failed for /private/workspace'));
 
     try {
       await expect(
-        tool.execute({
-          context: { embeddingSetId: 'set-1', query: 'hello' },
-        })
+        hostSemantic({ embeddingSetId: 'selected', query: 'hello' }, undefined, dependencies)
       ).rejects.toThrow('Unable to retrieve context right now. Try again.');
       await expect(
-        tool.execute({
-          context: { embeddingSetId: 'set-1', query: 'hello' },
-        })
+        hostSemantic({ embeddingSetId: 'selected', query: 'hello' }, undefined, dependencies)
       ).rejects.not.toThrow('/private/workspace');
     } finally {
       if (originalNodeEnv === undefined) {
@@ -452,11 +487,12 @@ describe('retrieval-tool error paths', () => {
   });
 
   it('redacts the logged error for unexpected top-level retrieval failures', async () => {
-    searchSimilarMock.mockRejectedValue(new Error('db failed for /private/secret-workspace-path'));
-    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
+    vi.mocked(f.capability.search).mockRejectedValue(
+      new Error('db failed for /private/secret-workspace-path')
+    );
 
     await expect(
-      tool.execute({ context: { embeddingSetId: 'set-1', query: 'hello' } })
+      hostSemantic({ embeddingSetId: 'selected', query: 'hello' }, undefined, dependencies)
     ).rejects.toThrow('Unable to retrieve context right now. Try again.');
 
     expect(loggerError).toHaveBeenCalledWith(
@@ -473,16 +509,15 @@ describe('retrieval-tool error paths', () => {
       }
       return { rows: [] };
     });
-    const tool = liveRetrievalTool({ embeddingSetId: 'set-1' });
 
     await expect(
-      tool.execute({ context: { embeddingSetId: 'set-1', query: 'hello' } })
+      hostSemantic({ embeddingSetId: 'selected', query: 'hello' }, undefined, dependencies)
     ).rejects.toThrow('Unable to load embedding set metadata.');
 
     expect(loggerError).toHaveBeenCalledWith(
       'Failed to load embedding set metadata',
       expect.objectContaining({
-        embeddingSetId: 'set-1',
+        embeddingSetId: 'selected',
         error: expect.objectContaining({ redacted: true }),
       })
     );

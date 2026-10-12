@@ -3,7 +3,7 @@ import './_windows-command-fixture';
  * LIVE-loop coverage for the desktop `brainstrike.executeCommand` tool.
  *
  * Drives the REAL Mastra agent loop (`streamMastraAgent`) against the REAL
- * desktop shell tool from `buildDesktopAssistantTools` — its real `execute`,
+ * desktop shell tool from the agent host's live executor fold — its real `execute`,
  * which spawns the native shell and runs a fixture command, against a real temp-dir
  * workspace. Only the language model is scripted (provider 'local' with an
  * injected `LocalLlmHostClient`, mirroring glob-workspace-live-loop.test.ts —
@@ -24,8 +24,8 @@ import type {
   LocalLlmHostRequestOptions,
 } from '@brainstrike/agent/local-llm';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { disposeLiveChildProcesses } from '../../assistant-server/execute-command-tool';
+import { buildHostNativeTools } from './_host-native-tools';
 import { requireTool, singleRootRuntime } from './_tool-test-helpers';
 
 // Restore the REAL streamMastraAgent (the global setup.ts mock replaces it with
@@ -118,7 +118,7 @@ describe('executeCommand registration', () => {
   // approval before it executes.
   it('is ALWAYS present in the tool map (gated by the permission engine, not registration)', async () => {
     const root = await makeWorkspace();
-    const tools = buildDesktopAssistantTools(singleRootRuntime(root));
+    const tools = buildHostNativeTools(singleRootRuntime(root));
     expect(tools['brainstrike.executeCommand']).toBeDefined();
   });
 });
@@ -128,7 +128,9 @@ describe('executeCommand live Mastra loop (real agent, real shell execute)', () 
     const root = await makeWorkspace();
     // Side-effect marker: the real shell command writes a file we can assert on.
     const marker = path.join(root, 'ran.marker');
-    const tools = buildDesktopAssistantTools(singleRootRuntime(root));
+    const tools = buildHostNativeTools(singleRootRuntime(root), {
+      ids: ['brainstrike.executeCommand'],
+    });
     const executeTool = requireTool(tools, 'brainstrike.executeCommand');
 
     const hostClient = createScriptedHostClient(
@@ -190,7 +192,9 @@ describe('executeCommand live Mastra loop (real agent, real shell execute)', () 
 
   it('streams incremental shell output through the real desktop wiring (keyed to the tool call)', async () => {
     const root = await makeWorkspace();
-    const tools = buildDesktopAssistantTools(singleRootRuntime(root));
+    const tools = buildHostNativeTools(singleRootRuntime(root), {
+      ids: ['brainstrike.executeCommand'],
+    });
     const executeTool = requireTool(tools, 'brainstrike.executeCommand');
 
     // A command that emits a distinctive marker to stdout the tool must stream

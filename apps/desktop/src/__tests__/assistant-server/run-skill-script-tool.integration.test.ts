@@ -8,8 +8,11 @@ import {
   type RuntimeData,
   type ScannedWorkspaceSkills,
 } from '@brainstrike/agent';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { runSkillScriptExecutor } from '../../assistant-server/native-tool-executors-skills';
+import { buildHostNativeTools } from './_host-native-tools';
 import { requireToolExecute } from './_tool-test-helpers';
 
 const cleanupPaths: string[] = [];
@@ -75,30 +78,38 @@ function runtime(rootA: string, rootB: string): RuntimeData {
   } as RuntimeData;
 }
 
+/** Only the python3 runtime resolves an interpreter; any other call is a test bug. */
+const unexpectedPythonResolve = (): Promise<string> =>
+  Promise.reject(new Error('Unexpected bundled-Python resolve'));
+
+/** The agent host's runSkillScript over the skills Main admitted and its interpreter resolver. */
+function skillScriptTools(
+  runtimeData: RuntimeData,
+  resolver: Pick<ScannedWorkspaceSkills, 'resolveScriptExecution'> | undefined,
+  resolvePythonExecutable: (signal?: AbortSignal) => Promise<string> = unexpectedPythonResolve
+) {
+  return buildHostNativeTools(runtimeData, {
+    executors: {
+      [NATIVE_TOOL_ID.runSkillScript]: runSkillScriptExecutor(resolver, resolvePythonExecutable),
+    },
+    ids: [NATIVE_TOOL_ID.runSkillScript],
+  });
+}
+
 describe('brainstrike.runSkillScript', () => {
   it('is registered only with a trusted skill resolver', async () => {
     const fixture = await createFixture();
-    expect(buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB))).not.toHaveProperty(
+    expect(skillScriptTools(runtime(fixture.rootA, fixture.rootB), undefined)).not.toHaveProperty(
       'brainstrike.runSkillScript'
     );
     expect(
-      buildDesktopAssistantTools({
-        ...runtime(fixture.rootA, fixture.rootB),
-        enabledNativeToolIds: ['brainstrike.runSkillScript'],
-      })
-    ).not.toHaveProperty('brainstrike.runSkillScript');
-    expect(
-      buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
-        skillScriptResolver: fixture.resolver,
-      })
+      skillScriptTools(runtime(fixture.rootA, fixture.rootB), fixture.resolver)
     ).toHaveProperty('brainstrike.runSkillScript');
   });
 
   it('runs a resolved script with literal argv in the explicitly mounted cwd', async () => {
     const fixture = await createFixture();
-    const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
-      skillScriptResolver: fixture.resolver,
-    });
+    const tools = skillScriptTools(runtime(fixture.rootA, fixture.rootB), fixture.resolver);
     const executeTool = requireToolExecute(tools, 'brainstrike.runSkillScript');
     const result = await executeTool({
       args: ['--title', 'A site; touch should-not-run'],
@@ -135,14 +146,12 @@ describe('brainstrike.runSkillScript', () => {
       absolutePath,
       '#!/bin/sh\nprintf "SKILL_CONTEXT_OK\\n"\nprintf "%s\\n" "$@"\n'
     );
-    const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
-      skillScriptResolver: {
-        resolveScriptExecution: async (input) => ({
-          ...(await fixture.resolver.resolveScriptExecution(input)),
-          absolutePath,
-          scriptPath: 'scripts/path with spaces/impeccable',
-        }),
-      },
+    const tools = skillScriptTools(runtime(fixture.rootA, fixture.rootB), {
+      resolveScriptExecution: async (input) => ({
+        ...(await fixture.resolver.resolveScriptExecution(input)),
+        absolutePath,
+        scriptPath: 'scripts/path with spaces/impeccable',
+      }),
     });
     const result = await requireToolExecute(
       tools,
@@ -182,9 +191,7 @@ describe('brainstrike.runSkillScript', () => {
         scriptPath: 'scripts/noisy.mjs',
       }),
     };
-    const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
-      skillScriptResolver: noisyResolver,
-    });
+    const tools = skillScriptTools(runtime(fixture.rootA, fixture.rootB), noisyResolver);
     const executeTool = requireToolExecute(tools, 'brainstrike.runSkillScript');
     const result = await executeTool({
       cwd: '.',
@@ -208,9 +215,7 @@ describe('brainstrike.runSkillScript', () => {
         sourceTier: 'root-brainstrike',
       }),
     };
-    const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
-      skillScriptResolver: localResolver,
-    });
+    const tools = skillScriptTools(runtime(fixture.rootA, fixture.rootB), localResolver);
     const executeTool = requireToolExecute(tools, 'brainstrike.runSkillScript');
     await expect(
       executeTool({
@@ -240,9 +245,7 @@ describe('brainstrike.runSkillScript', () => {
         scriptPath: 'scripts/escape.mjs',
       }),
     };
-    const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
-      skillScriptResolver: escapingResolver,
-    });
+    const tools = skillScriptTools(runtime(fixture.rootA, fixture.rootB), escapingResolver);
     const executeTool = requireToolExecute(tools, 'brainstrike.runSkillScript');
     await expect(
       executeTool({
@@ -265,10 +268,11 @@ describe('brainstrike.runSkillScript', () => {
       'utf8'
     );
     const resolvePythonExecutable = async () => process.execPath;
-    const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
-      resolvePythonExecutable,
-      skillScriptResolver: fixture.resolver,
-    });
+    const tools = skillScriptTools(
+      runtime(fixture.rootA, fixture.rootB),
+      fixture.resolver,
+      resolvePythonExecutable
+    );
     const executeTool = requireToolExecute(tools, 'brainstrike.runSkillScript');
     const result = await executeTool({
       cwd: '.',
@@ -289,10 +293,9 @@ describe('brainstrike.runSkillScript', () => {
         code: 'python_unsupported_platform',
       }
     );
-    const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
-      resolvePythonExecutable: () => Promise.reject(failure),
-      skillScriptResolver: fixture.resolver,
-    });
+    const tools = skillScriptTools(runtime(fixture.rootA, fixture.rootB), fixture.resolver, () =>
+      Promise.reject(failure)
+    );
     const executeTool = requireToolExecute(tools, 'brainstrike.runSkillScript');
     await expect(
       executeTool({
@@ -315,10 +318,11 @@ describe('brainstrike.runSkillScript', () => {
       new Promise<string>((_resolve, reject) => {
         signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
       });
-    const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
-      resolvePythonExecutable,
-      skillScriptResolver: fixture.resolver,
-    });
+    const tools = skillScriptTools(
+      runtime(fixture.rootA, fixture.rootB),
+      fixture.resolver,
+      resolvePythonExecutable
+    );
     const executeTool = requireToolExecute(tools, 'brainstrike.runSkillScript');
     const startedAt = Date.now();
     await expect(
@@ -338,16 +342,17 @@ describe('brainstrike.runSkillScript', () => {
 
   it('names preparation expiry when runtime resolution returns after its deadline', async () => {
     const fixture = await createFixture();
-    const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
-      resolvePythonExecutable: (signal) =>
+    const tools = skillScriptTools(
+      runtime(fixture.rootA, fixture.rootB),
+      fixture.resolver,
+      (signal) =>
         new Promise<string>((resolve) => {
           if (!signal) {
             throw new Error('Missing runtime preparation deadline');
           }
           signal.addEventListener('abort', () => resolve(process.execPath), { once: true });
-        }),
-      skillScriptResolver: fixture.resolver,
-    });
+        })
+    );
     const executeTool = requireToolExecute(tools, 'brainstrike.runSkillScript');
     await expect(
       executeTool({
@@ -365,9 +370,7 @@ describe('brainstrike.runSkillScript', () => {
 
   it('rejects absolute and traversal working directories in the strict schema', async () => {
     const fixture = await createFixture();
-    const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
-      skillScriptResolver: fixture.resolver,
-    });
+    const tools = skillScriptTools(runtime(fixture.rootA, fixture.rootB), fixture.resolver);
     const executeTool = requireToolExecute(tools, 'brainstrike.runSkillScript');
     for (const cwd of ['/tmp', '../root-b']) {
       await expect(
@@ -380,5 +383,22 @@ describe('brainstrike.runSkillScript', () => {
         })
       ).rejects.toThrow(/root-relative path|canonical/i);
     }
+  });
+});
+
+/**
+ * LEGACY-ONLY (BST-1980 C2 deletes this with `assistant-tools.ts`): the legacy
+ * builder's `enabledNativeToolIds` filter. On the host, admission decides which
+ * tools a run gets (agent-host-admitted-tool-descriptors.integration.test.ts).
+ */
+describe('legacy brainstrike.runSkillScript enabled-id filter', () => {
+  it('an enabled id never registers the tool without a trusted skill resolver', async () => {
+    const fixture = await createFixture();
+    expect(
+      buildDesktopAssistantTools({
+        ...runtime(fixture.rootA, fixture.rootB),
+        enabledNativeToolIds: ['brainstrike.runSkillScript'],
+      })
+    ).not.toHaveProperty('brainstrike.runSkillScript');
   });
 });

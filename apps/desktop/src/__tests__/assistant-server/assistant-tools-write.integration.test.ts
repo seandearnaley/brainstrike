@@ -8,8 +8,8 @@ import {
   resetToolCallLoopGuards,
 } from '@brainstrike/host-capabilities/native-tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { disposeLspServers } from '../../assistant-server/lsp-diagnostics';
+import { buildHostNativeTools } from './_host-native-tools';
 import { requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 import { createWorkspaceFixture } from './_workspace-fixture';
 
@@ -20,41 +20,11 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
   };
 });
 
-const {
-  getDatabaseMock,
-  getAllWindowsMock,
-  invalidateManagedCacheMock,
-  loggerErrorMock,
-  loggerWarnMock,
-} = vi.hoisted(() => ({
+const { getAllWindowsMock, loggerErrorMock, loggerWarnMock } = vi.hoisted(() => ({
   getAllWindowsMock: vi.fn(),
-  getDatabaseMock: vi.fn(),
-  invalidateManagedCacheMock: vi.fn(),
   loggerErrorMock: vi.fn(),
   loggerWarnMock: vi.fn(),
 }));
-
-vi.mock('../../db-main', () => ({
-  getDatabase: getDatabaseMock,
-}));
-
-// Keep the real @brainstrike/db exports (EmbeddingSetsRepository, etc.) but stub
-// the index-invalidation seam so delete/rename tests assert this tool's honest
-// indexInvalidated reporting without emulating the invalidator's internals.
-vi.mock('@brainstrike/db', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/db')>();
-  return {
-    ...actual,
-    invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheMock,
-  };
-});
-vi.mock('@brainstrike/db/react', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/db/react')>();
-  return {
-    ...actual,
-    invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheMock,
-  };
-});
 
 vi.mock('electron', () => ({
   BrowserWindow: {
@@ -87,7 +57,7 @@ describe('assistant-tools write tools', () => {
     it('creates a new file (created: true) with the right content and byte count', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         const result = await executeTool({
@@ -111,7 +81,7 @@ describe('assistant-tools write tools', () => {
     it('creates missing parent directories', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         const result = await executeTool({
@@ -132,7 +102,7 @@ describe('assistant-tools write tools', () => {
     it('overwrites an existing file (created: false)', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         const result = await executeTool({
@@ -151,7 +121,7 @@ describe('assistant-tools write tools', () => {
       const workspaceRootPath = await createWorkspaceFixture();
       const outsideRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'brainstrike-wwf-out-'));
       try {
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         // "../" is clamped at the root by normalizeWorkspacePath, so this normalizes
@@ -189,7 +159,7 @@ describe('assistant-tools write tools', () => {
           throw error;
         }
 
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         await expect(
@@ -222,7 +192,7 @@ describe('assistant-tools write tools', () => {
           throw error;
         }
 
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         await expect(
@@ -255,7 +225,7 @@ describe('assistant-tools write tools', () => {
           throw error;
         }
 
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         await expect(
@@ -287,7 +257,7 @@ describe('assistant-tools write tools', () => {
           throw error;
         }
 
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         await expect(
@@ -304,7 +274,7 @@ describe('assistant-tools write tools', () => {
     it('rejects content exceeding the write byte cap with a typed error', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
         // 2 MB + 1 byte exceeds MAX_WRITE_WORKSPACE_FILE_BYTES.
         const oversized = 'a'.repeat(2_000_001);
@@ -322,7 +292,7 @@ describe('assistant-tools write tools', () => {
       const workspaceRootPath = await createWorkspaceFixture();
       const filePath = path.join(workspaceRootPath, 'guttered.ts');
       try {
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         await expect(
@@ -345,7 +315,7 @@ describe('assistant-tools write tools', () => {
     it('rejects writing to the workspace root itself', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
         await expect(executeTool({ context: { content: 'x', path: '/' } })).rejects.toThrow(
           /workspace root/i
@@ -358,7 +328,7 @@ describe('assistant-tools write tools', () => {
     it('rejects overwriting a directory with file content', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
         await expect(executeTool({ context: { content: 'x', path: '/src' } })).rejects.toThrow(
           /is a directory/i
@@ -373,7 +343,7 @@ describe('assistant-tools write tools', () => {
       const rootB = await createWorkspaceFixture();
       try {
         const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({
+          buildHostNativeTools({
             workspaceRoots: [
               { displayName: 'ProjectA', path: rootA, rootId: 'id-a' },
               { displayName: 'ProjectB', path: rootB, rootId: 'id-b' },
@@ -397,7 +367,7 @@ describe('assistant-tools write tools', () => {
 
     it('fails explicitly when no workspace folder is open', async () => {
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(undefined),
+        buildHostNativeTools({ workspaceRoots: [] } as unknown as RuntimeData),
         'brainstrike.writeWorkspaceFile'
       );
       await expect(executeTool({ context: { content: 'x', path: '/x.txt' } })).rejects.toThrow(
@@ -410,7 +380,7 @@ describe('assistant-tools write tools', () => {
     it('surfaces a typed create-file recovery when the target does not exist', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         await expect(
@@ -433,7 +403,7 @@ describe('assistant-tools write tools', () => {
     it('applies an exact match and leaves the rest of the file intact', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         const result = await executeTool({
@@ -464,7 +434,7 @@ describe('assistant-tools write tools', () => {
       // Tab indentation + extra inner spaces in the file.
       await fsPromises.writeFile(filePath, 'function f() {\n\treturn   1 ;\n}\n', 'utf8');
       try {
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         const result = await executeTool({
@@ -495,7 +465,7 @@ describe('assistant-tools write tools', () => {
         'utf8'
       );
       try {
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         await executeTool({
@@ -522,7 +492,7 @@ describe('assistant-tools write tools', () => {
       const original = 'count++;\ndoThing();\ncount++;\ndoOther();\ncount++;\n';
       await fsPromises.writeFile(filePath, original, 'utf8');
       try {
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         await expect(
@@ -547,7 +517,7 @@ describe('assistant-tools write tools', () => {
       const original = `${block}\nmiddle();\n${block}\ntail();\n`;
       await fsPromises.writeFile(filePath, original, 'utf8');
       try {
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         await expect(
@@ -567,7 +537,7 @@ describe('assistant-tools write tools', () => {
       const filePath = path.join(workspaceRootPath, 'src', 'lib', 'math.ts');
       const original = await fsPromises.readFile(filePath, 'utf8');
       try {
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         await expect(
@@ -588,7 +558,7 @@ describe('assistant-tools write tools', () => {
     it('rejects gutter-prefixed newStr without advancing the edit-failure streak', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
         const path = '/src/lib/math.ts';
 
@@ -632,7 +602,7 @@ describe('assistant-tools write tools', () => {
       // Two distinct, non-overlapping lines so both edits target different blocks.
       await fsPromises.writeFile(filePath, 'const a = 1;\nconst b = 2;\n', 'utf8');
       try {
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         // Fire both at once; the per-file lock must serialize their
@@ -678,7 +648,7 @@ describe('assistant-tools write tools', () => {
           throw error;
         }
 
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
         // The read side resolves the symlink and reads the outside file's content;
@@ -699,7 +669,7 @@ describe('assistant-tools write tools', () => {
 
     it('fails explicitly when no workspace folder is open', async () => {
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(undefined),
+        buildHostNativeTools({ workspaceRoots: [] } as unknown as RuntimeData),
         'brainstrike.stringReplaceWorkspaceFile'
       );
       await expect(
