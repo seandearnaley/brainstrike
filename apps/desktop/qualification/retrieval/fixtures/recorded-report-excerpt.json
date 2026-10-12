@@ -1,0 +1,849 @@
+{
+  "provenance": "Excerpt of the recorded BST-1922 retrieval-report.json (sha256 38a72d1b962ba31fb2575488790c4c44e86473ddd1c8dd98cf3ea408e84cbac2): its gate, every mode metric, and the candidate pool chunk IDs of two queries.",
+  "gate": {
+    "mrrDelta": -0.029539682539682643,
+    "passed": false,
+    "recallDelta": 0.010000000000000009
+  },
+  "modes": {
+    "bm25": {
+      "meanMrr": 0.4403015873015873,
+      "meanPrecisionAtK": {
+        "1": 0.38,
+        "3": 0.16000000000000011,
+        "5": 0.10599999999999994,
+        "10": 0.057999999999999954
+      },
+      "meanRecallAtK": {
+        "1": 0.38,
+        "3": 0.48,
+        "5": 0.53,
+        "10": 0.58
+      },
+      "successfulEvaluations": 100
+    },
+    "grep": {
+      "meanMrr": 0.015333333333333332,
+      "meanPrecisionAtK": {
+        "1": 0.01,
+        "3": 0.006666666666666666,
+        "5": 0.006000000000000001,
+        "10": 0.0030000000000000005
+      },
+      "meanRecallAtK": {
+        "1": 0.01,
+        "3": 0.02,
+        "5": 0.03,
+        "10": 0.03
+      },
+      "successfulEvaluations": 100
+    },
+    "trigram": {
+      "meanMrr": 0.02333333333333333,
+      "meanPrecisionAtK": {
+        "1": 0.02,
+        "3": 0.01,
+        "5": 0.006000000000000001,
+        "10": 0.0030000000000000005
+      },
+      "meanRecallAtK": {
+        "1": 0.02,
+        "3": 0.03,
+        "5": 0.03,
+        "10": 0.03
+      },
+      "successfulEvaluations": 100
+    },
+    "vector": {
+      "meanMrr": 0.34385714285714286,
+      "meanPrecisionAtK": {
+        "1": 0.26,
+        "3": 0.1266666666666667,
+        "5": 0.09,
+        "10": 0.05199999999999998
+      },
+      "meanRecallAtK": {
+        "1": 0.26,
+        "3": 0.38,
+        "5": 0.45,
+        "10": 0.52
+      },
+      "successfulEvaluations": 100
+    },
+    "lexical": {
+      "meanMrr": 0.44006349206349216,
+      "meanPrecisionAtK": {
+        "1": 0.38,
+        "3": 0.16000000000000011,
+        "5": 0.10599999999999994,
+        "10": 0.057999999999999954
+      },
+      "meanRecallAtK": {
+        "1": 0.38,
+        "3": 0.48,
+        "5": 0.53,
+        "10": 0.58
+      },
+      "successfulEvaluations": 100
+    },
+    "hybrid": {
+      "meanMrr": 0.4105238095238095,
+      "meanPrecisionAtK": {
+        "1": 0.32,
+        "3": 0.16333333333333344,
+        "5": 0.11199999999999992,
+        "10": 0.05899999999999995
+      },
+      "meanRecallAtK": {
+        "1": 0.32,
+        "3": 0.49,
+        "5": 0.56,
+        "10": 0.59
+      },
+      "successfulEvaluations": 100
+    }
+  },
+  "queries": [
+    {
+      "id": "repo-001",
+      "pools": {
+        "bm25": {
+          "hits": [
+            {
+              "chunkId": "516cc3332f809ca74c30948edd1c4cbb4ff888a78c161b1bf292fe7825ab4e74"
+            },
+            {
+              "chunkId": "9b9e693b4baa16c15f87dcb78fb935d2bcc8aa60d4ff717a4effd6583626f7e0"
+            },
+            {
+              "chunkId": "06d9fbe689efec731d7234d386485589ca2f58f8c940c7279df421e27046b4c0"
+            },
+            {
+              "chunkId": "f9ecf90fdf2ee8b847e3afc5867faf038a7699f9313cecb3a2a4f403d7cb7f1f"
+            },
+            {
+              "chunkId": "af2d746c144de40f3b28947340ecd2712e81b45183c24ba75bca913e69a5208f"
+            },
+            {
+              "chunkId": "803a6d5154c4a1f2f2dfc0cbc27ddf18772f0fc3a809191d1b5f78131d8a160b"
+            },
+            {
+              "chunkId": "0a9eb41315062bf4b29f66dfbd97856249394a19abb409e6ddc1712730e15d1e"
+            },
+            {
+              "chunkId": "512a78ab1977b94bc0bccfeec344f76047d88923602e8223a836a25d6cfbd38b"
+            }
+          ]
+        },
+        "grep": {
+          "hits": [
+            {
+              "chunkId": "512a78ab1977b94bc0bccfeec344f76047d88923602e8223a836a25d6cfbd38b"
+            },
+            {
+              "chunkId": "9b9e693b4baa16c15f87dcb78fb935d2bcc8aa60d4ff717a4effd6583626f7e0"
+            },
+            {
+              "chunkId": "06d9fbe689efec731d7234d386485589ca2f58f8c940c7279df421e27046b4c0"
+            },
+            {
+              "chunkId": "0a9eb41315062bf4b29f66dfbd97856249394a19abb409e6ddc1712730e15d1e"
+            },
+            {
+              "chunkId": "803a6d5154c4a1f2f2dfc0cbc27ddf18772f0fc3a809191d1b5f78131d8a160b"
+            },
+            {
+              "chunkId": "516cc3332f809ca74c30948edd1c4cbb4ff888a78c161b1bf292fe7825ab4e74"
+            },
+            {
+              "chunkId": "f9ecf90fdf2ee8b847e3afc5867faf038a7699f9313cecb3a2a4f403d7cb7f1f"
+            },
+            {
+              "chunkId": "af2d746c144de40f3b28947340ecd2712e81b45183c24ba75bca913e69a5208f"
+            }
+          ]
+        },
+        "trigram": {
+          "hits": [
+            {
+              "chunkId": "516cc3332f809ca74c30948edd1c4cbb4ff888a78c161b1bf292fe7825ab4e74"
+            },
+            {
+              "chunkId": "9b9e693b4baa16c15f87dcb78fb935d2bcc8aa60d4ff717a4effd6583626f7e0"
+            },
+            {
+              "chunkId": "803a6d5154c4a1f2f2dfc0cbc27ddf18772f0fc3a809191d1b5f78131d8a160b"
+            },
+            {
+              "chunkId": "0a9eb41315062bf4b29f66dfbd97856249394a19abb409e6ddc1712730e15d1e"
+            },
+            {
+              "chunkId": "af2d746c144de40f3b28947340ecd2712e81b45183c24ba75bca913e69a5208f"
+            },
+            {
+              "chunkId": "512a78ab1977b94bc0bccfeec344f76047d88923602e8223a836a25d6cfbd38b"
+            },
+            {
+              "chunkId": "06d9fbe689efec731d7234d386485589ca2f58f8c940c7279df421e27046b4c0"
+            },
+            {
+              "chunkId": "f9ecf90fdf2ee8b847e3afc5867faf038a7699f9313cecb3a2a4f403d7cb7f1f"
+            }
+          ]
+        },
+        "vector": {
+          "hits": [
+            {
+              "chunkId": "f9ecf90fdf2ee8b847e3afc5867faf038a7699f9313cecb3a2a4f403d7cb7f1f"
+            },
+            {
+              "chunkId": "1f5210e4b45e237464f523acafd7b6667485363b72306c626cb3ca429f2c5aad"
+            },
+            {
+              "chunkId": "6a27e64be751e47a8b58801c51ad93bb772c76259454b2be1e6e8a39f2a87106"
+            },
+            {
+              "chunkId": "803a6d5154c4a1f2f2dfc0cbc27ddf18772f0fc3a809191d1b5f78131d8a160b"
+            },
+            {
+              "chunkId": "d8d0a99b7bf71549c40a24c9055be02218ba46fec3b916eee6e19344c6e7a655"
+            },
+            {
+              "chunkId": "e229647c1f19147753d660874608b4bc98eb61c55e794af9bf6a9df4e9c8341d"
+            },
+            {
+              "chunkId": "d626122aaf9153083bde884e8604212fe42b5a6e4b1a800c96c6468974c245b9"
+            },
+            {
+              "chunkId": "c66f903047a9f0dc71a769e9fc895c6cfc672850bf593d5687771112b7450564"
+            },
+            {
+              "chunkId": "b4a147bb7e82032709440201d6eda8faac115c53912e4b9507ba311d9b72ab3a"
+            },
+            {
+              "chunkId": "516cc3332f809ca74c30948edd1c4cbb4ff888a78c161b1bf292fe7825ab4e74"
+            },
+            {
+              "chunkId": "451b21540230e7d0f106c83f3a5b29c645ab9be931c85f89a9670b455d23e0c3"
+            },
+            {
+              "chunkId": "2430d00f925a654d23eac362ab487f777e3a58ba6b9b262e6bd352f3ab7df003"
+            },
+            {
+              "chunkId": "5bf6422ebe6a1c0213bbad572f2d2a99a24fdc43795765b83479145667353a15"
+            },
+            {
+              "chunkId": "75636e15db922c07f347717ef77bd0f2c31c5e4b1bf5ba5a4ac5e00cbf2a447e"
+            },
+            {
+              "chunkId": "aaef16d07f36b02bb41275eba279f04bc143ca792bb1ffc33b2ac19ee1f6c9e6"
+            },
+            {
+              "chunkId": "3c8e2ec9794e9ab95db3e5dc77fc9836be29d7e3e9d122ad9db9a467f654f6d0"
+            },
+            {
+              "chunkId": "855040763ca80e2e3f4159fb640453652e248d433212013d4f4ac645a3275c21"
+            },
+            {
+              "chunkId": "8fd7db034f8ab13fe8223ee9efe5cb39d9dd476ca157dacd8e35570cd476f6ed"
+            },
+            {
+              "chunkId": "5e5e7da475f3c4f0a12cab828434b424cbb067a7ca415ba29b574c4e7db332e2"
+            },
+            {
+              "chunkId": "c7d4636648e1dbf9f7b086de8416c502455abe3f124d503d4bdb8168840d9306"
+            },
+            {
+              "chunkId": "02f4edbd05216c9198ae2beae276dc40dcec9eb2149e891ddfd4afe817731c13"
+            },
+            {
+              "chunkId": "00aced5124ac41fb5e744189a383f07994990658c912d1282c0d0102d6efd216"
+            },
+            {
+              "chunkId": "07cf442914d3c49fa7d4f9bf93f0fc790d0f0e21863b27da0e6a8d998ca0be65"
+            },
+            {
+              "chunkId": "ffcc8a3ebebd40b60f14147a5c9a3c9bc9fada0f0e018ab9307e39cc6a1963f7"
+            },
+            {
+              "chunkId": "e046ca2999ec47cee115b954b59cbf03f8ee4ae3f70f2738c9eb8dae8f342bb6"
+            },
+            {
+              "chunkId": "ed9ae6b562de649132adf64bb29580d1f35c7fd0120696a8ff5e36da7d01f896"
+            },
+            {
+              "chunkId": "c3a6f6a80ca4a3872f9709f67b1744b34973134a751ae81b3c2796fb0b684eed"
+            },
+            {
+              "chunkId": "d7b8211b243987aa6f0fedc77a1c1dfed75e79bfc77ebca940a2b544342f6364"
+            },
+            {
+              "chunkId": "258409b2fa6e84c1773c58a2c8f4121f4cfbdb8416e17a4193c3ed2184344dae"
+            },
+            {
+              "chunkId": "aba7f5f2f3a641e19122db43346c7cbb731d9741484ac438e3af6c2d9edf0ba8"
+            },
+            {
+              "chunkId": "4a06cf57af3db72b45e525f33767dc983e661f30e8f7da6eccaf2cadae4195cf"
+            },
+            {
+              "chunkId": "146bbba7da26775288170ef3c10fbbf8c350260031ba4570edbbade879b8bf58"
+            },
+            {
+              "chunkId": "c6c267bbddf94f1b54117f26ee6158d6a213ca0d5a6f42c4e26f6de5333fb73b"
+            },
+            {
+              "chunkId": "b068ef918f23f63e20894b8ae2508176d7d813559f88f01fa39a245e4974ff75"
+            },
+            {
+              "chunkId": "d0f4ca9109075cad669632991a6ae2edfaddb36ad9de9878bff887d38770d0c2"
+            },
+            {
+              "chunkId": "40249552e92fc220f869ea2dada0954b3ec62b08a6b079c7d1152caa63ffb93f"
+            },
+            {
+              "chunkId": "e83c4f60ac325645b35c48202f37a67a9d0f07e4f4ceba0f53fa8e7c9dc4fb9e"
+            },
+            {
+              "chunkId": "9a51b5441fd79a95988ce72ba71f2ecab7883078831a1c69e88bb2bf9b6c8e74"
+            },
+            {
+              "chunkId": "4aab8dd23f7dabb9cf2788472851c4efa5f82168b81fe50ea4776a0c610c6b20"
+            },
+            {
+              "chunkId": "f7b97bbcfd1f00eab09ceb2b6792565d6b6968b870d92ac84e9c3fff2fb98ee3"
+            },
+            {
+              "chunkId": "6f4fab76822b0046c580339fad5bd5a36d912741a9215e84ab5c2b7b1fba9a1c"
+            },
+            {
+              "chunkId": "16072f99f58db02d8d6f4af24199812f99a4ef11e0a18acca5c960e52d986605"
+            },
+            {
+              "chunkId": "efd653641e342de6000a370d61f52e60f1e0e81d49cc3bdd379b7860c4e350c3"
+            },
+            {
+              "chunkId": "32036a2ff55d353367dc1e083336b60110287667f2b5e42da989c4677946bda4"
+            },
+            {
+              "chunkId": "3e25bc1ae37433b2306dc1c9fd153d043134e97ba408272064297527ce00c88f"
+            },
+            {
+              "chunkId": "b66b5a4505e65c786e29199653b1d6441f6de673c00cae8410c02ebfe4fe6821"
+            },
+            {
+              "chunkId": "96aa1635bfe7e189409e464b9092ecf41b0b3016bb3b6ea50852821587c159b9"
+            },
+            {
+              "chunkId": "5c3da5f930bf93f44a4d7967e53dcacb243a2ebef693d5d5172904fcf87cc098"
+            },
+            {
+              "chunkId": "2cc56d1af52bb05702922d5b96f3ac3074ef5ca0f7c266efd6eccfa7059727d7"
+            },
+            {
+              "chunkId": "a6380a1dc4cedf8006a34de6a56ccc08de8177ea74e4d7264332e0fd44b803e1"
+            },
+            {
+              "chunkId": "812f226b78deee6e5668f4ff4896fe6d86a097977e93cb211758c82018ac8d99"
+            },
+            {
+              "chunkId": "790d6f9fe98ed320480fbc511dc37687fa2f57da072eee5a91cf2b3e8c01bad8"
+            },
+            {
+              "chunkId": "46dd29e3c51799967f5c5829d53926c3ff141eed34f1958fcc52a5d16d7bee78"
+            },
+            {
+              "chunkId": "9ad040cf6c05baf55a55c596d1560ed74f89276a135d9d4f958401a531d93da1"
+            },
+            {
+              "chunkId": "93666655bd105929d418604350c28e7d8b98a9d8137da4e8d96eb292261bd508"
+            },
+            {
+              "chunkId": "7a1e0e17613801b0cd542723d2ea70741582e4a465bcf3551b31bebaa2220e18"
+            },
+            {
+              "chunkId": "2fa9c452a25414810a3d0ea7d7b33a53ea9270a990de89833c7a3a08dcf4bf89"
+            },
+            {
+              "chunkId": "9828895e5537499858f86ba7bf4a2762af72b8dd48e973857fa9f835ed1445ef"
+            },
+            {
+              "chunkId": "e72c19e91fbf8a7e2d120622149dee202b36675a39b360cd41e86510b8b81b60"
+            },
+            {
+              "chunkId": "0313dbc8f518df8d7bdce9a1b2d439704b216a50aab6ee7111bba40fe0e8c411"
+            },
+            {
+              "chunkId": "ecfb2cc662de5b95bd5b0705e62dabc8d802dd3df5a01cd3bea21b2de8537738"
+            },
+            {
+              "chunkId": "b31a585bc9c0bf1a45409acc4155d877bcdd6c7487e32c0af325181575c0e4a8"
+            },
+            {
+              "chunkId": "d0295f16d4994fadb22f0ff66022e149005c142fce1038dc0cb932ae9eb4dc11"
+            },
+            {
+              "chunkId": "ad59b7100018e0fd346e99fd5c2c04dad3cdd66ef397f077534d942ba36317e8"
+            },
+            {
+              "chunkId": "9ff1268c30aafe40dfc55c2b42b445bc51f8f4ae7be83544b235d22553fa2bfc"
+            },
+            {
+              "chunkId": "15344eb24ef9ed0eb70983e3c2377e4e94bb520944b4e77e807f37c134cac86b"
+            },
+            {
+              "chunkId": "25845cc7a7af22ab0aef4d3fe2e10a27992f098bb6b8c49839b109859130c018"
+            },
+            {
+              "chunkId": "61f307cd925c85382aebfe98bdfa75655e180e792608de917f39c87b7d648284"
+            },
+            {
+              "chunkId": "c5307e8f4b891ea3a5a3ffbe03d9304c4ee1672cedfd2013ba87def273bd761f"
+            },
+            {
+              "chunkId": "782212079c5fb410d4cc346530dec115a2d0257cc57cbb23b8fdf99e4410c6ac"
+            },
+            {
+              "chunkId": "7e2c6456587f272c9c469091a1f137cc7b29d6c21e8124c9b51237667514b397"
+            },
+            {
+              "chunkId": "1a24d0357b6802d8aa45e8d92dd4d9379ba64a52432db2a9aabb6c62c77fc44d"
+            },
+            {
+              "chunkId": "67af0482c6411c0426ea1e451e59e44e8cc4f775c90782e7e568b30c201bc4e0"
+            },
+            {
+              "chunkId": "5f824893a6133b80769ccaccf4d508ec6965751bcf4a4e07617108174b7258f5"
+            },
+            {
+              "chunkId": "edab9cc60c1a4c3bf6c60a81a1a8484dd07e92ba01f8161a2d5b26b925431e21"
+            },
+            {
+              "chunkId": "734e4977d44887e73466941d29f01c3e1d3bcdba6e794d22ccc60ab1847610dd"
+            },
+            {
+              "chunkId": "b30bf48fa40f7f8c09a633e85ea928669258fa535004c22bd972374ba5c95968"
+            },
+            {
+              "chunkId": "d80197bab06277d3ba584c141c4392b72f72654be3bf6564e4eae84e6f58cb0b"
+            },
+            {
+              "chunkId": "4d9f3f00a3139fface23202a981301c59ab9463f37dff5351093d0846bc37eab"
+            },
+            {
+              "chunkId": "a56b1343fa743b44272fd7a0c7ef2c5208986d9399db3c451bf4ef37ff499a3a"
+            },
+            {
+              "chunkId": "df8375305a092cb63b51c20688a6dcdfe0b0d8b423da5460d7a7d6621a2eb2e4"
+            },
+            {
+              "chunkId": "3f7e2e4e900990f3b3f5845891eed52985e41f593085b5579fb5c32770378abf"
+            },
+            {
+              "chunkId": "3906c1484745fc855a168a941e4d56f21a29eaf89d6600207d74a82db3341f05"
+            },
+            {
+              "chunkId": "ceb8a317aaf5d74f2523e94e0fcecda3bfb081c8cb1011f4109e3a33c4a729aa"
+            },
+            {
+              "chunkId": "3fade0d1f616a25ebe1084f9aa7eb2fd18b33ef9d675f5ed4b38a8a38e249978"
+            },
+            {
+              "chunkId": "a56db4e9b97cd6c6c118a0d9436da5dae37a1e6ed9b4ebdfd61f627ec97456ed"
+            },
+            {
+              "chunkId": "0111314df173dd148fddbec8acaae8decc68bd3bb3e170f9d47ab8897556c704"
+            },
+            {
+              "chunkId": "2ba9e4b2d7ca5db3842be5444ec0a342d60364bec504355ef10b58904fce1f99"
+            },
+            {
+              "chunkId": "8d34b82cbf27ed86d4b4c2d908e72d502c33db7313a9eb715456b8fe1f45db6a"
+            },
+            {
+              "chunkId": "ea2e67eb1e0758b09fd4fcadb5eee3363a3b959d20b3559f37a994dec51dbf9c"
+            },
+            {
+              "chunkId": "a853bf1cfbed1bfcc041f69bd5e24eeb101b8887831ea57830b09b391683c8f7"
+            },
+            {
+              "chunkId": "d7a5444208992894aa6ff595ada154c66b9e8f038f673aa92173c05de34c4e18"
+            },
+            {
+              "chunkId": "7e6ff893d91584318acc69d7628a7c0f86707a903f474bb999acece933885a61"
+            },
+            {
+              "chunkId": "66a0e8eba795879b21e76def489f4a1c36116b76159e1533155b0e23fd2529e5"
+            },
+            {
+              "chunkId": "83761a7b1577588012e413c21fe3397fb6c27f7b10db64f102ddf117219a9538"
+            },
+            {
+              "chunkId": "62be2e497ae3cd5517d4e5d5aa727414432b6b93cfa6477a45d24c6424b9474a"
+            },
+            {
+              "chunkId": "8e0ef6cd8949c2166f8178f055ef6e7bee1de462899f8ef13bf05a3bc5242a68"
+            },
+            {
+              "chunkId": "007e6b2453338cadce57edf165135273cc4e9747ccc1c597284ad162d04ad75c"
+            },
+            {
+              "chunkId": "35eb9a1666c22c27572cccf0ef257bcebe72a4b4f35e3b3b60424eb971592e77"
+            },
+            {
+              "chunkId": "42d44391cef203f753365e8a389b440b8f33ebf2b5f18da3167cfba26544d558"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "repo-023",
+      "pools": {
+        "bm25": {
+          "hits": [
+            {
+              "chunkId": "16ced67d79a4c25c0c8fe4a678ffe9997abdbf103613c089cd514cfdf100a215"
+            },
+            {
+              "chunkId": "a88ada5022901ecf9a509a716d6ada14b2c7ee941a3d32e7a49f6512a1520da5"
+            },
+            {
+              "chunkId": "b3cb7c7c043a1b5e2c3ec397a9874718fab1178f146b6e7d5a45ce5c78fc42b3"
+            }
+          ]
+        },
+        "grep": {
+          "hits": [
+            {
+              "chunkId": "b3cb7c7c043a1b5e2c3ec397a9874718fab1178f146b6e7d5a45ce5c78fc42b3"
+            },
+            {
+              "chunkId": "a88ada5022901ecf9a509a716d6ada14b2c7ee941a3d32e7a49f6512a1520da5"
+            },
+            {
+              "chunkId": "16ced67d79a4c25c0c8fe4a678ffe9997abdbf103613c089cd514cfdf100a215"
+            }
+          ]
+        },
+        "trigram": {
+          "hits": [
+            {
+              "chunkId": "16ced67d79a4c25c0c8fe4a678ffe9997abdbf103613c089cd514cfdf100a215"
+            },
+            {
+              "chunkId": "a88ada5022901ecf9a509a716d6ada14b2c7ee941a3d32e7a49f6512a1520da5"
+            },
+            {
+              "chunkId": "b3cb7c7c043a1b5e2c3ec397a9874718fab1178f146b6e7d5a45ce5c78fc42b3"
+            }
+          ]
+        },
+        "vector": {
+          "hits": [
+            {
+              "chunkId": "16ced67d79a4c25c0c8fe4a678ffe9997abdbf103613c089cd514cfdf100a215"
+            },
+            {
+              "chunkId": "802aa2703ce50853589784ab4e804b087aab157157157d29e315006a5c4b97d6"
+            },
+            {
+              "chunkId": "f24f0f757e3b2088b3f2e5ce81997769963fb7efa4642297f36b76a50950a2e4"
+            },
+            {
+              "chunkId": "691376f31aa5ee35681335bbb61cbb648d8990e01f748eeccb4a62711eea6f96"
+            },
+            {
+              "chunkId": "4efaf7bf56025bc1479d80e903ab398f13ffc8a770521a055d4bf0417ae96cab"
+            },
+            {
+              "chunkId": "00351bc0e674d61202384dc8e1757658daa5bb060244df0a44c18fd364cb2ac3"
+            },
+            {
+              "chunkId": "1b8bdde7e3d278f5a085ccac2f7862e1333fa93fd841961fce25e08f96b7053a"
+            },
+            {
+              "chunkId": "fbf9be360cffe507a1cce07c3c218fda54be82e31e797654cdae970d92bbb5a3"
+            },
+            {
+              "chunkId": "b986bec5d8647e1bed388b839d57aa8ada16a33915592953bd8367e841ecbd4d"
+            },
+            {
+              "chunkId": "cf20a65e03682889b4a7a702ccc8b830b7d5a535e5f5e53bc42d051e02a7cc15"
+            },
+            {
+              "chunkId": "b05ae150617869a12788ca6c19c5b28f89bf54c141b54acec0c640c917bf1681"
+            },
+            {
+              "chunkId": "5612810e02a04e307c7c9081a9267402be2259f9a6076b6b9fb8409b586deff4"
+            },
+            {
+              "chunkId": "7acfe3afe7178b9250d5498e0d409e2bf25dd320c11275987995705b5882b7ab"
+            },
+            {
+              "chunkId": "922844f5ff662d12a7df6fa9a6c41422d31fe1c42736fdf7028d6344bc81c642"
+            },
+            {
+              "chunkId": "7984aec4112b70b34519f5e23188e4a81abdf9b3e21ccd53c40cb4bb9c02c80c"
+            },
+            {
+              "chunkId": "3cc8e1d995a7ce9c6a4cfc76af0e431d115033edb8c6ab3a469bcc8101e2633c"
+            },
+            {
+              "chunkId": "1155d8b5de527c03ab67cb58d3902a7d072b4577c7def5471086057db82fc2bf"
+            },
+            {
+              "chunkId": "1d0f23402260f8b748c3e53404515865a20a88cb0d735db31db691c16fbbdbc0"
+            },
+            {
+              "chunkId": "4ec670849b33d81e3fb1d7e00bbdaf0a15e487b5e00d12dd9816735142e5a753"
+            },
+            {
+              "chunkId": "9bb5db019d12545d0690bc6af8688c7c1a2fb0d21ac62e0e0f14df4101cadfd7"
+            },
+            {
+              "chunkId": "6861cb4276882d707dc7bc3f6bc39f1d6de8bc9c65666eb9ead07264813d0408"
+            },
+            {
+              "chunkId": "a1d31906e934e75495fdb5195757a7936c2155f62633d442cec465b818fe59f5"
+            },
+            {
+              "chunkId": "e2ceacef462c3877875a7b920356cabc75edf05017332354b775cb95829906b7"
+            },
+            {
+              "chunkId": "fb94aa16533c9f4ef7e6eedd6e029d1d9f8d1acd8e29646bc892b3f3ef22638e"
+            },
+            {
+              "chunkId": "3327017cea1233580a8c09fabb02c0214ec8c08facc082d73daee40e7b66546f"
+            },
+            {
+              "chunkId": "ba9b63f3922f39614f107805f1e968e59e7b3c2f6a58c976697fb3d205fefdd5"
+            },
+            {
+              "chunkId": "acc8f3f4a6b2f1454dcf12e9fd62e1e6be5b492524ffbff69bef94afec873883"
+            },
+            {
+              "chunkId": "8a08b02e0976325a0a6747d561f5cdc37572b273b317b9f0c8e71ab36f0a1208"
+            },
+            {
+              "chunkId": "e81a262c0b535e14e00c2e1fdb0b439cb05f4ade7e0eea4cf04def4dc876ab3d"
+            },
+            {
+              "chunkId": "c6811ac55179be9f3666523aed683cb9ad93514177a671542a5d3c00d58f2230"
+            },
+            {
+              "chunkId": "9d9056465b0e1ecc0d03aac21e1b71a9acb3b219c7fad527291f6afff428d597"
+            },
+            {
+              "chunkId": "589043aad40d3e3322d02dfe119cd036aac4e46068941f4d2bd854ee3561668e"
+            },
+            {
+              "chunkId": "ca3370b19f5e7ec6ea69e56b4fa6bd9952765b3d7103ea8844f947b2f8ec1f79"
+            },
+            {
+              "chunkId": "2c0a1444f7d2746642afb05fa3a6638a8b90f6e29dbf746cb52cf38c4017ebb7"
+            },
+            {
+              "chunkId": "2b44ca77d9cbf0dde285bc750746459e8746d536934c89d9621094d9b2009a2f"
+            },
+            {
+              "chunkId": "635bbb06f3951e52e455bf1f1ab63bdb8cdf951dd600764188ac24a10ec4d96e"
+            },
+            {
+              "chunkId": "f589e7dddabec099dbb78bcc0232679973b2ccbcf7a4b153ca414492324fa72f"
+            },
+            {
+              "chunkId": "9ecfa45b81c146214b9dd99ef0fd997578f5d5c18cdcad8a25c784c0721e65c3"
+            },
+            {
+              "chunkId": "e4ecc89b7d0bc6b16821000cc123bd0464c7aa7582636d2edd082a0c3964bd0c"
+            },
+            {
+              "chunkId": "aa62c5bfa13c6365ea545d96c9a569a8778f4832f97810b0b831d81d15b95359"
+            },
+            {
+              "chunkId": "72b1a67ec7ed4d8480ad52f03997c3c770e6051e9134ca961944aa193de2ee28"
+            },
+            {
+              "chunkId": "e2d2a583d49d92c4b2b6348a05f890683d9c36440c30590acee3f53896627f89"
+            },
+            {
+              "chunkId": "b9badbd6c660213c9eb83d2edfcaba2b55ff31e4dfb67ddb12a628c9c1cb3a88"
+            },
+            {
+              "chunkId": "1f4e41a415ddaa9fd41b808850af4c62d79b12b198a1e15d4fe491c28d39b280"
+            },
+            {
+              "chunkId": "6861deba00ca1e01f17c283df90674bfbf4775b6e39cb35ea87588f5816a39aa"
+            },
+            {
+              "chunkId": "b632005137ccf6908648f40c12006b3a313cd8a56fafa1088d04e0c63ef0fd0f"
+            },
+            {
+              "chunkId": "19a84f9ce1a3970f0b64356bbc593e59123f1855fb669b9564b264e7cd87f704"
+            },
+            {
+              "chunkId": "a95712075acad238ace93808b02880f0e00af60ed7d5fed4af965bce25f9cb92"
+            },
+            {
+              "chunkId": "021cff891bc2ded968904dd63af2cbb782dc2273f06d1cd33a7e3f8c0228d019"
+            },
+            {
+              "chunkId": "c5af5df48c45dfef8bfdc4da55a217498e157cbec2def3042238e95ce6fd0dcd"
+            },
+            {
+              "chunkId": "461cfa69a60e2dfc046526cd0e3336e7ee0009ce1cf204b8d09958db533f299a"
+            },
+            {
+              "chunkId": "7a6667f32815c153c85ef8f9059a8e9b13413df6c415da32e0350d8f75adc375"
+            },
+            {
+              "chunkId": "890700ca512e15e8d72a7094a474b0a77ece17763c916801367959515b7dcc12"
+            },
+            {
+              "chunkId": "18f64ff78194a9bcedf687720819eab6ac408f90de3e8977aed9be9067eb0e90"
+            },
+            {
+              "chunkId": "d2de3a46b7bb2f3fc0830206215f9ade1e0cc0de13b4a861aa2768ca7d8d4dd1"
+            },
+            {
+              "chunkId": "02cfb5e8a6b1627304763a56c0125e05fffcd7aace7567c67f1b908bddb192e5"
+            },
+            {
+              "chunkId": "3059452ae507b25893feee0d0d5be835cff2df092738033ac0a74d5690cbb42a"
+            },
+            {
+              "chunkId": "64338fb58977f4d408c654dceca59736f09497056b1aeafa14cfa223cd36cad6"
+            },
+            {
+              "chunkId": "7828f38161459b48153225c7f8bf730fc8c902358e07b0f0af669ad449b06f6b"
+            },
+            {
+              "chunkId": "cc4ad26f2bb3435342c738de1da5f9278944da9e906874124537f09e49275ce4"
+            },
+            {
+              "chunkId": "72efd87c718c4fcad176c439da9886f9e1ad7db2c23e98535f206c770d514e64"
+            },
+            {
+              "chunkId": "d1bcafde135a209fe3648ab525dc621f40485182b362f8d0524eb39d571777aa"
+            },
+            {
+              "chunkId": "de8f91a29224b1a62a26119f355d8902c86f0b29340d0f7d11f167f27ff051fc"
+            },
+            {
+              "chunkId": "65917d72de5bca5e87cc623b737ee3879599a578cbc11b29a24bdcdecdeab320"
+            },
+            {
+              "chunkId": "37d0db689f9e7c8d2f853ec004f1a4e91bfa1cee39fab85e7f69641ce2443858"
+            },
+            {
+              "chunkId": "f53167db33b79b3603f1d7bbd9a0262da92be79e2a787bc1685f8c5abe2a8af2"
+            },
+            {
+              "chunkId": "482c374508224c882f66e65ae5c97c762e2e24eb0cfd3a1e592f635e87c1d284"
+            },
+            {
+              "chunkId": "0cea7e01799ad750e1fb4508e073f591daf71769e798d1702f088177d485b5bb"
+            },
+            {
+              "chunkId": "ac25bc872df56b9ab6ce8ee9f7a0ab92eab71399ae64ed257789e311375e750a"
+            },
+            {
+              "chunkId": "b0ff76befe9c91875a81e00408d56e4718cfea2875cb4f46abfd632eedae8d6f"
+            },
+            {
+              "chunkId": "3cde468945c426ac9307060d74cf10433581c54d090110b61840c17f9c056ee2"
+            },
+            {
+              "chunkId": "52cbdc88da5d31e4858ff3a52692a4f26b97cdb24685acacd0377e7a8c3be097"
+            },
+            {
+              "chunkId": "8edd503a7e2749fca4e73873a2c61cdc75925fc53f13c6de6aa2c8938476fb70"
+            },
+            {
+              "chunkId": "6e575aca11594981d52ca2480fa43eacc66053090dc98c87993234636bb69f30"
+            },
+            {
+              "chunkId": "8bcefc0ee2f05cd1bc322761fec621f2e5e73ab7c04cbf4a455134a6dd9ca570"
+            },
+            {
+              "chunkId": "8eef04c5f781e69721998fd8a169ce92dd7ca4d2978093682462af860bdf5333"
+            },
+            {
+              "chunkId": "d1dbb7f8bd499f0d079bc2e4da31b1565625ec9d7f2c985ddffb352944a9dc0b"
+            },
+            {
+              "chunkId": "a3a3ba42af5c62fa6b5b3d0f8f4f04eda1e215d2367cc7fd5fe70cd2901dd387"
+            },
+            {
+              "chunkId": "4f8f36263dec4caab7a6418bcbb12cbbc427a6b8b5ed58c5932ba18148b83f94"
+            },
+            {
+              "chunkId": "c9263e678081868a3d7e06ae8f75cd3195716ae251facd184c7fdace4794fddb"
+            },
+            {
+              "chunkId": "ae94206b82c5cc1de917c18cd438460893fffe16e2a601d7b8c3110f9033d005"
+            },
+            {
+              "chunkId": "446662cc64404e47977223722c6f54c722d3798da9d91326a5b7fab5497625d2"
+            },
+            {
+              "chunkId": "0b4d6222d6a2c997131028428323e2cfb9aa982cb7b8b87a22275598fbffd3bd"
+            },
+            {
+              "chunkId": "9880a2f0fe75b514bf4449d4b3682eaa8b9eb59d1b60a16306eecea490947f51"
+            },
+            {
+              "chunkId": "437176011f22eb30883c067b2d6eec6e7b7819ec3680e3213f1b77c51d80b696"
+            },
+            {
+              "chunkId": "1cb05128fb22ea56af5a8a29c81d0ce4d6f53a380d3766edd1dbbe64287dcd84"
+            },
+            {
+              "chunkId": "8d3fc1271126c993207bab2b21026c70fb3a4cc5d637e2a0ed5b7528cc9dacda"
+            },
+            {
+              "chunkId": "379a1dd6dbadae421adfddf8567e948271ce01fdeb3522a0bd348c41d28a0ff8"
+            },
+            {
+              "chunkId": "0dda800fe063ee90e80f8582f093a82e1160cafaa58f3b9f5bf733bb10d1300d"
+            },
+            {
+              "chunkId": "3b0921a7e2d16557f86c8bd730170eb057254999bdc4e9e163260b1ad5cc8ddf"
+            },
+            {
+              "chunkId": "d223bc7904923e18348b14cb897591499d6d6db6948dff31871c8cbb3775e38a"
+            },
+            {
+              "chunkId": "c57a099b1c94eeb14eb90d69e7775478dfb409ad4dfd04c70aa4c222dd7ccc18"
+            },
+            {
+              "chunkId": "ba82e5dafa1ce13ab8cb767b1204032e5efb3e2b8c691434ac52aa8c9db1b167"
+            },
+            {
+              "chunkId": "3a7c07acd163db92cb094bf0931b0dfd9478863676ef23a55d838c06abee3e25"
+            },
+            {
+              "chunkId": "bb1f38a1237664d9898491f5affbaf7f66a70b4d032c050be27d86fc6510e2f5"
+            },
+            {
+              "chunkId": "0b227843c5a65a4560c5175774a84ce93089d0df7653ceee833c85f4c447f65b"
+            },
+            {
+              "chunkId": "4c35c56a800b12f05c97dcfcc28e4ad17ff1a27bbd4341faee21d9fecb80b2a3"
+            },
+            {
+              "chunkId": "3f3fe79e063d679bdd881176b51fde5d98a7599fb9acacef58385196a93a5e11"
+            },
+            {
+              "chunkId": "ad906cc169f26760ae44b0ada6436427cee762187a443f89877d00019d6f1d2c"
+            },
+            {
+              "chunkId": "1f198319b00ec1f3e3a9d50c5cdcd8fff9f9529f6d11203831a7893f31beeddd"
+            }
+          ]
+        }
+      }
+    }
+  ]
+}
