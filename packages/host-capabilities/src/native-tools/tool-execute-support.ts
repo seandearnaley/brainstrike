@@ -100,8 +100,7 @@ const TOOL_INPUT_ERROR_MAX_CHARS = 600;
 /**
  * Input-validation failure with a compact single-line `message` (the model
  * reads it verbatim) that still carries the raw Zod `issues`, so per-tool
- * enrichers that duck-type on `.issues` (e.g. `toQuerySelfInputError`) keep
- * working.
+ * enrichers that duck-type on `.issues` keep working.
  */
 export class ToolInputValidationError extends Error {
   constructor(

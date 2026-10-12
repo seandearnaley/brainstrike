@@ -13,18 +13,11 @@ describe('SQLite query process boundary', () => {
     }
   });
 
-  it('decodes explicit caller-vector requirements and refuses malformed capability requests', () => {
+  it('refuses a caller-vector requirement, which no query carries any more', () => {
     const request = { id: 1, kind: 'query', maxRows: 50, sql: 'SELECT 1', values: [] };
-    expect(
+    expect(() =>
       decodeRequest({ ...request, requirement: { kind: 'caller-vectors', symbol: 'add' } })
-    ).toMatchObject({ requirement: { kind: 'caller-vectors', symbol: 'add' } });
-    for (const requirement of [
-      { kind: 'other', symbol: 'add' },
-      { kind: 'caller-vectors', symbol: ' ' },
-      { disableAuthorizer: true, kind: 'caller-vectors', symbol: 'add' },
-    ]) {
-      expect(() => decodeRequest({ ...request, requirement })).toThrow(TypeError);
-    }
+    ).toThrow(TypeError);
   });
 
   it('rejects malformed and unrecognized child replies', () => {

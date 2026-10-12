@@ -731,8 +731,6 @@ export {
   QueryDiagnosticsInputSchema,
   type QueryEmbeddingSpaceInput,
   QueryEmbeddingSpaceInputSchema,
-  type QuerySelfInput,
-  QuerySelfInputSchema,
   type ReadWorkspaceContextInput,
   ReadWorkspaceContextInputSchema,
   type ReadWorkspaceDirectoryInput,

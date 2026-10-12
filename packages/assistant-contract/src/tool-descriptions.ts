@@ -1,8 +1,6 @@
 import { isNativeToolId, type NativeToolId } from './native-tool-catalog.js';
 import { NATIVE_TOOL_REGISTRIES } from './native-tools/index.js';
 
-export { QUERY_SELF_EXAMPLE_QUERIES } from './native-tools/definitions/query-self.js';
-
 /**
  * Model-facing description per native tool, DERIVED from each tool's
  * `defineNativeTool` declaration — the ONE prose source for the provider

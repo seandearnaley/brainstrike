@@ -127,10 +127,10 @@ export function* drainTokenEstimateCalibrationChunk(
   // this migration exists to give it. The estimator-vs-provider RATIO this
   // chunk also carries (estimatedPromptTokens/finalStepPromptTokens) is
   // still only meaningful when real tool-output measurement happened
-  // (BST-1205); that eligibility gate now lives in the consuming
-  // `estimator-calibration.sql` lens (`model_visible_projection_count > 0`)
-  // instead of the writer, so a zero-projection row can be written here
-  // without resurrecting a meaningless ratio sample downstream. A row is
+  // (BST-1205); that eligibility gate belongs to the reader
+  // (`model_visible_projection_count > 0`), not the writer, so a
+  // zero-projection row can be written here without resurrecting a
+  // meaningless ratio sample downstream. A row is
   // still skipped only when there is NOTHING new to report: no measured
   // tool output AND no prompt breakdown to source a baseline from.
   if (modelVisibleProjectionCount === 0 && !promptBreakdown) {

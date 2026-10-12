@@ -121,58 +121,26 @@ export async function qualifyOrdinaryAppIndexedText(
   };
   const model = await startModelProviderShim((request) => {
     providerRequests.push(request);
-    // Hosted discovery defers querySelf: the model loads it first.
+    // The ordinary default catalog installs hosted tool discovery.
     if (!request.toolNames.includes('load_tool')) {
       throw new Error('The ordinary default catalog did not install hosted tool discovery');
     }
     if (!workspaceRootId) {
       throw new Error('The ordinary workspace has no authoritative root identity');
     }
-    if (options.cliGrep) {
-      return {
-        finalText: 'The CLI received scoped indexed and live text.',
-        toolCall: {
-          arguments: {
-            filePaths: ['indexed-proof.md'],
-            isRegex: false,
-            maxResults: 5,
-            outputMode: 'content',
-            pattern: 'INDEXEDTEXTSENTINEL4802',
-            root: workspaceRootId,
-          },
-          name: 'brainstrike_grepSearch',
-        },
-      };
-    }
     return {
-      finalText: 'The selected indexed SQLite text result was received.',
-      toolCallStages: [
-        [{ arguments: { toolName: 'brainstrike_querySelf' }, name: 'load_tool' }],
-        [{ arguments: { mode: 'listTables', target: 'index' }, name: 'brainstrike_querySelf' }],
-        [
-          {
-            arguments: { mode: 'describeTable', table: 'file_records', target: 'index' },
-            name: 'brainstrike_querySelf',
-          },
-        ],
-        [
-          {
-            arguments: { mode: 'describeTable', table: 'file_chunks', target: 'index' },
-            name: 'brainstrike_querySelf',
-          },
-        ],
-        [
-          {
-            arguments: {
-              maxRows: 5,
-              mode: 'query',
-              sql: "SELECT f.name AS file_name, f.path AS file_path, c.content AS content, c.start_line AS start_line, c.end_line AS end_line FROM file_chunks_fts JOIN file_chunks AS c ON c.pk = file_chunks_fts.rowid JOIN file_records AS f ON f.id = c.file_record_id WHERE file_chunks_fts MATCH 'INDEXEDTEXTSENTINEL4802' AND f.name = 'indexed-proof.md' ORDER BY c.start_line LIMIT 5",
-              target: 'index',
-            },
-            name: 'brainstrike_querySelf',
-          },
-        ],
-      ],
+      finalText: 'The selected indexed and live text was received.',
+      toolCall: {
+        arguments: {
+          filePaths: ['indexed-proof.md'],
+          isRegex: false,
+          maxResults: 5,
+          outputMode: 'content',
+          pattern: 'INDEXEDTEXTSENTINEL4802',
+          root: workspaceRootId,
+        },
+        name: 'brainstrike_grepSearch',
+      },
     };
   });
   let providerClosed = false;
@@ -505,9 +473,7 @@ export async function qualifyOrdinaryAppIndexedText(
       const input = page
         .getByTestId(`assistant-thread-panel-${threadId}`)
         .getByRole('textbox', { name: 'Message input' });
-      await input.fill(
-        'Use querySelf target index to find INDEXEDTEXTSENTINEL4802 in indexed-proof.md.'
-      );
+      await input.fill('Find INDEXEDTEXTSENTINEL4802 literally in indexed-proof.md.');
       await input.press('Enter');
     }
     await expect
@@ -537,7 +503,7 @@ export async function qualifyOrdinaryAppIndexedText(
         2
       )
     );
-    if (options.cliGrep) {
+    {
       const calls = rows.flatMap(({ event }) =>
         event.type === 'effect.started' && event.toolId === 'brainstrike_grepSearch' ? [event] : []
       );
@@ -546,12 +512,12 @@ export async function qualifyOrdinaryAppIndexedText(
         ({ event }) => event.type === 'effect.finished' && event.toolCallId === calls[0]?.toolCallId
       )?.event;
       if (finished?.type !== 'effect.finished') {
-        throw new Error('The real CLI did not commit its grep result');
+        throw new Error('The ordinary Root did not commit its grep result');
       }
       const result = parseGrepToolResult(finished.output);
       expect(result.outputMode).toBe('content');
       if (result.outputMode !== 'content') {
-        throw new Error('The CLI grep returned the wrong output mode');
+        throw new Error('The grep returned the wrong output mode');
       }
       expect(result.matches).toHaveLength(1);
       expect(result.matches[0]).toMatchObject({
@@ -574,9 +540,11 @@ export async function qualifyOrdinaryAppIndexedText(
               JSON.stringify(message).includes(searchLine)
           )
       ).toBe(true);
-      checkpoint('ordinary-cli-indexed-and-live-grep-completed');
+      checkpoint('ordinary-indexed-and-live-grep-completed');
+    }
+    if (options.cliGrep) {
       // Same production CLI, host, profile and canonical native index; no model
-      // or querySelf hop is involved in ranked text reads.
+      // hop is involved in ranked text reads.
       const require = createRequire(import.meta.url);
       const bin = join(
         dirname(require.resolve('@brainstrike/host-capabilities')),
@@ -629,65 +597,6 @@ export async function qualifyOrdinaryAppIndexedText(
       await expect(search('bm25', 'unmounted-root')).rejects.toThrow();
       await expect(search('vector', mountedRootId)).rejects.toThrow();
       checkpoint('ordinary-cli-bm25-trigram-completed');
-    } else {
-      const calls = rows.flatMap(({ event }) =>
-        event.type === 'effect.started' && event.toolId === 'brainstrike_querySelf' ? [event] : []
-      );
-      expect(calls).toHaveLength(4);
-      const results = calls.map((call) => {
-        const finished = rows.find(
-          ({ event }) => event.type === 'effect.finished' && event.toolCallId === call.toolCallId
-        )?.event;
-        if (finished?.type !== 'effect.finished') {
-          throw new Error('The ordinary Root did not commit its querySelf index result');
-        }
-        return finished.output;
-      });
-      const tables = z
-        .object({
-          kind: z.literal('tables'),
-          tables: z.array(z.object({ name: z.string() })),
-          target: z.literal('index'),
-        })
-        .parse(results[0]);
-      expect(tables.tables.map(({ name }) => name)).toEqual(
-        expect.arrayContaining(['file_records', 'file_chunks', 'file_chunks_fts'])
-      );
-      for (const description of results.slice(1, 3)) {
-        z.object({ kind: z.literal('columns'), target: z.literal('index') }).parse(description);
-      }
-      const result = z
-        .object({
-          columns: z.array(z.string()),
-          kind: z.literal('rows'),
-          rowCount: z.literal(1),
-          rows: z.array(z.object({ cells: z.array(z.string()) })),
-          target: z.literal('index'),
-          truncated: z.literal(false),
-        })
-        .parse(results[3]);
-      expect(result.columns).toEqual([
-        'file_name',
-        'file_path',
-        'content',
-        'start_line',
-        'end_line',
-      ]);
-      expect(result.rows).toHaveLength(1);
-      expect(result.rows[0]?.cells[0]).toBe('indexed-proof.md');
-      expect(result.rows[0]?.cells[2]).toContain(searchLine);
-      const toolMessages = providerRequests.flatMap(({ messages }) =>
-        messages.filter(
-          (message) => z.object({ role: z.literal('tool') }).safeParse(message).success
-        )
-      );
-      expect(JSON.stringify(toolMessages)).toContain('indexed-proof.md');
-      expect(JSON.stringify(toolMessages)).toContain(searchLine);
-      expect(JSON.stringify(toolMessages)).not.toContain('unselected-proof.md');
-      expect(
-        rows.some(({ event }) => event.type === 'run.finished' && event.outcome === 'completed')
-      ).toBe(true);
-      checkpoint('ordinary-native-sqlite-index-query-result-completed');
     }
     if (options.stopHost) {
       const beforeStop = await application.evaluate(({ app }) => app.getAppMetrics());

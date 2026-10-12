@@ -1679,11 +1679,11 @@ describe('fail-soft domain projection', () => {
       execute: () => 'raw',
       id: 'async_invariant',
       toModelOutput: () =>
-        Promise.reject(new RangeError('querySelf model projection exceeds the domain budget')),
+        Promise.reject(new RangeError('model projection exceeds the domain budget')),
     });
     const projected = applyToolModelOutputProjections(
       { async_invariant: tool },
-      new Map([['async_invariant', 'brainstrike.querySelf']])
+      new Map([['async_invariant', 'brainstrike.queryDiagnostics']])
     );
 
     await expect(

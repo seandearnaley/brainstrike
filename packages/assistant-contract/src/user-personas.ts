@@ -51,13 +51,6 @@ export const DEFAULT_USER_PERSONA_MAX_STEPS = MAX_USER_PERSONA_MAX_STEPS;
  * an explicit author choice) and the read-risk-but-interactive tools
  * (`askUser`, `submitPlan`), which require explicit declaration and durable
  * child control. `manageTaskList` belongs to the parent.
- *
- * `querySelf` is ALSO deliberately excluded, and this is not an oversight.
- * `assertReadOnlyPersona` would accept it (its risk category is `read`, earned
- * by a genuine sandbox), but a delegated child composing arbitrary SQL is a
- * materially wider surface than the curated exploration set. A
- * persona author must opt in explicitly via `tools:`. Pinned by
- * `user-personas.test.ts`.
  */
 export const DEFAULT_USER_PERSONA_TOOL_IDS: readonly string[] = [
   NATIVE_TOOL_ID.queryEmbeddingSpace,

@@ -14,7 +14,6 @@ import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import type { BrowserToolRunner } from '../assistant-server/native-tool-executors-browser';
 import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-core';
-import { QUERY_SELF_ERROR_MESSAGES, type QuerySelfRead } from '../assistant-server/query-self-core';
 import type { RetrievalStore } from '../assistant-server/retrieval-store';
 import type { WorkspaceContextBroadcaster } from '../assistant-server/workspace-context-tools';
 import {
@@ -33,7 +32,6 @@ import {
   GrepIndexRequestSchema,
   PlatformShellCompletedResultSchema,
   PlatformShellCompletedSchema,
-  QuerySelfReadRequestSchema,
   WorktreeArchiveRequestSchema,
   WorktreeCreateRequestSchema,
   WorktreePathsResultSchema,
@@ -69,8 +67,6 @@ export interface HostToolServiceCapabilities {
   readonly grepIndex?: (options: GrepSearchOptions) => Promise<GrepSearchResult>;
   /** Main's workspace index (search, grep, coverage); it stays Main-owned in M3. */
   readonly indexSearch?: IndexSearchCapability;
-  /** querySelf's SQL: the sandboxed application role or the read-only index process. */
-  readonly querySelf?: QuerySelfRead;
   /** The retrieval catalog over Main's PGlite (embedding sets, file records, spaces). */
   readonly retrievalStore?: RetrievalStore;
   /** Worktree/forge correlation of host shell commands (BST-1392). */
@@ -258,37 +254,12 @@ function serveContextDelivery(
   );
 }
 
-/** The model-facing outcome of Main's querySelf read; anything else (a cancelled index query) rejects. */
-async function querySelfOutcome(read: QuerySelfRead, ...args: Parameters<QuerySelfRead>) {
-  try {
-    return { ok: true as const, result: await read(...args) };
-  } catch (error) {
-    if (error instanceof ToolInputError) {
-      return { error: 'input' as const, message: error.message, ok: false as const };
-    }
-    if (error instanceof Error && error.message === QUERY_SELF_ERROR_MESSAGES.queryFailed) {
-      return { error: 'failed' as const, ok: false as const };
-    }
-    throw error;
-  }
-}
-
-/** `desktop-read/query-self` and `desktop-read/diagnostics/*`: Main's own databases. */
+/** `desktop-read/diagnostics/*`: Main's own diagnostics store. */
 function serveSelfInspectionReads(
   connection: MessageConnection,
   execute: Execute,
   services: HostToolServiceCapabilities | undefined
 ): void {
-  connection.onRequest('desktop-read/query-self', (input: unknown, token: CancellationToken) =>
-    execute(token, async (signal) => {
-      const { request } = QuerySelfReadRequestSchema.parse(input);
-      return await querySelfOutcome(
-        required(services?.querySelf, 'self-query read'),
-        request,
-        signal
-      );
-    })
-  );
   connection.onRequest(
     'desktop-read/diagnostics/events',
     (input: unknown, token: CancellationToken) =>

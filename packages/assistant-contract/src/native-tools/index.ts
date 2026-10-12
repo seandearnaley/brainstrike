@@ -28,7 +28,6 @@ import { manageTaskList } from './definitions/manage-task-list.js';
 import { manageWorktree } from './definitions/manage-worktree.js';
 import { queryDiagnostics } from './definitions/query-diagnostics.js';
 import { queryEmbeddingSpace } from './definitions/query-embedding-space.js';
-import { querySelf } from './definitions/query-self.js';
 import { readToolOutputArtifact } from './definitions/read-tool-output-artifact.js';
 import { readWorkspaceContext } from './definitions/read-workspace-context.js';
 import { readWorkspaceDirectory } from './definitions/read-workspace-directory.js';
@@ -75,7 +74,6 @@ export const NATIVE_TOOLS = [
   manageWorktree,
   queryDiagnostics,
   queryEmbeddingSpace,
-  querySelf,
   readToolOutputArtifact,
   readWorkspaceContext,
   readWorkspaceDirectory,

@@ -2,7 +2,6 @@
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
-import { ToolInputError } from '@brainstrike/assistant-contract';
 import { expect, it, vi } from 'vitest';
 import { CancellationTokenSource, type MessageConnection } from 'vscode-jsonrpc/node';
 import {
@@ -140,41 +139,36 @@ async function acquire(
     : client.sendRequest('platform/admission/workspace/acquire', params);
 }
 
-const LIST_TABLES = {
-  request: { input: { mode: 'listTables', target: 'app' } },
-  threadId: 'thread',
-};
+const DIAGNOSTIC_EVENTS = { filter: { limit: 5 }, threadId: 'thread' };
 
-/** A querySelf read that holds until its physical tail is released. */
+/** A diagnostics read that holds until its physical tail is released. */
 function heldRead(tail: Promise<void>) {
-  const entered = Promise.withResolvers<AbortSignal>();
-  const querySelf = vi.fn(async (_read: unknown, signal?: AbortSignal) => {
-    if (!signal) {
-      throw new Error('Main supplied no signal to its read');
-    }
-    entered.resolve(signal);
-    await tail;
-    signal.throwIfAborted();
-    return { analyzed: false, kind: 'plan' as const, plan: [], target: 'app' as const };
-  });
-  return { entered: entered.promise, querySelf };
+  const entered = Promise.withResolvers<void>();
+  const diagnostics = {
+    events: vi.fn(async () => {
+      entered.resolve();
+      await tail;
+      return [];
+    }),
+    fingerprints: vi.fn(),
+  };
+  return { diagnostics, entered: entered.promise };
 }
 
-it('utility loss aborts an in-flight Main read and joins its physical tail before returning the workspace lease', async () => {
+it('utility loss joins an in-flight Main read’s physical tail before returning the workspace lease', async () => {
   const physicalTail = Promise.withResolvers<void>();
   const serverClosed = Promise.withResolvers<void>();
   const release = vi.fn(async () => undefined);
   const read = heldRead(physicalTail.promise);
-  const h = harness(lending(release), undefined, { querySelf: read.querySelf });
+  const h = harness(lending(release), undefined, { diagnostics: read.diagnostics });
   h.server.onClose(() => serverClosed.resolve());
   try {
     await acquire(h.client);
-    const reading = h.client.sendRequest('desktop-read/query-self', LIST_TABLES);
+    const reading = h.client.sendRequest('desktop-read/diagnostics/events', DIAGNOSTIC_EVENTS);
     reading.catch(() => undefined);
-    const signal = await read.entered;
+    await read.entered;
     h.crash();
     await serverClosed.promise;
-    await vi.waitFor(() => expect(signal.aborted).toBe(true));
     let closed = false;
     const closing = h.owner.close().then(() => {
       closed = true;
@@ -197,20 +191,19 @@ it('cancellation and close wait for an in-flight Main read’s physical tail bef
   const joined = Promise.withResolvers<void>();
   const close = vi.fn(async () => undefined);
   const read = heldRead(joined.promise);
-  const h = harness(lending(close), undefined, { querySelf: read.querySelf });
+  const h = harness(lending(close), undefined, { diagnostics: read.diagnostics });
   const cancellation = new CancellationTokenSource();
   let settled = false;
   try {
     await acquire(h.client);
     const reading = h.client.sendRequest(
-      'desktop-read/query-self',
-      LIST_TABLES,
+      'desktop-read/diagnostics/events',
+      DIAGNOSTIC_EVENTS,
       cancellation.token
     );
     reading.catch(() => undefined);
-    const signal = await read.entered;
+    await read.entered;
     cancellation.cancel();
-    await vi.waitFor(() => expect(signal.aborted).toBe(true));
     const closing = h.owner.close().then(() => {
       settled = true;
     });
@@ -218,7 +211,8 @@ it('cancellation and close wait for an in-flight Main read’s physical tail bef
     expect(settled).toBe(false);
     expect(close).not.toHaveBeenCalled();
     joined.resolve();
-    await expect(reading).rejects.toBeInstanceOf(Error);
+    // This read does not observe its signal, so it settles with its result.
+    await expect(reading).resolves.toEqual([]);
     await closing;
     expect(close).toHaveBeenCalledTimes(1);
   } finally {
@@ -468,34 +462,10 @@ it('delivers a validated context write-back to the windows', async () => {
   }
 });
 
-it('serves querySelf’s SQL read and the diagnostics store to the host', async () => {
-  const querySelf = vi.fn(async (read: { input: { sql?: string } }) => {
-    if (read.input.sql === 'SELEC 1') {
-      throw new ToolInputError('syntax error at or near "SELEC"');
-    }
-    return { analyzed: false, kind: 'plan' as const, plan: ['Result'], target: 'app' as const };
-  });
+it('serves the diagnostics store to the host', async () => {
   const diagnostics = { events: vi.fn(async () => []), fingerprints: vi.fn() };
-  const h = harness(mainReads(), undefined, { diagnostics, querySelf });
-  const read = (sql: string) => ({
-    request: { input: { mode: 'explain', sql, target: 'app' } },
-    threadId: 'thread',
-  });
+  const h = harness(mainReads(), undefined, { diagnostics });
   try {
-    await expect(
-      h.client.sendRequest('desktop-read/query-self', read('SELECT 1'))
-    ).resolves.toEqual({
-      ok: true,
-      result: { analyzed: false, kind: 'plan', plan: ['Result'], target: 'app' },
-    });
-    // An engine input error crosses as a model-correctable outcome, not a transport failure.
-    await expect(h.client.sendRequest('desktop-read/query-self', read('SELEC 1'))).resolves.toEqual(
-      {
-        error: 'input',
-        message: 'syntax error at or near "SELEC"',
-        ok: false,
-      }
-    );
     await expect(
       h.client.sendRequest('desktop-read/diagnostics/events', {
         filter: { limit: 5 },
