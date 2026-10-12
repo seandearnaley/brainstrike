@@ -126,6 +126,41 @@ describe('brainstrike.runSkillScript', () => {
     await expect(fsPromises.access(path.join(fixture.rootA, 'should-not-run'))).rejects.toThrow();
   });
 
+  it('runs the recorded extensionless Bash skill with literal arguments', async () => {
+    const fixture = await createFixture();
+    const directory = path.join(fixture.scriptsDir, 'path with spaces');
+    await fsPromises.mkdir(directory);
+    const absolutePath = path.join(directory, 'impeccable');
+    await fsPromises.writeFile(
+      absolutePath,
+      '#!/bin/sh\nprintf "SKILL_CONTEXT_OK\\n"\nprintf "%s\\n" "$@"\n'
+    );
+    const tools = buildDesktopAssistantTools(runtime(fixture.rootA, fixture.rootB), {
+      skillScriptResolver: {
+        resolveScriptExecution: async (input) => ({
+          ...(await fixture.resolver.resolveScriptExecution(input)),
+          absolutePath,
+          scriptPath: 'scripts/path with spaces/impeccable',
+        }),
+      },
+    });
+    const result = await requireToolExecute(
+      tools,
+      'brainstrike.runSkillScript'
+    )({
+      args: ['context', 'literal; $(echo substituted)', 'C:\\Path With Spaces\\notes.txt'],
+      cwd: 'site',
+      root: 'root-a',
+      runtime: 'bash',
+      scriptPath: 'scripts/path with spaces/impeccable',
+      skillName: 'site-design',
+    });
+    expect(result).toMatchObject({ exitCode: 0, runtime: 'bash', timedOut: false });
+    expect(result.stdout.replaceAll('\r\n', '\n')).toBe(
+      'SKILL_CONTEXT_OK\ncontext\nliteral; $(echo substituted)\nC:\\Path With Spaces\\notes.txt\n'
+    );
+  });
+
   it('fits escape-heavy output to the serialized native result budget', async () => {
     // PR #2338 review: the previous raw-length fit let quote-heavy stdout (a
     // script printing JSON) serialize past NATIVE_TOOL_RESULT_CHAR_BUDGET,

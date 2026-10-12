@@ -22,6 +22,7 @@ import {
 import { createLogger } from '@brainstrike/logging';
 import stripAnsi from 'strip-ansi';
 import { runDetachedProcess } from './execute-command-tool';
+import { resolveWindowsGitBash } from './windows-git-bash';
 import { resolveWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('RunSkillScriptTool');
@@ -116,7 +117,7 @@ async function resolveRuntime(
     return { executable: await resolvePythonExecutable(signal) };
   }
   if (process.platform === 'win32') {
-    throw new ToolInputError('The bash skill-script runtime is unavailable on Windows.');
+    return { executable: await resolveWindowsGitBash() };
   }
   return { executable: 'bash' };
 }
