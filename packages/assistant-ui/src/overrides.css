@@ -1717,10 +1717,12 @@
  * `html.dark .shiki`). This file only owns chat-specific prose rhythm: the
  * chat markdown library renders CodeBlockHeader and CodeBlockBody as SIBLINGS
  * (no shared wrapper element), so the vertical spacing around the box is split
- * across the two halves here.
+ * across the two halves here. The header's zero bottom margin also overrides
+ * the renderer root's `space-y-4`, which would open a gap inside the box.
  */
 .assistant-ui-panel .aui-md .bs-code-block-header {
   margin-top: 0.9em;
+  margin-bottom: 0;
 }
 
 .assistant-ui-panel .aui-md .bs-code-block-body {
@@ -1730,15 +1732,10 @@
 /**
  * MARKDOWN TYPOGRAPHY (paragraph / list / heading rhythm)
  *
- * ROOT CAUSE (verified 2026-06-16):
- *   @assistant-ui/react-markdown@0.12.x renders BARE html elements — it applies
- *   NO `aui-md-*` classNames. @assistant-ui/styles ships only `.aui-md-p`-style
- *   CLASS selectors, which therefore never match our markdown. With Tailwind v4
- *   preflight zeroing element margins and list-style, assistant prose rendered
- *   cramped (no paragraph spacing, no list bullets/indent).
- *
- * These descendant-ELEMENT rules under `.aui-md` are the single source of truth
- * for assistant prose spacing and are decoupled from upstream class-name churn.
+ * The markdown renderer (Streamdown, BST-1929) puts its own Tailwind utility
+ * classes on these elements. These descendant-ELEMENT rules are unlayered, so
+ * they beat those utilities and stay the single source of truth for assistant
+ * prose spacing, decoupled from upstream class-name churn.
  * Scoped to `.assistant-ui-panel .aui-md` so they also cover the streaming
  * loading placeholder and the model-reasoning panel (both use `.aui-md`).
  * Code blocks are intentionally untouched here — they are owned by the shared
@@ -1764,6 +1761,7 @@
 .assistant-ui-panel .aui-md ol {
   margin-block: 0.7em;
   padding-left: 1.5rem;
+  list-style-position: outside;
 }
 
 .assistant-ui-panel .aui-md ul {
@@ -1776,6 +1774,12 @@
 
 .assistant-ui-panel .aui-md li {
   margin-block: 0.25em;
+  padding-block: 0;
+}
+
+/* A loose list item's paragraphs stay blocks (Streamdown inlines them). */
+.assistant-ui-panel .aui-md li > p {
+  display: block;
 }
 
 .assistant-ui-panel .aui-md li > ul,
@@ -1831,9 +1835,19 @@
 .assistant-ui-panel .aui-md blockquote {
   margin-block: 0.8em;
   padding: 0.7rem 0.9rem;
+  /* Streamdown's quote classes add a left bar and italicize the whole quote. */
+  border-left: 0;
   border-radius: 0.5rem;
   background: hsl(var(--muted) / 0.45);
   color: hsl(var(--muted-foreground));
+  font-style: normal;
+}
+
+/* Footnote references and other super/subscripts keep their small size
+   (Streamdown sets them to text-sm). */
+.assistant-ui-panel .aui-md :is(sup, sub) {
+  font-size: 75%;
+  line-height: 0;
 }
 
 .assistant-ui-panel .aui-md hr {
@@ -1888,9 +1902,93 @@
   padding: 0.35rem 0.55rem;
   border: 1px solid hsl(var(--border));
   text-align: left;
+  /* Cells follow the table's size and wrap; the renderer's cell utilities don't. */
+  font-size: inherit;
+  line-height: inherit;
+  white-space: normal;
 }
 
 .assistant-ui-panel .aui-md th {
   background: hsl(var(--muted) / 0.5);
   font-weight: 600;
+}
+
+/*
+ * Streamdown wraps each table in a bordered card around a scroll box. Keep the
+ * scroll box (wide tables scroll sideways) but drop the card, so the table
+ * itself owns the chrome and spacing above, as it did before the renderer change.
+ */
+.assistant-ui-panel .aui-md [data-streamdown="table-wrapper"] {
+  display: block;
+  /* The table's own 0.8em at its 0.92em size, outside the scroll box so it
+     still collapses with the neighbouring blocks' margins. */
+  margin-block: calc(0.8em * 0.92);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.assistant-ui-panel .aui-md [data-streamdown="table-wrapper"] > div {
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+
+.assistant-ui-panel .aui-md [data-streamdown="table"] {
+  margin-block: 0;
+}
+
+/*
+ * The running caret: Streamdown's `caret` prop draws the dot as the last
+ * block's ::after while the reply streams. It pulses, as the previous caret did.
+ */
+.assistant-ui-panel .aui-md > :last-child::after {
+  animation: bs-caret-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/*
+ * While a list streams, the caret follows the last item's text, as before,
+ * instead of sitting on its own line under the list. Streamdown sets
+ * --streamdown-caret on the root only while the caret shows.
+ */
+.assistant-ui-panel .aui-md > :is(ul, ol):last-child::after {
+  content: none;
+}
+
+.assistant-ui-panel .aui-md > :is(ul, ol):last-child > li:last-child:not(:has(* > li))::after,
+.assistant-ui-panel
+  .aui-md
+  > :is(ul, ol):last-child
+  > li:last-child
+  > :is(ul, ol):last-child
+  > li:last-child:not(:has(* > li))::after,
+.assistant-ui-panel
+  .aui-md
+  > :is(ul, ol):last-child
+  > li:last-child
+  > :is(ul, ol):last-child
+  > li:last-child
+  > :is(ul, ol):last-child
+  > li:last-child::after {
+  content: var(--streamdown-caret, none);
+  animation: bs-caret-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes bs-caret-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/*
+ * The word-by-word reveal (Streamdown's `animated`) respects reduced motion,
+ * as the frame-paced reveal it replaced did: words and list markers appear at
+ * once. The vendor stylesheet has no such rule.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .assistant-ui-panel .aui-md [data-sd-animate],
+  .assistant-ui-panel .aui-md [data-sd-animate-marker]::marker {
+    animation: none;
+  }
 }

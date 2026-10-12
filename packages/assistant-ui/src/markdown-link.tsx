@@ -40,14 +40,15 @@ function isSameDocumentHref(href: string): boolean {
  * the browser's own link affordances — the status-bar URL preview on hover,
  * "Copy link address" in the context menu, and tab focus order.
  *
- * `node` is already stripped by `memoizeMarkdownComponents`, so these are plain
- * anchor props.
+ * The markdown renderer also passes its hast `node`; it is dropped here so it
+ * never reaches the DOM as an attribute.
  */
 export function MarkdownLink({
   children,
   href,
+  node: _node,
   ...anchorProps
-}: ComponentPropsWithoutRef<'a'>): ReactElement {
+}: ComponentPropsWithoutRef<'a'> & { readonly node?: unknown }): ReactElement {
   const capabilities = useAssistantLinkCapabilities();
 
   const activate = useCallback(
