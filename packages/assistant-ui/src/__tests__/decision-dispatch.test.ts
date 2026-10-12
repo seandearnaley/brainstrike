@@ -1,7 +1,6 @@
 /**
- * A decision during a run reaches the RUNNING turn when the host offers a
- * live transport (desktop POST /assistant/decide); it queues only when no leg
- * is live for it, and appends at once when nothing runs. Never a cancel.
+ * A decision during a run queues behind the running turn, and appends at once
+ * when nothing runs. Never a cancel.
  */
 import type { CreateAppendMessage } from '@assistant-ui/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -25,31 +24,11 @@ describe('submitDecisionOrQueue', () => {
     resetFollowUpQueueStore();
   });
 
-  it('delivers into the running turn and never appends or queues', async () => {
-    const append = vi.fn();
-    const deliverLive = vi.fn(async () => 'delivered' as const);
-    await expect(
-      submitDecisionOrQueue({
-        append,
-        deliverLive,
-        identityKey: 'k',
-        isRunning: true,
-        message,
-        text: 'Approved read.',
-        threadKey: 'root',
-      })
-    ).resolves.toBe('delivered');
-    expect(deliverLive).toHaveBeenCalledExactlyOnceWith(message);
-    expect(append).not.toHaveBeenCalled();
-    expect(queued()).toBeUndefined();
-  });
-
-  it('queues when no leg is live for the decision, and without a transport', async () => {
+  it('queues behind the running turn', async () => {
     const append = vi.fn();
     await expect(
       submitDecisionOrQueue({
         append,
-        deliverLive: async () => 'no-live-run' as const,
         identityKey: 'k1',
         isRunning: true,
         message,
@@ -60,7 +39,6 @@ describe('submitDecisionOrQueue', () => {
     await expect(
       submitDecisionOrQueue({
         append,
-        deliverLive: null,
         identityKey: 'k2',
         isRunning: true,
         message,
@@ -72,13 +50,11 @@ describe('submitDecisionOrQueue', () => {
     expect(queued()?.map((item) => item.identityKey)).toEqual(['k1', 'k2']);
   });
 
-  it('appends at once when nothing runs, without touching the transport', async () => {
+  it('appends at once when nothing runs', async () => {
     const append = vi.fn();
-    const deliverLive = vi.fn(async () => 'delivered' as const);
     await expect(
       submitDecisionOrQueue({
         append,
-        deliverLive,
         identityKey: 'k',
         isRunning: false,
         message,
@@ -87,25 +63,5 @@ describe('submitDecisionOrQueue', () => {
       })
     ).resolves.toBe('sent');
     expect(append).toHaveBeenCalledExactlyOnceWith(message);
-    expect(deliverLive).not.toHaveBeenCalled();
-  });
-
-  it('propagates a transport failure (host refusal) instead of queueing a refused decision', async () => {
-    const append = vi.fn();
-    await expect(
-      submitDecisionOrQueue({
-        append,
-        deliverLive: async () => {
-          throw new Error('The decision was not applied: already answered');
-        },
-        identityKey: 'k',
-        isRunning: true,
-        message,
-        text: 'Approved read.',
-        threadKey: 'root',
-      })
-    ).rejects.toThrow(/already answered/);
-    expect(append).not.toHaveBeenCalled();
-    expect(queued()).toBeUndefined();
   });
 });

@@ -8,17 +8,15 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { BudgetGuardrailSettingsPanel, parseCapInput } from '../budget-settings-panel';
 
-// The panel gates on the desktop assistant bridge (same signal as the cost
-// panels): stub it so the input tests exercise the capable state, and remove
-// it to cover the honest web/unavailable state.
+// The panel gates on the agent host bridge (same signal as the cost panels):
+// stub it so the input tests exercise the capable state, and remove it to
+// cover the honest web/unavailable state.
 function stubDurableUsageCapability(): void {
-  (window as unknown as { assistant?: { url: string } }).assistant = {
-    url: 'http://127.0.0.1:5175',
-  };
+  (window as unknown as { agentHost?: unknown }).agentHost = { connect: async () => undefined };
 }
 
 function removeDurableUsageCapability(): void {
-  Reflect.deleteProperty(window, 'assistant');
+  Reflect.deleteProperty(window, 'agentHost');
 }
 
 describe('parseCapInput', () => {

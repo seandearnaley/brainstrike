@@ -630,9 +630,6 @@ interface ThreadRowContextProps {
   readonly needsYouThreadIds: ReadonlySet<string>;
   readonly onDeleteThread: (threadId: string) => Promise<void>;
   readonly onMoveThreadToGroup: (threadId: string, groupId: string | null) => Promise<void>;
-  readonly onRefreshAgentColors?:
-    | ((threadId: string, ownerResourceId: string) => Promise<number>)
-    | undefined;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
   readonly onSelectThread: (threadId: string) => void;
   readonly onUpdateThreadMetadata: (
@@ -838,7 +835,6 @@ function ThreadPanelCell({
         moveTargets={rowsProps.moveTargets}
         onDeleteThread={rowsProps.onDeleteThread}
         onMoveThreadToGroup={rowsProps.onMoveThreadToGroup}
-        onRefreshAgentColors={rowsProps.onRefreshAgentColors}
         onRenameThread={rowsProps.onRenameThread}
         onSelectThread={rowsProps.onSelectThread}
         onUpdateThreadMetadata={rowsProps.onUpdateThreadMetadata}
@@ -1114,7 +1110,6 @@ function ThreadPanelTree({
   onMoveThreadToGroup,
   onNewThreadInFolder,
   onRenameThread,
-  onRefreshAgentColors,
   onSelectThread,
   onUpdateThreadMetadata,
   selectedThreadId,
@@ -1141,9 +1136,6 @@ function ThreadPanelTree({
   readonly onMoveThreadToGroup: (threadId: string, groupId: string | null) => Promise<void>;
   readonly onNewThreadInFolder: ((folder: ThreadFolderRow) => void) | null;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
-  readonly onRefreshAgentColors?:
-    | ((threadId: string, ownerResourceId: string) => Promise<number>)
-    | undefined;
   readonly onSelectThread: (threadId: string) => void;
   readonly onUpdateThreadMetadata: (
     threadId: string,
@@ -1225,7 +1217,6 @@ function ThreadPanelTree({
       needsYouThreadIds,
       onDeleteThread,
       onMoveThreadToGroup,
-      onRefreshAgentColors,
       onRenameThread,
       onSelectThread,
       onUpdateThreadMetadata,
@@ -1245,7 +1236,6 @@ function ThreadPanelTree({
       onDeleteThread,
       onMoveThreadToGroup,
       onRenameThread,
-      onRefreshAgentColors,
       onSelectThread,
       onUpdateThreadMetadata,
       selectedThreadId,
@@ -1418,7 +1408,6 @@ function ThreadsPanelContent({
   onMoveThreadToGroup,
   onNewThreadInFolder,
   onRenameThread,
-  onRefreshAgentColors,
   onSelectThread,
   onUpdateThreadMetadata,
   repository,
@@ -1451,9 +1440,6 @@ function ThreadsPanelContent({
   readonly onMoveThreadToGroup: (threadId: string, groupId: string | null) => Promise<void>;
   readonly onNewThreadInFolder: ((folder: ThreadFolderRow) => void) | null;
   readonly onRenameThread: (threadId: string, title: string) => Promise<void>;
-  readonly onRefreshAgentColors?:
-    | ((threadId: string, ownerResourceId: string) => Promise<number>)
-    | undefined;
   readonly onSelectThread: (threadId: string) => void;
   readonly onUpdateThreadMetadata: (
     threadId: string,
@@ -1503,7 +1489,6 @@ function ThreadsPanelContent({
       onDeleteThread={onDeleteThread}
       onMoveThreadToGroup={onMoveThreadToGroup}
       onNewThreadInFolder={onNewThreadInFolder}
-      onRefreshAgentColors={onRefreshAgentColors}
       onRenameThread={onRenameThread}
       onSelectThread={onSelectThread}
       onUpdateThreadMetadata={onUpdateThreadMetadata}

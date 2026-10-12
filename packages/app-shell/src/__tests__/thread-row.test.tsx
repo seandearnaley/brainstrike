@@ -232,31 +232,6 @@ describe('ThreadRow', () => {
     expect(onUpdateThreadMetadata).toHaveBeenCalledWith(THREAD.id, { color: 'cyan' });
   });
 
-  it('refreshes saved agent colors from root customization and shows the result', async () => {
-    const user = userEvent.setup();
-    const onRefreshAgentColors = vi.fn().mockResolvedValue(3);
-    renderRow(createProps({ onRefreshAgentColors }));
-
-    await user.click(screen.getByRole('button', { name: 'Thread actions Review architecture' }));
-    await user.click(screen.getByRole('button', { name: 'Customize' }));
-    await user.click(screen.getByRole('button', { name: 'Refresh agent colors' }));
-
-    expect(onRefreshAgentColors).toHaveBeenCalledWith(THREAD.id, THREAD.resourceId);
-    expect(await screen.findByText('Refreshed 3 saved agent colors.')).toBeVisible();
-  });
-
-  it('shows a failed agent color refresh in the customization panel', async () => {
-    const user = userEvent.setup();
-    const onRefreshAgentColors = vi.fn().mockRejectedValue(new Error('Finish the active run.'));
-    renderRow(createProps({ onRefreshAgentColors }));
-
-    await user.click(screen.getByRole('button', { name: 'Thread actions Review architecture' }));
-    await user.click(screen.getByRole('button', { name: 'Customize' }));
-    await user.click(screen.getByRole('button', { name: 'Refresh agent colors' }));
-
-    expect(await screen.findByText('Finish the active run.')).toBeVisible();
-  });
-
   it('keeps delete confirmation and failures local to the row', async () => {
     const user = userEvent.setup();
     const onDeleteThread = vi.fn().mockRejectedValue(new Error('Delete failed.'));

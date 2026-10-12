@@ -1141,7 +1141,6 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
   hasDesktopLlmHost: hasDesktopLlmHostMock,
   // Same passthrough rationale as EditCheckpointProvider: the mocked panel
   // never renders an approval notice, so the grant context is never read.
-  LiveDecisionProvider: ({ children }: { children: ReactNode }) => children,
   // Same passthrough rationale as EditCheckpointProvider: the mocked panel
   // never renders a verdict control, so the verdict context is never read.
   RunVerdictProvider: ({ children }: { children: ReactNode }) => children,
@@ -1245,6 +1244,13 @@ beforeEach(() => {
     configurable: true,
     value: { url: 'http://127.0.0.1:9876' },
   });
+  // The wrapper's legacy desktop mode (BST-1987 removes it) reads both the
+  // retired assistant-server bridge and the durable-run capability: one
+  // simulated shell, so a test that removes the bridge removes both.
+  Object.defineProperty(window, 'agentHost', {
+    configurable: true,
+    get: () => (window.assistant ? { connect: async () => undefined } : undefined),
+  });
   window.localStorage.removeItem('brainstrike.assistant.include-file-report.v1');
   window.localStorage.removeItem('brainstrike-assistant-threads-v1');
 });
@@ -1257,6 +1263,7 @@ afterEach(() => {
   Reflect.deleteProperty(window, 'tools');
   providedMcpTools = null;
   Reflect.deleteProperty(window, 'assistant');
+  Reflect.deleteProperty(window, 'agentHost');
   Reflect.deleteProperty(window, 'desktopLifecycle');
   Reflect.deleteProperty(window, '__brainstrikeAssistantRuntimeTestHooks__');
 });

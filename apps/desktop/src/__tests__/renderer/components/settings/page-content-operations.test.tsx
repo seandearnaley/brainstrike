@@ -318,8 +318,8 @@ vi.mock('../../../../renderer/components/settings/logging-settings', () => ({
 }));
 
 interface DesktopTestWindow {
-  assistant?: {
-    url: string;
+  agentHost?: {
+    connect(requestId: string): Promise<void>;
   };
   mcp?: {
     selectPath?: () => Promise<string | null>;
@@ -412,7 +412,7 @@ describe('desktop SettingsPageContent tool operations', () => {
     hostMcpSettings.current = createHostMcpSettings();
 
     const desktopWindow = getDesktopWindow();
-    desktopWindow.assistant = undefined;
+    desktopWindow.agentHost = undefined;
     // BST-1930 c5d: content browsing comes from the agent host.
     hostMcpContent.current = {
       complete: vi.fn(async () => ({
@@ -730,7 +730,7 @@ describe('desktop SettingsPageContent tool operations', () => {
   });
 
   it('passes status provider key sources into the Assistant Memory category', async () => {
-    getDesktopWindow().assistant = { url: 'http://127.0.0.1:4111' };
+    getDesktopWindow().agentHost = { connect: async () => undefined };
     assistantAvailability.current = {
       providerKeySources: [{ envVar: 'OPENAI_API_KEY', provider: 'openai', source: 'env' }],
       providers: ['openai', 'local'],

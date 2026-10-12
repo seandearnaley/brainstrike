@@ -20,10 +20,10 @@ vi.mock('@brainstrike/db/react', () => ({
 import { RUN_LEDGER_AGGREGATION_SQL } from '../../assistant-memory-repository';
 import { TASK_LEDGER_RUN_LIMIT, useRunLedger } from '../use-run-ledger';
 
-type AssistantBridge = { getUrl?: () => Promise<string>; url?: string } | undefined;
+type AgentHostBridge = { connect: (requestId: string) => Promise<void> } | undefined;
 
-function setDesktopAssistantBackend(bridge: AssistantBridge): void {
-  (window as unknown as { assistant?: AssistantBridge }).assistant = bridge;
+function setDesktopAgentHost(bridge: AgentHostBridge): void {
+  (window as unknown as { agentHost?: AgentHostBridge }).agentHost = bridge;
 }
 
 /** A raw aggregate row exactly as PGlite returns it (bigints as strings). */
@@ -57,7 +57,7 @@ describe('useRunLedger', () => {
   beforeEach(() => {
     usePGliteDatabaseMock.mockReset();
     usePGliteLiveQueryMock.mockReset();
-    setDesktopAssistantBackend({ url: 'http://localhost:1234' });
+    setDesktopAgentHost({ connect: async () => undefined });
     usePGliteLiveQueryMock.mockReturnValue({
       error: null,
       loading: false,
@@ -67,7 +67,7 @@ describe('useRunLedger', () => {
   });
 
   afterEach(() => {
-    setDesktopAssistantBackend(undefined);
+    setDesktopAgentHost(undefined);
     vi.restoreAllMocks();
   });
 
@@ -84,7 +84,7 @@ describe('useRunLedger', () => {
 
   it('is unavailable on WEB even with a PGlite handle (no desktop assistant backend)', () => {
     usePGliteDatabaseMock.mockReturnValue({});
-    setDesktopAssistantBackend(undefined);
+    setDesktopAgentHost(undefined);
 
     const { result } = renderHook(() => useRunLedger());
 
