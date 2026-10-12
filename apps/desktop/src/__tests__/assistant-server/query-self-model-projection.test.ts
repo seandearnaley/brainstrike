@@ -15,6 +15,7 @@ describe('querySelf model projection', () => {
       kind: 'rows',
       rowCount: 2,
       rows: [{ cells: ['src/a.ts', '4'] }, { cells: ['src/b.ts', '2'] }],
+      target: 'app',
       truncated: false,
     });
 
@@ -37,6 +38,7 @@ describe('querySelf model projection', () => {
       kind: 'rows',
       rowCount: 1,
       rows: [{ cells: ['1'] }],
+      target: 'app',
       truncated: true,
     });
 
@@ -56,6 +58,7 @@ describe('querySelf model projection', () => {
       kind: 'rows',
       rowCount: rows.length,
       rows,
+      target: 'app',
       truncated: false,
     });
 
@@ -98,6 +101,7 @@ describe('querySelf model projection', () => {
         { estimatedRows: -1, name: 'brainstrike_diagnostic_events' },
         { estimatedRows: 1234, name: 'file_chunks' },
       ],
+      target: 'app',
     });
 
     expect(projection.value).toContain('brainstrike_diagnostic_events\t~?');
@@ -127,14 +131,16 @@ describe('querySelf model projection', () => {
     const projection = projectQuerySelfModelOutput({
       kind: 'tables',
       tables: [{ estimatedRows: 1, name: 'roots' }],
+      target: 'app',
     });
 
     expect(projection.value).toContain('mode="describeTable"');
     expectHintFieldsExistInSchema(projection.value);
     // And the exact call the hint teaches must actually parse.
-    expect(QuerySelfInputSchema.safeParse({ mode: 'describeTable', table: 'roots' }).success).toBe(
-      true
-    );
+    expect(
+      QuerySelfInputSchema.safeParse({ mode: 'describeTable', table: 'roots', target: 'app' })
+        .success
+    ).toBe(true);
   });
 
   it('projects column descriptions with nullability', () => {
@@ -145,6 +151,7 @@ describe('querySelf model projection', () => {
       ],
       kind: 'columns',
       table: 'brainstrike_assistant_run_outcomes',
+      target: 'app',
     });
 
     expect(projection.value).toContain('run_id\ttext\tnot null');
@@ -156,12 +163,15 @@ describe('querySelf model projection', () => {
       columns: [],
       kind: 'columns',
       table: 'nope',
+      target: 'app',
     });
 
     expect(projection.value).toContain('not_found');
     expect(projection.value).toContain('mode="listTables"');
     expectHintFieldsExistInSchema(projection.value);
-    expect(QuerySelfInputSchema.safeParse({ mode: 'listTables' }).success).toBe(true);
+    expect(QuerySelfInputSchema.safeParse({ mode: 'listTables', target: 'app' }).success).toBe(
+      true
+    );
   });
 
   it('fits a very wide column list inside the budget', () => {
@@ -173,6 +183,7 @@ describe('querySelf model projection', () => {
       kind: 'rows',
       rowCount: 0,
       rows: [],
+      target: 'app',
       truncated: false,
     });
 
@@ -190,6 +201,7 @@ describe('querySelf model projection', () => {
       kind: 'rows',
       rowCount: 1,
       rows: [{ cells: ['tab\there\nand a newline', '7'] }],
+      target: 'app',
       truncated: false,
     });
 
@@ -210,6 +222,7 @@ describe('querySelf model projection', () => {
       kind: 'rows',
       rowCount: 0,
       rows: [],
+      target: 'app',
       truncated: false,
     });
 
@@ -227,7 +240,7 @@ describe('querySelf model projection', () => {
       name: `a_table_with_a_fairly_long_name_number_${index}`,
     }));
 
-    const projection = projectQuerySelfModelOutput({ kind: 'tables', tables });
+    const projection = projectQuerySelfModelOutput({ kind: 'tables', tables, target: 'app' });
 
     // BST-1195 recalibrated oversized metadata pages to decoded text length.
     expect(decodedChars([projection.value])).toBeLessThanOrEqual(
@@ -247,6 +260,7 @@ describe('querySelf model projection', () => {
       columns,
       kind: 'columns',
       table: 'wide',
+      target: 'app',
     });
 
     expect(decodedChars([projection.value])).toBeLessThanOrEqual(
@@ -264,6 +278,7 @@ describe('querySelf model projection', () => {
         '  ->  Seq Scan on file_records  (cost=0.00..0.12 rows=12 width=0)',
         'Execution Time: 0.061 ms',
       ],
+      target: 'app',
     });
 
     expect(projection.value).toContain('plan | analyzed=true');
@@ -278,7 +293,12 @@ describe('querySelf model projection', () => {
         `  ->  Nested Loop ${index}  (cost=0.00..${index}.00 rows=${index} width=8)`
     );
 
-    const projection = projectQuerySelfModelOutput({ analyzed: false, kind: 'plan', plan });
+    const projection = projectQuerySelfModelOutput({
+      analyzed: false,
+      kind: 'plan',
+      plan,
+      target: 'app',
+    });
 
     // BST-1195 recalibrated newline-dense plans to decoded text length.
     expect(decodedChars([projection.value])).toBeLessThanOrEqual(
@@ -303,7 +323,12 @@ describe('querySelf model projection', () => {
       'Execution Time: 1843.9 ms',
     ];
 
-    const projection = projectQuerySelfModelOutput({ analyzed: true, kind: 'plan', plan });
+    const projection = projectQuerySelfModelOutput({
+      analyzed: true,
+      kind: 'plan',
+      plan,
+      target: 'app',
+    });
 
     expect(decodedChars([projection.value])).toBeLessThanOrEqual(
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET
@@ -330,7 +355,12 @@ describe('querySelf model projection', () => {
       `Execution Time: 1843.9 ms  (${'z'.repeat(9000)})`,
     ];
 
-    const projection = projectQuerySelfModelOutput({ analyzed: true, kind: 'plan', plan });
+    const projection = projectQuerySelfModelOutput({
+      analyzed: true,
+      kind: 'plan',
+      plan,
+      target: 'app',
+    });
 
     expect(decodedChars([projection.value])).toBeLessThanOrEqual(
       MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET

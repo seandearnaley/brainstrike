@@ -12,6 +12,7 @@ import {
 } from '../ipc-domains/database.contract';
 import { forgeContract } from '../ipc-domains/forge.contract';
 import { gitContract } from '../ipc-domains/git.contract';
+import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import {
   mcpAppsContract,
   mcpContract,
@@ -62,6 +63,7 @@ const CONTRACT_BRIDGES = {
   databaseIntegrity: databaseIntegrityContract,
   forge: forgeContract,
   git: gitContract,
+  indexSearch: indexSearchContract,
   notesVault: notesVaultContract,
   settings: settingsContract,
   skills: skillsContract,
@@ -93,6 +95,128 @@ describe('preload contract-derived bridges', () => {
 
   afterAll(() => {
     moduleWithLoader._load = originalLoad;
+  });
+
+  it('passes document pins, unchanged texts and a plain cancellation token', async () => {
+    mockInvoke.mockClear();
+    const inferencePlan = {
+      device: 'wasm',
+      dimensions: 384,
+      dtype: 'q8',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      revision: '751bff37182d3f1213fa05d7196b954e230abad9',
+    };
+    const payload = {
+      dimensions: 384,
+      inferencePlan,
+      modelId: inferencePlan.modelId,
+      modelKey: 'native:documents',
+      texts: ['  document\n', 'second'],
+    };
+    await exposedApi('embeddingHost')['documentEmbeddings']?.(payload, {
+      requestId: 'renderer-token',
+    });
+    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.embeddingHost.documentEmbeddings, {
+      payload,
+      requestId: 'renderer-token',
+    });
+    await exposedApi('embeddingHost')['cancelDocumentEmbeddings']?.('renderer-token');
+    expect(mockInvoke).toHaveBeenLastCalledWith(
+      DESKTOP_IPC_CHANNELS.embeddingHost.cancelDocumentEmbeddings,
+      'renderer-token'
+    );
+    mockInvoke.mockClear();
+    expect(() =>
+      exposedApi('embeddingHost')['documentEmbeddings']?.(
+        { ...payload, inferencePlan: undefined },
+        { requestId: 'renderer-token' }
+      )
+    ).toThrow();
+    expect(mockInvoke).not.toHaveBeenCalled();
+  });
+
+  it('preserves complete native inference pins across the actual preload transport', async () => {
+    mockInvoke.mockClear();
+    const inferencePlan = {
+      device: 'wasm',
+      dimensions: 384,
+      dtype: 'q8',
+      modelId: 'Xenova/all-MiniLM-L6-v2',
+      revision: '751bff37182d3f1213fa05d7196b954e230abad9',
+    };
+    const payload = {
+      dimensions: 384,
+      inferencePlan,
+      modelId: inferencePlan.modelId,
+      modelKey: 'native:minilm',
+      query: 'callers',
+    };
+    await exposedApi('embeddingHost')['queryEmbedding']?.(payload);
+    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbedding, {
+      payload,
+      requestId: expect.any(String),
+    });
+    await exposedApi('embeddingHost')['queryEmbedding']?.(payload, { requestId: 'search-token' });
+    expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbedding, {
+      payload,
+      requestId: 'search-token',
+    });
+    await exposedApi('embeddingHost')['cancelQueryEmbedding']?.('search-token');
+    expect(mockInvoke).toHaveBeenLastCalledWith(
+      DESKTOP_IPC_CHANNELS.embeddingHost.cancelQueryEmbedding,
+      'search-token'
+    );
+  });
+  it.each([
+    { dimensions: 384, dtype: 'q8', modelId: 'Xenova/bge-small-en-v1.5' },
+    { dimensions: 768, dtype: 'fp32', modelId: 'Xenova/bge-base-en-v1.5' },
+    { dimensions: 768, dtype: 'q4', modelId: 'jinaai/jina-embeddings-v2-base-code' },
+  ])(
+    'preserves original catalog $modelId without invented revision across query and document preload',
+    async (selected) => {
+      const inferencePlan = { ...selected, device: 'wasm' };
+      for (const kind of ['queryEmbedding', 'documentEmbeddings'] as const) {
+        mockInvoke.mockClear();
+        const payload = {
+          dimensions: selected.dimensions,
+          inferencePlan,
+          modelId: selected.modelId,
+          modelKey: `local::${selected.modelId}`,
+          ...(kind === 'queryEmbedding' ? { query: 'callers' } : { texts: ['document'] }),
+        };
+        await exposedApi('embeddingHost')[kind]?.(payload, { requestId: 'catalog-token' });
+        expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.embeddingHost[kind], {
+          payload,
+          requestId: 'catalog-token',
+        });
+      }
+    }
+  );
+  it.each([
+    { device: undefined },
+    { dtype: undefined },
+    { dtype: 'unknown' },
+    { revision: 'main' },
+    { dimensions: 0 },
+    { dimensions: Number.NaN },
+  ])('rejects invalid explicit local plan before IPC: %j', (invalid) => {
+    mockInvoke.mockClear();
+    expect(() =>
+      exposedApi('embeddingHost')['queryEmbedding']?.({
+        dimensions: 768,
+        inferencePlan: {
+          device: 'wasm',
+          dimensions: 768,
+          dtype: 'q8',
+          modelId: 'Xenova/bge-base-en-v1.5',
+          ...invalid,
+        },
+        modelId: 'Xenova/bge-base-en-v1.5',
+        modelKey: 'local::Xenova/bge-base-en-v1.5',
+        query: 'callers',
+      })
+    ).toThrow();
+    expect(mockInvoke).not.toHaveBeenCalled();
   });
 
   it.each(Object.entries(CONTRACT_BRIDGES))(

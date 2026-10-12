@@ -32,13 +32,13 @@ export const querySelf = defineNativeTool({
     requiresApproval: false,
     riskCategory: 'read',
   },
-  description: `Run ONE read-only SQL SELECT over Brainstrike's own local Postgres: this assistant's history (run outcomes, edit checkpoints, usage/cost, queue metrics) plus the code index (file_records, file_chunks) and symbol graph (file_symbols, file_symbol_refs joined by name). Best for aggregates, trends, and call-graph traversal; search arms join a traversal in the same statement (BM25: content <@> to_bm25query('terms','idx_file_chunks_content_bm25') ASC; vector: embedding <=> a stored embedding). ALWAYS set mode: listTables first, then describeTable with table, then query or explain with sql; unused fields ignored. Saved lenses (.brainstrike/lenses/*.sql): mode listLenses, then mode lens with lens + values. Example sql: ${QUERY_SELF_EXAMPLE_QUERIES[0]}. Costly plans are refused with the estimate — narrow and retry. Catalog/stats views readable (pg_indexes, pg_stats, pg_settings, pg_stat_user_*), but pg_stat_* counters read 0 until you run SELECT pg_stat_force_next_flush()`,
+  description: `Run ONE read-only SQL statement over Brainstrike's local stores. ALWAYS set target and mode: target app uses Postgres for assistant history, edit checkpoints, usage/cost and queue metrics; target index uses SQLite for the derived workspace code index (file_records, file_chunks), FTS5 search and symbol graph (file_symbols, file_symbol_refs). Start with listTables, then describeTable with table, then query or explain with sql. SQLite explain uses EXPLAIN QUERY PLAN and refuses analyze=true; app explain supports PostgreSQL EXPLAIN ANALYZE under its cost gate. Saved lenses (.brainstrike/lenses/*.sql): listLenses shows each declared target; invoke lens with that target, lens id and positional values. Example target app sql: ${QUERY_SELF_EXAMPLE_QUERIES[0]}. App plans above the cost ceiling are refused; index queries run in a dedicated read-only process with a deadline and bounded results. A missing index is an explicit capability error. Narrow expensive queries and retry. Catalog/stats views are available only in target app`,
   discovery: { family: 'DB self-query', namespace: 'database' },
   history: { recencyPrunable: true },
   id: 'brainstrike.querySelf',
   inputSchema: providerCompatibleInputSchema(QuerySelfInputSchema),
   kind: 'desktop',
   returns:
-    'Column names once plus rows as positional arrays, with the row count, a truncation flag, and the planner cost estimate. Schema modes return table or column listings; explain returns the query plan',
+    'Column names once plus positional rows, row count and explicit truncation; app results also include their PostgreSQL planner cost. Schema modes return table or column listings; explain returns the selected engine plan; lens listings declare each target',
   surfaces: ['desktop'],
 });

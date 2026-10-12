@@ -16,10 +16,12 @@ import {
   type LspInspectInput,
   NATIVE_TOOL_INPUT_SCHEMAS,
   type QueryEmbeddingSpaceInput,
+  resolveGuardedToolSignal,
   type WebExtractInput,
   type WebSearchInput,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
+import type { z } from 'zod';
 import { getActiveBrowserPaneHost } from '../browser/browser-pane-registry';
 import {
   runBrowserGetPageText,
@@ -31,6 +33,12 @@ import { runGrepSearch } from './grep-search-tool';
 import { runHybridSearch } from './hybrid-search-tool';
 import { runListEmbeddingSpaces } from './list-embedding-spaces-tool';
 import { runFindWorkspaceSymbol, runLspInspect } from './lsp-inspection-tools';
+import {
+  NATIVE_HYBRID_RETRIEVAL_DESCRIPTION,
+  NATIVE_SEMANTIC_RETRIEVAL_DESCRIPTION,
+  NativeHybridSearchInputSchema,
+  NativeQueryEmbeddingSpaceInputSchema,
+} from './native-retrieval-schemas';
 import { executorGroup } from './native-tool-executor-context';
 import { runQueryEmbeddingSpace } from './retrieval-tool';
 import { withRepeatedCallGuard } from './tool-call-loop-guards';
@@ -38,7 +46,6 @@ import { attachGlobWorkspaceTelemetry, attachGrepSearchTelemetry } from './tool-
 import {
   logToolFailure,
   parseToolExecuteInput,
-  resolveToolExecuteInputCandidate,
   type ToolExecuteContext,
   type ToolExecuteInput,
 } from './tool-execute-support';
@@ -59,16 +66,6 @@ import {
   projectGlobWorkspaceModelOutput,
   projectGrepSearchModelOutput,
 } from './workspace-search-model-projections';
-
-function resolveQueryEmbeddingSpaceInput(
-  input: ToolExecuteInput<QueryEmbeddingSpaceInput>
-): QueryEmbeddingSpaceInput {
-  const raw = resolveToolExecuteInputCandidate(
-    NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.queryEmbeddingSpace],
-    input
-  ) as Partial<QueryEmbeddingSpaceInput>;
-  return NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.queryEmbeddingSpace].parse(raw);
-}
 
 export const SEARCH_TOOL_EXECUTORS = executorGroup({
   [NATIVE_TOOL_ID.findWorkspaceSymbol]: ({ resolveActiveDomainCharBudget, runtimeData }) => ({
@@ -211,63 +208,72 @@ export const SEARCH_TOOL_EXECUTORS = executorGroup({
     dependencies,
     resolveActiveDomainCharBudget,
     runtimeData,
-  }) => ({
-    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.queryEmbeddingSpace],
-    execute: async (
-      input: ToolExecuteInput<QueryEmbeddingSpaceInput>,
-      context?: ToolExecuteContext
-    ) => {
-      const resolvedInput = resolveQueryEmbeddingSpaceInput(input);
-      try {
-        return await runQueryEmbeddingSpace(
-          resolvedInput,
-          runtimeData,
-          {
-            embeddingHostManager: dependencies.embeddingHostManager,
-          },
-          context?.abortSignal
-        );
-      } catch (error) {
-        logToolFailure('queryEmbeddingSpace failed', error, resolvedInput);
-        throw error;
-      }
-    },
-    id: NATIVE_TOOL_ID.queryEmbeddingSpace,
-    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.queryEmbeddingSpace],
-    toModelOutput: (output: unknown) =>
-      projectQueryEmbeddingSpaceModelOutput(output, resolveActiveDomainCharBudget()),
-  }),
-  [NATIVE_TOOL_ID.hybridSearch]: ({
-    dependencies,
-    resolveActiveDomainCharBudget,
-    runtimeData,
-  }) => ({
-    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.hybridSearch],
-    execute: async (input: ToolExecuteInput<HybridSearchInput>, context?: ToolExecuteContext) => {
-      const resolvedInput = parseToolExecuteInput(
-        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.hybridSearch],
-        input
-      );
-      try {
-        return await runHybridSearch(
-          resolvedInput,
-          runtimeData,
-          {
-            embeddingHostManager: dependencies.embeddingHostManager,
-          },
-          context?.abortSignal
-        );
-      } catch (error) {
-        logToolFailure('hybridSearch failed', error, resolvedInput);
-        throw error;
-      }
-    },
-    id: NATIVE_TOOL_ID.hybridSearch,
-    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.hybridSearch],
-    toModelOutput: (output: unknown) =>
-      projectHybridSearchModelOutput(output, resolveActiveDomainCharBudget()),
-  }),
-  [NATIVE_TOOL_ID.listEmbeddingSpaces]: ({ runtimeData }) => ({
+  }) => {
+    const inputSchema: z.ZodType<QueryEmbeddingSpaceInput> = dependencies.nativeIndexSearch
+      ? NativeQueryEmbeddingSpaceInputSchema
+      : NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.queryEmbeddingSpace];
+    return {
+      description: dependencies.nativeIndexSearch
+        ? NATIVE_SEMANTIC_RETRIEVAL_DESCRIPTION
+        : TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.queryEmbeddingSpace],
+      execute: async (
+        input: ToolExecuteInput<QueryEmbeddingSpaceInput>,
+        context?: ToolExecuteContext
+      ) => {
+        const resolvedInput = parseToolExecuteInput(inputSchema, input);
+        try {
+          return await runQueryEmbeddingSpace(
+            resolvedInput,
+            runtimeData,
+            {
+              embeddingHostManager: dependencies.embeddingHostManager,
+              nativeIndexSearch: dependencies.nativeIndexSearch,
+            },
+            resolveGuardedToolSignal(context)
+          );
+        } catch (error) {
+          logToolFailure('queryEmbeddingSpace failed', error, resolvedInput);
+          throw error;
+        }
+      },
+      id: NATIVE_TOOL_ID.queryEmbeddingSpace,
+      inputSchema,
+      toModelOutput: (output: unknown) =>
+        projectQueryEmbeddingSpaceModelOutput(output, resolveActiveDomainCharBudget()),
+    };
+  },
+  [NATIVE_TOOL_ID.hybridSearch]: ({ dependencies, resolveActiveDomainCharBudget, runtimeData }) => {
+    const inputSchema: z.ZodType<HybridSearchInput> = dependencies.nativeIndexSearch
+      ? NativeHybridSearchInputSchema
+      : NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.hybridSearch];
+    return {
+      description: dependencies.nativeIndexSearch
+        ? NATIVE_HYBRID_RETRIEVAL_DESCRIPTION
+        : TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.hybridSearch],
+      execute: async (input: ToolExecuteInput<HybridSearchInput>, context?: ToolExecuteContext) => {
+        const resolvedInput = parseToolExecuteInput(inputSchema, input);
+        try {
+          return await runHybridSearch(
+            resolvedInput,
+            runtimeData,
+            {
+              embeddingHostManager: dependencies.embeddingHostManager,
+              nativeIndexSearch: dependencies.nativeIndexSearch,
+            },
+            resolveGuardedToolSignal(context)
+          );
+        } catch (error) {
+          logToolFailure('hybridSearch failed', error, resolvedInput);
+          throw error;
+        }
+      },
+      id: NATIVE_TOOL_ID.hybridSearch,
+      inputSchema,
+      toModelOutput: (output: unknown) =>
+        projectHybridSearchModelOutput(output, resolveActiveDomainCharBudget()),
+    };
+  },
+  [NATIVE_TOOL_ID.listEmbeddingSpaces]: ({ dependencies, runtimeData }) => ({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.listEmbeddingSpaces],
     execute: async (input: ToolExecuteInput<ListEmbeddingSetsInput>) => {
       const resolvedInput = parseToolExecuteInput(
@@ -275,7 +281,11 @@ export const SEARCH_TOOL_EXECUTORS = executorGroup({
         input
       );
       try {
-        return await runListEmbeddingSpaces(resolvedInput, runtimeData);
+        return await runListEmbeddingSpaces(
+          resolvedInput,
+          runtimeData,
+          dependencies.nativeIndexSearch
+        );
       } catch (error) {
         logToolFailure('listEmbeddingSpaces failed', error, resolvedInput);
         throw error;

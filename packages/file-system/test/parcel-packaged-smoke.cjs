@@ -19,13 +19,22 @@ const BACKEND_BY_PLATFORM = {
 };
 
 const desktopRoot = path.resolve(__dirname, '../../../apps/desktop');
-const macDirectory = existsSync(path.join(desktopRoot, 'release/mac-arm64')) ? 'mac-arm64' : 'mac';
+if (
+  !(
+    ['arm64', 'x64'].includes(process.arch) &&
+    ['darwin', 'linux', 'win32'].includes(process.platform)
+  )
+) {
+  throw new Error(`Unsupported packaged native target: ${process.platform}/${process.arch}`);
+}
+const macDirectory = process.arch === 'arm64' ? 'mac-arm64' : 'mac';
+const architectureSuffix = process.arch === 'arm64' ? '-arm64' : '';
 const resources =
   process.platform === 'darwin'
     ? path.join(desktopRoot, `release/${macDirectory}/BrainStrike Desktop.app/Contents/Resources`)
     : path.join(
         desktopRoot,
-        `release/${process.platform === 'win32' ? 'win' : 'linux'}-unpacked/resources`
+        `release/${process.platform === 'win32' ? 'win' : 'linux'}${architectureSuffix}-unpacked/resources`
       );
 const archive = path.join(resources, 'app.asar');
 const packagedFileSystemManifest = path.join(

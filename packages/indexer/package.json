@@ -1,0 +1,59 @@
+{
+  "name": "@brainstrike/indexer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Isolated desktop derived SQLite index process (ADR-0018)",
+  "license": "MIT",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./transport": {
+      "types": "./dist/transport.d.ts",
+      "default": "./dist/transport.js"
+    },
+    "./host": {
+      "types": "./dist/process-core.d.ts",
+      "default": "./dist/process-core.js"
+    },
+    "./metadata": {
+      "types": "./dist/metadata-reader.d.ts",
+      "default": "./dist/metadata-reader.js"
+    },
+    "./coverage-reader": {
+      "types": "./dist/coverage-reader.d.ts",
+      "default": "./dist/coverage-reader.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "dependencies": {
+    "@brainstrike/chunking-worker": "workspace:*",
+    "@brainstrike/effect-kit": "workspace:*",
+    "@brainstrike/sqlite-native": "workspace:*",
+    "@brainstrike/state-store": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@brainstrike/test-utils": "workspace:*",
+    "@effect/tsgo": "catalog:",
+    "@types/better-sqlite3": "catalog:",
+    "@types/node": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "electron": "catalog:"
+  },
+  "scripts": {
+    "build": "node ../../scripts/prune-stale-dist.mjs && tsc -b .",
+    "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
+    "test": "vitest run --exclude \"**/*.integration.test.*\"",
+    "test:integration": "vitest run --config vitest.integration.config.mts",
+    "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json && effect-tsgo diagnostics --project tsconfig.test.json --strict",
+    "test:coverage": "vitest run --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text"
+  }
+}

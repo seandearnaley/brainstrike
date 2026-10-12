@@ -147,7 +147,7 @@ function isPidAlive(pid: number): boolean {
 
 afterEach(async () => {
   // Reap anything a test left running so pids never leak across tests.
-  disposeAllTerminals();
+  await disposeAllTerminals();
   while (createdDirs.length > 0) {
     const dir = createdDirs.pop();
     if (dir) {
@@ -672,7 +672,7 @@ describe('terminal IPC handlers — dispose lifecycle', () => {
     }
     expect(pids.every((pid) => isPidAlive(pid))).toBe(true);
 
-    const reaped = disposeAllTerminals();
+    const reaped = await disposeAllTerminals();
     expect(reaped).toBe(2);
     expect(liveTerminalCountForTest()).toBe(0);
 

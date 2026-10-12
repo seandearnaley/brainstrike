@@ -1,0 +1,1694 @@
+{
+  "name": "brainstrike-repository-retrieval",
+  "version": "1.0.0",
+  "sourceCommit": "ed97957e030dd3345c232650199dbc88929dad24",
+  "judgmentMethod": "Source inspection by the author before retrieval; positive answer spans, not output-derived or exhaustive relevance labels. Each judgment identifies the implementation line answering a concrete query.",
+  "sources": [
+    {
+      "relativePath": "packages/assistant-contract/src/context-budget.ts",
+      "sha256": "9e2ecf7b6d7675ea26887e42ead29ed258e084f90042970a3c57c0a147ce17c6"
+    },
+    {
+      "relativePath": "packages/assistant-contract/src/context-packer.ts",
+      "sha256": "8a312eabe37c8cbebb6811ed53f8fe592e37177fd0673777f2b3f49fb0a1b2d6"
+    },
+    {
+      "relativePath": "packages/utils/src/background-work-arbiter.ts",
+      "sha256": "0e3f246bfe9bfeb923be74a1457cf57225edd809b76a4a876b9a7576bae4dc9d"
+    },
+    {
+      "relativePath": "packages/utils/src/path-ancestors.ts",
+      "sha256": "339525e0634d08c2778b620b68ca9857b12e5784b5c4d598d95b73943f39b439"
+    },
+    {
+      "relativePath": "packages/chunking-worker/src/message-validation.ts",
+      "sha256": "419648e7858d69e4699dd21c3b2a95c36c808312ed35c4b4e645d6bece6c3e6f"
+    },
+    {
+      "relativePath": "packages/chunking-worker/src/chunking-config.ts",
+      "sha256": "549357349ce76cf1ed8b2d0a2bbd12921c38afcec3228196cd4e31844441102d"
+    },
+    {
+      "relativePath": "packages/file-import/src/resolve-chunking-worker-url.ts",
+      "sha256": "913e3590f0bf920892f9db1203545e2e8df465edb2818377965e44d8595c1e82"
+    },
+    {
+      "relativePath": "packages/utils/src/relative-file-path.ts",
+      "sha256": "be520747b5b63d685c38b6daddcf75c58cc09eb8961bc4ae8070e8ecaaf22de8"
+    },
+    {
+      "relativePath": "packages/chunking-worker/src/ordered-batch-map.ts",
+      "sha256": "a9959df9e31c892f793228ac8a2fb6008e1099d40ce52adbcbe77a4e606fd305"
+    },
+    {
+      "relativePath": "packages/chunking-worker/src/line-offsets.ts",
+      "sha256": "3c4bf1d4d773b1dcff1cb22eae9d7f68f573cf3b77ceb8d9168b7a0f9aa7032c"
+    },
+    {
+      "relativePath": "packages/token-cache/src/file-hasher.ts",
+      "sha256": "ff4bd884e3deeb3ff4dd5de61df6fb917d2dc4d359ca08ee8b96649aa12fe600"
+    },
+    {
+      "relativePath": "packages/file-explorer-ui/src/file-content-reload-scheduler.ts",
+      "sha256": "1e126b941c78d2e167be1180439beb5fdc2d9c9d3f8b3c96008345b9f2fc195d"
+    },
+    {
+      "relativePath": "packages/utils/src/error-utils.ts",
+      "sha256": "3e84fabecf4d58f31d85ac39b4fb1b0cfc1a47f0bb48e6839c64350bad0637c3"
+    },
+    {
+      "relativePath": "packages/utils/src/path-utils.ts",
+      "sha256": "12be0fa5eceda247091bc24a6d4bc8a6382d49eae83d34f1859815167f15f583"
+    },
+    {
+      "relativePath": "packages/utils/src/url-utils.ts",
+      "sha256": "0ce6d657b1c8f4a5b1c570fe2e97043c14ae5951c469accd28810ade45035b35"
+    },
+    {
+      "relativePath": "packages/utils/src/provider-model-key.ts",
+      "sha256": "969321a3b85a9ee67911a3fbc2d4d6cd40db50d1f73a355d5ee4dca3cd06d5ef"
+    },
+    {
+      "relativePath": "packages/utils/src/create-debounce.ts",
+      "sha256": "cee956942e80c938db0946b7b6f2cded863770fc4376af8e091e84c79b633d8e"
+    },
+    {
+      "relativePath": "packages/utils/src/performance-measure-guard.ts",
+      "sha256": "8e27995f035ce1f8de8eb5c3447f3c7e01d2182cf63a3bc4627afbac9ce742f7"
+    },
+    {
+      "relativePath": "packages/agent/src/tools/workspace-index-retrieval.ts",
+      "sha256": "c5d401affdae8a5a681a45213640270f9b9bc1a76d1cf945ae7e5813d45088fd"
+    },
+    {
+      "relativePath": "packages/agent/src/tools/progress-adapter.ts",
+      "sha256": "39dc0fb61877b81edfc1c098dad9fdf83a8b8d3c5e3c8fccd3933cce728972ff"
+    },
+    {
+      "relativePath": "packages/db/src/search/rrf.ts",
+      "sha256": "1dd287b7d5c5b26d9195da03f1809f38df3c0b71b5dc3434e364046d1b28fbb5"
+    }
+  ],
+  "queries": [
+    {
+      "id": "repo-001",
+      "query": "deriveEffectiveInputBudget",
+      "kind": "exact",
+      "intent": "Derive the prompt capacity after reserving response tokens and a safety margin.",
+      "judgments": [
+        {
+          "id": "repo-001-answer-1",
+          "relativePath": "packages/assistant-contract/src/context-budget.ts",
+          "startLine": 42,
+          "endLine": 42,
+          "evidence": "const budget = contextWindow - output - margin;",
+          "rationale": "Derive the prompt capacity after reserving response tokens and a safety margin."
+        }
+      ]
+    },
+    {
+      "id": "repo-002",
+      "query": "Where does a model with an impossibly small context window fail instead of clamping its prompt budget?",
+      "kind": "semantic",
+      "intent": "The derivation rejects a nonpositive remaining input budget.",
+      "judgments": [
+        {
+          "id": "repo-002-answer-1",
+          "relativePath": "packages/assistant-contract/src/context-budget.ts",
+          "startLine": 43,
+          "endLine": 43,
+          "evidence": "if (budget <= 0) {",
+          "rationale": "The derivation rejects a nonpositive remaining input budget."
+        }
+      ]
+    },
+    {
+      "id": "repo-003",
+      "query": "OpenRouter input budget requestMaxOutputTokens validation",
+      "kind": "mixed",
+      "intent": "OpenRouter requires the positive integer output limit actually sent in the request.",
+      "judgments": [
+        {
+          "id": "repo-003-answer-1",
+          "relativePath": "packages/assistant-contract/src/context-budget.ts",
+          "startLine": 86,
+          "endLine": 86,
+          "evidence": "Number.isSafeInteger(requestMaxOutputTokens) &&",
+          "rationale": "OpenRouter requires the positive integer output limit actually sent in the request."
+        }
+      ]
+    },
+    {
+      "id": "repo-004",
+      "query": "CONTEXT_BUDGET_SAFETY_MARGIN_MIN CONTEXT_BUDGET_SAFETY_MARGIN_RATIO",
+      "kind": "exact",
+      "intent": "The budget uses a 1024-token floor and five-percent proportional safety margin.",
+      "judgments": [
+        {
+          "id": "repo-004-answer-1",
+          "relativePath": "packages/assistant-contract/src/context-budget.ts",
+          "startLine": 13,
+          "endLine": 13,
+          "evidence": "export const CONTEXT_BUDGET_SAFETY_MARGIN_MIN = 1024;",
+          "rationale": "The budget uses a 1024-token floor and five-percent proportional safety margin."
+        }
+      ]
+    },
+    {
+      "id": "repo-005",
+      "query": "Which branch reserves catalog output limits for providers other than OpenRouter?",
+      "kind": "semantic",
+      "intent": "Other providers derive the input cap from the model catalog maximum.",
+      "judgments": [
+        {
+          "id": "repo-005-answer-1",
+          "relativePath": "packages/assistant-contract/src/context-budget.ts",
+          "startLine": 80,
+          "endLine": 80,
+          "evidence": "if (providerId !== 'openrouter') {",
+          "rationale": "Other providers derive the input cap from the model catalog maximum."
+        }
+      ]
+    },
+    {
+      "id": "repo-006",
+      "query": "resolveLineRange invalid 1-based line range",
+      "kind": "exact",
+      "intent": "The packer rejects incomplete or invalid source line metadata.",
+      "judgments": [
+        {
+          "id": "repo-006-answer-1",
+          "relativePath": "packages/assistant-contract/src/context-packer.ts",
+          "startLine": 90,
+          "endLine": 90,
+          "evidence": "!Number.isSafeInteger(startLine) ||",
+          "rationale": "The packer rejects incomplete or invalid source line metadata."
+        }
+      ]
+    },
+    {
+      "id": "repo-007",
+      "query": "How are fractional positive stored token counts rounded before packing retrieved context?",
+      "kind": "semantic",
+      "intent": "Positive finite token counts are rounded upward.",
+      "judgments": [
+        {
+          "id": "repo-007-answer-1",
+          "relativePath": "packages/assistant-contract/src/context-packer.ts",
+          "startLine": 65,
+          "endLine": 65,
+          "evidence": "return Math.ceil(value);",
+          "rationale": "Positive finite token counts are rounded upward."
+        }
+      ]
+    },
+    {
+      "id": "repo-008",
+      "query": "ContextPacker estimateTokens missing tokenCount",
+      "kind": "mixed",
+      "intent": "Missing or invalid stored counts are estimated from content.",
+      "judgments": [
+        {
+          "id": "repo-008-answer-1",
+          "relativePath": "packages/assistant-contract/src/context-packer.ts",
+          "startLine": 110,
+          "endLine": 110,
+          "evidence": "const estimated = estimateTokens(chunk.content);",
+          "rationale": "Missing or invalid stored counts are estimated from content."
+        }
+      ]
+    },
+    {
+      "id": "repo-009",
+      "query": "Does an oversized context chunk prevent smaller later chunks from fitting?",
+      "kind": "semantic",
+      "intent": "The pack loop skips a chunk that does not fit and can continue to later input.",
+      "judgments": [
+        {
+          "id": "repo-009-answer-1",
+          "relativePath": "packages/assistant-contract/src/context-packer.ts",
+          "startLine": 220,
+          "endLine": 220,
+          "evidence": "continue;",
+          "rationale": "The pack loop skips a chunk that does not fit and can continue to later input."
+        }
+      ]
+    },
+    {
+      "id": "repo-010",
+      "query": "skippedForMaxChunks packed.length maxChunks",
+      "kind": "exact",
+      "intent": "The limit counts packed chunks and records distinct cap skips.",
+      "judgments": [
+        {
+          "id": "repo-010-answer-1",
+          "relativePath": "packages/assistant-contract/src/context-packer.ts",
+          "startLine": 205,
+          "endLine": 205,
+          "evidence": "if (packed.length >= maxChunks) {",
+          "rationale": "The limit counts packed chunks and records distinct cap skips."
+        }
+      ]
+    },
+    {
+      "id": "repo-011",
+      "query": "ContextPacker budgetTokens safe integer constructor",
+      "kind": "mixed",
+      "intent": "The constructor rejects budgets outside safe integer range.",
+      "judgments": [
+        {
+          "id": "repo-011-answer-1",
+          "relativePath": "packages/assistant-contract/src/context-packer.ts",
+          "startLine": 186,
+          "endLine": 186,
+          "evidence": "if (!Number.isSafeInteger(budgetTokens)) {",
+          "rationale": "The constructor rejects budgets outside safe integer range."
+        }
+      ]
+    },
+    {
+      "id": "repo-012",
+      "query": "Where does packing preserve chunk offsets, score and metadata in its output?",
+      "kind": "semantic",
+      "intent": "The output builder copies provenance and retrieval metadata.",
+      "judgments": [
+        {
+          "id": "repo-012-answer-1",
+          "relativePath": "packages/assistant-contract/src/context-packer.ts",
+          "startLine": 168,
+          "endLine": 168,
+          "evidence": "packed.metadata = chunk.metadata;",
+          "rationale": "The output builder copies provenance and retrieval metadata."
+        }
+      ]
+    },
+    {
+      "id": "repo-013",
+      "query": "acquireBackgroundWorkPauseReason local-llm",
+      "kind": "exact",
+      "intent": "The public acquire entrypoint delegates to the singleton arbiter.",
+      "judgments": [
+        {
+          "id": "repo-013-answer-1",
+          "relativePath": "packages/utils/src/background-work-arbiter.ts",
+          "startLine": 153,
+          "endLine": 153,
+          "evidence": "return arbiter.acquirePauseReason(reason);",
+          "rationale": "The public acquire entrypoint delegates to the singleton arbiter."
+        }
+      ]
+    },
+    {
+      "id": "repo-014",
+      "query": "How do overlapping local assistant requests keep background indexing paused until every lease releases?",
+      "kind": "semantic",
+      "intent": "Automatic pause reasons are reference counted.",
+      "judgments": [
+        {
+          "id": "repo-014-answer-1",
+          "relativePath": "packages/utils/src/background-work-arbiter.ts",
+          "startLine": 42,
+          "endLine": 42,
+          "evidence": "const nextCount = (this.pauseReasonCounts.get(reason) ?? 0) - 1;",
+          "rationale": "Automatic pause reasons are reference counted."
+        }
+      ]
+    },
+    {
+      "id": "repo-015",
+      "query": "pauseRegisteredHandlers rejection rollback acquired reason",
+      "kind": "mixed",
+      "intent": "A failed first pause rolls back its reason before rejecting.",
+      "judgments": [
+        {
+          "id": "repo-015-answer-1",
+          "relativePath": "packages/utils/src/background-work-arbiter.ts",
+          "startLine": 53,
+          "endLine": 53,
+          "evidence": "releasePauseReason();",
+          "rationale": "A failed first pause rolls back its reason before rejecting."
+        }
+      ]
+    },
+    {
+      "id": "repo-016",
+      "query": "Where is releasing the same background pause lease twice made harmless?",
+      "kind": "semantic",
+      "intent": "The lease release closure is idempotent.",
+      "judgments": [
+        {
+          "id": "repo-016-answer-1",
+          "relativePath": "packages/utils/src/background-work-arbiter.ts",
+          "startLine": 59,
+          "endLine": 59,
+          "evidence": "if (released) {",
+          "rationale": "The lease release closure is idempotent."
+        }
+      ]
+    },
+    {
+      "id": "repo-017",
+      "query": "backgroundIndexingPaused manualPause automaticPauseReasons",
+      "kind": "exact",
+      "intent": "Manual and automatic pauses combine in the emitted snapshot.",
+      "judgments": [
+        {
+          "id": "repo-017-answer-1",
+          "relativePath": "packages/utils/src/background-work-arbiter.ts",
+          "startLine": 111,
+          "endLine": 111,
+          "evidence": "backgroundIndexingPaused: this.manualPause || automaticPauseReasons.length > 0,",
+          "rationale": "Manual and automatic pauses combine in the emitted snapshot."
+        }
+      ]
+    },
+    {
+      "id": "repo-018",
+      "query": "Why does unregistering an old background pause handler not remove its replacement?",
+      "kind": "semantic",
+      "intent": "Handler removal checks the current instance identity.",
+      "judgments": [
+        {
+          "id": "repo-018-answer-1",
+          "relativePath": "packages/utils/src/background-work-arbiter.ts",
+          "startLine": 75,
+          "endLine": 75,
+          "evidence": "if (this.pauseHandlers.get(id) !== handler) {",
+          "rationale": "Handler removal checks the current instance identity."
+        }
+      ]
+    },
+    {
+      "id": "repo-019",
+      "query": "getAncestorDirectryPaths",
+      "kind": "fuzzy",
+      "intent": "The exported helper returns parent directory chains for a file path.",
+      "judgments": [
+        {
+          "id": "repo-019-answer-1",
+          "relativePath": "packages/utils/src/path-ancestors.ts",
+          "startLine": 77,
+          "endLine": 77,
+          "evidence": "export function getAncestorDirectoryPaths(",
+          "rationale": "The exported helper returns parent directory chains for a file path."
+        }
+      ]
+    },
+    {
+      "id": "repo-020",
+      "query": "Where does ancestor counting remove directories after their count falls to zero?",
+      "kind": "semantic",
+      "intent": "Nonpositive aggregate counts are deleted.",
+      "judgments": [
+        {
+          "id": "repo-020-answer-1",
+          "relativePath": "packages/utils/src/path-ancestors.ts",
+          "startLine": 103,
+          "endLine": 103,
+          "evidence": "counts.delete(directoryPath);",
+          "rationale": "Nonpositive aggregate counts are deleted."
+        }
+      ]
+    },
+    {
+      "id": "repo-021",
+      "query": "deep directory ancestry cachedParentChain avoid recursive spread",
+      "kind": "mixed",
+      "intent": "Ancestor chains are constructed iteratively and reuse cached parents.",
+      "judgments": [
+        {
+          "id": "repo-021-answer-1",
+          "relativePath": "packages/utils/src/path-ancestors.ts",
+          "startLine": 63,
+          "endLine": 63,
+          "evidence": "const chain = cachedParentChain ? [...cachedParentChain] : [];",
+          "rationale": "Ancestor chains are constructed iteratively and reuse cached parents."
+        }
+      ]
+    },
+    {
+      "id": "repo-022",
+      "query": "includeRoot path ancestor chain",
+      "kind": "exact",
+      "intent": "Root inclusion is controlled explicitly.",
+      "judgments": [
+        {
+          "id": "repo-022-answer-1",
+          "relativePath": "packages/utils/src/path-ancestors.ts",
+          "startLine": 67,
+          "endLine": 67,
+          "evidence": "if (path !== '/' || options.includeRoot) {",
+          "rationale": "Root inclusion is controlled explicitly."
+        }
+      ]
+    },
+    {
+      "id": "repo-023",
+      "query": "isChunkBatchRequest",
+      "kind": "exact",
+      "intent": "The worker batch guard uses the typed runtime schema.",
+      "judgments": [
+        {
+          "id": "repo-023-answer-1",
+          "relativePath": "packages/chunking-worker/src/message-validation.ts",
+          "startLine": 108,
+          "endLine": 108,
+          "evidence": "return matchesBatch(value);",
+          "rationale": "The worker batch guard uses the typed runtime schema."
+        }
+      ]
+    },
+    {
+      "id": "repo-024",
+      "query": "Which worker validation accepts content of any string length so oversized files fail per file later?",
+      "kind": "semantic",
+      "intent": "Content size is handled by worker execution rather than initialization schema.",
+      "judgments": [
+        {
+          "id": "repo-024-answer-1",
+          "relativePath": "packages/chunking-worker/src/message-validation.ts",
+          "startLine": 43,
+          "endLine": 43,
+          "evidence": "content: Schema.String,",
+          "rationale": "Content size is handled by worker execution rather than initialization schema."
+        }
+      ]
+    },
+    {
+      "id": "repo-025",
+      "query": "chunk batch requests min length maxBatchSize",
+      "kind": "mixed",
+      "intent": "Batch arrays must be nonempty and bounded.",
+      "judgments": [
+        {
+          "id": "repo-025-answer-1",
+          "relativePath": "packages/chunking-worker/src/message-validation.ts",
+          "startLine": 56,
+          "endLine": 56,
+          "evidence": "Schema.isMaxLength(CHUNKING_CONFIG.maxBatchSize)",
+          "rationale": "Batch arrays must be nonempty and bounded."
+        }
+      ]
+    },
+    {
+      "id": "repo-026",
+      "query": "Where does the chunking strategy validator use the text splitter source of truth?",
+      "kind": "semantic",
+      "intent": "The strategy set is shared instead of locally duplicated.",
+      "judgments": [
+        {
+          "id": "repo-026-answer-1",
+          "relativePath": "packages/chunking-worker/src/message-validation.ts",
+          "startLine": 26,
+          "endLine": 26,
+          "evidence": "const chunkingStrategy = Schema.declare(isChunkingStrategy);",
+          "rationale": "The strategy set is shared instead of locally duplicated."
+        }
+      ]
+    },
+    {
+      "id": "repo-027",
+      "query": "UndeclaredKeys Writable guardFor drift check",
+      "kind": "exact",
+      "intent": "The generic guard verifies schema/interface agreement in both directions.",
+      "judgments": [
+        {
+          "id": "repo-027-answer-1",
+          "relativePath": "packages/chunking-worker/src/message-validation.ts",
+          "startLine": 86,
+          "endLine": 86,
+          "evidence": "const guardFor = <S extends Schema.Top>(schema: S) => {",
+          "rationale": "The generic guard verifies schema/interface agreement in both directions."
+        }
+      ]
+    },
+    {
+      "id": "repo-028",
+      "query": "codeLanguageDefaults rust maxTokens overlap",
+      "kind": "exact",
+      "intent": "The Rust default is 768 tokens with overlap 75.",
+      "judgments": [
+        {
+          "id": "repo-028-answer-1",
+          "relativePath": "packages/chunking-worker/src/chunking-config.ts",
+          "startLine": 21,
+          "endLine": 21,
+          "evidence": "rust: { maxTokens: 768, overlap: 75 },",
+          "rationale": "The Rust default is 768 tokens with overlap 75."
+        }
+      ]
+    },
+    {
+      "id": "repo-029",
+      "query": "What is the hard limit on custom chunk separator arrays?",
+      "kind": "semantic",
+      "intent": "The configuration caps caller-provided separators at 64.",
+      "judgments": [
+        {
+          "id": "repo-029-answer-1",
+          "relativePath": "packages/chunking-worker/src/chunking-config.ts",
+          "startLine": 41,
+          "endLine": 41,
+          "evidence": "maxSeparatorsCount: 64, // Hard limit for custom separator arrays passed into the worker",
+          "rationale": "The configuration caps caller-provided separators at 64."
+        }
+      ]
+    },
+    {
+      "id": "repo-030",
+      "query": "veryLargeContentThreshold veryLargeMaxTokens",
+      "kind": "mixed",
+      "intent": "Large content uses a dedicated threshold and chunk-size settings.",
+      "judgments": [
+        {
+          "id": "repo-030-answer-1",
+          "relativePath": "packages/chunking-worker/src/chunking-config.ts",
+          "startLine": 52,
+          "endLine": 52,
+          "evidence": "veryLargeContentThreshold: 100_000, // 100KB+ threshold for very large content",
+          "rationale": "Large content uses a dedicated threshold and chunk-size settings."
+        }
+      ]
+    },
+    {
+      "id": "repo-031",
+      "query": "maxMetdataFieldLength",
+      "kind": "fuzzy",
+      "intent": "Metadata strings have an explicit 4096-character limit.",
+      "judgments": [
+        {
+          "id": "repo-031-answer-1",
+          "relativePath": "packages/chunking-worker/src/chunking-config.ts",
+          "startLine": 40,
+          "endLine": 40,
+          "evidence": "maxMetadataFieldLength: 4096, // Hard limit for request metadata strings (ids, names, paths)",
+          "rationale": "Metadata strings have an explicit 4096-character limit."
+        }
+      ]
+    },
+    {
+      "id": "repo-032",
+      "query": "resolveChunkingWorkerUrl ?worker&url",
+      "kind": "exact",
+      "intent": "The worker source is imported with Vite worker URL ownership.",
+      "judgments": [
+        {
+          "id": "repo-032-answer-1",
+          "relativePath": "packages/file-import/src/resolve-chunking-worker-url.ts",
+          "startLine": 3,
+          "endLine": 3,
+          "evidence": "import chunkingWorkerUrlHref from '../../chunking-worker/src/chunking.worker.ts?worker&url';",
+          "rationale": "The worker source is imported with Vite worker URL ownership."
+        }
+      ]
+    },
+    {
+      "id": "repo-033",
+      "query": "How is the chunk worker base URL chosen when there is no browser window?",
+      "kind": "semantic",
+      "intent": "Nonwindow contexts use the current module URL as base.",
+      "judgments": [
+        {
+          "id": "repo-033-answer-1",
+          "relativePath": "packages/file-import/src/resolve-chunking-worker-url.ts",
+          "startLine": 13,
+          "endLine": 13,
+          "evidence": "return import.meta.url;",
+          "rationale": "Nonwindow contexts use the current module URL as base."
+        }
+      ]
+    },
+    {
+      "id": "repo-034",
+      "query": "chunking worker URL resolution failure throws",
+      "kind": "mixed",
+      "intent": "Resolution errors are rethrown with the failure message.",
+      "judgments": [
+        {
+          "id": "repo-034-answer-1",
+          "relativePath": "packages/file-import/src/resolve-chunking-worker-url.ts",
+          "startLine": 45,
+          "endLine": 45,
+          "evidence": "`Failed to resolve chunking worker URL: ${error instanceof Error ? error.message : String(error)}`",
+          "rationale": "Resolution errors are rethrown with the failure message."
+        }
+      ]
+    },
+    {
+      "id": "repo-035",
+      "query": "validateRelativeFilePath relative traversal segments",
+      "kind": "exact",
+      "intent": "Both slash styles are split before rejecting dot traversal segments.",
+      "judgments": [
+        {
+          "id": "repo-035-answer-1",
+          "relativePath": "packages/utils/src/relative-file-path.ts",
+          "startLine": 179,
+          "endLine": 179,
+          "evidence": "const hasTraversalSegments = pathSegments.some((segment) => segment === '.' || segment === '..');",
+          "rationale": "Both slash styles are split before rejecting dot traversal segments."
+        }
+      ]
+    },
+    {
+      "id": "repo-036",
+      "query": "Where are control characters rejected from persisted file keys?",
+      "kind": "semantic",
+      "intent": "Relative-file validation checks ASCII control characters.",
+      "judgments": [
+        {
+          "id": "repo-036-answer-1",
+          "relativePath": "packages/utils/src/relative-file-path.ts",
+          "startLine": 168,
+          "endLine": 168,
+          "evidence": "if (hasControlCharacters(filePath)) {",
+          "rationale": "Relative-file validation checks ASCII control characters."
+        }
+      ]
+    },
+    {
+      "id": "repo-037",
+      "query": "normalizeSelectionPathForFolder selected folder itself",
+      "kind": "mixed",
+      "intent": "Selecting the folder itself instead of a file is explicitly rejected.",
+      "judgments": [
+        {
+          "id": "repo-037-answer-1",
+          "relativePath": "packages/utils/src/relative-file-path.ts",
+          "startLine": 145,
+          "endLine": 145,
+          "evidence": "throw new Error(`${pathLabel} must reference a file within the selected folder`);",
+          "rationale": "Selecting the folder itself instead of a file is explicitly rejected."
+        }
+      ]
+    },
+    {
+      "id": "repo-038",
+      "query": "How are UNC server and share prefixes removed during workspace file normalization?",
+      "kind": "semantic",
+      "intent": "UNC normalization strips the server and share path segments.",
+      "judgments": [
+        {
+          "id": "repo-038-answer-1",
+          "relativePath": "packages/utils/src/relative-file-path.ts",
+          "startLine": 115,
+          "endLine": 115,
+          "evidence": "return segments.slice(2).join('/');",
+          "rationale": "UNC normalization strips the server and share path segments."
+        }
+      ]
+    },
+    {
+      "id": "repo-039",
+      "query": "isAbsolutFileSystemPath",
+      "kind": "fuzzy",
+      "intent": "The exported detector recognizes Unix, leading backslash and drive absolute paths.",
+      "judgments": [
+        {
+          "id": "repo-039-answer-1",
+          "relativePath": "packages/utils/src/relative-file-path.ts",
+          "startLine": 80,
+          "endLine": 80,
+          "evidence": "export function isAbsoluteFileSystemPath(filePath: string): boolean {",
+          "rationale": "The exported detector recognizes Unix, leading backslash and drive absolute paths."
+        }
+      ]
+    },
+    {
+      "id": "repo-040",
+      "query": "findFolderSegmentIndex folderLower last matching segment",
+      "kind": "exact",
+      "intent": "Folder segment matching searches from the end and then retries case-insensitively.",
+      "judgments": [
+        {
+          "id": "repo-040-answer-1",
+          "relativePath": "packages/utils/src/relative-file-path.ts",
+          "startLine": 38,
+          "endLine": 38,
+          "evidence": "const folderLower = folderId.toLowerCase();",
+          "rationale": "Folder segment matching searches from the end and then retries case-insensitively."
+        }
+      ]
+    },
+    {
+      "id": "repo-041",
+      "query": "Which validation rejects repeated separators while preserving accepted relative paths unchanged?",
+      "kind": "semantic",
+      "intent": "Empty components are rejected before returning the original path.",
+      "judgments": [
+        {
+          "id": "repo-041-answer-1",
+          "relativePath": "packages/utils/src/relative-file-path.ts",
+          "startLine": 186,
+          "endLine": 186,
+          "evidence": "throw new Error(`${pathLabel} must not contain empty segments`);",
+          "rationale": "Empty components are rejected before returning the original path."
+        }
+      ]
+    },
+    {
+      "id": "repo-042",
+      "query": "createCooperativeYieldController",
+      "kind": "exact",
+      "intent": "The chunking helper creates a cooperative yielding callback.",
+      "judgments": [
+        {
+          "id": "repo-042-answer-1",
+          "relativePath": "packages/chunking-worker/src/ordered-batch-map.ts",
+          "startLine": 13,
+          "endLine": 13,
+          "evidence": "export function createCooperativeYieldController({",
+          "rationale": "The chunking helper creates a cooperative yielding callback."
+        }
+      ]
+    },
+    {
+      "id": "repo-043",
+      "query": "Which chunking yield guard rejects a zero or fractional check cadence?",
+      "kind": "semantic",
+      "intent": "Cadence must be a positive integer.",
+      "judgments": [
+        {
+          "id": "repo-043-answer-1",
+          "relativePath": "packages/chunking-worker/src/ordered-batch-map.ts",
+          "startLine": 20,
+          "endLine": 20,
+          "evidence": "throw new RangeError('Yield check cadence must be a positive integer');",
+          "rationale": "Cadence must be a positive integer."
+        }
+      ]
+    },
+    {
+      "id": "repo-044",
+      "query": "yieldAfterMs finite non-negative budget",
+      "kind": "mixed",
+      "intent": "Invalid elapsed-time budgets fail explicitly.",
+      "judgments": [
+        {
+          "id": "repo-044-answer-1",
+          "relativePath": "packages/chunking-worker/src/ordered-batch-map.ts",
+          "startLine": 23,
+          "endLine": 23,
+          "evidence": "throw new RangeError('Yield time budget must be a finite non-negative number');",
+          "rationale": "Invalid elapsed-time budgets fail explicitly."
+        }
+      ]
+    },
+    {
+      "id": "repo-045",
+      "query": "Where does chunk processing yield to a macrotask only after both count and elapsed time gates?",
+      "kind": "semantic",
+      "intent": "The callback waits for the configured count and elapsed budget before yielding.",
+      "judgments": [
+        {
+          "id": "repo-045-answer-1",
+          "relativePath": "packages/chunking-worker/src/ordered-batch-map.ts",
+          "startLine": 40,
+          "endLine": 40,
+          "evidence": "await yieldControl();",
+          "rationale": "The callback waits for the configured count and elapsed budget before yielding."
+        }
+      ]
+    },
+    {
+      "id": "repo-046",
+      "query": "buildLineStartOffsets charCodeAt 10",
+      "kind": "exact",
+      "intent": "Line starts are collected immediately after newline characters.",
+      "judgments": [
+        {
+          "id": "repo-046-answer-1",
+          "relativePath": "packages/chunking-worker/src/line-offsets.ts",
+          "startLine": 11,
+          "endLine": 11,
+          "evidence": "if (content.charCodeAt(index) === 10) {",
+          "rationale": "Line starts are collected immediately after newline characters."
+        }
+      ]
+    },
+    {
+      "id": "repo-047",
+      "query": "Where are character offsets converted to one-based source line numbers with binary search?",
+      "kind": "semantic",
+      "intent": "The binary search returns the latest line start plus one.",
+      "judgments": [
+        {
+          "id": "repo-047-answer-1",
+          "relativePath": "packages/chunking-worker/src/line-offsets.ts",
+          "startLine": 34,
+          "endLine": 34,
+          "evidence": "return best + 1;",
+          "rationale": "The binary search returns the latest line start plus one."
+        }
+      ]
+    },
+    {
+      "id": "repo-048",
+      "query": "findLineForOffest",
+      "kind": "fuzzy",
+      "intent": "The exported offset lookup performs binary search over line starts.",
+      "judgments": [
+        {
+          "id": "repo-048-answer-1",
+          "relativePath": "packages/chunking-worker/src/line-offsets.ts",
+          "startLine": 18,
+          "endLine": 18,
+          "evidence": "export function findLineForOffset(lineStarts: readonly number[], offset: number): number {",
+          "rationale": "The exported offset lookup performs binary search over line starts."
+        }
+      ]
+    },
+    {
+      "id": "repo-049",
+      "query": "FileHasher hashContent xxhash-wasm h64",
+      "kind": "exact",
+      "intent": "Content uses the WASM xxHash64 digest with hex formatting.",
+      "judgments": [
+        {
+          "id": "repo-049-answer-1",
+          "relativePath": "packages/token-cache/src/file-hasher.ts",
+          "startLine": 91,
+          "endLine": 91,
+          "evidence": "return hashToHex(h.h64(content));",
+          "rationale": "Content uses the WASM xxHash64 digest with hex formatting."
+        }
+      ]
+    },
+    {
+      "id": "repo-050",
+      "query": "How are very large file hashes updated without concatenating all chunks?",
+      "kind": "semantic",
+      "intent": "The hasher consumes async chunks into an incremental digest.",
+      "judgments": [
+        {
+          "id": "repo-050-answer-1",
+          "relativePath": "packages/token-cache/src/file-hasher.ts",
+          "startLine": 105,
+          "endLine": 105,
+          "evidence": "for await (const chunk of chunks) {",
+          "rationale": "The hasher consumes async chunks into an incremental digest."
+        }
+      ]
+    },
+    {
+      "id": "repo-051",
+      "query": "shouldRevalidate cached size mtimeMs",
+      "kind": "mixed",
+      "intent": "Size changes immediately require revalidation before timestamp comparison.",
+      "judgments": [
+        {
+          "id": "repo-051-answer-1",
+          "relativePath": "packages/token-cache/src/file-hasher.ts",
+          "startLine": 122,
+          "endLine": 122,
+          "evidence": "if (cached.size !== current.size) {",
+          "rationale": "Size changes immediately require revalidation before timestamp comparison."
+        }
+      ]
+    },
+    {
+      "id": "repo-052",
+      "query": "What does file hash revalidation return when matching sizes have no modification times?",
+      "kind": "semantic",
+      "intent": "The metadata heuristic assumes unchanged when both timestamps cannot be compared.",
+      "judgments": [
+        {
+          "id": "repo-052-answer-1",
+          "relativePath": "packages/token-cache/src/file-hasher.ts",
+          "startLine": 133,
+          "endLine": 133,
+          "evidence": "return false;",
+          "rationale": "The metadata heuristic assumes unchanged when both timestamps cannot be compared."
+        }
+      ]
+    },
+    {
+      "id": "repo-053",
+      "query": "createCacheKey folderId filePath separator",
+      "kind": "exact",
+      "intent": "Cache keys combine root and file with a double-colon delimiter.",
+      "judgments": [
+        {
+          "id": "repo-053-answer-1",
+          "relativePath": "packages/token-cache/src/file-hasher.ts",
+          "startLine": 140,
+          "endLine": 140,
+          "evidence": "return `${folderId}::${filePath}`;",
+          "rationale": "Cache keys combine root and file with a double-colon delimiter."
+        }
+      ]
+    },
+    {
+      "id": "repo-054",
+      "query": "parseCachKey separatorIndex",
+      "kind": "fuzzy",
+      "intent": "The key parser splits at the first double colon.",
+      "judgments": [
+        {
+          "id": "repo-054-answer-1",
+          "relativePath": "packages/token-cache/src/file-hasher.ts",
+          "startLine": 147,
+          "endLine": 147,
+          "evidence": "const separatorIndex = key.indexOf('::');",
+          "rationale": "The key parser splits at the first double colon."
+        }
+      ]
+    },
+    {
+      "id": "repo-055",
+      "query": "runFileContentReloadGroups",
+      "kind": "exact",
+      "intent": "This scheduler coordinates file reload groups.",
+      "judgments": [
+        {
+          "id": "repo-055-answer-1",
+          "relativePath": "packages/file-explorer-ui/src/file-content-reload-scheduler.ts",
+          "startLine": 25,
+          "endLine": 25,
+          "evidence": "export async function runFileContentReloadGroups({",
+          "rationale": "This scheduler coordinates file reload groups."
+        }
+      ]
+    },
+    {
+      "id": "repo-056",
+      "query": "Why can ready files refresh while another file still waits on a slow preceding read?",
+      "kind": "semantic",
+      "intent": "Keys are partitioned by predecessor promises independently.",
+      "judgments": [
+        {
+          "id": "repo-056-answer-1",
+          "relativePath": "packages/file-explorer-ui/src/file-content-reload-scheduler.ts",
+          "startLine": 35,
+          "endLine": 35,
+          "evidence": "const dependentKeyGroups = new Map<Promise<void>, string[]>();",
+          "rationale": "Keys are partitioned by predecessor promises independently."
+        }
+      ]
+    },
+    {
+      "id": "repo-057",
+      "query": "requestedGenerations isCurrentGeneration reload filter",
+      "kind": "mixed",
+      "intent": "Only the requested current generation can be reloaded.",
+      "judgments": [
+        {
+          "id": "repo-057-answer-1",
+          "relativePath": "packages/file-explorer-ui/src/file-content-reload-scheduler.ts",
+          "startLine": 69,
+          "endLine": 69,
+          "evidence": "return requestedGeneration !== undefined && isCurrentGeneration(key, requestedGeneration);",
+          "rationale": "Only the requested current generation can be reloaded."
+        }
+      ]
+    },
+    {
+      "id": "repo-058",
+      "query": "Where does a rejected invalidated read still allow a fresh file-content read?",
+      "kind": "semantic",
+      "intent": "After a diagnosed predecessor rejection the group performs its fresh reload.",
+      "judgments": [
+        {
+          "id": "repo-058-answer-1",
+          "relativePath": "packages/file-explorer-ui/src/file-content-reload-scheduler.ts",
+          "startLine": 74,
+          "endLine": 74,
+          "evidence": "await reload(currentKeys, intent);",
+          "rationale": "After a diagnosed predecessor rejection the group performs its fresh reload."
+        }
+      ]
+    },
+    {
+      "id": "repo-059",
+      "query": "clearGeneration finally completed group",
+      "kind": "exact",
+      "intent": "Each group clears its own generations in finally.",
+      "judgments": [
+        {
+          "id": "repo-059-answer-1",
+          "relativePath": "packages/file-explorer-ui/src/file-content-reload-scheduler.ts",
+          "startLine": 79,
+          "endLine": 79,
+          "evidence": "clearGeneration(key, requestedGenerations.get(key));",
+          "rationale": "Each group clears its own generations in finally."
+        }
+      ]
+    },
+    {
+      "id": "repo-060",
+      "query": "isAbortError DOMException AbortError",
+      "kind": "exact",
+      "intent": "Abort detection handles the standard DOM cancellation exception.",
+      "judgments": [
+        {
+          "id": "repo-060-answer-1",
+          "relativePath": "packages/utils/src/error-utils.ts",
+          "startLine": 38,
+          "endLine": 38,
+          "evidence": "if (error instanceof DOMException && error.name === 'AbortError') {",
+          "rationale": "Abort detection handles the standard DOM cancellation exception."
+        }
+      ]
+    },
+    {
+      "id": "repo-061",
+      "query": "Which cancellation matcher recognizes both British and American spelling?",
+      "kind": "semantic",
+      "intent": "Error messages are normalized and checked for both cancellation spellings.",
+      "judgments": [
+        {
+          "id": "repo-061-answer-1",
+          "relativePath": "packages/utils/src/error-utils.ts",
+          "startLine": 51,
+          "endLine": 51,
+          "evidence": "message.includes('abort') || message.includes('cancelled') || message.includes('canceled')",
+          "rationale": "Error messages are normalized and checked for both cancellation spellings."
+        }
+      ]
+    },
+    {
+      "id": "repo-062",
+      "query": "getErrorMessage circular object JSON.stringify",
+      "kind": "mixed",
+      "intent": "Object error messages use JSON serialization with an explicit extraction-failure result.",
+      "judgments": [
+        {
+          "id": "repo-062-answer-1",
+          "relativePath": "packages/utils/src/error-utils.ts",
+          "startLine": 87,
+          "endLine": 87,
+          "evidence": "return JSON.stringify(error);",
+          "rationale": "Object error messages use JSON serialization with an explicit extraction-failure result."
+        }
+      ]
+    },
+    {
+      "id": "repo-063",
+      "query": "getErorMessage unknown Error message",
+      "kind": "fuzzy",
+      "intent": "This helper converts unknown error values into readable messages.",
+      "judgments": [
+        {
+          "id": "repo-063-answer-1",
+          "relativePath": "packages/utils/src/error-utils.ts",
+          "startLine": 78,
+          "endLine": 78,
+          "evidence": "export function getErrorMessage(error: unknown, fallback = 'Unknown error'): string {",
+          "rationale": "This helper converts unknown error values into readable messages."
+        }
+      ]
+    },
+    {
+      "id": "repo-064",
+      "query": "finalPath electron web entryPath relativePath",
+      "kind": "exact",
+      "intent": "Desktop resolves the entry path; web resolves the relative path.",
+      "judgments": [
+        {
+          "id": "repo-064-answer-1",
+          "relativePath": "packages/utils/src/path-utils.ts",
+          "startLine": 8,
+          "endLine": 8,
+          "evidence": "return platform === 'electron' ? entryPath : relativePath;",
+          "rationale": "Desktop resolves the entry path; web resolves the relative path."
+        }
+      ]
+    },
+    {
+      "id": "repo-065",
+      "query": "Which path splitter ignores empty components without temporary split/filter arrays?",
+      "kind": "semantic",
+      "intent": "Segments are scanned using indexOf and slices.",
+      "judgments": [
+        {
+          "id": "repo-065-answer-1",
+          "relativePath": "packages/utils/src/path-utils.ts",
+          "startLine": 12,
+          "endLine": 12,
+          "evidence": "export function extractPathSegments(path: string): string[] {",
+          "rationale": "Segments are scanned using indexOf and slices."
+        }
+      ]
+    },
+    {
+      "id": "repo-066",
+      "query": "calculatePathDepht",
+      "kind": "fuzzy",
+      "intent": "Path depth counts slash separators without allocating arrays.",
+      "judgments": [
+        {
+          "id": "repo-066-answer-1",
+          "relativePath": "packages/utils/src/path-utils.ts",
+          "startLine": 38,
+          "endLine": 38,
+          "evidence": "export function calculatePathDepth(path: string): number {",
+          "rationale": "Path depth counts slash separators without allocating arrays."
+        }
+      ]
+    },
+    {
+      "id": "repo-067",
+      "query": "removeTrailingSlash",
+      "kind": "exact",
+      "intent": "The helper removes all trailing slashes.",
+      "judgments": [
+        {
+          "id": "repo-067-answer-1",
+          "relativePath": "packages/utils/src/url-utils.ts",
+          "startLine": 14,
+          "endLine": 14,
+          "evidence": "return url.replace(/\\/+$/, '');",
+          "rationale": "The helper removes all trailing slashes."
+        }
+      ]
+    },
+    {
+      "id": "repo-068",
+      "query": "Where do URL components join without collapsing the slash pair in a scheme?",
+      "kind": "semantic",
+      "intent": "Negative lookbehind preserves the colon-prefixed scheme separator.",
+      "judgments": [
+        {
+          "id": "repo-068-answer-1",
+          "relativePath": "packages/utils/src/url-utils.ts",
+          "startLine": 42,
+          "endLine": 42,
+          "evidence": "return joined.replace(/(?<!:)\\/+/g, '/');",
+          "rationale": "Negative lookbehind preserves the colon-prefixed scheme separator."
+        }
+      ]
+    },
+    {
+      "id": "repo-069",
+      "query": "buildUrl query params null undefined",
+      "kind": "mixed",
+      "intent": "Query construction omits only nullish values while retaining false and zero.",
+      "judgments": [
+        {
+          "id": "repo-069-answer-1",
+          "relativePath": "packages/utils/src/url-utils.ts",
+          "startLine": 58,
+          "endLine": 58,
+          "evidence": "if (value !== null && value !== undefined) {",
+          "rationale": "Query construction omits only nullish values while retaining false and zero."
+        }
+      ]
+    },
+    {
+      "id": "repo-070",
+      "query": "parseQueryPrams",
+      "kind": "fuzzy",
+      "intent": "The parser extracts decoded query parameters.",
+      "judgments": [
+        {
+          "id": "repo-070-answer-1",
+          "relativePath": "packages/utils/src/url-utils.ts",
+          "startLine": 71,
+          "endLine": 71,
+          "evidence": "export function parseQueryParams(url: string): Record<string, string> {",
+          "rationale": "The parser extracts decoded query parameters."
+        }
+      ]
+    },
+    {
+      "id": "repo-071",
+      "query": "How does URL query parsing treat repeated parameter names in a valid URL?",
+      "kind": "semantic",
+      "intent": "Iteration overwrites a key so the final value is retained.",
+      "judgments": [
+        {
+          "id": "repo-071-answer-1",
+          "relativePath": "packages/utils/src/url-utils.ts",
+          "startLine": 76,
+          "endLine": 76,
+          "evidence": "params[key] = value;",
+          "rationale": "Iteration overwrites a key so the final value is retained."
+        }
+      ]
+    },
+    {
+      "id": "repo-072",
+      "query": "formatProviderModelKey PROVIDER_SEPARATOR",
+      "kind": "exact",
+      "intent": "Canonical model keys use the double-colon provider separator.",
+      "judgments": [
+        {
+          "id": "repo-072-answer-1",
+          "relativePath": "packages/utils/src/provider-model-key.ts",
+          "startLine": 13,
+          "endLine": 13,
+          "evidence": "return `${provider}${PROVIDER_SEPARATOR}${modelId}`;",
+          "rationale": "Canonical model keys use the double-colon provider separator."
+        }
+      ]
+    },
+    {
+      "id": "repo-073",
+      "query": "How does parsing preserve model identifiers that themselves contain colons?",
+      "kind": "semantic",
+      "intent": "The first canonical separator splits provider from the entire remaining model id.",
+      "judgments": [
+        {
+          "id": "repo-073-answer-1",
+          "relativePath": "packages/utils/src/provider-model-key.ts",
+          "startLine": 26,
+          "endLine": 26,
+          "evidence": "const modelId = composite.slice(separatorIndex + PROVIDER_SEPARATOR.length).trim();",
+          "rationale": "The first canonical separator splits provider from the entire remaining model id."
+        }
+      ]
+    },
+    {
+      "id": "repo-074",
+      "query": "parseProviderModelKey legacy single colon",
+      "kind": "mixed",
+      "intent": "Historical single-colon keys still have an explicit parser branch.",
+      "judgments": [
+        {
+          "id": "repo-074-answer-1",
+          "relativePath": "packages/utils/src/provider-model-key.ts",
+          "startLine": 36,
+          "endLine": 36,
+          "evidence": "const legacyIndex = composite.indexOf(LEGACY_SEPARATOR);",
+          "rationale": "Historical single-colon keys still have an explicit parser branch."
+        }
+      ]
+    },
+    {
+      "id": "repo-075",
+      "query": "canonicalizeProviderModlKey providerHint",
+      "kind": "fuzzy",
+      "intent": "This helper resolves a provider and formats the canonical key.",
+      "judgments": [
+        {
+          "id": "repo-075-answer-1",
+          "relativePath": "packages/utils/src/provider-model-key.ts",
+          "startLine": 52,
+          "endLine": 52,
+          "evidence": "export function canonicalizeProviderModelKey<Provider extends string = string>(",
+          "rationale": "This helper resolves a provider and formats the canonical key."
+        }
+      ]
+    },
+    {
+      "id": "repo-076",
+      "query": "Which model-key parser rejects a missing provider or an empty model id?",
+      "kind": "semantic",
+      "intent": "Parsed canonical parts must both be nonempty.",
+      "judgments": [
+        {
+          "id": "repo-076-answer-1",
+          "relativePath": "packages/utils/src/provider-model-key.ts",
+          "startLine": 27,
+          "endLine": 27,
+          "evidence": "if (!(provider && modelId)) {",
+          "rationale": "Parsed canonical parts must both be nonempty."
+        }
+      ]
+    },
+    {
+      "id": "repo-077",
+      "query": "createDebounce latestArgs clearTimeout",
+      "kind": "exact",
+      "intent": "Repeated calls keep the latest argument tuple and reset the timer.",
+      "judgments": [
+        {
+          "id": "repo-077-answer-1",
+          "relativePath": "packages/utils/src/create-debounce.ts",
+          "startLine": 14,
+          "endLine": 14,
+          "evidence": "latestArgs = args;",
+          "rationale": "Repeated calls keep the latest argument tuple and reset the timer."
+        }
+      ]
+    },
+    {
+      "id": "repo-078",
+      "query": "Where can a scheduled debounced operation be executed immediately and awaited?",
+      "kind": "semantic",
+      "intent": "Flush cancels the timer and invokes the pending call.",
+      "judgments": [
+        {
+          "id": "repo-078-answer-1",
+          "relativePath": "packages/utils/src/create-debounce.ts",
+          "startLine": 31,
+          "endLine": 31,
+          "evidence": "const flush = async () => {",
+          "rationale": "Flush cancels the timer and invokes the pending call."
+        }
+      ]
+    },
+    {
+      "id": "repo-079",
+      "query": "createDebounce onError async invocation",
+      "kind": "mixed",
+      "intent": "Rejected asynchronous callbacks report through the configured error callback.",
+      "judgments": [
+        {
+          "id": "repo-079-answer-1",
+          "relativePath": "packages/utils/src/create-debounce.ts",
+          "startLine": 23,
+          "endLine": 23,
+          "evidence": "options?.onError?.(error);",
+          "rationale": "Rejected asynchronous callbacks report through the configured error callback."
+        }
+      ]
+    },
+    {
+      "id": "repo-080",
+      "query": "createDebouce flush run",
+      "kind": "fuzzy",
+      "intent": "The helper exposes run and flush controls.",
+      "judgments": [
+        {
+          "id": "repo-080-answer-1",
+          "relativePath": "packages/utils/src/create-debounce.ts",
+          "startLine": 5,
+          "endLine": 5,
+          "evidence": "export function createDebounce<Args extends unknown[]>(",
+          "rationale": "The helper exposes run and flush controls."
+        }
+      ]
+    },
+    {
+      "id": "repo-081",
+      "query": "installPerformanceMeasureGuard DataCloneError",
+      "kind": "exact",
+      "intent": "The wrapper recognizes clone failures from performance measurement.",
+      "judgments": [
+        {
+          "id": "repo-081-answer-1",
+          "relativePath": "packages/utils/src/performance-measure-guard.ts",
+          "startLine": 43,
+          "endLine": 43,
+          "evidence": "if (isDataCloneMeasureError(error)) {",
+          "rationale": "The wrapper recognizes clone failures from performance measurement."
+        }
+      ]
+    },
+    {
+      "id": "repo-082",
+      "query": "Which measurement guard rethrows errors that are not data cloning failures?",
+      "kind": "semantic",
+      "intent": "Only the recognized clone exception takes the guard cleanup path.",
+      "judgments": [
+        {
+          "id": "repo-082-answer-1",
+          "relativePath": "packages/utils/src/performance-measure-guard.ts",
+          "startLine": 47,
+          "endLine": 47,
+          "evidence": "throw error;",
+          "rationale": "Only the recognized clone exception takes the guard cleanup path."
+        }
+      ]
+    },
+    {
+      "id": "repo-083",
+      "query": "performance measure clearMeasures clearMarks",
+      "kind": "mixed",
+      "intent": "Known clone errors trigger performance entry cleanup.",
+      "judgments": [
+        {
+          "id": "repo-083-answer-1",
+          "relativePath": "packages/utils/src/performance-measure-guard.ts",
+          "startLine": 12,
+          "endLine": 12,
+          "evidence": "perf.clearMeasures();",
+          "rationale": "Known clone errors trigger performance entry cleanup."
+        }
+      ]
+    },
+    {
+      "id": "repo-084",
+      "query": "performanceMeasureGaurdInstalled",
+      "kind": "fuzzy",
+      "intent": "The guard avoids repeated installation.",
+      "judgments": [
+        {
+          "id": "repo-084-answer-1",
+          "relativePath": "packages/utils/src/performance-measure-guard.ts",
+          "startLine": 25,
+          "endLine": 25,
+          "evidence": "if (performanceMeasureGuardInstalled) {",
+          "rationale": "The guard avoids repeated installation."
+        }
+      ]
+    },
+    {
+      "id": "repo-085",
+      "query": "isWorkspaceIndexRetrievalAvailable unconfigured",
+      "kind": "exact",
+      "intent": "A never-configured root makes managed retrieval unavailable.",
+      "judgments": [
+        {
+          "id": "repo-085-answer-1",
+          "relativePath": "packages/agent/src/tools/workspace-index-retrieval.ts",
+          "startLine": 42,
+          "endLine": 42,
+          "evidence": "state === 'unconfigured'",
+          "rationale": "A never-configured root makes managed retrieval unavailable."
+        }
+      ]
+    },
+    {
+      "id": "repo-086",
+      "query": "How is whitespace-only workspace embedding set identity removed from status?",
+      "kind": "semantic",
+      "intent": "Optional text normalization trims and omits empty strings.",
+      "judgments": [
+        {
+          "id": "repo-086-answer-1",
+          "relativePath": "packages/agent/src/tools/workspace-index-retrieval.ts",
+          "startLine": 25,
+          "endLine": 25,
+          "evidence": "const trimmed = value.trim();",
+          "rationale": "Optional text normalization trims and omits empty strings."
+        }
+      ]
+    },
+    {
+      "id": "repo-087",
+      "query": "workspace-index-blocked blockedReason message",
+      "kind": "mixed",
+      "intent": "Blocked retrieval reports its reason in the returned unavailable result.",
+      "judgments": [
+        {
+          "id": "repo-087-answer-1",
+          "relativePath": "packages/agent/src/tools/workspace-index-retrieval.ts",
+          "startLine": 86,
+          "endLine": 86,
+          "evidence": "? `Workspace Index is blocked: ${status.blockedReason ?? 'unknown'}.`",
+          "rationale": "Blocked retrieval reports its reason in the returned unavailable result."
+        }
+      ]
+    },
+    {
+      "id": "repo-088",
+      "query": "Which helper distinguishes no index runtime status from an unavailable known index?",
+      "kind": "semantic",
+      "intent": "Absent status returns null instead of inventing an unavailable state.",
+      "judgments": [
+        {
+          "id": "repo-088-answer-1",
+          "relativePath": "packages/agent/src/tools/workspace-index-retrieval.ts",
+          "startLine": 79,
+          "endLine": 79,
+          "evidence": "if (!hasWorkspaceIndexRuntimeStatus(runtime)) {",
+          "rationale": "Absent status returns null instead of inventing an unavailable state."
+        }
+      ]
+    },
+    {
+      "id": "repo-089",
+      "query": "resolveWorkspaceIndexEmbedingSetId",
+      "kind": "fuzzy",
+      "intent": "The helper returns a normalized set id only for available retrieval.",
+      "judgments": [
+        {
+          "id": "repo-089-answer-1",
+          "relativePath": "packages/agent/src/tools/workspace-index-retrieval.ts",
+          "startLine": 97,
+          "endLine": 97,
+          "evidence": "export function resolveWorkspaceIndexEmbeddingSetId(",
+          "rationale": "The helper returns a normalized set id only for available retrieval."
+        }
+      ]
+    },
+    {
+      "id": "repo-090",
+      "query": "workspaceIndexingEnabled true paused queueProgress",
+      "kind": "exact",
+      "intent": "The status snapshot exposes enabled, pause and queue fields.",
+      "judgments": [
+        {
+          "id": "repo-090-answer-1",
+          "relativePath": "packages/agent/src/tools/workspace-index-retrieval.ts",
+          "startLine": 67,
+          "endLine": 67,
+          "evidence": "enabled: runtime.workspaceIndexingEnabled === true,",
+          "rationale": "The status snapshot exposes enabled, pause and queue fields."
+        }
+      ]
+    },
+    {
+      "id": "repo-091",
+      "query": "normalizeProgressPayload phase stage step",
+      "kind": "exact",
+      "intent": "Step text accepts explicit step, phase or stage names.",
+      "judgments": [
+        {
+          "id": "repo-091-answer-1",
+          "relativePath": "packages/agent/src/tools/progress-adapter.ts",
+          "startLine": 25,
+          "endLine": 25,
+          "evidence": "const step = (obj['step'] ?? obj['phase'] ?? obj['stage']) as unknown;",
+          "rationale": "Step text accepts explicit step, phase or stage names."
+        }
+      ]
+    },
+    {
+      "id": "repo-092",
+      "query": "How is fractional tool progress turned into a percent?",
+      "kind": "semantic",
+      "intent": "A finite fractional progress value is scaled by 100.",
+      "judgments": [
+        {
+          "id": "repo-092-answer-1",
+          "relativePath": "packages/agent/src/tools/progress-adapter.ts",
+          "startLine": 43,
+          "endLine": 43,
+          "evidence": "out.percent = clamp01To100(progress * 100);",
+          "rationale": "A finite fractional progress value is scaled by 100."
+        }
+      ]
+    },
+    {
+      "id": "repo-093",
+      "query": "done total progress percentage note",
+      "kind": "mixed",
+      "intent": "The adapter derives a completion ratio when direct percent is absent.",
+      "judgments": [
+        {
+          "id": "repo-093-answer-1",
+          "relativePath": "packages/agent/src/tools/progress-adapter.ts",
+          "startLine": 57,
+          "endLine": 57,
+          "evidence": "out.percent = clamp01To100((done / total) * 100);",
+          "rationale": "The adapter derives a completion ratio when direct percent is absent."
+        }
+      ]
+    },
+    {
+      "id": "repo-094",
+      "query": "normalizeProgresPayload pct",
+      "kind": "fuzzy",
+      "intent": "The adapter accepts the short pct alias as well as percent.",
+      "judgments": [
+        {
+          "id": "repo-094-answer-1",
+          "relativePath": "packages/agent/src/tools/progress-adapter.ts",
+          "startLine": 17,
+          "endLine": 17,
+          "evidence": "export function normalizeProgressPayload(input: unknown): NormalizedProgress {",
+          "rationale": "The adapter accepts the short pct alias as well as percent."
+        }
+      ]
+    },
+    {
+      "id": "repo-095",
+      "query": "Where are progress percentages limited to zero through one hundred with one decimal?",
+      "kind": "semantic",
+      "intent": "The clamp bounds values and rounds to one decimal.",
+      "judgments": [
+        {
+          "id": "repo-095-answer-1",
+          "relativePath": "packages/agent/src/tools/progress-adapter.ts",
+          "startLine": 76,
+          "endLine": 76,
+          "evidence": "return Math.round(n * 10) / 10; // 1 decimal",
+          "rationale": "The clamp bounds values and rounds to one decimal."
+        }
+      ]
+    },
+    {
+      "id": "repo-096",
+      "query": "calculateRRFContribution rank k weight",
+      "kind": "exact",
+      "intent": "RRF uses weighted reciprocal one-based rank.",
+      "judgments": [
+        {
+          "id": "repo-096-answer-1",
+          "relativePath": "packages/db/src/search/rrf.ts",
+          "startLine": 107,
+          "endLine": 107,
+          "evidence": "return weight * (1 / (k + rank));",
+          "rationale": "RRF uses weighted reciprocal one-based rank."
+        }
+      ]
+    },
+    {
+      "id": "repo-097",
+      "query": "Which fusion code reports each ranking source contribution alongside the combined score?",
+      "kind": "semantic",
+      "intent": "The accumulator records individual source contributions.",
+      "judgments": [
+        {
+          "id": "repo-097-answer-1",
+          "relativePath": "packages/db/src/search/rrf.ts",
+          "startLine": 187,
+          "endLine": 187,
+          "evidence": "entry.contributions.push(createContributionEntry(source, rank, contribution, item.score));",
+          "rationale": "The accumulator records individual source contributions."
+        }
+      ]
+    },
+    {
+      "id": "repo-098",
+      "query": "minSourceCount fused result filter",
+      "kind": "mixed",
+      "intent": "Fusion can require appearance in multiple source lists.",
+      "judgments": [
+        {
+          "id": "repo-098-answer-1",
+          "relativePath": "packages/db/src/search/rrf.ts",
+          "startLine": 201,
+          "endLine": 201,
+          "evidence": "if (data.sourceCount >= minSourceCount) {",
+          "rationale": "Fusion can require appearance in multiple source lists."
+        }
+      ]
+    },
+    {
+      "id": "repo-099",
+      "query": "normalizeRRFScores collapsedScor",
+      "kind": "fuzzy",
+      "intent": "Equal-score normalization avoids division by zero.",
+      "judgments": [
+        {
+          "id": "repo-099-answer-1",
+          "relativePath": "packages/db/src/search/rrf.ts",
+          "startLine": 301,
+          "endLine": 301,
+          "evidence": "const collapsedScore = maxScore === 0 ? 0 : 1;",
+          "rationale": "Equal-score normalization avoids division by zero."
+        }
+      ]
+    },
+    {
+      "id": "repo-100",
+      "query": "How does the generic ranked-list helper order similarity results before fusion?",
+      "kind": "semantic",
+      "intent": "Optional sorting uses descending raw similarity scores.",
+      "judgments": [
+        {
+          "id": "repo-100-answer-1",
+          "relativePath": "packages/db/src/search/rrf.ts",
+          "startLine": 331,
+          "endLine": 331,
+          "evidence": "ranked.sort((a, b) => b.score - a.score);",
+          "rationale": "Optional sorting uses descending raw similarity scores."
+        }
+      ]
+    }
+  ]
+}

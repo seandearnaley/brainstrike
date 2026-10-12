@@ -17,6 +17,86 @@ Settled: the absent timeout is deliberate; restoring one as a guarantee is a
 regression. Evidence: `agent-self-query/pglite-statement-timeout.md`.
 Guard: `packages/db/__tests__/agent-sql-service.test.ts`.
 
+## M2 SQLite index sandbox foundation
+
+- Keep trusted native coverage in a separate coverage-only process mode. It uses the existing native validator and its own read-only better-sqlite3 connection, not the generic node:sqlite sandbox. Refuse SQL in coverage mode and coverage in SQL mode; never expose native authority through querySelf arguments. Share process ownership and exit joins without changing sandbox authorizer, limits, function inventory or SQL budgets.
+
+Evidence: `../indexer/2026-10-04-isolated-native-coverage.md`.
+Guard: `packages/sqlite-query/src/__tests__/host-core.test.ts`, `apps/desktop/src/__tests__/coverage-rpc-ordering.integration.test.ts`.
+
+- `@brainstrike/sqlite-query` owns a dedicated killable process, strict Effect
+  message decoding, bounded startup and query deadlines, and exit-joined close.
+  A killed client stays dead; recovery explicitly acquires a new client.
+- Its read-only connection enforces zero attachments, a 16 MiB value limit,
+  a 512 MiB process heap limit, the reviewed function inventory, read-only
+  introspection pragmas, a single compiled statement and at most 200 rows.
+  Every unrecognized authorizer action is denied. Load only sqlite-vec's default
+  entry point before installing the authorizer; no runtime SQL extension loading.
+  Refuse results over the 1 MiB IPC budget before parent deserialization. Count
+  the complete serialized response, including snapshot identity and envelope,
+  even when no rows match; retain the incremental row budget as well.
+- Refuse a runtime that lacks limits, ignores the requested limits, or compiles
+  SQLite with `DEFAULT_MEMSTATUS=0`. Accepting a heap-limit pragma is insufficient.
+  Electron-engine qualification does not establish Electron-free Node/CLI support;
+  that supported-runtime requirement remains attached to BST-1941 host discovery.
+- Bind named lens values with SQLite's native named-parameter API; never rewrite
+  or interpolate SQL. Expose failed startup cleanup's retained owner so its
+  caller can retry exit-joined close before deleting index files.
+- Desktop index queries require registration of the authoritative ready index
+  host. Refuse missing capability instead of acquiring the application database.
+  Return the target in every result; SQLite schema reads carry no invented row
+  estimate or planner cost, and explain uses EXPLAIN QUERY PLAN without analyze.
+- Close query admission and join all in-flight/read-only owners before indexer
+  destruction. Retain owners and files when startup or exit cleanup fails.
+  Production startup/reset composition remains separate consumer work.
+
+- Run canonical grep in the same killable read-only process, never the writer.
+  Require explicit root IDs or main-authorized canonical file IDs. Empty file ID
+  lists match nothing; nullable-root collection rows retain their actual identity.
+  Preserve native chunk IDs/source metadata, and
+  share the existing JavaScript line matcher with the PGlite service. Exhaust
+  the requested scope before reporting the actual matched-chunk count; cap
+  output visibly and fail the operation on deadline instead of returning partial
+  success.
+- Prefilter case-sensitive literals in SQLite only when their UTF-8 representation
+  is lossless for matching and fits the configured engine byte limit. Also
+  prefilter case-insensitive literals whose folded needle is ASCII, retaining
+  every non-ASCII or NUL-containing content row for canonical JavaScript case
+  conversion. Retain the canonical line matcher and all selected-row conversion
+  errors. Preserve metadata on empty results and never cap candidates.
+
+Evidence: `agent-self-query/sqlite-index-foundation.md`,
+`agent-self-query/index-consumer.md`,
+`agent-self-query/2026-10-04-literal-grep-prefilter.md`.
+Tests: `apps/desktop/src/__tests__/assistant-server/query-self-index-target.test.ts`,
+`apps/desktop/src/__tests__/sqlite-query-index.integration.test.ts`,
+`packages/sqlite-query/src/__tests__/client-ownership.test.ts`,
+`packages/sqlite-query/src/__tests__/protocol.test.ts`,
+`packages/sqlite-query/src/__tests__/sandbox.integration.test.ts`,
+`packages/sqlite-query/src/__tests__/scoped-grep.integration.test.ts`,
+`packages/sqlite-query/src/__tests__/literal-grep-prefilter.integration.test.ts`.
+
+### User Stop and owned readers
+
+- Propagate the tool execution signal plus its guard deadline through index acquisition and every querySelf index mode. Keep signals process-local; refuse prior-abort acquisition before spawning. Cancellation kills that call's owned reader and joins actual exit before rejecting; late responses and retired request signals cannot publish results or cancel newer work.
+- Retain failed cleanup ownership. Log index cancellation with its startup/query phase and existing request ID and vendor owner PID, distinct from deadline errors; never log SQL or authorization secrets. Fresh requests acquire a fresh reader after cancellation.
+- App-target Stop rejects prior-abort acquisition and suppresses late results after joining admitted SQL. It does not interrupt a statement in the shared PGlite host.
+
+Evidence: `agent-self-query/user-stop-cancellation.md`.
+Guard: `apps/desktop/src/__tests__/assistant-server/query-self-user-cancel.test.ts`, `query-self-tool.test.ts`, `packages/sqlite-query/src/__tests__/client-cancellation.test.ts`, `packages/sqlite-query/test/electron-utility.cjs`.
+
+### Native caller-vector lenses
+
+- Declare index caller-vector requirements explicitly as `-- requires: caller-vectors <text seed param>`; parse malformed, duplicate, app-target or undeclared/non-text requirements visibly. Retain and list the typed requirement, resolve the seed by declared parameter name, and keep its value bound.
+- Main supplies the current authorized collection, full canonical vector profile, store identity and acknowledged file inventory through its existing native read lease, retained until the query process closes. Refuse incomplete collection scans, missing profile authority and changes before returning; public lens arguments stay symbol/terms.
+- Check schema6/store identity, exact authorized scoped membership, existing seed and containing vector, and complete finite/nonzero vectors at the selected cosine profile dimension for all depth10 name-resolved graph chunks in the same owned read snapshot as lens execution. `scoped_vectors` and `vector_profiles` are authoritative; global metadata remains TEXT. Reject wrong profiles or missing prerequisites visibly; never return a lexical-only caller result.
+- Reserve `$brainstrike_collection`, `$brainstrike_profile` and `$brainstrike_files` for trusted reader bindings; caller-vector SQL must reference all three. User bindings may not override them.
+- Keep trusted synchronous BEGIN/ROLLBACK ownership private to that snapshot. User transaction SQL, writes, attachments, extension loading, limits and deadlines retain their existing refusals.
+- Run canonical index `callers-hybrid` with materialized FTS5 BM25 scores before window ranking, scoped vectors joined by chunk primary key and exact canonical profile hash, exact graph-scoped cosine, top50 per arm, and RRF60. Join result chunks to files by the canonical file ID; retain nullable-root collection chunks rather than filtering them with root equality. Preserve chunk IDs/line spans, cycle/depth10 caller-name semantics, and the separate PGlite fixture for hosted web.
+
+Evidence: `agent-self-query/sqlite-caller-lens.md`, `agent-self-query/scoped-caller-profile.md`.
+Guard: `packages/sqlite-query/src/__tests__/callers-lens.integration.test.ts`, `packages/assistant-contract/src/__tests__/lenses.test.ts`, `apps/desktop/src/__tests__/assistant-server/query-self-index-target.test.ts`, `apps/desktop/src/__tests__/assistant-server/query-self-scoped-callers.integration.test.ts`, `apps/desktop/src/__tests__/native-caller-query.test.ts`.
+
 ## The sandbox: four independent, engine-enforced layers
 
 Read-only transaction, non-superuser role `brainstrike_agent_readonly`, extended
@@ -146,6 +226,23 @@ Why: an optional-field pair made exclusive by `.refine()` failed 100% of real ca
 See ADR-0009. Evidence: `agent-self-query/strict-function-calling-schema.md`.
 Guard: `apps/desktop/src/__tests__/assistant-server/query-self-tool.test.ts`.
 
+### Explicit database target
+
+- Require `target: 'app' | 'index'` at the querySelf input boundary in every mode.
+  Keep it a scalar enum without a union, refinement or default. M2 `app` remains
+  PGlite application history/diagnostics; `index` identifies derived SQLite data.
+- Require exactly one `-- target: app` or `-- target: index` in a lens header.
+  Retain it in `LensDefinition`; missing, invalid and duplicate declarations are
+  visible parse errors. Never infer a target from SQL or a lens filename.
+- Declare telemetry/history lenses as `app` and the native `callers-hybrid` as
+  `index`. Keep each target aligned with its shipped SQL dialect in the same change.
+  Preserve the app-target PGlite caller fixture and its behavioral golden for hosted web until M6.
+
+Evidence: `agent-self-query/target-routing.md`.
+Guard: `packages/assistant-contract/src/__tests__/query-self-target.test.ts`,
+`packages/assistant-contract/src/__tests__/lenses.test.ts`,
+`packages/db/__tests__/search-lens-callers-hybrid.test.ts`.
+
 ### The second half of the same failure
 
 - Keep schema parsing INSIDE the executor's `try`
@@ -202,10 +299,9 @@ Settled: name-based refs and composite keys, both measured. Evidence:
 `agent-self-query/symbol-graph-design.md`, `agent-self-query/symbol-rollback-review.md`.
 Guard: `packages/db/__tests__/search-hybrid-symbol-retrieval.test.ts`, `packages/db/__tests__/migration-075-rollback.integration.test.ts`.
 
-### The hybrid one-statement query (BST-935) — PROVEN admitted
+### The PGlite hybrid one-statement golden — PROVEN admitted
 
-- The traversal-plus-BM25-plus-vector statement runs through the sandbox as-is and
-  ships as the `callers-hybrid` lens, the readable copy of its shape.
+- Retain the app-target traversal/BM25/vector statement in `packages/db/__tests__/fixtures/callers-hybrid-pglite.sql` for hosted web until M6. The canonical index-target artifact uses the native caller-vector contract above.
 - Its top level drains (`GROUP BY … ORDER BY`), so the row cap plays NO part: admission
   rests on the recursion-bound heuristic plus the cost gate. Do not cite the row cap.
 - Scope the vector arm to the seed's `embedding_set_id` (`IS NOT DISTINCT FROM`):
@@ -236,7 +332,9 @@ convention). Grammar: `packages/assistant-contract/src/lenses.ts`; loader:
 - **Placeholder discipline is a PARSE-time error**: the highest `$n` equals the declared
   param count and every `$1..$n` appears.
 - **Every lens ships with a golden test** reading the checked-in file, so the artifact
-  is the single source of truth. `.brainstrike/lenses/` is the inventory.
+  is the single source of truth. Execute it through its declared target's real
+  sandbox; a separate fixture cannot prove the shipped dialect is routable.
+  `.brainstrike/lenses/` is the inventory.
 - **Normalize `tool_id` before grouping** in telemetry lenses
   (`brainstrike.grepSearch` → `grepSearch`): the writer stores the id verbatim, so one
   tool lands under both spellings and a split halves its score.

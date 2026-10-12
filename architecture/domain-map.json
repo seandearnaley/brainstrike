@@ -101,11 +101,14 @@
       "title": "File import, chunking, embeddings, and pipeline orchestration",
       "owner": "indexing",
       "packages": [
+        "@brainstrike/canonical-ingestion",
         "@brainstrike/chunking-worker",
         "@brainstrike/embedding-worker",
         "@brainstrike/embeddings",
         "@brainstrike/file-import",
+        "@brainstrike/indexer",
         "@brainstrike/pipeline",
+        "@brainstrike/sqlite-query",
         "@brainstrike/text-splitter",
         "@brainstrike/token-cache",
         "@brainstrike/worker-runtime",
@@ -122,10 +125,12 @@
       "title": "Local-first data, persistence, and queue platform",
       "owner": "data-platform",
       "packages": [
-        "@brainstrike/db",
         "@brainstrike/app-state",
         "@brainstrike/assistant-data",
-        "@brainstrike/queue"
+        "@brainstrike/db",
+        "@brainstrike/host-lease",
+        "@brainstrike/queue",
+        "@brainstrike/state-store"
       ],
       "mayDependOn": [
         "shared-foundation",
@@ -150,6 +155,7 @@
         "@brainstrike/local-runtime",
         "@brainstrike/logging",
         "@brainstrike/mcp-tasks-extension",
+        "@brainstrike/sqlite-native",
         "@brainstrike/storage",
         "@brainstrike/test-utils",
         "@brainstrike/tokenization",

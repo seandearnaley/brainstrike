@@ -171,6 +171,11 @@ function assertStreamCompletionMatchesRequest(
   if (complete.metadata.model !== request.model) {
     throw new Error('Embedding worker complete.metadata.model does not match the request model.');
   }
+  if (complete.metadata.revision !== request.revision) {
+    throw new Error(
+      'Embedding worker complete.metadata.revision does not match the request revision.'
+    );
+  }
   const expectedDtype = request.dtype ?? 'fp16';
   if (complete.metadata.dtype !== expectedDtype) {
     throw new Error('Embedding worker complete.metadata.dtype does not match the request dtype.');
@@ -187,7 +192,8 @@ function assertStreamCompletionMatchesRequest(
     );
   }
   const expectedBatchSize = computeInitialBatchSize(request.texts.length, request.maxBatchSize);
-  if (complete.metadata.batchSize !== expectedBatchSize) {
+  const matchesBatchLimit = complete.metadata.batchSize === expectedBatchSize;
+  if (!matchesBatchLimit) {
     throw new Error(
       'Embedding worker complete.metadata.batchSize does not match the request batch size.'
     );

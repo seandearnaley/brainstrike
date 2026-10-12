@@ -2,7 +2,7 @@ export type EmbeddingDevice = 'webgpu' | 'wasm';
 
 export type EmbeddingDeviceHint = EmbeddingDevice;
 
-export type EmbeddingDType = 'fp16' | 'q4' | 'fp32';
+export type EmbeddingDType = 'fp16' | 'q4' | 'q8' | 'fp32';
 
 export type EmbeddingDimensionParameter =
   | 'dimensions'
@@ -18,6 +18,7 @@ export interface EmbedWorkerRequest {
   readonly maxBatchSize?: number;
   readonly model: string;
   readonly provider?: string;
+  readonly revision?: string;
   readonly targetDimension?: number;
   readonly texts: readonly string[];
   readonly truncateDim?: number;
@@ -61,6 +62,31 @@ export const EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY =
 
 /** Suffix deriving the adapter-to-worker request-control channel from telemetry identity. */
 export const EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX = ':request-control';
+
+export const EMBED_WORKER_REQUEST_CANCELED_CODE = 'EMBED_WORKER_REQUEST_CANCELED';
+
+/** Own properties survive workerpool's Error serialization across the worker boundary. */
+export function createEmbedWorkerRequestCancellationError(requestId: string): Error & {
+  readonly code: typeof EMBED_WORKER_REQUEST_CANCELED_CODE;
+  readonly requestId: string;
+} {
+  return Object.assign(new Error('Embedding task was aborted.'), {
+    code: EMBED_WORKER_REQUEST_CANCELED_CODE,
+    name: 'AbortError',
+    requestId,
+  } as const);
+}
+
+export function isEmbedWorkerRequestCancellation(error: unknown, requestId: string): boolean {
+  return !!(
+    error &&
+    typeof error === 'object' &&
+    'code' in error &&
+    error.code === EMBED_WORKER_REQUEST_CANCELED_CODE &&
+    'requestId' in error &&
+    error.requestId === requestId
+  );
+}
 
 /** Pool-wide request control used to abort work without terminating a warmed worker. */
 export interface EmbedWorkerRequestControl {
@@ -269,8 +295,13 @@ function assertEmbedWorkerPipelineCacheEntryDiagnostic(
   if (entry['device'] !== 'webgpu' && entry['device'] !== 'wasm') {
     throw new Error(`${path}.device must be "webgpu" or "wasm".`);
   }
-  if (entry['dtype'] !== 'fp16' && entry['dtype'] !== 'fp32' && entry['dtype'] !== 'q4') {
-    throw new Error(`${path}.dtype must be "fp16", "fp32", or "q4".`);
+  if (
+    entry['dtype'] !== 'fp16' &&
+    entry['dtype'] !== 'fp32' &&
+    entry['dtype'] !== 'q4' &&
+    entry['dtype'] !== 'q8'
+  ) {
+    throw new Error(`${path}.dtype must be "fp16", "fp32", "q4", or "q8".`);
   }
   assertNonNegativePipelineCacheDiagnosticNumber(entry['lastUsedAt'], `${path}.lastUsedAt`);
   assertNonEmptyPipelineCacheDiagnosticString(entry['model'], `${path}.model`);
@@ -597,6 +628,7 @@ export interface EmbedWorkerSuccess {
   readonly id: string;
   readonly metadata: {
     readonly model: string;
+    readonly revision?: string;
     readonly device: EmbeddingDevice;
     readonly dtype: EmbeddingDType;
     readonly batchSize: number;
@@ -621,6 +653,12 @@ export interface EmbedWorkerComplete {
   readonly type: 'complete';
 }
 
+function assertOptionalModelRevision(value: unknown, path: string): void {
+  if (value !== undefined && !(typeof value === 'string' && value.length > 0)) {
+    throw new Error(`${path} must be a non-empty string.`);
+  }
+}
+
 export function assertEmbedWorkerComplete(value: unknown): asserts value is EmbedWorkerComplete {
   const path = 'Embedding worker complete';
   if (!(value && typeof value === 'object' && !Array.isArray(value))) {
@@ -641,10 +679,16 @@ export function assertEmbedWorkerComplete(value: unknown): asserts value is Embe
   if (!(typeof metadata['model'] === 'string' && metadata['model'].length > 0)) {
     throw new Error(`${path}.metadata.model must be a non-empty string.`);
   }
+  assertOptionalModelRevision(metadata['revision'], `${path}.metadata.revision`);
   if (metadata['device'] !== 'webgpu' && metadata['device'] !== 'wasm') {
     throw new Error(`${path}.metadata.device is invalid.`);
   }
-  if (metadata['dtype'] !== 'fp16' && metadata['dtype'] !== 'q4' && metadata['dtype'] !== 'fp32') {
+  if (
+    metadata['dtype'] !== 'fp16' &&
+    metadata['dtype'] !== 'q4' &&
+    metadata['dtype'] !== 'q8' &&
+    metadata['dtype'] !== 'fp32'
+  ) {
     throw new Error(`${path}.metadata.dtype is invalid.`);
   }
   if (

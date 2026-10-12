@@ -2,6 +2,7 @@ import {
   assertEmbeddingTelemetrySnapshot,
   type EmbeddingTelemetrySnapshot,
 } from '@brainstrike/embedding-worker';
+import type { CatalogEmbeddingWorkerPlan } from '@brainstrike/embeddings/inference-plan';
 import type {
   BackgroundRuntimeProgress,
   BackgroundRuntimeStatus,
@@ -15,6 +16,7 @@ import {
   serializeRuntimeError,
 } from '@brainstrike/worker-runtime';
 import { assertRuntimeObjectPayloadEnvelope } from '@brainstrike/worker-runtime/validation';
+import { decodeNativeEmbeddingWorkerPlan } from './platform/native-embedding-validation';
 
 export const EMBEDDING_HOST_RUNTIME = createBackgroundRuntimeDescriptor('embedding-host');
 export const EMBEDDING_HOST_LIFECYCLE_CHANNELS = EMBEDDING_HOST_RUNTIME.lifecycleChannels;
@@ -23,11 +25,15 @@ const EMBEDDING_HOST_CHANNELS = EMBEDDING_HOST_RUNTIME.createScopedChannels({
   cancelAllBackfills: 'cancel-all-backfills',
   cancelBackfill: 'cancel-backfill',
   command: 'command',
+  documentEmbeddings: 'document-embeddings',
+  documentEmbeddingsCancel: 'document-embeddings-cancel',
+  documentEmbeddingsRequest: 'document-embeddings-request',
   enqueueBackfill: 'enqueue-backfill',
   getBackfillsInFlight: 'get-backfills-in-flight',
   queryEmbedding: 'query-embedding',
   queryEmbeddingCancel: 'query-embedding-cancel',
   queryEmbeddingRequest: 'query-embedding-request',
+  reportDocumentEmbeddingsResponse: 'report-document-embeddings-response',
   reportQueryEmbeddingResponse: 'report-query-embedding-response',
 });
 export const EMBEDDING_HOST_STATUS_EVENT = EMBEDDING_HOST_LIFECYCLE_CHANNELS.statusEvent;
@@ -86,9 +92,15 @@ export interface EmbeddingHostBackfillInfo {
 
 export interface EmbeddingHostQueryEmbeddingPayload {
   readonly dimensions: number;
+  readonly inferencePlan?: CatalogEmbeddingWorkerPlan;
   readonly modelId: string;
   readonly modelKey: string;
   readonly query: string;
+}
+
+/** True only after the manager physically settles the exact owned cancellation. */
+export interface EmbeddingHostQueryCancellationResult {
+  readonly cancelled: boolean;
 }
 
 export const EMBEDDING_HOST_STATUS_ADAPTER = EMBEDDING_HOST_RUNTIME.statusAdapter;
@@ -360,6 +372,20 @@ export function createEmbeddingHostQueryEmbeddingRequest(
   };
 }
 
+// This shared module is preload reachable: keep the verified-plan decoder plain.
+function assertNativeQueryInferencePlan(
+  payload: Record<string, unknown>
+): CatalogEmbeddingWorkerPlan | undefined {
+  if (!Object.hasOwn(payload, 'inferencePlan')) {
+    return;
+  }
+  const ready = decodeNativeEmbeddingWorkerPlan(payload['inferencePlan']);
+  if (ready.modelId !== payload['modelId'] || ready.dimensions !== payload['dimensions']) {
+    throw new Error('Native query inferencePlan must match model and dimensions.');
+  }
+  return ready;
+}
+
 export function assertEmbeddingHostQueryEmbeddingPayload(
   value: unknown
 ): EmbeddingHostQueryEmbeddingPayload {
@@ -367,7 +393,9 @@ export function assertEmbeddingHostQueryEmbeddingPayload(
     throw new Error('Embedding host query embedding payload must be an object.');
   }
   const payload = value as Record<string, unknown>;
+  const inferencePlan = assertNativeQueryInferencePlan(payload);
   return {
+    ...(inferencePlan ? { inferencePlan } : {}),
     dimensions: assertPositiveInteger(
       payload['dimensions'],
       'Embedding host query embedding payload.dimensions must be a positive integer.'
@@ -422,6 +450,16 @@ export function createEmbeddingHostQueryEmbeddingResultReport(
   };
 }
 
+export const EMBEDDING_HOST_QUERY_CANCELED_CODE = 'EMBEDDING_HOST_QUERY_CANCELED';
+
+/** Only the exact query cancel listener creates this reason; terminal serialization retains its code. */
+export function createEmbeddingHostQueryCancellationError(): Error {
+  return Object.assign(new Error('Embedding host query request was canceled.'), {
+    code: EMBEDDING_HOST_QUERY_CANCELED_CODE,
+    name: 'AbortError',
+  });
+}
+
 export function createEmbeddingHostQueryEmbeddingErrorReport(
   request: EmbeddingHostQueryEmbeddingRequest,
   error: unknown
@@ -466,19 +504,7 @@ export function assertEmbeddingHostQueryEmbeddingResponseReport(
     }
     return {
       channel: 'query-embedding-error',
-      payload: {
-        message: assertNonEmptyString(
-          payload['message'],
-          'Embedding host query embedding error payload.message must be a non-empty string.'
-        ),
-        name:
-          typeof payload['name'] === 'string' && payload['name'].trim().length > 0
-            ? payload['name']
-            : 'Error',
-        ...(typeof payload['stack'] === 'string' ? { stack: payload['stack'] } : {}),
-        ...(typeof payload['code'] === 'string' ? { code: payload['code'] } : {}),
-        ...(typeof payload['cause'] === 'string' ? { cause: payload['cause'] } : {}),
-      },
+      payload: assertEmbeddingHostErrorPayload(payload),
       requestId: envelopeBase.requestId,
       runtimeId: envelopeBase.runtimeId,
       type: 'error',
@@ -491,4 +517,209 @@ export function createStoppedEmbeddingHostStatus(
   runtimeId: string = EMBEDDING_HOST_STOPPED_RUNTIME_ID
 ): EmbeddingHostStatus {
   return EMBEDDING_HOST_RUNTIME.createStoppedStatus(runtimeId);
+}
+
+export const EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_CHANNEL =
+  EMBEDDING_HOST_CHANNELS.documentEmbeddings;
+export const EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_CANCEL_EVENT =
+  EMBEDDING_HOST_CHANNELS.documentEmbeddingsCancel;
+export const EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_REQUEST_EVENT =
+  EMBEDDING_HOST_CHANNELS.documentEmbeddingsRequest;
+export const EMBEDDING_HOST_REPORT_DOCUMENT_EMBEDDINGS_RESPONSE_CHANNEL =
+  EMBEDDING_HOST_CHANNELS.reportDocumentEmbeddingsResponse;
+export const MAX_DOCUMENT_EMBEDDING_BATCH_SIZE = 64;
+export interface EmbeddingHostDocumentEmbeddingsPayload {
+  readonly dimensions: number;
+  readonly inferencePlan: CatalogEmbeddingWorkerPlan;
+  readonly modelId: string;
+  readonly modelKey: string;
+  readonly texts: string[];
+}
+export type EmbeddingHostDocumentEmbeddingsRequest = RuntimeRequestEnvelope<
+  'document-embeddings',
+  EmbeddingHostDocumentEmbeddingsPayload
+>;
+export type EmbeddingHostDocumentEmbeddingsCancel = RuntimeRequestEnvelope<
+  'document-embeddings-cancel',
+  Record<string, never>
+>;
+export type EmbeddingHostDocumentEmbeddingsResponseReport =
+  | RuntimeResultEnvelope<'document-embeddings-result', { readonly embeddings: number[][] }>
+  | RuntimeErrorEnvelope<'document-embeddings-error'>;
+export type EmbeddingHostInferenceRequest =
+  | EmbeddingHostQueryEmbeddingRequest
+  | EmbeddingHostDocumentEmbeddingsRequest;
+
+export function assertEmbeddingHostDocumentEmbeddingsPayload(
+  value: unknown
+): EmbeddingHostDocumentEmbeddingsPayload {
+  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
+    throw new Error('Embedding host document payload must be an object.');
+  }
+  const payload = value as Record<string, unknown>;
+  const inferencePlan = assertNativeQueryInferencePlan(payload);
+  if (!inferencePlan) {
+    throw new Error('Document embeddings require a verified inferencePlan.');
+  }
+  const texts = payload['texts'];
+  if (
+    !(Array.isArray(texts) && texts.length > 0 && texts.length <= MAX_DOCUMENT_EMBEDDING_BATCH_SIZE)
+  ) {
+    throw new Error('Document embeddings require between 1 and 64 texts.');
+  }
+  return {
+    dimensions: inferencePlan.dimensions,
+    inferencePlan,
+    modelId: inferencePlan.modelId,
+    modelKey: assertNonEmptyString(payload['modelKey'], 'Document modelKey must be non-empty.'),
+    texts: texts.map((text) => {
+      if (!(typeof text === 'string' && text.trim().length > 0)) {
+        throw new Error('Every document text must be a non-empty string.');
+      }
+      return text;
+    }),
+  };
+}
+export function createEmbeddingHostDocumentEmbeddingsRequest(
+  runtimeId: string,
+  payload: EmbeddingHostDocumentEmbeddingsPayload
+): EmbeddingHostDocumentEmbeddingsRequest {
+  return {
+    channel: 'document-embeddings',
+    payload: assertEmbeddingHostDocumentEmbeddingsPayload(payload),
+    requestId: createRequestId('embedding-host-document'),
+    runtimeId: assertNonEmptyString(runtimeId, 'Document runtimeId must be non-empty.'),
+    type: 'request',
+  };
+}
+export function assertEmbeddingHostDocumentEmbeddingsRequest(
+  value: unknown
+): EmbeddingHostDocumentEmbeddingsRequest {
+  const { envelopeBase, payload } = assertRuntimeObjectPayloadEnvelope(
+    value,
+    'Document embeddings request'
+  );
+  if (envelopeBase.type !== 'request' || envelopeBase.channel !== 'document-embeddings') {
+    throw new Error('Invalid document embeddings request envelope.');
+  }
+  return {
+    ...envelopeBase,
+    channel: 'document-embeddings',
+    payload: assertEmbeddingHostDocumentEmbeddingsPayload(payload),
+    type: 'request',
+  };
+}
+export function createEmbeddingHostDocumentEmbeddingsCancel(
+  request: EmbeddingHostDocumentEmbeddingsRequest
+): EmbeddingHostDocumentEmbeddingsCancel {
+  return {
+    channel: 'document-embeddings-cancel',
+    payload: {},
+    requestId: request.requestId,
+    runtimeId: request.runtimeId,
+    type: 'request',
+  };
+}
+export function assertEmbeddingHostDocumentEmbeddingsCancel(
+  value: unknown
+): EmbeddingHostDocumentEmbeddingsCancel {
+  const { envelopeBase, payload } = assertRuntimeObjectPayloadEnvelope(
+    value,
+    'Document embeddings cancel'
+  );
+  if (
+    envelopeBase.type !== 'request' ||
+    envelopeBase.channel !== 'document-embeddings-cancel' ||
+    Object.keys(payload).length !== 0
+  ) {
+    throw new Error('Invalid document embeddings cancel envelope.');
+  }
+  return { ...envelopeBase, channel: 'document-embeddings-cancel', payload: {}, type: 'request' };
+}
+export function createEmbeddingHostDocumentEmbeddingsResultReport(
+  request: EmbeddingHostDocumentEmbeddingsRequest,
+  embeddings: number[][]
+): EmbeddingHostDocumentEmbeddingsResponseReport {
+  return {
+    channel: 'document-embeddings-result',
+    payload: { embeddings },
+    requestId: request.requestId,
+    runtimeId: request.runtimeId,
+    type: 'result',
+  };
+}
+export function createEmbeddingHostDocumentEmbeddingsErrorReport(
+  request: EmbeddingHostDocumentEmbeddingsRequest,
+  error: unknown
+): EmbeddingHostDocumentEmbeddingsResponseReport {
+  return {
+    channel: 'document-embeddings-error',
+    payload: serializeRuntimeError(error),
+    requestId: request.requestId,
+    runtimeId: request.runtimeId,
+    type: 'error',
+  };
+}
+
+export const EMBEDDING_HOST_DOCUMENT_CANCELED_CODE = 'EMBEDDING_HOST_DOCUMENT_CANCELED';
+
+/** Only the exact document cancel listener creates this reason; terminal serialization retains its code. */
+export function createEmbeddingHostDocumentCancellationError(): Error {
+  return Object.assign(new Error('Embedding host document request was canceled.'), {
+    code: EMBEDDING_HOST_DOCUMENT_CANCELED_CODE,
+    name: 'AbortError',
+  });
+}
+export function assertEmbeddingHostDocumentEmbeddingsResponseReport(
+  value: unknown
+): EmbeddingHostDocumentEmbeddingsResponseReport {
+  const { envelopeBase, payload } = assertRuntimeObjectPayloadEnvelope(
+    value,
+    'Document embeddings response'
+  );
+  if (envelopeBase.type === 'result' && envelopeBase.channel === 'document-embeddings-result') {
+    const embeddings = payload['embeddings'];
+    if (
+      !(
+        Array.isArray(embeddings) &&
+        embeddings.length > 0 &&
+        embeddings.length <= MAX_DOCUMENT_EMBEDDING_BATCH_SIZE
+      )
+    ) {
+      throw new Error('Invalid document embeddings result batch.');
+    }
+    return {
+      ...envelopeBase,
+      channel: 'document-embeddings-result',
+      payload: { embeddings: embeddings.map(assertEmbeddingVector) },
+      type: 'result',
+    };
+  }
+  if (envelopeBase.type === 'error' && envelopeBase.channel === 'document-embeddings-error') {
+    return {
+      ...envelopeBase,
+      channel: 'document-embeddings-error',
+      payload: assertEmbeddingHostErrorPayload(payload),
+      type: 'error',
+    };
+  }
+  throw new Error('Invalid document embeddings response envelope.');
+}
+
+function assertEmbeddingHostErrorPayload(
+  payload: Record<string, unknown>
+): EmbeddingHostQueryEmbeddingErrorReport['payload'] {
+  return {
+    message: assertNonEmptyString(
+      payload['message'],
+      'Embedding host query embedding error payload.message must be a non-empty string.'
+    ),
+    name:
+      typeof payload['name'] === 'string' && payload['name'].trim().length > 0
+        ? payload['name']
+        : 'Error',
+    ...(typeof payload['stack'] === 'string' ? { stack: payload['stack'] } : {}),
+    ...(typeof payload['code'] === 'string' ? { code: payload['code'] } : {}),
+    ...(typeof payload['cause'] === 'string' ? { cause: payload['cause'] } : {}),
+  };
 }

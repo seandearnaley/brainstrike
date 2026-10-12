@@ -1,4 +1,5 @@
 -- description: Run outcomes grouped by experiment treatment (experiment, variant, injection status) over an inclusive time window
+-- target: app
 -- param: since text  Inclusive ISO timestamp at the start of the window
 -- param: until text  Inclusive ISO timestamp at the end of the window
 --

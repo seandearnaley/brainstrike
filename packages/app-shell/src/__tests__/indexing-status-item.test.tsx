@@ -9,6 +9,7 @@ import {
   type IndexingManagedCollectionStatsState,
   useIndexingActivityStore,
 } from '@brainstrike/app-state/stores/indexing-activity-store';
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
@@ -108,6 +109,64 @@ describe('IndexingStatusItem', () => {
       stats: null,
       status: 'unavailable',
     });
+  });
+
+  it('shows native scan activity and omits retired PG queue and worker diagnostics', async () => {
+    useWorkspaceCollectionSyncStatusStore
+      .getState()
+      .setStatus({ activeRootPath: '/owned/repo', processedFiles: 54, state: 'scanning' });
+    const capability = {
+      coverage: () => Promise.reject(new Error('unused')),
+      coverageBatch: () => Promise.reject(new Error('unused')),
+      grep: () => Promise.reject(new Error('unused')),
+      rebuild: async () => {},
+      search: () => Promise.reject(new Error('unused')),
+      status: async () => ({ kind: 'unavailable' as const, reason: 'setup' }),
+    };
+    render(<IndexingStatusItem nativeIndexSearch={capability} />);
+    await userEvent.click(screen.getByTestId('indexing-status-trigger'));
+    expect(screen.queryByText('Embedding queue')).not.toBeInTheDocument();
+    expect(screen.queryByText('No active indexing work')).not.toBeInTheDocument();
+    expect(screen.getByTestId('indexing-activity-region')).toHaveTextContent('Scanning');
+    expect(screen.getByTestId('indexing-activity-region')).toHaveTextContent('54 files indexed');
+  });
+
+  it('presents setup instructions neutrally while keeping genuine fatal failures actionable', async () => {
+    useWorkspaceCollectionSyncStatusStore
+      .getState()
+      .setStatus({ lastError: 'Choose an embedding model.', state: 'unconfigured' });
+    useIndexingActivityStore.getState().setBackgroundSnapshot({
+      enabled: true,
+      lastError: 'Choose an embedding model.',
+      managedCollectionId: null,
+      managedCollectionName: null,
+      paused: false,
+      pauseReasons: [],
+      state: 'unconfigured',
+    });
+    render(<IndexingStatusItem />);
+    await userEvent.click(screen.getByTestId('indexing-status-trigger'));
+    expect(screen.queryByText('Indexing needs attention')).not.toBeInTheDocument();
+    expect(screen.getByTestId('indexing-activity-region')).toHaveTextContent(
+      'Choose an embedding model.'
+    );
+    act(() =>
+      useIndexingActivityStore.getState().setIndexingActivityError('Read host retirement failed.')
+    );
+    expect(screen.getByText('Indexing needs attention')).toBeInTheDocument();
+    expect(screen.getByTestId('indexing-activity-region')).toHaveTextContent(
+      'Read host retirement failed.'
+    );
+    act(() => useIndexingActivityStore.getState().setIndexingActivityError(null));
+    act(() =>
+      useWorkspaceCollectionSyncStatusStore
+        .getState()
+        .setStatus({ lastError: 'Stored vector payload is corrupt.', state: 'error' })
+    );
+    expect(screen.getByText('Indexing needs attention')).toBeInTheDocument();
+    expect(screen.getByTestId('indexing-activity-region')).toHaveTextContent(
+      'Stored vector payload is corrupt.'
+    );
   });
 
   it('keeps one coarse live status outside a fixed-width interactive trigger', () => {
@@ -383,6 +442,22 @@ describe('IndexingStatusItem', () => {
     expect(within(activityRegion).getByText('OpenAI API key not configured.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Pause workspace index' })).not.toBeInTheDocument();
     expect(screen.getByTestId('indexing-action-region')).toHaveClass('h-11');
+  });
+
+  it('explains incomplete native setup and opens the matching settings category', async () => {
+    useWorkspaceCollectionSyncStatusStore.getState().setStatus({
+      lastError: 'Choose an embedding model in Search & Indexing settings.',
+      state: 'unconfigured',
+    });
+    render(<IndexingStatusItem />);
+    expect(screen.getByTestId('indexing-status-value')).toHaveTextContent('Setup required');
+    await userEvent.click(screen.getByTestId('indexing-status-trigger'));
+    expect(
+      await screen.findByText('Choose an embedding model in Search & Indexing settings.')
+    ).toBeTruthy();
+    await userEvent.click(screen.getByRole('button', { name: 'Open indexing settings' }));
+    expect(window.location.hash).toBe('#settings/search-indexing');
+    expect(usePanelLayoutStore.getState().activeTab).toBe('settings');
   });
 
   it.each([

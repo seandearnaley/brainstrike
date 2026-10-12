@@ -62,12 +62,15 @@ describe('main-process bundle config', () => {
     expect(MAIN_PROCESS_ENTRY_POINTS).toEqual({
       'db-host-entry': 'src/db-host-entry.ts',
       'hidden-preload': 'src/hidden-preload.ts',
+      'host-lease-entry': 'src/host-lease-entry.ts',
+      'indexer-host-entry': 'src/indexer-host-entry.ts',
       main: 'src/main-bootstrap.ts',
       'main-log-transport': 'src/diagnostics/main-log-transport.ts',
       'main-watchdog-worker': 'src/diagnostics/main-watchdog-worker.ts',
       'official-conformance-client-entry': 'src/official-conformance-client-entry.ts',
       'parser-host-entry': 'src/parser-host-entry.ts',
       preload: 'src/preload.ts',
+      'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
     });
   });
 
@@ -158,6 +161,7 @@ describe('main-process bundle config', () => {
       '@brainstrike/assistant-data/assistant-memory-repository',
       '@brainstrike/assistant-data/assistant-thread-run-reaper',
       '@brainstrike/notes-vault/core',
+      '@brainstrike/workspace-search/core',
     ]);
     expect(
       aliases['@brainstrike/assistant-data/assistant-thread-run-reaper']?.endsWith(
@@ -172,6 +176,11 @@ describe('main-process bundle config', () => {
     expect(
       aliases['@brainstrike/notes-vault/core']?.endsWith(
         path.join('packages', 'notes-vault', 'src', 'core', 'index.ts')
+      )
+    ).toBe(true);
+    expect(
+      aliases['@brainstrike/workspace-search/core']?.endsWith(
+        path.join('packages', 'workspace-search', 'src', 'core', 'index.ts')
       )
     ).toBe(true);
   });

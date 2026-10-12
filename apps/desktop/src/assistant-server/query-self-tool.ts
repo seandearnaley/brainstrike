@@ -1,15 +1,11 @@
 /**
  * Desktop wiring for the `brainstrike.querySelf` assistant tool.
  *
- * Runs one read-only SQL statement against Brainstrike's own local PGlite
- * database — the store that holds this assistant's run history, edit
- * checkpoints, usage and cost, queue metrics, AND the workspace code index —
- * so questions that would otherwise cost dozens of tool calls become a single
- * statement.
- *
- * All execution safety lives in `AgentSqlService` (@brainstrike/db). This module
- * only resolves the database, dispatches describe-vs-query, and shapes the
- * result. See `docs/agents/agent-self-query.md` for the sandbox contract.
+ * Requires an explicit application (PGlite) or workspace index (SQLite) target.
+ * Application queries retain AgentSqlService's four sandbox layers; index
+ * queries own a killable read-only utility process and join it before returning.
+ * Lens declarations select their dialect and must match the requested target.
+ * See docs/agents/agent-self-query.md for the two sandbox contracts.
  *
  * ERROR POSTURE — deliberately different from the other DB-backed tools.
  * `hybridSearch` collapses unknown errors into a generic message because a
@@ -25,7 +21,9 @@ import { fitItemsToCharBudget, type QuerySelfInput, type RuntimeData } from '@br
 import {
   coerceLensValues,
   type LensParamSpec,
+  type LensRequirement,
   NATIVE_TOOL_ID,
+  type QuerySelfTarget,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
 import {
@@ -35,9 +33,15 @@ import {
   AgentSqlUnboundedRecursionError,
 } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
+import {
+  SqliteQueryCancelledError,
+  SqliteQueryDeadlineError,
+  SqliteQueryInputError,
+} from '@brainstrike/sqlite-query';
 import { getDatabase } from '../db-main';
 import { scanUserLenses, type UserLensScanResult } from './lens-loader';
 import { createNodeFsScanDeps } from './node-fs-scan-deps';
+import { type QuerySelfIndexClient, runIndexQuerySelf } from './query-self-index-tool';
 
 const logger = createLogger('AssistantQuerySelfTool');
 
@@ -62,23 +66,28 @@ export interface QuerySelfRow {
 
 export interface QuerySelfQueryResult {
   columns: string[];
-  estimatedCost: number;
+  estimatedCost?: number;
   hint?: string;
   kind: 'rows';
   rowCount: number;
   rows: QuerySelfRow[];
+  target: QuerySelfTarget;
   truncated: boolean;
 }
 
 export interface QuerySelfTablesResult {
   kind: 'tables';
-  tables: { estimatedRows: number; name: string }[];
+  tables: { estimatedRows: number | null; name: string }[];
+  target: QuerySelfTarget;
+  truncated?: boolean;
 }
 
 export interface QuerySelfColumnsResult {
   columns: { dataType: string; name: string; nullable: boolean }[];
   kind: 'columns';
   table: string;
+  target: QuerySelfTarget;
+  truncated?: boolean;
 }
 
 export interface QuerySelfPlanResult {
@@ -87,6 +96,7 @@ export interface QuerySelfPlanResult {
   kind: 'plan';
   /** PostgreSQL's own indented plan text, one entry per output row. */
   plan: string[];
+  target: QuerySelfTarget;
 }
 
 export interface QuerySelfLensesResult {
@@ -98,6 +108,8 @@ export interface QuerySelfLensesResult {
   lenses: {
     description: string;
     id: string;
+    target: QuerySelfTarget;
+    requirement?: LensRequirement;
     params: { description: string; name: string; type: string }[];
     /** Owning root id, or 'global' for `~/.brainstrike` — "which file is
      * this" is the load-bearing fact for a reviewable artifact. */
@@ -106,6 +118,7 @@ export interface QuerySelfLensesResult {
   /** Same-id files suppressed by first-wins — shadowing must be visible,
    * naming the file that WON (skill-scan / persona-loader shape). */
   shadowed: { fileName: string; shadowedByPath: string; source: string }[];
+  target: QuerySelfTarget;
 }
 
 export type QuerySelfResult =
@@ -164,7 +177,22 @@ function redactErrorForLog(error: unknown): {
  * statement, which the model authored, so echoing it leaks nothing the model
  * did not already have and is the only way it can self-correct.
  */
-function handleQuerySelfError(error: unknown): never {
+function handleQuerySelfError(error: unknown, signal?: AbortSignal): never {
+  if (error instanceof SqliteQueryCancelledError) {
+    logger.info('Index self-query cancelled', {
+      code: error.code,
+      ownerPid: error.ownerPid,
+      phase: error.phase,
+      requestId: error.requestId,
+      requestKind: error.requestKind,
+      target: 'index',
+    });
+    throw error;
+  }
+  if (signal?.aborted) {
+    throw error;
+  }
+
   // Every admission rejection belongs here, not just the two original ones. A
   // guard that fires correctly but reports "the tool did not complete
   // successfully" is indistinguishable from a crash: observed live, the model
@@ -173,7 +201,10 @@ function handleQuerySelfError(error: unknown): never {
   if (
     error instanceof AgentSqlCostRejectedError ||
     error instanceof AgentSqlInputError ||
-    error instanceof AgentSqlUnboundedRecursionError
+    error instanceof AgentSqlUnboundedRecursionError ||
+    error instanceof SqliteQueryInputError ||
+    error instanceof SqliteQueryDeadlineError ||
+    error instanceof ToolInputError
   ) {
     throw new ToolInputError(error.message);
   }
@@ -214,7 +245,7 @@ function scanLensesFromDisk(workspaceRoots: RuntimeData['workspaceRoots']): User
   }
 }
 
-function toLensListing(scan: UserLensScanResult): QuerySelfLensesResult {
+function toLensListing(scan: UserLensScanResult, target: QuerySelfTarget): QuerySelfLensesResult {
   const sourceOf = (rootId: string | undefined): string => rootId ?? 'global';
   const okEntries = scan.entries.filter((entry) => entry.status === 'ok');
   return {
@@ -232,6 +263,7 @@ function toLensListing(scan: UserLensScanResult): QuerySelfLensesResult {
     kind: 'lenses',
     lenses: okEntries.map((entry) => ({
       description: entry.lens.description,
+      ...(entry.lens.requirement ? { requirement: entry.lens.requirement } : {}),
       id: entry.lens.id,
       params: entry.lens.params.map((param: LensParamSpec) => ({
         description: param.description,
@@ -239,6 +271,7 @@ function toLensListing(scan: UserLensScanResult): QuerySelfLensesResult {
         type: param.type,
       })),
       source: sourceOf(entry.sourceRootId),
+      target: entry.lens.target,
     })),
     shadowed: scan.entries
       .filter((entry) => entry.status === 'shadowed')
@@ -247,6 +280,7 @@ function toLensListing(scan: UserLensScanResult): QuerySelfLensesResult {
         shadowedByPath: entry.shadowedBy.absPath,
         source: sourceOf(entry.sourceRootId),
       })),
+    target,
   };
 }
 
@@ -260,7 +294,12 @@ function toLensListing(scan: UserLensScanResult): QuerySelfLensesResult {
 function resolveLensInvocation(
   input: QuerySelfInput,
   scan: UserLensScanResult
-): { params: readonly unknown[]; sql: string } {
+): {
+  params: readonly unknown[];
+  sql: string;
+  requirement?: LensRequirement;
+  paramSpecs: readonly LensParamSpec[];
+} {
   const id = input.lens?.trim();
   if (!id) {
     throw new AgentSqlInputError(QUERY_SELF_ERROR_MESSAGES.missingLens);
@@ -281,19 +320,44 @@ function resolveLensInvocation(
       `Unknown lens "${id}". Available: ${available.length > 0 ? available : '(none)'}. Use mode="listLenses" for details.`
     );
   }
+  if (lens.target !== input.target) {
+    throw new AgentSqlInputError(
+      `Lens "${id}" targets "${lens.target}"; set target="${lens.target}" to run it.`
+    );
+  }
   const coerced = coerceLensValues(lens.params, input.values ?? []);
   if (!coerced.ok) {
     throw new AgentSqlInputError(coerced.error);
   }
-  return { params: coerced.values, sql: lens.sql };
+  return {
+    paramSpecs: lens.params,
+    params: coerced.values,
+    sql: lens.sql,
+    ...(lens.requirement ? { requirement: lens.requirement } : {}),
+  };
 }
 
 /** Test seam: inject the lens scan; production scans the request's roots. */
 export interface QuerySelfToolOptions {
+  readonly openIndexQuery?: (signal?: AbortSignal) => Promise<QuerySelfIndexClient>;
   readonly scanLenses?: () => UserLensScanResult;
+  readonly signal?: AbortSignal | undefined;
+  readonly withIndexCallerRead?: import('../native-caller-query').IndexCallerRead;
 }
 
 export async function runQuerySelf(
+  input: QuerySelfInput,
+  runtimeData: RuntimeData | undefined,
+  options: QuerySelfToolOptions = {}
+): Promise<QuerySelfResult> {
+  options.signal?.throwIfAborted();
+  const result = await executeQuerySelf(input, runtimeData, options);
+  // Shared app SQL is joined, not interrupted; Stop must still suppress its late result.
+  options.signal?.throwIfAborted();
+  return result;
+}
+
+async function executeQuerySelf(
   input: QuerySelfInput,
   runtimeData: RuntimeData | undefined,
   options: QuerySelfToolOptions = {}
@@ -313,15 +377,30 @@ export async function runQuerySelf(
     if (input.mode === 'listLenses') {
       // No database needed: the listing is a pure directory scan, and invalid
       // files are part of the answer.
-      return toLensListing(scanLenses());
+      return toLensListing(scanLenses(), input.target);
     }
 
+    const invocation =
+      input.mode === 'lens' ? resolveLensInvocation(input, scanLenses()) : undefined;
+    if (input.target === 'index') {
+      return await runIndexQuerySelf(
+        input,
+        invocation,
+        options.openIndexQuery,
+        options.signal,
+        options.withIndexCallerRead
+      );
+    }
+    if (input.target !== 'app') {
+      throw new AgentSqlInputError('querySelf requires target="app" or target="index".');
+    }
     const db = await getDatabase();
+    options.signal?.throwIfAborted();
     const service = new AgentSqlService(db);
 
     if (input.mode === 'listTables') {
       const tables = await service.describeTables();
-      return { kind: 'tables', tables };
+      return { kind: 'tables', tables, target: 'app' };
     }
 
     if (input.mode === 'describeTable') {
@@ -331,11 +410,10 @@ export async function runQuerySelf(
         throw new AgentSqlInputError(QUERY_SELF_ERROR_MESSAGES.missingTable);
       }
       const columns = await service.describeTable(table);
-      return { columns, kind: 'columns', table };
+      return { columns, kind: 'columns', table, target: 'app' };
     }
 
-    if (input.mode === 'lens') {
-      const invocation = resolveLensInvocation(input, scanLenses());
+    if (invocation) {
       return await runRowsQuery(service, invocation.sql, input.maxRows, invocation.params);
     }
 
@@ -348,12 +426,12 @@ export async function runQuerySelf(
       const explained = await service.explain(sql, {
         ...(input.analyze === undefined ? {} : { analyze: input.analyze }),
       });
-      return { analyzed: explained.analyzed, kind: 'plan', plan: explained.plan };
+      return { analyzed: explained.analyzed, kind: 'plan', plan: explained.plan, target: 'app' };
     }
 
     return await runRowsQuery(service, sql, input.maxRows);
   } catch (error) {
-    handleQuerySelfError(error);
+    handleQuerySelfError(error, options.signal);
   }
 }
 
@@ -373,6 +451,19 @@ async function runRowsQuery(
     ...(params === undefined ? {} : { params }),
   });
 
+  return shapeQuerySelfRows(result, maxRows ?? 50, 'app');
+}
+
+export function shapeQuerySelfRows(
+  result: {
+    columns: readonly string[];
+    rows: readonly (readonly unknown[])[];
+    truncated: boolean;
+    estimatedCost?: number;
+  },
+  maxRows: number,
+  target: QuerySelfTarget
+): QuerySelfQueryResult {
   const rows: QuerySelfRow[] = result.rows.map((row) => ({
     cells: row.map(renderCell),
   }));
@@ -384,17 +475,18 @@ async function runRowsQuery(
     const budgetTruncated = kept.length < rows.length;
     const truncated = result.truncated || budgetTruncated;
     return {
-      columns: result.columns,
-      estimatedCost: result.estimatedCost,
+      columns: [...result.columns],
+      ...(result.estimatedCost === undefined ? {} : { estimatedCost: result.estimatedCost }),
       kind: 'rows',
       rowCount: kept.length,
       rows: kept,
+      target,
       truncated,
       ...(truncated
         ? {
             hint: budgetTruncated
               ? `Showing ${kept.length} of ${rows.length} returned rows (output budget). Select fewer columns, or aggregate.`
-              : `More rows matched than the ${result.maxRows}-row cap. Add a LIMIT, narrow the WHERE clause, or aggregate.`,
+              : `More rows matched than the ${maxRows}-row cap. Add a LIMIT, narrow the WHERE clause, or aggregate.`,
           }
         : {}),
     };
@@ -431,6 +523,6 @@ export function toQuerySelfInputError(error: unknown): Error {
     .join('; ');
 
   return new ToolInputError(
-    `Invalid querySelf input — ${detail}. Required: mode = "listTables" | "describeTable" | "query" | "explain" | "listLenses" | "lens"; pass sql for mode="query" or "explain", table for mode="describeTable", lens (+ values) for mode="lens".`
+    `Invalid querySelf input — ${detail}. Required: target = "app" | "index"; mode = "listTables" | "describeTable" | "query" | "explain" | "listLenses" | "lens"; pass sql for mode="query" or "explain", table for mode="describeTable", lens (+ values) for mode="lens".`
   );
 }

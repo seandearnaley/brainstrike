@@ -11,12 +11,16 @@ import { createLogger } from '@brainstrike/logging';
 import { useIdeFileEditor } from '@brainstrike/ui';
 import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
 import {
+  getNativeSemanticAvailability,
+  type NativeSemanticAvailability,
+  NativeWorkspaceSearchExecutor,
   type ResolvedFileInfo,
+  useNativeWorkspaceSearchDependencies,
   useWorkspaceSearchStore,
   WorkspaceSearchExecutor,
   type WorkspaceSearchMode,
 } from '@brainstrike/workspace-search/core';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useOptionalRootIdentity } from './roots/root-identity-context';
 
 const logger = createLogger('WorkspaceSearchController');
@@ -24,6 +28,7 @@ const logger = createLogger('WorkspaceSearchController');
 const EMPTY_DB_ROOT_IDS: readonly string[] = [];
 
 export interface WorkspaceSearchController {
+  allowTextPaging: boolean;
   onOpenFile: (
     compositeKey: string,
     target?: { line: number; selection?: { startLine: number; endLine: number } }
@@ -31,6 +36,7 @@ export interface WorkspaceSearchController {
   resolveAdapterRootId: (dbRootId: string) => string | null;
   runSemanticSearch: () => void;
   runTextSearch: () => void;
+  semanticAvailability: NativeSemanticAvailability | undefined;
   workspaceDbRootIds: readonly string[];
 }
 
@@ -156,6 +162,30 @@ export function createWorkspaceSearchRunners(deps: WorkspaceSearchRunnerDeps): {
   };
 }
 
+export function createNativeWorkspaceSearchRunners(
+  executor: NativeWorkspaceSearchExecutor,
+  rootIds: readonly string[]
+): { runSemanticSearch: () => void; runTextSearch: () => void } {
+  const run = (mode: WorkspaceSearchMode): void => {
+    const store = useWorkspaceSearchStore.getState();
+    const { query, collectionId, caseSensitive, isRegex, wholeWord } = store;
+    const generation = store.beginSearch();
+    const request = { caseSensitive, collectionId, isRegex, query, rootIds, wholeWord };
+    void (mode === 'text' ? executor.searchText(request) : executor.searchSemantic(request))
+      .then((results) => {
+        if (results !== null) {
+          useWorkspaceSearchStore.getState().resolveResults(results, generation);
+        }
+      })
+      .catch((error: unknown) => {
+        useWorkspaceSearchStore
+          .getState()
+          .failSearch(error instanceof Error ? error.message : String(error), generation);
+      });
+  };
+  return { runSemanticSearch: () => run('semantic'), runTextSearch: () => run('text') };
+}
+
 /**
  * Composition-layer controller for the workspace-search panel: builds the
  * executor once from the live repositories, wires the run callbacks to the
@@ -163,6 +193,13 @@ export function createWorkspaceSearchRunners(deps: WorkspaceSearchRunnerDeps): {
  * providers (root identity, IDE file editor).
  */
 export function useWorkspaceSearchController(): WorkspaceSearchController {
+  const nativeDependencies = useNativeWorkspaceSearchDependencies();
+  const selectedCollectionId = useWorkspaceSearchStore((state) => state.collectionId);
+  const [availabilityResult, setAvailabilityResult] = useState<{
+    readonly scope: Parameters<typeof getNativeSemanticAvailability>[0];
+    readonly value: NativeSemanticAvailability;
+  } | null>(null);
+  const refreshAvailability = useRef<(() => void) | null>(null);
   const db = usePGliteDatabase();
   const chunkRepository = useFileChunkRepository();
   const rootIdentity = useOptionalRootIdentity();
@@ -240,7 +277,103 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
 
   const workspaceDbRootIds = rootIdentity?.workspaceDbRootIds ?? EMPTY_DB_ROOT_IDS;
 
+  const nativeCapability = nativeDependencies?.capability ?? null;
+  const nativeProfile = nativeDependencies?.profile ?? null;
+  const nativeEmbedQuery = nativeDependencies === null ? null : nativeDependencies.embedQuery;
+  const nativeProfileReason = nativeDependencies?.profileUnavailableReason;
+  const nativeExecutor = useMemo(
+    () =>
+      nativeEmbedQuery === null
+        ? null
+        : new NativeWorkspaceSearchExecutor({
+            capability: nativeCapability,
+            embedQuery: nativeEmbedQuery,
+            profile: nativeProfile,
+            ...(nativeProfileReason === undefined
+              ? {}
+              : { profileUnavailableReason: nativeProfileReason }),
+          }),
+    [nativeCapability, nativeProfile, nativeEmbedQuery, nativeProfileReason]
+  );
+  useEffect(
+    () => () => {
+      if (!nativeExecutor) {
+        return;
+      }
+      nativeExecutor.cancelPendingSearch();
+      const store = useWorkspaceSearchStore.getState();
+      if (store.status === 'searching') {
+        const generation = store.beginSearch();
+        store.failSearch('Native workspace search scope or capability changed.', generation);
+      }
+    },
+    [nativeExecutor, workspaceDbRootIds]
+  );
+  const availabilityScope = useMemo(
+    () =>
+      nativeEmbedQuery === null
+        ? null
+        : {
+            capability: nativeCapability,
+            profile: nativeProfile,
+            ...(nativeProfileReason === undefined
+              ? {}
+              : { profileUnavailableReason: nativeProfileReason }),
+            collectionId: selectedCollectionId,
+            rootIds: workspaceDbRootIds,
+          },
+    [
+      nativeCapability,
+      nativeProfile,
+      nativeEmbedQuery,
+      nativeProfileReason,
+      selectedCollectionId,
+      workspaceDbRootIds,
+    ]
+  );
+  const semanticAvailability: NativeSemanticAvailability =
+    availabilityResult?.scope === availabilityScope
+      ? availabilityResult.value
+      : { available: false, reason: 'Native vector availability is being verified.' };
+  useEffect(() => {
+    if (availabilityScope === null) {
+      return;
+    }
+    let current = true;
+    let pending = false;
+    let refreshRequested = false;
+    const refresh = async (): Promise<void> => {
+      if (pending) {
+        refreshRequested = true;
+        return;
+      }
+      pending = true;
+      do {
+        refreshRequested = false;
+        const value = await getNativeSemanticAvailability(availabilityScope);
+        if (!current) {
+          return;
+        }
+        setAvailabilityResult({ scope: availabilityScope, value });
+      } while (refreshRequested);
+      pending = false;
+    };
+    refreshAvailability.current = () => {
+      void refresh();
+    };
+    return () => {
+      current = false;
+      refreshAvailability.current = null;
+    };
+  }, [availabilityScope]);
+  useEffect(() => {
+    refreshAvailability.current?.();
+  }, [availabilityScope, nativeDependencies]);
+
   const runners = useMemo(() => {
+    if (nativeExecutor) {
+      return createNativeWorkspaceSearchRunners(nativeExecutor, workspaceDbRootIds);
+    }
     if (!executor) {
       const unavailable = (): void => {
         const generation = useWorkspaceSearchStore.getState().beginSearch();
@@ -255,7 +388,7 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
       resolveEffectiveEmbeddingSetId,
       workspaceDbRootIds,
     });
-  }, [executor, resolveEffectiveEmbeddingSetId, workspaceDbRootIds]);
+  }, [executor, nativeExecutor, resolveEffectiveEmbeddingSetId, workspaceDbRootIds]);
 
   const resolveAdapterRootId = useCallback(
     (dbRootId: string): string | null => rootIdentity?.resolveAdapterRootId(dbRootId) ?? null,
@@ -295,10 +428,12 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
   );
 
   return {
+    allowTextPaging: nativeDependencies === null,
     onOpenFile,
     resolveAdapterRootId,
     runSemanticSearch: runners.runSemanticSearch,
     runTextSearch: runners.runTextSearch,
+    semanticAvailability: nativeDependencies === null ? undefined : semanticAvailability,
     workspaceDbRootIds,
   };
 }

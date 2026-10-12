@@ -23,7 +23,7 @@ test('desktop workflow exposes an untruncated memory-baseline dispatch', async (
   assert.deepEqual(suiteInput, {
     default: 'full',
     description: 'Desktop E2E suite to run',
-    options: ['full', 'memory-baseline'],
+    options: ['full', 'memory-baseline', 'foreground-latency'],
     required: true,
     type: 'choice',
   });

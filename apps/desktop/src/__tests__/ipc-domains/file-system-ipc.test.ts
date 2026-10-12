@@ -12,7 +12,10 @@ import {
 
 vi.mock('electron', async () => (await import('./file-system-ipc-test-harness')).electronMock);
 
-import { registerFileSystemIpcHandlers } from '../../ipc-domains/file-system-ipc';
+import {
+  createFileSystemIpcDomain,
+  registerFileSystemIpcHandlers,
+} from '../../ipc-domains/file-system-ipc';
 import { assignWindowRole, clearWindowRoleByWebContentsId } from '../../window-role';
 import {
   createFileSystem,
@@ -54,6 +57,56 @@ describe('file system IPC domain', () => {
       storage,
     });
   }
+
+  it('awaits the actual main deletion callback and propagates its cleanup failure', async () => {
+    const held = Promise.withResolvers<void>();
+    const onDeleteRootData = vi.fn(() => held.promise);
+    const domain = createFileSystemIpcDomain({
+      fileSystem,
+      getRootsDatabase,
+      isSyntheticFileSystemPath: () => true,
+      onDeleteRootData,
+      storage,
+    });
+    const deletion = handlers.get('fs:deleteRootData')?.(createTrustedInvokeEvent(), 'actual-root');
+    expect(onDeleteRootData).toHaveBeenCalledWith('actual-root');
+    held.resolve();
+    await deletion;
+    onDeleteRootData.mockRejectedValueOnce(new Error('Native owner cleanup failed'));
+    await expect(
+      handlers.get('fs:deleteRootData')?.(createTrustedInvokeEvent(), 'actual-root')
+    ).rejects.toThrow('Native owner cleanup failed');
+    expect(rootsDbQuery).not.toHaveBeenCalled();
+    await domain.close();
+  });
+
+  it('refuses deletion when its main owner has not been composed', async () => {
+    register();
+    await expect(
+      handlers.get('fs:deleteRootData')?.(createTrustedInvokeEvent(), 'root')
+    ).rejects.toThrow('capability is unavailable');
+    expect(rootsDbQuery).not.toHaveBeenCalled();
+  });
+
+  it('joins mounted-root disposal even when handler removal throws', async () => {
+    const domain = createFileSystemIpcDomain({
+      fileSystem,
+      getRootsDatabase,
+      isSyntheticFileSystemPath: () => true,
+      storage,
+    });
+    const dispose = vi.spyOn(domain.roots, 'dispose').mockResolvedValue(undefined);
+    const failure = new Error('Filesystem handler removal failed.');
+    removeHandler.mockImplementationOnce(() => {
+      throw failure;
+    });
+
+    await expect(domain.close()).rejects.toMatchObject({
+      errors: expect.arrayContaining([failure]),
+      name: 'AggregateError',
+    });
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
 
   it('selects, mounts, persists, and stamps a root through the legacy picker channel', async () => {
     register();
@@ -422,6 +475,7 @@ describe('file system IPC domain', () => {
         'fs:addRootByPath',
         'fs:readFileByPath',
         'fs:requestDirectoryAccess',
+        'fs:deleteRootData',
         'fs:removeRoot',
       ])
     );

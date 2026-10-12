@@ -19,6 +19,7 @@ describe('file-system IPC contracts', () => {
     ).toEqual([
       'addRoot',
       'addRootByPath',
+      'deleteRootData',
       'exists',
       'getWatcherTelemetry',
       'listRecentRoots',
@@ -58,6 +59,11 @@ describe('file-system IPC contracts', () => {
   });
 
   it('parses exact argument tuples before handlers see renderer input', () => {
+    expect(fileSystemContract.deleteRootData.parseArgs(['actual-root'])).toEqual(['actual-root']);
+    expect(() => fileSystemContract.deleteRootData.parseArgs(['  '])).toThrow('durable root ID');
+    expect(() => fileSystemContract.deleteRootData.parseArgs(['r'.repeat(1025)])).toThrow(
+      'durable root ID'
+    );
     expect(fileSystemContract.addRoot.parseArgs([])).toEqual([]);
     expect(fileSystemContract.readDirectory.parseArgs([directoryHandle])).toEqual([
       directoryHandle,

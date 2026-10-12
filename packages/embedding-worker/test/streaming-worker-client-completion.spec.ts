@@ -102,6 +102,59 @@ describe('streaming completion request correlation', () => {
     vi.restoreAllMocks();
   });
 
+  it.each(['a'.repeat(40), 'b'.repeat(40)])(
+    'correlates explicit model revision %s',
+    async (revision) => {
+      const requestedRevision = 'a'.repeat(40);
+      const { outcome } = await startCompletedStream(
+        createRequest({ revision: requestedRevision }),
+        createComplete({ revision })
+      );
+      if (revision === requestedRevision) {
+        await expect(outcome).resolves.toMatchObject({ revision });
+      } else {
+        await expect(outcome).rejects.toThrow('metadata.revision');
+      }
+    }
+  );
+
+  it.each([1, 3])(
+    'rejects a catalog model completion that disagrees with its batch ceiling or observed batches: %d',
+    async (batchSize) => {
+      const model = 'jinaai/jina-embeddings-v2-base-code';
+      const worker = new CompletionMockWorker();
+      const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+      const outcome = client.stream(
+        createRequest({
+          dtype: 'fp32',
+          maxBatchSize: 3,
+          model,
+          texts: ['hello', 'world', 'hello world'],
+        })
+      );
+      await Promise.resolve();
+      for (let batchIndex = 0; batchIndex < 3; batchIndex += 1) {
+        worker.emitMessage({
+          batchIndex,
+          endIndex: batchIndex + 1,
+          id: 'completion-request',
+          peakVectorsInFlight: 1,
+          startIndex: batchIndex,
+          transferBytes: 12,
+          type: 'batch',
+          vectors: [new Float32Array([1, 2, 3])],
+          vectorsInFlight: 1,
+        } satisfies EmbedWorkerBatch);
+        await Promise.resolve();
+      }
+      worker.emitMessage(createComplete({ batchSize, dtype: 'fp32', model }));
+      await expect(outcome).rejects.toThrow(
+        batchSize === 1 ? 'request batch size' : 'observed stream batches'
+      );
+      expect(worker.terminate).toHaveBeenCalledTimes(1);
+    }
+  );
+
   it.each([
     ['model', createComplete({ model: 'local:other-model' }), 'metadata.model'],
     ['dtype', createComplete({ dtype: 'fp16' }), 'metadata.dtype'],

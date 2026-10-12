@@ -1,0 +1,597 @@
+{
+  "provenance": {
+    "corpusSourceCommit": "ed97957e030dd3345c232650199dbc88929dad24",
+    "producerSourceCommit": "5e9ed983428fbadac5e3e0915a99741b5335c9e8",
+    "profileHash": "60a05b1084b11c2add2e01bb8112960f51e83e68c88ad4151b0dc54eb69e1914",
+    "device": "webgpu",
+    "pooling": "mean",
+    "normalization": "l2",
+    "seed": "add",
+    "terms": "disposer bridge",
+    "vectorsSha256": "351657e73702e7da5be2b7727a9e668e3b94c100a5adce92aa2df50a730db067"
+  },
+  "profile": {
+    "modelId": "onnx-community/all-MiniLM-L6-v2-ONNX",
+    "revision": "aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f",
+    "dtype": "fp16",
+    "dimensions": 384,
+    "tokenCap": 256
+  },
+  "files": [
+    {
+      "path": "apps/desktop/src/main/disposer-stack.ts",
+      "source": "/**\n * The ONE holder of IPC-domain disposers in Electron main (BST-1648 step 4).\n * Owned by `main.ts`'s shutdown path: every `registerXIpcHandlers(...)`\n * disposer is pushed here instead of into its own `let unregisterX` slot,\n * and `will-quit` unwinds the stack instead of a hand-written per-domain\n * ladder. Bookkeeping only \u2014 the graceful shutdown\n * (`main/desktop-graceful-shutdown.ts`) still runs BEFORE `will-quit`;\n * disposers that must unwind inside a graceful step (forge) stay there.\n *\n * `disposeAll` unwinds in LIFO order and isolates every throw: a failing\n * disposer never prevents a later one from running, and each failure is\n * returned by label so the caller logs it visibly. A handle disposes its own\n * entry once (per-window rebinding, e.g. the browser pane) and is a no-op\n * afterwards. A second live entry under the same label is a registration\n * error, never a silent double-registration.\n */\nexport interface DisposerHandle {\n  readonly dispose: () => void;\n  readonly label: string;\n}\n\nexport interface DisposerFailure {\n  readonly error: unknown;\n  readonly label: string;\n}\n\nexport interface DisposerStack {\n  readonly add: (label: string, dispose: () => void) => DisposerHandle;\n  readonly disposeAll: () => readonly DisposerFailure[];\n  readonly labels: () => readonly string[];\n}\n\ninterface Entry {\n  readonly dispose: () => void;\n  readonly label: string;\n}\n\nexport function createDisposerStack(): DisposerStack {\n  const entries: Entry[] = [];\n\n  function remove(entry: Entry): boolean {\n    const index = entries.indexOf(entry);\n    if (index === -1) {\n      return false;\n    }\n    entries.splice(index, 1);\n    return true;\n  }\n\n  function add(label: string, dispose: () => void): DisposerHandle {\n    if (label.trim().length === 0) {\n      throw new Error('Disposer label must be a non-empty string.');\n    }\n    if (entries.some((entry) => entry.label === label)) {\n      throw new Error(`Disposer \"${label}\" is already registered.`);\n    }\n    const entry: Entry = { dispose, label };\n    entries.push(entry);\n    return {\n      dispose: () => {\n        if (remove(entry)) {\n          entry.dispose();\n        }\n      },\n      label,\n    };\n  }\n\n  function disposeAll(): readonly DisposerFailure[] {\n    const failures: DisposerFailure[] = [];\n    while (entries.length > 0) {\n      const entry = entries.pop();\n      if (!entry) {\n        break;\n      }\n      try {\n        entry.dispose();\n      } catch (error) {\n        failures.push({ error, label: entry.label });\n      }\n    }\n    return failures;\n  }\n\n  return {\n    add,\n    disposeAll,\n    labels: () => entries.map((entry) => entry.label),\n  };\n}\n",
+      "sourceHash": "0fbad24ee61a7bef06a21dcd95c7938fecc529370b932ba5f45af5c7f2ca0099",
+      "chunks": [
+        {
+          "chunk": {
+            "chunkIndex": 0,
+            "chunkSize": 256,
+            "chunkType": "recursive",
+            "content": "/**\n * The ONE holder of IPC-domain disposers in Electron main (BST-1648 step 4).\n * Owned by `main.ts`'s shutdown path: every `registerXIpcHandlers(...)`\n * disposer is pushed here instead of into its own `let unregisterX` slot,\n * and `will-quit` unwinds the stack instead of a hand-written per-domain\n * ladder. Bookkeeping only \u2014 the graceful shutdown\n * (`main/desktop-graceful-shutdown.ts`) still runs BEFORE `will-quit`;\n * disposers that must unwind inside a graceful step (forge) stay there.\n *\n * `disposeAll` unwinds in LIFO order and isolates every throw: a failing\n * disposer never prevents a later one from running, and each failure is\n * returned by label so the caller logs it visibly. A handle disposes its own\n * entry once (per-window rebinding, e.g. the browser pane) and is a no-op\n * afterwards. A second live entry under the same label is a registration\n * error, never a silent double-registration.\n */\nexport interface DisposerHandle {\n  readonly dispose: () => void;\n  readonly label: string;\n}",
+            "contentHash": "822eee04c6b26279d22b8be41d4f87a02cc3596962a5dde3f4c678e6a028fd0d",
+            "endLine": 20,
+            "endOffset": 1021,
+            "startLine": 1,
+            "startOffset": 0,
+            "tokenCount": 246
+          },
+          "recordedVectorIndex": 5979,
+          "fixtureVectorIndex": 0
+        },
+        {
+          "chunk": {
+            "chunkIndex": 1,
+            "chunkSize": 256,
+            "chunkType": "recursive",
+            "content": "export interface DisposerFailure {\n  readonly error: unknown;\n  readonly label: string;\n}\n\nexport interface DisposerStack {\n  readonly add: (label: string, dispose: () => void) => DisposerHandle;\n  readonly disposeAll: () => readonly DisposerFailure[];\n  readonly labels: () => readonly string[];\n}\n\ninterface Entry {\n  readonly dispose: () => void;\n  readonly label: string;\n}\n\nexport",
+            "contentHash": "a3b6fd3b874ed5ee8b33d2921160594973af1cffcbf823d958edf0e81dbd98a1",
+            "endLine": 38,
+            "endOffset": 1408,
+            "startLine": 22,
+            "startOffset": 1023,
+            "tokenCount": 86
+          },
+          "recordedVectorIndex": 5980,
+          "fixtureVectorIndex": 1
+        },
+        {
+          "chunk": {
+            "chunkIndex": 2,
+            "chunkSize": 256,
+            "chunkType": "recursive",
+            "content": "function createDisposerStack(): DisposerStack {\n  const entries: Entry[] = [];\n\n  function remove(entry: Entry): boolean {\n    const index = entries.indexOf(entry);\n    if (index === -1) {\n      return false;\n    }\n    entries.splice(index, 1);\n    return true;\n  }\n\n  function add(label: string, dispose: () => void): DisposerHandle {\n    if (label.trim().length === 0) {\n      throw new Error('Disposer label must be a non-empty string.');\n    }\n    if (entries.some((entry) => entry.label === label)) {\n      throw new Error(`Disposer \"${label}\" is already registered.`);\n    }\n    const entry: Entry = { dispose, label };\n    entries.push(entry);\n    return {\n      dispose: () => {\n        if (remove(entry)) {\n          entry.dispose();\n        }\n      },\n      label,\n    };\n  }\n\n  function disposeAll(): readonly DisposerFailure[] {\n    const failures: DisposerFailure[] = [];\n    while (entries.length > 0) {\n      const entry = entries.pop();\n      if (!entry) {\n        break;\n      }\n      try {\n        entry.dispose();\n      } catch (error) {\n        failures.push({ error, label: entry.label });\n      }\n    }\n    return failures;\n  }\n\n  return {\n    add,\n    disposeAll,\n    labels: () => entries.map((entry) => entry.label),\n  };\n}",
+            "contentHash": "4ba9b732f431033e58dddc576c21527b37878bff823091fa1688ac74289893ac",
+            "endLine": 90,
+            "endOffset": 2657,
+            "startLine": 38,
+            "startOffset": 1409,
+            "tokenCount": 300
+          },
+          "recordedVectorIndex": 5981,
+          "fixtureVectorIndex": 2
+        }
+      ],
+      "symbols": [
+        {
+          "endLine": 20,
+          "endOffset": 1021,
+          "exported": true,
+          "kind": "interface",
+          "name": "DisposerHandle",
+          "startLine": 17,
+          "startOffset": 935
+        },
+        {
+          "endLine": 25,
+          "endOffset": 1112,
+          "exported": true,
+          "kind": "interface",
+          "name": "DisposerFailure",
+          "startLine": 22,
+          "startOffset": 1030
+        },
+        {
+          "endLine": 31,
+          "endOffset": 1321,
+          "exported": true,
+          "kind": "interface",
+          "name": "DisposerStack",
+          "startLine": 27,
+          "startOffset": 1121
+        },
+        {
+          "endLine": 36,
+          "endOffset": 1400,
+          "exported": false,
+          "kind": "interface",
+          "name": "Entry",
+          "startLine": 33,
+          "startOffset": 1323
+        },
+        {
+          "endLine": 90,
+          "endOffset": 2657,
+          "exported": true,
+          "kind": "function",
+          "name": "createDisposerStack",
+          "startLine": 38,
+          "startOffset": 1409
+        },
+        {
+          "endLine": 48,
+          "endOffset": 1674,
+          "exported": false,
+          "kind": "function",
+          "name": "remove",
+          "startLine": 41,
+          "startOffset": 1491
+        },
+        {
+          "endLine": 67,
+          "endOffset": 2194,
+          "exported": false,
+          "kind": "function",
+          "name": "add",
+          "startLine": 50,
+          "startOffset": 1678
+        },
+        {
+          "endLine": 83,
+          "endOffset": 2558,
+          "exported": false,
+          "kind": "function",
+          "name": "disposeAll",
+          "startLine": 69,
+          "startOffset": 2198
+        }
+      ],
+      "refs": [
+        {
+          "kind": "call",
+          "line": 42,
+          "name": "indexOf",
+          "enclosingSymbolIndex": 5
+        },
+        {
+          "kind": "call",
+          "line": 46,
+          "name": "splice",
+          "enclosingSymbolIndex": 5
+        },
+        {
+          "kind": "call",
+          "line": 51,
+          "name": "trim",
+          "enclosingSymbolIndex": 6
+        },
+        {
+          "kind": "call",
+          "line": 52,
+          "name": "Error",
+          "enclosingSymbolIndex": 6
+        },
+        {
+          "kind": "call",
+          "line": 54,
+          "name": "some",
+          "enclosingSymbolIndex": 6
+        },
+        {
+          "kind": "call",
+          "line": 58,
+          "name": "push",
+          "enclosingSymbolIndex": 6
+        },
+        {
+          "kind": "call",
+          "line": 61,
+          "name": "remove",
+          "enclosingSymbolIndex": 6
+        },
+        {
+          "kind": "call",
+          "line": 62,
+          "name": "dispose",
+          "enclosingSymbolIndex": 6
+        },
+        {
+          "kind": "call",
+          "line": 72,
+          "name": "pop",
+          "enclosingSymbolIndex": 7
+        },
+        {
+          "kind": "call",
+          "line": 77,
+          "name": "dispose",
+          "enclosingSymbolIndex": 7
+        },
+        {
+          "kind": "call",
+          "line": 79,
+          "name": "push",
+          "enclosingSymbolIndex": 7
+        },
+        {
+          "kind": "call",
+          "line": 88,
+          "name": "map",
+          "enclosingSymbolIndex": 4
+        }
+      ]
+    },
+    {
+      "path": "apps/desktop/src/mcp/apps-shell-bridge.ts",
+      "source": "import {\n  parseMcpAppShellPrepareRequest,\n  parseMcpAppShellPrepareResult,\n  parseMcpAppShellReleaseRequest,\n} from '@brainstrike/assistant-contract';\nimport { mcpAppsContract } from '../ipc-domains/mcp.contract';\nimport type { DesktopIpcRegistry } from '../platform/desktop-ipc-registry';\nimport type { McpAppShellRegistry } from './apps-shell-protocol';\n\n/** The slice of a WebContents the shell bridge binds a registration to. */\nexport interface McpAppShellSender {\n  readonly id: number;\n  isDestroyed(): boolean;\n  once(event: 'destroyed', listener: () => void): unknown;\n}\n\n/**\n * Visible-UI-only IPC for the MCP App shell registry (BST-1572). Every shell\n * is bound to the registering WebContents: only that sender can release it,\n * and the sender's destruction drops all of its shells so a torn-down window\n * can never leave a shell served.\n */\nexport function attachMcpAppShellBridge(\n  registry: Pick<McpAppShellRegistry, 'register' | 'release' | 'releaseOwner'>,\n  ipc: Pick<DesktopIpcRegistry, 'registerAuthorizedInvoke'>\n): void {\n  const trackedSenders = new Set<number>();\n  const track = (sender: McpAppShellSender): void => {\n    if (trackedSenders.has(sender.id)) {\n      return;\n    }\n    trackedSenders.add(sender.id);\n    sender.once('destroyed', () => {\n      trackedSenders.delete(sender.id);\n      registry.releaseOwner(sender.id);\n    });\n  };\n\n  ipc.registerAuthorizedInvoke(\n    'mcp',\n    mcpAppsContract.prepareShell.channel,\n    { roles: mcpAppsContract.prepareShell.roles },\n    async (event, ...raw: unknown[]) => {\n      const [value] = mcpAppsContract.prepareShell.parseArgs(raw);\n      const sender: McpAppShellSender = event.sender;\n      if (sender.isDestroyed()) {\n        throw new Error('MCP App shell registration from a destroyed WebContents');\n      }\n      const lease = registry.register(sender.id, parseMcpAppShellPrepareRequest(value));\n      track(sender);\n      return parseMcpAppShellPrepareResult(lease);\n    }\n  );\n  ipc.registerAuthorizedInvoke(\n    'mcp',\n    mcpAppsContract.releaseShell.channel,\n    { roles: mcpAppsContract.releaseShell.roles },\n    async (event, ...raw: unknown[]): Promise<void> => {\n      const [value] = mcpAppsContract.releaseShell.parseArgs(raw);\n      const { token } = parseMcpAppShellReleaseRequest(value);\n      if (!registry.release(event.sender.id, token)) {\n        throw new Error('MCP App shell is not registered to this sender');\n      }\n    }\n  );\n}\n",
+      "sourceHash": "4dd9c40e8528e00803562175d9f677ab97c0023067f1db2a0ecf03480e6646fd",
+      "chunks": [
+        {
+          "chunk": {
+            "chunkIndex": 0,
+            "chunkSize": 256,
+            "chunkType": "recursive",
+            "content": "import {\n  parseMcpAppShellPrepareRequest,\n  parseMcpAppShellPrepareResult,\n  parseMcpAppShellReleaseRequest,\n} from '@brainstrike/assistant-contract';\nimport { mcpAppsContract } from '../ipc-domains/mcp.contract';\nimport type { DesktopIpcRegistry } from '../platform/desktop-ipc-registry';\nimport type { McpAppShellRegistry } from './apps-shell-protocol';\n\n/** The slice of a WebContents the shell bridge binds a registration to. */\nexport interface McpAppShellSender {\n  readonly id: number;\n  isDestroyed(): boolean;\n  once(event: 'destroyed', listener: () => void): unknown;\n}\n\n/**\n * Visible-UI-only IPC for the MCP App shell registry (BST-1572). Every shell\n * is bound to the registering WebContents: only that sender can release it,\n * and the sender's destruction drops all of its shells so a torn-down window\n * can never leave a shell served.\n */\nexport",
+            "contentHash": "3cda7224954f97025030a01522802c8322f24f74e9c39b822c3bb3e9e0fbac8b",
+            "endLine": 23,
+            "endOffset": 864,
+            "startLine": 1,
+            "startOffset": 0,
+            "tokenCount": 206
+          },
+          "recordedVectorIndex": 6155,
+          "fixtureVectorIndex": 3
+        },
+        {
+          "chunk": {
+            "chunkIndex": 1,
+            "chunkSize": 256,
+            "chunkType": "recursive",
+            "content": "function attachMcpAppShellBridge(\n  registry: Pick<McpAppShellRegistry, 'register' | 'release' | 'releaseOwner'>,\n  ipc: Pick<DesktopIpcRegistry, 'registerAuthorizedInvoke'>\n): void {\n  const trackedSenders = new Set<number>();\n  const track = (sender: McpAppShellSender): void => {\n    if (trackedSenders.has(sender.id)) {\n      return;\n    }\n    trackedSenders.add(sender.id);\n    sender.once('destroyed', () => {\n      trackedSenders.delete(sender.id);\n      registry.releaseOwner(sender.id);\n    });\n  };",
+            "contentHash": "6372ef72df98af7935af586bd12c5e59a83acfa15e8fa778a6a8ce3370837a96",
+            "endLine": 37,
+            "endOffset": 1373,
+            "startLine": 23,
+            "startOffset": 865,
+            "tokenCount": 128
+          },
+          "recordedVectorIndex": 6156,
+          "fixtureVectorIndex": 4
+        },
+        {
+          "chunk": {
+            "chunkIndex": 2,
+            "chunkSize": 256,
+            "chunkType": "recursive",
+            "content": "ipc.registerAuthorizedInvoke(\n    'mcp',\n    mcpAppsContract.prepareShell.channel,\n    { roles: mcpAppsContract.prepareShell.roles },\n    async (event, ...raw: unknown[]) => {\n      const [value] = mcpAppsContract.prepareShell.parseArgs(raw);\n      const sender: McpAppShellSender = event.sender;\n      if (sender.isDestroyed()) {\n        throw new Error('MCP App shell registration from a destroyed WebContents');\n      }\n      const lease = registry.register(sender.id, parseMcpAppShellPrepareRequest(value));\n      track(sender);\n      return parseMcpAppShellPrepareResult(lease);\n    }\n  );\n  ipc.registerAuthorizedInvoke(\n    'mcp',\n    mcpAppsContract.releaseShell.channel,\n    { roles: mcpAppsContract.releaseShell.roles },\n    async (event, ...raw: unknown[]): Promise<void> => {\n      const [value] = mcpAppsContract.releaseShell.parseArgs(raw);\n      const { token } = parseMcpAppShellReleaseRequest(value);\n      if (!registry.release(event.sender.id, token)) {\n        throw new Error('MCP App shell is not registered to this sender');\n      }\n    }\n  );\n}",
+            "contentHash": "8e81766c9eaec65feba6ef41501906919a0c6185447e3e95a7f4689655f59440",
+            "endLine": 66,
+            "endOffset": 2445,
+            "startLine": 39,
+            "startOffset": 1377,
+            "tokenCount": 249
+          },
+          "recordedVectorIndex": 6157,
+          "fixtureVectorIndex": 5
+        }
+      ],
+      "symbols": [
+        {
+          "endLine": 15,
+          "endOffset": 580,
+          "exported": true,
+          "kind": "interface",
+          "name": "McpAppShellSender",
+          "startLine": 11,
+          "startOffset": 441
+        },
+        {
+          "endLine": 66,
+          "endOffset": 2445,
+          "exported": true,
+          "kind": "function",
+          "name": "attachMcpAppShellBridge",
+          "startLine": 23,
+          "startOffset": 865
+        }
+      ],
+      "refs": [
+        {
+          "kind": "import",
+          "line": 2,
+          "name": "parseMcpAppShellPrepareRequest",
+          "module": "@brainstrike/assistant-contract"
+        },
+        {
+          "kind": "import",
+          "line": 3,
+          "name": "parseMcpAppShellPrepareResult",
+          "module": "@brainstrike/assistant-contract"
+        },
+        {
+          "kind": "import",
+          "line": 4,
+          "name": "parseMcpAppShellReleaseRequest",
+          "module": "@brainstrike/assistant-contract"
+        },
+        {
+          "kind": "import",
+          "line": 6,
+          "name": "mcpAppsContract",
+          "module": "../ipc-domains/mcp.contract"
+        },
+        {
+          "kind": "import",
+          "line": 7,
+          "name": "DesktopIpcRegistry",
+          "module": "../platform/desktop-ipc-registry"
+        },
+        {
+          "kind": "import",
+          "line": 8,
+          "name": "McpAppShellRegistry",
+          "module": "./apps-shell-protocol"
+        },
+        {
+          "kind": "call",
+          "line": 27,
+          "name": "Set",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 29,
+          "name": "has",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 32,
+          "name": "add",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 33,
+          "name": "once",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 34,
+          "name": "delete",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 35,
+          "name": "releaseOwner",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 39,
+          "name": "registerAuthorizedInvoke",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 44,
+          "name": "parseArgs",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 46,
+          "name": "isDestroyed",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 47,
+          "name": "Error",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 49,
+          "name": "register",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 49,
+          "name": "parseMcpAppShellPrepareRequest",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 50,
+          "name": "track",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 51,
+          "name": "parseMcpAppShellPrepareResult",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 60,
+          "name": "parseMcpAppShellReleaseRequest",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 61,
+          "name": "release",
+          "enclosingSymbolIndex": 1
+        }
+      ]
+    },
+    {
+      "path": "apps/desktop/src/mcp/bridges.ts",
+      "source": "/**\n * Attaches every renderer-facing MCP bridge (Apps prepare/execute/release,\n * Apps shell registration, elicitation consent, durable Tasks) for one\n * `registerMcpIpcHandlers` lifetime and detaches them in reverse order. The\n * Apps bridges own no subscription: they only register invoke handlers,\n * which the registry's `unregisterAll` removes, so they have nothing to\n * detach and nothing to undo when a sibling attach throws.\n */\nimport type { DesktopIpcRegistry } from '../platform/desktop-ipc-registry';\nimport { getMcpDesktopAppHost } from './apps-authority';\nimport { attachMcpAppsBridge } from './apps-bridge';\nimport { attachMcpAppShellBridge } from './apps-shell-bridge';\nimport { getMcpAppShellRegistry } from './apps-shell-protocol';\nimport { attachMcpElicitationBridge, type McpElicitationBridgeRuntime } from './elicitation-bridge';\nimport { attachMcpTaskBridge, type McpTaskBridgeRuntime } from './task-bridge';\n\nexport type McpBridgesRuntime = McpElicitationBridgeRuntime & McpTaskBridgeRuntime;\n\nexport function attachMcpBridges(\n  runtime: McpBridgesRuntime,\n  registry: Pick<DesktopIpcRegistry, 'registerAuthorizedInvoke'>\n): () => void {\n  attachMcpAppsBridge({ appHost: getMcpDesktopAppHost() }, registry);\n  attachMcpAppShellBridge(getMcpAppShellRegistry(), registry);\n  const detachElicitation = attachMcpElicitationBridge(runtime, registry);\n  let detachTasks: () => void;\n  try {\n    detachTasks = attachMcpTaskBridge(runtime, registry);\n  } catch (error) {\n    detachElicitation();\n    throw error;\n  }\n  return () => {\n    detachTasks();\n    detachElicitation();\n  };\n}\n",
+      "sourceHash": "3cc29615bed3da0fee43ca782651d7d969d596df33353fc9c97bacee34053ea5",
+      "chunks": [
+        {
+          "chunk": {
+            "chunkIndex": 0,
+            "chunkSize": 256,
+            "chunkType": "recursive",
+            "content": "/**\n * Attaches every renderer-facing MCP bridge (Apps prepare/execute/release,\n * Apps shell registration, elicitation consent, durable Tasks) for one\n * `registerMcpIpcHandlers` lifetime and detaches them in reverse order. The\n * Apps bridges own no subscription: they only register invoke handlers,\n * which the registry's `unregisterAll` removes, so they have nothing to\n * detach and nothing to undo when a sibling attach throws.\n */\nimport type { DesktopIpcRegistry } from '../platform/desktop-ipc-registry';\nimport { getMcpDesktopAppHost } from './apps-authority';\nimport { attachMcpAppsBridge } from './apps-bridge';\nimport { attachMcpAppShellBridge } from './apps-shell-bridge';\nimport { getMcpAppShellRegistry } from './apps-shell-protocol';\nimport { attachMcpElicitationBridge, type McpElicitationBridgeRuntime } from './elicitation-bridge';\nimport { attachMcpTaskBridge, type McpTaskBridgeRuntime } from './task-bridge';\n\nexport type McpBridgesRuntime = McpElicitationBridgeRuntime & McpTaskBridgeRuntime;\n\nexport",
+            "contentHash": "5da37ea4e241745bf851a12c54666b56877b8f82312ea217a7f931ac000b4384",
+            "endLine": 19,
+            "endOffset": 1025,
+            "startLine": 1,
+            "startOffset": 0,
+            "tokenCount": 245
+          },
+          "recordedVectorIndex": 6191,
+          "fixtureVectorIndex": 6
+        },
+        {
+          "chunk": {
+            "chunkIndex": 1,
+            "chunkSize": 256,
+            "chunkType": "recursive",
+            "content": "function attachMcpBridges(\n  runtime: McpBridgesRuntime,\n  registry: Pick<DesktopIpcRegistry, 'registerAuthorizedInvoke'>\n): () => void {\n  attachMcpAppsBridge({ appHost: getMcpDesktopAppHost() }, registry);\n  attachMcpAppShellBridge(getMcpAppShellRegistry(), registry);\n  const detachElicitation = attachMcpElicitationBridge(runtime, registry);\n  let detachTasks: () => void;\n  try {\n    detachTasks = attachMcpTaskBridge(runtime, registry);\n  } catch (error) {\n    detachElicitation();\n    throw error;\n  }\n  return () => {\n    detachTasks();\n    detachElicitation();\n  };\n}",
+            "contentHash": "6ad2cfd7ea1e6bfc0f4d1fc6b1ea1474286c317be65662bd9c58e490281f9e0f",
+            "endLine": 37,
+            "endOffset": 1602,
+            "startLine": 19,
+            "startOffset": 1026,
+            "tokenCount": 152
+          },
+          "recordedVectorIndex": 6192,
+          "fixtureVectorIndex": 7
+        }
+      ],
+      "symbols": [
+        {
+          "endLine": 17,
+          "endOffset": 1017,
+          "exported": true,
+          "kind": "type",
+          "name": "McpBridgesRuntime",
+          "startLine": 17,
+          "startOffset": 941
+        },
+        {
+          "endLine": 37,
+          "endOffset": 1602,
+          "exported": true,
+          "kind": "function",
+          "name": "attachMcpBridges",
+          "startLine": 19,
+          "startOffset": 1026
+        }
+      ],
+      "refs": [
+        {
+          "kind": "import",
+          "line": 9,
+          "name": "DesktopIpcRegistry",
+          "module": "../platform/desktop-ipc-registry"
+        },
+        {
+          "kind": "import",
+          "line": 10,
+          "name": "getMcpDesktopAppHost",
+          "module": "./apps-authority"
+        },
+        {
+          "kind": "import",
+          "line": 11,
+          "name": "attachMcpAppsBridge",
+          "module": "./apps-bridge"
+        },
+        {
+          "kind": "import",
+          "line": 12,
+          "name": "attachMcpAppShellBridge",
+          "module": "./apps-shell-bridge"
+        },
+        {
+          "kind": "import",
+          "line": 13,
+          "name": "getMcpAppShellRegistry",
+          "module": "./apps-shell-protocol"
+        },
+        {
+          "kind": "import",
+          "line": 14,
+          "name": "attachMcpElicitationBridge",
+          "module": "./elicitation-bridge"
+        },
+        {
+          "kind": "import",
+          "line": 14,
+          "name": "McpElicitationBridgeRuntime",
+          "module": "./elicitation-bridge"
+        },
+        {
+          "kind": "import",
+          "line": 15,
+          "name": "attachMcpTaskBridge",
+          "module": "./task-bridge"
+        },
+        {
+          "kind": "import",
+          "line": 15,
+          "name": "McpTaskBridgeRuntime",
+          "module": "./task-bridge"
+        },
+        {
+          "kind": "call",
+          "line": 23,
+          "name": "attachMcpAppsBridge",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 23,
+          "name": "getMcpDesktopAppHost",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 24,
+          "name": "attachMcpAppShellBridge",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 24,
+          "name": "getMcpAppShellRegistry",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 25,
+          "name": "attachMcpElicitationBridge",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 28,
+          "name": "attachMcpTaskBridge",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 30,
+          "name": "detachElicitation",
+          "enclosingSymbolIndex": 1
+        },
+        {
+          "kind": "call",
+          "line": 34,
+          "name": "detachTasks",
+          "enclosingSymbolIndex": 1
+        }
+      ]
+    }
+  ]
+}

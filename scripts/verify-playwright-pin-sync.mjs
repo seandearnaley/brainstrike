@@ -103,12 +103,74 @@ export function checkPlaywrightPinSync(options = {}) {
   return { expectedVersion, mismatches };
 }
 
+/** Verify each web job provisions CfT on the official Playwright engine fleet.
+ * @param {{ repoRoot?: string }} options
+ */
+export function checkWebChromiumProvisioning(options = {}) {
+  const repoRoot = options.repoRoot ?? resolve(HERE, '..');
+  const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
+  const versions = ['@playwright/test', 'playwright'].map((name) => {
+    const spec = pkg.devDependencies?.[name] ?? pkg.dependencies?.[name];
+    if (typeof spec !== 'string') {
+      throw new Error(`Missing Playwright driver dependency: ${name}`);
+    }
+    const version = resolveCatalogReference(name, spec, { repoRoot });
+    if (!/^\d+\.\d+\.\d+$/.test(version)) {
+      throw new Error(`Playwright driver ${name} must use an exact pin: ${version}`);
+    }
+    return version;
+  });
+  if (versions[0] !== versions[1]) {
+    throw new Error('Playwright driver pins disagree');
+  }
+  for (const [file, job] of [
+    ['.github/workflows/test.yml', 'web-e2e'],
+    ['.github/workflows/web-e2e.yml', 'web-full-regression'],
+    ['.github/workflows/performance.yml', 'web-perf'],
+  ]) {
+    const workflow = readFileSync(join(repoRoot, file), 'utf8');
+    const content = new RegExp(
+      `^  ${job}:\\n([\\s\\S]*?)(?=^  [a-z][a-z-]*:|$(?![\\s\\S]))`,
+      'm'
+    ).exec(workflow)?.[1];
+    if (!content) {
+      throw new Error(`Missing web Chromium job: ${file}/${job}`);
+    }
+    const image =
+      /image: mcr\.microsoft\.com\/playwright:v(\d+\.\d+\.\d+)-noble@sha256:[a-f0-9]{64}\s*$/m.exec(
+        content
+      );
+    if (!image || image[1] !== versions[0]) {
+      throw new Error(`Web Chromium job ${file} requires the matching immutable official base`);
+    }
+    for (const step of ['Install web test system tools', 'Provision qualified web Chromium']) {
+      if (!content.includes(`- name: ${step}\n        shell: bash\n`)) {
+        throw new Error(`Web Chromium provisioning step ${file}/${step} requires explicit bash`);
+      }
+    }
+    for (const required of [
+      'options: --user 0',
+      'node-version-file: .nvmrc',
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: Match the literal GitHub Actions expression.
+      'BRAINSTRIKE_WEB_CHROMIUM_DIR: ${{ runner.temp }}/web-chromium',
+      'apt-get install -y --no-install-recommends unzip lsof procps',
+      'test "$(node --version)" = "v$(cat .nvmrc)"',
+      'node scripts/provision-web-chromium.mjs "$BRAINSTRIKE_WEB_CHROMIUM_DIR"',
+    ]) {
+      if (!content.includes(required)) {
+        throw new Error(`Web Chromium job ${file} is missing explicit provisioning: ${required}`);
+      }
+    }
+  }
+}
+
 /**
  * @param {{ repoRoot?: string }} options — threaded so the BST-836 entrypoint
  *   contract test can drive this guard against a tree where it must not pass.
  */
 export function main(options = {}) {
   const { expectedVersion, mismatches } = checkPlaywrightPinSync(options);
+  checkWebChromiumProvisioning(options);
 
   if (mismatches.length > 0) {
     const detail = mismatches

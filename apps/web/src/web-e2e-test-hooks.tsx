@@ -1,4 +1,12 @@
+import {
+  createThreadWorkspaceRepository,
+  resolveAssistantMemoryResourceId,
+  useAssistantThreadStore,
+  type WorkspaceSnapshotFileTab,
+  type WorkspaceSnapshotV1,
+} from '@brainstrike/assistant-data';
 import { usePGliteDatabase } from '@brainstrike/db/react';
+import { useTabManagerStore } from '@brainstrike/file-explorer-ui/tab-manager-store';
 import { useEffect } from 'react';
 import type { WebE2EEmbeddingModelSwitchMemoryProbeResult } from './embedding-model-switch-memory-probe-contract';
 import { BST369_E2E_INIT_FLAG } from './embedding-model-switch-memory-probe-contract';
@@ -91,6 +99,12 @@ interface CountRow {
   readonly count: number | string;
 }
 
+export interface WebE2EActiveThreadWorkspace {
+  readonly activeFileTab: WorkspaceSnapshotFileTab | null;
+  readonly snapshot: WorkspaceSnapshotV1 | null;
+  readonly threadId: string;
+}
+
 export interface WebE2ETestHooks {
   readonly completeAssistantThreadRun: (
     runId: string,
@@ -112,6 +126,7 @@ export interface WebE2ETestHooks {
   readonly qualifyLocalEmbedding: (
     deviceHint?: 'wasm' | 'webgpu'
   ) => Promise<WebE2EEmbeddingQualification>;
+  readonly readActiveThreadWorkspace: () => Promise<WebE2EActiveThreadWorkspace | null>;
   readonly readAssistantThreadRunStatuses: (threadId: string) => Promise<readonly string[]>;
   readonly readAssistantThreads: () => Promise<readonly WebE2EAssistantThreadSnapshot[]>;
   readonly readFileRowCounts: () => Promise<WebE2EFileRowCounts>;
@@ -301,6 +316,28 @@ export function WebE2ETestHooks({ dbPath }: { readonly dbPath: string }) {
         };
       },
       qualifyLocalEmbedding,
+      readActiveThreadWorkspace: async (): Promise<WebE2EActiveThreadWorkspace | null> => {
+        const resourceId = resolveAssistantMemoryResourceId();
+        const threadId = useAssistantThreadStore.getState().activeThreadIdByResourceId[resourceId];
+        if (!threadId) {
+          return null;
+        }
+        const tabs = useTabManagerStore.getState();
+        const activeTab = tabs.tabs.find((tab) => tab.id === tabs.activeTabId);
+        const snapshot = await createThreadWorkspaceRepository(db).getThreadWorkspace(threadId);
+        if (
+          useAssistantThreadStore.getState().activeThreadIdByResourceId[resourceId] !== threadId
+        ) {
+          throw new Error('Active thread changed during the workspace persistence read');
+        }
+        return {
+          activeFileTab: activeTab
+            ? { compositeKey: activeTab.compositeKey, path: activeTab.path }
+            : null,
+          snapshot,
+          threadId,
+        };
+      },
       readAssistantThreadRunStatuses: async (threadId: string): Promise<readonly string[]> => {
         const result = await db.query<AssistantThreadRunStatusRow>(
           `SELECT status FROM brainstrike_assistant_thread_runs

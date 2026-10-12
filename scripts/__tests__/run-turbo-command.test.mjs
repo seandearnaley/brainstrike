@@ -11,6 +11,7 @@ import {
   findPackageJsonFiles,
   packageScriptEntries,
   parseFilterList,
+  resolvedBuildPackages,
   workspaceDependencyClosure,
   workspaceManifestsByName,
 } from './run-turbo-command-test-support.mjs';
@@ -811,7 +812,7 @@ describe('nested prebuild turbo contract', () => {
     );
   });
 
-  it('prebuild filter lists stay within the outer ^build graph (workspace dep closure)', () => {
+  it('prebuilds stay within the dependency graph without recursively building the app', () => {
     // The skip is only sound because the outer `build` task's ^build already
     // builds every filtered package. A filter outside the app's transitive
     // workspace dependency closure would be built ONLY by the nested run — and
@@ -831,6 +832,22 @@ describe('nested prebuild turbo contract', () => {
         filters.length > 0,
         `${packageJsonPath} prebuild: no --filter=<pkg> parsed — use the '=' form so this contract stays enforced`
       );
+      if (appManifest.name === '@brainstrike/desktop') {
+        // Desktop selects its dependency-only transit task. Inspect what it
+        // actually builds: all buildable dependencies, never the desktop app.
+        const turboArgs = command.split(' -- ')[1].trim().split(/\s+/u);
+        const scheduledBuilds = resolvedBuildPackages(turboArgs);
+        assert.ok(
+          !scheduledBuilds.includes(appManifest.name),
+          'standalone desktop prebuild must not recursively build the desktop app'
+        );
+        assert.deepEqual(
+          scheduledBuilds.sort(),
+          [...closure].filter((name) => manifests.get(name).scripts?.build).sort(),
+          'standalone desktop prebuild must build the complete dependency graph'
+        );
+        continue;
+      }
       for (const filter of filters) {
         assert.ok(
           closure.has(filter),
@@ -840,47 +857,30 @@ describe('nested prebuild turbo contract', () => {
     }
   });
 
-  it("turbo's resolved build graph covers every skip-flagged prebuild filter", () => {
-    // The other half of the skip's soundness, pinned at the RESOLVED level:
-    // the outer `<app>#build` task graph must actually schedule a build for
-    // every package the (now-skipped) nested prebuild would have built. Asking
-    // turbo itself via --dry=json covers everything the package.json closure
-    // test cannot: root turbo.jsonc `build.dependsOn` losing "^build", an
-    // app-level turbo.json override dropping the edge, or any future extends
-    // semantics change. If any of those happen, the filtered package vanishes
-    // from the dry-run task list and this fails loudly.
+  it("turbo's resolved build graph covers every skipped prebuild dependency", () => {
+    // Resolve the outer build with Turbo's --dry=json: every dependency skipped
+    // by prebuild must still be built. This catches a missing root ^build edge,
+    // an app override dropping it, or changed extends semantics. Fail even if the
+    // standalone dependency-only transit graph still includes them.
+    const manifests = workspaceManifestsByName();
     for (const { command, packageJsonPath } of wrapperScripts.filter(
       ({ scriptName }) => scriptName === 'prebuild'
     )) {
       if (!command.includes('--skip-under-turbo')) {
         continue;
       }
-      const appName = JSON.parse(readFileSync(packageJsonPath, 'utf8')).name;
-      const dryRun = JSON.parse(
-        execFileSync(
-          process.execPath,
-          // Node 24 rejects Windows batch shims passed to execFileSync, so
-          // execute Turbo's package-resolved JavaScript entrypoint through
-          // Node itself (same pattern as the canonical-form contract test).
-          [require.resolve('turbo/bin/turbo'), 'run', 'build', `--filter=${appName}`, '--dry=json'],
-          {
-            cwd: process.cwd(),
-            encoding: 'utf8',
-            env: {
-              ...process.env,
-              NO_UPDATE_NOTIFIER: '1',
-              TURBO_TELEMETRY_DISABLED: '1',
-            },
-            maxBuffer: 64 * 1024 * 1024,
-          }
-        )
-      );
+      const appManifest = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+      const appName = appManifest.name;
       const scheduledBuilds = new Set(
-        dryRun.tasks
-          .filter((task) => task.task === 'build' && task.command !== '<NONEXISTENT>')
-          .map((task) => task.package)
+        resolvedBuildPackages(['run', 'build', `--filter=${appName}`])
       );
-      for (const filter of parseFilterList(command)) {
+      const requiredBuilds =
+        appName === '@brainstrike/desktop'
+          ? [...workspaceDependencyClosure(appManifest, manifests)].filter(
+              (name) => manifests.get(name).scripts?.build
+            )
+          : parseFilterList(command);
+      for (const filter of requiredBuilds) {
         assert.ok(
           scheduledBuilds.has(filter),
           `${appName}'s resolved build graph no longer schedules ${filter}#build — the --skip-under-turbo prebuild would leave it unbuilt (check turbo.jsonc build.dependsOn / app turbo.json overrides)`

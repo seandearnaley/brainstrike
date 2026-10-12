@@ -32,10 +32,14 @@ function WorkspaceSearchTabContent(): ReactElement {
   return (
     <Suspense fallback={<div className="p-3 text-muted-foreground text-sm">Loading search…</div>}>
       <LazyWorkspaceSearchPanel
+        allowTextPaging={controller.allowTextPaging}
         onOpenFile={controller.onOpenFile}
         resolveAdapterRootId={controller.resolveAdapterRootId}
         runSemanticSearch={controller.runSemanticSearch}
         runTextSearch={controller.runTextSearch}
+        {...(controller.semanticAvailability === undefined
+          ? {}
+          : { semanticAvailability: controller.semanticAvailability })}
         workspaceDbRootIds={controller.workspaceDbRootIds}
       />
     </Suspense>

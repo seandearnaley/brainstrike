@@ -8,6 +8,7 @@ import {
   type EmbedWorkerLifetimeError,
   type EmbedWorkerPipelineCacheDiagnostic,
   type EmbedWorkerRequestControl,
+  isEmbedWorkerRequestCancellation,
 } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { Pool, WorkerPoolOptions, Promise as WorkerPoolPromise } from 'workerpool';
@@ -224,12 +225,6 @@ function attachAbort(
   return () => signal.removeEventListener('abort', abortListener);
 }
 
-function createAbortError(): Error {
-  const error = new Error('Embedding task was aborted.');
-  error.name = 'AbortError';
-  return error;
-}
-
 function now(): number {
   return typeof performance === 'undefined' ? Date.now() : performance.now();
 }
@@ -375,7 +370,10 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
   }
   let workerLifetimeTelemetryFailure: Error | null = null;
   let workerLifetimeRecovery: Promise<void> | null = null;
-  const recoverWorkerpoolAfterLifetimeError = (event: EmbedWorkerLifetimeError): void => {
+  const recoverWorkerpoolAfterLifetimeError = (
+    event: Pick<EmbedWorkerLifetimeError, 'message' | 'workerInstanceId'>,
+    idleClosure = false
+  ): void => {
     assertManagedWorkerInstanceId(event.workerInstanceId);
     if (!activeWorkerInstanceIds.has(event.workerInstanceId)) {
       return;
@@ -383,11 +381,13 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     if (workerLifetimeRecovery !== null || terminalState !== 'active') {
       return;
     }
-    embeddingTelemetry.recordFailure(WORKER_LIFETIME_RECOVERY_REASON);
-    logger.error('Embedding worker lifetime failure triggered workerpool recovery.', {
-      reason: event.message,
-      workerInstanceId: event.workerInstanceId,
-    });
+    const details = { reason: event.message, workerInstanceId: event.workerInstanceId };
+    if (idleClosure) {
+      logger.info('Idle embedding worker closed; retiring workerpool.', details);
+    } else {
+      embeddingTelemetry.recordFailure(WORKER_LIFETIME_RECOVERY_REASON);
+      logger.error('Embedding worker lifetime failure triggered workerpool recovery.', details);
+    }
     const failedPool = pool;
     workerLifetimeRecovery = (async (): Promise<void> => {
       try {
@@ -463,6 +463,15 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
         assertEmbedWorkerTelemetrySourceClosed(event.data);
         assertManagedWorkerInstanceId(event.data.workerInstanceId);
         removeWorkerTelemetrySource(event.data.workerInstanceId);
+        // Web Workers emit no owner-side exit event for self.close(). Retire through
+        // workerpool's public lifetime API before another request can use this slot.
+        recoverWorkerpoolAfterLifetimeError(
+          {
+            message: 'Embedding worker closed after WebGPU device loss.',
+            workerInstanceId: event.data.workerInstanceId,
+          },
+          activeTasks === 0
+        );
         return;
       }
       const diagnostic = readPipelineCacheDiagnostic(event.data);
@@ -527,9 +536,9 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     }
     const signal = (opts as QueueAddOptions | undefined)?.signal;
     if (signal?.aborted) {
-      const error = createAbortError();
-      onTaskError(task, now(), error);
-      throw error;
+      const reason: unknown = signal.reason;
+      onTaskError(task, now(), reason);
+      throw reason;
     }
     let abortRequested = false;
     const postRequestControl = (type: EmbedWorkerRequestControl['type']): void => {
@@ -555,9 +564,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     activeTasks += 1;
     try {
       const result = await promise;
-      if (abortRequested) {
-        throw createAbortError();
-      }
+      signal?.throwIfAborted();
       if (result.vectors.length > 0) {
         if (telemetrySource.current === null) {
           embeddingTelemetry.recordFailure(MISSING_PIPELINE_CACHE_DIAGNOSTIC_REASON);
@@ -579,6 +586,13 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
       onTaskComplete(task, startedAt);
       return result;
     } catch (error) {
+      // Only the exact worker-owned cancellation restores the caller's reason,
+      // after real execution has settled. Independent failures stay unchanged.
+      if (signal?.aborted && isEmbedWorkerRequestCancellation(error, task.id)) {
+        const reason: unknown = signal.reason;
+        onTaskError(task, startedAt, reason);
+        throw reason;
+      }
       onTaskError(task, startedAt, error);
       throw error;
     } finally {

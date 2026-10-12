@@ -1,7 +1,9 @@
 import { createLogger } from '@brainstrike/logging';
+import { serializeRuntimeError } from '@brainstrike/worker-runtime';
 import type { MutableRefObject } from 'react';
 import {
   assertEmbeddingHostCommand,
+  type EmbeddingHostDocumentEmbeddingsResponseReport,
   type EmbeddingHostQueryEmbeddingResponseReport,
 } from '../../embedding-host-shared';
 
@@ -123,5 +125,23 @@ export function createEmbeddingHostCommandHandler(owner: {
         }
       }
     );
+  };
+}
+
+export function createDocumentEmbeddingsRequestParseErrorReport(
+  rawRequest: unknown,
+  error: unknown
+): EmbeddingHostDocumentEmbeddingsResponseReport | null {
+  const requestId = getEnvelopeStringField(rawRequest, 'requestId');
+  const runtimeId = getEnvelopeStringField(rawRequest, 'runtimeId');
+  if (!(requestId && runtimeId)) {
+    return null;
+  }
+  return {
+    channel: 'document-embeddings-error',
+    payload: serializeRuntimeError(error),
+    requestId,
+    runtimeId,
+    type: 'error',
   };
 }

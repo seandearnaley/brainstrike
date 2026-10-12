@@ -8,6 +8,7 @@ import { Worker } from 'node:worker_threads';
 import { detectDeprecatedProviderEnvVars } from '@brainstrike/assistant-contract/provider-metadata';
 import { recoverInterruptedDimensionIndexMaintenanceAtStartup } from '@brainstrike/db';
 import { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
+import type { ProfileResetLease } from '@brainstrike/host-lease';
 import {
   addLogListener,
   createLogger,
@@ -55,7 +56,12 @@ import { startDatabaseIntegrityContainment } from './database-integrity-containm
 import { getDesktopDatabaseIntegrity } from './database-integrity-state';
 import { createDesktopDatabaseMaintenanceScheduler } from './database-maintenance-scheduler';
 import { getDbHostManager } from './db-host-manager';
-import { closeDatabase, getDatabase, resetLocalDatabase } from './db-main';
+import {
+  closeDatabase,
+  getDatabase,
+  prepareDatabaseProfileReset,
+  resetLocalDatabase,
+} from './db-main';
 import { getDesktopCrashRecoverySnapshot } from './desktop-crash-recovery';
 import { getDesktopEnvironmentBootstrapResult } from './desktop-env';
 import { buildDesktopEnvBootstrapReport } from './desktop-env-report';
@@ -105,6 +111,7 @@ import {
 } from './dimension-index-maintenance-capabilities';
 import { createDesktopDimensionIndexMaintenanceScheduler } from './dimension-index-maintenance-scheduler';
 import { resolveBuiltRendererPath } from './dist-root';
+import { installE2eForegroundLatencyProbes } from './e2e-foreground-latency-probes';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 import { EmbeddingHostManager } from './embedding-host-manager';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
@@ -128,6 +135,7 @@ import { registerFileExportsIpcHandlers } from './ipc-file-exports';
 import { registerGitIpcHandlers } from './ipc-git';
 import {
   cleanupDesktopLiveSubscriptionsForShutdown,
+  createApplicationIpcDomain,
   getDesktopDatabaseWorkScheduler,
   getDesktopDatabaseWorkSchedulerSnapshot,
   registerIpcHandlers,
@@ -137,6 +145,7 @@ import {
   waitForDesktopDatabaseWorkSchedulerIdle,
 } from './ipc-handlers';
 import { registerHooksIpcHandlers } from './ipc-hooks';
+import { registerIndexSearchIpcHandlers } from './ipc-index-search';
 import { registerLlmHostIpcHandlers } from './ipc-llm-host';
 import {
   cleanupMcpRuntimeForShutdown,
@@ -171,6 +180,17 @@ import { isMainProcessHealthDegraded } from './main-process-health-log-level';
 import { getMcpAppShellRegistry, registerMcpAppShellProtocol } from './mcp/apps-shell-protocol';
 import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
 import { purgeMcpOAuthRuntimeState } from './mcp/oauth-client-provider';
+import { createNativeCallerRead } from './native-caller-query';
+import { createNativeIndexActivation } from './native-index-activation';
+import { reportNativeIndexActivationError as reportNativeIndexFailure } from './native-index-activation-error';
+import { NATIVE_INDEX_SETTINGS_KEY } from './native-index-settings';
+import {
+  createInitialWindowAfterNativeReader,
+  createNativeStartupFailureReporter,
+  observeNativeReaderStartup,
+} from './native-index-startup-window';
+import { createNativeRootDataDeletion } from './native-root-data-deletion';
+import { createNativeScopedSearchCapability } from './native-scoped-search';
 import { ParserHostManager } from './parser-host-manager';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { readDesktopPowerSnapshot } from './platform/desktop-power-snapshot';
@@ -181,6 +201,7 @@ import {
 } from './provider-auth/provider-auth-runtime';
 import { getSecretsService } from './secrets';
 import { setupSecurity } from './setup-security';
+import { installIndexCallerRead, openIndexQuery } from './sqlite-query-host-manager';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 import { disposeAllTerminals } from './terminal-ipc-handlers';
 import { registerWindowFocusIpcHandlers } from './window-focus-ipc';
@@ -583,6 +604,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       'embedding-host': async () => {
         await embeddingHostManager.dispose();
       },
+      'file-system': () => applicationIpcDomain.close(),
       // Its own step, deliberately NOT nested inside 'git-inventory':
       // `gitInventoryService.stop()`'s final `await toDispose.disposeAll()` is
       // unguarded, and the shutdown sequence catches a rejection at the step
@@ -621,6 +643,7 @@ function planDesktopShutdownRun(): DesktopShutdownRunPlan {
       },
       // Wrapped: the cleanup's optional parameter is the runtime, not a signal.
       'mcp-runtime': () => cleanupMcpRuntimeForShutdown(),
+      'native-index': () => nativeIndexActivation.close(),
       'parser-host': async () => {
         await parserHostManager.stop();
       },
@@ -716,7 +739,7 @@ const listWorkspaceRecentRootPaths = async (): Promise<readonly string[]> => {
 
 const chunkingHostManager = new ChunkingHostManager();
 const parserHostManager = new ParserHostManager();
-const embeddingHostManager = new EmbeddingHostManager();
+const embeddingHostManager = new EmbeddingHostManager({ storage });
 const llmHostManager = new LlmHostManager();
 
 // Integrity state clears only when a user-confirmed reset completed: a failed
@@ -726,9 +749,9 @@ const databaseIntegrity = getDesktopDatabaseIntegrity();
 
 function createDatabaseResetMarkingReplaced(
   reason: 'factory-reset' | 'developer-reset'
-): () => Promise<void> {
-  return async () => {
-    await resetLocalDatabase();
+): (lease?: ProfileResetLease) => Promise<void> {
+  return async (lease) => {
+    await resetLocalDatabase(lease);
     databaseIntegrity.markDatabaseReplaced(reason);
   };
 }
@@ -748,11 +771,20 @@ const handleResetLocal = createDesktopFactoryResetHandler({
   // folder while the DB rows it mirrors do not (see desktop-factory-reset.ts).
   errorLogFilePaths: listErrorLogFilePaths(path.join(app.getPath('logs'), ERROR_LOG_FILE_NAME)),
   logger,
+  prepareDatabaseProfileReset: () =>
+    prepareDatabaseProfileReset({
+      retireProfileOwner: () => nativeIndexActivation.destroyAndRetireProfile(),
+    }),
   resetLocalDatabase: createDatabaseResetMarkingReplaced('factory-reset'),
   resetPersistentStorageAfterDataDeletion: () => storage.clear(),
-  resumeAfterReset: (outcome) =>
-    resumeMcpRuntimeAfterFactoryReset(getDesktopMcpHostRuntime(), outcome),
+  resumeAfterReset: async (outcome) => {
+    if (outcome === 'succeeded') {
+      await nativeIndexActivation.resume();
+    }
+    await resumeMcpRuntimeAfterFactoryReset(getDesktopMcpHostRuntime(), outcome);
+  },
   runtimes: [
+    { name: 'native-index-sources', stop: () => nativeIndexActivation.stopSources() },
     {
       name: 'mcp-runtime',
       stop: async () => {
@@ -790,9 +822,8 @@ const handleResetLocal = createDesktopFactoryResetHandler({
     // no orphaned interactive shell surviving the wipe.
     {
       name: 'terminals',
-      stop: () => {
-        disposeAllTerminals();
-        return Promise.resolve();
+      stop: async () => {
+        await disposeAllTerminals();
       },
     },
     // Reap persistent assistant command sessions and clear retained output so
@@ -905,27 +936,92 @@ ipcDisposers.add(
 );
 
 // Register IPC handlers early to avoid renderer calls racing registration during startup.
-ipcDisposers.add(
-  'main',
-  registerIpcHandlers(fileSystem, storage, getSettingsStore, {
-    chunkingHostManager,
-    embeddingHostManager,
-    getDimensionIndexMaintenanceStrategy: () => desktopDimensionIndexStrategy,
-    managedWorktreeAuthorizer: async (candidate) => {
-      if (worktreeService && (await worktreeService.isManagedWorktreePath(candidate))) {
-        return 'authorized';
-      }
-      const settings = await readWorktreeSettings(storage, app.getPath('home'));
-      return isPathWithin(candidate, settings.managedDirectory)
-        ? 'managed-but-unauthorized'
-        : 'unmanaged';
-    },
-    onResetLocal: handleResetLocal,
-    onWorkspaceRootGranted: (grantedPath: string) => {
-      pendingRootGrantSubscriber?.(grantedPath);
-    },
-  })
-);
+const applicationIpcDomain = createApplicationIpcDomain(fileSystem, storage, getSettingsStore, {
+  chunkingHostManager,
+  embeddingHostManager,
+  getDimensionIndexMaintenanceStrategy: () => desktopDimensionIndexStrategy,
+  managedWorktreeAuthorizer: async (candidate) => {
+    if (worktreeService && (await worktreeService.isManagedWorktreePath(candidate))) {
+      return 'authorized';
+    }
+    const settings = await readWorktreeSettings(storage, app.getPath('home'));
+    return isPathWithin(candidate, settings.managedDirectory)
+      ? 'managed-but-unauthorized'
+      : 'unmanaged';
+  },
+  onDeleteRootData: (rootId) => nativeRootDataDeletion.deleteRootData(rootId),
+  onResetLocal: () => nativeRootDataDeletion.transition(() => handleResetLocal()),
+  onStorageChanged: (key) => {
+    if (key !== NATIVE_INDEX_SETTINGS_KEY || !app.isReady() || isDesktopShuttingDown()) {
+      return;
+    }
+    nativeRootDataDeletion
+      .transition(() => nativeIndexActivation.reconfigure())
+      .catch((error: unknown) =>
+        reportNativeIndexActivationError(
+          'Saved native index configuration could not activate',
+          error
+        )
+      );
+  },
+  onWorkspaceRootGranted: (grantedPath: string) => {
+    pendingRootGrantSubscriber?.(grantedPath);
+    if (app.isReady() && !isDesktopShuttingDown()) {
+      nativeRootDataDeletion
+        .transition(() => nativeIndexActivation.reconfigure())
+        .catch((error: unknown) =>
+          reportNativeIndexActivationError(
+            'Mounted native source configuration could not activate',
+            error
+          )
+        );
+    }
+  },
+});
+function reportNativeIndexActivationError(message: string, error: unknown): void {
+  reportNativeIndexFailure(message, error, isDesktopShuttingDown(), logger);
+}
+const nativeIndexActivation = createNativeIndexActivation({
+  application: applicationIpcDomain,
+  embedding: embeddingHostManager,
+  onError: (operation, error) =>
+    reportNativeIndexActivationError(`Native indexing ${operation} failed`, error),
+  onReceipt: (receipt) =>
+    logger.info('Canonical native scan settled', { receipt, settledAt: new Date().toISOString() }),
+  storage,
+});
+installIndexCallerRead(createNativeCallerRead(nativeIndexActivation.withRead));
+const nativeRootDataDeletion = createNativeRootDataDeletion({
+  acquire: () => nativeIndexActivation.acquire(),
+  captureOwner: async () => {
+    await nativeIndexActivation.getSearchAuthority();
+    return nativeIndexActivation.captureAcknowledgedAuthority();
+  },
+  closeOwner: () => nativeIndexActivation.close(),
+  deleteCanonicalRoot: async (mounted) => {
+    const { deleteManagedRootData } = await import('@brainstrike/db');
+    await deleteManagedRootData(await getDbHostManager().getDatabase(), {
+      paths: [mounted.canonicalPath, mounted.presentationPath],
+      rootId: mounted.rootId,
+    });
+  },
+  reserveRoot: (rootId) => applicationIpcDomain.roots.reserveRootDataDeletion(rootId),
+  resume: () => nativeIndexActivation.resume(),
+  stopSources: () => nativeIndexActivation.stopSources(),
+});
+const nativeIndexSearch = createNativeScopedSearchCapability({
+  openQuery: openIndexQuery,
+  rebuild: () => nativeRootDataDeletion.transition(() => nativeIndexActivation.rebuild()),
+  withRead: nativeIndexActivation.withRead,
+});
+ipcDisposers.add('index-search', registerIndexSearchIpcHandlers(nativeIndexSearch));
+ipcDisposers.add('main', () => {
+  // The graceful filesystem step joins physical retirement. This late ledger
+  // entry repeats idempotent bookkeeping and reports any retained cleanup error.
+  applicationIpcDomain.close().catch((error: unknown) => {
+    logger.error('Application IPC domain cleanup failed during will-quit', { error });
+  });
+});
 ipcDisposers.add('chunking-host', registerChunkingHostIpcHandlers(chunkingHostManager));
 ipcDisposers.add('parser-host', registerParserHostIpcHandlers(parserHostManager));
 ipcDisposers.add('embedding-host', registerEmbeddingHostIpcHandlers(embeddingHostManager));
@@ -1087,6 +1183,10 @@ const singleInstanceLockAcquired = isElectronE2ETestMode()
 
 if (singleInstanceLockAcquired) {
   const e2eTestMode = isElectronE2ETestMode();
+  if (e2eTestMode) {
+    // The loaded foreground-latency benchmark times main-process operations (BST-1925).
+    installE2eForegroundLatencyProbes();
+  }
 
   const workspaceOpenQueue = createWorkspaceOpenQueue(DESKTOP_IPC_CHANNELS.workspace.openPath);
 
@@ -1256,6 +1356,14 @@ if (singleInstanceLockAcquired) {
         launchMode,
       });
       configureDesktopRendererTarget(rendererTarget);
+      const reportInitialNativeFailure = createNativeStartupFailureReporter((error) =>
+        reportNativeIndexActivationError('Native index activation unavailable', error)
+      );
+      void nativeIndexActivation.acquire().catch(reportInitialNativeFailure);
+      const nativeReaderStartup = observeNativeReaderStartup(
+        nativeIndexActivation.acquireRead(),
+        reportInitialNativeFailure
+      );
       logger.debug('Configured desktop renderer target', { rendererTarget });
 
       // Register the root-validated `brainstrike-asset://` protocol now that the
@@ -1580,16 +1688,27 @@ if (singleInstanceLockAcquired) {
                 try {
                   // BST-1330: same drains as shutdown/factory reset — a bare
                   // resetLocalDatabase() could race in-flight live refreshes.
-                  // Unlike factory reset this does NOT stop the background
-                  // runtimes first: the reload below restarts them anyway, and
-                  // if their submissions keep the scheduler busy past the idle
-                  // timeout the reset FAILS LOUDLY in the dialog rather than
-                  // closing over in-flight work.
-                  await resetDesktopDatabaseProfile({
-                    cleanupLiveSubscriptionsForShutdown: cleanupDesktopLiveSubscriptionsForShutdown,
-                    resetLocalDatabase: createDatabaseResetMarkingReplaced('developer-reset'),
-                    runWithDatabaseResetBarrier: runWithDesktopDatabaseResetBarrier,
-                    waitForDatabaseWorkSchedulerIdle: waitForDesktopDatabaseWorkSchedulerIdle,
+                  // Join native producers, readers, and writer before resetting this profile.
+                  await nativeRootDataDeletion.transition(async () => {
+                    await nativeIndexActivation.stopSources();
+                    const developerProfileResetLease = await prepareDatabaseProfileReset({
+                      retireProfileOwner: () => nativeIndexActivation.destroyAndRetireProfile(),
+                    });
+                    try {
+                      await resetDesktopDatabaseProfile({
+                        cleanupLiveSubscriptionsForShutdown:
+                          cleanupDesktopLiveSubscriptionsForShutdown,
+                        resetLocalDatabase: () =>
+                          createDatabaseResetMarkingReplaced('developer-reset')(
+                            developerProfileResetLease
+                          ),
+                        runWithDatabaseResetBarrier: runWithDesktopDatabaseResetBarrier,
+                        waitForDatabaseWorkSchedulerIdle: waitForDesktopDatabaseWorkSchedulerIdle,
+                      });
+                    } finally {
+                      await developerProfileResetLease.release();
+                    }
+                    await nativeIndexActivation.resume();
                   });
                   await dialog.showMessageBox({
                     buttons: ['OK'],
@@ -1708,6 +1827,7 @@ if (singleInstanceLockAcquired) {
           embeddingHostManager,
           envFileFailures: desktopEnvLoadResult.failures,
           llmHostManager,
+          nativeIndexSearch,
           resolveForgeService: () => forgeService ?? null,
           resolveWorktreeService: () => worktreeService,
           // T1 injection point (BST-1164): the run-persistence seam's snapshot
@@ -2096,7 +2216,18 @@ if (singleInstanceLockAcquired) {
       );
 
       logger.debug('Creating main window...');
-      const mainWindow = await createMainWindow();
+      const mainWindow = await createInitialWindowAfterNativeReader(
+        nativeReaderStartup,
+        createMainWindow,
+        (outcome) =>
+          logger.info('Initial native reader startup settled before visible renderer load', {
+            kind: outcome.kind,
+          }),
+        isDesktopShuttingDown
+      );
+      if (!mainWindow) {
+        return;
+      }
       logger.debug('Main window created successfully');
 
       // Launch argv is a ONE-TIME, launch-scoped producer — enqueued once here,

@@ -21,6 +21,12 @@
 - Increment the store's monotonic `generation` on `beginSearch`, on every
   mode/collection/toggle change, and on `clearResults`; `resolveResults` and
   `failSearch` no-op unless it still matches.
+- Keep native execution identity stable across readiness-only observations.
+  Desktop status refreshes still update semantic availability, but only a change
+  to the capability, root binding, store, authorized roots/collections, full
+  embedding configuration, or full query plan replaces the executor and cancels
+  an active query. Compare the complete status projection with only root and
+  collection readiness removed; never retain stale readiness to stabilize it.
 - Keep the chunk the single visible selection unit: the chunk row carries the
   only child checkbox, match rows are navigation-only leaves, and every row
   reserves the expand-toggle column so checkboxes align per level.
@@ -41,9 +47,12 @@
 
 Ranges are output-only, so merging is safe and the subtraction-bleed
 defect cannot return; the mode never auto-reverts. Evidence:
-`explorer-search-tapestry/workspace-search-panel.md`.
+`explorer-search-tapestry/workspace-search-panel.md`,
+`explorer-search-tapestry/2026-10-04-native-search-execution-identity.md`.
 Guard: `search-mode-gating.test.tsx`, `workspace-search-panel.test.tsx`,
-`search-results-tree.test.tsx`, `use-search-selection-bridge.test.tsx`.
+`search-results-tree.test.tsx`, `use-search-selection-bridge.test.tsx`,
+`apps/desktop/src/__tests__/renderer/components/native-search-provider.test.tsx`,
+`packages/app-shell/src/__tests__/use-workspace-search-controller.test.tsx`.
 
 ---
 
@@ -167,6 +176,24 @@ Guard: `preview-panel.test.tsx`, `preview-panel-deferred-selection.test.tsx`.
 
 ---
 
+## CANONICAL CHUNK SOURCE BOUNDARY
+
+- Preserve the existing chunker/parser's chunkIndex, source offsets and line spans;
+  do not run another parser or replace AST/text chunks with a line-count policy.
+- Validate supplied source spans through the pure chunking-worker
+  `source-range-validation` subpath, which reuses the canonical matcher's exact
+  and whitespace/CRLF-normalized rules within the claimed span. Do not relocate
+  a bad span. Offsets count JavaScript UTF-16 code units, start inclusive/end
+  exclusive; lines are 1-based inclusive.
+- Keep content hashes bound to the exact canonical chunk text. Reject malformed
+  chunks visibly rather than substituting a different segmentation.
+
+Evidence: `indexer/2026-10-03-canonical-provided-chunks.md`.
+Guard: `packages/chunking-worker/src/__tests__/source-range-validation.test.ts`,
+`packages/indexer/__tests__/provided-chunks.integration.test.ts`.
+
+---
+
 ## WORKSPACE INDEX TRAVERSAL
 
 ### Desktop reads are mounted-root capabilities
@@ -191,6 +218,10 @@ Guard: `preview-panel.test.tsx`, `preview-panel-deferred-selection.test.tsx`.
   read-path resolvers together.
 - Keep symlink/reparse entries as explicit file-shaped Explorer rows; native
   reads never follow them, and file bytes are bounded before crossing into JS.
+- Share descriptor/listing projection through the Node-only
+  `@brainstrike/file-system/workspace-root-nodes` entry; desktop callers re-export
+  it. Root IDs and paths supplied to that pure projection grant no read authority.
+  Preserve dirs-first collation, file metadata and the visible truncation marker.
 - Bound listings by inspected entries and append a trailing `'truncated'`
   pseudo-node rather than throwing or dropping the partial result. The Explorer
   renders it as a visible, non-selectable, non-expandable tail row, and
@@ -210,6 +241,24 @@ Guard: `preview-panel.test.tsx`, `preview-panel-deferred-selection.test.tsx`.
   `DirectoryListingTruncatedError`, both scan modes install the handler, and the
   visible summary carries the deduped count. Treat `expectedFileCount` as a
   floor.
+- Keep traversal owned once by `@brainstrike/file-system/directory-tree`, with
+  legacy UI modules re-exporting it. Its only adapter requirement is
+  `readDirectory`; cancellation and strict read-error rejection join all admitted
+  directory reads before the public walk settles. Preserve path/handle identity,
+  entry policy, sorting, snapshots and explicit truncation behavior.
+- Share scan/path/removal/content policy through `@brainstrike/file-system/workspace-scan*` and `workspace-source-content`; browser wrappers reuse these implementations. Utility source orchestration borrows the same pinned main mount, never reopens it from projected paths; explicit read caps reach the native bounded read.
+- Load root and nested ignore files through the scan's authorized file capability before entry admission, using the canonical ignore matcher and the static exclusion floor. Keep rules scan-local, promote ignore-file changes to full-root reconciliation, and carry that effective scope to removal consumers. A truncated directory has unknown rules: retain its notice and cached rows, but admit no source beneath it; present unreadable rules reject the scan.
+- Preserve explicit source read intent when an ignore edit promotes a watcher batch to full reconciliation. A later same-batch file recreation under unknown truncated rules retires its earlier removal without admitting the source; explicit final removals and complete excluded replacements remain authoritative.
+- Keep unresolved workspace discovery separate from registered PG file identity.
+  Secure original-source read/hash precedes bounded main preparation using the
+  existing identity/mutation policy. Await real PG source commit and full trusted
+  native binding acknowledgement, validate the exact returned identity/hash,
+  then parse/publish and complete PG metadata. Never allocate source IDs from
+  hashes or write placeholder source. Use one scan-local root/path uniqueness
+  guard across registered, removed and unresolved forms before read/preparation;
+  nullable retained roots/paths do not form a workspace identity.
+  Cancellation joins preparation; root/path
+  metadata grants no read authority. Retained collection roots/paths stay nullable.
 - Retain, never delete, on partial knowledge: absence from a truncated listing
   is not evidence of deletion. Missing-file reconciliation skips cached rows
   under any truncated directory, scoped removal neither prefix-wipes nor
@@ -245,13 +294,28 @@ Truncation is reported, never thrown; the re-dispatch budget is
 deliberately non-persistent, so a renderer restart grants a fresh one. Evidence:
 `explorer-search-tapestry/secure-root-capabilities.md`,
 `explorer-search-tapestry/traversal-policy-and-truncation.md`.
+Shared traversal retirement evidence:
+`explorer-search-tapestry/2026-10-03-shared-directory-retirement.md`.
+Node projection extraction evidence:
+`explorer-search-tapestry/2026-10-03-shared-workspace-root-projection.md`.
+Discovery preparation evidence:
+`explorer-search-tapestry/2026-10-03-discovered-source-preparation.md`.
+Borrowed source evidence: `indexer/2026-10-03-borrowed-workspace-source.md`.
+Ignore discovery evidence: `explorer-search-tapestry/workspace-index-ignore-discovery.md`.
 Guard: `workspace-root-registry{,.integration}.test.ts`,
 `packages/secure-fs-native/test/secure-root.test.cjs`,
 `parallel-directory-walker.test.ts`, `workspace-collection-sync-service.test.ts`,
 `workspace-collection-sync-scan.test.ts`,
 `workspace-collection-sync-provider.test.tsx`, `file-node-handles.test.ts`.
+Guard: `workspace-root-read-bound.test.ts`, `packages/canonical-ingestion/__tests__/workspace-source.test.ts`, `packages/canonical-ingestion/__tests__/workspace-source-child.integration.test.ts`.
+Guard: `packages/file-system/src/__tests__/workspace-scan-ignore.test.ts`.
 
 ### Token indexing has TWO trigger sources
+
+- Read cached worker-request hashes in one canonical `getBatch` call per folder;
+  preserve request order and counting-mode compatibility. A lookup failure rejects
+  dispatch visibly. Publish resolved counts only after their durable cache write.
+  Guard: `packages/token-cache/src/__tests__/use-background-token-indexer.test.tsx`.
 
 Per-file TOKEN counting is separate from the Workspace Index above and is driven
 by `useBackgroundTokenIndexerIntegration`.
@@ -477,6 +541,10 @@ fallback.
   override (`docs/agents/platform-contracts.md`) is for main-owned callers
   outside this pipeline and is mutually exclusive with coarse reporting,
   including an explicit `[]`.
+- A recoverable Parcel FSEvents dropped-events episode stays `degraded` with
+  `rescan-required`; its actual warning and overflow/full-root refresh remain
+  visible. Emit a changed failure class even while still degraded, so a later
+  unknown backend error cannot be hidden by the earlier overflow.
 - Push typed watcher health (`starting|healthy|degraded|failed|stopped`) on
   one-way `fs:watch-health` scoped to the owning WebContents, with no root path
   on the wire. `fs:watch-retry` is MANUAL-only, throttled and single-flight per

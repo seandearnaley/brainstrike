@@ -116,6 +116,7 @@ vi.mock('@brainstrike/logging', () => ({
   createDefaultLoggingPreferences: vi.fn((overrides: Record<string, unknown> = {}) =>
     createMockLoggingPreferences(overrides)
   ),
+  createLogger: vi.fn(() => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() })),
   initializeLogging: vi.fn(),
   installConsoleGuard: vi.fn(),
   installRendererErrorHooks: vi.fn(() => () => {}),
@@ -204,6 +205,7 @@ describe('main entry file', () => {
     initializeQueueTelemetrySinkMock.mockReturnValue(null);
     Reflect.deleteProperty(window, '__BRAINSTRIKE_WEB_REACT_ROOT__');
     window.sessionStorage.clear();
+    Reflect.deleteProperty(window, '__brainstrikeWebE2ERequireDurableWrites__');
     vi.stubGlobal('__BRAINSTRIKE_BUILD_ID__', 'test-build-id');
     startAppReloadRecoveryMock.mockReturnValue(stopAppReloadRecoveryMock);
   });
@@ -287,11 +289,34 @@ describe('main entry file', () => {
     render(element);
 
     expect(dbProviderMock).toHaveBeenCalledWith(
-      expect.objectContaining({ dbPath: expectedPath }),
+      expect.objectContaining({ dbPath: expectedPath, requireDurableWrites: false }),
       undefined
     );
     expect(window.sessionStorage.getItem('brainstrike.e2e.dbPath.v1')).toBe(expectedPath);
   }, 60_000);
+
+  test.each([true, false])(
+    'honors durable-write fixture initialization only under webdriver=%s',
+    async (webdriver) => {
+      const rootElement = document.createElement('div');
+      rootElement.id = 'root';
+      vi.spyOn(document, 'getElementById').mockReturnValue(rootElement);
+      vi.spyOn(window.navigator, 'webdriver', 'get').mockReturnValue(webdriver);
+      Reflect.set(window, '__brainstrikeWebE2ERequireDurableWrites__', true);
+      const renderMock = vi.fn();
+      vi.doMock('react-dom/client', () => ({
+        __esModule: true,
+        default: { createRoot: vi.fn(() => ({ render: renderMock })) },
+      }));
+      await importMain();
+      render(renderMock.mock.calls[0]?.[0] as ReactElement);
+      expect(dbProviderMock).toHaveBeenCalledWith(
+        expect.objectContaining({ requireDurableWrites: webdriver }),
+        undefined
+      );
+    },
+    60_000
+  );
 
   describe('failed lazy chunk recovery', () => {
     /** The first element in `node`'s tree (depth first) that satisfies `matches`. */

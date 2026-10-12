@@ -1,0 +1,184 @@
+{
+  "base": "b8323d3d5132dfdddd73e0b2a07afc0ed11b014f",
+  "fixtureFiles": [
+    {
+      "path": "original/s-dur/src/dir-lock.ts",
+      "source": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/spikes/s-dur/src/dir-lock.ts",
+      "sha256": "55e2b5cb94a34e53ee89b98127fcac4937d664192953127e2ff66126aa74ceb8"
+    },
+    {
+      "path": "original/s-dur/src/events.ts",
+      "source": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/spikes/s-dur/src/events.ts",
+      "sha256": "d3722a9549b8d7bd7b71bed94282d29144d2c98a3a10986bc0f9109bcb354068"
+    },
+    {
+      "path": "original/s-dur/src/fold.ts",
+      "source": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/spikes/s-dur/src/fold.ts",
+      "sha256": "25fe122fdf8178feb78a8a6a3b4e5b7f5a34cae672aa8088a016ea2848e766d8"
+    },
+    {
+      "path": "original/s-dur/src/host.ts",
+      "source": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/spikes/s-dur/src/host.ts",
+      "sha256": "c5319546cbc1a9cbd7fca37e5b0a6fe371e69de0fddfde46382f2ea18a4c0efa"
+    },
+    {
+      "path": "original/s-dur/src/log.ts",
+      "source": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/spikes/s-dur/src/log.ts",
+      "sha256": "c524a1c7585a7af7694e041561aedf39eedad39390be84d90a9f68fe4f3605b7"
+    },
+    {
+      "path": "original/s-dur/src/mock.ts",
+      "source": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/spikes/s-dur/src/mock.ts",
+      "sha256": "45261c28ffd23b97fe9c1d7ae244e84d13cddb0f405ce8ea771c7267f36c9e27"
+    },
+    {
+      "path": "original/s-dur/src/ported/cost-estimate.ts",
+      "source": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/spikes/s-dur/src/ported/cost-estimate.ts",
+      "sha256": "90589aa3b1279d0c3ffd6b0283c76ef30f58ef6d7c14cff06cf64051de1a97a4"
+    },
+    {
+      "path": "original/s-dur/src/ported/provider-compatible-input.ts",
+      "source": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/spikes/s-dur/src/ported/provider-compatible-input.ts",
+      "sha256": "9d636cf2c0c2a3575fe3458516e1b74e5cb99361509fb4368478e67dbae6686d"
+    },
+    {
+      "path": "original/s-dur/src/ported/schema-compat.ts",
+      "source": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/spikes/s-dur/src/ported/schema-compat.ts",
+      "sha256": "f72412f317ee3dfd6cb8edb2cc71466b1a357e3f6ea5b5dc013e953980d4c015"
+    },
+    {
+      "path": "original/s-dur/src/ported/usage-metering.ts",
+      "source": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/spikes/s-dur/src/ported/usage-metering.ts",
+      "sha256": "339c6c6996231d4f196fbcbb3636b025ccb52a11b74b97bdffd77f1389061faf"
+    },
+    {
+      "path": "original/s-dur/src/ported/usage.ts",
+      "source": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/spikes/s-dur/src/ported/usage.ts",
+      "sha256": "9b16db4b35c2d771f5b1dd137113c5ae05f33897f53b7736872e31e47ac7cef4"
+    },
+    {
+      "path": "original/s-dur/src/schema-subsets.ts",
+      "source": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/spikes/s-dur/src/schema-subsets.ts",
+      "sha256": "e81d97da220106ff61daf050a7ae266df42fad34afe9e4d7a5bb78bb73eeeece"
+    },
+    {
+      "path": "original/s-dur/src/tool-schema-adapter.ts",
+      "source": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/spikes/s-dur/src/tool-schema-adapter.ts",
+      "sha256": "c0f7bbd408130743e3a31e3b2104ee0fe8e2994b2afce42360f7181502965498"
+    },
+    {
+      "path": "original/s-dur/test/helpers.ts",
+      "source": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/spikes/s-dur/test/helpers.ts",
+      "sha256": "8b17a37f340d1ae8dcf19ce0c46163e98f6e523c33f7c291d8335f3523704862"
+    },
+    {
+      "path": "original/original-writes/m0-a1/scripts/m0/run.ts",
+      "source": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/recovery/m0-executable-captures-2026-10-04-070138Z/original-writes/m0-a1/scripts/m0/run.ts",
+      "sha256": "6de442b6d08fa24f198e5dae943b2967dfec282cfee3bd6ca422090aa6ca85f9"
+    },
+    {
+      "path": "original/original-writes/m0-a1/scripts/m0/display-driver.mjs",
+      "source": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/recovery/m0-executable-captures-2026-10-04-070138Z/original-writes/m0-a1/scripts/m0/display-driver.mjs",
+      "sha256": "c9e6a6e2cc8ace877573fd288a65b77f4bba06cce0d5b6f094b09d56f9d5c179"
+    },
+    {
+      "path": "original/original-writes/m0-a1/scripts/m0/aggregate-display.mjs",
+      "source": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/recovery/m0-executable-captures-2026-10-04-070138Z/original-writes/m0-a1/scripts/m0/aggregate-display.mjs",
+      "sha256": "05a0a31c3af9f88d6ded28682cd3873df1b50e9a46cf02d506633b24eb41c516"
+    },
+    {
+      "path": "original/original-writes/m0-a1/scripts/m0/contend-driver.mjs",
+      "source": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/recovery/m0-executable-captures-2026-10-04-070138Z/original-writes/m0-a1/scripts/m0/contend-driver.mjs",
+      "sha256": "69a19d5a2eb69b600dd14fad97e26e0ad585b8518f9e69b6f283716de4191361"
+    },
+    {
+      "path": "original/captured-later/m0-a1/scripts/m0/contend.ts",
+      "source": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/recovery/m0-executable-captures-2026-10-04-070138Z/captured-later/m0-a1/scripts/m0/contend.ts",
+      "sha256": "c184f80f4aa4b4e000357e61fcb5eab9f722ac0523236d8e2e3f6beb28a73906"
+    },
+    {
+      "path": "original/captured-later/m0-a1/test/m0-contend.test.ts.txt",
+      "source": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/recovery/m0-executable-captures-2026-10-04-070138Z/captured-later/m0-a1/test/m0-contend.test.ts",
+      "sha256": "2b1103e6238371d52b813650fd5831bb5b8accd6eba93825b5a1444737e81616"
+    }
+  ],
+  "sourceLock": "/Users/seandearnaley/Documents/brainstrike-architecture-spikes-2026-10-01/spikes/s-dur/package-lock.json",
+  "sourceLockSha256": "193b95c849c5b7119b2b988f493931bb4695bfa5f8f903e80cf5b9e5edbf35da",
+  "isolatedLockPackageCount": 43,
+  "stateSourceFiles": [
+    {
+      "path": "src/authoritative-schema.mjs",
+      "sha256": "6d2e7640c7033ddbb6d09105ff329047f99173756a1e5ee240c3d5fb26b01674"
+    },
+    {
+      "path": "src/coalescer.ts",
+      "sha256": "de76fe0a0b0f2d7f9e945d8fde7a9acbe7889ddd7448d60a11870d2e7cf4f835"
+    },
+    {
+      "path": "src/errors.ts",
+      "sha256": "1816349d602b951da780377031657f315389f1edebcd864b339b141b28ae5b6f"
+    },
+    {
+      "path": "src/event-schema.ts",
+      "sha256": "a6d8c7039c8483304f614faf4c309dca82a44863f41058e0f8b17e068d4d4c86"
+    },
+    {
+      "path": "src/fs-retry.mjs",
+      "sha256": "44257c85c79f53352ab9dc931037253349a6c2181ead2d33d3a9915c456b401a"
+    },
+    {
+      "path": "src/index.ts",
+      "sha256": "3f0469dc79fda19ffdbbf61996a4de99994526d764da128848f59cac8a4ef775"
+    },
+    {
+      "path": "src/jsonl.mjs",
+      "sha256": "3afd041048bfce7c02fffedcfdffd09fd43bbced93c19def2237596607f195d9"
+    },
+    {
+      "path": "src/lock.ts",
+      "sha256": "ab34ec2a1761dcb8d402c3c73433e7daa731e373cbd58bcdd5422e5c60766f94"
+    },
+    {
+      "path": "src/run-log-format.mjs",
+      "sha256": "8db55874ef5ac270a3a1f29f9ff18c21bf0ff063303c1d3d5c2a571b9c21881d"
+    },
+    {
+      "path": "src/run-log-types.ts",
+      "sha256": "772ee2dc62ba4bed901add758fcc59a1997221a0589f727ddba7dd894b7bcf52"
+    },
+    {
+      "path": "src/run-log.mjs",
+      "sha256": "5c2ef6402056d497579b8b6e489c0b80317de50217806515e53c04b8d1e00ce8"
+    },
+    {
+      "path": "src/schema.mjs",
+      "sha256": "7d83e2fb697066a4b6cf114cc9df9bf080f7e270cd45bc10599cba623e5dae00"
+    },
+    {
+      "path": "src/sqlite-checkpoint.mjs",
+      "sha256": "d75fb12c2c375e1017644e0b3ff92b02dc8a654beedf62ceccb28428c3422a6a"
+    },
+    {
+      "path": "src/sqlite-reader.ts",
+      "sha256": "2ae9f619437c9b65f46ed231dddab06e18a9fb6a95fef67cdd24508345854295"
+    },
+    {
+      "path": "src/sqlite.ts",
+      "sha256": "06deefeca51e02cf3c1e14019daa3d8f773ebcfe3af320532a7e0e3c8c519405"
+    },
+    {
+      "path": "src/state-store.ts",
+      "sha256": "9624489708f154b2ad11253105fdcf52ad522ff6c3cf90f5e88900a1070aa5b4"
+    },
+    {
+      "path": "src/sync-roots.ts",
+      "sha256": "34685a2613c1953a03652612b74ff982b8a923179b011311712b7cd875d230d6"
+    },
+    {
+      "path": "src/writer-worker.mjs",
+      "sha256": "061838b5d61aa8a5b57635063f81da3824c3723a348b71d8641b7083cb51405d"
+    }
+  ],
+  "isolatedLockDependencyPackageCount": 42,
+  "baseTree": "83a98dd9ee92ae97c26dc683a93d2758c7ca4d4d"
+}

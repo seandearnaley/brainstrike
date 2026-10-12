@@ -1,0 +1,25 @@
+export {
+  type OpenNativeCoverageOptions,
+  type OpenSqliteQueryOptions,
+  type QueryOptions,
+  SqliteQueryCancelledError,
+  SqliteQueryClient,
+  SqliteQueryDeadlineError,
+  SqliteQueryInputError,
+  SqliteQueryStartupCleanupError,
+} from './client.js';
+export {
+  type QueryProcess,
+  queryHostEntryPath,
+  type SpawnQueryProcessOptions,
+  spawnQueryProcess,
+} from './process.js';
+export type {
+  SqliteCallerContext,
+  SqliteGrepOptions,
+  SqliteGrepRows,
+  SqliteQueryRequirement,
+  SqliteRows,
+  SqliteValue,
+} from './protocol.js';
+export { type QueryUtilityProcess, spawnUtilityQueryProcess } from './utility-process.js';

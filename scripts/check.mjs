@@ -95,6 +95,11 @@ export const CI_GATES_NOT_RUN_LOCALLY = [
   },
   {
     reason:
+      'Windows-only runner for a suite the unit lane already runs locally (`pnpm --filter @brainstrike/sqlite-native test`, plan step `unit-tests`); this step exists to prove the win32-x64 prebuilds of better-sqlite3 and sqlite-vec load, which no macOS or Linux workstation can show.',
+    step: 'native-windows › Test SQLite native prebuilds',
+  },
+  {
+    reason:
       'Part of the Native Electron Package job, excluded as a unit — see the "Package the desktop application" entry.',
     step: 'native-electron › Build desktop dependency graph',
   },
@@ -117,6 +122,16 @@ export const CI_GATES_NOT_RUN_LOCALLY = [
     reason:
       'Part of the Native Electron Package job, excluded as a unit — see the "Package the desktop application" entry.',
     step: 'native-electron › Load the packaged native capability in Electron',
+  },
+  {
+    reason:
+      'Part of the Native Electron Package job, excluded as a unit — see the "Package the desktop application" entry.',
+    step: 'native-electron › Load the native SQLite prebuilds in Electron',
+  },
+  {
+    reason:
+      'Part of the Native Electron Package job, excluded as a unit — see the "Package the desktop application" entry. Run `pnpm --filter @brainstrike/sqlite-native test:packaged` after a hand-run `pnpm --filter @brainstrike/desktop run pack` to prove the current developer platform.',
+    step: 'native-electron › Load the packaged native SQLite prebuilds',
   },
   {
     reason:

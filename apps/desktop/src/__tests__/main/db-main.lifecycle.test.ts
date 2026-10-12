@@ -1,6 +1,13 @@
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const profileLeaseMocks = vi.hoisted(() => ({
+  acquire: vi.fn(),
+  clear: vi.fn(async () => undefined),
+  release: vi.fn(),
+}));
+vi.mock('@brainstrike/host-lease', () => ({ acquireProfileResetLease: profileLeaseMocks.acquire }));
+
 const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
 const originalDbRootPath = process.env['BRAINSTRIKE_DB_ROOT_PATH'];
 const originalSerializePgliteInit = process.env['BRAINSTRIKE_SERIALIZE_PGLITE_INIT'];
@@ -159,6 +166,22 @@ describe('db-main lifecycle', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    profileLeaseMocks.acquire.mockImplementation(async (root: string) => {
+      let released = false;
+      return {
+        clearRootContents: profileLeaseMocks.clear,
+        get isReleased() {
+          return released;
+        },
+        release() {
+          released = true;
+          profileLeaseMocks.release();
+        },
+        root,
+      };
+    });
+    profileLeaseMocks.clear.mockResolvedValue(undefined);
+
     installUtilityProcessParentPort();
     process.env['NODE_ENV'] = 'test';
     // The utility-process host receives both fields from main; it derives nothing.
@@ -706,7 +729,7 @@ describe('db-main lifecycle', () => {
     expect(diagnostics.lastInitializationFailure?.stage).toBe('open-database');
   });
 
-  it('resetLocalDatabase deletes parent app data directory', async () => {
+  it('resetLocalDatabase backs up then clears the active profile under its lease', async () => {
     process.env['NODE_ENV'] = 'development';
     process.env['BRAINSTRIKE_DB_ROOT_PATH'] = path.join('/mock/documents', 'BrainStrike-dev');
     process.env['BRAINSTRIKE_DB_PROFILE'] = 'test-profile';
@@ -735,7 +758,15 @@ describe('db-main lifecycle', () => {
         recursive: true,
       })
     );
-    expect(rmSyncMock).toHaveBeenCalledWith(expectedAppDataPath, { force: true, recursive: true });
+    expect(profileLeaseMocks.acquire).toHaveBeenCalledWith(expectedAppDataPath);
+    expect(profileLeaseMocks.clear).toHaveBeenCalledOnce();
+    expect(profileLeaseMocks.release).toHaveBeenCalledOnce();
+    expect(rmSyncMock).not.toHaveBeenCalledWith(expectedAppDataPath, expect.anything());
+    const filter = cpSyncMock.mock.calls.at(-1)?.[2]?.filter;
+    expect(filter).toBeTypeOf('function');
+    expect(filter(path.join(expectedAppDataPath, 'lock'))).toBe(false);
+    expect(filter(path.join(expectedAppDataPath, 'pgdata.pre-pg18-from-pg17.bak'))).toBe(false);
+    expect(filter(path.join(expectedAppDataPath, 'pgdata'))).toBe(true);
   });
 
   it('prunes stale profile backups during reset', async () => {

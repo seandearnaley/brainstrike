@@ -789,3 +789,49 @@ describe('IndexingActivityCoordinator', () => {
     }
   });
 });
+
+it('leaves native managed counters with the native producer and never samples legacy workspace queue or worker progress', async () => {
+  vi.clearAllMocks();
+  __resetIndexingActivityStoreForTests();
+  databaseWorkSchedulerState.current = null;
+  useSharedEmbeddingRuntimeMock.mockReturnValue({
+    controller: createMockRuntime().controller,
+    service: null,
+  });
+  const query = vi.fn(async () => ({ rows: [] }));
+  usePGliteDatabaseMock.mockReturnValue({ query });
+  useBackgroundIndexingPreferencesStore.setState({ managedCollectionId: 'native' });
+  useIndexingActivityStore.getState().setManagedCollectionStats({
+    collectionId: 'native',
+    error: null,
+    stats: {
+      chunkCount: 251,
+      dirty: true,
+      embeddedChunkCount: 251,
+      embeddingSetId: 'native',
+      fileCount: 54,
+      lastRefreshedAt: '2026-10-06T01:14:57Z',
+      pendingChunkCount: 0,
+    },
+    status: 'pending',
+  });
+  const capability = {
+    coverage: vi.fn(),
+    coverageBatch: vi.fn(),
+    grep: vi.fn(),
+    rebuild: vi.fn(),
+    search: vi.fn(),
+    status: vi.fn(),
+  };
+  const mounted = render(<IndexingActivityCoordinator nativeIndexSearch={capability} />);
+  await act(async () => {
+    await Promise.resolve();
+  });
+  expect(getCollectionIndexingStatsMock).not.toHaveBeenCalled();
+  expect(query).not.toHaveBeenCalled();
+  expect(useIndexingActivityStore.getState().managedCollectionStats.stats?.fileCount).toBe(54);
+  expect(
+    useSharedEmbeddingRuntimeMock.mock.results.at(-1)?.value.controller.getStatus
+  ).not.toHaveBeenCalled();
+  mounted.unmount();
+});

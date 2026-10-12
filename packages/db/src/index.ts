@@ -90,6 +90,7 @@ export {
   type ApplyManagedCacheBatchArgs,
   type ApplyManagedCacheInvalidationsArgs,
   applyManagedCacheBatch,
+  deleteManagedRootData,
   invalidateManagedCacheEntriesByIdentity,
   type ManagedCacheBatchMutation,
   type ManagedCacheInvalidationResult,

@@ -1,0 +1,23 @@
+{
+  "extends": ["//"],
+  "tasks": {
+    "test": {
+      // NEVER cache: every suite here opens real SQLite databases through
+      // better-sqlite3's prebuilt `.node` for the HOST platform, spawns child
+      // processes and reads OS process start times (`ps`, PowerShell). Pass/fail
+      // depends on the installed native binary and the host OS, inputs turbo does
+      // not hash, so a cache hit would replay a green this machine never proved.
+      // Tests import workspace code from SOURCE, so there is no `build` edge.
+      // cache:false does NOT exempt strict-env filtering; package configs
+      // REPLACE array fields. Redeclare to keep CI/COVERAGE visible. Sync with
+      // root.
+      "cache": false,
+      "passThroughEnv": ["CI", "COVERAGE"]
+    },
+    "test:coverage": {
+      // Runs the IDENTICAL suite (`pnpm run test --coverage`), so it needs the
+      // same `cache: false`; see `test` above.
+      "cache": false
+    }
+  }
+}

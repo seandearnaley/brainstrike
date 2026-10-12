@@ -1,6 +1,9 @@
 import type { MutableRefObject } from 'react';
 import type {
   EmbeddingHostCommand,
+  EmbeddingHostDocumentEmbeddingsCancel,
+  EmbeddingHostDocumentEmbeddingsRequest,
+  EmbeddingHostDocumentEmbeddingsResponseReport,
   EmbeddingHostQueryEmbeddingCancel,
   EmbeddingHostQueryEmbeddingRequest,
   EmbeddingHostQueryEmbeddingResponseReport,
@@ -12,6 +15,15 @@ import {
 } from './embedding-host-status';
 
 export function getEmbeddingHostBridge(): {
+  onDocumentEmbeddingsCancel?: (
+    callback: (notice: EmbeddingHostDocumentEmbeddingsCancel) => void
+  ) => () => void;
+  onDocumentEmbeddingsRequest?: (
+    callback: (request: EmbeddingHostDocumentEmbeddingsRequest) => void
+  ) => () => void;
+  reportDocumentEmbeddingsResponse?: (
+    response: EmbeddingHostDocumentEmbeddingsResponseReport
+  ) => void;
   onCommand?: (callback: (command: EmbeddingHostCommand) => void) => () => void;
   onQueryEmbeddingCancel?: (
     callback: (notice: EmbeddingHostQueryEmbeddingCancel) => void
@@ -24,6 +36,15 @@ export function getEmbeddingHostBridge(): {
 } | null {
   const hostWindow = window as Window & {
     embeddingHost?: {
+      onDocumentEmbeddingsCancel?: (
+        callback: (notice: EmbeddingHostDocumentEmbeddingsCancel) => void
+      ) => () => void;
+      onDocumentEmbeddingsRequest?: (
+        callback: (request: EmbeddingHostDocumentEmbeddingsRequest) => void
+      ) => () => void;
+      reportDocumentEmbeddingsResponse?: (
+        response: EmbeddingHostDocumentEmbeddingsResponseReport
+      ) => void;
       onCommand?: (callback: (command: EmbeddingHostCommand) => void) => () => void;
       onQueryEmbeddingCancel?: (
         callback: (notice: EmbeddingHostQueryEmbeddingCancel) => void
@@ -73,4 +94,14 @@ export function reportEmbeddingHostRuntimeStatusForRuntimeId(
   options?: EmbeddingHostStatusOptions
 ): void {
   reportStatus(createEmbeddingHostStatus(runtimeId, state, options));
+}
+
+export function reportDocumentEmbeddingsResponse(
+  response: EmbeddingHostDocumentEmbeddingsResponseReport
+): void {
+  const report = getEmbeddingHostBridge()?.reportDocumentEmbeddingsResponse;
+  if (!report) {
+    throw new Error('Document embeddings response capability is unavailable.');
+  }
+  report(response);
 }

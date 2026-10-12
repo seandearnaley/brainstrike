@@ -13,21 +13,20 @@ import {
 import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
 /**
- * Golden test for the SHIPPED lens artifact (BST-921): every lens ships with
- * a regression test, and this one exercises the actual checked-in file —
- * `.brainstrike/lenses/callers-hybrid.sql` — through the REAL pipeline:
+ * PGlite caller golden retained for hosted web until M6 (BST-1924). Read the
+ * checked-in app fixture and verify its declared target before the REAL pipeline:
  * contract parser → declared-type coercion → sandbox execution with true
- * bind parameters. The file is the single source of the canonical hybrid
+ * bind parameters. The fixture retains the proven web hybrid
  * statement; if someone edits it into an unparseable or unadmittable shape,
  * this fails, not a live model run.
  */
 
 const LENS_PATH = resolve(
   dirname(fileURLToPath(import.meta.url)),
-  '../../../.brainstrike/lenses/callers-hybrid.sql'
+  './fixtures/callers-hybrid-pglite.sql'
 );
 
-describe('callers-hybrid lens (the shipped artifact)', () => {
+describe('PGlite caller lens (web golden until M6)', () => {
   let db: PGlite;
   let service: AgentSqlService;
 
@@ -47,6 +46,7 @@ describe('callers-hybrid lens (the shipped artifact)', () => {
       throw new Error(parsed.error);
     }
     expect(parsed.lens.id).toBe('callers-hybrid');
+    expect(parsed.lens.target).toBe('app');
     expect(parsed.lens.params.map((param) => `${param.name}:${param.type}`)).toEqual([
       'symbol:text',
       'terms:text',
@@ -60,6 +60,7 @@ describe('callers-hybrid lens (the shipped artifact)', () => {
     if (!parsed.ok) {
       throw new Error(parsed.error);
     }
+    expect(parsed.lens.target).toBe('app');
     const coerced = coerceLensValues(parsed.lens.params, [
       HYBRID_FIXTURE_SYMBOL,
       HYBRID_FIXTURE_TERMS,
@@ -85,6 +86,7 @@ describe('callers-hybrid lens (the shipped artifact)', () => {
     if (!parsed.ok) {
       throw new Error(parsed.error);
     }
+    expect(parsed.lens.target).toBe('app');
     const hostile = `x'; DROP TABLE file_symbols; --`;
     const result = await service.query(parsed.lens.sql, {
       params: [hostile, HYBRID_FIXTURE_TERMS],

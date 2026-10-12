@@ -13,6 +13,9 @@
       // the desktop file to the hash.
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/desktop/index.html"]
     },
+    "test:e2e": {
+      "passThroughEnv": ["BRAINSTRIKE_WEB_CHROMIUM_DIR"]
+    },
     "test:coverage": {
       // Same cross-package input as `test`: the coverage lane runs the full
       // suite including startup-splash.test.ts.

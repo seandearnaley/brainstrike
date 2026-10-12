@@ -4,6 +4,20 @@
 > authorization. Rules here are true now; the record behind each is in
 > `platform-contracts/<topic>.md`.
 
+### Desktop native packaging
+
+- Keep `npmRebuild: false`: `better-sqlite3` and `sqlite-vec` use the exact catalog
+  prebuilds and are never compiled. Deny better-sqlite3 builds in `allowBuilds`;
+  unpack its `.node` and the platform vec0 library. The SQLite extension path
+  maps `app.asar` to `app.asar.unpacked` and throws when that file is absent.
+- Other shipped addons must load under the packaged Electron executable without
+  a rebuild. `node-pty` 1.1 uses N-API, including its Linux install-time build;
+  secure-fs-native uses N-API and Parcel ships platform prebuilds. Prove the real
+  terminal and filesystem operations alongside the isolated SQLite provenance.
+
+Evidence: `platform-contracts/native-packaging.md`.
+Guard: `packages/sqlite-native/test/packaged-smoke.cjs`.
+
 ## LOGGING (PINO V10)
 
 - Initialize with `initializeLogging` from `@brainstrike/logging`, naming the
@@ -115,6 +129,12 @@ Guard: `apps/desktop/src/__tests__/platform/desktop-ipc-registry.test.ts`,
 
 ## IPC CONTRACT MODULES
 
+- The visible `indexSearch` contract exposes native status/coverage/search and a separately owned read-only grep provider. Hidden preloads omit it. Its pure manifest owns visible-ui role policy and strict arguments; main preserves the canonical failure envelope and frame authorization. Source-scan readiness must come from the canonical producer, independently of native row counts. Writer retirement joins read-only owners before deleting its registered index files.
+- `coverageBatch` returns discriminated data: `current` with fenced status/counters, or `invalidated` with only `native-coverage-observation-invalidated`. Convert only its final typed authority/readiness fence failure; singleton coverage and strict qualification reads still reject. Bounded qualification waits record invalidation and request a wholly fresh batch. Return the current observation that actually satisfies the wait predicate, without a redundant strict reread after the poll; an invalidated attempt clears the previous observation. Every unrelated failure remains fatal; invalidation supplies no completion counts and never resets a progress deadline.
+
+Evidence: `indexer/2026-10-03-coverage-runtime-bridge.md`, `indexer/2026-10-04-coverage-observation-invalidation.md`, `indexer/2026-10-04-accepted-coverage-observation.md`.
+Guard: `apps/desktop/src/__tests__/ipc-index-search.test.ts`, `apps/desktop/src/__tests__/native-scoped-search.test.ts`, `apps/desktop/src/__tests__/native-coverage-transport.integration.test.ts`, `apps/desktop/qualification/m2-native/coverage-observation.test.mjs`, `apps/desktop/qualification/m2-native/accepted-observation.test.ts`, `apps/desktop/src/__tests__/preload-contract-bridges.test.ts`, `apps/desktop/src/__tests__/fixtures/indexer-utility-proof.ts`.
+
 - `platform/desktop-ipc-channels.ts` (`DESKTOP_IPC_CHANNELS`) is the ONE place a
   channel string lives. Neither preload holds a channel literal, and the hidden
   preload may reference only the manifest groups its test pins, so the
@@ -212,12 +232,14 @@ never used. Wiping the database alone is not enough.
   auth, and MCP bearer resolution, and the transport caches no token material, so
   the existing `clearAll` is the complete reset authority. Token caching would
   change this contract and its tests together.
-- Desktop userData is wiped wholesale, so the main-process storage keys, the
+- Desktop userData is wiped except for logs and the active reset lock namespace
+  plus its ancestor directories. Purge all other entries inside those ancestors;
+  preserving an ancestor never preserves its unrelated data. The main-process storage keys, the
   bundled CPython unpack directory, and the shadow-git dirs need no per-key
   wiring. If one moves outside `userData`, or `logs` gains a preserved sibling,
   it needs explicit wiring and an update here. The database root is inside
   `userData` only in test runs and on packaged macOS; reset closes the DB host and
-  deletes the profile before any wipe (`database.md` § "DESKTOP DATABASE
+  clears the profile under an authoritative `ProfileResetLease` before any wipe (`database.md` § "DESKTOP DATABASE
   LOCATION"; guard `main/desktop-factory-reset-packaged-layout.test.ts`).
 - The renderer `storage:*` bridge cannot mutate the root, recents, or vault
   authority keys: `setItem`/`removeItem` reject them by exact key, `setItem`
@@ -260,12 +282,29 @@ never used. Wiping the database alone is not enough.
   `getFactoryResetOnlyTables()` and issues a targeted
   `DELETE … WHERE is_default = FALSE` for the MIXED `view_filter_presets`, so
   user presets converge with desktop while migration seeds survive.
-- Desktop factory reset is deliberately different: `resetLocalDatabase` closes
-  the database and recursively deletes the active profile directory (which also holds
-  `.db-init-attempt.json`) — do not add a redundant SQL purge there. Closing the default DB host manager permanently
-  retires that owner, retained `RemoteDbClient` methods reject afterwards, and
-  Mastra memory's caches key on database object identity, so a retired owner
-  fails visibly instead of writing into the replacement profile.
+- Desktop factory reset closes legacy PG, awaits the owned-host retirement
+  callback, then acquires the authoritative profile reset lease. Failed
+  retirement keeps legacy admission closed and retains its callback/cause.
+- Clear all profile data (including `.db-init-attempt.json` and native files)
+  while preserving `RootLock.dirOf(root)` and its ancestors through userData and
+  Electron-storage purge. Release only after the destructive phase succeeds;
+  critical errors retain an accessible owner for retry, and a live external host
+  refuses acquisition before profile deletion. Never recursively remove the
+  profile afterward or add a redundant SQL purge.
+- Developer reset uses the same lease and releases only after its profile clear
+  succeeds. Refuse new legacy opens until release. Reset backups exclude the
+  coordination lock and the existing engine-upgrade backups. The reported
+  pending-trash/NDJSON policy remains unchanged.
+- Closing the default DB host manager permanently retires that owner, retained
+  `RemoteDbClient` methods reject afterwards, and Mastra memory's caches key on
+  database object identity, so a retired owner fails visibly instead of writing
+  into the replacement profile.
+
+Evidence: `platform-contracts/desktop-profile-reset-lease.md`.
+Guard: `main/desktop-factory-reset-packaged-layout.test.ts`,
+`desktop-reset-profile-lease.test.ts`, `main/db-main.close.test.ts`,
+`main/desktop-reset-lease-electron.integration.test.ts`.
+
 - **A relation that can legitimately be ABSENT must be PROBED, not
   deleted-and-caught.** Use `SELECT to_regclass('<table>') IS NOT NULL AS
   present` and skip the `DELETE` when absent. Why: each path runs in ONE
@@ -365,6 +404,10 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   `BrowserWindow.close()` while their IPC dependencies still exist; hidden hosts
   stay alive for their owning stop commands, and already-admitted database work
   drains through the scheduler before database closure.
+- Await the application's filesystem domain in the `file-system` step, after
+  assistant/MCP retirement and before inference hosts and database drain. Its
+  mounted-source borrows and native watches remain owned until physical cleanup
+  settles; the synchronous late IPC ledger cannot establish that join.
 - `EmbeddingHostManager.dispose()` refuses new starts BEFORE its cooperative stop
   awaits the renderer, and `RendererHostLifecycle.ensureStarted()` lets a
   `stopping` host settle instead of replacing its window. Shutdown disposal waits
@@ -377,6 +420,10 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
   stopped permit waiter returns before claiming a job. The stop signal does not
   cancel an embedding already executing.
 - Parser host Stop joins every owned generation’s exit and listeners with a 500ms caller wait; timeout rejects while actual cleanup stays owned. A failed kill remains visible and retryable, blocks parsing on that generation, and never acknowledges successful cleanup.
+- Interactive terminal cleanup retains ownership after renderer destruction or
+  IPC removal. The assistant-server shutdown batch and factory reset await both
+  the descendant tree walk and node-pty exit callback, including prior reaps;
+  failures remain visible and the existing application deadline owns the wait.
 - The assistant HTTP server's stop ends live connections after `close()`; an
   already-closed listener (`ERR_SERVER_NOT_RUNNING`) is a successful repeated
   stop and other close failures stay visible. Why: plain `server.close()` waits
@@ -418,8 +465,8 @@ Evidence: `platform-contracts/command-session-lifecycle.md`.
 
 Admission retirement precedes host stops, and each timeout sits under
 the application deadline. See ADR-0005 and ADR-0006. Evidence:
-`platform-contracts/graceful-shutdown-ownership.md`, `effect-boundary/parser-generation-scope.md`.
-Guard: `apps/desktop/src/__tests__/main/desktop-graceful-shutdown.test.ts`, `ipc-embedding-backfill.test.ts`, `embedding-backfill.test.ts`, `embedding-host-manager.test.ts`,
+`platform-contracts/graceful-shutdown-ownership.md`, `platform-contracts/terminal-shutdown-join.md`, `effect-boundary/parser-generation-scope.md`.
+Guard: `apps/desktop/src/__tests__/terminal-shutdown-join.test.ts`, `apps/desktop/src/__tests__/main/desktop-graceful-shutdown.test.ts`, `ipc-embedding-backfill.test.ts`, `embedding-backfill.test.ts`, `embedding-host-manager.test.ts`,
 `renderer-host-lifecycle.test.ts`, `apps/desktop/e2e/app-launch.test.ts`, `apps/desktop/src/__tests__/main/parser-host-manager.test.ts`, `parser-host-shutdown.integration.test.ts`, `db-host-manager-close.test.ts`, `db-host-manager-init-phase.test.ts`, `db-host-manager-init-loop.test.ts`, `db-host-init-budget.test.ts`, `db-host-protocol.test.ts`, `db-main.close.test.ts`, `apps/desktop/src/__tests__/platform/host-request-channel.test.ts`, `apps/desktop/src/__tests__/db-clean-shutdown-marker.test.ts`, `db-init-attempt-record.test.ts`, `apps/desktop/src/__tests__/main/db-host-entry.signals.test.ts`, `db-host-entry.db-main.test.ts`, `apps/desktop/src/__tests__/main/shutdown-signals.test.ts`, `boot-order.test.ts`, `apps/desktop/e2e/shutdown-signals.desktop.test.ts`, `apps/desktop/src/__tests__/electron-harness-out-of-band.test.ts`.
 
 ### Browser preference hydration
@@ -502,6 +549,17 @@ in `docs/agents/ci-quality.md`.
 
 ---
 
+### Native indexing setup observations
+
+- Represent absent user choices with `NativeIndexSetupRequiredError`. Public status reports its actionable setup reason as unavailable with `phase: setup-required`; routine authority transitions report `phase: preparing`. Strict reads still refuse. Preserve that reason through closed admission. Invalid settings, profiles, storage failures and cleanup aggregates remain errors.
+- Log initial setup and incomplete saved-choice transitions as informational setup state, not repeated indexing errors. No model, collection or execution defaults are invented.
+- Warn once per unavailable saved-root identity/path episode, while retaining its
+  unavailable descriptor and checking again on every restore. Successful remount
+  rearms the warning. Do not delete saved roots or suppress real mount failures.
+
+Guard: `apps/desktop/src/__tests__/native-index-setup-required.test.ts`.
+Guard: `apps/desktop/src/__tests__/ipc-domains/workspace-root-warning-transitions.test.ts`.
+
 ## FILE WATCHER SERVICE LIFECYCLE
 
 OS file watching is a PLATFORM capability beneath the assistant runtime. Mastra
@@ -513,14 +571,21 @@ on this local latency path; assistant tools consume indexed state only.
   malformed `BRAINSTRIKE_WATCHER_BACKEND`, subscribe timeout, or runtime backend
   failure throws or surfaces typed health — never a fallback engine, never
   polling. `legacy` throws.
+- **Recoverable native rescan**: only Parcel's three exact FSEvents
+  `MustScanSubDirs` messages carry `rescan-required` health. They retain the
+  native subscription and log an actual warning while requesting full-root
+  reconciliation. Unknown errors retain backend-error severity. Parcel's
+  Windows overflow retires its subscription, and its inotify overflow branch
+  emits no error, so neither qualifies for this recoverable classification.
 - **Silent host death is a real state and health cannot see it.** On some macOS
   hosts FSEventStream delivery stops while `subscribe()` resolves and health
   still reports `healthy`. Discriminate it with
   `@brainstrike/file-system/testing/watcher-liveness`: if the raw binding
   delivered nothing, no code above it can be blamed.
-- **Lifecycle**: one native subscription per owning renderer and resolved root;
-  10s subscribe timeout with late-resolution unsubscribe; idempotent disposers
-  safe at any time. Duplicate same-owner/root registrations get distinct logical
+- **Lifecycle**: one main-owned native subscription per exact mounted root,
+  shared by visible and borrowed-source subscriptions; join native acquisition
+  and retirement before reporting completion. A failed final unwatch retains its
+  logical handle for explicit cleanup retry. Duplicate same-owner/root registrations get distinct logical
   watchIds sharing one native subscription, and unwatch removes only its own,
   stopping the native watcher after the last leaves. The per-owner cap counts
   native subscriptions while a separate registration cap bounds retained
@@ -532,7 +597,8 @@ on this local latency path; assistant tools consume indexed state only.
   forwarding a fixture name to OS watcher IPC, while delegating every real root
   unchanged.
 - **Typed health**: engines emit `starting|healthy|degraded|failed|stopped`
-  exactly once per state change; `fs:watch-health` pushes are scoped to the
+  on state or failure-class change; repeated same-class failures are deduped.
+  `fs:watch-health` pushes are scoped to the
   owning WebContents with no root-path field on the wire; retry is manual-only
   with escalating 1s/5s/30s throttling, single-flight per watchId.
   `fs:watch-telemetry` is in-memory counters only — deliberately not persisted,
@@ -578,7 +644,10 @@ There is one engine with no fallback, and the ignore override stays out of the
 IPC domain. Evidence: `platform-contracts/file-watcher-lifecycle.md`,
 `docs/agents/research/bst-568-parcel-watcher-spike.md`.
 Guard: `packages/file-system/src/__tests__/parcel-binding.integration.test.ts`,
-`apps/desktop/src/__tests__/ipc-domains/file-system-watch-ipc.test.ts`.
+`apps/desktop/src/__tests__/ipc-domains/file-system-watch-ipc.test.ts`,
+`apps/desktop/src/__tests__/ipc-domains/workspace-root-watch-owner.test.ts`,
+`apps/desktop/src/__tests__/main/ipc-handlers-watch-options.test.ts`.
+Evidence: `platform-contracts/2026-10-03-mounted-source-retirement.md`.
 
 ---
 

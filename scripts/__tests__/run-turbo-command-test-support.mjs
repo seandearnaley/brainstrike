@@ -1,5 +1,31 @@
+import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
+
+const require = createRequire(import.meta.url);
+
+export function resolvedBuildPackages(turboArgs) {
+  const dryRun = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [require.resolve('turbo/bin/turbo'), ...turboArgs, '--dry=json'],
+      {
+        cwd: process.cwd(),
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          NO_UPDATE_NOTIFIER: '1',
+          TURBO_TELEMETRY_DISABLED: '1',
+        },
+        maxBuffer: 64 * 1024 * 1024,
+      }
+    )
+  );
+  return dryRun.tasks
+    .filter((task) => task.task === 'build' && task.command !== '<NONEXISTENT>')
+    .map((task) => task.package);
+}
 
 const sweepIgnoredDirectories = new Set([
   '.claude',

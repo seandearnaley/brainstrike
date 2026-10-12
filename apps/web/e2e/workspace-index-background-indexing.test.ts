@@ -36,12 +36,22 @@ interface WorkspaceIndexDebugSnapshot {
     readonly hasHydrated?: boolean;
     readonly managedCollectionId?: string | null;
   };
+  readonly chunkStatsByRoot: Array<{
+    readonly chunk_count: number | string;
+    readonly embedded_chunk_count: number | string;
+    readonly pending_chunk_count: number | string;
+  }>;
   readonly expectedCounts: WorkspaceIndexExpectedCount[];
   readonly fileRecordsByRoot: Array<{
     readonly chunked_file_count?: number | string;
     readonly file_count?: number | string;
   }>;
+  readonly jobQueue: Array<{
+    readonly count: number | string;
+    readonly state: string;
+  }>;
   readonly managedCollectionId: string | null;
+  readonly recentEmbeddingFailures: unknown[];
   readonly roots: unknown[];
   readonly runtimeReadiness: WorkspaceIndexRuntimeReadiness;
   readonly syncStatus: WorkspaceIndexSyncStatus;
@@ -73,6 +83,7 @@ const INDEXING_WARNING_PATTERNS = [
   'FileImport:Chunking',
   'VectorQueueService',
   'WorkspaceCollectionSyncImport',
+  'IndexingActivity',
 ] as const;
 
 declare global {
@@ -244,9 +255,10 @@ async function readWorkspaceIndexStartupSummary(
 }
 
 test.describe('Workspace Index background indexing (web) @stateful @web-indexing', () => {
-  test.fixme('starts the managed Workspace Index for a web root and records chunked files', {
-    annotation: { description: 'BST-1966', type: 'quarantine' },
-  }, async ({ page }) => {
+  test('starts the managed Workspace Index for a web root and records chunked files', async ({
+    failureCollector,
+    page,
+  }) => {
     test.setTimeout(180_000);
     const indexingConsoleIssues: string[] = [];
     page.on('console', (message) => {
@@ -262,8 +274,38 @@ test.describe('Workspace Index background indexing (web) @stateful @web-indexing
     await mockBrowserApis(page, 'web-workspace-index-root', WORKSPACE_INDEX_TREE);
     await page.goto('/');
     await resetAppState(page);
+    // Qualify real CPU inference explicitly, as in the import/backfill lane.
+    // Headless Linux WebGPU exposes no qualified fp16 adapter; this is a saved
+    // device choice, never an automatic fallback from a failed GPU request.
+    test.info().annotations.push({
+      description: 'Explicit WASM inference; default WebGPU is not qualified by this case.',
+      type: 'inference-device',
+    });
+    await page.evaluate(() => {
+      window.localStorage.setItem(
+        'vector-preferences.v1',
+        JSON.stringify({
+          state: {
+            devicePref: 'wasm',
+            devicePrefConfigured: true,
+            reinitEveryN: 200,
+            verboseOrtLogs: false,
+          },
+          version: 3,
+        })
+      );
+    });
     await page.reload({ waitUntil: 'load' });
     await waitForAppLoad(page, { timeoutMs: 120_000, waitForDatabase: true });
+    expect(
+      await page.evaluate((): unknown => {
+        const savedPreferences = window.localStorage.getItem('vector-preferences.v1');
+        if (!savedPreferences) {
+          throw new Error('Explicit WASM preferences must survive reload.');
+        }
+        return JSON.parse(savedPreferences) as unknown;
+      })
+    ).toMatchObject({ state: { devicePref: 'wasm', devicePrefConfigured: true }, version: 3 });
 
     await page.getByRole('button', { name: /^Add Folder to Workspace$/i }).click();
 
@@ -335,5 +377,64 @@ test.describe('Workspace Index background indexing (web) @stateful @web-indexing
     const databasePanel = page.getByRole('tabpanel', { name: /collections/i });
     await expect(databasePanel.getByTestId('database-demo-panel')).toBeVisible({ timeout: 15_000 });
     await expect(databasePanel.getByText('Workspace Index', { exact: true })).toHaveCount(0);
+
+    // BST-1966: chunk creation can finish while the model is still loading.
+    // Keep the original Pause/Resume assertions, then prove real completion.
+    await expect
+      .poll(
+        async () =>
+          await page.evaluate(async () => {
+            const debug = window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__;
+            if (!debug) {
+              throw new Error('Workspace Index debug API is required to verify completion.');
+            }
+            const snapshot = await debug.snapshot();
+            return {
+              accessIssueCount: snapshot.accessIssues?.length ?? 0,
+              chunkCount: snapshot.chunkStatsByRoot.reduce(
+                (total, row) => total + Number(row.chunk_count),
+                0
+              ),
+              embeddedChunkCount: snapshot.chunkStatsByRoot.reduce(
+                (total, row) => total + Number(row.embedded_chunk_count),
+                0
+              ),
+              jobStates: snapshot.jobQueue.map((row) => ({
+                count: Number(row.count),
+                state: row.state,
+              })),
+              pendingChunkCount: snapshot.chunkStatsByRoot.reduce(
+                (total, row) => total + Number(row.pending_chunk_count),
+                0
+              ),
+              recentFailureCount: snapshot.recentEmbeddingFailures.length,
+              statusLastError: snapshot.syncStatus.lastError,
+            };
+          }),
+        { timeout: 60_000 }
+      )
+      .toEqual({
+        accessIssueCount: 0,
+        chunkCount: 3,
+        embeddedChunkCount: 3,
+        jobStates: [{ count: 3, state: 'succeeded' }],
+        pendingChunkCount: 0,
+        recentFailureCount: 0,
+        statusLastError: null,
+      });
+    const completionSnapshot = await page.evaluate(async () => {
+      const debug = window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__;
+      if (!debug) {
+        throw new Error('Workspace Index debug API is required to record completion.');
+      }
+      return await debug.snapshot();
+    });
+    await test.info().attach('workspace-index-completion.json', {
+      body: JSON.stringify(completionSnapshot, null, 2),
+      contentType: 'application/json',
+    });
+    await expect(indexingTrigger).not.toContainText('Issue');
+    expect(indexingConsoleIssues).toEqual([]);
+    expect(failureCollector.getConsoleErrors()).toEqual([]);
   });
 });

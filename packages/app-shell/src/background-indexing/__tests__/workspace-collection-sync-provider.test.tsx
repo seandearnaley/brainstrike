@@ -479,6 +479,10 @@ vi.mock('../../roots/use-roots-reconciliation', () => ({
   }),
 }));
 
+vi.mock('@brainstrike/file-system/directory-tree', () => ({
+  readFullTreeWithOptions: readFullTreeWithOptionsMock,
+}));
+
 vi.mock('@brainstrike/file-explorer-ui/tree', () => ({
   readFullTreeWithOptions: readFullTreeWithOptionsMock,
   useOptionalFileTreeContext: () => fileTreeContextState.current,

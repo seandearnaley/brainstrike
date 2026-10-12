@@ -108,7 +108,12 @@ export const DESKTOP_IPC_CHANNELS = {
     backfillProgress: 'embedding-host:backfill-progress',
     cancelAllBackfills: 'embedding-host:cancel-all-backfills',
     cancelBackfill: 'embedding-host:cancel-backfill',
+    cancelDocumentEmbeddings: 'embedding-host:cancel-document-embeddings',
+    cancelQueryEmbedding: 'embedding-host:cancel-query-embedding',
     command: 'embedding-host:command',
+    documentEmbeddings: 'embedding-host:document-embeddings',
+    documentEmbeddingsCancel: 'embedding-host:document-embeddings-cancel',
+    documentEmbeddingsRequest: 'embedding-host:document-embeddings-request',
     enqueueBackfill: 'embedding-host:enqueue-backfill',
     ensureStarted: 'embedding-host:ensure-started',
     getBackfillsInFlight: 'embedding-host:get-backfills-in-flight',
@@ -116,6 +121,7 @@ export const DESKTOP_IPC_CHANNELS = {
     queryEmbedding: 'embedding-host:query-embedding',
     queryEmbeddingCancel: 'embedding-host:query-embedding-cancel',
     queryEmbeddingRequest: 'embedding-host:query-embedding-request',
+    reportDocumentEmbeddingsResponse: 'embedding-host:report-document-embeddings-response',
     reportQueryEmbeddingResponse: 'embedding-host:report-query-embedding-response',
     reportStatus: 'embedding-host:report-status',
     reset: 'embedding-host:reset',
@@ -128,6 +134,7 @@ export const DESKTOP_IPC_CHANNELS = {
   files: {
     addRoot: 'fs:addRoot',
     addRootByPath: 'fs:addRootByPath',
+    deleteRootData: 'fs:deleteRootData',
     exists: 'fs:exists',
     listRecentRoots: 'fs:listRecentRoots',
     parserHostParse: 'parser-host:parse',
@@ -176,6 +183,14 @@ export const DESKTOP_IPC_CHANNELS = {
   hooks: {
     getProjectHooksForReview: 'hooks:get-project-hooks-for-review',
     resolveTrustedRootIds: 'hooks:resolve-trusted-root-ids',
+  },
+  indexSearch: {
+    coverage: 'index-search:coverage',
+    coverageBatch: 'index-search:coverage-batch',
+    grep: 'index-search:grep',
+    rebuild: 'index-search:rebuild',
+    search: 'index-search:search',
+    status: 'index-search:status',
   },
   // Hidden local-LLM host; same pinning as chunkingHost (llm-host-shared.ts).
   llmHost: {

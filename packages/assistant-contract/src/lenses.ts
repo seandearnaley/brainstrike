@@ -34,6 +34,8 @@ const LENS_PARAM_NAME_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
 
 export const LENS_PARAM_TYPES = ['text', 'integer', 'number', 'boolean'] as const;
 export type LensParamType = (typeof LENS_PARAM_TYPES)[number];
+export const QUERY_SELF_TARGETS = ['app', 'index'] as const;
+export type QuerySelfTarget = (typeof QUERY_SELF_TARGETS)[number];
 
 export interface LensParamSpec {
   readonly description: string;
@@ -41,11 +43,18 @@ export interface LensParamSpec {
   readonly type: LensParamType;
 }
 
+export interface LensRequirement {
+  readonly kind: 'caller-vectors';
+  readonly seedParam: string;
+}
+
 export interface LensDefinition {
   readonly description: string;
   readonly id: string;
   readonly params: readonly LensParamSpec[];
+  readonly requirement?: LensRequirement;
   readonly sql: string;
+  readonly target: QuerySelfTarget;
 }
 
 export type ParseLensFileResult =
@@ -116,6 +125,19 @@ export function parseLensFile(fileName: string, content: string): ParseLensFileR
   if (header.description === null) {
     return { error: 'Missing required "-- description:" header line.', ok: false };
   }
+  if (header.target === null) {
+    return { error: 'Missing required "-- target:" header line (app or index).', ok: false };
+  }
+
+  if (header.requirement) {
+    const seed = header.params.find((param) => param.name === header.requirement?.seedParam);
+    if (header.target !== 'index' || seed?.type !== 'text') {
+      return {
+        error: 'caller-vectors requires target index and a declared text seed param.',
+        ok: false,
+      };
+    }
+  }
 
   const sql = lines.slice(header.bodyStart).join('\n').trim();
   if (sql.length === 0) {
@@ -130,49 +152,131 @@ export function parseLensFile(fileName: string, content: string): ParseLensFileR
     return { error: placeholderError, ok: false };
   }
 
-  return { lens: { description: header.description, id, params: header.params, sql }, ok: true };
+  return {
+    lens: {
+      description: header.description,
+      id,
+      params: header.params,
+      ...(header.requirement ? { requirement: header.requirement } : {}),
+      sql,
+      target: header.target,
+    },
+    ok: true,
+  };
 }
 
-type LensHeader =
-  | { bodyStart: number; description: string | null; params: LensParamSpec[] }
-  | { error: string };
+interface ParsedLensHeader {
+  bodyStart: number;
+  description: string | null;
+  params: LensParamSpec[];
+  requirement?: LensRequirement;
+  target: QuerySelfTarget | null;
+}
+type LensHeader = ParsedLensHeader | { error: string };
 
 function parseLensHeader(lines: readonly string[]): LensHeader {
-  let description: string | null = null;
-  const params: LensParamSpec[] = [];
-  let bodyStart = 0;
-
+  const header: ParsedLensHeader = { bodyStart: 0, description: null, params: [], target: null };
   for (const [index, rawLine] of lines.entries()) {
     const line = rawLine.trim();
     if (line.length === 0) {
       continue;
     }
     if (!line.startsWith('--')) {
-      bodyStart = index;
+      header.bodyStart = index;
       break;
     }
-    bodyStart = index + 1;
-    const comment = line.slice(2).trim();
-    if (comment.startsWith('description:')) {
-      const value = comment.slice('description:'.length).trim();
-      if (description !== null) {
-        return { error: 'Duplicate "-- description:" header line.' };
-      }
-      if (value.length === 0) {
-        return { error: 'The "-- description:" header must not be empty.' };
-      }
-      description = value;
-    } else if (comment.startsWith('param:')) {
-      const paramError = ingestParamLine(comment, line, params);
-      if (paramError !== null) {
-        return { error: paramError };
-      }
+    header.bodyStart = index + 1;
+    const error = ingestHeaderComment(line.slice(2).trim(), line, header);
+    if (error !== null) {
+      return { error };
     }
-    // Other comment lines in the header are allowed and ignored (license
-    // headers, notes) — only the two directives are meaningful.
   }
+  return header;
+}
 
-  return { bodyStart, description, params };
+function ingestHeaderComment(
+  comment: string,
+  line: string,
+  header: ParsedLensHeader
+): string | null {
+  if (comment.startsWith('description:')) {
+    const parsed = parseLensDescription(comment, header.description);
+    if ('error' in parsed) {
+      return parsed.error;
+    }
+    header.description = parsed.description;
+    return null;
+  }
+  if (comment.startsWith('target:')) {
+    const parsed = parseLensTarget(comment, header.target);
+    if ('error' in parsed) {
+      return parsed.error;
+    }
+    header.target = parsed.target;
+    return null;
+  }
+  if (comment.startsWith('requires:')) {
+    const parsed = parseLensRequirement(comment, header.requirement);
+    if ('error' in parsed) {
+      return parsed.error;
+    }
+    header.requirement = parsed.requirement;
+    return null;
+  }
+  if (comment.startsWith('param:')) {
+    return ingestParamLine(comment, line, header.params);
+  }
+  // Other header comments (notes/license) are not directives.
+  return null;
+}
+
+function parseLensRequirement(
+  comment: string,
+  existing: LensRequirement | undefined
+): { requirement: LensRequirement } | { error: string } {
+  if (existing) {
+    return { error: 'Duplicate "-- requires:" header line.' };
+  }
+  const match = comment
+    .slice('requires:'.length)
+    .trim()
+    .match(/^caller-vectors ([a-z][a-z0-9_]{0,31})$/u);
+  if (!match?.[1]) {
+    return {
+      error:
+        'Unknown or malformed lens requirement; use "-- requires: caller-vectors <text seed param>".',
+    };
+  }
+  return { requirement: { kind: 'caller-vectors', seedParam: match[1] } };
+}
+
+function parseLensDescription(
+  comment: string,
+  existing: string | null
+): { description: string } | { error: string } {
+  if (existing !== null) {
+    return { error: 'Duplicate "-- description:" header line.' };
+  }
+  const description = comment.slice('description:'.length).trim();
+  if (description.length === 0) {
+    return { error: 'The "-- description:" header must not be empty.' };
+  }
+  return { description };
+}
+
+function parseLensTarget(
+  comment: string,
+  existing: QuerySelfTarget | null
+): { target: QuerySelfTarget } | { error: string } {
+  if (existing !== null) {
+    return { error: 'Duplicate "-- target:" header line.' };
+  }
+  const value = comment.slice('target:'.length).trim();
+  const target = QUERY_SELF_TARGETS.find((allowed) => allowed === value);
+  if (target === undefined) {
+    return { error: `Unknown lens target "${value}" (allowed: ${QUERY_SELF_TARGETS.join(', ')}).` };
+  }
+  return { target };
 }
 
 /** Parse one `-- param:` line into `params`, returning an error or null. */

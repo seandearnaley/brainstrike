@@ -28,6 +28,35 @@
 Evidence: `local-inference/hidden-host-manifest.md`.
 Guard: `hidden-preload-contract.test.ts`, `hidden-preload-runtime.test.ts`.
 
+### Canonical profile and document adapter
+
+- Resolve the actual authorized PGlite embedding-set metadata without writing
+  preferences or enabling vectors. Preserve hosted provider/model identity;
+  local execution requires explicit saved device and dtype choices. An optional
+  immutable revision is preserved when supplied; catalog choices without one stay
+  unpinned. Validate the full selected identity through the public `@brainstrike/embeddings/inference-plan` resolver.
+- Admit 1–64 ordered, unique, nonblank chunks. Reject missing own array entries
+  before authority lookup or transport; validate complete profile identity,
+  vector cardinality, dimensions and finite values before publication.
+- Supply `NativeCanonicalInference` only with a document relay whose promise
+  settles after physical hidden-renderer completion or joined host retirement
+  on every outcome. Keep cancellation ownership until that settlement and
+  preserve independent errors through generate/cancel/join/close. Hosted document
+  and query adapters use the existing provider and credential owners; Ollama and
+  LM Studio read the same saved endpoint/token choices as runtime discovery.
+  Cancellation joins the provider operation before releasing ownership.
+
+Evidence: `local-inference/2026-10-03-canonical-profile-adapter.md`.
+Guard: `native-canonical-profile.test.ts`,
+`native-canonical-profile.integration.test.ts`, `inference-plan.test.ts`.
+
+### Canonical VECTOR consumption
+
+- Admit inference only through an explicit VECTOR canonical host with current authorized saved profile and native missing-chunk plan. Join generate/cancel/join and cancellation notices before publication/completion, preserving independent errors and failed cleanup ownership.
+
+Evidence: `indexer/2026-10-03-canonical-vector-pipeline.md`.
+Guard: `packages/canonical-ingestion/__tests__/vector-host.test.ts`.
+
 ### Vector device preference
 
 - Host and visible UI resolve `devicePref`/`devicePrefConfigured` from the SAME
@@ -45,6 +74,62 @@ assertion or re-exposing the full storage bridge. Evidence:
 `local-inference/vector-device-preference.md`.
 Guard: `vector-preferences-store.hidden-host.test.ts`,
 `vector-preferences-storage-key-contract.test.ts`, `storage-preferences-ipc.test.ts`.
+
+### Vendor model input and batching
+
+- The selected model's Transformers.js feature-extraction pipeline owns tokenizer
+  limits and mean pooling. Do not impose a model-specific tokenizer cap or substitute
+  another export. Preserve the caller's batch count ceiling and stream order.
+- An explicit revision reaches the vendor loader, isolates pipeline caches, and
+  must match completion metadata. Omitted revisions preserve vendor behavior.
+
+Guard: `embedding-input-plan.spec.ts`, `streaming-worker-client-completion.spec.ts`,
+`pipeline-cache-controller.spec.ts`, `embedding-worker-protocol.test.ts`,
+`embedding-telemetry.spec.ts`, `transformers-backend.queue.test.ts`.
+
+### Explicit native vector request plan
+
+- Resolve a native vector identity only from an explicit renderer worker plan:
+  model, optional immutable revision, device, dtype and actual dimensions.
+  The catalog plan resolver preserves those choices without inventing revision
+  pins or token caps; completion metadata proves the requested runtime.
+- Local native hidden-host query requests carry the full validated `inferencePlan`, matching
+  payload model ID and dimensions. Preserve revision through preload and scalar
+  queue projection; cache the full identity and initialize its explicit target
+  dimensions without legacy catalog or device-preference resolution.
+- Local native document requests require the same validated plan and 1–64 unchanged
+  texts; use document `generateEmbeddings` semantics and preserve output order.
+  Query and document work share one FIFO, cache identity and physical inference
+  owner; both public query and document promises and pending identities settle only after completion or joined retirement on every outcome.
+- Preserve caller cancellation reasons; distinguish the host's exact cancel code from independent failures. Aggregate Stop and every failed destruction attempt in the shared retirement outcome before publishing inference rejection. Sending cancel never proves settlement.
+- Restore a queue caller's abort reason only after settled worker-owned cancellation matches its exact task ID and discriminator; preserve independent errors, including unrelated `AbortError`s.
+- Keep AbortSignal in the caller renderer. Visible query and document bridges carry
+  a plain token; main authorizes the visible sender/frame and maps token cancellation
+  to the exact hidden runtime/request, including host startup. Refuse an unavailable
+  cancellation capability or failed delivery explicitly.
+- Give each native semantic search its own inference signal; abort it on supersession,
+  cancellation or consumer teardown. Join physical query settlement and cancellation
+  delivery before discarding its result. Normalize only main's explicitly acknowledged
+  owned cancellation; reject duplicate or replayed query tokens for that sender.
+- Require actual completion model, immutable revision, device, dtype, dimensions
+  and vector count to match pinned scalar requests, with no fallback. Missing or
+  mismatched metadata fails before returning a vector.
+- Forward the resolved worker plan unchanged to renderer inference. Refuse
+  unresolved or unsupported vector selections visibly without model substitution.
+  Text-only native store startup does not initialize or download an embedding model.
+
+Evidence: `local-inference/native-vector-request-plan.md`,
+`local-inference/native-hidden-query-plan.md`,
+`local-inference/native-hidden-document-plan.md`, `local-inference/document-transport-settlement.md`, `local-inference/query-transport-settlement.md`, `local-inference/native-search-query-cancellation.md`.
+Guard: `packages/embeddings/src/__tests__/inference-plan.test.ts`,
+`transformers-backend.queue.test.ts`, `packages/queue/src/__tests__/types.test.ts`,
+`embedding-host-shared.test.ts`, `embedding-host-runtime.test.tsx`,
+`preload-contract-bridges.test.ts`, `embedding-host-document-runtime.test.tsx`, `embedding-host-document-settlement.test.ts`, `embedding-host-query-settlement.test.ts`,
+`renderer/document-embeddings.test.ts`, `main/ipc-embedding-host.test.ts`,
+`native-search-query-cancellation.test.ts`, `renderer/query-embeddings.test.ts`, `native-search-provider.test.tsx`,
+`packages/queue/src/__tests__/browser-workerpool.test.ts`, `packages/queue/src/__tests__/browser-workerpool-cancellation-reason.test.ts`, `packages/embedding-worker/test/embedding.worker.runtime.spec.ts`,
+`embedding-host-physical-stop-ownership.test.tsx`, `use-workspace-search-controller.test.tsx`,
+`scripts/probe-pinned-query-embedding.mjs`, `scripts/probe-pinned-document-embeddings.mjs`.
 
 ### Job queue and embedding input hash
 
@@ -125,6 +210,18 @@ Evidence: `local-inference/sync-loop-coordinator.md`.
 
 Evidence: `local-inference/embedding-telemetry-diagnostics.md`.
 
+### Workspace component stage measurements
+
+- Mount the opt-in stage API outside the legacy/native ingestion choice. Read
+  readiness from each mode's transaction, managed-cache, or hidden-host capability;
+  never use the retired sync service as a readiness gate for component measurements.
+- Preserve the production stage runner, count/backend assertions and existing timeouts.
+  These measurements do not qualify native corpus ingestion or the throughput stretch.
+
+Evidence: `local-inference/workspace-component-stages.md`.
+Guard: `workspace-index-stage-harness.test.ts`, `workspace-index-stage-provider.test.tsx`,
+`apps/desktop/e2e/workspace-index-stage-benchmark.desktop.test.ts`.
+
 ### Embedding input hash relocation benchmark
 
 - `embedding-input-hash-benchmark.integration.test.ts` reports timings as diagnostics,
@@ -156,6 +253,13 @@ Evidence: `local-inference/embedding-queue-load-verification.md`.
 
 ### Foreground query coordination
 
+- A browser worker's `self.close()` emits no owner-side exit event. Its validated
+  source-close notice must join public workerpool retirement before new requests
+  use a replacement. An interrupted request keeps its failure without retry;
+  idle closure retains its reason as informational telemetry, while active work
+  and retirement failures remain errors. Capture `webContents` while its window
+  is alive so physical-close cleanup never reads a destroyed `BrowserWindow`.
+  Evidence: `local-inference/2026-10-06-idle-worker-retirement.md`.
 - Never overlap indexing and foreground inference; FIFO generations own isolated service caches and serialize selection, initialization and generation.
   Gate only `waitForBackgroundPermit('embedding claim')`, never completion, with one host gate.
 - Failed background drain rejects before generation; `createForegroundEmbeddingGate`, `runCoordinatedQueryEmbedding` and `composeClaimPermit` share that gate.
@@ -173,6 +277,17 @@ Evidence: `local-inference/embedding-queue-load-verification.md`.
   Timeout/interruption logs include provider, stage, elapsed time; never query text, endpoints, credentials, or vectors.
 
 Evidence: `local-inference/foreground-query-coordination.md`, `local-inference/query-listener-readiness.md`, `local-inference/foreground-query-lifecycle-ownership.md`; guards: `embedding-host-foreground-ownership.test.tsx`, `embedding-host-physical-stop-ownership.test.tsx`, `embedding-host-reinitialization-readiness.test.tsx`.
+
+### Embedding queue task yielding
+
+- After a nonempty claimed batch settles, yield an abortable zero-delay task
+  turn before claiming again. Do not add fixed inter-batch pacing; foreground
+  admission remains owned by the claim permit, and idle/failure backoff remains separate.
+- Stop cancels the pending yield and joins the worker before service disposal;
+  completion settlement retains its admission ownership until it finishes.
+
+Evidence: `local-inference/embedding-queue-task-yielding.md`.
+Guard: `packages/embeddings/src/__tests__/embedding-worker-pacing.test.ts`.
 
 ### Workspace indexing QoS ownership
 

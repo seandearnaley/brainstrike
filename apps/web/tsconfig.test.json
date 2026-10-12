@@ -17,6 +17,7 @@
     "api/**/*.ts",
     "src/**/*",
     "e2e/**/*",
+    "config/web-chromium.mjs",
     "**/*.test.*",
     "vite.config.mts",
     "vitest.config.mts"

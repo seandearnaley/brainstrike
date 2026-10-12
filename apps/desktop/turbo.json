@@ -14,6 +14,9 @@
       "cache": false
     },
     "type-check": {
+      // The E2E fixture types the public built lab entry. Keep this test-only
+      // build prerequisite outside the application's package dependency graph.
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/mcp-test-lab#build"],
       // `type-check:test` executes this repository-root verifier. It lives
       // outside the desktop package's default inputs, so hash it explicitly
       // or Turbo can replay stale green diagnostics after verifier changes.
@@ -33,17 +36,31 @@
       // reverse-direction read of apps/desktop/index.html.)
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/apps/web/vite.config.mts"]
     },
+    "test:e2e": {
+      // Pending-input cancellation uses the real emitted SDK fixture.
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/mcp-test-lab#build"]
+    },
     "test:integration": {
       // Native process-restart verifiers resolve public package exports outside
       // Vitest's source aliases. Build every runtime dependency those spawned
-      // processes load, retaining the inherited source hash cascade.
+      // processes load, retaining the inherited source hash cascade. The CJS
+      // retrieval probe loads real contract/DB artifacts under installed Electron.
       "dependsOn": [
         "$TURBO_EXTENDS$",
         "@brainstrike/agent#build",
+        "@brainstrike/assistant-contract#build",
         "@brainstrike/assistant-data#build",
-        "@brainstrike/assistant-service#build"
+        "@brainstrike/assistant-service#build",
+        "@brainstrike/db#build",
+        "@brainstrike/indexer#build",
+        "@brainstrike/sqlite-query#build"
       ],
-      "env": ["$TURBO_EXTENDS$", "DESKTOP_TEST_SHARD", "DESKTOP_TEST_SHARD_REQUIRED"]
+      "env": [
+        "$TURBO_EXTENDS$",
+        "DESKTOP_TEST_SHARD",
+        "DESKTOP_TEST_SHARD_REQUIRED",
+        "NATIVE_RETRIEVAL_TEST_EXEC_PATH"
+      ]
     },
     "test:coverage": {
       // Coverage includes the same native process-restart integration test.

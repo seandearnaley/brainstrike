@@ -7,6 +7,7 @@
     "@brainstrike/db": "workspace:*",
     "@brainstrike/file-explorer": "workspace:*",
     "@brainstrike/file-explorer-ui": "workspace:*",
+    "@brainstrike/indexing-contract": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/ui": "workspace:*",
     "lucide-react": "catalog:",

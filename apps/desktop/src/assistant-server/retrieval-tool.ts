@@ -15,27 +15,27 @@ import {
   resolveWorkspaceIndexEmbeddingSetId,
 } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
-import { resolveHostedProviderKey } from '@brainstrike/assistant-contract/provider-key-resolution';
 import type { ChunkSearchResult } from '@brainstrike/db';
 import { FileChunkRepository, FileRecordRepository } from '@brainstrike/db';
 import {
-  CohereEmbeddingProvider,
   type EmbeddingProviderType,
-  GoogleEmbeddingProvider,
   type HostedProviderType,
   hostedProviderRequiresApiKey,
   isHostedProvider,
   isLocalProviderType,
-  OpenAIEmbeddingProvider,
   parseProviderModelKey,
-  resolveHostedProviderApiKey,
-  VoyageEmbeddingProvider,
 } from '@brainstrike/embeddings/provider-core';
+import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
 import { type DesktopDatabase, getDatabase } from '../db-main';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
-import { getSecretsService, SecretReadError } from '../secrets';
+import { createHostedProvider, resolveEmbeddingApiKey } from '../hosted-embeddings';
+import { SecretReadError } from '../secrets';
+import {
+  resolveNativeAssistantCollection,
+  searchNativeAssistantChunks,
+} from './native-assistant-retrieval';
 import { resolveOptionalWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('AssistantRetrievalTool');
@@ -119,12 +119,6 @@ export interface EmbeddingSetRow {
   modelKey: string;
 }
 
-type HostedEmbeddingProvider =
-  | OpenAIEmbeddingProvider
-  | GoogleEmbeddingProvider
-  | CohereEmbeddingProvider
-  | VoyageEmbeddingProvider;
-
 export interface FileRecordRow {
   id: string;
   name: string;
@@ -158,6 +152,7 @@ interface ContextChunkConversionResult {
 
 export interface RetrievalToolDependencies {
   embeddingHostManager?: QueryEmbeddingHost | null | undefined;
+  nativeIndexSearch?: IndexSearchCapability | undefined;
 }
 
 interface RetrievalToolResult {
@@ -166,6 +161,7 @@ interface RetrievalToolResult {
   chunks: RetrievalResultChunk[];
   context: string;
   embeddingSetId: string;
+  hint?: string;
   limit: number;
   query: string;
   remainingTokens: number;
@@ -175,6 +171,7 @@ interface RetrievalToolResult {
   skippedSourceRangeChunks: SkippedSourceRangeChunk[];
   threshold: number;
   totalTokens: number;
+  truncated?: boolean;
 }
 
 type RetrievalToolExecutionResult = RetrievalToolResult | RetrievalUnavailableResult;
@@ -250,87 +247,6 @@ export async function resolveEmbeddingSet(
     throw new Error(ERROR_MESSAGES.invalidEmbeddingSet);
   }
   return row;
-}
-
-async function resolveEmbeddingApiKey(provider: HostedProviderType): Promise<string | undefined> {
-  // Shared resolution order (BST-979): the environment is authoritative, the
-  // keychain is the fallback — previously this path was keychain-first, so a
-  // key rotated via env could stay shadowed by a stale stored key. The
-  // env leg reuses the embeddings resolver (same table + core order); the
-  // secret leg preserves the BST-574 escape hatch: a keychain read failure
-  // is NOT an absent credential and stays visible unless env supplied a key.
-  const fromEnvironment = await resolveHostedProviderApiKey(provider);
-  if (fromEnvironment) {
-    return fromEnvironment;
-  }
-  const secrets = getSecretsService();
-  const stored = await resolveHostedProviderKey({
-    envKeyNames: [],
-    envSources: [],
-    readSecret: () => secrets.getKey(provider),
-  });
-  if (stored.secretReadError) {
-    logger.warn('Stored embedding API key is unreadable and no env key exists', {
-      error: stored.secretReadError,
-      provider,
-    });
-    throw stored.secretReadError;
-  }
-  return stored.key;
-}
-
-function createHostedProvider(
-  provider: HostedProviderType,
-  modelId: string,
-  dimensions: number,
-  apiKey?: string
-): HostedEmbeddingProvider {
-  switch (provider) {
-    case 'openai':
-      return new OpenAIEmbeddingProvider({
-        modelId,
-        provider: 'openai',
-        targetDimensions: dimensions,
-        ...(apiKey ? { apiKey } : {}),
-      });
-    case 'ollama':
-      return new OpenAIEmbeddingProvider({
-        endpoint: 'http://127.0.0.1:11434/v1/embeddings',
-        modelId,
-        provider: 'ollama',
-        targetDimensions: dimensions,
-        ...(apiKey ? { apiKey } : {}),
-        includeDimensions: false,
-        requiresApiKey: false,
-      });
-    case 'lmstudio':
-      return new OpenAIEmbeddingProvider({
-        endpoint: 'http://localhost:1234/v1/embeddings',
-        modelId,
-        provider: 'lmstudio',
-        targetDimensions: dimensions,
-        ...(apiKey ? { apiKey } : {}),
-        includeDimensions: false,
-        requiresApiKey: false,
-      });
-    case 'google':
-      if (!apiKey) {
-        throw new Error(ERROR_MESSAGES.missingApiKey);
-      }
-      return new GoogleEmbeddingProvider({ apiKey, modelId, outputDimensions: dimensions });
-    case 'cohere':
-      if (!apiKey) {
-        throw new Error(ERROR_MESSAGES.missingApiKey);
-      }
-      return new CohereEmbeddingProvider({ apiKey, inputType: 'search_query', modelId });
-    case 'voyage':
-      if (!apiKey) {
-        throw new Error(ERROR_MESSAGES.missingApiKey);
-      }
-      return new VoyageEmbeddingProvider({ apiKey, inputType: 'query', modelId });
-    default:
-      throw new Error(ERROR_MESSAGES.unsupportedProvider);
-  }
 }
 
 async function createSelectionSnapshot(
@@ -740,6 +656,10 @@ async function packRetrievedContext(
       chunkType?: string;
       fileRecordId: string;
       embeddingSetId?: string;
+      startLine?: number;
+      endLine?: number;
+      startOffset?: number;
+      endOffset?: number;
     };
     similarity: number;
     rank: number;
@@ -788,7 +708,13 @@ async function runRetrieval(
 ): Promise<RetrievalToolExecutionResult> {
   signal?.throwIfAborted();
   const query = normalizeQuery(input.query);
-  const embeddingSetId = resolveRuntimeEmbeddingSetId(runtimeData, input.embeddingSetId);
+  const embeddingSetId = dependencies.nativeIndexSearch
+    ? await resolveNativeAssistantCollection(
+        dependencies.nativeIndexSearch,
+        input.embeddingSetId,
+        signal
+      )
+    : resolveRuntimeEmbeddingSetId(runtimeData, input.embeddingSetId);
   if (!embeddingSetId) {
     const unavailable = createWorkspaceIndexUnavailableResult(runtimeData, query);
     if (unavailable) {
@@ -807,29 +733,67 @@ async function runRetrieval(
   const db = await getDatabase();
   signal?.throwIfAborted();
   const embeddingSet = await resolveEmbeddingSet(db, embeddingSetId);
-  const embedding = await generateQueryEmbeddingForSet(embeddingSet, query, dependencies, signal);
-  signal?.throwIfAborted();
-  assertEmbeddingDimensions(embeddingSet.dimensions, embedding.length);
-
-  const selectionState = await resolveSelectionState(db, runtimeData, input);
-  // An explicit `root` or durable thread binding scopes retrieval to one open
-  // folder; resolving throws a clear "Open folders: ..." error for an
-  // unknown/ambiguous name. Only an unbound omission searches every root.
   const rootId = resolveOptionalWorkspaceRoot(runtimeData, input.root)?.rootId;
-  const searchResults = await searchForChunks(
-    db,
-    embedding,
-    embeddingSetId,
-    input,
-    selectionState,
-    rootId
-  );
+  const native = dependencies.nativeIndexSearch
+    ? await searchNativeAssistantChunks({
+        ...input,
+        capability: dependencies.nativeIndexSearch,
+        embeddingHostManager: dependencies.embeddingHostManager,
+        embeddingSet,
+        embeddingSetId,
+        mode: 'semantic',
+        query,
+        rootId,
+        signal,
+        threshold: input.threshold ?? DEFAULT_THRESHOLD,
+      })
+    : undefined;
+  let selectionState: RetrievalSelectionState = {};
+  let searchResults: Parameters<typeof packRetrievedContext>[1];
+  if (native) {
+    searchResults = native.hits.map(({ hit, similarity }, index) => {
+      if (hit.chunkIndex === null || hit.tokenCount === null || similarity === undefined) {
+        throw new ToolInputError('Native source chunk metadata is unavailable.');
+      }
+      return {
+        chunk: {
+          chunkIndex: hit.chunkIndex,
+          ...(hit.chunkType === null ? {} : { chunkType: hit.chunkType }),
+          content: hit.content,
+          embeddingSetId,
+          endLine: hit.endLine,
+          ...(hit.endOffset === null ? {} : { endOffset: hit.endOffset }),
+          fileRecordId: hit.fileId,
+          id: hit.chunkId,
+          startLine: hit.startLine,
+          ...(hit.startOffset === null ? {} : { startOffset: hit.startOffset }),
+          tokenCount: hit.tokenCount,
+        },
+        rank: index + 1,
+        similarity,
+      };
+    });
+  } else {
+    const embedding = await generateQueryEmbeddingForSet(embeddingSet, query, dependencies, signal);
+    signal?.throwIfAborted();
+    assertEmbeddingDimensions(embeddingSet.dimensions, embedding.length);
+    selectionState = await resolveSelectionState(db, runtimeData, input);
+    searchResults = await searchForChunks(
+      db,
+      embedding,
+      embeddingSetId,
+      input,
+      selectionState,
+      rootId
+    );
+  }
   const { packed, contextText, skippedSourceRangeChunks } = await packRetrievedContext(
     db,
     searchResults,
     runtimeData,
     input
   );
+  await native?.assertCurrent();
   signal?.throwIfAborted();
 
   return {
@@ -838,7 +802,10 @@ async function runRetrieval(
     chunks: stripChunkContent(packed.chunks),
     context: contextText,
     embeddingSetId,
-    limit: input.limit ?? DEFAULT_LIMIT,
+    limit: native?.limit ?? input.limit ?? DEFAULT_LIMIT,
+    ...(native
+      ? { truncated: native.truncated, ...(native.hint ? { hint: native.hint } : {}) }
+      : {}),
     query,
     remainingTokens: packed.remainingTokens,
     skipped: packed.skipped + skippedSourceRangeChunks.length,
@@ -876,12 +843,21 @@ export async function runQueryEmbeddingSpace(
   try {
     signal?.throwIfAborted();
     const hasExplicitEmbeddingSet = Boolean(normalizeOptionalText(input.embeddingSetId));
-    if (!(hasExplicitEmbeddingSet || hasWorkspaceIndexRuntimeStatus(runtimeData))) {
+    if (
+      !(
+        dependencies.nativeIndexSearch ||
+        hasExplicitEmbeddingSet ||
+        hasWorkspaceIndexRuntimeStatus(runtimeData)
+      )
+    ) {
       throw new Error(ERROR_MESSAGES.missingQueryEmbeddingSpace);
     }
     const explicitRuntimeData = omitImplicitContextRuntimeData(runtimeData);
     return await runRetrieval(input, explicitRuntimeData, dependencies, signal);
   } catch (error) {
+    if (dependencies.nativeIndexSearch && signal?.aborted && error instanceof AggregateError) {
+      throw new Error(ERROR_MESSAGES.retrievalFailed, { cause: error });
+    }
     signal?.throwIfAborted();
     // BST-1020: this normalization previously lived ONLY in the deleted
     // tool factories, so the LIVE registry path surfaced raw unexpected

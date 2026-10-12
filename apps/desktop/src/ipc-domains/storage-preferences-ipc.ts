@@ -23,6 +23,7 @@ import {
 
 interface RegisterStoragePreferencesIpcHandlersOptions {
   readonly getStore: () => ElectronStore<DesktopSettingsStoreSchema> | null;
+  readonly onStorageChanged?: (key: string) => void;
   readonly storage: ElectronStorageAdapter;
 }
 
@@ -65,6 +66,7 @@ function getSettingsStoreAccess(
 export function registerStoragePreferencesIpcHandlers({
   getStore,
   storage,
+  onStorageChanged,
 }: RegisterStoragePreferencesIpcHandlersOptions): () => void {
   const registry = createDesktopIpcRegistry({ ipcMain });
 
@@ -80,9 +82,13 @@ export function registerStoragePreferencesIpcHandlers({
       assertRendererWritableDesktopStorageKey(key);
       return storage.removeItem(key);
     },
-    setItem: (key, value) => {
+    setItem: async (key, value) => {
       assertRendererWritableDesktopStorageKey(key);
-      return storage.setItem(key, value);
+      const previous = await storage.getItem(key);
+      await storage.setItem(key, value);
+      if (previous !== value) {
+        onStorageChanged?.(key);
+      }
     },
   });
 

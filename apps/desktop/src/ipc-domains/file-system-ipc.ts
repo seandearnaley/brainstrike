@@ -48,6 +48,7 @@ interface RegisterFileSystemIpcHandlersOptions {
    */
   readonly isSyntheticFileSystemPath?: (rootPath: string) => boolean;
   readonly managedWorktreeAuthorizer?: ManagedWorktreeAuthorizer;
+  readonly onDeleteRootData?: (rootId: string) => Promise<void>;
   /**
    * Fired after a successful grant-recording mount (BST-1393). main uses it to
    * push the folder into the OS recent-documents list and to rebuild the File
@@ -304,7 +305,19 @@ function toFileReadErrorPayload(error: unknown, filePath: string): FileReadError
   return null;
 }
 
-export function registerFileSystemIpcHandlers({
+export interface FileSystemIpcDomain {
+  close(): Promise<void>;
+  readonly roots: WorkspaceRootRegistry;
+  unregister(): void;
+}
+
+export function registerFileSystemIpcHandlers(
+  options: RegisterFileSystemIpcHandlersOptions
+): () => Promise<void> {
+  return createFileSystemIpcDomain(options).close;
+}
+
+export function createFileSystemIpcDomain({
   disposeCommandSessionsForRoot = disposeDesktopCommandSessionsForRoot,
   evictLspServersForRoot: evictLspServersForRootOverride,
   fileSystem,
@@ -312,9 +325,10 @@ export function registerFileSystemIpcHandlers({
   isSyntheticFileSystemPath = isMockFileSystemIpcPath,
   managedWorktreeAuthorizer,
   onWorkspaceRootGranted,
+  onDeleteRootData,
   storage,
   workspaceRootRegistryFileSystemSeams,
-}: RegisterFileSystemIpcHandlersOptions): () => void {
+}: RegisterFileSystemIpcHandlersOptions): FileSystemIpcDomain {
   const notifyRootGranted = (grantedPath: string): void => {
     try {
       onWorkspaceRootGranted?.(grantedPath);
@@ -488,6 +502,13 @@ export function registerFileSystemIpcHandlers({
       return roots.addRootByPath(requestedPath);
     },
 
+    deleteRootData: async (rootId: string) => {
+      if (!onDeleteRootData) {
+        throw new Error('The main-owned root data deletion capability is unavailable.');
+      }
+      await onDeleteRootData(rootId);
+    },
+
     exists: async (requestedPath: string) => ipcPathExists(fileSystem, requestedPath),
 
     listRecentRoots: async () => roots.listRecentRoots(),
@@ -590,7 +611,6 @@ export function registerFileSystemIpcHandlers({
         throw error;
       }
     },
-
     removeRoot: async (rootId: string) => roots.removeRoot(rootId),
     requestDirectoryAccess: async () => (await addSelectedRoot()).handle,
 
@@ -600,9 +620,20 @@ export function registerFileSystemIpcHandlers({
 
     saveLastFolder: async (folderPath: string) => roots.setLastFolder(folderPath),
   });
-  return () => {
-    registry.unregisterAll();
-    roots.dispose();
-    syntheticFileSystemClassifications.clear();
+  return {
+    close: async (): Promise<void> => {
+      const results = await Promise.allSettled(
+        [() => registry.unregisterAll(), () => roots.dispose()].map(async (retire) => retire())
+      );
+      const errors = results.flatMap((result) =>
+        result.status === 'rejected' ? [result.reason] : []
+      );
+      if (errors.length > 0) {
+        throw new AggregateError(errors, 'Filesystem IPC owners did not retire.');
+      }
+      syntheticFileSystemClassifications.clear();
+    },
+    roots,
+    unregister: () => registry.unregisterAll(),
   };
 }

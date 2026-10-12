@@ -1,0 +1,186 @@
+name: Native Package Matrix
+
+# BST-1920 / BST-1923: better-sqlite3 and sqlite-vec are shipped as PREBUILT
+# natives and must never be compiled. This workflow packages the desktop app on
+# each release target and runs the packaged provenance smoke
+# (packages/sqlite-native/test/packaged-smoke.cjs): every `.node` that loads is
+# better-sqlite3's shipped prebuild, the OS maps exactly one `.node` and one
+# `vec0.*` from `app.asar.unpacked`, the packaged tree has no node-gyp output,
+# and a vec0 table round-trips.
+#
+# Adapted from the native-index-sqlite spike. NOT a required check: it proves
+# itself on the PRs that touch its paths, and failures on the nightly run go to
+# Linear (rule 7).
+#
+# Linux arm64 uses the same checksum-pinned Python derivation and packaging
+# path as x64; no packaging step or addon smoke is skipped for that target.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '41 9 * * *'
+  pull_request:
+    branches: ['**']
+    types: [opened, synchronize, reopened]
+    paths:
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - apps/desktop/package.json
+      - packages/sqlite-native/**
+      - packages/state-store/**
+      - packages/indexer/**
+      - .github/workflows/native-package-matrix.yml
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('{0}-{1}', github.event.pull_request.head.repo.full_name, github.head_ref) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+# No TURBO_TOKEN/TURBO_TEAM: the remote cache is arch- and OS-blind, and this
+# workflow builds on five OS/arch pairs. A restored entry from another runner is
+# exactly the cross-platform poisoning the native packages' uncached tasks avoid.
+env:
+  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  TURBO_CACHE_DIR: .turbo
+
+jobs:
+  smoke:
+    name: ${{ matrix.os }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-15, platform: darwin, arch: arm64 }
+          - { os: macos-15-intel, platform: darwin, arch: x64 }
+          - { os: ubuntu-24.04, platform: linux, arch: x64 }
+          - { os: ubuntu-24.04-arm, platform: linux, arch: arm64 }
+          - { os: windows-2025, platform: win32, arch: x64 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # Windows only. The two existing addons (secure-fs-native,
+      # windows-job-native) compile at install, so node-gyp needs its header
+      # tarball; this is the same cache native-windows in test.yml uses (BST-1375,
+      # BST-1712). better-sqlite3 itself never compiles.
+      - name: Pin the node-gyp dev dir (Windows)
+        if: runner.os == 'Windows'
+        run: echo "npm_config_devdir=${{ github.workspace }}\.node-gyp" >> "$GITHUB_ENV"
+
+      - name: Restore node-gyp headers (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/cache/restore@v5
+        with:
+          path: ${{ github.workspace }}\.node-gyp
+          key: ${{ runner.os }}-${{ runner.arch }}-node-gyp-${{ hashFiles('.nvmrc') }}-
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-node-gyp-${{ hashFiles('.nvmrc') }}-
+
+      - name: Setup workspace
+        id: setup
+        uses: ./.github/actions/setup-workspace
+        with:
+          install-attempts: ${{ runner.os == 'Windows' && '3' || '1' }}
+
+      - name: Assert the runner is the target
+        run: |
+          set -euo pipefail
+          node -p "process.platform + '-' + process.arch + ' | node ' + process.version"
+          test "$(node -p process.platform)-$(node -p process.arch)" = "${{ matrix.platform }}-${{ matrix.arch }}"
+
+      # One visible, bounded download of the Electron archive for THIS target,
+      # handed to electron-builder, exactly as native-electron does on Linux.
+      - name: Provision Electron archive
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          VER=$(node -p "require('electron/package.json').version")
+          ELECTRON_ZIP="${RUNNER_TEMP}/electron.zip"
+          URL="https://github.com/electron/electron/releases/download/v${VER}/electron-v${VER}-${{ matrix.platform }}-${{ matrix.arch }}.zip"
+          echo "Downloading Electron v${VER} from ${URL}"
+          curl -fsSL --connect-timeout 20 --max-time 180 --retry 3 --retry-delay 5 --retry-all-errors -o "$ELECTRON_ZIP" "$URL"
+          echo "ELECTRON_DIST=$ELECTRON_ZIP" >> "$GITHUB_ENV"
+
+      # `pnpm exec` puts node_modules/.bin on PATH, which the wrapper needs to
+      # spawn turbo; a bare `node scripts/run-turbo-command.mjs` fails with
+      # `spawnSync turbo ENOENT`.
+      - name: Build desktop dependency graph
+        run: pnpm exec node scripts/run-turbo-command.mjs --windows-concurrency=1 -- run build --filter=@brainstrike/desktop... --concurrency=4
+
+      - name: Package the desktop application
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          set -euo pipefail
+          test -n "${ELECTRON_DIST:-}"
+          pnpm --filter @brainstrike/desktop run pack -- --config.electronDist="$ELECTRON_DIST" 2>&1 | tee "$RUNNER_TEMP/electron-builder.log"
+          # `npmRebuild: false` is what keeps better-sqlite3 from being
+          # compiled by electron-builder's @electron/rebuild pass.
+          grep -q 'skipped dependencies rebuild' "$RUNNER_TEMP/electron-builder.log"
+
+      # macOS only. Signs the packaged app ad hoc with the hardened runtime and
+      # electron-builder's default entitlements (no `mac.entitlements` is
+      # configured, so releases use that same plist), then lets the smoke below
+      # prove vec0.dylib and the better-sqlite3 prebuild still load.
+      #
+      # What this proves, and what it does not: ad-hoc `--deep` signing gives
+      # EVERY image (the app, its frameworks, vec0.dylib) the same empty team
+      # identity. So this shows hardened-runtime loading works with those
+      # entitlements. It does NOT exercise library validation against a
+      # separately signed dylib, which is the Developer ID release case; that
+      # needs a real identity (BST-1936). Without any entitlements an ad hoc
+      # hardened app cannot even load its own Electron Framework (dyld:
+      # "different Team IDs"), which says nothing about vec0.
+      - name: Ad-hoc sign with the hardened runtime (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          app="$(find apps/desktop/release -maxdepth 2 -name '*.app' -print -quit)"
+          entitlements="$(find node_modules/.pnpm -path '*/node_modules/app-builder-lib/templates/entitlements.mac.plist' -print -quit)"
+          test -n "$app"
+          test -n "$entitlements"
+          codesign --force --deep --sign - --options runtime --entitlements "$entitlements" "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+
+      - name: Packaged smoke (natives from app.asar.unpacked)
+        env:
+          SMOKE_OUT_DIR: ${{ runner.temp }}
+        run: pnpm --filter @brainstrike/sqlite-native test:packaged
+
+      - name: Upload the smoke result
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-package-smoke-${{ matrix.os }}
+          path: |
+            ${{ runner.temp }}/sqlite-native-smoke-packaged-*.json
+            ${{ runner.temp }}/electron-builder.log
+          if-no-files-found: warn
+
+      # Same guards as native-windows: a key that lacked the resolved Node
+      # version, or a failed install, would shadow the good entry forever.
+      - name: Save node-gyp headers (Windows)
+        if: always() && runner.os == 'Windows' && steps.setup.outcome == 'success' && steps.setup.outputs.node-version != ''
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ github.workspace }}\.node-gyp
+          key: ${{ runner.os }}-${{ runner.arch }}-node-gyp-${{ hashFiles('.nvmrc') }}-${{ steps.setup.outputs.node-version }}
+
+  notify-linear:
+    name: Notify Linear
+    needs: [smoke]
+    if: ${{ always() && github.event_name == 'schedule' }}
+    uses: ./.github/workflows/nightly-linear-alert.yml
+    with:
+      workflow_name: ${{ github.workflow }}
+      results: smoke=${{ needs.smoke.result }}
+    secrets:
+      LINEAR_API_KEY: ${{ secrets.LINEAR_API_KEY }}

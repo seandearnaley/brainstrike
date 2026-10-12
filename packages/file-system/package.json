@@ -21,7 +21,8 @@
     "fake-indexeddb": "catalog:",
     "happy-dom": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "esbuild": "catalog:"
   },
   "exports": {
     ".": {
@@ -47,6 +48,42 @@
     "./testing/parcel-producer": {
       "types": "./dist/testing/parcel-producer.d.ts",
       "default": "./dist/testing/parcel-producer.js"
+    },
+    "./directory-tree": {
+      "types": "./dist/directory-tree.d.ts",
+      "default": "./dist/directory-tree.js"
+    },
+    "./workspace-root-nodes": {
+      "types": "./dist/workspace-root-nodes.d.ts",
+      "default": "./dist/workspace-root-nodes.js"
+    },
+    "./secure-file-read": {
+      "types": "./dist/secure-file-read.d.ts",
+      "default": "./dist/secure-file-read.js"
+    },
+    "./workspace-scan": {
+      "types": "./dist/workspace-scan.d.ts",
+      "default": "./dist/workspace-scan.js"
+    },
+    "./workspace-scan-paths": {
+      "types": "./dist/workspace-scan-paths.d.ts",
+      "default": "./dist/workspace-scan-paths.js"
+    },
+    "./workspace-source-content": {
+      "types": "./dist/workspace-source-content.d.ts",
+      "default": "./dist/workspace-source-content.js"
+    },
+    "./workspace-scan-reconciliation": {
+      "types": "./dist/workspace-scan-reconciliation.d.ts",
+      "default": "./dist/workspace-scan-reconciliation.js"
+    },
+    "./workspace-indexing-coordinator": {
+      "types": "./dist/workspace-indexing-coordinator.d.ts",
+      "default": "./dist/workspace-indexing-coordinator.js"
+    },
+    "./native-watch": {
+      "types": "./dist/native-watch.d.ts",
+      "default": "./dist/native-watch.js"
     }
   },
   "main": "./dist/index.js",

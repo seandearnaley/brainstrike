@@ -791,6 +791,13 @@ jobs:
           pnpm --filter @brainstrike/windows-job-native build
           pnpm --filter @brainstrike/windows-job-native test
 
+      # BST-1920: better-sqlite3 and sqlite-vec are shipped PREBUILT and are
+      # never compiled here (better-sqlite3 is denied in `allowBuilds`), so there
+      # is no build step: this proves the win32-x64 binaries load under Node and
+      # round-trip a vec0 table.
+      - name: Test SQLite native prebuilds
+        run: pnpm --filter @brainstrike/sqlite-native test
+
       # `always()`: the headers are valid whether or not the C++ compiled, and a
       # test failure is exactly when the next run should not re-download them.
       #
@@ -878,7 +885,11 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${ELECTRON_DIST:-}"
-          pnpm --filter @brainstrike/desktop run pack -- --config.electronDist="$ELECTRON_DIST"
+          pnpm --filter @brainstrike/desktop run pack -- --config.electronDist="$ELECTRON_DIST" 2>&1 | tee "$RUNNER_TEMP/electron-builder.log"
+          # BST-1920: `npmRebuild: false` makes the shipped prebuilds the only
+          # native binaries better-sqlite3 and sqlite-vec ever have. If
+          # electron-builder stops saying it skipped the rebuild, it recompiled.
+          grep -q 'skipped dependencies rebuild' "$RUNNER_TEMP/electron-builder.log"
 
       - name: Verify packaged MCP Apps bridge
         run: dbus-run-session -- pnpm --filter @brainstrike/desktop run test:e2e:lane:packaged-mcp-apps-bridge
@@ -890,6 +901,12 @@ jobs:
 
       - name: Load the packaged native capability in Electron
         run: pnpm --filter @brainstrike/secure-fs-native test:packaged
+
+      - name: Load the native SQLite prebuilds in Electron
+        run: pnpm --filter @brainstrike/sqlite-native test:electron
+
+      - name: Load the packaged native SQLite prebuilds
+        run: pnpm --filter @brainstrike/sqlite-native test:packaged
 
       - name: Load the packaged @parcel/watcher binding in Electron (BST-568)
         run: pnpm --filter @brainstrike/file-system test:packaged
@@ -981,7 +998,7 @@ jobs:
             ${{ runner.os }}-${{ runner.arch }}-turbo-
 
       - name: Install dependencies
-        # Same exclusions as Web E2E: this pwuser container has no C toolchain
+        # Same exclusions as Web E2E: this container has no C toolchain
         # or sudo; the browser-test packages (db, ui, assistant-ui, storage,
         # embedding-worker) and their
         # dependency closures are pure TS, so the two desktop-only native
@@ -1036,29 +1053,12 @@ jobs:
       )
     needs: [admission, build]
     runs-on: ubicloud-standard-4
-    # Run inside the official Playwright image: browsers and their system
-    # dependencies are baked in, so there is NO `playwright install` step and
-    # NO download from cdn.playwright.dev at job time. This removes the CDN
-    # browser download that was stalling at 100% and hanging the job to its
-    # timeout. KEEP IN SYNC: the image tag MUST equal @playwright/test's
-    # version; the same pin is hard-coded in .github/workflows/{test.yml,
-    # web-e2e.yml,performance.yml} — bump all three together on a Playwright
-    # upgrade. `container.image:` cannot consume a workflow expression, so this
-    # stays a literal; scripts/verify-playwright-pin-sync.mjs (run via
-    # `pnpm test:scripts` in the Static job) is the automated drift check.
-    #
-    # NOT folded into the setup-workspace composite (Series C R9a): this
-    # container has no C toolchain/sudo, so the install below excludes both
-    # native-build projects — a different `pnpm install` invocation than the
-    # composite's fixed `pnpm install --frozen-lockfile`. Parameterizing the
-    # composite's install command for this one caller is the documented trap;
-    # this job's setup stays bespoke literal YAML on purpose.
+    # Official browser/system-dependency fleet; fixed CfT is provisioned below.
+    # Root is Playwright's documented mode for trusted E2E and permits explicit
+    # system-tool installation. No custom image publication is required.
     container:
-      image: mcr.microsoft.com/playwright:v1.63.0-noble
-      # `--user 1001` (pwuser) is the configuration shown in Playwright's
-      # official GitHub Actions container example. The browsers under
-      # /ms-playwright are owned by this user; it is the documented, tested path.
-      options: --user 1001
+      image: mcr.microsoft.com/playwright:v1.63.0-noble@sha256:eff16c30e6f3f4af0a03fa4b706120d5e9b0891c344a27d64559aff5900a4a27
+      options: --user 0
     timeout-minutes: 25
     env:
       NODE_ENV: production
@@ -1066,6 +1066,8 @@ jobs:
       BASE_URL: http://127.0.0.1:8080
       # Browsers are preinstalled here in the image; point Playwright at them.
       PLAYWRIGHT_BROWSERS_PATH: /ms-playwright
+      BRAINSTRIKE_WEB_CHROMIUM_DIR: ${{ runner.temp }}/web-chromium
+      pnpm_config_verify_deps_before_run: error
     steps:
       - name: Require successful admission
         if: needs.admission.result != 'success'
@@ -1085,8 +1087,27 @@ jobs:
           node-version-file: .nvmrc
           cache: 'pnpm'
 
+      - name: Drop unused apt sources
+        uses: ./.github/actions/apt-drop-unused-sources
+
+      - name: Install web test system tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends unzip lsof procps
+
+      - name: Provision qualified web Chromium
+        shell: bash
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = "v$(cat .nvmrc)"
+          mkdir -p apps/web/test-results
+          node scripts/provision-web-chromium.mjs "$BRAINSTRIKE_WEB_CHROMIUM_DIR" > apps/web/test-results/web-chromium-provisioning.json
+
       - name: Install dependencies
-        # Exclude both desktop-only native projects: this pwuser container has no
+        # Exclude both desktop-only native projects: this container has no
         # C toolchain or sudo, and web E2E loads neither node-pty nor secure-fs.
         # Keeps root + web + every shared package (42/44 projects). Do NOT revert
         # to a bare full install; node-gyp will fail before Playwright starts.

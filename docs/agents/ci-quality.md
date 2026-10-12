@@ -43,6 +43,18 @@ Evidence: `ci-quality/local-only-validation.md`, `ci-quality/ci-minute-audit.md`
 `ci-quality/vercel-parser-dependencies.md`, `ci-quality/build-tooling-dependencies.md`.
 Guard: `scripts/__tests__/check-ci-parity.test.mjs`.
 
+### Web Chromium provisioning
+
+- Web Chromium E2E uses the explicit provisioned CfT executable; a missing
+  `BRAINSTRIKE_WEB_CHROMIUM_DIR` fails configuration. Keep Playwright drivers
+  exact and matching the official digest-pinned Playwright base; retain its Firefox/WebKit.
+- Provision in an explicit job step after `.nvmrc` Node setup; install `unzip`,
+  `lsof`, and `procps` as root in the official container. Record archive/binary
+  hashes and verify the actual executable version. No custom registry is required. Qualify the native cold roundtrip before app retries.
+
+Evidence: `ci-quality/web-chromium-provisioning.md`.
+Guard: `scripts/verify-playwright-pin-sync.mjs`, `scripts/__tests__/web-chromium.test.mjs`.
+
 ### Browser failure traces
 
 - Browser-project traces are configured only through
@@ -200,11 +212,13 @@ Guard: `scripts/__tests__/run-turbo-command.test.mjs`.
   cannot pin to a git-ignored file fails. Keep it ahead of `dist/`-producing steps.
 - Deliberate crossings carry `// @boundaries-ignore <reason>` at the import.
   `architecture-domain-boundaries.mjs` owns cross-domain direction rules.
+- Native process integration proofs use public package specifiers resolved to emitted indexer/query entries before source aliases. Their uncached tasks declare build edges. The source-alias guard permits only the named integration config and exact native specifiers; ordinary test configs remain source-only.
 - Do not upgrade Turbo to >=2.11.3 until vendor walking judges tracked files
   under ignore patterns; recheck the real tracked-source guard before upgrading.
 
 Git decides what is generated. Evidence: `ci-quality/package-boundary-gate.md`.
-Guard: `scripts/__tests__/turbo-boundaries-gate.test.mjs`.
+Guard: `scripts/__tests__/turbo-boundaries-gate.test.mjs`, `scripts/__tests__/verify-workspace-src-aliases.test.mjs`.
+Evidence: `ci-quality/m2-native-package-integration.md`.
 
 ### App test-tsconfig programs (`tsconfig.test.json`)
 
@@ -310,6 +324,9 @@ run after `LINEAR_API_KEY` is set; the unit tests script `fetch`, never Linear.
 
 ### Biome 2.5.8 cleared the 2.5.3/2.5.4 module-graph hold
 
+- Force-ignore generated nested checkouts under `.muse/worktrees` in Biome's
+  scanner. They are independent workspaces, not inputs to this checkout's
+  type-aware lint; retain the normal rules for application source.
 - No release hold is active. Pin `@biomejs/biome` to one exact version in root
   and `apps/web` together, and on every bump require a full
   `pnpm exec biome check .` with zero panic output.
@@ -558,6 +575,8 @@ Guard: `apps/desktop/e2e/assistant-panel.desktop.test.ts`.
 
 - Every `ElectronHarness` process is registered with `ElectronProcessExitGuard`;
   an exit before intentional close fails the owning test, passed body or not.
+  During intentional close, only code-zero exit or bounded SIGKILL teardown is
+  accepted; SIGABRT and other abnormal exits still fail the owning test.
 - Close a harness-owned app only through the harness; state-seeding tests call
   `closeForStateSeeding()`. `signal=SIGKILL` plus an `_object` `TypeError` on
   the next `restart()` means an out-of-band close, not a crash.
@@ -579,6 +598,15 @@ Guard: `apps/desktop/src/__tests__/electron-process-exit-guard.test.ts`,
 
 Evidence: `ci-quality/e2e-module-format.md`.
 Guard: `scripts/__tests__/e2e-module-format-contract.test.mjs`.
+
+### Web import backfill backend
+
+- The import/backfill regression explicitly persists the supported WASM device
+  before app hydration and runs real inference. Keep complete embedding coverage
+  and same-document assertions; this CPU lane does not qualify WebGPU.
+
+Evidence: `ci-quality/web-import-backfill-backend.md`.
+Guard: `apps/web/e2e/database-import-backfill.test.ts`.
 
 ### E2E lane-coverage contract
 
@@ -750,10 +778,17 @@ Guard: `scripts/__tests__/prune-stale-dist.test.mjs`, `package-scripts-canonical
   resolution under the same `tsc -b` build. Hosted functions load the agent's
   ESM export; pino and tiktoken stay external.
 
+- Desktop main consumes browser-only ESM subpaths through audited exact source
+  aliases in `build-main-config.mjs`; keep all other packages external. Prove
+  the public helper and actual CJS caller load in installed Electron, and retain
+  the external-requires guard. Never add a `require` export pointing at browser ESM.
+
 tsup stays until a replacement ships alone with measured evidence.
 Evidence: `ci-quality/package-build-strategies.md`. Guard:
 `scripts/verify-package-build-strategies.mjs`,
-`packages/agent/scripts/verify-hosted-web-bundle.mjs`.
+`packages/agent/scripts/verify-hosted-web-bundle.mjs`,
+`apps/desktop/src/__tests__/build-main-config.test.ts`,
+`main-process-bundle-external-requires.test.ts`, `native-retrieval-cjs-export.integration.test.ts`.
 
 ### Agent declaration build split
 

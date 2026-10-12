@@ -1,0 +1,23 @@
+{
+  "kind": "copied-production-source",
+  "files": [
+    {
+      "originalPath": "apps/desktop/src/main/disposer-stack.ts",
+      "relativePath": "disposer-stack.ts",
+      "sha256": "0fbad24ee61a7bef06a21dcd95c7938fecc529370b932ba5f45af5c7f2ca0099",
+      "bytes": 2660
+    },
+    {
+      "originalPath": "apps/desktop/src/mcp/apps-shell-bridge.ts",
+      "relativePath": "apps-shell-bridge.ts",
+      "sha256": "4dd9c40e8528e00803562175d9f677ab97c0023067f1db2a0ecf03480e6646fd",
+      "bytes": 2446
+    },
+    {
+      "originalPath": "apps/desktop/src/mcp/bridges.ts",
+      "relativePath": "bridges.ts",
+      "sha256": "3cc29615bed3da0fee43ca782651d7d969d596df33353fc9c97bacee34053ea5",
+      "bytes": 1603
+    }
+  ]
+}

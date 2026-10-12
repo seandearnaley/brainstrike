@@ -2,11 +2,12 @@
   "releaseTag": "20260728",
   "pythonVersion": "3.13.14",
   "variant": "install_only",
-  "scope": "macOS arm64/x64 and Linux glibc x64 (derived no-dbm-v1; no _dbm/dbm.ndbm). Other platforms and architectures are deliberately absent: the resolver throws a typed unsupported-platform error with no runtime download or PATH Python fallback.",
+  "scope": "macOS arm64/x64 and Linux glibc arm64/x64 (derived no-dbm-v1; no _dbm/dbm.ndbm). Other platforms and architectures are deliberately absent: the resolver throws a typed unsupported-platform error with no runtime download or PATH Python fallback.",
   "supportedTargets": [
     "aarch64-apple-darwin",
     "x86_64-apple-darwin",
-    "x86_64-unknown-linux-gnu"
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu"
   ],
   "assetUrlTemplate": "https://github.com/astral-sh/python-build-standalone/releases/download/{releaseTag}/cpython-{pythonVersion}+{releaseTag}-{target}-{variant}.tar.gz",
   "targets": {
@@ -25,6 +26,16 @@
         "archiveFileName": "cpython-3.13.14+20260728-x86_64-unknown-linux-gnu-brainstrike-no-dbm-v1.tar.gz",
         "bytes": 116873543,
         "sha256": "95bbf77a6164defde416c51c1eada4481fbd2f2c1b6d9a63353c9d38bf0d7560",
+        "variant": "no-dbm-v1"
+      }
+    },
+    "aarch64-unknown-linux-gnu": {
+      "sha256": "7886fdc0c49062a1366bd2cd4f99cc899a648592e5da9a8de237110dd8a1a057",
+      "bytes": 90903809,
+      "derived": {
+        "archiveFileName": "cpython-3.13.14+20260728-aarch64-unknown-linux-gnu-brainstrike-no-dbm-v1.tar.gz",
+        "bytes": 89918175,
+        "sha256": "87721ef255b6b91c3c202c9052e96f6a7e38add2befbe24ac085d9dcc5e01d61",
         "variant": "no-dbm-v1"
       }
     }

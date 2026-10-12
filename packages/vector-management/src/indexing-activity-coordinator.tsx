@@ -17,6 +17,7 @@ import {
 } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { isAppActive, useAppActive } from '@brainstrike/hooks';
+import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { useEffect, useMemo, useRef } from 'react';
 import { useSharedEmbeddingRuntime } from './embedding-runtime-provider';
 import type {
@@ -160,7 +161,12 @@ function getElectronDatabaseWorkSnapshot(): (() => Promise<IndexingDatabaseWorkS
   return getDesktopDatabaseBridge()?.schedulerSnapshot ?? null;
 }
 
-export function IndexingActivityCoordinator(): null {
+export function IndexingActivityCoordinator({
+  nativeIndexSearch,
+}: {
+  readonly nativeIndexSearch?: IndexSearchCapability | null;
+}): null {
+  const native = Boolean(nativeIndexSearch);
   const appActive = useAppActive();
   const previousAppActiveRef = useRef(appActive);
   const refreshDatabaseWorkRef = useRef<(() => void) | null>(null);
@@ -255,6 +261,12 @@ export function IndexingActivityCoordinator(): null {
   }, [db, setDatabaseWorkSnapshot, setIndexingActivityError]);
 
   useEffect(() => {
+    if (native) {
+      setQueueSnapshot(null);
+      setDurableQueueStats(null);
+      setIsJobQueueActive(false);
+      return;
+    }
     let disposed = false;
 
     const applyQueue = (queue: IndexingQueueSnapshot | null): void => {
@@ -321,6 +333,7 @@ export function IndexingActivityCoordinator(): null {
       window.clearInterval(interval);
     };
   }, [
+    native,
     backgroundDb,
     setDurableQueueStats,
     setIndexingActivityError,
@@ -329,6 +342,10 @@ export function IndexingActivityCoordinator(): null {
   ]);
 
   useEffect(() => {
+    if (native) {
+      setWorkerSnapshot(null);
+      return;
+    }
     let disposed = false;
 
     void controller
@@ -358,9 +375,13 @@ export function IndexingActivityCoordinator(): null {
       unsubscribe();
       setWorkerSnapshot(null);
     };
-  }, [controller, setWorkerSnapshot]);
+  }, [native, controller, setWorkerSnapshot]);
 
   useEffect(() => {
+    if (native) {
+      setBackfills([]);
+      return;
+    }
     let disposed = false;
 
     const refreshBackfills = async (): Promise<void> => {
@@ -392,7 +413,7 @@ export function IndexingActivityCoordinator(): null {
       unsubscribe();
       setBackfills([]);
     };
-  }, [controller, setBackfills, setIndexingActivityError]);
+  }, [native, controller, setBackfills, setIndexingActivityError]);
 
   const managedCollectionId =
     backgroundStatus.managedCollectionId ?? configuredManagedCollectionId ?? null;
@@ -423,6 +444,10 @@ export function IndexingActivityCoordinator(): null {
   }, [backgroundSnapshot, setBackgroundSnapshot]);
 
   useEffect(() => {
+    // The native provider owns these counters; PG rows describe the retired producer.
+    if (native) {
+      return;
+    }
     if (!managedCollectionId) {
       setManagedCollectionStats({
         collectionId: null,
@@ -496,7 +521,7 @@ export function IndexingActivityCoordinator(): null {
       }
       window.clearInterval(interval);
     };
-  }, [backgroundDb, managedCollectionId, setManagedCollectionStats]);
+  }, [native, backgroundDb, managedCollectionId, setManagedCollectionStats]);
 
   useEffect(() => {
     const wasActive = previousAppActiveRef.current;

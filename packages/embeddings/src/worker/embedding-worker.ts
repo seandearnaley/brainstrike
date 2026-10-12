@@ -102,7 +102,6 @@ export interface EmbeddingWorkerOptions {
   idlePollInitialMs?: number;
   idlePollMaxMs?: number;
   initializeLocalModelOnStart?: boolean;
-  interBatchDelayMs?: number;
   leaseMs?: number;
   log?: (msg: string, meta?: unknown) => void;
   /**
@@ -281,7 +280,6 @@ export async function startEmbeddingWorker(
     concurrency: options.concurrency,
     device: options.device,
     hasDb: !!options.db,
-    interBatchDelayMs: options.interBatchDelayMs,
     modelKey: options.modelKey,
   });
 
@@ -330,11 +328,6 @@ export async function startEmbeddingWorker(
   const leaseMs = options.leaseMs ?? 60_000;
   const heartbeatMs = options.heartbeatIntervalMs ?? 10_000;
   const concurrency = resolvePositiveIntegerOption(options.concurrency, 1, 'concurrency');
-  const interBatchDelayMs = resolvePositiveIntegerOption(
-    options.interBatchDelayMs,
-    50,
-    'interBatchDelayMs'
-  );
   const idlePollBackoff = resolveIdlePollBackoffOptions(options);
   const claimBatchSize = resolvePositiveIntegerOption(
     options.claimBatchSize,
@@ -2067,10 +2060,10 @@ export async function startEmbeddingWorker(
         heldInFlightSlots -= releasedCount;
       });
 
-      // Yield between batches to let V8/GC and the foreground renderer breathe
-      // under sustained background embedding load.
+      // Yield a task turn without pacing completed batches. The claim permit
+      // remains the authority for foreground admission.
       if (running) {
-        await sleepUnlessStopped(interBatchDelayMs, stopController.signal);
+        await sleepUnlessStopped(0, stopController.signal);
       }
     } catch (err) {
       if (isClosedDatabaseError(err)) {
@@ -2119,7 +2112,6 @@ export async function startEmbeddingWorker(
             effectiveClaimBatchSizeError: lastClaimBatchSizeError,
             failed: metrics.jobsFailed,
             inFlightJobs,
-            interBatchDelayMs,
             maxInFlightJobs,
             modelKey: activeCompositeKey,
             processed: metrics.jobsProcessed,

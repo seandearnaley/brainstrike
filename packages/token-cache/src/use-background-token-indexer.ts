@@ -46,7 +46,7 @@ import {
 
 const logger = createLogger('BackgroundTokenIndexer');
 
-type TokenCacheStoreLike = Pick<TokenCacheStore, 'get' | 'set'>;
+type TokenCacheStoreLike = Pick<TokenCacheStore, 'get' | 'getBatch' | 'set'>;
 
 async function persistResultToStore(
   result: IndexerResult,
@@ -871,28 +871,37 @@ export function useBackgroundTokenIndexer({
       setIsIndexing(true);
 
       try {
-        // Build batch request, checking cache for existing hashes
+        // Read each folder's cached hashes once before dispatching the worker batch.
+        const cachedByFolder = new Map<string, Map<string, TokenCacheEntry>>();
+        if (currentStore) {
+          const filesByFolder = new Map<string, FileToIndex[]>();
+          for (const file of files) {
+            const folderFiles = filesByFolder.get(file.folderId) ?? [];
+            folderFiles.push(file);
+            filesByFolder.set(file.folderId, folderFiles);
+          }
+          await Promise.all(
+            [...filesByFolder].map(async ([folderId, folderFiles]) => {
+              try {
+                const entries = await currentStore.getBatch(
+                  folderId,
+                  folderFiles.map((file) => file.filePath)
+                );
+                cachedByFolder.set(folderId, entries);
+              } catch (error) {
+                throw new Error(
+                  `Cache lookup failed for ${folderFiles.map((file) => file.compositeKey).join(', ')}: ${formatErrorMessage(error)}`
+                );
+              }
+            })
+          );
+        }
         const requests: IndexerBatchRequest['requests'] = [];
-
         for (const file of files) {
           pendingFilesRef.current.add(file.compositeKey);
-
-          // Check for cached hash to enable skip optimization (only if store is available)
-          let cachedFileSize: number | undefined;
-          let cachedHash: string | undefined;
-          if (currentStore) {
-            try {
-              const cached = await currentStore.get(file.folderId, file.filePath);
-              if (cached?.countingMode === currentMode) {
-                cachedFileSize = cached.fileSize;
-                cachedHash = cached.contentHash;
-              }
-            } catch (error) {
-              throw new Error(
-                `Cache lookup failed for ${file.compositeKey}: ${formatErrorMessage(error)}`
-              );
-            }
-          }
+          const cached = cachedByFolder.get(file.folderId)?.get(file.filePath);
+          const cachedFileSize = cached?.countingMode === currentMode ? cached.fileSize : undefined;
+          const cachedHash = cached?.countingMode === currentMode ? cached.contentHash : undefined;
 
           requests.push({
             cachedFileSize,

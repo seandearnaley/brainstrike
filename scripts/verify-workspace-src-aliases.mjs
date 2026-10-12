@@ -60,21 +60,32 @@ function parseRepoRootArgument(argv) {
 
 /**
  * Packages allowed to consume built artifacts from a test lane, keyed by
- * package name. Value: { reason: string, specifiers?: string[] } — when
+ * package name. Value: { reason: string, specifiers?: string[], configs?: string[] } — when
  * `specifiers` is present only those exact specifiers are exempt; otherwise the
  * whole package is. Keep this list short and justified.
  */
 export const WORKSPACE_SRC_ALIAS_ALLOWLIST = Object.freeze({
-  // (currently empty — every checked lane resolves workspace imports from src.
-  // The THREE B4 dependsOn exceptions are outside this guard's scope by
-  // construction, because none goes through a workspace import specifier:
-  //  - packages/logging logger-dist-singleton.test.ts imports its own dist via a
-  //    file URL (intentional built-artifact regression test);
-  //  - packages/utils typescript-build-contract.test.ts inspects its own dist
-  //    through node:fs;
-  //  - packages/db __tests__/migration-runner-types.test.ts runs a nested
-  //    ts.createProgram whose COMPILER resolution reads @brainstrike/utils
-  //    types from dist/index.d.ts — vitest aliases cannot intercept tsc.)
+  '@brainstrike/canonical-ingestion': {
+    configs: ['vitest.integration.config.mts'],
+    reason:
+      'The vector host integration proof launches the real compiled index process; the lane declares its indexer build edge.',
+    specifiers: ['@brainstrike/indexer'],
+  },
+  '@brainstrike/desktop': {
+    configs: ['vitest.integration.config.mts'],
+    reason:
+      'The uncached native integration lane launches compiled index/query processes; explicit build edges prepare their public artifacts.',
+    specifiers: [
+      '@brainstrike/indexer',
+      '@brainstrike/indexer/transport',
+      '@brainstrike/sqlite-query',
+    ],
+  },
+  '@brainstrike/indexer': {
+    reason:
+      'The native process integration lane consumes emitted public artifacts so Node can launch the compiled process and writer worker; its own build edge is explicit.',
+    specifiers: ['@brainstrike/indexer'],
+  },
 });
 
 const SOURCE_FILE_RE = /\.(ts|tsx|mts|cts)$/;
@@ -553,17 +564,18 @@ export async function findWorkspaceSrcAliasViolations(options = {}) {
       continue;
     }
     const allowEntry = allowlist[selfName];
-    if (allowEntry && !allowEntry.specifiers) {
+    if (allowEntry && !allowEntry.specifiers && !allowEntry.configs) {
       continue; // whole package exempt (reason recorded in the allowlist)
     }
-    const isAllowed = (specifier) => allowEntry?.specifiers?.includes(specifier) ?? false;
-    const seedSpecifiers = collectRuntimeWorkspaceSpecifiers(pkgDir, selfName).filter(
-      (specifier) => !isAllowed(specifier)
-    );
-    if (seedSpecifiers.length === 0) {
+    const allSpecifiers = collectRuntimeWorkspaceSpecifiers(pkgDir, selfName);
+    if (allSpecifiers.length === 0) {
       continue;
     }
     for (const configName of configs) {
+      const isAllowed = (specifier) =>
+        (!allowEntry?.configs || allowEntry.configs.includes(configName)) &&
+        (allowEntry?.specifiers?.includes(specifier) ?? false);
+      const seedSpecifiers = allSpecifiers.filter((specifier) => !isAllowed(specifier));
       const projects = await loadConfigProjects(join(pkgDir, configName));
       for (const { label, aliasEntries } of projects) {
         const problems = checkProject({

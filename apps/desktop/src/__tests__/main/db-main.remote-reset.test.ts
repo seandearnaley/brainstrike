@@ -1,6 +1,13 @@
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+const profileLeaseMocks = vi.hoisted(() => ({
+  acquire: vi.fn(),
+  clear: vi.fn(async () => undefined),
+  release: vi.fn(),
+}));
+vi.mock('@brainstrike/host-lease', () => ({ acquireProfileResetLease: profileLeaseMocks.acquire }));
+
 const originalParentPortDescriptor = Object.getOwnPropertyDescriptor(process, 'parentPort');
 
 function installMainProcessRuntime(): void {
@@ -84,6 +91,22 @@ describe('db-main resetLocalDatabase in main process', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    profileLeaseMocks.acquire.mockImplementation(async (root: string) => {
+      let released = false;
+      return {
+        clearRootContents: profileLeaseMocks.clear,
+        get isReleased() {
+          return released;
+        },
+        release() {
+          released = true;
+          profileLeaseMocks.release();
+        },
+        root,
+      };
+    });
+    profileLeaseMocks.clear.mockResolvedValue(undefined);
+
     installMainProcessRuntime();
     fsMocks.existsSync.mockReturnValue(true);
     fsMocks.readdirSync.mockReturnValue([]);
@@ -96,7 +119,7 @@ describe('db-main resetLocalDatabase in main process', () => {
     restoreParentPort();
   });
 
-  it('terminates the DB host before deleting the profile directory from main', async () => {
+  it('joins the DB host before acquiring, clearing and releasing the profile lease', async () => {
     const { resetLocalDatabase } = await import('../../db-main');
 
     await resetLocalDatabase();
@@ -109,15 +132,85 @@ describe('db-main resetLocalDatabase in main process', () => {
     );
     expect(dbHostManagerMocks.closeDbHostManager).toHaveBeenCalledTimes(1);
     expect(dbHostManagerMocks.reset).not.toHaveBeenCalled();
-    expect(fsMocks.rmSync).toHaveBeenCalledWith(expectedProfilePath, {
-      force: true,
-      recursive: true,
-    });
-    // Close-before-delete is what lets a reset (or a userData wipe that contains
-    // the database root, as on packaged macOS) run against a quiesced directory.
+    expect(profileLeaseMocks.acquire).toHaveBeenCalledWith(expectedProfilePath);
+    expect(profileLeaseMocks.clear).toHaveBeenCalledOnce();
+    expect(profileLeaseMocks.release).toHaveBeenCalledOnce();
+    expect(fsMocks.rmSync).not.toHaveBeenCalledWith(expectedProfilePath, expect.anything());
     expect(dbHostManagerMocks.closeDbHostManager.mock.invocationCallOrder[0]).toBeLessThan(
-      fsMocks.rmSync.mock.invocationCallOrder[0] ?? 0
+      profileLeaseMocks.acquire.mock.invocationCallOrder[0] ?? 0
     );
+    expect(profileLeaseMocks.acquire.mock.invocationCallOrder[0]).toBeLessThan(
+      profileLeaseMocks.clear.mock.invocationCallOrder[0] ?? 0
+    );
+    expect(profileLeaseMocks.clear.mock.invocationCallOrder[0]).toBeLessThan(
+      profileLeaseMocks.release.mock.invocationCallOrder[0] ?? 0
+    );
+  });
+
+  it('rejects new main-process opens while the legacy host close is still preparing the lease', async () => {
+    const gate = Promise.withResolvers<void>();
+    dbHostManagerMocks.closeDbHostManager.mockImplementationOnce(async () => {
+      await gate.promise;
+    });
+    const { resetLocalDatabase, getDatabase } = await import('../../db-main');
+    const resetting = resetLocalDatabase();
+    await expect(getDatabase()).rejects.toThrow('profile reset lease');
+    expect(profileLeaseMocks.acquire).not.toHaveBeenCalled();
+    expect(profileLeaseMocks.clear).not.toHaveBeenCalled();
+    gate.resolve();
+    await expect(resetting).resolves.toBeUndefined();
+    expect(profileLeaseMocks.release).toHaveBeenCalledOnce();
+  });
+
+  it('joins legacy PG before retiring its native owner, and retains retirement failure/admission for retry', async () => {
+    const failure = new Error('native host close failed');
+    const retireProfileOwner = vi.fn(async () => undefined).mockRejectedValueOnce(failure);
+    const { prepareDatabaseProfileReset, resetLocalDatabase, getDatabase } = await import(
+      '../../db-main'
+    );
+    await expect(prepareDatabaseProfileReset({ retireProfileOwner })).rejects.toBe(failure);
+    expect(dbHostManagerMocks.closeDbHostManager.mock.invocationCallOrder[0]).toBeLessThan(
+      retireProfileOwner.mock.invocationCallOrder[0] ?? 0
+    );
+    expect(profileLeaseMocks.acquire).not.toHaveBeenCalled();
+    expect(profileLeaseMocks.clear).not.toHaveBeenCalled();
+    await expect(getDatabase()).rejects.toMatchObject({ cause: failure });
+    const guard = await prepareDatabaseProfileReset();
+    expect(retireProfileOwner).toHaveBeenCalledTimes(2);
+    expect(retireProfileOwner.mock.invocationCallOrder[1]).toBeLessThan(
+      profileLeaseMocks.acquire.mock.invocationCallOrder[0] ?? 0
+    );
+    await resetLocalDatabase(guard);
+    guard.release();
+  });
+
+  it('retains a failed developer reset lease and retries with the same owner', async () => {
+    const failure = new Error('profile clear failed');
+    profileLeaseMocks.clear.mockRejectedValueOnce(failure);
+    const { resetLocalDatabase, prepareDatabaseProfileReset, getDatabase } = await import(
+      '../../db-main'
+    );
+    await expect(resetLocalDatabase()).rejects.toBe(failure);
+    const guard = await prepareDatabaseProfileReset();
+    expect(guard.isReleased).toBe(false);
+    expect(profileLeaseMocks.release).not.toHaveBeenCalled();
+    await expect(getDatabase()).rejects.toThrow('profile reset lease');
+    await expect(resetLocalDatabase()).resolves.toBeUndefined();
+    expect(profileLeaseMocks.acquire).toHaveBeenCalledOnce();
+    expect(profileLeaseMocks.clear).toHaveBeenCalledTimes(2);
+    expect(guard.isReleased).toBe(true);
+  });
+
+  it('borrows an explicit guard and rejects an unrelated or released owner', async () => {
+    const { resetLocalDatabase, prepareDatabaseProfileReset } = await import('../../db-main');
+    const guard = await prepareDatabaseProfileReset();
+    await resetLocalDatabase(guard);
+    expect(guard.isReleased).toBe(false);
+    expect(profileLeaseMocks.release).not.toHaveBeenCalled();
+    await expect(resetLocalDatabase({ ...guard })).rejects.toThrow('active owned');
+    guard.release();
+    await expect(resetLocalDatabase(guard)).rejects.toThrow('active owned');
+    expect(profileLeaseMocks.clear).toHaveBeenCalledOnce();
   });
 
   it('keeps resetting the profile main resolved first, even if its inputs change afterwards', async () => {
@@ -128,10 +221,10 @@ describe('db-main resetLocalDatabase in main process', () => {
     await resetLocalDatabase();
 
     expect(before).toBe('test-profile');
-    expect(fsMocks.rmSync).toHaveBeenCalledWith(
-      path.join('/mock/documents', 'BrainStrike-dev', 'profiles', before ?? ''),
-      { force: true, recursive: true }
+    expect(profileLeaseMocks.acquire).toHaveBeenCalledWith(
+      path.join('/mock/documents', 'BrainStrike-dev', 'profiles', before ?? '')
     );
+    expect(profileLeaseMocks.clear).toHaveBeenCalledOnce();
   });
 
   it('rejects, and deletes and backs up nothing, when the DB host cannot be closed', async () => {
@@ -140,6 +233,8 @@ describe('db-main resetLocalDatabase in main process', () => {
 
     await expect(resetLocalDatabase()).rejects.toThrow('DB host close failed');
 
+    expect(profileLeaseMocks.acquire).not.toHaveBeenCalled();
+    expect(profileLeaseMocks.clear).not.toHaveBeenCalled();
     expect(fsMocks.cpSync).not.toHaveBeenCalled();
     expect(fsMocks.rmSync).not.toHaveBeenCalled();
   });

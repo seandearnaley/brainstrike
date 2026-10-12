@@ -24,15 +24,21 @@ const DEFAULT_FETCH_TIMEOUT_MS = 120_000;
 
 const PLATFORM_TARGETS = {
   darwin: ['aarch64-apple-darwin', 'x86_64-apple-darwin'],
-  linux: ['x86_64-unknown-linux-gnu'],
   // Windows packaging remains supported without bundled Python.
   win32: [],
 };
 
 /** @param {string} platform */
-function targetsForPlatform(platform) {
+function targetsForPlatform(platform, arch = process.arch) {
   if (platform === 'all') {
     return;
+  }
+  if (platform === 'linux') {
+    const target = { arm64: 'aarch64-unknown-linux-gnu', x64: 'x86_64-unknown-linux-gnu' }[arch];
+    if (!target) {
+      throw new Error(`Unsupported python-runtime preparation architecture "linux/${arch}".`);
+    }
+    return [target];
   }
   if (!Object.hasOwn(PLATFORM_TARGETS, platform)) {
     throw new Error(`Unsupported python-runtime preparation platform "${platform}".`);
@@ -143,7 +149,7 @@ function loadManifestTargets(manifest, manifestPath) {
     if (entry.derived !== undefined) {
       const derived = entry.derived;
       if (
-        target !== 'x86_64-unknown-linux-gnu' ||
+        !['x86_64-unknown-linux-gnu', 'aarch64-unknown-linux-gnu'].includes(target) ||
         derived?.variant !== 'no-dbm-v1' ||
         typeof derived.archiveFileName !== 'string' ||
         !/^cpython-[a-zA-Z0-9+._-]+\.tar\.gz$/.test(derived.archiveFileName) ||
@@ -158,7 +164,7 @@ function loadManifestTargets(manifest, manifestPath) {
   });
 }
 
-async function prepareDerivedArchive({ entry, resourcesDir, sourcePath, log }) {
+async function prepareDerivedArchive({ entry, resourcesDir, sourcePath, log, target }) {
   if (!entry.derived) {
     return;
   }
@@ -173,7 +179,7 @@ async function prepareDerivedArchive({ entry, resourcesDir, sourcePath, log }) {
   }
   const tempPath = `${destPath}.derive-${process.pid}`;
   try {
-    await derivePythonRuntimeArchive(sourcePath, tempPath);
+    await derivePythonRuntimeArchive(sourcePath, tempPath, target);
     await verifyArchive({ entry: derived, filePath: tempPath, label: 'python-runtime no-dbm-v1' });
     await fsPromises.rename(tempPath, destPath);
   } finally {
@@ -184,6 +190,26 @@ async function prepareDerivedArchive({ entry, resourcesDir, sourcePath, log }) {
   );
 }
 
+// electron-builder's documented ${arch} macro selects this generated resource
+// directory. Only the target's verified derived payload enters the package.
+async function stageLinuxResources({ entry, resourcesDir, target }) {
+  const arch = { 'aarch64-unknown-linux-gnu': 'arm64', 'x86_64-unknown-linux-gnu': 'x64' }[target];
+  if (!(arch && entry.derived)) {
+    return;
+  }
+  const directory = path.join(resourcesDir, 'linux', arch);
+  await fsPromises.rm(directory, { force: true, recursive: true });
+  await fsPromises.mkdir(directory, { recursive: true });
+  await fsPromises.copyFile(
+    path.join(resourcesDir, 'manifest.json'),
+    path.join(directory, 'manifest.json')
+  );
+  await fsPromises.copyFile(
+    path.join(resourcesDir, entry.derived.archiveFileName),
+    path.join(directory, entry.derived.archiveFileName)
+  );
+}
+
 /**
  * @typedef {object} FetchPythonRuntimeOptions
  * @property {typeof fetch} [fetchImpl]
@@ -191,6 +217,7 @@ async function prepareDerivedArchive({ entry, resourcesDir, sourcePath, log }) {
  * @property {(message: string) => void} [log]
  * @property {string} [resourcesDir]
  * @property {string} [platform] Runtime-validated platform selector, including explicit 'all'.
+ * @property {string} [arch] Target architecture; defaults to the host architecture.
  */
 
 /** @param {FetchPythonRuntimeOptions} [options] */
@@ -200,8 +227,9 @@ export async function fetchPythonRuntime({
   log = (message) => console.error(message),
   resourcesDir = defaultResourcesDir,
   platform = process.platform,
+  arch = process.arch,
 } = {}) {
-  const requestedTargets = targetsForPlatform(platform);
+  const requestedTargets = targetsForPlatform(platform, arch);
   const manifestPath = path.join(resourcesDir, 'manifest.json');
   const manifest = JSON.parse(await fsPromises.readFile(manifestPath, 'utf8'));
   const manifestTargets = loadManifestTargets(manifest, manifestPath);
@@ -227,7 +255,8 @@ export async function fetchPythonRuntime({
     const destPath = path.join(resourcesDir, fileName);
     if (await archiveAlreadyVerifies({ destPath, entry })) {
       log(`python-runtime: ${fileName} already present and verified; skipping download.`);
-      await prepareDerivedArchive({ entry, log, resourcesDir, sourcePath: destPath });
+      await prepareDerivedArchive({ entry, log, resourcesDir, sourcePath: destPath, target });
+      await stageLinuxResources({ entry, resourcesDir, target });
       continue;
     }
     log(`python-runtime: fetching ${url}`);
@@ -245,7 +274,8 @@ export async function fetchPythonRuntime({
       throw error;
     }
     log(`python-runtime: verified and installed ${fileName} (${entry.bytes} bytes).`);
-    await prepareDerivedArchive({ entry, log, resourcesDir, sourcePath: destPath });
+    await prepareDerivedArchive({ entry, log, resourcesDir, sourcePath: destPath, target });
+    await stageLinuxResources({ entry, resourcesDir, target });
   }
 }
 

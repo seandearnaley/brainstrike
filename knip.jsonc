@@ -132,6 +132,11 @@
         // as a parameter — and that file sits under the root `scripts/**/*` ignore
         // regardless. Same class as xvfb-maybe above.
         "@brainstrike/windows-job-native",
+        // BST-1920: listed so electron-builder packages it, with better-sqlite3 and
+        // sqlite-vec, into app.asar for the packaged provenance smoke
+        // (packages/sqlite-native/test/packaged-smoke.cjs). Nothing imports it
+        // until the indexer host lands; drop this entry with its first import.
+        "@brainstrike/sqlite-native",
         "@fontsource-variable/geist", // Imported via CSS @import in renderer/styles.css
         "@fontsource-variable/geist-mono", // Imported via CSS @import in renderer/styles.css
         // App-owned prebundles for lazy assistant/database surfaces declared in build-utils optimizeDeps helpers
@@ -340,6 +345,17 @@
     },
     "packages/windows-job-native": {
       "ignoreDependencies": ["node-addon-api"]
+    },
+    "packages/state-store": {
+      // Child processes the suites spawn by path (`node --import tsx <file>`,
+      // `node <file>.mjs`): writers that are SIGKILLed, lock holders and racing
+      // contenders, a read-only reader, the kernel-sync run and its attribution.
+      // knip cannot follow a path handed to `spawn`, so they are entries.
+      "entry": ["__tests__/fixtures/*.ts", "__tests__/kill/*.{ts,mjs}", "__tests__/kernel-sync/*.{ts,mjs}"],
+      // Loaded as `--import tsx` in those spawned processes, never imported.
+      "ignoreDependencies": ["tsx"],
+      // The Linux tracer of the opt-in kernel-sync suite, found at run time.
+      "ignoreBinaries": ["strace"]
     },
     "packages/app-state": {
       "project": ["src/**/*.{ts,tsx}"],

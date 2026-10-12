@@ -25,7 +25,7 @@ const { backfillEmbeddingSetAssignmentsMock, readFullTreeWithOptionsMock, runEnh
     runEnhancedImportMock: vi.fn(),
   }));
 
-vi.mock('@brainstrike/file-explorer-ui/tree', () => ({
+vi.mock('@brainstrike/file-system/directory-tree', () => ({
   readFullTreeWithOptions: readFullTreeWithOptionsMock,
 }));
 
@@ -1154,106 +1154,123 @@ describe('WorkspaceCollectionSyncService', () => {
     );
   });
 
-  it('force-reads a watcher-modified file and replaces only the matching db root identity', async () => {
-    const oldContent = 'export const value = 1;';
-    const newContent = 'export const value = 2;';
-    const oldHash = await generateContentHash(oldContent);
-    const fileSystemAdapter = {
-      exists: vi.fn(),
-      readDirectory: vi.fn(
-        async (): Promise<IFileNode[]> => [
-          {
-            depth: 1,
-            handle: createMockNodeHandle({
-              kind: 'file',
+  it.each([false, true])(
+    'force-reads a watcher-modified file and replaces only the matching db root identity (mixed ignore edit: %s)',
+    async (mixedIgnoreEdit) => {
+      const oldContent = 'export const value = 1;';
+      const newContent = 'export const value = 2;';
+      const oldHash = await generateContentHash(oldContent);
+      const fileSystemAdapter = {
+        exists: vi.fn(),
+        readDirectory: vi.fn(
+          async (): Promise<IFileNode[]> => [
+            {
+              depth: 1,
+              handle: createMockNodeHandle({
+                kind: 'file',
+                name: 'index.ts',
+                path: `${ROOT_B_PATH}/${FILE_PATH}`,
+              }),
+              lastModified: 1000,
               name: 'index.ts',
               path: `${ROOT_B_PATH}/${FILE_PATH}`,
-            }),
-            lastModified: 1000,
-            name: 'index.ts',
-            path: `${ROOT_B_PATH}/${FILE_PATH}`,
-            rootFolderId: ROOT_B_PATH,
-            selectionState: 'unchecked',
-            size: 23,
-            type: 'file',
-          },
-        ]
-      ),
-      readFile: vi.fn(),
-      requestDirectoryAccess: vi.fn(),
-    } satisfies WorkspaceCollectionSyncServiceDependencies['fileSystemAdapter'];
-    const deps = createDeps({
-      fileContentProcessor: {
-        processFiles: vi.fn(async () => ({
-          [ROOT_B_COMPOSITE_KEY]: { content: newContent, status: 'accessible' as const },
-        })),
-      },
-      fileRecordRepository: {
-        findById: vi.fn(async () => null),
-        findByIds: vi.fn(async () => []),
-        listManagedCacheEntryMetadata: vi.fn(async () => [
-          {
-            contentHash: oldHash,
-            embeddingSetId: 'set-1',
-            fileRecordId: 'file-root-a',
-            mtimeMs: 1000,
-            relativePath: FILE_PATH,
-            rootId: DB_ROOT_A_ID,
-            size: 23,
-            updatedAt: new Date().toISOString(),
-          } satisfies ManagedCacheEntryMetadata,
-          {
-            contentHash: oldHash,
-            embeddingSetId: 'set-1',
-            fileRecordId: 'file-root-b',
-            mtimeMs: 1000,
-            relativePath: FILE_PATH,
-            rootId: DB_ROOT_B_ID,
-            size: 23,
-            updatedAt: new Date().toISOString(),
-          } satisfies ManagedCacheEntryMetadata,
-        ]),
-        update: vi.fn(async () => undefined),
-        updateStatMetadata: vi.fn(async () => undefined),
-      },
-      fileSystemAdapter,
-      resolveDbRootId: vi.fn(async (rootPath: string) =>
-        rootPath === ROOT_B_PATH ? DB_ROOT_B_ID : DB_ROOT_A_ID
-      ),
-    });
-    const service = new WorkspaceCollectionSyncService(deps);
+              rootFolderId: ROOT_B_PATH,
+              selectionState: 'unchecked',
+              size: 23,
+              type: 'file',
+            },
+          ]
+        ),
+        readFile: vi.fn(),
+        requestDirectoryAccess: vi.fn(),
+      } satisfies WorkspaceCollectionSyncServiceDependencies['fileSystemAdapter'];
+      if (mixedIgnoreEdit) {
+        readFullTreeWithOptionsMock.mockResolvedValue(await fileSystemAdapter.readDirectory());
+      }
+      const deps = createDeps({
+        fileContentProcessor: {
+          processFiles: vi.fn(async () => ({
+            [ROOT_B_COMPOSITE_KEY]: { content: newContent, status: 'accessible' as const },
+          })),
+        },
+        fileRecordRepository: {
+          findById: vi.fn(async () => null),
+          findByIds: vi.fn(async () => []),
+          listManagedCacheEntryMetadata: vi.fn(async () => [
+            {
+              contentHash: oldHash,
+              embeddingSetId: 'set-1',
+              fileRecordId: 'file-root-a',
+              mtimeMs: 1000,
+              relativePath: FILE_PATH,
+              rootId: DB_ROOT_A_ID,
+              size: 23,
+              updatedAt: new Date().toISOString(),
+            } satisfies ManagedCacheEntryMetadata,
+            {
+              contentHash: oldHash,
+              embeddingSetId: 'set-1',
+              fileRecordId: 'file-root-b',
+              mtimeMs: 1000,
+              relativePath: FILE_PATH,
+              rootId: DB_ROOT_B_ID,
+              size: 23,
+              updatedAt: new Date().toISOString(),
+            } satisfies ManagedCacheEntryMetadata,
+          ]),
+          update: vi.fn(async () => undefined),
+          updateStatMetadata: vi.fn(async () => undefined),
+        },
+        fileSystemAdapter,
+        resolveDbRootId: vi.fn(async (rootPath: string) =>
+          rootPath === ROOT_B_PATH ? DB_ROOT_B_ID : DB_ROOT_A_ID
+        ),
+      });
+      const service = new WorkspaceCollectionSyncService(deps);
 
-    await service.sync({
-      enabled: true,
-      indexingPolicyPreset: 'balanced',
-      managedCollectionId: 'set-1',
-      rootDirectoryHandle: createRootHandle(ROOT_B_PATH),
-      scope: {
-        changes: [{ kind: 'file', path: `${ROOT_B_PATH}/${FILE_PATH}`, type: 'modified' }],
-        mode: 'paths',
-      },
-    });
+      await service.sync({
+        enabled: true,
+        indexingPolicyPreset: 'balanced',
+        managedCollectionId: 'set-1',
+        rootDirectoryHandle: createRootHandle(ROOT_B_PATH),
+        scope: {
+          changes: [
+            { kind: 'file', path: `${ROOT_B_PATH}/${FILE_PATH}`, type: 'modified' },
+            ...(mixedIgnoreEdit
+              ? [
+                  {
+                    kind: 'file' as const,
+                    path: `${ROOT_B_PATH}/.gitignore`,
+                    type: 'modified' as const,
+                  },
+                ]
+              : []),
+          ],
+          mode: 'paths',
+        },
+      });
 
-    expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();
-    expect(deps.fileContentProcessor?.processFiles).toHaveBeenCalled();
-    expect(deps.applyManagedCacheBatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        changes: [
-          expect.objectContaining({
-            mode: 'replace',
-            record: expect.objectContaining({
-              content: newContent,
-              id: 'file-root-b',
-              path: FILE_PATH,
+      expect(readFullTreeWithOptionsMock.mock.calls.length).toBe(mixedIgnoreEdit ? 1 : 0);
+      expect(deps.fileContentProcessor?.processFiles).toHaveBeenCalled();
+      expect(deps.applyManagedCacheBatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          changes: [
+            expect.objectContaining({
+              mode: 'replace',
+              record: expect.objectContaining({
+                content: newContent,
+                id: 'file-root-b',
+                path: FILE_PATH,
+              }),
             }),
-          }),
-        ],
-        rootId: DB_ROOT_B_ID,
-      })
-    );
-    const serializedBatch = JSON.stringify(vi.mocked(deps.applyManagedCacheBatch).mock.calls);
-    expect(serializedBatch).not.toContain('file-root-a');
-  });
+          ],
+          rootId: DB_ROOT_B_ID,
+        })
+      );
+      const serializedBatch = JSON.stringify(vi.mocked(deps.applyManagedCacheBatch).mock.calls);
+      expect(serializedBatch).not.toContain('file-root-a');
+    }
+  );
 
   it('splits large invalidation target sets into bounded requests so one request cannot monopolize the serial DB host', async () => {
     // The desktop DB host executes one IPC request at a time; a single
@@ -1342,122 +1359,147 @@ describe('WorkspaceCollectionSyncService', () => {
     expect(deps.setStatus).not.toHaveBeenCalledWith(expect.objectContaining({ state: 'error' }));
   });
 
-  it('does not invalidate a file path that is recreated in the same watcher batch', async () => {
-    const oldContent = 'export const value = 1;';
-    const newContent = 'export const value = 2;';
-    const oldHash = await generateContentHash(oldContent);
-    const fileSystemAdapter = {
-      exists: vi.fn(),
-      readDirectory: vi.fn(async (handle): Promise<IFileNode[]> => {
-        if (handle.path === ROOT_PATH) {
-          return [
-            {
-              depth: 1,
-              handle: createMockNodeHandle({
-                kind: 'directory',
+  it.each([false, true])(
+    'does not invalidate a file path that is recreated in the same watcher batch (truncated: %s)',
+    async (truncatedRecreation) => {
+      const oldContent = 'export const value = 1;';
+      const newContent = 'export const value = 2;';
+      const oldHash = await generateContentHash(oldContent);
+      const fileSystemAdapter = {
+        exists: vi.fn(),
+        readDirectory: vi.fn(async (handle): Promise<IFileNode[]> => {
+          if (handle.path === ROOT_PATH) {
+            return [
+              {
+                depth: 1,
+                handle: createMockNodeHandle({
+                  kind: 'directory',
+                  name: 'src',
+                  path: `${ROOT_PATH}/src`,
+                }),
                 name: 'src',
                 path: `${ROOT_PATH}/src`,
-              }),
-              name: 'src',
-              path: `${ROOT_PATH}/src`,
-              rootFolderId: ROOT_PATH,
-              selectionState: 'unchecked',
-              type: 'directory',
-            },
-          ];
-        }
-        if (handle.path === `${ROOT_PATH}/src`) {
-          return [
-            {
-              depth: 2,
-              handle: createMockNodeHandle({
-                kind: 'file',
+                rootFolderId: ROOT_PATH,
+                selectionState: 'unchecked',
+                type: 'directory',
+              },
+            ];
+          }
+          if (handle.path === `${ROOT_PATH}/src`) {
+            return [
+              {
+                depth: 2,
+                handle: createMockNodeHandle({
+                  kind: 'file',
+                  name: 'index.ts',
+                  path: `${ROOT_PATH}/${FILE_PATH}`,
+                }),
+                lastModified: 1000,
                 name: 'index.ts',
                 path: `${ROOT_PATH}/${FILE_PATH}`,
-              }),
-              lastModified: 1000,
-              name: 'index.ts',
-              path: `${ROOT_PATH}/${FILE_PATH}`,
-              rootFolderId: ROOT_PATH,
-              selectionState: 'unchecked',
+                rootFolderId: ROOT_PATH,
+                selectionState: 'unchecked',
+                size: 23,
+                type: 'file',
+              },
+              ...(truncatedRecreation
+                ? [
+                    {
+                      depth: 2,
+                      handle: createMockNodeHandle({
+                        kind: 'file',
+                        name: 'truncated',
+                        path: `${ROOT_PATH}/src/truncated`,
+                      }),
+                      name: 'truncated',
+                      path: `${ROOT_PATH}/src/truncated`,
+                      rootFolderId: ROOT_PATH,
+                      selectionState: 'unchecked' as const,
+                      type: 'truncated' as const,
+                    },
+                  ]
+                : []),
+            ];
+          }
+          return [];
+        }),
+        readFile: vi.fn(),
+        requestDirectoryAccess: vi.fn(),
+      } satisfies WorkspaceCollectionSyncServiceDependencies['fileSystemAdapter'];
+      const deps = createDeps({
+        fileContentProcessor: {
+          processFiles: vi.fn(async () => ({
+            [COMPOSITE_KEY]: { content: newContent, status: 'accessible' as const },
+          })),
+        },
+        fileRecordRepository: {
+          findById: vi.fn(async () => null),
+          findByIds: vi.fn(async () => []),
+          listManagedCacheEntryMetadata: vi.fn(async () => [
+            {
+              contentHash: oldHash,
+              embeddingSetId: 'set-1',
+              fileRecordId: 'file-1',
+              mtimeMs: 1000,
+              relativePath: FILE_PATH,
+              rootId: ROOT_PATH,
               size: 23,
-              type: 'file',
-            },
-          ];
-        }
-        return [];
-      }),
-      readFile: vi.fn(),
-      requestDirectoryAccess: vi.fn(),
-    } satisfies WorkspaceCollectionSyncServiceDependencies['fileSystemAdapter'];
-    const deps = createDeps({
-      fileContentProcessor: {
-        processFiles: vi.fn(async () => ({
-          [COMPOSITE_KEY]: { content: newContent, status: 'accessible' as const },
-        })),
-      },
-      fileRecordRepository: {
-        findById: vi.fn(async () => null),
-        findByIds: vi.fn(async () => []),
-        listManagedCacheEntryMetadata: vi.fn(async () => [
-          {
-            contentHash: oldHash,
-            embeddingSetId: 'set-1',
-            fileRecordId: 'file-1',
-            mtimeMs: 1000,
-            relativePath: FILE_PATH,
-            rootId: ROOT_PATH,
-            size: 23,
-            updatedAt: new Date().toISOString(),
-          } satisfies ManagedCacheEntryMetadata,
-        ]),
-        update: vi.fn(async () => undefined),
-        updateStatMetadata: vi.fn(async () => undefined),
-      },
-      fileSystemAdapter,
-    });
-    const service = new WorkspaceCollectionSyncService(deps);
+              updatedAt: new Date().toISOString(),
+            } satisfies ManagedCacheEntryMetadata,
+          ]),
+          update: vi.fn(async () => undefined),
+          updateStatMetadata: vi.fn(async () => undefined),
+        },
+        fileSystemAdapter,
+      });
+      const service = new WorkspaceCollectionSyncService(deps);
 
-    await service.sync({
-      enabled: true,
-      indexingPolicyPreset: 'balanced',
-      managedCollectionId: 'set-1',
-      rootDirectoryHandle: createRootHandle(ROOT_PATH),
-      scope: {
-        changes: [
-          { kind: 'file', path: `${ROOT_PATH}/${FILE_PATH}`, type: 'removed' },
-          { kind: 'file', path: `${ROOT_PATH}/${FILE_PATH}`, type: 'added' },
-        ],
-        mode: 'paths',
-      },
-    });
+      await service.sync({
+        enabled: true,
+        indexingPolicyPreset: 'balanced',
+        managedCollectionId: 'set-1',
+        rootDirectoryHandle: createRootHandle(ROOT_PATH),
+        scope: {
+          changes: [
+            { kind: 'file', path: `${ROOT_PATH}/${FILE_PATH}`, type: 'removed' },
+            { kind: 'file', path: `${ROOT_PATH}/${FILE_PATH}`, type: 'added' },
+          ],
+          mode: 'paths',
+        },
+      });
 
-    expect(vi.mocked(deps.setStatus).mock.calls).not.toEqual(
-      expect.arrayContaining([
-        [
-          expect.objectContaining({
-            state: 'error',
-          }),
-        ],
-      ])
-    );
-    expect(deps.fileContentProcessor?.processFiles).toHaveBeenCalled();
-    expect(deps.invalidateManagedCacheEntriesByIdentity).not.toHaveBeenCalled();
-    expect(deps.applyManagedCacheBatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        changes: [
-          expect.objectContaining({
-            mode: 'replace',
-            record: expect.objectContaining({
-              content: newContent,
-              id: 'file-1',
-              path: FILE_PATH,
+      expect(vi.mocked(deps.setStatus).mock.calls).not.toEqual(
+        expect.arrayContaining([
+          [
+            expect.objectContaining({
+              state: 'error',
             }),
-          }),
-        ],
-      })
-    );
-  });
+          ],
+        ])
+      );
+      expect(deps.invalidateManagedCacheEntriesByIdentity).not.toHaveBeenCalled();
+      if (truncatedRecreation) {
+        expect(deps.fileContentProcessor?.processFiles).not.toHaveBeenCalled();
+        expect(deps.applyManagedCacheBatch).not.toHaveBeenCalled();
+        return;
+      }
+      expect(deps.fileContentProcessor?.processFiles).toHaveBeenCalled();
+      expect(deps.applyManagedCacheBatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          changes: [
+            expect.objectContaining({
+              mode: 'replace',
+              record: expect.objectContaining({
+                content: newContent,
+                id: 'file-1',
+                path: FILE_PATH,
+              }),
+            }),
+          ],
+        })
+      );
+    }
+  );
 
   it('invalidates a same-batch recreated file when the replacement is excluded', async () => {
     const oldContent = 'export const value = 1;';
@@ -2331,10 +2373,15 @@ describe('WorkspaceCollectionSyncService', () => {
     });
 
     expect(readFullTreeWithOptionsMock).not.toHaveBeenCalled();
+    // Unknown root rules withhold descent, so only that admitted listing reports truncation.
+    expect(deps.fileSystemAdapter.readDirectory).not.toHaveBeenCalledWith(
+      expect.objectContaining({ path: `${ROOT_PATH}/src` }),
+      expect.anything()
+    );
     expect(deps.setStatus).toHaveBeenCalledWith(
       expect.objectContaining({
         scanSummary: expect.objectContaining({
-          truncatedDirectories: 2,
+          truncatedDirectories: 1,
         }),
       })
     );

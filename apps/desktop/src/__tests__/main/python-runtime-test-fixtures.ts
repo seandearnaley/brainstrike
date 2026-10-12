@@ -3,11 +3,12 @@ import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import type { PythonRuntimeManifestTarget } from '../../python-runtime/resolve-python-binary';
 
 interface ManifestOverrides {
   readonly sha256?: string;
   readonly supportedTargets?: readonly string[];
-  readonly targets?: Record<string, { bytes: number; sha256: string }> | undefined;
+  readonly targets?: Record<string, PythonRuntimeManifestTarget> | undefined;
 }
 
 export const ARCHIVE_CONTENT = 'not-a-real-tarball-but-hashable';

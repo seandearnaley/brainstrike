@@ -12,7 +12,7 @@
  */
 import type { McpElicitationPresentationWire } from '@brainstrike/assistant-contract';
 import { useEffect, useReducer, useRef, useState } from 'react';
-import { resolveMcpElicitationBridge } from './mcp-elicitation-bridge';
+import { resolveMcpElicitationBridge, resolveMcpTaskInputBridge } from './mcp-elicitation-bridge';
 import { McpElicitationDialog } from './mcp-elicitation-dialog';
 
 interface HostState {
@@ -61,6 +61,7 @@ function hostReducer(state: HostState, action: HostAction): HostState {
 
 export function McpElicitationHost() {
   const [bridge] = useState(() => resolveMcpElicitationBridge());
+  const [taskBridge] = useState(() => resolveMcpTaskInputBridge());
   const [state, dispatch] = useReducer(hostReducer, EMPTY_STATE);
   const settledIds = useRef(new Set<string>());
 
@@ -87,6 +88,23 @@ export function McpElicitationHost() {
   return (
     <McpElicitationDialog
       key={current.id}
+      onCancelTask={
+        current.provenance.taskHandle && taskBridge
+          ? async () => {
+              const handle = current.provenance.taskHandle;
+              if (!handle) {
+                throw new Error('MCP task cancellation has no host-bound handle.');
+              }
+              const outcome = await taskBridge.act({ action: 'cancel', handle });
+              if (!outcome.ok) {
+                throw new Error(outcome.diagnostic.message);
+              }
+              if (outcome.task.status !== 'cancelled') {
+                throw new Error('MCP task cancellation did not observe a cancelled task.');
+              }
+            }
+          : undefined
+      }
       onDismissRetired={() => dispatch({ id: current.id, type: 'remove' })}
       onSettle={async (settlement) => {
         // Mark before awaiting: main pushes the `already-settled` retirement
@@ -103,6 +121,9 @@ export function McpElicitationHost() {
       }}
       presentation={current}
       retiredCode={state.retired[current.id]}
+      taskCancellationUnavailable={
+        current.provenance.taskHandle !== undefined && taskBridge === null
+      }
     />
   );
 }

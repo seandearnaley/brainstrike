@@ -46,12 +46,15 @@ import {
   type McpElicitationFieldValues,
   readMcpElicitationFieldOptions,
 } from './mcp-elicitation-form';
+import { McpTaskInputCancel } from './mcp-task-input-cancel';
 
 export interface McpElicitationDialogProps {
+  readonly onCancelTask?: (() => Promise<void>) | undefined;
   readonly onDismissRetired: () => void;
   readonly onSettle: (settlement: McpElicitationSettlement) => Promise<void>;
   readonly presentation: McpElicitationPresentationWire;
   readonly retiredCode?: string | undefined;
+  readonly taskCancellationUnavailable?: boolean | undefined;
 }
 
 function serverLabel(provenance: McpElicitationProvenanceWire): string {
@@ -314,10 +317,12 @@ function ElicitationField(props: FieldProps) {
 }
 
 export function McpElicitationDialog({
+  onCancelTask,
   onDismissRetired,
   onSettle,
   presentation,
   retiredCode,
+  taskCancellationUnavailable,
 }: McpElicitationDialogProps) {
   const idPrefix = useId();
   const declineRef = useRef<HTMLButtonElement | null>(null);
@@ -335,7 +340,8 @@ export function McpElicitationDialog({
   const [fieldErrors, setFieldErrors] = useState<Readonly<Record<string, string>>>({});
   const [settleError, setSettleError] = useState<string | null>(null);
   const [settling, setSettling] = useState(false);
-  const busy = settling || retiredCode !== undefined;
+  const [cancellingTask, setCancellingTask] = useState(false);
+  const busy = settling || cancellingTask || retiredCode !== undefined;
   const label = serverLabel(presentation.provenance);
   const summaryId = `${idPrefix}-summary`;
 
@@ -377,7 +383,7 @@ export function McpElicitationDialog({
   return (
     <Dialog onOpenChange={() => undefined} open={true}>
       <DialogContent
-        aria-busy={settling || undefined}
+        aria-busy={settling || cancellingTask || undefined}
         className="max-w-lg"
         data-testid="mcp-elicitation-dialog"
         hideCloseButton
@@ -456,6 +462,18 @@ export function McpElicitationDialog({
               {settleError}
             </p>
           ) : null}
+          {onCancelTask ? (
+            <McpTaskInputCancel
+              disabled={settling}
+              onCancel={onCancelTask}
+              onPendingChange={setCancellingTask}
+            />
+          ) : null}
+          {taskCancellationUnavailable ? (
+            <p className="text-destructive text-sm" role="alert">
+              Task cancellation is unavailable in this window.
+            </p>
+          ) : null}
           {retiredCode === undefined ? (
             <DialogFooter>
               <Button
@@ -498,6 +516,7 @@ export function McpElicitationDialog({
               <DialogFooter>
                 <Button
                   aria-label={`Dismiss retired MCP request from ${label}`}
+                  disabled={cancellingTask}
                   onClick={onDismissRetired}
                   ref={focusDismissOnMount}
                   type="button"

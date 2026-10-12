@@ -117,3 +117,9 @@ sibling when either process exits, so a failed declaration watcher cannot
 leave a stale-but-running JavaScript watcher. The build order, disabled tsup
 DTS worker, project-only declaration watch, and two-watcher topology are
 guarded by `scripts/__tests__/agent-declaration-build-contract.test.mjs`.
+
+### Desktop native retrieval CJS load boundary (2026-10-03)
+
+The complete M2 candidate failed at Electron bootstrap before lifecycle stages: its CJS main emitted `require('@brainstrike/workspace-search/core')`, but that browser package's subpath exposes only types/import and contains extensionless relative imports. The built artifact existed; this was a consumer/module-format mismatch. Adding a require/default export would leave the browser module graph invalid for native Node resolution.
+
+The bounded remedy extends the existing exact-subpath main source aliases used for notes-vault and assistant-data to workspace-search/core. It keeps the package's canonical tsc emit and browser exports unchanged, consumes the shared fusion/availability implementation directly, and preserves packages:external for everything else. The module-only negative control reproduced ERR_PACKAGE_PATH_NOT_EXPORTED under installed Electron 44.4.5 / Node 24.21.0. The corrected public-helper and actual retrieval caller CJS bundles loaded and executed in that same runtime; the unchanged full main external-requires guard also passed. The integration task declares the real DB/contract build edges and explicit runtime executable environment. No application, provider, model or GPU was launched.

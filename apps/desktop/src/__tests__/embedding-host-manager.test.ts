@@ -1,113 +1,16 @@
 import { beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
-
-interface EmbeddingLifecycleStatus {
-  active: boolean;
-  commandId?: string;
-  lastError: string | null;
-  runtimeId: string;
-  runtimeKind?: 'embedding-host';
-  state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
-}
-
-const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(() => {
-  const hostWindow = {
-    isDestroyed: vi.fn(() => false),
-    webContents: {
-      id: 91,
-      send: vi.fn(),
-    },
-  };
-  const currentStatus: EmbeddingLifecycleStatus = {
-    active: false,
-    lastError: null,
-    runtimeId: 'embedding-host-runtime',
-    runtimeKind: 'embedding-host',
-    state: 'running',
-  };
-
-  return {
-    currentLifecycleStatus: currentStatus,
-    lifecycleState: {
-      clearHostWindow: vi.fn(),
-      destroyHostWindow: vi.fn(),
-      dispose: vi.fn(),
-      ensureStarted: vi.fn<() => Promise<EmbeddingLifecycleStatus>>(async () => ({
-        active: false,
-        lastError: null,
-        runtimeId: 'embedding-host-runtime',
-        state: 'running',
-      })),
-      getHostWindow: vi.fn<() => typeof hostWindow | null | undefined>(() => hostWindow),
-      getStatus: vi.fn<() => EmbeddingLifecycleStatus>(() => ({ ...currentStatus })),
-      isHostWindow: vi.fn(() => false),
-      setStatus: vi.fn<(status: EmbeddingLifecycleStatus) => void>((status) => {
-        currentStatus.active = status.active;
-        currentStatus.lastError = status.lastError;
-        currentStatus.runtimeId = status.runtimeId;
-        currentStatus.runtimeKind = status.runtimeKind ?? 'embedding-host';
-        currentStatus.state = status.state;
-      }),
-      waitForStatus: vi.fn<
-        (
-          predicate: (status: EmbeddingLifecycleStatus) => boolean,
-          timeoutMs: number
-        ) => Promise<EmbeddingLifecycleStatus>
-      >(async () => ({
-        active: false,
-        lastError: null,
-        runtimeId: 'embedding-host-runtime',
-        state: 'stopped',
-      })),
-    },
-    mockHostWindow: hostWindow,
-  };
-});
-
-const { powerSaveBlockerIsStartedMock, powerSaveBlockerStartMock, powerSaveBlockerStopMock } =
-  vi.hoisted(() => ({
-    powerSaveBlockerIsStartedMock: vi.fn(() => true),
-    powerSaveBlockerStartMock: vi.fn(() => 101),
-    powerSaveBlockerStopMock: vi.fn(),
-  }));
-
-vi.mock('electron', () => ({
-  app: {
-    getAppPath: vi.fn(() => '/mock/app'),
-    isPackaged: false,
-  },
-  BrowserWindow: vi.fn(),
-  powerSaveBlocker: {
-    isStarted: powerSaveBlockerIsStartedMock,
-    start: powerSaveBlockerStartMock,
-    stop: powerSaveBlockerStopMock,
-  },
-}));
-
-vi.mock('../renderer-host-lifecycle', () => ({
-  RendererHostLifecycle: vi.fn().mockImplementation(function MockRendererHostLifecycle() {
-    return lifecycleState;
-  }),
-}));
-
 import { EmbeddingHostManager } from '../embedding-host-manager';
-
-// Omit<T, never> is NOT a no-op: it maps over the class's public keys and
-// yields a plain object type without private members, which is what lets the
-// intersection below redeclare private internals (syncPowerSaveBlocker) as
-// test-visible seams.
-type TestableEmbeddingHostManager = Omit<EmbeddingHostManager, never> & {
-  syncPowerSaveBlocker: (status: {
-    active: boolean;
-    lastError: string | null;
-    state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
-  }) => void;
-};
-
-function createDarwinManager(): TestableEmbeddingHostManager {
-  return new EmbeddingHostManager({
-    platform: 'darwin',
-  }) as unknown as TestableEmbeddingHostManager;
-}
+import {
+  createDarwinManager,
+  currentLifecycleStatus,
+  type EmbeddingLifecycleStatus,
+  lifecycleState,
+  mockHostWindow,
+  powerSaveBlockerIsStartedMock,
+  powerSaveBlockerStartMock,
+  powerSaveBlockerStopMock,
+  type TestableEmbeddingHostManager,
+} from './embedding-host-manager-fixture';
 
 describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
   beforeEach(() => {
@@ -636,7 +539,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     expect(lifecycleState.ensureStarted).toHaveBeenCalledWith({ waitForRunning: true });
   });
 
-  it('rejects pending query embedding requests before destroying and restarting the host', async () => {
+  it('rejects pending query embedding requests after joining destruction and restarting the host', async () => {
     const manager = new EmbeddingHostManager();
     const embeddingPromise = manager.queryEmbedding({
       dimensions: 2,
@@ -654,11 +557,11 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     });
 
     await expect(embeddingPromise).rejects.toThrow(
-      'Embedding host restarted while query embedding requests were in flight.'
+      'Embedding host restarted while inference requests were in flight.'
     );
   });
 
-  it('rejects pending query embedding requests before resetting the host runtime', async () => {
+  it('rejects pending query embedding requests after joining reset of the host runtime', async () => {
     const manager = new EmbeddingHostManager();
     const embeddingPromise = manager.queryEmbedding({
       dimensions: 2,
@@ -673,7 +576,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     await manager.reset();
 
     await expect(embeddingPromise).rejects.toThrow(
-      'Embedding host reset while query embedding requests were in flight.'
+      'Embedding host reset while inference requests were in flight.'
     );
   });
 
@@ -771,13 +674,15 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
       runtimeId: request.runtimeId,
       type: 'result',
     });
-    expect(warnedRequestIds).toContain(request.requestId);
+    expect(warnedRequestIds).toContain(`${request.runtimeId}:${request.requestId}`);
   });
 
   it('preserves the original error cause when sending a query embedding request fails', async () => {
     const sendError = new Error('send failed');
-    mockHostWindow.webContents.send.mockImplementation(() => {
-      throw sendError;
+    mockHostWindow.webContents.send.mockImplementation((event: string) => {
+      if (event === 'embedding-host:query-embedding-request') {
+        throw sendError;
+      }
     });
     const manager = new EmbeddingHostManager();
 

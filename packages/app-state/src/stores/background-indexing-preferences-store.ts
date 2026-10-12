@@ -1,3 +1,9 @@
+import {
+  type NativeIndexMode,
+  type NativeLocalSelection,
+  validateNativeIndexMode,
+  validateNativeLocalSelection,
+} from '@brainstrike/indexing-contract/indexer-producer';
 import { createBrowserJsonStorage } from '@brainstrike/storage';
 import type { BackgroundIndexingPolicyPreset } from '@brainstrike/utils';
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware';
@@ -48,6 +54,8 @@ interface BackgroundIndexingPreferencesData {
   indexingPolicyPreset: BackgroundIndexingPolicyPreset;
   managedCollectionId: string | null;
   mode: BackgroundIndexingMode;
+  nativeIndexMode: NativeIndexMode | null;
+  nativeLocalSelection: NativeLocalSelection | null;
   paused: boolean;
   worktreeRootIndexingByAdapterRootId: Record<string, WorktreeRootIndexingState>;
   worktreeRootIndexingOptInById: Record<string, true>;
@@ -59,6 +67,8 @@ interface BackgroundIndexingPreferencesActions {
   setEnabled: (enabled: boolean) => void;
   setIndexingPolicyPreset: (indexingPolicyPreset: BackgroundIndexingPolicyPreset) => void;
   setManagedCollectionId: (managedCollectionId: string | null) => void;
+  setNativeIndexMode: (mode: NativeIndexMode) => void;
+  setNativeLocalSelection: (selection: NativeLocalSelection | null) => void;
   setPaused: (paused: boolean) => void;
   setWorktreeRootIndexingEnabled: (rootId: string, enabled: boolean) => void;
   setWorktreeRootIndexingState: (roots: readonly WorktreeRootIndexingStateInput[]) => void;
@@ -68,7 +78,7 @@ export type BackgroundIndexingPreferencesStore = BackgroundIndexingPreferencesDa
   BackgroundIndexingPreferencesActions;
 
 const STORE_NAME = 'background-indexing-preferences.v1' as const;
-const STORE_VERSION = 5 as const;
+const STORE_VERSION = 6 as const;
 
 interface ElectronStorageBridge {
   readonly getItem: (key: string) => Promise<string | null>;
@@ -156,6 +166,8 @@ const DEFAULT_STATE: BackgroundIndexingPreferencesData = {
   indexingPolicyPreset: 'balanced',
   managedCollectionId: null,
   mode: 'root-folder-cache',
+  nativeIndexMode: null,
+  nativeLocalSelection: null,
   paused: false,
   worktreeRootIndexingByAdapterRootId: {},
   worktreeRootIndexingOptInById: {},
@@ -185,7 +197,7 @@ interface BackgroundIndexingPreferencesPersistApi {
 
 const GLOBAL_KEY = '__brainstrike_background_indexing_preferences_store__' as const;
 const BRAND = '__brainstrike_store_brand__';
-const BRAND_VERSION = 2 as const;
+const BRAND_VERSION = 3 as const;
 
 /** The bound store plus the HMR brand slot stamped onto it after creation. */
 type BrandableStore = BoundBackgroundIndexingPreferencesStore & {
@@ -246,6 +258,11 @@ function migrateBackgroundIndexingPreferencesState(
         ? candidate.managedCollectionId
         : DEFAULT_STATE.managedCollectionId,
     mode: candidate.mode === 'root-folder-cache' ? candidate.mode : DEFAULT_STATE.mode,
+    nativeIndexMode: validateNativeIndexMode(candidate.nativeIndexMode),
+    nativeLocalSelection:
+      candidate.nativeLocalSelection === null || candidate.nativeLocalSelection === undefined
+        ? null
+        : validateNativeLocalSelection(candidate.nativeLocalSelection),
     paused: typeof candidate.paused === 'boolean' ? candidate.paused : DEFAULT_STATE.paused,
     worktreeRootIndexingByAdapterRootId: {},
     worktreeRootIndexingOptInById,
@@ -288,6 +305,8 @@ function createBackgroundIndexingPreferencesStore(): BoundBackgroundIndexingPref
             indexingPolicyPreset: DEFAULT_STATE.indexingPolicyPreset,
             managedCollectionId: DEFAULT_STATE.managedCollectionId,
             mode: DEFAULT_STATE.mode,
+            nativeIndexMode: DEFAULT_STATE.nativeIndexMode,
+            nativeLocalSelection: DEFAULT_STATE.nativeLocalSelection,
             paused: DEFAULT_STATE.paused,
             worktreeRootIndexingByAdapterRootId: DEFAULT_STATE.worktreeRootIndexingByAdapterRootId,
             worktreeRootIndexingOptInById: DEFAULT_STATE.worktreeRootIndexingOptInById,
@@ -297,6 +316,17 @@ function createBackgroundIndexingPreferencesStore(): BoundBackgroundIndexingPref
           set({ indexingPolicyPreset }),
         setManagedCollectionId: (managedCollectionId: string | null) =>
           set({ managedCollectionId }),
+        setNativeIndexMode: (nativeIndexMode: NativeIndexMode) => {
+          if (nativeIndexMode !== 'TEXT' && nativeIndexMode !== 'VECTOR') {
+            throw new Error('Native indexing requires explicit TEXT or VECTOR mode.');
+          }
+          set({ nativeIndexMode });
+        },
+        setNativeLocalSelection: (selection: NativeLocalSelection | null) =>
+          set({
+            nativeLocalSelection:
+              selection === null ? null : validateNativeLocalSelection(selection),
+          }),
         setPaused: (paused: boolean) => set({ paused }),
         setWorktreeRootIndexingEnabled: (rootId: string, enabled: boolean) => {
           if (rootId.trim().length === 0) {
@@ -350,6 +380,8 @@ function createBackgroundIndexingPreferencesStore(): BoundBackgroundIndexingPref
           indexingPolicyPreset: state.indexingPolicyPreset,
           managedCollectionId: state.managedCollectionId,
           mode: state.mode,
+          nativeIndexMode: state.nativeIndexMode,
+          nativeLocalSelection: state.nativeLocalSelection,
           paused: state.paused,
           worktreeRootIndexingOptInById: state.worktreeRootIndexingOptInById,
         }),

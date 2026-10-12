@@ -12,7 +12,6 @@ import path from 'node:path';
 import type {
   FileSystemChange,
   FileSystemWatchBatchMetadata,
-  WatcherHealthEvent,
   WatcherHealthTransition,
 } from '@brainstrike/types';
 import type { IpcMainInvokeEvent, WebContents } from 'electron';
@@ -43,7 +42,6 @@ vi.mock('electron', () => ({
 
 import {
   disposeAllFileSystemWatchers,
-  type FileSystemWatchEventPayload,
   type FileSystemWatchRetryResult,
   liveFileSystemWatcherCountForTest,
   MAX_FS_WATCH_REGISTRATIONS_PER_OWNER,
@@ -59,6 +57,38 @@ import {
   trackTestWindowRole,
 } from '../helpers/desktop-ipc-sender-test-helpers';
 
+type StartTestNativeWatch = (
+  ...args: Parameters<StartFileSystemWatch>
+) => (() => void | Promise<void>) | Promise<() => void | Promise<void>>;
+
+/** Fake native owner preserves the public joined close/manual-retry contract. */
+function registerTestWatchHandlers(options: {
+  readonly startWatch: StartTestNativeWatch;
+}): () => Promise<void> {
+  return registerFileSystemWatchIpcHandlers({
+    startWatch: async (...args) => {
+      let stop = await options.startWatch(...args);
+      return {
+        close: async () => {
+          await stop();
+        },
+        retry: async () => {
+          await stop();
+          stop = await options.startWatch(...args);
+        },
+      };
+    },
+  });
+}
+
+import {
+  FakeWebContents,
+  invokeEventFor,
+  TEARDOWN_EVENTS,
+  toDirectoryHandle,
+  totalTeardownListeners,
+} from './file-system-watch-ipc-test-helpers';
+
 const createdDirs: string[] = [];
 
 async function makeDir(prefix = 'brainstrike-fs-watch-ipc-'): Promise<string> {
@@ -68,130 +98,13 @@ async function makeDir(prefix = 'brainstrike-fs-watch-ipc-'): Promise<string> {
   return real;
 }
 
-function toDirectoryHandle(directoryPath: string) {
-  return {
-    kind: 'directory' as const,
-    name: path.basename(directoryPath),
-    path: directoryPath,
-    platform: 'electron' as const,
-  };
-}
-
-interface FakeListenerEntry {
-  listener: () => void;
-  once: boolean;
-}
-
-/**
- * A minimal WebContents stand-in modelling on/once/removeListener with real
- * add/remove semantics so listener-accumulation leaks are observable via
- * `listenerCount`. Records the watch events pushed to it.
- */
-class FakeWebContents {
-  readonly id: number;
-  readonly watchEvents: FileSystemWatchEventPayload[] = [];
-  readonly healthEvents: WatcherHealthEvent[] = [];
-  private destroyed = false;
-  private readonly listeners = new Map<string, FakeListenerEntry[]>();
-
-  constructor(id: number) {
-    this.id = id;
-  }
-
-  send(channel: string, payload: unknown): void {
-    if (channel === DESKTOP_IPC_CHANNELS.files.watchEvent) {
-      this.watchEvents.push(payload as FileSystemWatchEventPayload);
-    }
-    if (channel === DESKTOP_IPC_CHANNELS.files.watchHealth) {
-      this.healthEvents.push(payload as WatcherHealthEvent);
-    }
-  }
-
-  isDestroyed(): boolean {
-    return this.destroyed;
-  }
-
-  on(event: string, listener: () => void): void {
-    this.addListener(event, listener, false);
-  }
-
-  once(event: string, listener: () => void): void {
-    this.addListener(event, listener, true);
-  }
-
-  removeListener(event: string, listener: () => void): void {
-    const entries = this.listeners.get(event);
-    if (!entries) {
-      return;
-    }
-    const next = entries.filter((entry) => entry.listener !== listener);
-    if (next.length === 0) {
-      this.listeners.delete(event);
-    } else {
-      this.listeners.set(event, next);
-    }
-  }
-
-  /** Test helper: live listener count for an event (leak detection). */
-  listenerCount(event: string): number {
-    return this.listeners.get(event)?.length ?? 0;
-  }
-
-  private addListener(event: string, listener: () => void, once: boolean): void {
-    const entries = this.listeners.get(event) ?? [];
-    entries.push({ listener, once });
-    this.listeners.set(event, entries);
-  }
-
-  private fire(event: string): void {
-    // Snapshot before firing — a reap listener may mutate the map mid-iteration.
-    const entries = [...(this.listeners.get(event) ?? [])];
-    for (const entry of entries) {
-      if (entry.once) {
-        this.removeListener(event, entry.listener);
-      }
-      entry.listener();
-    }
-  }
-
-  /** Test helper: simulate the renderer being destroyed. */
-  fireDestroyed(): void {
-    this.destroyed = true;
-    this.fire('destroyed');
-  }
-
-  /** Test helper: simulate a renderer crash (WebContents survives). */
-  fireRenderProcessGone(): void {
-    this.fire('render-process-gone');
-  }
-
-  /** Test helper: simulate a main-frame navigation/reload. */
-  fireDidNavigate(): void {
-    this.fire('did-navigate');
-  }
-}
-
-const TEARDOWN_EVENTS = ['destroyed', 'render-process-gone', 'did-navigate'] as const;
-
-function totalTeardownListeners(owner: FakeWebContents): number {
-  return TEARDOWN_EVENTS.reduce((sum, event) => sum + owner.listenerCount(event), 0);
-}
-
-function invokeEventFor(owner: FakeWebContents): IpcMainInvokeEvent {
-  trackTestWindowRole(owner.id, 'visible-ui');
-  return {
-    sender: owner as unknown as WebContents,
-    senderFrame: createAllowlistedSenderFrame('visible-ui'),
-  } as IpcMainInvokeEvent;
-}
-
 interface WatchHarness {
   /** Fire every live fake watcher with the given changes. */
   fireAllChanges: (changes: FileSystemChange[], metadata?: FileSystemWatchBatchMetadata) => void;
   /** Fire a health transition on the most recent watcher's health callback. */
   fireLatestHealth: (transition: WatcherHealthTransition) => void;
   startedPaths: string[];
-  startWatch: StartFileSystemWatch;
+  startWatch: StartTestNativeWatch;
   stops: ReturnType<typeof vi.fn>[];
 }
 
@@ -306,24 +219,125 @@ const SAMPLE_CHANGES: FileSystemChange[] = [
 
 describe('file-system watch IPC domain', () => {
   let harness: WatchHarness;
-  let unregister: () => void;
+  let unregister: () => Promise<void>;
 
   beforeEach(() => {
     registeredHandlers.clear();
     vi.clearAllMocks();
     harness = createWatchHarness();
-    unregister = registerFileSystemWatchIpcHandlers({ startWatch: harness.startWatch });
+    unregister = registerTestWatchHandlers({ startWatch: harness.startWatch });
   });
 
   afterEach(async () => {
     for (let id = 0; id <= MAX_FS_WATCHERS_PER_OWNER + 10; id += 1) {
       clearWindowRoleByWebContentsId(id);
     }
-    disposeAllFileSystemWatchers();
-    unregister();
+    await disposeAllFileSystemWatchers();
+    await unregister();
     await Promise.all(
       createdDirs.splice(0).map((dir) => fsPromises.rm(dir, { force: true, recursive: true }))
     );
+  });
+
+  it('acknowledges final unwatch only after actual native retirement', async () => {
+    const owner = new FakeWebContents(1);
+    const directory = await makeDir();
+    const exit = Promise.withResolvers<void>();
+    const stop = vi.fn(() => exit.promise);
+    await unregister();
+    unregister = registerTestWatchHandlers({ startWatch: async () => stop });
+    const { watchId } = await invokeWatch(owner, directory);
+    let acknowledged = false;
+    const closing = invokeUnwatch(owner, watchId).then(() => {
+      acknowledged = true;
+    });
+    try {
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(acknowledged).toBe(false);
+    } finally {
+      exit.resolve();
+      await closing;
+    }
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains a failed final unwatch for an explicit joined retry', async () => {
+    const owner = new FakeWebContents(1);
+    const directory = await makeDir();
+    const failure = new Error('Native unsubscribe failed.');
+    const exit = Promise.withResolvers<void>();
+    const stop = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(failure)
+      .mockReturnValueOnce(exit.promise);
+    await unregister();
+    unregister = registerTestWatchHandlers({ startWatch: async () => stop });
+    const { watchId } = await invokeWatch(owner, directory);
+    await expect(invokeUnwatch(owner, watchId)).rejects.toBe(failure);
+    await expect(invokeWatch(owner, directory)).rejects.toThrow(/retirement has not completed/);
+
+    let acknowledged = false;
+    const closing = invokeUnwatch(owner, watchId).then(() => {
+      acknowledged = true;
+    });
+    try {
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(acknowledged).toBe(false);
+      expect(stop).toHaveBeenCalledTimes(2);
+    } finally {
+      exit.resolve();
+      await closing;
+    }
+    expect(acknowledged).toBe(true);
+    expect(liveFileSystemWatcherCountForTest()).toBe(0);
+  });
+
+  it('joins native watch disposal even when handler removal throws', async () => {
+    const owner = new FakeWebContents(1);
+    const directory = await makeDir();
+    const stop = vi.fn(async () => undefined);
+    await unregister();
+    unregister = registerTestWatchHandlers({ startWatch: async () => stop });
+    await invokeWatch(owner, directory);
+    const failure = new Error('Watch handler removal failed.');
+    removeHandler.mockImplementationOnce(() => {
+      throw failure;
+    });
+
+    await expect(unregister()).rejects.toMatchObject({
+      errors: expect.arrayContaining([failure]),
+      name: 'AggregateError',
+    });
+    expect(stop).toHaveBeenCalledTimes(1);
+    expect(liveFileSystemWatcherCountForTest()).toBe(0);
+  });
+
+  it('joins a late watcher acquisition after the visible renderer is destroyed', async () => {
+    const owner = new FakeWebContents(1);
+    const directory = await makeDir();
+    const acquisition = Promise.withResolvers<() => Promise<void>>();
+    const start = vi.fn(() => acquisition.promise);
+    const stop = vi.fn(async () => undefined);
+    await unregister();
+    unregister = registerTestWatchHandlers({ startWatch: start });
+    let settled = false;
+    const result = invokeWatch(owner, directory)
+      .catch((error: unknown) => error)
+      .then((value) => {
+        settled = true;
+        return value;
+      });
+    try {
+      await vi.waitFor(() => expect(start).toHaveBeenCalledTimes(1));
+      owner.fireDestroyed();
+      expect(settled).toBe(false);
+    } finally {
+      acquisition.resolve(stop);
+    }
+    expect(await result).toBeInstanceOf(Error);
+    await vi.waitFor(() => expect(stop).toHaveBeenCalledTimes(1));
   });
 
   describe.each([
@@ -716,14 +730,14 @@ describe('file-system watch IPC domain', () => {
     const dir = await makeDir();
     await invokeWatch(owner, dir);
 
-    unregister();
+    await unregister();
 
     expect(harness.stops[0]).toHaveBeenCalledOnce();
     expect(liveFileSystemWatcherCountForTest()).toBe(0);
     expect(removeHandler).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.files.watch);
     expect(removeHandler).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.files.unwatch);
     // Re-register for afterEach symmetry.
-    unregister = registerFileSystemWatchIpcHandlers({ startWatch: harness.startWatch });
+    unregister = registerTestWatchHandlers({ startWatch: harness.startWatch });
   });
 
   describe('watch health protocol (BST-568 slice 3)', () => {
@@ -750,13 +764,13 @@ describe('file-system watch IPC domain', () => {
       // registered. If that transition is not recorded, lastHealthState stays
       // null, the retry handler answers 'not-failed', and the Retry button the
       // user is staring at does nothing at all.
-      unregister();
-      const startWatch: StartFileSystemWatch = (_directoryPath, _onChanges, onHealth) => {
+      await unregister();
+      const startWatch: StartTestNativeWatch = (_directoryPath, _onChanges, onHealth) => {
         onHealth(makeTransition('starting'));
         onHealth(makeTransition('failed', FAILED_TRANSITION_FAILURE));
-        return vi.fn();
+        return vi.fn<() => void>(() => undefined);
       };
-      unregister = registerFileSystemWatchIpcHandlers({ startWatch });
+      unregister = registerTestWatchHandlers({ startWatch });
 
       const owner = new FakeWebContents(1);
       const dir = await makeDir();
@@ -783,8 +797,8 @@ describe('file-system watch IPC domain', () => {
     });
 
     it('does not leave a live entry behind when setup throws', async () => {
-      unregister();
-      unregister = registerFileSystemWatchIpcHandlers({
+      await unregister();
+      unregister = registerTestWatchHandlers({
         startWatch: () => {
           throw new Error('binding load failed');
         },

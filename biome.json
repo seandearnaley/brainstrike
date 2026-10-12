@@ -9,6 +9,8 @@
       "**/*.config.{ts,mts}",
       "**/*.test.{ts,tsx}",
       "**/e2e/**/*.{ts,tsx}",
+      "!!spikes/m0-a1-qualification/original",
+      "!!.muse/worktrees",
       "!**/node_modules",
       "!**/dist",
       "!**/.turbo",

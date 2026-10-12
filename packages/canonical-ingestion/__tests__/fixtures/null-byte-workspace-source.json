@@ -1,0 +1,8 @@
+{
+  "fileName": "2026-08-22-w2-thread-list.md",
+  "sourcePath": "/Users/seandearnaley/Documents/GitHub/brainstrike/.muse/worktrees/subagent-v2-01a0c597-4a1d-7b31-ad4f-f8cda5b64bbc-01a0e9c7-6c98-77b3-9649-e056c438aeeb/docs/superpowers/plans/2026-08-22-w2-thread-list.md",
+  "originalBytes": 39260,
+  "firstNullByteOffset": 23412,
+  "capturedOffset": 23380,
+  "content": "ed, deduped id list (join with '\u0000'); ids without a row \u21d2 logger.warn once per id ('thread prim"
+}

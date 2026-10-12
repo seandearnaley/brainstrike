@@ -7,6 +7,7 @@ import {
 } from '../src/managed-cache/apply-managed-cache-batch.js';
 import { FileChunkRepository } from '../src/repositories/file-chunk-repository.js';
 import { FileRecordRepository } from '../src/repositories/file-record-repository.js';
+import type { IDatabase } from '../src/repositories/interfaces.js';
 import { getCollectionIndexingStats } from '../src/services/collection-indexing-stats.js';
 import { createMigratedTestDb } from './helpers/migrated-test-db.js';
 
@@ -942,6 +943,90 @@ describe('applyManagedCacheBatch', () => {
     );
   });
 
+  it('exact-record invalidation preserves foreign collection membership and stale root/path metadata', async () => {
+    await seedEmbeddingSet('set-1');
+    await seedEmbeddingSet('set-2');
+    await importManagedCacheFile({ fileRecordId: 'record-own', relativePath: 'same-import.ts' });
+    await importManagedCacheFile({
+      embeddingSetId: 'set-2',
+      fileRecordId: 'record-foreign',
+      relativePath: 'same-import.ts',
+    });
+    await db.query('UPDATE file_records SET root_id = NULL WHERE id = ANY($1::text[])', [
+      ['record-own', 'record-foreign'],
+    ]);
+    await insertChunk({ chunkId: 'record-own-chunk', fileRecordId: 'record-own' });
+    await insertChunk({
+      chunkId: 'record-foreign-chunk',
+      embeddingSetId: 'set-2',
+      fileRecordId: 'record-foreign',
+    });
+    await insertEmbeddingJob({ chunkId: 'record-own-chunk', id: 'record-own-job' });
+    await insertEmbeddingJob({ chunkId: 'record-foreign-chunk', id: 'record-foreign-job' });
+    const target = {
+      expectedFileRecordId: 'record-own',
+      mode: 'record',
+      relativePath: 'same-import.ts',
+      rootId: null,
+    } as const;
+    for (const stale of [
+      { ...target, expectedFileRecordId: 'record-foreign' },
+      { ...target, relativePath: 'stale-import.ts' },
+      { ...target, rootId: 'root-fixture' },
+    ]) {
+      expect(
+        await invalidateManagedCacheEntriesByIdentity(db, {
+          embeddingSetId: 'set-1',
+          targets: [stale],
+        })
+      ).toEqual({ canceledEmbeddingJobCount: 0, deletedChunkIds: [], deletedFileRecordIds: [] });
+    }
+    expect(await fileRecordRepository.findById('record-own')).not.toBeNull();
+    expect(await fileRecordRepository.findById('record-foreign')).not.toBeNull();
+    expect((await listJobStates()).map((job) => job.state)).toEqual(['queued', 'queued']);
+    const failingDelete: IDatabase = {
+      query: db.query.bind(db),
+      transaction: async (run) =>
+        await db.transaction(
+          async (tx) =>
+            await run({
+              query: async <T = unknown>(
+                sql: string,
+                params?: unknown[]
+              ): Promise<{ rows: T[] }> => {
+                if (sql.startsWith('DELETE FROM file_records')) {
+                  throw new Error('source deletion refused');
+                }
+                return await tx.query<T>(sql, params);
+              },
+            })
+        ),
+    };
+    await expect(
+      invalidateManagedCacheEntriesByIdentity(failingDelete, {
+        embeddingSetId: 'set-1',
+        targets: [target],
+      })
+    ).rejects.toThrow('source deletion refused');
+    expect(await fileRecordRepository.findById('record-own')).not.toBeNull();
+    expect((await listJobStates()).map((job) => job.state)).toEqual(['queued', 'queued']);
+    expect(await readCanceledTotal('embeddings')).toBeNull();
+    expect(
+      await invalidateManagedCacheEntriesByIdentity(db, {
+        embeddingSetId: 'set-1',
+        targets: [target],
+      })
+    ).toEqual({
+      canceledEmbeddingJobCount: 1,
+      deletedChunkIds: ['record-own-chunk'],
+      deletedFileRecordIds: ['record-own'],
+    });
+    expect(await fileRecordRepository.findById('record-foreign')).not.toBeNull();
+    expect((await listJobStates()).map((job) => ({ id: job.id, state: job.state }))).toEqual([
+      { id: 'record-foreign-job', state: 'queued' },
+      { id: 'record-own-job', state: 'canceled' },
+    ]);
+  });
   it('invalidations cancel queued and running embed jobs for deleted chunks and leave unrelated jobs intact', async () => {
     await importManagedCacheFile({
       fileRecordId: 'job-delete-file',

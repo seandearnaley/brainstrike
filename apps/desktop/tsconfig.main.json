@@ -124,6 +124,8 @@
     "src/main.ts",
     "src/preload.ts",
     "src/hidden-preload.ts",
+    "src/host-lease-entry.ts",
+    "src/host-lease-manager.ts",
     "src/diagnostics/main-watchdog-worker.ts",
     "src/db-host-entry.ts",
     "src/db-host-manager.ts",
@@ -149,7 +151,11 @@
     "src/setup-security.ts",
     "src/agent-client-loader.ts",
     "src/provider-api-key.ts",
-    "src/types/**/*.d.ts"
+    "src/types/**/*.d.ts",
+    "src/indexer-host-entry.ts",
+    "src/indexer-host-manager.ts",
+    "src/sqlite-query-host-entry.ts",
+    "src/sqlite-query-host-manager.ts"
   ],
   "exclude": [
     "node_modules",

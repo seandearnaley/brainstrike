@@ -128,7 +128,13 @@ describe('fetch-python-runtime script', () => {
       const resourcesDir = await createResourcesDir(overrides);
       const fetchImpl = vi.fn(fakeFetchByTarget());
       await expect(
-        fetchPythonRuntime({ fetchImpl, log: () => undefined, platform: 'linux', resourcesDir })
+        fetchPythonRuntime({
+          arch: 'x64',
+          fetchImpl,
+          log: () => undefined,
+          platform: 'linux',
+          resourcesDir,
+        })
       ).rejects.toThrow(reason);
       await expect(fsPromises.access(archivePath(resourcesDir, TARGET_A))).rejects.toThrow();
       expect(
@@ -140,7 +146,13 @@ describe('fetch-python-runtime script', () => {
   it('fetches only Linux when Linux is the requested packaging target', async () => {
     const resourcesDir = await createResourcesDir();
     const fetchImpl = vi.fn(fakeFetchByTarget());
-    await fetchPythonRuntime({ fetchImpl, log: () => undefined, platform: 'linux', resourcesDir });
+    await fetchPythonRuntime({
+      arch: 'x64',
+      fetchImpl,
+      log: () => undefined,
+      platform: 'linux',
+      resourcesDir,
+    });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(fetchImpl.mock.calls[0]?.[0]).toContain(TARGET_A);
   });

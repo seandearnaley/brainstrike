@@ -252,7 +252,7 @@ export const EXECUTION_TOOL_EXECUTORS = executorGroup({
         },
   [NATIVE_TOOL_ID.querySelf]: ({ resolveActiveDomainCharBudget, runtimeData }) => ({
     description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.querySelf],
-    execute: async (input: ToolExecuteInput<QuerySelfInput>) => {
+    execute: async (input: ToolExecuteInput<QuerySelfInput>, options?: ToolExecuteContext) => {
       // Schema validation is INSIDE the try on purpose. For every other tool a
       // malformed call is a bug; for this one the model is authoring the input
       // freehand, so an opaque `tool_failed` leaves it no way to correct and it
@@ -266,7 +266,9 @@ export const EXECUTION_TOOL_EXECUTORS = executorGroup({
           NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.querySelf],
           input
         );
-        return await runQuerySelf(resolvedInput, runtimeData);
+        return await runQuerySelf(resolvedInput, runtimeData, {
+          signal: resolveGuardedToolSignal(options),
+        });
       } catch (error) {
         logToolFailure('querySelf failed', error, resolvedInput ?? {});
         throw resolvedInput === undefined ? toQuerySelfInputError(error) : error;

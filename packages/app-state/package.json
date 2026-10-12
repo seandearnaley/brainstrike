@@ -210,6 +210,15 @@
     "./local-runtime-diagnostics": {
       "types": "./dist/local-runtime-diagnostics.d.ts",
       "import": "./dist/local-runtime-diagnostics.js"
+    },
+    "./hooks/use-available-embedding-models": {
+      "types": "./dist/hooks/use-available-embedding-models.d.ts",
+      "import": "./dist/hooks/use-available-embedding-models.js"
+    },
+    "./stores/assistant-preferences-store-name": {
+      "types": "./dist/stores/assistant-preferences-store-name.d.ts",
+      "import": "./dist/stores/assistant-preferences-store-name.js",
+      "default": "./dist/stores/assistant-preferences-store-name.js"
     }
   },
   "files": [

@@ -369,7 +369,7 @@ export function SearchResultsTree({
     }
     const roots = new Set<string>();
     for (const node of nodes) {
-      if (node.data.kind === 'file') {
+      if (node.data.kind === 'file' && node.data.file.dbRootId !== null) {
         roots.add(node.data.file.dbRootId);
       }
     }
@@ -384,7 +384,7 @@ export function SearchResultsTree({
       return map;
     }
     for (const file of results.files) {
-      const adapterRootId = resolveAdapterRootId(file.dbRootId);
+      const adapterRootId = file.dbRootId === null ? null : resolveAdapterRootId(file.dbRootId);
       if (adapterRootId === null) {
         continue;
       }
@@ -515,7 +515,7 @@ export function SearchResultsTree({
     <div className="flex min-h-0 flex-1 flex-col gap-1">
       {notices?.scanLimited ? (
         <p className="text-muted-foreground text-xs" role="status">
-          Broad pattern — results limited
+          Partial search coverage — some files may not be included
         </p>
       ) : null}
       {notices && notices.skippedMissingLineMetadata > 0 ? (

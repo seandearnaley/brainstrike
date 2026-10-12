@@ -14,7 +14,16 @@ describe('Python runtime electron-builder beforePack hook', () => {
   it('prepares Linux when --linux targets Linux from a Darwin host', async () => {
     vi.stubGlobal('process', { ...process, platform: 'darwin' });
     await beforePack({ arch: Arch.x64, electronPlatformName: 'linux' });
-    expect(fetchPythonRuntime).toHaveBeenCalledExactlyOnceWith({ platform: 'linux' });
+    expect(fetchPythonRuntime).toHaveBeenCalledExactlyOnceWith({ arch: 'x64', platform: 'linux' });
+  });
+
+  it('prepares Linux arm64 rather than the cross-packaging host architecture', async () => {
+    vi.stubGlobal('process', { ...process, arch: 'x64', platform: 'darwin' });
+    await beforePack({ arch: Arch.arm64, electronPlatformName: 'linux' });
+    expect(fetchPythonRuntime).toHaveBeenCalledExactlyOnceWith({
+      arch: 'arm64',
+      platform: 'linux',
+    });
   });
 
   it.each([Arch.x64, Arch.arm64, Arch.universal])(
@@ -26,7 +35,7 @@ describe('Python runtime electron-builder beforePack hook', () => {
     }
   );
 
-  it.each([Arch.arm64, Arch.armv7l, Arch.ia32, Arch.universal])(
+  it.each([Arch.armv7l, Arch.ia32, Arch.universal])(
     'rejects unsupported Linux architecture %s before preparation',
     async (arch) => {
       await expect(beforePack({ arch, electronPlatformName: 'linux' })).rejects.toThrow(

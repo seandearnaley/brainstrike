@@ -5,6 +5,10 @@ import test from 'node:test';
 const pkg = JSON.parse(
   readFileSync(new URL('../../apps/desktop/package.json', import.meta.url), 'utf8')
 );
+const launcher = readFileSync(
+  new URL('../../apps/desktop/scripts/packaged-python-smoke.mjs', import.meta.url),
+  'utf8'
+);
 const probe = readFileSync(
   new URL(
     '../../apps/desktop/src/__tests__/fixtures/packaged-python-fence-probe.cjs',
@@ -17,10 +21,17 @@ test('manual packaged qualification commands retain distinct layout and full-fen
   assert(pkg.scripts['test:packaged-python-layout'].endsWith('--layout-only'));
   assert(!pkg.scripts['test:packaged-python'].includes('--layout-only'));
   for (const name of ['test:packaged-python-layout', 'test:packaged-python']) {
-    assert(pkg.scripts[name].includes('ELECTRON_RUN_AS_NODE=1'));
-    assert(pkg.scripts[name].includes('./release/linux-unpacked/brainstrike-desktop'));
+    assert(pkg.scripts[name].startsWith('node scripts/packaged-python-smoke.mjs'));
     assert(!pkg.scripts[name].includes('--no-sandbox'));
   }
+  assert(launcher.includes("env.ELECTRON_RUN_AS_NODE = '1'"));
+  assert(launcher.includes("arm64: 'linux-arm64-unpacked', x64: 'linux-unpacked'"));
+  assert(launcher.includes("'release', directory, 'brainstrike-desktop'"));
+  assert(launcher.includes('...process.argv.slice(2)'));
+  assert(launcher.includes('if (result.error)'));
+  assert(launcher.includes('if (result.signal)'));
+  assert(launcher.includes('process.exitCode = result.status'));
+  assert(!launcher.includes('--no-sandbox'));
 });
 
 test('the retained real probe verifies physical layout and distinct filesystem/seccomp controls', () => {

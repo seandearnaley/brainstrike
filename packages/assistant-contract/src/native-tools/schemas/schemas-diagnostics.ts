@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { QUERY_SELF_TARGETS } from '../../lenses.js';
 
 // ============================================================================
 // Query Self Tool Schema
@@ -49,6 +50,11 @@ export const QuerySelfInputSchema = z
       // the scarce prompt budget buys the mode list instead.
       .describe('Required for mode=query and mode=explain'),
     table: z.string().max(128).optional().describe('Table name. Required for mode=describeTable'),
+    target: z
+      .enum(QUERY_SELF_TARGETS)
+      .describe(
+        'Database target: app for history and diagnostics; index for derived code/search data. Required in every mode'
+      ),
     values: z
       .array(z.string().max(500))
       .max(8)

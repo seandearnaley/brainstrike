@@ -27,14 +27,6 @@ interface StageBenchmarkResult {
   startedAt: string;
 }
 
-interface WorkspaceIndexDebugSnapshot {
-  runtimeReadiness?: {
-    message?: string | null;
-    missingDependencies?: string[];
-    serviceAvailable?: boolean;
-  };
-}
-
 const MODE_ENV = 'BRAINSTRIKE_WORKSPACE_INDEX_STAGE_BENCHMARK_MODE';
 const CHUNK_COUNT_ENV = 'BRAINSTRIKE_WORKSPACE_INDEX_STAGE_BENCHMARK_CHUNKS';
 const DIMENSIONS_ENV = 'BRAINSTRIKE_WORKSPACE_INDEX_STAGE_BENCHMARK_DIMENSIONS';
@@ -70,34 +62,34 @@ async function waitForWorkspaceIndexDebugApi(page: Page): Promise<void> {
     () =>
       typeof (
         globalThis as typeof globalThis & {
-          __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: unknown;
+          __BRAINSTRIKE_WORKSPACE_INDEX_STAGE__?: unknown;
         }
-      ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ === 'object',
+      ).__BRAINSTRIKE_WORKSPACE_INDEX_STAGE__ === 'object',
     undefined,
     { timeout: 60_000 }
   );
 }
 
-async function waitForWorkspaceIndexBenchmarkReadiness(page: Page): Promise<void> {
+async function waitForWorkspaceIndexBenchmarkReadiness(
+  page: Page,
+  mode: StageBenchmarkMode
+): Promise<void> {
   await page.waitForFunction(
-    async () => {
+    (requestedMode) => {
       const api = (
         globalThis as typeof globalThis & {
-          __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: {
-            snapshot?: () => Promise<WorkspaceIndexDebugSnapshot>;
+          __BRAINSTRIKE_WORKSPACE_INDEX_STAGE__?: {
+            readiness: (mode: StageBenchmarkMode) => {
+              ready: boolean;
+              missingDependencies: string[];
+            };
           };
         }
-      ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__;
-      if (typeof api?.snapshot !== 'function') {
-        return false;
-      }
-      const snapshot = await api.snapshot();
-      const missingDependencies = snapshot.runtimeReadiness?.missingDependencies ?? [];
-      return (
-        snapshot.runtimeReadiness?.serviceAvailable === true && missingDependencies.length === 0
-      );
+      ).__BRAINSTRIKE_WORKSPACE_INDEX_STAGE__;
+      const state = api?.readiness(requestedMode);
+      return state?.ready === true && state.missingDependencies.length === 0;
     },
-    undefined,
+    mode,
     { timeout: 60_000 }
   );
 }
@@ -109,15 +101,15 @@ async function runStageBenchmark(
   return await page.evaluate(async (benchmarkRequest) => {
     const api = (
       globalThis as typeof globalThis & {
-        __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: {
-          benchmarkStage?: (request: typeof benchmarkRequest) => Promise<StageBenchmarkResult>;
+        __BRAINSTRIKE_WORKSPACE_INDEX_STAGE__?: {
+          run?: (request: typeof benchmarkRequest) => Promise<StageBenchmarkResult>;
         };
       }
-    ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__;
-    if (typeof api?.benchmarkStage !== 'function') {
-      throw new Error('window.__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__.benchmarkStage is unavailable');
+    ).__BRAINSTRIKE_WORKSPACE_INDEX_STAGE__;
+    if (typeof api?.run !== 'function') {
+      throw new Error('window.__BRAINSTRIKE_WORKSPACE_INDEX_STAGE__.run is unavailable');
     }
-    return await api.benchmarkStage(benchmarkRequest);
+    return await api.run(benchmarkRequest);
   }, request);
 }
 
@@ -134,7 +126,7 @@ test.describe('Workspace Index stage benchmark', () => {
     };
 
     await waitForWorkspaceIndexDebugApi(page);
-    await waitForWorkspaceIndexBenchmarkReadiness(page);
+    await waitForWorkspaceIndexBenchmarkReadiness(page, mode);
     const result = await runStageBenchmark(page, request);
 
     expect(result.mode).toBe(mode);

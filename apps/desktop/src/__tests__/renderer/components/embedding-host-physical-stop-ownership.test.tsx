@@ -1,4 +1,5 @@
 import './embedding-host-foreground-ownership-fixture';
+import { EventEmitter } from 'node:events';
 import {
   registerEmbeddingQueueFactory,
   resetEmbeddingQueueFactory,
@@ -18,13 +19,19 @@ import {
   EMBEDDING_HOST_QUERY_EMBEDDING_CANCEL_EVENT,
   EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT,
 } from '../../../embedding-host-shared';
+import { registerEmbeddingHostIpcHandlers } from '../../../ipc-embedding-host';
+import { DESKTOP_IPC_CHANNELS } from '../../../platform/desktop-ipc-channels';
 import { getEmbeddingHostBridge } from '../../../renderer/components/embedding-host-bridge';
 import { EmbeddingHostRuntime } from '../../../renderer/components/embedding-host-runtime';
+import { generateDesktopQueryEmbedding } from '../../../renderer/query-embeddings';
+import { assignWindowRole, clearWindowRoleByWebContentsId } from '../../../window-role';
+import { createAllowlistedSenderFrame } from '../../helpers/desktop-ipc-sender-frame-test-allowlist';
 import {
   commandListenerRef,
   dbHandle,
   hostWindow,
   installEmbeddingHostRuntimeFixture,
+  ipcHandlers,
   queryEmbeddingCancelListenerRef,
   queryEmbeddingListenerRef,
   reportQueryEmbeddingResponseMock,
@@ -33,6 +40,9 @@ import {
   stopMock,
   storeState,
 } from './embedding-host-foreground-ownership-fixture';
+
+const failureCauses = (error: unknown): unknown[] =>
+  error instanceof AggregateError ? error.errors.flatMap(failureCauses) : [error];
 
 const query = {
   dimensions: 2,
@@ -146,6 +156,7 @@ async function connectControlledQuery(options?: { cancellationCapability?: boole
     add,
     cancel,
     dispose,
+    fail: (error: unknown) => held.reject(error),
     finish,
     isPhysicallyActive: () => physicallyActive,
     manager,
@@ -155,6 +166,66 @@ async function connectControlledQuery(options?: { cancellationCapability?: boole
 
 describe('committed readiness fix physical query ownership controls', () => {
   installEmbeddingHostRuntimeFixture();
+
+  it('joins the visible query IPC promise through the actual hidden service and held queue', async () => {
+    const run = await connectControlledQuery();
+    const requester = Object.assign(new EventEmitter(), { id: 901, send: vi.fn() });
+    assignWindowRole(
+      { isDestroyed: () => false, once: vi.fn(), webContents: requester } as never,
+      'visible-ui'
+    );
+    const unregister = registerEmbeddingHostIpcHandlers(run.manager);
+    onTestFinished(() => {
+      unregister();
+      clearWindowRoleByWebContentsId(requester.id);
+    });
+    const invoke = (channel: string, ...args: unknown[]): Promise<unknown> => {
+      const handler = ipcHandlers.get(channel);
+      if (!handler) {
+        throw new Error('Missing visible query IPC');
+      }
+      return Promise.resolve(
+        handler({ sender: requester, senderFrame: createAllowlistedSenderFrame() }, ...args)
+      );
+    };
+    const bridge = getEmbeddingHostBridge();
+    if (!bridge) {
+      throw new Error('Missing hidden host fixture bridge');
+    }
+    Object.assign(bridge, {
+      cancelQueryEmbedding: (requestId: string) =>
+        invoke(DESKTOP_IPC_CHANNELS.embeddingHost.cancelQueryEmbedding, requestId),
+      queryEmbedding: (payload: unknown, options: { requestId: string }) =>
+        invoke(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbedding, { payload, ...options }),
+    });
+    const controller = new AbortController();
+    const reason = new Error('Visible search superseded');
+    const settled = vi.fn();
+    const result = generateDesktopQueryEmbedding(query, { signal: controller.signal }).then(
+      (value) => {
+        settled(value);
+        return value;
+      },
+      (error: unknown) => {
+        settled(error);
+        return error;
+      }
+    );
+    await act(async () => {});
+    expect(settled).not.toHaveBeenCalled();
+    await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
+    controller.abort(reason);
+    await act(async () => {});
+    expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    expect(run.isPhysicallyActive()).toBe(true);
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
+    expect(settled).not.toHaveBeenCalled();
+    expect(run.cancel).not.toHaveBeenCalled();
+    run.finish();
+    await expect(result).resolves.toBe(reason);
+    expect(run.isPhysicallyActive()).toBe(false);
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
+  });
 
   it('joins actual query queue settlement before manual host Stop disposes its service', async () => {
     const run = await connectControlledQuery();
@@ -168,17 +239,14 @@ describe('committed readiness fix physical query ownership controls', () => {
     await act(async () => {});
     expect(run.manager.getStatus().state).toBe('stopping');
     expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
-    expect(await oldQuery).toMatchObject({
-      message: expect.stringContaining(
-        'Embedding host stopped while query embedding requests were in flight.'
-      ),
-    });
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
     expect(run.isPhysicallyActive()).toBe(true);
     expect(run.dispose).not.toHaveBeenCalled();
     expect(run.cancel).not.toHaveBeenCalled();
     reportStatusMock.mockClear();
     run.finish();
     await expect(stopping).resolves.toMatchObject({ state: 'stopped' });
+    expect(await oldQuery).toBeInstanceOf(Error);
     expect(run.dispose).toHaveBeenCalledOnce();
     await waitFor(() => expect(run.isPhysicallyActive()).toBe(false));
     await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledOnce());
@@ -200,17 +268,14 @@ describe('committed readiness fix physical query ownership controls', () => {
     await act(async () => {});
     expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
     expect(run.manager.getStatus().state).toBe('starting');
-    expect(await oldQuery).toMatchObject({
-      message: expect.stringContaining(
-        'Embedding host reset while query embedding requests were in flight.'
-      ),
-    });
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
     expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);
     expect(run.isPhysicallyActive()).toBe(true);
     expect(run.dispose).not.toHaveBeenCalled();
     expect(run.cancel).not.toHaveBeenCalled();
     run.finish();
     await expect(resetting).resolves.toMatchObject({ state: 'running' });
+    expect(await oldQuery).toBeInstanceOf(Error);
     expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(2);
     expect(run.dispose).toHaveBeenCalledOnce();
     await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledOnce());
@@ -289,6 +354,52 @@ describe('committed readiness fix physical query ownership controls', () => {
     }
   );
 
+  it('keeps the public query cancellation pending while the actual queue is held', async () => {
+    const run = await connectControlledQuery();
+    const controller = new AbortController();
+    const reason = { source: 'caller' };
+    const settled = vi.fn();
+    const result = run.manager
+      .queryEmbedding(query, { signal: controller.signal })
+      .catch((error: unknown) => {
+        settled();
+        return error;
+      });
+    await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
+    controller.abort(reason);
+    await act(async () => {});
+    expect(settled).not.toHaveBeenCalled();
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
+    expect(run.isPhysicallyActive()).toBe(true);
+    expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    expect(reportQueryEmbeddingResponseMock).not.toHaveBeenCalled();
+    run.finish();
+    await expect(result).resolves.toBe(reason);
+    expect(run.isPhysicallyActive()).toBe(false);
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
+  });
+
+  it('joins an independent queue AbortError without replacing it with the caller reason', async () => {
+    const run = await connectControlledQuery();
+    const controller = new AbortController();
+    const reason = new Error('caller stopped');
+    const result = run.manager
+      .queryEmbedding(query, { signal: controller.signal })
+      .catch((error: unknown) => error);
+    await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
+    controller.abort(reason);
+    await act(async () => {});
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
+    run.fail(new DOMException('independent queue abort', 'AbortError'));
+    const causes = failureCauses(await result);
+    expect(causes).toEqual([
+      reason,
+      expect.objectContaining({ message: 'independent queue abort', name: 'AbortError' }),
+    ]);
+    expect(run.isPhysicallyActive()).toBe(false);
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
+  });
+
   it('signals only the canceled active request while retaining its physical queue ownership', async () => {
     const run = await connectControlledQuery();
     const controller = new AbortController();
@@ -304,12 +415,13 @@ describe('committed readiness fix physical query ownership controls', () => {
     );
     const reason = new Error('Request canceled');
     controller.abort(reason);
-    expect(await result).toBe(reason);
+    await act(async () => {});
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
     const canceledSignal = run.add.mock.calls[0]?.[1]?.signal;
     const cancellationReason: unknown = canceledSignal?.reason;
     queryEmbeddingCancelListenerRef.current?.(createEmbeddingHostQueryEmbeddingCancel(request));
     expect(canceledSignal?.reason).toBe(cancellationReason);
-    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
     expect(run.isPhysicallyActive()).toBe(true);
     expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
     expect(run.cancel).not.toHaveBeenCalled();
@@ -322,13 +434,14 @@ describe('committed readiness fix physical query ownership controls', () => {
     expect(run.add).toHaveBeenCalledOnce();
     expect(run.dispose).not.toHaveBeenCalled();
     run.finish();
+    await expect(result).resolves.toBe(reason);
     await expect(sibling).resolves.toHaveLength(2);
     await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledTimes(2));
     expect(run.add.mock.calls[1]?.[1]?.signal?.aborted).toBe(false);
     expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
   });
   it.each(['abort', 'timeout'] as const)(
-    'surfaces a failed %s cancellation send while preserving valid sibling ownership',
+    'joins shared Stop after a failed %s cancellation send and preserves its causes',
     async (reason) => {
       const run = await connectControlledQuery();
       const timeoutWarnings: (readonly unknown[])[] = [];
@@ -371,10 +484,10 @@ describe('committed readiness fix physical query ownership controls', () => {
         });
         vi.useRealTimers();
       }
-      expect(await request).toMatchObject({
-        cause: transportFailure,
-        message: 'Embedding host query cancellation could not be sent.',
-      });
+      await act(async () => {});
+      expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
+      expect(run.isPhysicallyActive()).toBe(true);
+      expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
       if (reason === 'timeout') {
         expect(timeoutWarnings).toEqual([
           [
@@ -389,19 +502,27 @@ describe('committed readiness fix physical query ownership controls', () => {
           ],
         ]);
       }
-      expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
-      expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
-      const sibling = run.manager.queryEmbedding({
-        ...query,
-        modelId: 'model-b',
-        modelKey: 'local:model-b',
-      });
-      await act(async () => {});
-      expect(run.add).toHaveBeenCalledOnce();
       expect(hostWindow.isDestroyed()).toBe(false);
       run.finish();
-      await expect(sibling).resolves.toHaveLength(2);
-      expect(run.add.mock.calls[1]?.[1]?.signal?.aborted).toBe(false);
+      const failure = await request;
+      expect(failure).toBeInstanceOf(AggregateError);
+      const causes = failureCauses(failure);
+      expect(causes).toContainEqual(
+        expect.objectContaining({
+          cause: transportFailure,
+          message: 'Embedding host query cancellation could not be sent.',
+        })
+      );
+      expect(causes).toContainEqual(
+        expect.objectContaining({
+          message:
+            reason === 'abort'
+              ? 'Ordinary cancellation reason'
+              : expect.stringContaining('timed out after 60000ms'),
+        })
+      );
+      expect(run.isPhysicallyActive()).toBe(false);
+      expect(run.add).toHaveBeenCalledOnce();
       expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
     }
   );
@@ -416,10 +537,10 @@ describe('committed readiness fix physical query ownership controls', () => {
     expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
   });
   it.each(['abort', 'timeout'] as const)(
-    'skips all preparation for a queued request abandoned by %s and still runs its sibling',
+    'joins queued request %s before releasing identity and skips its preparation',
     async (reason) => {
       const run = await connectControlledQuery();
-      const active = run.manager.queryEmbedding(query);
+      const active = run.manager.queryEmbedding(query).catch((error: unknown) => error);
       await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
       const controller = new AbortController();
       if (reason === 'timeout') {
@@ -444,29 +565,41 @@ describe('committed readiness fix physical query ownership controls', () => {
         });
         vi.useRealTimers();
       }
-      expect(await queued).toMatchObject({
-        message:
-          reason === 'abort'
-            ? 'Queued request canceled'
-            : expect.stringContaining('timed out after 60000ms'),
-      });
-      const sibling = run.manager.queryEmbedding({
-        ...query,
-        modelId: 'model-c',
-        modelKey: 'local:model-c',
-      });
       await act(async () => {});
+      expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(2);
       expect(run.add).toHaveBeenCalledOnce();
-      expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(false);
+      expect(run.add.mock.calls[0]?.[1]?.signal?.aborted).toBe(reason === 'timeout');
+      const sibling =
+        reason === 'abort'
+          ? run.manager.queryEmbedding({
+              ...query,
+              modelId: 'model-c',
+              modelKey: 'local:model-c',
+            })
+          : null;
       run.finish();
-      await expect(active).resolves.toHaveLength(2);
-      await expect(sibling).resolves.toHaveLength(2);
-      await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledTimes(3));
-      expect(run.add).toHaveBeenCalledTimes(2);
-      expect(dbHandle.query.mock.calls.map(([, values]) => values)).toEqual([
-        ['model-a'],
-        ['model-c'],
-      ]);
+      expect(failureCauses(await queued)).toContainEqual(
+        expect.objectContaining({
+          message:
+            reason === 'abort'
+              ? 'Queued request canceled'
+              : expect.stringContaining('timed out after 60000ms'),
+        })
+      );
+      if (sibling) {
+        await expect(active).resolves.toHaveLength(2);
+        await expect(sibling).resolves.toHaveLength(2);
+        await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledTimes(3));
+        expect(run.add).toHaveBeenCalledTimes(2);
+        expect(dbHandle.query.mock.calls.map(([, values]) => values)).toEqual([
+          ['model-a'],
+          ['model-c'],
+        ]);
+      } else {
+        expect(await active).toBeInstanceOf(Error);
+        expect(run.add).toHaveBeenCalledOnce();
+        expect(dbHandle.query.mock.calls.map(([, values]) => values)).toEqual([['model-a']]);
+      }
       expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
     }
   );
@@ -504,11 +637,12 @@ describe('committed readiness fix physical query ownership controls', () => {
       });
       await act(async () => {});
       controller.abort(new Error('Preparation canceled'));
-      expect(await head).toMatchObject({ message: 'Preparation canceled' });
+      expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(2);
       expect(run.add).not.toHaveBeenCalled();
       expect(run.dispose).not.toHaveBeenCalled();
       expect(dbHandle.query).toHaveBeenCalledOnce();
       held.resolve();
+      expect(await head).toMatchObject({ message: 'Preparation canceled' });
       await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
       run.finish();
       await expect(sibling).resolves.toHaveLength(2);
@@ -563,9 +697,8 @@ describe('committed readiness fix physical query ownership controls', () => {
         .map(([, payload]) => assertEmbeddingHostQueryEmbeddingRequest(payload));
       const cancelListener = queryEmbeddingCancelListenerRef.current;
       const transition = action === 'stop' ? run.manager.stop() : run.manager.reset();
-      expect(await active).toBeInstanceOf(Error);
-      expect(await queued).toBeInstanceOf(Error);
-      expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
+      await act(async () => {});
+      expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(2);
       for (const request of requests) {
         cancelListener?.(createEmbeddingHostQueryEmbeddingCancel(request));
       }
@@ -574,6 +707,9 @@ describe('committed readiness fix physical query ownership controls', () => {
       await expect(transition).resolves.toMatchObject({
         state: action === 'stop' ? 'stopped' : 'running',
       });
+      expect(await active).toBeInstanceOf(Error);
+      expect(await queued).toBeInstanceOf(Error);
+      expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
       await waitFor(() => expect(reportQueryEmbeddingResponseMock).toHaveBeenCalledTimes(2));
       expect(dbHandle.query).toHaveBeenCalledOnce();
       if (action === 'reset') {
@@ -756,7 +892,8 @@ describe('committed readiness fix physical query ownership controls', () => {
           return error;
         }
       );
-      await request;
+      await act(async () => {});
+      expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
       await act(async () => {
         await vi.advanceTimersByTimeAsync(deadline - 1);
       });
@@ -768,6 +905,8 @@ describe('committed readiness fix physical query ownership controls', () => {
         await vi.advanceTimersByTimeAsync(1);
       });
       await operation;
+      expect(await request).toBeInstanceOf(Error);
+      expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
       expect(settled).toBe(true);
       expect(hostWindow.isDestroyed()).toBe(true);
       expect(startEmbeddingWorkerMock).toHaveBeenCalledTimes(1);

@@ -32,7 +32,7 @@ export type WorkspaceSearchChild = WorkspaceSearchTextMatch | WorkspaceSearchChu
 export interface WorkspaceSearchFileResult {
   children: readonly WorkspaceSearchChild[];
   /** DB roots.id — translate to adapter rootId at the app-shell seam. */
-  dbRootId: string;
+  dbRootId: string | null;
   /** Present in semantic mode (from chunk.fileRecordId); absent in text mode. */
   fileRecordId?: string;
   path: string;

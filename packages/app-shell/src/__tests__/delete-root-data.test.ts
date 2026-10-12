@@ -1,6 +1,6 @@
 import type { DbHandle } from '@brainstrike/db/react';
 import { describe, expect, it, vi } from 'vitest';
-import { deleteRootDataFromDb } from '../delete-root-data';
+import { deleteRootData, deleteRootDataFromDb } from '../delete-root-data';
 
 function makeDb(queryImpl: (sql: string, params?: unknown[]) => unknown): {
   db: DbHandle;
@@ -52,5 +52,33 @@ describe('deleteRootDataFromDb', () => {
     const { db } = makeDb(() => ({ rows: [] }));
 
     await expect(deleteRootDataFromDb(db, 'some-root')).resolves.toBeUndefined();
+  });
+});
+
+describe('platform root deletion routing', () => {
+  it('awaits the injected desktop capability without touching renderer PG', async () => {
+    const { db, query } = makeDb(() => ({ affectedRows: 1, rows: [] }));
+    const held = Promise.withResolvers<void>();
+    const capability = vi.fn(() => held.promise);
+    const deletion = deleteRootData(db, 'durable-root', capability);
+    expect(capability).toHaveBeenCalledWith('durable-root');
+    expect(query).not.toHaveBeenCalled();
+    held.resolve();
+    await deletion;
+  });
+  it('propagates desktop cleanup failure without PG fallback', async () => {
+    const { db, query } = makeDb(() => ({ affectedRows: 1, rows: [] }));
+    await expect(
+      deleteRootData(db, 'root', async () => {
+        throw new Error('Physical cleanup failed');
+      })
+    ).rejects.toThrow('Physical cleanup failed');
+    expect(query).not.toHaveBeenCalled();
+  });
+  it('retains web PG deletion when no platform capability is supplied', async () => {
+    const { db, query } = makeDb(() => ({ affectedRows: 1, rows: [] }));
+    await deleteRootData(db, '/web/path');
+    expect(query).toHaveBeenCalledOnce();
+    await expect(deleteRootData(null, 'root')).rejects.toThrow('database is not ready');
   });
 });

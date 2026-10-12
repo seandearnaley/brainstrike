@@ -54,6 +54,31 @@ describe('ElectronProcessExitGuard', () => {
     expect(() => guard.assertHealthy()).not.toThrow();
   });
 
+  it('fails when Electron aborts during intentional teardown', () => {
+    const guard = new ElectronProcessExitGuard();
+    const process = new FakeElectronProcess();
+    guard.observe(process);
+    guard.beginIntentionalClose(process);
+
+    process.exit(null, 'SIGABRT');
+
+    expect(() => guard.assertHealthy()).toThrowError(
+      'Electron process exited unexpectedly during intentional close (code=null, signal=SIGABRT)'
+    );
+  });
+
+  it.each([
+    [1, null],
+    [null, 'SIGSEGV'],
+  ] as const)('rejects abnormal teardown exit %s/%s', (code, signal) => {
+    const guard = new ElectronProcessExitGuard();
+    const process = new FakeElectronProcess();
+    guard.observe(process);
+    guard.beginIntentionalClose(process);
+    process.exit(code, signal);
+    expect(() => guard.assertHealthy()).toThrow('during intentional close');
+  });
+
   it('accepts a forced exit after intentional teardown begins', () => {
     const guard = new ElectronProcessExitGuard();
     const process = new FakeElectronProcess();

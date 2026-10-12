@@ -2,6 +2,7 @@
 
 import {
   assertEmbedWorkerRequestControl,
+  createEmbedWorkerRequestCancellationError,
   EMBED_WORKER_INSTANCE_NAME_PREFIX,
   EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
@@ -13,6 +14,7 @@ import type {
   Tensor as TransformersTensor,
 } from '@huggingface/transformers';
 import { Transfer, worker, workerEmit } from 'workerpool';
+import { extractEmbeddingBatch } from './embedding-input-plan';
 import {
   createEmbeddingPipelineCacheController,
   type PipelineCacheDiagnosticSink,
@@ -166,9 +168,7 @@ function throwIfWorkerpoolRequestCanceled(id: string): void {
   if (!canceledWorkerpoolRequestIds.delete(id)) {
     return;
   }
-  const error = new Error('Embedding task was aborted.');
-  error.name = 'AbortError';
-  throw error;
+  throw createEmbedWorkerRequestCancellationError(id);
 }
 
 function isAbortError(error: unknown): error is Error {
@@ -321,6 +321,7 @@ interface TransformersRuntime {
     options: {
       readonly device: EmbeddingDevice;
       readonly dtype: EmbeddingDType;
+      readonly revision?: string;
     }
   ) => Promise<FeatureExtractionPipeline>;
   readonly tensorConstructor: unknown;
@@ -758,10 +759,15 @@ function inferDevice(hint: EmbeddingDeviceHint | undefined): EmbeddingDevice {
 async function createFeatureExtractor(
   model: string,
   device: EmbeddingDevice,
-  dtype: EmbeddingDType
+  dtype: EmbeddingDType,
+  revision?: string
 ): Promise<FeatureExtractor> {
   const runtime = await getTransformersRuntime();
-  const result = await runtime.pipeline('feature-extraction', model, { device, dtype });
+  const result = await runtime.pipeline('feature-extraction', model, {
+    device,
+    dtype,
+    ...(revision === undefined ? {} : { revision }),
+  });
 
   if (device !== 'webgpu') {
     return result as FeatureExtractor;
@@ -785,7 +791,8 @@ async function loadPipeline(
   diagnostics: {
     readonly id?: string;
     readonly sink?: PipelineCacheDiagnosticSink;
-  } = {}
+  } = {},
+  revision?: string
 ): Promise<FeatureExtractor> {
   debugLog('Loading pipeline', { device, dtype, model });
   return pipelineCacheController.load({
@@ -794,6 +801,7 @@ async function loadPipeline(
     dtype,
     estimatedModelBytes,
     model,
+    ...(revision === undefined ? {} : { revision }),
   });
 }
 
@@ -873,6 +881,7 @@ interface EmbeddingContext {
   readonly id: string;
   readonly model: string;
   readonly provider?: string;
+  readonly revision?: string;
   readonly started: number;
   readonly targetDimension?: number;
   readonly texts: readonly string[];
@@ -888,6 +897,12 @@ interface EmbeddingState {
 }
 
 function createContext(payload: EmbedWorkerRequest): EmbeddingContext {
+  if (
+    payload.revision !== undefined &&
+    !(typeof payload.revision === 'string' && payload.revision.length > 0)
+  ) {
+    throw new Error('Embedding worker revision must be a non-empty string.');
+  }
   const requestedDimension = payload.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
   const estimatedModelBytes = payload.estimatedModelBytes ?? null;
   if (
@@ -903,6 +918,7 @@ function createContext(payload: EmbedWorkerRequest): EmbeddingContext {
     estimatedModelBytes,
     id: payload.id,
     model: payload.model,
+    ...(payload.revision === undefined ? {} : { revision: payload.revision }),
     started: typeof performance === 'undefined' ? Date.now() : performance.now(),
     targetDimension: requestedDimension,
     texts: payload.texts,
@@ -961,6 +977,7 @@ async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
         elapsedMs: 0,
         fallbackApplied: false,
         model,
+        ...(context.revision === undefined ? {} : { revision: context.revision }),
       },
       type: 'result',
       vectors: [],
@@ -1002,7 +1019,8 @@ async function processEmbeddings(
     state.device,
     context.dtype,
     context.estimatedModelBytes,
-    { id: context.id }
+    { id: context.id },
+    context.revision
   );
   throwIfWorkerpoolRequestCanceled(context.id);
   const vectors = await runBatches(context, state, extractor);
@@ -1117,19 +1135,17 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
     {
       id: context.id,
       sink: postStreamEvent,
-    }
+    },
+    context.revision
   );
   const runtime = await getTransformersRuntime();
   let batchIndex = 0;
   let dimensions = context.truncateDim ?? 0;
   let peakVectorsInFlight = 0;
-  for (let startIndex = 0; startIndex < total; startIndex += state.batchSize) {
-    const endIndex = Math.min(total, startIndex + state.batchSize);
+  let startIndex = 0;
+  for (const endIndex of createBatchEnds(context, state)) {
     const slice = texts.slice(startIndex, endIndex);
-    const rawOutput = await extractor(slice, {
-      normalize: false,
-      pooling: 'mean',
-    });
+    const rawOutput = await extractEmbeddingBatch(extractor, slice);
     const vectorsFromBatch = isTransformersTensor(rawOutput, runtime)
       ? convertTensorToVectors(rawOutput, truncateDim)
       : vectorsFromPipelineOutput(rawOutput, truncateDim);
@@ -1173,6 +1189,7 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
 
     await waitForBatchAck(id, batchIndex);
     batchIndex += 1;
+    startIndex = endIndex;
   }
 
   const finished = typeof performance === 'undefined' ? Date.now() : performance.now();
@@ -1186,6 +1203,7 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
       elapsedMs: finished - started,
       fallbackApplied: state.fallbackApplied,
       model: context.model,
+      ...(context.revision === undefined ? {} : { revision: context.revision }),
     },
     type: 'complete',
   });
@@ -1200,17 +1218,11 @@ async function runBatches(
   const { texts, truncateDim, id, total } = context;
   const runtime = await getTransformersRuntime();
 
-  for (let startIndex = 0; startIndex < total; startIndex += state.batchSize) {
+  let startIndex = 0;
+  for (const endIndex of createBatchEnds(context, state)) {
     throwIfWorkerpoolRequestCanceled(id);
-    const endIndex = Math.min(total, startIndex + state.batchSize);
     const slice = texts.slice(startIndex, endIndex);
-    // Truncation is handled internally by FeatureExtractionPipeline - it passes
-    // `truncation: true` to the tokenizer automatically. The tokenizer respects
-    // the model's configured `model_max_length` to prevent ONNX/WASM crashes.
-    const rawOutput = await extractor(slice, {
-      normalize: false,
-      pooling: 'mean',
-    });
+    const rawOutput = await extractEmbeddingBatch(extractor, slice);
     const vectorsFromBatch = isTransformersTensor(rawOutput, runtime)
       ? convertTensorToVectors(rawOutput, truncateDim)
       : vectorsFromPipelineOutput(rawOutput, truncateDim);
@@ -1232,9 +1244,18 @@ async function runBatches(
       progress: normalizeProgress(endIndex / total),
       type: 'progress',
     });
+    startIndex = endIndex;
   }
 
   return vectors;
+}
+
+function createBatchEnds(context: EmbeddingContext, state: EmbeddingState): number[] {
+  const ends: number[] = [];
+  for (let start = 0; start < context.total; start += state.batchSize) {
+    ends.push(Math.min(context.total, start + state.batchSize));
+  }
+  return ends;
 }
 
 function buildSuccessResult(
@@ -1260,6 +1281,7 @@ function buildSuccessResult(
       elapsedMs: finished - context.started,
       fallbackApplied: state.fallbackApplied,
       model: context.model,
+      ...(context.revision === undefined ? {} : { revision: context.revision }),
     },
     type: 'result',
     vectors,

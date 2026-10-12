@@ -2,6 +2,8 @@
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { acquireProfileResetLease } from '@brainstrike/host-lease';
+import { RootLock } from '@brainstrike/state-store';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { resolveDatabaseLocation } from '../../database-location';
 import { resetDesktopApplicationData } from '../../desktop-factory-reset';
@@ -41,6 +43,37 @@ describe('factory reset with the packaged macOS database layout', () => {
     writeFileSync(path.join(userData, 'logs', 'brainstrike.log'), 'kept');
     return { pgdata, root: rootPath };
   }
+
+  it('preserves the live reset namespace and every ancestor through the packaged userData purge', async () => {
+    const { pgdata, root } = seedPackagedProfile();
+    const profile = path.dirname(pgdata);
+    writeFileSync(path.join(profile, 'state.db'), 'state');
+    writeFileSync(path.join(profile, 'index.db-wal'), 'index');
+    const lease = await acquireProfileResetLease(profile);
+    try {
+      const result = await resetDesktopApplicationData({
+        getProtectedPaths: () => [RootLock.dirOf(lease.root)],
+        resetDatabaseProfile: async () => {
+          await lease.clearRootContents();
+          expect(existsSync(path.join(profile, 'state.db'))).toBe(false);
+          expect(existsSync(path.join(profile, 'index.db-wal'))).toBe(false);
+          expect(existsSync(path.join(userData, 'Local Storage'))).toBe(true);
+        },
+        stopBackgroundRuntimes: async () => undefined,
+        userDataPath: userData,
+      });
+      expect(existsSync(root)).toBe(true);
+      expect(existsSync(RootLock.dirOf(lease.root))).toBe(true);
+      expect(existsSync(path.join(root, 'backups'))).toBe(false);
+      expect(existsSync(path.join(userData, 'Local Storage'))).toBe(false);
+      expect(result.preservedPaths).toContain(RootLock.dirOf(lease.root));
+      await expect(RootLock.acquire(profile)).rejects.toMatchObject({ name: 'RootLockedError' });
+    } finally {
+      lease.release();
+    }
+    const next = await RootLock.acquire(profile);
+    next.release();
+  });
 
   it('closes and resets the database before any userData entry is staged, then wipes the data root but keeps logs', async () => {
     const { pgdata, root } = seedPackagedProfile();

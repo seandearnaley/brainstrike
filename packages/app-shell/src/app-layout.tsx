@@ -26,6 +26,7 @@ export function AppLayout({
   currentPath,
   onNavigationClick,
   onOpenSettings,
+  nativeIndexSearch,
 }: AppLayoutProps) {
   useDatabaseStatusSync();
   // Session-wide, mounted once: retired-model remap toasts (BST-565).
@@ -77,7 +78,7 @@ export function AppLayout({
                   <>
                     <GlobalDownloadIndicator />
                     <DiagnosticsStatusItem />
-                    <IndexingStatusItem />
+                    <IndexingStatusItem nativeIndexSearch={nativeIndexSearch ?? null} />
                   </>
                 }
               />

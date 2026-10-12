@@ -4,6 +4,8 @@ import { expect, test } from './fixtures/electron-fixture';
 const BACKGROUND_INDEXING_PREFERENCES_KEY = 'background-indexing-preferences.v1' as const;
 
 interface PersistedBackgroundIndexingPreferences {
+  readonly managedCollectionId: string | null;
+  readonly nativeIndexMode: string | null;
   readonly paused: boolean;
 }
 
@@ -48,15 +50,37 @@ async function readBackgroundIndexingPreferences(
   }
   const parsed = JSON.parse(raw) as { state?: Partial<PersistedBackgroundIndexingPreferences> };
   return {
+    managedCollectionId: parsed.state?.managedCollectionId ?? null,
+    nativeIndexMode: parsed.state?.nativeIndexMode ?? null,
     paused: parsed.state?.paused === true,
   };
 }
 
 test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
-  test('pause and resume the bootstrapped workspace index from settings', async ({
+  test('pause and resume an explicitly configured TEXT collection from settings', async ({
     homePage,
     window,
   }) => {
+    const collectionId = await window.evaluate(async () => {
+      const query = globalThis.window.electronAPI?.db.query;
+      if (!query) {
+        throw new Error('Desktop DB query bridge is unavailable.');
+      }
+      const id = crypto.randomUUID();
+      await query(
+        `INSERT INTO embedding_sets (id, model_key, model_id, dimensions, distance, name)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          id,
+          'local::Xenova/all-MiniLM-L6-v2',
+          'Xenova/all-MiniLM-L6-v2',
+          384,
+          'cosine',
+          'Pause control collection',
+        ]
+      );
+      return id;
+    });
     await homePage.openSettings();
     await expect(window.getByRole('navigation', { name: 'Settings categories' })).toBeVisible();
 
@@ -70,14 +94,21 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
     await expect(window.getByRole('switch', { name: 'Workspace Index' })).toBeChecked({
       timeout: 15_000,
     });
-    await expect(window.locator('#managed-cache-collection')).toContainText('Workspace Index', {
-      timeout: 15_000,
-    });
+    const managedCollection = window.getByRole('combobox', { name: 'Managed collection' });
+    await expect(managedCollection).toContainText('No managed collection', { timeout: 15_000 });
+    await managedCollection.click();
+    await window.getByRole('option', { exact: true, name: 'Pause control collection' }).click();
+    await window.getByRole('combobox', { name: 'Search mode' }).click();
+    await window.getByRole('option', { exact: true, name: 'Text search' }).click();
+    await expect
+      .poll(() => readBackgroundIndexingPreferences(window), { timeout: 15_000 })
+      .toMatchObject({ managedCollectionId: collectionId, nativeIndexMode: 'TEXT', paused: false });
 
     const indexingTrigger = window.getByTestId('indexing-status-trigger');
     const statusBarRight = window.getByTestId('status-bar-right');
     await expect(indexingTrigger).toBeVisible({ timeout: 15_000 });
     await expect(statusBarRight).toContainText('Workspace Index');
+    await expect(indexingTrigger).toContainText('Ready', { timeout: 15_000 });
     const triggerBeforePause = await requireBoundingBox(indexingTrigger);
 
     const pauseButton = settingsPanel.getByRole('button', { name: 'Pause workspace index' });
@@ -122,17 +153,11 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
     await expect(indexingPopover.getByText('Chunks', { exact: true })).toBeVisible();
     const popoverBeforeDiagnostics = await requireBoundingBox(indexingPopover);
 
-    // BST-1335: this test bootstraps the managed collection but never selects a
-    // workspace root, so the sync status is `unconfigured` — setup incomplete,
-    // nothing broken. It previously read 'Blocked' (alarming amber) only because
-    // the no-root case was misclassified as `error`; asserting that again would
-    // re-pin the bug this change removed. The pause control stays hidden either
-    // way: `shouldShowWorkspaceCollectionSyncPauseControl` is an allow-list of
-    // running/pausable states and excludes `unconfigured`.
-    await expect(indexingTrigger).toContainText('No root selected');
+    // An explicitly selected empty native collection is ready and pausable.
+    await expect(indexingTrigger).toContainText('Ready');
     await expect(
       indexingPopover.getByRole('button', { name: 'Pause workspace index' })
-    ).toHaveCount(0);
+    ).toBeVisible();
     await expect(indexingPopover.getByTestId('indexing-action-region')).toHaveClass(/\bh-11\b/);
 
     await indexingPopover.getByRole('button', { name: 'Worker and database diagnostics' }).click();

@@ -134,6 +134,12 @@
       "@brainstrike/mcp-tasks-extension": [
         "./packages/mcp-tasks-extension/src/index.ts"
       ],
+      "@brainstrike/sqlite-native": [
+        "./packages/sqlite-native/src/index.ts"
+      ],
+      "@brainstrike/state-store": [
+        "./packages/state-store/src/index.ts"
+      ],
       "@brainstrike/embeddings": [
         "./packages/embeddings/src"
       ],
@@ -211,6 +217,18 @@
       ],
       "@desktop/*": [
         "./apps/desktop/src/*"
+      ],
+      "@brainstrike/canonical-ingestion": [
+        "./packages/canonical-ingestion/src/index.ts"
+      ],
+      "@brainstrike/host-lease": [
+        "./packages/host-lease/src/index.ts"
+      ],
+      "@brainstrike/indexer": [
+        "./packages/indexer/src/index.ts"
+      ],
+      "@brainstrike/sqlite-query": [
+        "./packages/sqlite-query/src/index.ts"
       ]
     },
     "types": [

@@ -1,4 +1,8 @@
 import path from 'node:path';
+import type {
+  CanonicalSourceSubscription,
+  CanonicalWorkspaceLease,
+} from '@brainstrike/canonical-ingestion';
 import {
   AccessError,
   type DirectoryHandle,
@@ -16,6 +20,7 @@ import {
   type WorkspaceRootsQueryable,
 } from '../assistant-server/workspace-roots';
 import { isFileNotFoundError } from '../file-read-errors';
+import type { RootDataDeletionReservation } from '../native-root-data-deletion';
 import { projectReadDenialDiagnostic, projectReadDenialError } from './read-denial-diagnostic';
 import {
   listRecentRootEntries,
@@ -25,6 +30,7 @@ import {
   recordRecentRootsIfNew,
   resolveGrantedRootHandle,
 } from './workspace-recent-roots';
+import { WorkspaceRootAvailability } from './workspace-root-availability';
 import { WorkspaceRootMountTable } from './workspace-root-mounts';
 import {
   buildDirectoryListing,
@@ -43,6 +49,7 @@ import {
   resolveCanonicalRootPath,
   resolveValidatedReadPath,
 } from './workspace-root-seams';
+import { createWorkspaceRootSourceLease } from './workspace-root-source-lease';
 import {
   clearLastFolderIfMatches,
   readLastFolder,
@@ -59,6 +66,11 @@ import type {
 } from './workspace-root-types';
 
 export type { SecureWorkspaceRoot, StoredWorkspaceRoot } from './workspace-root-types';
+
+export type SubscribeMountedWorkspaceRoot = (
+  mounted: MountedWorkspaceRoot,
+  ...args: Parameters<CanonicalWorkspaceLease['subscribe']>
+) => Promise<CanonicalSourceSubscription>;
 
 const logger = createLogger('WorkspaceRootRegistry');
 
@@ -90,12 +102,20 @@ interface AddRootOptions {
 export class WorkspaceRootRegistry {
   private readonly createSecureRoot: (rootPath: string) => Promise<SecureWorkspaceRoot>;
   private disposed = false;
+  private disposal: Promise<void> | undefined;
   private readonly disposeCommandSessionsForRoot: (rootId: string) => Promise<number>;
   private readonly evictLspServersForRoot: (rootId: string) => Promise<void>;
   private readonly getRootsDatabase: () => Promise<WorkspaceRootsQueryable>;
   private managedWorktreeAuthorizer: ManagedWorktreeAuthorizer | null = null;
   private readonly mounts = new WorkspaceRootMountTable();
+  private readonly availability = new WorkspaceRootAvailability();
   private mutationTail: Promise<void> = Promise.resolve();
+  private rootDataDeletion: RootDataDeletionReservation | undefined;
+  private readonly retiringSourceRoots = new WeakSet<MountedWorkspaceRoot>();
+  private readonly sourceLeases = new Set<{
+    readonly lease: CanonicalWorkspaceLease;
+    readonly mounted: MountedWorkspaceRoot;
+  }>();
   private readonly onRootGranted: ((grantedPath: string) => void) | undefined;
   private readonly pathExists: (rootPath: string) => Promise<boolean>;
   private readonly resolveCanonicalRoot: (rootPath: string) => Promise<string>;
@@ -250,14 +270,140 @@ export class WorkspaceRootRegistry {
     return descriptor;
   }
 
-  dispose(): void {
-    if (this.disposed) {
-      return;
-    }
+  dispose(): Promise<void> {
     this.disposed = true;
-    void this.mutationTail.finally(() => {
-      this.mounts.closeAll();
+    this.disposal ??= Promise.all([this.mutationTail, this.retireSourceLeases()])
+      .then(() => {
+        this.mounts.closeAll();
+        this.availability.clear();
+      })
+      .finally(() => {
+        this.disposal = undefined;
+      });
+    return this.disposal;
+  }
+
+  async borrowSourceRoot(
+    rootId: string,
+    subscribe: SubscribeMountedWorkspaceRoot
+  ): Promise<CanonicalWorkspaceLease> {
+    if (!isDurableRootId(rootId)) {
+      throw new Error('A mounted source borrow requires a durable rootId.');
+    }
+    if (this.rootDataDeletion) {
+      throw new Error('Root data deletion owns workspace read admission.');
+    }
+    await this.mutationTail;
+    this.assertActive();
+    const mounted = this.mounts.get(rootId);
+    if (!mounted) {
+      throw new Error('Canonical source rootId is not mounted.');
+    }
+    return this.borrowMountedSourceRoot(mounted, subscribe);
+  }
+
+  async borrowSourceRootForPath(
+    requestedPath: string,
+    subscribe: SubscribeMountedWorkspaceRoot
+  ): Promise<CanonicalWorkspaceLease> {
+    assertNativeAbsoluteReadPath(requestedPath, 'Watched root path');
+    if (this.rootDataDeletion) {
+      throw new Error('Root data deletion owns workspace read admission.');
+    }
+    await this.mutationTail;
+    this.assertActive();
+    const mounted = this.mounts.findByEitherPath(requestedPath);
+    if (!mounted) {
+      throw new Error('A root watch requires an exact mounted root.');
+    }
+    const resolved = await resolveReadAgainstMountedRoot(
+      requestedPath,
+      mounted,
+      this.resolveReadPath
+    );
+    if (resolved.relativePath !== '.' || resolved.traversedSymlink) {
+      throw new Error('A root watch requires the same canonical mounted root.');
+    }
+    return this.borrowMountedSourceRoot(mounted, subscribe);
+  }
+
+  private borrowMountedSourceRoot(
+    mounted: MountedWorkspaceRoot,
+    subscribe: SubscribeMountedWorkspaceRoot
+  ): CanonicalWorkspaceLease {
+    const rootId = mounted.rootId;
+    this.assertActive();
+    if (
+      this.mounts.get(rootId) !== mounted ||
+      this.retiringSourceRoots.has(mounted) ||
+      this.rootDataDeletion?.mounted === mounted
+    ) {
+      throw new Error('Mounted source root changed during acquisition.');
+    }
+    const lease = createWorkspaceRootSourceLease({
+      assertCurrent: () => {
+        this.assertActive();
+        if (
+          this.mounts.get(rootId) !== mounted ||
+          this.retiringSourceRoots.has(mounted) ||
+          this.rootDataDeletion?.mounted === mounted
+        ) {
+          throw new Error('Mounted source lease was revoked or replaced.');
+        }
+      },
+      mounted,
+      resolveReadPath: this.resolveReadPath,
+      subscribe: (...args) => subscribe(mounted, ...args),
     });
+    const entry = { lease, mounted };
+    const owned: CanonicalWorkspaceLease = {
+      canonicalPath: lease.canonicalPath,
+      generation: lease.generation,
+      listDir: (relativePath, maxEntries, context) =>
+        lease.listDir(relativePath, maxEntries, context),
+      readFile: (relativePath, maxBytes, context) =>
+        lease.readFile(relativePath, maxBytes, context),
+      retire: async () => {
+        await lease.retire();
+        this.sourceLeases.delete(entry);
+      },
+      rootId: lease.rootId,
+      signal: lease.signal,
+      subscribe: (...args) => lease.subscribe(...args),
+    };
+    this.sourceLeases.add(entry);
+    return owned;
+  }
+
+  private async retireSourceLeases(mounted?: MountedWorkspaceRoot): Promise<void> {
+    // Fence path borrows still resolving this exact mount before capturing its leases.
+    // Failed retirement keeps admission closed until the owned cleanup is retried.
+    if (mounted) {
+      this.retiringSourceRoots.add(mounted);
+    }
+    const entries = [...this.sourceLeases].filter(
+      (entry) => mounted === undefined || entry.mounted === mounted
+    );
+    const results = await Promise.allSettled(
+      entries.map(async (entry) => {
+        await entry.lease.retire();
+        this.sourceLeases.delete(entry);
+      })
+    );
+    const errors = results.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : []
+    );
+    if (errors.length > 0) {
+      throw new AggregateError(errors, 'Mounted source lease retirement failed.');
+    }
+  }
+
+  private async unmountSourceRoot(rootId: string): Promise<void> {
+    const mounted = this.mounts.get(rootId);
+    if (mounted) {
+      await this.retireSourceLeases(mounted);
+    }
+    this.mounts.unmount(rootId);
   }
 
   /** Newest-first ledger of previously granted folders. */
@@ -275,6 +421,9 @@ export class WorkspaceRootRegistry {
   }
 
   private async readDirectoryUnlogged(handle: DirectoryHandle): Promise<IFileNode[]> {
+    if (this.rootDataDeletion) {
+      throw new Error('Root data deletion owns workspace read admission.');
+    }
     await this.mutationTail;
     this.assertActive();
     const resolved = await this.resolveRead(handle.path, handle.rootId);
@@ -323,6 +472,9 @@ export class WorkspaceRootRegistry {
     claimedRootPath: string,
     claimedRootId: string
   ): Promise<string> {
+    if (this.rootDataDeletion) {
+      throw new Error('Root data deletion owns workspace read admission.');
+    }
     await this.mutationTail;
     this.assertActive();
     const mounted = this.mounts.get(claimedRootId);
@@ -353,54 +505,118 @@ export class WorkspaceRootRegistry {
     requestedPath: string,
     rootId: string | undefined
   ): Promise<string> {
+    if (this.rootDataDeletion) {
+      throw new Error('Root data deletion owns workspace read admission.');
+    }
     await this.mutationTail;
     this.assertActive();
     const resolved = await this.resolveRead(requestedPath, rootId);
     return readResolvedWorkspaceFile(requestedPath, resolved);
   }
 
-  removeRoot(rootId: string): Promise<void> {
-    return this.serializeMutation(async () => {
-      const entries = await readStoredRootsOrQuarantine(this.storage);
-      const removed = entries.find((entry) => entry.rootId === rootId);
-      if (!removed) {
-        // Unconditional, not session-gated: a quarantined read returns an
-        // empty entries list even for a persisted (non-session) root, so
-        // this branch must retire any live mount for rootId regardless of
-        // session/persisted status — retireMount is already a no-op for an
-        // id that isn't mounted. convergeDatabase then demotes the
-        // now-unmounted path in the DB and evicts DB-id-keyed resources,
-        // since retireMount alone cleans up only under the adapter rootId.
-        await this.retireMount(rootId);
-        await this.convergeDatabase();
-        return;
+  reserveRootDataDeletion(rootId: string): RootDataDeletionReservation {
+    this.assertActive();
+    if (!isDurableRootId(rootId)) {
+      throw new Error('Root data deletion requires a durable root ID.');
+    }
+    if (this.rootDataDeletion) {
+      throw new Error('A root data deletion already owns the mounted registry.');
+    }
+    const mounted = this.mounts.get(rootId);
+    if (!mounted) {
+      throw new Error('Root data deletion requires an actually mounted root.');
+    }
+    const assertCurrent = (): void => {
+      this.assertActive();
+      if (this.rootDataDeletion !== reservation || this.mounts.get(rootId) !== mounted) {
+        throw new Error('The captured root data deletion grant was replaced or retired.');
       }
-
-      const remaining = entries.filter((entry) => entry.rootId !== rootId);
-      await writeStoredRoots(this.storage, remaining);
-      let disconnected: readonly { id: string; path: string }[];
-      try {
-        const db = await this.getRootsDatabase();
-        disconnected = await markRootsDisconnectedExcept(
-          db,
-          this.mounts.persistedMountedPaths(rootId)
-        );
-      } catch (error) {
-        try {
-          await writeStoredRoots(this.storage, entries);
-        } catch (rollbackError) {
-          throw new AggregateError(
-            [error, rollbackError],
-            'Workspace disconnect failed and its persisted-root rollback also failed.'
-          );
+    };
+    const reservation: RootDataDeletionReservation = {
+      assertCurrent,
+      disconnect: async () => {
+        assertCurrent();
+        await this.removeRootOwned(rootId, true);
+      },
+      mounted,
+      release: () => {
+        if (this.rootDataDeletion !== reservation) {
+          throw new Error('Root deletion cannot release a different reservation.');
         }
-        throw error;
-      }
+        this.rootDataDeletion = undefined;
+      },
+      retireSources: async () => {
+        assertCurrent();
+        await this.retireSourceLeases(mounted);
+        await this.cleanupRootResources([rootId], true);
+        assertCurrent();
+      },
+      run: (operation) =>
+        this.serializeMutation(async () => {
+          assertCurrent();
+          await operation();
+        }, reservation),
+    };
+    this.rootDataDeletion = reservation;
+    return reservation;
+  }
 
-      this.mounts.unmount(rootId);
-      await this.cleanupRootResources(disconnected.map((row) => row.id));
+  removeRoot(rootId: string): Promise<void> {
+    return this.serializeMutation(() => this.removeRootOwned(rootId));
+  }
+
+  private async removeRootOwned(rootId: string, resourcesRetired = false): Promise<void> {
+    const entries = await readStoredRootsOrQuarantine(this.storage);
+    const removed = entries.find((entry) => entry.rootId === rootId);
+    const mounted = this.mounts.get(rootId);
+    if (mounted) {
+      await this.retireSourceLeases(mounted);
+    }
+    if (!removed) {
+      // Unconditional, not session-gated: a quarantined read returns an
+      // empty entries list even for a persisted (non-session) root, so
+      // this branch must retire any live mount for rootId regardless of
+      // session/persisted status — retireMount is already a no-op for an
+      // id that isn't mounted. convergeDatabase then demotes the
+      // now-unmounted path in the DB and evicts DB-id-keyed resources,
+      // since retireMount alone cleans up only under the adapter rootId.
+      await this.retireMount(rootId);
+      await this.convergeDatabase();
+      this.availability.forget(rootId);
+      return;
+    }
+
+    const remaining = entries.filter((entry) => entry.rootId !== rootId);
+    await writeStoredRoots(this.storage, remaining);
+    let disconnected: readonly { id: string; path: string }[];
+    try {
+      const db = await this.getRootsDatabase();
+      disconnected = await markRootsDisconnectedExcept(
+        db,
+        this.mounts.persistedMountedPaths(rootId)
+      );
+    } catch (error) {
+      try {
+        await writeStoredRoots(this.storage, entries);
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          'Workspace disconnect failed and its persisted-root rollback also failed.'
+        );
+      }
+      throw error;
+    }
+
+    if (resourcesRetired) {
       await clearLastFolderIfMatches(this.storage, removed.path);
-    });
+      await this.unmountSourceRoot(rootId);
+      this.availability.forget(rootId);
+      return;
+    }
+    await this.unmountSourceRoot(rootId);
+    await this.cleanupRootResources(disconnected.map((row) => row.id));
+    await clearLastFolderIfMatches(this.storage, removed.path);
+    this.availability.forget(rootId);
   }
 
   restoreLastFolder(): Promise<DirectoryHandle | null> {
@@ -427,6 +643,7 @@ export class WorkspaceRootRegistry {
   restoreRoots(): Promise<RootDescriptor[]> {
     return this.serializeMutation(async () => {
       const entries = await readStoredRoots(this.storage);
+      this.availability.retain(entries);
       const descriptors: RootDescriptor[] = [];
       const retainedRootIds = this.mounts.sessionMountIds();
       const retainedCanonicalPaths = new Set<string>();
@@ -435,7 +652,9 @@ export class WorkspaceRootRegistry {
 
       for (const entry of entries) {
         // eslint-disable-next-line react-doctor/async-await-in-loop -- mounts are intentionally serial: each iteration's canonical-alias dedup and session-supersession bookkeeping depends on the mounts installed by prior iterations.
-        const mountResult = await this.tryMountStoredEntry(entry);
+        const mountResult = await this.availability.tryMount(entry, this.pathExists, (stored) =>
+          this.mount(stored)
+        );
         if (!mountResult.ok) {
           descriptors.push(descriptorFor(entry, 'unknown'));
           storedSurvivors.push(entry);
@@ -446,7 +665,7 @@ export class WorkspaceRootRegistry {
           logger.warn('Discarding a duplicate persisted alias for the same workspace root', {
             rootId: entry.rootId,
           });
-          this.mounts.unmount(entry.rootId);
+          await this.unmountSourceRoot(entry.rootId);
           continue;
         }
         // A session mint of the same canonical path is superseded by the
@@ -461,7 +680,7 @@ export class WorkspaceRootRegistry {
 
       for (const mountedRootId of this.mounts.ids()) {
         if (!retainedRootIds.has(mountedRootId)) {
-          this.mounts.unmount(mountedRootId);
+          await this.unmountSourceRoot(mountedRootId);
         }
       }
       if (storedSurvivors.length !== entries.length) {
@@ -524,7 +743,22 @@ export class WorkspaceRootRegistry {
     this.managedWorktreeAuthorizer = authorizer;
   }
 
-  private async cleanupRootResources(rootIds: readonly string[]): Promise<void> {
+  private async cleanupRootResources(rootIds: readonly string[], strict = false): Promise<void> {
+    if (strict) {
+      const outcomes = await Promise.allSettled(
+        rootIds.flatMap((rootId) => [
+          this.evictLspServersForRoot(rootId),
+          this.disposeCommandSessionsForRoot(rootId),
+        ])
+      );
+      const errors = outcomes.flatMap((outcome) =>
+        outcome.status === 'rejected' ? [outcome.reason as unknown] : []
+      );
+      if (errors.length > 0) {
+        throw new AggregateError(errors, 'Root data deletion resource cleanup failed.');
+      }
+      return;
+    }
     await Promise.all(
       rootIds.map(async (rootId) => {
         await Promise.all([
@@ -590,7 +824,7 @@ export class WorkspaceRootRegistry {
    */
   private async retireMount(rootId: string): Promise<void> {
     this.mounts.clearSessionMount(rootId);
-    this.mounts.unmount(rootId);
+    await this.unmountSourceRoot(rootId);
     await this.cleanupRootResources([rootId]);
   }
 
@@ -613,7 +847,27 @@ export class WorkspaceRootRegistry {
       // retirement path performs.
       await this.retireMount(mountedMatch.rootId);
     }
-    this.mounts.install(entry, probe);
+    await this.installSourceRoot(entry, probe);
+  }
+
+  private async installSourceRoot(
+    entry: StoredWorkspaceRoot,
+    root: SecureWorkspaceRoot
+  ): Promise<string> {
+    const current = this.mounts.get(entry.rootId);
+    if (
+      current &&
+      !(
+        pathsEqual(current.canonicalPath, root.canonicalPath) &&
+        pathsEqual(current.presentationPath, entry.path)
+      )
+    ) {
+      await this.retireSourceLeases(current);
+    }
+    this.assertActive();
+    const canonicalPath = this.mounts.install(entry, root);
+    this.availability.forget(entry.rootId);
+    return canonicalPath;
   }
 
   private async persistAddedRoot(
@@ -658,27 +912,11 @@ export class WorkspaceRootRegistry {
       }
       this.assertActive();
     }
-    return this.mounts.install(entry, secureRoot);
-  }
-
-  private async tryMountStoredEntry(
-    entry: StoredWorkspaceRoot
-  ): Promise<{ canonicalPath: string; ok: true } | { ok: false }> {
     try {
-      if (!(await this.pathExists(entry.path))) {
-        logger.warn('Workspace root is unavailable and will remain persisted for retry', {
-          rootId: entry.rootId,
-        });
-        return { ok: false };
-      }
-      const canonicalPath = await this.mount(entry);
-      return { canonicalPath, ok: true };
+      return await this.installSourceRoot(entry, secureRoot);
     } catch (error) {
-      logger.error('Workspace root mount failed and remains persisted for retry', {
-        error,
-        rootId: entry.rootId,
-      });
-      return { ok: false };
+      secureRoot.close();
+      throw error;
     }
   }
 
@@ -756,9 +994,18 @@ export class WorkspaceRootRegistry {
     return resolveReadAgainstMountedRoot(requestedPath, mounted, this.resolveReadPath);
   }
 
-  private serializeMutation<T>(operation: () => Promise<T>): Promise<T> {
+  private serializeMutation<T>(
+    operation: () => Promise<T>,
+    deletion?: RootDataDeletionReservation
+  ): Promise<T> {
+    if (this.rootDataDeletion && this.rootDataDeletion !== deletion) {
+      return Promise.reject(new Error('Root data deletion owns workspace mutation admission.'));
+    }
     const execute = async (): Promise<T> => {
       this.assertActive();
+      if (this.rootDataDeletion && this.rootDataDeletion !== deletion) {
+        throw new Error('Root data deletion owns workspace mutation admission.');
+      }
       return operation();
     };
     const result = this.mutationTail.then(execute, execute);

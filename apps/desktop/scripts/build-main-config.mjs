@@ -9,6 +9,7 @@
  * - dist/hidden-preload.js  role-selected hidden renderer capability manifest
  * - dist/db-host-entry.js   utilityProcess.fork target, resolved as a SIBLING
  * - dist/parser-host-entry.js  of the bundled main.js via module.filename
+ * - dist/host-lease-entry.js  shared root-discovery utility process
  * - dist/main-log-transport.js  Pino worker target, unpacked beside app.asar
  * - dist/main-watchdog-worker.js  freeze watchdog, unpacked beside app.asar
  *
@@ -47,14 +48,18 @@ const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 export const MAIN_PROCESS_ENTRY_POINTS = {
   'db-host-entry': 'src/db-host-entry.ts',
   'hidden-preload': 'src/hidden-preload.ts',
+  'host-lease-entry': 'src/host-lease-entry.ts',
+  'indexer-host-entry': 'src/indexer-host-entry.ts',
   main: 'src/main-bootstrap.ts',
   'main-log-transport': 'src/diagnostics/main-log-transport.ts',
   'main-watchdog-worker': 'src/diagnostics/main-watchdog-worker.ts',
   'official-conformance-client-entry': 'src/official-conformance-client-entry.ts',
   'parser-host-entry': 'src/parser-host-entry.ts',
   preload: 'src/preload.ts',
+  'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
 };
 
+/** @type {import('esbuild').BuildOptions} */
 export const MAIN_PROCESS_BUILD_OPTIONS = {
   absWorkingDir: appRoot,
   // Narrow exceptions to packages:'external' (aliases are applied before
@@ -65,6 +70,9 @@ export const MAIN_PROCESS_BUILD_OPTIONS = {
   // - @brainstrike/assistant-data is ESM-only. Main inlines the shared
   //   startup-reaper and canonical history-mapper subpaths from source rather
   //   than requiring an export Node cannot execute from this CJS bundle.
+  // - @brainstrike/workspace-search/core is a browser ESM barrel with
+  //   extensionless relative imports. Inline this exact public subpath for
+  //   the native assistant consumer; retain the shared fusion implementation.
   alias: {
     '@brainstrike/assistant-data/assistant-memory-repository': path.resolve(
       appRoot,
@@ -77,6 +85,10 @@ export const MAIN_PROCESS_BUILD_OPTIONS = {
     '@brainstrike/notes-vault/core': path.resolve(
       appRoot,
       '../../packages/notes-vault/src/core/index.ts'
+    ),
+    '@brainstrike/workspace-search/core': path.resolve(
+      appRoot,
+      '../../packages/workspace-search/src/core/index.ts'
     ),
   },
   bundle: true,

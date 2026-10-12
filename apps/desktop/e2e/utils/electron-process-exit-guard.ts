@@ -11,9 +11,13 @@ interface ObservedProcessState {
   intentionalCloseStarted: boolean;
 }
 
-function formatUnexpectedExit(code: number | null, signal: NodeJS.Signals | null): Error {
+function formatUnexpectedExit(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+  intentionalCloseStarted = false
+): Error {
   return new Error(
-    `Electron process exited unexpectedly before intentional close began (code=${code ?? 'null'}, signal=${signal ?? 'none'})`
+    `Electron process exited unexpectedly ${intentionalCloseStarted ? 'during intentional close' : 'before intentional close began'} (code=${code ?? 'null'}, signal=${signal ?? 'none'})`
   );
 }
 
@@ -31,10 +35,16 @@ export class ElectronProcessExitGuard {
     this.observedProcesses.set(process, state);
     this.launchedProcessCount += 1;
     process.once('exit', (code, signal) => {
-      if (state.intentionalCloseStarted || this.unexpectedExit) {
+      if (this.unexpectedExit) {
         return;
       }
-      this.unexpectedExit = formatUnexpectedExit(code, signal);
+      if (
+        state.intentionalCloseStarted &&
+        ((code === 0 && signal === null) || signal === 'SIGKILL')
+      ) {
+        return;
+      }
+      this.unexpectedExit = formatUnexpectedExit(code, signal, state.intentionalCloseStarted);
     });
   }
 

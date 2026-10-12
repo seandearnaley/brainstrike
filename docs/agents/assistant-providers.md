@@ -1121,12 +1121,28 @@ Guard: `packages/agent/src/__tests__/mcp-tasks-subscription-acknowledgement.inte
   `bindTaskPresenter`, not `runWithOperation`, because the
   single-matching-operation guard would misattribute provenance. The renderer
   seam is `mcp:task:status-changed` / `:list` / `:act`, all visible-UI.
+- Import task runtime classes and the extension registry from the same public
+  `@brainstrike/agent/mcp-client` bundle. Registered request contracts use object
+  identity; separately emitted bundles do not share those objects.
+- Task-bound input carries only a validated host-derived task handle. Its modal
+  exposes `Cancel task` through the existing fenced Tasks capability, keeps the
+  action mounted across input retirement, and blocks duplicate actions and input
+  settlement while cancellation is pending. Missing capability and failed
+  cancellation remain visible. A cancel acknowledgement is not a terminal state;
+  show cancellation success only after observing `cancelled`.
+- Desktop type-check and E2E tasks build the public MCP test-lab fixture explicitly
+  before consuming it. Keep that test prerequisite outside application package
+  dependencies and source aliases (`mcp-conformance.md`).
 
-Evidence: `assistant-providers/mcp-tasks-host.md`.
+Evidence: `assistant-providers/mcp-tasks-host.md`,
+`assistant-providers/mcp-task-pending-input-cancel.md`.
 Guard: `apps/desktop/src/__tests__/main/mcp-server-actor.test.ts` (retirement AND
 streak resets), `mcp-host-service.test.ts`,
 `mcp-progress-cancellation.integration.test.ts`,
-`mcp-host-runtime-tasks.test.ts`.
+`mcp-host-runtime-tasks.test.ts`, `mcp-task-contract-bundle.integration.test.ts`,
+`mcp-elicitation-presenter.test.ts`,
+`packages/settings-ui/src/settings/tools/__tests__/mcp-elicitation-host.test.tsx`,
+`apps/desktop/e2e/mcp-task-pending-input-cancellation.desktop.test.ts`.
 
 #### Registered extension off switch
 
@@ -1646,12 +1662,12 @@ The assistant's search verbs, in the order the default instructions present them
    returns line matches, and both page by `offset`.
 2. `brainstrike.queryEmbeddingSpace` — semantic search when exact wording is unknown.
    Semantic/hybrid embedding requests propagate tool aborts as failures, never empty results.
-3. `brainstrike.hybridSearch` — vector + full-text RRF fusion reusing the SAME
-   `HybridSearchService` as the UI, with `queryEmbeddingSpace`'s explicit-input
+3. `brainstrike.hybridSearch` — native BM25 + grep + vector RRF60 when the main-owned native capability is injected; otherwise vector + full-text fusion reuses the SAME
+   `HybridSearchService` as the PG UI, with `queryEmbeddingSpace`'s explicit-input
    scoping semantics (it does not inherit the implicit UI selection and takes no
    `selectionSnapshotId`). NO SILENT FALLBACK: a failing keyword arm fails the
    call visibly, never degrades to vector-only.
-4. The same fusion backs UI search paths; the lexical arm matches with PostgreSQL
+4. PG fusion backs hosted/web UI search paths; the lexical arm matches with PostgreSQL
    FTS and orders with the pg_textsearch BM25 index plus an `id` tiebreaker. BM25
    orders but never matches — see `docs/agents/database.md`.
 5. The web retrieval pair, external via Tavily: `brainstrike.webSearch`
@@ -1660,6 +1676,13 @@ The assistant's search verbs, in the order the default instructions present them
    provider-native swap — it must stay Tavily-backed). Both are keyless-HONEST
    (`available:false` plus an actionable message, never a throw) and non-fatal on
    network errors.
+
+- Inject main's existing scoped native capability into desktop semantic/hybrid tools. Resolve omitted collection inputs from its actual saved authority; require its current authorized collection/root and validated exact-profile coverage; allow indexed-subset retrieval during source scanning with an explicit partial-coverage hint; forward its exact saved query plan and guarded caller signal to the existing hidden-host manager, joining inference and every admitted read arm before settlement. Keep PG catalog metadata authoritative; absent capability preserves PG retrieval. TEXT, native failures and unsupported profiles never fall through to PG ranking.
+- Native search admission separates execution authority from completeness. Store/owner, grants, selected collection/profile/query plan, canonical roots/bindings and atomic native coverage epoch/revision remain strict fences. A scan, publication request or ordinary commit changing a captured readiness proof does not invalidate committed-row retrieval: that scope is conservatively partial and its obsolete publication is omitted. Only an exactly unchanged proof can report captured completeness; later completion never upgrades an earlier partial observation. Publication identity corruption, unrelated read errors and failed cleanup remain fatal. Inference never holds a SQLite read transaction open.
+- Native tools use 100 candidates per arm and at most 10 final results, with visible limitation hints. Expose capability-specific schemas and descriptions that omit unsupported file/snapshot/chunk filters, cap limits at 10 and constrain hybrid weights to 1; validate the same schema at execution. Preserve the canonical PG schemas when the capability is absent. Accept hybrid model projections with one, two or three contributing sources. Projection clipping remedies name only supported native query/root/packing inputs. Keep query task semantics distinct from document generation.
+
+Evidence: `assistant-providers/native-assistant-retrieval.md`.
+Guard: `apps/desktop/src/__tests__/assistant-server/native-assistant-retrieval.test.ts`, `native-assistant-retrieval.integration.test.ts`, `native-retrieval-executors.test.ts`, `workspace-retrieval-model-projections.test.ts`.
 
 - `webExtract` validates every model-supplied URL BEFORE anything is sent
   (http/https only, no embedded credentials, no private/loopback/link-local

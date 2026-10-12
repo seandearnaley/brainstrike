@@ -181,16 +181,27 @@ vi.mock('@brainstrike/db', async () => {
   };
 });
 
-const { cleanupSubscriptionsMock, waitForDatabaseIdleMock } = vi.hoisted(() => ({
-  cleanupSubscriptionsMock: vi.fn(async (): Promise<void> => undefined),
-  waitForDatabaseIdleMock: vi.fn(async (): Promise<void> => undefined),
-}));
+const { applicationDomainCapture, cleanupSubscriptionsMock, waitForDatabaseIdleMock } = vi.hoisted(
+  () => ({
+    applicationDomainCapture: {
+      close: null as null | ReturnType<typeof vi.fn<() => Promise<void>>>,
+    },
+    cleanupSubscriptionsMock: vi.fn(async (): Promise<void> => undefined),
+    waitForDatabaseIdleMock: vi.fn(async (): Promise<void> => undefined),
+  })
+);
 
 vi.mock('../../ipc-handlers', async () => {
   const actual = await vi.importActual<typeof import('../../ipc-handlers')>('../../ipc-handlers');
   return {
     ...actual,
     cleanupDesktopLiveSubscriptionsForShutdown: cleanupSubscriptionsMock,
+    createApplicationIpcDomain: (...args: Parameters<typeof actual.createApplicationIpcDomain>) => {
+      const domain = actual.createApplicationIpcDomain(...args);
+      const close = vi.fn(() => domain.close());
+      applicationDomainCapture.close = close;
+      return { ...domain, close };
+    },
     waitForDesktopDatabaseWorkSchedulerIdle: waitForDatabaseIdleMock,
   };
 });
@@ -287,6 +298,7 @@ describe('main boot order', () => {
     vi.clearAllMocks();
     shutdownPlanCapture.current = null;
     shutdownPlanCapture.run = null;
+    applicationDomainCapture.close = null;
     isDesktopShuttingDownMock.mockReturnValue(false);
     closeDatabaseMock.mockResolvedValue(undefined);
     cleanupSubscriptionsMock.mockResolvedValue(undefined);
@@ -546,6 +558,30 @@ describe('main boot order', () => {
     expect(waitForDatabaseIdleMock).toHaveBeenCalledTimes(1);
     // The drain step never closes the database: that is the reserved slice's job.
     expect(closeDatabaseMock).not.toHaveBeenCalled();
+  });
+
+  it('joins the actual application IPC resource from its filesystem shutdown step', async () => {
+    getDatabaseMock.mockResolvedValue({});
+    await import('../../main');
+    const planRun = shutdownPlanCapture.current;
+    const close = applicationDomainCapture.close;
+    if (!(planRun && close)) {
+      throw new Error('Application filesystem shutdown owner was not registered.');
+    }
+    const retirement = Promise.withResolvers<void>();
+    close.mockReturnValueOnce(retirement.promise);
+    let settled = false;
+    const step = Promise.resolve(planRun().steps['file-system'](new AbortController().signal)).then(
+      () => {
+        settled = true;
+      }
+    );
+    expect(close).toHaveBeenCalledTimes(1);
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    retirement.resolve();
+    await step;
+    expect(settled).toBe(true);
   });
 
   it('closes the database from the reserved slice alone, and a failed close rejects', async () => {

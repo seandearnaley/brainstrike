@@ -1,0 +1,241 @@
+import { assertCoverageAuthority, fault } from '@brainstrike/indexer/coverage-reader';
+import { describe, expect, it, vi } from 'vitest';
+import { SqliteQueryCancelledError, SqliteQueryClient } from '../client.js';
+import type { QueryProcess } from '../process.js';
+import type { QueryRequest } from '../protocol.js';
+
+function reader(ready = true) {
+  let message: (value: unknown) => void = () => undefined;
+  let exit: () => void = () => undefined;
+  const requests: QueryRequest[] = [];
+  const process: QueryProcess = {
+    kill: vi.fn(),
+    onError: () => () => undefined,
+    onExit: (listener) => {
+      exit = listener;
+      return vi.fn();
+    },
+    onMessage: (listener) => {
+      message = listener;
+      return vi.fn();
+    },
+    postMessage: (request) => {
+      requests.push(request);
+      if ((request.kind === 'open' || request.kind === 'open-native-coverage') && ready) {
+        queueMicrotask(() => message({ id: request.id, kind: 'ready' }));
+      }
+    },
+  };
+  return { exit: () => exit(), message: (value: unknown) => message(value), process, requests };
+}
+function open(owner: ReturnType<typeof reader>, signal?: AbortSignal) {
+  return SqliteQueryClient.open({
+    databasePath: '/recorded/index.sqlite',
+    deadlineMs: 1000,
+    signal,
+    spawn: () => owner.process,
+    startupDeadlineMs: 1000,
+  });
+}
+async function posted(owner: ReturnType<typeof reader>, count: number): Promise<void> {
+  await vi.waitFor(() => expect(owner.requests).toHaveLength(count));
+}
+const rows = (id: number) => ({
+  id,
+  kind: 'rows',
+  result: { columns: ['n'], rows: [[id]], truncated: false },
+});
+
+describe('owned reader cancellation', () => {
+  it('refuses prior-abort acquisition without spawning', async () => {
+    const signal = AbortSignal.abort(new Error('Stop'));
+    const spawn = vi.fn();
+    await expect(
+      SqliteQueryClient.open({
+        databasePath: '/recorded/index.sqlite',
+        deadlineMs: 1000,
+        signal,
+        spawn,
+        startupDeadlineMs: 1000,
+      })
+    ).rejects.toBe(signal.reason);
+    expect(spawn).not.toHaveBeenCalled();
+  });
+  it('cancels startup and joins its exit while rejecting late ready', async () => {
+    const owner = reader(false);
+    const controller = new AbortController();
+    const outcome = open(owner, controller.signal).catch((error: unknown) => error);
+    await posted(owner, 1);
+    controller.abort(new Error('Stop startup'));
+    expect(owner.process.kill).toHaveBeenCalledOnce();
+    owner.message({ id: 1, kind: 'ready' });
+    let settled = false;
+    void outcome.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    owner.exit();
+    expect(await outcome).toMatchObject({
+      name: 'SqliteQueryCancelledError',
+      phase: 'startup',
+      requestId: 1,
+    });
+    expect(owner.process.kill).toHaveBeenCalledOnce();
+  });
+  it.each(['query', 'listTables', 'describeTable', 'nativeCoverage'] as const)(
+    'cancels %s and rejects late rows only after exit',
+    async (kind) => {
+      const owner = reader();
+      const client =
+        kind === 'nativeCoverage'
+          ? await SqliteQueryClient.openNativeCoverage({
+              authority: {
+                authorityEpoch: 'b'.repeat(64),
+                authorityRevision: 4,
+                dbPath: '/recorded/index.sqlite',
+                fileBindings: [],
+                rootIds: [],
+                scopes: [],
+                storeId: 'a'.repeat(64),
+              },
+              deadlineMs: 1000,
+              spawn: () => owner.process,
+              startupDeadlineMs: 1000,
+            })
+          : await open(owner);
+      const controller = new AbortController();
+      const call =
+        kind === 'nativeCoverage'
+          ? client.nativeCoverage([{ scope: { kind: 'workspace', rootId: 'root' } }], {
+              signal: controller.signal,
+            })
+          : kind === 'query'
+            ? client.query('SELECT 1', { signal: controller.signal })
+            : kind === 'listTables'
+              ? client.listTables({ signal: controller.signal })
+              : client.describeTable('records', { signal: controller.signal });
+      const outcome = call.catch((error: unknown) => error);
+      await posted(owner, 2);
+      controller.abort(new Error('Stop query'));
+      expect(owner.process.kill).toHaveBeenCalledOnce();
+      owner.message(rows(2));
+      owner.exit();
+      const error = await outcome;
+      expect(error).toBeInstanceOf(SqliteQueryCancelledError);
+      expect(error).toMatchObject({
+        cause: controller.signal.reason,
+        phase: 'query',
+        requestId: 2,
+        requestKind: kind === 'nativeCoverage' ? 'native-coverage' : kind,
+      });
+      await expect(client.query('SELECT 2')).rejects.toBe(error);
+      await client.close();
+      expect(owner.process.kill).toHaveBeenCalledOnce();
+    }
+  );
+  it('does not post a pre-aborted request or cancel an existing healthy client', async () => {
+    const owner = reader();
+    const client = await open(owner);
+    const signal = AbortSignal.abort(new Error('Already stopped'));
+    await expect(client.query('SELECT 1', { signal })).rejects.toBe(signal.reason);
+    expect(owner.requests).toHaveLength(1);
+    expect(owner.process.kill).not.toHaveBeenCalled();
+    owner.exit();
+    await client.close();
+  });
+  it('ignores an old signal after its response while a newer request is pending', async () => {
+    const owner = reader();
+    const client = await open(owner);
+    const controller = new AbortController();
+    const first = client.query('SELECT 1', { signal: controller.signal });
+    await posted(owner, 2);
+    const newer = client.query('SELECT 2');
+    await posted(owner, 3);
+    owner.message(rows(2));
+    controller.abort(new Error('Late Stop'));
+    expect(owner.process.kill).not.toHaveBeenCalled();
+    owner.message(rows(3));
+    expect((await first).rows).toEqual([[2]]);
+    expect((await newer).rows).toEqual([[3]]);
+    owner.exit();
+    await client.close();
+  });
+  it('keeps failed cancellation cleanup visible and its owner retryable', async () => {
+    const owner = reader();
+    const client = await open(owner);
+    const controller = new AbortController();
+    vi.mocked(owner.process.kill).mockImplementation(() => {
+      throw new Error('Kill refused');
+    });
+    const outcome = client
+      .query('SELECT 1', { signal: controller.signal })
+      .catch((error: unknown) => error);
+    await posted(owner, 2);
+    controller.abort(new Error('Stop'));
+    expect(await outcome).toBeInstanceOf(AggregateError);
+    owner.exit();
+    await client.close();
+  });
+});
+
+it('preserves cancellation classification when kill synchronously reports exit', async () => {
+  const owner = reader();
+  const client = await open(owner);
+  vi.mocked(owner.process.kill).mockImplementation(owner.exit);
+  const controller = new AbortController();
+  const outcome = client
+    .query('SELECT 1', { signal: controller.signal })
+    .catch((error: unknown) => error);
+  await posted(owner, 2);
+  controller.abort(new Error('Stop'));
+  expect(await outcome).toMatchObject({ name: 'SqliteQueryCancelledError', phase: 'query' });
+  expect(owner.process.kill).toHaveBeenCalledOnce();
+});
+
+it.each(['store', 'revision'] as const)(
+  'preserves the canonical %s coverage discriminant through the process fault envelope',
+  async (mismatch) => {
+    const owner = reader();
+    const authority = {
+      authorityEpoch: 'b'.repeat(64),
+      authorityRevision: 1,
+      dbPath: '/recorded/index.sqlite',
+      fileBindings: [],
+      rootIds: [],
+      scopes: [],
+      storeId: 'a'.repeat(64),
+    };
+    const client = await SqliteQueryClient.openNativeCoverage({
+      authority,
+      deadlineMs: 1000,
+      spawn: () => owner.process,
+      startupDeadlineMs: 1000,
+    });
+    let failure: unknown;
+    try {
+      assertCoverageAuthority(
+        {
+          ...authority,
+          authorityRevision: 2,
+          storeId: mismatch === 'store' ? 'c'.repeat(64) : authority.storeId,
+        },
+        authority
+      );
+    } catch (error) {
+      failure = error;
+    }
+    const result = client.nativeCoverage([{ scope: { kind: 'workspace', rootId: 'root' } }]);
+    const response = result.catch((error: unknown) => error);
+    await posted(owner, 2);
+    owner.message({ error: fault(failure), id: 2, kind: 'nativeCoverageError' });
+    expect(await response).toMatchObject({
+      code: mismatch === 'store' ? 'coverage-store-mismatch' : 'coverage-authority-changed',
+      name: 'IndexerError',
+    });
+    const closing = client.close();
+    expect(owner.process.kill).toHaveBeenCalledOnce();
+    owner.exit();
+    await closing;
+  }
+);

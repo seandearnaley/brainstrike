@@ -107,7 +107,7 @@ afterAll(async () => {
 
 describe('querySelf against real PGlite through the remote-client shape', () => {
   it('lists the real application tables', { timeout: 120_000 }, async () => {
-    const result = await runQuerySelf({ mode: 'listTables' }, undefined);
+    const result = await runQuerySelf({ mode: 'listTables', target: 'app' }, undefined);
 
     expect(result.kind).toBe('tables');
     const names = (result as { tables: { name: string }[] }).tables.map((t) => t.name);
@@ -119,7 +119,7 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
 
   it('describes a real table with its real columns', { timeout: 120_000 }, async () => {
     const result = await runQuerySelf(
-      { mode: 'describeTable', table: 'brainstrike_assistant_run_outcomes' },
+      { mode: 'describeTable', table: 'brainstrike_assistant_run_outcomes', target: 'app' },
       undefined
     );
 
@@ -139,7 +139,11 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
     );
 
     const result = await runQuerySelf(
-      { mode: 'query', sql: 'SELECT display_name, path FROM roots ORDER BY display_name' },
+      {
+        mode: 'query',
+        sql: 'SELECT display_name, path FROM roots ORDER BY display_name',
+        target: 'app',
+      },
       undefined
     );
 
@@ -147,6 +151,7 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
       columns: ['display_name', 'path'],
       kind: 'rows',
       rowCount: 2,
+      target: 'app',
     });
     expect((result as { rows: { cells: string[] }[] }).rows.map((r) => r.cells)).toEqual([
       ['Alpha', '/alpha'],
@@ -160,7 +165,7 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
     // THE regression the fake could not express: this only works because
     // rowMode:'array' + fields survive the remote-client signature.
     const result = await runQuerySelf(
-      { mode: 'query', sql: 'SELECT a.id, b.id FROM roots a, roots b LIMIT 1' },
+      { mode: 'query', sql: 'SELECT a.id, b.id FROM roots a, roots b LIMIT 1', target: 'app' },
       undefined
     );
 
@@ -170,7 +175,7 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
 
   it('renders a real NULL rather than dropping the column', { timeout: 120_000 }, async () => {
     const result = await runQuerySelf(
-      { mode: 'query', sql: `SELECT last_verified_at FROM roots WHERE id = 'r1'` },
+      { mode: 'query', sql: `SELECT last_verified_at FROM roots WHERE id = 'r1'`, target: 'app' },
       undefined
     );
     expect((result as { rows: { cells: string[] }[] }).rows[0]?.cells).toEqual(['NULL']);
@@ -178,9 +183,10 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
 
   describe('the sandbox, provoked from PostgreSQL rather than hand-thrown', () => {
     it('passes a REAL syntax error back to the model', { timeout: 120_000 }, async () => {
-      const error = await runQuerySelf({ mode: 'query', sql: 'SLECT 1' }, undefined).catch(
-        (caught: unknown) => caught
-      );
+      const error = await runQuerySelf(
+        { mode: 'query', sql: 'SLECT 1', target: 'app' },
+        undefined
+      ).catch((caught: unknown) => caught);
 
       expect(error).toBeInstanceOf(ToolInputError);
       // PostgreSQL's own wording, not a message this test wrote.
@@ -189,7 +195,7 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
 
     it('passes a REAL privilege denial back to the model', { timeout: 120_000 }, async () => {
       const error = await runQuerySelf(
-        { mode: 'query', sql: `SELECT pg_read_file('postgresql.conf')` },
+        { mode: 'query', sql: `SELECT pg_read_file('postgresql.conf')`, target: 'app' },
         undefined
       ).catch((caught: unknown) => caught);
 
@@ -203,7 +209,9 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
       ['pg_sleep', 'SELECT pg_sleep(86400)'],
       ['set_config escape', `SELECT set_config('role', 'postgres', false)`],
     ])('refuses %s and leaves the connection usable', { timeout: 120_000 }, async (_l, sql) => {
-      await expect(runQuerySelf({ mode: 'query', sql }, undefined)).rejects.toThrow();
+      await expect(
+        runQuerySelf({ mode: 'query', sql, target: 'app' }, undefined)
+      ).rejects.toThrow();
 
       // The app's own connection still works — a wedged transaction or a leaked
       // role would take the whole single-connection database down with it.
@@ -224,6 +232,7 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
         {
           mode: 'query',
           sql: 'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r) SELECT count(*) FROM r',
+          target: 'app',
         },
         undefined
       ).catch((caught: unknown) => caught);
@@ -247,6 +256,7 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
         {
           mode: 'query',
           sql: 'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r) SELECT n FROM r WHERE n < 0',
+          target: 'app',
         },
         undefined
       ).catch((caught: unknown) => caught);
@@ -261,6 +271,7 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
           mode: 'query',
           sql: `WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM r WHERE n < 5)
                 SELECT count(*)::int AS c FROM r`,
+          target: 'app',
         },
         undefined
       );
@@ -299,7 +310,7 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
     getDatabaseMock.mockResolvedValueOnce(droppingClient);
 
     const outcome = await runQuerySelf(
-      { mode: 'query', sql: 'SELECT display_name FROM roots ORDER BY display_name' },
+      { mode: 'query', sql: 'SELECT display_name FROM roots ORDER BY display_name', target: 'app' },
       undefined
     ).then(
       (value) => ({ ok: true as const, value }),
@@ -323,18 +334,18 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
   describe('explain against the real planner', () => {
     it('returns a real plan naming the real access method', { timeout: 120_000 }, async () => {
       const result = await runQuerySelf(
-        { mode: 'explain', sql: 'SELECT * FROM roots WHERE path = $$/alpha$$' },
+        { mode: 'explain', sql: 'SELECT * FROM roots WHERE path = $$/alpha$$', target: 'app' },
         undefined
       );
 
       const plan = (result as { plan: string[] }).plan.join('\n');
-      expect(result).toMatchObject({ analyzed: false, kind: 'plan' });
+      expect(result).toMatchObject({ analyzed: false, kind: 'plan', target: 'app' });
       expect(plan).toMatch(/Scan/);
     });
 
     it('reports real execution timings under analyze', { timeout: 120_000 }, async () => {
       const result = await runQuerySelf(
-        { analyze: true, mode: 'explain', sql: 'SELECT count(*) FROM roots' },
+        { analyze: true, mode: 'explain', sql: 'SELECT count(*) FROM roots', target: 'app' },
         undefined
       );
 
@@ -351,6 +362,7 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
             analyze: true,
             mode: 'explain',
             sql: `INSERT INTO roots (id, kind, display_name) VALUES ('sneak','path','sneak')`,
+            target: 'app',
           },
           undefined
         )
@@ -372,6 +384,7 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
           maxRows: 5,
           mode: 'query',
           sql: 'SELECT table_name, column_name FROM information_schema.columns ORDER BY table_name',
+          target: 'app',
         },
         undefined
       );
@@ -384,7 +397,7 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
 
     it('projects a real plan, keeping the timing lines', { timeout: 120_000 }, async () => {
       const result = await runQuerySelf(
-        { analyze: true, mode: 'explain', sql: 'SELECT count(*) FROM roots' },
+        { analyze: true, mode: 'explain', sql: 'SELECT count(*) FROM roots', target: 'app' },
         undefined
       );
 
@@ -394,7 +407,7 @@ describe('querySelf against real PGlite through the remote-client shape', () => 
     });
 
     it('projects the real table listing inside budget', { timeout: 120_000 }, async () => {
-      const result = await runQuerySelf({ mode: 'listTables' }, undefined);
+      const result = await runQuerySelf({ mode: 'listTables', target: 'app' }, undefined);
       const projection = projectQuerySelfModelOutput(result);
 
       expect(JSON.stringify(projection).length).toBeLessThanOrEqual(6000);

@@ -61,6 +61,34 @@ beforeEach(() => {
 });
 
 describe('runQuerySelf', () => {
+  it('joins admitted app SQL and suppresses its result after Stop', async () => {
+    const admitted = Promise.withResolvers<void>();
+    const rows = Promise.withResolvers<FakeQueryResult>();
+    getDatabaseMock.mockResolvedValue(
+      fakeDatabase((sql) => {
+        if (sql.startsWith('EXPLAIN')) {
+          return explainRows(1);
+        }
+        admitted.resolve();
+        return rows.promise;
+      })
+    );
+    const controller = new AbortController();
+    const reason = new Error('User Stop');
+    const outcome = runQuerySelf({ mode: 'query', sql: 'SELECT 1', target: 'app' }, undefined, {
+      signal: controller.signal,
+    }).catch((error: unknown) => error);
+    await admitted.promise;
+    controller.abort(reason);
+    let settled = false;
+    void outcome.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    rows.resolve({ fields: [{ name: 'n' }], rows: [[1]] });
+    expect(await outcome).toBe(reason);
+  });
   it('returns column names once and rendered positional rows', async () => {
     getDatabaseMock.mockResolvedValue(
       fakeDatabase((sql) =>
@@ -76,7 +104,10 @@ describe('runQuerySelf', () => {
       )
     );
 
-    const result = await runQuerySelf({ mode: 'query', sql: 'SELECT path, n FROM t' }, undefined);
+    const result = await runQuerySelf(
+      { mode: 'query', sql: 'SELECT path, n FROM t', target: 'app' },
+      undefined
+    );
 
     expect(result).toEqual({
       columns: ['path', 'n'],
@@ -84,6 +115,7 @@ describe('runQuerySelf', () => {
       kind: 'rows',
       rowCount: 2,
       rows: [{ cells: ['src/a.ts', '4'] }, { cells: ['src/b.ts', '2'] }],
+      target: 'app',
       truncated: false,
     });
   });
@@ -100,7 +132,7 @@ describe('runQuerySelf', () => {
     );
 
     const result = await runQuerySelf(
-      { mode: 'query', sql: 'SELECT embedding FROM file_chunks' },
+      { mode: 'query', sql: 'SELECT embedding FROM file_chunks', target: 'app' },
       undefined
     );
 
@@ -121,11 +153,11 @@ describe('runQuerySelf', () => {
     );
 
     const result = await runQuerySelf(
-      { maxRows: 2, mode: 'query', sql: 'SELECT g FROM t' },
+      { maxRows: 2, mode: 'query', sql: 'SELECT g FROM t', target: 'app' },
       undefined
     );
 
-    expect(result).toMatchObject({ kind: 'rows', rowCount: 2, truncated: true });
+    expect(result).toMatchObject({ kind: 'rows', rowCount: 2, target: 'app', truncated: true });
     expect((result as { hint?: string }).hint).toContain('LIMIT');
   });
 
@@ -137,12 +169,12 @@ describe('runQuerySelf', () => {
       })
     );
 
-    await expect(runQuerySelf({ mode: 'query', sql: 'SLECT 1' }, undefined)).rejects.toThrow(
-      /syntax error at or near "SLECT"/
-    );
-    await expect(runQuerySelf({ mode: 'query', sql: 'SLECT 1' }, undefined)).rejects.toBeInstanceOf(
-      ToolInputError
-    );
+    await expect(
+      runQuerySelf({ mode: 'query', sql: 'SLECT 1', target: 'app' }, undefined)
+    ).rejects.toThrow(/syntax error at or near "SLECT"/);
+    await expect(
+      runQuerySelf({ mode: 'query', sql: 'SLECT 1', target: 'app' }, undefined)
+    ).rejects.toBeInstanceOf(ToolInputError);
   });
 
   it('passes a permission-denied error through so the model learns the boundary', async () => {
@@ -153,7 +185,7 @@ describe('runQuerySelf', () => {
     );
 
     await expect(
-      runQuerySelf({ mode: 'query', sql: `SELECT pg_read_file('x')` }, undefined)
+      runQuerySelf({ mode: 'query', sql: `SELECT pg_read_file('x')`, target: 'app' }, undefined)
     ).rejects.toThrow(/permission denied for function pg_read_file/);
   });
 
@@ -167,9 +199,10 @@ describe('runQuerySelf', () => {
       })
     );
 
-    const error = await runQuerySelf({ mode: 'query', sql: 'SELECT * FROM a, b' }, undefined).catch(
-      (caught: unknown) => caught
-    );
+    const error = await runQuerySelf(
+      { mode: 'query', sql: 'SELECT * FROM a, b', target: 'app' },
+      undefined
+    ).catch((caught: unknown) => caught);
 
     expect(error).toBeInstanceOf(ToolInputError);
     expect((error as Error).message).toContain('900000');
@@ -180,9 +213,10 @@ describe('runQuerySelf', () => {
     // No SQLSTATE code => not a message about the model's own input.
     getDatabaseMock.mockRejectedValue(new Error('ENOENT /Users/someone/private/path'));
 
-    const error = await runQuerySelf({ mode: 'query', sql: 'SELECT 1' }, undefined).catch(
-      (caught: unknown) => caught
-    );
+    const error = await runQuerySelf(
+      { mode: 'query', sql: 'SELECT 1', target: 'app' },
+      undefined
+    ).catch((caught: unknown) => caught);
 
     expect(error).not.toBeInstanceOf(ToolInputError);
     expect((error as Error).message).not.toContain('private/path');
@@ -205,6 +239,7 @@ describe('runQuerySelf', () => {
       {
         mode: 'query',
         sql: 'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM r) SELECT count(*) FROM r',
+        target: 'app',
       },
       undefined
     ).catch((caught: unknown) => caught);
@@ -219,7 +254,7 @@ describe('runQuerySelf', () => {
     getDatabaseMock.mockResolvedValue(fakeDatabase(() => ({ rows: [] })));
 
     const error = await runQuerySelf(
-      { analyze: true, mode: 'query', sql: 'SELECT 1' },
+      { analyze: true, mode: 'query', sql: 'SELECT 1', target: 'app' },
       undefined
     ).catch((caught: unknown) => caught);
 
@@ -237,8 +272,11 @@ describe('runQuerySelf', () => {
     );
 
     await expect(
-      runQuerySelf({ analyze: false, mode: 'query', sql: 'SELECT 1 AS n' }, undefined)
-    ).resolves.toMatchObject({ kind: 'rows' });
+      runQuerySelf(
+        { analyze: false, mode: 'query', sql: 'SELECT 1 AS n', target: 'app' },
+        undefined
+      )
+    ).resolves.toMatchObject({ kind: 'rows', target: 'app' });
   });
 
   it('returns a query plan for explain mode', async () => {
@@ -255,7 +293,7 @@ describe('runQuerySelf', () => {
     );
 
     const result = await runQuerySelf(
-      { mode: 'explain', sql: 'SELECT * FROM file_chunks' },
+      { mode: 'explain', sql: 'SELECT * FROM file_chunks', target: 'app' },
       undefined
     );
 
@@ -263,6 +301,7 @@ describe('runQuerySelf', () => {
       analyzed: false,
       kind: 'plan',
       plan: ['Seq Scan on file_chunks  (cost=0.00..11.80 rows=1 width=412)'],
+      target: 'app',
     });
   });
 
@@ -281,7 +320,7 @@ describe('runQuerySelf', () => {
       )
     );
 
-    const result = await runQuerySelf({ mode: 'listTables' }, undefined);
+    const result = await runQuerySelf({ mode: 'listTables', target: 'app' }, undefined);
 
     expect(result).toEqual({
       kind: 'tables',
@@ -289,6 +328,7 @@ describe('runQuerySelf', () => {
         { estimatedRows: 1234, name: 'file_chunks' },
         { estimatedRows: -1, name: 'roots' },
       ],
+      target: 'app',
     });
   });
 
@@ -307,7 +347,10 @@ describe('runQuerySelf', () => {
       )
     );
 
-    const result = await runQuerySelf({ mode: 'describeTable', table: 'run_outcomes' }, undefined);
+    const result = await runQuerySelf(
+      { mode: 'describeTable', table: 'run_outcomes', target: 'app' },
+      undefined
+    );
 
     expect(result).toEqual({
       columns: [
@@ -316,6 +359,7 @@ describe('runQuerySelf', () => {
       ],
       kind: 'columns',
       table: 'run_outcomes',
+      target: 'app',
     });
   });
 
@@ -337,21 +381,25 @@ describe('runQuerySelf', () => {
       );
 
       const result = await runQuerySelf(
-        { maxRows: 200, mode: 'listTables', sql: '. ', table: 'ignored' },
+        { maxRows: 200, mode: 'listTables', sql: '. ', table: 'ignored', target: 'app' },
         undefined
       );
 
-      expect(result).toMatchObject({ kind: 'tables' });
+      expect(result).toMatchObject({ kind: 'tables', target: 'app' });
     });
 
     it('tells the model what is missing instead of failing opaquely', async () => {
       getDatabaseMock.mockResolvedValue(fakeDatabase(() => ({ rows: [] })));
 
-      await expect(runQuerySelf({ mode: 'query' }, undefined)).rejects.toThrow(/require a sql/i);
-      await expect(runQuerySelf({ mode: 'explain' }, undefined)).rejects.toThrow(/require a sql/i);
-      await expect(runQuerySelf({ mode: 'describeTable' }, undefined)).rejects.toThrow(
-        /requires a table name/i
+      await expect(runQuerySelf({ mode: 'query', target: 'app' }, undefined)).rejects.toThrow(
+        /require a sql/i
       );
+      await expect(runQuerySelf({ mode: 'explain', target: 'app' }, undefined)).rejects.toThrow(
+        /require a sql/i
+      );
+      await expect(
+        runQuerySelf({ mode: 'describeTable', target: 'app' }, undefined)
+      ).rejects.toThrow(/requires a table name/i);
     });
 
     it('converts a schema rejection into model-correctable text', () => {

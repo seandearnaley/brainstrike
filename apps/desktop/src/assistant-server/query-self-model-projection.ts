@@ -181,17 +181,20 @@ function projectTables(
   const body = result.tables.map((table) => {
     // reltuples is -1 until a table has been analyzed; report that honestly as
     // "unknown" rather than printing a fabricated 0 row count.
-    const estimate = table.estimatedRows < 0 ? '?' : String(Math.round(table.estimatedRows));
+    const estimate =
+      table.estimatedRows === null || table.estimatedRows < 0
+        ? '?'
+        : String(Math.round(table.estimatedRows));
     return `${escapeCell(table.name)}${CELL_SEPARATOR}~${estimate}`;
   });
   // Model-facing next-step guidance MUST reference fields the .strict() schema
   // accepts: the pre-BST-923 wording said `describe="<table>"`, so a model that
   // followed its own tool output got a ZodError on the very next call.
   body.push(
-    'next: call querySelf with mode="describeTable" table="<name>", then mode="query" with sql'
+    `next: call querySelf with target="${result.target}" mode="describeTable" table="<name>", then mode="query" with sql`
   );
   return fitLines(
-    `tables | count=${result.tables.length}`,
+    `tables | count=${result.tables.length}${result.truncated ? ' | more tables omitted by the engine row cap' : ''}`,
     body,
     (dropped) => `…${dropped} more listed tables omitted to fit the output budget`,
     domainModelResultCharBudget
@@ -210,7 +213,7 @@ function projectLenses(
           : `${param.name} ${param.type}`
       )
       .join('; ');
-    return `${escapeCell(lens.id)}${CELL_SEPARATOR}[${escapeCell(lens.source)}]${CELL_SEPARATOR}${escapeCell(lens.description)}${
+    return `${escapeCell(lens.id)}${CELL_SEPARATOR}target=${lens.target}${CELL_SEPARATOR}[${escapeCell(lens.source)}]${CELL_SEPARATOR}${escapeCell(lens.description)}${
       params.length > 0 ? `${CELL_SEPARATOR}params: ${escapeCell(params)}` : ''
     }`;
   });
@@ -234,7 +237,7 @@ function projectLenses(
     );
   }
   body.push(
-    'next: call querySelf with mode="lens" lens="<id>" values=["…"] (one string per declared param, in order)'
+    'next: call querySelf with target="<listed target>" mode="lens" lens="<id>" values=["…"] (one string per declared param, in order)'
   );
   return fitLines(
     `lenses | count=${result.lenses.length} invalid=${result.invalid.length}`,
@@ -251,7 +254,7 @@ function projectColumns(
   if (result.columns.length === 0) {
     return [
       `columns | table=${singleLine(result.table)} | not_found`,
-      'no such table in the public schema; call mode="listTables" to list readable tables',
+      `no such table; call target="${result.target}" mode="listTables" to list readable tables`,
     ];
   }
   const body = result.columns.map(
@@ -261,7 +264,7 @@ function projectColumns(
       }`
   );
   return fitLines(
-    `columns | table=${singleLine(result.table)} | count=${result.columns.length}`,
+    `columns | table=${singleLine(result.table)} | count=${result.columns.length}${result.truncated ? ' | more columns omitted by the engine row cap' : ''}`,
     body,
     (dropped) => `…${dropped} more columns omitted to fit the output budget`,
     domainModelResultCharBudget
@@ -331,7 +334,7 @@ function projectRows(
   const header = (kept: number, dropped: number): string =>
     `rows | returned=${kept}${dropped > 0 ? ` | omitted=${dropped}` : ''} | truncated=${
       result.truncated || dropped > 0
-    } | cost=${Math.round(result.estimatedCost)}`;
+    }${result.estimatedCost === undefined ? '' : ` | cost=${Math.round(result.estimatedCost)}`}`;
 
   // A pathological column list (SELECT * on a very wide table) could exceed the
   // budget on its own. Clip it rather than throwing: a RangeError here reaches

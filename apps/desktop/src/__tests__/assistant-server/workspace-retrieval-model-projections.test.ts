@@ -3,6 +3,7 @@ import {
   resolveScaledToolResultBudget,
 } from '@brainstrike/agent';
 import { describe, expect, it } from 'vitest';
+import { NativeQueryEmbeddingSpaceInputSchema } from '../../assistant-server/native-retrieval-schemas';
 import { decodedWorkspaceTextModelOutputChars as decodedChars } from '../../assistant-server/workspace-model-projection-helpers';
 import {
   projectHybridSearchModelOutput,
@@ -156,8 +157,33 @@ describe('workspace retrieval model projections', () => {
     );
     expect(projected.value).toContain('projection_omitted_context_chars=');
     expect(projected.value).toContain(
-      'refine: reuse brainstrike.queryEmbeddingSpace with a narrower query, root, filePaths, maxChunks, or tokenBudget'
+      'refine: reuse brainstrike.queryEmbeddingSpace with a narrower query, root, maxChunks, or tokenBudget'
     );
+  });
+
+  it('offers only supported native refinements when semantic context is clipped', () => {
+    const input = NativeQueryEmbeddingSpaceInputSchema.parse({ limit: 10, query: 'marker' });
+    const projected = projectQueryEmbeddingSpaceModelOutput(
+      { ...semanticResult(), ...input, context: 'native evidence '.repeat(500) },
+      2000
+    );
+
+    expect(decodedChars([projected.value])).toBeLessThanOrEqual(2000);
+    expect(projected.value).toContain('projection_omitted_context_chars=');
+    expect(projected.value).toContain(
+      'refine: reuse brainstrike.queryEmbeddingSpace with a narrower query, root, maxChunks, or tokenBudget'
+    );
+    expect(projected.value).not.toContain('filePaths');
+    for (const refinement of [
+      { query: 'narrower marker' },
+      { root: 'brainstrike' },
+      { maxChunks: 1 },
+      { tokenBudget: 1000 },
+    ]) {
+      expect(
+        NativeQueryEmbeddingSpaceInputSchema.safeParse({ ...input, ...refinement }).success
+      ).toBe(true);
+    }
   });
 
   it('projects unavailable workspace-index state without hiding the reason', () => {

@@ -23,6 +23,12 @@ type ChunkingHostRequest = import('./chunking-host-shared').ChunkingHostRequest;
 type ChunkingHostResponseReport = import('./chunking-host-shared').ChunkingHostResponseReport;
 type ChunkingHostStatus = import('./chunking-host-shared').ChunkingHostStatus;
 type EmbeddingHostCommand = import('./embedding-host-shared').EmbeddingHostCommand;
+type EmbeddingHostDocumentEmbeddingsRequest =
+  import('./embedding-host-shared').EmbeddingHostDocumentEmbeddingsRequest;
+type EmbeddingHostDocumentEmbeddingsCancel =
+  import('./embedding-host-shared').EmbeddingHostDocumentEmbeddingsCancel;
+type EmbeddingHostDocumentEmbeddingsResponseReport =
+  import('./embedding-host-shared').EmbeddingHostDocumentEmbeddingsResponseReport;
 type EmbeddingHostQueryEmbeddingRequest =
   import('./embedding-host-shared').EmbeddingHostQueryEmbeddingRequest;
 type EmbeddingHostQueryEmbeddingCancel =
@@ -127,10 +133,24 @@ function exposeEmbeddingHostBridge(): void {
   const embeddingHost = {
     onCommand: (callback: (command: EmbeddingHostCommand) => void) =>
       subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.command, callback),
+    onDocumentEmbeddingsCancel: (
+      callback: (notice: EmbeddingHostDocumentEmbeddingsCancel) => void
+    ) => subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.documentEmbeddingsCancel, callback),
+    onDocumentEmbeddingsRequest: (
+      callback: (request: EmbeddingHostDocumentEmbeddingsRequest) => void
+    ) => subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.documentEmbeddingsRequest, callback),
     onQueryEmbeddingCancel: (callback: (notice: EmbeddingHostQueryEmbeddingCancel) => void) =>
       subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbeddingCancel, callback),
     onQueryEmbeddingRequest: (callback: (request: EmbeddingHostQueryEmbeddingRequest) => void) =>
       subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbeddingRequest, callback),
+    reportDocumentEmbeddingsResponse: (
+      response: EmbeddingHostDocumentEmbeddingsResponseReport
+    ): void => {
+      ipcRenderer.send(
+        DESKTOP_IPC_CHANNELS.embeddingHost.reportDocumentEmbeddingsResponse,
+        response
+      );
+    },
     reportQueryEmbeddingResponse: (response: EmbeddingHostQueryEmbeddingResponseReport): void => {
       ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportQueryEmbeddingResponse, response);
     },

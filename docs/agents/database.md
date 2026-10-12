@@ -126,6 +126,14 @@ Guard: `apps/desktop/e2e/database-live-query-memory.desktop.test.ts`,
 
 Guard: `packages/db/__tests__/managed-cache-batch-parameter-limit.test.ts`.
 
+### Canonical record invalidation
+
+- Remove canonical sources through `invalidateManagedCacheEntriesByIdentity`, including rootless collection records. Exact-record targets require the actual PG ID, collection membership and nullable root/path guards; never invent a root or path to use the rooted API.
+- In the same transaction, cancel matching queued/running embedding jobs, clear their lease ownership and update cancellation metrics before deleting the source and its chunks. Desktop removal joins native work and rechecks current authority/identity/hash before this mutation.
+
+Evidence: `database/canonical-record-invalidation.md`.
+Guard: `packages/db/__tests__/managed-cache-batch.test.ts`, `apps/desktop/src/__tests__/native-canonical-catalog.integration.test.ts`.
+
 ## DATABASE WORK SCHEDULER FAIRNESS
 
 - `DatabaseWorkScheduler` is the single-process admission boundary around each
@@ -599,6 +607,16 @@ which proves the patched loop is under test before it simulates a trap.
   cleanup, and in-host live-unsubscribe as barrier → unsubscribe → idle → unsubscribe
   again → reset. Keep `db-host-entry.ts` strictly serial; that seriality is what makes
   desktop overlap impossible.
+- Profile reset joins the legacy owner, then awaits
+  `prepareDatabaseProfileReset({ retireProfileOwner })`'s owned-host retirement
+  callback, then acquires its authoritative reset lease. A failed retirement
+  keeps legacy admission closed and retains its owner callback/cause for retry. Keep new legacy opens refused until release; clearing yields while the
+  guard is held. `prepareDatabaseProfileReset` retains the owner on failure and
+  returns it for retry, and `resetLocalDatabase(lease)` borrows it without release.
+  Standalone developer reset acquires the same guard and releases only on success.
+  Guard: `apps/desktop/src/__tests__/main/db-main.close.test.ts` and
+  `apps/desktop/src/__tests__/main/db-main.remote-reset.test.ts`.
+  Evidence: `platform-contracts/desktop-profile-reset-lease.md`.
 - Web mirrors those seams in `packages/db/src/db-reset-drain.ts` — a reset-barrier
   scheduler facade (reset-internal statements MUST run on the raw connection, never the
   scheduled handle), `waitForDatabaseWorkSchedulerIdle`, and a provider-level live-query
@@ -683,6 +701,13 @@ Invariants:
   fallback.
 - Multi-tab runs serialize on the `brainstrike-pglite-first-run:<dataDir>` Web Lock; the
   loser re-probes inside the lock and skips (`existing-store`).
+- Reload/persistence web E2E fixtures explicitly request `requireDurableWrites` at
+  provider construction; their worker uses PGlite's `relaxedDurability: false`.
+  Other ephemeral E2E stores retain their existing relaxed setting. A strict
+  request cannot reuse an already relaxed worker. Before reload, file-tab
+  fixtures read the active thread's canonical workspace record and verify the
+  expected file identity: visible content alone acknowledges neither the async
+  save nor a durable flush.
 - Scope is browser `idb://` only, including per-session `idb://web-e2e-*` Playwright
   stores. `opfs-ahp://` and desktop keep their existing paths.
 
@@ -931,3 +956,10 @@ Guard: `packages/db/__tests__/migration-140-assistant-native-runs.integration.te
 `background-idle-loop.spec.ts`, `background-ledger-generation.integration.spec.ts`,
 `decide-endpoint.test.ts`, `stream-init-tool-budget.test.ts`,
 `assistant-run-schema-upgrade-path.test.ts`.
+
+### Whole-root canonical data deletion
+
+- Lock the captured root ID and actual mounted path before cascading its records. Reuse managed-cache job cancellation, lease clearing and lifetime outcome accounting for all actual rooted chunks, including nullable collection membership, in the same transaction as the root cascade. Preserve rootless and other-root records; refuse an unmatched captured root.
+
+Evidence: `indexer/2026-10-03-root-data-deletion.md`.
+Guard: `packages/db/__tests__/managed-root-data-deletion.integration.test.ts`.

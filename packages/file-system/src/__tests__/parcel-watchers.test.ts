@@ -8,11 +8,13 @@ import { join } from 'node:path';
 import { UNCONDITIONAL_EXCLUDED_PATH_IGNORE_GLOBS } from '@brainstrike/utils/background-indexing-policy';
 import { DEFAULT_IGNORE_PATTERNS } from '@brainstrike/utils/path-filter';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as parcelBackend from '../adapters/parcel-backend.js';
 import {
   type ParcelBackendName,
   type ParcelWatcherModule,
   selectParcelBackend,
 } from '../adapters/parcel-backend.js';
+import { classifyParcelWatchFailure } from '../adapters/parcel-watch-failure.js';
 import {
   PARCEL_SUBSCRIBE_TIMEOUT_MS,
   ParcelSubscribeTimeoutError,
@@ -116,6 +118,7 @@ describe('startParcelWatch', () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await rm(root, { force: true, recursive: true });
   });
 
@@ -401,35 +404,38 @@ describe('startParcelWatch', () => {
     stop();
   });
 
-  it('watches normally when the subscription root is itself inside .claude/worktrees (BST-1342 review)', async () => {
-    // Explorer visibility of worktrees is pinned product behavior, and a
-    // user can open a worktree copy AS the workspace root. The exclusion is
-    // root-RELATIVE (like the index-side policy): a root inside an excluded
-    // tree must not have every event silently dropped — that would be the
-    // exact silent-total-failure class git-inventory-watcher.ts documents
-    // for a subscription rooted at .git.
-    const worktreeRoot = join(root, '.claude', 'worktrees', 'agent-1');
-    await mkdir(worktreeRoot, { recursive: true });
-    const fake = createFakeBinding();
-    const stop = await startParcelWatch(makeHandle(worktreeRoot), collect, {
-      loadModule: () => Promise.resolve(fake.module),
-    });
+  it.each(['.claude', '.muse'])(
+    'watches normally when the subscription root is itself inside %s/worktrees (BST-1342 review)',
+    async (directory) => {
+      // Explorer visibility of worktrees is pinned product behavior, and a
+      // user can open a worktree copy AS the workspace root. The exclusion is
+      // root-RELATIVE (like the index-side policy): a root inside an excluded
+      // tree must not have every event silently dropped — that would be the
+      // exact silent-total-failure class git-inventory-watcher.ts documents
+      // for a subscription rooted at .git.
+      const worktreeRoot = join(root, directory, 'worktrees', 'agent-1');
+      await mkdir(worktreeRoot, { recursive: true });
+      const fake = createFakeBinding();
+      const stop = await startParcelWatch(makeHandle(worktreeRoot), collect, {
+        loadModule: () => Promise.resolve(fake.module),
+      });
 
-    // The native layer must not swallow the whole subscription either:
-    // Parcel matches ignore globs against absolute paths, so only the hard
-    // worktrees globs are omitted for a root already inside that tree. The
-    // default-false watcher still preserves its ordinary native filters.
-    expect(fake.lastSubscribeArgs.ignore).toEqual(
-      DEFAULT_IGNORE_PATTERNS.flatMap((segment) => [`**/${segment}`, `**/${segment}/**`])
-    );
+      // The native layer must not swallow the whole subscription either:
+      // Parcel matches ignore globs against absolute paths, so only the hard
+      // worktrees globs are omitted for a root already inside that tree. The
+      // default-false watcher still preserves its ordinary native filters.
+      expect(fake.lastSubscribeArgs.ignore).toEqual(
+        DEFAULT_IGNORE_PATTERNS.flatMap((segment) => [`**/${segment}`, `**/${segment}/**`])
+      );
 
-    const filePath = join(worktreeRoot, 'src.ts');
-    await writeFile(filePath, 'x');
-    fake.emit([{ path: filePath, type: 'create' }]);
-    await waitForBatch(batches);
-    expect(batches[0]).toEqual([{ kind: 'file', path: filePath, type: 'added' }]);
-    stop();
-  });
+      const filePath = join(worktreeRoot, 'src.ts');
+      await writeFile(filePath, 'x');
+      fake.emit([{ path: filePath, type: 'create' }]);
+      await waitForBatch(batches);
+      expect(batches[0]).toEqual([{ kind: 'file', path: filePath, type: 'added' }]);
+      stop();
+    }
+  );
 
   it('replaces both the native ignore globs and the shouldIgnorePath guard with custom patterns (BST-1112)', async () => {
     const fake = createFakeBinding();
@@ -708,6 +714,59 @@ describe('startParcelWatch', () => {
       terminal: false,
     });
     stop();
+  });
+
+  it.each([
+    'Events were dropped by the FSEvents client. File system must be re-scanned.',
+    'Events were dropped by the kernel. File system must be re-scanned.',
+    'Too many events. File system must be re-scanned.',
+  ])('classifies the native FSEvents rescan request: %s', async (message) => {
+    vi.spyOn(parcelBackend, 'selectParcelBackend').mockReturnValue('fs-events');
+    const fake = createFakeBinding();
+    const health: import('../types.js').WatcherHealthTransition[] = [];
+    const stop = await startParcelWatch(makeHandle(root), collect, {
+      loadModule: () => Promise.resolve(fake.module),
+      onHealth: (event) => health.push(event),
+    });
+    fake.emitError(new Error(message));
+    expect(health.at(-1)).toMatchObject({
+      failure: { code: 'rescan-required', message, retryable: true, terminal: false },
+      state: 'degraded',
+    });
+    await waitForBatch(batches);
+    expect(batches[0]).toEqual([{ kind: 'directory', path: root, type: 'added' }]);
+    stop();
+  });
+
+  it('reports an unknown failure that follows a recoverable overflow in the same degraded episode', async () => {
+    vi.spyOn(parcelBackend, 'selectParcelBackend').mockReturnValue('fs-events');
+    const fake = createFakeBinding();
+    const health: import('../types.js').WatcherHealthTransition[] = [];
+    const stop = await startParcelWatch(makeHandle(root), collect, {
+      loadModule: () => Promise.resolve(fake.module),
+      onHealth: (event) => health.push(event),
+    });
+    fake.emitError(
+      new Error('Events were dropped by the FSEvents client. File system must be re-scanned.')
+    );
+    fake.emitError(new Error('native IO failure'));
+    expect(health.slice(2).map((event) => event.failure?.code)).toEqual([
+      'rescan-required',
+      'backend-error',
+    ]);
+    stop();
+  });
+
+  it.each([
+    ['fs-events', 'events dropped'],
+    [
+      'fs-events',
+      'Events were dropped by the FSEvents client. File system must be re-scanned. extra',
+    ],
+    ['inotify', 'Events were dropped by the FSEvents client. File system must be re-scanned.'],
+    ['windows', 'Buffer overflow. Some events may have been lost.'],
+  ] as const)('preserves backend failure for %s: %s', (backend, message) => {
+    expect(classifyParcelWatchFailure(backend, new Error(message))).toBe('backend-error');
   });
 
   it('emits failed with a structured failure when subscribe times out', async () => {

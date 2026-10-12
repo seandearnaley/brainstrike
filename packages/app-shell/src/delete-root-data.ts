@@ -45,3 +45,19 @@ export async function deleteRootDataFromDb(db: DbHandle, rootIdOrPath: string): 
     );
   }
 }
+
+/** Desktop supplies its owned destructive transition; web uses its existing PG store. */
+export async function deleteRootData(
+  db: DbHandle | null,
+  rootId: string,
+  platformDelete?: (rootId: string) => Promise<void>
+): Promise<void> {
+  if (platformDelete) {
+    await platformDelete(rootId);
+    return;
+  }
+  if (!db) {
+    throw new Error('Cannot delete root data: database is not ready.');
+  }
+  await deleteRootDataFromDb(db, rootId);
+}

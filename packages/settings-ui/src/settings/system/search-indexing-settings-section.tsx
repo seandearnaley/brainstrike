@@ -1,4 +1,11 @@
+import {
+  useAvailableModels,
+  useAvailableProviders,
+} from '@brainstrike/app-state/hooks/use-available-embedding-models';
+import { useLocalRuntimeEmbeddingModelCatalog } from '@brainstrike/app-state/hooks/use-local-runtime-embedding-model-catalog';
+import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import {
   getWorkspaceCollectionSyncCurrentActivity,
   getWorkspaceCollectionSyncMetricRows,
@@ -6,6 +13,9 @@ import {
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-helpers';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import { useEmbeddingSetsRepository } from '@brainstrike/db/react';
+import { parseEmbeddingProviderModelKey } from '@brainstrike/indexing-contract';
+import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
+import type { NativeLocalSelection } from '@brainstrike/indexing-contract/indexer-producer';
 import {
   Badge,
   Button,
@@ -15,6 +25,7 @@ import {
   CardHeader,
   CardTitle,
   Label,
+  ModelPicker,
   Select,
   SelectContent,
   SelectItem,
@@ -27,18 +38,34 @@ import {
   type BackgroundIndexingPolicyPreset,
   getBackgroundIndexingPolicyOption,
 } from '@brainstrike/utils';
-import { onEmbeddingSetUpdated, onQueueDrained } from '@brainstrike/utils/browser-events';
+import {
+  dispatchEmbeddingSetUpdated,
+  onEmbeddingSetUpdated,
+  onQueueDrained,
+} from '@brainstrike/utils/browser-events';
 import { AlertTriangle, CheckCircle2, Loader2, RefreshCw } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 interface CollectionOption {
   createdAt: string;
+  dimensions: number;
   id: string;
+  modelId: string;
   modelKey: string;
   name: string;
 }
 
-function compareCollectionsDesc(left: CollectionOption, right: CollectionOption): number {
+interface CollectionModel {
+  dimensions: number;
+  modelId: string;
+  modelKey: string;
+  name: string;
+}
+
+function compareCollectionsDesc(
+  left: Pick<CollectionOption, 'createdAt' | 'id'>,
+  right: Pick<CollectionOption, 'createdAt' | 'id'>
+): number {
   if (right.createdAt > left.createdAt) {
     return 1;
   }
@@ -50,6 +77,7 @@ function compareCollectionsDesc(left: CollectionOption, right: CollectionOption)
 
 function toCollectionOption(collection: {
   createdAt: string;
+  dimensions: number;
   id: string;
   modelId: string;
   modelKey: string;
@@ -57,7 +85,9 @@ function toCollectionOption(collection: {
 }): CollectionOption {
   return {
     createdAt: collection.createdAt,
+    dimensions: collection.dimensions,
     id: collection.id,
+    modelId: collection.modelId,
     modelKey: collection.modelKey,
     name: collection.name?.trim() || collection.modelId,
   };
@@ -66,7 +96,7 @@ function toCollectionOption(collection: {
 function getStatusBadge(
   status: Pick<
     ReturnType<typeof useWorkspaceCollectionSyncStatusStore.getState>,
-    'blockedReason' | 'state'
+    'blockedReason' | 'state' | 'lastError'
   >
 ) {
   switch (status.state) {
@@ -146,7 +176,7 @@ function getStatusBadge(
       return {
         icon: AlertTriangle,
         iconClassName: 'size-3.5',
-        label: 'No root selected',
+        label: status.lastError ? 'Setup required' : 'No root selected',
         variant: 'outline' as const,
       };
     default:
@@ -159,7 +189,298 @@ function getStatusBadge(
   }
 }
 
-export function SearchIndexingSettingsSection() {
+function NativeIndexControls({
+  nativeIndex,
+  selectedCollection,
+}: {
+  readonly nativeIndex: Pick<IndexSearchCapability, 'rebuild'>;
+  readonly selectedCollection: CollectionOption | null;
+}) {
+  const [rebuilding, setRebuilding] = useState(false);
+  const [rebuildError, setRebuildError] = useState<string | null>(null);
+  const rebuild = async (): Promise<void> => {
+    if (rebuilding) {
+      return;
+    }
+    setRebuilding(true);
+    setRebuildError(null);
+    try {
+      await nativeIndex.rebuild();
+    } catch (error) {
+      setRebuildError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRebuilding(false);
+    }
+  };
+  const nativeIndexMode = useBackgroundIndexingPreferencesStore((state) => state.nativeIndexMode);
+  const nativeLocalSelection = useBackgroundIndexingPreferencesStore(
+    (state) => state.nativeLocalSelection
+  );
+  const setNativeIndexMode = useBackgroundIndexingPreferencesStore(
+    (state) => state.setNativeIndexMode
+  );
+  const setNativeLocalSelection = useBackgroundIndexingPreferencesStore(
+    (state) => state.setNativeLocalSelection
+  );
+  const localPlans = selectedCollection
+    ? getNativeLocalPlans(selectedCollection, nativeLocalSelection)
+    : [];
+  const selectedPlan = localPlans.find(
+    ({ selection }) =>
+      selection.device === nativeLocalSelection?.device &&
+      selection.dtype === nativeLocalSelection.dtype &&
+      selection.modelId === nativeLocalSelection.modelId &&
+      selection.dimensions === nativeLocalSelection.dimensions &&
+      selection.revision === nativeLocalSelection.revision
+  );
+  return (
+    <>
+      <div className="space-y-2">
+        <Label htmlFor="native-index-mode">Search mode</Label>
+        <Select
+          {...{ value: nativeIndexMode ?? '' }}
+          onValueChange={(value) => {
+            if (value === 'TEXT' || value === 'VECTOR') {
+              setNativeIndexMode(value);
+            }
+          }}
+        >
+          <SelectTrigger aria-label="Search mode" id="native-index-mode">
+            <SelectValue placeholder="Choose a search mode" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="TEXT">Text search</SelectItem>
+            <SelectItem value="VECTOR">Text and semantic search</SelectItem>
+          </SelectContent>
+        </Select>
+        <p className="text-muted-foreground text-sm">
+          Text search indexes files without running an embedding model. Semantic search also uses
+          your selected collection's embedding model and provider.
+        </p>
+      </div>
+      {nativeIndexMode === 'VECTOR' && localPlans.length > 0 ? (
+        <div className="space-y-2">
+          <Label htmlFor="native-inference-plan">Local model execution</Label>
+          <Select
+            {...{ value: selectedPlan ? JSON.stringify(selectedPlan.selection) : '' }}
+            onValueChange={(value) => {
+              const selection = localPlans.find((plan) => JSON.stringify(plan.selection) === value);
+              if (!selection) {
+                throw new Error('Selected local model execution is unavailable.');
+              }
+              setNativeLocalSelection(selection.selection);
+            }}
+          >
+            <SelectTrigger aria-label="Local model execution" id="native-inference-plan">
+              <SelectValue placeholder="Choose local model execution" />
+            </SelectTrigger>
+            <SelectContent>
+              {localPlans.map((plan) => (
+                <SelectItem key={plan.label} value={JSON.stringify(plan.selection)}>
+                  {plan.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {localPlans.length > 0 ? (
+            <p className="text-muted-foreground text-sm" role="status">
+              Choose the execution format provided by your model. Unavailable formats report an
+              error; indexing never substitutes another model or execution device.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+      <div className="space-y-2">
+        <Button
+          disabled={rebuilding}
+          onClick={() => {
+            void rebuild();
+          }}
+          type="button"
+          variant="outline"
+        >
+          {rebuilding ? 'Rebuilding search index…' : 'Rebuild search index'}
+        </Button>
+        <p className="text-muted-foreground text-sm">
+          Recreates the search index from your files and collection. Chats, application data,
+          collections, and model choices are preserved.
+        </p>
+        {rebuildError ? (
+          <p className="text-destructive text-sm" role="alert">
+            {rebuildError}
+          </p>
+        ) : null}
+      </div>
+    </>
+  );
+}
+
+async function findOrCreateNativeCollection(
+  repository: NonNullable<ReturnType<typeof useEmbeddingSetsRepository>>,
+  model: CollectionModel,
+  currentId: string | null
+) {
+  const matches = (await repository.findAll()).filter(
+    (collection) =>
+      collection.modelKey === model.modelKey &&
+      collection.modelId === model.modelId &&
+      collection.dimensions === model.dimensions &&
+      collection.distance === 'cosine'
+  );
+  const existing =
+    matches.find((collection) => collection.id === currentId) ??
+    matches.sort(compareCollectionsDesc)[0];
+  if (existing) {
+    return existing;
+  }
+  const created = await repository.getOrCreateSet(
+    model.modelKey,
+    model.modelId,
+    model.dimensions,
+    'cosine',
+    { name: `Workspace Index (${model.name})` }
+  );
+  dispatchEmbeddingSetUpdated({ id: created.id, reason: 'created' });
+  return created;
+}
+
+function NativeCollectionSetup({
+  repository,
+  onCreated,
+}: {
+  readonly repository: ReturnType<typeof useEmbeddingSetsRepository>;
+  readonly onCreated: (collection: CollectionOption) => void;
+}) {
+  const [setupModelKey, setSetupModelKey] = useState('');
+  const registryError = useEnsureModelRegistry();
+  const models = useModelRegistryStore((state) => state.models);
+  const providers = useModelRegistryStore((state) => state.providers);
+  const runtime = useLocalRuntimeEmbeddingModelCatalog({
+    maxVerificationModels: 8,
+    verifyEmbeddingDimensions: true,
+  });
+  const availableModels = useAvailableModels(models, runtime.catalog);
+  const availableProviders = useAvailableProviders(providers, runtime.catalog);
+  const selectedModel = availableModels.find((model) => model.id === setupModelKey);
+  const dimensions = selectedModel?.capabilities.defaultDimension;
+  const setupModel: CollectionModel | null =
+    selectedModel &&
+    typeof dimensions === 'number' &&
+    Number.isInteger(dimensions) &&
+    dimensions > 0
+      ? {
+          dimensions,
+          modelId: selectedModel.modelId,
+          modelKey: selectedModel.id,
+          name: selectedModel.name,
+        }
+      : null;
+  const setupPending = useRef(false);
+  const [creatingCollection, setCreatingCollection] = useState(false);
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const setupWorkspaceIndex = async (): Promise<void> => {
+    if (!(repository && setupModel) || setupPending.current) {
+      return;
+    }
+    const previousCollectionId =
+      useBackgroundIndexingPreferencesStore.getState().managedCollectionId;
+    let superseded = false;
+    const unsubscribe = useBackgroundIndexingPreferencesStore.subscribe((next, previous) => {
+      if (
+        next.managedCollectionId !== previous.managedCollectionId ||
+        next.nativeLocalSelection !== previous.nativeLocalSelection ||
+        next.nativeIndexMode !== previous.nativeIndexMode
+      ) {
+        superseded = true;
+      }
+    });
+    setupPending.current = true;
+    setCreatingCollection(true);
+    setSetupError(null);
+    try {
+      const collection = await findOrCreateNativeCollection(
+        repository,
+        setupModel,
+        previousCollectionId
+      );
+      onCreated(toCollectionOption(collection));
+      if (superseded) {
+        return;
+      }
+      unsubscribe();
+      if (collection.id !== previousCollectionId) {
+        useBackgroundIndexingPreferencesStore.getState().setNativeLocalSelection(null);
+        useBackgroundIndexingPreferencesStore.getState().setManagedCollectionId(collection.id);
+      }
+    } catch (error) {
+      setSetupError(error instanceof Error ? error.message : String(error));
+    } finally {
+      unsubscribe();
+      setupPending.current = false;
+      setCreatingCollection(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2 rounded-md border p-3">
+      <p className="text-sm">
+        Choose an embedding model from your existing collection providers. Selecting a different
+        model creates or selects its own collection and preserves your existing collection.
+      </p>
+      <Label htmlFor="workspace-index-model">Embedding model</Label>
+      <ModelPicker
+        disabled={creatingCollection}
+        mode="single"
+        models={availableModels}
+        modelType="embedding"
+        onChange={(value) => {
+          if (typeof value === 'string') {
+            setSetupModelKey(value);
+          }
+        }}
+        providers={availableProviders}
+        renderTrigger={() => (
+          <Button
+            aria-label="Embedding model"
+            disabled={creatingCollection}
+            id="workspace-index-model"
+            role="combobox"
+            type="button"
+            variant="outline"
+          >
+            {selectedModel?.name ?? 'Choose an embedding model'}
+          </Button>
+        )}
+        value={setupModelKey}
+      />
+      {selectedModel && !setupModel ? (
+        <p role="alert">
+          This model has no verified embedding dimensions. Configure it in Models before creating a
+          collection.
+        </p>
+      ) : null}
+      {registryError || runtime.error ? <p role="alert">{registryError ?? runtime.error}</p> : null}
+      <Button
+        disabled={!(repository && setupModel) || creatingCollection}
+        onClick={() => void setupWorkspaceIndex()}
+        type="button"
+      >
+        {creatingCollection ? 'Setting up Workspace Index…' : 'Use embedding model'}
+      </Button>
+      {setupError ? (
+        <p className="text-destructive text-sm" role="alert">
+          {setupError}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+export function SearchIndexingSettingsSection({
+  nativeIndex,
+}: {
+  readonly nativeIndex?: Pick<IndexSearchCapability, 'rebuild'>;
+} = {}) {
   const repository = useEmbeddingSetsRepository();
   const enabled = useBackgroundIndexingPreferencesStore((state) => state.enabled);
   const managedCollectionId = useBackgroundIndexingPreferencesStore(
@@ -329,6 +650,20 @@ export function SearchIndexingSettingsSection() {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
+        {nativeIndex ? (
+          <NativeCollectionSetup
+            onCreated={(collection) => {
+              setCollections((current) => [
+                collection,
+                ...current.filter((entry) => entry.id !== collection.id),
+              ]);
+            }}
+            repository={repository}
+          />
+        ) : null}
+        {nativeIndex ? (
+          <NativeIndexControls nativeIndex={nativeIndex} selectedCollection={selectedCollection} />
+        ) : null}
         <div className="flex items-center justify-between gap-4">
           <div>
             <Label className="font-medium text-sm">Workspace Index</Label>
@@ -374,7 +709,13 @@ export function SearchIndexingSettingsSection() {
             Managed collection
           </Label>
           <Select
-            onValueChange={(value) => setManagedCollectionId(value === '__none__' ? null : value)}
+            onValueChange={(value) => {
+              const nextId = value === '__none__' ? null : value;
+              if (nativeIndex && nextId !== managedCollectionId) {
+                useBackgroundIndexingPreferencesStore.getState().setNativeLocalSelection(null);
+              }
+              setManagedCollectionId(nextId);
+            }}
             value={managedCollectionId ?? '__none__'}
           >
             <SelectTrigger id="managed-cache-collection">
@@ -454,4 +795,44 @@ export function SearchIndexingSettingsSection() {
       </CardContent>
     </Card>
   );
+}
+
+function getNativeLocalPlans(
+  collection: CollectionOption,
+  current: NativeLocalSelection | null
+): readonly {
+  readonly label: string;
+  readonly selection: NativeLocalSelection;
+}[] {
+  const provider = parseEmbeddingProviderModelKey(collection.modelKey)?.provider;
+  if (provider !== 'local' && provider !== 'transformers') {
+    return [];
+  }
+  const choices: readonly {
+    device: 'webgpu' | 'wasm';
+    dtype: NativeLocalSelection['dtype'];
+    label: string;
+  }[] = [
+    { device: 'webgpu', dtype: 'fp16', label: 'WebGPU · FP16' },
+    { device: 'webgpu', dtype: 'fp32', label: 'WebGPU · FP32' },
+    { device: 'webgpu', dtype: 'q4', label: 'WebGPU · Q4' },
+    { device: 'webgpu', dtype: 'q8', label: 'WebGPU · Q8' },
+    { device: 'wasm', dtype: 'fp32', label: 'WASM · FP32' },
+    { device: 'wasm', dtype: 'q4', label: 'WASM · Q4' },
+    { device: 'wasm', dtype: 'q8', label: 'WASM · Q8' },
+  ];
+  return choices.map(({ device, dtype, label }) => ({
+    label,
+    selection: {
+      device,
+      dimensions: collection.dimensions,
+      dtype,
+      modelId: collection.modelId,
+      ...(current?.modelId === collection.modelId &&
+      current.dimensions === collection.dimensions &&
+      current.revision
+        ? { revision: current.revision }
+        : {}),
+    },
+  }));
 }
