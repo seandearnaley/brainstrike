@@ -29,7 +29,7 @@ describe('vendor model input ownership', () => {
         },
         tokenizer,
       });
-      const output = await extractEmbeddingBatch(pipeline, ['hello '.repeat(600)]);
+      const output = await extractEmbeddingBatch(pipeline, ['hello '.repeat(600)], 'mean');
       expect(observedTokens).toBe(Math.min(modelMaxLength, 602));
       expect(output).toBeInstanceOf(Tensor);
       const result = output as Tensor;

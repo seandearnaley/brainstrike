@@ -1,0 +1,11 @@
+{
+  "evidence": "BST-1939 Phase 3 granite-small-r2-webgpu-fp16 vectors: onnx-community/granite-embedding-small-english-r2-ONNX at 1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8, fp16, CLS pooling, produced in the hidden embedding host on 2026-10-12 (produce-hidden-host-vectors.ts).",
+  "files": {
+    "embedding-batches.jsonl": "eea1b0bd3b0993594b5cfbd841c3204df1e48d191cd25a544cc3b24b1c7e9427",
+    "embedding-settings.json": "d8fbc2d787840020da65c002e25219601a55f2774fca9b8a1581e884908a9dda",
+    "embedding-summary.json": "c7fce3f99d356cb5738b8e10a8faed114b5e67c4b42c2fd0c25c484ba926eb78",
+    "vectors-index.jsonl": "f2134cc328884a0aa1af6fc07c0ada1bdb010d46316d4c0f60a46a9773a2cce0",
+    "vectors.f32": "6245cb7edb4600e4e1e59cfac605d551dfaee571775c555c4eba0d21b9b3395d"
+  },
+  "rootId": "bst1922-ed97957e030dd3345c232650199dbc88929dad24"
+}
