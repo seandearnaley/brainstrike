@@ -220,10 +220,16 @@ export async function closeFixtureHost(
   }).catch((cause: unknown) => {
     // Also allow natural exit while connecting. Keep a live owner's protocol
     // failure visible, and never direct control at a reused PID.
-    if (processStartTime(owner.pid) === owner.start) {
+    if (
+      processStartTime(owner.pid) === owner.start &&
+      !(cause instanceof Error && 'code' in cause && cause.code === 'ENOENT')
+    ) {
       throw cause;
     }
-    recordFixtureEvent('cooperative-host-exited-during-close', {
+    // Windows removes the context-owned pipe before natural process exit.
+    // ENOENT is not exit evidence: continue to the verified physical join below.
+    // Wrong-token responses and every other transport failure remain failures.
+    recordFixtureEvent('cooperative-host-close-transport-ended', {
       pid: owner.pid,
       start: owner.start,
     });
