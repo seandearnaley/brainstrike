@@ -4,7 +4,7 @@
   "react-hooks/memo-dependencies": 68,
   "react-hooks/preserve-manual-memoization": 2,
   "react-hooks/refs": 123,
-  "react-hooks/set-state-in-effect": 41,
+  "react-hooks/set-state-in-effect": 40,
   "react-hooks/use-memo": 3,
   "react-refresh/only-export-components": 118
 }
