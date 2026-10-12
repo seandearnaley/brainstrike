@@ -32,8 +32,8 @@
  * throws.
  */
 import type { AgentMessage, StreamChunk } from '@brainstrike/agent';
-import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
 import { desktopAssistantServerLogger as logger } from './logger';
+import type { MainQueryHandle } from './main-query-handle';
 import {
   FAILED_SNAPSHOT_CAPTURE_OID,
   isFailedSnapshotCaptureOid,
@@ -49,14 +49,14 @@ import {
 
 /** Mirrors `DesktopWorkspaceSnapshotDependencies` (server-options.ts) structurally. */
 export interface TurnBoundarySnapshotDeps {
-  readonly createRepository: (db: EditCheckpointDatabase) => SnapshotRepository;
+  readonly createRepository: (db: MainQueryHandle) => SnapshotRepository;
   readonly service: SnapshotService;
 }
 
 export interface TurnBoundaryControllerOptions {
   /** Defaults to the process-shared registry the view resolver also reads. */
   readonly registry?: SnapshotTurnRegistry | undefined;
-  readonly resolveDatabase: () => Promise<EditCheckpointDatabase>;
+  readonly resolveDatabase: () => Promise<MainQueryHandle>;
   readonly snapshots: TurnBoundarySnapshotDeps;
 }
 

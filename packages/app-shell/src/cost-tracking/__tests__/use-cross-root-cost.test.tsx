@@ -31,10 +31,10 @@ vi.mock('@brainstrike/db/react', () => ({
 
 import { useCrossRootCost } from '../use-cross-root-cost';
 
-type AssistantBridge = { getUrl?: () => Promise<string>; url?: string } | undefined;
+type AgentHostBridge = { connect: (requestId: string) => Promise<void> } | undefined;
 
-function setDesktopAssistantBackend(bridge: AssistantBridge): void {
-  (window as unknown as { assistant?: AssistantBridge }).assistant = bridge;
+function setDesktopAgentHost(bridge: AgentHostBridge): void {
+  (window as unknown as { agentHost?: AgentHostBridge }).agentHost = bridge;
 }
 
 describe('useCrossRootCost', () => {
@@ -44,7 +44,7 @@ describe('useCrossRootCost', () => {
     usePGliteDatabaseMock.mockReset();
     usePGliteLiveQueryMock.mockReset();
     // Default: durable assistant backend present (desktop) unless a test clears it.
-    setDesktopAssistantBackend({ url: 'http://localhost:1234' });
+    setDesktopAgentHost({ connect: async () => undefined });
     // Default live-query behavior: a real subscribe/unsubscribe pair tied to
     // React's effect lifecycle, plus empty rows.
     usePGliteLiveQueryMock.mockImplementation((options: { enabled?: boolean }) => {
@@ -56,7 +56,7 @@ describe('useCrossRootCost', () => {
   });
 
   afterEach(() => {
-    setDesktopAssistantBackend(undefined);
+    setDesktopAgentHost(undefined);
     vi.restoreAllMocks();
   });
 
@@ -76,7 +76,7 @@ describe('useCrossRootCost', () => {
     // store is desktop-only, so the panel must gate on the assistant backend,
     // not the handle — otherwise web shows a durable-but-empty panel.
     usePGliteDatabaseMock.mockReturnValue({});
-    setDesktopAssistantBackend(undefined);
+    setDesktopAgentHost(undefined);
 
     const { result } = renderHook(() => useCrossRootCost());
 

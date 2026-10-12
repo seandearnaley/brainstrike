@@ -689,6 +689,10 @@ Guard: `approval-row.browser.test.tsx`.
 
 ## Delegated conversation navigation
 
+- Children are agent-host threads (BST-1932): the Threads panel lists them from
+  the host (`useHostChildSidebar`) and a child tab renders the host's thread. The
+  PGlite-history child sidebar, child view and suspended-run discovery were removed
+  (BST-1980); nothing writes PGlite delegated conversations.
 - Child accents separate the whole tree in both themes; parent dots and ancestry
   show relatedness. Explicit refresh recolors saved children without changing names.
   Breadcrumbs validate owner/root/parent and restore source or canonical-tab focus.
@@ -700,18 +704,13 @@ Guard: `approval-row.browser.test.tsx`.
   coordinator, then opens the singleton child tab. It pages native history
   backwards in 80-row pages for an older match, and never appends a message or
   restarts work.
-- Child disclosure is lazy in the shared virtual TreeTable — fifty children, then
-  explicit Show more. Closing releases descendant subscriptions and reopening
-  revalidates metadata; listing rows never mounts child transcripts, only an
-  explicitly activated workspace tab does. Read receipts belong to the ephemeral
-  root store, so a row unmount does not invent unread activity.
-- Derive pending decisions on reload from the existing authoritative discovery
-  path — one request per expanded parent, validated against each native
-  invocation — so Needs input restores after a renderer restart without mounting
-  transcripts. Opening, closing and reopening never start a model. Only pauses
-  without a durable decision mark Needs input; unavailable or conflicting
-  discovery renders an explicit list error; live child status beats the saved
-  attention snapshot.
+- Child disclosure is lazy in the shared virtual TreeTable. A collapsed parent
+  stops reading its children; listing rows never mounts child transcripts, only an
+  explicitly activated workspace tab does.
+- A child's Working / Needs input / idle status is derived by the host from its own
+  runs and re-read only when the host notifies, so Needs input restores after a
+  renderer restart without mounting transcripts. Opening, closing and reopening
+  never start a model; a refused listing renders an explicit list error.
 - Closing a child tab is reversible and reauthorizes before reading history on
   reopen; native thread deletion permanently removes the selected subtree and
   saved conversation data. Neither root nor child threads offer archiving.
@@ -719,6 +718,6 @@ Guard: `approval-row.browser.test.tsx`.
 Settled: free-form steering remains BST-1723 acceptance, not this slice.
 Evidence: `ui-conventions/delegated-conversation-navigation.md`.
 Guard: `delegated-workspace-reload.desktop.test.ts`,
-`delegated-worker-write.desktop.test.ts`, `delegated-sidebar-lifecycle.test.tsx`,
-`delegated-sidebar-rows.test.ts`, `delegated-conversation-ancestry.test.ts`,
+`delegated-worker-write.desktop.test.ts`, `delegated-child-control.desktop.test.ts`,
+`host-child-sidebar.test.tsx`, `host-child-sidebar-store.test.ts`,
 `delegated-conversation-store.test.ts`.

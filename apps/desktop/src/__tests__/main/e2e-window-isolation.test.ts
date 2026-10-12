@@ -87,13 +87,6 @@ vi.mock('@brainstrike/storage/electron', () => {
   return { ElectronStorageAdapter: MockAdapter };
 });
 
-vi.mock('../../assistant-server', () => ({
-  startAssistantServer: vi.fn(async () => ({
-    stop: vi.fn(),
-    url: 'http://127.0.0.1:0',
-  })),
-}));
-
 vi.mock('../../create-window', () => ({
   createWindow: vi.fn(async () => ({
     getBounds: vi.fn(() => ({ height: 800, width: 1280, x: 0, y: 0 })),

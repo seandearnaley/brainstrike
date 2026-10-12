@@ -56,7 +56,6 @@ function createRepositoryStub(
     getThreadRunTurnMessageId: async () => null,
     listLatestThreadRuns: async () => [],
     listMessages: async () => [],
-    listThreadCheckpoints: async () => [],
     listThreadRunEvents: async () => [],
     listThreads: async () => [],
     recordRunUsage: async () => {},

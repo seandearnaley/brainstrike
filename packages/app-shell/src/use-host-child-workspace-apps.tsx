@@ -9,8 +9,8 @@ import {
   type AssistantThreadHostChild,
   useAssistantThreadHost,
 } from './assistant-thread-host-context';
-import { Failure } from './delegated-workspace-child-view';
 import { HostChildConversationHeader } from './host-child-conversation-header';
+import { HostChildFailure } from './host-child-failure';
 import { HostChildSurface } from './host-child-surface';
 import { type HostChildWorkspaceTab, readHostChildWorkspaceTab } from './host-child-workspace-tab';
 
@@ -77,7 +77,9 @@ function hostChildApp(
           <div className="flex h-full min-h-0 flex-col">
             <HostChildConversationHeader child={child} host={host} />
             <div className="min-h-0 flex-1">
-              {host.renderThread(tab.threadId, true) ?? <Failure error={new Error(NOT_HOSTED)} />}
+              {host.renderThread(tab.threadId, true) ?? (
+                <HostChildFailure error={new Error(NOT_HOSTED)} />
+              )}
             </div>
           </div>
         </HostChildSurface>
@@ -92,7 +94,7 @@ function hostChildApp(
     placement: 'dynamic',
     render: () =>
       resolution ? (
-        <Failure error={resolution.error} />
+        <HostChildFailure error={resolution.error} />
       ) : (
         <p className="p-4" role="status">
           Loading conversation…
@@ -174,7 +176,7 @@ export function useHostChildWorkspaceApps(): readonly WorkspaceApp[] {
             id,
             label: 'Child conversation',
             placement: 'dynamic',
-            render: () => <Failure error={tab} />,
+            render: () => <HostChildFailure error={tab} />,
           };
         }
         const resolution = resolutions.get(id);

@@ -105,7 +105,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  Reflect.deleteProperty(window, 'assistant');
+  Reflect.deleteProperty(window, 'agentHost');
 });
 
 describe('AppReloadGate on web (no run owner that survives a reload)', () => {
@@ -376,9 +376,9 @@ describe('AppReloadGate on web (no run owner that survives a reload)', () => {
   });
 });
 
-describe('AppReloadGate on desktop (the main process owns the run)', () => {
+describe('AppReloadGate on desktop (the agent host owns the run)', () => {
   beforeEach(() => {
-    window.assistant = { url: 'http://127.0.0.1:4111' };
+    (window as Window & { agentHost?: unknown }).agentHost = { connect: async () => undefined };
     // Any read of the web projection would be a DB subscription desktop must not make.
     useRunningAssistantRunsMock.mockImplementation(() => {
       throw new Error('desktop must not read the web run projection');
@@ -427,12 +427,12 @@ describe('the capability that picks the gate', () => {
     mounts = 0;
   });
 
-  it('is read once, so window.assistant appearing later does not remount the tree, and web keeps asking', () => {
+  it('is read once, so an agent host bridge appearing later does not remount the tree, and web keeps asking', () => {
     projectionStore.set(ready(1));
     const { rerender } = render(renderGate());
     expect(mounts).toBe(1);
 
-    window.assistant = { url: 'http://127.0.0.1:4111' };
+    (window as Window & { agentHost?: unknown }).agentHost = { connect: async () => undefined };
     rerender(renderGate());
     requestReload();
 
@@ -441,15 +441,15 @@ describe('the capability that picks the gate', () => {
     expect(reload).not.toHaveBeenCalled();
   });
 
-  it('is read once, so window.assistant going away later does not remount the tree, and desktop keeps reloading at once', () => {
-    window.assistant = { url: 'http://127.0.0.1:4111' };
+  it('is read once, so the agent host bridge going away later does not remount the tree, and desktop keeps reloading at once', () => {
+    (window as Window & { agentHost?: unknown }).agentHost = { connect: async () => undefined };
     useRunningAssistantRunsMock.mockImplementation(() => {
       throw new Error('desktop must not read the web run projection');
     });
     const { rerender } = render(renderGate());
     expect(mounts).toBe(1);
 
-    Reflect.deleteProperty(window, 'assistant');
+    Reflect.deleteProperty(window, 'agentHost');
     rerender(renderGate());
     requestReload();
 
@@ -504,7 +504,7 @@ describe('the reload guard marker', () => {
   });
 
   it('is written before the immediate desktop reload', () => {
-    window.assistant = { url: 'http://127.0.0.1:4111' };
+    (window as Window & { agentHost?: unknown }).agentHost = { connect: async () => undefined };
     let markerAtReload: string | null = 'not-called';
     reload.mockImplementation(() => {
       markerAtReload = window.sessionStorage.getItem(CHUNK_RELOAD_STORAGE_KEY);

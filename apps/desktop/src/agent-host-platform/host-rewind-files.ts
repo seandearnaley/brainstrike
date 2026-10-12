@@ -10,7 +10,7 @@ import {
   type CheckpointReindexAction,
   createCheckpointReindexDeps,
 } from '../assistant-server/checkpoint-reindex-deps';
-import type { EditCheckpointDatabase } from '../assistant-server/edit-checkpoint-journal';
+import type { MainQueryHandle } from '../assistant-server/main-query-handle';
 import { reindexOutcome } from '../assistant-server/rewind-snapshot-engine';
 import { listThreadSnapshotChain } from '../assistant-server/snapshot-chains';
 import { execFileSnapshotGitRunner } from '../assistant-server/snapshot-git';
@@ -317,11 +317,8 @@ export function serveHostRewindFiles(
 ): void {
   const files = createHostRewindFiles({
     reindex: async () =>
-      (
-        await createCheckpointReindexDeps(
-          (await getDatabase()) as unknown as EditCheckpointDatabase
-        )
-      ).reindex,
+      (await createCheckpointReindexDeps((await getDatabase()) as unknown as MainQueryHandle))
+        .reindex,
     resolveWorkspaceRoot: (rootId) => {
       if (!owners.resolveWorkspaceRoot) {
         throw new Error('Desktop has no live workspace root owner');

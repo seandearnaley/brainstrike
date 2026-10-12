@@ -1124,25 +1124,18 @@ vi.mock('@brainstrike/assistant-ui', async () => ({
       </div>
     );
   },
-  // Same passthrough rationale as EditCheckpointProvider below: the mocked
-  // panel never renders the budget chip, so the guardrail context is never read.
+  // Passthrough doubles for the real context providers — these tests render
+  // the mocked AssistantUiPanel, which never renders the budget chip, so the
+  // guardrail context is never read; the provider just mounts its children.
   BudgetGuardrailProvider: ({ children }: { children: ReactNode }) => children,
-  // Same passthrough rationale as EditCheckpointProvider below: the mocked
-  // panel never renders the copy-debug-bundle button, so the debug-bundle
-  // context is never read.
+  // Same passthrough rationale: the mocked panel never renders the
+  // copy-debug-bundle button, so the debug-bundle context is never read.
   DebugBundleProvider: ({ children }: { children: ReactNode }) => children,
   DelegatedApprovalOwnerContext: (await import('react')).createContext(null),
-  // Passthrough double for the real context provider — these tests render the
-  // mocked AssistantUiPanel, so the checkpoint context is never read; the
-  // provider just needs to mount its children without error.
-  EditCheckpointProvider: ({ children }: { children: ReactNode }) => children,
   // Defaults to no desktop llm-host bridge, so local chat resolves to the
   // in-renderer transport; tests flip the mock to cover the data-stream route.
   hasDesktopLlmHost: hasDesktopLlmHostMock,
-  // Same passthrough rationale as EditCheckpointProvider: the mocked panel
-  // never renders an approval notice, so the grant context is never read.
-  LiveDecisionProvider: ({ children }: { children: ReactNode }) => children,
-  // Same passthrough rationale as EditCheckpointProvider: the mocked panel
+  // Same passthrough rationale as BudgetGuardrailProvider: the mocked panel
   // never renders a verdict control, so the verdict context is never read.
   RunVerdictProvider: ({ children }: { children: ReactNode }) => children,
   SubagentConversationNavigationContext: (await import('react')).createContext<
@@ -1245,6 +1238,13 @@ beforeEach(() => {
     configurable: true,
     value: { url: 'http://127.0.0.1:9876' },
   });
+  // The wrapper's legacy desktop mode (BST-1987 removes it) reads both the
+  // retired assistant-server bridge and the durable-run capability: one
+  // simulated shell, so a test that removes the bridge removes both.
+  Object.defineProperty(window, 'agentHost', {
+    configurable: true,
+    get: () => (window.assistant ? { connect: async () => undefined } : undefined),
+  });
   window.localStorage.removeItem('brainstrike.assistant.include-file-report.v1');
   window.localStorage.removeItem('brainstrike-assistant-threads-v1');
 });
@@ -1257,6 +1257,7 @@ afterEach(() => {
   Reflect.deleteProperty(window, 'tools');
   providedMcpTools = null;
   Reflect.deleteProperty(window, 'assistant');
+  Reflect.deleteProperty(window, 'agentHost');
   Reflect.deleteProperty(window, 'desktopLifecycle');
   Reflect.deleteProperty(window, '__brainstrikeAssistantRuntimeTestHooks__');
 });

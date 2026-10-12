@@ -5,6 +5,10 @@ Supports `docs/agents/assistant-persistence.md` §
 The contract holds the rules; this file is the record behind them, extracted
 verbatim from the pre-distillation contract.
 
+Since BST-1980 the agent host owns every canvas as committed
+`tool.state.updated` rows in the thread's run log, and migration 147 dropped
+the PGlite table described below. The first two paragraphs are history.
+
 Persisted Canvas HTML is application-owned, local-first state in
 `brainstrike_canvas_versions` (migration 082 in BOTH runners, sole author since
 BST-1651 retired the bootstrap mirror). Rows sharing `canvas_id` form one
@@ -16,9 +20,10 @@ bare schema.
 
 `THREAD_DELETE_SIDECAR_TABLES` owns Canvas cleanup for all three thread-delete
 implementations, while the reset registry owns all three table-enumerating
-clear paths. The desktop repository creates version 1, reads/list latest rows,
-and writes a new version for every update or rewrite. Exact updates require
-`oldString` to occur once: zero and multiple matches return `no_match` and
+clear paths. The host's canvas store (`hostCanvasStore` in
+`packages/host-capabilities/src/native-tools/host-stores.ts`) creates version 1,
+lists latest versions, and writes a new version for every update or rewrite.
+Exact updates require `oldString` to occur once: zero and multiple matches return `no_match` and
 `ambiguous_match` structured failures, respectively; missing canvases return
 `not_found`. Stored-vocabulary drift throws visibly as corruption.
 
@@ -31,9 +36,8 @@ writes no version 1 — see the settled ruling in
 `focusedCanvasId` on the Changes navigation store (written by its picker and
 by the `canvas://<canvasId>` chip on the tool card); reset clears it.
 
-Paired tests: `migration-082-canvas-documents.test.ts`,
-`canvas-repository.test.ts`, `canvas-document-content.test.ts`,
-`manage-canvas-tool.test.ts`, the Canvas sidecar
-case in `assistant-memory-repository.integration.test.ts`, and the reset
-registry/clear sentinels.
+Paired tests: `canvas-document-content.test.ts`, `manage-canvas-tool.test.ts`,
+`host-thread-canvases.test.ts`, `canvas-read-repository.test.ts`,
+`canvas-panel.test.tsx`, `migration-147-drop-pglite-chat-sidecars.test.ts` and
+the `host-thread-canvas-live` desktop E2E.
 

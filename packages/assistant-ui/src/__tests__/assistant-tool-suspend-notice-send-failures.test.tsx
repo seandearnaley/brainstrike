@@ -2,11 +2,9 @@ import type { AssistantToolSuspendRequest } from '@brainstrike/assistant-contrac
 import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ActiveThreadKeyContext } from '../active-thread-key-context';
 import { AssistantDecisionRecoveryProvider } from '../assistant-decision-recovery-provider';
 import { AssistantToolSuspendNotice } from '../assistant-tool-suspend-notice';
 import { resetFollowUpQueueStore } from '../follow-up-queue-store';
-import { LiveDecisionProvider } from '../live-decision-context';
 
 const appendMessageMock = vi.hoisted(() => vi.fn());
 const threadRunningMock = vi.hoisted(() => ({ isRunning: false }));
@@ -177,29 +175,5 @@ describe('AssistantToolSuspendNotice send failures', () => {
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /approve/i })).toBeDisabled();
-  });
-
-  it('unlocks the notice and shows why when the host refuses the live decision', async () => {
-    threadRunningMock.isRunning = true;
-    const user = userEvent.setup();
-    render(
-      <ActiveThreadKeyContext.Provider value="root-thread">
-        <LiveDecisionProvider
-          transport={async () => {
-            throw new Error('The decision was not applied: refused');
-          }}
-        >
-          <AssistantToolSuspendNotice data={planRequest} />
-        </LiveDecisionProvider>
-      </ActiveThreadKeyContext.Provider>
-    );
-
-    await user.click(screen.getByRole('button', { name: /approve/i }));
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Decision not sent: The decision was not applied: refused'
-    );
-    expect(screen.getByRole('button', { name: /approve/i })).toBeEnabled();
-    expect(appendMessageMock).not.toHaveBeenCalled();
   });
 });

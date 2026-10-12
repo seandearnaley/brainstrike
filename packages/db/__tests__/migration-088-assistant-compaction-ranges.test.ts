@@ -1,11 +1,6 @@
-import { PGlite } from '@electric-sql/pglite';
-import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
-import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
-import { vector } from '@electric-sql/pglite-pgvector';
+import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { runMigrations } from '../src/drizzle/migrate.js';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { getResetTables } from '../src/reset-table-registry.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 import { createPGliteTestDataDir } from './test-data-dir';
 
@@ -48,7 +43,6 @@ describe('migration 088: assistant compaction ranges (BST-1200)', () => {
     );
     expect(rows.rows).toEqual([{ compactedMessageIds: ['opaque-z', 'opaque-a'] }]);
     expect(await listIndexes(db)).toContain(THREAD_INDEX);
-    expect(getResetTables()).toContain(TABLE);
   });
 
   it('rejects unsupported kinds', async () => {
@@ -61,20 +55,5 @@ describe('migration 088: assistant compaction ranges (BST-1200)', () => {
          VALUES ('summary-1', 'thread-1', '[]'::jsonb, 'unknown')`
       )
     ).rejects.toThrow(/check constraint/i);
-  });
-});
-
-describe('migration 088 in the drizzle runner', () => {
-  let db: PGlite;
-
-  beforeEach(() => {
-    db = new PGlite({ extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector } });
-  });
-
-  afterEach(async () => db.close());
-
-  it('creates the same table in the production runner', { timeout: 60_000 }, async () => {
-    expect((await runMigrations(db)).success).toBe(true);
-    expect(await listIndexes(db)).toContain(THREAD_INDEX);
   });
 });

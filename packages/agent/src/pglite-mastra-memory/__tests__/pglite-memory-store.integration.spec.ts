@@ -1188,17 +1188,12 @@ describe('PgliteMemoryStore', () => {
         resource_id TEXT,
         occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
       );
-      CREATE TABLE IF NOT EXISTS brainstrike_canvas_versions (
+      CREATE TABLE IF NOT EXISTS brainstrike_tool_call_telemetry (
         id text PRIMARY KEY,
-        canvas_id text NOT NULL,
         thread_id text NOT NULL,
-        resource_id text NOT NULL,
-        title text NOT NULL,
-        html text NOT NULL,
-        version integer NOT NULL CHECK (version >= 1),
-        created_by text NOT NULL CHECK (created_by IN ('assistant', 'user')),
-        created_at timestamptz NOT NULL DEFAULT NOW(),
-        UNIQUE (canvas_id, version)
+        run_id text NOT NULL,
+        tool_id text NOT NULL,
+        model_facing_chars integer NOT NULL CHECK (model_facing_chars >= 0)
       );
     `);
     await store.saveThread({
@@ -1216,10 +1211,10 @@ describe('PgliteMemoryStore', () => {
        VALUES ('thread-sidecar-delete', 'workspace-a', null, 'a0')`
     );
     await db.query(
-      `INSERT INTO brainstrike_canvas_versions
-        (id, canvas_id, thread_id, resource_id, title, html, version, created_by)
-       VALUES ('canvas-version-delete', 'canvas-delete', 'thread-sidecar-delete',
-        'workspace-a', 'Delete me', '<p>Delete me</p>', 1, 'assistant')`
+      `INSERT INTO brainstrike_tool_call_telemetry
+        (id, thread_id, run_id, tool_id, model_facing_chars)
+       VALUES ('telemetry-delete', 'thread-sidecar-delete', 'run-delete',
+        'brainstrike.grepSearch', 42)`
     );
 
     await store.deleteThread({ threadId: 'thread-sidecar-delete' });
@@ -1229,11 +1224,11 @@ describe('PgliteMemoryStore', () => {
        WHERE thread_id = 'thread-sidecar-delete'`
     );
     expect(placements.rows[0]?.count).toBe('0');
-    const canvases = await db.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM brainstrike_canvas_versions
+    const telemetry = await db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM brainstrike_tool_call_telemetry
        WHERE thread_id = 'thread-sidecar-delete'`
     );
-    expect(canvases.rows[0]?.count).toBe('0');
+    expect(telemetry.rows[0]?.count).toBe('0');
     const ops = await db.query<{ entity_kind: string; op: string; resource_id: string | null }>(
       `SELECT entity_kind, op, resource_id FROM brainstrike_mind_ops
        WHERE entity_id = 'thread-sidecar-delete'`

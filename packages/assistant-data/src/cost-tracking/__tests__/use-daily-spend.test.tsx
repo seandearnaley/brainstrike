@@ -19,17 +19,17 @@ vi.mock('@brainstrike/db/react', () => ({
 
 import { useDailySpend } from '../use-daily-spend';
 
-type AssistantBridge = { getUrl?: () => Promise<string>; url?: string } | undefined;
+type AgentHostBridge = { connect: (requestId: string) => Promise<void> } | undefined;
 
-function setDesktopAssistantBackend(bridge: AssistantBridge): void {
-  (window as unknown as { assistant?: AssistantBridge }).assistant = bridge;
+function setDesktopAgentHost(bridge: AgentHostBridge): void {
+  (window as unknown as { agentHost?: AgentHostBridge }).agentHost = bridge;
 }
 
 describe('useDailySpend', () => {
   beforeEach(() => {
     usePGliteDatabaseMock.mockReset();
     usePGliteLiveQueryMock.mockReset();
-    setDesktopAssistantBackend({ url: 'http://localhost:1234' });
+    setDesktopAgentHost({ connect: async () => undefined });
     usePGliteLiveQueryMock.mockReturnValue({
       error: null,
       loading: false,
@@ -39,13 +39,13 @@ describe('useDailySpend', () => {
   });
 
   afterEach(() => {
-    setDesktopAssistantBackend(undefined);
+    setDesktopAgentHost(undefined);
     vi.restoreAllMocks();
   });
 
   it('is unavailable (spend null) without the durable-usage capability and issues no query', () => {
     usePGliteDatabaseMock.mockReturnValue({});
-    setDesktopAssistantBackend(undefined);
+    setDesktopAgentHost(undefined);
 
     const { result } = renderHook(() => useDailySpend());
 

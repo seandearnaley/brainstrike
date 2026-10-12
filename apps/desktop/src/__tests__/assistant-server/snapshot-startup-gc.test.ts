@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest';
-import type { EditCheckpointDatabase } from '../../assistant-server/edit-checkpoint-journal';
+import type { MainQueryHandle } from '../../assistant-server/main-query-handle';
 import type { SnapshotChainEntry } from '../../assistant-server/snapshot-chains';
 import {
   FAILED_SNAPSHOT_CAPTURE_OID,
@@ -90,7 +90,7 @@ function makeFixture(options: FixtureOptions) {
 
   const outstanding = { current: options.outstandingBatch ?? null };
 
-  const db: EditCheckpointDatabase = {
+  const db: MainQueryHandle = {
     query: async <T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[] }> => {
       if (sql.includes('SELECT DISTINCT thread_id')) {
         return { rows: [...rowsByThread.keys()].map((threadId) => ({ threadId }) as T) };

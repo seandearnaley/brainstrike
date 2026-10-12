@@ -1,5 +1,4 @@
 import { useActiveAssistantThreadId } from '@brainstrike/assistant-data';
-import { usePGliteDatabase } from '@brainstrike/db/react';
 import { Button, CanvasFrame, useResolvedTheme } from '@brainstrike/ui';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { type ReactElement, useEffect, useMemo, useState } from 'react';
@@ -41,7 +40,6 @@ type VersionSelection = number | 'latest';
  * re-writing state after data changes.
  */
 export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
-  const database = usePGliteDatabase();
   const host = useAssistantThreadHost();
   const theme = useResolvedTheme();
   // BST-1268 unification: the ACTIVE thread comes from the thread store —
@@ -74,11 +72,11 @@ export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
     // never display the PREVIOUS thread's canvases while the new read is in
     // flight (or forever, if it fails).
     setSummaries([]);
-    if (!(database && threadId)) {
+    if (!threadId) {
       return;
     }
     let cancelled = false;
-    readThreadCanvasSummaries(database, host, threadId)
+    readThreadCanvasSummaries(host, threadId)
       .then((rows) => {
         if (!cancelled) {
           setQueryError(null);
@@ -95,7 +93,7 @@ export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [database, host, refreshNonce, threadId]);
+  }, [host, refreshNonce, threadId]);
 
   const activeSummary = useMemo(() => {
     if (summaries.length === 0) {
@@ -118,11 +116,11 @@ export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
     // Clear synchronously so a canvas/version switch never shows the previous
     // document under the new header while the read is in flight.
     setLoadedVersion(null);
-    if (!(database && threadId && activeCanvasId && shownVersion)) {
+    if (!(threadId && activeCanvasId && shownVersion)) {
       return;
     }
     let cancelled = false;
-    readThreadCanvasVersion(database, host, threadId, activeCanvasId, shownVersion)
+    readThreadCanvasVersion(host, threadId, activeCanvasId, shownVersion)
       .then((row) => {
         if (cancelled) {
           return;
@@ -144,7 +142,7 @@ export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [activeCanvasId, database, host, shownVersion, threadId]);
+  }, [activeCanvasId, host, shownVersion, threadId]);
 
   if (!threadId) {
     return (

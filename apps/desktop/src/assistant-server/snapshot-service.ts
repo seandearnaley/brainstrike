@@ -22,8 +22,6 @@
  * `rewind-snapshot-engine.ts` compares against.
  *
  * T4 additions (BST-1164, same documented-addition posture): the
- * checkpoint-undo seam `restorePathsFromSnapshot` (single-path restores for
- * the per-file/turn undo engine in `checkpoint-snapshot-undo.ts`) and the
  * startup-GC primitives `listSnapshotThreadIds` + `pruneHistory` (shallow-cut
  * + `git gc` retention, consumed by `snapshot-startup-gc.ts`).
  *
@@ -111,42 +109,6 @@ export interface SweepOrphansResult {
   readonly removed: readonly string[];
 }
 
-/**
- * One path of a `restorePathsFromSnapshot` request, with the CALLER's intent
- * for snapshot-absence made explicit (BST-1164 review). The seam cannot infer
- * intent from tree-absence alone: a path can be absent from the snapshot
- * either because the range being undone CREATED it (deletion restores the
- * pre-range state) or because the turn-start capture never covered it at all
- * (gitignored / `info/exclude` backstop, or a path-case mismatch on a
- * case-insensitive filesystem) — and deleting in the second case destroys
- * content that exists nowhere else.
- */
-export interface SnapshotPathRestoreRequest {
-  /** True ⇒ the caller established the range CREATED this path, so
-   * snapshot-absence means "delete the live file". False ⇒ absence is a
-   * coverage hole and yields an `uncovered` refusal, path untouched. */
-  readonly expectAbsent: boolean;
-  readonly path: string;
-}
-
-/**
- * Outcome of restoring ONE named path to its state in a snapshot commit
- * (`restorePathsFromSnapshot` — the checkpoint-undo engine's seam, BST-1164
- * T4). `restored` = the snapshot's content/mode was checked out; `deleted` =
- * the path was absent in the snapshot AND the request expected that
- * (`expectAbsent`), so the live file was removed (with empty-ancestor pruning
- * bounded at the root); `uncovered` = the path was absent but the request
- * expected it present — a coverage hole (gitignored or path-case mismatch),
- * refused with the path untouched; `failed` carries the reason and leaves the
- * path untouched. Conflict gating is the CALLER's job (the undo engine
- * compares journal hashes before asking) — this seam only moves bytes.
- */
-export type SnapshotPathRestoreOutcome =
-  | { readonly outcome: 'deleted'; readonly path: string }
-  | { readonly outcome: 'failed'; readonly message: string; readonly path: string }
-  | { readonly outcome: 'restored'; readonly path: string }
-  | { readonly outcome: 'uncovered'; readonly message: string; readonly path: string };
-
 export interface SnapshotServiceOptions {
   readonly runner: SnapshotGitCommandRunner;
   /** Base dir owning every shadow repo (`<base>/<rootId>/git`). */
@@ -191,27 +153,6 @@ function statusForRawEntry(entry: RawDiffEntry): 'added' | 'deleted' | 'modified
     'inconsistent-diff',
     `snapshot diff returned unsupported status "${entry.status}" for "${entry.path}"`
   );
-}
-
-/**
- * Reject any restore path that is not a plain workspace-relative POSIX path:
- * absolute, drive-lettered, backslashed, NUL-bearing, or containing empty /
- * `.` / `..` segments. Journal rows only ever record safe relative paths, but
- * this seam deletes files — defense in depth, thrown, never coerced.
- */
-function assertSafeSnapshotRelativePath(value: string): void {
-  const structurallyUnsafe =
-    value.length === 0 || value.includes('\\') || value.includes('\0') || path.isAbsolute(value);
-  const segments = value.split('/');
-  if (
-    structurallyUnsafe ||
-    segments.some((segment) => segment === '' || segment === '.' || segment === '..')
-  ) {
-    throw new SnapshotGitError(
-      'invalid-argument',
-      `restore path "${value}" is not a safe workspace-relative path`
-    );
-  }
 }
 
 /** Render a gitlink side the way git's own unified diff does. */
@@ -796,143 +737,6 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
     });
   }
 
-  /**
-   * Restore each named path to its exact state in snapshot `oid` — the
-   * checkpoint-undo engine's seam (BST-1164 T4). A path present in the
-   * snapshot is checked out (content, mode, symlinks natively — same
-   * `checkout-index` path as `applyRestorePlan`, no blob through a bounded
-   * stdout); a path ABSENT from the snapshot follows the request's EXPLICIT
-   * intent (BST-1164 review — never inferred): `expectAbsent` deletes it from
-   * the work-tree (already-absent is still `deleted` — the desired state
-   * holds), with empty-ancestor pruning bounded at the root; otherwise the
-   * absence is a coverage hole (gitignored or path-case mismatch) and the
-   * path yields a typed `uncovered` refusal, UNTOUCHED — deleting there would
-   * destroy content the snapshot never captured. Gitlink paths fail visibly:
-   * snapshots record nested repos as pointers and never restore them.
-   *
-   * Exactly one outcome per input request, in input order — a caller-supplied
-   * duplicate yields two (idempotent) outcomes rather than a silent dedupe.
-   * Conflict gating is deliberately NOT here: the undo engine owns the
-   * "changed since the edit" comparison (journal sha256 hashes), this seam
-   * only moves bytes under the root mutex.
-   */
-  async function restorePathsFromSnapshot(
-    handle: ShadowRepoHandle,
-    oid: string,
-    requests: readonly SnapshotPathRestoreRequest[]
-  ): Promise<SnapshotPathRestoreOutcome[]> {
-    const entry = requireEntry(handle);
-    assertValidOid(oid, 'restorePathsFromSnapshot "oid"');
-    for (const request of requests) {
-      assertSafeSnapshotRelativePath(request.path);
-    }
-    if (requests.length === 0) {
-      return [];
-    }
-    const paths = requests.map((request) => request.path);
-    return await entry.mutex(() =>
-      entry.plumbing.withTempIndex(async (env) => {
-        await entry.plumbing.runOrThrow(['read-tree', oid], { env });
-        // BARE paths on purpose: the pinned runner environment sets
-        // GIT_LITERAL_PATHSPECS=1 (see `createPinnedGitEnvironment`), so a
-        // journal path containing glob characters already matches itself and
-        // never expands — and under that flag a `:(literal)` prefix would
-        // itself be read as a literal filename (verified empirically).
-        const lsRun = await entry.plumbing.runOrThrow(['ls-tree', '-r', '-z', oid, '--', ...paths]);
-        const treeEntries = new Map(
-          parseLsTreeZ(lsRun.stdout).map((treeEntry) => [treeEntry.path, treeEntry])
-        );
-        const outcomes: SnapshotPathRestoreOutcome[] = [];
-        for (const request of requests) {
-          outcomes.push(
-            await restoreOneSnapshotPath(entry, env, request, treeEntries.get(request.path))
-          );
-        }
-        if (outcomes.length !== requests.length) {
-          throw new SnapshotGitError(
-            'inconsistent-diff',
-            'restorePathsFromSnapshot produced fewer outcomes than input paths'
-          );
-        }
-        return outcomes;
-      })
-    );
-  }
-
-  /** Snapshot-absent path: delete the live file (already-absent still counts —
-   * the desired state holds) and prune now-empty ancestors, root-bounded. */
-  async function deleteSnapshotAbsentPath(
-    entry: RootEntry,
-    relativePath: string
-  ): Promise<SnapshotPathRestoreOutcome> {
-    const absolutePath = path.join(entry.handle.rootPath, relativePath);
-    try {
-      await fsPromises.unlink(absolutePath);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-        return {
-          message: `delete failed: ${error instanceof Error ? error.message : String(error)}`,
-          outcome: 'failed',
-          path: relativePath,
-        };
-      }
-    }
-    await pruneEmptyAncestorDirectories(entry.handle.rootPath, path.dirname(absolutePath));
-    return { outcome: 'deleted', path: relativePath };
-  }
-
-  async function restoreOneSnapshotPath(
-    entry: RootEntry,
-    env: Readonly<Record<string, string>>,
-    request: SnapshotPathRestoreRequest,
-    treeEntry: { readonly mode: string } | undefined
-  ): Promise<SnapshotPathRestoreOutcome> {
-    const relativePath = request.path;
-    const symlinkedAncestor = await findSymlinkedAncestor(entry.handle.rootPath, relativePath);
-    if (symlinkedAncestor !== null) {
-      return {
-        message: `ancestor directory "${symlinkedAncestor}" is a symlink — refusing to write through it`,
-        outcome: 'failed',
-        path: relativePath,
-      };
-    }
-    if (treeEntry === undefined) {
-      // Snapshot-absence is only a delete instruction when the CALLER said the
-      // range created this path (BST-1164 review): with `expectAbsent: false`
-      // the absence is a coverage hole — likely gitignored (the `add -A`
-      // staging respects ignores) or a path-case mismatch on a
-      // case-insensitive filesystem — and deleting would destroy content the
-      // snapshot never captured. Refuse typed, path untouched.
-      if (!request.expectAbsent) {
-        return {
-          message:
-            `"${relativePath}" is not covered by the snapshot — likely gitignored or a ` +
-            'path-case mismatch — so its pre-edit state cannot be restored; left untouched',
-          outcome: 'uncovered',
-          path: relativePath,
-        };
-      }
-      return await deleteSnapshotAbsentPath(entry, relativePath);
-    }
-    if (treeEntry.mode === GITLINK_MODE) {
-      return {
-        message: `"${relativePath}" is a nested git repository; snapshots record it as a pointer and never restore it.`,
-        outcome: 'failed',
-        path: relativePath,
-      };
-    }
-    try {
-      await entry.plumbing.runOrThrow(['checkout-index', '-f', '--', relativePath], { env });
-    } catch (error) {
-      return {
-        message: error instanceof Error ? error.message : String(error),
-        outcome: 'failed',
-        path: relativePath,
-      };
-    }
-    return { outcome: 'restored', path: relativePath };
-  }
-
   /** Inventory both legacy refs and encoded native identities for startup GC.
    * Encoded refs are decoded from their existing commit metadata and checked
    * against the canonical key; corruption must never hide or prune another owner. */
@@ -1058,7 +862,6 @@ export function createSnapshotService({ runner, snapshotsBaseDir }: SnapshotServ
     listSnapshotThreadIds,
     pruneHistory,
     pruneThread,
-    restorePathsFromSnapshot,
     snapshot,
     snapshotFileHashes,
     sweepOrphans,

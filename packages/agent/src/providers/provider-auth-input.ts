@@ -18,8 +18,8 @@
  *   throws a typed error.
  *
  * THREADING RULE (do not relitigate): auth inputs travel as DIRECT function
- * parameters the whole way down (runAssistantTurn → initializeAgentStream →
- * stream options → resolveRuntimeConfiguration → createProvider). They NEVER
+ * parameters the whole way down (stream options → resolveRuntimeConfiguration
+ * → createProvider). They NEVER
  * enter RuntimeData or a Mastra RequestContext — RequestContext.toJSON drops
  * functions, so a fetch closure would vanish silently.
  */

@@ -15,7 +15,7 @@
  */
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { EditCheckpointDatabase } from '../../assistant-server/edit-checkpoint-journal';
+import type { MainQueryHandle } from '../../assistant-server/main-query-handle';
 import { hasInFlightThreadRun } from '../../assistant-server/rewind-repository';
 import {
   ORPHANED_BACKGROUND_TASK_ERROR,
@@ -45,8 +45,8 @@ async function makeFixtureDb(databaseName: string): Promise<PGlite> {
   return db;
 }
 
-function asHandle(db: PGlite): EditCheckpointDatabase {
-  return db as unknown as EditCheckpointDatabase;
+function asHandle(db: PGlite): MainQueryHandle {
+  return db as unknown as MainQueryHandle;
 }
 
 async function insertBackgroundTask(
@@ -370,7 +370,7 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
         statements.push(sql);
         return await asHandle(db).query<T>(sql, params);
       },
-    } satisfies EditCheckpointDatabase;
+    } satisfies MainQueryHandle;
 
     await expect(reapOrphanedThreadRuns(recording, BOOTED_AT)).rejects.toMatchObject({
       code: '42P01',

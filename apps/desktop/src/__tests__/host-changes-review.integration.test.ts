@@ -34,7 +34,7 @@ import { afterEach, expect, test } from 'vitest';
 import { z } from 'zod';
 import { createHostThreadTurns } from '../assistant-server/changeset-host-turns';
 import { createSnapshotChangesetResolver } from '../assistant-server/changeset-snapshot-view';
-import type { EditCheckpointDatabase } from '../assistant-server/edit-checkpoint-journal';
+import type { MainQueryHandle } from '../assistant-server/main-query-handle';
 import {
   FAILED_SNAPSHOT_CAPTURE_OID,
   type SnapshotRepository,
@@ -117,7 +117,7 @@ function mainResolver(
       return Promise.resolve([]);
     },
   };
-  const database: EditCheckpointDatabase = {
+  const database: MainQueryHandle = {
     query: () => {
       throw new Error('the changeset view must not run raw SQL here');
     },
@@ -125,9 +125,6 @@ function mainResolver(
   const resolver = createSnapshotChangesetResolver({
     createRepository: () => ledger,
     hostThreads: createHostThreadTurns(source),
-    loadAttribution: () => {
-      throw new Error('a host thread never reads the edit-checkpoint journal');
-    },
     readRunAnchor: () => {
       throw new Error('a host thread never reads the legacy runs table');
     },

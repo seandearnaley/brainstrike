@@ -53,7 +53,6 @@ export function createRepository(
     getThreadRunTurnMessageId: vi.fn(async () => null),
     listLatestThreadRuns: vi.fn(async () => []),
     listMessages: vi.fn(async () => []),
-    listThreadCheckpoints: vi.fn(async () => []),
     listThreadRunEvents: vi.fn(async () => []),
     listThreads: vi.fn(async () => threads),
     recordRunUsage: vi.fn(),

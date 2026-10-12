@@ -15,7 +15,7 @@ import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract
 import { DEFAULT_PERMISSION_POLICIES, isPermissionDenied } from '@brainstrike/assistant-contract';
 import { changesThreadWorkspaceScope } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import { WORKSPACE_MEMORY_RESOURCE_ID } from '@brainstrike/assistant-data/assistant-memory-resource';
-import type { WorkspaceFileReader } from '@brainstrike/assistant-service/stream-init';
+import type { WorkspaceFileReader } from '@brainstrike/assistant-service/ports';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-text-file-reader';
 import { z } from 'zod';
 import {

@@ -127,7 +127,8 @@ export interface AssistantThreadHostCapability {
   readonly providers?: AssistantHostProviders;
   /**
    * Every committed version of every canvas of a thread this host owns, oldest
-   * first per canvas; undefined for a thread it does not own (history owns it).
+   * first per canvas; undefined for a thread it does not own, which has no
+   * canvas owner and fails the Canvas panel's read.
    */
   readCanvases?(
     threadId: string

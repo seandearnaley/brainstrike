@@ -25,7 +25,6 @@ import { useAssistantDecisionRecoveryBlocked } from './assistant-decision-recove
 import { submitDecisionOrQueue } from './decision-dispatch';
 import { useDecisionRoute } from './decision-route-context';
 import { followUpQueueKey, isDecisionQueued, useFollowUpQueueStore } from './follow-up-queue-store';
-import { useLiveDecisionTransport } from './live-decision-transport';
 import { NetworkDomainChecklist } from './network-domain-checklist';
 import { tickDomain } from './network-domain-ticks';
 import { PlanModeExitContext, usePlanModeExit } from './plan-mode-exit-context';
@@ -201,7 +200,6 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
   const lockedByRun = runOutcome === 'pending' || runOutcome === 'completed';
   const threadKey = use(ActiveThreadKeyContext);
   const isRunning = useAuiState((state) => state.thread.isRunning);
-  const deliverLive = useLiveDecisionTransport();
   const decisionRoute = useDecisionRoute();
   const recoveryBlocked = useAssistantDecisionRecoveryBlocked();
   const queueThreadKey = decisionRoute?.queueThreadKey ?? threadKey;
@@ -265,7 +263,6 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
         ? decisionRoute.dispatch(message)
         : submitDecisionOrQueue({
             append: sendNow,
-            deliverLive,
             identityKey: getToolActionIdentityKey(request),
             isRunning,
             message,
@@ -289,7 +286,7 @@ function useSuspendResume(request: AssistantToolSuspendRequest | null) {
         }
       );
     },
-    [aui, decisionRoute, deliverLive, isRunning, locked, request, runOutcomeKey, threadKey]
+    [aui, decisionRoute, isRunning, locked, request, runOutcomeKey, threadKey]
   );
 
   return { locked, sendError, submit };

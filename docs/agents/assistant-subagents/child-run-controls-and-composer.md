@@ -184,9 +184,8 @@ the checkpoint's resource and host-leg run with the same `delegatedHostRunId`
 function used by event persistence.
 
 Desktop memory wiring supplies pre-execution snapshot capture to host admission.
-The shared child view reuses `EditCheckpointProvider`/`useEditCheckpoints` with
-the child's thread ID; terminal store events refresh the ledger. Browser views
-without the checkpoint bridge do not query or expose native checkpoint controls.
+A host child thread's edit checkpoints come from its own committed log. Browser
+views without the agent host expose no native checkpoint controls.
 The Electron worker test proves child restore after reopen, durable reverted
 state after reload, preservation of an independent user file, and no new model
 request. This does not complete all workspace coordination acceptance.

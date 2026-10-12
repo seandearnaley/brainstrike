@@ -7,28 +7,12 @@
 import type { GitResult } from '@brainstrike/types';
 import type { SnapshotDiffTarget } from './snapshot-service';
 
-/** One journal row's attribution identity — content fields never travel here. */
+/** One committed tool edit's root-relative identity — content never travels here. */
 export interface SnapshotAttributionRecord {
   readonly fromPath: string | null;
   readonly path: string;
   readonly rootId: string;
 }
-
-/** The turn span an attribution join covers: first → last leg run ids. */
-export interface SnapshotAttributionSpan {
-  readonly firstRunId: string;
-  readonly lastRunId: string;
-  readonly threadId: string;
-}
-
-/**
- * Where a settled turn's tool-edit attribution comes from: the legacy
- * edit-checkpoint journal over the turn's span, or the edits a host run
- * committed to its own log.
- */
-export type SnapshotTurnAttribution =
-  | { readonly kind: 'journal'; readonly span: SnapshotAttributionSpan }
-  | { readonly kind: 'committed'; readonly records: readonly SnapshotAttributionRecord[] };
 
 /** One root's resolved diff endpoints. */
 export interface RootDiffTarget {
@@ -39,8 +23,12 @@ export interface RootDiffTarget {
 }
 
 export interface ResolvedTurnTargets {
-  /** Null when the view is LIVE (worktree side; attribution join skipped). */
-  readonly attribution: SnapshotTurnAttribution | null;
+  /**
+   * The tool edits a settled host run committed to its own log. Null when the
+   * view is LIVE (worktree side) or the turn has no attribution source (a
+   * legacy ledger turn), so its files carry no `toolAttributed`.
+   */
+  readonly attribution: readonly SnapshotAttributionRecord[] | null;
   readonly targets: readonly RootDiffTarget[];
 }
 
