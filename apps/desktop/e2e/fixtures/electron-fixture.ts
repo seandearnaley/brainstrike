@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { rm } from 'node:fs/promises';
+import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import {
@@ -10,6 +10,7 @@ import type { Page, TestInfo } from '@playwright/test';
 import { test as base, expect as baseExpect } from '@playwright/test';
 import { HomePage } from '../page-objects/home-page';
 import type { ElectronAppContext } from '../utils/electron-helpers.mts';
+import { type ModelProviderShim, startModelProviderShim } from '../utils/model-provider-shim';
 import { ElectronHarness } from './electron-harness';
 
 interface ElectronTestOptions {
@@ -24,11 +25,17 @@ interface ElectronTestFixtures {
   /** Failure artifact collector - automatically captures diagnostics on test failure */
   failureCollector: FailureArtifactCollector;
   homePage: HomePage;
+  /**
+   * This test's provider egress boundary (BST-1931): every provider base URL
+   * of every launch points here unless a spec supplies its own live shim.
+   * Unscripted requests are refused on loopback; script with `setScript`.
+   */
+  modelProvider: ModelProviderShim;
   window: Page;
 }
 
 export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
-  electron: async ({ electronEnv }, use, testInfo) => {
+  electron: async ({ electronEnv, modelProvider }, use, testInfo) => {
     const shardIndex = testInfo.config.shard?.current ?? 0;
     const workerIndex = testInfo.workerIndex;
     const runSalt = getRunSalt();
@@ -40,7 +47,19 @@ export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
       testInfo.retry
     );
 
-    const harness = new ElectronHarness(testInfo, undefined, userDataDir, electronEnv);
+    // The folder "Add Folder to Workspace" mounts: real and disposable, because
+    // Main validates a host thread's bound root on disk.
+    const workspaceRoot = await realpath(
+      await mkdtemp(path.join(os.tmpdir(), 'brainstrike-e2e-workspace-'))
+    );
+    const harness = new ElectronHarness(
+      testInfo,
+      undefined,
+      userDataDir,
+      electronEnv,
+      modelProvider,
+      workspaceRoot
+    );
     try {
       await use(harness);
     } finally {
@@ -48,6 +67,7 @@ export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
         await harness.dispose();
       } finally {
         await removeElectronUserDataDir(userDataDir);
+        await rm(workspaceRoot, { force: true, recursive: true });
       }
     }
   },
@@ -76,6 +96,24 @@ export const test = base.extend<ElectronTestFixtures & ElectronTestOptions>({
   homePage: async ({ window }, use) => {
     const homePage = new HomePage(window);
     await use(homePage);
+  },
+
+  modelProvider: async ({}, use, testInfo) => {
+    const boundary = await startModelProviderShim();
+    try {
+      await use(boundary);
+    } finally {
+      try {
+        if (boundary.refusals().length > 0) {
+          await testInfo.attach('provider-egress-refusals', {
+            body: JSON.stringify(boundary.refusals(), null, 2),
+            contentType: 'application/json',
+          });
+        }
+      } finally {
+        await boundary.close();
+      }
+    }
   },
 
   window: async ({ electron }, use, testInfo: TestInfo) => {
@@ -121,11 +159,12 @@ function deriveUserDataDir(
   const shardSuffix = Number.isInteger(shardIndex) ? shardIndex : 0;
   const workerSuffix = Number.isInteger(workerIndex) ? workerIndex : 0;
   const retrySuffix = Number.isInteger(retry) ? retry : 0;
-  const testSuffix = createHash('sha256').update(testId).digest('hex').slice(0, 12);
-  return path.join(
-    os.tmpdir(),
-    `brainstrike-test-user-data-${runSalt}-shard-${shardSuffix}-worker-${workerSuffix}-test-${testSuffix}-retry-${retrySuffix}`
-  );
+  // Windows M3 reset failed in caches.open: Chromium adds 144 characters below
+  // userData for CacheStorage. Hash the complete isolation identity so the
+  // descriptive directory name does not consume its native path allowance.
+  const identity = JSON.stringify([runSalt, shardSuffix, workerSuffix, testId, retrySuffix]);
+  const suffix = createHash('sha256').update(identity).digest('hex').slice(0, 20);
+  return path.join(os.tmpdir(), `bs-${suffix}`);
 }
 
 async function removeElectronUserDataDir(userDataDir: string | undefined): Promise<void> {

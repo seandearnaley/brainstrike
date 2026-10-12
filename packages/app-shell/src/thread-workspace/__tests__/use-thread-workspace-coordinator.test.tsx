@@ -1,13 +1,15 @@
 import type { ThreadWorkspaceRepository, WorkspaceSnapshotV1 } from '@brainstrike/assistant-data';
-import {
-  EMPTY_WORKSPACE_SNAPSHOT,
-  ThreadWorkspaceUnavailableError,
-} from '@brainstrike/assistant-data';
+import { EMPTY_WORKSPACE_SNAPSHOT } from '@brainstrike/assistant-data';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { delegatedWorkspaceTabId } from '../../delegated-workspace-tab';
+import { hostChildWorkspaceTabId } from '../../host-child-workspace-tab';
 import { ThreadWorkspaceNavigation } from '../thread-workspace-navigation';
-import { useThreadWorkspaceCoordinator } from '../use-thread-workspace-coordinator';
 import type { WorkspaceStateFacade } from '../workspace-snapshot-io';
+
+let prepareFactoryReset: typeof import('@brainstrike/app-state/factory-reset').prepareFactoryReset;
+let useThreadWorkspaceCoordinator: typeof import('../use-thread-workspace-coordinator').useThreadWorkspaceCoordinator;
+let ThreadWorkspaceUnavailableError: typeof import('@brainstrike/assistant-data').ThreadWorkspaceUnavailableError;
 
 /**
  * A minimal in-memory "live store": one mutable state bag the facade reads
@@ -55,6 +57,15 @@ function createHarness() {
     applyRootViews: vi.fn((focusedRootId, visibleRootIds) => {
       state.focusedRootId = focusedRootId;
       state.visibleRootIds = visibleRootIds;
+    }),
+    // Mirrors the selection store: a closed selected app hands selection on.
+    closeApps: vi.fn((appIds: readonly string[]) => {
+      const closing = new Set(appIds);
+      state.openAppIds = state.openAppIds.filter((id) => !closing.has(id));
+      if (state.selection.kind === 'app' && closing.has(state.selection.appId)) {
+        const successor = state.openAppIds.at(-1);
+        state.selection = successor ? { appId: successor, kind: 'app' } : { kind: 'empty' };
+      }
     }),
     getEditorState: vi.fn(() => state.editorState),
     getExpandedDirectoryPaths: vi.fn(() => state.expandedPaths),
@@ -122,7 +133,12 @@ const CLOSED_PANE_SNAPSHOT: WorkspaceSnapshotV1 = {
 };
 
 describe('useThreadWorkspaceCoordinator', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    // Reset preparation is terminal for a renderer. Each test owns a fresh module lifetime.
+    vi.resetModules();
+    ({ prepareFactoryReset } = await import('@brainstrike/app-state/factory-reset'));
+    ({ useThreadWorkspaceCoordinator } = await import('../use-thread-workspace-coordinator'));
+    ({ ThreadWorkspaceUnavailableError } = await import('@brainstrike/assistant-data'));
     vi.useFakeTimers({ shouldAdvanceTime: true });
   });
 
@@ -226,6 +242,79 @@ describe('useThreadWorkspaceCoordinator', () => {
       }
     );
   }
+
+  it('factory reset joins an admitted save before its owner can retire', async () => {
+    const harness = createHarness();
+    const mounted = render(harness, 'thread-a');
+    await waitFor(() => expect(harness.rows.has('thread-a')).toBe(true));
+    const pending = Promise.withResolvers<void>();
+    vi.mocked(harness.repository.setThreadWorkspace).mockImplementationOnce(() => pending.promise);
+    act(() => {
+      harness.state.openAppIds = ['changes'];
+      harness.notify();
+    });
+    let prepared = false;
+    const preparation = prepareFactoryReset().then(() => {
+      prepared = true;
+    });
+    try {
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(prepared).toBe(false);
+    } finally {
+      pending.resolve();
+      await act(async () => {
+        await preparation;
+      });
+      mounted.unmount();
+    }
+    expect(prepared).toBe(true);
+  });
+
+  it('factory reset cancels pending hydration and store-clear saves through unmount', async () => {
+    const harness = createHarness();
+    const read = Promise.withResolvers<WorkspaceSnapshotV1 | null>();
+    vi.mocked(harness.repository.getThreadWorkspace).mockReturnValue(read.promise);
+    const mounted = render(harness, 'thread-a');
+    const preparation = prepareFactoryReset();
+    await act(async () => {
+      harness.state.openAppIds = [];
+      harness.notify();
+      read.resolve(null);
+      await read.promise;
+      await preparation;
+    });
+    mounted.unmount();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    expect(harness.repository.setThreadWorkspace).not.toHaveBeenCalled();
+  });
+
+  it('keeps a replacement workspace coordinator retired after reset clears the explorer', async () => {
+    const harness = createHarness();
+    const mounted = render(harness, 'thread-a');
+    await waitFor(() => expect(harness.rows.has('thread-a')).toBe(true));
+    await act(async () => {
+      await prepareFactoryReset();
+    });
+    mounted.unmount();
+    vi.mocked(harness.repository.getThreadWorkspace).mockClear();
+    vi.mocked(harness.repository.getThreadWorkspaces).mockClear();
+    vi.mocked(harness.repository.setThreadWorkspace).mockClear();
+    // FileExplorerProvider advances its content lifecycle key while reset clears stores.
+    const replacement = render(harness, 'thread-a');
+    await act(async () => {
+      harness.state.openAppIds = ['changes'];
+      harness.notify();
+      await vi.advanceTimersByTimeAsync(100);
+    });
+    replacement.unmount();
+    expect(harness.repository.getThreadWorkspace).not.toHaveBeenCalled();
+    expect(harness.repository.getThreadWorkspaces).not.toHaveBeenCalled();
+    expect(harness.repository.setThreadWorkspace).not.toHaveBeenCalled();
+  });
 
   it('debounce-persists live store changes under the active thread', async () => {
     const harness = createHarness();
@@ -464,6 +553,35 @@ describe('useThreadWorkspaceCoordinator', () => {
     });
     // Inherit does NOT hydrate — the live stores already show this state.
     expect(harness.facade.applyFileTabs).not.toHaveBeenCalled();
+  });
+
+  it('a new thread inherits the workspace without the outgoing thread child conversations', async () => {
+    const harness = createHarness();
+    const hostChild = hostChildWorkspaceTabId({ persona: 'researcher', threadId: 'child-a' });
+    const delegated = delegatedWorkspaceTabId({
+      ownerResourceId: 'resource',
+      rootThreadId: 'thread-a',
+      threadId: 'child-b',
+    });
+    harness.state.openAppIds = ['context-explorer', hostChild, delegated];
+    harness.state.selection = { appId: hostChild, kind: 'app' };
+    const { rerender } = render(harness, 'thread-a');
+
+    rerender({ activeThreadId: 'thread-new', openThreadIds: ['thread-a', 'thread-new'] });
+
+    await waitFor(() => {
+      expect(harness.rows.get('thread-new')?.apps.openAppIds).toEqual(['context-explorer']);
+    });
+    expect(harness.state.openAppIds).toEqual(['context-explorer']);
+    expect(harness.rows.get('thread-new')?.apps.selection).toEqual({
+      appId: 'context-explorer',
+      kind: 'app',
+    });
+    expect(harness.rows.get('thread-a')?.apps.openAppIds).toEqual([
+      'context-explorer',
+      hostChild,
+      delegated,
+    ]);
   });
 
   it('preloads open-thread snapshots and hydrates from cache synchronously on switch', async () => {

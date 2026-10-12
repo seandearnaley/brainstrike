@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const mockPrepareFactoryReset = vi.fn<() => Promise<void>>(async () => {});
 const mockToast = vi.fn();
 const mockUseToast = vi.fn(() => ({ toast: mockToast }));
 const mockUseFactoryReset = vi.fn(() => null);
@@ -48,6 +49,7 @@ vi.mock('@brainstrike/ui', () => ({
 vi.mock('@brainstrike/app-state/factory-reset', () => ({
   ClearPersistentUiStateIncompleteError: mockClearPersistentUiStateIncompleteError,
   clearPersistentUiStateWithResult: mockClearPersistentUiState,
+  prepareFactoryReset: mockPrepareFactoryReset,
 }));
 
 // Import after mocks are set up
@@ -87,6 +89,7 @@ describe('FactoryResetPanel', () => {
     });
 
     // Reset default mocks
+    mockPrepareFactoryReset.mockResolvedValue(undefined);
     mockUseFactoryReset.mockReturnValue(null);
     mockClearPersistentUiState.mockResolvedValue({
       failures: [],
@@ -97,6 +100,65 @@ describe('FactoryResetPanel', () => {
     mockConfirm = vi.fn<(message?: string) => boolean>();
     window.confirm = mockConfirm;
     mockConfirm.mockReturnValue(true);
+  });
+
+  it('disables an explicitly unavailable desktop reset without using the database reset', () => {
+    const resetLocal = vi.fn(async () => ({ success: true }));
+    const resetDatabase = vi.fn(async () => {});
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: {
+        db: {
+          factoryResetUnavailableReason: 'Factory reset is unavailable on Windows in this version.',
+          resetLocal,
+        },
+      },
+      writable: true,
+    });
+    render(<FactoryResetPanel doFactoryReset={resetDatabase} />);
+    expect(
+      screen.getByText('Factory reset is unavailable on Windows in this version.')
+    ).toBeVisible();
+    expect(screen.getByTestId('factory-reset-button')).toBeDisabled();
+    fireEvent.click(screen.getByTestId('factory-reset-button'));
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(mockPrepareFactoryReset).not.toHaveBeenCalled();
+    expect(mockClearPersistentUiState).not.toHaveBeenCalled();
+    expect(resetLocal).not.toHaveBeenCalled();
+    expect(resetDatabase).not.toHaveBeenCalled();
+  });
+
+  it('joins renderer preparation before clearing stores or calling desktop reset', async () => {
+    const preparation = Promise.withResolvers<void>();
+    mockPrepareFactoryReset.mockReturnValueOnce(preparation.promise);
+    const resetLocal = vi.fn(async () => ({ success: true }));
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: { db: { resetLocal } },
+      writable: true,
+    });
+    render(<FactoryResetPanel />);
+    fireEvent.click(screen.getByTestId('factory-reset-button'));
+    expect(mockClearPersistentUiState).not.toHaveBeenCalled();
+    expect(resetLocal).not.toHaveBeenCalled();
+    preparation.resolve();
+    await waitFor(() => expect(resetLocal).toHaveBeenCalledOnce());
+    expect(mockClearPersistentUiState).toHaveBeenCalledOnce();
+  });
+
+  it('reloads without deleting storage when renderer preparation fails', async () => {
+    mockPrepareFactoryReset.mockRejectedValueOnce(new Error('workspace write failed'));
+    const resetLocal = vi.fn(async () => ({ success: true }));
+    Object.defineProperty(window, 'electronAPI', {
+      configurable: true,
+      value: { db: { resetLocal } },
+      writable: true,
+    });
+    render(<FactoryResetPanel />);
+    fireEvent.click(screen.getByTestId('factory-reset-button'));
+    await waitFor(() => expect(mockReload).toHaveBeenCalledOnce());
+    expect(mockClearPersistentUiState).not.toHaveBeenCalled();
+    expect(resetLocal).not.toHaveBeenCalled();
   });
 
   describe('rendering', () => {

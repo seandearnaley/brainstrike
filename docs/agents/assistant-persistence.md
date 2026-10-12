@@ -7,9 +7,14 @@
 
 ## ASSISTANT THREAD PERSISTENCE & RELOAD HYDRATION
 
-**Thread workspace snapshots** live in
-`brainstrike_assistant_thread_workspaces` and hydrate renderer-owned live stores
-through `useThreadWorkspaceCoordinator`; those stores stay the working authority.
+**Thread workspace snapshots** for M3 host-owned threads are committed as
+`workspace.updated` in the existing SQLite event log, through the authenticated
+host dispatcher. A host thread never receives a shadow `mastra_threads` row.
+`useThreadWorkspaceCoordinator` hydrates renderer-owned live stores, which stay
+the working authority. The remaining `brainstrike_assistant_thread_workspaces`
+route is transitional implementation, not supported old-thread compatibility:
+[ADR-0020](../adr/0020-greenfield-data-lifecycle.md) assigns its retirement to the
+separate M4 branch and does not claim it is already removed.
 
 - While the first snapshot read is pending, never persist unhydrated singleton
   state over the saved row: capture a boot baseline, merge only fields that
@@ -20,9 +25,12 @@ through `useThreadWorkspaceCoordinator`; those stores stay the working authority
 - Ordinary thread switches flush the outgoing snapshot synchronously, then
   hydrate the incoming one under an intent guard — never the boot merge.
 
-**Operating-root binding** lives in `mastra_threads.metadata` (no migration):
-`operatingRootId` is the durable `roots.id`; display name and path are
-display-only.
+**Operating-root binding** for host-owned threads is committed as
+`workspace.binding.updated` in the existing Core thread log, using the eleven
+operating-root, checkout, secondary-root and Forge metadata keys. Remaining
+`mastra_threads.metadata` routing is M4 retirement work, not a legacy reader/writer
+or data-migration requirement.
+`operatingRootId` is the durable `roots.id`; display name and path are display-only.
 
 - Resolve the adapter root's path to exactly one live `roots` row and write the
   binding before the first run. An adapter root id is never execution authority.
@@ -32,6 +40,13 @@ display-only.
   deletion projection; bulk metadata updates reject every `checkout*` key.
 - Native tools validate the id against the live root inventory; the stored path
   is never an authority or a fallback.
+- Host scope updates require the existing platform's live validation before
+  the full commit; missing capability refuses. Watch-only updates remain
+  preferences. The Core run snapshot captures the binding at admission, and
+  recovery validates that capture rather than the thread's later binding.
+- The host adapter must retain the captured operating root in its admitted
+  runtime. A changed, revoked or discarded root refuses before a decision or
+  run is committed; a view snapshot cannot supply a replacement.
 
 Evidence: `assistant-persistence/thread-workspace-and-root-binding.md`.
 Guard: `packages/app-shell/src/thread-workspace/__tests__/use-thread-workspace-coordinator.test.tsx`.
@@ -382,7 +397,9 @@ budget, the meter denominator, and the instruction budget note. Never derive a s
   writer and reader must use the same key.
 - Both turn paths report usage: hosted through the data-stream `message-finish`
   tap, local through the llm-host result (guard its optional usage at the IPC
-  boundary).
+  boundary). New Root conversations project the latest committed `model.step`
+  into that same session-lived meter store. Replay restores that existing fact;
+  observer usage and billed cross-step totals never replace chat context usage.
 - Aggregate `inputTokens`/`outputTokens` are the durable billing totals;
   `contextInputTokens`/`contextOutputTokens` carry only the latest provider step
   and feed the meter. Never display a billed cross-step sum as context occupancy.
@@ -1394,11 +1411,12 @@ Where state lives (see ADR-0012):
 - Folder branch chips come from ONE `useGitInventory()` GATED on `enabled`, because
   one load is a full repo/worktree scan across every root and the chips exist only
   in folder grouping — entering it is the gesture, so this is a deferral, not a
-  silent disable. THREE KEYED LOOKUPS resolve a branch: FIRST `byRootId` (durable
-  `roots.id`, only ids in exactly one worktree's containment); an id-only miss
-  checks `byRootIdAndPath` for the same id plus the thread's exact normalized
-  worktree path; THEN, only for a legacy thread with no durable id, `byRootPath`.
-  BARE worktrees are omitted from all three. Desktop only. Why the id join exists:
+  silent disable. Current threads resolve by durable `roots.id` through `byRootId`
+  (only ids in exactly one worktree's containment); an id-only miss checks
+  `byRootIdAndPath` for the same id plus the thread's exact normalized worktree path.
+  The remaining legacy-only `byRootPath` route is M4 retirement work, not authority
+  for a current thread without a durable id. BARE worktrees are omitted. Desktop only.
+  Why the id join exists:
   `normalizeRootPathForLookup` cannot resolve symlinks — `roots.path` keeps the
   mounted path while git reports the realpath — and `containment` is computed in
   MAIN against realpath'd paths.
@@ -1952,9 +1970,10 @@ Guard: `packages/agent/src/__tests__/background-worker-stream.integration.spec.t
   in the same thread/resource before each 80-row read. Deleted or tombstoned hits
   end navigation visibly; they do not replace an otherwise usable child transcript
   with a history failure.
-- Legacy null message resources use the native thread's resource consistently at
-  search admission, cursor lookup and hydration; foreign explicit resources stay
-  rejected.
+- Current messages carry their canonical native resource consistently at search
+  admission, cursor lookup and hydration; foreign resources stay rejected. The
+  remaining null-resource compatibility path is M4 retirement work under ADR-0020,
+  not a requirement to infer or convert old message ownership.
 - Extended search history adds only older non-overlapping groups. The host keeps
   its head and overlapping group content while their native source ids are unioned
   for exact match focus; ordinary live children do not run this merge. Title labels

@@ -12,6 +12,13 @@ import {
   test,
   waitForAppReadyInTest,
 } from './embedding-worker-renderer/electron-app-fixture';
+import {
+  configureNativeCollectionSearch,
+  createNativeImportedSearchFixture,
+  pauseNativeCollectionSources,
+  resumeNativeCollectionSources,
+  waitForNativeCollectionCoverage,
+} from './embedding-worker-renderer.native-search';
 import { expect } from './fixtures/electron-fixture';
 
 export type {
@@ -231,7 +238,7 @@ export interface BackfillCorpusFixture {
 
 export interface RealWorldMixedStateScenario {
   activeWindow: Page;
-  backgroundFixture: BackfillCorpusFixture;
+  backgroundFixture: BackfillCorpusFixture | null;
   importCollectionName: string;
   importEmbeddingSetId: string;
   importImportedPathCounts: ImportedPathCounts;
@@ -240,7 +247,7 @@ export interface RealWorldMixedStateScenario {
   searchableCollectionName: string;
   searchableEmbeddingSetId: string;
   /** DB root id the searchable fixture files were attributed to. */
-  searchableWorkspaceRootId: string;
+  searchableWorkspaceRootId: string | null;
 }
 
 export interface LargeCollectionListFixture {
@@ -3016,8 +3023,13 @@ export async function waitForReclaimCycleAndResumedProcessing(
 
 export async function prepareRealWorldMixedStateScenario(
   electronApp: ElectronApplication,
-  window: Page
+  window: Page,
+  options: {
+    readonly nativeImportRoot?: string;
+    readonly nativeCollectionSearch?: boolean;
+  } = {}
 ): Promise<RealWorldMixedStateScenario> {
+  const nativeCollectionSearch = options.nativeCollectionSearch ?? !!options.nativeImportRoot;
   let activeWindow = await showDatabaseDemoPanel(window);
 
   if (await isDatabaseError(activeWindow)) {
@@ -3046,58 +3058,81 @@ export async function prepareRealWorldMixedStateScenario(
     .toMatchObject({ state: 'stopped' });
 
   await ensureFileExplorerPanelVisible(activeWindow);
-  await installLargeImportFileSystemMock(electronApp, {
-    fileCount: REAL_WORLD_MIXED_STATE_FILE_COUNT,
-    rootPath: '/mock/real-world-import',
-    sentencesPerFile: ACTUAL_IMPORT_SENTENCES_PER_FILE,
-  });
-
-  const searchableCollectionName = `Searchable Mixed State ${Date.now()}`;
-  await createCollectionViaDialog(activeWindow, searchableCollectionName);
-  const searchableEmbeddingSetId = await resolveCollectionIdByName(
-    activeWindow,
-    searchableCollectionName
-  );
-  const searchableFixture = await createChunkedImportFixture(
-    activeWindow,
-    searchableEmbeddingSetId
-  );
-
-  const searchableCollectionOption = activeWindow.locator(
-    `#collection-option-${searchableEmbeddingSetId}`
-  );
-  await expect(searchableCollectionOption).toBeVisible({ timeout: 15_000 });
-  await searchableCollectionOption.click({ timeout: 5000 });
-  await waitForImportedChunks(activeWindow, searchableEmbeddingSetId);
-
-  const searchableBackfillButton = activeWindow
-    .locator('[data-testid="database-demo-panel"]')
-    .getByRole('button', { name: /^Backfill(?:\s|$)/ });
-  await expect(searchableBackfillButton).toBeVisible({ timeout: 15_000 });
-  await waitForBackfillButtonEnabled(activeWindow, searchableBackfillButton);
-  await searchableBackfillButton.click({ timeout: 5000 });
-
-  const searchableBackfillOutcome = await waitForBackfillQueueMovementOrFatalError(
-    activeWindow,
-    searchableEmbeddingSetId
-  );
-  if (searchableBackfillOutcome === 'error') {
-    const status = await getEmbeddingHostStatus(activeWindow);
-    throw new Error(
-      `Searchable mixed-state setup failed during seed backfill: ${status.lastError ?? 'unknown host error'}`
-    );
+  const importRootPath = options.nativeImportRoot ?? '/mock/real-world-import';
+  if (options.nativeImportRoot) {
+    await electronApp.evaluate((_electron, rootPath) => {
+      process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = rootPath;
+    }, options.nativeImportRoot);
+  } else {
+    await installLargeImportFileSystemMock(electronApp, {
+      fileCount: REAL_WORLD_MIXED_STATE_FILE_COUNT,
+      rootPath: importRootPath,
+      sentencesPerFile: ACTUAL_IMPORT_SENTENCES_PER_FILE,
+    });
   }
 
-  await waitForEmbeddedCollectionSummary(activeWindow, searchableCollectionName);
-  await expect
-    .poll(async () => await getEmbeddingSetCounts(activeWindow, searchableEmbeddingSetId), {
-      timeout: 120_000,
-    })
-    .toMatchObject({
-      embeddedChunks: searchableFixture.totalChunks,
-      fileCount: searchableFixture.fileCount,
-      totalChunks: searchableFixture.totalChunks,
-    });
+  const searchableCollectionName = `Searchable Mixed State ${Date.now()}`;
+  let searchableEmbeddingSetId: string;
+  if (nativeCollectionSearch) {
+    const fixture = await createNativeImportedSearchFixture(activeWindow, searchableCollectionName);
+    searchableEmbeddingSetId = fixture.embeddingSetId;
+    await configureNativeCollectionSearch(activeWindow, searchableCollectionName);
+    await waitForNativeCollectionCoverage(
+      activeWindow,
+      searchableEmbeddingSetId,
+      fixture.fileCount
+    );
+    // Prepare the manual import independently, then resume native workspace
+    // ingestion before the measured search/interaction leg below.
+    await pauseNativeCollectionSources(activeWindow);
+    activeWindow = await showDatabaseDemoPanel(activeWindow);
+  } else {
+    await createCollectionViaDialog(activeWindow, searchableCollectionName);
+    searchableEmbeddingSetId = await resolveCollectionIdByName(
+      activeWindow,
+      searchableCollectionName
+    );
+    const searchableFixture = await createChunkedImportFixture(
+      activeWindow,
+      searchableEmbeddingSetId
+    );
+
+    const searchableCollectionOption = activeWindow.locator(
+      `#collection-option-${searchableEmbeddingSetId}`
+    );
+    await expect(searchableCollectionOption).toBeVisible({ timeout: 15_000 });
+    await searchableCollectionOption.click({ timeout: 5000 });
+    await waitForImportedChunks(activeWindow, searchableEmbeddingSetId);
+
+    const searchableBackfillButton = activeWindow
+      .locator('[data-testid="database-demo-panel"]')
+      .getByRole('button', { name: /^Backfill(?:\s|$)/ });
+    await expect(searchableBackfillButton).toBeVisible({ timeout: 15_000 });
+    await waitForBackfillButtonEnabled(activeWindow, searchableBackfillButton);
+    await searchableBackfillButton.click({ timeout: 5000 });
+
+    const searchableBackfillOutcome = await waitForBackfillQueueMovementOrFatalError(
+      activeWindow,
+      searchableEmbeddingSetId
+    );
+    if (searchableBackfillOutcome === 'error') {
+      const status = await getEmbeddingHostStatus(activeWindow);
+      throw new Error(
+        `Searchable mixed-state setup failed during seed backfill: ${status.lastError ?? 'unknown host error'}`
+      );
+    }
+
+    await waitForEmbeddedCollectionSummary(activeWindow, searchableCollectionName);
+    await expect
+      .poll(async () => await getEmbeddingSetCounts(activeWindow, searchableEmbeddingSetId), {
+        timeout: 120_000,
+      })
+      .toMatchObject({
+        embeddedChunks: searchableFixture.totalChunks,
+        fileCount: searchableFixture.fileCount,
+        totalChunks: searchableFixture.totalChunks,
+      });
+  }
 
   const importCollectionName = `Mixed State Import ${Date.now()}`;
   await createCollectionViaDialog(activeWindow, importCollectionName);
@@ -3109,15 +3144,21 @@ export async function prepareRealWorldMixedStateScenario(
   await selectRootButton.click({ timeout: 5000 });
   await setFileExplorerMaxSelectionCount(activeWindow, REAL_WORLD_MIXED_STATE_FILE_COUNT);
 
-  await expect
-    .poll(async () => await getMainProcessFileSystemFixtureSummary(electronApp), {
-      timeout: 30_000,
-    })
-    .toMatchObject({
-      fileCount: REAL_WORLD_MIXED_STATE_FILE_COUNT,
-      requestDirectoryAccessCount: 1,
-      rootHandlePath: '/mock/real-world-import',
-    });
+  if (options.nativeImportRoot) {
+    await expect(
+      activeWindow.getByRole('treegrid', { name: 'File tree' }).getByText('stress-file-0000.ts')
+    ).toBeVisible();
+  } else {
+    await expect
+      .poll(async () => await getMainProcessFileSystemFixtureSummary(electronApp), {
+        timeout: 30_000,
+      })
+      .toMatchObject({
+        fileCount: REAL_WORLD_MIXED_STATE_FILE_COUNT,
+        requestDirectoryAccessCount: 1,
+        rootHandlePath: importRootPath,
+      });
+  }
 
   const selectAllButton = activeWindow.getByRole('button', { name: /^Select All$/i }).first();
   await expect(selectAllButton).toBeVisible({ timeout: 15_000 });
@@ -3144,7 +3185,7 @@ export async function prepareRealWorldMixedStateScenario(
   while (Date.now() - importStartedAt < 240_000) {
     const [pathCounts, timeOrigin, chunkingStatus, importSnapshot, rendererLogs] =
       await Promise.all([
-        getImportedPathCounts(activeWindow, '/mock/real-world-import'),
+        getImportedPathCounts(activeWindow, importRootPath),
         getRendererTimeOrigin(activeWindow),
         getChunkingHostStatus(activeWindow),
         getDatabaseDemoImportSnapshot(activeWindow),
@@ -3214,38 +3255,43 @@ export async function prepareRealWorldMixedStateScenario(
 
   await waitForDatabaseDemoImportIdle(activeWindow);
 
-  const backgroundFixture = await createLargeBackfillCorpusFixture(activeWindow, {
-    chunksPerFile: REAL_WORLD_BACKGROUND_CHUNKS_PER_FILE,
-    fileCount: REAL_WORLD_BACKGROUND_FILE_COUNT,
-    persistActiveSet: false,
-  });
+  let backgroundFixture: BackfillCorpusFixture | null = null;
+  if (nativeCollectionSearch) {
+    await resumeNativeCollectionSources(activeWindow);
+  } else {
+    backgroundFixture = await createLargeBackfillCorpusFixture(activeWindow, {
+      chunksPerFile: REAL_WORLD_BACKGROUND_CHUNKS_PER_FILE,
+      fileCount: REAL_WORLD_BACKGROUND_FILE_COUNT,
+      persistActiveSet: false,
+    });
 
-  await startBackfillViaBridge(activeWindow, backgroundFixture.embeddingSetId);
+    await startBackfillViaBridge(activeWindow, backgroundFixture.embeddingSetId);
 
-  const backgroundOutcome = await waitForBackfillQueueMovementOrFatalError(
-    activeWindow,
-    backgroundFixture.embeddingSetId,
-    120_000
-  );
-  expect(backgroundOutcome).toBe('queued');
+    const backgroundOutcome = await waitForBackfillQueueMovementOrFatalError(
+      activeWindow,
+      backgroundFixture.embeddingSetId,
+      120_000
+    );
+    expect(backgroundOutcome).toBe('queued');
 
-  await expect
-    .poll(
-      async () => {
-        const stats = await getEmbeddingQueueStats(activeWindow);
-        return stats.queued + stats.running;
-      },
-      { timeout: 30_000 }
-    )
-    .toBeGreaterThan(0);
+    await expect
+      .poll(
+        async () => {
+          const stats = await getEmbeddingQueueStats(activeWindow);
+          return stats.queued + stats.running;
+        },
+        { timeout: 30_000 }
+      )
+      .toBeGreaterThan(0);
+  }
 
   const fileExplorerSnapshotBeforeChecks = await getFileExplorerTestSnapshot(activeWindow);
   const currentFolderId = fileExplorerSnapshotBeforeChecks?.currentFolderId;
   expect(typeof currentFolderId).toBe('string');
   expect(currentFolderId).toBeTruthy();
-  expect(currentFolderId).not.toBe('/mock/real-world-import');
+  expect(currentFolderId).not.toBe(importRootPath);
   expect(fileExplorerSnapshotBeforeChecks).toMatchObject({
-    rootDirectoryPath: '/mock/real-world-import',
+    rootDirectoryPath: importRootPath,
     selectedFilePathCount: REAL_WORLD_MIXED_STATE_FILE_COUNT,
   });
   expect(
@@ -3254,14 +3300,10 @@ export async function prepareRealWorldMixedStateScenario(
     )
   ).toBe(true);
 
-  // The searchable set is a synthetic fixture, so its file records carry no
-  // root. Workspace search is root-scoped and excludes NULL-root rows, so
-  // attribute them to the root the real import just mounted — otherwise every
-  // search assertion below would be unfalsifiable.
-  const searchableWorkspaceRootId = await attachCollectionFilesToWorkspaceRoot(
-    activeWindow,
-    searchableEmbeddingSetId
-  );
+  // Legacy workspace search needs a root; native collection scope retains rootless identity.
+  const searchableWorkspaceRootId = options.nativeImportRoot
+    ? null
+    : await attachCollectionFilesToWorkspaceRoot(activeWindow, searchableEmbeddingSetId);
 
   return {
     activeWindow,

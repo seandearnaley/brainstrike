@@ -1,3 +1,4 @@
+import { hasFactoryResetPreparationStarted } from '@brainstrike/app-state/factory-reset';
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useAssistantMemoryPreferencesStore } from '@brainstrike/app-state/stores/assistant-memory-preferences-store';
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
@@ -6,15 +7,7 @@ import {
   buildExperimentAssignmentRequest,
   useExperimentAssignmentPreferencesStore,
 } from '@brainstrike/app-state/stores/experiment-assignment-preferences-store';
-import {
-  buildHookTrustRequest,
-  hookTrustSelectors,
-  useHookTrustStore,
-} from '@brainstrike/app-state/stores/hook-trust-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
-import { useNativeToolPreferencesStore } from '@brainstrike/app-state/stores/native-tool-preferences-store';
-import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
-import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
 import { useSelfImprovementSignalPreferencesStore } from '@brainstrike/app-state/stores/self-improvement-signal-preferences-store';
 import {
   buildSkillsContextRequest,
@@ -27,15 +20,12 @@ import {
   isSupportedProvider,
   type SupportedProvider,
 } from '@brainstrike/assistant-contract/provider-metadata';
-import { NATIVE_TOOL_DEFAULTS } from '@brainstrike/assistant-contract/tool-metadata';
 import {
-  createPgliteAssistantThreadRepository,
   hasDurableAssistantUsageCapability,
   useAssistantThreadStore,
 } from '@brainstrike/assistant-data';
 import {
   type AssistantProviderSettingsUpdate,
-  type AssistantToolMenuItem,
   AssistantUiPanel,
   BudgetGuardrailProvider,
   DebugBundleProvider,
@@ -60,10 +50,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AssistantDecisionProviders } from './assistant-decision-providers';
 import { type OmMeterState, resolveOmMeterState } from './assistant-om-segment';
 import { subscribeAssistantToolUpdates } from './assistant-panel/tool-update-subscriptions';
-import {
-  hasDesktopRuntimeBridge,
-  useAssistantExecutionControls,
-} from './assistant-panel/use-assistant-execution-controls';
+import { useAssistantExecutionControls } from './assistant-panel/use-assistant-execution-controls';
 import { useAssistantUsageLedger } from './assistant-panel/use-assistant-usage-ledger';
 import { useModelSelectionReconcile } from './assistant-panel/use-model-selection-reconcile';
 import { useTerminalRunHandlers } from './assistant-panel/use-terminal-run-handlers';
@@ -83,35 +70,31 @@ import {
   buildProviderOptionsWhenReady,
   copyProviderSettingsMap,
   type FixedProviderModels,
-  formatToolLabel,
   getEnabledBuiltInLocalModelIds,
   getRuntimeProviderLlmModels,
-  getToolDescription,
   type LlmProviderModelDefinition,
   type LocalRuntimeProviderId,
-  resolveAdvertisedNativeToolIds,
   resolveAssistantMemoryDisabledReason,
   resolveComposerAttachmentsAvailability,
   resolveEffectiveObservationalMemorySettings,
   resolveHostedMemoryBackendAvailable,
   resolveModelNameFromComposite,
   resolveProviderFromComposite,
-  toLocalRuntimeInputSchema,
   toRuntimeProviderModels,
   toRuntimeWorkspaceContext,
 } from './assistant-ui-panel-wrapper-runtime';
 import { useChangeset } from './changes/use-changeset';
 import { useWrapperRewindWiring } from './changes/use-wrapper-rewind-wiring';
 import { DelegatedWorkspaceNavigation } from './delegated-workspace-navigation';
-import { useAssistantProviderSource } from './hooks/assistant-provider-source';
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
-import { useAssistantMcpMenuState } from './hooks/use-assistant-mcp-menu-state';
 import { useAssistantModelChange } from './hooks/use-assistant-model-change';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
 import { useAssistantProviderDisabledReason } from './hooks/use-assistant-provider-disabled-reason';
 import { useAssistantRequestLifecycle } from './hooks/use-assistant-request-lifecycle';
+import { useAssistantThreadRepositories } from './hooks/use-assistant-thread-repositories';
 import { useAssistantThreadRequestData } from './hooks/use-assistant-thread-request-data';
 import { useAssistantThreadRootBinding } from './hooks/use-assistant-thread-root-binding';
+import { useAssistantToolMenu } from './hooks/use-assistant-tool-menu';
 import { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
 import { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';
 import { useDebugBundleBinding } from './hooks/use-debug-bundle';
@@ -119,7 +102,6 @@ import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
 import { useEnableModel } from './hooks/use-enable-model';
 import { useForgeBranchLookupActivation, useForgeRunEvents } from './hooks/use-forge-run-events';
 import { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
-import { useProviderModelDefaults } from './hooks/use-provider-model-defaults';
 import { useRunVerdictBinding } from './hooks/use-run-verdict';
 import { useSubagentPersonasRequest } from './hooks/use-subagent-personas-request';
 import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-path';
@@ -131,7 +113,6 @@ import { useAssistantThreadTitleSync } from './use-assistant-thread-title-sync';
 import { useComposerDraftChannel } from './use-composer-draft-channel';
 import { useAssistantPanelThreadScope } from './use-delegated-conversation-root';
 import { useFileMentions } from './use-file-mentions';
-import { useHookTrustScope } from './use-hook-trust-scope';
 import { useObservationalMemoryRow } from './use-om-segment-row';
 import { WorkspaceBarHost } from './workspace-bar/workspace-bar-host';
 
@@ -168,7 +149,6 @@ export function AssistantUiPanelWrapper({
   providerReadErrors,
   providerKeySources,
 }: AssistantUiPanelWrapperProps) {
-  const providerSource = useAssistantProviderSource();
   const setModel = useAssistantPreferencesStore((state) => state.setModel);
   const clearModel = useAssistantPreferencesStore((state) => state.clearModel);
   const getLocalRuntimeStatuses = useAssistantPreferencesStore(
@@ -198,12 +178,7 @@ export function AssistantUiPanelWrapper({
   const semanticRecallSettings = useAssistantMemoryPreferencesStore(
     (state) => state.semanticRecall
   );
-  const nativeToolStates = useNativeToolPreferencesStore((state) => state.toolStates);
-  const setNativeToolEnabled = useNativeToolPreferencesStore((state) => state.setToolEnabled);
 
-  // OpenRouter default initialization still keys its durable attempt on the
-  // same credential revision as provider discovery.
-  const secretsVersion = useSecretsStore((state) => state.secretsVersion);
   const {
     discoveryError: providerDiscoveryError,
     discoveryState: providerDiscoveryState,
@@ -220,15 +195,6 @@ export function AssistantUiPanelWrapper({
   const db = usePGliteDatabase();
   const dbInitializing = useDbInitializing();
   const dbError = useDbProviderError();
-  const openSettings = usePanelLayoutStore((state) => state.openSettings);
-
-  useProviderModelDefaults(
-    configuredProviders,
-    db,
-    secretsVersion,
-    providerSource.kind === 'discovery',
-    providerReadErrors
-  );
 
   // Create a set of DB-enabled model IDs for quick lookup
   const registryEnabledModelIds = useMemo(() => {
@@ -596,45 +562,10 @@ export function AssistantUiPanelWrapper({
     [handleSelectionUpdate, handleTapestryUpdate]
   );
 
-  const nativeToolIds = resolveAdvertisedNativeToolIds({
-    desktopBridgeAvailable: hasDesktopRuntimeBridge(),
+  // Legacy threads no longer run MCP tools (BST-1930); the menu lists them disabled.
+  const { enabledNativeToolIds, toolMenu } = useAssistantToolMenu({
+    runsMcpTools: false,
     selectedProvider,
-  });
-  const nativeToolItems = useMemo<AssistantToolMenuItem[]>(
-    () =>
-      nativeToolIds.map((toolId) => {
-        const metadata = NATIVE_TOOL_DEFAULTS[toolId];
-        const category =
-          typeof (metadata as { category?: unknown }).category === 'string'
-            ? (metadata as { category: string }).category
-            : undefined;
-        const inputSchema = toLocalRuntimeInputSchema(toolId);
-
-        return {
-          description: getToolDescription(toolId),
-          enabled: typeof nativeToolStates[toolId] === 'boolean' ? nativeToolStates[toolId] : true,
-          group: 'Native Tools',
-          id: toolId,
-          label: formatToolLabel(toolId),
-          source: 'native',
-          ...(inputSchema ? { inputSchema } : {}),
-          isLocalRuntimeRunnable: true,
-          ...(category ? { category } : {}),
-        };
-      }),
-    [nativeToolIds, nativeToolStates]
-  );
-  const handleOpenToolSettings = useCallback(() => {
-    openSettings();
-    if (typeof window !== 'undefined') {
-      window.location.hash = '#settings/ai-tools';
-    }
-  }, [openSettings]);
-
-  const { enabledNativeToolIds, toolMenu } = useAssistantMcpMenuState({
-    nativeToolItems,
-    onOpenToolSettings: handleOpenToolSettings,
-    setNativeToolEnabled,
   });
 
   const workspaceRootPath = rootDirectoryHandle?.path ?? null;
@@ -678,10 +609,7 @@ export function AssistantUiPanelWrapper({
       workspaceIndexingPaused,
     ]
   );
-  const assistantThreadRepository = useMemo(
-    () => (db ? createPgliteAssistantThreadRepository(db) : null),
-    [db]
-  );
+  const { assistantThreadRepository, forgeThreadRepository } = useAssistantThreadRepositories(db);
   const {
     desktopAssistantBackendAvailable,
     localChatTransport,
@@ -728,13 +656,12 @@ export function AssistantUiPanelWrapper({
     desktopAssistantBackendAvailable,
     selectedProvider,
   });
-  // Resolve the 'auto' observer sentinel into CONCRETE settings once, here —
-  // request data, memory validation, and the OM meter all consume the same
-  // effective settings, so 'auto' never reaches the provider/model validator
-  // and an unresolved auto can never disable thread memory (BST-940). The
-  // selected CHAT provider gates hosted-observer resolution (privacy ruling:
-  // no new data egress) and the loaded model catalog gates candidate
-  // eligibility exactly like the settings dropdown.
+  // Resolve 'auto' once for request data, memory validation and the OM meter.
+  // Concrete settings keep the sentinel out of provider/model validation
+  // and prevent unresolved auto from disabling thread memory (BST-940).
+  // The selected chat provider gates hosted resolution; the loaded model
+  // catalog gates eligibility exactly like the settings dropdown.
+  // This preserves the privacy rule against new data egress.
   const { autoResolution: omAutoResolution, settings: observationalMemorySettings } = useMemo(
     () =>
       resolveEffectiveObservationalMemorySettings({
@@ -782,32 +709,6 @@ export function AssistantUiPanelWrapper({
   // "Always allow" / "Allow <category> this session" to unblock a suspended
   // run. See `assistant-ui-panel-wrapper-store-subscription.test.tsx` and the
   // "permission-policy freshness at the request-composition seam" suite.
-
-  // Hook-trust attestation (desktop hooks). Subscribe to the persisted approvals
-  // so the wire snapshot stays in sync; the server independently re-hashes disk.
-  // Scoped to the desktop data-stream transport (web has no hook runner). The
-  // renderer never runs hooks — it only ATTESTS approved hashes.
-  //
-  // The store is keyed by DB `roots.id`; the attestation is SCOPED to the
-  // currently-mounted roots' DB ids (resolved in main from the mounted paths) so
-  // a DISCONNECTED root's grant is never presented to the server. Until the scope
-  // resolves — or if the resolver bridge is absent — we attest NOTHING (fail
-  // closed): a stale grant must never leak, and a brief scope-resolution window
-  // is the safe direction.
-  const hookApprovalsByRootId = useHookTrustStore(hookTrustSelectors.approvalsByRootId);
-  const mountedTrustRootIds = useHookTrustScope({
-    enabled: localChatTransport === 'data-stream',
-    rootDescriptors,
-  });
-  const hookTrustRequest = useMemo(() => {
-    if (localChatTransport !== 'data-stream') {
-      return;
-    }
-    return buildHookTrustRequest(
-      { approvalsByRootId: hookApprovalsByRootId },
-      { mountedRootIds: mountedTrustRootIds ?? new Set<string>() }
-    );
-  }, [localChatTransport, hookApprovalsByRootId, mountedTrustRootIds]);
 
   // Image attachments: every HOSTED provider routes through the data-stream
   // server path (desktop assistant server AND the web /api/assistant route
@@ -897,7 +798,7 @@ export function AssistantUiPanelWrapper({
   }, [localChatTransport, skillsDisabledKeys, skillsMasterEnabled]);
 
   useEffect(() => {
-    if (!assistantThreadRepository) {
+    if (!assistantThreadRepository || hasFactoryResetPreparationStarted()) {
       return;
     }
     ensureResourceThreads(assistantThreadRepository, memoryResourceId).catch(() => {
@@ -919,7 +820,6 @@ export function AssistantUiPanelWrapper({
       : {}),
     enabledNativeToolIds,
     experimentAssignment,
-    hookTrustRequest,
     hostedMemoryBackendAvailable,
     mainRootId,
     mainRootPath,
@@ -1264,7 +1164,7 @@ export function AssistantUiPanelWrapper({
   // Forge observations arrive out of band from main, so they need their own
   // trigger source alongside the stream-scanning one — same decision layer.
   useForgeRunEvents({
-    assistantThreadRepository,
+    assistantThreadRepository: forgeThreadRepository,
     branchLookup: forgeBranchLookup,
     memoryResourceId,
     notifications: notificationCallbacks,

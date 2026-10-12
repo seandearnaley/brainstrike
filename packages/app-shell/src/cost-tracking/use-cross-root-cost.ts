@@ -65,7 +65,43 @@ function mapLiveRows(rawRows: readonly Record<string, unknown>[]): MappedRows {
  * (CROSS_ROOT_USAGE_AGGREGATION_SQL + mapCrossRootUsageRow) so the aggregation
  * and the strict no-fabrication contract can never drift between the two paths.
  */
-export function useCrossRootCost(resourceIdOverride?: string | null): CrossRootCostState {
+const NO_HOST_ROOT_USAGE: readonly CrossRootUsageRow[] = [];
+const NO_PARAMS: readonly unknown[] = [];
+
+/** The roots table's display names, bounded as the usage aggregation bounds them. */
+const ROOT_DISPLAY_NAMES_SQL =
+  'SELECT id, SUBSTR(display_name, 1, 512) AS "displayName" FROM roots';
+
+/** Strict, like the usage rows: a malformed roots row THROWS, never a fabricated name. */
+function parseRootName(raw: Record<string, unknown>): readonly [string, string | null] {
+  const id = raw['id'];
+  const displayName = raw['displayName'];
+  if (typeof id !== 'string' || !(displayName === null || typeof displayName === 'string')) {
+    throw new Error('Invalid roots display-name row');
+  }
+  return [id, displayName];
+}
+
+/**
+ * A host row named by the roots table, as the usage aggregation joins it; a
+ * root the table does not name keeps the name its run committed, if any.
+ */
+function nameHostRows(
+  hostRootUsage: readonly CrossRootUsageRow[],
+  rawNames: readonly Record<string, unknown>[]
+): readonly CrossRootUsageRow[] {
+  const names = new Map(rawNames.map(parseRootName));
+  return hostRootUsage.map((row) => {
+    const name = row.rootId === null ? undefined : names.get(row.rootId);
+    return name ? { ...row, rootDisplayName: name } : row;
+  });
+}
+
+/** `hostRootUsage`: agent-host threads' committed provider calls per root, listed beside. */
+export function useCrossRootCost(
+  resourceIdOverride?: string | null,
+  hostRootUsage: readonly CrossRootUsageRow[] = NO_HOST_ROOT_USAGE
+): CrossRootCostState {
   const database = usePGliteDatabase();
   // Gate on the SAME capability that gates the durable WRITE (the desktop
   // assistant backend), not the raw PGlite handle — web has a handle but never
@@ -82,12 +118,33 @@ export function useCrossRootCost(resourceIdOverride?: string | null): CrossRootC
     query: CROSS_ROOT_USAGE_AGGREGATION_SQL,
   });
 
-  const mapped = useMemo<MappedRows>(() => mapLiveRows(liveQuery.rows), [liveQuery.rows]);
+  const namesQuery = usePGliteLiveQuery<Record<string, unknown>>({
+    cacheKey: makeLiveQueryKey('cross-root-root-names'),
+    enabled: available && hostRootUsage.some((row) => row.rootId !== null),
+    params: NO_PARAMS,
+    query: ROOT_DISPLAY_NAMES_SQL,
+  });
+
+  const mapped = useMemo<MappedRows>(() => {
+    const history = mapLiveRows(liveQuery.rows);
+    // A malformed history row stays an error: host rows never stand in for it.
+    if (history.error || hostRootUsage.length === 0) {
+      return history;
+    }
+    try {
+      return {
+        error: null,
+        rows: [...history.rows, ...nameHostRows(hostRootUsage, namesQuery.rows)],
+      };
+    } catch (error: unknown) {
+      return { error: error instanceof Error ? error : new Error(String(error)), rows: [] };
+    }
+  }, [hostRootUsage, liveQuery.rows, namesQuery.rows]);
 
   return {
     available,
-    error: liveQuery.error ?? mapped.error,
-    loading: liveQuery.loading,
+    error: liveQuery.error ?? namesQuery.error ?? mapped.error,
+    loading: liveQuery.loading || namesQuery.loading,
     rows: mapped.rows,
   };
 }

@@ -1,11 +1,12 @@
 import { listProviders, type ProviderCredential } from '@brainstrike/assistant-contract';
-import { describe, expect, it, type MockedFunction, vi } from 'vitest';
 import {
   createProviderVerificationService,
   listApiKeyProbeProviderIds,
   MissingProviderCredentialError,
   UnknownVerificationProviderError,
-} from '../../assistant-server/provider-verification';
+  UnsupportedVerificationCredentialError,
+} from '@brainstrike/host-capabilities/provider-verification';
+import { describe, expect, it, type MockedFunction, vi } from 'vitest';
 
 const FAKE_KEY = 'sk-super-secret-test-key-000';
 
@@ -37,7 +38,8 @@ interface ServiceOverrides {
 function createService(overrides: ServiceOverrides = {}) {
   const fetchImpl = overrides.fetchImpl ?? vi.fn<typeof fetch>().mockResolvedValue(okResponse());
   const service = createProviderVerificationService({
-    ...(overrides.env ? { env: overrides.env } : {}),
+    // Hermetic: never the developer's or CI's ambient provider base URLs.
+    env: overrides.env ?? {},
     fetchImpl,
     now: overrides.now ?? (() => 1_000_000),
     readCredential:
@@ -180,6 +182,53 @@ describe('ProviderVerificationService probes', () => {
         headers: expect.objectContaining({ authorization: `Bearer ${FAKE_KEY}` }),
       })
     );
+  });
+
+  // The E2E egress boundary (BST-1931) caught the openai probe reaching the
+  // real api.openai.com from Electron main: the probe ignored OPENAI_BASE_URL,
+  // the origin the runtime SDK honours, so a redirected run still leaked.
+  it.each([
+    ['openai', 'OPENAI_BASE_URL', '/models'],
+    ['anthropic', 'ANTHROPIC_BASE_URL', '/models'],
+    ['openrouter', 'OPENROUTER_BASE_URL', '/key'],
+  ] as const)(
+    'probes %s at the %s origin its runtime SDK reads',
+    async (provider, envName, path) => {
+      const base = `http://127.0.0.1:9/${envName}`;
+      const { fetchImpl, service } = createService({ env: { [envName]: `${base}/` } });
+
+      await service.verify(provider);
+
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(fetchImpl).toHaveBeenCalledWith(
+        `${base}${path}`,
+        expect.objectContaining({ method: 'GET' })
+      );
+    }
+  );
+
+  it('versions a bare ANTHROPIC_BASE_URL origin exactly as @ai-sdk/anthropic does', async () => {
+    const { fetchImpl, service } = createService({
+      env: { ANTHROPIC_BASE_URL: 'https://api.anthropic.com' },
+    });
+
+    await service.verify('anthropic');
+
+    expect(fetchImpl).toHaveBeenCalledWith(
+      'https://api.anthropic.com/v1/models',
+      expect.objectContaining({ method: 'GET' })
+    );
+  });
+
+  it('refuses an unusable base URL before any request instead of probing the default origin', async () => {
+    const { fetchImpl, service } = createService({
+      env: { OPENAI_BASE_URL: 'https://user:secret@proxy.example/v1' },
+    });
+
+    await expect(service.verify('openai')).rejects.toThrow(
+      'OPENAI_BASE_URL must be an absolute HTTP(S) base URL without credentials, query or fragment'
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it('verifies cohere against its models listing', async () => {
@@ -811,5 +860,49 @@ describe('ProviderVerificationService routing and caching', () => {
       const snapshot = await service.verify(provider);
       expect(JSON.stringify(snapshot)).not.toContain(FAKE_KEY);
     }
+  });
+});
+
+describe('ProviderVerificationService subscription sign-in', () => {
+  it("answers from the host's refresher without reading the sign-in in Main", async () => {
+    const readCredential = vi.fn(() => Promise.resolve(apiKeyCredential()));
+    const verifySubscriptionSession = vi.fn(async () => ({ ok: true }) as const);
+    const fetchImpl = vi.fn<typeof fetch>();
+    const service = createProviderVerificationService({
+      env: {},
+      fetchImpl,
+      now: () => 1_000_000,
+      readCredential,
+      verifySubscriptionSession,
+    });
+
+    await expect(service.verify('openai-codex')).resolves.toMatchObject({
+      freshness: 'live',
+      result: { status: 'verified_limited' },
+    });
+    expect(verifySubscriptionSession).toHaveBeenCalledWith('openai-codex');
+    expect(readCredential).not.toHaveBeenCalled();
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('reports a disconnected or revoked sign-in as invalid', async () => {
+    const service = createProviderVerificationService({
+      env: {},
+      now: () => 1_000_000,
+      readCredential: () => Promise.resolve(undefined),
+      verifySubscriptionSession: async () => ({ ok: false, status: 'reconnect_required' }),
+    });
+
+    await expect(service.verify('openai-codex')).resolves.toMatchObject({
+      result: { status: 'invalid' },
+    });
+  });
+
+  it('fails closed without the host verifier', async () => {
+    const { service } = createService();
+
+    await expect(service.verify('openai-codex')).rejects.toBeInstanceOf(
+      UnsupportedVerificationCredentialError
+    );
   });
 });

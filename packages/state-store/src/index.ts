@@ -22,18 +22,57 @@ export {
   type LockOptions,
   type LockOwner,
   processStartTime,
+  type RootHolder,
   RootLock,
   RootLockedError,
 } from './lock.js';
+export type {
+  McpTaskDomainReply,
+  McpTaskDomainRequest,
+  McpTaskDomainRow,
+  McpTaskIdentityWire,
+  McpTaskInsertWire,
+  McpTaskLeaseWire,
+  McpTaskPatchWire,
+  McpTaskScopeWire,
+  McpTaskStatusWire,
+} from './mcp-task-types.js';
+export type {
+  MemoryCalculation,
+  MemoryDomainPort,
+  MemoryDomainRequest,
+  MemoryEntity,
+  MemoryEntityChange,
+  MemoryJson,
+  MemoryJsonObject,
+  MemoryNativeCalculator,
+  MemoryNativeMethod,
+  MemoryNativeRequest,
+  MemorySnapshot,
+} from './memory-types.js';
+export {
+  type NativeChild,
+  type NativeChildObserver,
+  observeNativeChildren,
+  spawnNativeChild,
+  trackNativeChild,
+} from './native-children.js';
 export { blobsOf, TOMBSTONE_BODY, withSeq } from './run-log-format.mjs';
 export type { AppendItem, BlobContent, LogRow, RunEvent, ThreadStatus } from './run-log-types.js';
 export { SCHEMA_VERSION } from './schema.mjs';
 export { CheckpointBlockedError } from './sqlite-checkpoint.mjs';
-export { type ReadItem, readAll, SqliteReader } from './sqlite-reader.js';
+export {
+  type MemoryObservationRecord,
+  type MemoryThreadBinding,
+  type ReadItem,
+  readAll,
+  SqliteReader,
+} from './sqlite-reader.js';
 export {
   BLOB_MIN_BYTES,
   BLOBS_DIR,
   type ExportedThread,
+  type HydrationThread,
   type IndexerPort,
   largeText,
   type Manifest,
@@ -44,6 +83,8 @@ export {
   StateStore,
   type StateStoreHooks,
   type StateStoreOptions,
+  StateStoreStartupError,
+  type StateStoreStartupOwner,
   type StoredText,
   type StoreSettings,
   type SyncSpan,

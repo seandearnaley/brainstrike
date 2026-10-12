@@ -6,6 +6,7 @@ import type {
   WorkspaceBarMode,
 } from '@brainstrike/assistant-ui';
 import { createLogger } from '@brainstrike/logging';
+import { toast } from '@brainstrike/ui';
 import { useCallback, useEffect, useRef } from 'react';
 import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
 import { useBranchSwitcher } from './use-branch-switcher';
@@ -16,6 +17,14 @@ const logger = createLogger('WorkspaceBarMode');
 
 export interface UseWorkspaceBarModeArgs {
   readonly checkout: WorkspaceBarCheckout | undefined;
+  /**
+   * True while the selected thread's folder set is still resolving (its
+   * binding metadata, or the MAIN-root fallback for an unbound thread). A
+   * Worktree Map intent waits for it: a bind derived before the primary folder
+   * resolves would refuse with "the current primary folder is no longer
+   * available" for a folder that is merely loading.
+   */
+  readonly foldersPending: boolean;
   readonly onHandOffToLocal: () => Promise<void>;
   readonly onSelectWorktree: (worktree: {
     readonly branch: string | null;
@@ -42,6 +51,7 @@ function branchToName(branch: string): string {
 export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBarModeComposition {
   const {
     checkout,
+    foldersPending,
     onHandOffToLocal,
     onSelectWorktree,
     primaryRootId,
@@ -58,7 +68,12 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
   const applyingRef = useRef(false);
   useEffect(() => {
     const threadId = selectedThread?.id;
-    if (!threadId || pendingIntent?.threadId !== threadId || applyingRef.current) {
+    if (
+      !threadId ||
+      pendingIntent?.threadId !== threadId ||
+      applyingRef.current ||
+      foldersPending
+    ) {
       return;
     }
     const intent = consumeIntent(threadId);
@@ -73,14 +88,29 @@ export function useWorkspaceBarMode(args: UseWorkspaceBarModeArgs): WorkspaceBar
           worktreeId: intent.worktreeId,
         })
       : onHandOffToLocal();
+    const failureTitle = intent.worktreeId
+      ? "The thread didn't move into the worktree"
+      : "The thread didn't hand off to Local";
     void applied
       .catch((error: unknown) => {
         logger.error('worktree map checkout intent failed', { error, threadId });
+        toast({
+          description: error instanceof Error ? error.message : String(error),
+          title: failureTitle,
+          variant: 'destructive',
+        });
       })
       .finally(() => {
         applyingRef.current = false;
       });
-  }, [consumeIntent, onHandOffToLocal, onSelectWorktree, pendingIntent, selectedThread?.id]);
+  }, [
+    consumeIntent,
+    foldersPending,
+    onHandOffToLocal,
+    onSelectWorktree,
+    pendingIntent,
+    selectedThread?.id,
+  ]);
   // `latestRun` is populated from the durable run ledger after the first request.
   // A known id with no row is still hydrating, not evidence that no request was sent.
   const firstRequestState =

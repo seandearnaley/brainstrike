@@ -11,17 +11,20 @@ import type {
   AgentHookRunner,
   AgentMessage,
   AssistantRunEvent,
-  HookTrustRequest,
   RuntimeData,
   StreamChunk,
 } from '@brainstrike/agent';
 import { createAssistantRunEvent, resolveToolTimeoutMs } from '@brainstrike/agent';
+import type { HookRunVerdict } from '@brainstrike/host-capabilities/hooks';
+import {
+  getGlobalHooksPath,
+  HookManager,
+  type HookRunEventInput,
+  loadHooksConfig,
+} from '@brainstrike/host-capabilities/hooks';
 import type { ScopedLogger } from '@brainstrike/logging';
 import { getWorkspaceRoots } from '../workspace-roots';
-import { getGlobalHooksPath, loadHooksConfig } from './config';
 import { createDesktopHookRunner } from './hook-runner-impl';
-import { HookManager, type HookRunEventInput } from './manager';
-import type { HookRunVerdict } from './run-verdict';
 
 /**
  * Bound on the assistant text handed to Stop hooks as `assistant_message`.
@@ -43,23 +46,59 @@ export function hookRunEventToAssistant(input: HookRunEventInput): AssistantRunE
   };
 }
 
+/** Main's reader of the host-owned trust: the hash a root's project hooks may run at. */
+export type DesktopHookApprovalReader = (root: {
+  readonly absPath: string;
+  readonly rootId: string;
+}) => Promise<string | undefined>;
+
+let readHookApproval: DesktopHookApprovalReader | undefined;
+
+/** Main installs the agent host's trust reader before the server takes requests. */
+export function installDesktopHookApprovalReader(reader: DesktopHookApprovalReader): void {
+  readHookApproval = reader;
+}
+
+function hookRoots(
+  runtimeData: RuntimeData | undefined
+): Array<{ readonly absPath: string; readonly rootId: string }> {
+  return getWorkspaceRoots(runtimeData).map((root) => ({
+    absPath: root.path,
+    rootId: root.rootId,
+  }));
+}
+
+/** Each mounted root's host-trusted hash, read from the host for this request. */
+async function readHookApprovals(
+  roots: readonly { readonly absPath: string; readonly rootId: string }[]
+): Promise<ReadonlyMap<string, string>> {
+  const approvals = new Map<string, string>();
+  if (roots.length === 0) {
+    return approvals;
+  }
+  if (!readHookApproval) {
+    throw new Error('Project hook trust is read from the agent host; no reader is installed');
+  }
+  for (const root of roots) {
+    const sha256 = await readHookApproval(root);
+    if (sha256 !== undefined) {
+      approvals.set(root.rootId, sha256);
+    }
+  }
+  return approvals;
+}
+
 export interface BuildHookManagerInput {
+  /** rootId → the hash the host trusts that root's project hooks at. */
+  readonly approvedByRoot: ReadonlyMap<string, string>;
   readonly emitRunEvent?: (event: HookRunEventInput) => void;
-  readonly hookTrustRequest: HookTrustRequest | undefined;
   readonly logger: ScopedLogger;
   readonly runtimeData: RuntimeData | undefined;
   readonly sessionId: string;
 }
 
 export function buildHookManager(input: BuildHookManagerInput): HookManager {
-  const roots = getWorkspaceRoots(input.runtimeData).map((root) => ({
-    absPath: root.path,
-    rootId: root.rootId,
-  }));
-  const approvedByRoot = new Map<string, string>();
-  for (const approval of input.hookTrustRequest?.approvals ?? []) {
-    approvedByRoot.set(approval.rootId, approval.sha256);
-  }
+  const roots = hookRoots(input.runtimeData);
   const primaryCwd = roots[0]?.absPath ?? process.cwd();
   // One number governs the pre-stream aggregate config check AND the runtime
   // wall-clock bound of both bounded phases (UserPromptSubmit + Stop): the tool
@@ -73,7 +112,7 @@ export function buildHookManager(input: BuildHookManagerInput): HookManager {
     maxHookTimeoutMs: resolveToolTimeoutMs(),
     primaryRootCwd: primaryCwd,
     roots: roots.map((root) => {
-      const approvedSha256 = approvedByRoot.get(root.rootId);
+      const approvedSha256 = input.approvedByRoot.get(root.rootId);
       return {
         absPath: root.absPath,
         rootId: root.rootId,
@@ -98,7 +137,6 @@ export interface RequestHooks {
 
 export interface PrepareRequestHooksInput {
   readonly emitRunEvent?: (event: HookRunEventInput) => void;
-  readonly hookTrustRequest: HookTrustRequest | undefined;
   readonly logger: ScopedLogger;
   readonly runId: string | undefined;
   readonly runtimeData: RuntimeData | undefined;
@@ -109,10 +147,10 @@ export interface PrepareRequestHooksInput {
  * the TRUSTED server-side runner (present iff valid hooks exist). Keeps the
  * branching out of `initializeAgentStream`.
  */
-export function prepareRequestHooks(input: PrepareRequestHooksInput): RequestHooks {
+export async function prepareRequestHooks(input: PrepareRequestHooksInput): Promise<RequestHooks> {
   const sessionId = input.runtimeData?.memory?.threadId ?? input.runId ?? 'no-session';
   const manager = buildHookManager({
-    hookTrustRequest: input.hookTrustRequest,
+    approvedByRoot: await readHookApprovals(hookRoots(input.runtimeData)),
     logger: input.logger,
     runtimeData: input.runtimeData,
     sessionId,

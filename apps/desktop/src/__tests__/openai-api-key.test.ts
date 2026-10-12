@@ -20,7 +20,7 @@ describe('readOpenAIApiKey', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
-    process.env = { ...originalEnv };
+    process.env = {};
     vi.clearAllMocks();
   });
 
@@ -195,7 +195,7 @@ describe('readProviderApiKey', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {
-    process.env = { ...originalEnv };
+    process.env = {};
     vi.clearAllMocks();
   });
 

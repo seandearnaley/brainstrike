@@ -1,10 +1,11 @@
-import type {
-  AssistantToolApprovalRequest,
-  CodeExecutionApprovalContext,
-} from '@brainstrike/assistant-contract/tool-approval';
+import type { CodeExecutionApprovalContext } from '@brainstrike/assistant-contract/tool-approval';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract/tool-metadata';
 import { Badge, CodeSurface, DiffView } from '@brainstrike/ui';
-import { narrowRunPythonArgs, readRunPythonExecutionContext } from './approval-preview-policy';
+import {
+  type ApprovalPreviewSubject,
+  narrowRunPythonArgs,
+  readRunPythonExecutionContext,
+} from './approval-preview-policy';
 import { formatRunDuration } from './run-python-result-model';
 
 /**
@@ -256,7 +257,13 @@ function RunPythonFactRow({
  * important copy rule on this card). Paths and domains are never truncated
  * with an ellipsis: `pypi.org.evil.com` clipped to `pypi.org…` is a lie.
  */
-function RunPythonFactRows({ context }: { context: CodeExecutionApprovalContext }) {
+function RunPythonFactRows({
+  context,
+  networkAskedHere,
+}: {
+  context: CodeExecutionApprovalContext;
+  networkAskedHere: boolean;
+}) {
   const domainCount = context.allowedDomains.length;
   return (
     <>
@@ -308,7 +315,7 @@ function RunPythonFactRows({ context }: { context: CodeExecutionApprovalContext 
             : 'Virtual machine'}
         </RunPythonFactRow>
       </dl>
-      {domainCount > 0 ? (
+      {domainCount > 0 && !networkAskedHere ? (
         <p className="mt-2 text-warning text-xs" data-testid="approval-run-python-forewarning">
           You'll be asked about internet access separately, right before it runs.
         </p>
@@ -325,7 +332,13 @@ function RunPythonFactRows({ context }: { context: CodeExecutionApprovalContext 
  * in both cases the parent has already suppressed the grant buttons via
  * `resolveApprovalPreviewPolicy`.
  */
-function RunPythonPreview({ approval }: { approval: AssistantToolApprovalRequest }) {
+function RunPythonPreview({
+  approval,
+  networkAskedHere,
+}: {
+  approval: ApprovalPreviewSubject;
+  networkAskedHere: boolean;
+}) {
   const parsed = narrowRunPythonArgs(approval.args);
   const context = readRunPythonExecutionContext(approval);
   if (!parsed) {
@@ -364,7 +377,7 @@ function RunPythonPreview({ approval }: { approval: AssistantToolApprovalRequest
         </div>
       )}
       {codePreview.truncated ? <PreviewTruncatedNote preview={codePreview} /> : null}
-      {context ? <RunPythonFactRows context={context} /> : null}
+      {context ? <RunPythonFactRows context={context} networkAskedHere={networkAskedHere} /> : null}
       {/* Missing-context path: state the degradation AND why the grant
           buttons are gone. An EMPTY script is exempt from the alarm — it
           provably does nothing (the agent schema rejects it at execute time),
@@ -606,9 +619,12 @@ function PreviewTruncatedNote({ preview }: { preview: TruncatedPreviewText }) {
  */
 export function ApprovalPreview({
   approval,
+  networkAskedHere = false,
   showOtherArguments = false,
 }: {
-  approval: AssistantToolApprovalRequest;
+  approval: ApprovalPreviewSubject;
+  /** The card itself asks for run_python's network, so no separate ask follows. */
+  networkAskedHere?: boolean;
   showOtherArguments?: boolean;
 }) {
   const { args, toolName } = approval;
@@ -618,7 +634,7 @@ export function ApprovalPreview({
   if (toolName === RUN_PYTHON_TOOL_ID) {
     // Needs the whole approval, not just args: the fact rows come from the
     // server-computed executionContext (§2.2), which args cannot carry.
-    return <RunPythonPreview approval={approval} />;
+    return <RunPythonPreview approval={approval} networkAskedHere={networkAskedHere} />;
   }
   if (toolName === RUN_SKILL_SCRIPT_TOOL_ID) {
     return <RunSkillScriptPreview args={args} />;

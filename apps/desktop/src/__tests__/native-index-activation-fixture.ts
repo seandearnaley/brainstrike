@@ -3,14 +3,18 @@ import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import { vi } from 'vitest';
 import type { CanonicalCollectionDependencies } from '../canonical-utility-parent';
+import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
+import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeIndexActivation } from '../native-index-activation';
 
 const mocks = vi.hoisted(() => ({
   acquire: vi.fn(),
+  acquireProfile: vi.fn(),
   close: vi.fn(),
   closeProfile: vi.fn(),
   closeReaders: vi.fn(),
+  createProfileOwner: vi.fn(),
   database: { query: vi.fn(), transaction: vi.fn() },
   destroy: vi.fn(),
   manager: {
@@ -24,12 +28,25 @@ const mocks = vi.hoisted(() => ({
 
 export { mocks };
 
+/** Load the product constructor through the module that owns these hoisted mocks. */
+export function createActivation(
+  options: Omit<Parameters<typeof createNativeIndexActivation>[0], 'profile'>
+): ReturnType<typeof createNativeIndexActivation> {
+  return createNativeIndexActivation({
+    ...options,
+    profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
+  });
+}
+
 vi.mock('../db-main', () => ({ getDatabase: async () => mocks.database }));
 vi.mock('../desktop-database-location', () => ({
   resolveDesktopDatabaseProfileDirectory: () => '/owned/profile',
 }));
 vi.mock('../host-lease-manager', () => ({
-  createDesktopHostLease: () => ({ acquire: async () => {}, close: mocks.closeProfile }),
+  createDesktopHostLease: () => {
+    mocks.createProfileOwner();
+    return { acquire: () => mocks.acquireProfile(), close: mocks.closeProfile };
+  },
 }));
 vi.mock('../indexer-runtime', () => ({
   acquireIndexerHost: mocks.acquire,
@@ -154,6 +171,7 @@ export function fixture(applicationOverride?: ApplicationIpcDomain) {
     embedding: transport,
     onError,
     onReceipt,
+    profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
     storage,
   });
   return { activation, onError, onReceipt, storage, transport };
@@ -164,6 +182,7 @@ export function resetActivationFixture(): void {
     rows: sql.includes('FROM embedding_sets') ? [{ id: 'selected' }] : [],
   }));
   mocks.acquire.mockResolvedValue(writer());
+  mocks.acquireProfile.mockResolvedValue(undefined);
   mocks.readyPort.mockReturnValue(writer());
   mocks.close.mockResolvedValue(undefined);
   mocks.destroy.mockResolvedValue(undefined);

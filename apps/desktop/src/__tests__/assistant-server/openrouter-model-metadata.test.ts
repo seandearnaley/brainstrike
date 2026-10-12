@@ -1,6 +1,7 @@
 import { parseOpenRouterModelMetadataSnapshot } from '@brainstrike/assistant-contract';
-import { describe, expect, it, vi } from 'vitest';
-import { createOpenRouterModelMetadataService } from '../../assistant-server/openrouter-model-metadata';
+import { createOpenRouterModelMetadataService } from '@brainstrike/host-capabilities/openrouter-model-metadata';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import recordedPayload from '../fixtures/openrouter-sonnet-4-6-model-metadata.json';
 
 const payload = {
   data: {
@@ -11,7 +12,145 @@ const payload = {
   },
 };
 
+const recordedMetadata = JSON.stringify(recordedPayload);
+const recordedModelId = 'anthropic/claude-sonnet-4.6';
+
+beforeEach(() => {
+  vi.stubEnv('OPENROUTER_BASE_URL', undefined);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 describe('OpenRouterModelMetadataService', () => {
+  it.each([
+    ['root', 'http://127.0.0.1:38182', 'http://127.0.0.1:38182'],
+    ['API prefix', 'http://127.0.0.1:38182/api/v1/', 'http://127.0.0.1:38182/api/v1'],
+    [
+      'shim prefix',
+      'http://127.0.0.1:38182/OPENROUTER_BASE_URL',
+      'http://127.0.0.1:38182/OPENROUTER_BASE_URL',
+    ],
+  ])(
+    'uses the configured %s destination for recorded metadata',
+    async (_name, baseUrl, expectedBase) => {
+      vi.stubEnv('OPENROUTER_BASE_URL', baseUrl);
+      const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(recordedMetadata));
+      const service = createOpenRouterModelMetadataService({ fetchImpl });
+
+      await expect(service.get(recordedModelId, 'metadata-fixture-key')).resolves.toMatchObject({
+        freshness: 'live',
+        metadata: { contextWindow: 1_000_000, id: recordedModelId, maxOutputTokens: 128_000 },
+      });
+      expect(fetchImpl).toHaveBeenCalledExactlyOnceWith(
+        `${expectedBase}/model/anthropic/claude-sonnet-4.6`,
+        expect.objectContaining({
+          headers: { accept: 'application/json', authorization: 'Bearer metadata-fixture-key' },
+        })
+      );
+    }
+  );
+
+  it.each([undefined, ''])(
+    'keeps the production default when the override is %s',
+    async (baseUrl) => {
+      vi.stubEnv('OPENROUTER_BASE_URL', baseUrl);
+      const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(recordedMetadata));
+      const service = createOpenRouterModelMetadataService({ fetchImpl });
+
+      await expect(service.get(recordedModelId, 'metadata-fixture-key')).resolves.toMatchObject({
+        freshness: 'live',
+        metadata: { id: recordedModelId },
+      });
+      expect(fetchImpl.mock.calls[0]?.[0]).toBe(
+        'https://openrouter.ai/api/v1/model/anthropic/claude-sonnet-4.6'
+      );
+    }
+  );
+
+  it.each([
+    ['relative path', '/api/v1'],
+    ['invalid URL', 'not-a-url'],
+    ['incomplete URL', 'http://'],
+    ['non-HTTP scheme', 'file:///tmp/model-metadata'],
+    ['URL credentials', 'http://fixture-user:fixture-password@127.0.0.1:38182'],
+    ['query', 'http://127.0.0.1:38182/api/v1?fixture=1'],
+    ['fragment', 'http://127.0.0.1:38182/api/v1#fixture'],
+    ['empty query', 'http://127.0.0.1:38182/api/v1?'],
+    ['empty fragment', 'http://127.0.0.1:38182/api/v1#'],
+  ])('rejects a configured %s before fetching', async (_name, baseUrl) => {
+    vi.stubEnv('OPENROUTER_BASE_URL', baseUrl);
+    const fetchImpl = vi.fn<typeof fetch>();
+    const service = createOpenRouterModelMetadataService({ fetchImpl });
+
+    await expect(service.get(recordedModelId, 'metadata-fixture-key')).rejects.toThrow(
+      'OPENROUTER_BASE_URL must be an absolute HTTP(S) base URL without credentials, query or fragment'
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('does not hide malformed configuration behind a fresh cached snapshot', async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(new Response(recordedMetadata));
+    const service = createOpenRouterModelMetadataService({ fetchImpl });
+    await service.get(recordedModelId, 'metadata-fixture-key');
+    vi.stubEnv('OPENROUTER_BASE_URL', 'not-a-url');
+
+    await expect(service.get(recordedModelId, 'metadata-fixture-key')).rejects.toThrow(
+      'OPENROUTER_BASE_URL must be an absolute HTTP(S) base URL without credentials, query or fragment'
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps cached snapshots and stale fallback within their configured base URL', async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(recordedMetadata))
+      .mockResolvedValueOnce(new Response('', { status: 503 }));
+    const service = createOpenRouterModelMetadataService({ fetchImpl, now: () => 1000 });
+    vi.stubEnv('OPENROUTER_BASE_URL', 'http://127.0.0.1:38182/first');
+    await service.get(recordedModelId, 'metadata-fixture-key');
+    vi.stubEnv('OPENROUTER_BASE_URL', 'http://127.0.0.1:38182/second');
+
+    await expect(service.get(recordedModelId, 'metadata-fixture-key')).rejects.toThrow(
+      'status 503'
+    );
+    expect(fetchImpl.mock.calls.map(([input]) => input)).toEqual([
+      'http://127.0.0.1:38182/first/model/anthropic/claude-sonnet-4.6',
+      'http://127.0.0.1:38182/second/model/anthropic/claude-sonnet-4.6',
+    ]);
+    vi.stubEnv('OPENROUTER_BASE_URL', 'http://127.0.0.1:38182/first/');
+    await expect(service.get(recordedModelId, 'metadata-fixture-key')).resolves.toMatchObject({
+      freshness: 'fresh-cache',
+      metadata: { checkedAt: 1000 },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not deduplicate pending requests across configured origins', async () => {
+    const resolvers: Array<(response: Response) => void> = [];
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolvers.push(resolve);
+        })
+    );
+    const service = createOpenRouterModelMetadataService({ fetchImpl });
+    vi.stubEnv('OPENROUTER_BASE_URL', 'http://127.0.0.1:38182');
+    const first = service.get(recordedModelId, 'metadata-fixture-key');
+    vi.stubEnv('OPENROUTER_BASE_URL', 'http://127.0.0.1:38183');
+    const second = service.get(recordedModelId, 'metadata-fixture-key');
+    for (const resolve of resolvers) {
+      resolve(new Response(recordedMetadata));
+    }
+
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+    expect(fetchImpl.mock.calls.map(([input]) => input)).toEqual([
+      'http://127.0.0.1:38182/model/anthropic/claude-sonnet-4.6',
+      'http://127.0.0.1:38183/model/anthropic/claude-sonnet-4.6',
+    ]);
+  });
+
   it('fetches and caches one exact model with authenticated Models API metadata', async () => {
     let now = 1000;
     const fetchImpl = vi

@@ -2,14 +2,9 @@ import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { MountedWorkspaceRoot } from './ipc-domains/workspace-root-types';
 import type { NativeIndexAuthority } from './native-index-runtime';
 
-export interface RootDataDeletionReservation {
-  assertCurrent(): void;
-  disconnect(): Promise<void>;
-  readonly mounted: MountedWorkspaceRoot;
-  release(): void;
-  retireSources(): Promise<void>;
-  run(operation: () => Promise<void>): Promise<void>;
-}
+export type { RootDataDeletionReservation } from '@brainstrike/assistant-service/node-workspace-services';
+
+import type { RootDataDeletionReservation } from '@brainstrike/assistant-service/node-workspace-services';
 
 export interface NativeCleanupOwner {
   readonly generation: number;
@@ -79,6 +74,10 @@ async function removeCapturedRoot(deletion: Deletion): Promise<void> {
 
 export interface NativeRootDataDeletion {
   deleteRootData(rootId: string): Promise<void>;
+  prepareTransition<P, T>(
+    prepare: () => Promise<P>,
+    complete: (prepared: P) => Promise<T>
+  ): Promise<T>;
   transition<T>(operation: () => Promise<T>): Promise<T>;
 }
 
@@ -175,13 +174,19 @@ export function createNativeRootDataDeletion(dependencies: Dependencies): Native
       return Promise.reject(error);
     }
   };
-  const transition = <T>(operation: () => Promise<T>): Promise<T> => {
+  const prepareTransition = <P, T>(
+    prepare: () => Promise<P>,
+    complete: (prepared: P) => Promise<T>
+  ): Promise<T> => {
     if (pending) {
       return Promise.reject(
         new Error('Native root deletion owns admission; retry its cleanup first.')
       );
     }
     transitionCount += 1;
+    const prepared = (async () => await prepare())();
+    prepared.catch(() => undefined);
+    const operation = async (): Promise<T> => complete(await prepared);
     const result = transitions.then(operation, operation).finally(() => {
       transitionCount -= 1;
     });
@@ -191,5 +196,7 @@ export function createNativeRootDataDeletion(dependencies: Dependencies): Native
     );
     return result;
   };
-  return { deleteRootData, transition };
+  const transition = <T>(operation: () => Promise<T>): Promise<T> =>
+    prepareTransition(async () => undefined, operation);
+  return { deleteRootData, prepareTransition, transition };
 }

@@ -1,0 +1,42 @@
+import type { BlobContent } from '@brainstrike/state-store';
+import type { HostPlatform, HostToolContext, HostToolState } from './ports.js';
+import type { HostEvent, HostLogRow } from './protocol.js';
+import { HostToolStates } from './tool-state.js';
+import { HostWorkspaceEdits, hostEditScope } from './workspace-edits.js';
+
+/** Core's per-thread tool records: workspace edit checkpoints and tool state, folded from the log. */
+export class HostToolRecords {
+  readonly edits = new HostWorkspaceEdits();
+  private readonly states = new HostToolStates();
+
+  fold(row: HostLogRow): void {
+    this.edits.fold(row);
+    this.states.fold(row);
+  }
+
+  /** Drop a deleted thread's folds, then let the platform purge its process-local caches. */
+  forgetThread(threadId: string, platform: Pick<HostPlatform, 'forgetThread'>): void {
+    this.edits.forgetThread(threadId);
+    this.states.forgetThread(threadId);
+    platform.forgetThread?.(threadId);
+  }
+
+  /** A read-only view of a thread's committed tool state, for per-step notes. */
+  stateView(threadId: string): Pick<HostToolState, 'entries' | 'read'> {
+    return this.states.view(threadId);
+  }
+
+  /** The Core-owned edit and state capabilities of one dispatched execution. */
+  context(
+    run: Parameters<typeof hostEditScope>[0],
+    action: Parameters<typeof hostEditScope>[1],
+    retired: () => boolean,
+    append: (events: readonly HostEvent[], blobs?: readonly BlobContent[]) => Promise<unknown>
+  ): Required<Pick<HostToolContext, 'edits' | 'state'>> {
+    const scope = hostEditScope(run, action, retired);
+    return {
+      edits: this.edits.tracker(scope, (event, blobs) => append([event], blobs)),
+      state: this.states.capability(scope, (event) => append([event])),
+    };
+  }
+}

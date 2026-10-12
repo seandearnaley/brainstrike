@@ -1,13 +1,16 @@
 import './assistant-thread-tabs-workspace-test-support';
+import * as factoryReset from '@brainstrike/app-state/factory-reset';
 import {
   type AssistantThreadRepository,
+  resetAssistantThreadStore,
   useAssistantThreadStore,
   WORKSPACE_MEMORY_RESOURCE_ID,
 } from '@brainstrike/assistant-data';
 import { TAB_STRIP_ICON_BUTTON_CLASS_NAME } from '@brainstrike/ui';
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import type { AssistantThreadHostCapability } from '../assistant-thread-host-context';
 import {
   ASSISTANT_THREAD_COLOR_PRESENTATION,
   THREAD_CONTROL_ACTION_CLASS_NAME,
@@ -28,6 +31,25 @@ import {
 } from './assistant-thread-tabs-workspace-test-support';
 
 describe('AssistantThreadTabsWorkspace', () => {
+  it('does not reload the old thread catalog when reset remounts the workspace', async () => {
+    renderWorkspace();
+    await screen.findByRole('tab', { name: /Purchasing app search log/ });
+    cleanup();
+    const preparation = vi
+      .spyOn(factoryReset, 'hasFactoryResetPreparationStarted')
+      .mockReturnValue(true);
+    try {
+      resetAssistantThreadStore();
+      renderWorkspace();
+      await act(async () => undefined);
+      expect(useAssistantThreadStore.getState().activeThreadIdByResourceId).toEqual({});
+      expect(useAssistantThreadStore.getState().threadIdsByResourceId).toEqual({});
+      expect(useAssistantThreadStore.getState().openThreadIdsByResourceId).toEqual({});
+    } finally {
+      preparation.mockRestore();
+    }
+  });
+
   it('force-mounts one assistant wrapper per open thread tab', async () => {
     renderWorkspace();
 
@@ -94,6 +116,33 @@ describe('AssistantThreadTabsWorkspace', () => {
       expect.objectContaining({
         providerKeySources,
       })
+    );
+  });
+
+  it("hands the status's credential read errors to a host-rendered thread", async () => {
+    const renderThread = vi.fn<AssistantThreadHostCapability['renderThread']>((threadId) => (
+      <div data-testid="host-thread">{threadId}</div>
+    ));
+    const host: AssistantThreadHostCapability = {
+      createThread: vi.fn(),
+      deleteThread: vi.fn(async () => undefined),
+      listThreads: vi.fn(async () => []),
+      ownsThread: vi.fn(async () => false),
+      renameThread: vi.fn(),
+      renderThread,
+      updateThreadBinding: vi.fn(),
+      workspaceRepository: (history) => history,
+    };
+    const providerReadErrors = { openai: 'The OpenAI key could not be read.' };
+    renderWorkspace({ providerReadErrors }, host);
+
+    await screen.findByTestId('host-thread');
+
+    expect(renderThread).toHaveBeenCalledWith(
+      expect.any(String),
+      true,
+      expect.any(Function),
+      providerReadErrors
     );
   });
 

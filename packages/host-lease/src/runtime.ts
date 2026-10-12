@@ -27,6 +27,26 @@ export interface HostRuntime {
   readonly record: HostRecord;
   retainRun(): () => void;
 }
+/** M3 composes the existing lease with its store owner and client protocol. */
+export interface HostRuntimeBindings {
+  acceptSocket(
+    socket: Socket,
+    record: HostRecord,
+    attached: () => void,
+    lifecycle: HostSocketLifecycle
+  ): void;
+  acquireRoot(
+    retainRun: () => () => void
+  ): Promise<{ readonly lock: RootLock; close(): Promise<void> }>;
+  /** Fence/start retirement now; acquireRoot.close must join that same retirement. */
+  beginClose?(): void;
+  readonly protocolVersion: number;
+}
+export interface HostSocketLifecycle {
+  readonly closing: boolean;
+  /** Keep this socket through its actual RPC response write, after Root joins. */
+  stop(replyFinished: Promise<void>): Promise<void>;
+}
 const StartOptionsSchema = Schema.Struct({
   lifetime: Schema.Literals(['app', 'cli', 'persistent']),
   parent: Schema.optional(
@@ -60,12 +80,6 @@ async function listen(server: Server, endpoint: string): Promise<Server> {
   });
   return server;
 }
-async function closeServer(server: Server, sockets: Set<Socket>): Promise<void> {
-  await Promise.all([...sockets].map(destroySocket));
-  await new Promise<void>((resolve, reject) =>
-    server.close((error?: Error) => (error ? reject(error) : resolve()))
-  );
-}
 async function prepareSocketDirectory(root: string): Promise<string> {
   const hash = createHash('sha256').update(root).digest('hex').slice(0, 16);
   const directory = join(await realpath(tmpdir()), `bs-h-${hash}`);
@@ -86,8 +100,12 @@ async function prepareSocketDirectory(root: string): Promise<string> {
   }
   return directory;
 }
-
-export async function startHost(input: HostStartOptions): Promise<HostRuntime> {
+export async function startHost(
+  input: HostStartOptions,
+  bindings?: HostRuntimeBindings,
+  signal?: AbortSignal
+): Promise<HostRuntime> {
+  signal?.throwIfAborted();
   const options = decodeStartOptions(input);
   if (!isAbsolute(options.root)) {
     throw new TypeError('Host data root must be absolute');
@@ -104,17 +122,56 @@ export async function startHost(input: HostStartOptions): Promise<HostRuntime> {
   // unhandled-rejection race before the launcher has received the runtime.
   completion.promise.catch(() => undefined);
   let closing: Promise<void> | undefined;
+  const rootJoined = Promise.withResolvers<void>();
+  rootJoined.promise.catch(() => undefined);
+  let serverClosing: Promise<void> | undefined;
+  let stopReply: { readonly socket: Socket; readonly finished: Promise<void> } | undefined;
   let clients = 0;
   let activeRuns = 0;
   let attachedOnce = false;
   const close = (cause?: unknown): Promise<void> => {
     if (!closing) {
-      closing = owner.close().then(() => {
-        if (cause !== undefined) {
-          throw cause;
+      // BST-1977: fence Core before metadata/ACL and transport finalizers.
+      // Latch first: retirement can synchronously release a run or reenter close.
+      closing = completion.promise;
+      const failures: unknown[] = [];
+      try {
+        bindings?.beginClose?.();
+      } catch (failure) {
+        failures.push(failure);
+      }
+      const rootClosing = owner.close().then(
+        () => {
+          if (failures.length > 0) {
+            throw failures[0];
+          }
+        },
+        (failure: unknown) => {
+          if (failures.length > 0 && failures[0] !== failure) {
+            throw new AggregateError([...failures, failure], 'Host retirement and cleanup failed');
+          }
+          throw failure;
         }
-      });
-      closing.then(completion.resolve, completion.reject);
+      );
+      rootClosing.then(rootJoined.resolve, rootJoined.reject);
+      void (async () => {
+        try {
+          await rootClosing;
+          if (cause !== undefined) {
+            throw cause;
+          }
+        } finally {
+          if (stopReply) {
+            // BST-1977 host/stop: successful replies follow physical platform
+            // joins and Root release, then the actual JSON-RPC writer joins
+            // before this last transport is destroyed. Client loss also
+            // settles finished; it never substitutes for Root cleanup.
+            await stopReply.finished;
+            await destroySocket(stopReply.socket);
+            await serverClosing;
+          }
+        }
+      })().then(completion.resolve, completion.reject);
     }
     return closing;
   };
@@ -129,11 +186,37 @@ export async function startHost(input: HostStartOptions): Promise<HostRuntime> {
       close().catch(() => undefined); // failure stays visible on completion.promise
     }
   };
+  const retainRun = (): (() => void) => {
+    signal?.throwIfAborted();
+    if (closing) {
+      throw new Error('Host is closing');
+    }
+    activeRuns += 1;
+    let released = false;
+    return (): void => {
+      if (released) {
+        return;
+      }
+      released = true;
+      activeRuns -= 1;
+      finishIfIdle();
+    };
+  };
   try {
-    const lease = await owner.acquire(
-      () => RootLock.acquire(options.root),
-      async (lock) => lock.release()
-    );
+    signal?.throwIfAborted();
+    const lease = bindings
+      ? (
+          await owner.acquire(
+            () => bindings.acquireRoot(retainRun),
+            (resource) => resource.close()
+          )
+        ).lock
+      : await owner.acquire(
+          // ADR-0017: the native processes this host starts inherit its Root.
+          () => RootLock.acquire(options.root, { shareWithNativeChildren: true }),
+          async (lock) => lock.release()
+        );
+    signal?.throwIfAborted();
     const canonicalRoot = lease.owner.root;
     const token = randomBytes(32).toString('hex');
     let endpoint: string;
@@ -150,7 +233,7 @@ export async function startHost(input: HostStartOptions): Promise<HostRuntime> {
       endpoint,
       hostVersion: HOST_VERSION,
       pid: process.pid,
-      protocolVersion: PROTOCOL_VERSION,
+      protocolVersion: bindings?.protocolVersion ?? PROTOCOL_VERSION,
       start: lease.owner.start,
       token,
     };
@@ -159,6 +242,42 @@ export async function startHost(input: HostStartOptions): Promise<HostRuntime> {
       let initialized = false;
       let attached = false;
       let rejected = false;
+      if (bindings) {
+        socket.on('error', () => socket.destroy());
+        socket.once('close', () => {
+          sockets.delete(socket);
+          if (attached) {
+            clients -= 1;
+            finishIfIdle();
+          }
+        });
+        bindings.acceptSocket(
+          socket,
+          record,
+          () => {
+            if (attached || closing || signal?.aborted) {
+              throw new Error('Host attachment is already initialized or closing');
+            }
+            attached = true;
+            attachedOnce = true;
+            clients += 1;
+          },
+          {
+            get closing(): boolean {
+              return closing !== undefined;
+            },
+            stop: (finished) => {
+              if (closing || !attached) {
+                return Promise.reject(new Error('Host is closing or unauthenticated'));
+              }
+              stopReply = { finished, socket };
+              void close().catch(() => undefined);
+              return rootJoined.promise;
+            },
+          }
+        );
+        return;
+      }
       const reject = (message: string): void => {
         if (rejected) {
           return;
@@ -167,7 +286,7 @@ export async function startHost(input: HostStartOptions): Promise<HostRuntime> {
         socket.end(`${JSON.stringify({ message, method: 'error' })}\n`);
       };
       const request = (frame: HostRequest): void => {
-        if (rejected || closing) {
+        if (rejected || closing || signal?.aborted) {
           reject('Host is closing');
           return;
         }
@@ -215,7 +334,18 @@ export async function startHost(input: HostStartOptions): Promise<HostRuntime> {
     });
     await owner.acquire(
       () => listen(server, endpoint),
-      (value) => closeServer(value, sockets)
+      async (value) => {
+        serverClosing = new Promise<void>((resolve, reject) =>
+          value.close((error?: Error) => (error ? reject(error) : resolve()))
+        );
+        serverClosing.catch(() => undefined);
+        await Promise.all(
+          [...sockets].filter((socket) => socket !== stopReply?.socket).map(destroySocket)
+        );
+        if (!stopReply) {
+          await serverClosing;
+        }
+      }
     );
     server.on('error', (cause: Error) => {
       close(cause).catch(() => undefined);
@@ -228,6 +358,11 @@ export async function startHost(input: HostStartOptions): Promise<HostRuntime> {
       (value) => removeOwnHostRecord(canonicalRoot, value)
     );
     await publishHostRecord(canonicalRoot, record);
+    signal?.throwIfAborted();
+    if (closing) {
+      await closing;
+      throw new Error('Host closed during startup');
+    }
     if (options.lifetime !== 'persistent') {
       await owner.acquire(
         async () =>
@@ -239,25 +374,17 @@ export async function startHost(input: HostStartOptions): Promise<HostRuntime> {
         async (timer) => clearTimeout(timer)
       );
     }
-    if (options.lifetime === 'app' && options.parent) {
-      const parent = options.parent;
-      if (processStartTime(parent.pid) !== parent.start) {
-        await close();
-        throw new Error('App parent is not alive at host startup');
-      }
-      await owner.acquire(
-        async () =>
-          setInterval(() => {
-            try {
-              if (processStartTime(parent.pid) !== parent.start) {
-                close().catch(() => undefined);
-              }
-            } catch (cause) {
-              close(cause).catch(() => undefined);
-            }
-          }, 100),
-        async (timer) => clearInterval(timer)
-      );
+    // "A host forked by the app dies with the app" (ADR-0017). The app is checked once here; after
+    // that the host lives exactly as long as its launcher's lifetime channel (the Node IPC channel,
+    // or Electron Main's lifetime port), which the process entry turns into close(). A channel's peer
+    // is the app process itself, so a later process reusing the app's pid cannot keep a host alive.
+    if (
+      options.lifetime === 'app' &&
+      options.parent &&
+      processStartTime(options.parent.pid) !== options.parent.start
+    ) {
+      await close();
+      throw new Error('App parent is not alive at host startup');
     }
     return {
       get clientCount(): number {
@@ -266,21 +393,7 @@ export async function startHost(input: HostStartOptions): Promise<HostRuntime> {
       close: () => close(),
       closed: completion.promise,
       record,
-      retainRun: (): (() => void) => {
-        if (closing) {
-          throw new Error('Host is closing');
-        }
-        activeRuns += 1;
-        let released = false;
-        return (): void => {
-          if (released) {
-            return;
-          }
-          released = true;
-          activeRuns -= 1;
-          finishIfIdle();
-        };
-      },
+      retainRun,
     };
   } catch (cause) {
     try {

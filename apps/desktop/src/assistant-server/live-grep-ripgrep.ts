@@ -12,6 +12,7 @@ import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
 import { extractTrigramLiteral } from '@brainstrike/db';
+import { trackNativeChild } from '@brainstrike/state-store/native-children';
 import {
   BALANCED_UNCONDITIONAL_EXCLUDED_DIRECTORY_SEGMENTS,
   UNCONDITIONAL_EXCLUDED_DIRECTORY_PATH_PREFIXES,
@@ -289,7 +290,7 @@ export function runRipgrep(args: {
   const timeoutMs = args.timeoutMs ?? RIPGREP_TIMEOUT_MS;
   const startedAt = Date.now();
   return new Promise<RipgrepRun>((resolve, reject) => {
-    execFile(
+    const child = execFile(
       args.ripgrepPath,
       buildRipgrepArgs(args),
       {
@@ -378,11 +379,14 @@ export function runRipgrep(args: {
         resolve({ candidatePaths: parseCandidates(), partialReadErrors: false, truncated });
       }
     );
+    // execFile cannot pass the Root's flock (an ADR-0017 limit); the host's supervisor still
+    // learns this bounded search process.
+    child.once('exit', trackNativeChild(child.pid, { group: false }));
   });
 }
 
 function normalizeRipgrepCandidatePath(value: string): string | null {
-  const normalized = value.replace(/^\.\//, '').replaceAll('\\', '/');
+  const normalized = value.replaceAll('\\', '/').replace(/^\.\//, '');
   return normalized.length > 0 ? normalized : null;
 }
 

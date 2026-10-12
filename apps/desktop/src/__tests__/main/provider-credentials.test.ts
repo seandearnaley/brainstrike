@@ -23,9 +23,13 @@ vi.mock('../../assistant-server/logger', () => ({
   desktopAssistantServerLogger: logger,
 }));
 
-vi.mock('@brainstrike/agent', () => ({
-  isSupportedProvider: (value: string) => ['openai', 'anthropic', 'ollama'].includes(value),
-}));
+vi.mock('@brainstrike/agent', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@brainstrike/agent')>();
+  return {
+    ...actual,
+    isSupportedProvider: (value: string) => ['openai', 'anthropic', 'ollama'].includes(value),
+  };
+});
 
 vi.mock('../../provider-api-key', () => ({
   inspectProviderKeys: vi.fn(),

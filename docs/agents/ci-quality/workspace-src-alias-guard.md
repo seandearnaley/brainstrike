@@ -112,9 +112,11 @@ Explicit build edges survive in per-package `turbo.json` where a test genuinely
 consumes a built artifact:
 `@brainstrike/desktop#test:integration`/`#test:coverage` need
 `@brainstrike/agent#build`, `@brainstrike/assistant-data#build` and (added
-later) `@brainstrike/assistant-service#build` for the native
-delegated-decision restart verifier (BST-1720): child Node processes resolve
-public exports without Vitest aliases.
+later) `@brainstrike/assistant-service#build` for the native delegated-decision
+restart verifier (BST-1720). M3 compiled Core proofs also require
+`@brainstrike/agent-host#build`: child Node processes resolve public exports
+without Vitest aliases.
+The Core host integration/coverage lanes also declare their own build because spawned Node CLI/restart proofs resolve public exports outside Vitest. Desktop committed owner/UI bridge specs live in the application package, so shared UI remains behind its structural log interface and carries no host dependency.
 These exact dependencies build the agent's DB/contract closure and the startup
 reaper's public assistant-data export. The resolved graph is guarded by `turbo-global-configuration.test.mjs`; no inline
 build or repository-wide `^build` edge is introduced.

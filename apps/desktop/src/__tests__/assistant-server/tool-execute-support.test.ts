@@ -7,9 +7,76 @@
  * read in the same module. The end-to-end journal assertion lives in
  * `capture-on-edit.integration.test.ts`.
  */
+import { createCanonicalToolContext } from '@brainstrike/agent-host';
+import {
+  parseToolExecuteInput,
+  readToolCallId,
+  resolveShellOutputStreamer,
+} from '@brainstrike/host-capabilities/native-tools';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { parseToolExecuteInput, readToolCallId } from '../../assistant-server/tool-execute-support';
+
+describe('resolveShellOutputStreamer', () => {
+  it('writes a canonical ToolStream slice with its actual receiver', async () => {
+    const emitted = Promise.withResolvers<{ chunk: unknown } | { error: unknown }>();
+    const context = createCanonicalToolContext(
+      {
+        runId: 'run-shell-stream',
+        signal: new AbortController().signal,
+        threadId: 'thread-shell-stream',
+        toolCallId: 'call-shell-stream',
+        write: async (chunk) => {
+          emitted.resolve({ chunk });
+        },
+      },
+      'brainstrike.executeCommand'
+    );
+    const stream = resolveShellOutputStreamer(context, (error) => emitted.resolve({ error }));
+    expect(stream).toBeDefined();
+    stream?.({ chunk: 'ordinary shell output\n', stream: 'stdout' });
+    expect(await emitted.promise).toEqual({
+      chunk: {
+        chunk: 'ordinary shell output\n',
+        stream: 'stdout',
+        toolCallId: 'call-shell-stream',
+        type: 'brainstrike.shell-output.chunk',
+      },
+    });
+  });
+
+  it('keeps the plain outputWriter shape and tool-call identity', async () => {
+    const emitted = Promise.withResolvers<unknown>();
+    const stream = resolveShellOutputStreamer(
+      { outputWriter: (chunk) => emitted.resolve(chunk), toolCallId: 'call-plain' },
+      (error) => emitted.reject(error)
+    );
+    expect(stream).toBeDefined();
+    stream?.({ chunk: 'plain stderr\n', stream: 'stderr', truncated: true });
+    expect(await emitted.promise).toEqual({
+      chunk: 'plain stderr\n',
+      stream: 'stderr',
+      toolCallId: 'call-plain',
+      truncated: true,
+      type: 'brainstrike.shell-output.chunk',
+    });
+  });
+
+  it('reports a synchronous writer failure through the streaming error callback', async () => {
+    const reported = Promise.withResolvers<unknown>();
+    const failure = new Error('Synthetic stream writer failure');
+    const stream = resolveShellOutputStreamer(
+      {
+        outputWriter: () => {
+          throw failure;
+        },
+        toolCallId: 'call-failed-stream',
+      },
+      (error) => reported.resolve(error)
+    );
+    expect(() => stream?.({ chunk: 'shell output', stream: 'stdout' })).not.toThrow();
+    expect(await reported.promise).toBe(failure);
+  });
+});
 
 describe('parseToolExecuteInput', () => {
   const schema = z.strictObject({ id: z.string(), n: z.number() });

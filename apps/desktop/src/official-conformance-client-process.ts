@@ -1,3 +1,4 @@
+import { sanitizeStdioDiagnosticLine } from '@brainstrike/host-capabilities/mcp/stdio-diagnostics';
 import { z } from 'zod';
 import {
   parseOfficialCustomHeaderContext,
@@ -7,7 +8,6 @@ import {
   AllOfficialAuthScenarioNameSchema,
   parseOfficialAuthScenarioContext,
 } from './mcp/official-conformance-oauth';
-import { sanitizeStdioDiagnosticLine } from './mcp/stdio-diagnostics';
 
 const FAILURE_CAUSE_MAX_DEPTH = 4;
 const FAILURE_CAUSE_MAX_PARTS = 6;

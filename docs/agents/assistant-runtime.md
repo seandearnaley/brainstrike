@@ -19,6 +19,57 @@
 
 ## Native suspension completion
 
+Core startup acquires Root and the canonical StateStore writer before constructing
+the platform, then acquires its optional borrowed `stateIndexer` before replaying
+interrupted purge or thread-delete intents. Platform rollback joins native owners
+before writer shutdown and Root release. Unproved rollback retains the same writer
+and Root in the startup error; discovery is never published for that startup.
+This seam qualifies Core startup ordering; the Main bootstrap borrow and production
+Memory vector/local-inference capability remain separate integration gates.
+
+Host close distinguishes a reported run/checkpoint outcome from physical retirement.
+Admission is fenced; SDK/effect work, run owners, terminal writes, platform and indexer
+owners must join before Runtime closes the canonical StateStore writer. Joined outcome
+failures still reject close with their original causes. Opaque or rejected retirement
+keeps the writer and Root owned, even when its cause is the same run abort object.
+StateStore close callers share its original promise; failed writer termination retains
+Root and every independent database/termination failure. Crash-lifetime containment
+and recovery require their separately qualified production authority.
+
+Authenticated `thread/delete {threadId}` is a Root lifecycle operation. Core
+fences that thread's commands, aborts its pending admission and run signals, and
+joins SDK effects, Memory/provider work and run owners before StateStore's existing
+thread-delete intent erases canonical and derived data. Only a joined deletion
+clears Core's transient conversation, workspace and command payload projections.
+Independent cleanup errors retain the fence and report failure, including failed
+platform retirement before a run was committed. Core preserves that pre-run
+failure through the normalized command queue and refuses deletion and host close.
+The operation
+introduces no durable command record or second deletion writer.
+
+The committed M3 conversation uses the public assistant-ui approval command for
+host interaction IDs. Approval-bearing tool cards stay outside the activity
+disclosure, including answered history. Questions and plans submit the canonical
+typed payload through `interaction/resume`; Core validates it before committing
+the response and executing the canonical tool. Only that committed response
+resolves the card. The view does not persist or execute an interaction.
+
+Core commits MCP input intent before native delivery. If the joined delivery's
+settlement phase cannot be committed, the live input becomes `unknown`, its
+private capability is retired, and duplicate commands never resend the answer.
+Core retains the original persistence causes on the run and reports a safe
+failure detail through its joined terminal event. This uncertainty does not
+classify physical cleanup as failed; native owners and writer shutdown still
+join through their existing lifecycle.
+
+The Core socket client's `closed` promise joins physical transport closure,
+already-admitted complete-frame decoding, dispatch and disposal. A received
+`host/stop` response after peer close must settle before disposal rejects genuinely
+unanswered requests. Explicit client close cancels pending requests and must
+settle registered drain waiters. Retain decoder, dispatch and cleanup failures. The opt-in SDK 9.0.2
+compatibility patch admits no partial or future bytes and leaves ordinary SDK
+disposal immediate. Evidence: `assistant-runtime/core-stop-receive-drain.md`.
+
 - Await Mastra's public `getFullOutput()` on the initial, approval-resume and
   suspended-tool-resume legs before publishing a terminal pause or completion.
   Native pause parts can precede durable snapshot storage, so an immediately
@@ -803,7 +854,8 @@ The assistant message renders its parts through `MessagePrimitive.GroupedParts`
 `groupAssistantActivityPart` (`assistant-activity-grouping.ts`) as the grouper.
 The library's legacy `components.ChainOfThought` path is gone and must not return.
 
-- Grouping: `reasoning` / `tool-call` join the activity group;
+- Grouping: `reasoning` / tool calls without public `approval` join the activity group;
+  approval-bearing calls stay standalone at their committed interaction boundary;
   `brainstrike.run-event` is group-transparent EXCEPT `isAlwaysVisibleRunEvent`
   kinds, which stay standalone so a collapsed group can never hide a failed or
   cancelled run, a skipped MCP server, or a pending approval; shell-output,
@@ -1245,17 +1297,17 @@ Evidence: `assistant-runtime/streaming-spec-layout.md`.
   after appending; a reader who scrolled up is never yanked. Do not remove this as
   redundant with the engine's resize re-stick — that path loses the clamp-ordering
   race.
-- **A `scroll` event the engine itself authored never disengages follow.** A
-  `measure` write claims the `scrollTop` it MOVED to (`unechoedWriteTop`) and the
-  listener swallows that one echo. Two rules follow: **authorship is the
-  discriminator, not movement** (events coalesce, so a user round trip arrives as
-  ONE net-zero event that must still disengage), and **`lastScrollTop` is the last
-  position `handleScroll` PROCESSED**, not the position before the current event.
-- Two placement rules keep the claim honest: make it in `measure` and NOT in
-  `write`, because only `measure` performs the synchronous `handleScroll` that
-  justifies swallowing an echo — the explicit-request writes never judge, so their
-  echo is the ONLY thing that can re-pin the thread. And claim only a write that
-  MOVED the position; a no-op write dispatches no event, so its claim would linger.
+- **An already-judged scroll event never disengages follow.** A `measure` write
+  claims the `scrollTop` it MOVED to (`unechoedWriteTop`) and the listener consumes
+  that one echo. A measured native bottom clamp also claims its pending event:
+  the previously processed position must exceed the new scroll range, and the
+  current position must be at the new bottom within the existing 1px tolerance.
+  This covers a native clamp followed by another viewport resize before its event.
+- Claim only in `measure`, where synchronous `handleScroll` has judged the position;
+  explicit-request writes never judge, so their event must still re-pin the thread.
+  Ordinary no-op writes leave no claim. User intent clears any claim, and a user
+  round trip with zero net movement must still disengage. `lastScrollTop` is the
+  last position `handleScroll` PROCESSED, not the position before the current event.
 
 Evidence: `assistant-runtime/thread-scroll-follow.md`.
 Guard: `packages/assistant-ui/src/__tests__/assistant-scroll-to-bottom.browser.test.tsx`,
@@ -1576,6 +1628,13 @@ other — see `docs/agents/assistant-providers.md`.
   Resolve its platform storage through a local deferred state-storage proxy so an
   optimized chunk-evaluation cycle cannot make Zustand omit the `persist` API; a
   later hydration retries and genuine adapter failures remain visible.
+- With the agent-host capability, the saved policy belongs to the host's
+  StateStore and is read and written through the typed `permissions/policy`
+  requests. Main and renderer storage keep no copy; session grants remain
+  transient. Permissions settings waits for the saved policy to load before
+  exposing edits, and shows a failed read with an explicit retry. This prevents
+  editing boot defaults while the host connection is still pending and losing
+  that change on an immediate quit.
 
 Flow (desktop assistant server → agent runtime):
 
@@ -2011,7 +2070,11 @@ NO hook runner (capability-gated, no `isElectron()` checks).
   It receives a secret-redacted JSON payload on **stdin** and returns optional JSON
   on **stdout** (`{decision, reason, additionalContext}`); its **exit code** is
   authoritative: `2` = hard block on a blocking event, other non-zero =
-  warn-and-continue, `0` = ok. Per-hook timeout → SIGKILL.
+    warn-and-continue, `0` = ok. Per-hook timeout → SIGKILL on POSIX. Windows
+    hooks reuse the command Job owner in `host-capabilities`: native assignment
+    precedes START (including redacted stdin), and completion/timeout joins the
+    Job and output pipes before returning. A failed physical join retains the
+    owner and rejects; it is never reported as a completed warning-only hook.
 - **Insertion points (do not move).** `applyToolHooks`
   (`packages/agent/src/tools/hook-tool-wrap.ts`) is a SIBLING of `applyToolGuards`,
   composed OUTSIDE the guard and BEFORE the permission gate:
@@ -2082,9 +2145,8 @@ NO hook runner (capability-gated, no `isElectron()` checks).
 - Merge order is global-first, then roots in mounted order; each loaded hook is
   tagged with its source `cwd`/`rootId` (global hooks' cwd = the MAIN root — see
   "WORKSPACE ROOT IDENTITY" in `docs/agents/workspace-context.md`).
-- Thread `RuntimeData.hookRunner` as trusted, agent-only, never serialized, plus
-  `RuntimeData.hookTrustRequest` on the wire. The server STRIPS any
-  client-supplied `hookRunner` and injects the server-built one.
+- Thread `RuntimeData.hookRunner` as trusted, agent-only, never serialized. The
+  server STRIPS any client-supplied `hookRunner` and injects the server-built one.
 - **Run-verdict protocol.** A Stop hook may label the run's outcome by printing ONE
   JSON line: `{"brainstrikeRunVerdict":{"verdict":…,"detail":…}}`. Hook stdout is
   UNTRUSTED repo data, so `hooks/run-verdict.ts` parses strictly:
@@ -2112,9 +2174,17 @@ NO hook runner (capability-gated, no `isElectron()` checks).
   are separate identity domains. The review IPC runs in MAIN, CONTAINMENT-checks
   the reviewed realpath against mounted DB roots (`resolveDbRootForPath`; an
   arbitrary or symlink-escaping path is refused) and returns the resolved
-  `dbRootId`, which the panel keys status/approve/revoke by.
-  `buildHookTrustRequest` is SCOPED to currently-mounted DB ids and attests NOTHING
-  until resolved or if the resolver is absent (fail closed).
+  `dbRootId`; approve and revoke name the root by its mounted path, and Main
+  resolves the DB root again.
+- **The agent host owns project hook trust.** It records `{path, sha256}` under
+  the StateStore settings key `hooks.trust/<roots.id>`, re-hashes the file on
+  `hooks/trust` and refuses a mismatch (InvalidParams). A trust applies only to
+  the same root at the path it was trusted at. Host runs read it at admission;
+  the legacy server reads it per request through Main's installed reader; the
+  renderer attests nothing. Main imports the retired renderer store's approvals
+  once (exact hash matches only) before any visible client attaches, and
+  removes the old slice after every entry settled. Factory reset clears the key
+  with the host's StateStore files.
 - The disconnect-severs property is SERVER-ENFORCED: `fs:removeRoot` asks
   `WorkspaceRootRegistry` to remove the mount and converge the DB to the complete
   remaining mounted-path set, with the persisted registry write first and a DB
@@ -2233,9 +2303,10 @@ version ceiling in `mastra-boundary.md`.
   Resume vocab is the builtin-compatible `{action:'approved'|'rejected', feedback?}`.
 - **`askUser`** takes `{question, options?, selectionMode?}` and resumes with the
   `{answer: string | string[]}` ENVELOPE — an object so the `approved: true` rider
-  can attach when askUser is ask-gated. It still accepts the LEGACY bare
-  `string | string[]` so pre-migration runs stay resumable; multi-select joins with
-  ", ".
+  can attach when askUser is ask-gated; multi-select joins with ", ". Current-format
+  runs must retain this envelope across restart. Existing bare `string | string[]`
+  compatibility is existing code under
+  [ADR-0020](../adr/0020-greenfield-data-lifecycle.md), not an old-run resume obligation.
 - The renderer structurally narrows both tools' `suspendPayload` before displaying
   or resuming it. An absent payload retains the generic actionable fallback. Core
   plan terms and the question/options must be readable; one unreadable decision

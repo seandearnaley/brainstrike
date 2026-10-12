@@ -61,10 +61,6 @@ vi.mock('../../assistant-server/http', async () => {
   };
 });
 
-vi.mock('../../mcp-loader', () => ({
-  loadMcpConfig: vi.fn(() => Promise.resolve({ config: undefined })),
-}));
-
 const { convertAssistantUiMessages } = vi.hoisted(() => ({
   convertAssistantUiMessages: vi.fn((messages) => messages),
 }));
@@ -159,9 +155,12 @@ vi.mock('../../assistant-server/assistant-tools', () => ({
   buildDesktopAssistantTools: vi.fn(() => ({})),
 }));
 
-vi.mock('../../assistant-server/workspace-text-file-reader', () => ({
-  readWorkspaceTextFile: vi.fn(async () => ({ content: '', path: '', size: 0 })),
-}));
+vi.mock(
+  '../../../../../packages/host-capabilities/src/native-tools/workspace-text-file-reader',
+  () => ({
+    readWorkspaceTextFile: vi.fn(async () => ({ content: '', path: '', size: 0 })),
+  })
+);
 
 const runRequest = createRunRequest(handleAssistantRequest);
 

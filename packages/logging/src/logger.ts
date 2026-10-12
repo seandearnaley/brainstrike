@@ -9,6 +9,7 @@ import { isErrorObject, logSerializers } from './log-serializers.js';
 
 type BrowserLoggerOptions = NonNullable<LoggerOptions['browser']>;
 type ManagedNodeDestination = DestinationStream & {
+  readonly destroyed?: boolean;
   end: () => void;
   flushSync: () => void;
 };
@@ -454,6 +455,9 @@ function createBrowserWrite(
 }
 
 function drainNodeDestination(destination: ManagedNodeDestination): void {
+  if (destination.destroyed) {
+    return;
+  }
   destination.flushSync();
   destination.end();
 }
@@ -525,7 +529,15 @@ function createRootLogger(): PinoLogger {
 
     if (targets.length > 0) {
       const nodeTransport = resolveNodeTransport();
-      destination = nodeTransport({ targets });
+      const transport = nodeTransport({ targets });
+      // A closed parent pipe destroyed the M3 Windows proof's transport; logging
+      // its uncaught error back into that worker recursively queued more errors.
+      // Pino owns transport failure: observe it through its documented event.
+      // https://github.com/pinojs/pino/blob/main/docs/transports.md#error-messages
+      transport.on('error', (error: Error) => {
+        logInternal(LogLevel.ERROR, 'Logger', [{ error }, 'Log transport failed']);
+      });
+      destination = transport;
     }
   }
 
@@ -791,7 +803,9 @@ function logInternal(level: LogLevel, scope: string | undefined, args: readonly 
   const pinoArgs = normalizePinoLogArgs(safeArgs);
 
   try {
-    writePinoLog(logMethod, target, pinoArgs);
+    if (!activeNodeDestination?.destroyed) {
+      writePinoLog(logMethod, target, pinoArgs);
+    }
   } catch (logError) {
     // Some tooling (React DevTools) patches console methods and can throw runtime
     // exceptions when inspecting complex payloads. Logging must never break app flow.

@@ -9,6 +9,9 @@ const hostedWebEntries = ['src/hosted-web.ts', 'src/request-boundary.ts'];
 const broadEntries = [
   'src/index.ts',
   'src/client.ts',
+  'src/provider-request.ts',
+  'src/provider-runtime.ts',
+  'src/tool-runtime.ts',
   'src/code-execution.ts',
   'src/fence-executor.ts',
   'src/mcp-client.ts',

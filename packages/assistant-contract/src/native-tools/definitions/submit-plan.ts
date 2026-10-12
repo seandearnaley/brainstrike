@@ -22,6 +22,7 @@ export const submitPlan = defineNativeTool({
   id: 'brainstrike.submitPlan',
   inputSchema: SubmitPlanInputSchema,
   kind: 'desktop',
+  localProvider: 'unregistered',
   returns: "The user's decision: status approved or rejected, plus optional feedback on rejection.",
   surfaces: ['desktop', 'web'],
 });

@@ -30,6 +30,25 @@ import { MANUAL_PRODUCTION_REGISTRATIONS } from '../helpers/manual-ipc-inventory
 const registryCapture = vi.hoisted(() => ({
   instances: [] as { getSnapshot: () => readonly DesktopIpcChannelRegistration[] }[],
 }));
+const profileStartup = vi.hoisted(() => ({
+  acquire: vi.fn<() => Promise<never>>(),
+  events: [] as string[],
+}));
+
+vi.mock('../../native-index-activation', async () => {
+  const actual = await vi.importActual<typeof import('../../native-index-activation')>(
+    '../../native-index-activation'
+  );
+  return {
+    ...actual,
+    createNativeIndexActivation: (
+      ...args: Parameters<typeof actual.createNativeIndexActivation>
+    ) => ({
+      ...actual.createNativeIndexActivation(...args),
+      acquireProfile: profileStartup.acquire,
+    }),
+  };
+});
 
 vi.mock('../../platform/desktop-ipc-registry', async () => {
   const actual = await vi.importActual<typeof import('../../platform/desktop-ipc-registry')>(
@@ -80,6 +99,7 @@ let mockWindowCount = 0;
 // Use function syntax for Vitest 4 constructor mocks
 const mockBrowserWindow = vi.fn();
 mockBrowserWindow.mockImplementation(function (this: Record<string, unknown>) {
+  profileStartup.events.push('window');
   const webContents = {
     id: nextMockWebContentsId++,
     isDestroyed: vi.fn(() => false),
@@ -121,7 +141,7 @@ Object.assign(mockBrowserWindow, {
 const mockApp = {
   commandLine: { appendSwitch: vi.fn() },
   getAppMetrics: vi.fn(() => []),
-  getAppPath: vi.fn(() => '/mock/app'),
+  getAppPath: vi.fn(() => path.resolve('/mock/app')),
   getPath: vi.fn(() => '/tmp/brainstrike-test-logs'),
   getVersion: vi.fn(() => '0.0.0-test'),
   isPackaged: false,
@@ -129,6 +149,7 @@ const mockApp = {
   on: vi.fn(),
   quit: vi.fn(),
   requestSingleInstanceLock: vi.fn(() => true),
+  setPath: vi.fn(),
   whenReady: vi.fn(() => Promise.resolve()),
 };
 
@@ -166,6 +187,7 @@ vi.mock('node:fs', () => ({
     accessSync: accessSyncMock,
     constants: { W_OK: 0o200 },
     existsSync: existsSyncMock,
+    mkdirSync: vi.fn(),
     statSync: statSyncMock,
   },
   existsSync: existsSyncMock,
@@ -304,6 +326,11 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
     vi.resetModules();
     vi.clearAllMocks();
     registryCapture.instances = [];
+    profileStartup.events = [];
+    profileStartup.acquire.mockImplementation(() => {
+      profileStartup.events.push('profile');
+      return new Promise<never>(() => undefined);
+    });
     mockWindowCount = 0;
     getDatabaseMock.mockResolvedValue({});
     process.env['CI'] = 'false';
@@ -330,10 +357,17 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
     expect(union.map((entry) => entry.channel)).toEqual(
       expect.arrayContaining([
         DESKTOP_IPC_CHANNELS.clipboard.writeText,
-        DESKTOP_IPC_CHANNELS.mcp.statusGet,
+        DESKTOP_IPC_CHANNELS.mcp.configSelectPath,
         DESKTOP_IPC_CHANNELS.browser.listTabs,
       ])
     );
+  });
+
+  it('starts the shared host profile before the renderer without waiting for host readiness', () => {
+    // M3 startup waited for the renderer's first thread request to launch its
+    // host, putting utility startup after the visible shell's own startup.
+    expect(profileStartup.acquire).toHaveBeenCalledExactlyOnceWith();
+    expect(profileStartup.events).toEqual(['profile', 'window']);
   });
 
   it('registers every channel on exactly one registry instance (the global duplicate guard)', () => {
@@ -369,7 +403,7 @@ describe('global desktop IPC manifest (BST-1648 step 5)', () => {
     ]);
     expect(contracts.filter(({ file }) => file === 'database.contract.ts')).toHaveLength(6);
     expect(contracts.filter(({ file }) => file === 'file-system.contract.ts')).toHaveLength(2);
-    expect(contracts.filter(({ file }) => file === 'mcp.contract.ts')).toHaveLength(6);
+    expect(contracts.filter(({ file }) => file === 'mcp.contract.ts')).toHaveLength(2);
     expect(contracts.filter(({ file }) => file === 'storage-preferences.contract.ts')).toHaveLength(
       4
     );

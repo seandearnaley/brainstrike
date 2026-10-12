@@ -1,10 +1,18 @@
 // @vitest-environment node
 import fs from 'node:fs';
 import path from 'node:path';
+import {
+  connectedStatus,
+  type McpDiscoveredTool,
+  mcpStatusErrorMessage,
+} from '@brainstrike/host-capabilities/mcp/types';
 import type * as esbuildTypes from 'esbuild';
 import esbuild from 'esbuild';
 import { describe, expect, it } from 'vitest';
-import { MAIN_PROCESS_BUILD_OPTIONS } from '../../../scripts/build-main-config.mjs';
+import {
+  MAIN_PROCESS_BUILD_OPTIONS,
+  MAIN_PROCESS_ENTRY_POINTS,
+} from '../../../scripts/build-main-config.mjs';
 
 const desktopRoot = path.resolve(import.meta.dirname, '../../..');
 const sourceRoot = path.join(desktopRoot, 'src');
@@ -88,29 +96,53 @@ describe('legacy desktop MCP client removal contract', () => {
   });
 
   it('preserves the shared status and discovered-tool helpers', () => {
-    const source = fs.readFileSync(path.join(sourceRoot, 'mcp/types.ts'), 'utf8');
-
-    expect(source).toContain('export interface McpDiscoveredTool');
-    expect(source).toContain('export function connectedStatus');
-    expect(source).toContain('export function mcpStatusErrorMessage');
+    // The helpers moved with the Node MCP host (host-capabilities); their behaviour is the contract.
+    const tool: McpDiscoveredTool = { description: 'Create an issue', inputSchema: {} };
+    expect(tool.description).toBe('Create an issue');
+    const base = {
+      configuredProtocol: 'auto',
+      name: 'linear',
+      transport: 'streamable-http',
+    } as const;
+    const facts = (era: 'modern' | undefined) => ({
+      getNegotiatedProtocolVersion: () => (era ? '2026-07-28' : undefined),
+      getProtocolEra: () => era,
+      getServerCapabilities: () => ({ resources: {}, tools: {} }),
+      getServerVersion: () => ({ name: 'linear-fixture', version: '1.0.0' }),
+    });
+    expect(connectedStatus(facts('modern'), base)).toEqual({
+      ...base,
+      negotiated: {
+        advertisedCapabilityIds: ['resources', 'tools'],
+        era: 'modern',
+        revision: '2026-07-28',
+        serverIdentity: { name: 'linear-fixture', version: '1.0.0' },
+      },
+      state: 'connected',
+    });
+    expect(connectedStatus(facts(undefined), base)).toEqual({
+      ...base,
+      error: 'Connected MCP client has no negotiated protocol facts',
+      state: 'error',
+    });
+    expect(mcpStatusErrorMessage({ status: 401 })).toBe('MCP connection failed (HTTP 401)');
+    expect(mcpStatusErrorMessage(new Error('socket hang up'))).toBe('MCP connection failed');
   });
 
   it('omits the legacy stack from the production Electron main bundle', async () => {
     const buildOptions: esbuildTypes.BuildOptions = {
       ...(MAIN_PROCESS_BUILD_OPTIONS as Omit<esbuildTypes.BuildOptions, 'entryPoints'>),
       absWorkingDir: desktopRoot,
-      entryPoints: { main: path.join(sourceRoot, 'main-bootstrap.ts') },
+      entryPoints: MAIN_PROCESS_ENTRY_POINTS,
       logLevel: 'silent',
       write: false,
     };
     const result = await esbuild.build(buildOptions);
-    const mainOutput = result.outputFiles?.find(
-      (output) => path.basename(output.path) === 'main.js'
-    );
-    if (!mainOutput) {
-      throw new Error('Production MCP removal verifier did not receive the Electron main bundle');
+    const outputs = result.outputFiles ?? [];
+    for (const entry of Object.keys(MAIN_PROCESS_ENTRY_POINTS)) {
+      expect(outputs.some((output) => path.basename(output.path) === `${entry}.js`)).toBe(true);
     }
-    const bundle = mainOutput.text;
+    const bundle = outputs.map((output) => output.text).join('\n');
     expect(bundle).toContain('Ready-dependent IPC handlers registered successfully');
 
     for (const marker of [

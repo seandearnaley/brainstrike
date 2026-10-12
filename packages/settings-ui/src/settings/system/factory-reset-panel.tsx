@@ -3,6 +3,7 @@ import {
   type ClearPersistentUiStateOptions,
   type ClearPersistentUiStateResult,
   clearPersistentUiStateWithResult,
+  prepareFactoryReset,
 } from '@brainstrike/app-state/factory-reset';
 import { useFactoryReset } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
@@ -16,6 +17,10 @@ export interface FactoryResetPanelProps {
 }
 
 type DesktopResetBridge = () => Promise<{ message?: string; success: boolean }>;
+interface DesktopResetCapability {
+  readonly factoryResetUnavailableReason?: string;
+  readonly resetLocal?: DesktopResetBridge;
+}
 
 async function requestFactoryResetReload(reason: string): Promise<void> {
   try {
@@ -29,19 +34,21 @@ async function requestFactoryResetReload(reason: string): Promise<void> {
   }
 }
 
-function getDesktopResetBridge(): DesktopResetBridge | null {
+function getDesktopResetCapability(): DesktopResetCapability | undefined {
   if (typeof window === 'undefined') {
-    return null;
+    return undefined;
   }
-  const resetLocal = (
+  return (
     window as Window & {
       electronAPI?: {
-        db?: {
-          resetLocal?: () => Promise<{ message?: string; success: boolean }>;
-        };
+        db?: DesktopResetCapability;
       };
     }
-  ).electronAPI?.db?.resetLocal;
+  ).electronAPI?.db;
+}
+
+function getDesktopResetBridge(): DesktopResetBridge | null {
+  const resetLocal = getDesktopResetCapability()?.resetLocal;
   return typeof resetLocal === 'function' ? resetLocal : null;
 }
 
@@ -79,9 +86,14 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
     [doFactoryReset, providerFactoryReset]
   );
   const desktopResetAvailable = getDesktopResetBridge() !== null;
-  const resetAvailable = desktopResetAvailable || typeof resetFn === 'function';
+  const unavailableReason = getDesktopResetCapability()?.factoryResetUnavailableReason;
+  const resetAvailable =
+    !unavailableReason && (desktopResetAvailable || typeof resetFn === 'function');
 
   const handleClick = useCallback(async () => {
+    if (getDesktopResetCapability()?.factoryResetUnavailableReason) {
+      return;
+    }
     const desktopResetBridge = getDesktopResetBridge();
     if (!(desktopResetBridge || typeof resetFn === 'function')) {
       return;
@@ -95,15 +107,15 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
       return;
     }
 
-    let rendererStorageResetStarted = false;
+    let rendererResetStarted = false;
     try {
       setRunning(true);
       if (desktopResetBridge) {
-        // Desktop CacheStorage must be cleared while the live renderer still owns
-        // a valid backing store. Mark the renderer as partially reset before
-        // clearing storage because localStorage/sessionStorage are cleared first,
-        // which makes same-session toast recovery unreliable.
-        rendererStorageResetStarted = true;
+        // Preparation retires renderer writers. Even a failed preparation must
+        // reload this renderer; deletion begins only after every writer settles.
+        rendererResetStarted = true;
+        await prepareFactoryReset();
+        // Clear CacheStorage while the live renderer still owns its backing store.
         await runDesktopFactoryReset(desktopResetBridge);
       } else {
         // Direct web/PGlite reset must close/delete the active DB before IndexedDB cleanup.
@@ -111,14 +123,14 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
           throw new Error('Factory reset is unavailable.');
         }
         await resetFn();
-        rendererStorageResetStarted = true;
+        rendererResetStarted = true;
         await clearPersistentUiStateOrThrow({ skipIndexedDb: true });
       }
       // Ensure a full reload so the renderer boots cleanly.
       await requestFactoryResetReload('factory-reset');
     } catch (err) {
-      if (rendererStorageResetStarted) {
-        logger.error('Factory reset failed after renderer storage was already cleared', {
+      if (rendererResetStarted) {
+        logger.error('Factory reset failed after renderer reset preparation began', {
           error: err,
         });
         await requestFactoryResetReload('factory-reset-failed-after-renderer-clear');
@@ -152,8 +164,8 @@ export function FactoryResetPanel({ doFactoryReset = null }: FactoryResetPanelPr
       </Button>
       {resetAvailable ? null : (
         <p className="mt-1 text-muted-foreground text-xs">
-          Factory reset is unavailable until the database is ready. Restart the app if this does not
-          clear.
+          {unavailableReason ??
+            'Factory reset is unavailable until the database is ready. Restart the app if this does not clear.'}
         </p>
       )}
     </div>

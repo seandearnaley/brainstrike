@@ -5,6 +5,8 @@ export const TOOL_OUTPUT_ARTIFACT_JSON_STRING_ENCODING = 'json-string' as const;
 export const TOOL_OUTPUT_ARTIFACT_DEFAULT_PAGE_BYTES = 6000;
 export const TOOL_OUTPUT_ARTIFACT_MAX_PAGE_BYTES = 8000;
 export const TOOL_OUTPUT_ARTIFACT_MIN_PAGE_BYTES = 4;
+/** How long a settled tool output stays readable through its artifact reference. */
+export const TOOL_OUTPUT_ARTIFACT_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 const ARTIFACT_ID_MAX_CHARS = 128;
 const CURSOR_MAX_CHARS = 2048;

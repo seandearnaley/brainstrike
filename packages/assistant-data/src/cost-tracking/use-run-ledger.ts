@@ -53,7 +53,13 @@ function mapLiveRows(rawRows: readonly Record<string, unknown>[]): MappedRows {
  * can never drift between the two paths — the exact reactive consumer that SQL
  * constant was exported for.
  */
-export function useRunLedger(resourceIdOverride?: string | null): RunLedgerState {
+const NO_HOST_RUNS: readonly RunLedgerRow[] = [];
+
+/** `hostRuns`: agent-host threads' committed runs, listed beside the run tables' rows. */
+export function useRunLedger(
+  resourceIdOverride?: string | null,
+  hostRuns: readonly RunLedgerRow[] = NO_HOST_RUNS
+): RunLedgerState {
   const database = usePGliteDatabase();
   const available = database !== null && hasDurableAssistantUsageCapability();
   const resourceId = resolveAssistantMemoryResourceId(resourceIdOverride);
@@ -66,7 +72,17 @@ export function useRunLedger(resourceIdOverride?: string | null): RunLedgerState
     query: RUN_LEDGER_AGGREGATION_SQL,
   });
 
-  const mapped = useMemo<MappedRows>(() => mapLiveRows(liveQuery.rows), [liveQuery.rows]);
+  const mapped = useMemo<MappedRows>(() => {
+    const history = mapLiveRows(liveQuery.rows);
+    if (history.error || hostRuns.length === 0) {
+      return history;
+    }
+    // Newest first, the same limit as the SQL: the panel's latest runs.
+    const rows = [...history.rows, ...hostRuns]
+      .sort((left, right) => right.startedAt.getTime() - left.startedAt.getTime())
+      .slice(0, TASK_LEDGER_RUN_LIMIT);
+    return { error: null, rows };
+  }, [hostRuns, liveQuery.rows]);
 
   return {
     available,

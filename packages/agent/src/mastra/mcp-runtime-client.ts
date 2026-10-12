@@ -1,8 +1,10 @@
 import {
+  type McpHostExecution,
   type McpHostPort,
   parseConfiguredMcpServerId,
   parseMcpHostOperation,
 } from '@brainstrike/assistant-contract';
+import { MCP_PROGRESS_STREAM_PART_TYPE } from '@brainstrike/assistant-contract/tool-telemetry';
 import { createLogger } from '@brainstrike/logging';
 import type { ToolsInput } from '@mastra/core/agent';
 import { type StandardSchemaWithJSON, toStandardSchema } from '@mastra/core/schema';
@@ -17,6 +19,7 @@ import type {
 } from '../mcp/explicit-http-client';
 import type { McpTaskTrackingCapability } from '../mcp/task-tracking';
 import { normalizeProgressPayload } from '../tools/progress-adapter';
+import { readToolCallId } from '../tools/read-tool-call-id';
 import { resolveGuardedToolSignal } from '../tools/tool-guard-deadline';
 import type { StreamChunk } from '../types';
 import {
@@ -36,7 +39,7 @@ import {
 const logger = createLogger('MastraAgentMcpRuntimeClient');
 const rawCallToolResultSignals = new WeakSet<AbortSignal>();
 
-export const MCP_PROGRESS_STREAM_PART_TYPE = 'brainstrike.mcp-progress.chunk';
+export { MCP_PROGRESS_STREAM_PART_TYPE };
 
 /**
  * Mark one authority-owned execution signal as requiring the complete
@@ -67,10 +70,15 @@ export interface McpRuntimeClient {
   listToolsetsWithErrors: () => Promise<McpToolsetsWithErrors>;
 }
 
+/** A host invocation carries its execution capability; it never reaches the server request. */
+type HostCallToolOptions = ExplicitHttpMcpRequestOptions & {
+  readonly execution?: McpHostExecution;
+};
+
 interface OfficialSdkMcpClientLike {
   callTool: (
     params: ExplicitHttpMcpCallToolParams,
-    options?: ExplicitHttpMcpRequestOptions
+    options?: HostCallToolOptions
   ) => Promise<ExplicitHttpMcpCallToolResult>;
   close: () => Promise<void>;
   listTools: (options?: ExplicitHttpMcpRequestOptions) => Promise<ExplicitHttpMcpListToolsResult>;
@@ -121,7 +129,8 @@ function createHostClient(
     throw lease.signal.reason;
   }
   let closed = false;
-  const requestOptions = (options?: ExplicitHttpMcpRequestOptions) => ({
+  const requestOptions = (options?: HostCallToolOptions) => ({
+    ...(options?.execution ? { execution: options.execution } : {}),
     ...(options?.onprogress ? { onProgress: options.onprogress } : {}),
     signal: options?.signal ? AbortSignal.any([lease.signal, options.signal]) : lease.signal,
   });
@@ -234,6 +243,7 @@ function resolveTaskTracking(
 
 class CompositeMcpRuntimeClient implements McpRuntimeClient {
   readonly configuredServers: readonly { enabledTools?: string[]; name: string }[];
+  private closing: Promise<void> | undefined;
   constructor(private readonly serverClients: readonly TransportOwnedServerClient[]) {
     this.configuredServers = serverClients.map(({ server }) => structuredClone(server));
   }
@@ -247,17 +257,30 @@ class CompositeMcpRuntimeClient implements McpRuntimeClient {
     return { errors, toolsets };
   }
 
-  async disconnect(): Promise<void> {
+  disconnect(): Promise<void> {
+    this.closing ??= this.closeAdapters();
+    return this.closing;
+  }
+
+  private async closeAdapters(): Promise<void> {
     const results = await Promise.allSettled(
       this.serverClients.map(({ client }) => client.close())
     );
+    const failures: unknown[] = [];
     for (const [index, result] of results.entries()) {
       if (result.status === 'rejected') {
+        failures.push(result.reason);
         logger.warn('MCP adapter release failed', {
           error: result.reason,
           serverName: this.serverClients[index]?.server.name ?? 'unknown',
         });
       }
+    }
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'MCP adapter release failed');
     }
   }
 
@@ -270,9 +293,16 @@ class CompositeMcpRuntimeClient implements McpRuntimeClient {
       const { tools } = await entry.client.listTools();
       defineOwn(toolsets, entry.server.name, convertMcpTools(entry, tools));
     } catch (error) {
-      defineOwn(errors, entry.server.name, errorMessage(error));
+      defineOwn(errors, entry.server.name, discoveryFailureReason(error));
     }
   }
+}
+
+/** The failure's message plus its stable content-free code, when it carries one. */
+function discoveryFailureReason(error: unknown): string {
+  const message = errorMessage(error);
+  const code = error instanceof Error ? Reflect.get(error, 'code') : undefined;
+  return typeof code === 'string' && code.length > 0 ? `${message} (${code})` : message;
 }
 
 function convertMcpTools(
@@ -371,8 +401,34 @@ function createDocumentationOnlyMcpOutputSchema(
  * verified at 1.55.0), alongside the doc's per-version surface checks.
  */
 type McpExecuteContext = Pick<ToolExecutionContext, 'agent' | 'writer' | 'abortSignal'> & {
+  /** The agent host's canonical tool context names its MCP execution capability here. */
+  brainstrikeMcp?: unknown;
   requestContext?: unknown;
 };
+
+/**
+ * The admitting agent-host tool call's MCP execution capability, read only
+ * from the host's canonical tool context (`brainstrikeMcp`). Absent outside an
+ * agent-host run; a present but malformed value fails the call.
+ */
+function readHostExecution(context: McpExecuteContext): {
+  readonly execution?: McpHostExecution;
+} {
+  const value = context.brainstrikeMcp;
+  if (value === undefined) {
+    return {};
+  }
+  const candidate = value as Partial<Record<keyof McpHostExecution, unknown>> | null;
+  if (
+    typeof candidate !== 'object' ||
+    candidate === null ||
+    typeof candidate.bindTask !== 'function' ||
+    typeof candidate.requestInput !== 'function'
+  ) {
+    throw new Error('The agent host supplied a malformed MCP execution capability');
+  }
+  return { execution: value as McpHostExecution };
+}
 
 async function executeMcpTool(
   { client, server, taskTracking }: TransportOwnedServerClient,
@@ -382,6 +438,7 @@ async function executeMcpTool(
   context: McpExecuteContext
 ): Promise<unknown> {
   const serverName = server.name;
+  const host = readHostExecution(context);
   const appResourceUri = readMcpAppToolResourceUri(definitionMeta);
   const appOrigin = appResourceUri
     ? { resourceUri: appResourceUri, serverId: serverName, toolName }
@@ -389,7 +446,7 @@ async function executeMcpTool(
   let progressWrites = Promise.resolve();
   let progressDeliveryError: unknown;
   let lastProgress = Number.NEGATIVE_INFINITY;
-  const toolCallId = context?.agent?.toolCallId;
+  const toolCallId = readToolCallId([undefined, context]);
   const writer = context?.writer;
   const onprogress: NonNullable<ExplicitHttpMcpRequestOptions['onprogress']> | undefined =
     toolCallId && writer
@@ -448,6 +505,7 @@ async function executeMcpTool(
         ...(requestMeta ? { _meta: requestMeta } : {}),
       },
       {
+        ...host,
         ...(callSignal ? { signal: callSignal } : {}),
         ...(onprogress ? { onprogress } : {}),
       }
@@ -467,7 +525,9 @@ async function executeMcpTool(
     // App-originated call: the MCP App client expects the canonical
     // CreateTaskResult (its frame bridge bounds inbound requests at 10 s, far
     // under the settlement wait). The host still takes ownership of the task
-    // through `track`; nothing awaits settlement here.
+    // through `track`; nothing awaits settlement here. It carries no host
+    // execution capability: this call returns before the task's input can
+    // arrive, so a capability scoped to it would already be stale.
     if (!taskTracking) {
       throw new Error(
         `MCP tool "${serverName}.${toolName}" returned a task but this host has no task tracking capability`
@@ -485,6 +545,7 @@ async function executeMcpTool(
       // exposes `configuredServerId` and createMcpRuntimeClient maps it to
       // `name` verbatim, so this matches McpTaskHandle.serverId on the host.
       configuredServerId: serverName,
+      ...host,
       result: createdTask,
       ...(context.abortSignal ? { signal: context.abortSignal } : {}),
       toolName,
@@ -493,13 +554,36 @@ async function executeMcpTool(
   } else if (shouldRetainRawMcpCallToolResult(context.abortSignal)) {
     return result;
   } else if (result.isError) {
-    throw new Error(extractMcpToolError(result));
+    throw failMcpToolResult(serverName, toolName, extractMcpToolError(result));
   } else if (result.structuredContent === undefined || readMcpMultimodalOutput(result)) {
     ordinaryResult = result;
   } else {
     ordinaryResult = result.structuredContent;
   }
   return createMcpAppToolResult(appOrigin, ordinaryResult);
+}
+
+/**
+ * A server's own tool error result (MCP `isError`), such as a stateless 2025-11-25 server that
+ * cannot send a push-style `elicitation/create`. The run's tool guard turns every thrown error
+ * into a generic model-facing failure, so the typed reason is logged here, at the boundary that
+ * still has it.
+ */
+export class McpToolResultError extends Error {
+  readonly code = 'mcp-tool-error-result';
+  constructor(
+    readonly serverName: string,
+    readonly toolName: string,
+    reason: string
+  ) {
+    super(reason);
+    this.name = 'McpToolResultError';
+  }
+}
+
+function failMcpToolResult(serverName: string, toolName: string, reason: string): never {
+  logger.warn('MCP tool returned an error result', { reason, serverName, toolName });
+  throw new McpToolResultError(serverName, toolName, reason);
 }
 
 function readToolCallMeta(context: McpExecuteContext): Record<string, unknown> | undefined {

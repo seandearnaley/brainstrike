@@ -32,8 +32,9 @@ vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
 }));
 
+import { resetToolCallLoopGuards } from '@brainstrike/host-capabilities/native-tools';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
-import { resetToolCallLoopGuards } from '../../assistant-server/tool-call-loop-guards';
+import { disposeLspServers } from '../../assistant-server/lsp-diagnostics';
 import { requireToolExecute } from './_tool-test-helpers';
 
 const ROOT_ID = 'root-1';
@@ -94,6 +95,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  await disposeLspServers();
   vi.clearAllMocks();
   await db.close();
   await fsPromises.rm(rootPath, { force: true, recursive: true });

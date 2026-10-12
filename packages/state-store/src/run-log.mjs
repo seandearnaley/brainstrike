@@ -4,14 +4,15 @@
 // (the batch append and the step-boundary op). It runs only inside the writer worker (src/writer-worker.mjs), except in
 // tests that time it on a connection of their own.
 
-import { crcOf, verified, withSeq } from './run-log-format.mjs';
+import { crcOf, storedBlobRefs, verified, withSeq } from './run-log-format.mjs';
 import { checkpointTruncate } from './sqlite-checkpoint.mjs';
 
 /** @typedef {import('better-sqlite3').Database} Db */
 /** @typedef {{ kind: 'ok'; tail: number } | { kind: 'damaged'; atSeq: number; error: string }} ThreadStatus */
 /** @typedef {{ seq: number; payload: string; crc: number; rawCount: number | null; ts: number }} Row */
-/** One appended row: [threadId, type, runId, body (event JSON without seq), rawCount]. */
-/** @typedef {[string, string, string | null, string, number | null]} AppendRow */
+/** One appended row: [threadId, type, runId, body (event JSON without seq), rawCount, hydrate (0 | 1)]. */
+/** @typedef {[string, string, string | null, string, number | null, 0 | 1]} AppendRow */
+/** @typedef {{ threadId: string; createdAt: number; updatedAt: number; rows: Row[]; damage: ThreadDamage | null }} HydrationThread */
 /** @typedef {{ log: number; checkpointed: number; busy: number }} CheckpointRow */
 
 /**
@@ -130,9 +131,10 @@ export class RunLog {
    * so a failed transaction never skips a seq.
    * @param {AppendRow[]} rows
    * @param {number} now
+   * @param {boolean} boundary whether this transaction also commits its durable boundary marker
    * @returns {number[]}
    */
-  append(rows, now) {
+  append(rows, now, boundary = false) {
     /** @type {Map<string, number>} */
     const tails = new Map();
     for (const [t] of rows) {
@@ -146,23 +148,31 @@ export class RunLog {
       tails.set(t, s.tail);
     }
     const ins = this.db.prepare(
-      'INSERT INTO run_events (thread_id, seq, type, run_id, payload, crc, raw_count, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO run_events (thread_id, seq, type, run_id, payload, crc, raw_count, created_at, hydrate) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
     /** @type {number[]} */
     const seqs = [];
     const next = new Map(tails);
     this.db.transaction(() => {
-      for (const [t, type, runId, body, rawCount] of rows) {
+      for (const [t, type, runId, body, rawCount, hydrate] of rows) {
         const seq = (next.get(t) ?? 0) + 1;
         next.set(t, seq);
         const payload = withSeq(seq, body);
-        ins.run(t, seq, type, runId, payload, crcOf(payload), rawCount, now);
+        ins.run(t, seq, type, runId, payload, crcOf(payload), rawCount, now, hydrate);
         this.db
           .prepare(
             'INSERT INTO threads (id,last_seq,created_at,updated_at) VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET last_seq=excluded.last_seq, updated_at=excluded.updated_at'
           )
           .run(t, seq, now, now);
         seqs.push(seq);
+      }
+      if (boundary) {
+        const mark = this.db.prepare(
+          'INSERT INTO run_sync (thread_id, seq, at) VALUES (?, ?, ?) ON CONFLICT(thread_id) DO UPDATE SET seq = excluded.seq, at = excluded.at'
+        );
+        for (const [threadId, tail] of next) {
+          mark.run(threadId, tail, now);
+        }
       }
     })();
     for (const [t, tail] of next) {
@@ -225,6 +235,110 @@ export class RunLog {
   }
 
   /**
+   * Every thread's hydration rows in one pass: its catalog times from `threads` and its rows still marked `hydrate`, in
+   * seq order, each one crc-verified. Contiguity is checked from the seq index (the row count and the highest seq
+   * against the thread's last seq), so an unmarked row is never read; a gap sends the thread through the full
+   * verification to find where it starts. Unmarked rows are not verified, so this read never marks a thread `ok`: a
+   * full read or the first append still verifies every row.
+   * @returns {HydrationThread[]}
+   */
+  readHydration() {
+    const threads =
+      /** @type {Array<{ id: string; last: number; createdAt: number; updatedAt: number }>} */ (
+        this.db
+          .prepare(
+            'SELECT id, last_seq AS last, created_at AS createdAt, updated_at AS updatedAt FROM threads ORDER BY id'
+          )
+          .all()
+      );
+    const span = this.db.prepare(
+      'SELECT count(*) AS n, max(seq) AS hi FROM run_events WHERE thread_id = ?'
+    );
+    const marked = this.db.prepare(
+      'SELECT seq, payload, crc, raw_count AS rawCount, created_at AS ts FROM run_events WHERE thread_id = ? AND hydrate = 1 AND seq <= ? ORDER BY seq'
+    );
+    return threads.map(({ id, last, createdAt, updatedAt }) => ({
+      createdAt,
+      threadId: id,
+      updatedAt,
+      ...this.hydrationRows(id, last, span, marked),
+    }));
+  }
+
+  /**
+   * One thread's marked rows up to its damage, if any (see readHydration).
+   * @private
+   * @param {string} id
+   * @param {number} last the thread's last seq, from `threads`
+   * @param {import('better-sqlite3').Statement} span
+   * @param {import('better-sqlite3').Statement} marked
+   * @returns {{ rows: Row[]; damage: ThreadDamage | null }}
+   */
+  hydrationRows(id, last, span, marked) {
+    /** @type {Row[]} */
+    const rows = [];
+    let known = this.st.get(id);
+    try {
+      if (!known) {
+        const { n, hi } = /** @type {{ n: number; hi: number | null }} */ (span.get(id));
+        if (this.dbDamage || n !== last || hi !== last) {
+          known = this.status(id);
+        }
+      }
+      const end = known?.kind === 'damaged' ? known.atSeq - 1 : (known?.tail ?? last);
+      for (const r of /** @type {IterableIterator<Row>} */ (marked.iterate(id, end))) {
+        if (!verified(r)) {
+          /** @type {ThreadStatus} */
+          const d = { atSeq: r.seq, error: 'row crc mismatch', kind: 'damaged' };
+          this.st.set(id, d);
+          return { damage: new ThreadDamage(id, r.seq, d.error), rows };
+        }
+        rows.push(r);
+      }
+    } catch (e) {
+      if (!isCorrupt(e)) {
+        throw e;
+      }
+      const at = (rows.at(-1)?.seq ?? 0) + 1;
+      const error = String(/** @type {Error} */ (e).message);
+      this.st.set(id, { atSeq: at, error, kind: 'damaged' });
+      return { damage: new ThreadDamage(id, at, error), rows };
+    }
+    return known?.kind === 'damaged'
+      ? { damage: new ThreadDamage(id, known.atSeq, known.error), rows }
+      : { damage: null, rows };
+  }
+
+  /**
+   * The blob hashes a thread's stored rows may reference, verified or not (see storedBlobRefs).
+   * @param {string} id
+   * @returns {string[]}
+   */
+  storedBlobRefs(id) {
+    const rows = /** @type {Array<{ payload: string }>} */ (
+      this.db.prepare('SELECT payload FROM run_events WHERE thread_id = ? ORDER BY seq').all(id)
+    );
+    return [...new Set(rows.flatMap((r) => storedBlobRefs(r.payload)))];
+  }
+
+  /**
+   * Blob hashes held by threads whose rows failed verification. Their references are invisible to a verified
+   * reference count, so collection must keep them.
+   * @returns {string[]}
+   */
+  damagedBlobRefs() {
+    const held = new Set();
+    for (const id of this.threads()) {
+      if (this.status(id).kind === 'damaged') {
+        for (const hash of this.storedBlobRefs(id)) {
+          held.add(hash);
+        }
+      }
+    }
+    return /** @type {string[]} */ ([...held]);
+  }
+
+  /**
    * Replace event `seq` with `tombstoneRaw` so that no byte of the old event remains in the state DB files.
    * @param {string} id
    * @param {number} seq
@@ -256,12 +370,16 @@ export class RunLog {
 
   /**
    * @param {string} id
+   * @param {(() => void) | undefined} [beforeDelete]
    * @returns {void}
    */
-  deleteThread(id) {
-    this.db.prepare('DELETE FROM run_events WHERE thread_id = ?').run(id);
-    this.db.prepare('DELETE FROM run_sync WHERE thread_id = ?').run(id);
-    this.db.prepare('DELETE FROM threads WHERE id = ?').run(id);
+  deleteThread(id, beforeDelete) {
+    this.db.transaction(() => {
+      beforeDelete?.();
+      this.db.prepare('DELETE FROM run_events WHERE thread_id = ?').run(id);
+      this.db.prepare('DELETE FROM run_sync WHERE thread_id = ?').run(id);
+      this.db.prepare('DELETE FROM threads WHERE id = ?').run(id);
+    })();
     this.st.delete(id);
     checkpointTruncate(this.db);
   }

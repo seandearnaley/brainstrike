@@ -1,3 +1,4 @@
+import { hasFactoryResetPreparationStarted } from '@brainstrike/app-state/factory-reset';
 import {
   type AssistantMemoryThread,
   createPgliteAssistantThreadRepository,
@@ -32,6 +33,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { AssistantPanelLoadingState } from './assistant-panel-loading-state';
 import { assistantThreadToTarget } from './assistant-thread-context-actions';
 import { shouldRenderAssistantThreadDatabaseStartupLoading } from './assistant-thread-database-state';
+import { useAssistantThreadHost, withAssistantThreadHost } from './assistant-thread-host-context';
 import {
   getAssistantThreadColorSurface,
   resolveThreadRowStatusState,
@@ -113,6 +115,7 @@ export function AssistantThreadTabsWorkspace({
   providerKeySources,
   providerReadErrors,
 }: AssistantThreadTabsWorkspaceProps): ReactElement {
+  const host = useAssistantThreadHost();
   const database = usePGliteDatabase();
   const databaseInitializing = useDbInitializing();
   const databaseStatus = useDbInitializationStatus();
@@ -121,8 +124,11 @@ export function AssistantThreadTabsWorkspace({
   // root path. See assistant-memory-resource.ts.
   const resourceId = WORKSPACE_MEMORY_RESOURCE_ID;
   const repository = useMemo(
-    () => (database ? createPgliteAssistantThreadRepository(database) : null),
-    [database]
+    () =>
+      database
+        ? withAssistantThreadHost(createPgliteAssistantThreadRepository(database), host)
+        : null,
+    [database, host]
   );
   const databaseStartupLoading = shouldRenderAssistantThreadDatabaseStartupLoading({
     databaseError,
@@ -195,6 +201,21 @@ export function AssistantThreadTabsWorkspace({
     repository,
     resourceId,
   });
+  // Host threads commit titles (a rename or an auto-title) in the host log,
+  // which no history query sees.
+  useEffect(() => {
+    if (!(repository && host?.subscribeTitleChanges)) {
+      return;
+    }
+    return host.subscribeTitleChanges(() => {
+      refreshResourceThreads(repository, resourceId).catch((error: unknown) => {
+        logger.warn('Failed to refresh assistant threads after a host title change', {
+          error,
+          resourceId,
+        });
+      });
+    });
+  }, [host, refreshResourceThreads, repository, resourceId]);
 
   // A failed projection reports an empty set. The strip says so, as the Threads
   // panel does, rather than let every tab read as idle.
@@ -244,11 +265,15 @@ export function AssistantThreadTabsWorkspace({
   );
 
   const createNewThread = useCallback(async (): Promise<void> => {
+    if (host) {
+      await createThread({ createThread: (id) => host.createThread(id) }, resourceId);
+      return;
+    }
     if (!repository) {
       throw new Error('Assistant memory requires an initialized PGlite database.');
     }
     await createThread(repository, resourceId);
-  }, [createThread, repository, resourceId]);
+  }, [createThread, host, repository, resourceId]);
 
   const handleNewThreadClick = useCallback((): void => {
     createNewThread().catch(() => {
@@ -342,7 +367,7 @@ export function AssistantThreadTabsWorkspace({
   }, [closes, createNewThread, handleReorderThreadTabs, newThreadDisabled, resourceId, threadById]);
 
   useEffect(() => {
-    if (!repository) {
+    if (!repository || hasFactoryResetPreparationStarted()) {
       return;
     }
     ensureResourceThreads(repository, resourceId).catch(() => {
@@ -491,6 +516,7 @@ function ThreadPanels({
   readonly resourceId: string;
   readonly threadById: ReadonlyMap<string, AssistantMemoryThread>;
 }): ReactElement {
+  const host = useAssistantThreadHost();
   const openIds = new Set(openThreadIds);
   return (
     <>
@@ -516,16 +542,23 @@ function ThreadPanels({
           >
             {/* No resetKey: inside key={threadId} it could never change; "Reload tab" resets. */}
             <TabPanelBoundary label={threadById.get(threadId)?.title ?? threadId}>
-              <AssistantUiPanelWrapper
-                isVisible={isOpen && threadId === activeThreadId}
-                {...(fixedProviderModels ? { fixedProviderModels } : {})}
-                {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-                {...(providerKeySources ? { providerKeySources } : {})}
-                {...(providerReadErrors ? { providerReadErrors } : {})}
-                memoryResourceId={resourceId}
-                memoryThreadId={threadId}
-                onRunningChange={onRunningChange}
-              />
+              {host?.renderThread(
+                threadId,
+                isOpen && threadId === activeThreadId,
+                onRunningChange,
+                providerReadErrors
+              ) ?? (
+                <AssistantUiPanelWrapper
+                  isVisible={isOpen && threadId === activeThreadId}
+                  {...(fixedProviderModels ? { fixedProviderModels } : {})}
+                  {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+                  {...(providerKeySources ? { providerKeySources } : {})}
+                  {...(providerReadErrors ? { providerReadErrors } : {})}
+                  memoryResourceId={resourceId}
+                  memoryThreadId={threadId}
+                  onRunningChange={onRunningChange}
+                />
+              )}
             </TabPanelBoundary>
           </div>
         );

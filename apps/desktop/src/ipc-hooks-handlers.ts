@@ -18,8 +18,11 @@
 
 import { realpathSync } from 'node:fs';
 import { isAbsolute, resolve, sep } from 'node:path';
-import { getProjectHooksPath, readProjectHookConfig } from './assistant-server/hooks/config';
-import { sha256OfBuffer } from './assistant-server/hooks/trust';
+import {
+  getProjectHooksPath,
+  readProjectHookConfig,
+  sha256OfBuffer,
+} from '@brainstrike/host-capabilities/hooks';
 
 const HOOKS_READ_ERROR = 'hooks.json could not be read';
 
@@ -29,6 +32,8 @@ export interface DbRootLite {
 }
 
 export interface ProjectHooksReview {
+  /** The hash the host trusts this root's hooks at, when it trusts them at this path. */
+  readonly approvedSha256?: string;
   readonly content?: string;
   readonly dbRootId?: string;
   readonly error?: string;
@@ -98,31 +103,6 @@ export function resolveDbRootForPath(
     }
   }
   return best;
-}
-
-/**
- * Map each supplied mounted-root absolute path to its DB `roots.id`. Paths that
- * resolve to no mounted DB root are dropped (never invented). Used by the
- * attestation-scoping path so the renderer attests only currently-mounted roots.
- */
-export function resolveTrustedRootIds(
-  absPaths: unknown,
-  resolveDbRoot: (absPath: string) => DbRootLite | null
-): Array<{ dbRootId: string; path: string }> {
-  if (!Array.isArray(absPaths)) {
-    return [];
-  }
-  const results: Array<{ dbRootId: string; path: string }> = [];
-  for (const raw of absPaths) {
-    if (typeof raw !== 'string' || raw.trim().length === 0 || !isAbsolute(raw.trim())) {
-      continue;
-    }
-    const dbRoot = resolveDbRoot(raw.trim());
-    if (dbRoot) {
-      results.push({ dbRootId: dbRoot.id, path: raw });
-    }
-  }
-  return results;
 }
 
 export function getProjectHooksForReview(

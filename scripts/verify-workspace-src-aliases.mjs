@@ -65,6 +65,12 @@ function parseRepoRootArgument(argv) {
  * whole package is. Keep this list short and justified.
  */
 export const WORKSPACE_SRC_ALIAS_ALLOWLIST = Object.freeze({
+  '@brainstrike/agent-host': {
+    configs: ['vitest.integration.config.mts'],
+    reason:
+      'Core producer integration launches the real emitted indexer process and writer worker; the lane declares the indexer dependency build edge (BST-1977).',
+    specifiers: ['@brainstrike/indexer'],
+  },
   '@brainstrike/canonical-ingestion': {
     configs: ['vitest.integration.config.mts'],
     reason:
@@ -74,8 +80,10 @@ export const WORKSPACE_SRC_ALIAS_ALLOWLIST = Object.freeze({
   '@brainstrike/desktop': {
     configs: ['vitest.integration.config.mts'],
     reason:
-      'The uncached native integration lane launches compiled index/query processes; explicit build edges prepare their public artifacts.',
+      'The uncached native integration lane launches compiled Core/index/query processes and the public scripted model; explicit build edges prepare their public artifacts.',
     specifiers: [
+      '@brainstrike/agent-host',
+      '@brainstrike/agent-host/test-fixtures/scripted-model',
       '@brainstrike/indexer',
       '@brainstrike/indexer/transport',
       '@brainstrike/sqlite-query',

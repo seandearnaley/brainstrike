@@ -111,6 +111,10 @@ vi.mock('@brainstrike/file-explorer-ui/shell', () => ({
   useFileSystem: () => ({ addRootDirectoryByPath: addRootDirectoryByPathMock }),
 }));
 
+import {
+  type AssistantThreadHostCapability,
+  AssistantThreadHostContext,
+} from '../../assistant-thread-host-context';
 import { WorktreeMapSurface } from '../worktree-map-surface';
 
 function card(overrides: Record<string, unknown> = {}) {
@@ -489,6 +493,50 @@ describe('WorktreeMapSurface', () => {
     // Falsifier: the Map must not reach for any other seam to do this.
     expect(setIndexingMock).not.toHaveBeenCalled();
     expect(showItemInFolderMock).not.toHaveBeenCalled();
+  });
+
+  it('creates the thread through the host owner in committed mode, never the history repository', async () => {
+    const hostCreate = vi.fn(async (resourceId: string) => ({
+      createdAt: new Date('2026-10-08T00:00:00.000Z'),
+      id: 'host-thread-7',
+      resourceId,
+      title: 'New Thread',
+      updatedAt: new Date('2026-10-08T00:00:00.000Z'),
+    }));
+    const host: AssistantThreadHostCapability = {
+      createThread: hostCreate,
+      deleteThread: vi.fn(),
+      listThreads: vi.fn(),
+      ownsThread: vi.fn(),
+      renameThread: vi.fn(),
+      renderThread: vi.fn(),
+      updateThreadBinding: vi.fn(),
+      workspaceRepository: (repository) => repository,
+    };
+    // The store action creates through whatever repository it is handed.
+    createThreadMock.mockImplementation(
+      (repository: { createThread: (resourceId: string) => Promise<{ id: string }> }, resourceId) =>
+        repository.createThread(resourceId)
+    );
+    render(
+      <AssistantThreadHostContext.Provider value={host}>
+        <WorktreeMapSurface />
+      </AssistantThreadHostContext.Provider>
+    );
+
+    await userEvent.click(screen.getByTestId('worktree-map-new-thread'));
+
+    await waitFor(() => expect(publishMock).toHaveBeenCalledTimes(1));
+    expect(addRootDirectoryByPathMock).toHaveBeenCalledWith('/wt');
+    expect(hostCreate).toHaveBeenCalledExactlyOnceWith('brainstrike:workspace');
+    expect(createThreadMock.mock.calls[0]?.[0]).not.toBe(SENTINEL_REPOSITORY);
+    expect(selectThreadMock).toHaveBeenCalledWith('brainstrike:workspace', 'host-thread-7');
+    expect(publishMock).toHaveBeenCalledWith({
+      branch: 'bs/bright-fox',
+      path: '/wt',
+      threadId: 'host-thread-7',
+      worktreeId: 'wt-1',
+    });
   });
 
   // PIN (PR #2671 review ruling): the mount callbacks must NOT call the Map's

@@ -1,22 +1,19 @@
+import {
+  NativeAuthorityTransitionError,
+  NativeReadAuthorityRetiredError,
+} from '@brainstrike/assistant-service/node-native-text-services';
 import type {
   IndexerPort,
   IndexFileBinding,
   IndexScope,
   ScopedIndexerPort,
 } from '@brainstrike/indexer';
-import { NativeAuthorityTransitionError } from './native-authority-transition';
+
+import type { DesktopProfileRuntime } from './desktop-profile-runtime';
+
+export { NativeReadAuthorityRetiredError } from '@brainstrike/assistant-service/node-native-text-services';
 
 type NativePort = IndexerPort & ScopedIndexerPort;
-
-/** Only an already-admitted borrow can prove that its own runtime retired its authority. */
-export class NativeReadAuthorityRetiredError extends Error {
-  readonly code = 'native-read-authority-retired';
-
-  constructor() {
-    super('Native read admission is closed.');
-    this.name = 'NativeReadAuthorityRetiredError';
-  }
-}
 
 export interface NativeIndexAuthority {
   readonly fileBindings: readonly IndexFileBinding[];
@@ -24,38 +21,37 @@ export interface NativeIndexAuthority {
   readonly scopes: readonly IndexScope[];
 }
 
-interface ProfileOwner {
-  acquire(): Promise<unknown>;
-  close(): Promise<void>;
-}
 interface IndexOwner {
   close(): Promise<void>;
   readonly databasePath: string;
   destroy?(): Promise<void>;
   start(): Promise<NativePort>;
 }
-interface Dependencies {
+interface Dependencies<Attachment> {
   closeQueries(): Promise<void>;
   createIndexOwner(authority: NativeIndexAuthority): Promise<IndexOwner>;
-  createProfileOwner(): ProfileOwner;
   getAuthority(): Promise<NativeIndexAuthority>;
   getFileInvalidator(): ((file: IndexFileBinding) => void) | undefined;
   installQueryTarget(owner: IndexOwner): void;
+  readonly profile: DesktopProfileRuntime<Attachment>;
 }
 export interface CapturedNativeIndexAuthority {
   readonly port: NativePort;
   /** Read only after admitted sources settle; tied to this exact retained writer owner. */
   readAuthority(): NativeIndexAuthority;
 }
-export interface NativeIndexRuntime {
+export interface NativeIndexRuntime<Attachment = unknown> {
   acquire(): Promise<NativePort>;
-  acquireProfile(): Promise<void>;
+  /** Borrows the retained attachment; retirement remains owned by this runtime. */
+  acquireProfile(options?: { readonly indexIndependent: true }): Promise<Attachment>;
   captureAcknowledgedAuthority(): CapturedNativeIndexAuthority;
   closeIndex(): Promise<void>;
   destroyIndex(): Promise<void>;
   mutateAuthority<T>(expected: NativePort, work: () => Promise<T>): Promise<T>;
-  resume(): Promise<void>;
-  retireProfile(): Promise<void>;
+  resume(signal?: AbortSignal): Promise<void>;
+  /** Joins a failed acquisition's release (its host exited, port closed); false when none failed. */
+  retireFailedProfile(): Promise<boolean>;
+  retireProfile(reason?: unknown): Promise<void>;
   retireReads(): Promise<void>;
   retireWorkspaceCollectionFiles(embeddingSetId: string): Promise<void>;
   withRead<T>(
@@ -140,9 +136,9 @@ function workspaceRemoval(file: IndexFileBinding): {
 }
 
 /** Main owns this admission lifetime. Reset resumes only after releasing its deletion guard. */
-export function createNativeIndexRuntime(dependencies: Dependencies): NativeIndexRuntime {
-  let profileOwner: ProfileOwner | undefined;
-  let profileAcquisition: Promise<unknown> | undefined;
+export function createNativeIndexRuntime<Attachment>(
+  dependencies: Dependencies<Attachment>
+): NativeIndexRuntime<Attachment> {
   let indexOwner: IndexOwner | undefined;
   let scopes = '';
   let bindings = '';
@@ -163,16 +159,24 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
   let closing: Promise<void> | undefined;
   let closingKind: 'close' | 'destroy' | undefined;
 
-  const acquireProfile = async (): Promise<void> => {
-    if (closed) {
+  const acquireProfile = async (
+    options?: {
+      readonly indexIndependent: true;
+    },
+    signal?: AbortSignal
+  ): Promise<Attachment> => {
+    // BST-1977: ordinary New Thread was rejected on a fresh "Setup required"
+    // profile. Root admission does not reopen a closed scan/index authority.
+    if (closed && !options?.indexIndependent) {
       throw new NativeAuthorityTransitionError('Native index admission is closed.');
     }
-    profileOwner ??= dependencies.createProfileOwner();
-    profileAcquisition ??= profileOwner.acquire();
-    await profileAcquisition;
-    if (closed) {
+    signal?.throwIfAborted();
+    const attachment = await dependencies.profile.acquire(signal);
+    signal?.throwIfAborted();
+    if ((closed && !options?.indexIndependent) || dependencies.profile.isRetiring()) {
       throw new NativeAuthorityTransitionError('Native profile ownership closed during startup.');
     }
+    return attachment;
   };
   const retireAbsentBindings = async (
     requested: NativeIndexAuthority,
@@ -470,21 +474,17 @@ export function createNativeIndexRuntime(dependencies: Dependencies): NativeInde
       );
       return operation;
     },
-    resume: async (): Promise<void> => {
-      if (indexOwner || profileOwner || closing || acquisition) {
+    resume: async (signal?: AbortSignal): Promise<void> => {
+      signal?.throwIfAborted();
+      if (indexOwner || dependencies.profile.isRetiring() || closing || acquisition) {
         throw new Error('Previous native ownership must retire before reset resumes.');
       }
       closed = false;
       readsClosed = false;
-      await acquireProfile();
+      await acquireProfile(undefined, signal);
     },
-    retireProfile: async (): Promise<void> => {
-      await closeIndex();
-      await profileAcquisition?.catch(() => undefined);
-      await profileOwner?.close();
-      profileOwner = undefined;
-      profileAcquisition = undefined;
-    },
+    retireFailedProfile: dependencies.profile.retireFailed,
+    retireProfile: (reason) => dependencies.profile.retire(closeIndex(), reason),
     retireReads: async (): Promise<void> => {
       readsClosed = true;
       await joinReads();

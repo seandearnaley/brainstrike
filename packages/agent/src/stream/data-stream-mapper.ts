@@ -1,9 +1,4 @@
 import {
-  findLlmModelDefinition,
-  type OpenAiReasoningEffort,
-  type ProviderId,
-} from '@brainstrike/assistant-contract';
-import {
   CHILD_CONTINUATION_DATA_NAME,
   type ChildContinuationStreamData,
 } from '@brainstrike/assistant-contract/child-followup';
@@ -44,6 +39,7 @@ import type {
   StreamChunkToolSuspendRequired,
   StreamFinishReason,
 } from '../types';
+import { getAbnormalFinishMessage, type OutputLimitContext } from './abnormal-finish';
 import { DataStreamCode, type EncodedChunk } from './data-stream-codes';
 import { formatDiagnosticChunkType } from './diagnostic-chunk-type';
 import { toJsonSafe } from './json';
@@ -83,12 +79,6 @@ export interface DataStreamTerminalOutcome {
   readonly status: 'completed' | 'failed';
 }
 
-export interface OutputLimitContext {
-  readonly model?: string;
-  readonly provider?: ProviderId;
-  readonly reasoningEffort?: OpenAiReasoningEffort;
-}
-
 const RUN_FAILURE_VISIBLE_PREFIX = "I couldn't complete the assistant response:";
 const MISSING_FINISH_ERROR_TEXT = 'Assistant stream ended without a normal stop signal.';
 /**
@@ -97,9 +87,6 @@ const MISSING_FINISH_ERROR_TEXT = 'Assistant stream ended without a normal stop 
  * through to `completed` merely because no message was attached.
  */
 const ERROR_FINISH_FALLBACK_TEXT = 'Assistant run failed.';
-const GENERIC_OUTPUT_LIMIT_MESSAGE =
-  'Assistant stopped because the model reached its output token limit before completing the response.';
-const KIMI_K3_OPENROUTER_MODEL_ID = 'moonshotai/kimi-k3';
 const TOOL_ACTION_FAILURE_VISIBLE_PREFIX = "I couldn't complete the tool action because it failed:";
 const TOOL_ACTIONS_FAILURE_VISIBLE_PREFIX =
   "I couldn't complete some tool actions because they failed:";
@@ -230,46 +217,6 @@ function resolveFinishReason(
     default:
       return 'unrecognized';
   }
-}
-
-function getAbnormalFinishMessage(
-  reason: StreamFinishReason,
-  outputLimitContext?: OutputLimitContext
-): string | undefined {
-  switch (reason) {
-    case 'length':
-      return getKimiK3OutputLimitMessage(outputLimitContext) ?? GENERIC_OUTPUT_LIMIT_MESSAGE;
-    case 'content-filter':
-      return 'Assistant stopped because the provider content filter ended the response.';
-    case 'other':
-      return 'Assistant stream ended without a normal stop signal.';
-    case 'unrecognized':
-      return 'Assistant stream ended with an unrecognized finish reason.';
-    case 'absent':
-    case 'stop':
-    case 'tool-calls':
-    case 'error':
-    case 'unknown':
-      return;
-    default:
-      return;
-  }
-}
-
-function getKimiK3OutputLimitMessage(context?: OutputLimitContext): string | undefined {
-  if (
-    context?.provider !== 'openrouter' ||
-    context.model !== KIMI_K3_OPENROUTER_MODEL_ID ||
-    (context.reasoningEffort !== 'high' && context.reasoningEffort !== 'max')
-  ) {
-    return;
-  }
-  const model = findLlmModelDefinition('openrouter', context.model);
-  if (!model?.reasoning?.supportedEfforts?.includes('low')) {
-    return;
-  }
-  const modelLabel = model.label?.replace(/\s+\(OpenRouter\)$/u, '') ?? 'Kimi K3';
-  return `Assistant stopped because ${modelLabel} reached its output token limit before completing the response. Retry with reasoning effort set to Low or Auto.`;
 }
 
 function toProtocolFinishReason(

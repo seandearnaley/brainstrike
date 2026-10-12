@@ -8,6 +8,7 @@ import { createElement, use, useCallback, useMemo, useSyncExternalStore } from '
 import {
   readSubagentConversationAddress,
   readSubagentInvocationRun,
+  SubagentApprovalHistoryContext,
   type SubagentConversationAddress,
   type SubagentInvocationRun,
   SubagentLiveInvocationContext,
@@ -33,7 +34,9 @@ import { useSubagentPresentation } from './use-subagent-presentation';
 const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => {
   const liveInvocations = use(SubagentLiveInvocationContext);
   const invocationJson = useAuiState((state) =>
-    JSON.stringify(readSubagentInvocationRun(state.message.parts, props.toolCallId))
+    JSON.stringify(
+      readSubagentInvocationRun(state.message.parts, props.toolCallId, state.message.metadata)
+    )
   );
   const invocation = useMemo(
     () => JSON.parse(invocationJson) as SubagentInvocationRun,
@@ -75,6 +78,8 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
     address.kind === 'available' ? address.threadId : undefined
   );
   const navigation = useSubagentNavigation(address, invocation, props.toolCallId);
+  // BST-1932 (AT-07): the child's answered approvals, from its own committed log.
+  const approvalHistory = use(SubagentApprovalHistoryContext);
   const { outcome, rows: liveRows } = useSubagentInvocationSnapshot(props.toolCallId);
   return createElement(SubagentExecutionCard, {
     // Conditional spread, not `isError: props.isError`: under
@@ -89,6 +94,9 @@ const SubagentExecutionCardConnected: ToolCallMessagePartComponent = (props) => 
       ? { onReloadPresentation: reload, presentationError: presentation.error }
       : {}),
     ...(typeof props.args['prompt'] === 'string' ? { task: props.args['prompt'] } : {}),
+    ...(approvalHistory && address.kind === 'available'
+      ? { approvalHistory: approvalHistory(address.threadId) }
+      : {}),
     liveRows,
     ...(outcome ? { outcome } : {}),
     result: props.result,

@@ -4,8 +4,11 @@ import { type SerializedDesktopError, serializeDesktopError } from '../desktop-e
 
 /**
  * The ONE order desktop main tears down in. Each owner stops while everything
- * it depends on is still alive: renderers before the hosts they call, the
- * assistant server before the MCP host it uses, git and forge before the
+ * it depends on is still alive: a factory reset in flight finishes first (it
+ * needs its replacement renderer and reopens the agent host), renderers before
+ * the hosts they call, the assistant server before the MCP host it uses, the
+ * agent host's admission fenced before Main's MCP control closes (a host
+ * starting after it would be refused), git and forge before the
  * database they read, and `database-drain` last: it stops everything that
  * issues database work. Two things deliberately sit OUTSIDE this sequence and
  * its budget: the database close itself (`DesktopShutdownRunPlan.closeDatabase`,
@@ -14,10 +17,11 @@ import { type SerializedDesktopError, serializeDesktopError } from '../desktop-e
  * platform-contracts.md § "Graceful shutdown ownership".
  */
 export const DESKTOP_SHUTDOWN_STEP_ORDER = [
+  'factory-reset',
   'renderers',
   'assistant-server',
-  'mcp-runtime',
   'native-index',
+  'mcp-runtime',
   'file-system',
   'chunking-host',
   'parser-host',

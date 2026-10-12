@@ -138,7 +138,11 @@ describe('ThreadScrollFollowProvider', () => {
  */
 interface ScriptedScroller {
   readonly element: HTMLElement;
-  readonly resize: (next: { clientHeight?: number; scrollHeight?: number }) => void;
+  readonly resize: (next: {
+    clientHeight?: number;
+    scrollHeight?: number;
+    maxScrollTop?: number;
+  }) => void;
   readonly scrollTop: () => number;
   readonly userScrollTo: (top: number) => void;
 }
@@ -147,6 +151,7 @@ const createScriptedScroller = (scrollHeight: number, clientHeight: number): Scr
   let currentScrollHeight = scrollHeight;
   let currentClientHeight = clientHeight;
   let currentTop = 0;
+  let currentMaxTop = scrollHeight - clientHeight;
   const element = document.createElement('div');
   Object.defineProperties(element, {
     clientHeight: { get: () => currentClientHeight },
@@ -154,7 +159,7 @@ const createScriptedScroller = (scrollHeight: number, clientHeight: number): Scr
     scrollTop: {
       get: () => currentTop,
       set: (next: number) => {
-        currentTop = Math.max(0, Math.min(next, currentScrollHeight - currentClientHeight));
+        currentTop = Math.max(0, Math.min(next, currentMaxTop));
       },
     },
   });
@@ -168,6 +173,11 @@ const createScriptedScroller = (scrollHeight: number, clientHeight: number): Scr
     resize: (next) => {
       currentScrollHeight = next.scrollHeight ?? currentScrollHeight;
       currentClientHeight = next.clientHeight ?? currentClientHeight;
+      currentMaxTop = next.maxScrollTop ?? currentScrollHeight - currentClientHeight;
+      if (next.maxScrollTop !== undefined) {
+        // Recorded Chromium clamps may be fractional despite integer dimensions.
+        currentTop = Math.min(currentTop, currentMaxTop);
+      }
     },
     scrollTop: () => currentTop,
     userScrollTo: (top) => {
@@ -283,6 +293,33 @@ describe('own-write echo guard (BST-1039)', () => {
     scroller.element.dispatchEvent(new Event('scroll'));
 
     expect(follow.getIsAtBottom()).toBe(false);
+    detach();
+    unmount();
+  });
+
+  test('retains follow when an observed browser clamp echoes after another resize', () => {
+    const scroller = createScriptedScroller(411, 411);
+    const { detach, follow, observeContentChange, unmount } = attachScripted(scroller);
+
+    // Recorded delegated-command viewport geometry from the M3 desktop failure.
+    scroller.resize({ clientHeight: 329, scrollHeight: 568 });
+    observeContentChange();
+    scroller.element.dispatchEvent(new Event('scroll'));
+    expect(scroller.scrollTop()).toBe(239);
+    scroller.resize({ clientHeight: 329, maxScrollTop: 188.5, scrollHeight: 518 });
+    observeContentChange();
+    scroller.resize({ clientHeight: 297, maxScrollTop: 180.5, scrollHeight: 478 });
+    observeContentChange();
+    expect(scroller.scrollTop()).toBe(180.5);
+
+    // The native clamp event arrives after another viewport resize, before its
+    // observer. There has been no reader input; the last measure judged the clamp.
+    scroller.resize({ clientHeight: 289, maxScrollTop: 188.5 });
+    scroller.element.dispatchEvent(new Event('scroll'));
+    expect(follow.getIsAtBottom()).toBe(true);
+    observeContentChange();
+    expect(scroller.scrollTop()).toBe(188.5);
+
     detach();
     unmount();
   });

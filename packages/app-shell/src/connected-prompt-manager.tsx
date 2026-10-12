@@ -16,6 +16,7 @@ import type { QueueAdapter } from '@brainstrike/queue';
 import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
 import { useCallback, useMemo, useState } from 'react';
 import { useAssistantComposerCommandStore } from './assistant-composer-command-store';
+import { useAssistantThreadHost, withAssistantThreadHost } from './assistant-thread-host-context';
 import {
   buildDraftRuntimeForProvider,
   copyProviderSettingsMap,
@@ -264,11 +265,15 @@ export function ConnectedPromptManager({
   );
   const enqueueComposerCommand = useAssistantComposerCommandStore((state) => state.enqueue);
   const [usageError, setUsageError] = useState<string | null>(null);
+  const [threadTitleError, setThreadTitleError] = useState<string | null>(null);
 
   const repository = useMemo(() => (db ? new PromptItemRepository(db) : null), [db]);
+  // "New thread" is created by the host's existing thread owner when the app
+  // has one; with no host the history repository is unchanged.
+  const host = useAssistantThreadHost();
   const threadRepository = useMemo(
-    () => (db ? createPgliteAssistantThreadRepository(db) : null),
-    [db]
+    () => (db ? withAssistantThreadHost(createPgliteAssistantThreadRepository(db), host) : null),
+    [db, host]
   );
   const localModelConfigMap = useMemo(() => buildLocalEmbeddingModelConfigMap(models), [models]);
   const providerNames = useMemo(
@@ -347,6 +352,13 @@ export function ConnectedPromptManager({
           threadRepository,
           WORKSPACE_MEMORY_RESOURCE_ID,
           item.title
+        );
+        // The host has no title command yet, so a host thread keeps its default
+        // title. Say so, with the requested title, rather than dropping it.
+        setThreadTitleError(
+          thread.title === item.title.trim()
+            ? null
+            : `The new thread was created without the title "${item.title.trim()}": agent host threads can't be titled yet.`
         );
         if (requestedRuntime) {
           setThreadDraftRuntime(
@@ -439,7 +451,7 @@ export function ConnectedPromptManager({
     );
   }
 
-  const systemError = [indexingError, usageError].filter(Boolean).join('\n');
+  const systemError = [indexingError, usageError, threadTitleError].filter(Boolean).join('\n');
 
   return (
     <PromptWorkbenchPanel

@@ -3,13 +3,15 @@ import {
   type GrepSearchInput,
   readToolCallTelemetryMetadata,
 } from '@brainstrike/agent';
-import { describe, expect, it } from 'vitest';
-import type { GlobWorkspaceToolResult } from '../../assistant-server/glob-workspace-tool';
-import type { GrepToolResult } from '../../assistant-server/grep-search-result-contract';
+import type {
+  GlobWorkspaceToolResult,
+  GrepToolResult,
+} from '@brainstrike/host-capabilities/native-tools';
 import {
   attachGlobWorkspaceTelemetry,
   attachGrepSearchTelemetry,
-} from '../../assistant-server/tool-call-telemetry';
+} from '@brainstrike/host-capabilities/native-tools';
+import { describe, expect, it } from 'vitest';
 
 describe('search tool-call telemetry extraction', () => {
   it('keeps truncated = output clipping only and reports substrate flags separately (BST-1247)', () => {

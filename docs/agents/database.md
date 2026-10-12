@@ -76,6 +76,7 @@ Evidence: `database/query-telemetry-scheduled-handles.md` (file-record, token-ca
 - Packaged roots: macOS `<userData>/data`; Windows `%LOCALAPPDATA%\BrainStrike Desktop\data`; Linux `$XDG_DATA_HOME` (absolute only) or `~/.local/share`, then `BrainStrike Desktop/data`. A missing or relative `LOCALAPPDATA` throws; there is no fallback. The database is always `<root>/profiles/<profile>/pgdata`. Why: Windows `userData` is Roaming, which Electron warns may be backed up to cloud storage.
 - `PACKAGED_PRODUCT_DIR_NAME` equals `build.productName`; changing either renames the data folder and strands existing data.
 - Main ALWAYS hands the DB host both fields through `BRAINSTRIKE_DB_ROOT_PATH` and `BRAINSTRIKE_DB_PROFILE`. The utility process reads only those two variables and throws when either is missing; it never derives from cwd or git. Why: a host respawned after a branch switch would otherwise open a different profile than the one main's reset deletes.
+- The DB host environment also preserves `TEMP` and `TMP`. Electron's Windows ASAR stream reads extract extension archives to temporary files; omitting these paths caused packaged PGlite startup to fail with `ENOENT` despite intact extension assets. Provider credentials remain excluded.
 
 Evidence: `database/desktop-database-location.md`.
 Guard: `apps/desktop/src/__tests__/database-location.test.ts`, `main/desktop-database-location.test.ts`, `main/db-host-manager-location.test.ts`, `main/db-main.utility-env.test.ts`, `main/desktop-factory-reset-packaged-layout.test.ts`.
@@ -202,6 +203,11 @@ admission", "integrity containment"), `database-integrity-state.test.ts`,
 ## MODEL CATALOG MIGRATIONS (CRITICAL)
 
 Adding, removing, or renaming a supported AI model is a multi-layer change.
+[ADR-0020](../adr/0020-greenfield-data-lifecycle.md) governs data lifecycle:
+Brainstrike has no users and no legacy-data migration obligation. The current
+migration registry remains schema-creation machinery until explicitly replaced;
+its existence does not require old-data conversion or populated upgrade gates.
+
 Updating only the static catalog is NOT enough — the in-app model picker is driven
 by a DB-backed catalog. `scripts/gen-model-catalog-migration.mjs` cites these rules
 by number; keep the numbering stable.
@@ -219,11 +225,10 @@ by number; keep the numbering stable.
    - For pure ADDITIONS generate it: `node scripts/gen-model-catalog-migration.mjs`
      prints the plan, `--write` emits the file and registers it. It leaves `tagline`
      and `best_for` NULL for a human to author per rule 7.
-   - It is ADD-ONLY: it refuses a disappeared catalog row (that needs the rule-4
-     remaps and a user-visible notice first — a whole provider leaving is that same
-     removal, not residue), an id the DB catalog already holds under another provider
-     or type, and a model missing `vision`, `supportsStreaming`, or
-     `defaultDimension`.
+   - It is ADD-ONLY: it refuses a disappeared catalog row, an id the DB catalog
+     already holds under another provider or type, and a model missing `vision`,
+     `supportsStreaming`, or `defaultDimension`. A removal needs an explicit current
+     catalog/schema change; the generator's refusal is not an old-ID remap mandate.
    - `ledgerKey` is the persisted `__drizzle_migrations.hash` and never changes once
      shipped. `drizzle/migrate.ts` derives `customMigrations` from the numbered
      manifest, excluding the versions folded into the immutable drizzle-kit snapshot
@@ -236,15 +241,11 @@ by number; keep the numbering stable.
    - Sibling invariant: never write `models.updated_at` or `created_at` either — it is
      the per-row record of user intent. See `docs/agents/assistant-providers.md` § "`is_enabled`
      is not evidence of user intent"; guarded by `scripts/__tests__/model-catalog-migration-contract.test.mjs`.
-4. Remap dropped IDs so persisted selections do not dangle: `MODEL_ID_MIGRATIONS` in
-   packages/app-state/src/stores/assistant-model-id-migrations.ts (bump
-   `ASSISTANT_PREFERENCES_STORE_VERSION`) and `MEMORY_MODEL_TARGET_MIGRATIONS` in
-   assistant-memory-preferences-store.ts (also self-heals on rehydration).
-   - A remap that changes the user's SELECTED model is not silent: the persist
-     migration records it in session-only `modelMigrationNotices` and
-     `useModelMigrationNotices` turns it into one toast. Retired defaults under
-     providers the user is not running on, and enabled-list-only remaps, stay quiet —
-     `modelsByProvider` is seeded for every provider and is not evidence of intent.
+4. Validate newly created selections against the current catalog, and preserve
+   current-schema choices and run provenance across reopen. Do not infer a replacement
+   for a removed model. Existing `MODEL_ID_MIGRATIONS`, `MEMORY_MODEL_TARGET_MIGRATIONS`
+   and migration-notice code are existing implementation, not required compatibility.
+   This contract change does not claim those paths have already been removed.
 5. Add new `packages/db/__tests__/**/*.test.{ts,tsx}` files without a lane-registry
    edit. The `unit` Vitest project discovers that tree recursively; required Unit and
    nightly coverage both supply the complete `DB_TEST_SHARD=1/2` + `2/2` set to that
@@ -278,19 +279,19 @@ Guard: `packages/db/__tests__/migration-071-rollback.integration.test.ts`, `scri
 `drizzle-migration-manifest.test.ts`, `migration-manifest-order.test.ts`,
 `drizzle-migration-parity.integration.test.ts`, `provider-registry-vision.test.ts`, `packages/db/__tests__/migration-072-rollback.integration.test.ts`. Evidence: `database/ling-catalog-rollback-review.md`.
 
-### SAFE CATALOG ROLLBACK WITH LIVE USER DATA
+### CURRENT CATALOG AND SCHEMA VALIDATION
 
-BrainStrike has no shipped production `down` path. The app applies only forward migrations through Drizzle's append-only `__drizzle_migrations` ledger; `MigrationRunner.down()` and its `_migrations` ledger are test-only. Never execute raw `down` SQL or edit the production ledger in an active local profile: the next startup can reapply the migration or continue from a schema the ledger falsely reports as current. A reviewed forward migration is the only sanctioned production recovery.
+Brainstrike has no live user population to migrate or roll back. Do not make cloning
+an existing profile, remapping old preferences, or rehearsing populated old-schema
+upgrades an acceptance gate. The previous rollback procedure is historical evidence
+in `database/diagnostic-rollback-review.md` and `database/forensics-rollback-review.md`.
 
-Use this fail-closed procedure; rollback scope is guarded by `packages/db/__tests__/migration-073-rollback.integration.test.ts` and `packages/db/__tests__/migration-076-rollback.integration.test.ts`. Evidence: `database/diagnostic-rollback-review.md`, `database/forensics-rollback-review.md`.
-
-1. Prefer a forward catalog migration that restores compatibility without deleting durable IDs. Treat any manual rollback as an exceptional developer/support investigation, not a supported app operation.
-2. Before an exceptional investigation, fully quit BrainStrike (all desktop processes or browser tabs/workers) to quiesce writes. On desktop, capture both `<database root>/profiles/<profile>/pgdata` (root and profile per § "DESKTOP DATABASE LOCATION"; the running app logs them once at startup) and the relevant Electron `userData` artifacts: Chromium renderer `localStorage` and `electron-storage.json`. On web, capture the origin's PGlite IndexedDB store and `localStorage`. Prove the complete clone can be restored into an isolated profile. BrainStrike does not ship a catalog-rollback backup command; if any required store or a verified restore is unavailable, stop.
-3. Inventory references in both storage systems. Query PGlite tables such as `models`, `brainstrike_assistant_thread_runs.model`, and `brainstrike_assistant_run_usage.model`, plus any additional model-ID columns found in the current schemas. Separately inspect `assistant-preferences.v1` in renderer `window.localStorage` on desktop and web. Inspect `assistant-memory-preferences.v1` through the Electron storage bridge (`electron-storage.json`) on desktop or browser `localStorage` on web. Include selected/current models, enabled and recent models, and observational-memory targets; record affected counts and representative IDs.
-4. Preserve historical run model text; do not rewrite conversation provenance to make a catalog change pass. If a present or future foreign key blocks deletion, design a forward migration that preserves or archives the referenced catalog identity; never disable the constraint or cascade-delete user history.
-5. Remap only mutable preference state to a supported replacement through the relevant preference-store migration contract and a store-version bump. Verify the replacement exists in the target catalog first.
-6. Rehearse the exact forward recovery against the isolated clone with the production Drizzle runner and its real ledger state. Tests may additionally exercise numbered-runner `down` then `up` behavior, but that is rollback verification—not a production deployment path. Keep the live profile untouched if any reference, constraint, reader, or ledger assertion fails.
-7. Apply only the reviewed forward migration through the production Drizzle runner. Afterward verify migration-ledger state, model-picker state, historical thread rendering, and a fresh assistant run; retain the pre-change clone through the next normal startup.
+The app currently creates its schema through Drizzle's `__drizzle_migrations` ledger;
+`MigrationRunner.down()` is test-only. Never edit a running profile's ledger or run raw
+`down` SQL against it. Validate the current catalog/schema in disposable profiles,
+including populated same-schema reopen, exact model choices, conversation provenance,
+fresh runs and reset. Unsupported developer state must not be silently converted or
+wiped. No part of this contract authorizes access to Sean's protected profile.
 
 ## Delegated conversation graph
 
@@ -413,9 +414,10 @@ Guard: `packages/db/__tests__/delegated-invocations.integration.test.ts`.
   `ORDER BY occurred_at ASC` delete. Any new retention predicate needs an index leading
   with its own column, and the table joins
   `DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES` because PGlite has no autovacuum.
-- Never amend a shipped migration to introduce a later schema: an existing profile must
-  traverse the same upgrade. MCP task authority epochs are minted forward (a higher
-  generation retires the epoch, a lower same-runtime generation is stale), and every
+- Schema changes must produce a coherent current schema through the existing owner;
+  ADR-0020 removes the requirement to preserve an old-profile upgrade path. Current
+  schema creation, integrity and same-schema reopen remain required. MCP task
+  authority epochs are minted forward (a higher generation retires the epoch, a lower same-runtime generation is stale), and every
   create/update statement requires the exact live epoch/runtime/generation lease.
 - A table whose rows outlive threads (the forge PR cache) is NOT a thread-delete sidecar
   but IS in every factory-reset path.
@@ -455,9 +457,10 @@ Guard: `packages/db/__tests__/reset-table-registry.test.tsx`,
 - Registered in both runners and in `BRAINSTRIKE_RESET_TABLES`. Factory reset clears the
   ROWS; deleting worktree DIRECTORIES is a separate, explicitly confirmed step
   (`platform-contracts.md`).
-- Any migration merged to a long-lived branch counts as shipped and is never amended in
-  place; corrections use a new additive forward-only migration. Why: execution on a
-  shared branch cannot be disproven.
+- A long-lived development branch is not an installed user population. ADR-0020
+  supersedes the former rule that every such branch creates an immutable upgrade
+  obligation. Change current schema construction coherently; do not rewrite recorded
+  acceptance evidence or silently repair unsupported developer state.
 
 Evidence: `database/managed-worktree-ledger.md`.
 
@@ -564,9 +567,10 @@ exceptions.
 - Tests that deliberately construct bare or partial-extension engines are fixtures;
   migration fixtures must still load the full set.
 
-Settled: greenfield is the entire install population, so migration 066's guard protects
-every install that will ever exist; extension qualification is macOS-arm64 only, with
-Linux/Windows owed. Evidence: `database/pg-textsearch-qualification.md`.
+Brainstrike is currently greenfield with no users (ADR-0020). The current schema must
+load the required extensions; an old migration number creates no future upgrade
+obligation. Historical extension evidence is macOS-arm64 only, not cross-platform
+qualification. Evidence: `database/pg-textsearch-qualification.md`.
 Guard: `scripts/__tests__/pglite-factory-contract.test.mjs`,
 `packages/db/__tests__/pglite-factory.test.ts`, `pglite-verification-factory.test.ts`,
 `crash-injection-gate.integration.test.ts`,

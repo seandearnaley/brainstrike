@@ -114,6 +114,7 @@ function harness(
     onForgeEvent: vi.fn(),
     onRunFailed: vi.fn(),
     onRunFinished: vi.fn(),
+    onRunNotification: vi.fn(),
     onToolApprovalRequired: vi.fn(),
   };
   // Seeds the REAL `useAssistantThreadStore` (the same module-singleton

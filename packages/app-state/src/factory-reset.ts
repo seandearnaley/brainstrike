@@ -7,7 +7,6 @@ import { resetExperimentAssignmentPreferencesStoreToDefaults } from './stores/ex
 import { resetExplorerColumnSizesStoreToDefault } from './stores/explorer-column-sizes-store';
 import { resetExplorerColumnVisibilityStoreToDefault } from './stores/explorer-column-visibility-store';
 import { resetExplorerSortStateStoreToDefault } from './stores/explorer-sort-state-store';
-import { resetHookTrustStoreToDefaults } from './stores/hook-trust-store';
 import { resetNotificationPreferencesStoreToDefaults } from './stores/notification-preferences-store';
 import { resetPermissionPolicyStoreToDefaults } from './stores/permission-policy-store';
 import { resetSelfImprovementSignalPreferencesStoreToDefaults } from './stores/self-improvement-signal-preferences-store';
@@ -371,6 +370,36 @@ function isMissingStorageEntryError(error: unknown): boolean {
  * reset per the FACTORY RESET CONTRACT so session state does not survive a reset
  * that (on the web path) may not force a reload.
  */
+/** Renderer owners retire before reset mutates their stores or closes storage.
+ * Preparation is terminal for this renderer; the reset UI must reload on either outcome.
+ */
+const factoryResetPreparations = new Set<() => Promise<void>>();
+let factoryResetPreparationStarted = false;
+
+export function hasFactoryResetPreparationStarted(): boolean {
+  return factoryResetPreparationStarted;
+}
+
+export function registerFactoryResetPreparation(prepare: () => Promise<void>): () => void {
+  factoryResetPreparations.add(prepare);
+  return () => {
+    factoryResetPreparations.delete(prepare);
+  };
+}
+
+export async function prepareFactoryReset(): Promise<void> {
+  factoryResetPreparationStarted = true;
+  const results = await Promise.allSettled(
+    [...factoryResetPreparations].map(async (prepare) => await prepare())
+  );
+  const failures: unknown[] = results.flatMap((result) =>
+    result.status === 'rejected' ? [result.reason] : []
+  );
+  if (failures.length > 0) {
+    throw new AggregateError(failures, 'Factory reset renderer preparation failed');
+  }
+}
+
 const sessionStoreResetters = new Set<() => void>();
 
 export function registerFactoryResetSessionStore(reset: () => void): () => void {
@@ -440,11 +469,6 @@ function clearBrowserStorage(): void {
     'notification preferences store',
     resetNotificationPreferencesStoreToDefaults
   );
-
-  // Hook-trust approvals are persisted AND security-sensitive: a factory reset
-  // must forget every per-root project-hook approval so a re-mounted repo's
-  // hooks require fresh review (FACTORY RESET CONTRACT + hooks security spine).
-  resetLiveStoreSafely('hook trust store', resetHookTrustStoreToDefaults);
 
   // Repository-script approvals and denials are security-sensitive local
   // decisions. A fresh start must require a new choice for every repository.

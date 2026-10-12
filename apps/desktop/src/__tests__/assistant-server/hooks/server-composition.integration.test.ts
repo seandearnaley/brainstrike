@@ -4,21 +4,25 @@
  * short-circuit stream, PostToolUse context, and the terminal Stop hook — all
  * over the REAL HookManager/executor with temp hook scripts.
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentMessage, RuntimeData, StreamChunk } from '@brainstrike/agent';
 import { createAssistantRunEvent } from '@brainstrike/agent';
-import { buildHookTrustRequest } from '@brainstrike/app-state/stores/hook-trust-store';
+import type {
+  HookManager,
+  HookRunEventInput,
+  HookRunVerdict,
+} from '@brainstrike/host-capabilities/hooks';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopHookRunner } from '../../../assistant-server/hooks/hook-runner-impl';
-import type { HookManager, HookRunEventInput } from '../../../assistant-server/hooks/manager';
-import type { HookRunVerdict } from '../../../assistant-server/hooks/run-verdict';
 import {
   buildHookManager,
   deriveLastUserText,
+  installDesktopHookApprovalReader,
   makeHookBlockedStream,
+  prepareRequestHooks,
   withStopHook,
 } from '../../../assistant-server/hooks/server-integration';
 import { enrichRuntimeDataWithWorkspaceRoots } from '../../../assistant-server/workspace-roots';
@@ -43,6 +47,27 @@ function writeProjectHooks(rootAbsPath: string, content: string): string {
 
 function sha256OfFile(path: string): string {
   return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+function writeHookCommand(rootAbsPath: string, program: string): string {
+  const filename = `hook-${randomUUID()}.cjs`;
+  writeFileSync(join(rootAbsPath, filename), program, 'utf8');
+  // Keep the real native shell; a relative filename needs no temp-path quoting.
+  return `node ${filename}`;
+}
+
+function writeStdoutHook(rootAbsPath: string, stdout: string, exitCode = 0): string {
+  return writeHookCommand(
+    rootAbsPath,
+    `process.stdout.write(${JSON.stringify(`${stdout}\n`)});\nprocess.exitCode = ${exitCode};\n`
+  );
+}
+
+function writeStdinHook(rootAbsPath: string, marker: string): string {
+  return writeHookCommand(
+    rootAbsPath,
+    `const { readFileSync, writeFileSync } = require('node:fs');\nwriteFileSync(${JSON.stringify(marker)}, readFileSync(0));\n`
+  );
 }
 
 function runtimeWithRoot(rootId: string, absPath: string): RuntimeData {
@@ -92,14 +117,16 @@ describe('makeHookBlockedStream', () => {
 describe('buildHookManager (roots + trust + config)', () => {
   it('loads a project root hooks file only when the approved hash matches disk', async () => {
     const config = JSON.stringify({
-      PreToolUse: [{ command: `echo '{"reason":"blocked"}'; exit 2`, type: 'command' }],
+      PreToolUse: [
+        { command: writeStdoutHook(tmpRoot, '{"reason":"blocked"}', 2), type: 'command' },
+      ],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const runtimeData = runtimeWithRoot('root-1', tmpRoot);
 
     // Untrusted (no approval) → hooks are skipped.
     const untrusted = buildHookManager({
-      hookTrustRequest: { approvals: [] },
+      approvedByRoot: new Map(),
       logger,
       runtimeData,
       sessionId: 's1',
@@ -108,9 +135,7 @@ describe('buildHookManager (roots + trust + config)', () => {
 
     // Approved with the matching hash → hooks load + block.
     const approved = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData,
       sessionId: 's1',
@@ -138,10 +163,10 @@ describe('buildHookManager (roots + trust + config)', () => {
     const file = join(dir, 'hooks.json');
     writeFileSync(file, bytes);
 
-    // The approval hash the renderer attests == the raw-byte hash.
+    // The hash the host trusts == the raw-byte hash.
     const approvedSha = sha256OfFile(file);
     const manager = buildHookManager({
-      hookTrustRequest: { approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: approvedSha }] },
+      approvedByRoot: new Map([['root-1', approvedSha]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -154,16 +179,10 @@ describe('buildHookManager (roots + trust + config)', () => {
     writeProjectHooks(tmpRoot, '{ invalid json');
     const events: HookRunEventInput[] = [];
     const manager = buildHookManager({
+      approvedByRoot: new Map([
+        ['root-1', sha256OfFile(join(tmpRoot, '.brainstrike', 'hooks.json'))],
+      ]),
       emitRunEvent: (e) => events.push(e),
-      hookTrustRequest: {
-        approvals: [
-          {
-            approvedAt: 1,
-            rootId: 'root-1',
-            sha256: sha256OfFile(join(tmpRoot, '.brainstrike', 'hooks.json')),
-          },
-        ],
-      },
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -173,49 +192,37 @@ describe('buildHookManager (roots + trust + config)', () => {
   });
 });
 
-// KILL CHAIN severing proof (renderer attestation-scoping ⇒ server execution).
-// This crosses the boundary: the renderer's `buildHookTrustRequest` (DB-id keyed,
-// scoped to mounted roots) feeds the server's `buildHookManager`. It proves that
-// disconnecting a root (mounted set no longer contains its DB id) SEVERS hook
-// execution server-side — the fail-open the review flagged, now closed.
-describe('attestation scoping severs execution on disconnect (kill chain)', () => {
-  it('runs an approved root while mounted, then stops running it once unmounted', () => {
+// The legacy server reads trust from the agent host, its one owner: it asks
+// only about the request's mounted roots (a disconnected root is not among
+// them), and a root's project hooks run only at the hash the host trusts.
+describe('prepareRequestHooks reads project hook trust from the agent host', () => {
+  it("runs a mounted root's hooks at the host-trusted hash, and none without it", async () => {
     const config = JSON.stringify({
-      PreToolUse: [{ command: `echo '{"reason":"blocked"}'; exit 2`, type: 'command' }],
+      PreToolUse: [
+        { command: writeStdoutHook(tmpRoot, '{"reason":"blocked"}', 2), type: 'command' },
+      ],
     });
     const file = writeProjectHooks(tmpRoot, config);
-    // The DB root id the SERVER resolves the root under (stable across re-add).
-    const runtimeData = runtimeWithRoot('db-1', tmpRoot);
-    // The renderer's persisted grant, keyed by that SAME DB id.
-    const store = {
-      approvalsByRootId: { 'db-1': { approvedAt: 1, sha256: sha256OfFile(file) } },
-    };
+    const asked: unknown[] = [];
+    installDesktopHookApprovalReader(async (root) => {
+      asked.push(root);
+      return root.rootId === 'db-1' ? sha256OfFile(file) : undefined;
+    });
 
-    // Mounted: attestation carries db-1 → server trusts + loads the hooks.
-    const mountedRequest = buildHookTrustRequest(store, {
-      mountedRootIds: new Set(['db-1']),
-    });
-    const trusted = buildHookManager({
-      hookTrustRequest: mountedRequest,
+    const trusted = await prepareRequestHooks({
       logger,
-      runtimeData,
-      sessionId: 's1',
+      runId: 'run-1',
+      runtimeData: runtimeWithRoot('db-1', tmpRoot),
     });
-    expect(trusted.hasHooks()).toBe(true);
+    expect(trusted.manager.hasHooks()).toBe(true);
+    expect(asked).toEqual([{ absPath: tmpRoot, rootId: 'db-1' }]);
 
-    // Disconnected: mounted set no longer contains db-1 → attestation is empty →
-    // the server finds no approval for the (still DB-live) root → hooks DON'T run.
-    const disconnectedRequest = buildHookTrustRequest(store, {
-      mountedRootIds: new Set(),
-    });
-    expect(disconnectedRequest.approvals).toEqual([]);
-    const severed = buildHookManager({
-      hookTrustRequest: disconnectedRequest,
+    const untrusted = await prepareRequestHooks({
       logger,
-      runtimeData,
-      sessionId: 's1',
+      runId: 'run-2',
+      runtimeData: runtimeWithRoot('db-2', tmpRoot),
     });
-    expect(severed.hasHooks()).toBe(false);
+    expect(untrusted.manager.hasHooks()).toBe(false);
   });
 });
 
@@ -233,12 +240,10 @@ describe('hooks primaryCwd follows the declared main root (roots[0] after reorde
     mkdirSync(rootB, { recursive: true });
     const marker = join(tmpRoot, 'stop-payload.json');
     const config = JSON.stringify({
-      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+      Stop: [{ command: writeStdinHook(rootA, marker), type: 'command' }],
     });
     const file = writeProjectHooks(rootA, config);
-    const trust = {
-      approvals: [{ approvedAt: 1, rootId: 'db-a', sha256: sha256OfFile(file) }],
-    };
+    const trust = new Map([['db-a', sha256OfFile(file)]]);
     const db = {
       query: vi.fn(async () => ({
         rows: [
@@ -250,7 +255,7 @@ describe('hooks primaryCwd follows the declared main root (roots[0] after reorde
 
     const runStopAndReadCwd = async (runtimeData: RuntimeData | undefined): Promise<string> => {
       const manager = buildHookManager({
-        hookTrustRequest: trust,
+        approvedByRoot: trust,
         logger,
         runtimeData,
         sessionId: 's1',
@@ -283,13 +288,11 @@ describe('withStopHook', () => {
   it('fires the Stop hook with the resolved reason when the stream completes', async () => {
     const marker = join(tmpRoot, 'stop.json');
     const config = JSON.stringify({
-      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+      Stop: [{ command: writeStdinHook(tmpRoot, marker), type: 'command' }],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -315,14 +318,16 @@ describe('withStopHook', () => {
     // run and the `finally` run from both firing (a regression that double-fires
     // spawns the subprocess twice → two marker lines).
     const marker = join(tmpRoot, 'runs.txt');
+    const command = writeHookCommand(
+      tmpRoot,
+      `require('node:fs').appendFileSync(${JSON.stringify(marker)}, 'run\\n');\n`
+    );
     const config = JSON.stringify({
-      Stop: [{ command: `echo run >> "${marker}"`, type: 'command' }],
+      Stop: [{ command, type: 'command' }],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -350,13 +355,11 @@ describe('withStopHook', () => {
   it('passes the accumulated assistant text as assistant_message (bounded tail)', async () => {
     const marker = join(tmpRoot, 'stop-message.json');
     const config = JSON.stringify({
-      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+      Stop: [{ command: writeStdinHook(tmpRoot, marker), type: 'command' }],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -393,13 +396,11 @@ describe('withStopHook', () => {
   it('separates generation steps with a newline so line-anchored graders still match', async () => {
     const marker = join(tmpRoot, 'stop-boundary.json');
     const config = JSON.stringify({
-      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+      Stop: [{ command: writeStdinHook(tmpRoot, marker), type: 'command' }],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -444,13 +445,11 @@ describe('withStopHook', () => {
   it('omits assistant_message when the stream produced no text', async () => {
     const marker = join(tmpRoot, 'stop-no-text.json');
     const config = JSON.stringify({
-      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+      Stop: [{ command: writeStdinHook(tmpRoot, marker), type: 'command' }],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -477,13 +476,11 @@ describe('withStopHook', () => {
   it('passes stop_reason "error" when the finish chunk is an error finish', async () => {
     const marker = join(tmpRoot, 'stop-error.json');
     const config = JSON.stringify({
-      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+      Stop: [{ command: writeStdinHook(tmpRoot, marker), type: 'command' }],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -513,13 +510,11 @@ describe('withStopHook', () => {
     // default `complete`.
     const marker = join(tmpRoot, 'stop-throw.json');
     const config = JSON.stringify({
-      Stop: [{ command: `cat > "${marker}"`, type: 'command' }],
+      Stop: [{ command: writeStdinHook(tmpRoot, marker), type: 'command' }],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -548,16 +543,17 @@ describe('withStopHook', () => {
     const config = JSON.stringify({
       Stop: [
         {
-          command: `echo 'test output line'; echo '{"brainstrikeRunVerdict":{"verdict":"failed","detail":"3 tests failing"}}'`,
+          command: writeStdoutHook(
+            tmpRoot,
+            'test output line\n{"brainstrikeRunVerdict":{"verdict":"failed","detail":"3 tests failing"}}'
+          ),
           type: 'command',
         },
       ],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -603,16 +599,14 @@ describe('withStopHook', () => {
     const config = JSON.stringify({
       Stop: [
         {
-          command: `echo '{"brainstrikeRunVerdict":{"verdict":"succeeded"}}'`,
+          command: writeStdoutHook(tmpRoot, '{"brainstrikeRunVerdict":{"verdict":"succeeded"}}'),
           type: 'command',
         },
       ],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -638,7 +632,7 @@ describe('withStopHook', () => {
     const config = JSON.stringify({
       Stop: [
         {
-          command: `echo '{"brainstrikeRunVerdict":{"verdict":"passed"}}'`,
+          command: writeStdoutHook(tmpRoot, '{"brainstrikeRunVerdict":{"verdict":"passed"}}'),
           type: 'command',
         },
       ],
@@ -646,10 +640,8 @@ describe('withStopHook', () => {
     const file = writeProjectHooks(tmpRoot, config);
     const events: HookRunEventInput[] = [];
     const manager = buildHookManager({
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       emitRunEvent: (e) => events.push(e),
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -687,16 +679,14 @@ describe('withStopHook', () => {
     const config = JSON.stringify({
       Stop: [
         {
-          command: `echo '{"brainstrikeRunVerdict":{"verdict":"failed"}}'`,
+          command: writeStdoutHook(tmpRoot, '{"brainstrikeRunVerdict":{"verdict":"failed"}}'),
           type: 'command',
         },
       ],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -732,16 +722,14 @@ describe('withStopHook', () => {
     const config = JSON.stringify({
       PostToolUse: [
         {
-          command: `echo '{"brainstrikeRunVerdict":{"verdict":"failed"}}'`,
+          command: writeStdoutHook(tmpRoot, '{"brainstrikeRunVerdict":{"verdict":"failed"}}'),
           type: 'command',
         },
       ],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',
@@ -759,15 +747,19 @@ describe('withStopHook', () => {
   it('lets the LAST Stop hook with a valid verdict win across multiple hooks', async () => {
     const config = JSON.stringify({
       Stop: [
-        { command: `echo '{"brainstrikeRunVerdict":{"verdict":"succeeded"}}'`, type: 'command' },
-        { command: `echo '{"brainstrikeRunVerdict":{"verdict":"mixed"}}'`, type: 'command' },
+        {
+          command: writeStdoutHook(tmpRoot, '{"brainstrikeRunVerdict":{"verdict":"succeeded"}}'),
+          type: 'command',
+        },
+        {
+          command: writeStdoutHook(tmpRoot, '{"brainstrikeRunVerdict":{"verdict":"mixed"}}'),
+          type: 'command',
+        },
       ],
     });
     const file = writeProjectHooks(tmpRoot, config);
     const manager = buildHookManager({
-      hookTrustRequest: {
-        approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-      },
+      approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
       logger,
       runtimeData: runtimeWithRoot('root-1', tmpRoot),
       sessionId: 's1',

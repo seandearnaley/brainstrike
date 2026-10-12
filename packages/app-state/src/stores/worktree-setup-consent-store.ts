@@ -1,7 +1,8 @@
 /**
  * Durable per-repository consent for repository-committed worktree setup scripts.
  *
- * Pinned to the script's SHA-256 at decision time (mirrors `hook-trust-store.ts`):
+ * Pinned to the script's SHA-256 at decision time (as project hook trust pins
+ * `.brainstrike/hooks.json`):
  * the renderer only ATTESTS a decision over the wire; the desktop server
  * independently re-hashes disk and runs the script only when the disk hash
  * matches the decision's hash. A script that changed since the decision

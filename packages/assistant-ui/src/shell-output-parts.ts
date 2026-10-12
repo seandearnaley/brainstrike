@@ -2,6 +2,11 @@ import { SHELL_OUTPUT_DATA_NAME } from '@brainstrike/assistant-contract';
 
 /** Accumulated live output for one running shell command. */
 export interface ShellOutputAccumulation {
+  /**
+   * Bytes of the command's earliest output a host replay no longer held when
+   * this view opened mid-command (ADR-0011 amendment); absent when none.
+   */
+  readonly omittedBytes?: number;
   /** stdout + stderr interleaved in emission order. */
   readonly text: string;
   /** True once the streaming cap was hit (further output was not streamed). */
@@ -61,25 +66,29 @@ export function collectShellOutputs(
  *   unrelated text deltas.
  * - New slices for one tool → a new record, but entries for untouched tools
  *   keep their identity.
- * - A parts array SHORTER than what was already processed (fresh message in
- *   the same accumulator) resets and reprocesses from scratch.
+ * - A different message id, or a parts array SHORTER than what was already
+ *   processed, resets and reprocesses from scratch.
  *
  * Correctness rests on the assistant-ui streaming contract: parts are
  * append-only and never reordered; already-emitted indexes may be REPLACED in
  * place (the growing text part is), but shell-output data parts are immutable
  * once emitted — so each index is scanned exactly once, and no identity check
  * on the prefix is possible (the mutating text part would fail it every
- * chunk). One accumulator serves ONE message: key it by message id at the
- * call site (a remount/useMemo boundary), do not share across messages.
+ * chunk). The accumulator serves one message at a time and resets itself when
+ * the message id changes, so the caller never re-keys it (a memo keyed on an
+ * id it never reads is dropped by the React Compiler).
  */
 export function createShellOutputAccumulator(): (
+  messageId: string,
   parts: readonly unknown[]
 ) => Record<string, ShellOutputAccumulation> {
+  let servedMessageId: string | undefined;
   let processedCount = 0;
   let result: Record<string, ShellOutputAccumulation> = {};
 
-  return (parts) => {
-    if (parts.length < processedCount) {
+  return (messageId, parts) => {
+    if (messageId !== servedMessageId || parts.length < processedCount) {
+      servedMessageId = messageId;
       processedCount = 0;
       result = {};
     }

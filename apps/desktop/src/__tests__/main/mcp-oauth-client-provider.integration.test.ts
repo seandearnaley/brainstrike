@@ -3,6 +3,13 @@ import { createHash } from 'node:crypto';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
+import type { ResolvedMcpServer } from '@brainstrike/host-capabilities/mcp/config-file';
+import {
+  createInMemoryMcpOAuthStore,
+  createMcpOAuthClientProvider,
+  createMcpOAuthStoreIdentity,
+} from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
+import { discoverToolsFromConfig } from '@brainstrike/host-capabilities/mcp/tool-discovery';
 import {
   Client,
   IssuerMismatchError,
@@ -11,14 +18,7 @@ import {
 } from '@modelcontextprotocol/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
-import {
-  createInMemoryMcpOAuthStore,
-  createMcpOAuthClientProvider,
-  createMcpOAuthStoreIdentity,
-} from '../../mcp/oauth-client-provider';
 import { runProductionMcpConformanceClient } from '../../mcp/official-conformance-client';
-import { discoverToolsFromConfig } from '../../mcp/tool-discovery';
-import type { ResolvedMcpServer } from '../../mcp-loader';
 
 type OAuthHttpServer = Extract<ResolvedMcpServer, { transport: 'streamable-http' }>;
 

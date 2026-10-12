@@ -36,6 +36,8 @@ export interface DesktopDatabaseBridge {
   close?: () => Promise<void>;
   diagnostics?: () => Promise<DatabaseDiagnosticsSnapshot>;
   exec?: (sql: string, params?: unknown[], options?: DatabaseWorkOptions) => Promise<unknown>;
+  /** Explicit host capability refusal; prevents a renderer-local reset substitute. */
+  readonly factoryResetUnavailableReason?: string;
   getPath?: () => Promise<string | null>;
   insertChunksAndEnqueueEmbeddingJobs?: (
     chunks: readonly DatabaseChunkInsert[],

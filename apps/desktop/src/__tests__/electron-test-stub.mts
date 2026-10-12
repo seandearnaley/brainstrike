@@ -19,13 +19,15 @@
  * did not bother to mock.
  */
 
+import { resolve } from 'node:path';
+
 const noop = (): void => undefined;
 
 const makeFn = (): ((...args: unknown[]) => undefined) => () => undefined;
 
 export const app = {
   exit: noop,
-  getAppPath: () => '/mock/app',
+  getAppPath: () => resolve('/mock/app'),
   getLocale: () => 'en-US',
   getName: () => 'Brainstrike',
   getPath: () => '/mock/path',
@@ -92,7 +94,10 @@ export const screen = {
 };
 
 const makePartitionSession = () => ({
+  clearAuthCache: () => Promise.resolve(),
+  clearData: () => Promise.resolve(),
   clearStorageData: () => Promise.resolve(),
+  closeAllConnections: () => Promise.resolve(),
   on: makeFn(),
   setPermissionCheckHandler: makeFn(),
   setPermissionRequestHandler: makeFn(),
@@ -100,9 +105,7 @@ const makePartitionSession = () => ({
 });
 
 export const session = {
-  defaultSession: {
-    webRequest: { onHeadersReceived: makeFn() },
-  },
+  defaultSession: makePartitionSession(),
   fromPartition: () => makePartitionSession(),
 };
 
@@ -142,6 +145,12 @@ export const utilityProcess = {
   fork: makeFn(),
 };
 
+/** An inert MessagePortMain pair: a unit test never transfers it to a real process. */
+export class MessageChannelMain {
+  readonly port1 = { close: noop, off: makeFn(), on: makeFn(), postMessage: noop, start: noop };
+  readonly port2 = { close: noop, off: makeFn(), on: makeFn(), postMessage: noop, start: noop };
+}
+
 const electron = {
   app,
   BrowserWindow,
@@ -151,6 +160,7 @@ const electron = {
   ipcMain,
   ipcRenderer,
   Menu,
+  MessageChannelMain,
   powerMonitor,
   powerSaveBlocker,
   safeStorage,

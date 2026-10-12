@@ -1,0 +1,594 @@
+[
+  {
+    "event": {
+      "commandId": "eef12162-a948-4e18-8e2a-ca46c65356dc",
+      "method": "thread/start",
+      "payload": {
+        "commandId": "eef12162-a948-4e18-8e2a-ca46c65356dc"
+      },
+      "result": {
+        "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 1,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921277
+  },
+  {
+    "event": {
+      "commandId": "eef12162-a948-4e18-8e2a-ca46c65356dc",
+      "type": "thread.started"
+    },
+    "seq": 2,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921277
+  },
+  {
+    "event": {
+      "commandId": "63136b05-f80d-4801-a1f7-0d28b6b0ce5e",
+      "method": "run/start",
+      "payload": {
+        "commandId": "63136b05-f80d-4801-a1f7-0d28b6b0ce5e",
+        "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+        "modelId": "scripted",
+        "prompt": "Use the selected canonical human interaction."
+      },
+      "result": {
+        "runId": "5b185862-ca69-46ac-8adf-2f94552f6804"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 3,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921277
+  },
+  {
+    "event": {
+      "type": "run.started",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "modelId": "scripted",
+      "prompt": "Use the selected canonical human interaction.",
+      "snapshot": {
+        "configuration": {},
+        "maxSteps": 3,
+        "toolIdentities": {
+          "brainstrike_askUser": "brainstrike.askUser"
+        }
+      }
+    },
+    "seq": 4,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921277
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "chunk": {
+        "type": "start"
+      }
+    },
+    "seq": 5,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921280
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": []
+      }
+    },
+    "seq": 6,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921280
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "tool-call",
+              "toolCallId": "recorded-call-1",
+              "toolName": "brainstrike_askUser",
+              "input": {
+                "options": [
+                  {
+                    "label": "Local"
+                  },
+                  {
+                    "label": "Preview"
+                  }
+                ],
+                "question": "Which environment?",
+                "selectionMode": "multi_select"
+              }
+            },
+            {
+              "type": "tool-approval-request",
+              "approvalId": "aitxt-NWnuf3k4PtuMgBtYnHSiScmp",
+              "toolCallId": "recorded-call-1"
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "mock-provider",
+        "modelId": "mock-model-id"
+      },
+      "stepNumber": 0,
+      "usage": {
+        "inputTokens": 1,
+        "inputTokenDetails": {
+          "noCacheTokens": 1,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "outputTokens": 1,
+        "outputTokenDetails": {
+          "textTokens": 1,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 2
+      }
+    },
+    "seq": 7,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921281
+  },
+  {
+    "event": {
+      "type": "interaction.requested",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "input": {
+        "options": [
+          {
+            "label": "Local"
+          },
+          {
+            "label": "Preview"
+          }
+        ],
+        "question": "Which environment?",
+        "selectionMode": "multi_select"
+      },
+      "toolCallId": "recorded-call-1",
+      "toolId": "brainstrike_askUser",
+      "toolIdentity": "brainstrike.askUser",
+      "interactionId": "aitxt-NWnuf3k4PtuMgBtYnHSiScmp",
+      "kind": "question"
+    },
+    "seq": 8,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921281
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "chunk": {
+        "type": "tool-call",
+        "toolCallId": "recorded-call-1",
+        "toolName": "brainstrike_askUser",
+        "input": {
+          "options": [
+            {
+              "label": "Local"
+            },
+            {
+              "label": "Preview"
+            }
+          ],
+          "question": "Which environment?",
+          "selectionMode": "multi_select"
+        }
+      }
+    },
+    "seq": 9,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921286
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "chunk": {
+        "type": "tool-approval-request",
+        "approvalId": "aitxt-NWnuf3k4PtuMgBtYnHSiScmp",
+        "toolCall": {
+          "type": "tool-call",
+          "toolCallId": "recorded-call-1",
+          "toolName": "brainstrike_askUser",
+          "input": {
+            "options": [
+              {
+                "label": "Local"
+              },
+              {
+                "label": "Preview"
+              }
+            ],
+            "question": "Which environment?",
+            "selectionMode": "multi_select"
+          }
+        }
+      }
+    },
+    "seq": 10,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921286
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "tool-calls",
+        "rawFinishReason": "tool_calls",
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        },
+        "performance": {
+          "stepTimeMs": 0.8192919999999049,
+          "toolExecutionMs": {},
+          "responseTimeMs": 0.42995799999994233,
+          "effectiveOutputTokensPerSecond": 2325.808567348751,
+          "outputTokensPerSecond": 3397.0276008498868,
+          "inputTokensPerSecond": 7375.555932528583,
+          "effectiveTotalTokensPerSecond": 4651.617134697502,
+          "timeToFirstOutputMs": 0.1355829999999969
+        },
+        "response": {
+          "id": "aitxt-4uaqmONxZrBoffao3lMweVDI",
+          "timestamp": "2026-10-07T16:35:21.280Z",
+          "modelId": "mock-model-id"
+        }
+      }
+    },
+    "seq": 11,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921287
+  },
+  {
+    "event": {
+      "commandId": "124d1a83-6192-47b0-962b-5d59603ef5da",
+      "method": "interaction/resume",
+      "payload": {
+        "commandId": "124d1a83-6192-47b0-962b-5d59603ef5da",
+        "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+        "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+        "interactionId": "aitxt-NWnuf3k4PtuMgBtYnHSiScmp",
+        "resumeData": {
+          "answer": [
+            "Local",
+            "Preview"
+          ]
+        }
+      },
+      "result": {
+        "accepted": true
+      },
+      "type": "command.accepted"
+    },
+    "seq": 12,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921292
+  },
+  {
+    "event": {
+      "type": "interaction.responded",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "interactionId": "aitxt-NWnuf3k4PtuMgBtYnHSiScmp",
+      "resumeData": {
+        "answer": [
+          "Local",
+          "Preview"
+        ]
+      }
+    },
+    "seq": 13,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921292
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "chunk": {
+        "type": "finish",
+        "finishReason": "tool-calls",
+        "rawFinishReason": "tool_calls",
+        "totalUsage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        }
+      }
+    },
+    "seq": 14,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921292
+  },
+  {
+    "event": {
+      "type": "effect.started",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "input": {
+        "options": [
+          {
+            "label": "Local"
+          },
+          {
+            "label": "Preview"
+          }
+        ],
+        "question": "Which environment?",
+        "selectionMode": "multi_select"
+      },
+      "toolCallId": "recorded-call-1",
+      "toolId": "brainstrike_askUser",
+      "toolIdentity": "brainstrike.askUser"
+    },
+    "seq": 15,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921292
+  },
+  {
+    "event": {
+      "type": "effect.finished",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "output": {
+        "answer": "Local, Preview"
+      },
+      "toolCallId": "recorded-call-1"
+    },
+    "seq": 16,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921293
+  },
+  {
+    "event": {
+      "type": "model.messages",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "messages": [
+        {
+          "role": "tool",
+          "content": [
+            {
+              "type": "tool-approval-response",
+              "approvalId": "aitxt-NWnuf3k4PtuMgBtYnHSiScmp",
+              "approved": true
+            },
+            {
+              "type": "tool-result",
+              "toolCallId": "recorded-call-1",
+              "toolName": "brainstrike_askUser",
+              "output": {
+                "type": "text",
+                "value": "{\"answer\":\"Local, Preview\"}"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "seq": 17,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921293
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "chunk": {
+        "type": "start"
+      }
+    },
+    "seq": 18,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921299
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": []
+      }
+    },
+    "seq": 19,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921300
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "chunk": {
+        "id": "text-1",
+        "type": "text-start"
+      }
+    },
+    "seq": 20,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921300
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "Host run completed."
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "mock-provider",
+        "modelId": "mock-model-id"
+      },
+      "stepNumber": 1,
+      "usage": {
+        "inputTokens": 1,
+        "inputTokenDetails": {
+          "noCacheTokens": 1,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "outputTokens": 1,
+        "outputTokenDetails": {
+          "textTokens": 1,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 2
+      }
+    },
+    "seq": 21,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921300
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "chunk": {
+        "type": "text-delta",
+        "id": "text-1",
+        "text": "Host run completed."
+      }
+    },
+    "seq": 22,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921304
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "chunk": {
+        "id": "text-1",
+        "type": "text-end"
+      }
+    },
+    "seq": 23,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921305
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "stop",
+        "rawFinishReason": "stop",
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        },
+        "performance": {
+          "stepTimeMs": 1.0718329999999696,
+          "toolExecutionMs": {},
+          "responseTimeMs": 0.2962910000001102,
+          "effectiveOutputTokensPerSecond": 3375.060329202129,
+          "outputTokensPerSecond": 11278.280287808619,
+          "inputTokensPerSecond": 4816.375677302661,
+          "effectiveTotalTokensPerSecond": 6750.120658404258,
+          "timeToFirstOutputMs": 0.20762500000000728
+        },
+        "response": {
+          "id": "aitxt-vGwxombxnBpbQqMavXopE8vH",
+          "timestamp": "2026-10-07T16:35:21.299Z",
+          "modelId": "mock-model-id"
+        }
+      }
+    },
+    "seq": 24,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921305
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "chunk": {
+        "type": "finish",
+        "finishReason": "stop",
+        "rawFinishReason": "stop",
+        "totalUsage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        }
+      }
+    },
+    "seq": 25,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921310
+  },
+  {
+    "event": {
+      "type": "run.finished",
+      "runId": "5b185862-ca69-46ac-8adf-2f94552f6804",
+      "outcome": "completed"
+    },
+    "seq": 26,
+    "threadId": "4a86fefd-4ad0-42c9-9de5-562742538e76",
+    "ts": 1791390921310
+  }
+]

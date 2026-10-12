@@ -929,33 +929,6 @@ describe('assistant runtime helpers', () => {
     ).toEqual(request);
   });
 
-  it('attaches hookTrustRequest only when provided (desktop transport gate)', () => {
-    const baseArgs = {
-      agentLoopSettings: { maxSteps: 6 },
-      enabledNativeToolIds: [],
-      hostedMemoryBackendAvailable: false,
-      memoryOptions: buildAssistantMemoryOptions({ memoryLastMessages: 0 }),
-      memoryResourceId: 'workspace-a',
-      memorySettings: DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
-      modelSettings: undefined,
-      providerOptions: undefined,
-      selectedMemoryThreadId: undefined,
-      selectionData: { filePaths: [] as string[], folderId: undefined },
-      subagentSettings: DEFAULT_RUNTIME_SUBAGENT_SETTINGS,
-      workspaceContext: null,
-      workspaceIndex: baseWorkspaceIndex,
-      workspaceRootPath: '/workspace',
-    };
-
-    // Absent (web / non-data-stream) → nothing attached.
-    expect(buildAssistantRequestData(baseArgs)).not.toHaveProperty('hookTrustRequest');
-
-    const request = { approvals: [{ approvedAt: 1, rootId: 'r1', sha256: 'hash-1' }] };
-    expect(
-      buildAssistantRequestData({ ...baseArgs, hookTrustRequest: request })['hookTrustRequest']
-    ).toEqual(request);
-  });
-
   it('surfaces the count of selected files from OTHER roots (multi-root, never silently dropped)', () => {
     const data = buildAssistantRequestData({
       agentLoopSettings: { maxSteps: 6 },
@@ -1770,6 +1743,63 @@ describe('resolveOpenRouterMetadataDisabledReason', () => {
         }
       )
     ).toBe('Configured output limit 200,000 exceeds OpenRouter live maximum 128,000.');
+  });
+
+  it('gates the send while the model details load, whatever the effort', () => {
+    expect(
+      resolveOpenRouterMetadataDisabledReason(
+        'openrouter',
+        { reasoningEffort: 'max' },
+        { state: 'loading' },
+        undefined,
+        'anthropic/claude-sonnet-4.6'
+      )
+    ).toBe('Loading OpenRouter model details…');
+    expect(resolveOpenRouterMetadataDisabledReason('openai', undefined, undefined)).toBeUndefined();
+  });
+
+  it('names an effort the catalog cannot vouch for when the details failed to load', () => {
+    expect(
+      resolveOpenRouterMetadataDisabledReason(
+        'openrouter',
+        { reasoningEffort: 'max' },
+        { message: 'unavailable', state: 'error' },
+        undefined,
+        'anthropic/claude-sonnet-4.6'
+      )
+    ).toBe(
+      'OpenRouter model "Claude Sonnet 4.6 (OpenRouter)" does not declare support for reasoning effort "max". OpenRouter model details could not load: unavailable'
+    );
+  });
+
+  it('names an effort the resolved details do not support instead of throwing', () => {
+    expect(
+      resolveOpenRouterMetadataDisabledReason(
+        'openrouter',
+        { reasoningEffort: 'max' },
+        {
+          snapshot: {
+            freshness: 'live',
+            metadata: {
+              checkedAt: 42,
+              contextWindow: 1_048_576,
+              id: 'z-ai/glm-5.2',
+              maxOutputTokens: 131_072,
+              reasoning: {
+                defaultEffort: 'high',
+                defaultEnabled: true,
+                mandatory: false,
+                supportedEfforts: ['xhigh', 'high'],
+                supportsMaxTokens: false,
+              },
+              source: 'openrouter-models-api',
+              supportedParameters: ['reasoning', 'max_tokens'],
+            },
+          },
+          state: 'resolved',
+        }
+      )
+    ).toMatch(/does not support reasoning effort "max"\. Supported efforts: xhigh, high\.$/u);
   });
 
   it('does not block Auto output or a metadata lookup failure', () => {

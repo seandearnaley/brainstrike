@@ -1,11 +1,17 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { readAssistantMockRequests, setupAssistantMock } from './utils/assistant-mock';
+import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const PROMPT_TEXT = 'Summarize this workspace';
+const ANSWER = 'Hello from desktop assistant!';
+const API_KEY = 'test-key-openrouter-run-config';
+const MODEL = 'moonshotai/kimi-k3';
+
+// A new thread runs on the agent host, which calls the provider itself: the
+// run's generation settings are read where the provider receives them.
+test.use({ electronEnv: { BRAINSTRIKE_OPENROUTER_API_KEY: API_KEY } });
 
 async function openAssistantChat(window: Page): Promise<void> {
   const assistantChatCard = await ensureAssistantShellVisible(window);
@@ -20,7 +26,7 @@ async function openAssistantChat(window: Page): Promise<void> {
       });
   }
 
-  const chatPanel = window.getByTestId('chat-panel');
+  const chatPanel = window.getByRole('region', { exact: true, name: 'Assistant' });
   await expect(chatPanel).toBeVisible({ timeout: E2E_TIMEOUTS.chatPanel });
 }
 
@@ -38,48 +44,61 @@ async function sendPrompt(window: Page, prompt: string): Promise<void> {
   });
 }
 
-interface AssistantRequestBody {
-  readonly data?: {
-    readonly modelSettings?: { readonly maxOutputTokens?: number };
-    readonly providerOptions?: {
-      readonly openrouter?: {
-        readonly reasoning?: { readonly effort?: string };
-      };
-    };
-  };
+/** Select Kimi K3 and enable its catalog row, which host admission reads. */
+async function selectKimi(window: Page): Promise<void> {
+  await configureAssistantProvider(window, {
+    apiKey: API_KEY,
+    compositeModelKey: `openrouter::${MODEL}`,
+    provider: 'openrouter',
+  });
+  await window.evaluate(async (model) => {
+    const db = (
+      window as unknown as {
+        electronAPI: { db: { query: (sql: string, params: unknown[]) => Promise<unknown> } };
+      }
+    ).electronAPI.db;
+    await db.query('UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2', [
+      model,
+      'openrouter',
+    ]);
+  }, MODEL);
+}
+
+interface ProviderRequestBody {
+  readonly max_tokens?: number;
+  readonly reasoning?: { readonly effort?: string };
+  readonly stream?: boolean;
 }
 
 test.describe('Assistant OpenRouter run config (desktop)', () => {
   test.beforeEach(async ({ window }) => {
-    const { mockFileSystemOperations } = await loadElectronHelpers();
-    await mockFileSystemOperations(window);
     await ensureMockWorkspaceOpen(window);
   });
 
-  test('Kimi K3 sends the reasoning-aware output window (BST-1170)', async ({ window }) => {
+  test('Kimi K3 sends the reasoning-aware output window (BST-1170)', async ({
+    modelProvider,
+    window,
+  }) => {
     // Kimi K3 reasons by default (catalog Auto effort `low`), and reasoning
     // tokens stream into the output window on OpenRouter — the run must carry
     // Moonshot's documented 131,072 completion window, not the 32,000 coding
     // ceiling that starved thinking+answer and died at `finishReason: length`.
-    await setupAssistantMock(window, {
-      compositeModelKey: 'openrouter::moonshotai/kimi-k3',
-      models: { openrouter: 'moonshotai/kimi-k3' },
-      provider: 'openrouter',
-      variant: 'simple',
-    });
+    await selectKimi(window);
+    modelProvider.setScript({ finalText: ANSWER });
     await openAssistantChat(window);
     await sendPrompt(window, PROMPT_TEXT);
 
-    await expect(window.getByText('Hello from desktop assistant!').first()).toBeVisible({
+    await expect(window.getByText(ANSWER).first()).toBeVisible({
       timeout: E2E_TIMEOUTS.messageVisibility,
     });
 
-    const requests = (await readAssistantMockRequests(window)) as AssistantRequestBody[];
-    expect(requests.length).toBeGreaterThan(0);
-    const lastRequest = requests.at(-1);
-    expect(lastRequest?.data?.modelSettings).toMatchObject({ maxOutputTokens: 131_072 });
-    expect(lastRequest?.data?.providerOptions?.openrouter?.reasoning).toMatchObject({
-      effort: 'low',
-    });
+    // The run's own provider call, as OpenRouter receives it.
+    const runs = modelProvider
+      .requests()
+      .filter(({ requestBody }) => (requestBody as ProviderRequestBody).stream === true);
+    expect(runs.length).toBeGreaterThan(0);
+    const lastRequest = runs.at(-1)?.requestBody as ProviderRequestBody | undefined;
+    expect(lastRequest?.max_tokens).toBe(131_072);
+    expect(lastRequest?.reasoning).toMatchObject({ effort: 'low' });
   });
 });

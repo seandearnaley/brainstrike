@@ -6,9 +6,12 @@ import {
 import {
   DESKTOP_NATIVE_TOOL_IDS,
   isDesktopNativeToolId,
+  LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS,
   NATIVE_TOOL_ID,
 } from '@brainstrike/assistant-contract';
+import { readWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
+import { legacyNativeToolPorts } from './legacy-native-tool-ports';
 import {
   type DesktopAssistantToolDependencies,
   type DesktopToolBuildContext,
@@ -16,7 +19,7 @@ import {
   type MastraTools,
 } from './native-tool-executor-context';
 import { NATIVE_TOOL_EXECUTORS } from './native-tool-executors';
-import { readWorkspaceFileCursorRegistry } from './read-workspace-file-cursor-registry';
+import { resolveTavilyApiKeyFromKeychain } from './tavily-key';
 import { applyToolProjectionRewriteRecording } from './tool-projection-rewrite-repository';
 
 export type { DesktopAssistantToolDependencies } from './native-tool-executor-context';
@@ -41,15 +44,25 @@ export function buildDesktopAssistantTools(
   const context: DesktopToolBuildContext = {
     dependencies,
     isLocalProvider: isLocalProviderRuntime(runtimeData),
+    ports:
+      dependencies.nativeToolPorts ??
+      legacyNativeToolPorts(runtimeData, dependencies.toolOutputArtifactReader),
     readFileCursorRegistry:
       dependencies.readWorkspaceFileCursorRegistry ?? readWorkspaceFileCursorRegistry,
     resolveActiveDomainCharBudget: () =>
       getActiveToolResultBudget()?.domainModelResultCharBudget ?? resolvedDomainCharBudget,
     resolvedDomainCharBudget,
     runtimeData,
+    // Main still executes the web tools for legacy threads, keyed from Main's view.
+    webExtract: { resolveApiKey: resolveTavilyApiKeyFromKeychain, ...dependencies.webExtract },
+    webSearch: { resolveApiKey: resolveTavilyApiKeyFromKeychain, ...dependencies.webSearch },
   };
   const tools: MastraTools = {};
   for (const toolId of DESKTOP_NATIVE_TOOL_IDS) {
+    // The catalog's localProvider: 'unregistered' tools have no local executor.
+    if (context.isLocalProvider && LOCAL_PROVIDER_UNREGISTERED_NATIVE_TOOL_IDS.has(toolId)) {
+      continue;
+    }
     const tool = NATIVE_TOOL_EXECUTORS[toolId](context);
     if (tool) {
       tools[toolId] = tool;

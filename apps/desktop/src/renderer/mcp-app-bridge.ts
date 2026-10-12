@@ -1,43 +1,40 @@
 /**
- * Capability resolution for the desktop `window.mcp.apps` bridge (BST-1572).
+ * Capability resolution for the desktop `window.mcp.apps` shell bridge (BST-1572).
  *
- * The visible-UI preload exposes `McpAppBridge` as `window.mcp.apps`; hidden
- * hosts and web have no such member. The bridge is resolved by probing the
- * six required members (no `isElectron()` check) and is `null` when any is
- * missing, so the thread UI renders the ordinary tool result with a visible
- * "App rendering unavailable in this host" note instead of a half-wired host.
+ * The visible-UI preload exposes the app shell as `window.mcp.apps`; hidden
+ * hosts and web have no such member. The bridge is resolved by probing its
+ * two members (no `isElectron()` check) and is
+ * `null` when any is missing, so the thread UI renders the ordinary tool
+ * result with a visible "App rendering unavailable in this host" note instead
+ * of a half-wired host.
  */
-import type { McpAppBridge } from '@brainstrike/assistant-contract';
+import type { McpAppShellBridge } from '@brainstrike/assistant-contract';
 
-const BRIDGE_METHODS = [
-  'execute',
-  'prepare',
+const SHELL_METHODS = [
   'prepareShell',
-  'readResource',
-  'release',
   'releaseShell',
-] as const satisfies readonly (keyof McpAppBridge)[];
+] as const satisfies readonly (keyof McpAppShellBridge)[];
 
-interface McpAppBridgeHost {
+interface McpAppShellBridgeHost {
   readonly mcp?: { readonly apps?: unknown };
 }
 
-function isMcpAppBridge(candidate: unknown): candidate is McpAppBridge {
+function isMcpAppShellBridge(candidate: unknown): candidate is McpAppShellBridge {
   if (typeof candidate !== 'object' || candidate === null) {
     return false;
   }
-  const members = candidate as Partial<Record<keyof McpAppBridge, unknown>>;
-  return BRIDGE_METHODS.every((method) => typeof members[method] === 'function');
+  const members = candidate as Partial<Record<keyof McpAppShellBridge, unknown>>;
+  return SHELL_METHODS.every((method) => typeof members[method] === 'function');
 }
 
-/** Resolve `window.mcp.apps`, or `null` when this host exposes no complete bridge. */
-export function resolveMcpAppBridge(
-  host: McpAppBridgeHost | undefined = readWindowHost()
-): McpAppBridge | null {
+/** Resolve `window.mcp.apps`, or `null` when this host exposes no complete shell bridge. */
+export function resolveMcpAppShellBridge(
+  host: McpAppShellBridgeHost | undefined = readWindowHost()
+): McpAppShellBridge | null {
   const candidate = host?.mcp?.apps;
-  return isMcpAppBridge(candidate) ? candidate : null;
+  return isMcpAppShellBridge(candidate) ? candidate : null;
 }
 
-function readWindowHost(): McpAppBridgeHost | undefined {
-  return typeof window === 'undefined' ? undefined : (window as McpAppBridgeHost);
+function readWindowHost(): McpAppShellBridgeHost | undefined {
+  return typeof window === 'undefined' ? undefined : (window as McpAppShellBridgeHost);
 }

@@ -36,6 +36,7 @@ import {
   queryEmbeddingListenerRef,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
+  retireEmbeddingQueueMock,
   startEmbeddingWorkerMock,
   stopMock,
   storeState,
@@ -174,7 +175,9 @@ describe('committed readiness fix physical query ownership controls', () => {
       { isDestroyed: () => false, once: vi.fn(), webContents: requester } as never,
       'visible-ui'
     );
-    const unregister = registerEmbeddingHostIpcHandlers(run.manager);
+    const unregister = registerEmbeddingHostIpcHandlers(run.manager, {
+      stop: () => run.manager.stop(),
+    });
     onTestFinished(() => {
       unregister();
       clearWindowRoleByWebContentsId(requester.id);
@@ -224,6 +227,42 @@ describe('committed readiness fix physical query ownership controls', () => {
     run.finish();
     await expect(result).resolves.toBe(reason);
     expect(run.isPhysicallyActive()).toBe(false);
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
+  });
+
+  it('joins physical pool retirement before publishing a rejected query or completing Stop', async () => {
+    const run = await connectControlledQuery();
+    const physical = Promise.withResolvers<void>();
+    const workerFailure = new Error('Worker terminated');
+    onTestFinished(() => physical.resolve());
+    retireEmbeddingQueueMock.mockImplementationOnce(() => {
+      run.fail(workerFailure);
+      return physical.promise;
+    });
+    const querySettled = vi.fn();
+    const result = run.manager.queryEmbedding(query).catch((error: unknown) => {
+      querySettled();
+      return error;
+    });
+    await waitFor(() => expect(run.add).toHaveBeenCalledOnce());
+    const stopped = vi.fn();
+    const stopping = run.manager.stop().then((status) => {
+      stopped();
+      return status;
+    });
+    await act(async () => {});
+    expect(retireEmbeddingQueueMock).toHaveBeenCalledOnce();
+    expect(querySettled).not.toHaveBeenCalled();
+    expect(stopped).not.toHaveBeenCalled();
+    expect(reportQueryEmbeddingResponseMock).not.toHaveBeenCalled();
+    expect(run.dispose).not.toHaveBeenCalled();
+    expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(1);
+    physical.resolve();
+    await expect(stopping).resolves.toMatchObject({ state: 'stopped' });
+    expect(failureCauses(await result)).toContainEqual(
+      expect.objectContaining({ message: 'Worker terminated' })
+    );
+    expect(run.dispose).toHaveBeenCalledOnce();
     expect(run.manager.getPlatformStatus().pendingRequestCount).toBe(0);
   });
 
@@ -329,8 +368,12 @@ describe('committed readiness fix physical query ownership controls', () => {
       } else {
         held.resolve();
       }
-      const completion = await result;
+      if (action === 'stop' && outcome === 'failure') {
+        await act(async () => {});
+        expect(settled).toBe(false);
+      }
       backgroundStop.resolve();
+      const completion = await result;
       await switching;
       expect(run.dispose).toHaveBeenCalledOnce();
       if (outcome === 'failure') {

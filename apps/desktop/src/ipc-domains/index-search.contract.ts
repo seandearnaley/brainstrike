@@ -2,6 +2,7 @@ import type {
   IndexerCoverageRequest,
   IndexerGrepRequest,
   IndexerSearchRequest,
+  IndexRootRegistrationCapability,
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
@@ -159,6 +160,14 @@ export const indexSearchContract = {
     parseArgs: parseNoArgs,
     roles: ['visible-ui'],
   }),
+  rootsRegistered: channel<[], void>({
+    channel: DESKTOP_IPC_CHANNELS.indexSearch.rootsRegistered,
+    parseArgs: (raw): [] => {
+      assertArgCount(raw, 0, 'native root registration');
+      return [];
+    },
+    roles: ['visible-ui'],
+  }),
   search: channel<[IndexerSearchRequest], Result<'search'>>({
     channel: DESKTOP_IPC_CHANNELS.indexSearch.search,
     parseArgs: parseSearch,
@@ -171,5 +180,5 @@ export const indexSearchContract = {
   }),
 } satisfies Contract;
 export type IndexSearchBridgeDerivation = AssertTrue<
-  BridgeMatches<typeof indexSearchContract, IndexSearchCapability>
+  BridgeMatches<typeof indexSearchContract, IndexSearchCapability & IndexRootRegistrationCapability>
 >;

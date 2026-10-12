@@ -2,33 +2,37 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { ElectronApplication, Locator, Page } from '@playwright/test';
-import { setVectorDevicePreference } from './embedding-worker-renderer.shared';
+import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
+import type { Locator, Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
+import { HomePage } from './page-objects/home-page';
 import {
-  type BackfillCompletion,
+  type BenchDevice,
+  describeEnvironment,
+  formatSummary,
+  mainMetrics,
+  readBenchDevice,
+  rendererMetrics,
+  round3,
+  seedPausedWorkspace,
+  seedRunningChatRun,
+  showAppWindow,
+} from './utils/foreground-latency-bench';
+import {
   calibrateRendererFrameProbe,
-  installBuildSignals,
   installMainProbes,
   installRendererFrameProbe,
-  type LatencySummary,
-  type MainPhaseSamples,
   markRendererPhase,
-  markRendererPhaseAtCompletion,
   pauseMainLoadedPhase,
-  type RendererWindowSamples,
   readRendererWindows,
   resumeMainLoadedPhase,
   runMainIdlePhase,
   startMainLoadedPhase,
   stopMainLoadedPhase,
-  summarize,
-  waitForBackfillCompletion,
   warmUpMainProbes,
 } from './utils/foreground-latency-probes';
 import { type IndexBuildCorpus, writeIndexBuildCorpus } from './utils/index-build-corpus';
 import { createIndexProgressWatch } from './utils/index-progress-watch';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
 
 /**
  * Loaded foreground-latency benchmark (BST-1925): the instrument behind working
@@ -40,6 +44,13 @@ import { loadElectronHelpers } from './utils/load-electron-helpers';
  * - the chat path's per-step DB write (`recordDesktopAssistantRunEvent`);
  * - an agent tool's read (the tool file reader plus a grep-tool index query);
  * - build throughput in chunks/s.
+ *
+ * The build is the native Workspace Index's (`NativeWorkspaceIndexProvider`):
+ * the seeded root opens paused, BGE Small is chosen through Search & Indexing
+ * with the configured execution device, and Resume starts the build. Counts
+ * and the device come from the renderer's `indexSearch` capability, read
+ * between windows every `CHECK_EVERY_MS`, so a loaded window ends at the first
+ * check that finds the index terminal.
  *
  * It REPORTS; it does not gate on the numbers. It fails only when the run
  * cannot produce valid numbers. See docs/performance/foreground-latency-under-index-build.md.
@@ -58,14 +69,22 @@ const MIN_LOADED_SAMPLES = 100;
 const MIN_BUILD_MS = 60_000;
 /** A visible window at display rate gaps ~16.7 ms; above this the frame metric is meaningless. */
 const MAX_IDLE_FRAME_GAP_P50_MS = 20;
-const LONG_FRAME_MS = 50;
 /** A deliberate renderer block before the idle phase; the probe must see it. */
 const CALIBRATION_BLOCK_MS = 120;
-const WORKSPACE_RESOURCE_ID = 'brainstrike:workspace';
 const BENCH_ROOT_ID = 'foreground-latency-benchmark-root';
 /** Root-relative and never written, so the grep's index work is identical idle and loaded. */
 const NEVER_INDEXED_GREP_PATH = 'packages/foreground-latency-probe/never-indexed.ts';
 const GREP_PATTERN = 'total +=';
+/**
+ * The native index holds no PGlite Workspace Index set, so the tool read's
+ * index half greps a set id with no rows: the same foreground PGlite read idle
+ * and loaded.
+ */
+const PROBE_EMBEDDING_SET_ID = 'foreground-latency-benchmark-no-set';
+/** How often the loaded window pauses to read the index counts (unmeasured). */
+const CHECK_EVERY_MS = 2000;
+/** Search & Indexing's execution choice for each benchmark device. */
+const EXECUTION_LABEL = { wasm: 'WASM · Q8', webgpu: 'WebGPU · FP16' } as const;
 /**
  * No change in any index count for this long ends the run as invalid instead of
  * waiting out the test timeout; it is also how often the loop checks. The
@@ -76,30 +95,18 @@ const GREP_PATTERN = 'total +=';
 const STALL_WINDOW_MS = 200_000;
 const NO_PROGRESS = { chunkCount: 0, chunkedFileCount: 0, embeddedChunkCount: 0, fileCount: 0 };
 
-type Device = 'wasm' | 'webgpu';
-
-interface DbBridgeRow {
-  readonly [column: string]: unknown;
-}
-
 interface IndexSummary {
+  /** The native query plan's execution device and dtype; null before the index is ready. */
   readonly actualDevice: string | null;
   readonly chunkCount: number;
+  /** The native index publishes whole files: an indexed file is a chunked file. */
   readonly chunkedFileCount: number;
   readonly dtype: string | null;
   readonly embeddedChunkCount: number;
-  readonly fallbackApplied: boolean | null;
   readonly fileCount: number;
-  readonly openJobStates: readonly string[];
-  readonly syncState: string;
-}
-
-function readDevice(): Device {
-  const raw = process.env[DEVICE_ENV]?.trim() || 'webgpu';
-  if (raw !== 'wasm' && raw !== 'webgpu') {
-    throw new Error(`${DEVICE_ENV} must be "wasm" or "webgpu", got "${raw}".`);
-  }
-  return raw;
+  readonly missingVectors: number;
+  readonly scanComplete: boolean;
+  readonly status: string;
 }
 
 function readFiles(): number {
@@ -114,199 +121,86 @@ function readFiles(): number {
   return value;
 }
 
-async function queryDb(page: Page, sql: string, params: readonly unknown[] = []) {
-  return await page.evaluate(
-    async ({ statement, values }) => {
-      const query = (
-        window as Window & {
-          electronAPI?: {
-            db?: {
-              query?: (
-                sql: string,
-                params?: readonly unknown[]
-              ) => Promise<{ rows?: readonly DbBridgeRow[] }>;
-            };
-          };
-        }
-      ).electronAPI?.db?.query;
-      if (typeof query !== 'function') {
-        throw new Error('electronAPI.db.query is unavailable.');
-      }
-      return (await query(statement, values)).rows ?? [];
-    },
-    { statement: sql, values: params }
-  );
-}
-
-/**
- * Desktop E2E never shows the app window. A never-shown window on Linux runs
- * rAF at about 1 Hz, so frame gaps would describe the harness, not the app; a
- * user's window is visible. Shown inactive, so it takes no focus.
- */
-async function showAppWindow(app: ElectronApplication, page: Page): Promise<void> {
-  const browserWindow = await app.browserWindow(page);
-  const visible = await browserWindow.evaluate((win) => {
-    win.showInactive();
-    return win.isVisible();
-  });
-  if (!visible) {
-    throw new Error('The app window did not become visible.');
-  }
-}
-
-async function seedPausedWorkspace(page: Page, rootPath: string, device: Device): Promise<void> {
-  await page.evaluate(
-    async ({ root, rootId }) => {
-      const storage = (
-        window as Window & {
-          electronAPI?: { storage?: { setItem?: (key: string, value: string) => Promise<void> } };
-        }
-      ).electronAPI?.storage;
-      if (!storage?.setItem) {
-        throw new Error('electronAPI.storage.setItem is unavailable.');
-      }
-      await storage.setItem('lastFolderPath', root);
-      await storage.setItem(
-        'rootsList',
-        JSON.stringify([{ addedAt: 1_800_000_000_000, path: root, rootId }])
-      );
-      // Paused, so the idle baseline is taken with the workspace open and nothing indexing.
-      await storage.setItem(
-        'background-indexing-preferences.v1',
-        JSON.stringify({
-          state: {
-            enabled: true,
-            indexingPolicyPreset: 'full-root',
-            managedCollectionId: null,
-            mode: 'root-folder-cache',
-            paused: true,
-            worktreeRootIndexingByAdapterRootId: {},
-            worktreeRootIndexingOptInById: {},
-          },
-          version: 5,
-        })
-      );
-    },
-    { root: rootPath, rootId: BENCH_ROOT_ID }
-  );
-  await setVectorDevicePreference(page, device);
-  const { reloadRenderer } = await loadElectronHelpers();
-  await reloadRenderer(page, 'foreground-latency-benchmark-seeded');
-  await page.waitForFunction(
-    () =>
-      typeof (window as Window & { __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: unknown })
-        .__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__ === 'object',
-    undefined,
-    { timeout: 60_000 }
-  );
-  await expect(page.getByTestId('indexing-status-trigger')).toContainText('Paused', {
-    timeout: 60_000,
-  });
-}
-
-async function readWorkspaceIndexSetId(page: Page): Promise<string> {
-  let setId: string | null = null;
-  await expect
-    .poll(
-      async () => {
-        const rows = await queryDb(
-          page,
-          `SELECT id FROM embedding_sets WHERE system_role = 'workspace-index'`
-        );
-        setId = rows.length === 1 && typeof rows[0]?.['id'] === 'string' ? rows[0]['id'] : null;
-        return setId;
-      },
-      { message: 'Expected exactly one Workspace Index embedding set.', timeout: 60_000 }
-    )
-    .not.toBeNull();
-  if (setId === null) {
-    throw new Error('Workspace Index embedding set id is unresolved.');
-  }
-  return setId;
-}
-
-/** A thread with a `running` run row: the chat-path write needs a parent run, as during a real turn. */
-async function seedRunningChatRun(page: Page): Promise<string> {
-  const threadId = 'foreground-latency-benchmark-thread';
-  const runId = 'foreground-latency-benchmark-run';
-  await queryDb(
-    page,
-    `INSERT INTO mastra_threads (id, "resourceId", title, metadata, "createdAt", "updatedAt")
-     VALUES ($1, $2, 'Foreground latency benchmark', '{}'::jsonb, now(), now())`,
-    [threadId, WORKSPACE_RESOURCE_ID]
-  );
-  await queryDb(
-    page,
-    `INSERT INTO brainstrike_assistant_thread_runs
-       (id, resource_id, thread_id, provider, model, runtime_kind, status, started_at, created_at, updated_at)
-     VALUES ($1, $2, $3, 'openrouter', 'benchmark/model', 'hosted', 'running', now(), now(), now())`,
-    [runId, WORKSPACE_RESOURCE_ID, threadId]
-  );
-  return runId;
-}
-
-function readNumber(row: Record<string, unknown>, key: string): number {
-  const value = row[key];
-  return typeof value === 'number' ? value : Number(value ?? 0);
-}
-
+/** The native index's counts and execution plan for every authorized root. */
 async function readIndexSummary(page: Page): Promise<IndexSummary> {
-  const summary = await page.evaluate(async () => {
-    const api = (
-      window as Window & {
-        __BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__?: { summary: () => Promise<Record<string, unknown>> };
-      }
-    ).__BRAINSTRIKE_WORKSPACE_INDEX_DEBUG__;
-    if (!api) {
-      throw new Error('Workspace Index debug API is unavailable.');
+  return await page.evaluate(async () => {
+    const capability = (
+      globalThis as typeof globalThis & { readonly indexSearch?: IndexSearchCapability }
+    ).indexSearch;
+    if (!capability) {
+      throw new Error('The native index capability is unavailable.');
     }
-    return await api.summary();
-  });
-  if (Array.isArray(summary['accessIssues']) && summary['accessIssues'].length > 0) {
-    throw new Error(
-      `Workspace Index summary access issues: ${JSON.stringify(summary['accessIssues'])}`
-    );
-  }
-  const files = summary['fileRecordsByRoot'] as Record<string, unknown>[];
-  const chunks = summary['chunkStatsByRootAndSet'] as Record<string, unknown>[];
-  const jobs = summary['jobQueue'] as Record<string, unknown>[];
-  const host = summary['embeddingHostStatus'] as {
-    status?: {
-      embeddingRuntime?: {
-        actualWorkerMetadata?: {
-          device?: string;
-          dtype?: string;
-          fallbackApplied?: boolean;
-        } | null;
-      };
+    const status = await capability.status();
+    const none = {
+      actualDevice: null,
+      chunkCount: 0,
+      chunkedFileCount: 0,
+      dtype: null,
+      embeddedChunkCount: 0,
+      fileCount: 0,
+      missingVectors: 0,
+      scanComplete: false,
     };
-  };
-  const worker = host?.status?.embeddingRuntime?.actualWorkerMetadata ?? null;
-  const sum = (rows: Record<string, unknown>[], key: string): number =>
-    rows.reduce((total, row) => total + readNumber(row, key), 0);
-  return {
-    actualDevice: worker?.device ?? null,
-    chunkCount: sum(chunks, 'chunk_count'),
-    chunkedFileCount: sum(files, 'chunked_file_count'),
-    dtype: worker?.dtype ?? null,
-    embeddedChunkCount: sum(chunks, 'embedded_chunk_count'),
-    fallbackApplied: worker?.fallbackApplied ?? null,
-    fileCount: sum(files, 'file_count'),
-    openJobStates: jobs
-      .map((row) => String(row['state']))
-      .filter((state) => state === 'queued' || state === 'running' || state === 'failed'),
-    syncState: String((summary['syncStatus'] as { state?: unknown } | undefined)?.state),
-  };
+    if (status.kind !== 'ready') {
+      return { ...none, status: `${status.kind}: ${status.reason}` };
+    }
+    const plan = status.queryPlan?.inferencePlan;
+    const observation = await capability.coverageBatch([{ rootIds: status.authorizedRootIds }]);
+    if (observation.kind === 'blocked') {
+      throw new Error(`Native coverage is blocked: ${observation.reason}`);
+    }
+    if (observation.kind === 'invalidated') {
+      return { ...none, status: 'invalidated' };
+    }
+    const totals = observation.coverage[0]?.totals;
+    if (!totals) {
+      throw new Error('Native coverage omitted the requested roots.');
+    }
+    return {
+      actualDevice: plan?.device ?? null,
+      chunkCount: totals.chunks,
+      chunkedFileCount: totals.indexedFiles,
+      dtype: plan?.dtype ?? null,
+      embeddedChunkCount: totals.vectors,
+      fileCount: totals.indexedFiles,
+      missingVectors: totals.missingVectors,
+      scanComplete:
+        observation.status.rootReadiness.length > 0 &&
+        observation.status.rootReadiness.every((root) => root.scanComplete),
+      status: 'ready',
+    };
+  });
 }
 
 function isTerminal(summary: IndexSummary, files: number): boolean {
   return (
+    summary.scanComplete &&
     summary.fileCount === files &&
-    summary.chunkedFileCount === files &&
     summary.chunkCount > 0 &&
     summary.embeddedChunkCount === summary.chunkCount &&
-    summary.openJobStates.length === 0
+    summary.missingVectors === 0
   );
+}
+
+/** Chooses BGE Small and the device's execution plan while the index is paused. */
+async function configureNativeIndex(page: Page, device: BenchDevice): Promise<void> {
+  const home = new HomePage(page);
+  await home.openSettings();
+  await page.getByRole('button', { name: 'Search & Indexing' }).click();
+  await page.getByTestId('settings-category-search-indexing').waitFor();
+  await page.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
+  await page.getByRole('option', { name: /BGE Small/ }).click();
+  await page.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
+  await expect(page.getByRole('combobox', { name: 'Managed collection' })).toContainText(
+    'Workspace Index (BGE Small)',
+    { timeout: 30_000 }
+  );
+  await page.getByRole('combobox', { name: 'Search mode' }).click();
+  await page.getByRole('option', { exact: true, name: 'Text and semantic search' }).click();
+  await page.getByRole('combobox', { name: 'Local model execution' }).click();
+  await page.getByRole('option', { exact: true, name: EXECUTION_LABEL[device] }).click();
+  await home.leaveSettings();
+  await expect(page.getByTestId('indexing-status-trigger')).toContainText('Paused');
 }
 
 /** Opens the indexing popover and returns its Resume button, ready to click. */
@@ -324,60 +218,13 @@ async function closeIndexingPopover(page: Page): Promise<void> {
   await expect(page.getByTestId('indexing-status-popover')).toBeHidden();
 }
 
-function rendererMetrics(samples: RendererWindowSamples) {
-  return {
-    frameGapMs: summarize(samples.frameGapsMs),
-    framesOver50Ms: samples.frameGapsMs.filter((gap) => gap > LONG_FRAME_MS).length,
-    longTasks: {
-      count: samples.longTaskDurationsMs.length,
-      maxMs:
-        samples.longTaskDurationsMs.length === 0 ? 0 : summarize(samples.longTaskDurationsMs).max,
-      totalMs: Math.round(samples.longTaskDurationsMs.reduce((total, ms) => total + ms, 0)),
-    },
-  };
-}
-
-function round3(value: number): number {
-  return Math.round(value * 1000) / 1000;
-}
-
-function mainMetrics(samples: MainPhaseSamples) {
-  return {
-    chatPathOpMs: summarize(samples.chatPathOpMs),
-    eventLoopLagMs: samples.eventLoopLagMs,
-    toolFileReadMs: summarize(samples.toolFileReadMs),
-    toolIndexQueryMs: summarize(samples.toolIndexQueryMs),
-    toolReadMs: summarize(samples.toolReadMs),
-  };
-}
-
-function describeEnvironment(electronVersion: string, loadAverage: readonly number[]) {
-  const cpus = os.cpus();
-  return {
-    arch: process.arch,
-    ci: process.env['CI'] === 'true',
-    cpuCount: cpus.length,
-    cpuModel: cpus[0]?.model.trim() ?? 'unknown',
-    electronVersion,
-    loadAverageAtStart: loadAverage.map((value) => Math.round(value * 100) / 100),
-    osRelease: os.release(),
-    platform: process.platform,
-    runner: process.env['RUNNER_NAME'] ?? null,
-    totalMemoryGb: Math.round(os.totalmem() / 1024 ** 3),
-  };
-}
-
-function formatSummary(label: string, summary: LatencySummary): string {
-  return `${label}: n=${summary.n} p50=${summary.p50} p95=${summary.p95} max=${summary.max}`;
-}
-
 test.describe('Foreground latency under a full index build', () => {
   test(
     'measures foreground latency while a full Workspace Index build runs',
     { tag: '@perf' },
     async ({ electronApp, window: page }, testInfo) => {
       test.setTimeout(55 * 60 * 1000);
-      const device = readDevice();
+      const device = readBenchDevice(DEVICE_ENV);
       const files = readFiles();
       const evidencePath =
         process.env[EVIDENCE_PATH_ENV]?.trim() ||
@@ -390,14 +237,20 @@ test.describe('Foreground latency under a full index build', () => {
 
       try {
         await showAppWindow(electronApp.app, page);
-        await seedPausedWorkspace(page, corpus.rootPath, device);
-        const embeddingSetId = await readWorkspaceIndexSetId(page);
+        await seedPausedWorkspace(
+          page,
+          corpus.rootPath,
+          BENCH_ROOT_ID,
+          device,
+          'foreground-latency-benchmark-seeded'
+        );
+        await configureNativeIndex(page, device);
         const chatRunId = await seedRunningChatRun(page);
 
         await installRendererFrameProbe(page);
         await installMainProbes(electronApp.app, {
           chatRunId,
-          embeddingSetId,
+          embeddingSetId: PROBE_EMBEDDING_SET_ID,
           grepFilePath: NEVER_INDEXED_GREP_PATH,
           grepPattern: GREP_PATTERN,
           periodMs: PROBE_PERIOD_MS,
@@ -414,10 +267,9 @@ test.describe('Foreground latency under a full index build', () => {
         await markRendererPhase(page, 'idle-end');
         const idleRenderer = await readRendererWindows(page, [['idle-start', 'idle-end']]);
 
-        // ---- loaded: from the Resume click until the backfill completes on a terminal index ----
-        // Main and renderer start just before the click and stop at the completion.
+        // ---- loaded: from the Resume click until a check finds a terminal index ----
+        // Main and renderer start just before the click and stop at that check.
         // Every index check runs between windows, so it is not measured.
-        await installBuildSignals(page, embeddingSetId);
         const resume = await openResumeControl(page);
         await startMainLoadedPhase(electronApp.app);
         await markRendererPhase(page, 'loaded-start-0');
@@ -431,23 +283,16 @@ test.describe('Foreground latency under a full index build', () => {
           startedAtMs: buildStartedAt,
         });
         const loadedWindows: Array<readonly [string, string]> = [];
-        let completion: BackfillCompletion | null = null;
-        let completionIndex = 0;
         let finalSummary: IndexSummary;
         let buildElapsedMs: number;
         for (let segment = 0; ; segment += 1) {
-          const arrived = await waitForBackfillCompletion(page, completionIndex, STALL_WINDOW_MS);
+          await page.waitForTimeout(CHECK_EVERY_MS);
           const wokeAt = Date.now();
           await pauseMainLoadedPhase(electronApp.app);
-          if (arrived) {
-            await markRendererPhaseAtCompletion(page, `loaded-end-${segment}`, completionIndex);
-          } else {
-            await markRendererPhase(page, `loaded-end-${segment}`);
-          }
+          await markRendererPhase(page, `loaded-end-${segment}`);
           loadedWindows.push([`loaded-start-${segment}`, `loaded-end-${segment}`]);
           const summary = await readIndexSummary(page);
-          if (arrived && isTerminal(summary, files)) {
-            completion = arrived;
+          if (isTerminal(summary, files)) {
             finalSummary = summary;
             buildElapsedMs = wokeAt - buildStartedAt;
             break;
@@ -459,9 +304,6 @@ test.describe('Foreground latency under a full index build', () => {
             finalSummary = summary;
             buildElapsedMs = wokeAt - buildStartedAt;
             break;
-          }
-          if (arrived) {
-            completionIndex += 1;
           }
           await resumeMainLoadedPhase(electronApp.app);
           await markRendererPhase(page, `loaded-start-${segment + 1}`);
@@ -501,9 +343,9 @@ test.describe('Foreground latency under a full index build', () => {
             );
           }
         }
-        if (finalSummary.actualDevice !== device || finalSummary.fallbackApplied !== false) {
+        if (finalSummary.actualDevice !== device) {
           invalidReasons.push(
-            `embedding ran on ${finalSummary.actualDevice} (fallbackApplied=${finalSummary.fallbackApplied}), not the configured ${device}`
+            `the native query plan runs on ${finalSummary.actualDevice}, not the configured ${device}`
           );
         }
 
@@ -512,7 +354,6 @@ test.describe('Foreground latency under a full index build', () => {
         const evidence = {
           build: {
             actualDevice: finalSummary.actualDevice,
-            backfillCompletion: completion,
             chunkCount: finalSummary.chunkCount,
             chunksPerSecond: round3(finalSummary.embeddedChunkCount / (buildElapsedMs / 1000)),
             completedChunkCount: finalSummary.embeddedChunkCount,
@@ -523,6 +364,7 @@ test.describe('Foreground latency under a full index build', () => {
           capturedAt: new Date().toISOString(),
           commit,
           config: {
+            checkEveryMs: CHECK_EVERY_MS,
             corpus: {
               bytes: corpus.bytes,
               files: corpus.files,
@@ -571,7 +413,7 @@ test.describe('Foreground latency under a full index build', () => {
               toolRead: loadedMain.toolReadMs.map(round3),
             },
           },
-          schema: 'brainstrike.foreground-latency-under-index-build.v1',
+          schema: 'brainstrike.foreground-latency-under-index-build.v2',
           status: invalidReasons.length === 0 ? 'valid' : 'invalid',
         };
         mkdirSync(path.dirname(evidencePath), { recursive: true });

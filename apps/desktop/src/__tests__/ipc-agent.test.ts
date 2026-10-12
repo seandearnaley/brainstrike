@@ -13,10 +13,6 @@ vi.mock('electron', () => ({
 }));
 
 // Mock dependencies
-vi.mock('../mcp-loader', () => ({
-  loadMcpConfig: vi.fn(),
-}));
-
 vi.mock('../openai-api-key', () => ({
   readOpenAIApiKey: vi.fn(),
 }));
@@ -117,12 +113,7 @@ describe('registerAgentIpcHandlers', () => {
         streamMastraAgent,
       } as unknown as typeof import('@brainstrike/agent');
 
-      const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');
-
-      vi.mocked(loadMcpConfig).mockResolvedValue({
-        config: { servers: {} },
-      } as never);
       vi.mocked(readOpenAIApiKey).mockResolvedValue('test-api-key');
 
       const messages = [
@@ -169,10 +160,7 @@ describe('registerAgentIpcHandlers', () => {
         streamMastraAgent,
       } as unknown as typeof import('@brainstrike/agent');
 
-      const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');
-
-      vi.mocked(loadMcpConfig).mockResolvedValue({ config: {} } as never);
       vi.mocked(readOpenAIApiKey).mockResolvedValue('fallback-key');
 
       const messages = [
@@ -217,10 +205,7 @@ describe('registerAgentIpcHandlers', () => {
         streamMastraAgent,
       } as unknown as typeof import('@brainstrike/agent');
 
-      const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');
-
-      vi.mocked(loadMcpConfig).mockResolvedValue({ config: {} } as never);
       vi.mocked(readOpenAIApiKey).mockResolvedValue('key');
 
       const messages = [
@@ -269,10 +254,7 @@ describe('registerAgentIpcHandlers', () => {
         streamMastraAgent,
       } as unknown as typeof import('@brainstrike/agent');
 
-      const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');
-
-      vi.mocked(loadMcpConfig).mockResolvedValue({ config: {} } as never);
       vi.mocked(readOpenAIApiKey).mockResolvedValue('fallback-key');
 
       const messages = [
@@ -328,10 +310,7 @@ describe('registerAgentIpcHandlers', () => {
         streamMastraAgent,
       } as unknown as typeof import('@brainstrike/agent');
 
-      const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');
-
-      vi.mocked(loadMcpConfig).mockResolvedValue({ config: {} } as never);
       vi.mocked(readOpenAIApiKey).mockResolvedValue('fallback-key');
 
       const messages: AgentMessage[] = [
@@ -363,12 +342,9 @@ describe('registerAgentIpcHandlers', () => {
         streamMastraAgent: mockStreamMastraAgent,
       } as unknown as typeof import('@brainstrike/agent');
 
-      const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');
       const { readProviderCredential } = await import('../provider-api-key');
 
-      const mcpConfig = { servers: { testServer: {} } };
-      vi.mocked(loadMcpConfig).mockResolvedValue({ config: mcpConfig } as never);
       vi.mocked(readOpenAIApiKey).mockResolvedValue(undefined);
       vi.mocked(readProviderCredential).mockResolvedValue({
         key: 'secret-key',
@@ -394,7 +370,6 @@ describe('registerAgentIpcHandlers', () => {
       await chatHandler({} as IpcMainInvokeEvent, messages, runtime);
 
       expect(mockStreamMastraAgent).toHaveBeenCalledWith(messages, {
-        mcpHost: expect.any(Object),
         runtime: {
           apiKey: 'secret-key',
           mcpEnabled: false,
@@ -405,7 +380,8 @@ describe('registerAgentIpcHandlers', () => {
       });
     });
 
-    it('passes the desktop MCP host through to the agent runtime', async () => {
+    // BST-1930: legacy chat carries no MCP; the one MCP runtime serves agent-host threads.
+    it('runs legacy chat without an MCP host', async () => {
       const mockStreamMastraAgent = vi.fn().mockReturnValue({
         [Symbol.asyncIterator]: () => ({
           async next() {
@@ -419,12 +395,7 @@ describe('registerAgentIpcHandlers', () => {
         streamMastraAgent: mockStreamMastraAgent,
       } as unknown as typeof import('@brainstrike/agent');
 
-      const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');
-      const rawConfig = {
-        servers: [{ args: ['/tmp'], command: 'npx', name: 'filesystem', transport: 'stdio' }],
-      };
-      vi.mocked(loadMcpConfig).mockResolvedValue({ config: rawConfig } as never);
       vi.mocked(readOpenAIApiKey).mockResolvedValue('fallback-key');
 
       const messages = [
@@ -437,16 +408,16 @@ describe('registerAgentIpcHandlers', () => {
 
       await chatHandler({} as IpcMainInvokeEvent, messages, { provider: 'openai' });
 
-      expect(mockStreamMastraAgent).toHaveBeenCalledWith(
-        messages,
-        expect.objectContaining({
-          mcpHost: expect.any(Object),
-          runtime: expect.not.objectContaining({ mcpConfig: expect.anything() }),
-        })
-      );
+      expect(mockStreamMastraAgent).toHaveBeenCalledTimes(1);
+      const [, options] = mockStreamMastraAgent.mock.calls[0] as [
+        unknown,
+        { mcpHost?: unknown; runtime: Record<string, unknown> },
+      ];
+      expect(options).not.toHaveProperty('mcpHost');
+      expect(options.runtime).not.toHaveProperty('mcpConfig');
     });
 
-    it('ignores runtime-supplied MCP config and uses the desktop host', async () => {
+    it('ignores runtime-supplied MCP config and passes no MCP host', async () => {
       const mockStreamMastraAgent = vi.fn().mockReturnValue({
         [Symbol.asyncIterator]: () => ({
           async next() {
@@ -460,12 +431,10 @@ describe('registerAgentIpcHandlers', () => {
         streamMastraAgent: mockStreamMastraAgent,
       } as unknown as typeof import('@brainstrike/agent');
 
-      const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');
       const rawConfig = {
         servers: [{ args: ['/tmp'], command: 'npx', name: 'filesystem', transport: 'stdio' }],
       };
-      vi.mocked(loadMcpConfig).mockResolvedValue({ config: rawConfig } as never);
       vi.mocked(readOpenAIApiKey).mockResolvedValue('fallback-key');
 
       const messages = [
@@ -488,7 +457,7 @@ describe('registerAgentIpcHandlers', () => {
       ];
       expect(options.runtime['provider']).toBe('openai');
       expect(options.runtime['mcpConfig']).toBeUndefined();
-      expect(options.mcpHost).toEqual(expect.any(Object));
+      expect(options).not.toHaveProperty('mcpHost');
     });
 
     it('throws when provider is missing or unsupported', async () => {
@@ -546,11 +515,8 @@ describe('registerAgentIpcHandlers', () => {
         streamMastraAgent: mockStreamMastraAgent,
       } as unknown as typeof import('@brainstrike/agent');
 
-      const { loadMcpConfig } = await import('../mcp-loader');
       const { readOpenAIApiKey } = await import('../openai-api-key');
 
-      const mcpConfig = { servers: {} };
-      vi.mocked(loadMcpConfig).mockResolvedValue({ config: mcpConfig } as never);
       vi.mocked(readOpenAIApiKey).mockResolvedValue(
         null as unknown as Awaited<ReturnType<typeof readOpenAIApiKey>>
       );

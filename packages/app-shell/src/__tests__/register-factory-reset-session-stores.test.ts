@@ -1,5 +1,9 @@
 import { clearPersistentUiStateWithResult } from '@brainstrike/app-state/factory-reset';
-import { useAssistantThreadGroupsStore } from '@brainstrike/assistant-data';
+import {
+  resetAssistantThreadStore,
+  useAssistantThreadGroupsStore,
+  useAssistantThreadStore,
+} from '@brainstrike/assistant-data';
 import {
   resetContextUsageStore,
   useContextUsageStore,
@@ -47,6 +51,7 @@ describe('register-factory-reset-session-stores', () => {
     useWorkspaceContextCurationStore.getState().reset();
     useAssistantComposerCommandStore.getState().reset();
     useAssistantThreadGroupsStore.getState().reset();
+    resetAssistantThreadStore();
     useBrowserTabsStore.getState().reset();
     resetRootRegistrationEventsForTests();
     vi.mocked(resetNotesVaultSessionState).mockClear();
@@ -110,6 +115,12 @@ describe('register-factory-reset-session-stores', () => {
       },
     });
     useAssistantThreadGroupsStore.getState().toggleGroupCollapsed('group-1');
+    useAssistantThreadStore.setState({
+      activeThreadIdByResourceId: { 'workspace-a': 'thread-1' },
+      draftRuntimeByThreadId: { 'thread-1': { model: 'gpt-5.2', provider: 'openai' } },
+      openThreadIdsByResourceId: { 'workspace-a': ['thread-1'] },
+      selectedThreadByResourceId: { 'workspace-a': 'thread-1' },
+    });
     useTerminalTargetStore.getState().openTerminalAt({ cwd: '/wt', rootId: 'r-1' });
     useCommandPaletteStore.getState().open({ tabScope: 'assistant-threads' });
     useQuickOpenStore.getState().open();
@@ -159,6 +170,10 @@ describe('register-factory-reset-session-stores', () => {
     expect(useAssistantThreadGroupsStore.getState().collapsedGroupIds).toEqual({});
     expect(useAssistantThreadGroupsStore.getState().flatSortBy).toBe('recency');
     expect(useAssistantThreadGroupsStore.getState().groupedSortBy).toBe('recency');
+    expect(useAssistantThreadStore.getState().activeThreadIdByResourceId).toEqual({});
+    expect(useAssistantThreadStore.getState().draftRuntimeByThreadId).toEqual({});
+    expect(useAssistantThreadStore.getState().openThreadIdsByResourceId).toEqual({});
+    expect(useAssistantThreadStore.getState().selectedThreadByResourceId).toEqual({});
     expect(useTerminalTargetStore.getState().target).toBeNull();
     expect(useCommandPaletteStore.getState()).toMatchObject({
       isOpen: false,

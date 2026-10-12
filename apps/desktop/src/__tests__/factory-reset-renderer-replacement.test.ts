@@ -139,6 +139,34 @@ describe('factory reset renderer replacement', () => {
     await expect(replacement).rejects.toThrow(diagnostic);
   });
 
+  it('cancels readiness on terminal quit and removes owned listeners', async () => {
+    const coordinator = createCoordinator();
+    const window = new TestWindow(31);
+    const quit = new AbortController();
+    const replacement = coordinator.replace([asBrowserWindow(window)], quit.signal);
+    quit.abort(new Error('Terminal quit'));
+    await expect(replacement).resolves.toBeUndefined();
+    expect(window.listenerCount('closed')).toBe(0);
+    expect(window.testWebContents.listenerCount('dom-ready')).toBe(0);
+    expect(window.testWebContents.listenerCount('did-start-navigation')).toBe(0);
+    expect(window.testWebContents.send).not.toHaveBeenCalled();
+  });
+
+  it('does not reload after terminal quit or hide an earlier reload failure', async () => {
+    const coordinator = createCoordinator();
+    const window = new TestWindow(32);
+    const quit = new AbortController();
+    const failure = new Error('Replacement failed before quit');
+    window.testWebContents.reload.mockImplementationOnce(() => {
+      throw failure;
+    });
+    const replacement = coordinator.replace([asBrowserWindow(window)], quit.signal);
+    quit.abort(new Error('Terminal quit'));
+    await expect(replacement).rejects.toThrow(failure.message);
+    await coordinator.replace([asBrowserWindow(window)], quit.signal);
+    expect(window.testWebContents.reload).toHaveBeenCalledOnce();
+  });
+
   it('drains sibling attempts after one reload fails and permits a clean retry', async () => {
     const coordinator = createCoordinator();
     const failedWindow = new TestWindow(21);

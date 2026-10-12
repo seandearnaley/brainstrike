@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { updateSettingsTestOverrides } from '@brainstrike/e2e-test-utils/settings-test-overrides';
+import type { ConsoleMessage } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
@@ -150,7 +151,49 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     });
   });
 
+  test('Windows refuses factory reset without changing persisted state', async ({
+    window,
+    homePage,
+    electronApp,
+  }) => {
+    test.skip(process.platform !== 'win32', 'Windows-only disabled capability.');
+    const userDataDir = await electronApp.app.evaluate(({ app }) => app.getPath('userData'));
+    const sentinel = path.join(userDataDir, 'disabled-reset-sentinel');
+    fs.writeFileSync(sentinel, 'preserve', 'utf8');
+    await window.evaluate(() => localStorage.setItem('disabled-reset-probe', 'preserve'));
+    await openFactoryResetSettings(homePage, new SettingsPage(window));
+    await expect(window.getByTestId('factory-reset-button')).toBeDisabled();
+    await expect(
+      window.getByText('Factory reset is unavailable on Windows in this version.')
+    ).toBeVisible();
+    const result = await window.evaluate(async () => {
+      const bridge = (
+        globalThis as typeof globalThis & {
+          electronAPI?: {
+            db?: { resetLocal?: () => Promise<{ success: boolean; message?: string }> };
+          };
+        }
+      ).electronAPI?.db;
+      if (!bridge?.resetLocal) {
+        throw new Error('Missing desktop reset IPC');
+      }
+      return await bridge.resetLocal();
+    });
+    expect(result).toEqual({
+      message: 'Factory reset is unavailable on Windows in this version.',
+      success: false,
+    });
+    expect(fs.readFileSync(sentinel, 'utf8')).toBe('preserve');
+    expect(await window.evaluate(() => localStorage.getItem('disabled-reset-probe'))).toBe(
+      'preserve'
+    );
+  });
+
   test('cancel path leaves persisted state untouched', async ({ window, homePage }) => {
+    test.skip(
+      process.platform === 'win32',
+      'Windows Factory Reset is disabled for M3 by owner decision.'
+    );
     await updateSettingsTestOverrides(window, { accurateRuntimeAvailable: true });
 
     const settingsPage = new SettingsPage(window);
@@ -185,6 +228,10 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     electronApp,
     electronHarness,
   }) => {
+    test.skip(
+      process.platform === 'win32',
+      'Windows Factory Reset is disabled for M3 by owner decision.'
+    );
     await updateSettingsTestOverrides(window, { accurateRuntimeAvailable: true });
     const userDataDir = await electronApp.app.evaluate(async ({ app }) => app.getPath('userData'));
     const staleMcpDir = path.join(userDataDir, 'mcp');
@@ -230,9 +277,22 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
     const tokenToggle = window.getByTestId('token-counting-accurate-toggle');
     await tokenToggle.click();
     await expect(tokenToggle).toHaveAttribute('aria-checked', 'false');
+    // A saved permission policy, which the agent host keeps (BST-1930 stage e).
+    await homePage.openSettings();
+    await settingsPage.openCategory(/Permissions/i, 'permissions');
+    await window.getByTestId('permission-policy-edit').selectOption('deny');
+    await expect(window.getByTestId('permission-policy-edit')).toHaveValue('deny');
 
     await openFactoryResetSettings(homePage, settingsPage);
     await overrideNextConfirm(window, true);
+    // A reset is an expected terminal retirement: the renderer logs no error through it.
+    const resetErrors: string[] = [];
+    const recordError = (message: ConsoleMessage): void => {
+      if (message.type() === 'error') {
+        resetErrors.push(message.text());
+      }
+    };
+    window.on('console', recordError);
     await window.getByTestId('factory-reset-button').click();
     await expect
       .poll(() => fs.existsSync(sentinelFile), {
@@ -249,6 +309,11 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
         localStorageValue: null,
         sessionStorageValue: null,
       });
+    // The reset ends with its replacement renderer ready; the retired one logged nothing wrong.
+    const { waitForAppReady: waitForResetRenderer } = await loadElectronHelpers();
+    await waitForResetRenderer(window);
+    window.off('console', recordError);
+    expect(resetErrors).toEqual([]);
 
     const restarted = await electronHarness.restart();
     const restartedWindow = restarted.window;
@@ -273,5 +338,9 @@ test.describe('Factory Reset settings (desktop) @destructive @desktop-ipc-reset'
       });
     expect(fs.existsSync(sentinelFile)).toBe(false);
     expect(fs.existsSync(diagnosticFile)).toBe(true);
+    // The reset cleared the saved policy with the host's state: the default applies again.
+    await restartedHomePage.openSettings();
+    await restartedSettingsPage.openCategory(/Permissions/i, 'permissions');
+    await expect(restartedWindow.getByTestId('permission-policy-edit')).toHaveValue('ask');
   });
 });

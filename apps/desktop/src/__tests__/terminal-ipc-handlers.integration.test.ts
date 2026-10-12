@@ -103,6 +103,13 @@ function quotePosixShellArg(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
 
+/** Read the actual interactive shell PID through a native child on Windows. */
+function shellPidCommand(): string {
+  return process.platform === 'win32'
+    ? `node -e "console.log('PID=' + process.ppid)"\r`
+    : 'echo PID=$$\r';
+}
+
 /** Poll `predicate` until true or timeout; returns whether it became true. */
 async function waitFor(predicate: () => boolean, timeoutMs = 4000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
@@ -413,7 +420,7 @@ describe('terminal IPC handlers — real pty lifecycle', () => {
     // Capture the shell pid via the registry-free route: ask the shell to print
     // its own pid, then assert that pid is dead after destroy.
     owner.dataEvents.length = 0;
-    handlers.write({ data: 'echo PID=$$\r', terminalId }, owner.id);
+    handlers.write({ data: shellPidCommand(), terminalId }, owner.id);
     await waitFor(() => /PID=\d+/.test(owner.aggregatedData));
     const match = owner.aggregatedData.match(/PID=(\d+)/);
     expect(match).not.toBeNull();
@@ -450,7 +457,7 @@ describe('terminal IPC handlers — real pty lifecycle', () => {
     const childScriptPath = path.join(dir, 'long-lived-child.cjs');
     await fsPromises.writeFile(
       childScriptPath,
-      "const fs = require('node:fs');\nconst tmp = process.argv[2] + '.tmp';\nfs.writeFileSync(tmp, String(process.pid));\nfs.renameSync(tmp, process.argv[2]);\nsetTimeout(() => process.exit(0), 600_000);\n"
+      "const fs = require('node:fs');\nconst tmp = process.argv[2] + '.tmp';\nfs.writeFileSync(tmp, String(process.pid));\nfs.renameSync(tmp, process.argv[2]);\nif (process.platform === 'win32') process.stdout.write('DISOWNED=' + process.pid + '\\n');\nsetTimeout(() => process.exit(0), 600_000);\n"
     );
 
     // The child itself writes readiness only after Node has successfully exec'd
@@ -461,7 +468,10 @@ describe('terminal IPC handlers — real pty lifecycle', () => {
     // own process group — the orphan that terminal destroy must reap.
     handlers.write(
       {
-        data: `nohup ${quotePosixShellArg(process.execPath)} ${quotePosixShellArg(childScriptPath)} ${quotePosixShellArg(readyPath)} >/dev/null 2>&1 & C=$!; disown $C; echo DISOWNED=$C\r`,
+        data:
+          process.platform === 'win32'
+            ? 'start "" /b node long-lived-child.cjs child-ready\r'
+            : `nohup ${quotePosixShellArg(process.execPath)} ${quotePosixShellArg(childScriptPath)} ${quotePosixShellArg(readyPath)} >/dev/null 2>&1 & C=$!; disown $C; echo DISOWNED=$C\r`,
         terminalId,
       },
       owner.id
@@ -664,7 +674,7 @@ describe('terminal IPC handlers — dispose lifecycle', () => {
       [ownerA, a],
       [ownerB, b],
     ] as const) {
-      handlers.write({ data: 'echo PID=$$\r', terminalId: created.value.terminalId }, owner.id);
+      handlers.write({ data: shellPidCommand(), terminalId: created.value.terminalId }, owner.id);
       await waitFor(() => /PID=\d+/.test(owner.aggregatedData));
       const pid = Number(owner.aggregatedData.match(/PID=(\d+)/)?.[1]);
       expect(Number.isInteger(pid)).toBe(true);
@@ -693,7 +703,7 @@ describe('terminal IPC handlers — dispose lifecycle', () => {
     if (!created.ok) {
       throw new Error('create failed');
     }
-    handlers.write({ data: 'echo PID=$$\r', terminalId: created.value.terminalId }, owner.id);
+    handlers.write({ data: shellPidCommand(), terminalId: created.value.terminalId }, owner.id);
     await waitFor(() => /PID=\d+/.test(owner.aggregatedData));
     const pid = Number(owner.aggregatedData.match(/PID=(\d+)/)?.[1]);
     expect(liveTerminalCountForTest()).toBe(1);

@@ -1,3 +1,7 @@
+import {
+  hasFactoryResetPreparationStarted,
+  registerFactoryResetPreparation,
+} from '@brainstrike/app-state/factory-reset';
 import type {
   ThreadWorkspaceRepository,
   WorkspaceSnapshotEditor,
@@ -5,7 +9,9 @@ import type {
 } from '@brainstrike/assistant-data';
 import { ThreadWorkspaceUnavailableError } from '@brainstrike/assistant-data';
 import { createLogger } from '@brainstrike/logging';
-import { useEffect, useEffectEvent, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useEffectEvent, useMemo, useRef, useSyncExternalStore } from 'react';
+import { isDelegatedWorkspaceTabId } from '../delegated-workspace-tab';
+import { isHostChildWorkspaceTabId } from '../host-child-workspace-tab';
 import type { ThreadWorkspaceNavigation } from './thread-workspace-navigation';
 import {
   applyWorkspaceSnapshot,
@@ -43,6 +49,22 @@ interface PendingHydrationSave {
   readonly threadId: string;
 }
 
+function clearWorkspaceSaveTimer(timer: { current: ReturnType<typeof setTimeout> | null }): void {
+  if (timer.current === null) {
+    return;
+  }
+  clearTimeout(timer.current);
+  timer.current = null;
+}
+
+function matchesPendingHydrationSave(
+  pending: PendingHydrationSave | null,
+  intent: number,
+  threadId: string
+): boolean {
+  return pending?.intent === intent && pending.threadId === threadId;
+}
+
 function rejectUnavailableChildNavigation(
   repository: ThreadWorkspaceRepository | null,
   navigation: ThreadWorkspaceNavigation | undefined,
@@ -56,6 +78,10 @@ function rejectUnavailableChildNavigation(
       new Error('Conversation storage is not ready. Open the child again after loading completes.')
     );
   }
+}
+
+function isChildConversationTabId(appId: string): boolean {
+  return isHostChildWorkspaceTabId(appId) || isDelegatedWorkspaceTabId(appId);
 }
 
 function hasPendingWorkspaceHydration(
@@ -291,8 +317,8 @@ function shouldPreserveLiveBootEdits(
  *   synchronously (the workspace stores still hold the outgoing state at
  *   that point), then hydrates the incoming thread from the in-memory cache
  *   (synchronous) or the repository (async, intent-guarded against a further
- *   switch), INHERITING the current workspace when no row exists — which is
- *   both the new-thread semantic and the first-run upgrade path;
+ *   switch), INHERITING the current workspace minus the outgoing thread's
+ *   child-conversation tabs when no row exists (the new-thread semantic);
  * - preloads snapshots for all OPEN thread tabs so switching is instant;
  * - prunes cache entries for threads that are no longer open (delete/close).
  *
@@ -306,7 +332,7 @@ export function useThreadWorkspaceCoordinator({
   debounceMs = THREAD_WORKSPACE_SAVE_DEBOUNCE_MS,
   facade,
   openThreadIds,
-  repository,
+  repository: sourceRepository,
   resourceId,
   subscribe,
 }: ThreadWorkspaceCoordinatorOptions): void {
@@ -332,6 +358,58 @@ export function useThreadWorkspaceCoordinator({
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const switchIntentRef = useRef(0);
   const facadeRef = useRef(facade);
+  // FileExplorerProvider remounts its children while reset clears live stores.
+  // A replacement owner belongs to the same terminal renderer reset lifecycle.
+  const resetPreparedRef = useRef(hasFactoryResetPreparationStarted());
+  const pendingOperationsRef = useRef(new Set<Promise<unknown>>());
+  const repository = useMemo<ThreadWorkspaceRepository | null>(() => {
+    if (!sourceRepository) {
+      return null;
+    }
+    const track = <T>(pending: Promise<T>): Promise<T> => {
+      pendingOperationsRef.current.add(pending);
+      const settled = () => {
+        pendingOperationsRef.current.delete(pending);
+      };
+      void pending.then(settled, settled);
+      return pending;
+    };
+    return {
+      getThreadWorkspace: (threadId) => track(sourceRepository.getThreadWorkspace(threadId)),
+      getThreadWorkspaces: (threadIds) => track(sourceRepository.getThreadWorkspaces(threadIds)),
+      setThreadWorkspace: (threadId, ownerId, snapshot) =>
+        track(sourceRepository.setThreadWorkspace(threadId, ownerId, snapshot)),
+    };
+  }, [sourceRepository]);
+  const prepareReset = useEffectEvent(async () => {
+    // Reset clears subscribed stores before retiring their durable owner.
+    // Cancel future snapshots, then join operations already admitted by this owner.
+    resetPreparedRef.current = true;
+    switchIntentRef.current += 1;
+    hydrationThreadRef.current = null;
+    pendingHydrationSaveRef.current = null;
+    cacheRef.current.clear();
+    clearWorkspaceSaveTimer(saveTimerRef);
+    const operations = await Promise.allSettled([...pendingOperationsRef.current]);
+    const failures: unknown[] = operations.flatMap((result) =>
+      result.status === 'rejected' ? [result.reason] : []
+    );
+    if (failures.length > 0) {
+      throw new AggregateError(
+        failures,
+        'Thread workspace operations failed during reset preparation'
+      );
+    }
+  });
+  useEffect(() => {
+    // Preparation may have started between render and this effect's admission.
+    if (hasFactoryResetPreparationStarted()) {
+      resetPreparedRef.current = true;
+      return;
+    }
+    return registerFactoryResetPreparation(prepareReset);
+  }, []);
+
   const handlePersistError = useEffectEvent((threadId: string, error: unknown, message: string) => {
     if (error instanceof ThreadWorkspaceUnavailableError) {
       cacheRef.current.delete(threadId);
@@ -350,7 +428,7 @@ export function useThreadWorkspaceCoordinator({
       threadId,
     });
   });
-  // FIRST effect on purpose: later effects in this hook read facadeRef, and
+  // Before workspace effects: later effects in this hook read facadeRef, and
   // same-commit effect order is declaration order.
   useEffect(() => {
     facadeRef.current = facade;
@@ -358,11 +436,14 @@ export function useThreadWorkspaceCoordinator({
 
   // ---- Debounced continuous save for the active thread ----
   useEffect(() => {
-    if (!repository || activeThreadId === null) {
+    if (resetPreparedRef.current || !repository || activeThreadId === null) {
       return;
     }
     const persist = () => {
       saveTimerRef.current = null;
+      if (resetPreparedRef.current) {
+        return;
+      }
       const snapshot = captureWorkspaceSnapshot(facadeRef.current);
       cacheRef.current.set(activeThreadId, snapshot);
       repository.setThreadWorkspace(activeThreadId, resourceId, snapshot).catch((error) => {
@@ -372,6 +453,9 @@ export function useThreadWorkspaceCoordinator({
     let previousAppIds = [...facadeRef.current.getOpenAppIds()];
     let previousSelection = facadeRef.current.getSelection();
     const unsubscribe = subscribe(() => {
+      if (resetPreparedRef.current) {
+        return;
+      }
       const appIds = facadeRef.current.getOpenAppIds();
       const selection = facadeRef.current.getSelection();
       const appsChanged = !(
@@ -413,7 +497,7 @@ export function useThreadWorkspaceCoordinator({
 
   // ---- Preload snapshots for open thread tabs ----
   useEffect(() => {
-    if (!repository || openThreadIds.length === 0) {
+    if (resetPreparedRef.current || !repository || openThreadIds.length === 0) {
       return;
     }
     const missing = openThreadIds.filter((threadId) => !cacheRef.current.has(threadId));
@@ -424,7 +508,7 @@ export function useThreadWorkspaceCoordinator({
     repository
       .getThreadWorkspaces(missing)
       .then((snapshots) => {
-        if (cancelled) {
+        if (cancelled || resetPreparedRef.current) {
           return;
         }
         for (const [threadId, snapshot] of snapshots) {
@@ -458,6 +542,9 @@ export function useThreadWorkspaceCoordinator({
 
   // ---- Switch handling ----
   useEffect(() => {
+    if (resetPreparedRef.current) {
+      return;
+    }
     rejectUnavailableChildNavigation(repository, navigation, resourceId, activeThreadId);
     const previous = previousThreadIdRef.current;
     const isDeferredBootHydration =
@@ -507,10 +594,7 @@ export function useThreadWorkspaceCoordinator({
     // the saved row with the un-hydrated boot state and then hydrate that
     // empty flush right back.
     if (previous !== null && repository && !isDeferredBootHydration) {
-      if (saveTimerRef.current !== null) {
-        clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-      }
+      clearWorkspaceSaveTimer(saveTimerRef);
       const outgoing = captureWorkspaceSnapshot(facadeRef.current);
       cacheRef.current.set(previous, outgoing);
       repository.setThreadWorkspace(previous, resourceId, outgoing).catch((error) => {
@@ -589,8 +673,18 @@ export function useThreadWorkspaceCoordinator({
           hydrateLoadedSnapshot(snapshot);
           return;
         }
-        // No row: INHERIT the current workspace (new thread, or first run
-        // after upgrade). The live stores already show it — persist as-is.
+        // No row: INHERIT the current workspace (new thread). The live stores
+        // already show it; only the outgoing thread's child conversations
+        // stay behind, because they belong to that thread's tree.
+        const childTabs = facadeRef.current.getOpenAppIds().filter(isChildConversationTabId);
+        if (childTabs.length > 0) {
+          hydratingRef.current = true;
+          try {
+            facadeRef.current.closeApps(childTabs);
+          } finally {
+            hydratingRef.current = false;
+          }
+        }
         clearHydrationTracking();
         navigation?.complete(resourceId, activeThreadId);
         const inherited = captureWorkspaceSnapshot(facadeRef.current);
@@ -604,9 +698,11 @@ export function useThreadWorkspaceCoordinator({
         });
       })
       .catch((error) => {
-        const hasPendingSave =
-          pendingHydrationSaveRef.current?.intent === intent &&
-          pendingHydrationSaveRef.current.threadId === activeThreadId;
+        const hasPendingSave = matchesPendingHydrationSave(
+          pendingHydrationSaveRef.current,
+          intent,
+          activeThreadId
+        );
         if (switchIntentRef.current === intent) {
           clearHydrationTracking();
           navigation?.failed(resourceId, activeThreadId, error);

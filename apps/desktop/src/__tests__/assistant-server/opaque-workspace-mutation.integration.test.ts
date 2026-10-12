@@ -1,8 +1,13 @@
+import './_windows-command-fixture';
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { guardToolExecution } from '@brainstrike/agent';
+import {
+  acquireWorkspaceMutationLease,
+  runWriteWorkspaceFile,
+} from '@brainstrike/host-capabilities/native-tools';
 import { expect, it, vi } from 'vitest';
 import {
   configureDesktopCommandSessionManager,
@@ -12,9 +17,8 @@ import { runManageCommandSession } from '../../assistant-server/command-session-
 import { joinDesktopDelegatedCancellation } from '../../assistant-server/delegated-execution-controls';
 import { captureBeforeState } from '../../assistant-server/edit-checkpoint-capture';
 import { runExecuteCommand } from '../../assistant-server/execute-command-tool';
-import { runWriteWorkspaceFile } from '../../assistant-server/file-mutation-tools';
+import { legacyNativeToolPorts } from '../../assistant-server/legacy-native-tool-ports';
 import { runSkillScript } from '../../assistant-server/run-skill-script-tool';
-import { acquireWorkspaceMutationLease } from '../../assistant-server/workspace-mutation-lease';
 import { singleRootRuntime } from './_tool-test-helpers';
 
 vi.mock('../../assistant-server/edit-checkpoint-capture', async (original) => {
@@ -56,7 +60,11 @@ it.each(['command', 'skill', 'nested-command'] as const)(
         await release.promise;
         return before;
       });
-      native = runWriteWorkspaceFile({ content: 'native', path: '/evidence.txt' }, runtime);
+      native = runWriteWorkspaceFile(
+        { content: 'native', path: '/evidence.txt' },
+        runtime,
+        legacyNativeToolPorts(runtime).fileMutations
+      );
       await captured.promise;
       await mkdir(path.join(root, 'nested'));
       command =
@@ -135,7 +143,11 @@ it('keeps delegated PTY ownership through exit, rejects overlapping edits visibl
       rootId: 'sibling',
     });
     await expect(
-      runWriteWorkspaceFile({ content: 'not-applied', path: '/result.txt' }, runtime)
+      runWriteWorkspaceFile(
+        { content: 'not-applied', path: '/result.txt' },
+        runtime,
+        legacyNativeToolPorts(runtime).fileMutations
+      )
     ).rejects.toThrow('must wait for that process to exit');
     await expect(readFile(path.join(root, 'result.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
     await joinDesktopDelegatedCancellation(
@@ -151,7 +163,11 @@ it('keeps delegated PTY ownership through exit, rejects overlapping edits visibl
     );
     expect(manager.get('root', session.id)).toMatchObject({ status: 'exited' });
     expect(manager.get('sibling', sibling.id)).toMatchObject({ status: 'running' });
-    await runWriteWorkspaceFile({ content: 'after-explicit-stop', path: '/result.txt' }, runtime);
+    await runWriteWorkspaceFile(
+      { content: 'after-explicit-stop', path: '/result.txt' },
+      runtime,
+      legacyNativeToolPorts(runtime).fileMutations
+    );
     expect(await readFile(path.join(root, 'result.txt'), 'utf8')).toBe('after-explicit-stop');
   } finally {
     await manager.dispose();
@@ -180,7 +196,11 @@ it('preserves ordinary parent dev-server then edit behavior', async () => {
     if (!('id' in session)) {
       throw new Error('Missing session identity');
     }
-    await runWriteWorkspaceFile({ content: 'parent-edit', path: '/result.txt' }, runtime);
+    await runWriteWorkspaceFile(
+      { content: 'parent-edit', path: '/result.txt' },
+      runtime,
+      legacyNativeToolPorts(runtime).fileMutations
+    );
     expect(manager.get('root', session.id)).toMatchObject({ status: 'running' });
     expect(await readFile(path.join(root, 'result.txt'), 'utf8')).toBe('parent-edit');
   } finally {
@@ -200,9 +220,13 @@ it('cancels a queued native mutation without applying it while a disjoint root r
   let output = '';
   let ownerExited = false;
   try {
+    await writeFile(
+      path.join(root, 'opaque-owner.cjs'),
+      'console.error("OWNER_DIAGNOSTIC"); console.log("LEASE_READY"); setInterval(() => {}, 1000);'
+    );
     running = runExecuteCommand(
       {
-        command: `node -e 'console.error("OWNER_DIAGNOSTIC"); console.log("LEASE_READY"); setInterval(() => {}, 1000)'`,
+        command: 'node opaque-owner.cjs',
         timeoutMs: 3000,
       },
       runtime,
@@ -230,6 +254,7 @@ it('cancels a queued native mutation without applying it while a disjoint root r
     const queued = runWriteWorkspaceFile(
       { content: 'must-not-apply', path: '/queued.txt' },
       runtime,
+      legacyNativeToolPorts(runtime).fileMutations,
       undefined,
       'cancelled-child',
       queuedStop.signal
@@ -251,12 +276,17 @@ it('cancels a queued native mutation without applying it while a disjoint root r
     await expect(readFile(path.join(root, 'queued.txt'))).rejects.toMatchObject({ code: 'ENOENT' });
     await runWriteWorkspaceFile(
       { content: 'independent', path: '/sibling.txt' },
-      singleRootRuntime(otherRoot)
+      singleRootRuntime(otherRoot),
+      legacyNativeToolPorts(singleRootRuntime(otherRoot)).fileMutations
     );
     expect(await readFile(path.join(otherRoot, 'sibling.txt'), 'utf8')).toBe('independent');
     processStop.abort();
     await running;
-    await runWriteWorkspaceFile({ content: 'after-owner-exit', path: '/after.txt' }, runtime);
+    await runWriteWorkspaceFile(
+      { content: 'after-owner-exit', path: '/after.txt' },
+      runtime,
+      legacyNativeToolPorts(runtime).fileMutations
+    );
     expect(await readFile(path.join(root, 'after.txt'), 'utf8')).toBe('after-owner-exit');
   } finally {
     processStop.abort();
@@ -373,7 +403,11 @@ it('preserves actionable workspace conflicts and queued expiry through the actua
   const guardedWrite = guardToolExecution(
     {
       execute: () =>
-        runWriteWorkspaceFile({ content: 'no', path: '/effect.txt' }, singleRootRuntime(root)),
+        runWriteWorkspaceFile(
+          { content: 'no', path: '/effect.txt' },
+          singleRootRuntime(root),
+          legacyNativeToolPorts(singleRootRuntime(root)).fileMutations
+        ),
     },
     { timeoutMs: 1000, toolName: 'brainstrike.writeWorkspaceFile' }
   );

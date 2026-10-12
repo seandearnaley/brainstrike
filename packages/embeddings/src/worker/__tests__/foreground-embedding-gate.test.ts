@@ -79,6 +79,31 @@ describe('createForegroundEmbeddingGate', () => {
 });
 
 describe('waitForWorkerIdle', () => {
+  it.each([true, false])(
+    'rejects an already-canceled wait without generating (worker active: %s)',
+    async (active) => {
+      const gate = createForegroundEmbeddingGate({ reopenDelayMs: 1 });
+      const controller = new AbortController();
+      const reason = Object.assign(new Error('document canceled'), {
+        code: 'EMBEDDING_HOST_DOCUMENT_CANCELED',
+      });
+      controller.abort(reason);
+      const generate = vi.fn(async () => 42);
+      const pending = runCoordinatedQueryEmbedding({
+        drainTimeoutMs: 50,
+        gate,
+        generate,
+        isWorkerActive: () => active,
+        signal: controller.signal,
+      });
+      const outcome = pending.catch((error: unknown) => error);
+      await vi.advanceTimersByTimeAsync(51);
+      expect(await outcome).toBe(reason);
+      expect(generate).not.toHaveBeenCalled();
+      expect(gate.isActive()).toBe(false);
+    }
+  );
+
   it('resolves drained=true as soon as isActive is false', async () => {
     const res = await waitForWorkerIdle({ isActive: () => false, pollMs: 5, timeoutMs: 100 });
     expect(res.drained).toBe(true);

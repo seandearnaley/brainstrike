@@ -7,7 +7,7 @@
  * (BST-1028 slice 4). Integration lane: both tests write real files and run
  * real shell commands through the hook runner.
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -26,6 +26,7 @@ import {
   buildHookManager,
   finalizeHookedStream,
   hookRunEventToAssistant,
+  installDesktopHookApprovalReader,
 } from '../../assistant-server/hooks/server-integration';
 import { resetDesktopMastraMemoryCacheForTests } from '../../assistant-server/mastra-memory';
 import { observeDesktopAssistantRunEvents } from '../../assistant-server/run-persistence';
@@ -45,7 +46,6 @@ import { createRunRequest } from './_harness';
 // import inside stays lazy.
 const mocks = vi.hoisted(() => () => import('./_assistant-server-mocks'));
 vi.mock('../../assistant-server/http', async () => (await mocks()).makeAssistantServerHttpMock());
-vi.mock('../../mcp-loader', async () => (await mocks()).makeMcpLoaderMock());
 vi.mock('../../agent-client-loader', async () => (await mocks()).makeAgentClientLoaderMock());
 vi.mock('../../secrets', async () => (await mocks()).makeSecretsMock());
 vi.mock('@brainstrike/agent/hosted-web', async () => (await mocks()).makeHostedWebAgentMock());
@@ -56,8 +56,9 @@ vi.mock('@brainstrike/agent/pglite-mastra-memory', async () =>
 vi.mock('../../assistant-server/assistant-tools', async () =>
   (await mocks()).makeAssistantToolsMock()
 );
-vi.mock('../../assistant-server/workspace-text-file-reader', async () =>
-  (await mocks()).makeWorkspaceTextFileReaderMock()
+vi.mock(
+  '../../../../../packages/host-capabilities/src/native-tools/workspace-text-file-reader',
+  async () => (await mocks()).makeWorkspaceTextFileReaderMock()
 );
 vi.mock('../../db-main', async () => (await mocks()).makeDbMainMock());
 
@@ -96,6 +97,17 @@ describe('tool-lifecycle hooks P2 (Stop notice + blocked-run status)', () => {
     return createHash('sha256').update(readFileSync(path)).digest('hex');
   }
 
+  function writeStdoutHook(rootAbsPath: string, stdout: string, exitCode = 0): string {
+    const filename = `hook-${randomUUID()}.cjs`;
+    writeFileSync(
+      join(rootAbsPath, filename),
+      `process.stdout.write(${JSON.stringify(`${stdout}\n`)});\nprocess.exitCode = ${exitCode};\n`,
+      'utf8'
+    );
+    // Keep the real native shell; a relative filename needs no temp-path quoting.
+    return `node ${filename}`;
+  }
+
   // FINDING A: the live data-stream consumer (AssistantDataStreamSession) stops
   // pulling the source the moment the mapper emits `finish`. If the terminal
   // Stop hook only runs AFTER the finish chunk is yielded, its queued
@@ -107,15 +119,18 @@ describe('tool-lifecycle hooks P2 (Stop notice + blocked-run status)', () => {
     try {
       const noteText = 'stop-note-visible-xyz';
       const file = writeHooksFile(tmp, {
-        Stop: [{ command: `echo '{"additionalContext":"${noteText}"}'`, type: 'command' }],
+        Stop: [
+          {
+            command: writeStdoutHook(tmp, JSON.stringify({ additionalContext: noteText })),
+            type: 'command',
+          },
+        ],
       });
       const runId = 'run-A';
       const queuedRunEvents: AssistantRunEvent[] = [];
       const manager = buildHookManager({
+        approvedByRoot: new Map([['root-1', sha256OfFile(file)]]),
         emitRunEvent: (event) => queuedRunEvents.push(hookRunEventToAssistant(event)),
-        hookTrustRequest: {
-          approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-        },
         logger: desktopAssistantServerLogger,
         runtimeData: {
           provider: 'openai',
@@ -175,7 +190,7 @@ describe('tool-lifecycle hooks P2 (Stop notice + blocked-run status)', () => {
     try {
       const file = writeHooksFile(tmp, {
         UserPromptSubmit: [
-          { command: `echo '{"reason":"nope-blocked"}'; exit 2`, type: 'command' },
+          { command: writeStdoutHook(tmp, '{"reason":"nope-blocked"}', 2), type: 'command' },
         ],
       });
       const { streamResponse } = await import('../../assistant-server/http');
@@ -189,13 +204,14 @@ describe('tool-lifecycle hooks P2 (Stop notice + blocked-run status)', () => {
             }
           : { rows: [] }
       );
+      // The agent host trusts this root's hooks file at its current hash.
+      installDesktopHookApprovalReader(async (root) =>
+        root.rootId === 'root-1' && root.absPath === tmp ? sha256OfFile(file) : undefined
+      );
 
       await runRequest({
         body: JSON.stringify({
           data: {
-            hookTrustRequest: {
-              approvals: [{ approvedAt: 1, rootId: 'root-1', sha256: sha256OfFile(file) }],
-            },
             memory: {
               // OM enabled-by-default resolves a provider model target; disable
               // it so run-scoped memory constructs from the mock alone.

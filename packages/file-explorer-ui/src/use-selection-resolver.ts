@@ -578,7 +578,6 @@ export function useSelectionResolver(): SelectionResolverState {
     }
     return selectedFilePaths.size;
   }, [
-    effectiveRelativePaths.length,
     resolvedQuerySelection.selectedCount,
     selectedFilePaths.size,
     selectionModel.mode,

@@ -1,22 +1,35 @@
 import type { AssistantToolMenuItem } from '@brainstrike/assistant-ui';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createElement, type ReactNode } from 'react';
+import { afterEach, describe, expect, it, type Mock, vi } from 'vitest';
 import type { McpToolMap } from '../assistant-ui-panel-wrapper-runtime';
-import { useAssistantMcpMenuState } from '../hooks/use-assistant-mcp-menu-state';
+import {
+  MCP_LEGACY_THREAD_NOTICE,
+  useAssistantMcpMenuState,
+} from '../hooks/use-assistant-mcp-menu-state';
+import { type McpToolsCapability, McpToolsCapabilityProvider } from '../mcp-tools-capability';
 
-type McpApi = NonNullable<Window['mcp']>;
+interface FakeMcpTools extends McpToolsCapability {
+  readonly list: Mock<McpToolsCapability['list']>;
+  readonly setEnabled: Mock<McpToolsCapability['setEnabled']>;
+  readonly subscribe: Mock<McpToolsCapability['subscribe']>;
+}
 
-function setMcpApi(overrides: Partial<McpApi> = {}): McpApi {
-  const api: McpApi = {
-    disableTools: vi.fn().mockResolvedValue(undefined),
-    enableTools: vi.fn().mockResolvedValue(undefined),
-    listTools: vi.fn().mockResolvedValue({}),
-    onToolsUpdated: vi.fn().mockReturnValue(() => undefined),
+let capability: FakeMcpTools | null = null;
+
+/** The host's MCP tools, as the visible host provides them to the composer. */
+function provideMcpTools(overrides: Partial<FakeMcpTools> = {}): FakeMcpTools {
+  capability = {
+    list: vi.fn().mockResolvedValue({}),
+    setEnabled: vi.fn().mockResolvedValue(undefined),
+    subscribe: vi.fn().mockReturnValue(() => undefined),
     ...overrides,
   };
-  window.mcp = api;
-  return api;
+  return capability;
 }
+
+const wrapper = ({ children }: { readonly children: ReactNode }) =>
+  createElement(McpToolsCapabilityProvider, { capability, children });
 
 const nativeToolItems: AssistantToolMenuItem[] = [
   {
@@ -31,14 +44,14 @@ const nativeToolItems: AssistantToolMenuItem[] = [
 
 describe('useAssistantMcpMenuState', () => {
   afterEach(() => {
-    Reflect.deleteProperty(window, 'mcp');
+    capability = null;
     window.location.hash = '';
     vi.restoreAllMocks();
   });
 
   it('loads MCP tools, combines them with native tools, and exposes enabled native ids', async () => {
-    const mcpApi = setMcpApi({
-      listTools: vi.fn().mockResolvedValue({
+    const mcpTools = provideMcpTools({
+      list: vi.fn().mockResolvedValue({
         'mcp-server': [
           {
             description: 'Test MCP tool',
@@ -49,12 +62,15 @@ describe('useAssistantMcpMenuState', () => {
       }),
     });
 
-    const { result } = renderHook(() =>
-      useAssistantMcpMenuState({
-        nativeToolItems,
-        onOpenToolSettings: vi.fn(),
-        setNativeToolEnabled: vi.fn(),
-      })
+    const { result } = renderHook(
+      () =>
+        useAssistantMcpMenuState({
+          nativeToolItems,
+          onOpenToolSettings: vi.fn(),
+          runsMcpTools: false,
+          setNativeToolEnabled: vi.fn(),
+        }),
+      { wrapper }
     );
 
     await waitFor(() => {
@@ -64,17 +80,53 @@ describe('useAssistantMcpMenuState', () => {
       ]);
     });
 
-    expect(mcpApi.listTools).toHaveBeenCalledTimes(1);
+    expect(mcpTools.list).toHaveBeenCalledTimes(1);
     expect(result.current.enabledNativeToolIds).toEqual(['native.search']);
     expect(result.current.toolMenu.isLoading).toBe(false);
-    expect(result.current.toolMenu.summary).toBe('2 of 2 enabled');
+    // Legacy threads no longer run MCP (BST-1930): the tool stays listed, disabled.
+    expect(result.current.toolMenu.items.find((tool) => tool.id === 'mcp.tool')).toMatchObject({
+      description: MCP_LEGACY_THREAD_NOTICE,
+      disabled: true,
+    });
+    expect(result.current.toolMenu.summary).toBe(`1 of 1 enabled · ${MCP_LEGACY_THREAD_NOTICE}`);
     expect(result.current.toolMenu.onRefresh).toBeTypeOf('function');
   });
 
-  it('toggles native tools locally and MCP tools over the bridge before reloading', async () => {
+  it('lists MCP tools as runnable toggles where the thread runs them', async () => {
+    provideMcpTools({
+      list: vi.fn().mockResolvedValue({
+        'mcp-server': [
+          { description: 'Test MCP tool', enabled: true, id: 'mcp.tool' },
+          { enabled: false, id: 'mcp.off' },
+        ],
+      }),
+    });
+
+    const { result } = renderHook(
+      () =>
+        useAssistantMcpMenuState({
+          nativeToolItems,
+          onOpenToolSettings: vi.fn(),
+          runsMcpTools: true,
+          setNativeToolEnabled: vi.fn(),
+        }),
+      { wrapper }
+    );
+
+    await waitFor(() => {
+      expect(result.current.toolMenu.items).toHaveLength(3);
+    });
+    const tool = result.current.toolMenu.items.find((item) => item.id === 'mcp.tool');
+    expect(tool).toMatchObject({ description: 'Test MCP tool', enabled: true, source: 'mcp' });
+    expect(tool?.disabled).toBeUndefined();
+    // Every listed tool runs, so every one counts.
+    expect(result.current.toolMenu.summary).toBe('2 of 3 enabled');
+  });
+
+  it('toggles native tools locally and MCP tools through the host before reloading', async () => {
     const setNativeToolEnabled = vi.fn();
-    const mcpApi = setMcpApi({
-      listTools: vi.fn().mockResolvedValue({
+    const mcpTools = provideMcpTools({
+      list: vi.fn().mockResolvedValue({
         'mcp-server': [
           {
             enabled: false,
@@ -84,12 +136,15 @@ describe('useAssistantMcpMenuState', () => {
       }),
     });
 
-    const { result } = renderHook(() =>
-      useAssistantMcpMenuState({
-        nativeToolItems,
-        onOpenToolSettings: vi.fn(),
-        setNativeToolEnabled,
-      })
+    const { result } = renderHook(
+      () =>
+        useAssistantMcpMenuState({
+          nativeToolItems,
+          onOpenToolSettings: vi.fn(),
+          runsMcpTools: false,
+          setNativeToolEnabled,
+        }),
+      { wrapper }
     );
 
     await waitFor(() => {
@@ -109,35 +164,36 @@ describe('useAssistantMcpMenuState', () => {
     await act(async () => {
       await onToggleTool('mcp.tool', true);
     });
-    expect(mcpApi.enableTools).toHaveBeenCalledWith(['mcp.tool']);
-    expect(mcpApi.listTools).toHaveBeenCalledTimes(2);
+    expect(mcpTools.setEnabled).toHaveBeenCalledWith(['mcp.tool'], true);
+    expect(mcpTools.list).toHaveBeenCalledTimes(2);
   });
 
-  it('subscribes to desktop MCP tool updates and unsubscribes on unmount', async () => {
+  it('subscribes to MCP tool updates from the host and unsubscribes on unmount', async () => {
     let publishTools: ((toolsByServer: McpToolMap) => void) | undefined;
     const unsubscribe = vi.fn();
-    const mcpApi = setMcpApi({
-      listTools: vi.fn().mockResolvedValue({}),
-      onToolsUpdated: vi
-        .fn()
-        .mockImplementation((callback: (toolsByServer: McpToolMap) => void) => {
-          publishTools = callback;
-          return unsubscribe;
-        }),
+    const mcpTools = provideMcpTools({
+      list: vi.fn().mockResolvedValue({}),
+      subscribe: vi.fn().mockImplementation((callback: (toolsByServer: McpToolMap) => void) => {
+        publishTools = callback;
+        return unsubscribe;
+      }),
     });
 
-    const { result, unmount } = renderHook(() =>
-      useAssistantMcpMenuState({
-        nativeToolItems,
-        onOpenToolSettings: vi.fn(),
-        setNativeToolEnabled: vi.fn(),
-      })
+    const { result, unmount } = renderHook(
+      () =>
+        useAssistantMcpMenuState({
+          nativeToolItems,
+          onOpenToolSettings: vi.fn(),
+          runsMcpTools: false,
+          setNativeToolEnabled: vi.fn(),
+        }),
+      { wrapper }
     );
 
     await waitFor(() => {
       expect(result.current.toolMenu.items).toHaveLength(1);
     });
-    expect(mcpApi.onToolsUpdated).toHaveBeenCalledTimes(1);
+    expect(mcpTools.subscribe).toHaveBeenCalledTimes(1);
 
     act(() => {
       publishTools?.({
@@ -162,16 +218,36 @@ describe('useAssistantMcpMenuState', () => {
     expect(unsubscribe).toHaveBeenCalledTimes(1);
   });
 
-  it('delegates tool settings navigation', async () => {
-    const onOpenToolSettings = vi.fn();
-    setMcpApi();
-
+  it('lists no MCP tools and offers no refresh where the host has no MCP', async () => {
     const { result } = renderHook(() =>
       useAssistantMcpMenuState({
         nativeToolItems,
-        onOpenToolSettings,
+        onOpenToolSettings: vi.fn(),
+        runsMcpTools: true,
         setNativeToolEnabled: vi.fn(),
       })
+    );
+
+    await waitFor(() => {
+      expect(result.current.toolMenu.isLoading).toBe(false);
+    });
+    expect(result.current.toolMenu.items.map((tool) => tool.id)).toEqual(['native.search']);
+    expect(result.current.toolMenu.onRefresh).toBeUndefined();
+  });
+
+  it('delegates tool settings navigation', async () => {
+    const onOpenToolSettings = vi.fn();
+    provideMcpTools();
+
+    const { result } = renderHook(
+      () =>
+        useAssistantMcpMenuState({
+          nativeToolItems,
+          onOpenToolSettings,
+          runsMcpTools: false,
+          setNativeToolEnabled: vi.fn(),
+        }),
+      { wrapper }
     );
 
     const onOpenSettings = result.current.toolMenu.onOpenSettings;

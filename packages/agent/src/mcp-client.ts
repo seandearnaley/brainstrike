@@ -1,3 +1,24 @@
+/**
+ * The SDK provider declaration these client options name. Implement it from here,
+ * so a NodeNext consumer and this entry's declarations see one declaration copy.
+ */
+export type { OAuthClientProvider } from '@modelcontextprotocol/client';
+export {
+  ElicitRequestFormParamsSchema,
+  ElicitRequestURLParamsSchema,
+} from '@modelcontextprotocol/core';
+export type { McpDiscoverySkip } from './mastra/mcp-discovery-diagnostics';
+export {
+  type CreateMcpRuntimeClientOptions,
+  createMcpRuntimeClient,
+  type McpRuntimeClient,
+  type McpToolsetsWithErrors,
+} from './mastra/mcp-runtime-client';
+export {
+  type CollectCombinedToolsOptions,
+  type CollectCombinedToolsResult,
+  collectCombinedTools,
+} from './mastra/mcp-tool-loader';
 export {
   MCP_APPS_CLIENT_EXTENSION_CONTRACT,
   registerMcpAppsClientCapability,
@@ -105,6 +126,7 @@ export {
 export {
   McpTaskCancellationOutcomeError,
   type McpTaskCancellationResult,
+  type McpTaskCommittedInputOutcome,
   McpTaskInteraction,
   type McpTaskInteractionClient,
   type McpTaskInteractionElicitationAuthority,
@@ -129,3 +151,9 @@ export {
   McpTaskObservationPort,
   type McpTaskPollAuthority,
 } from './mcp/tasks-observation';
+/**
+ * The registry this entry's collector filters with. Entries are bundled
+ * separately, so a host that collects through this entry applies Settings
+ * tool preferences here, not to the root entry's copy.
+ */
+export { toolRegistry as mcpToolRegistry } from './mcp/tool-registry';

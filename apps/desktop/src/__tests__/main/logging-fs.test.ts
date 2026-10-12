@@ -14,6 +14,7 @@ vi.mock('node:fs', async () => {
 
   const mockedFs = {
     ...actual,
+    mkdirSync: vi.fn(),
     promises: {
       ...actual.promises,
       access: accessAsync,
@@ -34,6 +35,7 @@ vi.mock('electron', async () => {
     documentsPath: '/mock/userData',
     whenReadyResolved: true,
   });
+  Object.assign(app, { requestSingleInstanceLock: vi.fn(() => true) });
   const ipcMain = electronUtils.createIpcMainMock();
   Object.assign(ipcMain, {
     on: vi.fn(),

@@ -1,7 +1,7 @@
 import './embedding-host-runtime-fixture';
 import type { EmbeddingResult } from '@brainstrike/embeddings';
 import { act, render, waitFor } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished } from 'vitest';
 import {
   createEmbeddingHostCommand,
   createEmbeddingHostDocumentEmbeddingsCancel,
@@ -20,6 +20,7 @@ import {
   installEmbeddingHostRuntimeFixture,
   reportDocumentEmbeddingsResponseMock,
   reportStatusMock,
+  retireEmbeddingQueueMock,
   storeState,
 } from './embedding-host-runtime-fixture';
 
@@ -81,6 +82,42 @@ describe('hidden pinned document batch', () => {
     expect(initializeWithModelMock).not.toHaveBeenCalled();
     expect(initializeMock).toHaveBeenCalledWith(expect.objectContaining(plan));
   });
+  it('retains the document response until physical pool retirement after execution rejects', async () => {
+    const execution = Promise.withResolvers<EmbeddingResult[]>();
+    const physical = Promise.withResolvers<void>();
+    onTestFinished(() => {
+      physical.resolve();
+      execution.resolve(results());
+    });
+    generateDocumentEmbeddingsMock.mockReturnValueOnce(execution.promise);
+    retireEmbeddingQueueMock.mockImplementationOnce(() => {
+      execution.reject(new Error('Worker terminated'));
+      return physical.promise;
+    });
+    await mount();
+    await act(async () => documentEmbeddingsListenerRef.current?.(request()));
+    await waitFor(() => expect(generateDocumentEmbeddingsMock).toHaveBeenCalledOnce());
+    await act(async () =>
+      commandListenerRef.current?.(createEmbeddingHostCommand('stop', 'test-runtime'))
+    );
+    expect(retireEmbeddingQueueMock).toHaveBeenCalledOnce();
+    expect(reportDocumentEmbeddingsResponseMock).not.toHaveBeenCalled();
+    expect(reportStatusMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ state: 'stopped' })
+    );
+    physical.resolve();
+    await waitFor(() => expect(reportDocumentEmbeddingsResponseMock).toHaveBeenCalledOnce());
+    expect(reportDocumentEmbeddingsResponseMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: expect.objectContaining({ message: 'Worker terminated' }),
+        type: 'error',
+      })
+    );
+    await waitFor(() =>
+      expect(reportStatusMock).toHaveBeenCalledWith(expect.objectContaining({ state: 'stopped' }))
+    );
+  });
+
   it.each([
     'revision',
     'device',

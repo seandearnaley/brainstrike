@@ -195,6 +195,103 @@ describe('ThreadSearchService', () => {
     expect(response.metadata.vectorResultCount).toBe(0);
   });
 
+  it("fuses another owner's arms in the same pass, interleaving their threads by rank", async () => {
+    // Legacy: thread-1 best, thread-2 second. Host: host-a best, host-b second.
+    const repository = createStubRepository({
+      fts: [
+        ftsMatch({ messageId: 'legacy-1', threadId: 'thread-1' }),
+        ftsMatch({ messageId: 'legacy-2', rank: 0.2, threadId: 'thread-2' }),
+      ],
+      titles: [titleMatch({ threadId: 'thread-9', title: 'HNSW notes' })],
+    });
+    const service = createThreadSearchService(repository);
+    const hostMessage = (messageId: string, threadId: string) => ({
+      headline: `<mark>hnsw</mark> in ${threadId}`,
+      messageCreatedAt: NOW,
+      messageId,
+      role: 'user',
+      threadId,
+    });
+
+    const response = await service.searchThreads('hnsw', {
+      extraArms: {
+        messages: [hostMessage('host-1', 'host-a'), hostMessage('host-2', 'host-b')],
+        titles: [titleMatch({ threadId: 'host-c', title: 'HNSW host plan' })],
+      },
+      queryEmbedding: null,
+      resourceId: RESOURCE_ID,
+    });
+
+    // One list whose owners are peers: each owner's rank-1 content thread ties with
+    // each rank-1 title thread, as legacy's content and title lists do, then rank 2.
+    expect(response.results.map(({ threadId }) => threadId)).toEqual([
+      'thread-1',
+      'host-a',
+      'thread-9',
+      'host-c',
+      'thread-2',
+      'host-b',
+    ]);
+    expect(response.results.find(({ threadId }) => threadId === 'host-a')?.matches).toEqual([
+      {
+        headline: '<mark>hnsw</mark> in host-a',
+        messageCreatedAt: NOW,
+        messageId: 'host-1',
+        role: 'user',
+        rrfScore: expect.any(Number),
+        sources: ['fts'],
+      },
+    ]);
+    expect(response.results.find(({ threadId }) => threadId === 'host-c')).toMatchObject({
+      matches: [],
+      title: 'HNSW host plan',
+      titleMatched: true,
+    });
+  });
+
+  it("fuses another owner's lexical and semantic arms per message, as its own", async () => {
+    const service = createThreadSearchService(createStubRepository({}));
+    const hostMessage = (messageId: string, threadId: string, headline: string) => ({
+      headline,
+      messageCreatedAt: NOW,
+      messageId,
+      role: 'assistant',
+      threadId,
+    });
+
+    const response = await service.searchThreads('orchid', {
+      extraArms: {
+        messages: [hostMessage('host-1', 'host-a', '<mark>orchid</mark> care')],
+        similarMessages: [
+          hostMessage('host-2', 'host-b', 'Watering the flowers weekly'),
+          hostMessage('host-1', 'host-a', 'Orchid care'),
+        ],
+        titles: [],
+      },
+      queryEmbedding: [0.5],
+      resourceId: RESOURCE_ID,
+    });
+
+    // Found by both arms, host-1 outranks host-2, which only meaning found.
+    expect(response.results.map(({ threadId }) => threadId)).toEqual(['host-a', 'host-b']);
+    expect(response.results.map(({ matches }) => matches)).toEqual([
+      [
+        expect.objectContaining({
+          headline: '<mark>orchid</mark> care',
+          messageId: 'host-1',
+          sources: ['fts', 'vector'],
+        }),
+      ],
+      [
+        expect.objectContaining({
+          headline: 'Watering the flowers weekly',
+          messageId: 'host-2',
+          sources: ['vector'],
+        }),
+      ],
+    ]);
+  });
+
   it('threads scoped options through to the repository arms', async () => {
     const repository = createStubRepository({});
     const service = createThreadSearchService(repository);

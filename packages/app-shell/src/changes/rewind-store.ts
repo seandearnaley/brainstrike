@@ -20,6 +20,7 @@
 import { create } from 'zustand';
 import type { RewindPreviewPayload } from './changes-bridge';
 import { useChangesStore } from './changes-store';
+import type { RewindPort } from './rewind-port';
 
 export interface RewindRequest {
   /**
@@ -30,6 +31,11 @@ export interface RewindRequest {
    * deliberately no fallback that invents a prompt.
    */
   readonly composerText: string | null;
+  /**
+   * The thread's rewind owner: Main's rewind service for a legacy thread, the
+   * agent host for a host thread. The raiser knows which thread it serves.
+   */
+  readonly port: RewindPort;
   /** How the raiser identified the target — see {@link RewindPreviewPayload}. */
   readonly target: RewindPreviewPayload;
 }

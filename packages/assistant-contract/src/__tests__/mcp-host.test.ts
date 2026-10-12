@@ -38,6 +38,11 @@ import {
   parseMcpHostOperationResult,
   parseMcpNegotiatedStatus,
 } from '../mcp-host-runtime.js';
+import {
+  parseMcpHostOperationResultWire,
+  parseMcpHostServerSnapshot,
+  parseMcpHostSnapshot,
+} from '../mcp-host-status.js';
 import type { McpConfiguredProtocol, McpStatusTransport } from '../mcp-status.js';
 
 const id = parseConfiguredMcpServerId('😀'.repeat(65));
@@ -627,5 +632,66 @@ describe('MCP host contract', () => {
     ]) {
       expect(() => parseMcpHostCloseReport(malformedClose)).toThrow();
     }
+  });
+});
+
+describe('MCP host status at a process boundary (BST-1930 c5b)', () => {
+  const base = {
+    auth: { credentialState: 'stored', type: 'bearer' },
+    configuredProtocol: 'legacy',
+    configuredServerId: 'fixture.status',
+    generation: 2,
+    transport: 'streamable-http',
+  } as const;
+
+  it('keeps each server state with the fields that state carries', () => {
+    const status = {
+      revision: 4,
+      servers: [
+        { ...base, state: 'disconnected' },
+        {
+          ...base,
+          configuredServerId: 'fixture.failed',
+          error: { category: 'connection', code: 'mcp-connection-failed', message: 'refused' },
+          state: 'error',
+        },
+        {
+          ...base,
+          configuredServerId: 'fixture.connected',
+          negotiated: { era: 'legacy', revision: '2025-06-18' },
+          state: 'connected',
+        },
+      ],
+    };
+    expect(parseMcpHostSnapshot(status)).toEqual(status);
+  });
+
+  it('refuses a server whose state lacks its facts, or a generation the host never mints', () => {
+    expect(() => parseMcpHostServerSnapshot({ ...base, state: 'connected' })).toThrow();
+    expect(() => parseMcpHostServerSnapshot({ ...base, state: 'error' })).toThrow();
+    expect(() =>
+      parseMcpHostServerSnapshot({ ...base, generation: 0, state: 'disconnected' })
+    ).toThrow();
+    expect(() =>
+      parseMcpHostSnapshot({ revision: 1, servers: [{ ...base, extra: 1, state: 'disconnected' }] })
+    ).toThrow();
+  });
+});
+
+describe('MCP operation results in a browser (BST-1930 c5d)', () => {
+  it('keeps an envelope whose result is strict JSON, as the host validated it', () => {
+    const read = {
+      result: { contents: [{ mimeType: 'text/plain', text: 'body', uri: 'echo://x' }] },
+      type: 'resources/read',
+    };
+    expect(parseMcpHostOperationResultWire(read)).toEqual(read);
+  });
+
+  it('refuses an unknown operation, a non-object result, or non-JSON data', () => {
+    expect(() => parseMcpHostOperationResultWire({ result: {}, type: 'tools/explode' })).toThrow();
+    expect(() => parseMcpHostOperationResultWire({ result: [], type: 'tools/list' })).toThrow();
+    expect(() =>
+      parseMcpHostOperationResultWire({ result: { at: new Date(0) }, type: 'tools/list' })
+    ).toThrow();
   });
 });

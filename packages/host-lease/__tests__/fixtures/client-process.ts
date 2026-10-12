@@ -10,8 +10,7 @@ async function main(): Promise<void> {
   const client = await launchHost(root, {
     lifetime,
     spawn: createNodeHostSpawner({
-      entrypoint: fileURLToPath(new URL('../../src/process-entry.ts', import.meta.url)),
-      execArgv: ['--import', 'tsx'],
+      entrypoint: fileURLToPath(new URL('../../dist/process-entry.js', import.meta.url)),
     }),
   });
   const done = Promise.withResolvers<void>();

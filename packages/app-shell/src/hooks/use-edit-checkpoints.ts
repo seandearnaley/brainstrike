@@ -161,6 +161,8 @@ export function useEditCheckpoints(
         }
         return result;
       },
+      // The legacy journal path takes reverts at any time; nothing refuses here.
+      revertRefusal: null,
       revertRun: async (runId, options) => {
         try {
           const result = await revertRunBridge(runId, options);

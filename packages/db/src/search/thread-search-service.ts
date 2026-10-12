@@ -45,7 +45,31 @@ export interface ThreadSearchServiceRepository {
   ) => Promise<ThreadTitleMatch[]>;
 }
 
+/** One message match from another owner's arm, best first in its list. */
+export interface ThreadSearchArmMessage {
+  readonly headline: string | null;
+  readonly messageCreatedAt: Date;
+  readonly messageId: string;
+  readonly role: string;
+  readonly threadId: string;
+}
+
+/**
+ * Gap 10: another owner's ranked arms (the agent host's threads), fused in the
+ * same pass as this repository's. Its threads are disjoint from this
+ * repository's, so its content and title lists are peers of ours at thread level.
+ */
+export interface ThreadSearchExtraArms {
+  /** Its lexical arm. */
+  readonly messages: readonly ThreadSearchArmMessage[];
+  /** Its semantic arm, when the query embedding reached it; fused per message with `messages`. */
+  readonly similarMessages?: readonly ThreadSearchArmMessage[];
+  readonly titles: readonly ThreadTitleMatch[];
+}
+
 export interface ThreadSearchQueryOptions {
+  /** Another owner's arms, fused in this one pass into the one result list. */
+  extraArms?: ThreadSearchExtraArms;
   /** FTS weight in message-level fusion (default 1.0). */
   ftsWeight?: number;
   /** Maximum threads in the final result (default 20). */
@@ -133,6 +157,7 @@ export class ThreadSearchService {
     }
 
     const {
+      extraArms,
       ftsWeight = 1.0,
       limit = DEFAULT_THREAD_LIMIT,
       messageSourceLimit = DEFAULT_MESSAGE_SOURCE_LIMIT,
@@ -228,19 +253,34 @@ export class ThreadSearchService {
       }
     }
 
-    // Level 2: fuse content-ranked threads with title-ranked threads.
+    // The other owner's lexical and semantic arms, fused per message as ours are.
+    const extraContent = groupExtraMessages(extraArms, { ftsWeight, rrfK, vectorWeight });
+    for (const [threadId, matches] of extraContent) {
+      matchesByThreadId.set(threadId, matches);
+    }
+
+    // Level 2: fuse content-ranked threads with title-ranked threads, each owner a peer.
     const contentThreadList = [...bestScoreByThreadId.entries()]
       .sort((a, b) => b[1] - a[1])
       .map(([threadId, score]) => ({ id: threadId, score }));
-    const titleByThreadId = new Map(titleResults.map((match) => [match.threadId, match]));
+    const extraTitles = extraArms?.titles ?? [];
+    const titleByThreadId = new Map(
+      [...titleResults, ...extraTitles].map((match) => [match.threadId, match])
+    );
+    const titleList = (matches: readonly ThreadTitleMatch[]) =>
+      matches.map((match) => ({ id: match.threadId, score: match.similarity }));
     const fusedThreads = fuseRankedLists(
       [
         createRankedList(contentThreadList, 'content'),
         createRankedList(
-          titleResults.map((match) => ({ id: match.threadId, score: match.similarity })),
-          'title',
-          { weight: titleWeight }
+          [...extraContent.entries()].map(([threadId, matches]) => ({
+            id: threadId,
+            score: matches[0]?.rrfScore ?? 0,
+          })),
+          'extra-content'
         ),
+        createRankedList(titleList(titleResults), 'title', { weight: titleWeight }),
+        createRankedList(titleList(extraTitles), 'extra-title', { weight: titleWeight }),
       ],
       rrfK === undefined ? { limit } : { k: rrfK, limit }
     );
@@ -267,6 +307,59 @@ export class ThreadSearchService {
       results,
     };
   }
+}
+
+/**
+ * Another owner's two ranked message arms fused per message id, as level 1
+ * fuses ours, then grouped by thread in fused order (best first).
+ */
+function groupExtraMessages(
+  extraArms: ThreadSearchExtraArms | undefined,
+  options: {
+    readonly ftsWeight: number;
+    readonly rrfK: number | undefined;
+    readonly vectorWeight: number;
+  }
+): Map<string, ThreadMessageMatchResult[]> {
+  const lexical = extraArms?.messages ?? [];
+  const semantic = extraArms?.similarMessages ?? [];
+  const ranked = (matches: readonly ThreadSearchArmMessage[]) =>
+    matches.map((match, index) => ({ id: match.messageId, score: matches.length - index }));
+  const fused = fuseRankedLists(
+    [
+      createRankedList(ranked(lexical), 'extra-fts', { weight: options.ftsWeight }),
+      createRankedList(ranked(semantic), 'extra-vector', { weight: options.vectorWeight }),
+    ],
+    options.rrfK === undefined ? {} : { k: options.rrfK }
+  );
+  const lexicalById = new Map(lexical.map((match) => [match.messageId, match]));
+  const semanticById = new Map(semantic.map((match) => [match.messageId, match]));
+  const grouped = new Map<string, ThreadMessageMatchResult[]>();
+  for (const { id, rrfScore } of fused) {
+    const lexicalMatch = lexicalById.get(id);
+    const semanticMatch = semanticById.get(id);
+    const match = lexicalMatch ?? semanticMatch;
+    if (!match) {
+      continue;
+    }
+    const sources: ThreadMessageMatchSource[] = [];
+    if (lexicalMatch) {
+      sources.push('fts');
+    }
+    if (semanticMatch) {
+      sources.push('vector');
+    }
+    const result: ThreadMessageMatchResult = {
+      headline: match.headline,
+      messageCreatedAt: match.messageCreatedAt,
+      messageId: id,
+      role: match.role,
+      rrfScore,
+      sources,
+    };
+    grouped.set(match.threadId, [...(grouped.get(match.threadId) ?? []), result]);
+  }
+  return grouped;
 }
 
 export function createThreadSearchService(

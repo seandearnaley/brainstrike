@@ -79,6 +79,15 @@ export type McpTaskActionResult =
   | { readonly ok: true; readonly task: McpTaskPresentation }
   | { readonly diagnostic: McpTaskDiagnostic; readonly ok: false };
 
+/** A card action's outcome, as a client outside the task host's process receives it. */
+export const McpTaskActionResultSchema: z.ZodType<McpTaskActionResult> = z.discriminatedUnion(
+  'ok',
+  [
+    z.strictObject({ ok: z.literal(true), task: McpTaskPresentationSchema }),
+    z.strictObject({ diagnostic: McpTaskDiagnosticSchema, ok: z.literal(false) }),
+  ]
+);
+
 export interface McpTaskPresentationControllerPort {
   act(request: McpTaskActionRequest): Promise<McpTaskActionResult>;
 }
@@ -89,4 +98,8 @@ export function parseMcpTaskPresentation(value: unknown): McpTaskPresentation {
 
 export function parseMcpTaskActionRequest(value: unknown): McpTaskActionRequest {
   return McpTaskActionRequestSchema.parse(value);
+}
+
+export function parseMcpTaskActionResult(value: unknown): McpTaskActionResult {
+  return McpTaskActionResultSchema.parse(value);
 }

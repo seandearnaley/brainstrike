@@ -1,5 +1,3 @@
-import fs from 'node:fs';
-import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
@@ -7,7 +5,12 @@ import {
   createMainWatchdogAttachmentLifecycle,
   createMainWatchdogRuntime,
   runMainWatchdogPowerTransition,
+  startMainWatchdogBeforeWindow,
 } from '../../diagnostics/main-watchdog-runtime';
+import {
+  createInitialWindowAfterNativeReader,
+  observeNativeReaderStartup,
+} from '../../native-index-startup-window';
 
 const ENABLED_CUSTOM_LOGGING = {
   destination: '/custom/brainstrike.log',
@@ -195,16 +198,62 @@ describe('main watchdog attachment lifecycle', () => {
   });
 });
 
-describe('main watchdog source wiring', () => {
-  const mainSource = fs.readFileSync(path.resolve(import.meta.dirname, '../../main.ts'), 'utf8');
-
-  it('keeps watchdog attachment ahead of renderer startup and cleans up after exit', () => {
-    expect(mainSource).toContain('attemptMainWatchdogBootstrap(');
-    expect(mainSource).toContain('mainWatchdogAttachment.attach(');
-    expect(mainSource.indexOf('mainWatchdogAttachment.attach(')).toBeLessThan(
-      mainSource.indexOf('const mainWindow = await createMainWindow()')
+describe('main watchdog window startup', () => {
+  it('keeps watchdog attachment ahead of renderer startup and cleans up after exit', async () => {
+    const reader = Promise.withResolvers<void>();
+    const runtime = createMainWatchdogRuntime({ onDeliveryError: vi.fn() });
+    const attachment = createMainWatchdogAttachmentLifecycle(runtime);
+    const postMessage = vi.fn();
+    const createWindow = vi.fn(async () => ({ id: 1 }));
+    const onError = vi.fn();
+    // BST-1977: qualify the actual Main startup seam while reader readiness
+    // is held, replacing the obsolete createMainWindow source-text assertion.
+    const window = startMainWatchdogBeforeWindow(
+      () => attachment.attach(postMessage, ENABLED_CUSTOM_LOGGING),
+      onError,
+      () =>
+        createInitialWindowAfterNativeReader(
+          observeNativeReaderStartup(reader.promise, onError),
+          createWindow,
+          vi.fn(),
+          () => false
+        )
     );
-    expect(mainSource).toContain('mainWatchdogAttachment.detachIfAttached()');
-    expect(mainSource.match(/runMainWatchdogPowerTransition\(/g)).toHaveLength(2);
+    expect(postMessage).toHaveBeenCalledExactlyOnceWith({
+      logPath: '/custom/brainstrike.log',
+      type: 'config',
+    });
+    expect(runtime.heartbeat()).toBe(true);
+    await Promise.resolve();
+    expect(createWindow).not.toHaveBeenCalled();
+    reader.resolve();
+    await expect(window).resolves.toEqual({ id: 1 });
+    expect(createWindow).toHaveBeenCalledOnce();
+    expect(onError).not.toHaveBeenCalled();
+    expect(attachment.detachIfAttached()).toBe(true);
+    expect(attachment.detachIfAttached()).toBe(false);
+    expect(runtime.heartbeat()).toBe(false);
+  });
+
+  it('opens the ready renderer after a reported watchdog bootstrap failure', async () => {
+    const error = new Error('Watchdog could not be acquired');
+    const onError = vi.fn();
+    const createWindow = vi.fn(async () => ({ id: 1 }));
+    const window = startMainWatchdogBeforeWindow(
+      () => {
+        throw error;
+      },
+      onError,
+      () =>
+        createInitialWindowAfterNativeReader(
+          Promise.resolve({ kind: 'ready' }),
+          createWindow,
+          vi.fn(),
+          () => false
+        )
+    );
+    await expect(window).resolves.toEqual({ id: 1 });
+    expect(onError).toHaveBeenCalledExactlyOnceWith(error);
+    expect(createWindow).toHaveBeenCalledOnce();
   });
 });

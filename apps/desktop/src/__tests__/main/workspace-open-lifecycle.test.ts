@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DESKTOP_IPC_CHANNELS } from '../../platform/desktop-ipc-channels';
 
@@ -188,6 +189,7 @@ const mockApp = {
   on: vi.fn(),
   quit: vi.fn(),
   requestSingleInstanceLock: vi.fn(() => true),
+  setPath: vi.fn(),
   whenReady: vi.fn(() => Promise.resolve()),
 };
 
@@ -235,6 +237,7 @@ vi.mock('node:fs', () => ({
     accessSync: accessSyncMock,
     constants: { W_OK: 0o200 },
     existsSync: existsSyncMock,
+    mkdirSync: vi.fn(),
     statSync: statSyncMock,
   },
   existsSync: existsSyncMock,
@@ -519,7 +522,7 @@ describe('main workspace-open lifecycle', () => {
         '--no-sandbox',
         '--allow-file-access-from-files',
         '/mock/app',
-        '/work/second-instance-repo',
+        resolve('/work/second-instance-repo'),
       ],
       '/cwd'
     );
@@ -531,7 +534,7 @@ describe('main workspace-open lifecycle', () => {
 
     expect(latestWindow().webContents.send).toHaveBeenCalledWith(OPEN_PATH_CHANNEL, {
       origin: 'second-instance',
-      path: '/work/second-instance-repo',
+      path: resolve('/work/second-instance-repo'),
     });
   });
 
@@ -583,7 +586,7 @@ describe('main workspace-open lifecycle', () => {
   });
 
   it('enqueues and delivers a launch-argv folder exactly once', async () => {
-    process.argv = [...process.argv, '/work/argv-repo'];
+    process.argv = [...process.argv, resolve('/work/argv-repo')];
 
     await import('../../main');
 
@@ -594,7 +597,7 @@ describe('main workspace-open lifecycle', () => {
 
     expect(latestWindow().webContents.send).toHaveBeenCalledExactlyOnceWith(OPEN_PATH_CHANNEL, {
       origin: 'argv',
-      path: '/work/argv-repo',
+      path: resolve('/work/argv-repo'),
     });
 
     // A later, unrelated MAIN-FRAME reload (did-start-loading +
@@ -949,6 +952,7 @@ describe('main workspace-open lifecycle', () => {
     };
     await vi.waitFor(() => {
       expect(findOpenFolderItem()).not.toBeNull();
+      expect(mockWindowInstances).toHaveLength(1);
     });
 
     const win = latestWindow();

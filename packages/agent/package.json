@@ -18,6 +18,7 @@
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/mcp-app-host": "workspace:*",
     "@brainstrike/mcp-tasks-extension": "workspace:*",
+    "@brainstrike/state-store": "workspace:*",
     "@brainstrike/tokenization": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "@brainstrike/utils": "workspace:*",
@@ -55,6 +56,11 @@
     "node": ">=22"
   },
   "exports": {
+    "./tool-runtime": {
+      "types": "./dist/tool-runtime.d.ts",
+      "import": "./dist/tool-runtime.mjs",
+      "require": "./dist/tool-runtime.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.mjs",
@@ -64,6 +70,16 @@
       "types": "./dist/client.d.ts",
       "import": "./dist/client.mjs",
       "require": "./dist/client.js"
+    },
+    "./provider-request": {
+      "types": "./dist/provider-request.d.ts",
+      "import": "./dist/provider-request.mjs",
+      "require": "./dist/provider-request.js"
+    },
+    "./provider-runtime": {
+      "types": "./dist/provider-runtime.d.ts",
+      "import": "./dist/provider-runtime.mjs",
+      "require": "./dist/provider-runtime.js"
     },
     "./code-execution": {
       "types": "./dist/code-execution.d.ts",

@@ -1,8 +1,12 @@
+// @vitest-environment node
 /**
- * McpDesktopTaskHost over a real PGlite store migrated by the production
- * runner (BST-1566). Env-sensitive (native PGlite, wall-clock polling), hence
- * the integration suffix.
+ * McpDesktopTaskHost over a real host StateStore, its one Tasks writer
+ * (BST-1566, BST-1930 ruling B). Env-sensitive (native SQLite, wall-clock
+ * polling), hence the integration suffix.
  */
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
   McpClientExtensionRegistry,
   registerMcpTasksWireContracts,
@@ -10,19 +14,23 @@ import {
 import type { McpClientExtensionRequestContract } from '@brainstrike/agent/mcp-tasks';
 import type { McpTaskPresentation } from '@brainstrike/assistant-contract';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
-import { McpTaskRepository, MigrationRunner, migrations, wasmLoader } from '@brainstrike/db';
-import type { PGlite } from '@electric-sql/pglite';
-import type { JSONObject } from '@modelcontextprotocol/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { McpTaskElicitationBinding } from '../../mcp/elicitation-presenter';
+import { McpTaskStore } from '@brainstrike/db';
+import type { ResolvedMcpServer } from '@brainstrike/host-capabilities/mcp/config-file';
+import type {
+  McpBoundTaskElicitationPresenter,
+  McpTaskElicitationBinding,
+} from '@brainstrike/host-capabilities/mcp/elicitation-presenter';
+import { stateStoreMcpTaskStorage } from '@brainstrike/host-capabilities/mcp/state-store-task-storage';
 import {
   deriveMcpTaskAuthorityIdentity,
   MCP_STDIO_TASK_PRINCIPAL,
   MCP_STDIO_TASK_RESOURCE,
   McpDesktopTaskHost,
   type McpTaskConnection,
-} from '../../mcp/task-host';
-import type { ResolvedMcpServer } from '../../mcp-loader';
+} from '@brainstrike/host-capabilities/mcp/task-host';
+import { StateStore } from '@brainstrike/state-store';
+import type { JSONObject } from '@modelcontextprotocol/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const SERVER_ID = parseConfiguredMcpServerId('team.tasks.prod');
 const HTTP_SERVER: ResolvedMcpServer = {
@@ -149,22 +157,27 @@ function createConnection(
 
 const bindings: McpTaskElicitationBinding[] = [];
 const elicitationPresenter = {
-  bindTaskPresenter: vi.fn((binding: McpTaskElicitationBinding) => {
-    bindings.push(binding);
-    return {
-      presenter: {
-        confirmUrl: async () => ({ action: 'cancel' as const }),
-        form: true,
-        openExternal: async () => undefined,
-        presentForm: async () => ({ action: 'accept' as const, content: { workspace: 'Eng' } }),
-        url: true,
-      },
-      release: vi.fn(),
-    };
-  }),
+  bindTaskPresenter: vi.fn(
+    (binding: McpTaskElicitationBinding): McpBoundTaskElicitationPresenter => {
+      bindings.push(binding);
+      return {
+        presenter: {
+          confirmUrl: async () => ({ action: 'cancel' as const }),
+          form: true,
+          openExternal: async () => undefined,
+          presentForm: async () => ({ action: 'accept' as const, content: { workspace: 'Eng' } }),
+          url: true,
+        },
+        release: vi.fn(),
+      };
+    }
+  ),
 };
 
-let db: PGlite;
+/** The host thread whose run admitted each execution; its deletion erases the rows. */
+const THREAD_ID = 'thread-host';
+let root: string;
+let store: StateStore;
 let host: McpDesktopTaskHost;
 const internalErrors: [string, unknown][] = [];
 const changes: McpTaskPresentation[] = [];
@@ -180,10 +193,9 @@ async function until(predicate: () => boolean, label: string): Promise<void> {
 }
 
 beforeEach(async () => {
-  db = await wasmLoader.createPGlite(`memory://mcp-task-host-${Date.now()}-${Math.random()}`);
-  const runner = new MigrationRunner(db);
-  await runner.initialize();
-  await runner.up(migrations);
+  root = await mkdtemp(join(tmpdir(), 'bs-mcp-task-host-'));
+  store = await StateStore.open(root);
+  await store.append([{ event: { type: 'thread.started' }, threadId: THREAD_ID }]);
   internalErrors.length = 0;
   changes.length = 0;
   bindings.length = 0;
@@ -191,7 +203,7 @@ beforeEach(async () => {
     elicitationPresenter,
     lifecycleLimits: LIMITS,
     onInternalError: (code, cause) => internalErrors.push([code, cause]),
-    openDatabase: async () => db,
+    openStorage: async () => stateStoreMcpTaskStorage(store),
     runtimeId: 'test-runtime',
   });
   host.subscribe((task) => changes.push(task));
@@ -199,7 +211,8 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await host.close();
-  await db.close();
+  await store.close();
+  await rm(root, { force: true, recursive: true });
   vi.clearAllMocks();
 });
 
@@ -394,7 +407,7 @@ describe('McpDesktopTaskHost', () => {
     });
     // A durable active row this host does not track (written by another
     // runtime, or whose earlier poller was lost): only recovery can resume it.
-    const repository = new McpTaskRepository(db);
+    const repository = new McpTaskStore(stateStoreMcpTaskStorage(store));
     const untracked = await repository.create(
       {
         ...live.handle,
@@ -438,6 +451,267 @@ describe('McpDesktopTaskHost', () => {
     expect(internalErrors).toEqual([]);
   });
 
+  it('fences pending input without tasks/cancel when its tracking caller stops, then recovers it', async () => {
+    const server = createFakeServer();
+    const presented: AbortSignal[] = [];
+    // The first binding's user never answers; the recovered binding accepts.
+    elicitationPresenter.bindTaskPresenter.mockImplementationOnce(
+      (binding: McpTaskElicitationBinding) => {
+        bindings.push(binding);
+        return {
+          presenter: {
+            confirmUrl: async () => ({ action: 'cancel' as const }),
+            form: true,
+            openExternal: async () => undefined,
+            presentForm: (_request, context) => {
+              presented.push(context.signal);
+              return new Promise(() => undefined);
+            },
+            url: true,
+          },
+          release: vi.fn(),
+        };
+      }
+    );
+    await host.connected(createConnection(server));
+    const caller = new AbortController();
+    const initial = await host.track(
+      { configuredServerId: SERVER_ID, result: server.created('t-6'), toolName: 'stoppable' },
+      caller.signal
+    );
+    server.set('t-6', {
+      inputRequests: {
+        'input-1': {
+          method: 'elicitation/create',
+          params: {
+            message: 'Choose a workspace',
+            mode: 'form',
+            requestedSchema: {
+              properties: { workspace: { type: 'string' } },
+              required: ['workspace'],
+              type: 'object',
+            },
+          },
+        },
+      },
+      status: 'input_required',
+    });
+    await until(() => presented.length === 1, 'the input presentation');
+    expect(host.list().tasks).toEqual([
+      expect.objectContaining({
+        handle: initial.handle,
+        recovery: 'live',
+        status: 'input_required',
+      }),
+    ]);
+
+    const stopped = new Error('Run stopped by user');
+    caller.abort(stopped);
+    await until(() => internalErrors.length > 0, 'the tracking loss');
+
+    expect(presented[0]?.aborted).toBe(true);
+    expect(server.cancels).toEqual([]);
+    expect(server.updates).toEqual([]);
+    expect(host.list().tasks).toEqual([
+      expect.objectContaining({
+        handle: initial.handle,
+        recovery: 'restart_required',
+        status: 'input_required',
+      }),
+    ]);
+    expect(internalErrors).toEqual([
+      ['mcp-task-settlement-failed', { cause: stopped, taskId: 't-6' }],
+    ]);
+    // Recovery is the visible path: the input is presented again and answered.
+    await expect(host.act({ action: 'recover', handle: initial.handle })).resolves.toEqual({
+      ok: true,
+      task: expect.objectContaining({ handle: initial.handle, status: 'input_required' }),
+    });
+    await expect(host.awaitSettlement(initial.handle, { timeoutMs: 5000 })).resolves.toEqual({
+      settled: true,
+      task: expect.objectContaining({ recovery: 'terminal', status: 'completed' }),
+    });
+    expect(server.updates).toEqual([
+      {
+        inputResponses: { 'input-1': { action: 'accept', content: { workspace: 'Eng' } } },
+        taskId: 't-6',
+      },
+    ]);
+    expect(server.cancels).toEqual([]);
+  });
+
+  it('recovers from inside the restart_required notification with a fresh poller and fresh input', async () => {
+    const server = createFakeServer();
+    const parked = Promise.withResolvers<void>();
+    // The admitting run's user never answers; the recovered binding accepts.
+    elicitationPresenter.bindTaskPresenter.mockImplementationOnce(
+      (binding: McpTaskElicitationBinding) => {
+        bindings.push(binding);
+        return {
+          presenter: {
+            confirmUrl: async () => ({ action: 'cancel' as const }),
+            form: true,
+            openExternal: async () => undefined,
+            presentForm: () => {
+              parked.resolve();
+              return new Promise(() => undefined);
+            },
+            url: true,
+          },
+          release: vi.fn(),
+        };
+      }
+    );
+    await host.connected(createConnection(server));
+    const caller = new AbortController();
+    const initial = await host.track(
+      { configuredServerId: SERVER_ID, result: server.created('t-9'), toolName: 'stoppable' },
+      caller.signal
+    );
+    server.set('t-9', {
+      inputRequests: {
+        'input-1': {
+          method: 'elicitation/create',
+          params: {
+            message: 'Choose a workspace',
+            mode: 'form',
+            requestedSchema: {
+              properties: { workspace: { type: 'string' } },
+              required: ['workspace'],
+              type: 'object',
+            },
+          },
+        },
+      },
+      status: 'input_required',
+    });
+    await parked.promise;
+    // The subscriber recovers synchronously from the restart_required publication itself.
+    const recovered = Promise.withResolvers<Awaited<ReturnType<typeof host.act>>>();
+    host.subscribe((task) => {
+      if (task.handle.taskId === 't-9' && task.recovery === 'restart_required') {
+        host
+          .act({ action: 'recover', handle: task.handle })
+          .then(recovered.resolve, recovered.reject);
+      }
+    });
+    caller.abort(new Error('Run stopped by user'));
+    await expect(recovered.promise).resolves.toEqual({
+      ok: true,
+      task: expect.objectContaining({ handle: initial.handle, recovery: 'live' }),
+    });
+    expect(host.snapshot().sessions[0]).toMatchObject({ lifecycle: { activeTasks: 1 }, tasks: 1 });
+    // The recovered poller presents the input afresh and its answer completes the task.
+    await expect(host.awaitSettlement(initial.handle, { timeoutMs: 5000 })).resolves.toEqual({
+      settled: true,
+      task: expect.objectContaining({ recovery: 'terminal', status: 'completed' }),
+    });
+    expect(bindings.filter(({ taskHandle }) => taskHandle.taskId === 't-9')).toHaveLength(2);
+    expect(server.updates).toEqual([
+      {
+        inputResponses: { 'input-1': { action: 'accept', content: { workspace: 'Eng' } } },
+        taskId: 't-9',
+      },
+    ]);
+    expect(server.cancels).toEqual([]);
+  });
+
+  it('binds a host-run task to Core and reports its input receipt from the update ack', async () => {
+    const server = createFakeServer();
+    const presented = Promise.withResolvers<void>();
+    const answer = Promise.withResolvers<{ action: 'accept'; content: { workspace: string } }>();
+    elicitationPresenter.bindTaskPresenter.mockImplementationOnce(
+      (binding: McpTaskElicitationBinding) => {
+        bindings.push(binding);
+        return {
+          presenter: {
+            confirmUrl: async () => ({ action: 'cancel' as const }),
+            form: true,
+            openExternal: async () => undefined,
+            presentForm: () => {
+              presented.resolve();
+              return answer.promise;
+            },
+            url: true,
+          },
+          release: vi.fn(),
+        };
+      }
+    );
+    await host.connected(createConnection(server));
+    const bound = Promise.withResolvers<void>();
+    const execution = {
+      bindTask: vi.fn((_task: { assertCurrent(): Promise<void> }) => bound.promise),
+      requestInput: vi.fn(async () => undefined),
+      threadId: THREAD_ID,
+    };
+    const initial = await host.track({
+      configuredServerId: SERVER_ID,
+      execution,
+      result: server.created('t-host'),
+      toolName: 'deploy',
+    });
+    // Core is asked to commit the exact handle; the registration stays current meanwhile.
+    expect(execution.bindTask).toHaveBeenCalledWith({
+      assertCurrent: expect.any(Function),
+      handle: initial.handle,
+    });
+    await expect(execution.bindTask.mock.calls[0]?.[0].assertCurrent()).resolves.toBeUndefined();
+    const binding = bindings.find(({ taskHandle }) => taskHandle.taskId === 't-host');
+    expect(binding).toMatchObject({ host: { execution }, taskHandle: initial.handle });
+    bound.resolve();
+    await expect(binding?.host?.bound?.()).resolves.toBeUndefined();
+    server.set('t-host', {
+      inputRequests: {
+        'input-1': {
+          method: 'elicitation/create',
+          params: {
+            message: 'Choose a workspace',
+            mode: 'form',
+            requestedSchema: {
+              properties: { workspace: { type: 'string' } },
+              required: ['workspace'],
+              type: 'object',
+            },
+          },
+        },
+      },
+      status: 'input_required',
+    });
+    await presented.promise;
+    // The receipt is the server's ack of the update that carries this input's answer.
+    const receipt = binding?.host?.acknowledged?.('input-1');
+    answer.resolve({ action: 'accept', content: { workspace: 'Eng' } });
+    await expect(receipt).resolves.toBeUndefined();
+    expect(server.updates).toEqual([
+      {
+        inputResponses: { 'input-1': { action: 'accept', content: { workspace: 'Eng' } } },
+        taskId: 't-host',
+      },
+    ]);
+  });
+
+  it('reports a binding Core refused instead of dropping it', async () => {
+    const server = createFakeServer();
+    await host.connected(createConnection(server));
+    const refusal = new Error('Private MCP execution authority is unavailable or stale');
+    await host.track({
+      configuredServerId: SERVER_ID,
+      execution: {
+        bindTask: vi.fn(() => Promise.reject(refusal)),
+        requestInput: vi.fn(async () => undefined),
+        threadId: THREAD_ID,
+      },
+      result: server.created('t-refused'),
+      toolName: 'deploy',
+    });
+    await vi.waitFor(() =>
+      expect(internalErrors).toEqual([
+        ['mcp-task-host-binding-refused', { cause: refusal, taskId: 't-refused' }],
+      ])
+    );
+  });
+
   it('marks tasks restart_required on disconnect, recovers them on reconnect, and retires the epoch on replacement', async () => {
     const server = createFakeServer();
     await host.connected(createConnection(server));
@@ -472,7 +746,7 @@ describe('McpDesktopTaskHost', () => {
     });
     // A replaced definition retires the epoch: the old lease lists nothing.
     await host.retired(SERVER_ID, 'server-replaced');
-    const repository = new McpTaskRepository(db);
+    const repository = new McpTaskStore(stateStoreMcpTaskStorage(store));
     await expect(
       repository.listActive({
         authorityEpoch: initial.handle.authorityEpoch,

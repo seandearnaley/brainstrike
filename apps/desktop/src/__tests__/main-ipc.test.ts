@@ -3,6 +3,12 @@ import type { createIpcMainMock, createIpcRendererMock } from '@brainstrike/test
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createTrustedInvokeEvent } from './helpers/desktop-ipc-sender-test-helpers';
 
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
+  const mockedFs = { ...actual, mkdirSync: vi.fn() };
+  return { ...mockedFs, default: mockedFs };
+});
+
 const lifecycleHandlers = vi.hoisted(() => new Map<string, () => void>());
 const ipcInvokeState = vi.hoisted(() => ({ event: null as unknown }));
 const registeredIpcHandlers = vi.hoisted(
@@ -12,10 +18,16 @@ const registeredIpcHandlers = vi.hoisted(
 // Hoist the Electron mock to avoid factory/temporal dead zone issues
 vi.mock('electron', async () => {
   const electronUtils = await import('@brainstrike/test-utils');
-  const app = electronUtils.createAppMock({
-    documentsPath: '/mock/userData',
-    whenReadyResolved: true,
-  });
+  const electronStub = await vi.importActual<typeof import('./electron-test-stub.mts')>(
+    './electron-test-stub.mts'
+  );
+  const app = {
+    ...electronStub.app,
+    ...electronUtils.createAppMock({
+      documentsPath: '/mock/userData',
+      whenReadyResolved: true,
+    }),
+  };
   app.on.mockImplementation((event: string, listener: () => void) => {
     lifecycleHandlers.set(event, listener);
     return app;
@@ -66,6 +78,7 @@ vi.mock('electron', async () => {
     getAllWindows: vi.fn(() => []),
   });
   return {
+    ...electronStub,
     app,
     BrowserWindow,
     clipboard: {
@@ -87,7 +100,10 @@ vi.mock('electron', async () => {
     },
     protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
     screen,
-    session: { defaultSession: { webRequest: { onHeadersReceived: vi.fn() } } },
+    session: {
+      ...electronStub.session,
+      defaultSession: { webRequest: { onHeadersReceived: vi.fn() } },
+    },
     shell: {
       openPath: vi.fn().mockResolvedValue(''),
       showItemInFolder: vi.fn(),
@@ -153,7 +169,6 @@ describe('db:getUserDataPath IPC handler', () => {
 
     willQuitHandler();
 
-    expect(ipcMain.removeHandler).toHaveBeenCalledWith('mcp:config:get');
-    expect(ipcMain.removeHandler).toHaveBeenCalledWith('mcp:tools:getStats');
+    expect(ipcMain.removeHandler).toHaveBeenCalledWith('mcp:config:selectPath');
   });
 });

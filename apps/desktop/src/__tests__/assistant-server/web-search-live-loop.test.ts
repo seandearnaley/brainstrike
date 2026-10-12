@@ -20,9 +20,9 @@ import type {
   LocalLlmHostGenerateRequest,
   LocalLlmHostRequestOptions,
 } from '@brainstrike/agent/local-llm';
+import type { WebSearchToolDependencies } from '@brainstrike/host-capabilities/native-tools';
 import { describe, expect, it, vi } from 'vitest';
 import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
-import type { WebSearchToolDependencies } from '../../assistant-server/web-search-tool';
 import { requireTool } from './_tool-test-helpers';
 
 // Restore the REAL streamMastraAgent (the global setup.ts mock replaces it with

@@ -1,9 +1,9 @@
 import type { ConfiguredMcpServerId, McpHostServerSnapshot } from '@brainstrike/assistant-contract';
-import { describe, expect, it, vi } from 'vitest';
 import {
   McpHostRevisionPublisher,
   McpHostRevisionPublisherTransitionError,
-} from '../../mcp/host-revision-publisher';
+} from '@brainstrike/host-capabilities/mcp/host-revision-publisher';
+import { describe, expect, it, vi } from 'vitest';
 
 const server = (id: string, generation = 1): McpHostServerSnapshot => ({
   configuredProtocol: 'auto',
@@ -228,5 +228,55 @@ describe('McpHostRevisionPublisher', () => {
         message: 'MCP host is closed',
       })
     );
+  });
+
+  it('excludes an already disposed registration while stopping its queued callback', async () => {
+    const listener = vi.fn();
+    const publisher = new McpHostRevisionPublisher({ onDiagnostic: vi.fn() });
+    const unsubscribe = publisher.watch({}, listener);
+    publisher.publishConfigSet([server('alpha')]);
+    unsubscribe();
+    unsubscribe();
+    await flush();
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(publisher.close()).toBe(0);
+    unsubscribe();
+    expect(publisher.close()).toBe(0);
+  });
+
+  it('counts only active registrations without double-counting terminal disposal', () => {
+    const publisher = new McpHostRevisionPublisher({ onDiagnostic: vi.fn() });
+    const retired = publisher.watch({}, vi.fn());
+    const active = publisher.watch({}, vi.fn());
+    retired();
+    retired();
+
+    expect(publisher.close()).toBe(1);
+    active();
+    retired();
+    expect(publisher.close()).toBe(0);
+  });
+
+  it('excludes disposed detach/reopen registrations while preserving revision fencing', async () => {
+    const publisher = new McpHostRevisionPublisher({ onDiagnostic: vi.fn() });
+    const oldListener = vi.fn();
+    const oldUnsubscribe = publisher.watch({}, oldListener);
+    publisher.publishConfigSet([server('alpha')]);
+    oldUnsubscribe();
+    const newListener = vi.fn();
+    const newUnsubscribe = publisher.watch({}, newListener);
+    await flush();
+
+    expect(oldListener).not.toHaveBeenCalled();
+    expect(newListener).not.toHaveBeenCalled();
+    publisher.publishConfigSet([]);
+    await flush();
+    expect(newListener).toHaveBeenCalledOnce();
+    expect(newListener).toHaveBeenCalledWith({ revision: 2, servers: [] });
+    newUnsubscribe();
+
+    expect(publisher.close()).toBe(0);
+    expect(publisher.close()).toBe(0);
   });
 });

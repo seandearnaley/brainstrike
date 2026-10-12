@@ -1,5 +1,5 @@
 // M0-A1 guard of the lock's start-time source on every platform (spike test/m0-dir-lock-start.test.ts). Windows:
-// GetProcessTimes via PowerShell's Process.StartTime; POSIX: ps -o lstart. The pid-reuse test derives "the real start"
+// native GetProcessTimes; POSIX: ps -o lstart. The pid-reuse test derives "the real start"
 // through the same function, so it cannot catch a wrong source (a constant passes it); this test checks the value
 // against the real spawn time.
 

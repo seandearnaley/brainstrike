@@ -56,6 +56,10 @@ server.setRequestHandler('tools/list', async () => {
     ],
   };
 });
+server.setRequestHandler('tools/call', async () => {
+  await updateState((state) => ({ ...state, toolCalls: (state.toolCalls ?? 0) + 1 }));
+  return { content: [{ text: 'owned stdio probe completed', type: 'text' }] };
+});
 if (connectDelayMs > 0) {
   await new Promise((resolve) => setTimeout(resolve, connectDelayMs));
 }

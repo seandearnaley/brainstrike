@@ -150,19 +150,19 @@ describe('restorePathsFromSnapshot', () => {
   it('a glob-looking journal path matches itself literally, never expands', {
     timeout: HEAVY_TIMEOUT_MS,
   }, async () => {
-    await write('star*.txt', 'literal star\n');
-    await write('starABC.txt', 'not this one\n');
+    await write('bracket[ab].txt', 'literal star\n');
+    await write('bracketa.txt', 'not this one\n');
     const oid = await snap();
-    await write('star*.txt', 'changed\n');
-    await write('starABC.txt', 'changed too\n');
+    await write('bracket[ab].txt', 'changed\n');
+    await write('bracketa.txt', 'changed too\n');
 
     const outcomes = await service.restorePathsFromSnapshot(handle, oid, [
-      { expectAbsent: false, path: 'star*.txt' },
+      { expectAbsent: false, path: 'bracket[ab].txt' },
     ]);
-    expect(outcomes).toEqual([{ outcome: 'restored', path: 'star*.txt' }]);
-    expect(await readOrNull('star*.txt')).toBe('literal star\n');
+    expect(outcomes).toEqual([{ outcome: 'restored', path: 'bracket[ab].txt' }]);
+    expect(await readOrNull('bracket[ab].txt')).toBe('literal star\n');
     // The sibling the glob WOULD have matched stays untouched.
-    expect(await readOrNull('starABC.txt')).toBe('changed too\n');
+    expect(await readOrNull('bracketa.txt')).toBe('changed too\n');
   });
 });
 
@@ -216,5 +216,33 @@ describe('pruneHistory', () => {
     await service.pruneHistory(handle, [fifth]);
     expect(await blobExists(fourth)).toBe(false);
     expect(await blobExists(fifth)).toBe(true);
+  });
+
+  it("keeps a chain outside the boundaries whole: a host thread's turns survive a legacy trim", {
+    timeout: HEAVY_TIMEOUT_MS,
+  }, async () => {
+    // A host thread's turns are recorded in the host's log, never the ledger,
+    // so its chain is never among the boundaries the startup GC cuts at.
+    await write('file.txt', 'host-1\n');
+    const hostStart = await snap('host-thread');
+    await write('file.txt', 'host-2\n');
+    const hostEnd = await snap('host-thread');
+    const legacy: string[] = [];
+    for (let turn = 1; turn <= 3; turn += 1) {
+      await write('file.txt', `legacy-${turn}\n`);
+      legacy.push(await snap('legacy-thread'));
+    }
+    const [legacyOldest, , legacyNewest] = legacy;
+    if (!(legacyOldest && legacyNewest)) {
+      throw new Error('fixture must produce three legacy snapshots');
+    }
+
+    await service.pruneHistory(handle, [legacyNewest]);
+
+    expect(await blobExists(legacyOldest)).toBe(false);
+    expect(await blobExists(hostStart)).toBe(true);
+    expect(await blobExists(hostEnd)).toBe(true);
+    const diffs = await service.diffRefs(handle, hostStart, hostEnd);
+    expect(diffs.map((diff) => diff.path)).toEqual(['file.txt']);
   });
 });

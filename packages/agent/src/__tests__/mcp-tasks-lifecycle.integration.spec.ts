@@ -160,6 +160,72 @@ describe('McpTaskLifecycle', () => {
     });
   });
 
+  it('publishes a persisted update before the interaction consumer parks on its input', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(createdTask.createdAt));
+    db = await openDatabase();
+    const repository = new McpTaskRepository(db);
+    const authority = await repository.openAuthority(authorityInput);
+    const identity = taskIdentity(authority, createdTask.taskId);
+    const order: string[] = [];
+    const observing = Promise.withResolvers<void>();
+    // The user has not answered: the consumer stays parked on the input.
+    const unanswered = new Promise<never>(() => undefined);
+    const observationPort = new McpTaskObservationPort({ onConsumerError: consumerErrorSink });
+    observationPort.subscribe({
+      fail: vi.fn(),
+      observe: async (task) => {
+        order.push(`observe:${task.status}`);
+        observing.resolve();
+        await unanswered;
+      },
+    });
+    const inputRequired: GetTaskResult = {
+      createdAt: createdTask.createdAt,
+      inputRequests: {
+        approval: {
+          method: 'elicitation/create',
+          params: {
+            message: 'Approve?',
+            mode: 'form',
+            requestedSchema: { properties: {}, type: 'object' },
+          },
+        },
+      },
+      lastUpdatedAt: '2026-09-01T04:00:00.100Z',
+      resultType: 'complete',
+      status: 'input_required',
+      taskId: createdTask.taskId,
+      ttlMs: createdTask.ttlMs,
+    };
+    const lifecycle = new McpTaskLifecycle({
+      authority,
+      client: { requestExtension: vi.fn(async (): Promise<GetTaskResult> => inputRequired) },
+      observationPort,
+      onUpdate: async (record) => {
+        // Persist before publish still holds: the published record is the durable row.
+        await expect(repository.get(identity)).resolves.toEqual(record);
+        order.push(`update:${record.status}`);
+      },
+      repository,
+    });
+    const tracked = await lifecycle.track(createdTask);
+
+    await vi.advanceTimersByTimeAsync(createdTask.pollIntervalMs);
+    await observing.promise;
+    expect(order).toEqual(['update:input_required', 'observe:input_required']);
+
+    await lifecycle.stop('closed');
+    await expect(tracked.settled).rejects.toMatchObject({ reason: 'closed' });
+    expect(lifecycle.snapshot()).toEqual({
+      activePolls: 0,
+      activeTasks: 0,
+      pendingCreates: 0,
+      queuedPolls: 0,
+      timers: 0,
+    });
+  });
+
   it('coalesces notification wakeups into one lifecycle-owned poll and publishes after persistence', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(createdTask.createdAt));

@@ -3,30 +3,15 @@ import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
 import { app } from 'electron';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { handleAssistantRequest } from '../../assistant-server';
-import { createDesktopMcpHostRuntime, getDesktopMcpHostRuntime } from '../../mcp/host-runtime';
+import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import { createRunRequest, MockResponse } from './_harness';
 
-type DesktopMcpHostRuntime = ReturnType<typeof createDesktopMcpHostRuntime>;
-
-const runtimeSlot = vi.hoisted(() => ({ current: undefined as DesktopMcpHostRuntime | undefined }));
 const mockSecretsService = vi.hoisted(() => ({
   getCredential: vi.fn(async () => ({ key: 'local-test-key', type: 'api_key' as const })),
   getKey: vi.fn(async () => 'local-test-key'),
   listProviders: vi.fn(async () => ['local']),
 }));
 
-vi.mock('../../mcp/host-runtime', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../mcp/host-runtime')>();
-  return {
-    ...actual,
-    getDesktopMcpHostRuntime: vi.fn(() => {
-      if (!runtimeSlot.current) {
-        throw new Error('BST-1543 desktop MCP runtime was not installed');
-      }
-      return runtimeSlot.current;
-    }),
-  };
-});
 vi.mock('../../db-main', () => ({
   getDatabase: vi.fn(async () => ({
     exec: vi.fn(async () => undefined),
@@ -41,9 +26,12 @@ vi.mock('../../agent-client-loader', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../agent-client-loader')>()),
   getAgentProviderEnvKeys: vi.fn(() => []),
 }));
-vi.mock('../../assistant-server/workspace-text-file-reader', () => ({
-  readWorkspaceTextFile: vi.fn(async () => ({ content: '', path: '', size: 0 })),
-}));
+vi.mock(
+  '../../../../../packages/host-capabilities/src/native-tools/workspace-text-file-reader',
+  () => ({
+    readWorkspaceTextFile: vi.fn(async () => ({ content: '', path: '', size: 0 })),
+  })
+);
 
 const runRequest = createRunRequest(handleAssistantRequest);
 const SERVER_ID = parseConfiguredMcpServerId('linear.production');
@@ -58,7 +46,6 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  runtimeSlot.current = undefined;
   try {
     await runtime?.host.close();
   } finally {
@@ -82,33 +69,15 @@ it('copies Uint8Array chunks and handles bare ArrayBuffer chunks as bytes', () =
   expect(Buffer.concat(response.bodyChunks).toString('utf8')).toBe('AC');
 });
 
-it('routes the real assistant HTTP turn through the singleton desktop MCP host', async () => {
-  let modelTurn = 0;
+// BST-1930: legacy threads carry no MCP. Even with a connected server configured,
+// the legacy HTTP turn offers no MCP tool and never touches the MCP runtime.
+it('runs the legacy assistant HTTP turn without MCP tools', async () => {
   const llmHostManager = {
-    generateForMain: vi.fn(async () => {
-      modelTurn += 1;
-      return modelTurn === 1
-        ? {
-            finishReason: 'tool_calls' as const,
-            text: '',
-            toolCalls: [
-              {
-                function: {
-                  arguments: JSON.stringify({ title: 'Production HTTP proof' }),
-                  name: MODEL_TOOL_ID,
-                },
-                id: 'bst-1543-mcp-call',
-                type: 'function' as const,
-              },
-            ],
-            usage: { completionTokens: 4, promptTokens: 8, totalTokens: 12 },
-          }
-        : {
-            finishReason: 'stop' as const,
-            text: 'BST-1543 HTTP composition passed.',
-            usage: { completionTokens: 4, promptTokens: 12, totalTokens: 16 },
-          };
-    }),
+    generateForMain: vi.fn(async () => ({
+      finishReason: 'stop' as const,
+      text: 'BST-1930 legacy turn passed.',
+      usage: { completionTokens: 4, promptTokens: 12, totalTokens: 16 },
+    })),
     warmupForMain: vi.fn(async () => undefined),
   };
   const transport = {
@@ -156,7 +125,6 @@ it('routes the real assistant HTTP turn through the singleton desktop MCP host',
     createHttpTransportClient,
     createStdioTransportClient,
   });
-  runtimeSlot.current = runtime;
   await runtime.replaceResolvedConfig({
     servers: [
       {
@@ -171,15 +139,6 @@ it('routes the real assistant HTTP turn through the singleton desktop MCP host',
   });
   const invoke = vi.spyOn(runtime.host, 'invoke');
   const close = vi.spyOn(runtime.host, 'close');
-  const realWatch = runtime.host.watch.bind(runtime.host);
-  let releasedLeases = 0;
-  vi.spyOn(runtime.host, 'watch').mockImplementation((filter, listener) => {
-    const release = realWatch(filter, listener);
-    return () => {
-      releasedLeases += 1;
-      release();
-    };
-  });
   const runtimeData: RuntimeData = {
     enabledNativeToolIds: [],
     model: 'onnx-community/gemma-4-E2B-it-ONNX',
@@ -210,25 +169,10 @@ it('routes the real assistant HTTP turn through the singleton desktop MCP host',
   );
 
   expect(response.status).toBe(200);
-  expect(response.body).toContain('BST-1543 HTTP composition passed.');
-  expect(getDesktopMcpHostRuntime).toHaveBeenCalled();
-  expect(invoke.mock.calls.map(([operation]) => operation.type)).toEqual([
-    'tools/list',
-    'tools/call',
-  ]);
-  expect(invoke.mock.calls.every(([operation]) => operation.configuredServerId === SERVER_ID)).toBe(
-    true
-  );
-  expect(transport.callTool).toHaveBeenCalledWith(
-    expect.objectContaining({ name: TOOL_ID }),
-    expect.anything()
-  );
-  expect(createHttpTransportClient).toHaveBeenCalledOnce();
-  expect(createStdioTransportClient).not.toHaveBeenCalled();
-  expect(runtime.host.snapshot().servers).toEqual([
-    expect.objectContaining({ configuredServerId: SERVER_ID, generation: 1 }),
-  ]);
-  expect(releasedLeases).toBe(1);
+  expect(response.body).toContain('BST-1930 legacy turn passed.');
+  expect(llmHostManager.generateForMain).toHaveBeenCalled();
+  expect(JSON.stringify(llmHostManager.generateForMain.mock.calls)).not.toContain(MODEL_TOOL_ID);
+  expect(invoke).not.toHaveBeenCalled();
+  expect(transport.callTool).not.toHaveBeenCalled();
   expect(close).not.toHaveBeenCalled();
-  expect(transport.close).not.toHaveBeenCalled();
 }, 30_000);

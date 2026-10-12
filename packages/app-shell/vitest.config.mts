@@ -17,6 +17,10 @@ export default defineConfig({
         replacement: path.resolve(import.meta.dirname, '../embeddings/src/runtime-config.ts'),
       },
       {
+        find: '@brainstrike/embeddings/inference-plan',
+        replacement: path.resolve(import.meta.dirname, '../embeddings/src/inference-plan.ts'),
+      },
+      {
         find: '@brainstrike/embeddings/provider-core',
         replacement: path.resolve(import.meta.dirname, '../embeddings/src/provider-core.ts'),
       },
@@ -212,7 +216,8 @@ export default defineConfig({
   },
   test: {
     environment: 'jsdom',
-    exclude: ['**/node_modules/**', '**/dist/**'],
+    // `*.compiled.test.*` suites run in vitest.compiled.config.mts.
+    exclude: ['**/node_modules/**', '**/dist/**', '**/*.compiled.test.{ts,tsx}'],
     globals: true,
     hookTimeout: 30_000,
     include: ['src/**/__tests__/**/*.test.{ts,tsx}', 'src/**/*.test.{ts,tsx}'],

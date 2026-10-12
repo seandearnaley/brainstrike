@@ -1,0 +1,30 @@
+[
+  {
+    "threadId": "dc3c87e8-facc-4d8c-a6f7-afb35ac19969",
+    "chunk": {
+      "id": "text-1",
+      "type": "text-start"
+    },
+    "ordinal": 0,
+    "runId": "68c245b5-a90c-4f87-8dea-55857759b10b"
+  },
+  {
+    "threadId": "dc3c87e8-facc-4d8c-a6f7-afb35ac19969",
+    "chunk": {
+      "type": "text-delta",
+      "id": "text-1",
+      "text": "Host run completed."
+    },
+    "ordinal": 1,
+    "runId": "68c245b5-a90c-4f87-8dea-55857759b10b"
+  },
+  {
+    "threadId": "dc3c87e8-facc-4d8c-a6f7-afb35ac19969",
+    "chunk": {
+      "id": "text-1",
+      "type": "text-end"
+    },
+    "ordinal": 2,
+    "runId": "68c245b5-a90c-4f87-8dea-55857759b10b"
+  }
+]

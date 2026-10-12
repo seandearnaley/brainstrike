@@ -22,6 +22,16 @@
     "node": ">=22"
   },
   "exports": {
+    "./thread-workspace-binding": {
+      "types": "./dist/thread-workspace-binding.d.ts",
+      "import": "./dist/thread-workspace-binding.js",
+      "require": "./dist/thread-workspace-binding.js"
+    },
+    "./thread-workspace-snapshot": {
+      "types": "./dist/thread-workspace-snapshot.d.ts",
+      "import": "./dist/thread-workspace-snapshot.js",
+      "require": "./dist/thread-workspace-snapshot.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
@@ -42,11 +52,6 @@
       "import": "./dist/host-run-id.js",
       "require": "./dist/host-run-id.js"
     },
-    "./hook-trust-request": {
-      "types": "./dist/hook-trust-request.d.ts",
-      "import": "./dist/hook-trust-request.js",
-      "require": "./dist/hook-trust-request.js"
-    },
     "./local-llm": {
       "types": "./dist/local-llm.d.ts",
       "import": "./dist/local-llm.js",
@@ -66,6 +71,11 @@
       "types": "./dist/local-llm-model-specs.d.ts",
       "import": "./dist/local-llm-model-specs.js",
       "require": "./dist/local-llm-model-specs.js"
+    },
+    "./mcp-host-status": {
+      "types": "./dist/mcp-host-status.d.ts",
+      "import": "./dist/mcp-host-status.js",
+      "require": "./dist/mcp-host-status.js"
     },
     "./mcp-host-runtime": {
       "browser": null,
@@ -173,6 +183,11 @@
       "import": "./dist/shell-output.js",
       "require": "./dist/shell-output.js"
     },
+    "./tool-telemetry": {
+      "types": "./dist/tool-telemetry.d.ts",
+      "import": "./dist/tool-telemetry.js",
+      "require": "./dist/tool-telemetry.js"
+    },
     "./provider-auth": {
       "types": "./dist/provider-auth.d.ts",
       "import": "./dist/provider-auth.js",
@@ -212,6 +227,11 @@
       "types": "./dist/approval-action-message.d.ts",
       "import": "./dist/approval-action-message.js",
       "require": "./dist/approval-action-message.js"
+    },
+    "./credential-child-environment": {
+      "types": "./dist/credential-child-environment.d.ts",
+      "import": "./dist/credential-child-environment.js",
+      "require": "./dist/credential-child-environment.js"
     },
     "./tavily-env-keys": {
       "types": "./dist/tavily-env-keys.d.ts",

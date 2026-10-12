@@ -1,4 +1,9 @@
 // Types — all inline type definitions live in types.ts
+export {
+  type CollectCombinedToolsOptions,
+  type CollectCombinedToolsResult,
+  collectCombinedTools,
+} from './mastra/mcp-tool-loader';
 
 // The broad entrypoint supports in-process browser inference. Server-safe
 // subpaths intentionally omit this registration and its Transformers graph.
@@ -36,10 +41,6 @@ export {
   serializeFileMentionDirective,
   summarizeAssistantTaskList,
 } from '@brainstrike/assistant-contract';
-export type {
-  HookTrustApproval,
-  HookTrustRequest,
-} from '@brainstrike/assistant-contract/hook-trust-request';
 export {
   type AssistantPersonaDefinition,
   type AssistantPersonaId,
@@ -119,6 +120,10 @@ export {
   readRequestBodyText,
   resolveAssistantRequestBodyLimitBytes,
 } from './assistant-request';
+export {
+  COMPACTION_SUMMARIZER_INSTRUCTIONS,
+  hasCompactionSummarySchema,
+} from './compaction-summary-schema';
 export {
   type AssistantResilienceConfig,
   DEFAULT_APPROVAL_STALE_MS,
@@ -204,12 +209,10 @@ export {
 export {
   type AgenticCompactionSummary,
   AgenticCompactionSummarySchemaError,
-  COMPACTION_SUMMARIZER_INSTRUCTIONS,
   type CompactionMessage,
   collectCompactionToolCallIds,
   estimateCompactionMessageTokens,
   generateAgenticCompactionSummary,
-  hasCompactionSummarySchema,
   projectCompactionMessages,
   projectCompactionMessagesForSummarizer,
 } from './mastra/conversation-compaction';
@@ -550,6 +553,7 @@ export {
   SKILL_TOOL_IDS,
 } from './skills/skill-tools';
 export { SKILL_LIMITS, validateSkillMetadata } from './skills/skill-validation';
+export { outputLimitContextFor } from './stream/abnormal-finish';
 export {
   AssistantDataStreamSession,
   AssistantDataStreamSessionManager,
@@ -633,6 +637,7 @@ export {
 } from './tools/embedding-sets-tool';
 export {
   FILE_READ_STATE_MAX_ENTRIES,
+  forgetFileReadScope,
   forgetKnownFile,
   getKnownFileMtime,
   recordKnownFileMtime,

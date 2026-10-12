@@ -1,0 +1,20 @@
+{
+  "extends": "../config/tsconfig/node-library.json",
+  "compilerOptions": {
+    "composite": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "types": ["node"],
+    "lib": ["ESNext", "DOM"],
+    "plugins": [{ "name": "@effect/language-service" }]
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["dist", "node_modules", "__tests__"],
+  "references": [
+    { "path": "../agent-host" },
+    { "path": "../assistant-contract" },
+    { "path": "../effect-kit" },
+    { "path": "../host-lease" }
+  ]
+}

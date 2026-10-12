@@ -19,6 +19,7 @@ import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
 import { Button } from '@brainstrike/ui';
 import type { ReactElement } from 'react';
 import { useMemo, useRef, useState } from 'react';
+import { useAssistantThreadHost, withAssistantThreadHost } from '../assistant-thread-host-context';
 import { resolvePlatformBridge } from '../platform-bridge';
 import { useTerminalTargetStore } from '../stores/terminal-target-store';
 import { useWorktreeCheckoutIntentStore } from '../stores/worktree-checkout-intent-store';
@@ -56,13 +57,16 @@ export function WorktreeMapSurface(): ReactElement {
     (state) => state.setWorktreeRootIndexingEnabled
   );
   const publishIntent = useWorktreeCheckoutIntentStore((state) => state.publish);
-  // (corrected at execution: `createThread` takes `(repository, resourceId,
-  // title?)`, not a bare `resourceId` — the repository is derived from
-  // `database` here exactly as `use-global-command-handlers.ts` already does
-  // for the identical problem.)
+  // Committed mode creates the thread through the host's existing thread
+  // owner, exactly as the threads panel does; with no host the history
+  // repository is returned unchanged.
+  const host = useAssistantThreadHost();
   const repository = useMemo<AssistantThreadRepository | null>(
-    () => (database ? createPgliteAssistantThreadRepository(database) : null),
-    [database]
+    () =>
+      database
+        ? withAssistantThreadHost(createPgliteAssistantThreadRepository(database), host)
+        : null,
+    [database, host]
   );
   const platform = useMemo(() => resolvePlatformBridge(), []);
   // The capability IS the gate — resolved once, not per render, exactly like

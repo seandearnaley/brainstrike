@@ -28,7 +28,7 @@ interface AssistantThreadState {
   closeThreadTab: (resourceId: string, threadId: string) => void;
   closeThreadTabsToRight: (resourceId: string, threadId: string) => void;
   createThread: (
-    repository: AssistantThreadRepository,
+    repository: Pick<AssistantThreadRepository, 'createThread'>,
     resourceId: string,
     title?: string
   ) => Promise<AssistantMemoryThread>;
@@ -528,7 +528,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         });
       },
       createThread: async (
-        repository: AssistantThreadRepository,
+        repository: Pick<AssistantThreadRepository, 'createThread'>,
         resourceId: string,
         title?: string
       ) => {

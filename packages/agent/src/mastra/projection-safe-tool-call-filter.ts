@@ -421,6 +421,15 @@ export class ProjectionSafeToolCallFilter implements Processor<'tool-call-filter
     return { prompt };
   }
 
+  /** Reuse the canonical eligibility and rewrite passes outside the Mastra loop. */
+  preparePrompt(
+    prompt: LanguageModelV2Prompt,
+    messages: readonly MastraDBMessage[]
+  ): LanguageModelV2Prompt {
+    const { safeIds, argElidableIds } = this.collectSafeToolCallIds(messages);
+    return this.filterPrompt(prompt, safeIds, argElidableIds).prompt;
+  }
+
   private resolveOriginalToolName(registeredName: string): string {
     return this.#toolNameMap.get(registeredName) ?? denormalizeNativeToolName(registeredName);
   }

@@ -26,7 +26,11 @@ import {
   type ProviderCallWarningSink,
   wrapModelWithCallWarningCapture,
 } from '../providers/provider-call-warnings';
-import { createProvider, getDefaultModel } from '../providers/provider-factory';
+import {
+  createProvider,
+  getDefaultModel,
+  toMastraModelConfiguration,
+} from '../providers/provider-factory';
 import {
   resolveToolResultBudgetForModel,
   type ScaledToolResultBudget,
@@ -389,7 +393,7 @@ function instantiateLanguageModel(
   runtime: RuntimeData | undefined
 ): MastraModelConfig {
   try {
-    return createProvider(provider, auth, modelName, runtime);
+    return toMastraModelConfiguration(createProvider(provider, auth, modelName, runtime));
   } catch (error) {
     if (isMastraAgentError(error)) {
       throw error;

@@ -1,5 +1,8 @@
 import { registerFactoryResetSessionStore } from '@brainstrike/app-state/factory-reset';
-import { useAssistantThreadGroupsStore } from '@brainstrike/assistant-data';
+import {
+  resetAssistantThreadStore,
+  useAssistantThreadGroupsStore,
+} from '@brainstrike/assistant-data';
 import { resetContextUsageStore } from '@brainstrike/assistant-ui/context-usage-store';
 import { resetFollowUpQueueStore } from '@brainstrike/assistant-ui/follow-up-queue-store';
 import { useRewindComposerStore } from '@brainstrike/assistant-ui/rewind-composer-store';
@@ -32,6 +35,8 @@ import { useTerminalTargetStore } from './stores/terminal-target-store';
 for (const reset of APP_SHELL_SESSION_STORE_RESETTERS) {
   registerFactoryResetSessionStore(reset);
 }
+
+registerFactoryResetSessionStore(resetAssistantThreadStore);
 
 registerFactoryResetSessionStore(() => {
   useWorkspaceSearchStore.getState().reset();

@@ -77,6 +77,7 @@ function renderComposition() {
   return renderHook(() =>
     useWorkspaceBarMode({
       checkout: { ahead: 0, behind: 0, branch: 'main', dirty: true },
+      foldersPending: false,
       onHandOffToLocal: vi.fn(),
       onSelectWorktree: vi.fn(),
       primaryRootId: 'r-1',
@@ -104,6 +105,7 @@ describe('useWorkspaceBarMode branch escape', () => {
     renderHook(() =>
       useWorkspaceBarMode({
         checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
+        foldersPending: false,
         onHandOffToLocal: vi.fn(),
         onSelectWorktree: vi.fn(),
         primaryRootId: 'r-1',
@@ -130,6 +132,7 @@ describe('useWorkspaceBarMode branch escape', () => {
     renderHook(() =>
       useWorkspaceBarMode({
         checkout: { ahead: 0, behind: 0, branch: 'main', dirty: false },
+        foldersPending: false,
         onHandOffToLocal: vi.fn(),
         onSelectWorktree: vi.fn(),
         primaryRootId: 'r-1',
@@ -188,6 +191,7 @@ describe('useWorkspaceBarMode worktree map checkout intent', () => {
   const onSelectWorktree = vi.fn(() => Promise.resolve());
   const args = {
     checkout: { ahead: 0, behind: 0, branch: 'main', dirty: true },
+    foldersPending: false,
     onHandOffToLocal,
     onSelectWorktree,
     primaryRootId: 'r-1',
@@ -230,6 +234,30 @@ describe('useWorkspaceBarMode worktree map checkout intent', () => {
     expect(onSelectWorktree).toHaveBeenCalledTimes(1);
   });
 
+  it("waits for the selected thread's folders before binding a published worktree", async () => {
+    useWorktreeCheckoutIntentStore.getState().publish({
+      branch: 'bs/bright-fox',
+      path: '/wt',
+      threadId: 'thread-1',
+      worktreeId: 'wt-1',
+    });
+
+    // A freshly mounted bar resolves the thread's primary folder asynchronously;
+    // binding before it settles derives from no primary at all.
+    const { rerender } = renderHook(
+      ({ foldersPending }: { foldersPending: boolean }) =>
+        useWorkspaceBarMode({ ...args, foldersPending, primaryRootId: undefined }),
+      { initialProps: { foldersPending: true } }
+    );
+    await Promise.resolve();
+    expect(onSelectWorktree).not.toHaveBeenCalled();
+    expect(useWorktreeCheckoutIntentStore.getState().pending).not.toBeNull();
+
+    rerender({ foldersPending: false });
+    await waitFor(() => expect(onSelectWorktree).toHaveBeenCalledTimes(1));
+    expect(useWorktreeCheckoutIntentStore.getState().pending).toBeNull();
+  });
+
   it('hands off to Local when the intent carries a null worktree id', async () => {
     useWorktreeCheckoutIntentStore
       .getState()
@@ -238,6 +266,46 @@ describe('useWorkspaceBarMode worktree map checkout intent', () => {
     renderHook(() => useWorkspaceBarMode(args));
 
     await waitFor(() => expect(onHandOffToLocal).toHaveBeenCalledTimes(1));
+    expect(onSelectWorktree).not.toHaveBeenCalled();
+  });
+
+  it('reports a refused bind visibly instead of leaving the new thread Local in silence', async () => {
+    const refusal = new Error('This host has no live thread workspace binding capability');
+    onSelectWorktree.mockRejectedValueOnce(refusal);
+    useWorktreeCheckoutIntentStore.getState().publish({
+      branch: 'bs/bright-fox',
+      path: '/wt',
+      threadId: 'thread-1',
+      worktreeId: 'wt-1',
+    });
+
+    renderHook(() => useWorkspaceBarMode(args));
+
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ description: refusal.message, variant: 'destructive' })
+      )
+    );
+    expect(loggerErrorSpy).toHaveBeenCalledWith('worktree map checkout intent failed', {
+      error: refusal,
+      threadId: 'thread-1',
+    });
+  });
+
+  it('reports a refused hand-off to Local visibly too', async () => {
+    const refusal = new Error('Folders are still loading — try again in a moment.');
+    onHandOffToLocal.mockRejectedValueOnce(refusal);
+    useWorktreeCheckoutIntentStore
+      .getState()
+      .publish({ branch: null, path: '/repo', threadId: 'thread-1', worktreeId: null });
+
+    renderHook(() => useWorkspaceBarMode(args));
+
+    await waitFor(() =>
+      expect(toastSpy).toHaveBeenCalledExactlyOnceWith(
+        expect.objectContaining({ description: refusal.message, variant: 'destructive' })
+      )
+    );
     expect(onSelectWorktree).not.toHaveBeenCalled();
   });
 

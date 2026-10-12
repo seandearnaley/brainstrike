@@ -20,6 +20,7 @@ vi.mock('../../assistant-server/thread-run-startup-reaper', () => ({
 }));
 
 const startedAt = new Date('2026-09-25T00:00:00.000Z');
+const readHostThreadIds = async (): Promise<ReadonlySet<string>> => new Set(['host-thread']);
 const snapshotsBaseDir = '/profile/snapshots';
 
 function setup() {
@@ -52,6 +53,7 @@ function setup() {
       deadThreadsPruned: [],
       failures: [],
       historyPrunedRoots: [],
+      hostRingTrimmed: [],
       refOnlyPruned: [],
       ringTrimmed: [],
       skippedInaccessibleRoots: [],
@@ -69,6 +71,7 @@ describe('snapshot startup lifecycle', () => {
       getDatabase: getCurrentDatabase,
       logger,
       mainProcessStartedAt: startedAt,
+      readHostThreadIds,
       snapshotService: service,
       snapshotsBaseDir,
     });
@@ -82,6 +85,8 @@ describe('snapshot startup lifecycle', () => {
     expect(mocks.gc).toHaveBeenCalledWith({
       db: database,
       liveRoots: [{ path: '/workspace', rootId: 'root-1' }],
+      readHostThreadIds,
+      readThreadChain: expect.any(Function),
       snapshotRepository: expect.any(Object),
       snapshotService: service,
     });
@@ -104,6 +109,7 @@ describe('snapshot startup lifecycle', () => {
       getDatabase: getCurrentDatabase,
       logger,
       mainProcessStartedAt: startedAt,
+      readHostThreadIds,
       snapshotService: service,
       snapshotsBaseDir,
     });
@@ -123,6 +129,7 @@ describe('snapshot startup lifecycle', () => {
       deadThreadsPruned: [],
       failures: [failure],
       historyPrunedRoots: [],
+      hostRingTrimmed: [],
       refOnlyPruned: [],
       ringTrimmed: [],
       skippedInaccessibleRoots: ['/offline'],
@@ -132,6 +139,7 @@ describe('snapshot startup lifecycle', () => {
       getDatabase: getCurrentDatabase,
       logger,
       mainProcessStartedAt: startedAt,
+      readHostThreadIds,
       snapshotService: service,
       snapshotsBaseDir,
     });
@@ -172,6 +180,7 @@ describe('snapshot startup lifecycle', () => {
         getDatabase: getCurrentDatabase,
         logger,
         mainProcessStartedAt: startedAt,
+        readHostThreadIds,
         snapshotService: service,
         snapshotsBaseDir,
       });

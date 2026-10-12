@@ -67,12 +67,13 @@ describe('persistent command-session native tools', () => {
       `server.listen(${port}, '127.0.0.1', () => console.log('BST_SESSION_READY'))`,
       "process.stdin.on('data', data => { if (data.toString().trim() === 'ping😀') console.log('BST_SESSION_PONG') })",
     ].join(';');
+    await fsPromises.writeFile(path.join(rootPath, 'session-server.cjs'), script, 'utf8');
 
     try {
       const started = await manage({
         operation: {
           action: 'start',
-          command: `${JSON.stringify(process.execPath)} -e ${JSON.stringify(script)}`,
+          command: 'node session-server.cjs',
         },
         root: 'api',
       });
@@ -93,7 +94,7 @@ describe('persistent command-session native tools', () => {
       expect(await (await fetch(`http://127.0.0.1:${port}`)).text()).toBe('session-ok');
 
       const writeResult = await manage({
-        operation: { action: 'write', data: 'ping😀\n', sessionId: started.id },
+        operation: { action: 'write', data: 'ping😀\r', sessionId: started.id },
         root: 'api',
       });
       expect(writeResult).toMatchObject({ writtenUtf16CodeUnits: 7 });

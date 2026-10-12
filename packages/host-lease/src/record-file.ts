@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { chmod, lstat, mkdir, open, readFile, rename, rm, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
+import { SecureRoot } from '@brainstrike/secure-fs-native';
 import { decodeHostRecord, HOST_RECORD_FILE, type HostRecord, tokensEqual } from './record.js';
 import { windowsPrivateAcl } from './windows-acl.js';
 
@@ -40,9 +41,29 @@ export async function readHostRecord(root: string): Promise<HostRecord | null> {
       throw new TypeError('host.json must be a bounded regular file');
     }
     if (process.platform === 'win32') {
-      await windowsPrivateAcl(path, 'file', 'verify');
+      // BST-1941: spawning PowerShell for every metadata read also delayed
+      // cooperative retirement. The existing native primitive checks the
+      // exact owner/DACL on the same handle from which it reads the bytes.
+      const directory = new SecureRoot(root);
+      try {
+        const result = await directory.readPrivateFileAsync(HOST_RECORD_FILE);
+        if (result.status === 'not-found') {
+          return null;
+        }
+        if (result.status !== 'ok') {
+          throw new Error(
+            'Host metadata Windows ACL must grant only its current user full control'
+          );
+        }
+        if (result.content.length > 8192) {
+          throw new TypeError('host.json must be a bounded regular file');
+        }
+        return decodeHostRecord(JSON.parse(result.content.toString('utf8')));
+      } finally {
+        directory.close();
+      }
     }
-    if (process.platform !== 'win32' && (info.mode & 0o777) !== 0o600) {
+    if ((info.mode & 0o777) !== 0o600) {
       throw new Error('host.json must have mode 0600');
     }
     return decodeHostRecord(JSON.parse(await readFile(path, 'utf8')));
@@ -57,15 +78,24 @@ export async function publishHostRecord(root: string, record: HostRecord): Promi
   const path = join(root, HOST_RECORD_FILE);
   const temporary = `${path}.${randomBytes(8).toString('hex')}.tmp`;
   try {
-    const file = await open(temporary, 'wx', 0o600);
-    try {
-      if (process.platform === 'win32') {
-        await windowsPrivateAcl(temporary, 'file', 'set');
+    if (process.platform === 'win32') {
+      const directory = new SecureRoot(root);
+      try {
+        await directory.writePrivateFileAsync(
+          basename(temporary),
+          Buffer.from(`${JSON.stringify(decodeHostRecord(record))}\n`)
+        );
+      } finally {
+        directory.close();
       }
-      await file.writeFile(`${JSON.stringify(decodeHostRecord(record))}\n`);
-      await file.sync();
-    } finally {
-      await file.close();
+    } else {
+      const file = await open(temporary, 'wx', 0o600);
+      try {
+        await file.writeFile(`${JSON.stringify(decodeHostRecord(record))}\n`);
+        await file.sync();
+      } finally {
+        await file.close();
+      }
     }
     await rename(temporary, path);
     await syncDirectory(root);

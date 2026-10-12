@@ -1,4 +1,14 @@
 import type {
+  NativeAcknowledgedPublication,
+  NativeScopeReadiness,
+} from '@brainstrike/assistant-service/node-native-text-services';
+
+export type {
+  NativeAcknowledgedPublication,
+  NativeScopeReadiness,
+} from '@brainstrike/assistant-service/node-native-text-services';
+
+import type {
   CanonicalFileIdentity,
   CanonicalManifestFile,
   CanonicalScanReceipt,
@@ -83,25 +93,6 @@ function manifest(plan: ScopedFilePlan): ScopedManifestFile {
     rootId: plan.snapshot.rootId,
     sourcePath: plan.snapshot.sourcePath,
   };
-}
-
-export interface NativeScopeReadiness {
-  readonly generation: number;
-  readonly mutationRevision: number;
-  readonly publication?: NativeAcknowledgedPublication;
-  readonly scanComplete: boolean;
-  readonly scope: CanonicalSourceScope;
-}
-
-export interface NativeAcknowledgedPublication {
-  readonly acknowledgedFiles: number;
-  readonly authorityEpoch: string;
-  readonly authorityRevision: number;
-  readonly generation: number;
-  readonly mutationRevision: number;
-  readonly profileHash: string | null;
-  readonly requestId: string;
-  readonly storeId: string;
 }
 
 /** The existing scan-ticket predicate, scoped to canonical PG IDs and the sole native writer. */

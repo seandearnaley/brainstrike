@@ -13,6 +13,16 @@ import {
   scopedRemoveSchema,
   stateCountsSchema,
   stateHealthSchema,
+  stateMessageHitSchema,
+  stateMessagePlanSchema,
+  stateMessageUpsertResultSchema,
+  stateObservationHitSchema,
+  stateObservationPlanSchema,
+  stateSearchCoverageResultSchema,
+  stateSearchHitSchema,
+  stateSearchPendingRowSchema,
+  stateSearchSimilarHitSchema,
+  stateSearchVectorsResultSchema,
   stateStatsSchema,
 } from './contracts.js';
 import { assertCoverageAuthorityBound, coverageAuthoritySchema } from './coverage-authority.js';
@@ -33,6 +43,8 @@ export async function runIndexerProcess(
   const send = (value: object): void => endpoint.send(value);
   let reader: IndexReader | undefined;
   let worker: Worker | undefined;
+  let closing = false;
+  let closePromise: Promise<boolean> | undefined;
   try {
     const options = decoder(optionsSchema)(input);
     worker = new Worker(new URL('./writer-worker.js', import.meta.url), { workerData: options });
@@ -43,7 +55,6 @@ export async function runIndexerProcess(
         void writer.terminate();
       }
     );
-    let closing = false;
     const exited = new Promise<void>((resolve) => {
       writer.once('exit', () => resolve());
     });
@@ -52,25 +63,23 @@ export async function runIndexerProcess(
     writer.on('exit', (code) => {
       client.fail(new IndexerError('writer-exited', `Indexer writer exited (${code}).`));
     });
-    const info = decoder(infoSchema)(await client.ready);
-    reader = new IndexReader(options);
-    const connection = reader;
-    const nativeInfo: IndexerInfo = {
-      ...info,
-      readerQueryOnly: decoder(Schema.Int)(connection.db.pragma('query_only', { simple: true })),
-    };
-    let closePromise: Promise<boolean> | undefined;
     const close = (): Promise<boolean> => {
       closePromise ??= (async () => {
         closing = true;
         const failures: unknown[] = [];
         try {
-          connection.db.close();
+          reader?.db.close();
         } catch (error) {
           failures.push(error);
         }
         try {
-          await client.call('close', null, decoder(Schema.Boolean));
+          if (reader) {
+            await client.call('close', null, decoder(Schema.Boolean));
+          } else {
+            // Startup owns only this writer. Join its teardown before reporting
+            // an early Close; there is no ready reader or admitted request yet.
+            await writer.terminate();
+          }
         } catch (error) {
           failures.push(error);
         }
@@ -90,7 +99,52 @@ export async function runIndexerProcess(
         process.exitCode = 1;
       });
     });
+    let receive: ((message: unknown) => void) | undefined;
+    // BST-1977: the parent may close while this process awaits its writer.
+    // Register once before that await so an EventEmitter cannot drop Close.
     endpoint.onMessage((message: unknown) => {
+      if (receive) {
+        receive(message);
+        return;
+      }
+      let id: number | undefined;
+      try {
+        const request = decoder(requestSchema)(message);
+        id = request.id;
+        if (request.op !== 'close') {
+          throw new IndexerError('indexer-not-ready', 'Indexer is still starting.');
+        }
+        decoder(Schema.Null)(request.payload);
+        close().then(
+          (value) => {
+            send({ id: request.id, kind: 'response', ok: true, value });
+            endpoint.finish();
+          },
+          (error: unknown) => {
+            send({ error: fault(error), id: request.id, kind: 'response', ok: false });
+            endpoint.finish();
+          }
+        );
+      } catch (error) {
+        send(
+          id === undefined
+            ? { error: fault(error), kind: 'startup-error' }
+            : { error: fault(error), id, kind: 'response', ok: false }
+        );
+      }
+    });
+    const info = decoder(infoSchema)(await client.ready);
+    if (closing) {
+      await close();
+      return;
+    }
+    reader = new IndexReader(options);
+    const connection = reader;
+    const nativeInfo: IndexerInfo = {
+      ...info,
+      readerQueryOnly: decoder(Schema.Int)(connection.db.pragma('query_only', { simple: true })),
+    };
+    receive = (message: unknown) => {
       let id: number | undefined;
       try {
         const request = decoder(requestSchema)(message);
@@ -103,6 +157,22 @@ export async function runIndexerProcess(
         }
         let work: unknown | Promise<unknown>;
         switch (request.op) {
+          case 'state-observation-prepare':
+            work = client.call(request.op, request.payload, decoder(stateObservationPlanSchema));
+            break;
+          case 'state-observation-upsert':
+            work = client.call(request.op, request.payload, decoder(Schema.Array(Schema.String)));
+            break;
+          case 'state-observation-query':
+            work = client.call(
+              request.op,
+              request.payload,
+              decoder(Schema.Array(stateObservationHitSchema))
+            );
+            break;
+          case 'state-observation-purge':
+            work = client.call(request.op, request.payload, decoder(Schema.Boolean));
+            break;
           case 'coverage-authority':
             decoder(Schema.Null)(request.payload);
             work = connection.db.transaction(() =>
@@ -116,6 +186,26 @@ export async function runIndexerProcess(
             )();
             assertCoverageAuthorityBound(work);
             break;
+          case 'state-message-prepare':
+            work = client.call(request.op, request.payload, decoder(stateMessagePlanSchema));
+            break;
+          case 'state-message-upsert':
+            work = client.call(
+              request.op,
+              request.payload,
+              decoder(stateMessageUpsertResultSchema)
+            );
+            break;
+          case 'state-message-query':
+            work = client.call(
+              request.op,
+              request.payload,
+              decoder(Schema.Array(stateMessageHitSchema))
+            );
+            break;
+          case 'state-message-purge':
+            work = client.call(request.op, request.payload, decoder(Schema.Boolean));
+            break;
           case 'state-health':
             work = client.call(request.op, request.payload, decoder(stateHealthSchema));
             break;
@@ -127,6 +217,41 @@ export async function runIndexerProcess(
               request.op,
               request.payload,
               decoder(Schema.Array(Schema.Int.check(Schema.isGreaterThan(0))))
+            );
+            break;
+          case 'state-search':
+            work = client.call(
+              request.op,
+              request.payload,
+              decoder(Schema.Array(stateSearchHitSchema))
+            );
+            break;
+          case 'state-search-pending':
+            work = client.call(
+              request.op,
+              request.payload,
+              decoder(Schema.Array(stateSearchPendingRowSchema))
+            );
+            break;
+          case 'state-search-vectors':
+            work = client.call(
+              request.op,
+              request.payload,
+              decoder(stateSearchVectorsResultSchema)
+            );
+            break;
+          case 'state-search-coverage':
+            work = client.call(
+              request.op,
+              request.payload,
+              decoder(stateSearchCoverageResultSchema)
+            );
+            break;
+          case 'state-search-similar':
+            work = client.call(
+              request.op,
+              request.payload,
+              decoder(Schema.Array(stateSearchSimilarHitSchema))
             );
             break;
           case 'state-rebuild':
@@ -224,9 +349,15 @@ export async function runIndexerProcess(
           send({ error: fault(error), id, kind: 'response', ok: false });
         }
       }
-    });
+    };
     send({ kind: 'ready', value: nativeInfo });
   } catch (error) {
+    if (closing && closePromise) {
+      // The early Close response owns the outcome; do not emit a contradictory
+      // startup-error when that same close caused the writer-ready rejection.
+      await closePromise.catch(() => undefined);
+      return;
+    }
     const failures: unknown[] = [error];
     try {
       reader?.db.close();

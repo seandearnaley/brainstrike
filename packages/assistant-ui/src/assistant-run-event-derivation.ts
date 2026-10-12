@@ -115,10 +115,17 @@ export function isAlwaysVisibleRunEvent(data: unknown): boolean {
     event.kind === 'compaction.failed' ||
     event.kind === 'delegation.budget.exhausted' ||
     event.kind === 'delegation.ledger' ||
+    // A hook file that did not load: its hooks silently not running is the
+    // degradation the row reports.
+    (event.kind === 'hook.notice' && event.status === 'failed') ||
     event.kind === 'mcp.tools.unavailable' ||
     event.kind === 'provider.request.warned' ||
     event.kind === 'run.failed' ||
     event.kind === 'run.cancelled' ||
+    // A recovered stall shows the abandoned attempt's partial text; its two
+    // rows are the only explanation, so they show at every detail level.
+    event.kind === 'run.stalled' ||
+    event.kind === 'run.resumed' ||
     event.kind === 'tool.approval.requested' ||
     event.kind === UNSUPPORTED_TOOL_RESUME_RUN_EVENT_KIND
   );

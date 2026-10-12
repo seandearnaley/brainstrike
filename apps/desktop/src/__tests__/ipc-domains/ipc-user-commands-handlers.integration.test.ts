@@ -29,6 +29,7 @@ afterEach(() => {
 });
 
 const HOME = '/home/user';
+const PROJECT_ROOT = path.resolve('/proj');
 
 function dbReturning(rows: { id: string; displayName: string | null; path: string | null }[]) {
   const db: WorkspaceRootsQueryable = {
@@ -215,10 +216,10 @@ describe('listUserSlashCommands', () => {
   });
 
   it('resolves DB roots (DB roots.id + path) and returns commands + roots', async () => {
-    const db = dbReturning([{ displayName: 'Proj', id: 'db-root-1', path: '/proj' }]);
+    const db = dbReturning([{ displayName: 'Proj', id: 'db-root-1', path: PROJECT_ROOT }]);
     const fs = fsWith(
-      { '/proj/.brainstrike/commands/review.md': 'Review $ARGUMENTS' },
-      { '/proj/.brainstrike/commands': ['review.md'] }
+      { [`${PROJECT_ROOT}/.brainstrike/commands/review.md`]: 'Review $ARGUMENTS' },
+      { [`${PROJECT_ROOT}/.brainstrike/commands`]: ['review.md'] }
     );
 
     const result = await listUserSlashCommands({
@@ -264,7 +265,7 @@ describe('listUserSlashCommands', () => {
 
   it('drops a root whose DB path is null (no filesystem-root scan, not reported)', async () => {
     const db = dbReturning([
-      { displayName: 'Resolved', id: 'db-root-1', path: '/proj' },
+      { displayName: 'Resolved', id: 'db-root-1', path: PROJECT_ROOT },
       { displayName: 'Unresolved', id: 'db-root-2', path: null },
     ]);
     // A file planted at the filesystem-root scan path the null root would join to
@@ -272,11 +273,11 @@ describe('listUserSlashCommands', () => {
     const fs = fsWith(
       {
         '/.brainstrike/commands/leaked.md': 'Should never load',
-        '/proj/.brainstrike/commands/review.md': 'Review $ARGUMENTS',
+        [`${PROJECT_ROOT}/.brainstrike/commands/review.md`]: 'Review $ARGUMENTS',
       },
       {
         '/.brainstrike/commands': ['leaked.md'],
-        '/proj/.brainstrike/commands': ['review.md'],
+        [`${PROJECT_ROOT}/.brainstrike/commands`]: ['review.md'],
       }
     );
 

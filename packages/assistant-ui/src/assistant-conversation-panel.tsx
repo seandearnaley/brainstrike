@@ -15,17 +15,25 @@ import { type AssistantUiPanelProps, ChatThreadUI } from './assistant-ui-panel';
 import { type DecisionRoute, DecisionRouteContext } from './decision-route-context';
 import { FollowUpQueueOwnershipContext } from './follow-up-queue-ownership';
 import { MetadataProviders } from './openrouter-model-metadata-context';
-import { RewindProvider } from './rewind-context';
+import { type RewindContextValue, RewindProvider } from './rewind-context';
 
 type ThreadSurfaceProps = ComponentProps<typeof ChatThreadUI>;
 export type AssistantConversationPanelProps = Partial<
-  Omit<ThreadSurfaceProps, 'threadKey' | 'hasGroupedProviders' | 'onSteerActiveRun'>
+  Omit<ThreadSurfaceProps, 'threadKey' | 'hasGroupedProviders'>
 > &
   Pick<
     AssistantUiPanelProps,
     'openRouterModelMetadataLookup' | 'onProviderSettingsValidationChange'
   > & {
     readonly allowIdleInput?: boolean;
+    /**
+     * True when this surface owns its thread's commands (a root conversation),
+     * so it offers and dispatches the thread's follow-up queue. A delegated
+     * child's view never does: its runtime belongs to another owner.
+     */
+    readonly ownsFollowUpQueue?: boolean;
+    /** Steering is a queue control: only an owning surface offers it. */
+    readonly onSteerActiveRun?: (() => Promise<boolean>) | undefined;
     readonly onSendActiveInput?: SendActiveConversationInput | undefined;
     readonly prepareActiveInput?: ((input: AssistantChildInput) => AssistantChildInput) | undefined;
     readonly className?: string;
@@ -38,6 +46,11 @@ export type AssistantConversationPanelProps = Partial<
      * read those answers from it (`answered-approvals-index.tsx`).
      */
     readonly ownerThread?: ApprovalOwnerThread | undefined;
+    /**
+     * "Restore to before this message" for a root conversation whose owner
+     * rewinds it; absent, the view offers none (a delegated child's view).
+     */
+    readonly rewind?: RewindContextValue | null | undefined;
     /** Owned by the host; viewing or closing this panel never starts or stops a run. */
     readonly runtime: AssistantRuntime;
     readonly threadKey: string;
@@ -51,10 +64,12 @@ export function AssistantConversationPanel({
   agentColor,
   decisionRoute,
   allowIdleInput = false,
+  ownsFollowUpQueue = false,
   onSendActiveInput,
   prepareActiveInput,
   label,
   ownerThread,
+  rewind = null,
   runtime,
   threadKey,
   openRouterModelMetadataLookup,
@@ -87,9 +102,9 @@ export function AssistantConversationPanel({
             prepare={prepareActiveInput}
           >
             <PlanModeExitProvider onExit={props.planMode?.onExit}>
-              <RewindProvider value={null}>
+              <RewindProvider value={rewind}>
                 <DecisionRouteContext value={decisionRoute ?? null}>
-                  <FollowUpQueueOwnershipContext value={false}>
+                  <FollowUpQueueOwnershipContext value={ownsFollowUpQueue}>
                     <AssistantPanelErrorBoundary>
                       <ApprovalOwnerThreadContext value={ownerThread ?? null}>
                         <ChatThreadUI

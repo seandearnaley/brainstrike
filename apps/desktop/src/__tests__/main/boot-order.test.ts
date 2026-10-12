@@ -1,331 +1,294 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { DesktopShutdownRunPlan } from '../../main/desktop-graceful-shutdown';
+import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { captureProcessSignalHandlers } from '../helpers/process-signal-capture';
-
-/**
- * Startup-latency contract: the visible window must NOT wait on database
- * initialization. The DB utilityProcess spawn + migrations + HNSW capability
- * probe run CONCURRENTLY with window creation; only the maintenance schedulers
- * (which consume the probed strategy) wait for the probe to finish.
- */
-
-const mockSession = {
-  defaultSession: {
-    on: vi.fn(),
-    setPermissionCheckHandler: vi.fn(),
-    setPermissionRequestHandler: vi.fn(),
-    webRequest: {
-      onHeadersReceived: vi.fn(),
-    },
-  },
-};
-
-const mockBrowserWindowInstance = {
-  destroy: vi.fn(),
-  getBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
-  getNormalBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
-  isDestroyed: vi.fn(() => false),
-  isFullScreen: vi.fn(() => false),
-  isMaximized: vi.fn(() => false),
-  loadFile: vi.fn(() => Promise.resolve()),
-  loadURL: vi.fn(() => Promise.resolve()),
-  maximize: vi.fn(),
-  on: vi.fn(),
-  once: vi.fn(),
-  setFullScreen: vi.fn(),
-  show: vi.fn(),
-  webContents: {
-    on: vi.fn(),
-    openDevTools: vi.fn(),
-    setWindowOpenHandler: vi.fn(),
-  },
-};
-
-// Use function syntax for Vitest 4 constructor mocks
-const mockBrowserWindow = vi.fn();
-mockBrowserWindow.mockImplementation(function (this: Record<string, unknown>) {
-  Object.assign(this, mockBrowserWindowInstance);
-});
-Object.assign(mockBrowserWindow, {
-  getAllWindows: vi.fn(() => []),
-});
-
-const mockApp = {
-  commandLine: { appendSwitch: vi.fn() },
-  getAppMetrics: vi.fn(() => []),
-  getAppPath: vi.fn(() => '/mock/app'),
-  getPath: vi.fn(() => '/tmp/brainstrike-test-logs'),
-  getVersion: vi.fn(() => '0.0.0-test'),
-  isPackaged: false,
-  isReady: vi.fn(() => true),
-  on: vi.fn(),
-  quit: vi.fn(),
-  requestSingleInstanceLock: vi.fn(() => true),
-  whenReady: vi.fn(() => Promise.resolve()),
-};
-
-vi.mock('electron', () => ({
-  app: mockApp,
-  BrowserWindow: mockBrowserWindow,
-  clipboard: { writeText: vi.fn() },
-  ipcMain: {
-    handle: vi.fn(),
-    on: vi.fn(),
-    removeAllListeners: vi.fn(),
-    removeHandler: vi.fn(),
-  },
-  Menu: {
-    buildFromTemplate: vi.fn(),
-    setApplicationMenu: vi.fn(),
-  },
-  powerMonitor: { on: vi.fn() },
-  powerSaveBlocker: {
-    isStarted: vi.fn(() => true),
-    start: vi.fn(() => 1),
-    stop: vi.fn(),
-  },
-  protocol: { handle: vi.fn(), registerSchemesAsPrivileged: vi.fn() },
-  screen: {
-    getAllDisplays: vi.fn(() => [{ workArea: { height: 800, width: 1536, x: 0, y: 0 } }]),
-  },
-  session: mockSession,
-  shell: {
-    openPath: vi.fn().mockResolvedValue(''),
-    showItemInFolder: vi.fn(),
-  },
-}));
-
-const statSyncMock = vi.fn(() => ({ isDirectory: () => true }));
-const accessSyncMock = vi.fn();
-const existsSyncMock = vi.fn(() => true);
-vi.mock('node:fs', () => ({
-  accessSync: accessSyncMock,
-  constants: { W_OK: 0o200 },
-  default: {
-    accessSync: accessSyncMock,
-    constants: { W_OK: 0o200 },
-    existsSync: existsSyncMock,
-    statSync: statSyncMock,
-  },
-  existsSync: existsSyncMock,
-  statSync: statSyncMock,
-}));
-
-const { createLoggerMock } = vi.hoisted(() => ({
-  createLoggerMock: vi.fn((_scope: string) => ({
-    debug: vi.fn(),
-    error: vi.fn(),
-    info: vi.fn(),
-    trace: vi.fn(),
-    warn: vi.fn(),
-  })),
-}));
-
-vi.mock('@brainstrike/logging', async () => {
-  const actual =
-    await vi.importActual<typeof import('@brainstrike/logging')>('@brainstrike/logging');
-  return {
-    ...actual,
-    createLogger: createLoggerMock,
-  };
-});
-
-vi.mock('../../assistant-server', () => ({
-  startAssistantServer: vi.fn(async () => ({
-    stop: vi.fn(),
-    url: 'http://127.0.0.1:0',
-  })),
-}));
-
-vi.mock('../../window-state', async () => {
-  const actual = await vi.importActual<typeof import('../../window-state')>('../../window-state');
-  return {
-    ...actual,
-    readStoredWindowState: vi.fn(() => null),
-    registerWindowStatePersistence: vi.fn(() => vi.fn()),
-  };
-});
-
-// Use function syntax for Vitest 4 constructor mocks
-vi.mock('electron-store', () => {
-  const MockElectronStore = vi.fn();
-  MockElectronStore.mockImplementation(function (this: Record<string, unknown>) {
-    Object.assign(this, {});
-  });
-  return { default: MockElectronStore };
-});
-
-const { closeDatabaseMock, getDatabaseMock } = vi.hoisted(() => ({
-  closeDatabaseMock: vi.fn(async (): Promise<void> => undefined),
-  getDatabaseMock: vi.fn(),
-}));
-
-vi.mock('../../db-main', async () => {
-  const actual = await vi.importActual<typeof import('../../db-main')>('../../db-main');
-  return {
-    ...actual,
-    closeDatabase: closeDatabaseMock,
-    getDatabase: getDatabaseMock,
-  };
-});
-
-const { recoverInterruptedMaintenanceMock } = vi.hoisted(() => ({
-  recoverInterruptedMaintenanceMock: vi.fn(async (): Promise<number> => 0),
-}));
-
-vi.mock('@brainstrike/db', async () => {
-  const actual = await vi.importActual<typeof import('@brainstrike/db')>('@brainstrike/db');
-  return {
-    ...actual,
-    recoverInterruptedDimensionIndexMaintenanceAtStartup: recoverInterruptedMaintenanceMock,
-  };
-});
-
-const { applicationDomainCapture, cleanupSubscriptionsMock, waitForDatabaseIdleMock } = vi.hoisted(
-  () => ({
-    applicationDomainCapture: {
-      close: null as null | ReturnType<typeof vi.fn<() => Promise<void>>>,
-    },
-    cleanupSubscriptionsMock: vi.fn(async (): Promise<void> => undefined),
-    waitForDatabaseIdleMock: vi.fn(async (): Promise<void> => undefined),
-  })
-);
-
-vi.mock('../../ipc-handlers', async () => {
-  const actual = await vi.importActual<typeof import('../../ipc-handlers')>('../../ipc-handlers');
-  return {
-    ...actual,
-    cleanupDesktopLiveSubscriptionsForShutdown: cleanupSubscriptionsMock,
-    createApplicationIpcDomain: (...args: Parameters<typeof actual.createApplicationIpcDomain>) => {
-      const domain = actual.createApplicationIpcDomain(...args);
-      const close = vi.fn(() => domain.close());
-      applicationDomainCapture.close = close;
-      return { ...domain, close };
-    },
-    waitForDesktopDatabaseWorkSchedulerIdle: waitForDatabaseIdleMock,
-  };
-});
-
-const { shutdownPlanCapture } = vi.hoisted(() => ({
-  shutdownPlanCapture: {
-    current: null as null | (() => DesktopShutdownRunPlan),
-    run: null as null | ReturnType<typeof vi.fn>,
-  },
-}));
-
-vi.mock('../../main/desktop-graceful-shutdown', () => ({
-  createDesktopGracefulShutdown: vi.fn(
-    (options: { readonly planRun: () => DesktopShutdownRunPlan }) => {
-      shutdownPlanCapture.current = options.planRun;
-      shutdownPlanCapture.run = vi.fn(async () => undefined);
-      return { run: shutdownPlanCapture.run };
-    }
-  ),
-}));
-
-const { probeMock } = vi.hoisted(() => ({
-  probeMock: vi.fn(async () => ({
-    hnswIndexBuild: true,
-    maintenanceSettings: { maintenanceWorkMem: null, maxParallelMaintenanceWorkers: null },
-    progressReporting: true,
-  })),
-}));
-
-vi.mock('../../dimension-index-maintenance-capabilities', async () => {
-  const actual = await vi.importActual<
-    typeof import('../../dimension-index-maintenance-capabilities')
-  >('../../dimension-index-maintenance-capabilities');
-  return {
-    ...actual,
-    probeDimensionIndexRuntimeCapabilities: probeMock,
-  };
-});
-
-const { isDesktopShuttingDownMock } = vi.hoisted(() => ({
-  isDesktopShuttingDownMock: vi.fn(() => false),
-}));
-
-vi.mock('../../desktop-shutdown-state', async () => {
-  const actual = await vi.importActual<typeof import('../../desktop-shutdown-state')>(
-    '../../desktop-shutdown-state'
-  );
-  return {
-    ...actual,
-    isDesktopShuttingDown: isDesktopShuttingDownMock,
-  };
-});
-
-const { maintenanceCloseMock, maintenanceStartMock, maintenanceStopMock } = vi.hoisted(() => ({
-  maintenanceCloseMock: vi.fn(async (): Promise<void> => undefined),
-  maintenanceStartMock: vi.fn(async (): Promise<void> => undefined),
-  maintenanceStopMock: vi.fn(),
-}));
-
-vi.mock('../../database-maintenance-scheduler', () => ({
-  createDesktopDatabaseMaintenanceScheduler: vi.fn(() => ({})),
-}));
-
-vi.mock('../../dimension-index-maintenance-scheduler', () => ({
-  createDesktopDimensionIndexMaintenanceScheduler: vi.fn(() => ({})),
-}));
-
-vi.mock('../../desktop-maintenance-trigger-graph', () => ({
-  createDesktopMaintenanceTriggerGraph: vi.fn(() => ({
-    close: maintenanceCloseMock,
-    start: maintenanceStartMock,
-    stop: maintenanceStopMock,
-  })),
-}));
-
-/** The logger `main.ts` made for 'DesktopMain'; fails loudly rather than reading the last one. */
-function requireMainLogger() {
-  const index = createLoggerMock.mock.calls.findIndex(([scope]) => scope === 'DesktopMain');
-  const logger = index === -1 ? undefined : createLoggerMock.mock.results[index]?.value;
-  if (!logger) {
-    throw new Error("main.ts never created its 'DesktopMain' logger");
-  }
-  return logger;
-}
+import {
+  applicationDomainCapture,
+  cleanupSubscriptionsMock,
+  closeDatabaseMock,
+  createLoggerMock,
+  getDatabaseMock,
+  installMainBootFixture,
+  isDesktopShuttingDownMock,
+  maintenanceCloseMock,
+  maintenanceStartMock,
+  maintenanceStopMock,
+  mockApp,
+  mockBrowserWindowInstance,
+  nativeCloseForShutdown,
+  nativePrepareForPause,
+  nativeReconfigureForReset,
+  probeMock,
+  recoverInterruptedMaintenanceMock,
+  requireMainLogger,
+  shutdownPlanCapture,
+  waitForDatabaseIdleMock,
+} from './boot-order-fixture';
 
 describe('main boot order', () => {
-  let uncaughtExceptionListenersBeforeMain = new Set<unknown>();
-  let unhandledRejectionListenersBeforeMain = new Set<unknown>();
+  installMainBootFixture();
+  it.each([false, true])(
+    'starts and retains hidden disposal beside native close with independent failure=%s',
+    async (fail) => {
+      getDatabaseMock.mockResolvedValue({});
+      const native = Promise.withResolvers<void>();
+      const physical = Promise.withResolvers<void>();
+      nativeCloseForShutdown.mockReturnValue(native.promise);
+      const { EmbeddingHostManager } = await import('../../embedding-host-manager');
+      const dispose = vi
+        .spyOn(EmbeddingHostManager.prototype, 'dispose')
+        .mockReturnValue(physical.promise);
+      await import('../../main');
+      const plan = shutdownPlanCapture.current?.();
+      if (!plan) {
+        throw new Error('Missing actual Main shutdown plan');
+      }
+      const signal = new AbortController().signal;
+      let nativeSettled = false;
+      const nativeStep = Promise.resolve(plan.steps['native-index'](signal)).then(
+        () => {
+          nativeSettled = true;
+          return null;
+        },
+        (error: unknown) => {
+          nativeSettled = true;
+          return error;
+        }
+      );
+      onTestFinished(async () => {
+        native.resolve();
+        physical.resolve();
+        await nativeStep;
+        dispose.mockRestore();
+      });
+      await vi.waitFor(() => expect(nativeCloseForShutdown).toHaveBeenCalledOnce());
+      await vi.waitFor(() => expect(dispose).toHaveBeenCalledOnce());
+      expect(nativeSettled).toBe(false);
+      const nativeError = new Error('Independent native retirement failure');
+      const embeddingError = new Error('Independent physical embedding retirement failure');
+      if (fail) {
+        native.reject(nativeError);
+        physical.reject(embeddingError);
+      } else {
+        native.resolve();
+        physical.resolve();
+      }
+      expect(await nativeStep).toBe(fail ? nativeError : null);
+      const embeddingStep = Promise.resolve(plan.steps['embedding-host'](signal)).catch(
+        (error: unknown) => error
+      );
+      expect(await embeddingStep).toBe(fail ? embeddingError : undefined);
+      expect(dispose).toHaveBeenCalledOnce();
+    }
+  );
 
-  beforeEach(() => {
-    uncaughtExceptionListenersBeforeMain = new Set(process.listeners('uncaughtException'));
-    unhandledRejectionListenersBeforeMain = new Set(process.listeners('unhandledRejection'));
-    vi.resetModules();
-    vi.clearAllMocks();
-    shutdownPlanCapture.current = null;
-    shutdownPlanCapture.run = null;
-    applicationDomainCapture.close = null;
-    isDesktopShuttingDownMock.mockReturnValue(false);
-    closeDatabaseMock.mockResolvedValue(undefined);
-    cleanupSubscriptionsMock.mockResolvedValue(undefined);
-    waitForDatabaseIdleMock.mockResolvedValue(undefined);
-    maintenanceCloseMock.mockResolvedValue(undefined);
-    maintenanceStartMock.mockResolvedValue(undefined);
-    recoverInterruptedMaintenanceMock.mockResolvedValue(0);
-    mockApp.isPackaged = false;
-    existsSyncMock.mockReturnValue(true);
-    process.env['CI'] = 'false';
-    process.argv = process.argv.filter(
-      (arg) => arg !== '--test-mode' && !arg.startsWith('--brainstrike-desktop-launch-mode')
+  it('joins an accepted reset before quit while an earlier native transition is held', async () => {
+    getDatabaseMock.mockResolvedValue({});
+    const held = Promise.withResolvers<void>();
+    const entered = Promise.withResolvers<void>();
+    nativeReconfigureForReset.current = () => {
+      entered.resolve();
+      return held.promise;
+    };
+    const resetData = await import('../../desktop-factory-reset');
+    const purge = vi.spyOn(resetData, 'resetDesktopApplicationData').mockResolvedValue({
+      deletedPaths: [],
+      pendingDeletionPaths: [],
+      preservedPaths: [],
+    });
+    const resetPlatform = await import('../../desktop-reset-platform');
+    const createReset = resetPlatform.createDesktopFactoryResetHandler;
+    const compose = vi
+      .spyOn(resetPlatform, 'createDesktopFactoryResetHandler')
+      .mockImplementation((ports) =>
+        createReset({
+          ...ports,
+          completeSuccessfulReset: async () => {},
+          resetPersistentStorageAfterDataDeletion: async () => {},
+          resumeAfterReset: async () => {},
+          runtimes: [],
+        })
+      );
+    onTestFinished(() => {
+      purge.mockRestore();
+      compose.mockRestore();
+    });
+    await import('../../main');
+    const options = applicationDomainCapture.options;
+    const plan = shutdownPlanCapture.current?.();
+    if (!(options?.onStorageChanged && options.onResetLocal && plan)) {
+      throw new Error('Main reset and storage callbacks were not captured');
+    }
+    const { NATIVE_INDEX_SETTINGS_KEY } = await import('../../native-index-settings');
+    options.onStorageChanged(NATIVE_INDEX_SETTINGS_KEY);
+    await entered.promise;
+    const reset = options.onResetLocal();
+    let closed = false;
+    const close = Promise.resolve(plan.steps['factory-reset'](new AbortController().signal)).then(
+      () => {
+        closed = true;
+      }
     );
+    onTestFinished(async () => {
+      held.resolve();
+      await Promise.allSettled([reset, close]);
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(closed).toBe(false);
+    held.resolve();
+    await expect(reset).resolves.toEqual({ success: true });
+    await close;
+    expect(purge).toHaveBeenCalledOnce();
   });
 
-  afterEach(() => {
-    for (const listener of process.listeners('uncaughtException')) {
-      if (!uncaughtExceptionListenersBeforeMain.has(listener)) {
-        process.off('uncaughtException', listener);
+  it.each(['completed', 'replacement-failed', 'resume-failed', 'quit'] as const)(
+    'defers a reset renderer native-settings notification through replacement and reopen: %s',
+    async (outcome) => {
+      getDatabaseMock.mockResolvedValue({});
+      const notified = Promise.withResolvers<void>();
+      const replacement = Promise.withResolvers<void>();
+      const resuming = Promise.withResolvers<void>();
+      const resumed = Promise.withResolvers<void>();
+      let reopened = false;
+      const failure =
+        outcome === 'resume-failed'
+          ? new AggregateError(
+              [new Error('Native resume failed'), new Error('MCP resume failed')],
+              'Reset resume failed'
+            )
+          : new Error('Replacement renderer failed');
+      const { NativeAuthorityTransitionError } = await import('../../native-authority-transition');
+      nativePrepareForPause.mockImplementation(async () => {
+        if (!reopened) {
+          throw new NativeAuthorityTransitionError(
+            'Native Pause was superseded by terminal retirement.'
+          );
+        }
+        return null;
+      });
+      const reconfigure = vi.fn(async () => {});
+      nativeReconfigureForReset.current = reconfigure;
+      const resetData = await import('../../desktop-factory-reset');
+      const purge = vi.spyOn(resetData, 'resetDesktopApplicationData').mockResolvedValue({
+        deletedPaths: [],
+        pendingDeletionPaths: [],
+        preservedPaths: [],
+      });
+      const { NATIVE_INDEX_SETTINGS_KEY } = await import('../../native-index-settings');
+      const resetPlatform = await import('../../desktop-reset-platform');
+      const createReset = resetPlatform.createDesktopFactoryResetHandler;
+      const compose = vi
+        .spyOn(resetPlatform, 'createDesktopFactoryResetHandler')
+        .mockImplementation((ports) =>
+          createReset({
+            ...ports,
+            completeSuccessfulReset: async () => {
+              applicationDomainCapture.options?.onStorageChanged?.(NATIVE_INDEX_SETTINGS_KEY);
+              notified.resolve();
+              await replacement.promise;
+            },
+            resetPersistentStorageAfterDataDeletion: async () => {},
+            resumeAfterReset: async () => {
+              resuming.resolve();
+              await resumed.promise;
+              reopened = true;
+            },
+            runtimes: [],
+          })
+        );
+      await import('../../main');
+      const reset = applicationDomainCapture.options?.onResetLocal?.();
+      if (!reset) {
+        throw new Error('Main reset callback was not captured');
+      }
+      onTestFinished(async () => {
+        replacement.resolve();
+        resumed.resolve();
+        await reset;
+        purge.mockRestore();
+        compose.mockRestore();
+      });
+      await notified.promise;
+      expect(nativePrepareForPause).not.toHaveBeenCalled();
+      expect(reconfigure).not.toHaveBeenCalled();
+      let closing: Promise<void> | undefined;
+      if (outcome === 'quit') {
+        isDesktopShuttingDownMock.mockReturnValue(true);
+        const plan = shutdownPlanCapture.current?.();
+        if (!plan) {
+          throw new Error('Missing actual Main shutdown plan');
+        }
+        closing = Promise.resolve(plan.steps['factory-reset'](new AbortController().signal));
+      }
+      if (outcome === 'replacement-failed') {
+        replacement.reject(failure);
+      } else if (outcome === 'quit') {
+        replacement.resolve();
+      } else {
+        replacement.resolve();
+        await resuming.promise;
+        expect(nativePrepareForPause).not.toHaveBeenCalled();
+        if (outcome === 'resume-failed') {
+          resumed.reject(failure);
+        } else {
+          resumed.resolve();
+        }
+      }
+      if (outcome === 'replacement-failed' || outcome === 'resume-failed') {
+        await expect(reset).resolves.toEqual({ message: failure.message, success: false });
+        expect(requireMainLogger().error).toHaveBeenCalledWith(
+          'Failed to reset desktop application data:',
+          failure
+        );
+      } else {
+        await expect(reset).resolves.toEqual({ success: true });
+      }
+      await closing;
+      if (outcome === 'completed') {
+        await vi.waitFor(() => expect(reconfigure).toHaveBeenCalledOnce());
+        expect(nativePrepareForPause).toHaveBeenCalledOnce();
+      } else {
+        expect(nativePrepareForPause).not.toHaveBeenCalled();
+        expect(reconfigure).not.toHaveBeenCalled();
+      }
+      expect(requireMainLogger().error).not.toHaveBeenCalledWith(
+        'Saved native index configuration could not activate',
+        expect.anything()
+      );
+    }
+  );
+
+  it.each(['none', 'typed', 'independent'] as const)(
+    'prepares saved settings synchronously outside reset and preserves failure=%s',
+    async (kind) => {
+      getDatabaseMock.mockResolvedValue({});
+      const { NativeAuthorityTransitionError } = await import('../../native-authority-transition');
+      const failure =
+        kind === 'typed'
+          ? new NativeAuthorityTransitionError(
+              'Native Pause was superseded by terminal retirement.'
+            )
+          : new Error('Independent settings read failed');
+      if (kind !== 'none') {
+        nativePrepareForPause.mockRejectedValue(failure);
+      }
+      const reconfigure = vi.fn(async () => {});
+      nativeReconfigureForReset.current = reconfigure;
+      await import('../../main');
+      const { NATIVE_INDEX_SETTINGS_KEY } = await import('../../native-index-settings');
+      applicationDomainCapture.options?.onStorageChanged?.(NATIVE_INDEX_SETTINGS_KEY);
+      expect(nativePrepareForPause).toHaveBeenCalledOnce();
+      if (kind === 'none') {
+        await vi.waitFor(() => expect(reconfigure).toHaveBeenCalledOnce());
+      } else {
+        await vi.waitFor(() =>
+          expect(requireMainLogger().error).toHaveBeenCalledWith(
+            'Saved native index configuration could not activate',
+            { error: failure }
+          )
+        );
+        expect(reconfigure).not.toHaveBeenCalled();
       }
     }
-    for (const listener of process.listeners('unhandledRejection')) {
-      if (!unhandledRejectionListenersBeforeMain.has(listener)) {
-        process.off('unhandledRejection', listener);
-      }
-    }
-  });
+  );
 
   it('creates and shows the main window without waiting for DB init or the capability probe', async () => {
     let resolveDatabase: ((db: unknown) => void) | undefined;
@@ -508,15 +471,21 @@ describe('main boot order', () => {
     // that rejection is an EXPECTED teardown per desktop-shutdown-state and
     // must not produce an alarming error-level log on every fast quit.
     getDatabaseMock.mockResolvedValue({});
-    probeMock.mockImplementationOnce(async () => {
-      isDesktopShuttingDownMock.mockReturnValue(true);
-      throw new Error('db host disposed');
-    });
+    const probe = Promise.withResolvers<Awaited<ReturnType<typeof probeMock>>>();
+    probeMock.mockReturnValueOnce(probe.promise);
 
     await import('../../main');
 
     await vi.waitFor(() => expect(probeMock).toHaveBeenCalledTimes(1));
     await vi.waitFor(() => expect(mockBrowserWindowInstance.show).toHaveBeenCalled());
+    isDesktopShuttingDownMock.mockReturnValue(true);
+    probe.reject(new Error('db host disposed'));
+    await vi.waitFor(() =>
+      expect(requireMainLogger().info).toHaveBeenCalledWith(
+        'Dimension index maintenance capability probe aborted by shutdown',
+        { error: expect.objectContaining({ message: 'db host disposed' }) }
+      )
+    );
     expect(maintenanceStartMock).not.toHaveBeenCalled();
 
     const mainLogger = createLoggerMock.mock.results

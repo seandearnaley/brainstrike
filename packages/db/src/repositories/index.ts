@@ -104,6 +104,7 @@ export type {
   IFileRecordRepository,
   IViewFilterPresetsRepository,
 } from './interfaces.js';
+export { pgliteMcpTaskStorage } from './mcp-task-pglite-storage.js';
 export {
   type CreateMcpTaskInput,
   MAX_ACTIVE_MCP_TASKS_PER_SCOPE,
@@ -113,11 +114,15 @@ export {
   type McpTaskBlockedDiagnostic,
   type McpTaskDatabase,
   type McpTaskIdentity,
+  type McpTaskInsert,
   McpTaskMetadataTooLargeError,
+  type McpTaskPatch,
   type McpTaskRecord,
   McpTaskRepository,
   type McpTaskScope,
   type McpTaskStatus,
+  type McpTaskStorage,
+  McpTaskStore,
   type UpdateMcpTaskInput,
 } from './mcp-task-repository.js';
 export {
@@ -131,7 +136,10 @@ export {
   type ThreadDebugDatabase,
   type ThreadDebugSnapshot,
 } from './thread-debug-snapshot.js';
-export { ThreadSearchRepository } from './thread-search-repository.js';
+export {
+  THREAD_SEARCH_VECTOR_THRESHOLD,
+  ThreadSearchRepository,
+} from './thread-search-repository.js';
 export {
   type PurgeExpiredToolOutputArtifactsOptions,
   type ReadToolOutputArtifactRangeInput,

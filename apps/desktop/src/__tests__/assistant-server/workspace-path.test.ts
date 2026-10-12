@@ -1,5 +1,4 @@
 import path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   isHiddenPath,
   isWithinRoot,
@@ -7,7 +6,8 @@ import {
   normalizeWorkspacePath,
   normalizeWorkspacePaths,
   toPathSegments,
-} from '../../assistant-server/workspace-path';
+} from '@brainstrike/host-capabilities/native-tools';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 afterEach(() => {
   vi.restoreAllMocks();

@@ -1,7 +1,12 @@
-import { once } from 'node:events';
+import type { ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import type { ElectronApplication, Page } from 'playwright';
 import { _electron as electron } from 'playwright';
+import {
+  closeModelProviderShimWithProcess,
+  resolveProviderEgressEnvironment,
+  startModelProviderShim,
+} from './model-provider-shim';
 export const PACKAGED_DESKTOP_INHERITED_ENV_KEYS = Object.freeze([
   'APPDATA',
   'COMSPEC',
@@ -9,6 +14,8 @@ export const PACKAGED_DESKTOP_INHERITED_ENV_KEYS = Object.freeze([
   'DISPLAY',
   'GNOME_KEYRING_CONTROL',
   'HOME',
+  // libuv supplies these Windows process variables even for a filtered environment.
+  ...(process.platform === 'win32' ? ['HOMEDRIVE', 'HOMEPATH', 'SYSTEMDRIVE', 'USERNAME'] : []),
   'LANG',
   'LC_ALL',
   'LC_CTYPE',
@@ -17,7 +24,7 @@ export const PACKAGED_DESKTOP_INHERITED_ENV_KEYS = Object.freeze([
   'PATH',
   'PATHEXT',
   'SHELL',
-  'SystemRoot',
+  'SYSTEMROOT',
   'TEMP',
   'TMP',
   'TMPDIR',
@@ -63,8 +70,45 @@ function inheritedEnvironment(): Record<string, string> {
 export async function launchPackagedDesktop(options: {
   readonly environment?: Readonly<Record<string, string>>;
   readonly userDataDir: string;
-}): Promise<{ readonly app: ElectronApplication; readonly window: Page }> {
-  const app = await electron.launch({
+}): Promise<{
+  readonly app: ElectronApplication;
+  readonly window: Page;
+  readonly process: ChildProcess;
+  readonly exited: Promise<void>;
+}> {
+  // Every launch has a provider egress boundary (BST-1931), owned by this app.
+  const boundary = await startModelProviderShim();
+  let app: ElectronApplication;
+  try {
+    app = await launchWithEgressBoundary(
+      options,
+      resolveProviderEgressEnvironment(boundary, [options.environment ?? {}])
+    );
+  } catch (error) {
+    await boundary.close();
+    throw error;
+  }
+  const child = app.process();
+  const exited = new Promise<void>((resolve) => {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      resolve();
+    } else {
+      child.once('exit', () => resolve());
+    }
+  });
+  closeModelProviderShimWithProcess(boundary, child);
+  const window = await app.firstWindow({ timeout: 60_000 });
+  await window.waitForLoadState('domcontentloaded');
+  return { app, exited, process: child, window };
+}
+function launchWithEgressBoundary(
+  options: {
+    readonly environment?: Readonly<Record<string, string>>;
+    readonly userDataDir: string;
+  },
+  providerEgressEnv: Readonly<Record<string, string>>
+): Promise<ElectronApplication> {
+  return electron.launch({
     args: [
       ...(process.platform === 'linux' ? ['--password-store=gnome-libsecret'] : []),
       '--test-mode',
@@ -78,6 +122,7 @@ export async function launchPackagedDesktop(options: {
     env: {
       ...inheritedEnvironment(),
       ...options.environment,
+      ...providerEgressEnv,
       ['BRAINSTRIKE_E2E_DISABLE_EXTERNAL_LOCAL_RUNTIME_PROBES']: '1',
       ['BRAINSTRIKE_E2E_USER_DATA_DIR']: options.userDataDir,
       ['BRAINSTRIKE_OPENAI_API_KEY']: 'test-api-key-for-e2e-tests',
@@ -87,18 +132,24 @@ export async function launchPackagedDesktop(options: {
     executablePath: packagedDesktopExecutablePath(),
     timeout: 120_000,
   });
-  const window = await app.firstWindow({ timeout: 60_000 });
-  await window.waitForLoadState('domcontentloaded');
-  return { app, window };
 }
 export async function closePackagedDesktop(context: {
-  readonly app: ElectronApplication;
-  readonly window: Page;
+  readonly app: Pick<ElectronApplication, 'close'>;
+  readonly process: Pick<ChildProcess, 'exitCode' | 'signalCode'>;
+  readonly exited: Promise<void>;
 }): Promise<void> {
-  const child = context.app.process();
-  const exited = child.exitCode === null ? once(child, 'exit') : Promise.resolve();
-  await context.app.close();
-  await exited;
+  const child = context.process;
+  // Playwright may already have disposed its application channel after quit.
+  // The launcher retains the physical child and exit join before that happens.
+  if (child.exitCode === null && child.signalCode === null) {
+    try {
+      await context.app.close();
+    } finally {
+      await context.exited;
+    }
+  } else {
+    await context.exited;
+  }
   if (child.exitCode !== 0 || child.signalCode !== null) {
     throw new Error(
       `Packaged desktop did not exit gracefully (code=${child.exitCode}, signal=${child.signalCode})`

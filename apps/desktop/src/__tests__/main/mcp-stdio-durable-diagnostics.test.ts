@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
+import type { ResolvedMcpServer } from '@brainstrike/host-capabilities/mcp/config-file';
 import {
   createDefaultLoggingPreferences,
   type LoggingPreferences,
@@ -12,7 +13,6 @@ import { describe, expect, it, vi } from 'vitest';
 import { createErrorLogSink } from '../../diagnostics/error-log-sink';
 import { registerLoggingIpcHandlers } from '../../logging-ipc';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
-import type { ResolvedMcpServer } from '../../mcp-loader';
 import { resetElectronMainTestHarness } from '../helpers/electron-main-test-harness';
 
 const CONFIGURED_SERVER_ID = parseConfiguredMcpServerId('local.tools');

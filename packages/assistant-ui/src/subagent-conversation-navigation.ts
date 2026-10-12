@@ -18,6 +18,24 @@ export const SubagentConversationPresentationContext = createContext<
   ((threadId: string) => Promise<SubagentConversationPresentation>) | null
 >(null);
 
+/** BST-1932 (AT-07): an approval a delegated child asked and that was answered. */
+export interface SubagentAnsweredApproval {
+  readonly args: unknown;
+  /** The root's live policy, not a person, answered it. */
+  readonly byPolicy: boolean;
+  readonly decision: 'approve' | 'deny';
+  readonly interactionId: string;
+  /** The child's call sign. */
+  readonly owner: string;
+  readonly runId: string;
+  readonly toolCallId: string;
+  readonly toolName: string;
+}
+/** A child conversation's answered approvals, by child thread, for its delegation card's history. */
+export const SubagentApprovalHistoryContext = createContext<
+  ((threadId: string) => readonly SubagentAnsweredApproval[]) | null
+>(null);
+
 /** Host-authorized display identity for an approval's exact delegated owner. */
 export interface DelegatedApprovalOwner {
   readonly colorId: string;
@@ -39,22 +57,37 @@ export const SubagentLiveInvocationContext = createContext<SubagentLiveInvocatio
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
+/**
+ * The child thread a delegation's own result names: a native completion
+ * persists it, and an agent host delegation names it in every result
+ * (BST-1932). Contradictory addresses fail closed.
+ */
+function readResultThread(result: unknown): string | undefined {
+  let threadId: string | undefined;
+  for (const key of ['subAgentThreadId', 'childThreadId'] as const) {
+    if (!(isRecord(result) && key in result)) {
+      continue;
+    }
+    const child = result[key];
+    if (typeof child !== 'string' || !child.trim()) {
+      throw new Error('Invalid child conversation address.');
+    }
+    if (threadId && threadId !== child) {
+      throw new Error('Conflicting child conversation addresses.');
+    }
+    threadId = child;
+  }
+  return threadId;
+}
+
 /** Read the already validated host envelope in this message, never a persona label. */
 export function readSubagentConversationThread(
   parts: readonly unknown[],
   toolCallId: string,
   result?: unknown
 ): string | undefined {
-  let threadId: string | undefined;
-  // Native completion persists this address in the delegation's own result.
   // Live publication has an envelope instead; contradictory sources fail closed.
-  if (isRecord(result) && 'subAgentThreadId' in result) {
-    const child = result['subAgentThreadId'];
-    if (typeof child !== 'string' || !child.trim()) {
-      throw new Error('Invalid child conversation address.');
-    }
-    threadId = child;
-  }
+  let threadId = readResultThread(result);
   for (const part of parts) {
     if (
       !(
@@ -143,13 +176,35 @@ export type SubagentInvocationRun =
   | { readonly kind: 'available'; readonly parentRuntimeRunId: string }
   | { readonly kind: 'invalid'; readonly error: string };
 
-/** Scope to the owning message: native call IDs may repeat in another turn. */
+/** The agent host run an assistant message answers; its owner names it (BST-1932). */
+function readHostRunId(metadata: unknown): string | undefined {
+  const custom = isRecord(metadata) ? metadata['custom'] : undefined;
+  if (!(isRecord(custom) && 'hostRunId' in custom)) {
+    return;
+  }
+  const runId = custom['hostRunId'];
+  if (typeof runId !== 'string' || !runId.trim()) {
+    throw new Error('Invalid agent host run address.');
+  }
+  return runId;
+}
+
+/**
+ * Scope to the owning message: native call IDs may repeat in another turn. An
+ * agent host message is one run, so its run owns every delegation it shows.
+ */
 export function readSubagentInvocationRun(
   parts: readonly unknown[],
-  toolCallId: string
+  toolCallId: string,
+  metadata?: unknown
 ): SubagentInvocationRun {
   try {
-    const parentRuntimeRunId = readSubagentInvocationRunId(parts, toolCallId);
+    const native = readSubagentInvocationRunId(parts, toolCallId);
+    const host = readHostRunId(metadata);
+    if (native && host && native !== host) {
+      throw new Error('Conflicting native invocation addresses.');
+    }
+    const parentRuntimeRunId = native ?? host;
     return parentRuntimeRunId ? { kind: 'available', parentRuntimeRunId } : { kind: 'unavailable' };
   } catch (error) {
     return { error: error instanceof Error ? error.message : String(error), kind: 'invalid' };

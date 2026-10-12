@@ -366,6 +366,10 @@ export interface TombstoneRow {
  * `RETURNING` is the only honest way to learn what was inserted — PGlite never
  * populates `affectedRows` (house gotcha), and the returned set is exactly the
  * rows this batch owns.
+ *
+ * The caller holds the thread rewind lock. Give the whole batch one timestamp
+ * newer than the thread's existing batches, even within the same clock tick or
+ * transaction; message IDs cannot tell which rewind happened last.
  */
 export async function insertTombstoneBatch(
   db: EditCheckpointDatabase,
@@ -380,8 +384,14 @@ export async function insertTombstoneBatch(
     return [];
   }
   const result = await db.query<{ messageId: string }>(
-    `INSERT INTO ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE} (message_id, thread_id, rewind_id, revert_id)
-     SELECT unnest($1::text[]), $2, $3, $4
+    `WITH next_batch AS (
+       SELECT GREATEST(NOW(), MAX(tombstoned_at) + INTERVAL '1 microsecond') AS tombstoned_at
+       FROM ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE}
+       WHERE thread_id = $2
+     )
+     INSERT INTO ${ASSISTANT_MESSAGE_TOMBSTONES_TABLE}
+       (message_id, thread_id, rewind_id, revert_id, tombstoned_at)
+     SELECT unnest($1::text[]), $2, $3, $4, tombstoned_at FROM next_batch
      ON CONFLICT (message_id) DO NOTHING
      RETURNING message_id AS "messageId"`,
     [batch.messageIds, batch.threadId, batch.rewindId, batch.revertId]

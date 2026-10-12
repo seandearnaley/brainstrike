@@ -79,10 +79,12 @@ const capability = createNativeScopedSearchCapability({
   rebuild: unused,
   withRead: (work) =>
     work({
+      // Each scripted revision is a saved-authority transition: scan progress alone
+      // never invalidates an observation (5762617e0).
       getAuthority: async () => ({
         bindings: [],
         collectionId: 'collection',
-        generation: 1,
+        generation: 1 + revision,
         profile: null,
         queryPlan: undefined,
         readiness: [{ generation: 1, mutationRevision: revision, scanComplete: true, scope }],
@@ -91,7 +93,11 @@ const capability = createNativeScopedSearchCapability({
       port,
     }),
 });
-const unregister = registerIndexSearchIpcHandlers(capability);
+const unregister = registerIndexSearchIpcHandlers(capability, {
+  rootsRegistered: async () => {
+    throw new Error('Unexpected root registration in read-only test');
+  },
+});
 ipcMain.handle(DESKTOP_IPC_CHANNELS.embeddingHost.getStatus, () => ({
   active: false,
   lastError: null,

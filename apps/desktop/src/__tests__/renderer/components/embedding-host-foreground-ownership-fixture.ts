@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { resetEmbeddingTelemetryForTests } from '@brainstrike/embedding-worker/testing';
 import { beforeEach, vi } from 'vitest';
 
@@ -9,6 +10,7 @@ const {
   embeddingCacheRepository,
   embeddingQueueBootstrapMock,
   getEmbeddingQueueMock,
+  retireEmbeddingQueueMock,
   createEmbeddingCacheRepositoryMock,
   detectDeviceCapabilitiesMock,
   ensureVectorPreferencesHydratedMock,
@@ -57,6 +59,7 @@ const {
   },
   reportQueryEmbeddingResponseMock: vi.fn(),
   reportStatusMock: vi.fn(),
+  retireEmbeddingQueueMock: vi.fn(async () => {}),
   setDetectedDevicePrefMock: vi.fn(),
   startEmbeddingWorkerMock: vi.fn(),
   stopMock: vi.fn(),
@@ -104,7 +107,7 @@ const createHostWindowMock = vi.hoisted(() =>
 );
 
 vi.mock('electron', () => ({
-  app: { getAppPath: () => '/test/app', isPackaged: false },
+  app: { getAppPath: () => resolve('/test/app'), isPackaged: false },
   BrowserWindow: createHostWindowMock,
   ipcMain: {
     handle: vi.fn((channel: string, handler: (...args: unknown[]) => unknown) =>
@@ -154,6 +157,12 @@ vi.mock('../../../renderer/create-embedding-queue', () => ({
     embeddingQueueBootstrapMock();
     return {
       getEmbeddingQueue: getEmbeddingQueueMock,
+      reopenEmbeddingQueue: async (isCurrent: () => boolean) => {
+        if (isCurrent()) {
+          getEmbeddingQueueMock();
+        }
+      },
+      retireEmbeddingQueue: retireEmbeddingQueueMock,
     };
   })(),
 }));
@@ -169,6 +178,7 @@ export function installEmbeddingHostRuntimeFixture(): void {
     hostWindow.removeAllListeners();
     hostWindow.webContents.removeAllListeners();
     vi.clearAllMocks();
+    retireEmbeddingQueueMock.mockReset().mockResolvedValue(undefined);
     reportStatusMock.mockReset();
     stopMock.mockResolvedValue(undefined);
     resetEmbeddingTelemetryForTests();
@@ -256,6 +266,7 @@ export {
   queryEmbeddingListenerRef,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
+  retireEmbeddingQueueMock,
   setDetectedDevicePrefMock,
   startEmbeddingWorkerMock,
   stopMock,

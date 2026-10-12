@@ -1,5 +1,6 @@
-import { type ChildProcess, spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import fsPromises from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import {
   type ExecuteCommandInput,
@@ -11,12 +12,19 @@ import {
   requireNativeToolExecutionBudget,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
+import type { ShellOutputStreamer } from '@brainstrike/host-capabilities/native-tools';
+import {
+  acquireWorkspaceMutationLease,
+  isWithinRoot,
+} from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
+import { spawnNativeChild } from '@brainstrike/state-store/native-children';
 import stripAnsi from 'strip-ansi';
 import treeKill from 'tree-kill';
+import { resolveBundledSiblingPath } from '../bundled-sibling-path';
 import { createCredentialIsolatedChildEnvironment } from '../desktop-env';
-import { withWorkspaceMutationLease } from './workspace-mutation-lease';
-import { isWithinRoot } from './workspace-path';
+import { KILL_GRACE_MS } from './kill-grace';
+import { createWindowsCommandProcess, type WindowsCommandJob } from './windows-command-process';
 import {
   describeOpenRootTopology,
   type OpenRootTopology,
@@ -57,30 +65,6 @@ const MAX_STREAMED_OUTPUT_BYTES = 256_000;
 /** Visible notice appended to the live stream once the streaming cap is hit. */
 const STREAM_TRUNCATION_NOTICE =
   '\n[output truncated — live streaming stopped; the final result keeps the start and end of each stream]\n';
-/**
- * Grace period between the polite SIGTERM and the forceful SIGKILL when tearing
- * down a process tree. A well-behaved child exits on SIGTERM; a wedged one is
- * reaped by the follow-up SIGKILL.
- */
-const KILL_GRACE_MS = 2000;
-
-/** One incremental slice of live subprocess output. */
-export interface ShellOutputStreamPart {
-  /** The incremental text (ANSI stripped, same as the final captured result). */
-  readonly chunk: string;
-  /** Which pipe the slice came from. */
-  readonly stream: 'stdout' | 'stderr';
-  /** True only on the single terminal notice emitted when the cap is hit. */
-  readonly truncated?: boolean;
-}
-
-/**
- * Sink for live, incremental subprocess output. Invoked in emission order as the
- * child writes; the LAST call (when the streaming cap is hit) carries
- * `truncated: true`. Streaming is best-effort observability — a throwing sink
- * must never break command execution, so the caller wraps it defensively.
- */
-export type ShellOutputStreamer = (part: ShellOutputStreamPart) => void;
 
 /**
  * Resolve the shell + argument convention for the current platform.
@@ -137,15 +121,11 @@ export interface ExecuteCommandToolResult {
 }
 
 /**
- * GLOBAL registry of live child processes spawned by this tool, keyed by pid.
- *
- * Every spawned child is added on start and removed in the `finally` of its own
- * run. {@link disposeLiveChildProcesses} reaps anything still live so a desktop
- * shutdown / factory reset can never leak a `vitest`/build process that keeps
- * eating CPU and battery after the app is gone. Module-level so it is shared by
- * every concurrent tool call in the process.
+ * The one process-local registry of finite commands. A Windows entry owns its
+ * native Job and workspace lease before the gated wrapper starts, and remains
+ * here after a failed native retirement. POSIX keeps its process-group owner.
  */
-const liveChildProcesses = new Map<number, ChildProcess>();
+const liveChildProcesses = new Set<{ retire: () => Promise<void> }>();
 
 /**
  * Kill an entire detached process tree.
@@ -219,18 +199,24 @@ function killProcessTree(pid: number, signal: NodeJS.Signals): void {
 /**
  * Reap every still-live child spawned by this tool. Wired into the desktop
  * shutdown / factory-reset lifecycle so no orphaned subprocess survives the app.
- * Returns the number of trees it signalled (for logging/observability).
+ * Returns the number of owners joined (for logging/observability). Failed
+ * retirement leaves that owner retained and rejects disposal.
  */
-export function disposeLiveChildProcesses(): number {
-  const pids = Array.from(liveChildProcesses.keys());
-  for (const pid of pids) {
-    killProcessTree(pid, 'SIGKILL');
+export async function disposeLiveChildProcesses(): Promise<number> {
+  const entries = [...liveChildProcesses];
+  const outcomes = await Promise.allSettled(
+    entries.map((entry) => Promise.resolve().then(() => entry.retire()))
+  );
+  const failures = outcomes.flatMap((outcome) =>
+    outcome.status === 'rejected' ? [outcome.reason] : []
+  );
+  if (failures.length > 0) {
+    throw new AggregateError(failures, 'Live command process retirement failed');
   }
-  liveChildProcesses.clear();
-  if (pids.length > 0) {
-    logger.info('Reaped live shell child processes on dispose', { count: pids.length });
+  if (entries.length > 0) {
+    logger.info('Reaped live shell child processes on dispose', { count: entries.length });
   }
-  return pids.length;
+  return entries.length;
 }
 
 /**
@@ -342,20 +328,152 @@ function createBoundedShellStreamer(
 /**
  * Spawn the user's platform shell (see {@link resolveShellInvocation}), detached
  * so the child leads its own process group. Captures stdout/stderr up to
- * {@link MAX_CAPTURED_OUTPUT_BYTES}. On timeout OR abort, the WHOLE process tree
- * is killed (SIGTERM then SIGKILL); on a clean shell exit any background work it
- * left running is best-effort group-reaped. The child is always removed from the
- * global registry in `cleanup` (run from the close/error handlers).
+ * {@link MAX_CAPTURED_OUTPUT_BYTES}. Windows joins its parent-owned Job and
+ * captured pipes before releasing the retained owner. POSIX keeps its existing
+ * SIGTERM/SIGKILL process-group cleanup and joins the child close event.
  */
-export function runDetachedProcess(args: {
+interface ProcessArguments {
   argv: readonly string[];
   cwd: string;
   env?: NodeJS.ProcessEnv;
   executable: string;
-  timeoutMs: number;
+  /** Ownership transfers at the call; only actual settlement can release it. */
+  releaseWorkspaceLease?: () => void;
   signal: AbortSignal | undefined;
   streamer: ShellOutputStreamer | undefined;
-}): Promise<SpawnOutcome> {
+  timeoutMs: number;
+  windowsVerbatimArguments?: boolean;
+}
+
+function commandEnvironment(env: NodeJS.ProcessEnv | undefined): NodeJS.ProcessEnv {
+  const requestedEnvironment = {
+    ...process.env,
+    ...env,
+    // biome-ignore lint/style/useNamingConvention: CI is a standard env var name.
+    CI: 'true',
+  };
+  const childEnvironment = createCredentialIsolatedChildEnvironment(requestedEnvironment);
+  const strippedCredentialCount =
+    Object.keys(requestedEnvironment).length - Object.keys(childEnvironment).length;
+  if (strippedCredentialCount > 0) {
+    logger.debug('command environment removed provider credentials', { strippedCredentialCount });
+  }
+  return childEnvironment;
+}
+
+function runWindowsCommand(args: ProcessArguments): Promise<SpawnOutcome> {
+  return new Promise((resolve, reject) => {
+    if (args.signal?.aborted) {
+      args.releaseWorkspaceLease?.();
+      reject(new Error('Command aborted before execution.'));
+      return;
+    }
+    let retained = false;
+    try {
+      let stdout = '';
+      let stderr = '';
+      let stdoutBytes = 0;
+      let stderrBytes = 0;
+      let timedOut = false;
+      const emitStream = createBoundedShellStreamer(args.streamer);
+      const userEnvironment = Object.fromEntries(
+        Object.entries(commandEnvironment(args.env)).filter(
+          (entry): entry is [string, string] =>
+            entry[1] !== undefined && !/^NODE_CHANNEL_(?:FD|SERIALIZATION_MODE)$/iu.test(entry[0])
+        )
+      );
+      const wrapperEnvironment = Object.fromEntries(
+        Object.entries(commandEnvironment(undefined)).filter(
+          ([name]) =>
+            !/^(?:NODE_OPTIONS|NODE_PATH|NODE_CHANNEL_FD|NODE_CHANNEL_SERIALIZATION_MODE|ELECTRON_RUN_AS_NODE)$/iu.test(
+              name
+            )
+        )
+      );
+      wrapperEnvironment['ELECTRON_RUN_AS_NODE'] = '1';
+      const wrapperPath = resolveBundledSiblingPath('Windows command', 'windows-command-entry.js');
+      const owner = createWindowsCommandProcess({
+        command: {
+          // Match Node's cmd.exe shell convention only at this finite-command
+          // verbatim boundary. The shared PTY invocation and direct skill argv stay unchanged.
+          argv: args.windowsVerbatimArguments
+            ? args.argv.map((argument, index) =>
+                index === args.argv.length - 1 ? `"${argument}"` : argument
+              )
+            : args.argv,
+          cwd: args.cwd,
+          env: userEnvironment,
+          executable: args.executable,
+          windowsVerbatimArguments: args.windowsVerbatimArguments ?? false,
+        },
+        createJob: () => {
+          const native = createRequire(wrapperPath)('@brainstrike/windows-job-native') as {
+            createCommandJob(): WindowsCommandJob;
+          };
+          return native.createCommandJob();
+        },
+        onOutput: (kind, chunk) => {
+          const text = chunk.toString('utf8');
+          emitStream(kind, text);
+          if (kind === 'stdout' && stdoutBytes < MAX_CAPTURED_OUTPUT_BYTES) {
+            stdout += text;
+            stdoutBytes += chunk.byteLength;
+          } else if (kind === 'stderr' && stderrBytes < MAX_CAPTURED_OUTPUT_BYTES) {
+            stderr += text;
+            stderrBytes += chunk.byteLength;
+          }
+        },
+        onSettled: () => {
+          liveChildProcesses.delete(owner);
+          args.releaseWorkspaceLease?.();
+        },
+        spawnWrapper: () =>
+          spawnNativeChild(process.execPath, [wrapperPath], {
+            cwd: args.cwd,
+            detached: false,
+            env: wrapperEnvironment,
+            stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+            windowsHide: true,
+          }),
+      });
+      liveChildProcesses.add(owner);
+      retained = true;
+      const stop = (): void => {
+        void owner.retire().catch(reject);
+      };
+      args.signal?.addEventListener('abort', stop, { once: true });
+      const timeout = setTimeout(() => {
+        timedOut = true;
+        stop();
+      }, args.timeoutMs);
+      timeout.unref();
+      const clearCallResources = (): void => {
+        clearTimeout(timeout);
+        args.signal?.removeEventListener('abort', stop);
+      };
+      void owner.start().then(
+        (outcome) => {
+          clearCallResources();
+          resolve({ ...outcome, stderr, stdout, timedOut });
+        },
+        (error: unknown) => {
+          clearCallResources();
+          reject(error);
+        }
+      );
+    } catch (error) {
+      if (!retained) {
+        args.releaseWorkspaceLease?.();
+      }
+      reject(error);
+    }
+  });
+}
+
+export function runDetachedProcess(args: ProcessArguments): Promise<SpawnOutcome> {
+  if (process.platform === 'win32') {
+    return runWindowsCommand(args);
+  }
   const { argv, cwd, env, executable, timeoutMs, signal, streamer } = args;
 
   return new Promise<SpawnOutcome>((resolve, reject) => {
@@ -363,28 +481,16 @@ export function runDetachedProcess(args: {
     // (e.g. the signal fired while resolveCommandCwd was awaiting realpath — a
     // listener added after the event would never fire.)
     if (signal?.aborted) {
+      args.releaseWorkspaceLease?.();
       reject(new Error('Command aborted before execution.'));
       return;
     }
 
     let child: ChildProcess;
     try {
-      const requestedEnvironment = {
-        ...process.env,
-        ...env,
-        // Discourage interactive prompts that would hang a non-interactive run.
-        // biome-ignore lint/style/useNamingConvention: CI is a standard env var name (must be uppercase).
-        CI: 'true',
-      };
-      const childEnvironment = createCredentialIsolatedChildEnvironment(requestedEnvironment);
-      const strippedCredentialCount =
-        Object.keys(requestedEnvironment).length - Object.keys(childEnvironment).length;
-      if (strippedCredentialCount > 0) {
-        logger.debug('command environment removed provider credentials', {
-          strippedCredentialCount,
-        });
-      }
-      child = spawn(executable, argv, {
+      const childEnvironment = commandEnvironment(env);
+      // In the agent host the command inherits the Root's flock (ADR-0017).
+      child = spawnNativeChild(executable, argv, {
         cwd,
         detached: true,
         env: childEnvironment,
@@ -392,16 +498,25 @@ export function runDetachedProcess(args: {
       });
     } catch (error) {
       // Spawn failure (e.g. shell missing) is REPORTED, never swallowed.
+      args.releaseWorkspaceLease?.();
       reject(error instanceof Error ? error : new Error(String(error)));
       return;
     }
 
     const { pid } = child;
     if (pid === undefined) {
+      args.releaseWorkspaceLease?.();
       reject(new Error('Failed to spawn shell process (no pid).'));
       return;
     }
-    liveChildProcesses.set(pid, child);
+    const closed = Promise.withResolvers<void>();
+    const owner = {
+      retire: () => {
+        killProcessTree(pid, 'SIGKILL');
+        return closed.promise;
+      },
+    };
+    liveChildProcesses.add(owner);
 
     let stdout = '';
     let stderr = '';
@@ -466,7 +581,9 @@ export function runDetachedProcess(args: {
         clearTimeout(killTimer);
       }
       signal?.removeEventListener('abort', onAbort);
-      liveChildProcesses.delete(pid);
+      liveChildProcesses.delete(owner);
+      args.releaseWorkspaceLease?.();
+      closed.resolve();
     };
 
     child.on('error', (error) => {
@@ -518,6 +635,7 @@ function runShellCommand(args: {
   timeoutMs: number;
   signal: AbortSignal | undefined;
   streamer: ShellOutputStreamer | undefined;
+  releaseWorkspaceLease: () => void;
 }): Promise<SpawnOutcome> {
   const { command, cwd, timeoutMs, signal, streamer } = args;
   const invocation = resolveShellInvocation(command);
@@ -525,9 +643,11 @@ function runShellCommand(args: {
     argv: invocation.args,
     cwd,
     executable: invocation.shell,
+    releaseWorkspaceLease: args.releaseWorkspaceLease,
     signal,
     streamer,
     timeoutMs,
+    windowsVerbatimArguments: process.platform === 'win32',
   });
 }
 
@@ -761,10 +881,10 @@ export async function runExecuteCommand(
   const deadline = AbortSignal.timeout(timeoutMs);
   const admissionSignal = options?.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
   let spawned = false;
-  const outcome = await withWorkspaceMutationLease(
-    rootPath,
-    'opaque',
-    () => {
+  const outcome = await (async () => {
+    const release = await acquireWorkspaceMutationLease(rootPath, 'opaque', admissionSignal);
+    let transferred = false;
+    try {
       admissionSignal.throwIfAborted();
       const remainingTimeoutMs = timeoutMs - (Date.now() - startedAt);
       if (remainingTimeoutMs <= 0) {
@@ -773,16 +893,21 @@ export async function runExecuteCommand(
         );
       }
       spawned = true;
-      return runShellCommand({
+      transferred = true;
+      return await runShellCommand({
         command: input.command,
         cwd,
+        releaseWorkspaceLease: release,
         signal: options?.signal,
         streamer: options?.stream,
         timeoutMs: remainingTimeoutMs,
       });
-    },
-    admissionSignal
-  ).catch((error: unknown) => {
+    } finally {
+      if (!transferred) {
+        release();
+      }
+    }
+  })().catch((error: unknown) => {
     if (!spawned && admissionSignal.aborted) {
       throw new ToolInputError(
         options?.signal?.aborted

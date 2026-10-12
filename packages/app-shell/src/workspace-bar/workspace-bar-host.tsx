@@ -2,6 +2,8 @@ import { WorkspaceBar } from '@brainstrike/assistant-ui';
 import { memo, type ReactElement } from 'react';
 import { type UseWorkspaceBarArgs, useWorkspaceBar } from '../hooks/use-workspace-bar';
 
+export type WorkspaceBarHostProps = UseWorkspaceBarArgs;
+
 /**
  * The app-shell side of the composer workspace bar: it owns `useWorkspaceBar`
  * and renders the store-free `<WorkspaceBar />` from @brainstrike/assistant-ui.
@@ -28,7 +30,7 @@ import { type UseWorkspaceBarArgs, useWorkspaceBar } from '../hooks/use-workspac
  * a wrapper render that changed none of the bar's inputs never reaches it.
  */
 export const WorkspaceBarHost = memo(function WorkspaceBarHost(
-  args: UseWorkspaceBarArgs
+  args: WorkspaceBarHostProps
 ): ReactElement {
   const barProps = useWorkspaceBar(args);
   return <WorkspaceBar {...barProps} />;

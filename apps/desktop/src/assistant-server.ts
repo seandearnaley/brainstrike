@@ -1,12 +1,10 @@
 import http from 'node:http';
 import {
   type AgentMessage,
-  type AwsCredentialIdentityProvider,
   assistantDataStreamSessions,
   createAwsCredentialChain,
   type ParsedAssistantRequestEnvelope,
   type RuntimeData,
-  resolveAwsCredentialChain,
 } from '@brainstrike/agent';
 import { ASSISTANT_AUTH_HEADER_NAME } from '@brainstrike/assistant-contract';
 import type { AssistantActiveRunInputMessage } from '@brainstrike/assistant-contract/assistant-stream-session';
@@ -19,7 +17,7 @@ import {
   respondJson,
   respondNotFound,
 } from '@brainstrike/assistant-service/http';
-import { providerAuthInputFromCredential } from '@brainstrike/assistant-service/provider-credential-projection';
+import type { providerAuthInputFromCredential } from '@brainstrike/assistant-service/provider-credential-projection';
 import { prepareAssistantPostRequest } from '@brainstrike/assistant-service/request';
 import { runAssistantTurn } from '@brainstrike/assistant-service/run-turn';
 import {
@@ -31,6 +29,11 @@ import {
   initializeAgentStream,
 } from '@brainstrike/assistant-service/stream-init';
 import { ToolOutputArtifactRepository } from '@brainstrike/db';
+import type { HookRunVerdict } from '@brainstrike/host-capabilities/hooks';
+import {
+  readWorkspaceTextFile,
+  WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS,
+} from '@brainstrike/host-capabilities/native-tools';
 import {
   handleActiveRunDiscoveryRequest,
   registerInitializingAssistantRun,
@@ -57,7 +60,6 @@ import {
 } from './assistant-server/cors';
 import { handleDecideRequest } from './assistant-server/decide-endpoint';
 import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
-import type { HookRunVerdict } from './assistant-server/hooks/run-verdict';
 import {
   finalizeHookedStream,
   hookRunEventToAssistant,
@@ -77,6 +79,7 @@ import {
   getDesktopMastraMemory,
 } from './assistant-server/mastra-memory';
 import { createNodeFsScanDeps } from './assistant-server/node-fs-scan-deps';
+import { deriveAssistantTurnAuthInput } from './assistant-server/provider-auth-input';
 import {
   resolveProviderApiKey,
   resolveProviderCredential,
@@ -101,10 +104,6 @@ import { respondToSecretReadError } from './assistant-server/secret-error-respon
 import { injectSelfImprovementSignalContext } from './assistant-server/self-improvement-signal-context';
 import { handleDelegatedFollowupRequest } from './assistant-server/send-delegated-followup';
 import type { AssistantServerOptions } from './assistant-server/server-options';
-import {
-  createShellCorrelation,
-  type ShellCorrelationCapability,
-} from './assistant-server/shell-worktree-correlation';
 import { injectActivatedSkillsContext } from './assistant-server/skills-activation-context';
 import { createSecureSkillsFs } from './assistant-server/skills-fs-deps';
 import {
@@ -126,20 +125,15 @@ import {
 import { readThreadTaskList } from './assistant-server/task-list-repository';
 import { createToolProjectionRewriteLookup } from './assistant-server/tool-projection-rewrite-repository';
 import { scanUserPersonas } from './assistant-server/user-personas-loader';
-import { WEB_EXTRACT_INLINE_MAX_SERIALIZED_CHARS } from './assistant-server/web-extract-model-projection';
 import { injectWorkspaceInstructionsContext } from './assistant-server/workspace-instructions-context';
 import {
   BoundWorkspaceRootUnavailableError,
   enrichRuntimeDataWithWorkspaceRoots,
   getWorkspaceRoots,
 } from './assistant-server/workspace-roots';
-import { readWorkspaceTextFile } from './assistant-server/workspace-text-file-reader';
-import type { WorktreeToolCapability } from './assistant-server/worktree-tools';
+import { legacyWorktreeToolDependencies } from './assistant-server/worktree-tool-dependencies';
 import { type DesktopDatabase, getDatabase } from './db-main';
 import type { EmbeddingHostManager } from './embedding-host-manager';
-import { getMcpDesktopAppHost } from './mcp/apps-authority';
-import { getDesktopMcpHostRuntime } from './mcp/host-runtime';
-import { getSubscriptionFetchFactory } from './provider-auth/provider-auth-runtime';
 import { resolveDesktopPythonExecutable } from './python-runtime';
 
 const logger = desktopAssistantServerLogger;
@@ -163,7 +157,7 @@ interface DesktopAgentStreamKinds {
   database: DesktopDatabase;
   embeddingHost: Pick<EmbeddingHostManager, 'queryEmbedding'>;
   hookEvent: Parameters<typeof hookRunEventToAssistant>[0];
-  hookManager: ReturnType<typeof prepareRequestHooks>['manager'];
+  hookManager: Awaited<ReturnType<typeof prepareRequestHooks>>['manager'];
   hookVerdict: HookRunVerdict;
   personaScan: ReturnType<typeof scanUserPersonas>;
   scanFilesystem: ReturnType<typeof createNodeFsScanDeps>;
@@ -470,65 +464,6 @@ async function resolveSnapshotWorkspaceRoots(
 }
 
 /**
- * BST-1352: the factory auth input derives from the TYPED credential the
- * request resolved and travels as a direct parameter (runAssistantTurn →
- * initializeAgentStream → stream options) — never on runtimeData /
- * RequestContext (toJSON drops functions). Preparation GUARANTEES the
- * provider string on prepared runtime data (withTrustedAssistantMessageId
- * stamps it), so its absence is a wiring bug asserted loudly — never coerced
- * to an empty provider name.
- */
-async function deriveAssistantTurnAuthInput(
-  runtimeData: RuntimeData,
-  credential: Parameters<typeof providerAuthInputFromCredential>[1]
-): Promise<ReturnType<typeof providerAuthInputFromCredential>> {
-  const provider = runtimeData.provider;
-  if (typeof provider !== 'string' || provider.length === 0) {
-    throw new Error(
-      'Prepared assistant runtime data is missing its provider; request preparation must stamp it.'
-    );
-  }
-  // BST-1353 + PR #2525 finding 2: the chain is RESOLVED HERE, before the
-  // provider reaches the AI SDK, because the SDK replaces any rejection from
-  // `credentialProvider` with a plain Error — a lazily-throwing chain would
-  // lose its typed code and awsAuthMode context on the way to the run-error
-  // envelope. Resolving in this async scope keeps the typed error intact.
-  //
-  // Still per-request: this runs once per turn, so a mid-session
-  // `aws sso login` is picked up on the next message.
-  const awsCredentialChain =
-    credential?.type === 'aws' && credential.mode === 'profile_chain'
-      ? await preresolveAwsChain(credential.profile)
-      : createAwsCredentialChain;
-
-  // The closure is desktop-main-only: it never crosses IPC and is never
-  // serialized (RequestContext.toJSON drops functions).
-  //
-  // BST-1356: the subscription-fetch capability is the interactive-only gate
-  // for `oauth_subscription` providers (legal gate BST-1351, constraint 4).
-  // It is `undefined` in any process that never initialized the provider-auth
-  // runtime, and the projection's oauth arm REJECTS the credential when it is
-  // absent — so headless/web fail closed rather than degrade.
-  const oauthSubscriptionFetch = getSubscriptionFetchFactory();
-  return providerAuthInputFromCredential(provider, credential, {
-    awsCredentialChain,
-    ...(oauthSubscriptionFetch === undefined ? {} : { oauthSubscriptionFetch }),
-  });
-}
-
-/**
- * Resolve the chain once and present it as the projection's sync capability.
- * A failure throws the TYPED chain error out of this async scope — which is
- * the entire point (see finding 2 above).
- */
-async function preresolveAwsChain(
-  profile: string | undefined
-): Promise<() => AwsCredentialIdentityProvider> {
-  const resolved = await resolveAwsCredentialChain(profile);
-  return () => resolved;
-}
-
-/**
  * Derivation runs inside the handled scope (BST-1352 review finding 8): an
  * UnsupportedCredentialTypeError is SecretReadError-shaped, so it maps to the
  * same classified api_key_unreadable 400 as every other secret failure
@@ -576,70 +511,6 @@ function isRejectedBeforeStreamInitialization(
   isToolDecisionLeg: boolean
 ): boolean {
   return !enteredStreamInitialization && isToolDecisionLeg;
-}
-
-/**
- * `createdBy: 'agent'` and the run/thread ids are bound HERE, never taken from
- * tool input: provenance the model can set is provenance the model can forge.
- */
-function buildDesktopToolDependencies(
-  options: AssistantServerOptions,
-  // `runId` matches StreamInitializer's actual param shape (ports.ts): a
-  // REQUIRED key whose value may be undefined, not an optional key — under
-  // exactOptionalPropertyTypes the two are not interchangeable, and the real
-  // `core` passed at the call site always carries the key.
-  core: { readonly runId: string | undefined; readonly runtimeData?: RuntimeData }
-): { shellCorrelation?: ShellCorrelationCapability; worktreeTools?: WorktreeToolCapability } {
-  const service = options.resolveWorktreeService?.() ?? null;
-  const forge = options.resolveForgeService?.() ?? null;
-  const runId = core.runId;
-  const threadId = core.runtimeData?.memory?.threadId;
-  const worktreeTools: WorktreeToolCapability | undefined = service
-    ? {
-        archive: (params) => service.archive({ ...params, ...(runId ? { runId } : {}) }),
-        create: (params) =>
-          service.create({
-            ...params,
-            branch: { name: params.branch },
-            createdBy: 'agent',
-            ...(runId ? { runId } : {}),
-            ...(threadId ? { threadId } : {}),
-          }),
-        list: () => service.list(),
-      }
-    : undefined;
-  const shellCorrelation: ShellCorrelationCapability | undefined =
-    service || forge
-      ? createShellCorrelation({
-          forgeRefresh: (rootId) => {
-            // `refresh` returns a Promise; `void`-ing the call alone let its
-            // rejection go unhandled. `.catch` per the same shape
-            // `onRepositoryInvalidated` already uses (forge-service.ts:626).
-            forge?.refresh(rootId, 'shell').catch((error: unknown) => {
-              logger.error('shell forge refresh threw', { error, rootId });
-            });
-          },
-          reconcile: async (rootId, precedingWorktreePaths) => {
-            if (!service) {
-              return { error: 'Worktrees are unavailable in this session.', ok: false };
-            }
-            const context = await service.repositoryContextForRoot(rootId);
-            if (!context.ok) {
-              return context;
-            }
-            return await service.reconcileFromShell({
-              precedingWorktreePaths,
-              repoCommonDir: context.value.commonDir,
-              ...(runId ? { runId } : {}),
-              ...(threadId ? { threadId } : {}),
-            });
-          },
-        })
-      : undefined;
-  return {
-    ...(shellCorrelation ? { shellCorrelation } : {}),
-    ...(worktreeTools ? { worktreeTools } : {}),
-  };
 }
 
 function discoveredInputMessage(message: AgentMessage): AssistantActiveRunInputMessage {
@@ -898,14 +769,6 @@ async function handleAssistantPostOwned(
         enteredStreamInitialization = true;
         // runAssistantTurn admits this root only after its previous owner settles.
         await beginOwnedTurnLeg();
-        // Apps admission is keyed by the OWNING THREAD (review finding on
-        // BST-1572): an app mounted in thread A must never execute under a
-        // later run of thread B that knows the same server. A run without a
-        // persisted thread publishes no admission (no key to correlate on).
-        const admissionRun =
-          core.runId && core.runtimeData?.memory?.threadId
-            ? { runId: core.runId, threadId: core.runtimeData.memory.threadId }
-            : undefined;
         const result = await initializeAgentStream<DesktopAgentStreamKinds>({
           apiKey: core.apiKey,
           authInput: core.authInput,
@@ -929,24 +792,12 @@ async function handleAssistantPostOwned(
                 }),
             },
           },
+          childFollowupAction: core.childFollowupAction,
           compactionOverlayLookup,
           getDatabase,
           logger,
+          // Legacy threads carry no MCP (BST-1930): the one MCP runtime serves agent-host threads.
           mcpConfig: undefined,
-          ...(admissionRun
-            ? {
-                mcpAppAdmission: {
-                  register: (admission) => {
-                    const appHost = getMcpDesktopAppHost();
-                    appHost.registerAdmission(admissionRun, admission);
-                    return () => appHost.invalidateAdmission(admissionRun);
-                  },
-                },
-              }
-            : {}),
-          childFollowupAction: core.childFollowupAction,
-          mcpHost: getDesktopMcpHostRuntime().host,
-          mcpTaskTracking: getDesktopMcpHostRuntime().taskHost,
           messages: core.messages,
           resolveProviderApiKey,
           runId: core.runId,
@@ -956,7 +807,10 @@ async function handleAssistantPostOwned(
           toolDependencies: {
             embeddingHostManager: options.embeddingHostManager,
             llmHostManager: options.llmHostManager,
-            ...buildDesktopToolDependencies(options, core),
+            ...legacyWorktreeToolDependencies(options, {
+              runId: core.runId,
+              threadId: core.runtimeData?.memory?.threadId,
+            }),
           },
           toolProjectionRewriteLookup,
           toolResumeAction: core.toolResumeAction,

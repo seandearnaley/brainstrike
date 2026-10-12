@@ -48,7 +48,7 @@ test(`open-time verification of a ${MB} MB thread: per-row crc, quick_check, int
   const log = new RunLog(db, null);
   for (let i = 0; i < bodies.length; i += 1000) {
     log.append(
-      bodies.slice(i, i + 1000).map((b) => ['t1', 'text', null, b, null]),
+      bodies.slice(i, i + 1000).map((b) => ['t1', 'text', null, b, null, 1]),
       Date.now()
     );
   }

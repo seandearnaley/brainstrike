@@ -2,7 +2,8 @@ import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import type { ReactElement } from 'react';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { committedApprovalOptions } from '../committed-approval-options';
 import { ToolFallback } from '../tool-fallback';
 import { extractPrimaryArg } from '../tool-summaries';
 
@@ -461,5 +462,122 @@ describe('ToolFallback', () => {
 
       expect(container.querySelector('[data-testid="tool-fallback"]')).toBeInTheDocument();
     });
+  });
+});
+
+describe('a committed permission approval', () => {
+  const pending = {
+    addResult: () => {},
+    args: { path: 'notes.txt' },
+    argsText: '{"path":"notes.txt"}',
+    part: {},
+    resume: () => {},
+    status: { reason: 'interrupt' as const, type: 'requires-action' as const },
+    toolCallId: 'grant-call',
+    toolName: 'brainstrike.writeWorkspaceFile',
+    type: 'tool-call' as const,
+  };
+
+  it('offers each grant option and answers with the chosen option', async () => {
+    const respondToApproval = vi.fn(() => Promise.resolve());
+    wrap(
+      <ToolFallback
+        {...pending}
+        approval={{ id: 'approval-1', options: committedApprovalOptions('edit') }}
+        respondToApproval={respondToApproval}
+      />
+    );
+    for (const label of ['Approve', 'Always allow', 'Allow edits this session', 'Decline']) {
+      expect(
+        screen.getByRole('button', { name: `${label} brainstrike.writeWorkspaceFile` })
+      ).toBeInTheDocument();
+    }
+    await userEvent.click(
+      screen.getByRole('button', {
+        name: 'Allow edits this session brainstrike.writeWorkspaceFile',
+      })
+    );
+    expect(respondToApproval).toHaveBeenCalledWith({ approved: true, optionId: 'grant-session' });
+  });
+
+  it('answers a decline option as not approved', async () => {
+    const respondToApproval = vi.fn(() => Promise.resolve());
+    wrap(
+      <ToolFallback
+        {...pending}
+        approval={{ id: 'approval-1', options: committedApprovalOptions('edit') }}
+        respondToApproval={respondToApproval}
+      />
+    );
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Decline brainstrike.writeWorkspaceFile' })
+    );
+    expect(respondToApproval).toHaveBeenCalledWith({ approved: false, optionId: 'deny' });
+  });
+});
+
+describe('a committed approval preview', () => {
+  const pendingTool = (toolName: string, args: Readonly<Record<string, string>>) => ({
+    addResult: () => {},
+    approval: { id: 'approval-1', options: committedApprovalOptions('execute') },
+    args,
+    argsText: JSON.stringify(args),
+    part: {},
+    respondToApproval: () => Promise.resolve(),
+    resume: () => {},
+    status: { reason: 'interrupt' as const, type: 'requires-action' as const },
+    toolCallId: 'preview-call',
+    toolName,
+    type: 'tool-call' as const,
+  });
+  // The host-computed facts a run_python approval commits (BST-1070's shape).
+  const executionContext = {
+    allowedDomains: [],
+    allowRead: [],
+    allowWrite: [],
+    defaultReadAccess: 'permissive',
+    executorKind: 'fence',
+    language: 'python',
+    policyFingerprint: 'fingerprint',
+    scratchParentDir: '/tmp',
+    timeoutMs: 30_000,
+  };
+
+  it('shows the exact command and its working directory before a command runs', () => {
+    wrap(
+      <ToolFallback
+        {...pendingTool('brainstrike.executeCommand', { command: 'echo preview', cwd: 'src' })}
+      />
+    );
+    expect(screen.getByTestId('approval-command-code')).toHaveTextContent('echo preview');
+    expect(screen.getByTestId('approval-command-cwd')).toHaveTextContent('src');
+  });
+
+  it('shows a run_python call’s host-computed sandbox facts and keeps its grants', () => {
+    wrap(
+      <ToolFallback
+        {...pendingTool('brainstrike.runPython', { code: 'print(1)' })}
+        providerMetadata={{ brainstrike: { executionContext } }}
+      />
+    );
+    expect(screen.getByTestId('approval-run-python-internet')).toHaveTextContent(
+      'No internet access'
+    );
+    expect(screen.getByTestId('approval-run-python-write')).toHaveTextContent('/tmp');
+    expect(
+      screen.getByRole('button', { name: 'Always allow brainstrike.runPython' })
+    ).toBeInTheDocument();
+  });
+
+  it('offers no grant for a run_python call whose sandbox facts are missing', () => {
+    wrap(<ToolFallback {...pendingTool('brainstrike.runPython', { code: 'print(1)' })} />);
+    expect(screen.getByTestId('approval-run-python-context-missing')).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Approve brainstrike.runPython' })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Always allow brainstrike.runPython' })).toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Allow commands this session brainstrike.runPython' })
+    ).toBeNull();
   });
 });

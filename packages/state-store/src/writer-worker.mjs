@@ -28,10 +28,13 @@ import {
   writeSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
 import { newRetryStats, retrySharing } from './fs-retry.mjs';
 import { exportJsonl, readJsonl } from './jsonl.mjs';
+import { executeMcpTaskRequest } from './mcp-task-domain.mjs';
+import { executeMemoryRequest, executeNativeMemoryRequest } from './memory-domain.mjs';
 import { isCorrupt, RunLog, ThreadDamage, ThreadReadOnlyRefusal } from './run-log.mjs';
 import { blobsOf } from './run-log-format.mjs';
 import { migrate } from './schema.mjs';
@@ -46,6 +49,7 @@ import { CheckpointBlockedError } from './sqlite-checkpoint.mjs';
  * @property {number} checkpointPages
  * @property {number} busyTimeoutMs
  * @property {{ purgeInTxn?: 'sigkill' } | undefined} crashTestHooks
+ * @property {string | undefined} memoryCalculatorModule
  */
 
 const port = parentPort;
@@ -216,15 +220,108 @@ function verifyBlobReferences(rows) {
   }
 }
 
+/** Resource identities are retained in the existing purge intent before FK deletion.
+ * @param {string} threadId @param {number} seq
+ * @param {'clear' | 'detach-thread'} sharedResource
+ * @param {import('./memory-types.js').ObservationTokenCounter} [countTokens] */
+function eraseThreadMemory(threadId, seq, sharedResource, countTokens) {
+  const intent = /** @type {{ memory_resources:string } | undefined} */ (
+    db
+      .prepare('SELECT memory_resources FROM purge_intent WHERE thread_id=? AND seq=?')
+      .get(threadId, seq)
+  );
+  if (!intent) {
+    throw new Error('Memory erasure requires the existing purge intent');
+  }
+  for (const resourceId of JSON.parse(intent.memory_resources)) {
+    executeMemoryRequest(
+      db,
+      { operation: 'purge-thread', resourceId, sharedResource, threadId },
+      countTokens
+    );
+  }
+}
+
+/**
+ * Mastra OM's observation token counter, from the configured native memory
+ * calculator module; none when no calculator is configured.
+ * @returns {Promise<import('./memory-types.js').ObservationTokenCounter | undefined>} */
+async function observationTokenCounter() {
+  if (!cfg.memoryCalculatorModule) {
+    return;
+  }
+  const module = await import(pathToFileURL(cfg.memoryCalculatorModule).href);
+  if (typeof module.countObservationTokens !== 'function') {
+    throw new Error('Configured observation token counter is unavailable');
+  }
+  return /** @type {import('./memory-types.js').ObservationTokenCounter} */ (
+    module.countObservationTokens
+  );
+}
+
+/** @param {import('./memory-types.js').MemoryDomainRequest} request */
+async function handleMemory(request) {
+  if (request.operation !== 'native') {
+    const countTokens =
+      request.operation === 'purge-thread' ? await observationTokenCounter() : undefined;
+    return { snapshot: executeMemoryRequest(db, request, countTokens) };
+  }
+  if (!cfg.memoryCalculatorModule) {
+    throw new Error('Native memory calculator capability is unavailable');
+  }
+  const module = await import(pathToFileURL(cfg.memoryCalculatorModule).href);
+  if (typeof module.calculateMemoryMutation !== 'function') {
+    throw new Error('Configured native memory calculator is unavailable');
+  }
+  const calculate = /** @type {import('./memory-types.js').MemoryNativeCalculator} */ (
+    module.calculateMemoryMutation
+  );
+  return { snapshot: await executeNativeMemoryRequest(db, request, calculate) };
+}
+
+/** Read one verified snapshot on this existing serialized writer. */
+function readAll() {
+  const rows = [];
+  for (const threadId of log.threads()) {
+    const result = log.readFrom(threadId, 1, Number.MAX_SAFE_INTEGER);
+    if (result.damage) {
+      throw result.damage;
+    }
+    rows.push(...result.rows.map((row) => ({ ...row, threadId })));
+  }
+  return { rows };
+}
+
 /** @param {{ op: string; id: number; [k: string]: unknown }} m */
-function handle(m) {
+async function handle(m) {
   switch (m.op) {
+    case 'memory':
+      return handleMemory(
+        /** @type {import('./memory-types.js').MemoryDomainRequest} */ (m['request'])
+      );
+    case 'mcp-tasks':
+      return executeMcpTaskRequest(
+        db,
+        /** @type {import('./mcp-task-types.js').McpTaskDomainRequest} */ (m['request'])
+      );
     case 'append': {
       const t0 = clock();
       const rows = /** @type {import('./run-log.mjs').AppendRow[]} */ (m['rows']);
       verifyBlobReferences(rows);
-      const seqs = log.append(rows, Date.now());
-      return { seqs, t0, t1: clock() };
+      const boundary = m['boundary'] === true;
+      if (boundary) {
+        db.pragma('synchronous = FULL');
+      }
+      let seqs;
+      const ts = Date.now();
+      try {
+        seqs = log.append(rows, ts, boundary);
+      } finally {
+        if (boundary) {
+          db.pragma('synchronous = NORMAL');
+        }
+      }
+      return { seqs, t0, t1: clock(), ts };
     }
     case 'boundary': {
       const t0 = clock();
@@ -239,6 +336,19 @@ function handle(m) {
       const r = log.readFrom(String(m['threadId']), Number(m['fromSeq']), Number(m['limit']));
       return { damage: r.damage ? errorReply(r.damage) : null, rows: r.rows };
     }
+    case 'readHydration':
+      return {
+        threads: log.readHydration().map(({ damage, ...thread }) => ({
+          ...thread,
+          damage: damage ? errorReply(damage) : null,
+        })),
+      };
+    case 'storedBlobRefs':
+      return { hashes: log.storedBlobRefs(String(m['threadId'])) };
+    case 'damagedBlobRefs':
+      return { hashes: log.damagedBlobRefs() };
+    case 'readAll':
+      return readAll();
     case 'status':
       return { status: log.status(String(m['threadId'])) };
     case 'threads':
@@ -257,17 +367,43 @@ function handle(m) {
               throw new Error('unreachable: SIGKILL was sent');
             }
           : undefined;
-      log.purge(String(m['threadId']), Number(m['seq']), String(m['tombstone']), kill);
+      const threadId = String(m['threadId']);
+      const seq = Number(m['seq']);
+      log.purge(threadId, seq, String(m['tombstone']), () => {
+        // A purge erases what the thread may have contributed to shared memory.
+        eraseThreadMemory(threadId, seq, 'clear');
+        kill?.();
+      });
       return {};
     }
-    case 'deleteThread':
-      log.deleteThread(String(m['threadId']));
+    case 'deleteThread': {
+      const threadId = String(m['threadId']);
+      // Loaded before the transaction; the StateStore write chain keeps this op in order.
+      const countTokens = await observationTokenCounter();
+      // Deleting a thread keeps shared resource memory, as legacy did, minus its own sections.
+      log.deleteThread(threadId, () =>
+        eraseThreadMemory(threadId, 0, 'detach-thread', countTokens)
+      );
       return {};
+    }
     case 'intentRecord': {
       // A retry after a failed purge finds the event already tombstoned: keep the blob hashes the first attempt recorded.
       db.prepare(
-        'INSERT INTO purge_intent (thread_id, seq, hashes) VALUES (?, ?, ?) ON CONFLICT(thread_id, seq) DO NOTHING'
-      ).run(m['threadId'], m['seq'], m['hashes']);
+        'INSERT INTO purge_intent (thread_id, seq, hashes, operation, memory_resources) VALUES (?, ?, ?, ?, ?) ON CONFLICT(thread_id, seq) DO NOTHING'
+      ).run(
+        m['threadId'],
+        m['seq'],
+        m['hashes'],
+        m['operation'] === 'thread' ? 'thread' : 'event',
+        JSON.stringify(
+          db
+            .prepare(
+              'SELECT DISTINCT resource_id FROM brainstrike_memory_entities WHERE thread_id=?'
+            )
+            .pluck()
+            .all(m['threadId'])
+        )
+      );
       const row = /** @type {{ hashes: string }} */ (
         db
           .prepare('SELECT hashes FROM purge_intent WHERE thread_id = ? AND seq = ?')
@@ -278,7 +414,9 @@ function handle(m) {
     case 'intentList':
       return {
         intents: db
-          .prepare('SELECT thread_id AS threadId, seq, hashes FROM purge_intent ORDER BY rowid')
+          .prepare(
+            'SELECT thread_id AS threadId, seq, hashes, operation FROM purge_intent ORDER BY rowid'
+          )
           .all(),
       };
     case 'intentDelete':
@@ -326,6 +464,14 @@ function handle(m) {
         'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'
       ).run(m['key'], m['value']);
       return {};
+    case 'getSetting':
+      return {
+        value: db.prepare('SELECT value FROM settings WHERE key = ?').pluck().get(m['key']) ?? null,
+      };
+    case 'deleteSetting':
+      return {
+        deleted: db.prepare('DELETE FROM settings WHERE key = ?').run(m['key']).changes > 0,
+      };
     case 'putBlob':
       putBlob(String(m['hash']), String(m['content']));
       return {};
@@ -340,10 +486,9 @@ function handle(m) {
 }
 
 port.on('message', (/** @type {{ op: string; id: number }} */ m) => {
-  try {
-    port.postMessage({ id: m.id, ...handle(m) });
-  } catch (e) {
-    port.postMessage({ id: m.id, ...errorReply(e) });
-  }
+  handle(m).then(
+    (result) => port.postMessage({ id: m.id, ...result }),
+    (cause) => port.postMessage({ id: m.id, ...errorReply(cause) })
+  );
 });
 port.postMessage({ damage, ready: true, settings });

@@ -7,7 +7,7 @@ export default defineConfig({
   resolve: {
     alias: [
       {
-        find: '@brainstrike/indexer',
+        find: /^@brainstrike\/indexer$/,
         replacement: fileURLToPath(new URL('./dist/index.js', import.meta.url)),
       },
       ...workspaceSrcAliases(resolve(import.meta.dirname, '..')),

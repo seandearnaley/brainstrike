@@ -30,6 +30,42 @@ export {
   CheckpointTurnRevertControl,
 } from './checkpoint-turn-revert';
 export {
+  type CommittedApprovalGrant,
+  committedApprovalGrant,
+  committedApprovalOptions,
+} from './committed-approval-options';
+export {
+  CommittedApprovalStrip,
+  type CommittedPendingApproval,
+} from './committed-approval-strip';
+export {
+  CommittedAssistantConversation,
+  type CommittedAssistantConversationProps,
+} from './committed-assistant-conversation';
+export {
+  CommittedAssistantLogProjection,
+  type CommittedAssistantLogProjectionOptions,
+  type CommittedAssistantLogRow,
+  type CommittedAssistantLogView,
+  type CommittedAssistantPendingInteraction,
+  type CommittedAssistantRunIdentity,
+} from './committed-assistant-log-projection';
+export {
+  type CommittedAssistantLogSource,
+  type CommittedAssistantLogSourceSnapshot,
+  CommittedAssistantLogStore,
+  type CommittedAssistantLogStoreOptions,
+} from './committed-assistant-log-store';
+export {
+  bindCommittedAssistantCommands,
+  type CommittedAssistantCommands,
+  type CommittedAssistantSnapshot,
+  type CommittedAssistantStore,
+  selectCommittedAssistantMessage,
+  selectCommittedAssistantPart,
+  selectCommittedAssistantTool,
+} from './committed-assistant-store';
+export {
   CompactionSummaryCard,
   type CompactionSummaryCardProps,
 } from './compaction-summary-card';
@@ -81,6 +117,7 @@ export {
 } from './follow-up-queue-store';
 export { LiveDecisionProvider } from './live-decision-context';
 export { type LiveDecisionTransport, useLiveDecisionTransport } from './live-decision-transport';
+export { LiveShellOutputs } from './live-shell-outputs';
 export { hasDesktopLlmHost } from './local-runtime-adapter';
 export {
   McpTaskBridgeProvider,
@@ -114,12 +151,15 @@ export type { SlashCommand } from './slash-commands';
 export {
   type DelegatedApprovalOwner,
   DelegatedApprovalOwnerContext,
+  type SubagentAnsweredApproval,
+  SubagentApprovalHistoryContext,
   SubagentConversationNavigationContext,
   type SubagentConversationPresentation,
   SubagentConversationPresentationContext,
   SubagentInvocationResolverContext,
   SubagentLiveInvocationContext,
 } from './subagent-conversation-navigation';
+export { personaLabelForToolName } from './subagent-persona-label';
 export {
   type ThreadMessageNavigation,
   ThreadMessageNavigationContext,
@@ -135,9 +175,15 @@ export {
   type ToolResultRendererProviderProps,
 } from './tool-result-renderer-context';
 export {
+  type CommittedAssistantRuntimeOptions,
+  useCommittedAssistantRuntime,
+  useCommittedAssistantSelector,
+} from './use-committed-assistant-runtime';
+export {
   type DelegatedConversationRuntimeOptions,
   useDelegatedConversationRuntime,
 } from './use-delegated-conversation-runtime';
+export { type LocalModelLoadingState, useLocalModelLoading } from './use-local-model-loading';
 export { useMcpTaskBridge } from './use-mcp-task-bridge';
 export {
   type ToolResultRenderer,
@@ -146,6 +192,7 @@ export {
   useToolResultRenderers,
 } from './use-tool-result-renderers';
 export { PrChip, type WorkspaceBarForge } from './workspace-bar/pr-chip';
+export { SharedFolderChip } from './workspace-bar/shared-folder-chip';
 export {
   WorkspaceBar,
   type WorkspaceBarBaseRefOption,

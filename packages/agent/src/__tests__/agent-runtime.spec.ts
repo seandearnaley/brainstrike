@@ -1457,8 +1457,10 @@ describe('agent-runtime edge cases', () => {
       const { Agent } = await import('@mastra/core/agent');
 
       const originalStream = Agent.prototype.stream;
+      const cleanupFailure = new Error('Disconnect failed');
+      const streamFailure = new Error('Stream creation failed');
       const unwatch = vi.fn(() => {
-        throw new Error('Disconnect failed');
+        throw cleanupFailure;
       });
       const authority = mcpHost.snapshot();
       const host = {
@@ -1473,7 +1475,7 @@ describe('agent-runtime edge cases', () => {
       };
 
       Agent.prototype.stream = async function stream() {
-        throw new Error('Stream creation failed');
+        throw streamFailure;
       };
 
       try {
@@ -1482,7 +1484,19 @@ describe('agent-runtime edge cases', () => {
             mcpHost: host,
             runtime: { apiKey: 'test-key', provider: 'openai' },
           })
-        ).rejects.toThrow('Stream creation failed');
+        ).rejects.toSatisfy((error: unknown) => {
+          expect(isMastraAgentError(error)).toBe(true);
+          if (!isMastraAgentError(error)) {
+            return false;
+          }
+          expect(error.code).toBe('mastra_agent_stream_failure');
+          expect(error.cause).toBeInstanceOf(AggregateError);
+          const cause = error.cause as AggregateError;
+          expect(cause.errors[0]).toBe(streamFailure);
+          expect(cause.errors[1]).toBe(cleanupFailure);
+          expect(cause.errors).toHaveLength(2);
+          return true;
+        });
         expect(unwatch).toHaveBeenCalledOnce();
       } finally {
         Agent.prototype.stream = originalStream;

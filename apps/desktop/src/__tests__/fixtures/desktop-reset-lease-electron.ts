@@ -24,6 +24,9 @@ process.env['NODE_ENV'] = 'test';
 process.env['BRAINSTRIKE_DB_ROOT_PATH'] = path.join(userData, 'data');
 process.env['BRAINSTRIKE_DB_PROFILE'] = 'default';
 app.setPath('userData', userData);
+const sessionDataPath = path.join(userData, 'session-data');
+mkdirSync(sessionDataPath, { recursive: true });
+app.setPath('sessionData', sessionDataPath);
 app.on('window-all-closed', () => undefined);
 const native = createDesktopHostLease({ entryPath, root: profile });
 const events: string[] = [];
@@ -108,7 +111,7 @@ app
         assert(guard?.isReleased === true, 'Renderer replacement preceded guard release');
         events.push('renderer');
       },
-      logger: { error: () => undefined },
+      logger: { error: () => undefined, info: () => undefined },
       prepareDatabaseProfileReset: async () => {
         guard = await prepareDatabaseProfileReset({
           retireProfileOwner: async () => {
@@ -153,16 +156,18 @@ app
         }
         await session.defaultSession.clearStorageData();
       },
+      runTransition: (work) => work(),
       runtimes: [],
       runWithDatabaseResetBarrier: async (work) => {
         events.push('barrier');
         await work();
       },
+      sessionDataPath,
       userDataPath: userData,
       waitForDatabaseWorkSchedulerIdle: async () => {
         events.push('idle');
       },
-    });
+    }).reset;
     const first = await run();
     const retained = guard?.isReleased === false;
     const result = mode === 'storage-failure' ? await run() : first;

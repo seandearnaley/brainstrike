@@ -52,6 +52,10 @@ Guard: `packages/sqlite-native/test/packaged-smoke.cjs`.
 - Test with `addLogListener`, never a console mock; a suite that silences output
   uses `configureLogger({ console: false })`, which builds a disabled Pino
   instance rather than falling back to stdout.
+- A failed Node transport emits `Log transport failed` through the same redacted
+  listener/buffer path. Pino's destroyed destination receives no later writes or
+  drain calls; records remain available to listeners without replacing the failed
+  output or recursively logging its error into the dead worker.
 
 There is one gate and one redaction pass, and `instanceof` is not the gate.
 See ADR-0015. Evidence: `platform-contracts/logging-error-serializer.md`.
@@ -205,6 +209,13 @@ Guard: `apps/desktop/src/__tests__/main/ipc-global-manifest.test.ts`,
 
 ## FACTORY RESET CONTRACT
 
+Factory Reset is explicitly unavailable on Windows for M3 (owner decision,
+11 October 2026). Preload exposes the refusal reason, Settings disables the
+action without clearing renderer state, and Main rejects `db:resetLocal`
+before invoking any destructive owner. macOS and web reset behavior is unchanged.
+Windows reset and quit-during-reset acceptance are excluded by this feature cut,
+not reported as passing; ordinary Windows startup and shutdown remain required.
+
 "Factory Reset Brainstrike" means a true fresh start: the renderer boots as if
 never used. Wiping the database alone is not enough.
 
@@ -220,7 +231,7 @@ never used. Wiping the database alone is not enough.
   enumeration fallback to explicit Brainstrike names.
 - Re-default a live in-memory store, do not merely purge its storage. Why: the
   web path may not reload, so a purged-but-live store keeps serving pre-reset
-  values. `resetHookTrustStoreToDefaults` and its siblings are the shape; call
+  values. `resetWorktreeSetupConsentStoreToDefaults` and its siblings are the shape; call
   them from `clearBrowserStorage()`.
 - Dependency-free app-shell session stores share ONE resetter list,
   `APP_SHELL_SESSION_STORE_RESETTERS`; production registers each member
@@ -232,8 +243,17 @@ never used. Wiping the database alone is not enough.
   auth, and MCP bearer resolution, and the transport caches no token material, so
   the existing `clearAll` is the complete reset authority. Token caching would
   change this contract and its tests together.
-- Desktop userData is wiped except for logs and the active reset lock namespace
-  plus its ancestor directories. Purge all other entries inside those ancestors;
+- Desktop userData is wiped except for logs, the active reset lock namespace,
+  and the dedicated Chromium `session-data` container. Sean approved Session-owned
+  clearing on 10 October 2026 after Windows proved that Chromium retains live
+  directory handles even after clearing browser data. Configure that container
+  before any session opens in ordinary launches and tests alike. After writer
+  preparation and browser-pane disposal, clear both the default and browser-pane
+  sessions through Electron `clearData()` without origin exclusions, clear HTTP
+  authentication and close connections. A rejected clear fails reset before
+  filesystem deletion; the container is retained only after its owner clears it.
+  Prove app/browser state stays absent after renderer replacement and full restart.
+  Preserve the reset lock's ancestor directories. Purge all other entries inside those ancestors;
   preserving an ancestor never preserves its unrelated data. The main-process storage keys, the
   bundled CPython unpack directory, and the shadow-git dirs need no per-key
   wiring. If one moves outside `userData`, or `logs` gains a preserved sibling,
@@ -253,14 +273,23 @@ never used. Wiping the database alone is not enough.
   its only consumer accepts a strictly later generation than a snapshot captured
   before its first failed read, so a stale counter is unreachable — while
   clearing it mid-session strands an in-flight waiter through its full timeout.
+- The reset panel first prepares renderer writers before clearing live stores.
+  Thread workspace preparation cancels pending hydration/debounce work and joins
+  admitted saves before Main retires the host. Preparation is terminal for that
+  renderer, including replacement coordinators mounted when the explorer clears
+  its content lifecycle. Failures retain their causes, skip deletion and force a reload.
 - Desktop reset order: quiesce background runtimes, clear UI state, purge DB
-  tables, reload the renderer. Do not skip the reload. MCP admission stays closed
+  tables, reload the renderer. Ordinary reset requires reload. MCP admission stays closed
   across all four steps, and main waits for the replacement tree's renderer-ready
   ping — `did-finish-load` alone is not completion — before reopening authority.
   A failed purge restores the captured pre-reset MCP authority, config
   projection, path grant and tool projection while admission is still closed; a
   renderer replacement that fails after a successful purge leaves admission
-  closed and the failure visible.
+  closed and the failure visible. Terminal quit instead joins accepted destructive
+  work under the same reset lease, cancels replacement readiness, and prevents a
+  replacement profile from opening. If replacement startup was already admitted,
+  the existing profile owner cancels and physically joins it. Only that exact
+  cancellation is expected; purge, replacement and cleanup failures stay visible.
 - Every reset runtime is attempted even when another fails. The original
   rejections stay ordered in one `AggregateError` and the message names every
   failed runtime; never replace those causes with a names-only error.

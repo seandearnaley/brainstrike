@@ -1,20 +1,23 @@
 import type { ExplicitHttpMcpClient } from '@brainstrike/agent/mcp-client';
 import type { McpHostCloseReport, McpHostConfig } from '@brainstrike/assistant-contract';
 import { parseConfiguredMcpServerId, parseMcpHostConfig } from '@brainstrike/assistant-contract';
-import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createDesktopMcpHostRuntime, getDesktopMcpHostRuntime } from '../../mcp/host-runtime';
-import { McpHostService } from '../../mcp/host-service';
+import type {
+  ResolvedMcpConfig,
+  ResolvedMcpServer,
+} from '@brainstrike/host-capabilities/mcp/config-file';
+import { McpHostService } from '@brainstrike/host-capabilities/mcp/host-service';
 import {
   createInMemoryMcpOAuthStore,
   createMcpOAuthClientProvider,
   createMcpOAuthStoreIdentity,
   type McpOAuthClientProvider,
   type McpOAuthStore,
-} from '../../mcp/oauth-client-provider';
+} from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
+import type { McpServerActorClientFactory } from '@brainstrike/host-capabilities/mcp/server-actor';
+import { addLogListener, LogLevel, type LogRecord } from '@brainstrike/logging';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
 import { openExternalWithElectron } from '../../mcp/open-external';
-import type { McpServerActorClientFactory } from '../../mcp/server-actor';
-import type { ResolvedMcpConfig, ResolvedMcpServer } from '../../mcp-loader';
 
 const REF = '00000000-0000-4000-8000-000000000001';
 const UNKNOWN = '00000000-0000-4000-8000-000000000099';
@@ -978,6 +981,5 @@ describe('DesktopMcpHostRuntime', () => {
     listing.resolve({ tools: [] });
     await expect(invocation).rejects.toMatchObject({ category: 'generation-retired' });
     await expect(closing).resolves.toMatchObject({ requestsSettled: 0 });
-    expect(getDesktopMcpHostRuntime()).toBe(getDesktopMcpHostRuntime());
   });
 });

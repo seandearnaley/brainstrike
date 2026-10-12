@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -12,7 +13,7 @@ import { assignWindowRole, clearWindowRoleByWebContentsId } from '../../window-r
 type MockInvokeHandler = (event: unknown, ...args: unknown[]) => unknown;
 type MockEventHandler = (event: unknown, payload: unknown) => void;
 
-const BUILT_RENDERER_PATH = '/opt/brainstrike/dist/renderer/index.html';
+const BUILT_RENDERER_PATH = resolve('/opt/brainstrike/dist/renderer/index.html');
 const BUILT_RENDERER_URL = pathToFileURL(BUILT_RENDERER_PATH).href;
 const RENDERER_TARGET = createDesktopRendererTarget({
   builtRendererPath: BUILT_RENDERER_PATH,

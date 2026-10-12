@@ -2,6 +2,8 @@
   "name": "@brainstrike/test-utils",
   "version": "0.1.0",
   "devDependencies": {
+    "@mastra/core": "1.71.0",
+    "@mastra/memory": "1.32.1",
     "@playwright/test": "catalog:",
     "@stryker-mutator/api": "catalog:",
     "@stryker-mutator/core": "catalog:",
@@ -14,7 +16,7 @@
     "@types/react": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "jsdom": "catalog:",
-    "react": "^19.2.7",
+    "react": "^19.3.0",
     "typescript": "catalog:",
     "vitest": "catalog:"
   },
@@ -31,6 +33,18 @@
     "./vitest-provided-context": "./src/vitest-provided-context.ts",
     "./async-util-timeout-proof": "./src/async-util-timeout-proof.ts",
     "./test-timeouts": "./src/test-timeouts.ts",
+    "./fixtures/committed-approved-host-run.json": "./fixtures/committed-approved-host-run.json",
+    "./fixtures/committed-approved-host-run-telemetry.json": "./fixtures/committed-approved-host-run-telemetry.json",
+    "./fixtures/committed-host-granted-run.json": "./fixtures/committed-host-granted-run.json",
+    "./fixtures/committed-host-hook-blocked.json": "./fixtures/committed-host-hook-blocked.json",
+    "./fixtures/committed-host-hooks-skipped.json": "./fixtures/committed-host-hooks-skipped.json",
+    "./fixtures/committed-host-mcp-unavailable.json": "./fixtures/committed-host-mcp-unavailable.json",
+    "./fixtures/committed-host-plan.json": "./fixtures/committed-host-plan.json",
+    "./fixtures/committed-host-question.json": "./fixtures/committed-host-question.json",
+    "./fixtures/committed-host-rewinds.json": "./fixtures/committed-host-rewinds.json",
+    "./fixtures/committed-host-run-attempts.json": "./fixtures/committed-host-run-attempts.json",
+    "./fixtures/committed-rich-host-runs.json": "./fixtures/committed-rich-host-runs.json",
+    "./fixtures/observation-memory": "./fixtures/observation-memory.mjs",
     "./vitest.base": {
       "types": "./dist/vitest.base.d.ts",
       "default": "./vitest.base.mjs"
@@ -51,7 +65,9 @@
     }
   },
   "files": [
-    "dist/**"
+    "dist/**",
+    "fixtures/*.json",
+    "fixtures/observation-memory.mjs"
   ],
   "license": "MIT",
   "main": "./dist/index.js",

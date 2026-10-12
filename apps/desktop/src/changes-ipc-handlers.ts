@@ -34,6 +34,7 @@ import {
   type ChangesetDiffService,
   createChangesetDiffService,
 } from './assistant-server/changeset-diff-service';
+import type { HostThreadTurns } from './assistant-server/changeset-host-turns';
 import type { CheckpointRevertDeps } from './assistant-server/checkpoint-reindex-deps';
 import { createCheckpointReindexDeps } from './assistant-server/checkpoint-reindex-deps';
 import type { EditCheckpointDatabase } from './assistant-server/edit-checkpoint-journal';
@@ -602,6 +603,11 @@ export interface ChangesIpcHandlersOptions {
    * factory.
    */
   readonly createSnapshotRepository?: (db: EditCheckpointDatabase) => SnapshotRepository;
+  /**
+   * Host threads' turns, read from the agent host's committed log (BST-1977),
+   * so a host thread's `agent-run` changeset resolves like a legacy turn.
+   */
+  readonly hostThreadTurns?: HostThreadTurns;
   /** Injectable for tests; defaults to a `getDatabase`-backed resolver. */
   readonly resolveDatabase?: () => Promise<EditCheckpointDatabase>;
   /**
@@ -697,6 +703,7 @@ export function createChangesIpcHandlers(
         ? {
             snapshots: {
               createRepository: options.createSnapshotRepository,
+              hostThreads: options.hostThreadTurns,
               resolveService: options.resolveSnapshotService,
             },
           }

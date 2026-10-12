@@ -22,7 +22,6 @@ import { mockDesktopDatabase } from './_assistant-server-mocks';
 
 const mocks = vi.hoisted(() => () => import('./_assistant-server-mocks'));
 vi.mock('../../assistant-server/http', async () => (await mocks()).makeAssistantServerHttpMock());
-vi.mock('../../mcp-loader', async () => (await mocks()).makeMcpLoaderMock());
 vi.mock('../../agent-client-loader', async () => (await mocks()).makeAgentClientLoaderMock());
 vi.mock('../../secrets', async () => (await mocks()).makeSecretsMock());
 vi.mock('@brainstrike/agent/hosted-web', async () => (await mocks()).makeHostedWebAgentMock());
@@ -33,8 +32,9 @@ vi.mock('@brainstrike/agent/pglite-mastra-memory', async () =>
 vi.mock('../../assistant-server/assistant-tools', async () =>
   (await mocks()).makeAssistantToolsMock()
 );
-vi.mock('../../assistant-server/workspace-text-file-reader', async () =>
-  (await mocks()).makeWorkspaceTextFileReaderMock()
+vi.mock(
+  '../../../../../packages/host-capabilities/src/native-tools/workspace-text-file-reader',
+  async () => (await mocks()).makeWorkspaceTextFileReaderMock()
 );
 vi.mock('../../db-main', async () => (await mocks()).makeDbMainMock());
 

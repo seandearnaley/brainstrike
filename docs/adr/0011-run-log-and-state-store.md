@@ -57,6 +57,88 @@ the final spike code, neither lost a displayed chunk.
 - ADR-0002 records the durable PGlite `job_queue`. It needs a status review when M2
   deletes the scheduling layer; this ADR does not change it.
 
+## Amendment (2026-10-09): live telemetry
+
+Live telemetry is the one carve-out from "every view is a fold
+of the log". For a running tool, that means `executeCommand`'s shell-output slices
+(`SHELL_OUTPUT_STREAM_PART_TYPE`) and MCP progress
+(`MCP_PROGRESS_STREAM_PART_TYPE`). The host's tool write seam classifies these
+two types with `isToolTelemetryStreamPart` and sends them to the thread's log
+subscribers as the uncommitted `run/telemetry` notification (protocol v11,
+additive). Every other tool-writer chunk still commits as `stream.chunk`.
+Committing telemetry made each slice wait on a disk commit and grew every
+hydration: a 25 ms progress server for ten minutes is about 24k rows. Legacy
+kept these slices transient. The tool result, which commits, owns the output,
+so a reload shows the result and no slices.
+
+The model's text and reasoning stream is the same kind of telemetry. The run
+loop sends `text-start/delta/end` and `reasoning-start/delta/end` to
+subscribers as `run/telemetry` with no `toolCallId`. It keeps committing
+`start-step`, `finish-step` and `tool-*`, because notices, billing, ledger
+counts and projection step keys read them. A step's `model.step` messages are
+the one durable owner of its text, and no reader folds text from deltas. A
+view shows a live overlay for the open step and replaces it with the step's
+committed parts when that step commits; the overlay is never dropped on the
+next `start-step`. Legacy's abort finalization is kept: a user's Stop, or a
+terminal watchdog abort, commits the open step's observed partial reply as
+`model.messages` through Core. A stall replaced by a new attempt keeps nothing,
+as in legacy. A SIGKILL mid-step loses the partial reply in both legacy and
+host. Measured with UI-panels' open harness at 1,000 threads x 5 runs, each
+reply 300 deltas long (2026-10-09, macOS arm64):
+
+- `state.db` fell from 642 MB to 35 MB. With content-addressed blobs (98 MB
+  both times), the profile fell from 739 MB to 133 MB. Legacy's database was
+  44 MB.
+- Warm host open (`startAgentHost`) did not improve: 1,519–1,694 ms over five
+  opens, against 1,429–1,530 ms before the change and legacy's 80–570 ms.
+  Row count was not what made open slow, so the open-time gap stays open, and
+  no lazy decoding was added in its name.
+
+A view that subscribes mid-call or mid-step, such as a running child's tab,
+gets replayed what it missed, as legacy's resumable session did. Core keeps
+this replay in memory and never commits it.
+
+- **What is kept.** Each running tool call's telemetry is kept from its first
+  chunk until its `effect.finished` commits. The open step's text and
+  reasoning are kept from its committed `start-step` until its `model.step`,
+  or a Stop's partial `model.messages`, commits. `run.finished` drops all of
+  the run's streams.
+- **Ordinals.** Every stream numbers its chunks with an `ordinal` from 0. A
+  call's stream is keyed by run and `toolCallId`; a run's text and reasoning
+  share one stream keyed by run.
+- **Delivery.** The `log/subscribe` result carries the thread's replay as
+  `telemetry`, taken after the read in the tick the result is sent. A view
+  applies it after the replayed rows, then applies the live chunks it held
+  meanwhile. It skips any ordinal it has already applied, so views that share
+  a connection see each chunk once.
+- **The bound.** Each stream is held to 512 KiB of chunk JSON
+  (`HOST_TELEMETRY_REPLAY_BYTES`). Past that, the oldest chunks drop, and the
+  replay opens with a `brainstrike.telemetry.omitted` marker giving the
+  omitted bytes and the ordinal where the kept output resumes. A command's live
+  pane shows "Earlier output not shown (N KB)". A reply's live overlay shows
+  "Earlier reply text not shown (N KB)" until the step commits. Output is never
+  dropped silently.
+
+## Amendment (2026-10-09): run configuration by reference
+
+A committed `run.started` keeps its run snapshot (the run configuration: the
+composed system prompt, the child system, the captured intent and the tool
+identities) as one content-addressed blob, named in the row's `blobRefs` and
+`snapshotRef`. Every run of the same configuration shares that blob through
+the store's existing reference counting, and a missing or damaged blob damages
+the thread like any spooled row. Reading the row resolves the reference to the
+exact snapshot the run committed, so replay, rewind, turn snapshots, debug
+packs and the wire see the inline snapshot as before. The desktop's snapshot is
+about 20 KB, and 17 KB of that is the system prompt repeated on every run. At
+1,000 threads x 5 runs, the hydration read was 128 MB, of which 102 MB was
+4,996 spooled `run.started` rows, each read, hashed and parsed at open.
+
+A stored row's JSON values are not walked again. The event schemas are built
+once over a JSON value schema: producers and the wire use `z.json()`, and the
+stored-row reader accepts the values JSON.parse produced, which `z.json()` can
+never reject. Every structural field of a stored row is still validated at
+open, and rows stay crc-verified by the store.
+
 ## Sources
 
 - `docs/agents/assistant-persistence.md:173` (line number at `43daec7fb`): readers

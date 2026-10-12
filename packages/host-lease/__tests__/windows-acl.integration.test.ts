@@ -4,6 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, expect, test } from 'vitest';
+import { publishHostRecord, readHostRecord, removeOwnHostRecord } from '../src/record-file.js';
+import { startHost } from '../src/runtime.js';
 import { type AclKind, windowsPrivateAcl } from '../src/windows-acl.js';
 
 const execute = promisify(execFile);
@@ -87,6 +89,38 @@ async function freshPath(kind: AclKind): Promise<string> {
 afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { force: true, recursive: true })));
 });
+
+windowsTest(
+  'native host metadata preserves privacy and refuses a broadened live file ACL',
+  async () => {
+    const root = await mkdtemp(join(tmpdir(), 'bs-acl-record-'));
+    roots.push(root);
+    const host = await startHost({ lifetime: 'persistent', root });
+    const record = host.record;
+    await host.close();
+    await publishHostRecord(root, record);
+    expect(await readHostRecord(root)).toEqual(record);
+    const path = join(root, 'host.json');
+    const actual = await inspect(path, 'file');
+    expect(actual['protected']).toBe(true);
+    expect(actual['rules']).toEqual([
+      {
+        inheritance: 0,
+        isInherited: false,
+        propagation: 0,
+        rights: 2_032_127,
+        sid: actual['currentSid'],
+        type: 'Allow',
+      },
+    ]);
+    await inspect(path, 'file', 'extra-principal');
+    await expect(readHostRecord(root)).rejects.toThrow();
+    await expect(removeOwnHostRecord(root, record)).rejects.toThrow();
+    await windowsPrivateAcl(path, 'file', 'set');
+    await removeOwnHostRecord(root, record);
+    expect(await readHostRecord(root)).toBeNull();
+  }
+);
 
 for (const kind of ['directory', 'file'] as const) {
   // BST-1941: repeating Set-Acl on a protected DACL requested SeSecurityPrivilege.

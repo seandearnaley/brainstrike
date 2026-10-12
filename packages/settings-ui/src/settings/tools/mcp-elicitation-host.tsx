@@ -1,19 +1,20 @@
 /**
  * App-wide host for MCP elicitation consent (BST-1584).
  *
- * Subscribes to the desktop `window.mcp` elicitation bridge by capability
- * (the three bridge members must all exist; web has no preload and renders
- * nothing — there is no `isElectron()` check), queues presentations pushed by
- * desktop main (the presenter allows up to 32 pending), and shows exactly one
- * `McpElicitationDialog` at a time, oldest first. Settlement goes back through
- * `settleElicitation`; `onElicitationRetired` marks the visible request dead
- * (or silently drops a queued one that was never shown) so a dialog can never
- * wait on a request main has already finalized.
+ * Subscribes to the elicitation capability its host provides (the desktop's
+ * agent host, BST-1930 c5c; web provides none and renders nothing — there is
+ * no `isElectron()` check), queues the presentations it pushes (the presenter
+ * allows up to 32 pending), and shows exactly one `McpElicitationDialog` at a
+ * time, oldest first. Settlement goes back through `settleElicitation`;
+ * `onElicitationRetired` marks the visible request dead (or silently drops a
+ * queued one that was never shown) so a dialog can never wait on a request the
+ * host has already finalized.
  */
 import type { McpElicitationPresentationWire } from '@brainstrike/assistant-contract';
-import { useEffect, useReducer, useRef, useState } from 'react';
-import { resolveMcpElicitationBridge, resolveMcpTaskInputBridge } from './mcp-elicitation-bridge';
+import { useEffect, useReducer, useRef } from 'react';
 import { McpElicitationDialog } from './mcp-elicitation-dialog';
+import { mcpTaskInputCanceller } from './mcp-task-input-canceller';
+import { useMcpElicitationCapability } from './use-mcp-elicitation-capability';
 
 interface HostState {
   readonly queue: readonly McpElicitationPresentationWire[];
@@ -60,8 +61,7 @@ function hostReducer(state: HostState, action: HostAction): HostState {
 }
 
 export function McpElicitationHost() {
-  const [bridge] = useState(() => resolveMcpElicitationBridge());
-  const [taskBridge] = useState(() => resolveMcpTaskInputBridge());
+  const { elicitation: bridge, tasks: taskBridge } = useMcpElicitationCapability();
   const [state, dispatch] = useReducer(hostReducer, EMPTY_STATE);
   const settledIds = useRef(new Set<string>());
 
@@ -88,23 +88,7 @@ export function McpElicitationHost() {
   return (
     <McpElicitationDialog
       key={current.id}
-      onCancelTask={
-        current.provenance.taskHandle && taskBridge
-          ? async () => {
-              const handle = current.provenance.taskHandle;
-              if (!handle) {
-                throw new Error('MCP task cancellation has no host-bound handle.');
-              }
-              const outcome = await taskBridge.act({ action: 'cancel', handle });
-              if (!outcome.ok) {
-                throw new Error(outcome.diagnostic.message);
-              }
-              if (outcome.task.status !== 'cancelled') {
-                throw new Error('MCP task cancellation did not observe a cancelled task.');
-              }
-            }
-          : undefined
-      }
+      onCancelTask={mcpTaskInputCanceller(current, taskBridge)}
       onDismissRetired={() => dispatch({ id: current.id, type: 'remove' })}
       onSettle={async (settlement) => {
         // Mark before awaiting: main pushes the `already-settled` retirement

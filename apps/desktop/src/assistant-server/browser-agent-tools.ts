@@ -17,15 +17,17 @@ import type {
   BrowserNavigateInput,
   BrowserReadPageInput,
 } from '@brainstrike/agent';
+import { refuseExtractUrl } from '@brainstrike/host-capabilities/extract-url-refusal';
 import { createLogger } from '@brainstrike/logging';
 import type { AccessibilitySnapshot } from '../browser/accessibility-snapshot';
 import type { BrowserDriver } from '../browser/browser-driver';
+import { getActiveBrowserPaneHost } from '../browser/browser-pane-registry';
 import {
   type BrowserTabState,
   isNavigableUrl,
   normalizeUrl,
 } from '../browser/browser-view-manager';
-import { refuseExtractUrl } from './web-extract-tool';
+import type { BrowserToolRunner } from './native-tool-executors-browser';
 
 const logger = createLogger('BrowserAgentTools');
 
@@ -258,3 +260,15 @@ function driverFailure(error: unknown): BrowserToolFailure {
     ok: false,
   };
 }
+
+/**
+ * Main's runner: the active pane host is resolved PER CALL from the registry,
+ * so a window opened after the stream started still serves, and a closed
+ * window returns the structured browser_unavailable failure instead of a
+ * stale handle.
+ */
+export const mainBrowserToolRunner: BrowserToolRunner = {
+  getPageText: (input) => runBrowserGetPageText(input, getActiveBrowserPaneHost()),
+  navigate: (input) => runBrowserNavigate(input, getActiveBrowserPaneHost()),
+  readPage: (input) => runBrowserReadPage(input, getActiveBrowserPaneHost()),
+};

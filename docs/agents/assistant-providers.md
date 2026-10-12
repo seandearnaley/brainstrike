@@ -32,6 +32,16 @@ model as the next thread's default plus a capped `recentModels` list
 (`packages/app-state/src/stores/assistant-preferences-store.ts`); the thread
 store persists each thread's own model and provider settings.
 
+Desktop Root admission captures provider auth per existing admitted thread and
+uses the concrete resolved SDK model's public schema compatibility layer once.
+The prepared registry retains authored validation, executor identities and MCP
+`strict:false` for SDK declarations, approval and restart. Main retains custom
+authenticated fetch closures; its private port carries capability metadata and
+demand-read response bytes, never the subscription bearer. Selection retirement
+fences new auth/fetch calls and joins original auth lookups and response bodies
+before releasing borrowed capabilities. Failed physical joins remain observable
+through enclosing close and prevent Root release.
+
 **Local runtimes.**
 
 - Route Ollama and LM Studio chat through Mastra's first-class
@@ -300,10 +310,19 @@ store persists each thread's own model and provider settings.
   reaching an `@ai-sdk` module drags a Node HTTP stack into the renderer bundle
   (R2 in `docs/agents/mastra-boundary.md`).
 
+**Desktop provider reads are host methods.** The agent host answers
+`host/status`, `providers/verify` and `providers/openrouter-model` over the
+window's desktop-ui port, reading its own environment and credential store
+(`packages/host-capabilities/src/provider-services.ts`). Keys never cross the
+protocol. A subscription probe needs the desktop origin and asks the host's one
+refresher (`auth/verify`). Env-file rejections reach the host as a launch
+option. Main's HTTP routes for the same reads remain only until its server is
+deleted; the desktop renderer never calls them.
+
 **OpenRouter model metadata.**
 
-- Desktop exposes `GET /assistant/openrouter-model?model=<provider/model>`: it
-  resolves the stored key in main, validates exact model identity, positive
+- The metadata service (`packages/host-capabilities/src/openrouter-model-metadata.ts`)
+  resolves the stored key, validates exact model identity, positive
   context/output limits, bounded supported parameters and the full reasoning
   object, and keeps a bounded five-minute cache. A refresh failure may return a
   prior snapshot only as explicit `stale-cache` data with a warning; a first
@@ -606,9 +625,10 @@ Guard: `packages/agent/src/__tests__/{provider-factory.auth-input,runtime-config
   digest), 10s fetch-and-body timeout even if abort is ignored, NO retries.
   Only `verified`/`verified_limited` earn the 60s success TTL; failures get
   a 3s click-storm cache. Sample the timestamp AFTER the probe resolves.
-- Exposed as `GET /assistant/verify-provider?provider=<id>` behind the same
-  origin/auth gates as the metadata endpoint. The renderer sends only the
-  provider id; credentials resolve main-side through the typed reader.
+- Desktop asks the host (`providers/verify`). The HTTP client
+  `GET /assistant/verify-provider?provider=<id>` serves a shell with no host
+  capability. Either way the client sends only the provider id and the
+  credential resolves where the keys live.
 - The renderer seam `verifyProviderCredential`
   (`packages/app-shell/src/verify-provider-credential.ts`) is a plain async
   FUNCTION, not a hook: settings-ui owns the probe UI but cannot import
@@ -1485,6 +1505,10 @@ and may therefore observe revision holes. Empty configured-server-id filters are
 rather than registered as silent no-op subscriptions; non-empty filters may name
 a future configured server.
 Actor transitions must exactly match the config-owned generation, protocol policy, and transport.
+Routing fences an actor before physical retirement; its closing/disconnected
+transitions still publish against the existing publisher-owned generation until
+the joined replacement removes it. An actor that was never published or has
+already joined cannot publish through the routing map's absence.
 Lower and higher generations, policy mutation, and transitions from a removed
 server throw typed attributable errors.
 Terminal host close invalidates queued and future watch registrations because the
@@ -1730,6 +1754,28 @@ Guard: `apps/desktop/src/__tests__/assistant-server/native-assistant-retrieval.t
 
 Tool output budget contract:
 
+- M3 production admission borrows one MCP runtime client for its selected server
+  generations. Closing the admission first joins its tool executions and then
+  releases that client's watches; only the Root closes the shared authority.
+  Failed release remains a rejected join, including repeated close. The existing
+  model result budget and resilience timeout are captured before discovery; a
+  concurrent run or Settings change cannot replace that selection.
+- Host tool bindings retain the existing canonical catalog ID for Settings
+  permission overrides before provider-name sanitization. The same permission
+  engine checks that ID, including an explicit deny ahead of session grants.
+- M3 restart reconstruction compares the configured-server owner's versioned
+  non-secret authority capture in the existing committed run snapshot before
+  admitting an MCP binding. Changed destination, command or credential record
+  identity refuses with zero effects; missing legacy capture refuses explicitly.
+  Private args/env/headers/URL credentials and unproved OAuth/bearer principals
+  remain visible restart gaps. A credential reference alone cannot establish
+  unchanged principal after its secret value changes. No private value or hash
+  enters the capture. ADR-0017 records Sean's approved representation.
+  Unresolved stdio commands cannot prove which inherited-PATH executable was
+  admitted. HTTP routes other than `/`, `/mcp` and `/sse` can carry private path
+  capabilities. Both remain supported live, but capture an explicit unavailable
+  reason and refuse durable restart reconstruction with zero replacement effects.
+
 - Budgets are token-denominated at 4 chars/token. The two default budgets resolve
   once per Mastra run from the active model context window; explicit per-tool
   overrides remain fixed and authoritative.
@@ -1912,10 +1958,11 @@ Purpose-built projections:
   in paths are escaped, so a hostile filename can never create a new projection
   line nor mimic an indented match row. A filename that merely resembles a header
   is an accepted residual — do not reintroduce per-row quoting to chase it.
-- Stored text projections replay byte-for-byte on a later same-run step rather
-  than being reparsed as raw results. Legacy stored JSON projections are unwrapped
-  and re-rendered; legacy raw results without topology fields degrade to an
-  unprefixed header without losing content.
+- Current stored text projections replay byte-for-byte on a later same-run step
+  rather than being reparsed as raw results. Legacy JSON re-rendering and missing-
+  topology degradation are existing compatibility code under
+  [ADR-0020](../adr/0020-greenfield-data-lifecycle.md), not old-data support obligations.
+  This does not change external MCP protocol compatibility or transport selection.
 - An authoritatively resolved zero-root Desktop workspace is a SUCCESSFUL compact
   result with `workspaceRoots: []` and an explicit `roots=0` line; an absent or
   malformed root-resolution result still fails visibly.

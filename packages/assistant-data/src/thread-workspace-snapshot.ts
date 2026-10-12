@@ -1,3 +1,19 @@
+import type {
+  WorkspaceSnapshotEditor,
+  WorkspaceSnapshotFileTab,
+  WorkspaceSnapshotPane,
+  WorkspaceSnapshotSelection,
+  WorkspaceSnapshotV1,
+} from '@brainstrike/assistant-contract/thread-workspace-snapshot';
+
+export type {
+  WorkspaceSnapshotEditor,
+  WorkspaceSnapshotFileTab,
+  WorkspaceSnapshotPane,
+  WorkspaceSnapshotSelection,
+  WorkspaceSnapshotV1,
+} from '@brainstrike/assistant-contract/thread-workspace-snapshot';
+
 import { createLogger } from '@brainstrike/logging';
 
 /**
@@ -15,51 +31,6 @@ import { createLogger } from '@brainstrike/logging';
  */
 
 const logger = createLogger('ThreadWorkspaceSnapshot');
-
-export type WorkspaceSnapshotSelection =
-  | { kind: 'app'; appId: string }
-  | { kind: 'file'; tabId: string }
-  | { kind: 'empty' };
-
-export interface WorkspaceSnapshotFileTab {
-  readonly compositeKey: string;
-  readonly path: string;
-}
-
-export interface WorkspaceSnapshotPane {
-  readonly expandedPaths?: readonly string[];
-  readonly open: boolean;
-  readonly widthPct?: number;
-}
-
-export interface WorkspaceSnapshotEditor {
-  readonly mode?: 'preview' | 'source';
-  readonly pane?: WorkspaceSnapshotPane;
-  readonly scrollTop?: number;
-}
-
-export interface WorkspaceSnapshotV1 {
-  readonly apps: {
-    readonly openAppIds: readonly string[];
-    readonly selection: WorkspaceSnapshotSelection;
-  };
-  readonly editors: Readonly<Record<string, WorkspaceSnapshotEditor>>;
-  readonly explorer: {
-    /** One scroll container spans the forest (existing workspace contract). */
-    readonly scrollTop?: number;
-    readonly byRoot: Readonly<Record<string, { readonly expandedPaths: readonly string[] }>>;
-  };
-  readonly fileTabs: {
-    readonly activeTabId: string | null;
-    readonly tabs: readonly WorkspaceSnapshotFileTab[];
-  };
-  readonly roots: {
-    readonly focusedRootId: string | null;
-    /** `null` = all roots visible. Views only — never the connected root SET. */
-    readonly visibleRootIds: readonly string[] | null;
-  };
-  readonly version: 1;
-}
 
 /** Shallowest-first cap applied to persisted per-root expansions. */
 export const MAX_SNAPSHOT_EXPANSIONS_PER_ROOT = 100;

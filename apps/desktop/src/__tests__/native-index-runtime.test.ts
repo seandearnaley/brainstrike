@@ -2,6 +2,7 @@
 import { IndexerError, type IndexerPort, type ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthority } from '@brainstrike/indexer/coverage-reader';
 import { expect, it, vi } from 'vitest';
+import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { isolateNativeCoverage } from '../native-coverage-reader';
 import {
   createNativeIndexRuntime,
@@ -58,6 +59,11 @@ function fixture() {
   const closeProfile = vi.fn(async () => {
     events.push('profile-close');
   });
+  const profileAttachment = { closed: Promise.withResolvers<void>().promise };
+  const acquireProfile = vi.fn(async () => {
+    events.push('profile-acquire');
+    return profileAttachment;
+  });
   const createIndexOwner = vi.fn(async () => ({
     close: closeWriter,
     databasePath: '/owned/index.sqlite',
@@ -74,17 +80,16 @@ function fixture() {
   const runtime = createNativeIndexRuntime({
     closeQueries,
     createIndexOwner,
-    createProfileOwner: () => ({
-      acquire: async () => {
-        events.push('profile-acquire');
-      },
-      close: closeProfile,
-    }),
     getAuthority,
     getFileInvalidator: () => () => {},
     installQueryTarget,
+    profile: createDesktopProfileRuntime(() => ({
+      acquire: acquireProfile,
+      close: closeProfile,
+    })),
   });
   return {
+    acquireProfile,
     closeProfile,
     closeQueries,
     closeWriter,
@@ -93,6 +98,7 @@ function fixture() {
     getAuthority,
     installQueryTarget,
     port,
+    profileAttachment,
     queryTargetInstalled: () => queryTargetInstalled,
     resetBindings: () => {
       authority = { ...authority, fileBindings: [] };
@@ -115,6 +121,106 @@ function fixture() {
     },
   };
 }
+
+it('shares the existing profile attachment between clients and index acquisition', async () => {
+  const f = fixture();
+  const [first, index, second] = await Promise.all([
+    f.runtime.acquireProfile(),
+    f.runtime.acquire(),
+    f.runtime.acquireProfile(),
+  ]);
+  expect(first).toBe(f.profileAttachment);
+  expect(second).toBe(first);
+  expect(index).toBe(f.port);
+  expect(f.acquireProfile).toHaveBeenCalledOnce();
+  await f.runtime.closeIndex();
+  expect(f.closeProfile).not.toHaveBeenCalled();
+  await expect(f.runtime.acquireProfile()).rejects.toThrow('admission is closed');
+  await f.runtime.retireProfile();
+  expect(f.closeProfile).toHaveBeenCalledOnce();
+});
+
+it('closes and joins a profile whose startup still awaits Main capability binding', async () => {
+  const f = fixture();
+  const pending = Promise.withResolvers<typeof f.profileAttachment>();
+  const exited = Promise.withResolvers<void>();
+  f.acquireProfile.mockImplementationOnce(() => pending.promise);
+  f.closeProfile.mockImplementationOnce(async () => {
+    pending.reject(new Error('Main bootstrap aborted'));
+    await exited.promise;
+  });
+  const starting = f.runtime.acquireProfile();
+  const outcome = starting.catch((error: unknown) => error);
+  await vi.waitFor(() => expect(f.acquireProfile).toHaveBeenCalledOnce());
+  let retired = false;
+  const closing = f.runtime.retireProfile().then(() => {
+    retired = true;
+  });
+  try {
+    await vi.waitFor(() => expect(f.closeProfile).toHaveBeenCalledOnce());
+    expect(retired).toBe(false);
+  } finally {
+    pending.reject(new Error('Main bootstrap aborted'));
+    exited.resolve();
+    await closing;
+  }
+  expect(await outcome).toEqual(new Error('Main bootstrap aborted'));
+  expect(retired).toBe(true);
+});
+
+it('reuses the app profile attachment after physical index reconfiguration', async () => {
+  const f = fixture();
+  const original = await f.runtime.acquireProfile({ indexIndependent: true });
+  await f.runtime.acquire();
+  await f.runtime.closeIndex();
+  await f.runtime.resume();
+  expect(await f.runtime.acquireProfile({ indexIndependent: true })).toBe(original);
+  await f.runtime.acquire();
+  expect(f.acquireProfile).toHaveBeenCalledOnce();
+  expect(f.closeProfile).not.toHaveBeenCalled();
+  expect(f.closeWriter).toHaveBeenCalledOnce();
+  expect(f.createIndexOwner).toHaveBeenCalledTimes(2);
+  await f.runtime.retireProfile();
+  expect(f.closeProfile).toHaveBeenCalledOnce();
+});
+
+it('admits an assistant profile while setup keeps index and read admission closed', async () => {
+  const f = fixture();
+  await f.runtime.closeIndex();
+  const attachment = await f.runtime.acquireProfile({ indexIndependent: true });
+  expect(attachment).toBe(f.profileAttachment);
+  expect(f.acquireProfile).toHaveBeenCalledOnce();
+  expect(f.createIndexOwner).not.toHaveBeenCalled();
+  await expect(f.runtime.acquire()).rejects.toThrow('admission is closed');
+  await f.runtime.retireProfile();
+  expect(f.closeProfile).toHaveBeenCalledOnce();
+});
+
+it('keeps failed physical profile retirement visible to assistant admission', async () => {
+  const f = fixture();
+  await f.runtime.acquireProfile({ indexIndependent: true });
+  const failure = new Error('owned profile has not physically retired');
+  f.closeProfile.mockRejectedValueOnce(failure);
+  await expect(f.runtime.retireProfile()).rejects.toBe(failure);
+  await expect(f.runtime.acquireProfile({ indexIndependent: true })).rejects.toBe(failure);
+  expect(f.acquireProfile).toHaveBeenCalledOnce();
+});
+
+it('joins a late profile attachment during retirement without returning it to a client', async () => {
+  const f = fixture();
+  const pending = Promise.withResolvers<typeof f.profileAttachment>();
+  f.acquireProfile.mockReturnValueOnce(pending.promise);
+  const acquiring = f.runtime.acquireProfile();
+  const observed = acquiring.catch((cause: unknown) => cause);
+  const retiring = f.runtime.retireProfile();
+  expect(f.closeProfile).not.toHaveBeenCalled();
+  pending.resolve(f.profileAttachment);
+  expect(await observed).toMatchObject({
+    message: 'Native profile ownership closed during startup.',
+  });
+  await retiring;
+  expect(f.closeProfile).toHaveBeenCalledOnce();
+});
 
 it('retains profile ownership until readers and writer have both exited', async () => {
   const f = fixture();

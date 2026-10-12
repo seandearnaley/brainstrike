@@ -86,6 +86,26 @@ describe('database IPC domain', () => {
     unregisterDatabaseHandlers = null;
   });
 
+  it('refuses Windows factory reset before invoking the destructive owner', async () => {
+    const descriptor = Object.getOwnPropertyDescriptor(process, 'platform');
+    if (!descriptor) {
+      throw new Error('Missing process platform descriptor');
+    }
+    const onResetLocal = vi.fn(async () => ({ success: true }));
+    unregisterDatabaseHandlers?.();
+    unregisterDatabaseHandlers = registerDatabaseIpcHandlers({ onResetLocal });
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+      await expect(handlers.get('db:resetLocal')?.(createTrustedInvokeEvent())).resolves.toEqual({
+        message: 'Factory reset is unavailable on Windows in this version.',
+        success: false,
+      });
+      expect(onResetLocal).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(process, 'platform', descriptor);
+    }
+  });
+
   it('registers lightweight diagnostics handlers and unregisters owned channels', async () => {
     await expect(handlers.get('db:ping')?.(createTrustedInvokeEvent())).resolves.toEqual({
       message: 'ping',

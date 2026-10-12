@@ -275,16 +275,6 @@ function configureAssistantProviderInPage(payload: AssistantProviderInstallPaylo
     };
     localStorage?: Storage;
   };
-  // Scoped separately from the Window cast: this page-injected configuration
-  // feeds a deliberately simplified string[] `list` result, which must not
-  // intersect with the real SecretsBridge typing on Window['secrets'].
-  const secretsGlobals = globalThis as unknown as {
-    secrets?: {
-      list?: () => Promise<string[]>;
-      [key: string]: unknown;
-    };
-  };
-
   try {
     globals.localStorage?.setItem(
       'assistant-preferences.v1',
@@ -304,10 +294,9 @@ function configureAssistantProviderInPage(payload: AssistantProviderInstallPaylo
   }
   globals.__assistantAvailabilityOverride = { state: 'enabled' };
   globals.dispatchEvent(new Event(assistantAvailabilityOverrideEvent));
-  secretsGlobals.secrets = {
-    ...secretsGlobals.secrets,
-    list: async () => [payload.provider],
-  };
+  // The key saved above is what the real `secrets.list` now reports; the
+  // preload's `secrets` bridge is read-only, so a page script cannot stand in
+  // for it.
 
   const hooks = globals.__brainstrikeTestHooks__;
   if (!hooks) {
@@ -363,6 +352,47 @@ async function configureAssistantProviderWithModels(
     await pendingWrite.dispose();
   }
   await page.evaluate(configureAssistantProviderInPage, payload);
+}
+
+/**
+ * Enables the catalog row Main admits for a `provider::model` selection. The
+ * committed host admission refuses a disabled row, and renderer selection alone
+ * does not enable it (precedent: mcp-packaged-core.desktop.test.ts).
+ */
+export async function enableAssistantCatalogModel(
+  page: Page,
+  compositeModelKey: string
+): Promise<void> {
+  const separator = compositeModelKey.indexOf('::');
+  const provider = compositeModelKey.slice(0, separator);
+  const model = compositeModelKey.slice(separator + 2);
+  const rows = await page.evaluate(
+    async ([providerId, modelId]) => {
+      const db = window.electronAPI?.db;
+      if (!db) {
+        throw new Error('The ordinary desktop catalog DB bridge is unavailable');
+      }
+      await db.query('UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2', [
+        modelId,
+        providerId,
+      ]);
+      const after = await db.query(
+        'SELECT id, provider_id AS "providerId", is_enabled AS "isEnabled" FROM models WHERE id = $1 AND provider_id = $2',
+        [modelId, providerId]
+      );
+      return after.rows as readonly Record<string, unknown>[];
+    },
+    [provider, model] as const
+  );
+  const [row] = rows;
+  const enabled =
+    rows.length === 1 &&
+    row?.['id'] === model &&
+    row['providerId'] === provider &&
+    row['isEnabled'] === true;
+  if (!enabled) {
+    throw new Error(`Catalog row ${compositeModelKey} was not enabled: ${JSON.stringify(rows)}`);
+  }
 }
 
 /**

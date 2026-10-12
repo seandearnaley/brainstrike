@@ -70,6 +70,9 @@ export function createLiveWorkspaceFacade(
         state.setCurrentFolderId(focusedRootId);
       }
     },
+    closeApps: (appIds) => {
+      useWorkspaceTabSelectionStore.getState().closeApps(appIds);
+    },
     getEditorState: (compositeKey) => {
       const editorState = useEditorViewStateStore.getState();
       const mode = editorState.modes[compositeKey];

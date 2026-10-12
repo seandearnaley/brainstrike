@@ -1,7 +1,10 @@
 import { createServer, Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import {
+  DEFAULT_CALLBACK_PATH,
+  startLoopbackCallback,
+} from '@brainstrike/host-capabilities/mcp/oauth-loopback-callback';
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_CALLBACK_PATH, startLoopbackCallback } from '../../mcp/oauth-loopback-callback';
 
 const { loggerWarn } = vi.hoisted(() => ({ loggerWarn: vi.fn() }));
 

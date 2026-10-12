@@ -12,7 +12,6 @@ import type {
   DelegatedConversationBaseline,
   DelegatedRunIdentity,
 } from '@brainstrike/assistant-contract/delegated-conversation-stream';
-import type { HookTrustRequest } from '@brainstrike/assistant-contract/hook-trust-request';
 import type { AssistantPersonaDefinition } from '@brainstrike/assistant-contract/personas';
 import type { AssistantChildRunUsage } from '@brainstrike/assistant-contract/run-usage';
 import type {
@@ -186,12 +185,6 @@ export interface RuntimeData extends Omit<ContractRuntimeData, 'memory' | 'provi
    * Agent-only — mirrors `localLlmHostClient`.
    */
   hookRunner?: AgentHookRunner;
-  /**
-   * Renderer-supplied hook-trust snapshot (wire). The server resolves it into
-   * per-root trust (re-hashing disk) and STRIPS it before the agent is built —
-   * the client must never set the trusted `hookRunner` directly. Agent-only.
-   */
-  hookTrustRequest?: HookTrustRequest;
   /**
    * Host-injected client that proxies built-in local LLM inference to its
    * renderer host (desktop main → hidden llm-host window). Server-side only,

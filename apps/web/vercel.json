@@ -1,5 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "codex/m3-*": false
+    }
+  },
   "framework": "vite",
   "buildCommand": "cd ../.. && pnpm build --filter @brainstrike/web^... && cd apps/web && pnpm build",
   "outputDirectory": "dist",

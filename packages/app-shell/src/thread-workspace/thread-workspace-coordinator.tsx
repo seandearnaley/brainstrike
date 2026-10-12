@@ -10,6 +10,7 @@ import { useFileExplorerStoreContext } from '@brainstrike/file-explorer-ui/shell
 import { useTabManagerStore } from '@brainstrike/file-explorer-ui/tab-manager-store';
 import { useWorkspaceTabSelectionStore } from '@brainstrike/file-explorer-ui/workspace-tab-selection-store';
 import { useCallback, useMemo } from 'react';
+import { useAssistantThreadHost } from '../assistant-thread-host-context';
 import { threadWorkspaceNavigation } from './live-thread-workspace-navigation';
 import { createLiveWorkspaceFacade } from './thread-workspace-live-facade';
 import { useThreadWorkspaceCoordinator } from './use-thread-workspace-coordinator';
@@ -23,7 +24,14 @@ const EMPTY_THREAD_IDS: readonly string[] = [];
  */
 export function ThreadWorkspaceCoordinator(): null {
   const db = usePGliteDatabase();
-  const repository = useMemo(() => (db ? createThreadWorkspaceRepository(db) : null), [db]);
+  const host = useAssistantThreadHost();
+  const repository = useMemo(() => {
+    if (!db) {
+      return null;
+    }
+    const history = createThreadWorkspaceRepository(db);
+    return host ? host.workspaceRepository(history) : history;
+  }, [db, host]);
   const resourceId = resolveAssistantMemoryResourceId();
   const activeThreadId = useAssistantThreadStore(
     (state) => state.activeThreadIdByResourceId[resourceId] ?? null

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  AGENT_HOST_PLATFORM_BUILD_OPTIONS,
   MAIN_PROCESS_BUILD_OPTIONS,
   MAIN_PROCESS_ENTRY_POINTS,
 } from '../../scripts/build-main-config.mjs';
@@ -60,17 +61,26 @@ function readDesktopPackageConfig(): DesktopPackageConfig {
 describe('main-process bundle config', () => {
   it('bundles every runtime and logging transport entry point', () => {
     expect(MAIN_PROCESS_ENTRY_POINTS).toEqual({
+      'agent-host-entry': 'src/agent-host-entry.ts',
       'db-host-entry': 'src/db-host-entry.ts',
+      'desktop-bootstrap-runtime': 'src/desktop-bootstrap-runtime.ts',
+      'desktop-database-location': 'src/desktop-database-location.ts',
+      'desktop-env': 'src/desktop-env.ts',
+      'desktop-shutdown-state': 'src/desktop-shutdown-state.ts',
       'hidden-preload': 'src/hidden-preload.ts',
       'host-lease-entry': 'src/host-lease-entry.ts',
       'indexer-host-entry': 'src/indexer-host-entry.ts',
       main: 'src/main-bootstrap.ts',
       'main-log-transport': 'src/diagnostics/main-log-transport.ts',
+      'main-runtime': 'src/main.ts',
       'main-watchdog-worker': 'src/diagnostics/main-watchdog-worker.ts',
       'official-conformance-client-entry': 'src/official-conformance-client-entry.ts',
       'parser-host-entry': 'src/parser-host-entry.ts',
       preload: 'src/preload.ts',
       'sqlite-query-host-entry': 'src/sqlite-query-host-entry.ts',
+    });
+    expect(AGENT_HOST_PLATFORM_BUILD_OPTIONS.entryPoints).toEqual({
+      'agent-host-platform-entry': 'src/agent-host-platform-entry.ts',
     });
   });
 
@@ -159,6 +169,7 @@ describe('main-process bundle config', () => {
     const aliases = MAIN_PROCESS_BUILD_OPTIONS.alias as Record<string, string>;
     expect(Object.keys(aliases)).toEqual([
       '@brainstrike/assistant-data/assistant-memory-repository',
+      '@brainstrike/assistant-data/assistant-memory-resource',
       '@brainstrike/assistant-data/assistant-thread-run-reaper',
       '@brainstrike/notes-vault/core',
       '@brainstrike/workspace-search/core',
@@ -171,6 +182,12 @@ describe('main-process bundle config', () => {
     expect(
       aliases['@brainstrike/assistant-data/assistant-memory-repository']?.endsWith(
         path.join('packages', 'assistant-data', 'src', 'assistant-memory-repository.ts')
+      )
+    ).toBe(true);
+    // The host platform entry's memory resource constant (BST-1928).
+    expect(
+      aliases['@brainstrike/assistant-data/assistant-memory-resource']?.endsWith(
+        path.join('packages', 'assistant-data', 'src', 'assistant-memory-resource.ts')
       )
     ).toBe(true);
     expect(

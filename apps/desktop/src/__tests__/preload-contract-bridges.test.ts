@@ -13,13 +13,7 @@ import {
 import { forgeContract } from '../ipc-domains/forge.contract';
 import { gitContract } from '../ipc-domains/git.contract';
 import { indexSearchContract } from '../ipc-domains/index-search.contract';
-import {
-  mcpAppsContract,
-  mcpContract,
-  mcpElicitationContract,
-  mcpPathSelectionContract,
-  mcpTasksContract,
-} from '../ipc-domains/mcp.contract';
+import { mcpAppsContract, mcpPathSelectionContract } from '../ipc-domains/mcp.contract';
 import { notesVaultContract } from '../ipc-domains/notes-vault.contract';
 import { skillsContract } from '../ipc-domains/skills.contract';
 import {
@@ -226,72 +220,23 @@ describe('preload contract-derived bridges', () => {
     }
   );
 
-  it('exposes the composed MCP bridge with contract-derived root, Apps and Tasks keys', () => {
+  it('exposes the composed MCP bridge with contract-derived root and Apps keys', () => {
     const mcp = exposedApi('mcp');
-    const expectedRootKeys = new Set([
-      ...Object.keys(mcpContract),
-      ...Object.keys(mcpPathSelectionContract),
-      ...Object.keys(mcpElicitationContract),
-      'apps',
-      'complete',
-      'getPrompt',
-      'readResource',
-      'tasks',
-    ]);
+    // Server status, lifecycle control, Tasks cards, global server input and
+    // content are agent-host methods (BST-1930 c5b-c5d).
+    const expectedRootKeys = new Set([...Object.keys(mcpPathSelectionContract), 'apps']);
     expect(new Set(Object.keys(mcp))).toEqual(expectedRootKeys);
-    expect(Object.keys(mcp['apps'] as object).sort()).toEqual(
-      [...Object.keys(mcpAppsContract), 'readResource'].sort()
-    );
-    expect(Object.keys(mcp['tasks'] as object).sort()).toEqual(
-      Object.keys(mcpTasksContract).sort()
-    );
+    // An App's document is read from the agent host (BST-1930 c5d).
+    expect(Object.keys(mcp['apps'] as object).sort()).toEqual(Object.keys(mcpAppsContract).sort());
   });
 
-  it('routes MCP contract methods and subscriptions through their manifest channels', async () => {
+  it('routes MCP contract methods through their manifest channels', async () => {
     const mcp = exposedApi('mcp');
-    mockInvoke.mockResolvedValueOnce({ apps: true, tasks: true });
-    await expect(mcp['getExtensionPreferences']?.()).resolves.toEqual({ apps: true, tasks: true });
-    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.mcp.extensionsGet);
-
     const apps = mcp['apps'] as unknown as Record<string, (...args: unknown[]) => unknown>;
-    mockInvoke.mockResolvedValueOnce({ preparationId: 'prep-1' });
-    await apps['prepare']?.({ preparationId: 'prep-1' });
-    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.mcp.appsPrepare, {
-      preparationId: 'prep-1',
-    });
-
-    const tasks = mcp['tasks'] as unknown as Record<string, (...args: unknown[]) => unknown>;
-    mockInvoke.mockResolvedValueOnce({ tasks: [] });
-    await tasks['list']?.();
-    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.mcp.taskList);
-
-    const listener = vi.fn();
-    const unsubscribe = mcp['onServerStatusUpdated']?.(listener) as () => void;
-    expect(mockElectron.ipcRenderer.on).toHaveBeenCalledWith(
-      DESKTOP_IPC_CHANNELS.mcp.statusUpdated,
-      expect.any(Function)
-    );
-    unsubscribe();
-    expect(mockElectron.ipcRenderer.removeListener).toHaveBeenCalledWith(
-      DESKTOP_IPC_CHANNELS.mcp.statusUpdated,
-      expect.any(Function)
-    );
-  });
-
-  it('unwraps MCP content replies into the established public promise behavior', async () => {
-    const mcp = exposedApi('mcp');
-    const result = { completion: { values: ['done'] }, type: 'completion/complete' };
-    mockInvoke.mockResolvedValueOnce({ ok: true, result });
-    await expect(mcp['complete']?.({ argument: { name: 'n', value: 'v' } })).resolves.toBe(result);
-
-    mockInvoke.mockResolvedValueOnce({
-      error: { category: 'protocol', code: 'invalid-result', message: 'bad content' },
-      ok: false,
-    });
-    await expect(mcp['complete']?.({})).rejects.toMatchObject({
-      category: 'protocol',
-      code: 'invalid-result',
-      message: 'bad content (protocol · invalid-result)',
+    mockInvoke.mockResolvedValueOnce(undefined);
+    await apps['releaseShell']?.({ token: 'shell-1' });
+    expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.mcp.appsReleaseShell, {
+      token: 'shell-1',
     });
   });
 
@@ -302,7 +247,9 @@ describe('preload contract-derived bridges', () => {
       getUserDataPath: () => Promise<unknown>;
     };
 
-    expect(Object.keys(electronApi.db).sort()).toEqual(Object.keys(databaseContract).sort());
+    expect(Object.keys(electronApi.db).sort()).toEqual(
+      [...Object.keys(databaseContract), 'factoryResetUnavailableReason'].sort()
+    );
     expect(Object.keys(electronApi.dbLive).sort()).toEqual(
       Object.keys(databaseLiveContract).sort()
     );

@@ -12,22 +12,30 @@ import type {
   ScopedToolOutputArtifactReader,
 } from '@brainstrike/agent';
 import type { DesktopNativeTool, DesktopNativeToolId } from '@brainstrike/assistant-contract';
+import type {
+  NativeToolBuildContext,
+  NativeToolPorts,
+  ReadWorkspaceFileCursorRegistry,
+  WebExtractToolDependencies,
+  WebSearchToolDependencies,
+} from '@brainstrike/host-capabilities/native-tools';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import type { CommandSessionManager } from './command-session-manager';
-import type { ReadWorkspaceFileCursorRegistry } from './read-workspace-file-cursor-registry';
 import type { ShellCorrelationCapability } from './shell-worktree-correlation';
-import type { WebExtractToolDependencies } from './web-extract-tool';
-import type { WebSearchToolDependencies } from './web-search-tool';
 import type { WorktreeToolCapability } from './worktree-tools';
 
 export type MastraTools = NonNullable<RuntimeData['mastraTools']>;
 export type MastraTool = MastraTools[string];
 
 export interface DesktopAssistantToolDependencies {
+  /** Main's admitted CLI subset; undefined retains ordinary Desktop collection scope. */
+  admittedWorkspaceRootIds?: readonly string[] | undefined;
   commandSessionManager?: CommandSessionManager | undefined;
   embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | null | undefined;
   nativeIndexSearch?: IndexSearchCapability | undefined;
+  /** Shared-tool ports; absent means this legacy thread's PGlite journal, index and stores. */
+  nativeToolPorts?: NativeToolPorts | undefined;
   readWorkspaceFileCursorRegistry?: ReadWorkspaceFileCursorRegistry | undefined;
   resolvedToolResultBudget?: ScaledToolResultBudget | undefined;
   /**
@@ -55,8 +63,8 @@ export interface DesktopAssistantToolDependencies {
    * real keychain key and uses the real fetch.
    */
   /** Same injection seam as `webSearch`, for the webExtract tool. */
-  webExtract?: WebExtractToolDependencies | undefined;
-  webSearch?: WebSearchToolDependencies | undefined;
+  webExtract?: Partial<WebExtractToolDependencies> | undefined;
+  webSearch?: Partial<WebSearchToolDependencies> | undefined;
   /**
    * Request-scoped worktree capability (BST-1392). Built in
    * `assistant-server.ts`, where the run id is in scope, so the ledger records
@@ -66,19 +74,13 @@ export interface DesktopAssistantToolDependencies {
 }
 
 /** What one request hands every executor entry. */
-export interface DesktopToolBuildContext {
+/**
+ * The shared executors' context plus Desktop's own dependencies. The entries
+ * that omit themselves for the built-in local provider (browser pane,
+ * sessions, worktrees) say why beside their own gate.
+ */
+export interface DesktopToolBuildContext extends NativeToolBuildContext {
   readonly dependencies: DesktopAssistantToolDependencies;
-  /**
-   * True when the request targets the built-in on-device provider. The
-   * entries that omit themselves for it (task list, suspending tools, browser
-   * pane, canvas, sessions, worktrees) say why beside their own gate.
-   */
-  readonly isLocalProvider: boolean;
-  readonly readFileCursorRegistry: ReadWorkspaceFileCursorRegistry;
-  /** The live per-call domain budget, falling back to the request's resolved one. */
-  readonly resolveActiveDomainCharBudget: () => number;
-  readonly resolvedDomainCharBudget: number;
-  readonly runtimeData: RuntimeData | undefined;
 }
 
 /**

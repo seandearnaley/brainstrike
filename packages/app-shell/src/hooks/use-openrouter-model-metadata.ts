@@ -1,15 +1,13 @@
 import type { OpenRouterModelMetadataLookup, RuntimeData } from '@brainstrike/assistant-contract';
 import type { AssistantProviderSettings } from '@brainstrike/types';
 import { useEffect, useMemo, useState } from 'react';
+import { useAssistantThreadHost } from '../assistant-thread-host-context';
 import {
   buildAgentLoopSettings,
   buildEffectiveModelSettings,
   resolveOpenRouterMetadataDisabledReason,
   type SelectedModelBudgetDef,
 } from '../assistant-ui-panel-wrapper-runtime';
-import { fetchOpenRouterModelMetadata } from '../openrouter-model-metadata-client';
-import { hasDesktopAssistantBridge } from '../use-steer-active-run';
-import { resolveAssistantAuthHeaders, resolveAssistantBaseUrl } from './use-assistant-availability';
 
 const MAX_VISIBLE_ERROR_CHARS = 300;
 
@@ -52,8 +50,10 @@ export function useOpenRouterModelMetadata({
   selectedModelDef,
   settings,
 }: UseOpenRouterModelMetadataOptions): UseOpenRouterModelMetadataResult {
+  // Only a host answers model metadata; web has no lookup and keeps the catalog.
+  const readOpenRouterModel = useAssistantThreadHost()?.providers?.readOpenRouterModel;
   const requestKey =
-    providerId === 'openrouter' && modelId && hasDesktopAssistantBridge()
+    providerId === 'openrouter' && modelId && readOpenRouterModel
       ? `openrouter:${modelId}`
       : undefined;
   const [result, setResult] = useState<{
@@ -62,20 +62,20 @@ export function useOpenRouterModelMetadata({
   }>();
 
   useEffect(() => {
-    if (!(requestKey && modelId)) {
+    if (!(requestKey && modelId && readOpenRouterModel)) {
       return;
     }
 
     const controller = new AbortController();
-    void Promise.all([resolveAssistantBaseUrl(), resolveAssistantAuthHeaders()])
-      .then(([baseUrl, authHeaders]) =>
-        fetchOpenRouterModelMetadata({
-          authHeaders,
-          baseUrl,
-          modelId,
-          signal: controller.signal,
-        })
-      )
+    readOpenRouterModel(modelId)
+      .then((snapshot) => {
+        if (snapshot.metadata.id !== modelId) {
+          throw new Error(
+            `OpenRouter model metadata returned "${snapshot.metadata.id}" for expected model "${modelId}".`
+          );
+        }
+        return snapshot;
+      })
       .then((snapshot) => {
         if (!controller.signal.aborted) {
           setResult({ lookup: { snapshot, state: 'resolved' }, requestKey });
@@ -91,7 +91,7 @@ export function useOpenRouterModelMetadata({
       });
 
     return () => controller.abort();
-  }, [modelId, requestKey]);
+  }, [modelId, readOpenRouterModel, requestKey]);
 
   const lookup: OpenRouterModelMetadataLookup | undefined = requestKey
     ? result?.requestKey === requestKey
@@ -114,8 +114,9 @@ export function useOpenRouterModelMetadata({
     };
   }, [lookup, selectedModelDef]);
   const disabledReason = useMemo(
-    () => resolveOpenRouterMetadataDisabledReason(providerId, settings, lookup, modelSettings),
-    [lookup, modelSettings, providerId, settings]
+    () =>
+      resolveOpenRouterMetadataDisabledReason(providerId, settings, lookup, modelSettings, modelId),
+    [lookup, modelId, modelSettings, providerId, settings]
   );
   const effectiveModelSettings = useMemo(
     () =>

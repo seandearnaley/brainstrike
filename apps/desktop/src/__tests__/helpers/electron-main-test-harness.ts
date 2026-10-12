@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { type Mock, vi } from 'vitest';
 
 type IpcMainHandler = (...args: unknown[]) => unknown;
@@ -71,7 +72,7 @@ const electronMainMockSurface = {
   ...electronTestStub,
   app: {
     ...electronTestStub.app,
-    getAppPath: vi.fn(() => '/mock/app'),
+    getAppPath: vi.fn(() => resolve('/mock/app')),
     getName: vi.fn(() => 'Brainstrike'),
     getPath: vi.fn(() => '/mock/path'),
     getVersion: vi.fn(() => '0.0.0-test'),
@@ -110,13 +111,19 @@ const electronMainMockSurface = {
   session: {
     ...electronTestStub.session,
     defaultSession: {
+      clearAuthCache: vi.fn(async () => undefined),
+      clearData: vi.fn(async () => undefined),
+      closeAllConnections: vi.fn(async () => undefined),
       on: vi.fn(),
       setPermissionCheckHandler: vi.fn(),
       setPermissionRequestHandler: vi.fn(),
       webRequest: { onHeadersReceived: vi.fn() },
     },
     fromPartition: vi.fn(() => ({
+      clearAuthCache: vi.fn(async () => undefined),
+      clearData: vi.fn(async () => undefined),
       clearStorageData: vi.fn(async () => undefined),
+      closeAllConnections: vi.fn(async () => undefined),
       on: vi.fn(),
       setPermissionCheckHandler: vi.fn(),
       setPermissionRequestHandler: vi.fn(),
@@ -161,7 +168,7 @@ function restoreOwnedMockImplementations(): void {
   mockIpcMain.removeAllListeners.mockImplementation(removeAllIpcMainListeners);
   mockIpcMain.removeHandler.mockImplementation(removeIpcMainHandler);
   mockIpcMain.removeListener.mockImplementation(removeIpcMainListener);
-  electronMainMock.app.getAppPath.mockImplementation(() => '/mock/app');
+  electronMainMock.app.getAppPath.mockImplementation(() => resolve('/mock/app'));
   electronMainMock.app.getName.mockImplementation(() => 'Brainstrike');
   electronMainMock.app.getPath.mockImplementation(() => '/mock/path');
   electronMainMock.app.getVersion.mockImplementation(() => '0.0.0-test');
@@ -185,7 +192,10 @@ function restoreOwnedMockImplementations(): void {
     workArea: { height: 1080, width: 1920, x: 0, y: 0 },
   }));
   electronMainMock.session.fromPartition.mockImplementation(() => ({
+    clearAuthCache: vi.fn(async () => undefined),
+    clearData: vi.fn(async () => undefined),
     clearStorageData: vi.fn(async () => undefined),
+    closeAllConnections: vi.fn(async () => undefined),
     on: vi.fn(),
     setPermissionCheckHandler: vi.fn(),
     setPermissionRequestHandler: vi.fn(),
@@ -271,7 +281,7 @@ let nextRecordingWindowId = 1;
  *
  * The listing-routed main -> renderer broadcasts iterate
  * `BrowserWindow.getAllWindows()` (`ipc-mcp.ts`, `mcp/lifecycle-control.ts`,
- * `ipc-domains/db-ipc.ts`, `assistant-server/workspace-context-tools.ts` and
+ * `ipc-domains/db-ipc.ts`, `assistant-server/workspace-context-broadcast.ts` and
  * eight sites in `main.ts`), and every one is a `for (const window of …)` loop.
  * That is not every send site in the app (BST-1624). `terminal-ipc-handlers.ts`
  * sends to a `WebContents` held in its own live-terminal registry, so it never

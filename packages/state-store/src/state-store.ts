@@ -32,13 +32,25 @@ import {
   type Mode,
   type Unreadable,
 } from './event-schema.js';
-import { type LockOptions, RootLock } from './lock.js';
+import { RootLock } from './lock.js';
+import type { McpTaskDomainReply, McpTaskDomainRequest } from './mcp-task-types.js';
+import type { MemoryDomainPort, MemoryDomainRequest, MemorySnapshot } from './memory-types.js';
 import { blobsOf, TOMBSTONE_BODY, withSeq } from './run-log-format.mjs';
 import type { AppendItem, BlobContent, LogRow, RunEvent, ThreadStatus } from './run-log-types.js';
 import { openRo, vacuumInto } from './sqlite.js';
-import { CheckpointBlockedError } from './sqlite-checkpoint.mjs';
 import { readAll, SqliteReader } from './sqlite-reader.js';
+import type {
+  ExportedThread,
+  HydrationThread,
+  IndexerPort,
+  Manifest,
+  PurgeReport,
+  StateStoreOptions,
+  StoreSettings,
+  SyncSpan,
+} from './state-store-types.js';
 import { assertNotSyncedRoot } from './sync-roots.js';
+import { errorOf, logRowOf, type WorkerRow } from './worker-reply.js';
 
 export const STATE_DB = 'state.db';
 export const BLOBS_DIR = 'blobs';
@@ -51,6 +63,20 @@ export const STORE_ENTRIES: readonly string[] = [
 ];
 
 /** Text of this size or more is stored as a content-addressed blob; the event keeps a preview and the hash. */
+export type {
+  CheckpointRow,
+  ExportedThread,
+  HydrationThread,
+  IndexerPort,
+  Manifest,
+  PurgeReport,
+  StateStoreHooks,
+  StateStoreOptions,
+  StoreSettings,
+  SyncSpan,
+  WriteSpan,
+} from './state-store-types.js';
+
 export const BLOB_MIN_BYTES = 12 * 1024;
 export const PREVIEW_CHARS = 2048;
 
@@ -80,100 +106,21 @@ export function largeText(output: string): {
   };
 }
 
-/**
- * The indexer's side of purge and thread delete (M0-A2 src/indexer-client.ts requests). The derived store re-derives a
- * purged event and owns the blob reference counts; its one serial queue orders a purge's re-index after any pass that
- * read the old event.
- */
-export interface IndexerPort {
-  catchUp(threads: readonly string[]): Promise<void>;
-  /** Drop everything derived from the thread; returns the blob hashes it referenced. */
-  dropThread(threadId: string): Promise<readonly string[]>;
-  /** Reference counts of `hashes` after catching up with every thread in `threads`. */
-  gcCheck(
-    threads: readonly string[],
-    hashes: readonly string[]
-  ): Promise<Readonly<Record<string, number>>>;
-  reindex(threadId: string, seq: number): Promise<void>;
-  /** Close every handle the indexer holds on the data root (factory reset). */
-  reset(): Promise<void>;
+/** Trusted host composition after writer readiness, before interrupted purge replay. */
+export interface StateStoreStartupOwner {
+  acquire(store: StateStore): Promise<IndexerPort | undefined>;
+  /** Failed startup joins external resources before the canonical writer or Root can close. */
+  close(): Promise<void>;
 }
 
-export interface StateStoreHooks {
-  readonly exportAfterSnapshot?: () => Promise<void>;
-  readonly exportBeforeBlobs?: () => Promise<void>;
-  readonly purgeAfterTruth?: () => void;
-}
-
-export interface CheckpointRow {
-  readonly busy: number;
-  readonly checkpointed: number;
-  readonly log: number;
-}
-
-export interface WriteSpan {
-  /** uv_hrtime clock (ms), worker side: one NORMAL commit. */
-  readonly t0: number;
-  readonly t1: number;
-}
-
-export interface SyncSpan extends WriteSpan {
-  readonly checkpoint: { readonly before: CheckpointRow; readonly after: CheckpointRow } | null;
-  readonly kind: 'FULL commit' | 'checkpoint(PASSIVE)+FULL commit';
-  readonly thread: string;
-}
-
-export interface StateStoreOptions extends LockOptions {
-  /** busy_timeout of the writer, which bounds how long a purge waits on a reader pinning the WAL. Default 5000. */
-  readonly busyTimeoutMs?: number;
-  /** WAL frames at which a step boundary checkpoints (PASSIVE) first. Default 1000, SQLite's autocheckpoint size. */
-  readonly checkpointPages?: number;
-  /** Crash-test seam: SIGKILL this process inside the purge transaction. */
-  readonly crashTestHooks?: { readonly purgeInTxn?: 'sigkill' };
-  /** F_FULLFSYNC syncs. Default: on macOS. */
-  readonly fullfsync?: boolean;
-  /** Home directory for the synced-root rule (tests point it at a fake home). */
-  readonly home?: string;
-  readonly hooks?: StateStoreHooks;
-  /** Required by purge, thread delete and the replay of an interrupted purge. */
-  readonly indexer?: IndexerPort;
-  readonly onSyncSpan?: (span: SyncSpan) => void;
-  readonly onWriteSpan?: (span: WriteSpan) => void;
-  /** 'sqlite-auto' is the kernel-sync probe's negative control only: it checkpoints inside streaming commits. */
-  readonly walCheckpoint?: 'boundary' | 'sqlite-auto';
-}
-
-export interface StoreSettings {
-  readonly fullfsync: number;
-  readonly journalMode: string;
-  readonly secureDelete: number;
-  readonly sqliteVersion: string;
-  readonly synchronous: number;
-  readonly walAutocheckpoint: number;
-}
-
-export interface PurgeReport {
-  readonly blobsDeleted: readonly string[];
-  readonly derivedMs: number;
-  readonly gcMs: number;
-  readonly ms: number;
-  readonly truthMs: number;
-}
-
-export interface ExportedThread {
-  readonly threadId: string;
-  readonly watermark: number;
-}
-
-export interface Manifest {
-  readonly files: ReadonlyArray<{
-    readonly path: string;
-    readonly bytes: number;
-    readonly sha256: string;
-  }>;
-  readonly format: 1;
-  readonly sourceHost: string;
-  readonly threads: readonly ExportedThread[];
+/** Failed startup retains the original writer and Root when external cleanup is unproved. */
+export class StateStoreStartupError extends AggregateError {
+  constructor(
+    causes: readonly unknown[],
+    readonly store: StateStore
+  ) {
+    super(causes, 'State startup cleanup failed; durable root ownership is retained');
+  }
 }
 
 type Reply = Readonly<Record<string, unknown>> & {
@@ -195,20 +142,6 @@ interface Ready {
 
 const runIdOf = (e: RunEvent): string | null =>
   typeof e['runId'] === 'string' ? e['runId'] : null;
-
-function errorOf(r: Readonly<Record<string, unknown>>): Error {
-  const message = String(r['error']);
-  switch (r['errorKind']) {
-    case 'readonly':
-      return new ThreadReadOnlyError(String(r['threadId']), message);
-    case 'damaged':
-      return new ThreadDamagedError(String(r['threadId']), Number(r['atSeq']), String(r['detail']));
-    case 'checkpoint-blocked':
-      return new CheckpointBlockedError(message);
-    default:
-      return new Error(message);
-  }
-}
 
 function waitReady(worker: Worker): Promise<Ready> {
   return new Promise((resolve, reject) => {
@@ -302,7 +235,7 @@ function blobsReferencedBy(root: string): Set<string> {
   return hashes;
 }
 
-export class StateStore {
+export class StateStore implements MemoryDomainPort {
   readonly root: string;
   readonly lock: RootLock;
   readonly settings: StoreSettings;
@@ -312,6 +245,7 @@ export class StateStore {
   private readonly blobsPath: string;
   private readonly worker: Worker;
   private readonly options: StateStoreOptions;
+  private indexer: IndexerPort | undefined;
   private readonly waiters = new Map<number, Waiter>();
   private readonly inflight = new Set<Promise<void>>();
   private readonly deferredGc = new Set<string>();
@@ -319,9 +253,11 @@ export class StateStore {
   private chain: Promise<unknown> = Promise.resolve();
   private nextId = 0;
   private closed = false;
+  private closeTask: Promise<void> | undefined;
   private closing = false;
   private failed: unknown = null;
-  private exportsInFlight = 0;
+  /** Exports in flight plus holdBlobGc holders: while any holds, unreferenced blobs wait in deferredGc. */
+  private gcHolds = 0;
 
   private constructor(
     root: string,
@@ -336,6 +272,7 @@ export class StateStore {
     this.settings = ready.settings;
     this.stateDamage = ready.damage;
     this.options = options;
+    this.indexer = options.indexer;
     this.statePath = join(root, STATE_DB);
     this.blobsPath = join(root, BLOBS_DIR);
     worker.on('message', (m: Reply) => {
@@ -365,6 +302,7 @@ export class StateStore {
     mkdirSync(dataRoot, { recursive: true });
     const lock = await RootLock.acquire(dataRoot, options);
     let worker: Worker | null = null;
+    let store: StateStore | undefined;
     try {
       mkdirSync(join(dataRoot, BLOBS_DIR), { recursive: true });
       worker = new Worker(new URL('./writer-worker.mjs', import.meta.url), {
@@ -374,17 +312,29 @@ export class StateStore {
           checkpointPages: options.checkpointPages ?? 1000,
           crashTestHooks: options.crashTestHooks,
           fullfsync: options.fullfsync ?? process.platform === 'darwin',
+          memoryCalculatorModule: options.memoryCalculatorModule,
           path: join(dataRoot, STATE_DB),
           walCheckpoint: options.walCheckpoint ?? 'boundary',
         },
       });
       const ready = await waitReady(worker);
-      const store = new StateStore(dataRoot, lock, worker, ready, options);
+      store = new StateStore(dataRoot, lock, worker, ready, options);
+      if (options.startup) {
+        await store.acquireStartupIndexer();
+      }
       if (ready.damage === null) {
-        await store.run(() => store.replayPurgeIntents());
+        const acquired = store;
+        await acquired.run(() => acquired.replayPurgeIntents());
       }
       return store;
     } catch (e) {
+      if (store && options.startup) {
+        try {
+          await options.startup.close();
+        } catch (cleanup) {
+          throw new StateStoreStartupError([e, cleanup], store);
+        }
+      }
       if (worker) {
         await worker.terminate(); // better-sqlite3 closes the connection when the worker is torn down
       }
@@ -392,6 +342,13 @@ export class StateStore {
         lock.release();
       }
       throw e;
+    }
+  }
+
+  private async acquireStartupIndexer(): Promise<void> {
+    const indexer = await this.options.startup?.acquire(this);
+    if (indexer) {
+      this.indexer = indexer;
     }
   }
 
@@ -430,7 +387,7 @@ export class StateStore {
   }
 
   private requireIndexer(operation: string): IndexerPort {
-    const { indexer } = this.options;
+    const { indexer } = this;
     if (!indexer) {
       throw new IndexerRequiredError(operation);
     }
@@ -441,10 +398,16 @@ export class StateStore {
 
   /**
    * Append rows (possibly across threads) as ONE NORMAL commit. `onCommitted` runs right after the COMMIT returned and
-   * before the next write starts: the process-crash contract. A write failure fails the store (later calls are refused,
+   * before the next write starts: the process-crash contract. `full` makes the rows and existing run_sync marker
+   * one FULL transaction, so terminal success is never committed ahead of its kernel sync.
+   * A write failure fails the store (later calls are refused,
    * so no seq is ever reused); a damaged thread refuses the batch without failing the store.
    */
-  append(items: readonly AppendItem[], onCommitted?: () => void): Promise<LogRow[]> {
+  append(
+    items: readonly AppendItem[],
+    onCommitted?: () => void,
+    durability: 'normal' | 'full' = 'normal'
+  ): Promise<LogRow[]> {
     if (this.closed) {
       return Promise.reject(new Error('StateStore is closed'));
     }
@@ -455,6 +418,7 @@ export class StateStore {
       runIdOf(it.event),
       bodies[i],
       it.rawCount ?? null,
+      it.hydrate === false ? 0 : 1,
     ]);
     return this.run(async () => {
       for (const it of items) {
@@ -462,9 +426,20 @@ export class StateStore {
           await this.call({ content: b.content, hash: b.hash, op: 'putBlob' });
         }
       }
-      return this.call({ op: 'append', rows }).then(
+      return this.call({ boundary: durability === 'full', op: 'append', rows }).then(
         (r) => {
           this.options.onWriteSpan?.({ t0: Number(r['t0']), t1: Number(r['t1']) });
+          if (durability === 'full') {
+            for (const threadId of new Set(items.map((item) => item.threadId))) {
+              this.options.onSyncSpan?.({
+                checkpoint: null,
+                kind: 'FULL commit',
+                t0: Number(r['t0']),
+                t1: Number(r['t1']),
+                thread: threadId,
+              });
+            }
+          }
           onCommitted?.();
           const seqs = r['seqs'] as number[];
           return items.map((it, i): LogRow => {
@@ -474,6 +449,7 @@ export class StateStore {
               raw,
               seq: seqs[i] as number,
               threadId: it.threadId,
+              ts: Number(r['ts']),
             };
             return it.rawCount === undefined ? row : { ...row, rawCount: it.rawCount };
           });
@@ -522,18 +498,58 @@ export class StateStore {
     if (r['damage']) {
       throw errorOf(r['damage'] as Readonly<Record<string, unknown>>);
     }
-    return (
-      r['rows'] as Array<{ seq: number; payload: string; rawCount: number | null; ts: number }>
-    ).map((x) => {
-      const row = {
-        event: JSON.parse(x.payload) as RunEvent,
-        raw: x.payload,
-        seq: x.seq,
+    return (r['rows'] as WorkerRow[]).map((x) => logRowOf(threadId, x));
+  }
+
+  /**
+   * Every thread with its catalog times and the rows a hydrating reader folds, in one writer round trip: the verified
+   * rows not appended with `hydrate: false`, up to the thread's damage, which is returned rather than thrown so one
+   * damaged thread never fails the read.
+   */
+  async readHydration(): Promise<HydrationThread[]> {
+    const threads = (await this.call({ op: 'readHydration' }))['threads'] as Array<{
+      createdAt: number;
+      damage: Readonly<Record<string, unknown>> | null;
+      rows: WorkerRow[];
+      threadId: string;
+      updatedAt: number;
+    }>;
+    return threads.map(({ createdAt, damage, rows, threadId, updatedAt }) => {
+      const thread = {
+        createdAt,
+        rows: rows.map((x) => logRowOf(threadId, x)),
         threadId,
-        ts: x.ts,
+        updatedAt,
       };
-      return x.rawCount === null ? row : { ...row, rawCount: x.rawCount };
+      if (!damage) {
+        return thread;
+      }
+      const error = errorOf(damage);
+      if (!(error instanceof ThreadDamagedError)) {
+        throw error;
+      }
+      return { ...thread, damage: error };
     });
+  }
+
+  /** One verified writer-side snapshot, for shared-resource transcript projection. */
+  async readAll(): Promise<LogRow[]> {
+    const reply = await this.call({ op: 'readAll' });
+    const rows = reply['rows'] as Array<{
+      seq: number;
+      payload: string;
+      rawCount: number | null;
+      threadId: string;
+      ts: number;
+    }>;
+    return rows.map((row) => ({
+      event: JSON.parse(row.payload) as RunEvent,
+      raw: row.payload,
+      seq: row.seq,
+      threadId: row.threadId,
+      ts: row.ts,
+      ...(row.rawCount === null ? {} : { rawCount: row.rawCount }),
+    }));
   }
 
   /**
@@ -565,6 +581,32 @@ export class StateStore {
     return (await this.call({ op: 'threads' }))['threads'] as string[];
   }
 
+  /**
+   * Defers blob unlinking until the returned release runs (each release counts once). A reader that holds threads it
+   * could not fold, whose blob references no count sees, holds collection while they exist.
+   */
+  holdBlobGc(): () => Promise<void> {
+    this.gcHolds++;
+    let released = false;
+    return async () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      await this.releaseGcHold();
+    };
+  }
+
+  private async releaseGcHold(): Promise<void> {
+    this.gcHolds--;
+    if (this.gcHolds === 0 && this.deferredGc.size > 0) {
+      const pending = [...this.deferredGc];
+      this.deferredGc.clear();
+      const indexer = this.requireIndexer('blob GC');
+      await this.run(() => this.gc(indexer, pending));
+    }
+  }
+
   /** Threads whose every row verified (purge GC and catch-up read only these). */
   private async okThreads(): Promise<string[]> {
     return (await this.call({ op: 'okThreads' }))['threads'] as string[];
@@ -580,6 +622,39 @@ export class StateStore {
     return this.run(async () => {
       await this.call({ key, op: 'setting', value });
     });
+  }
+
+  /** One app setting's value, or undefined when it is unset. */
+  async getSetting(key: string): Promise<string | undefined> {
+    const value = (await this.call({ key, op: 'getSetting' }))['value'];
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  /** Removes one app setting; true when it existed. */
+  deleteSetting(key: string): Promise<boolean> {
+    return this.run(
+      async () => (await this.call({ key, op: 'deleteSetting' }))['deleted'] === true
+    );
+  }
+
+  /** Native metadata/WM/OM use this same writer and mutation chain; transcript stays in the log. */
+  memory(request: MemoryDomainRequest): Promise<MemorySnapshot> {
+    const execute = async (): Promise<MemorySnapshot> => {
+      const reply = await this.call({ op: 'memory', request });
+      return reply['snapshot'] as MemorySnapshot;
+    };
+    return request.operation === 'read' ? execute() : this.run(execute);
+  }
+
+  /** MCP Tasks handles on this same writer: reads run directly, writes join the mutation chain. */
+  mcpTasks(request: McpTaskDomainRequest): Promise<McpTaskDomainReply> {
+    const execute = async (): Promise<McpTaskDomainReply> => {
+      const reply = await this.call({ op: 'mcp-tasks', request });
+      return { rows: reply['rows'] as McpTaskDomainReply['rows'] };
+    };
+    return request.operation === 'get' || request.operation === 'list-active'
+      ? execute()
+      : this.run(execute);
   }
 
   health(): { stateDamage: string | null; visibleErrors: Unreadable[] } {
@@ -644,13 +719,18 @@ export class StateStore {
       threadId: string;
       seq: number;
       hashes: string;
+      operation: 'event' | 'thread';
     }>;
     if (intents.length === 0) {
       return;
     }
     const indexer = this.requireIndexer('completing an interrupted purge');
     for (const i of intents) {
-      await this.completePurge(indexer, i.threadId, i.seq, JSON.parse(i.hashes) as string[]);
+      if (i.operation === 'thread') {
+        await this.completeThreadDelete(indexer, i.threadId, JSON.parse(i.hashes) as string[]);
+      } else {
+        await this.completePurge(indexer, i.threadId, i.seq, JSON.parse(i.hashes) as string[]);
+      }
     }
   }
 
@@ -659,21 +739,25 @@ export class StateStore {
     if (hashes.length === 0) {
       return [];
     }
+    // Held: the counts are taken at release. A holder may hold threads the indexer cannot yet read.
+    if (this.gcHolds > 0) {
+      for (const h of hashes) {
+        this.deferredGc.add(h);
+      }
+      return [];
+    }
     const counts = await indexer.gcCheck(await this.okThreads(), hashes);
+    // A damaged thread is outside the verified count, yet its rows still name blobs (RunLog.damagedBlobRefs).
+    const held = new Set((await this.call({ op: 'damagedBlobRefs' }))['hashes'] as string[]);
     const unlink: string[] = [];
     for (const h of hashes) {
       const count = counts[h];
       if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 0) {
         throw new Error(`indexer returned an invalid reference count for blob ${h}`);
       }
-      if (count !== 0) {
-        continue;
+      if (count === 0 && !held.has(h)) {
+        unlink.push(h);
       }
-      if (this.exportsInFlight > 0) {
-        this.deferredGc.add(h);
-        continue;
-      }
-      unlink.push(h);
     }
     if (unlink.length === 0) {
       return [];
@@ -684,10 +768,37 @@ export class StateStore {
   async deleteThread(threadId: string): Promise<string[]> {
     const indexer = this.requireIndexer('thread delete');
     return this.run(async () => {
-      await indexer.catchUp(await this.okThreads());
-      await this.call({ op: 'deleteThread', threadId });
-      return this.gc(indexer, await indexer.dropThread(threadId));
+      // A held collection counts at release, so nothing needs the indexer current now.
+      if (this.gcHolds === 0) {
+        await indexer.catchUp(await this.okThreads());
+      }
+      // Stored references, verified or not: a thread whose rows failed verification still deletes.
+      const hashes = (await this.call({ op: 'storedBlobRefs', threadId }))['hashes'] as string[];
+      const intent = await this.call({
+        hashes: JSON.stringify(hashes),
+        op: 'intentRecord',
+        operation: 'thread',
+        seq: 0,
+        threadId,
+      });
+      return this.completeThreadDelete(
+        indexer,
+        threadId,
+        JSON.parse(String(intent['hashes'])) as string[]
+      );
     });
+  }
+
+  private async completeThreadDelete(
+    indexer: IndexerPort,
+    threadId: string,
+    hashes: readonly string[]
+  ): Promise<string[]> {
+    await this.call({ op: 'deleteThread', threadId });
+    const references = await indexer.dropThread(threadId);
+    const deleted = await this.gc(indexer, [...new Set([...hashes, ...references])]);
+    await this.call({ op: 'intentDelete', seq: 0, threadId });
+    return deleted;
   }
 
   // ---- export / import ------------------------------------------------------------------------------------------------
@@ -702,7 +813,7 @@ export class StateStore {
       throw new Error(`export: ${bundleDir} already exists`);
     }
     mkdirSync(bundleDir, { recursive: true });
-    this.exportsInFlight++;
+    this.gcHolds++;
     try {
       await this.run(() => undefined); // the snapshot is not older than any write issued before this call
       await this.options.hooks?.exportAfterSnapshot?.();
@@ -733,13 +844,7 @@ export class StateStore {
       writeFileSync(join(bundleDir, 'manifest.json'), JSON.stringify(m, null, 1));
       return m;
     } finally {
-      this.exportsInFlight--;
-      if (this.exportsInFlight === 0 && this.deferredGc.size > 0) {
-        const pending = [...this.deferredGc];
-        this.deferredGc.clear();
-        const indexer = this.requireIndexer('blob GC');
-        await this.run(() => this.gc(indexer, pending));
-      }
+      await this.releaseGcHold();
     }
   }
 
@@ -814,11 +919,19 @@ export class StateStore {
   // ---- reset / close --------------------------------------------------------------------------------------------------
 
   private async shutdownWriter(): Promise<void> {
-    try {
-      await this.call({ op: 'close' }); // rejects if the store failed earlier: the error still reaches the caller
-    } finally {
-      this.closing = true;
-      await this.worker.terminate(); // better-sqlite3 closes every connection on the worker's environment teardown
+    const database = await Promise.allSettled([this.call({ op: 'close' })]);
+    this.closing = true;
+    // better-sqlite3 closes every connection on the worker's environment teardown.
+    // Preserve a database rejection even when physical termination also rejects.
+    const writer = await Promise.allSettled([this.worker.terminate()]);
+    const failures = [...database, ...writer]
+      .filter((result) => result.status === 'rejected')
+      .map((result) => result.reason);
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'StateStore database and writer cleanup failed');
     }
   }
 
@@ -828,7 +941,7 @@ export class StateStore {
    */
   reset(): Promise<void> {
     return this.run(async () => {
-      await this.options.indexer?.reset();
+      await this.indexer?.reset();
       await this.shutdownWriter();
       for (const n of STORE_ENTRIES) {
         rmSync(join(this.root, n), { force: true, recursive: true });
@@ -839,19 +952,21 @@ export class StateStore {
   }
 
   /** Waits for queued writes and in-flight boundary syncs, then releases the files and the lock. */
-  async close(): Promise<void> {
-    if (this.closed) {
-      return;
-    }
+  close(): Promise<void> {
+    this.closeTask ??= this.closed ? Promise.resolve() : this.closeOwned();
+    return this.closeTask;
+  }
+
+  private async closeOwned(): Promise<void> {
     this.closed = true;
     await this.chain;
     while (this.inflight.size) {
       await Promise.allSettled([...this.inflight]);
     }
-    try {
-      await this.shutdownWriter();
-    } finally {
-      this.lock.release();
-    }
+    // BST-1977: a failed physical join cannot authorize Root release, and every
+    // caller retains the original close promise rather than an early success.
+    // https://github.com/seandearnaley/brainstrike/pull/3543#issuecomment-6053571110
+    await this.shutdownWriter();
+    this.lock.release();
   }
 }

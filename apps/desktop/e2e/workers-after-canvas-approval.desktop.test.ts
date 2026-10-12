@@ -1,11 +1,13 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { Page } from '@playwright/test';
+import type { HostLogRow } from '@brainstrike/agent-host/protocol';
+import { foldHostRuns } from '@brainstrike/agent-host/thread-view';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { configureAssistantProvider } from './utils/assistant-mock';
+import { type HostThreadLog, readHostThreadTree } from './utils/agent-host-log';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { startModelProviderShim } from './utils/model-provider-shim';
 
@@ -25,151 +27,78 @@ interface CheckpointRow {
   readonly threadId: string;
 }
 
-interface ThreadRunRow {
-  readonly completedAt: string | null;
-  readonly status: string;
-  readonly threadId: string;
-}
-
-async function readExplorerRunStatuses(page: Page, rootThreadId: string): Promise<string[]> {
-  return await page.evaluate(async (threadId) => {
-    const api = (
-      globalThis as {
-        electronAPI?: {
-          db?: {
-            query?: (
-              sql: string,
-              params?: readonly unknown[]
-            ) => Promise<{ rows: { status: string }[] }>;
-          };
-        };
-      }
-    ).electronAPI;
-    if (!api?.db?.query) {
-      throw new Error('Native database bridge unavailable');
-    }
-    return (
-      await api.db.query(
-        `SELECT DISTINCT ON (child.thread_id) run.status
-           FROM brainstrike_delegated_conversations child
-           JOIN brainstrike_assistant_thread_runs run ON run.thread_id = child.thread_id
-          WHERE child.parent_thread_id = $1
-          ORDER BY child.thread_id, run.started_at DESC, run.id DESC`,
-        [threadId]
-      )
-    ).rows.map((row) => row.status);
-  }, rootThreadId);
-}
-
-async function assertCanvasAndExplorerSiblings(page: Page, rootThreadId: string): Promise<void> {
-  await page.evaluate(
-    async ({ threadId, title }) => {
-      const api = (
-        globalThis as {
-          electronAPI?: {
-            db?: {
-              query?: (
-                sql: string,
-                params?: readonly unknown[]
-              ) => Promise<{ rows: Record<string, unknown>[] }>;
-            };
-          };
-        }
-      ).electronAPI;
-      if (!api?.db?.query) {
-        throw new Error('Native database bridge unavailable');
-      }
-      const canvas = await api.db.query(
-        'SELECT version FROM brainstrike_canvas_versions WHERE thread_id = $1 AND title = $2',
-        [threadId, title]
-      );
-      if (canvas.rows.length !== 1 || canvas.rows[0]?.['version'] !== 1) {
-        throw new Error('Root canvas was not durably created before the Worker dispatch');
-      }
-      const explorers = await api.db.query(
-        `SELECT child.thread_id AS "threadId"
-           FROM brainstrike_delegated_conversations child
-           JOIN brainstrike_delegated_invocations invocation ON invocation.thread_id = child.thread_id
-          WHERE child.parent_thread_id = $1 AND invocation.persona_id = 'explore'
-          ORDER BY child.created_at, child.thread_id`,
-        [threadId]
-      );
-      if (explorers.rows.length !== 2) {
-        throw new Error(`Expected two persisted Explorer siblings, got ${explorers.rows.length}`);
-      }
-    },
-    { threadId: rootThreadId, title: CANVAS_TITLE }
+/** The top-level thread the user sent to: the one the host lists children under. */
+function rootLog(tree: readonly HostThreadLog[]): HostThreadLog {
+  const roots = tree.filter(
+    ({ parentThreadId, threadId }) =>
+      parentThreadId === undefined && tree.some((log) => log.parentThreadId === threadId)
   );
-}
-
-async function readWorkerCheckpoints(page: Page, rootThreadId: string): Promise<CheckpointRow[]> {
-  return await page.evaluate(async (threadId) => {
-    const api = (
-      globalThis as {
-        electronAPI?: {
-          db?: {
-            query?: (
-              sql: string,
-              params?: readonly unknown[]
-            ) => Promise<{ rows: CheckpointRow[] }>;
-          };
-        };
-      }
-    ).electronAPI;
-    if (!api?.db?.query) {
-      throw new Error('Native database bridge unavailable');
-    }
-    return (
-      await api.db.query(
-        `SELECT checkpoint.path,
-                checkpoint.thread_id AS "threadId",
-                child.display_name AS "childName",
-                child.color,
-                child.parent_thread_id AS "parentThreadId",
-                (run.thread_id = checkpoint.thread_id AND run.resource_id = checkpoint.resource_id) AS owned
-           FROM brainstrike_assistant_edit_checkpoints checkpoint
-           JOIN brainstrike_assistant_thread_runs run ON run.id = checkpoint.run_id
-           LEFT JOIN brainstrike_delegated_conversations child ON child.thread_id = checkpoint.thread_id
-          WHERE checkpoint.path IN ('alpha-output.txt', 'beta-output.txt')
-            AND (child.root_thread_id = $1 OR checkpoint.thread_id = $1)
-          ORDER BY checkpoint.path`,
-        [threadId]
-      )
-    ).rows;
-  }, rootThreadId);
-}
-
-async function readLatestThreadRuns(
-  page: Page,
-  threadIds: readonly string[]
-): Promise<ThreadRunRow[]> {
-  if (threadIds.length !== 3) {
-    throw new Error('Expected the root and exactly two Worker thread IDs');
+  if (roots.length !== 1) {
+    throw new Error(`Expected one delegating root thread, got ${roots.length}`);
   }
-  return await page.evaluate(async (ids) => {
-    const api = (
-      globalThis as {
-        electronAPI?: {
-          db?: {
-            query?: (sql: string, params?: readonly unknown[]) => Promise<{ rows: ThreadRunRow[] }>;
-          };
-        };
-      }
-    ).electronAPI;
-    if (!api?.db?.query) {
-      throw new Error('Native database bridge unavailable');
-    }
-    return (
-      await api.db.query(
-        `SELECT DISTINCT ON (thread_id)
-                thread_id AS "threadId", status, completed_at AS "completedAt"
-           FROM brainstrike_assistant_thread_runs
-          WHERE thread_id IN ($1, $2, $3)
-          ORDER BY thread_id, started_at DESC, id DESC`,
-        ids
-      )
-    ).rows;
-  }, threadIds);
+  return roots[0] as HostThreadLog;
+}
+
+/** How a thread's latest committed run ended, or `running`. */
+function latestOutcome(rows: readonly HostLogRow[]): string {
+  return foldHostRuns(rows).at(-1)?.status ?? 'running';
+}
+
+/** The persona a child thread was delegated under, from its committed origin. */
+function personaOf(log: HostThreadLog): string | undefined {
+  const started = log.rows[0]?.event;
+  return started?.type === 'thread.started' && 'origin' in started
+    ? started.origin.persona
+    : undefined;
+}
+
+async function readExplorerOutcomes(userDataDir: string): Promise<string[]> {
+  const tree = await readHostThreadTree(userDataDir);
+  const root = rootLog(tree);
+  return tree
+    .filter((log) => log.parentThreadId === root.threadId && personaOf(log) === 'explore')
+    .map(({ rows }) => latestOutcome(rows));
+}
+
+async function assertCanvasAndExplorerSiblings(userDataDir: string): Promise<void> {
+  const tree = await readHostThreadTree(userDataDir);
+  const root = rootLog(tree);
+  // The root's canvas is committed host tool state: one version, before the Workers.
+  const canvas = root.rows.flatMap(({ event }) =>
+    event.type === 'tool.state.updated' && event.key.startsWith('brainstrike.manageCanvas/')
+      ? [event.value]
+      : []
+  );
+  expect(canvas).toMatchObject([{ title: CANVAS_TITLE, version: 1 }]);
+  expect(
+    tree.filter((log) => log.parentThreadId === root.threadId && personaOf(log) === 'explore')
+  ).toHaveLength(2);
+}
+
+async function readWorkerCheckpoints(userDataDir: string): Promise<CheckpointRow[]> {
+  const tree = await readHostThreadTree(userDataDir);
+  const root = rootLog(tree);
+  return tree
+    .flatMap((log) => {
+      const runIds = new Set(foldHostRuns(log.rows).map(({ runId }) => runId));
+      return log.rows.flatMap(({ event }) =>
+        event.type === 'workspace.edit.recorded' &&
+        (event.path === 'alpha-output.txt' || event.path === 'beta-output.txt') &&
+        (log.threadId === root.threadId || log.parentThreadId === root.threadId)
+          ? [
+              {
+                childName: log.child?.callSign ?? null,
+                color: log.child?.color ?? null,
+                owned: runIds.has(event.runId),
+                parentThreadId: log.parentThreadId ?? null,
+                path: event.path,
+                threadId: log.threadId,
+              },
+            ]
+          : []
+      );
+    })
+    .sort((a, b) => a.path.localeCompare(b.path));
 }
 
 // Only the external model endpoint is scripted. The assistant host, native
@@ -302,25 +231,15 @@ test('canvas approval resume starts two new Workers on the same root turn @smoke
     Object.keys(environment).map((key) => [key, process.env[key]])
   );
   Object.assign(process.env, environment);
-  const assistantPosts: unknown[] = [];
   const failures: unknown[] = [];
+  // A reload must not call the model; count generations, not metadata reads.
+  const modelCalls = (): number => provider.requests().length;
   try {
     const window = await electron.ensureWindow();
     const assistantFailures: string[] = [];
     const recordAssistantFailure = (failure: string): void => {
       assistantFailures.push(failure);
     };
-    window.on('request', (request) => {
-      if (request.method() === 'POST' && new URL(request.url()).pathname === '/assistant') {
-        assistantPosts.push(request.postDataJSON());
-      }
-    });
-    window.on('response', (response) => {
-      const pathname = new URL(response.url()).pathname;
-      if (pathname.startsWith('/assistant') && response.status() >= 500) {
-        recordAssistantFailure(`${pathname}: HTTP ${response.status()}`);
-      }
-    });
     window.on('console', (message) => {
       if (
         /local thread history load failed|Assistant replay cannot replace durable message/iu.test(
@@ -342,6 +261,7 @@ test('canvas approval resume starts two new Workers on the same root turn @smoke
       compositeModelKey: 'openrouter::openai/gpt-5.4',
       provider: 'openrouter',
     });
+    await enableAssistantCatalogModel(window, 'openrouter::openai/gpt-5.4');
     await new HomePage(window).openSettings();
     await new SettingsPage(window).openCategory(/Permissions/i, 'permissions');
     await window
@@ -349,7 +269,7 @@ test('canvas approval resume starts two new Workers on the same root turn @smoke
       .selectOption('ask');
     await window.getByTestId('permission-policy-edit').selectOption('ask');
     await ensureAssistantShellVisible(window);
-    const root = window.getByTestId('chat-panel');
+    const root = window.getByRole('region', { exact: true, name: 'Assistant' });
     await root
       .getByRole('textbox', { name: 'Message input' })
       .fill(
@@ -363,24 +283,19 @@ test('canvas approval resume starts two new Workers on the same root turn @smoke
       name: 'Approve brainstrike.manageCanvas',
     });
     await expect(canvasApproval).toBeVisible();
-    const initialPost = assistantPosts[0] as
-      | { data?: { memory?: { threadId?: unknown } } }
-      | undefined;
-    const rootThreadId = initialPost?.data?.memory?.threadId;
-    if (typeof rootThreadId !== 'string') {
-      throw new Error('Initial assistant POST lacked a root thread ID');
-    }
+    const userDataDir = electron.getUserDataDir();
     await expect
-      .poll(async () => await readExplorerRunStatuses(window, rootThreadId))
+      .poll(async () => await readExplorerOutcomes(userDataDir))
       .toEqual(['completed', 'completed']);
-    const pausedRootPosts = assistantPosts.length;
+    const rootThreadId = rootLog(await readHostThreadTree(userDataDir)).threadId;
+    const pausedModelCalls = modelCalls();
     await window.reload();
     await ensureAssistantShellVisible(window);
     await expect(canvasApproval).toBeVisible();
-    expect(assistantPosts).toHaveLength(pausedRootPosts);
+    expect(modelCalls()).toBe(pausedModelCalls);
     await canvasApproval.click();
     await expect(root.getByTestId('approval-strip-count-edit')).toContainText('2 edits');
-    await assertCanvasAndExplorerSiblings(window, rootThreadId);
+    await assertCanvasAndExplorerSiblings(userDataDir);
     for (const worker of WORKERS) {
       await expect(readFile(path.join(workspace, worker.path), 'utf8')).rejects.toMatchObject({
         code: 'ENOENT',
@@ -392,12 +307,12 @@ test('canvas approval resume starts two new Workers on the same root turn @smoke
       .poll(
         async () => {
           assertAssistantHealthy();
-          return (await readWorkerCheckpoints(window, rootThreadId)).length;
+          return (await readWorkerCheckpoints(userDataDir)).length;
         },
         { timeout: 45_000 }
       )
       .toBe(2);
-    const checkpoints = await readWorkerCheckpoints(window, rootThreadId);
+    const checkpoints = await readWorkerCheckpoints(userDataDir);
     expect(checkpoints.map((row) => row.path)).toEqual(WORKERS.map((worker) => worker.path));
     expect(new Set(checkpoints.map((row) => row.threadId)).size).toBe(2);
     for (const checkpoint of checkpoints) {
@@ -421,27 +336,28 @@ test('canvas approval resume starts two new Workers on the same root turn @smoke
         .filter((turn) => turn.decision === 'tool:brainstrike_writeWorkspaceFile')
     ).toHaveLength(2);
     const completedThreadIds = [rootThreadId, ...checkpoints.map((row) => row.threadId)];
-    // The root's visible answer can precede its turn-end snapshot and durable
-    // run-status update. Wait for those commits before closing the DB host.
+    // The root's visible answer can precede its run's committed end; wait for
+    // the root and both Workers to end before closing the host.
     await expect
       .poll(
         async () => {
           assertAssistantHealthy();
-          const rows = await readLatestThreadRuns(window, completedThreadIds);
-          return completedThreadIds.map((threadId) => {
-            const row = rows.find((candidate) => candidate.threadId === threadId);
-            return row?.status === 'completed' && row.completedAt ? 'completed' : row?.status;
-          });
+          const tree = await readHostThreadTree(userDataDir);
+          return completedThreadIds.map((threadId) =>
+            latestOutcome(tree.find((log) => log.threadId === threadId)?.rows ?? [])
+          );
         },
         { timeout: 45_000 }
       )
       .toEqual(['completed', 'completed', 'completed']);
-    const terminalRuns = await readLatestThreadRuns(window, completedThreadIds);
-    expect(terminalRuns).toHaveLength(3);
-    expect(terminalRuns.every((row) => row.status === 'completed' && row.completedAt)).toBe(true);
-    // One user send plus read, canvas, and edit approval actions: no second
-    // root prompt or duplicate replay leg was needed to start the Workers.
-    expect(assistantPosts).toHaveLength(4);
+    // One user send; the read, canvas and edit decisions answered the same turn:
+    // no second root prompt or replayed leg was needed to start the Workers.
+    const rootRows = rootLog(await readHostThreadTree(userDataDir)).rows;
+    expect(
+      rootRows.filter(
+        ({ event }) => event.type === 'command.accepted' && event.method === 'run/start'
+      )
+    ).toHaveLength(1);
     expect(assistantFailures).toEqual([]);
   } catch (error) {
     failures.push(error);

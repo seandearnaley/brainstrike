@@ -3,12 +3,12 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { type McpTaskBridge, parseMcpTaskListResult } from '@brainstrike/assistant-contract';
 import type { Page, TestInfo } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { configureAssistantProvider } from './utils/assistant-mock';
+import { readCommittedMcpTasks } from './utils/agent-host-log';
+import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
 import { getBufferedElectronOutput } from './utils/electron-helpers.mts';
 import { runInteractiveChildFixture } from './utils/interactive-child-fixture';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
@@ -18,17 +18,6 @@ import { startModelProviderShim } from './utils/model-provider-shim';
 const SERVER_ID = 'pending-input';
 const TOOL_NAME = 'pending-input_start_task';
 const FINAL_TEXT = 'The task observation has returned.';
-
-async function readTasks(page: Page) {
-  const raw = await page.evaluate(async () => {
-    const host = window as Window & { mcp?: { tasks?: Pick<McpTaskBridge, 'list'> } };
-    if (!host.mcp?.tasks) {
-      throw new Error('Production MCP task read bridge is unavailable');
-    }
-    return await host.mcp.tasks.list();
-  });
-  return parseMcpTaskListResult(raw).tasks;
-}
 
 async function configureServer(page: Page, url: string): Promise<void> {
   await new HomePage(page).openSettings();
@@ -84,6 +73,8 @@ test('cancels a real MCP task while user input is pending (BST-1948)', async ({
   electron,
 }, testInfo) => {
   const identity = await buildIdentity();
+  // The host's StateStore rows; the window shows them through the agent host's task bridge.
+  const readTasks = () => readCommittedMcpTasks(electron.getUserDataDir());
   const workspace = await mkdtemp(path.join(os.tmpdir(), 'bst1948-input-cancel-'));
   const server = await startPendingInputFixture();
   const provider = await startModelProviderShim({
@@ -105,7 +96,7 @@ test('cancels a real MCP task while user input is pending (BST-1948)', async ({
         identity,
         provider: provider.transcript(),
         server: server.snapshot(),
-        tasks: await readTasks(page),
+        tasks: await readTasks(),
       });
     },
     closeProvider: async () => {
@@ -138,15 +129,15 @@ test('cancels a real MCP task while user input is pending (BST-1948)', async ({
         compositeModelKey: 'openrouter::openai/gpt-5.4',
         provider: 'openrouter',
       });
+      await enableAssistantCatalogModel(page, 'openrouter::openai/gpt-5.4');
       await ensureAssistantShellVisible(page);
       await beginTask(page, 'Start the task whose pending input I will cancel.');
       // The task-bound input is visible; its card projection updates only after
       // the interaction handler returns. Do not require that card to lead the modal.
-      const pending = await readTasks(page);
+      const pending = await readTasks();
       expect(pending).toHaveLength(1);
-      expect(pending[0]?.canCancel).toBe(true);
-      expect(pending[0]?.recovery).toBe('live');
-      const taskId = pending[0]?.handle.taskId;
+      expect(pending[0]?.status).toBe('input_required');
+      const taskId = pending[0]?.taskId;
       expect(taskId).toBeDefined();
       expect(
         server.snapshot().requests.filter(({ method }) => method === 'tasks/update')
@@ -169,12 +160,11 @@ test('cancels a real MCP task while user input is pending (BST-1948)', async ({
         dialog.getByRole('button', { name: /^Accept|^Decline|^Cancel MCP/u })
       ).toHaveCount(0);
       await expect(dialog).toContainText('no answer can be sent');
-      const afterAcknowledgement = await readTasks(page);
+      const afterAcknowledgement = await readTasks();
       expect(afterAcknowledgement[0]?.status).not.toBe('cancelled');
       await capture(page, 'cancel-acknowledged-input-withdrawn');
       server.releaseTerminalObservation();
-      await expect.poll(async () => (await readTasks(page))[0]?.status).toBe('cancelled');
-      await expect.poll(async () => (await readTasks(page))[0]?.canCancel).toBe(false);
+      await expect.poll(async () => (await readTasks())[0]?.status).toBe('cancelled');
       await dialog.getByRole('button', { name: /^Dismiss retired MCP request/u }).click();
       await expect(page.getByText(FINAL_TEXT, { exact: true })).toBeVisible({ timeout: 30_000 });
       await page.getByTestId('assistant-activity-summary').first().click();
@@ -190,7 +180,7 @@ test('cancels a real MCP task while user input is pending (BST-1948)', async ({
       await dialog.getByRole('checkbox', { name: /approved/i }).check();
       await dialog.getByRole('button', { name: /^Accept and send input/u }).click();
       await expect
-        .poll(async () => (await readTasks(page)).map(({ status }) => status))
+        .poll(async () => (await readTasks()).map(({ status }) => status))
         .toEqual(['cancelled', 'completed']);
       const updates = server.snapshot().requests.filter(({ method }) => method === 'tasks/update');
       expect(updates).toHaveLength(1);
@@ -204,7 +194,7 @@ test('cancels a real MCP task while user input is pending (BST-1948)', async ({
         pending,
         provider: provider.transcript(),
         server: server.snapshot(),
-        terminal: await readTasks(page),
+        terminal: await readTasks(),
       });
     },
     workspace,

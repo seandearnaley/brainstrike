@@ -1,12 +1,13 @@
 import type http from 'node:http';
 import { isSupportedProvider } from '@brainstrike/agent';
 import type { SupportedProvider } from '@brainstrike/agent/client';
-import type { ProviderKeySource } from '@brainstrike/assistant-contract';
+import type { ProviderCredential, ProviderKeySource } from '@brainstrike/assistant-contract';
 import type { ResolvedProviderCredential } from '@brainstrike/assistant-service/ports';
 import { createProviderApiKeyReader } from '@brainstrike/assistant-service/provider-credential-projection';
 import { inspectProviderKeys, readProviderCredential } from '../provider-api-key';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { respondToSecretReadError } from './secret-error-responses';
+import { TAVILY_SECRET_PROVIDER } from './tavily-key';
 
 /**
  * Typed credential reader (BST-1352): the desktop implementation of the
@@ -53,6 +54,20 @@ const providerApiKeyReader = createProviderApiKeyReader(resolveProviderCredentia
  */
 export async function resolveProviderApiKey(provider: string): Promise<string | undefined> {
   return await providerApiKeyReader(provider);
+}
+
+/**
+ * Main's legacy verification reader: env, then Main's read-only view of the
+ * profile store. Tavily verifies only in the host (`providers/verify`), from
+ * the host's own store; Main's Tavily reader serves web extract alone.
+ */
+export async function readMainVerificationCredential(
+  providerId: string
+): Promise<ProviderCredential | undefined> {
+  if (providerId === TAVILY_SECRET_PROVIDER) {
+    throw new Error('Tavily verification runs in the host, from its own credential store');
+  }
+  return await resolveProviderCredential(providerId);
 }
 
 export async function collectAvailableProviders(): Promise<{

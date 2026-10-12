@@ -22,10 +22,12 @@ import {
   type CanonicalCollectionDependencies,
   CanonicalUtilityParent,
 } from '../canonical-utility-parent';
+import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
+import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
-import { NativeCoverageObservationInvalidatedError } from '../native-coverage-observation-invalidated';
 import { createNativeIndexActivation } from '../native-index-activation';
+import { NativeIndexBlockedError } from '../native-index-blocked';
 import {
   createNativeScopedSearchCapability,
   type NativeSearchAuthority,
@@ -81,7 +83,6 @@ vi.mock('../sqlite-query-host-manager', () => ({
     };
   },
 }));
-
 const scope = { embeddingSetId: 'selected', kind: 'collection' } as const;
 const source = 'retained canonical marker';
 const contentHash = createHash('sha256').update(source).digest('hex');
@@ -162,7 +163,7 @@ async function fixture(withWorkspace = false) {
     await coverageGate.promise;
   });
   const receiptAssertions = createNativePublicationReceiptAssertions(native);
-  const expectReadiness = receiptAssertions.expectReadiness;
+  const { expectReadiness } = receiptAssertions;
   const writer = {
     ...native,
     prepareScopedFile: receiptAssertions.prepareScopedFile,
@@ -382,6 +383,7 @@ async function fixture(withWorkspace = false) {
     } as unknown as ApplicationIpcDomain,
     embedding: { documentEmbeddings: vi.fn() },
     onError,
+    profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
     storage: {
       getItem: async () =>
         JSON.stringify({
@@ -612,7 +614,6 @@ it('queues a newer inventory until the actual host and private channel join the 
     await test.close();
   }
 });
-
 it.each([false, true])(
   'refuses an actually missing native row through the actual host/channel with newer inventory=%s',
   async (newer) => {
@@ -646,7 +647,9 @@ it.each([false, true])(
       });
       await updating;
       await vi.waitFor(() => expect(test.onError).toHaveBeenCalled());
-      await expect(test.activation.acquireRead()).rejects.toThrow('Canonical native scan failed');
+      const blocked = await test.activation.acquireRead().catch((error: unknown) => error);
+      expect(blocked).toBeInstanceOf(NativeIndexBlockedError);
+      expect(blocked).toHaveProperty('cause', test.onError.mock.calls.at(-1)?.[1]);
       expect(test.manifests).toEqual([[], ['retained-0']]);
     } finally {
       await test.close();
@@ -681,7 +684,6 @@ it('observes catalog population before the initial collection scan so concurrent
     await test.close();
   }
 });
-
 it.each([false, true])(
   'preserves genuine aggregate verification failure across the actual host/channel with newer inventory=%s',
   async (newer) => {
@@ -715,7 +717,7 @@ it.each([false, true])(
         errors: [expect.objectContaining({ message: 'independent writer failure' })],
         message: 'genuine verification failure',
       });
-      await expect(test.activation.acquireRead()).rejects.toThrow('Canonical native scan failed');
+      await expect(test.activation.acquireRead()).rejects.toBe(test.onError.mock.calls[0]?.[1]);
       expect(test.manifests).toEqual([[], ['retained-0']]);
       test.expectReadiness(test.activation.getReadiness(), [
         { generation: 2, mutationRevision: 2, scanComplete: false, scope },
@@ -757,7 +759,6 @@ it('joins a queued inventory that reverts before the old verified scan settles w
     await test.close();
   }
 });
-
 it.each([false, true])(
   'keeps the admitted real native inventory during catalog loading with newer inventory=%s',
   async (newer) => {
@@ -916,8 +917,11 @@ it.each([false, true])(
           totals: { chunks: 0, indexedFiles: 0 },
         });
       } else {
-        expect(observation).toBeInstanceOf(NativeCoverageObservationInvalidatedError);
-        expect(observation).toHaveProperty('code', 'native-coverage-observation-invalidated');
+        expect(observation).toMatchObject({
+          storeId: beforeStore,
+          totals: { chunks: 0, indexedFiles: 0, missingVectors: 0, vectors: 0 },
+          vectorCoverageComplete: false,
+        });
         const currentNative = await test.native.coverageAuthority();
         expect(currentNative).toEqual(beforeNative);
         expect(before?.readiness).toEqual([

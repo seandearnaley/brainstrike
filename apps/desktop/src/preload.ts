@@ -5,6 +5,7 @@
 // graph, and build-main.mjs refuses a bundle that requires anything else.
 const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
+import { getFactoryResetUnavailableReason } from './factory-reset-availability';
 import { changesContract } from './ipc-domains/changes.contract';
 import { clipboardContract } from './ipc-domains/clipboard.contract';
 import { commandSessionsContract } from './ipc-domains/command-sessions.contract';
@@ -22,14 +23,7 @@ import { fileSystemContract, fileSystemWatchContract } from './ipc-domains/file-
 import { forgeContract } from './ipc-domains/forge.contract';
 import { gitContract } from './ipc-domains/git.contract';
 import { indexSearchContract } from './ipc-domains/index-search.contract';
-import {
-  mcpAppsContract,
-  mcpContentContract,
-  mcpContract,
-  mcpElicitationContract,
-  mcpPathSelectionContract,
-  mcpTasksContract,
-} from './ipc-domains/mcp.contract';
+import { mcpAppsContract, mcpPathSelectionContract } from './ipc-domains/mcp.contract';
 import { notesVaultContract } from './ipc-domains/notes-vault.contract';
 import { skillsContract } from './ipc-domains/skills.contract';
 import {
@@ -47,16 +41,27 @@ import { MAIN_OWNED_DESKTOP_STORAGE_KEYS } from './platform/desktop-storage-auth
 import { createBridgeExposer, createIpcBridge } from './platform/ipc-bridge';
 import { decodeNativeEmbeddingWorkerPlan } from './platform/native-embedding-validation';
 
-type McpContentIpcResponse = import('./ipc-domains/mcp.contract').McpContentIpcResponse;
-type McpHostSnapshot = import('@brainstrike/assistant-contract').McpHostSnapshot;
-type McpAppBridge = import('@brainstrike/assistant-contract').McpAppBridge;
-type McpAppOrigin = import('@brainstrike/assistant-contract').McpAppOrigin;
-type McpTaskBridge = import('@brainstrike/assistant-contract').McpTaskBridge;
+type McpAppShellBridge = import('@brainstrike/assistant-contract').McpAppShellBridge;
 const SECRETS_CLEAR_CONFIRMATION_TOKEN = 'CONFIRM_CLEAR_SECRETS';
 // Contract-derived bridges (BST-1648): `exposeBridge(name, contract)` exposes
 // exactly `Object.keys(contract)`, each routed to its manifest channel with
 // the ONE `IpcResult` unwrap. Pinned by preload-contract-bridges.test.ts.
 const exposeBridge = createBridgeExposer({ contextBridge, ipcRenderer });
+// Only the visible preload receives this client transport. Main authorizes the
+// requesting frame before transferring a port; the host authenticates commands.
+contextBridge.exposeInMainWorld('agentHost', {
+  connect: (requestId: string): Promise<void> =>
+    ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.hostConnect, requestId),
+});
+ipcRenderer.on(
+  DESKTOP_IPC_CHANNELS.agent.hostConnected,
+  (event: { ports: readonly MessagePort[] }, payload: unknown) => {
+    window.postMessage({ payload, type: 'agent-host/connected' }, '*', [...event.ports]);
+  }
+);
+ipcRenderer.on(DESKTOP_IPC_CHANNELS.agent.hostDisconnected, (_event: unknown, payload: unknown) => {
+  window.postMessage({ payload, type: 'agent-host/disconnected' }, '*');
+});
 // This set only selects the E2E-only seed channel; MAIN validates the exact
 // authoritative allowlist again on every call.
 const MAIN_OWNED_DESKTOP_STORAGE_KEYS_FOR_E2E = new Set<string>(MAIN_OWNED_DESKTOP_STORAGE_KEYS);
@@ -109,52 +114,6 @@ import {
 // below intentionally duplicate `file-read-errors.ts`; conformance tests
 // source-evaluate this preload's own constants and predicate.
 const FILE_READ_ERROR_CODE_TOO_LARGE = 'TOO_LARGE' as const;
-/**
- * `mcp:content:*` failures travel as a result envelope (a thrown Error would
- * reach the renderer as Electron's formatted string, main-process stack
- * included). Rebuild a clean Error carrying only the fixed taxonomy.
- */
-const unwrapMcpContent = async (
-  response: Promise<McpContentIpcResponse>
-): Promise<Extract<McpContentIpcResponse, { ok: true }>['result']> => {
-  const settled = await response;
-  if (settled.ok) {
-    return settled.result;
-  }
-  throw Object.assign(
-    new Error(`${settled.error.message} (${settled.error.category} · ${settled.error.code})`),
-    { category: settled.error.category, code: settled.error.code }
-  );
-};
-
-const readMcpAppResource = async (origin: McpAppOrigin): Promise<string> => {
-  const snapshot = (await mcpRootBridge.getServerStatusSnapshot()) as McpHostSnapshot;
-  const server = snapshot.servers.find(
-    ({ configuredServerId }) => configuredServerId === origin.serverId
-  );
-  if (!server) {
-    throw new Error(`MCP Apps server "${origin.serverId}" has no live content authority`);
-  }
-  const response = await unwrapMcpContent(
-    mcpContentBridge.readResource({
-      authority: { configuredServerId: origin.serverId, generation: server.generation },
-      uri: origin.resourceUri,
-    })
-  );
-  if (response.type !== 'resources/read') {
-    throw new Error('MCP Apps resource read returned an unexpected operation type');
-  }
-  const content = response.result.contents.find(({ uri }) => uri === origin.resourceUri);
-  if (!(content && 'text' in content) || typeof content.text !== 'string') {
-    throw new Error(`MCP Apps resource "${origin.resourceUri}" has no text content`);
-  }
-  if (content.mimeType !== origin.mimeType) {
-    throw new Error(
-      `MCP Apps resource "${origin.resourceUri}" MIME type must be "${origin.mimeType}"`
-    );
-  }
-  return content.text;
-};
 const DESKTOP_TEST_MODE =
   process.argv.includes('--test-mode') || process.env['ELECTRON_IS_E2E_TEST'] === 'true';
 const EXTERNAL_LOCAL_RUNTIME_PROBES_DISABLED =
@@ -204,10 +163,10 @@ function subscribeToDbLiveUpdates(callback: DbLiveUpdateCallback): () => void {
   };
 }
 
-const databaseBridge = createIpcBridge(
-  ipcRenderer,
-  databaseContract
-) as unknown as VisibleDesktopElectronApi['db'];
+const databaseBridge = {
+  ...createIpcBridge(ipcRenderer, databaseContract),
+  factoryResetUnavailableReason: getFactoryResetUnavailableReason(process.platform),
+} as unknown as VisibleDesktopElectronApi['db'];
 const databasePathBridge: DatabasePathBridge = createIpcBridge(ipcRenderer, databasePathContract);
 const databaseLiveBridge: DatabaseLiveBridge = {
   ...createIpcBridge(ipcRenderer, databaseLiveContract),
@@ -529,28 +488,14 @@ contextBridge.exposeInMainWorld('agent', {
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.agent.chat, messages, runtime),
 });
 
-// MCP Config API (desktop-only). The channel methods and subscriptions are
-// derived from pure contracts. `apps.readResource` stays a composed preload
-// operation: it resolves the live server generation before using the content
-// contract, so there is intentionally no dedicated IPC channel for it.
-const mcpRootBridge = createIpcBridge(ipcRenderer, mcpContract);
+// The MCP config picker and MCP App shell (desktop-only), derived from pure
+// contracts. MCP settings, status, Tasks cards, global server input and
+// content, an App's document included, belong to the agent host.
 const mcpPathSelectionBridge = createIpcBridge(ipcRenderer, mcpPathSelectionContract);
-const mcpContentBridge = createIpcBridge(ipcRenderer, mcpContentContract);
-const mcpElicitationBridge = createIpcBridge(ipcRenderer, mcpElicitationContract);
 const mcpAppsBridge = createIpcBridge(ipcRenderer, mcpAppsContract);
-const mcpTasksBridge = createIpcBridge(ipcRenderer, mcpTasksContract);
 contextBridge.exposeInMainWorld('mcp', {
-  ...mcpRootBridge,
   ...mcpPathSelectionBridge,
-  apps: {
-    ...mcpAppsBridge,
-    readResource: (origin: McpAppOrigin) => readMcpAppResource(origin),
-  } satisfies McpAppBridge,
-  complete: (request: unknown) => unwrapMcpContent(mcpContentBridge.complete(request)),
-  getPrompt: (request: unknown) => unwrapMcpContent(mcpContentBridge.getPrompt(request)),
-  readResource: (request: unknown) => unwrapMcpContent(mcpContentBridge.readResource(request)),
-  ...mcpElicitationBridge,
-  tasks: mcpTasksBridge satisfies McpTaskBridge,
+  apps: mcpAppsBridge satisfies McpAppShellBridge,
 });
 
 // Assistant selection events. Tool execution deliberately stays behind the
@@ -1200,17 +1145,17 @@ if (shouldExposeBridge('browser')) {
 }
 
 // Hooks trust-review bridge (desktop). Capability-gated: the Hooks settings
-// panel reads a project root's `.brainstrike/hooks.json` (content + sha256) to
-// display before the user approves it. The server remains the trust authority.
+// panel reads a project root's `.brainstrike/hooks.json` (content + sha256 and
+// the host's trust) to display before the user approves it. The agent host owns
+// the trust and re-hashes the file on every approval and every run.
 if (shouldExposeBridge('hooks')) {
   contextBridge.exposeInMainWorld('hooks', {
     getProjectHooksForReview: (rootId: string, absPath: string) =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.hooks.getProjectHooksForReview, rootId, absPath),
-    // Maps mounted-root absolute paths → their DB `roots.id` so the assistant
-    // wrapper can SCOPE the hook-trust attestation to currently-mounted roots
-    // (a disconnected root's grant is never presented to the server).
-    resolveTrustedRootIds: (absPaths: readonly string[]) =>
-      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.hooks.resolveTrustedRootIds, absPaths),
+    trustProjectHooks: (absPath: string, sha256: string) =>
+      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.hooks.trustProjectHooks, absPath, sha256),
+    untrustProjectHooks: (absPath: string) =>
+      ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.hooks.untrustProjectHooks, absPath),
   });
 }
 

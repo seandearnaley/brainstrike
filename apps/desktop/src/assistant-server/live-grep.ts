@@ -3,9 +3,11 @@ import path from 'node:path';
 import type { RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import type { GrepMatch, LineMatcher } from '@brainstrike/db';
 import { collectGrepMatchesInContent } from '@brainstrike/db';
+import { createAgentIgnoreGuard } from '@brainstrike/host-capabilities/agent-ignore-guard';
+import { walkWorkspaceRoot } from '@brainstrike/host-capabilities/workspace-file-walk';
+import { isWithinRoot } from '@brainstrike/host-capabilities/workspace-path';
 import { createLogger } from '@brainstrike/logging';
 import { createBackgroundIndexingEntryPolicy } from '@brainstrike/utils';
-import { createAgentIgnoreGuard } from './agent-ignore-guard';
 import { resolveScopedGrepFile } from './live-grep-files';
 import { buildLiveNote } from './live-grep-note';
 import {
@@ -15,8 +17,6 @@ import {
   resolveRipgrepPrefilterLiteral,
   runRipgrep,
 } from './live-grep-ripgrep';
-import { walkWorkspaceRoot } from './workspace-file-walk';
-import { isWithinRoot } from './workspace-path';
 
 // The ripgrep execution layer lives in live-grep-ripgrep.ts (BST-1246 split);
 // its public surface is re-exported here so existing consumers keep importing

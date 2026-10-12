@@ -2,14 +2,12 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { MAX_HOOKS_CONFIG_BYTES, sha256OfFile } from '@brainstrike/host-capabilities/hooks';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { MAX_HOOKS_CONFIG_BYTES } from '../../assistant-server/hooks/config';
-import { sha256OfFile } from '../../assistant-server/hooks/trust';
 import {
   type DbRootLite,
   getProjectHooksForReview,
   resolveDbRootForPath,
-  resolveTrustedRootIds,
 } from '../../ipc-hooks-handlers';
 
 function sha256(content: string): string {
@@ -228,20 +226,5 @@ describe('resolveDbRootForPath (containment)', () => {
       { id: 'inner', path: '/ws/a' },
     ];
     expect(resolveDbRootForPath('/ws/a/x', nested, identity)?.id).toBe('inner');
-  });
-});
-
-describe('resolveTrustedRootIds', () => {
-  const roots: DbRootLite[] = [{ id: 'db-a', path: '/ws/a' }];
-  const resolve = (absPath: string): DbRootLite | null =>
-    resolveDbRootForPath(absPath, roots, (p) => p);
-
-  it('maps mounted paths to DB ids and drops unresolved paths', () => {
-    const result = resolveTrustedRootIds(['/ws/a', '/ws/gone', 'relative'], resolve);
-    expect(result).toEqual([{ dbRootId: 'db-a', path: '/ws/a' }]);
-  });
-
-  it('returns an empty list for a non-array input', () => {
-    expect(resolveTrustedRootIds(undefined, resolve)).toEqual([]);
   });
 });

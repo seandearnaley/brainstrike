@@ -6,6 +6,7 @@ import {
 } from '@brainstrike/host-lease';
 import { ForeignLockError, RootLockedError } from '@brainstrike/state-store';
 import { decodeHostLeaseControl, decodeHostLeaseParentMessage } from './host-lease-control';
+import { installHostLifetimePort } from './host-lifetime-port';
 
 async function main(): Promise<void> {
   const parent = process.parentPort;
@@ -14,9 +15,11 @@ async function main(): Promise<void> {
   }
   let host: HostRuntime | undefined;
   let stopRequested = false;
+  const controller = new AbortController();
   let controlFailure: unknown;
   const stop = (): void => {
     stopRequested = true;
+    controller.abort(new Error('Host process cancelled'));
     host?.close().catch((cause: unknown) => {
       process.stderr.write(`${String(cause)}\n`);
       process.exitCode = 1;
@@ -24,6 +27,9 @@ async function main(): Promise<void> {
   };
   const message = (input: unknown): void => {
     try {
+      if (installHostLifetimePort(input, stop)) {
+        return;
+      }
       decodeHostLeaseControl(decodeHostLeaseParentMessage(input).data);
       stop();
     } catch (cause) {
@@ -36,7 +42,7 @@ async function main(): Promise<void> {
   process.once('SIGINT', stop);
   try {
     const options = decodeStartOptions(JSON.parse(process.argv[2] ?? 'null'));
-    host = await startHost(options);
+    host = await startHost(options, undefined, controller.signal);
     if (stopRequested) {
       await host.close();
     } else {

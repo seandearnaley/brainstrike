@@ -3,12 +3,13 @@ import os from 'node:os';
 import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
 import type { ToolInputError } from '@brainstrike/assistant-contract';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import {
   EDIT_FAILURE_HINT_MESSAGE,
   resetToolCallLoopGuards,
-} from '../../assistant-server/tool-call-loop-guards';
+} from '@brainstrike/host-capabilities/native-tools';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { disposeLspServers } from '../../assistant-server/lsp-diagnostics';
 import { requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 import { createWorkspaceFixture } from './_workspace-fixture';
 
@@ -102,6 +103,7 @@ describe('assistant-tools write tools', () => {
         );
         expect(onDisk).toBe('export const created = true;\n');
       } finally {
+        await disposeLspServers();
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });
@@ -451,6 +453,7 @@ describe('assistant-tools write tools', () => {
         );
         expect(onDisk).toBe('export const add = () => 2;\n');
       } finally {
+        await disposeLspServers();
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });
@@ -478,6 +481,7 @@ describe('assistant-tools write tools', () => {
         expect(onDisk).not.toContain('return   1');
         expect(onDisk.startsWith('function f() {')).toBe(true);
       } finally {
+        await disposeLspServers();
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });
@@ -507,6 +511,7 @@ describe('assistant-tools write tools', () => {
         expect(onDisk).toContain('retries: 5');
         expect(onDisk).not.toContain('retries: 3');
       } finally {
+        await disposeLspServers();
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });
@@ -647,6 +652,7 @@ describe('assistant-tools write tools', () => {
         const onDisk = await fsPromises.readFile(filePath, 'utf8');
         expect(onDisk).toBe('const a = 10;\nconst b = 20;\n');
       } finally {
+        await disposeLspServers();
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     });

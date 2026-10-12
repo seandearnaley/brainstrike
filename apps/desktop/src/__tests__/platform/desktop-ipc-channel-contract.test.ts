@@ -81,7 +81,7 @@ function listProductionTypeScriptFiles(directory: string): string[] {
 describe('desktop IPC channel contract', () => {
   it('keeps shared platform channel constants owned by the central catalog', () => {
     const workspaceContextToolsSource = readFileSync(
-      path.join(SOURCE_ROOT, 'assistant-server', 'workspace-context-tools.ts'),
+      path.join(SOURCE_ROOT, 'assistant-server', 'workspace-context-broadcast.ts'),
       'utf8'
     );
     const dbSharedSource = readFileSync(path.join(SOURCE_ROOT, 'db-shared.ts'), 'utf8');
@@ -160,6 +160,7 @@ describe('desktop IPC channel contract', () => {
       cancelAllBackfills: EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL,
       cancelBackfill: EMBEDDING_HOST_CANCEL_BACKFILL_CHANNEL,
       cancelDocumentEmbeddings: 'embedding-host:cancel-document-embeddings',
+      cancelQueryEmbedding: 'embedding-host:cancel-query-embedding',
       command: EMBEDDING_HOST_COMMAND_EVENT,
       documentEmbeddings: EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_CHANNEL,
       documentEmbeddingsCancel: EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_CANCEL_EVENT,

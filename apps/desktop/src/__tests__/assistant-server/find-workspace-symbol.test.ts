@@ -1,5 +1,5 @@
+import { findSymbolMatches } from '@brainstrike/host-capabilities/native-tools';
 import { describe, expect, it, vi } from 'vitest';
-import { findSymbolMatches } from '../../assistant-server/find-workspace-symbol';
 
 const TS = `import x from 'y';
 

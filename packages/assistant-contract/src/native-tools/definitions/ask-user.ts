@@ -26,6 +26,7 @@ export const askUser = defineNativeTool({
   // suspending-tool factory (`createAskUserTool`) registers this exact object.
   inputSchema: AskUserInputSchema,
   kind: 'desktop',
+  localProvider: 'unregistered',
   returns: "The user's answer as a string (multi-select answers are comma-joined).",
   surfaces: ['desktop', 'web'],
 });

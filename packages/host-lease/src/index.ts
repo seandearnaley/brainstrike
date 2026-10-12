@@ -8,10 +8,13 @@ export {
 export { createNodeHostSpawner, type NodeSpawnerOptions } from './node-spawner.js';
 export { decodeHostRecord, HOST_VERSION, type HostRecord, PROTOCOL_VERSION } from './record.js';
 export { acquireProfileResetLease, type ProfileResetLease } from './reset-root.js';
+export { ResourceOwner } from './resource-owner.js';
 export {
   decodeStartOptions,
   type HostLifetime,
   type HostRuntime,
+  type HostRuntimeBindings,
+  type HostSocketLifecycle,
   type HostStartOptions,
   startHost,
 } from './runtime.js';

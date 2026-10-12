@@ -163,6 +163,7 @@ vi.mock('../assistant-chat-panel', () => ({
     const roots = use(RootsContext);
     return <div data-has-root-owner={roots !== null} data-testid="assistant-chat-shell" />;
   },
+  AssistantProviderStatusProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 
 // The palette host pulls in the DB, theme, and command registry; this

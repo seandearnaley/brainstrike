@@ -1,8 +1,4 @@
 import type {
-  McpContentApplicationRequest,
-  McpContentApplicationResult,
-} from '@brainstrike/assistant-service/mcp-content-application-port';
-import type {
   WorkspaceIndexingIdleState,
   WorkspaceIndexingPowerSource,
   WorkspaceIndexingThermalState,
@@ -43,23 +39,13 @@ import type {
   VisibleEmbeddingHostBridge,
 } from './desktop-electron-api';
 
-// `mcp:content:*` (BST-1585): the renderer sends the verb payload plus
-// authority; main forces the operation type per channel.
-type McpContentBridgeRequest<Type extends McpContentApplicationRequest['type']> = Omit<
-  Extract<McpContentApplicationRequest, { type: Type }>,
-  'type'
->;
-type McpContentBridgeResult<Type extends McpContentApplicationResult['type']> = Extract<
-  McpContentApplicationResult,
-  { type: Type }
->;
-
 // Type definitions for the Electron API exposed via contextBridge
 declare global {
   interface Window {
     agent: {
       chat: <T = unknown>(messages: T[], runtime?: unknown) => Promise<unknown[]>; // StreamChunk[] shape
     };
+    agentHost?: { connect(requestId: string): Promise<void> };
     /**
      * Desktop-only subagent persona discovery bridge. Absent on web (no
      * preload) — consumers MUST capability-check `window.assistantPersonas`.
@@ -181,7 +167,8 @@ declare global {
      * proof keeps it equal to app-shell's `GitBridge`.
      */
     git?: Bridge<typeof gitContract>;
-    indexSearch?: import('@brainstrike/indexing-contract/indexer-client').IndexSearchCapability;
+    indexSearch?: import('@brainstrike/indexing-contract/indexer-client').IndexSearchCapability &
+      import('@brainstrike/indexing-contract/indexer-client').IndexRootRegistrationCapability;
     llmHost: {
       ensureStarted: () => Promise<LlmHostStatus>;
       stop: () => Promise<LlmHostStatus>;

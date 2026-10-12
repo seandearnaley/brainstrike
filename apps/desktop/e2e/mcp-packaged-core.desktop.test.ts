@@ -452,19 +452,46 @@ async function describeAssistantState(
 }
 async function executeAssistantTool(
   page: Page,
-  modelProvider: Awaited<ReturnType<typeof startModelProviderShim>>
+  modelProvider: Awaited<ReturnType<typeof startModelProviderShim>>,
+  testInfo: TestInfo
 ): Promise<void> {
   await page.keyboard.press('Escape');
   await configureAssistantProvider(page, {
     compositeModelKey: 'openrouter::openai/gpt-5.4',
     provider: 'openrouter',
   });
+  // Renderer selection alone does not enable the catalog row Main admits.
+  // Use the same ordinary DB bridge as the saved Models setting, scoped to
+  // this existing model in the disposable packaged profile.
+  const catalog = await page.evaluate(async () => {
+    const db = window.electronAPI?.db;
+    if (!db) {
+      throw new Error('The ordinary desktop catalog DB bridge is unavailable');
+    }
+    const selection = ['openai/gpt-5.4', 'openrouter'];
+    const query =
+      'SELECT id, provider_id AS "providerId", is_enabled AS "isEnabled" FROM models WHERE id = $1 AND provider_id = $2';
+    const before = await db.query(query, selection);
+    await db.query(
+      'UPDATE models SET is_enabled = true WHERE id = $1 AND provider_id = $2',
+      selection
+    );
+    const after = await db.query(query, selection);
+    return { after: after.rows, before: before.rows };
+  });
+  await testInfo.attach('packaged-assistant-saved-catalog', {
+    body: JSON.stringify(catalog, null, 2),
+    contentType: 'application/json',
+  });
+  expect(catalog.after).toEqual([
+    { id: 'openai/gpt-5.4', isEnabled: true, providerId: 'openrouter' },
+  ]);
   await ensureAssistantShellVisible(page);
   const input = page.getByRole('textbox', { name: 'Message input' });
   await expect(input).toBeVisible({ timeout: 30_000 });
   await input.fill('Run the packaged modern MCP proof.');
   await page.getByRole('button', { exact: true, name: 'Send' }).click();
-  const approval = page.getByTestId('assistant-tool-approval-notice');
+  const approval = page.getByRole('group', { exact: true, name: 'Tool approval legacy.echo' });
   const completed = page.getByText('Packaged MCP tool completed.').first();
   const approvalVisible = approval
     .waitFor({ state: 'visible', timeout: 45_000 })
@@ -485,27 +512,15 @@ async function executeAssistantTool(
       `MCP tool bypassed approval or failed before suspension:\n${await describeAssistantState(page, modelProvider)}`
     );
   }
-  await approval.getByRole('button', { name: /Approve/u }).click();
+  await approval.getByRole('button', { exact: true, name: 'Approve legacy.echo' }).click();
   await expect(completed).toBeVisible({ timeout: 90_000 });
-  const activity = page
-    .getByTestId('assistant-activity-group')
-    .filter({ hasText: 'legacy.echo' })
-    .last();
-  // Turn-finished sync: the group is collapsed at all times since BST-1679,
-  // so `aria-expanded` resolves immediately and proves nothing.
-  await expect(activity).toHaveAttribute('data-state', 'done');
-  const summary = activity.getByTestId('assistant-activity-summary');
-  await summary.click();
-  const toolCard = activity.getByTestId('tool-fallback').filter({ hasText: 'legacy.echo' }).last();
+  // Committed approval cards retain answered history outside the activity
+  // disclosure. Require the actual tool row to settle before reading its result.
+  const toolCard = page.getByTestId('tool-fallback').filter({ hasText: 'legacy.echo' }).last();
+  await expect(toolCard.getByTestId('activity-step-row')).toHaveAttribute('data-state', 'done');
   await expect(toolCard.getByRole('img', { name: 'Completed' })).toBeVisible();
-  // BST-1682 (WCAG 2.5.3 Label in Name): the row's accessible name now leads
-  // with its visible content ("Called legacy.echo packaged-assistant-payload,
-  // expand details" — `extractPrimaryArg` falls back to the first
-  // string-valued arg, and this call's arg is `{ text: ASSISTANT_TOOL_PAYLOAD
-  // }`), so the affordance is matched as a substring — an `exact: true`
-  // equality here would never resolve again. `.first()` keeps the locator as
-  // tight as the old `exact: true` was: a substring match alone would trip
-  // Playwright's strict mode if the card ever grows a nested expandable row.
+  // The accessible name leads with the visible tool and payload. Match the
+  // details affordance within this completed card, keeping its first row tight.
   await toolCard
     .getByRole('button', { name: /expand details/i })
     .first()
@@ -527,8 +542,7 @@ async function executeElicitationTool(
   const input = page.getByRole('textbox', { name: 'Message input' });
   await input.fill('Run the packaged MCP elicitation proof.');
   await page.getByRole('button', { exact: true, name: 'Send' }).click();
-  // The first proof's resolved approval notice (disabled Approve) stays in the
-  // thread, so target this tool's own Approve button rather than `.last()`.
+  // Target this tool's public approval rather than another card in history.
   const approve = page.getByRole('button', { exact: true, name: 'Approve oauth.elicit_confirm' });
   await approve.waitFor({ state: 'visible', timeout: 90_000 });
   await approve.click();
@@ -548,19 +562,11 @@ async function executeElicitationTool(
   await expect(page.getByText('Packaged MCP elicitation completed.').first()).toBeVisible({
     timeout: 90_000,
   });
-  const activity = page
-    .getByTestId('assistant-activity-group')
-    .filter({ hasText: 'oauth.elicit_confirm' })
-    .last();
-  // Turn-finished sync: the group is collapsed at all times since BST-1679,
-  // so `aria-expanded` resolves immediately and proves nothing.
-  await expect(activity).toHaveAttribute('data-state', 'done');
-  const summary = activity.getByTestId('assistant-activity-summary');
-  await summary.click();
-  const toolCard = activity
+  const toolCard = page
     .getByTestId('tool-fallback')
     .filter({ hasText: 'oauth.elicit_confirm' })
     .last();
+  await expect(toolCard.getByTestId('activity-step-row')).toHaveAttribute('data-state', 'done');
   await expect(toolCard.getByRole('img', { name: 'Completed' })).toBeVisible();
   // BST-1682 (WCAG 2.5.3 Label in Name): substring match, `.first()` keeps
   // the locator single-match the way `exact: true` used to (see the sibling
@@ -740,12 +746,18 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     const firstStdioPid = await readOwnedPid(stdioPidFile);
     await verifyDiagnosticFailure(first.window, diagnosticControlDirectory);
     await expectOwnedProcessGone(await readOwnedPid(diagnosticPidFile));
+    // The crash proof is complete. Restore the configured fixture through the
+    // ordinary Retry action before admission, which requires discovery from
+    // every configured MCP server rather than silently skipping a failed one.
+    await disarmDiagnosticFaults(diagnosticControlDirectory, diagnosticControlPath);
+    await first.window.getByRole('button', { exact: true, name: 'Retry diagnostic-stdio' }).click();
+    await waitForServerState(first.window, 'diagnostic-stdio', /Connected/i);
     await connectOAuthThroughNativeBrowser(first.window, oauth);
     await new SettingsPage(first.window).openCategory(/Permissions/i, 'permissions');
     const permission = first.window.getByRole('combobox', { name: 'MCP permission' });
     await permission.selectOption('ask');
     await expect(permission).toHaveValue('ask');
-    await executeAssistantTool(first.window, modelProvider);
+    await executeAssistantTool(first.window, modelProvider, testInfo);
     await executeElicitationTool(first.window, modelProvider);
     await verifyComposerPromptSelection(first.window);
     await closePackagedDesktop(first);
@@ -794,7 +806,7 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
       failures: [],
       loopbackPortsClosed: 1,
       probesClosed: 0,
-      subscriptionsClosed: 1,
+      subscriptionsClosed: 0,
     });
     expect(firstCloseReport['childProcessesClosed']).toBeGreaterThanOrEqual(3);
     expect(firstCloseReport['clientsClosed']).toBeGreaterThanOrEqual(6);
@@ -803,7 +815,6 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     const bindingsBeforeRestart = await readOAuthLoopbackBindings(userDataDir);
     const firstLaunchLoopbackPort = bindingsBeforeRestart.at(-1)?.['port'];
     expect(typeof firstLaunchLoopbackPort).toBe('number');
-    await disarmDiagnosticFaults(diagnosticControlDirectory, diagnosticControlPath);
     restarted = await launchPackagedDesktop({ environment, userDataDir });
     deferCleanup(async () => {
       if (restarted) {
@@ -843,55 +854,62 @@ test('renderer reaches production MCP and lifecycle paths @packaged @destructive
     ).toEqual([]);
     await new HomePage(restarted.window).openSettings();
     await new SettingsPage(restarted.window).openCategory(/Factory Reset/i, 'factory-reset');
-    await restarted.window.evaluate(() => {
-      window.confirm = () => true;
-    });
-    const replacementLoaded = restarted.window.waitForEvent('domcontentloaded', {
-      timeout: 60_000,
-    });
-    await restarted.window.getByTestId('factory-reset-button').click();
-    await replacementLoaded;
-    await openToolsSettings(restarted.window);
-    await restarted.window.getByRole('tab', { name: 'Tools' }).click();
-    await expect(restarted.window.getByTestId('mcp-server-status-empty')).toHaveText(
-      'No MCP servers configured.'
-    );
-    await expectOwnedProcessGone(restartedStdioPid);
-    const resetEvidence = (
-      await findLogRecords(userDataDir, 'brainstrike.log', 'MCP runtime reset cleanup completed')
-    ).at(-1);
-    // Counts include the oauth server this phase reconnected: one more client,
-    // its provider's extra callback, and the loopback port that provider owns.
-    expect(resetEvidence).toMatchObject({
-      hostCloseReport: {
-        callbacksClosed: 6,
-        childProcessesClosed: 2,
-        clientsClosed: 5,
-        failures: [],
-        loopbackPortsClosed: 1,
-        probesClosed: 0,
-        subscriptionsClosed: 0,
-      },
-      legacyClientsClosed: true,
-      snapshot: { servers: [] },
-    });
-    const resetCloseReport = Reflect.get(resetEvidence ?? {}, 'hostCloseReport') as CloseReport;
-    expect(resetCloseReport['requestsSettled']).toBeGreaterThanOrEqual(3);
-    const afterResetDiagnostics = await readLifecycleDiagnostics(restarted.window);
-    expect(afterResetDiagnostics.reset).toMatchObject({
-      lastCompletedAt: expect.any(String),
-      lastError: null,
-      status: 'completed',
-    });
-    expect(afterResetDiagnostics.hostPid).not.toBe(beforeResetDiagnostics.hostPid);
-    await configureThroughUi(
-      restarted.window,
-      JSON.stringify({ servers: [oauthServer(oauth.manifest.url)] })
-    );
-    await waitForServerState(restarted.window, 'oauth', /authentication-required/i);
-    await expect(serverRow(restarted.window, 'oauth')).toContainText(
-      'OAuth credentials not stored'
-    );
+    if (process.platform === 'win32') {
+      await expect(restarted.window.getByTestId('factory-reset-button')).toBeDisabled();
+      await expect(
+        restarted.window.getByText('Factory reset is unavailable on Windows in this version.')
+      ).toBeVisible();
+    } else {
+      await restarted.window.evaluate(() => {
+        window.confirm = () => true;
+      });
+      const replacementLoaded = restarted.window.waitForEvent('domcontentloaded', {
+        timeout: 60_000,
+      });
+      await restarted.window.getByTestId('factory-reset-button').click();
+      await replacementLoaded;
+      await openToolsSettings(restarted.window);
+      await restarted.window.getByRole('tab', { name: 'Tools' }).click();
+      await expect(restarted.window.getByTestId('mcp-server-status-empty')).toHaveText(
+        'No MCP servers configured.'
+      );
+      await expectOwnedProcessGone(restartedStdioPid);
+      const resetEvidence = (
+        await findLogRecords(userDataDir, 'brainstrike.log', 'MCP runtime reset cleanup completed')
+      ).at(-1);
+      // Counts include the oauth server this phase reconnected: one more client,
+      // its provider's extra callback, and the loopback port that provider owns.
+      expect(resetEvidence).toMatchObject({
+        hostCloseReport: {
+          callbacksClosed: 6,
+          childProcessesClosed: 2,
+          clientsClosed: 5,
+          failures: [],
+          loopbackPortsClosed: 1,
+          probesClosed: 0,
+          subscriptionsClosed: 0,
+        },
+        legacyClientsClosed: true,
+        snapshot: { servers: [] },
+      });
+      const resetCloseReport = Reflect.get(resetEvidence ?? {}, 'hostCloseReport') as CloseReport;
+      expect(resetCloseReport['requestsSettled']).toBeGreaterThanOrEqual(3);
+      const afterResetDiagnostics = await readLifecycleDiagnostics(restarted.window);
+      expect(afterResetDiagnostics.reset).toMatchObject({
+        lastCompletedAt: expect.any(String),
+        lastError: null,
+        status: 'completed',
+      });
+      expect(afterResetDiagnostics.hostPid).not.toBe(beforeResetDiagnostics.hostPid);
+      await configureThroughUi(
+        restarted.window,
+        JSON.stringify({ servers: [oauthServer(oauth.manifest.url)] })
+      );
+      await waitForServerState(restarted.window, 'oauth', /authentication-required/i);
+      await expect(serverRow(restarted.window, 'oauth')).toContainText(
+        'OAuth credentials not stored'
+      );
+    }
   } catch (error) {
     testFailed = true;
     failure = error;

@@ -84,6 +84,70 @@ describe('M0-A1 S', () => {
     await s.close();
   });
 
+  test('terminal rows and their FULL marker are visible together before delivery', async () => {
+    const root = newRoot();
+    const { s, spans } = await open(root);
+    const observed: unknown[] = [];
+    try {
+      await s.append(
+        [{ event: { outcome: 'completed', runId: 'r', type: 'run.finished' }, threadId: 't' }],
+        () => {
+          const db = new Database(join(root, STATE_DB), { readonly: true });
+          try {
+            observed.push(
+              db
+                .prepare(
+                  'SELECT e.type, e.seq, s.seq AS synced FROM run_events e JOIN run_sync s ON s.thread_id = e.thread_id'
+                )
+                .all()
+            );
+          } finally {
+            db.close();
+          }
+        },
+        'full'
+      );
+      expect(observed).toEqual([[{ seq: 1, synced: 1, type: 'run.finished' }]]);
+      expect(spans.map((span) => span.kind)).toEqual(['FULL commit']);
+      await s.append([{ event: ev('ordinary streaming'), threadId: 't' }]);
+      expect(spans).toHaveLength(1);
+    } finally {
+      await s.close();
+    }
+  });
+
+  test('a rejected FULL marker rolls back its terminal row and never delivers success', async () => {
+    const root = newRoot();
+    const initialized = await StateStore.open(root);
+    await initialized.close();
+    const fixture = new Database(join(root, STATE_DB));
+    fixture.exec(
+      "CREATE TRIGGER reject_full_marker BEFORE INSERT ON run_sync BEGIN SELECT RAISE(ABORT, 'terminal FULL rejected'); END"
+    );
+    fixture.close();
+    const s = await StateStore.open(root);
+    let delivered = false;
+    try {
+      await expect(
+        s.append(
+          [{ event: { outcome: 'completed', runId: 'r', type: 'run.finished' }, threadId: 't' }],
+          () => {
+            delivered = true;
+          },
+          'full'
+        )
+      ).rejects.toThrow('terminal FULL rejected');
+      expect(delivered).toBe(false);
+      expect(count(join(root, STATE_DB))).toBe(0);
+      await expect(s.read('t')).rejects.toThrow('terminal FULL rejected');
+      await expect(s.append([{ event: ev('later'), threadId: 't' }])).rejects.toThrow(
+        'terminal FULL rejected'
+      );
+    } finally {
+      await expect(s.close()).rejects.toThrow('terminal FULL rejected');
+    }
+  });
+
   test('S-ckpt: once the WAL holds >= checkpointPages frames, the boundary op checkpoints (PASSIVE) before its FULL commit', async () => {
     const { s, spans } = await open(newRoot(), { checkpointPages: 8 });
     for (let i = 0; i < 20; i++) {

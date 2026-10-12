@@ -13,7 +13,7 @@ let writer: IndexWriter;
 try {
   const options = validateIndexerOptions(workerData);
   const projection = options.stateProjection
-    ? await loadStateProjection(options.stateProjection)
+    ? await loadStateProjection(options.stateProjection, options.stateRoot)
     : undefined;
   writer = new IndexWriter(options, projection);
   port.postMessage({ kind: 'ready', value: writer.info });
@@ -27,6 +27,30 @@ try {
       stateOperation = request.op.startsWith('state-');
       let value: unknown;
       switch (request.op) {
+        case 'state-observation-prepare':
+          value = writer.requireState().observations.prepare(request.payload);
+          break;
+        case 'state-observation-upsert':
+          value = writer.requireState().observations.upsert(request.payload);
+          break;
+        case 'state-observation-query':
+          value = writer.requireState().observations.query(request.payload);
+          break;
+        case 'state-observation-purge':
+          value = writer.requireState().observations.purge(request.payload);
+          break;
+        case 'state-message-prepare':
+          value = writer.requireState().messages.prepare(request.payload);
+          break;
+        case 'state-message-upsert':
+          value = writer.requireState().messages.upsert(request.payload);
+          break;
+        case 'state-message-query':
+          value = writer.requireState().messages.query(request.payload);
+          break;
+        case 'state-message-purge':
+          value = writer.requireState().messages.purge(request.payload);
+          break;
         case 'state-health':
           decoder(Schema.Null)(request.payload);
           value = writer.requireState().health();
@@ -36,6 +60,21 @@ try {
           break;
         case 'state-match':
           value = writer.requireState().match(request.payload);
+          break;
+        case 'state-search':
+          value = writer.requireState().search(request.payload);
+          break;
+        case 'state-search-pending':
+          value = writer.requireState().searchPending(request.payload);
+          break;
+        case 'state-search-vectors':
+          value = writer.requireState().putSearchVectors(request.payload);
+          break;
+        case 'state-search-coverage':
+          value = writer.requireState().searchCoverage(request.payload);
+          break;
+        case 'state-search-similar':
+          value = writer.requireState().searchSimilar(request.payload);
           break;
         case 'state-rebuild':
           value = writer.requireState().rebuild(request.payload);

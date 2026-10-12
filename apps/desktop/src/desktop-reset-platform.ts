@@ -1,7 +1,7 @@
 import type { ProfileResetLease } from '@brainstrike/host-lease';
 import { RootLock } from '@brainstrike/state-store';
 import { disposeActiveBrowserPaneViews } from './browser/browser-pane-host';
-import { clearBrowserPaneSession } from './browser/browser-session';
+import { clearDesktopBrowserSessions } from './browser/browser-session';
 import { resetDesktopApplicationData } from './desktop-factory-reset';
 
 export interface DesktopResetRuntime {
@@ -11,14 +11,15 @@ export interface DesktopResetRuntime {
 
 export interface DesktopResetLogger {
   readonly error: (message: string, error: unknown) => void;
+  readonly info: (message: string) => void;
 }
 
 export interface CreateDesktopFactoryResetHandlerOptions {
   readonly cleanupLiveSubscriptionsForShutdown: () => Promise<void>;
   /** Replaces the stale visible renderer and resolves only after its explicit
    * renderer-ready acknowledgement. MCP admission remains closed while this
-   * promise is pending. */
-  readonly completeSuccessfulReset: () => Promise<void>;
+   * promise is pending. Terminal quit cancels readiness through the signal. */
+  readonly completeSuccessfulReset: (signal: AbortSignal) => Promise<void>;
   /** Every on-disk path the durable NDJSON error-log backstop (Flight
    * Recorder P2a) can occupy — forwarded to `resetDesktopApplicationData` so
    * factory reset purges it alongside the database, even though it lives
@@ -30,9 +31,19 @@ export interface CreateDesktopFactoryResetHandlerOptions {
   /** Clears the long-lived main-process storage cache after userData has been
    * deleted, before a replacement renderer can read or repersist stale data. */
   readonly resetPersistentStorageAfterDataDeletion: () => Promise<void>;
-  readonly resumeAfterReset?: (outcome: 'failed' | 'succeeded') => Promise<void>;
+  readonly resumeAfterReset?: (
+    outcome: 'failed' | 'succeeded',
+    signal: AbortSignal
+  ) => Promise<void>;
+  /** The same Main transition queue owns retirement, purge and reopen; the
+   * reset owner retains its accepted request while waiting for this admission. */
+  readonly runTransition: (
+    work: () => Promise<DesktopFactoryResetResult>
+  ) => Promise<DesktopFactoryResetResult>;
   readonly runtimes: readonly DesktopResetRuntime[];
   readonly runWithDatabaseResetBarrier: (work: () => Promise<void>) => Promise<void>;
+  /** Electron owns this dedicated container; clear its sessions before purge. */
+  readonly sessionDataPath: string;
   readonly userDataPath: string;
   readonly waitForDatabaseWorkSchedulerIdle: () => Promise<void>;
 }
@@ -40,6 +51,20 @@ export interface CreateDesktopFactoryResetHandlerOptions {
 export interface DesktopFactoryResetResult {
   message?: string;
   success: boolean;
+}
+
+export interface DesktopFactoryReset {
+  /** Joins accepted deletion with its original failure, cancels replacement
+   * startup and refuses new resets. */
+  close(): Promise<void>;
+  /**
+   * Settles once no reset is in flight, its reopen included. A reset retires the
+   * profile only until it reopens it: whoever needs the profile meanwhile waits.
+   */
+  idle(): Promise<void>;
+  /** The accepted reset, including its reopen or original failed outcome. */
+  inFlight(): Promise<DesktopFactoryResetResult> | null;
+  reset(): Promise<DesktopFactoryResetResult>;
 }
 
 type ResetFailure =
@@ -63,19 +88,24 @@ async function resumeDesktopResetRuntime({
   rendererReplacementSucceeded,
   resetDataSucceeded,
   resumeAfterReset,
+  signal,
 }: {
+  signal: AbortSignal;
   failure: ResetFailure;
   rendererReplacementSucceeded: boolean;
   resetDataSucceeded: boolean;
   resumeAfterReset: CreateDesktopFactoryResetHandlerOptions['resumeAfterReset'];
 }): Promise<ResetFailure> {
-  if (resetDataSucceeded && !rendererReplacementSucceeded) {
+  if (signal.aborted || (resetDataSucceeded && !rendererReplacementSucceeded)) {
     return failure;
   }
   try {
-    await resumeAfterReset?.(resetDataSucceeded ? 'succeeded' : 'failed');
+    await resumeAfterReset?.(resetDataSucceeded ? 'succeeded' : 'failed', signal);
     return failure;
   } catch (error) {
+    if (signal.aborted && error === signal.reason) {
+      return failure;
+    }
     return {
       error: failure.kind === 'none' ? error : combineResetFailure(failure.error, error),
       kind: 'failed',
@@ -144,10 +174,13 @@ export function createDesktopFactoryResetHandler({
   resetPersistentStorageAfterDataDeletion,
   resumeAfterReset,
   runtimes,
+  runTransition,
   runWithDatabaseResetBarrier,
+  sessionDataPath,
   userDataPath,
   waitForDatabaseWorkSchedulerIdle,
-}: CreateDesktopFactoryResetHandlerOptions): () => Promise<DesktopFactoryResetResult> {
+}: CreateDesktopFactoryResetHandlerOptions): DesktopFactoryReset {
+  const shutdown = new AbortController();
   let profileResetLease: ProfileResetLease | null = null;
   const runReset = async (): Promise<DesktopFactoryResetResult> => {
     let failure: ResetFailure = NO_RESET_FAILURE;
@@ -160,7 +193,7 @@ export function createDesktopFactoryResetHandler({
           if (!profileResetLease || profileResetLease.isReleased) {
             throw new Error('Desktop factory reset requires an owned profile reset lease');
           }
-          return [RootLock.dirOf(profileResetLease.root)];
+          return [RootLock.dirOf(profileResetLease.root), sessionDataPath];
         },
         resetDatabaseProfile: async () => {
           await resetDesktopDatabaseProfile({
@@ -180,10 +213,10 @@ export function createDesktopFactoryResetHandler({
           // view can rewrite cookies/localStorage into `persist:browser-pane`
           // between the clear and the reset's reload, leaving site state behind
           // (codex P1) — disposing the views makes the storage quiescent before
-          // we wipe it. The partition itself is also deleted on disk with the
-          // userData directory below.
+          // we wipe it. Electron owns the live session container; its API
+          // clears both sessions without renaming Chromium's locked files.
           disposeActiveBrowserPaneViews();
-          await clearBrowserPaneSession();
+          await clearDesktopBrowserSessions();
         },
         userDataPath,
       });
@@ -191,35 +224,81 @@ export function createDesktopFactoryResetHandler({
       await resetPersistentStorageAfterDataDeletion();
       profileResetLease?.release();
       profileResetLease = null;
-      await completeSuccessfulReset();
-      rendererReplacementSucceeded = true;
+      if (!shutdown.signal.aborted) {
+        await completeSuccessfulReset(shutdown.signal);
+        rendererReplacementSucceeded = !shutdown.signal.aborted;
+      }
     } catch (error) {
       failure = { error, kind: 'failed' };
     }
 
-    // A failed purge must restore the pre-reset runtime snapshot. A successful
+    // While continuing the app, a failed purge restores its runtime snapshot. A successful
     // purge may reopen only after the replacement renderer explicitly reports
-    // ready. If renderer replacement itself fails, keep admission closed.
+    // ready. Terminal quit never reopens; unrelated failures stay visible.
     failure = await resumeDesktopResetRuntime({
       failure,
       rendererReplacementSucceeded,
       resetDataSucceeded,
       resumeAfterReset,
+      signal: shutdown.signal,
     });
     if (failure.kind === 'failed') {
-      const message =
-        failure.error instanceof Error ? failure.error.message : String(failure.error);
       logger.error('Failed to reset desktop application data:', failure.error);
-      return { message, success: false };
+      throw failure.error;
     }
 
+    logger.info('Desktop factory reset completed');
     return { success: true };
   };
-  let resetInFlight: Promise<DesktopFactoryResetResult> | null = null;
-  return async () => {
-    resetInFlight ??= runReset().finally(() => {
-      resetInFlight = null;
-    });
-    return await resetInFlight;
+  let resetInFlight: {
+    readonly completion: Promise<DesktopFactoryResetResult>;
+    readonly result: Promise<DesktopFactoryResetResult>;
+  } | null = null;
+  return {
+    // Quit joins accepted deletion but cancels replacement readiness/startup.
+    // The same signal fences subsequent reset requests; purge never observes it.
+    close: async () => {
+      shutdown.abort(new Error('Factory reset replacement cancelled by terminal quit'));
+      await resetInFlight?.completion;
+    },
+    idle: async () => {
+      while (resetInFlight) {
+        await resetInFlight.result;
+      }
+    },
+    inFlight: () => resetInFlight?.result ?? null,
+    reset: () => {
+      if (shutdown.signal.aborted) {
+        return Promise.resolve({
+          message: 'The app is quitting: the factory reset did not start.',
+          success: false,
+        });
+      }
+      if (resetInFlight) {
+        return resetInFlight.result;
+      }
+      let admitted = false;
+      const completion = runTransition(() => {
+        admitted = true;
+        return runReset();
+      });
+      // Only the renderer boundary converts an accepted reset's rejection to a
+      // result envelope. Terminal close must join its original completion.
+      const result = completion
+        .catch((error: unknown): DesktopFactoryResetResult => {
+          if (!admitted) {
+            throw error;
+          }
+          return {
+            message: error instanceof Error ? error.message : String(error),
+            success: false,
+          };
+        })
+        .finally(() => {
+          resetInFlight = null;
+        });
+      resetInFlight = { completion, result };
+      return result;
+    },
   };
 }

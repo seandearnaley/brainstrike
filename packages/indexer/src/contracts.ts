@@ -87,6 +87,11 @@ export const optionsSchema = Schema.Struct({
   rootIds: Schema.Array(nonblank),
   scopes: Schema.optional(Schema.Array(scopeSchema)),
   stateProjection: Schema.optional(stateProjectionOptionsSchema),
+  // Root/resource acquisition only: each vector request carries its complete
+  // profile, and vectors are partitioned by that profile's hash.
+  stateResources: Schema.optional(
+    Schema.Array(Schema.Struct({ resourceId: nonblank, rootId: nonblank }))
+  ),
   stateRoot: Schema.optional(nonblank),
 });
 export type IndexerOptions = typeof optionsSchema.Type;
@@ -97,6 +102,108 @@ export const stateGcSchema = Schema.Struct({
   threads: stateThreadsSchema,
 });
 export const stateMatchSchema = Schema.Struct({ query: nonblank, threadId: nonblank });
+/** Gap 10: one committed event's searchable conversation text, as its producer projects it. */
+export const stateSearchRowSchema = Schema.NullOr(
+  Schema.Struct({
+    role: Schema.Literals(['user', 'assistant']),
+    runId: nonblank,
+    text: nonblank,
+  })
+);
+export type StateSearchRow = typeof stateSearchRowSchema.Type;
+export const stateSearchSchema = Schema.Struct({
+  limit: positive.check(Schema.isLessThanOrEqualTo(100)),
+  query: nonblank,
+  threadIds: Schema.Array(nonblank),
+});
+export type StateSearch = typeof stateSearchSchema.Type;
+export const stateSearchHitSchema = Schema.Struct({
+  /** FTS5 bm25: lower is a better match. */
+  rank: Schema.Finite,
+  role: Schema.Literals(['user', 'assistant']),
+  runId: nonblank,
+  seq: positive,
+  /** The matched text with each match wrapped in `<mark>`. */
+  snippet: Schema.String,
+  threadId: nonblank,
+});
+export type StateSearchHit = typeof stateSearchHitSchema.Type;
+/**
+ * The semantic arm: search rows of the requested threads that have no vector
+ * under `profile` for their current text, oldest first. The caller embeds
+ * `text` and returns each vector with its row's `sourceHash`.
+ */
+export const stateSearchPendingSchema = Schema.Struct({
+  limit: positive.check(Schema.isLessThanOrEqualTo(64)),
+  profile: vectorProfileSchema,
+  threadIds: Schema.Array(nonblank),
+});
+export type StateSearchPending = typeof stateSearchPendingSchema.Type;
+export const stateSearchPendingRowSchema = Schema.Struct({
+  seq: positive,
+  /** sha256 of `text`; a vector is stored only while its row still holds that text. */
+  sourceHash: hash,
+  text: nonblank,
+  threadId: nonblank,
+});
+export type StateSearchPendingRow = typeof stateSearchPendingRowSchema.Type;
+/** Each backlog row's vector, or why the caller could not embed it. */
+export const stateSearchVectorBatchSchema = Schema.Struct({
+  profile: vectorProfileSchema,
+  rows: Schema.Array(
+    Schema.Union([
+      Schema.Struct({
+        seq: positive,
+        sourceHash: hash,
+        threadId: nonblank,
+        vector: Schema.Array(Schema.Finite),
+      }),
+      Schema.Struct({ error: nonblank, seq: positive, sourceHash: hash, threadId: nonblank }),
+    ])
+  ),
+});
+export type StateSearchVectorBatch = typeof stateSearchVectorBatchSchema.Type;
+/** `stale` rows changed or disappeared after they were read; nothing was stored for them. */
+export const stateSearchVectorsResultSchema = Schema.Struct({
+  failed: nonnegative,
+  stale: nonnegative,
+  stored: nonnegative,
+});
+export const stateSearchCoverageSchema = Schema.Struct({
+  profile: vectorProfileSchema,
+  threadIds: Schema.Array(nonblank),
+});
+export type StateSearchCoverageRequest = typeof stateSearchCoverageSchema.Type;
+/**
+ * The threads' rows, those with a vector under the profile, and those whose
+ * last embedding failed within the retry window (legacy's `embedding_error`).
+ */
+export const stateSearchCoverageResultSchema = Schema.Struct({
+  embedded: nonnegative,
+  errored: nonnegative,
+  rows: nonnegative,
+});
+export type StateSearchCoverage = typeof stateSearchCoverageResultSchema.Type;
+export type StateSearchVectorsResult = typeof stateSearchVectorsResultSchema.Type;
+export const stateSearchSimilarSchema = Schema.Struct({
+  limit: positive.check(Schema.isLessThanOrEqualTo(100)),
+  profile: vectorProfileSchema,
+  threadIds: Schema.Array(nonblank),
+  /** Minimum cosine similarity, as legacy thread search's vector arm. */
+  threshold: Schema.Finite.check(Schema.isBetween({ maximum: 1, minimum: -1 })),
+  vector: Schema.Array(Schema.Finite),
+});
+export type StateSearchSimilar = typeof stateSearchSimilarSchema.Type;
+export const stateSearchSimilarHitSchema = Schema.Struct({
+  role: Schema.Literals(['user', 'assistant']),
+  runId: nonblank,
+  /** Cosine similarity: higher is a better match. */
+  score: Schema.Finite,
+  seq: positive,
+  text: nonblank,
+  threadId: nonblank,
+});
+export type StateSearchSimilarHit = typeof stateSearchSimilarHitSchema.Type;
 export const stateHealthSchema = Schema.Struct({ indexerErrors: Schema.Array(Schema.String) });
 export const stateCountsSchema = Schema.Record(Schema.String, nonnegative);
 export const stateStatsSchema = Schema.Struct({
@@ -326,6 +433,136 @@ export const scopedCommitSchema = Schema.Struct({
   embeddings: Schema.Array(Schema.Struct({ chunkId: hash, vector: flexibleVector })),
   profile: vectorProfileSchema,
 });
+/** Root grants come only from acquisition; thread membership comes from State truth. */
+export const stateMessageScopeSchema = Schema.Struct({
+  resourceId: nonblank,
+  rootId: nonblank,
+  threadId: nonblank,
+});
+export type StateMessageScope = typeof stateMessageScopeSchema.Type;
+export const stateMessageIdentitySchema = Schema.Struct({ messageId: nonblank, seq: positive });
+export type StateMessageIdentity = typeof stateMessageIdentitySchema.Type;
+export const stateMessagePrepareSchema = Schema.Struct({
+  messages: Schema.Array(stateMessageIdentitySchema).check(Schema.isMinLength(1)),
+  profile: vectorProfileSchema,
+  scope: stateMessageScopeSchema,
+});
+export type StateMessagePrepare = typeof stateMessagePrepareSchema.Type;
+export const stateMessagePlanSchema = Schema.Struct({
+  ...stateMessagePrepareSchema.fields,
+  generation: nonnegative,
+  storeId: hash,
+  truthHash: hash,
+});
+export type StateMessagePlan = typeof stateMessagePlanSchema.Type;
+export const stateMessageUpsertSchema = Schema.Struct({
+  embeddings: Schema.Array(
+    Schema.Struct({
+      messageId: nonblank,
+      vectors: Schema.Array(flexibleVector).check(Schema.isMinLength(1)),
+    })
+  ),
+  plan: stateMessagePlanSchema,
+});
+export type StateMessageUpsert = typeof stateMessageUpsertSchema.Type;
+export const stateMessageQuerySchema = Schema.Struct({
+  limit: positive.check(Schema.isLessThanOrEqualTo(100)),
+  profile: vectorProfileSchema,
+  scope: stateMessageScopeSchema,
+  threadIds: Schema.optional(Schema.Array(nonblank)),
+  vector: flexibleVector,
+});
+export type StateMessageQuery = typeof stateMessageQuerySchema.Type;
+export const stateMessageHitSchema = Schema.Struct({
+  ...stateMessageIdentitySchema.fields,
+  score: Schema.Finite,
+  segmentOrdinal: nonnegative,
+  threadId: nonblank,
+});
+export type StateMessageHit = typeof stateMessageHitSchema.Type;
+export const stateMessageUpsertResultSchema = Schema.Array(
+  Schema.Struct({
+    ...stateMessageIdentitySchema.fields,
+    segmentOrdinal: nonnegative,
+  })
+);
+export type StateMessageUpsertResult = typeof stateMessageUpsertResultSchema.Type;
+export const stateMessagePurgeSchema = Schema.Struct({
+  resourceId: nonblank,
+  rootId: nonblank,
+  threadId: Schema.optional(nonblank),
+});
+export type StateMessagePurge = typeof stateMessagePurgeSchema.Type;
+/** Existing native OM group identity; never a canonical message identity. */
+export type StateObservationScope = StateMessageScope;
+export const stateObservationGroupSchema = Schema.Struct({
+  groupId: nonblank,
+  range: nonblank,
+  text: nonblank,
+  threadId: nonblank,
+});
+export type StateObservationGroup = typeof stateObservationGroupSchema.Type;
+const observationDate = Schema.String.check(
+  Schema.makeFilter((value) => {
+    const date = new Date(value);
+    return Number.isFinite(date.getTime()) && date.toISOString() === value;
+  })
+);
+export const stateObservationSourceSchema = Schema.Struct({
+  ...stateObservationGroupSchema.fields,
+  observedAt: Schema.optional(observationDate),
+});
+export type StateObservationSource = typeof stateObservationSourceSchema.Type;
+export const stateObservationPrepareSchema = Schema.Struct({
+  observation: stateObservationSourceSchema,
+  profile: vectorProfileSchema,
+  scope: stateMessageScopeSchema,
+});
+export type StateObservationPrepare = typeof stateObservationPrepareSchema.Type;
+export const stateObservationPlanSchema = Schema.Struct({
+  ...stateObservationPrepareSchema.fields,
+  chunks: Schema.Array(nonblank).check(Schema.isMinLength(1)),
+  generation: nonnegative,
+  recordIds: Schema.Array(nonblank).check(Schema.isMinLength(1)),
+  storeId: hash,
+  truthHash: hash,
+});
+export type StateObservationPlan = typeof stateObservationPlanSchema.Type;
+export const stateObservationUpsertSchema = Schema.Struct({
+  plan: stateObservationPlanSchema,
+  segments: Schema.Array(Schema.Struct({ id: nonblank, text: nonblank, vector: flexibleVector })),
+});
+export type StateObservationUpsert = typeof stateObservationUpsertSchema.Type;
+export const stateObservationQuerySchema = Schema.Struct({
+  limit: positive.check(Schema.isLessThanOrEqualTo(100)),
+  observedAfter: Schema.optional(observationDate),
+  observedBefore: Schema.optional(observationDate),
+  profile: vectorProfileSchema,
+  scope: stateMessageScopeSchema,
+  threadIds: Schema.optional(Schema.Array(nonblank)),
+  vector: flexibleVector,
+});
+export type StateObservationQuery = typeof stateObservationQuerySchema.Type;
+export const stateObservationMetadataSchema = Schema.Struct({
+  // biome-ignore lint/style/useNamingConvention: Pinned public Memory metadata field.
+  group_id: nonblank,
+  // biome-ignore lint/style/useNamingConvention: Pinned public Memory metadata field.
+  observed_at: Schema.optional(observationDate),
+  range: nonblank,
+  // biome-ignore lint/style/useNamingConvention: Pinned public Memory metadata field.
+  resource_id: nonblank,
+  text: nonblank,
+  // biome-ignore lint/style/useNamingConvention: Pinned public Memory metadata field.
+  thread_id: nonblank,
+});
+export const stateObservationHitSchema = Schema.Struct({
+  id: nonblank,
+  metadata: stateObservationMetadataSchema,
+  score: Schema.Finite,
+});
+export type StateObservationHit = typeof stateObservationHitSchema.Type;
+export type StateObservationPurge = StateMessagePurge;
+export const stateObservationPurgeSchema = stateMessagePurgeSchema;
 export const scopedRemoveSchema = Schema.Struct({ fileId: nonblank, scope: scopeSchema });
 export const scopedSearchSchema = Schema.Struct({
   fileIds: Schema.optional(Schema.Array(nonblank)),
@@ -451,3 +688,5 @@ export function authorize(allowed: ReadonlySet<string>, rootIds: readonly string
     }
   }
 }
+/** A caller's embedder identity, validated as the index validates every vector profile. */
+export const decodeVectorProfile: (input: unknown) => VectorProfile = decoder(vectorProfileSchema);

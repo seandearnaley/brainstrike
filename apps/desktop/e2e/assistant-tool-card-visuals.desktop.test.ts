@@ -1,14 +1,28 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
-import { setupAssistantMock } from './utils/assistant-mock';
+import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
-import { loadElectronHelpers } from './utils/load-electron-helpers';
+import type { ModelProviderShim } from './utils/model-provider-shim';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const PROMPT_TEXT = 'find db files';
+// A new thread runs on the agent host, so its tool card comes from a real
+// internal tool the host runs, scripted at the provider. The retrieval tool
+// these cards once showed was deleted with BST-974 (#2105).
+const TOOL = 'brainstrike.readWorkspaceFile';
+const workspace = mkdtempSync(join(tmpdir(), 'bs-e2e-tool-card-visuals-'));
+writeFileSync(join(workspace, 'db-files.txt'), 'notes.db\n');
+
+test.use({ electronEnv: { BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace } });
+test.afterAll(() => {
+  rmSync(workspace, { force: true, recursive: true });
+});
 
 // Mirrored from assistant-retrieval.desktop.test.ts so the spec drives the real
-// desktop assistant through the mock harness in exactly the same way.
+// desktop assistant in exactly the same way.
 async function openAssistantChat(window: Page): Promise<void> {
   const assistantChatCard = await ensureAssistantShellVisible(window);
   await expect(assistantChatCard).toBeVisible({ timeout: E2E_TIMEOUTS.cardVisibility });
@@ -22,7 +36,7 @@ async function openAssistantChat(window: Page): Promise<void> {
       });
   }
 
-  const chatPanel = window.getByTestId('chat-panel');
+  const chatPanel = window.getByRole('region', { exact: true, name: 'Assistant' });
   await expect(chatPanel).toBeVisible({ timeout: E2E_TIMEOUTS.chatPanel });
 }
 
@@ -40,15 +54,29 @@ async function sendPrompt(window: Page, prompt: string): Promise<void> {
   });
 }
 
+/** The run's turns read `path`, then answer; other provider calls just answer. */
+function scriptRead(modelProvider: ModelProviderShim, path: string, answer: string): void {
+  modelProvider.setScript(({ requestBody, toolNames }) =>
+    (requestBody as { stream?: unknown }).stream === true && toolNames.length > 0
+      ? {
+          finalText: answer,
+          toolCall: { arguments: { path }, name: 'brainstrike_readWorkspaceFile' },
+        }
+      : { finalText: 'Tool card check' }
+  );
+}
+
 test.describe('Assistant tool card visuals (desktop)', () => {
   test.beforeEach(async ({ window }) => {
-    const { mockFileSystemOperations } = await loadElectronHelpers();
-    await mockFileSystemOperations(window);
     await ensureMockWorkspaceOpen(window);
+    await configureAssistantProvider(window);
   });
 
-  test('tool card is compact, tinted internal, and badge-free', async ({ window }) => {
-    await setupAssistantMock(window, { message: 'Retrieved answer.', variant: 'tool' });
+  test('tool card is compact, tinted internal, and badge-free', async ({
+    modelProvider,
+    window,
+  }) => {
+    scriptRead(modelProvider, 'db-files.txt', 'Retrieved answer.');
     await openAssistantChat(window);
     await sendPrompt(window, PROMPT_TEXT);
 
@@ -75,9 +103,10 @@ test.describe('Assistant tool card visuals (desktop)', () => {
     await window.screenshot({ path: 'e2e-artifacts/tool-card-success.png' });
   });
 
-  test('tool-error card renders the error state', async ({ window }) => {
-    const errorMessage = 'Boom.';
-    await setupAssistantMock(window, { errorMessage, variant: 'tool-error' });
+  test('tool-error card renders the error state', async ({ modelProvider, window }) => {
+    // The tool guard's model- and user-facing text for a failed execution.
+    const errorMessage = 'The tool did not complete successfully. Try another approach.';
+    scriptRead(modelProvider, 'missing-db-files.txt', 'The file is missing.');
     await openAssistantChat(window);
     await sendPrompt(window, PROMPT_TEXT);
 
@@ -88,13 +117,13 @@ test.describe('Assistant tool card visuals (desktop)', () => {
     const summary = window.getByTestId('assistant-activity-summary').first();
     await expect(summary).toContainText('1 failed');
     // The resting headline is the verb summary now (BST-1679), not the fixed
-    // word "Worked": an unrecognised tool name reads honestly as "Used <name>".
-    // `data-state` (synced above) is the state sync; the text proves which
-    // step it summarizes.
-    await expect(summary).toContainText('brainstrike.retrieveContext');
+    // word "Worked": the file read reads "Read". `data-state` (synced above) is
+    // the state sync; the text proves which step it summarizes.
+    await expect(summary).toContainText('Read');
     await summary.click();
     const toolCard = window.getByTestId('tool-fallback').first();
     await expect(toolCard).toBeVisible({ timeout: E2E_TIMEOUTS.toolVisibility });
+    await expect(toolCard).toContainText(TOOL);
     // Category classification is independent of the failure state; an internal
     // tool stays tinted as internal even when its execution errors.
     await expect(toolCard).toHaveAttribute('data-tool-category', 'internal');

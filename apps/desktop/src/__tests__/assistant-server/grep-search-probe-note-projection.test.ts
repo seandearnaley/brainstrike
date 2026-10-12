@@ -6,8 +6,9 @@
  * repo's noExcessiveLinesPerFile cap (Biome enforces it), so new coverage gets
  * its own file rather than a grandfathered exemption.
  */
+
+import { projectGrepSearchModelOutput } from '@brainstrike/host-capabilities/native-tools';
 import { describe, expect, it } from 'vitest';
-import { projectGrepSearchModelOutput } from '../../assistant-server/workspace-search-model-projections';
 
 describe('grepSearch model projection — probeNote', () => {
   it('renders liveNote before probeNote as two independent note lines', () => {

@@ -5,11 +5,11 @@ import {
 } from '@brainstrike/agent/mcp-client';
 import type { McpHostOperation } from '@brainstrike/assistant-contract';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
-import { describe, expect, it, vi } from 'vitest';
 import {
   createMcpCoreServerFeatures,
   type McpCoreFeatureClient,
-} from '../../mcp/core-server-features';
+} from '@brainstrike/host-capabilities/mcp/core-server-features';
+import { describe, expect, it, vi } from 'vitest';
 
 const serverId = parseConfiguredMcpServerId('fixture');
 const TOOLS = { tools: [{ inputSchema: { type: 'object' as const }, name: 'search' }] };

@@ -16,15 +16,13 @@ import {
   resolveModelNameFromComposite,
   resolveProviderFromComposite,
 } from './assistant-ui-panel-wrapper-runtime';
+import { CHILD_PROVIDER_SOURCE } from './child-provider-source';
 import {
   DelegatedConversationPanel,
   type DelegatedConversationPanelProps,
 } from './delegated-conversation-panel';
 import type { DelegatedConversationInsightsState } from './delegated-conversation-toolbar';
-import {
-  type AssistantProviderSource,
-  AssistantProviderSourceProvider,
-} from './hooks/assistant-provider-source';
+import { AssistantProviderSourceProvider } from './hooks/assistant-provider-source';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
 import { useChildNextRunControls } from './use-child-next-run-controls';
 import { useFileMentions } from './use-file-mentions';
@@ -90,7 +88,6 @@ function parseAdmittedPersona(value: unknown) {
   return parsed.success ? readAdmittedPersonaConfiguration(value) : undefined;
 }
 
-const CHILD_PROVIDER_SOURCE: AssistantProviderSource = { kind: 'discovery' };
 const EMPTY_SETTINGS: AssistantProviderSettingsMap = {};
 function CapableChildPanel({
   insights,

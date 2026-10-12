@@ -4,20 +4,15 @@ import {
   resolveScaledToolResultBudget,
   ToolProjectionInputRejectedError,
 } from '@brainstrike/agent';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type {
-  GrepFileSummary,
-  GrepToolResult,
-} from '../../assistant-server/grep-search-result-contract';
+import type { GrepFileSummary, GrepToolResult } from '@brainstrike/host-capabilities/native-tools';
 import {
   buildRepeatedCallRefusalResult,
-  resetToolCallLoopGuards,
-  withRepeatedCallGuard,
-} from '../../assistant-server/tool-call-loop-guards';
-import {
   projectGlobWorkspaceModelOutput,
   projectGrepSearchModelOutput,
-} from '../../assistant-server/workspace-search-model-projections';
+  resetToolCallLoopGuards,
+  withRepeatedCallGuard,
+} from '@brainstrike/host-capabilities/native-tools';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
  * BST-1188 loop guards: proof that the repeated-identical-call warning and

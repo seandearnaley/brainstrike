@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DESKTOP_DEV_RENDERER_URL } from '../../desktop-renderer-url';
 
@@ -51,13 +52,15 @@ const whenReadyMock = vi.fn(() => Promise.resolve());
 const mockApp = {
   commandLine: { appendSwitch: vi.fn() },
   getAppMetrics: vi.fn(() => []),
-  getAppPath: vi.fn(() => '/mock/app'),
+  getAppPath: vi.fn(() => resolve('/mock/app')),
   getPath: vi.fn(),
   getVersion: vi.fn(() => '0.0.0-test'),
   isPackaged: false,
   isReady: vi.fn(() => true),
   on: vi.fn(),
   quit: vi.fn(),
+  requestSingleInstanceLock: vi.fn(() => true),
+  setPath: vi.fn(),
   whenReady: whenReadyMock,
 };
 
@@ -106,6 +109,7 @@ vi.mock('node:fs', () => ({
     accessSync: accessSyncMock,
     constants: { W_OK: 0o200 },
     existsSync: existsSyncMock,
+    mkdirSync: vi.fn(),
     statSync: statSyncMock,
   },
 }));

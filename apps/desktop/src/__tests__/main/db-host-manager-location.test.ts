@@ -74,6 +74,7 @@ describe('DbHostManager database location handoff', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     for (const dir of scratchDirs.splice(0)) {
       rmSync(dir, { force: true, recursive: true });
     }
@@ -114,6 +115,20 @@ describe('DbHostManager database location handoff', () => {
     });
   });
 
+  it('preserves temporary paths needed to stream packaged extensions without forwarding secrets', async () => {
+    process.env['NODE_ENV'] = 'test';
+    const temporaryPath = path.join(tmpdir(), 'brainstrike-packaged-extension-temp');
+    vi.stubEnv('TEMP', temporaryPath);
+    vi.stubEnv('TMP', temporaryPath);
+    vi.stubEnv('OPENAI_API_KEY', 'fake-do-not-forward');
+    const manager = await newManager();
+
+    manager.getDiagnostics().catch(() => undefined);
+
+    expect(latestForkEnv()).toMatchObject({ TEMP: temporaryPath, TMP: temporaryPath });
+    expect(latestForkEnv()).not.toHaveProperty('OPENAI_API_KEY');
+  });
+
   it("keeps a respawned host on main's cached location after the git branch changes", async () => {
     process.env['NODE_ENV'] = 'development';
     const checkout = makeGitCheckout('ref: refs/heads/before\n');
@@ -148,7 +163,8 @@ describe('DbHostManager database location handoff', () => {
   });
 
   it('honours explicit overrides on main and forwards them unchanged', async () => {
-    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = '/tmp/explicit-root';
+    const explicitRoot = path.join(tmpdir(), 'explicit-root');
+    process.env['BRAINSTRIKE_DB_ROOT_PATH'] = explicitRoot;
     process.env['BRAINSTRIKE_DB_PROFILE'] = 'Explicit Profile';
     const manager = await newManager();
 
@@ -156,7 +172,7 @@ describe('DbHostManager database location handoff', () => {
 
     expect(latestForkEnv()).toMatchObject({
       BRAINSTRIKE_DB_PROFILE: 'explicit-profile',
-      BRAINSTRIKE_DB_ROOT_PATH: '/tmp/explicit-root',
+      BRAINSTRIKE_DB_ROOT_PATH: explicitRoot,
     });
   });
 });

@@ -1,11 +1,19 @@
+import { AGENT_HOST_PROTOCOL_VERSION } from '@brainstrike/agent-host/protocol';
 import type { BrowserWindow } from 'electron';
 import { vi } from 'vitest';
 import { getDesktopDatabaseIntegrity } from '../../database-integrity-state';
+import type { DesktopHostLease } from '../../host-lease-manager';
 import {
   createAllowlistedSenderFrame,
   createTrustedInvokeEvent,
   trackTestWindowRole,
 } from '../helpers/desktop-ipc-sender-test-helpers';
+
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual<typeof import('node:fs')>('node:fs');
+  const mockedFs = { ...actual, mkdirSync: vi.fn() };
+  return { ...mockedFs, default: mockedFs };
+});
 export function createWindowWithWebContents(sender: {
   id?: number;
   isDestroyed?: () => boolean;
@@ -362,6 +370,7 @@ vi.mock('electron', async () => {
     documentsPath: '/mock/documents',
     whenReadyResolved: true,
   });
+  Object.assign(app, { requestSingleInstanceLock: vi.fn(() => true) });
   const mockBrowserWindowInstance = {
     destroy: vi.fn(),
     getBounds: vi.fn(() => ({ height: 800, width: 1536, x: 0, y: 0 })),
@@ -428,7 +437,33 @@ vi.mock('../../db-main', () => ({
   closeDatabase: closeDatabaseMock,
   getDatabase: getDatabaseMock,
   getDatabaseDiagnostics: getDatabaseDiagnosticsMock,
+  prepareDatabaseProfileReset: async () => ({
+    clearRootContents: async () => undefined,
+    isReleased: false,
+    release: () => undefined,
+    root: '/mock/profile',
+  }),
   resetLocalDatabase: resetLocalDatabaseMock,
+}));
+
+// Profile resume now borrows the app-owned Core host (BST-1977). This DB
+// scheduler fixture supplies that separately qualified service boundary.
+vi.mock('../../host-lease-manager', () => ({
+  createDesktopHostLease: (): DesktopHostLease => ({
+    acquire: async () => ({
+      close: async () => undefined,
+      closed: Promise.resolve(),
+      record: {
+        endpoint: '/mock/profile/host.sock',
+        hostVersion: '0.1.0',
+        pid: 123,
+        protocolVersion: AGENT_HOST_PROTOCOL_VERSION,
+        start: 'fixture-host',
+        token: 'a'.repeat(64),
+      },
+    }),
+    close: async () => undefined,
+  }),
 }));
 
 vi.mock('../../db-host-manager', () => ({

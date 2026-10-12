@@ -9,7 +9,7 @@ import {
 } from '@assistant-ui/react';
 import { cn } from '@brainstrike/ui';
 import { Brain } from 'lucide-react';
-import { type ReactNode, useId, useMemo, useState } from 'react';
+import { memo, type ReactNode, useId, useMemo, useState } from 'react';
 import { ActivityStepMetaProvider } from './activity-step-context';
 import { deriveStepMeta } from './activity-step-meta';
 import { StepRowHeader } from './activity-step-row';
@@ -35,6 +35,7 @@ import { isSubagentDelegationToolName } from './subagent-tool-cards';
 import { CHAIN_OF_THOUGHT_TOOL_COMPONENTS, TodoProgress } from './todo-progress';
 import { ToolDurationProvider } from './tool-duration-context';
 import { useChainActivityDerivations } from './use-chain-activity-derivations';
+import { useShellOutputs } from './use-shell-outputs';
 import {
   toolResultPartPreservesEffectsWhenHidden,
   useToolResultRenderers,
@@ -121,12 +122,13 @@ function ActivityPartLayout({ children }: { children?: ReactNode }): ReactNode {
   return <div className="mb-2 last:mb-0 empty:mb-0">{children}</div>;
 }
 
-function ActivityToolPart(props: ToolCallMessagePartProps) {
+// BST-1929: token updates can rerender the group while this tool's fold props are unchanged.
+const ActivityToolPart = memo(function ActivityToolPart(props: ToolCallMessagePartProps) {
   const Component =
     CHAIN_OF_THOUGHT_TOOL_COMPONENTS.by_name[props.toolName] ??
     CHAIN_OF_THOUGHT_TOOL_COMPONENTS.Fallback;
   return <Component {...props} />;
-}
+});
 
 /**
  * The reasoning row's glyph slot. It replaces the generic state glyph rather
@@ -428,6 +430,10 @@ export function AssistantActivityParts(): ReactNode {
   const trailingGroupHoldsActivity = useAuiState((state) =>
     trailingGroupHasActivity(state.message.parts)
   );
+  // A standalone tool card (an approval-bearing call, BST-1977) streams its live
+  // shell output from the same message parts a group's cards read (BST-1932, AT-07).
+  const messageId = useAuiState((state) => (state.message as { id?: string }).id ?? '');
+  const shellOutputs = useShellOutputs(messageId, messageParts);
   return (
     <MessagePrimitive.GroupedParts<ActivityGroupKey>
       groupBy={groupAssistantActivityPart}
@@ -455,9 +461,11 @@ export function AssistantActivityParts(): ReactNode {
               return null;
             }
             return (
-              <ActivityPartLayout>
-                {part.toolUI ?? <ActivityToolPart {...part} />}
-              </ActivityPartLayout>
+              <ShellOutputProvider outputs={shellOutputs}>
+                <ActivityPartLayout>
+                  {part.toolUI ?? <ActivityToolPart {...part} />}
+                </ActivityPartLayout>
+              </ShellOutputProvider>
             );
           case 'data':
             return part.dataRendererUI;

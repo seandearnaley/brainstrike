@@ -1,17 +1,16 @@
+import { SHELL_OUTPUT_STREAM_PART_TYPE } from '@brainstrike/assistant-contract/shell-output';
 import type { StreamChunkShellOutput } from '../types';
 import { readMastraStreamPartString } from './tool-event-mapper';
 
 /**
- * The Mastra fullStream part `type` used to carry a live shell-output slice.
- *
- * A tool streams incremental output through Mastra's `writer.custom(chunk)`,
- * which places `chunk` on the agent fullStream VERBATIM (unlike `writer.write`,
- * which wraps it as a `tool-output` part that would collide with subagent
- * delegation handling and masquerade as a successful tool result). We give the
- * chunk this distinctive `type` so {@link mapShellOutputStreamPart} can pick it
- * out of the stream without touching any existing case.
+ * The Mastra fullStream part `type` used to carry a live shell-output slice,
+ * owned by the contract. A tool streams incremental output through Mastra's
+ * `writer.custom(chunk)`, which places `chunk` on the agent fullStream VERBATIM
+ * (unlike `writer.write`, which wraps it as a `tool-output` part that would
+ * collide with subagent delegation handling and masquerade as a successful tool
+ * result), so {@link mapShellOutputStreamPart} picks it out by this `type`.
  */
-export const SHELL_OUTPUT_STREAM_PART_TYPE = 'brainstrike.shell-output.chunk';
+export { SHELL_OUTPUT_STREAM_PART_TYPE };
 
 /** The minimal shape of Mastra's tool `writer` we depend on (`ToolStream`). */
 export interface ShellOutputWriter {

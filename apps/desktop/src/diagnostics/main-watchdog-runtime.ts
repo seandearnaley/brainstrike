@@ -43,6 +43,16 @@ export function attemptMainWatchdogBootstrap(
   }
 }
 
+/** Diagnostics attach before renderer readiness waits; bootstrap failure stays nonfatal. */
+export function startMainWatchdogBeforeWindow<Window>(
+  start: () => void,
+  onError: (error: unknown) => void,
+  createWindow: () => Promise<Window>
+): Promise<Window> {
+  attemptMainWatchdogBootstrap(start, onError);
+  return createWindow();
+}
+
 export function runMainWatchdogPowerTransition(
   runtime: Pick<MainWatchdogRuntime, 'resume' | 'suspend'>,
   type: 'resume' | 'suspend',

@@ -17,6 +17,8 @@ import type { HostLifetime, HostStartOptions } from './runtime.js';
 import { windowsPrivateAcl } from './windows-acl.js';
 export type HostSpawner = (options: HostStartOptions, signal: AbortSignal) => Promise<void>;
 export interface HostLaunchOptions {
+  /** The new host uses canonical JSON-RPC; old-path callers retain their handshake. */
+  readonly attach?: (record: HostRecord, timeoutMs: number) => Promise<HostAttachment>;
   readonly attachTimeoutMs?: number;
   readonly lifetime: HostLifetime;
   readonly spawn: HostSpawner;
@@ -85,20 +87,19 @@ async function pause(signal: AbortSignal): Promise<void> {
     signal.addEventListener('abort', abort, { once: true });
   });
 }
+/** The owner's record once published, or null when that owner released or replaced its lease. */
 async function publishedRecord(
   root: string,
   lease: LockOwner,
   timeoutMs: number
-): Promise<HostRecord> {
+): Promise<HostRecord | null> {
   return runWithTimeout(
     async (signal) => {
       for (;;) {
         signal.throwIfAborted();
         const current = await liveLease(root);
         if (!current || current.token !== lease.token) {
-          throw new Error(
-            `Host pid ${lease.pid} released or changed its root lease during startup`
-          );
+          return null;
         }
         const record = await readHostRecord(root);
         if (record && matches(record, current)) {
@@ -114,9 +115,19 @@ async function publishedRecord(
     }
   );
 }
-async function attach(record: HostRecord, timeoutMs: number): Promise<HostAttachment> {
+function ownRecord(record: HostRecord | null, lease: LockOwner): HostRecord {
+  if (!record) {
+    throw new Error(`Host pid ${lease.pid} released or changed its root lease during startup`);
+  }
+  return record;
+}
+async function attach(
+  record: HostRecord,
+  timeoutMs: number,
+  attachClient: (record: HostRecord, timeoutMs: number) => Promise<HostAttachment>
+): Promise<HostAttachment> {
   try {
-    return await attachHost(record, timeoutMs);
+    return await attachClient(record, timeoutMs);
   } catch (cause) {
     throw new LiveHostUnavailableError(record.pid, cause);
   }
@@ -130,6 +141,39 @@ async function existingRecord(root: string, lease: LockOwner | null): Promise<Ho
       throw new LiveHostUnavailableError(lease.pid, cause);
     }
     throw cause;
+  }
+}
+/**
+ * The live owner's published record, or null when no live owner holds the root.
+ * A starting or exiting owner is waited for: attach once it publishes, or start
+ * a host after it releases. One deadline bounds the whole wait.
+ */
+async function liveOwnerRecord(root: string, timeoutMs: number): Promise<HostRecord | null> {
+  const waitUntil = Date.now() + timeoutMs;
+  for (;;) {
+    const lease = await liveLease(root);
+    const existing = await existingRecord(root, lease);
+    const live = existing !== null && isLive(existing);
+    if (live && !lease) {
+      throw new LiveHostUnavailableError(
+        existing.pid,
+        new Error('Host record has no matching root lease')
+      );
+    }
+    if (!lease) {
+      return null;
+    }
+    if (live && matches(existing, lease)) {
+      return existing;
+    }
+    const remaining = waitUntil - Date.now();
+    if (remaining <= 0) {
+      throw new LiveHostUnavailableError(lease.pid, new Error('Host record publication timed out'));
+    }
+    const record = await publishedRecord(root, lease, remaining);
+    if (record) {
+      return record;
+    }
   }
 }
 function startOptionsFor(root: string, lifetime: HostLifetime): HostStartOptions {
@@ -153,25 +197,13 @@ export async function launchHost(
   assertNotSyncedRoot(root);
   const startupTimeoutMs = options.startupTimeoutMs ?? 10_000;
   const attachTimeoutMs = options.attachTimeoutMs ?? 1500;
+  const attachClient = options.attach ?? attachHost;
   if (![startupTimeoutMs, attachTimeoutMs].every((value) => Number.isFinite(value) && value > 0)) {
     throw new RangeError('Host launch deadlines must be positive finite milliseconds');
   }
-  const lease = await liveLease(root);
-  const existing = await existingRecord(root, lease);
-  if (existing && isLive(existing)) {
-    if (!lease) {
-      throw new LiveHostUnavailableError(
-        existing.pid,
-        new Error('Host record has no matching root lease')
-      );
-    }
-    const record = matches(existing, lease)
-      ? existing
-      : await publishedRecord(root, lease, startupTimeoutMs);
-    return attach(record, attachTimeoutMs);
-  }
-  if (lease) {
-    return attach(await publishedRecord(root, lease, startupTimeoutMs), attachTimeoutMs);
+  const owned = await liveOwnerRecord(root, startupTimeoutMs);
+  if (owned) {
+    return attach(owned, attachTimeoutMs, attachClient);
   }
   const startOptions = startOptionsFor(root, options.lifetime);
   try {
@@ -189,11 +221,19 @@ export async function launchHost(
     if (!winner) {
       throw cause;
     }
-    return attach(await publishedRecord(root, winner, startupTimeoutMs), attachTimeoutMs);
+    return attach(
+      ownRecord(await publishedRecord(root, winner, startupTimeoutMs), winner),
+      attachTimeoutMs,
+      attachClient
+    );
   }
   const acquired = await liveLease(root);
   if (!acquired) {
     throw new Error('Host starter returned without a live root lease');
   }
-  return attach(await publishedRecord(root, acquired, startupTimeoutMs), attachTimeoutMs);
+  return attach(
+    ownRecord(await publishedRecord(root, acquired, startupTimeoutMs), acquired),
+    attachTimeoutMs,
+    attachClient
+  );
 }

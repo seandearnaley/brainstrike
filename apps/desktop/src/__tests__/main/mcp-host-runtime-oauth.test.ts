@@ -2,17 +2,17 @@ import {
   parseConfiguredMcpServerId,
   resolveMcpHostControlActions,
 } from '@brainstrike/assistant-contract';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { connectClient } from '../../mcp/host-connection';
-import { createDesktopMcpHostRuntime, type ExplicitClient } from '../../mcp/host-runtime';
-import { McpLifecycleFailure } from '../../mcp/lifecycle-errors';
+import type { ResolvedMcpServer } from '@brainstrike/host-capabilities/mcp/config-file';
+import { connectClient } from '@brainstrike/host-capabilities/mcp/host-connection';
+import { McpLifecycleFailure } from '@brainstrike/host-capabilities/mcp/lifecycle-errors';
 import {
   createInMemoryMcpOAuthStore,
   createMcpOAuthClientProvider,
   createMcpOAuthStoreIdentity,
   type McpOAuthClientProvider,
-} from '../../mcp/oauth-client-provider';
-import type { ResolvedMcpServer } from '../../mcp-loader';
+} from '@brainstrike/host-capabilities/mcp/oauth-client-provider';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createDesktopMcpHostRuntime, type ExplicitClient } from '../../mcp/host-runtime';
 
 let runtime: ReturnType<typeof createDesktopMcpHostRuntime> | undefined;
 

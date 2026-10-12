@@ -26,11 +26,31 @@
  * that timed out or threw is reported as an UNANSWERED leg, never degraded to
  * the empty value a real "nothing here" answer produces.
  */
-import { type ChildProcess, spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import type {
+  EditDiagnostic,
+  EditDiagnosticsResult,
+  LspDiagnosticSeverity,
+} from '@brainstrike/host-capabilities/native-tools';
+import {
+  boundQueryFailureDetail,
+  clipHover,
+  DIAGNOSTIC_TIMEOUT_MS,
+  type InspectLocation,
+  type LspInspectionResult,
+  type LspInspectQuery,
+  type LspQueryFailure,
+  QUERY_TIMEOUT_MS,
+  type RawLocation,
+  type RawQueryFailure,
+  toInspectLocations,
+  toQueryFailure,
+} from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
+import { spawnNativeChild } from '@brainstrike/state-store/native-children';
 import {
   createMessageConnection,
   type MessageConnection,
@@ -48,24 +68,11 @@ import type {
   Position,
   PublishDiagnosticsParams,
 } from 'vscode-languageserver-protocol/node';
-import {
-  boundQueryFailureDetail,
-  clipHover,
-  DIAGNOSTIC_TIMEOUT_MS,
-  type InspectLocation,
-  type LspInspectQuery,
-  type LspQueryFailure,
-  QUERY_TIMEOUT_MS,
-  type RawLocation,
-  type RawQueryFailure,
-  toInspectLocations,
-  toQueryFailure,
-} from './lsp-inspection-shapes';
 
 // Re-exported so `lsp-diagnostics` stays the single import surface for the
 // inspect tool + its model projection (the split is an internal file boundary,
 // not a new public seam).
-export type { InspectLocation, LspInspectQuery, LspQueryFailure };
+export type { InspectLocation, LspInspectionResult, LspInspectQuery, LspQueryFailure };
 
 // LSP method names used verbatim (string overloads avoid the branded-type
 // identity mismatch between vscode-jsonrpc and -protocol under the main
@@ -97,37 +104,6 @@ const DIAGNOSTIC_SETTLE_MS = 700;
  * under the ~2750-token budget on its own. 15×300 ≈ 5.7KB worst case. */
 const MAX_DIAGNOSTICS = 15;
 const MAX_DIAGNOSTIC_MESSAGE_CHARS = 300;
-
-export type LspDiagnosticSeverity = 'error' | 'warning' | 'info' | 'hint';
-
-/** One diagnostic in model-facing shape (1-based line/character). */
-export interface EditDiagnostic {
-  character: number;
-  line: number;
-  message: string;
-  severity: LspDiagnosticSeverity;
-  source?: string;
-}
-
-/** Why diagnostics are unavailable (only set when `available` is false). */
-export type LspUnavailableReason = 'unsupported-language' | 'server-unavailable' | 'timeout';
-
-/**
- * Attached to an edit tool's result. Omitted entirely by the caller when the
- * language is unsupported (no note spam on every markdown/json edit); present
- * with `available:false` + `message` when a language we DO support has no
- * working server or timed out (honest, never silent).
- */
-export interface EditDiagnosticsResult {
-  available: boolean;
-  /** Total diagnostics before self-bounding (>= diagnostics.length). */
-  diagnosticCount?: number;
-  diagnostics?: EditDiagnostic[];
-  language?: string;
-  message?: string;
-  reason?: LspUnavailableReason;
-  truncated?: boolean;
-}
 
 /** A resolved language-server launch spec. */
 interface ResolvedServer {
@@ -402,7 +378,8 @@ class LspServerConnection {
     private readonly server: ResolvedServer,
     private readonly rootPath: string
   ) {
-    this.child = spawn(process.execPath, [server.cliPath, ...server.args], {
+    // In the agent host the server inherits the Root's flock (ADR-0017).
+    this.child = spawnNativeChild(process.execPath, [server.cliPath, ...server.args], {
       cwd: rootPath,
       // ELECTRON_RUN_AS_NODE lets the packaged app run the server's JS entry
       // through Electron's bundled Node (there is no standalone `node`).
@@ -873,29 +850,6 @@ export async function getEditDiagnostics(
       reason: 'server-unavailable',
     };
   }
-}
-
-/**
- * Result of an `lspInspect` call (report R2 Phase B). Mirrors core's tool
- * contract: hover / line diagnostics / definition / implementation groups.
- * `available:false` carries an honest reason exactly like the diagnostics path.
- */
-export interface LspInspectionResult {
-  available: boolean;
-  definition?: InspectLocation[];
-  diagnostics?: EditDiagnostic[];
-  hover?: string;
-  implementation?: InspectLocation[];
-  language?: string;
-  message?: string;
-  /**
-   * Legs that did not answer (BST-1614). Present only when non-empty. Any
-   * group named here is UNKNOWN: its omission above is the absence of an
-   * answer, never a verified "there are none". A partial failure deliberately
-   * does NOT flip `available` — a hover that worked is still worth returning.
-   */
-  queryFailures?: LspQueryFailure[];
-  reason?: LspUnavailableReason;
 }
 
 export interface GetLspInspectionArgs {

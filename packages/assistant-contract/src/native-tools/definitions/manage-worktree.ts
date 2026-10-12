@@ -23,6 +23,7 @@ export const manageWorktree = defineNativeTool({
   id: 'brainstrike.manageWorktree',
   inputSchema: providerCompatibleInputSchema(ManageWorktreeInputSchema),
   kind: 'desktop',
+  localProvider: 'unregistered',
   returns:
     'create returns { worktreeId, path, branch, setupStatus, setupReason }; archive returns { worktreeId, snapshotRef }. A refusal returns its reason verbatim.',
   surfaces: ['desktop'],

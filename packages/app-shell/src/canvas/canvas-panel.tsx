@@ -3,12 +3,13 @@ import { usePGliteDatabase } from '@brainstrike/db/react';
 import { Button, CanvasFrame, useResolvedTheme } from '@brainstrike/ui';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { type ReactElement, useEffect, useMemo, useState } from 'react';
+import { useAssistantThreadHost } from '../assistant-thread-host-context';
 import { useChangesNavigationStore } from '../changes/changes-navigation-store';
 import {
   type CanvasPanelSummary,
   type CanvasPanelVersion,
-  getCanvasVersion,
-  listThreadCanvasSummaries,
+  readThreadCanvasSummaries,
+  readThreadCanvasVersion,
 } from './canvas-read-repository';
 
 export interface CanvasPanelProps {
@@ -28,7 +29,8 @@ type VersionSelection = number | 'latest';
  * documents, rendered through the sandboxed CanvasFrame with a version
  * stepper. All writes flow through the `brainstrike.manageCanvas` tool; this
  * panel re-queries when `canvasRefreshNonce` bumps (a manageCanvas completion
- * on the edit-activity stream) or the active thread changes.
+ * on the edit-activity stream, or a host thread's committed canvas version) or
+ * the active thread changes.
  *
  * SELECTION MODEL (React Doctor `no-adjust-state-on-prop-change`): the
  * selected canvas is `focusedCanvasId` in the Changes navigation store
@@ -40,12 +42,20 @@ type VersionSelection = number | 'latest';
  */
 export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
   const database = usePGliteDatabase();
+  const host = useAssistantThreadHost();
   const theme = useResolvedTheme();
   // BST-1268 unification: the ACTIVE thread comes from the thread store —
   // never from the wrapper-published identity (which was last-mount-wins
   // across simultaneously-mounted open threads).
   const threadId = useActiveAssistantThreadId() ?? undefined;
   const refreshNonce = useChangesNavigationStore((state) => state.canvasRefreshNonce);
+  const requestCanvasRefresh = useChangesNavigationStore((state) => state.requestCanvasRefresh);
+  // A host-owned thread's canvases change as its runs commit versions; the
+  // host signals each one and the panel re-reads, like a manageCanvas completion.
+  useEffect(
+    () => (threadId ? host?.subscribeCanvases?.(threadId, requestCanvasRefresh) : undefined),
+    [host, requestCanvasRefresh, threadId]
+  );
 
   const [summaries, setSummaries] = useState<readonly CanvasPanelSummary[]>([]);
   // One owner for "which canvas" (store): the canvas:// chip and this picker
@@ -68,7 +78,7 @@ export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
       return;
     }
     let cancelled = false;
-    listThreadCanvasSummaries(database, threadId)
+    readThreadCanvasSummaries(database, host, threadId)
       .then((rows) => {
         if (!cancelled) {
           setQueryError(null);
@@ -85,7 +95,7 @@ export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [database, refreshNonce, threadId]);
+  }, [database, host, refreshNonce, threadId]);
 
   const activeSummary = useMemo(() => {
     if (summaries.length === 0) {
@@ -108,11 +118,11 @@ export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
     // Clear synchronously so a canvas/version switch never shows the previous
     // document under the new header while the read is in flight.
     setLoadedVersion(null);
-    if (!(database && activeCanvasId && shownVersion)) {
+    if (!(database && threadId && activeCanvasId && shownVersion)) {
       return;
     }
     let cancelled = false;
-    getCanvasVersion(database, activeCanvasId, shownVersion)
+    readThreadCanvasVersion(database, host, threadId, activeCanvasId, shownVersion)
       .then((row) => {
         if (cancelled) {
           return;
@@ -134,7 +144,7 @@ export function CanvasPanel({ shellSrc }: CanvasPanelProps): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [activeCanvasId, database, shownVersion]);
+  }, [activeCanvasId, database, host, shownVersion, threadId]);
 
   if (!threadId) {
     return (

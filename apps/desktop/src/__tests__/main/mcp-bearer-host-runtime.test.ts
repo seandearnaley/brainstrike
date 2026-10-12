@@ -1,9 +1,9 @@
 import type { ExplicitHttpMcpClientOptions } from '@brainstrike/agent/mcp-client';
 import { parseConfiguredMcpServerId } from '@brainstrike/assistant-contract';
+import type { McpBearerCredentialAuthority } from '@brainstrike/host-capabilities/mcp/bearer-credential';
+import type { ResolvedMcpServer } from '@brainstrike/host-capabilities/mcp/config-file';
 import { describe, expect, it, vi } from 'vitest';
-import type { McpBearerCredentialAuthority } from '../../mcp/bearer-credential';
 import { createDesktopMcpHostRuntime } from '../../mcp/host-runtime';
-import type { ResolvedMcpServer } from '../../mcp-loader';
 
 const REFERENCE_ID = '00000000-0000-4000-8000-000000000001';
 

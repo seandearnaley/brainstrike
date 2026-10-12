@@ -41,10 +41,6 @@ vi.mock('../../assistant-server/http', async () => {
   };
 });
 
-vi.mock('../../mcp-loader', () => ({
-  loadMcpConfig: vi.fn(() => Promise.resolve({ config: undefined })),
-}));
-
 const mockSecretsService = {
   deleteKey: vi.fn(),
   // BST-1352: the assistant POST path reads the TYPED credential.
@@ -62,9 +58,12 @@ vi.mock('../../assistant-server/assistant-tools', () => ({
   buildDesktopAssistantTools: vi.fn(() => ({})),
 }));
 
-vi.mock('../../assistant-server/workspace-text-file-reader', () => ({
-  readWorkspaceTextFile: vi.fn(async () => ({ content: '', path: '', size: 0 })),
-}));
+vi.mock(
+  '../../../../../packages/host-capabilities/src/native-tools/workspace-text-file-reader',
+  () => ({
+    readWorkspaceTextFile: vi.fn(async () => ({ content: '', path: '', size: 0 })),
+  })
+);
 
 const mockPgliteMastraMemory = { id: 'desktop-memory' };
 const mockPgliteMastraStorage = { id: 'desktop-storage' };

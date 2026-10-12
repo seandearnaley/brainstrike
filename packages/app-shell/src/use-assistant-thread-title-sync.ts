@@ -3,6 +3,7 @@ import type { AssistantThreadRepository } from '@brainstrike/assistant-data';
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import { useCallback, useEffect, useMemo } from 'react';
+import { useAssistantThreadHost, withAssistantThreadHost } from './assistant-thread-host-context';
 
 const logger = createLogger('AssistantThreadTitleSync');
 
@@ -32,9 +33,17 @@ interface UseAssistantThreadTitleSyncInput {
 export function useAssistantThreadTitleSync({
   enabled,
   refreshResourceThreads,
-  repository,
+  repository: historyRepository,
   resourceId,
 }: UseAssistantThreadTitleSyncInput): () => void {
+  // A refresh REPLACES the resource's thread list, so it lists through the
+  // host as well: a history-only listing would drop every host thread from
+  // the store until the next host-routed refresh.
+  const host = useAssistantThreadHost();
+  const repository = useMemo(
+    () => (historyRepository ? withAssistantThreadHost(historyRepository, host) : null),
+    [historyRepository, host]
+  );
   // Schema constants are initialized by the assistant-contract chunk. Reading
   // them inside the hook avoids a module-evaluation ordering dependency.
   const titleQuery = useMemo(

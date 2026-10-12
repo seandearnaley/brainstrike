@@ -1,5 +1,5 @@
 import { ForeignLockError, RootLockedError } from '@brainstrike/state-store';
-import { decodeStartOptions, startHost } from './runtime.js';
+import { decodeStartOptions, type HostRuntime, startHost } from './runtime.js';
 import type { StartupMessage } from './startup-message.js';
 
 async function report(message: StartupMessage): Promise<void> {
@@ -11,23 +11,52 @@ async function report(message: StartupMessage): Promise<void> {
   });
 }
 async function main(): Promise<void> {
-  const options = decodeStartOptions(JSON.parse(process.argv[2] ?? 'null'));
-  const host = await startHost(options);
+  const controller = new AbortController();
+  let host: HostRuntime | undefined;
+  let ready = false;
   const stop = (): void => {
-    host.close().catch((cause: unknown) => {
+    controller.abort(new Error('Host process cancelled'));
+    host?.close().catch((cause: unknown) => {
       process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
       process.exitCode = 1;
     });
   };
-  process.once('SIGTERM', stop);
-  process.once('SIGINT', stop);
+  const cancelled = (input: unknown): void => {
+    if (
+      input &&
+      typeof input === 'object' &&
+      'event' in input &&
+      input.event === 'cancel-startup'
+    ) {
+      stop();
+    }
+  };
+  // An app host lives exactly as long as its launcher's IPC channel (ADR-0017): it closes when the
+  // app dies or lets it go. Other hosts outlive the creator that disconnects after their startup.
+  let appLifetime = false;
+  const disconnected = (): void => {
+    if (!ready || appLifetime) {
+      stop();
+    }
+  };
+  process.on('SIGTERM', stop);
+  process.on('SIGINT', stop);
+  process.on('message', cancelled);
+  process.on('disconnect', disconnected);
   try {
+    const options = decodeStartOptions(JSON.parse(process.argv[2] ?? 'null'));
+    appLifetime = options.lifetime === 'app';
+    host = await startHost(options, undefined, controller.signal);
+    controller.signal.throwIfAborted();
+    ready = true;
     await report({ event: 'ready' });
     await host.closed;
   } finally {
+    await host?.close();
     process.off('SIGTERM', stop);
     process.off('SIGINT', stop);
-    await host.close();
+    process.off('message', cancelled);
+    process.off('disconnect', disconnected);
   }
 }
 main().catch(async (cause: unknown) => {

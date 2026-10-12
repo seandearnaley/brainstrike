@@ -24,6 +24,13 @@
 
 ## SERVICES
 
+Git commands on Windows use the existing parent-owned command Job and bundled
+launch gate. Overflow, timeout and abort retain the current output/time bounds,
+but return only after physical Job retirement joins the launcher and descendants.
+The oversized-diff cleanup defect demonstrated that `cmd/git.exe` can close before
+its actual Git child releases the repository directory. A failed native join
+remains an error with its owner retained; no deletion retry substitutes for it.
+
 ### Diff engine — `apps/desktop/src/assistant-server/git-structured-diff.ts` (+ `git-structured-diff-refs.ts`)
 
 - `createStructuredDiffOps` imports no Electron; every git failure resolves to

@@ -7,6 +7,7 @@ import type { IndexFileBinding, IndexScope } from '@brainstrike/indexer';
 // Exercise the actual built host entry rather than Vitest's source aliases.
 import { openIndexer } from '@brainstrike/indexer';
 import { expect, it, vi } from 'vitest';
+import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { WorkspaceRootRegistry } from '../ipc-domains/workspace-root-registry';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from '../native-index-runtime';
 import { createNativeRootDataDeletion } from '../native-root-data-deletion';
@@ -112,10 +113,13 @@ it('holds native acknowledgment ahead of real PG cascade and preserves remaining
         },
       };
     },
-    createProfileOwner: () => ({ acquire: async () => undefined, close: async () => undefined }),
     getAuthority: async () => authority,
     getFileInvalidator: () => () => {},
     installQueryTarget: () => undefined,
+    profile: createDesktopProfileRuntime(() => ({
+      acquire: async () => undefined,
+      close: async () => undefined,
+    })),
   });
   let port = await runtime.acquire();
   const captured = runtime.captureAcknowledgedAuthority();

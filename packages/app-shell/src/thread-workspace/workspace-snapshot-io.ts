@@ -33,6 +33,8 @@ export interface WorkspaceStateFacade {
    */
   applyPanes(panes: Readonly<Record<string, WorkspaceSnapshotPane>>): void;
   applyRootViews(focusedRootId: string | null, visibleRootIds: readonly string[] | null): void;
+  /** Close app tabs; the selection store hands a closed selection to its successor. */
+  closeApps(appIds: readonly string[]): void;
   getEditorState(compositeKey: string): WorkspaceSnapshotEditor;
   getExpandedDirectoryPaths(): ReadonlySet<string>;
   getExplorerScrollTop(): number | undefined;

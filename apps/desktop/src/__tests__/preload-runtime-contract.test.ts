@@ -161,19 +161,9 @@ describe('preload runtime contract', () => {
   it('derives the MCP bridge from pure manifests with no raw invoke escape hatch', () => {
     const preloadSource = readPreloadSource();
 
-    for (const contract of [
-      'mcpContract',
-      'mcpPathSelectionContract',
-      'mcpContentContract',
-      'mcpElicitationContract',
-      'mcpAppsContract',
-      'mcpTasksContract',
-    ]) {
+    for (const contract of ['mcpPathSelectionContract', 'mcpAppsContract']) {
       expect(preloadSource).toContain(`createIpcBridge(ipcRenderer, ${contract})`);
     }
-    expect(preloadSource).toContain(
-      'readResource: (origin: McpAppOrigin) => readMcpAppResource(origin)'
-    );
     expect(preloadSource).not.toMatch(/ipcRenderer\.invoke\(DESKTOP_IPC_CHANNELS\.mcp\./);
   });
 

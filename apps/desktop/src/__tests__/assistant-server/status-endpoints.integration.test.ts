@@ -18,7 +18,7 @@
  * - `getSecretsService` is a plain arrow, not a vi.fn (nothing asserts on it).
  * Kept as one-line stubs purely to hold the import graph narrow (the real
  * assistant-tools barrel is ~800 lines / 32 imports evaluated at module load):
- * mcp-loader, assistant-tools, workspace-text-file-reader. db-main stays
+ * assistant-tools, workspace-text-file-reader. db-main stays
  * mocked because mastra-memory.ts still imports getDatabase directly (its
  * injection is the MemoryFactory slice of BST-972).
  */
@@ -86,17 +86,16 @@ vi.mock('../../db-main', () => ({
   getDatabase: vi.fn(() => Promise.resolve(mockDesktopDatabase)),
 }));
 
-vi.mock('../../mcp-loader', () => ({
-  loadMcpConfig: vi.fn(() => Promise.resolve({ config: undefined })),
-}));
-
 vi.mock('../../assistant-server/assistant-tools', () => ({
   buildDesktopAssistantTools: vi.fn(() => ({})),
 }));
 
-vi.mock('../../assistant-server/workspace-text-file-reader', () => ({
-  readWorkspaceTextFile: vi.fn(async () => ({ content: '', path: '', size: 0 })),
-}));
+vi.mock(
+  '../../../../../packages/host-capabilities/src/native-tools/workspace-text-file-reader',
+  () => ({
+    readWorkspaceTextFile: vi.fn(async () => ({ content: '', path: '', size: 0 })),
+  })
+);
 
 const runRequest = createRunRequest(handleAssistantRequest);
 
@@ -535,7 +534,7 @@ describe('verify-provider endpoint', () => {
 
   it('rejects an unknown provider id with 400', async () => {
     const { UnknownVerificationProviderError } = await import(
-      '../../assistant-server/provider-verification'
+      '@brainstrike/host-capabilities/provider-verification'
     );
     const verify = vi.fn().mockRejectedValue(new UnknownVerificationProviderError());
 
@@ -557,7 +556,7 @@ describe('verify-provider endpoint', () => {
 
   it('rejects a provider without a configured credential with 400', async () => {
     const { MissingProviderCredentialError } = await import(
-      '../../assistant-server/provider-verification'
+      '@brainstrike/host-capabilities/provider-verification'
     );
     const verify = vi.fn().mockRejectedValue(new MissingProviderCredentialError('anthropic'));
 
@@ -600,7 +599,7 @@ describe('verify-provider endpoint', () => {
 
   it('never leaks the stored key into the response payload (real service, mocked fetch)', async () => {
     const { createProviderVerificationService } = await import(
-      '../../assistant-server/provider-verification'
+      '@brainstrike/host-capabilities/provider-verification'
     );
     const fakeKey = 'sk-super-secret-endpoint-key';
     const service = createProviderVerificationService({

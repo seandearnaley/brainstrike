@@ -27,6 +27,11 @@ function classify(
  */
 export const MANUAL_PRODUCTION_REGISTRATIONS: readonly ManualIpcRegistration[] = [
   ...classify(
+    'separate-capability',
+    'Visible-frame authorization transfers a client MessagePort for the existing root host.',
+    [[DESKTOP_IPC_CHANNELS.agent.hostConnect, 'invoke']]
+  ),
+  ...classify(
     'separate-protocol',
     'Bidirectional worker, logging, or workspace lifecycle protocol with event channels.',
     [
@@ -92,7 +97,8 @@ export const MANUAL_PRODUCTION_REGISTRATIONS: readonly ManualIpcRegistration[] =
       [DESKTOP_IPC_CHANNELS.assistantCheckpoint.revertEntry, 'invoke'],
       [DESKTOP_IPC_CHANNELS.assistantCheckpoint.revertRun, 'invoke'],
       [DESKTOP_IPC_CHANNELS.hooks.getProjectHooksForReview, 'invoke'],
-      [DESKTOP_IPC_CHANNELS.hooks.resolveTrustedRootIds, 'invoke'],
+      [DESKTOP_IPC_CHANNELS.hooks.trustProjectHooks, 'invoke'],
+      [DESKTOP_IPC_CHANNELS.hooks.untrustProjectHooks, 'invoke'],
       [DESKTOP_IPC_CHANNELS.secrets.clearAll, 'invoke'],
       [DESKTOP_IPC_CHANNELS.secrets.delete, 'invoke'],
       [DESKTOP_IPC_CHANNELS.secrets.envBootstrap, 'invoke'],

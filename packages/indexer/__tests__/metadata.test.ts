@@ -13,24 +13,28 @@ const row = {
   indexMode: 'text-only',
   profileHash: null,
   profileJson: null,
-  schemaVersion: 8,
+  schemaVersion: 10,
   storeId: 'a'.repeat(64),
 };
 it('decodes raw text and complete configured identity without a SQLite driver', () => {
-  expect(decodeIndexIdentityRow(row)).toEqual({
-    embedding: { indexMode: 'text-only' },
-    storeId: row.storeId,
-  });
+  for (const schemaVersion of [8, 9, 10, 11, 12, 13]) {
+    expect(decodeIndexIdentityRow({ ...row, schemaVersion })).toEqual({
+      embedding: { indexMode: 'text-only' },
+      storeId: row.storeId,
+    });
+  }
   const configured = {
     ...row,
     indexMode: 'vector-configured',
     profileHash: embeddingProfileHash(profile),
     profileJson: JSON.stringify(profile),
   };
-  expect(decodeIndexIdentityRow(configured)).toEqual({
-    embedding: { indexMode: 'vector-configured', profile, profileHash: configured.profileHash },
-    storeId: row.storeId,
-  });
+  for (const schemaVersion of [8, 9, 10, 11, 12, 13]) {
+    expect(decodeIndexIdentityRow({ ...configured, schemaVersion })).toEqual({
+      embedding: { indexMode: 'vector-configured', profile, profileHash: configured.profileHash },
+      storeId: row.storeId,
+    });
+  }
   for (const invalid of [
     null,
     { ...row, storeId: 'invalid' },
@@ -38,6 +42,7 @@ it('decodes raw text and complete configured identity without a SQLite driver', 
     { ...row, schemaVersion: 5 },
     { ...row, schemaVersion: 6 },
     { ...row, schemaVersion: 7 },
+    { ...row, schemaVersion: 14 },
     { ...row, profileJson: '{}' },
     { ...configured, profileHash: 'b'.repeat(64) },
     { ...configured, profileJson: '{}' },

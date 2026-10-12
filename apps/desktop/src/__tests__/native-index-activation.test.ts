@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { join } from 'node:path';
 import type {
   CanonicalIngestionDependencies,
   CanonicalScanReceipt,
@@ -19,7 +20,7 @@ import {
   type ScopedIndexerPort,
   vectorProfileHash,
 } from '@brainstrike/indexer';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, onTestFinished, vi } from 'vitest';
 import { CanonicalUtilityChild } from '../canonical-utility-child';
 import {
   type CanonicalCollectionDependencies,
@@ -28,13 +29,13 @@ import {
 import { decodeCanonicalFrame } from '../canonical-utility-protocol';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
-import { createNativeIndexActivation } from '../native-index-activation';
 import {
   createInitialWindowAfterNativeReader,
   observeNativeReaderStartup,
 } from '../native-index-startup-window';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import {
+  createActivation,
   emptyCollection,
   fixture,
   mocks,
@@ -49,6 +50,158 @@ import {
 beforeEach(resetActivationFixture);
 
 afterEach(resetFileSizeConfig);
+
+it.each(['cancelled', 'startup-failed', 'cleanup-failed'] as const)(
+  'joins replacement host startup on quit and preserves %s outcomes',
+  async (outcome) => {
+    const { activation } = fixture();
+    const quit = new AbortController();
+    const starting = Promise.withResolvers<void>();
+    const physicalExit = Promise.withResolvers<void>();
+    const unrelated = new Error('Independent host startup failure');
+    const cleanupFailure = new Error('Physical host close failed');
+    mocks.acquireProfile.mockReturnValueOnce(starting.promise);
+    mocks.closeProfile.mockImplementationOnce(async (reason: unknown) => {
+      starting.reject(outcome === 'startup-failed' ? unrelated : reason);
+      await physicalExit.promise;
+      if (outcome === 'cleanup-failed') {
+        throw cleanupFailure;
+      }
+    });
+    let settled = false;
+    const resuming = activation.resume(quit.signal);
+    const result = resuming.then(
+      () => {
+        settled = true;
+        return;
+      },
+      (error: unknown) => {
+        settled = true;
+        return error;
+      }
+    );
+    onTestFinished(async () => {
+      quit.abort(new Error('Test cleanup'));
+      physicalExit.resolve();
+      starting.reject(quit.signal.reason);
+      await result;
+    });
+    await vi.waitFor(() => expect(mocks.acquireProfile).toHaveBeenCalledOnce());
+    quit.abort(new Error('Terminal quit'));
+    await vi.waitFor(() => expect(mocks.closeProfile).toHaveBeenCalledOnce());
+    expect(settled).toBe(false);
+    physicalExit.resolve();
+    const failure = await result;
+    if (outcome === 'cleanup-failed') {
+      expect(failure).toBeInstanceOf(AggregateError);
+      expect((failure as AggregateError).errors).toEqual([quit.signal.reason, cleanupFailure]);
+    } else {
+      expect(failure).toBe(outcome === 'startup-failed' ? unrelated : quit.signal.reason);
+    }
+    expect(mocks.createProfileOwner).toHaveBeenCalledOnce();
+    await expect(activation.acquireProfile()).rejects.toThrow('terminal retirement');
+  }
+);
+
+it('refuses reset resume before profile admission when quit is already terminal', async () => {
+  const { activation } = fixture();
+  const quit = new AbortController();
+  quit.abort(new Error('Terminal quit'));
+  await expect(activation.resume(quit.signal)).rejects.toBe(quit.signal.reason);
+  expect(mocks.createProfileOwner).not.toHaveBeenCalled();
+});
+
+it('retains the assistant profile through index settings replacement and rebuild until terminal close', async () => {
+  mocks.manager.attachCanonicalCollection.mockImplementation(
+    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
+  );
+  const { activation } = fixture();
+  try {
+    await activation.acquireProfile();
+    await activation.acquire();
+    await activation.reconfigure();
+    expect(mocks.close).toHaveBeenCalledOnce();
+    expect(mocks.closeProfile).not.toHaveBeenCalled();
+    await activation.rebuild();
+    expect(mocks.destroy).toHaveBeenCalledOnce();
+    expect(mocks.closeProfile).not.toHaveBeenCalled();
+    await activation.acquireProfile();
+  } finally {
+    await activation.close();
+  }
+  expect(mocks.closeProfile).toHaveBeenCalledOnce();
+});
+
+it('retries a failed host start once that host has released Root; Main retirement stays terminal', async () => {
+  const { activation } = fixture();
+  try {
+    // The failed start's rollback closes its platform, which releases Root capabilities.
+    mocks.acquireProfile.mockImplementationOnce(async () => {
+      await activation.closeRootCapabilities();
+      throw new Error('Host startup timed out');
+    });
+    await expect(activation.acquireProfile()).resolves.toBeUndefined();
+    expect(mocks.createProfileOwner).toHaveBeenCalledTimes(2);
+    expect(mocks.closeProfile).toHaveBeenCalledOnce();
+  } finally {
+    await activation.close();
+  }
+  await expect(activation.acquireProfile()).rejects.toThrow('terminal retirement');
+});
+
+it('keeps Main retirement terminal when a starting host fails and releases Root under it', async () => {
+  const { activation } = fixture();
+  const starting = Promise.withResolvers<void>();
+  const failing = Promise.withResolvers<void>();
+  mocks.acquireProfile.mockImplementationOnce(async () => {
+    starting.resolve();
+    await failing.promise;
+    // The failed start's rollback closes its platform, which releases Root capabilities.
+    await activation.closeRootCapabilities();
+    throw new Error('MCP is unavailable: the agent host is not running.');
+  });
+  const connecting = activation.acquireProfile();
+  await starting.promise;
+  // App shutdown begins while the host is still starting.
+  const closing = activation.close();
+  failing.resolve();
+  await expect(connecting).rejects.toThrow('MCP is unavailable');
+  await closing;
+  expect(mocks.createProfileOwner).toHaveBeenCalledOnce();
+});
+
+it('shows a failure that persists after the retry, and a later admission starts again', async () => {
+  const { activation } = fixture();
+  try {
+    mocks.acquireProfile
+      .mockRejectedValueOnce(new Error('first start failed'))
+      .mockRejectedValueOnce(new Error('retry failed'));
+    await expect(activation.acquireProfile()).rejects.toThrow('retry failed');
+    await expect(activation.acquireProfile()).resolves.toBeUndefined();
+    expect(mocks.createProfileOwner).toHaveBeenCalledTimes(3);
+  } finally {
+    await activation.close();
+  }
+});
+
+it('acquires the workspace index.sqlite with no state truth root or projection', async () => {
+  mocks.manager.attachCanonicalCollection.mockImplementation(
+    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
+  );
+  const { activation } = fixture();
+  try {
+    await activation.acquire();
+  } finally {
+    await activation.close();
+  }
+  // The host's own state-index.sqlite owns state rows; this file must never project them too.
+  expect(mocks.acquire).toHaveBeenCalledOnce();
+  const [options] = mocks.acquire.mock.calls[0] ?? [];
+  expect(options).toMatchObject({ dbPath: join('/owned/profile', 'index.sqlite') });
+  expect(options).not.toHaveProperty('stateRoot');
+  expect(options).not.toHaveProperty('stateProjection');
+  expect(options).not.toHaveProperty('stateResources');
+});
 
 it.each([DEFAULT_MAX_FILE_SIZE, 4096])(
   'activates ordinary TEXT source reads with the actual configured %i-byte limit',
@@ -289,19 +442,21 @@ it.each(['close', 'destroyAndRetireProfile'] as const)(
     );
     const { activation } = fixture();
     await activation.acquire();
-    const profileExit = Promise.withResolvers<void>();
-    mocks.closeProfile.mockReturnValueOnce(profileExit.promise);
+    const writerExit = Promise.withResolvers<void>();
+    mocks.close.mockReturnValueOnce(writerExit.promise);
     const changing = activation.reconfigure().catch((error: unknown) => error);
-    await vi.waitFor(() => expect(mocks.closeProfile).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledOnce());
+    expect(mocks.closeProfile).not.toHaveBeenCalled();
     let terminalSettled = false;
     const terminal = activation[operation]().then(() => {
       terminalSettled = true;
     });
     await Promise.resolve();
     expect(terminalSettled).toBe(false);
-    profileExit.resolve();
+    writerExit.resolve();
     await Promise.all([changing, terminal]);
     expect(mocks.acquire).toHaveBeenCalledTimes(1);
+    expect(mocks.closeProfile).toHaveBeenCalledOnce();
     await expect(activation.acquireRead()).rejects.toThrow('closed');
   }
 );
@@ -691,7 +846,7 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
     watches: { subscribe: unused },
   } as unknown as ApplicationIpcDomain;
   const documentEmbeddings = vi.fn(unused);
-  const activation = createNativeIndexActivation({
+  const activation = createActivation({
     application,
     embedding: { documentEmbeddings },
     onError: vi.fn(),

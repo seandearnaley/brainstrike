@@ -4,6 +4,7 @@ import type { Page, TestInfo } from '@playwright/test';
 import type { ElectronAppContext } from '../utils/electron-helpers.mts';
 import { ElectronProcessExitGuard } from '../utils/electron-process-exit-guard';
 import { loadElectronHelpers } from '../utils/load-electron-helpers';
+import type { ModelProviderShim } from '../utils/model-provider-shim';
 import { resetToAppHome } from '../utils/test-reset';
 
 interface ElectronHarnessOptions {
@@ -21,7 +22,11 @@ export class ElectronHarness {
     private readonly debugPort?: number,
     private readonly userDataDir?: string,
     /** Extra environment for every launch of the app, restarts included (never the harness's own). */
-    private readonly electronEnv?: Readonly<Record<string, string>>
+    private readonly electronEnv?: Readonly<Record<string, string>>,
+    /** Provider egress boundary for every launch, restarts included (BST-1931). */
+    private readonly modelProvider?: ModelProviderShim,
+    /** The real folder every launch's folder picker mounts by default, restarts included. */
+    private readonly workspaceRoot?: string
   ) {}
 
   getUserDataDir(): string {
@@ -198,6 +203,8 @@ export class ElectronHarness {
     const context = await launchElectronApp(this.debugPort, this.userDataDir, {
       disableExternalLocalRuntimeProbes: shouldDisableExternalLocalRuntimeProbes(this.testInfo),
       ...(this.electronEnv ? { env: this.electronEnv } : {}),
+      ...(this.modelProvider ? { modelProvider: this.modelProvider } : {}),
+      ...(this.workspaceRoot ? { workspaceRoot: this.workspaceRoot } : {}),
     });
     this.exitGuard.observe(context.app.process());
     return context;

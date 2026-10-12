@@ -5,7 +5,7 @@
  * No React, no bridge, no UI: the gating rules are unit-tested directly.
  * A prompt is selectable only while its server is CONNECTED, advertises the
  * `prompts` catalog feature, and actually listed it — the same authority the
- * `mcp:content:*` port re-checks around every invocation, so a stale entry can
+ * host's MCP content service re-checks around every invocation, so a stale entry can
  * never silently target a retired generation (the port rejects it visibly).
  */
 import type {

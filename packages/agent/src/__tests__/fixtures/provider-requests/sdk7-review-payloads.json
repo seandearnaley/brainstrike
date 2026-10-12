@@ -1,0 +1,199 @@
+{
+  "payloads": {
+    "stored_split": {
+      "model": "gpt-6-sol",
+      "input": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "old"
+            }
+          ]
+        },
+        {
+          "type": "item_reference",
+          "id": "rs_split"
+        },
+        {
+          "type": "item_reference",
+          "id": "msg_split"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "continue"
+            }
+          ]
+        }
+      ],
+      "store": true
+    },
+    "stateless_split": {
+      "model": "gpt-6-sol",
+      "input": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "old"
+            }
+          ]
+        },
+        {
+          "type": "reasoning",
+          "id": "rs_split",
+          "encrypted_content": "offline-encrypted-split",
+          "summary": [
+            {
+              "type": "summary_text",
+              "text": "recorded split reasoning"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "output_text",
+              "text": "recorded split answer"
+            }
+          ],
+          "id": "msg_split"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "continue"
+            }
+          ]
+        }
+      ],
+      "store": false,
+      "include": [
+        "reasoning.encrypted_content"
+      ]
+    },
+    "anthropic_server_response_messages": [
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool-call",
+            "toolCallId": "srvtoolu_recorded",
+            "toolName": "web_search",
+            "input": {
+              "query": "brainstrike"
+            },
+            "providerExecuted": true
+          },
+          {
+            "type": "tool-result",
+            "toolCallId": "srvtoolu_recorded",
+            "toolName": "web_search",
+            "output": {
+              "type": "json",
+              "value": []
+            }
+          },
+          {
+            "type": "text",
+            "text": "Earlier answer"
+          }
+        ]
+      }
+    ],
+    "anthropic_to_openai": {
+      "model": "gpt-6-sol",
+      "input": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "search"
+            }
+          ]
+        },
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "output_text",
+              "text": "Earlier answer"
+            }
+          ]
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "continue"
+            }
+          ]
+        }
+      ],
+      "store": true
+    },
+    "execution_denied_limited": {
+      "model": "gpt-6-sol",
+      "input": [
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "read"
+            }
+          ]
+        },
+        {
+          "type": "function_call",
+          "call_id": "denied",
+          "name": "read",
+          "arguments": "{}"
+        },
+        {
+          "type": "function_call_output",
+          "call_id": "denied",
+          "output": "User denied"
+        },
+        {
+          "role": "user",
+          "content": [
+            {
+              "type": "input_text",
+              "text": "continue"
+            }
+          ]
+        }
+      ],
+      "store": true
+    },
+    "google_inline_text_file_limited": {
+      "generationConfig": {},
+      "contents": [
+        {
+          "role": "user",
+          "parts": [
+            {
+              "inlineData": {
+                "mimeType": "text/plain",
+                "data": "UmVjb3JkZWQgaW5saW5lIGRvY3VtZW50Lg=="
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "sdk": "7.0.126",
+  "source": "pinned runtime parsing/serialization; mocked HTTP; no real account"
+}

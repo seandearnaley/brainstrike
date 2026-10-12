@@ -1,5 +1,6 @@
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
+import { ensureMockWorkspaceOpen } from './utils/layout-helpers';
 
 /**
  * Workspace-search smoke (desktop).
@@ -64,5 +65,27 @@ test.describe('Desktop workspace search', () => {
     await expect(window.getByTestId('explorer-search-panel-explorer')).toBeVisible({
       timeout: 15_000,
     });
+  });
+
+  test('a mounted workspace with no search mode chosen tells the user how to enable semantic search', async ({
+    window,
+  }) => {
+    test.setTimeout(60_000);
+    // Mounting a root reconfigures the native index; no Search & Indexing choice is saved.
+    await ensureMockWorkspaceOpen(window);
+    await ensureFileExplorerPanelVisible(window);
+    const tabStrip = window.getByRole('tablist', { name: 'Explorer and search' });
+    await tabStrip.getByRole('tab', { name: 'Search' }).click();
+    const searchPanel = window.getByTestId('explorer-search-panel-search');
+    const semantic = searchPanel.getByRole('button', { name: 'Semantic' });
+    await expect(semantic).toHaveAttribute('aria-disabled', 'true', { timeout: 15_000 });
+    // The disabled reason is the setup step, never an internal admission state.
+    await expect(async () => {
+      await semantic.hover();
+      await expect(window.getByRole('tooltip').first()).toHaveText(
+        'Choose a search mode in Search & Indexing settings.',
+        { timeout: 2000 }
+      );
+    }).toPass({ timeout: 30_000 });
   });
 });

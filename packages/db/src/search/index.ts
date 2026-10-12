@@ -80,6 +80,8 @@ export {
   createThreadSearchService,
   type ThreadMessageMatchResult,
   type ThreadMessageMatchSource,
+  type ThreadSearchArmMessage,
+  type ThreadSearchExtraArms,
   type ThreadSearchMetadata,
   type ThreadSearchQueryOptions,
   type ThreadSearchResponse,
