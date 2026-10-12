@@ -282,7 +282,7 @@ describe('fused history search', () => {
       );
       await expect(
         cli(['--query', 'notarytool', '--since', '2026-10-02', '--until', '2026-10-01'])
-      ).rejects.toThrow('A thread search window ends before it starts');
+      ).rejects.toThrow('--since must not be after --until');
     } finally {
       await host.close();
     }
