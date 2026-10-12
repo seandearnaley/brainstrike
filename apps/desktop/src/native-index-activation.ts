@@ -446,7 +446,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       });
     const manager = getReadyIndexerHost();
     const common = {
-      parser: { parser: 'oxc' as const, treeSitterLanguages: [] },
+      parser: { parser: 'oxc' as const },
       request: {
         batchSize: 64,
         chunkingOptions: { strategy: 'auto' as const },

@@ -58,7 +58,7 @@ function collection(published: CanonicalIndexPayload[]): CanonicalCollectionDepe
         throw new Error('TEXT resolved inference');
       },
     },
-    parser: { parser: 'oxc', treeSitterLanguages: [] },
+    parser: { parser: 'oxc' },
     publication: {
       abortScan: async () => {},
       beginScan: async ({ requestId, scope }) => ({

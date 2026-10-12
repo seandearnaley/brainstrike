@@ -58,7 +58,7 @@ function fixture(): CanonicalWorkspaceRuntimeDependencies {
     onError: vi.fn(),
     onReceipt: vi.fn(),
     onWatchHealth: vi.fn(),
-    parser: { parser: 'oxc', treeSitterLanguages: [] },
+    parser: { parser: 'oxc' },
     publication: {
       abortScan: async () => {},
       beginScan: async ({ requestId }) => ({ generation: 1, requestId, scope, storeId: 'store' }),

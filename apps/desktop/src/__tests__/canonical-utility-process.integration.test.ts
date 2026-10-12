@@ -38,6 +38,29 @@ const baseIdentity = {
   sourcePath: null,
 };
 const hash = (content: string): string => createHash('sha256').update(content).digest('hex');
+
+/**
+ * Real-shaped source per file kind (BST-1983). The broken ones carry a syntax
+ * error their parser recovers from, so they index rather than block the scan.
+ */
+function sourceText(fileName: string, version: string): string {
+  switch (fileName) {
+    case 'merge_sort.py':
+      return `@cache\ndef merge_sort(xs):\n    """canonical transport ${version}"""\n    if len(xs) <= 1:\n        return xs\n    middle = len(xs) // 2\n    return merge(merge_sort(xs[:middle]), merge_sort(xs[middle:]))\n`;
+    case 'broken.py':
+      return `def merge_sort(xs:\n    return "canonical transport ${version}"\n`;
+    case 'broken.ts':
+      return `export function native( {\n  return "canonical transport ${version}";\n}\n`;
+    default:
+      return `export function native(): string {\n  return "canonical transport ${version}";\n}\n`;
+  }
+}
+
+/** Where a recognized declaration's chunk must begin: with its modifiers and decorators. */
+const DECLARATION_START: Readonly<Record<string, string>> = {
+  'merge_sort.py': '@cache\ndef merge_sort(xs):',
+  'source.ts': 'export function native(): string {',
+};
 function nativeIdentity(file: CanonicalFileIdentity) {
   return {
     embeddingSetId: file.embeddingSetId,
@@ -53,6 +76,10 @@ it.each([
   { fileName: 'source.ts', mode: 'VECTOR', provider: 'local' },
   { fileName: 'source.txt', mode: 'VECTOR', provider: 'local' },
   { fileName: 'source.ts', mode: 'VECTOR', provider: 'cohere' },
+  { fileName: 'merge_sort.py', mode: 'TEXT', provider: 'local' },
+  { fileName: 'merge_sort.py', mode: 'VECTOR', provider: 'local' },
+  { fileName: 'broken.py', mode: 'TEXT', provider: 'local' },
+  { fileName: 'broken.ts', mode: 'TEXT', provider: 'local' },
 ] as const)(
   'publishes $provider $mode $fileName real PG retained source through the built attachment into one native writer and joins process exit',
   async ({ mode, fileName, provider }) => {
@@ -60,7 +87,7 @@ it.each([
     const directory = await mkdtemp(path.join(os.tmpdir(), 'canonical-native-index-'));
     const fixtureDirectory = await mkdtemp(path.join(desktop, '.indexer-proof-'));
     const db = await wasmLoader.createPGlite('memory://canonical-utility-process');
-    let original = 'export const native = "canonical transport firstversion";\n';
+    let original = sourceText(fileName, 'firstversion');
     await migrate(db);
     const metadata = {
       dimensions: mode === 'VECTOR' ? (provider === 'cohere' ? 1024 : 384) : 1536,
@@ -381,7 +408,7 @@ it.each([
           ? { inference, mode: 'VECTOR' as const, publication: vectorPublication }
           : { mode: 'TEXT' as const, publication }),
         catalog,
-        parser: { parser: 'oxc', treeSitterLanguages: [] },
+        parser: { parser: 'oxc' },
         request: { batchSize: 2, chunkingOptions: { strategy: 'auto' }, maxFileBytes: 1024 },
         scope,
         source: {
@@ -411,6 +438,24 @@ it.each([
       );
       expect(result.rows[0]?.content).toBe(original);
       expect(result.rows[0]?.chunks_count).toBeGreaterThan(0);
+      // Every committed chunk is its own source span with words of its own: no
+      // lone `export` or `}` whose identical vector outranks real content.
+      const chunks = plans.get(identity.fileId)?.chunks ?? [];
+      expect(
+        chunks.map((chunk) =>
+          chunk.startOffset === null || chunk.endOffset === null
+            ? null
+            : original.slice(chunk.startOffset, chunk.endOffset)
+        )
+      ).toEqual(chunks.map((chunk) => chunk.content));
+      const committed = chunks.map((chunk) => chunk.content);
+      expect(
+        committed.filter((text) => !/[\p{L}\p{N}_$]/u.test(text) || text === 'export')
+      ).toEqual([]);
+      const declaration = DECLARATION_START[fileName];
+      if (declaration) {
+        expect(committed.filter((text) => text.startsWith(declaration))).toHaveLength(1);
+      }
       if (profile) {
         expect((await port.coverageScope({ profile, scope })).vectorCoverageComplete).toBe(true);
         const queryVector =
@@ -441,7 +486,7 @@ it.each([
         expect((await attachment.scan('covered-scan')).scanComplete).toBe(true);
         expect(inference.generate).toHaveBeenCalledTimes(generated);
       }
-      original = 'export const native = "canonical transport secondversion";\n';
+      original = sourceText(fileName, 'secondversion');
       await db.query(
         'UPDATE file_records SET content=$1,content_hash=$2,size=$3,mtime_ms=2,chunks_processed_at=NULL WHERE id=$4',
         [original, hash(original), Buffer.byteLength(original), identity.fileId]
@@ -490,7 +535,7 @@ it.each([
           release = resolve;
         });
         physicalHold = { aborted, entered, released };
-        original = 'export const native = "canonical transport thirdversion";\n';
+        original = sourceText(fileName, 'thirdversion');
         await db.query(
           'UPDATE file_records SET content=$1,content_hash=$2,size=$3,mtime_ms=3,chunks_processed_at=NULL WHERE id=$4',
           [original, hash(original), Buffer.byteLength(original), identity.fileId]

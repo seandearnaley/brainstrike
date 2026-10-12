@@ -135,7 +135,7 @@ async function fixture(scope: CanonicalSourceScope = { kind: 'workspace', rootId
   };
   const host = new CanonicalIngestionHost({
     catalog,
-    parser: { parser: 'oxc', treeSitterLanguages: ['python'] },
+    parser: { parser: 'oxc' },
     publication,
     source,
   });
@@ -919,7 +919,7 @@ describe('workspace content eligibility through the canonical scan', () => {
       );
       const host = new CanonicalIngestionHost({
         catalog: f.catalog,
-        parser: { parser: 'oxc', treeSitterLanguages: ['python'] },
+        parser: { parser: 'oxc' },
         publication: f.publication,
         source,
       });
