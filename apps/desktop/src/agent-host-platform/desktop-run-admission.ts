@@ -237,8 +237,13 @@ async function readDesktopNativeAdmission(
   };
   const retrievalRootsOnly = selection !== undefined || workspace !== undefined;
   const readWorkspaceFile = desktopContextReader(request, freshRoots, retrievalRootsOnly);
+  // The thread's binding owns the roots a run executes in; the explorer's focus
+  // only scopes the user's selection, so a focus outside the thread selects nothing.
   const focused = roots.find((root) => root.rootId === intent.selectionFolderId);
-  if (intent.selectionFolderId && !focused) {
+  if (
+    intent.selectionFolderId &&
+    !liveRoots.some((root) => root.rootId === intent.selectionFolderId)
+  ) {
     throw new Error('The selected workspace root is no longer mounted');
   }
   const runtime: RuntimeData = {

@@ -558,6 +558,11 @@ Two DISTINCT root concepts exist in a multi-root workspace; never conflate them.
 - The per-request `mainRootId`/`mainRootPath` fields are an ORDERING HINT — not a
   security boundary, not the durable thread-binding authority. `workspaceRootPath`
   stays the FOCUSED root.
+- A host run executes in its thread's Core binding (ADR-0017); adding a workspace
+  folder never changes that binding. The FOCUSED root scopes the run's selection only
+  when it is one of the thread's roots. A focus outside them selects nothing and
+  never refuses the send (BST-1984); only a focus on a folder the workspace no longer
+  mounts refuses.
 
 **Thread and run binding.** Desktop data-stream threads persist their first request's
 explicit Main root in `mastra_threads.metadata` as `operatingRootId` plus
