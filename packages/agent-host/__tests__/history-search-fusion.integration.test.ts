@@ -184,8 +184,22 @@ describe('fused history search', () => {
       title: 'Release signing checklist',
       titleMatched: true,
     });
+    // Nothing matched at all: the every-word result stands, with no relaxation to report.
     const nothing = await search({ query: 'zeppelin quasar' });
-    expect(nothing).toMatchObject({ lexical: 'any-word', messages: [], results: [], titles: [] });
+    expect(nothing).toMatchObject({ lexical: 'all-words', messages: [], results: [], titles: [] });
+  });
+
+  test('matches any word against whole title words, not letters inside them', async () => {
+    // Smoke of #3566: "zeppelin e" listed every title holding the letter e.
+    const letter = await search({ query: 'zeppelin e' });
+    expect(letter).toMatchObject({ messages: [], results: [], titles: [] });
+    const word = await search({ query: 'zeppelin kitchen' });
+    expect(word.lexical).toBe('any-word');
+    expect(word.titles.map(({ title }) => title)).toEqual(['Kitchen renovation budget']);
+    // Every word still matches inside a title word, as before.
+    expect((await search({ query: 'renov' })).titles.map(({ title }) => title)).toEqual([
+      'Kitchen renovation budget',
+    ]);
   });
 
   test('keeps only threads bound to the requested workspace root', async () => {
