@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
@@ -15,6 +15,11 @@ const PROMPT_TEXT = 'find db files';
 const TOOL = 'brainstrike.readWorkspaceFile';
 const workspace = mkdtempSync(join(tmpdir(), 'bs-e2e-tool-card-visuals-'));
 writeFileSync(join(workspace, 'db-files.txt'), 'notes.db\n');
+// A genuine filesystem fault (not a missing file, which is the model's to correct
+// since BST-1996), so the card shows the guard's redacted generic error.
+const unreadable = join(workspace, 'unreadable-db-files.txt');
+writeFileSync(unreadable, 'private\n');
+chmodSync(unreadable, 0o000);
 
 test.use({ electronEnv: { BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace } });
 test.afterAll(() => {
@@ -106,7 +111,7 @@ test.describe('Assistant tool card visuals (desktop)', () => {
   test('tool-error card renders the error state', async ({ modelProvider, window }) => {
     // The tool guard's model- and user-facing text for a failed execution.
     const errorMessage = 'The tool did not complete successfully. Try another approach.';
-    scriptRead(modelProvider, 'missing-db-files.txt', 'The file is missing.');
+    scriptRead(modelProvider, 'unreadable-db-files.txt', 'The file is unreadable.');
     await openAssistantChat(window);
     await sendPrompt(window, PROMPT_TEXT);
 

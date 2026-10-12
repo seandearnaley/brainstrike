@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Page } from '@playwright/test';
@@ -16,6 +16,11 @@ const PROMPT_TEXT = 'Find relevant context';
 const TOOL = 'brainstrike.readWorkspaceFile';
 const workspace = mkdtempSync(join(tmpdir(), 'bs-e2e-assistant-retrieval-'));
 writeFileSync(join(workspace, 'context.txt'), 'const answer = 42;\n');
+// A missing file is the model's to correct (BST-1996); an unreadable one is a
+// genuine filesystem fault, which the tool guard keeps redacted.
+const unreadable = join(workspace, 'unreadable.txt');
+writeFileSync(unreadable, 'private\n');
+chmodSync(unreadable, 0o000);
 
 test.use({ electronEnv: { BRAINSTRIKE_E2E_REAL_ROOT_PATH: workspace } });
 test.afterAll(() => {
@@ -105,7 +110,7 @@ test.describe('Assistant retrieval (desktop)', () => {
   test('shows retrieval tool errors when execution fails', async ({ modelProvider, window }) => {
     // The tool guard's model- and user-facing text for a failed execution.
     const errorMessage = 'The tool did not complete successfully. Try another approach.';
-    scriptContextRead(modelProvider, 'missing.txt', 'The context is unavailable.');
+    scriptContextRead(modelProvider, 'unreadable.txt', 'The context is unavailable.');
     await openAssistantChat(window);
     await sendPrompt(window, PROMPT_TEXT);
 

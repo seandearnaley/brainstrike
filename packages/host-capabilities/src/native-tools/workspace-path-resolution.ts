@@ -37,26 +37,116 @@ export function resolveWorkspaceRootPath(runtimeData: RuntimeData | undefined): 
   return rootPath;
 }
 
+/** The model's path under the root, before any symlink is resolved. */
+function requestedAbsolutePath(
+  rootPath: string,
+  workspacePath: string
+): { normalizedWorkspacePath: string; absolutePath: string } {
+  const normalizedWorkspacePath = normalizeWorkspacePath(workspacePath);
+  const relativePath =
+    normalizedWorkspacePath === '/' ? '' : normalizedWorkspacePath.replace(/^\/+/, '');
+  return { absolutePath: path.resolve(rootPath, relativePath), normalizedWorkspacePath };
+}
+
 export async function resolveWorkspaceAbsolutePath(
   rootPath: string,
   workspacePath: string
 ): Promise<{ workspacePath: string; absolutePath: string }> {
-  const normalizedWorkspacePath = normalizeWorkspacePath(workspacePath);
-  const relativePath =
-    normalizedWorkspacePath === '/' ? '' : normalizedWorkspacePath.replace(/^\/+/, '');
-  const absolutePath = path.resolve(rootPath, relativePath);
+  const { absolutePath, normalizedWorkspacePath } = requestedAbsolutePath(rootPath, workspacePath);
   // Resolve symlinks on both sides, then check containment on the canonical
   // paths. ".." can't escape (clamped in normalizeWorkspacePath); this guards
   // the remaining vector — a symlink whose target lives outside the root.
   const canonicalRootPath = await fsPromises.realpath(rootPath);
   const canonicalAbsolutePath = await fsPromises.realpath(absolutePath);
   if (!isWithinRoot(canonicalRootPath, canonicalAbsolutePath)) {
-    throw new ToolInputError(`Path "${workspacePath}" is outside the selected workspace root.`);
+    throw outsideWorkspaceRootRefusal(workspacePath);
   }
   return {
     absolutePath: canonicalAbsolutePath,
     workspacePath: normalizedWorkspacePath,
   };
+}
+
+/** Why a workspace read refused a model-supplied path. */
+export type WorkspacePathRefusalReason =
+  | 'binary'
+  | 'missing'
+  | 'not-file'
+  | 'outside'
+  | 'too-large';
+
+/**
+ * BST-1996: a read's refusal of a model-supplied path, typed by reason so a
+ * caller decides by type, never by message text (BST-1985). The message names
+ * only the path the model sent.
+ */
+export class WorkspacePathRefusal extends ToolInputError {
+  constructor(
+    readonly reason: WorkspacePathRefusalReason,
+    message: string
+  ) {
+    super(message);
+    this.name = 'WorkspacePathRefusal';
+  }
+}
+
+function outsideWorkspaceRootRefusal(workspacePath: string): WorkspacePathRefusal {
+  return new WorkspacePathRefusal(
+    'outside',
+    `Path "${workspacePath}" is outside the selected workspace root.`
+  );
+}
+
+/**
+ * BST-1996: the refusal for a model-supplied path that does not exist. A missing
+ * path is the model's to correct only inside the root. Containment is decided on
+ * where the path would be, through every symlink on the way, including a
+ * dangling one, so a link that leaves the root gets the containment refusal
+ * whether or not its outside target exists. Both echo only the model's path.
+ */
+export async function missingWorkspacePathRefusal(
+  rootPath: string,
+  workspacePath: string
+): Promise<WorkspacePathRefusal> {
+  const { absolutePath } = requestedAbsolutePath(rootPath, workspacePath);
+  const canonicalRootPath = await fsPromises.realpath(rootPath);
+  const intended = await resolveIntendedPath(absolutePath, MAX_SYMLINK_HOPS);
+  return isWithinRoot(canonicalRootPath, intended)
+    ? new WorkspacePathRefusal('missing', `Path "${workspacePath}" does not exist.`)
+    : outsideWorkspaceRootRefusal(workspacePath);
+}
+
+/** The most links followed before a dangling chain is treated as a loop, as the OS does. */
+const MAX_SYMLINK_HOPS = 40;
+
+/**
+ * Where a path that does not fully exist would be: `realpath` for the part that
+ * exists, with each symlink on the way followed even when its target is missing.
+ */
+async function resolveIntendedPath(target: string, hops: number): Promise<string> {
+  let entry: Awaited<ReturnType<typeof fsPromises.lstat>> | undefined;
+  try {
+    entry = await fsPromises.lstat(target);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw error;
+    }
+  }
+  if (!entry) {
+    const parent = path.dirname(target);
+    if (parent === target) {
+      return target;
+    }
+    return path.join(await resolveIntendedPath(parent, hops), path.basename(target));
+  }
+  if (!entry.isSymbolicLink()) {
+    return await fsPromises.realpath(target);
+  }
+  if (hops === 0) {
+    throw new Error('Too many symbolic links while resolving a workspace path.');
+  }
+  const link = await fsPromises.readlink(target);
+  return await resolveIntendedPath(path.resolve(path.dirname(target), link), hops - 1);
 }
 
 const MAX_STABLE_WORKSPACE_FILE_LOCK_ATTEMPTS = 3;
