@@ -3,7 +3,9 @@
  * retrieval catalog and the renderer query embedding, each for one admitted
  * thread and each result parsed before use.
  */
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
+import type { z } from 'zod';
 import type { RetrievalToolDependencies } from '../assistant-server/retrieval-core';
 import type { RetrievalStore } from '../assistant-server/retrieval-store';
 import {
@@ -14,7 +16,9 @@ import {
   IndexCoverageSchema,
   IndexSearchResultSchema,
   IndexStatusSchema,
+  type QueryEmbeddingPayloadSchema,
   QueryEmbeddingResultSchema,
+  RefusableOutcomeSchema,
 } from './retrieval-wire';
 
 export type MainRequest = (
@@ -39,32 +43,56 @@ export function hostIndexSearch(request: MainRequest, threadId: string): IndexSe
   };
 }
 
-/** The renderer query embedding through Main; the call's signal cancels it there. */
+/** A refusal Main answered becomes the ToolInputError it was; a result is parsed before use. */
+function refusedOrResult<T extends z.ZodType>(schema: T, answer: unknown): z.output<T> {
+  const outcome = RefusableOutcomeSchema.parse(answer);
+  if (!outcome.ok) {
+    throw new ToolInputError(outcome.message);
+  }
+  return schema.parse(outcome.result);
+}
+
+/**
+ * Main's query embedding; the call's signal cancels it there. A refusal Main
+ * raises (an unreadable key, an over-long query) reaches the caller typed.
+ */
+export async function mainQueryEmbedding(
+  request: MainRequest,
+  payload: z.input<typeof QueryEmbeddingPayloadSchema>,
+  signal?: AbortSignal
+): Promise<number[]> {
+  return refusedOrResult(
+    QueryEmbeddingResultSchema,
+    await request('platform/embedding/query', { request: payload }, signal)
+  );
+}
+
+/** The renderer query embedding through Main, for the retrieval tools. */
 export function hostQueryEmbedding(
   request: MainRequest
 ): NonNullable<RetrievalToolDependencies['embeddingHostManager']> {
   return {
-    queryEmbedding: async (payload, options) =>
-      QueryEmbeddingResultSchema.parse(
-        await request('platform/embedding/query', { request: payload }, options?.signal)
-      ),
+    queryEmbedding: (payload, options) => mainQueryEmbedding(request, payload, options?.signal),
   };
 }
 
 /** The retrieval catalog over Main's PGlite; the host has no legacy similarity path. */
 export function hostRetrievalStore(request: MainRequest, threadId: string): RetrievalStore {
-  const read = (method: string, body: unknown) =>
-    request(`desktop-read/retrieval/${method}`, { request: body, threadId });
+  const read = async <T extends z.ZodType>(schema: T, method: string, body: unknown) =>
+    refusedOrResult(
+      schema,
+      await request(`desktop-read/retrieval/${method}`, { request: body, threadId })
+    );
   return {
-    embeddingSet: async (embeddingSetId) =>
-      EmbeddingSetRowSchema.parse(await read('embedding-set', { embeddingSetId })),
-    embeddingSpaces: async ({ includeStats }) =>
-      EmbeddingSpaceListingSchema.array().parse(await read('embedding-spaces', { includeStats })),
+    embeddingSet: (embeddingSetId) =>
+      read(EmbeddingSetRowSchema, 'embedding-set', { embeddingSetId }),
+    embeddingSpaces: ({ includeStats }) =>
+      read(EmbeddingSpaceListingSchema.array(), 'embedding-spaces', { includeStats }),
     fileRecords: async (ids) =>
       new Map(
-        FileRecordRowSchema.array()
-          .parse(await read('file-records', { ids: [...ids] }))
-          .map((row) => [row.id, row] as const)
+        (await read(FileRecordRowSchema.array(), 'file-records', { ids: [...ids] })).map(
+          (row) => [row.id, row] as const
+        )
       ),
   };
 }

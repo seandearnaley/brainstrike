@@ -19,11 +19,7 @@ import {
   PlatformModelConfigurationSchema,
   PlatformWorkspaceContextSchema,
 } from './platform-client-configuration';
-import {
-  InferencePlanSchema,
-  QueryEmbeddingPayloadSchema,
-  QueryEmbeddingResultSchema,
-} from './retrieval-wire';
+import { InferencePlanSchema, QueryEmbeddingPayloadSchema } from './retrieval-wire';
 
 export {
   PlatformClientConfigurationSchema,
@@ -235,12 +231,12 @@ export const PlatformLocalWarmupSchema = z.strictObject({
 /**
  * The one relay to Main's hidden embedding host (ADR-0007): a retrieval tool's
  * query, or an admitted local recall embedder's with its plan. The host's
- * admission decides which; Main answers the vector.
+ * admission decides which; Main answers the vector, or its refusal as data
+ * (`RefusableOutcomeSchema`, BST-1996).
  */
 export const PlatformEmbeddingQuerySchema = z.strictObject({
   request: QueryEmbeddingPayloadSchema,
 });
-export const PlatformEmbeddingResultSchema = QueryEmbeddingResultSchema;
 /**
  * A host run's turn boundary, with the roots it snapshots: at its start the
  * roots its admission holds, at its end the start's roots. The host's

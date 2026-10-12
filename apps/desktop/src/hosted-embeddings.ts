@@ -2,6 +2,7 @@ import { ASSISTANT_PREFERENCES_STORE_NAME } from '@brainstrike/app-state/stores/
 import { resolveHostedProviderKey } from '@brainstrike/assistant-contract/provider-key-resolution';
 import {
   CohereEmbeddingProvider,
+  type EmbeddingProviderError,
   GoogleEmbeddingProvider,
   type HostedProviderType,
   hostedProviderRequiresApiKey,
@@ -20,6 +21,32 @@ import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { getSecretsService } from './secrets';
 
 const logger = createLogger('DesktopHostedEmbeddings');
+
+/** Why a hosted embedding request was refused (BST-1994). */
+export type HostedEmbeddingErrorKind =
+  | 'missing-key'
+  | 'input-too-long'
+  | 'rate-limit'
+  | 'provider-status'
+  | 'network';
+
+/**
+ * A typed hosted embedding refusal. `message` is model-safe: no keys, host paths
+ * or raw provider body. Raw provider detail travels only on `cause`, which is
+ * logged and redacted. The name and shape are a contract with the
+ * `platform/embedding/query` refusal mapping (BST-1996).
+ */
+export class HostedEmbeddingError extends Error {
+  override readonly name = 'HostedEmbeddingError';
+  constructor(
+    readonly kind: HostedEmbeddingErrorKind,
+    message: string,
+    options?: { cause?: unknown }
+  ) {
+    super(message, options);
+  }
+}
+
 const ERROR_MESSAGES = {
   missingApiKey: 'No API key configured for the embedding provider.',
   unsupportedProvider: 'Embedding provider is not supported by assistant retrieval.',
@@ -100,12 +127,12 @@ export function createHostedProvider(
       });
     case 'google':
       if (!apiKey) {
-        throw new Error(ERROR_MESSAGES.missingApiKey);
+        throw missingKey();
       }
       return new GoogleEmbeddingProvider({ apiKey, modelId, outputDimensions: dimensions });
     case 'cohere':
       if (!apiKey) {
-        throw new Error(ERROR_MESSAGES.missingApiKey);
+        throw missingKey();
       }
       return new CohereEmbeddingProvider({
         apiKey,
@@ -114,7 +141,7 @@ export function createHostedProvider(
       });
     case 'voyage':
       if (!apiKey) {
-        throw new Error(ERROR_MESSAGES.missingApiKey);
+        throw missingKey();
       }
       return new VoyageEmbeddingProvider({ apiKey, inputType: purpose, modelId });
     default:
@@ -136,7 +163,7 @@ export async function generateHostedEmbeddings(input: {
   const apiKey = await resolveEmbeddingApiKey(input.provider);
   input.signal.throwIfAborted();
   if (hostedProviderRequiresApiKey(input.provider) && !apiKey) {
-    throw new Error(ERROR_MESSAGES.missingApiKey);
+    throw missingKey();
   }
   const endpoint =
     input.provider === 'ollama' || input.provider === 'lmstudio'
@@ -164,9 +191,7 @@ export async function generateHostedEmbeddings(input: {
     ) {
       throw input.signal.reason;
     }
-    throw new Error(`Embedding provider ${input.provider} failed: ${result.error.type}`, {
-      cause: result.error,
-    });
+    throw hostedRefusal(input.provider, result.error);
   }
   input.signal.throwIfAborted();
   const output = result.value;
@@ -178,11 +203,69 @@ export async function generateHostedEmbeddings(input: {
     vectors.length !== input.texts.length ||
     vectors.some((vector) => vector.length !== input.dimensions || !vector.every(Number.isFinite))
   ) {
-    throw new Error(
-      'Hosted embedding response does not match its authorized model, provider, dimensions or batch.'
+    throw new HostedEmbeddingError(
+      'provider-status',
+      `Embedding provider ${input.provider} returned vectors that do not match the requested model, dimensions or batch.`
     );
   }
   return vectors;
+}
+
+function missingKey(): HostedEmbeddingError {
+  return new HostedEmbeddingError('missing-key', ERROR_MESSAGES.missingApiKey);
+}
+
+/**
+ * A provider's typed failure as the refusal BST-1996 maps. Only typed facts choose the
+ * kind (no message text is parsed), and the message never repeats the provider's body.
+ */
+function hostedRefusal(provider: HostedProviderType, error: EmbeddingProviderError): Error {
+  switch (error.type) {
+    case 'missing_api_key':
+      return new HostedEmbeddingError('missing-key', ERROR_MESSAGES.missingApiKey, {
+        cause: error,
+      });
+    case 'rate_limit_exceeded':
+      return new HostedEmbeddingError(
+        'rate-limit',
+        `Embedding provider ${provider} is rate limiting requests; try again later.`,
+        { cause: error }
+      );
+    case 'network_error':
+      return new HostedEmbeddingError(
+        'network',
+        `Embedding provider ${provider} could not be reached.`,
+        { cause: error }
+      );
+    case 'api_error':
+      return error.statusCode === 413
+        ? new HostedEmbeddingError(
+            'input-too-long',
+            `Embedding provider ${provider} refused the input as too large (HTTP 413).`,
+            { cause: error }
+          )
+        : new HostedEmbeddingError(
+            'provider-status',
+            `Embedding provider ${provider} refused the request (HTTP ${error.statusCode}).`,
+            { cause: error }
+          );
+    case 'dimension_mismatch':
+      return new HostedEmbeddingError(
+        'provider-status',
+        `Embedding provider ${provider} returned ${error.received}-dimensional vectors; ${error.expected} were requested.`,
+        { cause: error }
+      );
+    // Our own input or a local model: not a hosted provider refusal.
+    case 'validation_error':
+    case 'model_load_failed':
+      return new Error(`Embedding provider ${provider} failed: ${error.type}`, { cause: error });
+    default:
+      return assertNever(error);
+  }
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled embedding provider error: ${JSON.stringify(value)}`);
 }
 
 /** Read the existing runtime settings record used by discovery; malformed choices stay visible. */

@@ -1,16 +1,28 @@
 // @vitest-environment node
+import { MessageChannel } from 'node:worker_threads';
 import type { HostTool, HostToolContext } from '@brainstrike/agent-host';
-import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { SecretReadError } from '@brainstrike/agent-host/credential-contract';
+import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
 import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
 import { embeddingProfileHash } from '@brainstrike/indexer';
 import type {
   IndexerCoverageRequest,
   IndexerSearchResult,
   IndexerStatus,
+  IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { expect, test, vi } from 'vitest';
+import { mainPlatformConnection } from '../agent-host-platform/connection';
 import { desktopHostSharedTools } from '../agent-host-platform/desktop-host-shared-tools';
+import type { MainRequest } from '../agent-host-platform/host-retrieval-clients';
+import { serveDesktopPlatform } from '../agent-host-platform/main-platform';
 import { PlatformSelectionSchema } from '../agent-host-platform/platform-wire';
+import type { RetrievalStore } from '../assistant-server/retrieval-store';
+import { HostedEmbeddingError } from '../hosted-embeddings';
+import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
+import { MainMcpHostControl } from '../mcp/main-host-control';
+import { UtilityPort } from './fixtures/admitted-host-tools';
+import { mainReads as admissionReads } from './fixtures/desktop-admission-reads';
 
 // The native index and catalog answer the way Main's IndexSearchCapability and
 // PGlite catalog do; only their transport (Main's typed reads) is under test.
@@ -76,6 +88,32 @@ const result: IndexerSearchResult = {
   truncated: false,
 };
 const counts = { chunks: 1, indexedFiles: 1, missingVectors: 0, vectors: 1 };
+const embeddingSetRow = {
+  dimensions: profile.dimensions,
+  distance: 'cosine',
+  modelId: profile.modelId,
+  modelKey: queryPlan.modelKey,
+};
+const fileRecord = {
+  id: 'file-a',
+  name: 'a.txt',
+  path: 'a.txt',
+  rootId: 'root-a',
+  rootName: 'A',
+  tokenCount: 3,
+};
+const space = {
+  createdAt: '2026-10-08T00:00:00.000Z',
+  description: null,
+  dimensions: profile.dimensions,
+  distance: 'cosine',
+  id: 'selected',
+  modelId: profile.modelId,
+  modelKey: queryPlan.modelKey,
+  name: 'Workspace',
+} as const;
+const queryVector = Array.from({ length: profile.dimensions }, () => 0.1);
+const roots = [{ displayName: 'A', path: '/workspace/a', rootId: 'root-a' }];
 
 function coverage(scope: IndexerCoverageRequest) {
   return {
@@ -100,7 +138,7 @@ function mainReads() {
     }
     switch (method) {
       case 'admission/fresh-roots':
-        return [{ displayName: 'A', path: '/workspace/a', rootId: 'root-a' }];
+        return roots;
       case 'desktop-read/index/status':
         return status;
       case 'desktop-read/index/search':
@@ -114,46 +152,22 @@ function mainReads() {
           kind: 'current',
           status,
         };
+      // Reads that can refuse answer with an outcome (BST-1996).
       case 'desktop-read/retrieval/embedding-set':
-        return {
-          dimensions: profile.dimensions,
-          distance: 'cosine',
-          modelId: profile.modelId,
-          modelKey: queryPlan.modelKey,
-        };
+        return { ok: true, result: embeddingSetRow };
       case 'desktop-read/retrieval/file-records':
-        return [
-          {
-            id: 'file-a',
-            name: 'a.txt',
-            path: 'a.txt',
-            rootId: 'root-a',
-            rootName: 'A',
-            tokenCount: 3,
-          },
-        ];
+        return { ok: true, result: [fileRecord] };
       case 'desktop-read/retrieval/embedding-spaces':
-        return [
-          {
-            createdAt: '2026-10-08T00:00:00.000Z',
-            description: null,
-            dimensions: profile.dimensions,
-            distance: 'cosine',
-            id: 'selected',
-            modelId: profile.modelId,
-            modelKey: queryPlan.modelKey,
-            name: 'Workspace',
-          },
-        ];
+        return { ok: true, result: [space] };
       case 'platform/embedding/query':
-        return Array.from({ length: profile.dimensions }, () => 0.1);
+        return { ok: true, result: queryVector };
       default:
         throw new Error(`Unexpected Main request ${method}`);
     }
   });
 }
 
-function hostTools(request: ReturnType<typeof mainReads>): Record<string, HostTool> {
+function hostTools(request: MainRequest): Record<string, HostTool> {
   const descriptor = (id: string) => ({
     description: id,
     identity: id,
@@ -301,4 +315,187 @@ test('the desktop host runs listEmbeddingSpaces in its own process over Main’s
     threadId: 'host-thread',
   });
   expectOnlyReads(request);
+});
+
+const GENERIC_FAILURE = 'The tool did not complete successfully. Try another approach.';
+
+/** Main's workspace index, answering as the typed reads above do. */
+const mainIndex: IndexSearchCapability = {
+  coverage: async (scope) => coverage(scope),
+  coverageBatch: async (scopes) => ({ coverage: scopes.map(coverage), kind: 'current', status }),
+  grep: async () => result,
+  rebuild: () => Promise.reject(new Error('A host read never rebuilds the index')),
+  search: async () => result,
+  status: async () => status,
+};
+
+/**
+ * Main's real platform server over a real port pair, as the host's connection
+ * reaches it in the app. JSON-RPC carries an error's message but never its
+ * type, so only a refusal Main answers as data can reach the model typed.
+ */
+function servedMain(main: {
+  readonly embeddingSpaces?: RetrievalStore['embeddingSpaces'];
+  readonly queryEmbedding?: () => Promise<number[]>;
+}) {
+  const channel = new MessageChannel();
+  const mainPort = new UtilityPort(channel.port1);
+  const hostPort = new UtilityPort(channel.port2);
+  const server = mainPlatformConnection(mainPort);
+  const client = mainPlatformConnection(hostPort);
+  const owner = serveDesktopPlatform(server, {
+    admission: admissionReads(),
+    hostTools: {
+      indexSearch: mainIndex,
+      retrievalStore: {
+        embeddingSet: async () => embeddingSetRow,
+        embeddingSpaces: main.embeddingSpaces ?? (async () => [space]),
+        fileRecords: async () => new Map([[fileRecord.id, fileRecord]]),
+      },
+    },
+    localEmbedding: { queryEmbedding: main.queryEmbedding ?? (async () => queryVector) },
+    mcp: createDesktopMcpPlatformCapabilities(new MainMcpHostControl()),
+  });
+  client.listen();
+  // The admission's roots are the host's own; every other read crosses to Main.
+  const request: MainRequest = async (method, input) =>
+    method === 'admission/fresh-roots' ? roots : await client.sendRequest(method, input);
+  return {
+    close: async (): Promise<void> => {
+      await owner.close();
+      client.dispose();
+      server.dispose();
+      mainPort.close();
+      hostPort.close();
+    },
+    tools: hostTools(request),
+  };
+}
+
+function refusal(toolName: string, message: string) {
+  return { error: { code: 'tool_input_invalid', message, toolName }, ok: false };
+}
+
+const LEAK = 'sk-live-BST1996LEAK at /Users/someone/Library/profile';
+
+test.each([
+  ['an unreadable stored key', new SecretReadError('decrypt_failed', 'openai')],
+  [
+    'a missing hosted key',
+    new HostedEmbeddingError('missing-key', 'No API key configured for the embedding provider.'),
+  ],
+  [
+    'an over-long query',
+    new HostedEmbeddingError('input-too-long', 'The query is too long for the embedding model.', {
+      cause: LEAK,
+    }),
+  ],
+  [
+    'a provider rate limit',
+    new HostedEmbeddingError(
+      'rate-limit',
+      'The embedding provider is rate limiting. Retry later.',
+      {
+        cause: LEAK,
+      }
+    ),
+  ],
+])(
+  'Main’s refusal of the query embedding (%s) reaches the model verbatim',
+  async (_name, error) => {
+    const main = servedMain({ queryEmbedding: () => Promise.reject(error) });
+    try {
+      const output = await tool(main.tools, 'brainstrike_queryEmbeddingSpace').execute(
+        { embeddingSetId: 'selected', query: 'marker' },
+        execution()
+      );
+      expect(output).toEqual(refusal(NATIVE_TOOL_ID.queryEmbeddingSpace, error.message));
+      expect(JSON.stringify(output)).not.toContain('BST1996LEAK');
+    } finally {
+      await main.close();
+    }
+  }
+);
+
+test.each([
+  [
+    'a provider status',
+    new HostedEmbeddingError('provider-status', 'The embedding provider returned an error.', {
+      cause: LEAK,
+    }),
+  ],
+  [
+    'a network failure',
+    new HostedEmbeddingError('network', 'The embedding provider could not be reached.', {
+      cause: LEAK,
+    }),
+  ],
+  ['an unexpected fault', new Error(`ECONNRESET reading ${LEAK}`)],
+])('Main’s query embedding fault (%s) stays redacted', async (_name, error) => {
+  const main = servedMain({ queryEmbedding: () => Promise.reject(error) });
+  try {
+    const output = await tool(main.tools, 'brainstrike_queryEmbeddingSpace').execute(
+      { embeddingSetId: 'selected', query: 'marker' },
+      execution()
+    );
+    expect(output).toEqual({
+      error: {
+        code: 'tool_failed',
+        message: GENERIC_FAILURE,
+        toolName: NATIVE_TOOL_ID.queryEmbeddingSpace,
+      },
+      ok: false,
+    });
+    expect(JSON.stringify(output)).not.toContain(error.message);
+  } finally {
+    await main.close();
+  }
+});
+
+test('a refusal Main’s retrieval catalog raises reaches the model verbatim', async () => {
+  const refused = new ToolInputError('Main refused this catalog read; retry without stats.');
+  const main = servedMain({ embeddingSpaces: () => Promise.reject(refused) });
+  try {
+    const output = await tool(main.tools, 'brainstrike_listEmbeddingSpaces').execute(
+      {},
+      execution()
+    );
+    expect(output).toEqual(refusal(NATIVE_TOOL_ID.listEmbeddingSpaces, refused.message));
+  } finally {
+    await main.close();
+  }
+});
+
+test('an unexpected Main retrieval catalog fault stays redacted', async () => {
+  const fault = new Error(`relation "embedding_sets" is unreadable: ${LEAK}`);
+  const main = servedMain({ embeddingSpaces: () => Promise.reject(fault) });
+  try {
+    const output = await tool(main.tools, 'brainstrike_listEmbeddingSpaces').execute(
+      {},
+      execution()
+    );
+    expect(output).toEqual({
+      error: {
+        code: 'tool_failed',
+        message: GENERIC_FAILURE,
+        toolName: NATIVE_TOOL_ID.listEmbeddingSpaces,
+      },
+      ok: false,
+    });
+  } finally {
+    await main.close();
+  }
+});
+
+test('Main’s real reads answer the host’s retrieval as in the app', async () => {
+  const main = servedMain({});
+  try {
+    const output = await tool(main.tools, 'brainstrike_queryEmbeddingSpace').execute(
+      { embeddingSetId: 'selected', query: 'marker' },
+      execution()
+    );
+    expect(JSON.stringify(output)).toContain('Selected A marker');
+  } finally {
+    await main.close();
+  }
 });

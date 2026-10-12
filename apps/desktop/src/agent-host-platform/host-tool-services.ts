@@ -5,6 +5,8 @@
  * (BST-1930 stage e); each request's own schema parses it here.
  */
 
+import { SecretReadError } from '@brainstrike/agent-host/credential-contract';
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import type { GrepSearchOptions, GrepSearchResult } from '@brainstrike/db';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { GitResult } from '@brainstrike/types';
@@ -18,6 +20,7 @@ import {
   WORKTREE_TOOLS_UNAVAILABLE,
   type WorktreeToolCapability,
 } from '../assistant-server/worktree-tools';
+import { HostedEmbeddingError, type HostedEmbeddingErrorKind } from '../hosted-embeddings';
 import { attachHostCommandSessions } from './host-command-session-client';
 import {
   BrowserNavigateRequestSchema,
@@ -80,6 +83,39 @@ function required<T>(value: T | undefined, what: string): T {
     throw new Error(`Main has no ${what} for host threads`);
   }
   return value;
+}
+
+/** Hosted embedding refusals the model can act on; a provider status or network failure is a fault. */
+const REFUSED_HOSTED_EMBEDDING_KINDS: ReadonlySet<HostedEmbeddingErrorKind> = new Set([
+  'missing-key',
+  'input-too-long',
+  'rate-limit',
+]);
+
+/**
+ * BST-1996: a read's result, or the refusal Main raised in it, as the data the
+ * host raises again as a ToolInputError (`RefusableOutcomeSchema`). A refusal
+ * is decided by type, never by message text (BST-1985): a ToolInputError, a
+ * stored key the user must repair, or an actionable hosted embedding refusal.
+ * Any other fault rejects, and the host keeps it redacted.
+ */
+export async function refusalOutcome<T>(
+  read: () => Promise<T>
+): Promise<
+  { readonly ok: true; readonly result: T } | { readonly message: string; readonly ok: false }
+> {
+  try {
+    return { ok: true as const, result: await read() };
+  } catch (error) {
+    if (
+      error instanceof ToolInputError ||
+      error instanceof SecretReadError ||
+      (error instanceof HostedEmbeddingError && REFUSED_HOSTED_EMBEDDING_KINDS.has(error.kind))
+    ) {
+      return { message: error.message, ok: false as const };
+    }
+    throw error;
+  }
 }
 
 /** Main's cancellable execution; a result crosses as JSON that the host parses. */
@@ -303,7 +339,7 @@ function serveRetrievalReads(
         const { request } = threadScoped(
           z.strictObject({ embeddingSetId: z.string().min(1) })
         ).parse(input);
-        return await store().embeddingSet(request.embeddingSetId);
+        return await refusalOutcome(() => store().embeddingSet(request.embeddingSetId));
       })
   );
   connection.onRequest(
@@ -313,7 +349,9 @@ function serveRetrievalReads(
         const { request } = threadScoped(z.strictObject({ ids: z.array(z.string().min(1)) })).parse(
           input
         );
-        return [...(await store().fileRecords(request.ids)).values()];
+        return await refusalOutcome(async () => [
+          ...(await store().fileRecords(request.ids)).values(),
+        ]);
       })
   );
   connection.onRequest(
@@ -323,7 +361,7 @@ function serveRetrievalReads(
         const { request } = threadScoped(z.strictObject({ includeStats: z.boolean() })).parse(
           input
         );
-        return await store().embeddingSpaces(request);
+        return await refusalOutcome(() => store().embeddingSpaces(request));
       })
   );
 }

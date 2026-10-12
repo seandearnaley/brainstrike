@@ -188,6 +188,17 @@ export function threadScoped<T extends z.ZodType>(request: T) {
   return z.strictObject({ request, threadId: Id });
 }
 
+/**
+ * BST-1996: Main's answer to a read that can refuse. JSON-RPC carries an error's
+ * message but never its type, so a refusal crosses as data and the host raises
+ * it again as the ToolInputError it was. Any other Main fault still rejects.
+ * The host parses `result` with the read's own schema.
+ */
+export const RefusableOutcomeSchema = z.discriminatedUnion('ok', [
+  z.object({ ok: z.literal(true), result: z.unknown() }),
+  z.object({ message: z.string().min(1), ok: z.literal(false) }),
+]);
+
 export const QueryEmbeddingPayloadSchema = z.strictObject({
   dimensions: z.number().int().positive(),
   inferencePlan: InferencePlanSchema.strict().exactOptional(),
