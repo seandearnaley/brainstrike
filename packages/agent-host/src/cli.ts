@@ -316,29 +316,62 @@ async function assertChildCommand(
   }
 }
 
-/** An ISO 8601 date (UTC midnight) or date-time, in ms since the epoch. */
-function cliTime(value: string | undefined, name: string): number | undefined {
-  if (value === undefined) {
-    return;
-  }
-  const time = /^\d{4}-\d{2}-\d{2}(T.+)?$/u.test(value) ? Date.parse(value) : Number.NaN;
-  if (!Number.isFinite(time)) {
-    throw new Error(`--${name} must be an ISO 8601 date or date-time`);
-  }
-  return time;
+/** An ISO 8601 date (UTC midnight) or date-time, in ms since the epoch; NaN when it is neither. */
+function cliTime(value: string): number {
+  return /^\d{4}-\d{2}-\d{2}(T.+)?$/u.test(value) ? Date.parse(value) : Number.NaN;
 }
 
-/** BST-1939: `threads search` asks for the lexical and title arms only; it embeds no query. */
+/**
+ * BST-1939: `threads search` asks for the lexical and title arms only; it
+ * embeds no query. Invalid input is refused before any host starts, one
+ * plain line per problem.
+ */
 function threadSearchParams(values: HostCliArguments['values']): HostParams<'thread/search'> {
-  const since = cliTime(values.since, 'since');
-  const until = cliTime(values.until, 'until');
+  const query = required(values.query, 'query');
+  const problems: string[] = [];
+  if (query.trim().length > 500) {
+    problems.push('--query must be at most 500 characters');
+  }
+  const limit = values.limit === undefined ? undefined : Number(values.limit);
+  if (limit !== undefined && !(Number.isInteger(limit) && limit >= 1 && limit <= 100)) {
+    problems.push('--limit must be an integer from 1 to 100');
+  }
+  if (values['scope-root'] !== undefined && !values['scope-root'].trim()) {
+    problems.push('--scope-root must name a workspace root');
+  }
+  const window: { since?: number; until?: number } = {};
+  for (const name of ['since', 'until'] as const) {
+    const value = values[name];
+    if (value === undefined) {
+      continue;
+    }
+    const time = cliTime(value);
+    if (Number.isFinite(time)) {
+      window[name] = time;
+    } else {
+      problems.push(`--${name} must be an ISO 8601 date or date-time`);
+    }
+  }
+  if (window.since !== undefined && window.until !== undefined && window.since > window.until) {
+    problems.push('--since must not be after --until');
+  }
+  if (problems.length > 0) {
+    throw new Error(problems.join('\n'));
+  }
   return HOST_METHOD_SCHEMAS['thread/search'].parse({
-    query: required(values.query, 'query'),
-    ...(values.limit === undefined ? {} : { limit: Number(values.limit) }),
+    query,
+    ...(limit === undefined ? {} : { limit }),
     ...(values['scope-root'] === undefined ? {} : { rootId: values['scope-root'] }),
-    ...(since === undefined ? {} : { since }),
-    ...(until === undefined ? {} : { until }),
+    ...window,
   });
+}
+
+/** The `threads search` request, refused before any host starts when its input is invalid. */
+function cliThreadSearch(
+  command: string,
+  values: HostCliArguments['values']
+): HostParams<'thread/search'> | undefined {
+  return command === 'threads search' ? threadSearchParams(values) : undefined;
 }
 
 async function searchWorkspaceCli(client: HostClient, values: HostCliArguments['values']) {
@@ -434,6 +467,8 @@ Run signals stop and join its execution; attach signals detach.
   }
   // The secret is read before any host starts, so empty input never spawns one.
   const login = await readCliLogin(command, values, process.stdin);
+  // Likewise, invalid search input is refused before a host starts or attaches.
+  const threadSearch = cliThreadSearch(command, values);
   let spawned = false;
   const attachment = await launchHost(
     resolve(required(values['data-root'] ?? values.root, 'data-root')),
@@ -504,7 +539,7 @@ Run signals stop and join its execution; attach signals detach.
         print(await client.request('thread/children', { threadId: threadId() }));
         break;
       case 'threads search':
-        print(await client.request('thread/search', threadSearchParams(values)));
+        print(await client.request('thread/search', required(threadSearch, 'query')));
         break;
       case 'threads list':
         print(await client.request('thread/list', {}));

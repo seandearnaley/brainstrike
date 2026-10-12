@@ -1,0 +1,15 @@
+{
+  "extends": "../../../../packages/config/tsconfig/node-library.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "declaration": false,
+    "declarationMap": false,
+    "erasableSyntaxOnly": true,
+    "noEmit": true,
+    "sourceMap": false,
+    "target": "ES2024",
+    "types": ["node"]
+  },
+  "include": ["*.ts"],
+  "exclude": []
+}
