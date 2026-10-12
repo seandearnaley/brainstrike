@@ -5,7 +5,6 @@ import { defineNativeTool, InvalidNativeToolDefinitionError } from '../native-to
 import { toToolSchemaDisplay } from '../native-tools/display';
 import { NATIVE_TOOLS } from '../native-tools/index';
 import { providerCompatibleInputSchema } from '../native-tools/schemas/provider-compatible-input';
-import { QuerySelfInputSchema } from '../native-tools/schemas/schemas-diagnostics';
 import { ReadWorkspaceFileInputSchema } from '../native-tools/schemas/schemas-workspace';
 import { getToolSchemaDisplay, NATIVE_TOOL_SCHEMAS } from '../tool-schemas-display';
 
@@ -261,35 +260,5 @@ describe('NATIVE_TOOL_SCHEMAS', () => {
     const first = NATIVE_TOOL_SCHEMAS['brainstrike.grepSearch'];
     expect(NATIVE_TOOL_SCHEMAS['brainstrike.grepSearch']).toBe(first);
     expect(getToolSchemaDisplay('brainstrike.grepSearch')).toBe(first);
-  });
-
-  /**
-   * Prose the parity spec this replaced kept pinning because it kept going
-   * stale: `sql` is required by BOTH query and explain (runtime truth is
-   * QUERY_SELF_ERROR_MESSAGES.missingSql), and `mode` must name every mode
-   * it accepts. Now there is one prose source, so the pin is on the Zod text.
-   */
-  it('keeps the querySelf mode and sql prose honest against the schema', () => {
-    const modeField = QuerySelfInputSchema.shape.mode;
-    expect(modeField).toBeInstanceOf(z.ZodEnum);
-    const modes = [...modeField.options].sort();
-    expect(modes).toEqual([
-      'describeTable',
-      'explain',
-      'lens',
-      'listLenses',
-      'listTables',
-      'query',
-    ]);
-    const display = NATIVE_TOOL_SCHEMAS['brainstrike.querySelf'];
-    const modeDescription =
-      display.parameters.find((parameter) => parameter.name === 'mode')?.description ?? '';
-    for (const mode of modes) {
-      expect(modeDescription, `the mode description omits '${mode}'`).toContain(mode);
-    }
-    const sqlDescription =
-      display.parameters.find((parameter) => parameter.name === 'sql')?.description ?? '';
-    expect(sqlDescription).toContain('mode=query');
-    expect(sqlDescription, 'sql is required for mode=explain too').toContain('mode=explain');
   });
 });

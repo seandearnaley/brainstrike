@@ -805,7 +805,7 @@ describe('ContextUsageMeter Cursor-style popover anatomy (BST-940)', () => {
       toolDefinitionsByTool: [
         { name: 'brainstrike.readWorkspaceFile', tokens: 800 },
         { name: 'run_shell', tokens: 700 },
-        { name: 'brainstrike.querySelf', tokens: 600 },
+        { name: 'brainstrike.queryDiagnostics', tokens: 600 },
         { name: 'skill_search', tokens: 500 },
         { name: 'manageTaskList', tokens: 400 },
         { name: 'tiny_one', tokens: 100 },

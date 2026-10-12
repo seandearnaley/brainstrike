@@ -293,3 +293,67 @@ Guard: `apps/desktop/src/__tests__/native-root-data-deletion.test.ts`, `native-r
 
 Evidence: `indexer/2026-10-04-typed-authority-observations.md`.
 Evidence: `indexer/2026-10-04-retired-activation-failure.md`.
+
+## SQLite index query process (`@brainstrike/sqlite-query`)
+
+Canonical grep and native coverage read the SQLite index in a dedicated,
+killable, read-only process, never the writer. (Moved here from the removed
+`agent-self-query.md` when BST-1995 deleted `brainstrike.querySelf`; the
+measured record stays in `agent-self-query/`.)
+
+- Keep trusted native coverage in a separate coverage-only process mode. It uses
+  the existing native validator and its own read-only better-sqlite3 connection,
+  not the generic node:sqlite sandbox. Refuse SQL in coverage mode and coverage in
+  SQL mode. Share process ownership and exit joins without changing sandbox
+  authorizer, limits, function inventory or SQL budgets.
+- The package owns strict Effect message decoding, bounded startup and query
+  deadlines, and exit-joined close. A killed client stays dead; recovery
+  explicitly acquires a new client. Expose failed startup cleanup's retained owner
+  so its caller can retry exit-joined close before deleting index files.
+- Its read-only connection enforces zero attachments, a 16 MiB value limit, a
+  512 MiB process heap limit, the reviewed function inventory, read-only
+  introspection pragmas, a single compiled statement and at most 200 rows. Every
+  unrecognized authorizer action, transactions included, is denied. Load only
+  sqlite-vec's default entry point before installing the authorizer; no runtime
+  SQL extension loading. Refuse results over the 1 MiB IPC budget before parent
+  deserialization, counting the complete serialized response.
+- Refuse a runtime that lacks limits, ignores the requested limits, or compiles
+  SQLite with `DEFAULT_MEMSTATUS=0`. Accepting a heap-limit pragma is
+  insufficient. Electron-engine qualification does not establish Electron-free
+  Node/CLI support (BST-1941).
+- Desktop index reads require registration of the authoritative ready index host;
+  refuse a missing capability instead of acquiring the application database.
+  Close query admission and join all in-flight read-only owners before indexer
+  destruction; retain owners and files when startup or exit cleanup fails.
+- Canonical grep requires explicit root IDs or main-authorized canonical file IDs;
+  empty file ID lists match nothing, and nullable-root collection rows keep their
+  identity. Preserve native chunk IDs and source metadata, share the JavaScript
+  line matcher with the PGlite service, exhaust the requested scope before
+  reporting the matched-chunk count, cap output visibly, and fail on deadline
+  instead of returning partial success.
+- Prefilter case-sensitive literals in SQLite only when their UTF-8 form is
+  lossless for matching and fits the engine byte limit; prefilter
+  case-insensitive literals only when the folded needle is ASCII, keeping every
+  non-ASCII or NUL-containing row for JavaScript case conversion. Never cap
+  candidates.
+- Cancellation kills that call's owned reader and joins actual exit before
+  rejecting; late responses and retired request signals cannot publish results or
+  cancel newer work. Fresh requests acquire a fresh reader.
+- **The generic SQL mode has no production caller.** `SqliteQueryClient.query`,
+  `listTables` and `describeTable`, their protocol kinds, the matching
+  `SqliteSandbox` methods and the same methods on desktop's `openIndexQuery`
+  reader remain only for tests (this package's lifecycle and sandbox suites and
+  desktop's `sqlite-query-index` proof), until the follow-up removes them and
+  re-measures the sandbox posture for grep alone. No production code may add a
+  new caller.
+
+Evidence: `agent-self-query/sqlite-index-foundation.md`,
+`agent-self-query/index-consumer.md`,
+`agent-self-query/2026-10-04-literal-grep-prefilter.md`,
+`agent-self-query/user-stop-cancellation.md`.
+Guard: `packages/sqlite-query/src/__tests__/host-core.test.ts`,
+`client-ownership.test.ts`, `client-cancellation.test.ts`, `protocol.test.ts`,
+`sandbox.integration.test.ts`, `scoped-grep.integration.test.ts`,
+`literal-grep-prefilter.integration.test.ts`,
+`apps/desktop/src/__tests__/coverage-rpc-ordering.integration.test.ts`,
+`apps/desktop/src/__tests__/sqlite-query-index.integration.test.ts`.

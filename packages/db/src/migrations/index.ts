@@ -147,6 +147,7 @@ import { migration145DropToolProjectionRewrites } from './145-drop-tool-projecti
 import { migration146FileRecordsTextPartitionIdentity } from './146-file-records-text-partition-identity.js';
 import { migration147DropPgliteChatSidecars } from './147-drop-pglite-chat-sidecars.js';
 import { migration148DropAssistantEditCheckpoints } from './148-drop-assistant-edit-checkpoints.js';
+import { migration151DropAgentReadonlyRole } from './151-drop-agent-readonly-role.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -300,6 +301,7 @@ export const migrations: Migration[] = [
   migration146FileRecordsTextPartitionIdentity,
   migration147DropPgliteChatSidecars,
   migration148DropAssistantEditCheckpoints,
+  migration151DropAgentReadonlyRole,
 ];
 
 // Export base migrations (without chunks table) for test environments

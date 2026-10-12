@@ -129,7 +129,7 @@ export const TABLE_DURABILITY_REGISTRY: readonly TableDurabilityEntry[] = [
   ),
   operational(
     'brainstrike_assistant_run_treatments',
-    'Experiment treatment evidence for analytics lenses; losing it voids past attribution but changes no behavior.'
+    'Experiment treatment evidence read by the thread debug export; losing it voids past attribution but changes no behavior.'
   ),
   precious(
     'brainstrike_assistant_run_usage',
@@ -235,7 +235,7 @@ export const TABLE_DURABILITY_REGISTRY: readonly TableDurabilityEntry[] = [
   ),
   operational(
     'brainstrike_tool_call_telemetry',
-    'Counts-and-sizes-only per-tool telemetry; baselines for analytics lenses.'
+    'Counts-and-sizes-only per-tool telemetry, read by the thread debug export.'
   ),
   precious(
     'brainstrike_workspace_snapshots',

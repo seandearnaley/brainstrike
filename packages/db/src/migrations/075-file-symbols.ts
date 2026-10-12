@@ -33,9 +33,8 @@ import type { Migration } from './migration-runner';
  * unqueried, measured at ~4-5 MB of pure cost on this monorepo — the one
  * combination that only loses (#2032 review).
  *
- * The `brainstrike_agent_readonly` role reads these tables via migration 074's
- * `ALTER DEFAULT PRIVILEGES`; `file-symbols.test.ts` pins that instead of
- * assuming it.
+ * The `brainstrike_agent_readonly` role read these tables through migration
+ * 074's `ALTER DEFAULT PRIVILEGES` until migration 151 dropped it.
  *
  * STORAGE SHAPE IS MEASURED, NOT GUESSED. v1 of this migration used text ids
  * (`${fileRecordId}_sym_${n}`) with per-column secondary indexes; measured on

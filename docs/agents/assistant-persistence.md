@@ -1273,8 +1273,8 @@ persistence capability.
 - Measurement-fidelity caveat: the persona tool map is built pre-settlement while
   the primary map is post-settlement, so a parent call is measured against its
   settled artifact page while a child call of the same tool is measured against the
-  unsettled inline projection. Both land keyed only by `tool_id`, so the shipped
-  `token-spend-by-tool` lens blends them.
+  unsettled inline projection. Both land keyed only by `tool_id`, so any per-tool
+  aggregate blends them.
 - The table is FK-less; `THREAD_DELETE_SIDECAR_TABLES` removes thread rows and the
   reset registry owns all three table-enumerating paths.
 
@@ -1303,12 +1303,13 @@ tool output: the chars/4 estimate and `final_step_prompt_tokens`.
 - The table is FK-less and part of the schema PROBE. Scheduled maintenance prunes
   rows after 60 days on both idle and active passes, and the idle pass runs
   `VACUUM (ANALYZE)`.
-- The checked-in `estimator-calibration.sql` lens groups by model and both resolved
-  budget columns; NULL groups expose legacy pre-089 samples honestly.
+- A reader that groups by model and both resolved budget columns sees legacy
+  pre-089 samples honestly as NULL groups.
 
 Evidence: `assistant-persistence/token-estimate-calibration.md`.
-Guard: `packages/db/__tests__/search-lens-estimator-calibration.test.ts` (parses and
-executes the checked-in lens, not an inlined copy).
+Guard: `packages/db/__tests__/migration-086-token-estimate-calibration.test.ts`,
+`migration-089-token-estimate-calibration-resolved-budgets.test.ts`,
+`migration-091-token-estimate-calibration-prompt-baseline.test.ts`.
 
 ## TASK LEDGER (RUN OUTCOMES + LEDGER READ MODEL)
 

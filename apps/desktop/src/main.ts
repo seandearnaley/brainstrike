@@ -185,7 +185,6 @@ import { isMainProcessHealthDegraded } from './main-process-health-log-level';
 import { getMcpAppShellRegistry, registerMcpAppShellProtocol } from './mcp/apps-shell-protocol';
 import { createDesktopMcpPlatformCapabilities } from './mcp/desktop-host-platform';
 import { getMainMcpHostControl } from './mcp/main-host-control';
-import { createNativeCallerRead } from './native-caller-query';
 import { createNativeIndexActivation } from './native-index-activation';
 import { reportNativeIndexActivationError as reportNativeIndexFailure } from './native-index-activation-error';
 import { NATIVE_INDEX_SETTINGS_KEY } from './native-index-settings';
@@ -204,7 +203,7 @@ import { VECTOR_PREFERENCES_STORAGE_KEY } from './platform/vector-preferences-st
 import { warmDesktopPythonRuntime } from './python-runtime';
 import { createDesktopSettingsSecrets } from './secrets';
 import { setupSecurity } from './setup-security';
-import { installIndexCallerRead, openIndexQuery } from './sqlite-query-host-manager';
+import { openIndexQuery } from './sqlite-query-host-manager';
 import type { DesktopSettingsStoreSchema } from './store-schema';
 import { disposeAllTerminals } from './terminal-ipc-handlers';
 import { registerWindowFocusIpcHandlers } from './window-focus-ipc';
@@ -959,7 +958,6 @@ const nativeIndexActivation = createNativeIndexActivation({
   profile: desktopBootstrap.profile,
   storage,
 });
-installIndexCallerRead(createNativeCallerRead(nativeIndexActivation.withRead));
 // Main's own desktop-origin client: Settings credential writes, provider sign-in
 // and subscription verification reach the host, their single owner, through it.
 // The host's sign-in pages open through the same validated shell path as the

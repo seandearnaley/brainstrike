@@ -110,10 +110,9 @@ Desktop may prepend a compact summary of the previous 24 hours' wasteful tool
 behavior to a fresh run. Persisted opt-in, default OFF, strictly parsed server-side
 and failing safe to OFF.
 
-- Execute the app-owned `SELF_IMPROVEMENT_SIGNAL_SQL` constant, never a
-  workspace-scanned lens; a parity test pins the shipped repository lens byte-equal
-  to it. Why: a mounted repo can shadow that lens file, and running its copy would
-  let repository-authored SQL shape a system message.
+- Execute the app-owned `SELF_IMPROVEMENT_SIGNAL_SQL` constant, never
+  repository-authored SQL. Why: running SQL a mounted repo supplies would let it
+  shape a system message.
 - Inject only on the fresh-generation path, between explicit skill activation and
   workspace instructions, with provider `local` excluded and approval/resume legs
   keeping their early returns. Because every injector prepends, the final order is
@@ -150,15 +149,14 @@ reuses one of these two shapes rather than inventing a third:
 | --- | --- | --- | --- |
 | /commands | `commands/` (+ `.claude/` compat tiers) | `user-slash-commands-loader.ts` | recursive, `:`-namespaced, invalid dropped w/ log |
 | personas | `agents/` | `user-personas-loader.ts` | flat, `entries` + visible invalid, first-id-wins |
-| lenses | `lenses/` | `lens-loader.ts` | mirrors personas exactly; grammar in `assistant-contract/src/lenses.ts`; surfaced via `querySelf` `listLenses`/`lens` (see `docs/agents/agent-self-query.md` § Lenses) |
 
 ### Four rules every flat-scan loader must follow (BST-936)
 
 1. Reserve the id from the FILENAME, before reading or parsing, through ONE exported
    contract function shared by loader and parser, so the reserved key and the real id
    cannot drift. Reserve through the FULL id gate — personas `resolveUserPersonaId`
-   (derivation plus built-in collision), lenses `deriveLensId` — and reserve nothing
-   for a filename that derives no valid id.
+   (derivation plus built-in collision) — and reserve nothing for a filename that
+   derives no valid id.
 2. Count ENTRIES (valid plus invalid) against the count cap, not accepted items, and
    REPORT exhaustion per directory. Why: the cap is destructive, so an earlier root
    can consume the budget before a later tier is read at all.
