@@ -155,14 +155,15 @@ test('a retired thread cannot start the removed execution path', async ({
     .filter({ hasText: LEGACY_TITLE })
     .getByRole('button', { exact: true, name: LEGACY_TITLE })
     .click();
-  const legacy = page
-    .getByTestId(`assistant-thread-panel-${legacyThreadId}`)
-    .getByTestId('chat-panel');
-  await expect(legacy).toBeVisible({ timeout: E2E_TIMEOUTS.messageVisibility });
-  const legacyInput = legacy.getByRole('textbox', { name: 'Message input' });
-  await expect(legacyInput).toBeVisible({ timeout: E2E_TIMEOUTS.inputVisibility });
-  await expect(legacyInput).toBeDisabled();
-  await expect(legacy.getByRole('button', { exact: true, name: 'Send' })).toBeDisabled();
+  // The agent host is Desktop's only conversation owner: a thread its catalog does
+  // not list fails visibly and mounts no composer that could send.
+  const legacy = page.getByTestId(`assistant-thread-panel-${legacyThreadId}`);
+  await expect(legacy.getByRole('alert', { name: 'Agent host error' })).toHaveText(
+    'This thread is not owned by the agent host.',
+    { timeout: E2E_TIMEOUTS.messageVisibility }
+  );
+  await expect(legacy.getByRole('textbox', { name: 'Message input' })).toHaveCount(0);
+  await expect(legacy.getByRole('button', { exact: true, name: 'Send' })).toHaveCount(0);
   expect(
     modelProvider
       .requests()

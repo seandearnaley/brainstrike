@@ -74,7 +74,6 @@ import {
   getAssistantThreadColorSurface,
   resolveThreadRowStatusState,
 } from './assistant-thread-presentation';
-import { publishDelegatedColorRefresh } from './delegated-color-refresh';
 import { DelegatedSidebarCell } from './delegated-sidebar-cell';
 import { useCreateThreadInFolder } from './hooks/use-create-thread-in-folder';
 import { type ForgePrCacheLookup, useForgePrCache } from './hooks/use-forge-pr-cache';
@@ -85,7 +84,6 @@ import { useThreadFolderRows } from './hooks/use-thread-folder-rows';
 import { useThreadsAwaitingApproval } from './hooks/use-threads-awaiting-approval';
 import { useUnseenThreadIds } from './hooks/use-unseen-thread-ids';
 import { HostChildSidebarCell } from './host-child-sidebar-cell';
-import { canRefreshAgentColors, refreshAgentColors } from './refresh-agent-colors';
 import { lookupThreadBranch, type ThreadBranchLookup } from './thread-branch-resolution';
 import { ThreadFolderHeader } from './thread-folder-header';
 import { lookupThreadForgePr } from './thread-forge-pr-resolution';
@@ -1678,15 +1676,6 @@ function ThreadsPanelToolbar({
   );
 }
 
-async function handleRefreshAgentColors(
-  threadId: string,
-  ownerResourceId: string
-): Promise<number> {
-  const changed = await refreshAgentColors(threadId, ownerResourceId);
-  publishDelegatedColorRefresh();
-  return changed;
-}
-
 export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = {}): ReactElement {
   const host = useAssistantThreadHost();
   const database = usePGliteDatabase();
@@ -2336,9 +2325,6 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
           onDeleteThread={handleDeleteThread}
           onMoveThreadToGroup={handleMoveThreadToGroup}
           onNewThreadInFolder={handleCreateThreadInFolder}
-          onRefreshAgentColors={
-            canRefreshAgentColors(host !== null) ? handleRefreshAgentColors : undefined
-          }
           onRenameThread={handleRenameThread}
           onSelectThread={handleSelectThread}
           onUpdateThreadMetadata={handleUpdateThreadMetadata}

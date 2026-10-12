@@ -1,8 +1,3 @@
-import { isDelegatedToolDecisionActionable } from '@brainstrike/assistant-contract';
-import {
-  createSuspendedRunDiscovery,
-  hasDurableAssistantUsageCapability,
-} from '@brainstrike/assistant-data';
 import { createDelegatedConversationRepository } from '@brainstrike/db';
 import { type DbHandle, usePGliteDatabase } from '@brainstrike/db/react';
 import {
@@ -24,9 +19,7 @@ import {
   type DelegatedSidebarEntry,
   projectDelegatedSidebarRows,
 } from './delegated-sidebar-rows';
-import { createDelegatedWorkspaceDiscovery } from './delegated-workspace-discovery';
 import type { ChildNode } from './delegated-workspace-node';
-import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import type { ThreadPanelVisibleRow } from './thread-panel-visible-rows';
 import { type Roots, RootsContext } from './use-delegated-conversation-root';
 
@@ -55,31 +48,7 @@ async function loadChildren(
     }
     return { ...node, color: node.color, displayName: node.displayName };
   });
-  if (!hasDurableAssistantUsageCapability() || children.length === 0) {
-    return { children };
-  }
-  // One root discovery per expanded parent, never one request per child row.
-  const result = await createSuspendedRunDiscovery(resolveAssistantBaseUrl)(
-    parent.rootThreadId,
-    parent.ownerResourceId
-  );
-  const pending = await Promise.all(
-    children.map(async (node) => {
-      const owned = await createDelegatedWorkspaceDiscovery(
-        repository,
-        node,
-        async () => result
-      )(node.threadId, node.resourceId);
-      if (owned.error) {
-        throw new Error(`Child attention could not be verified (${owned.error.reason}).`);
-      }
-      const needsInput = [...owned.approvals, ...owned.suspends].some((pause) =>
-        isDelegatedToolDecisionActionable(pause.decisionState)
-      );
-      return needsInput ? node.threadId : undefined;
-    })
-  );
-  return { children, pendingThreadIds: new Set(pending.filter((id) => id !== undefined)) };
+  return { children };
 }
 
 export function useDelegatedSidebar(baseRows: readonly ThreadPanelVisibleRow[]) {
