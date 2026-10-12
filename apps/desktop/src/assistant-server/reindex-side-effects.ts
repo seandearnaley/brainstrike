@@ -18,7 +18,6 @@ import {
 } from '@brainstrike/db';
 import {
   REDACTED_PATH_LOG_VALUE,
-  readWorkspaceTextFile,
   redactToolErrorForLog,
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
@@ -225,58 +224,4 @@ export async function triggerFileDeletionInvalidation(args: {
     );
     return { invalidated: false };
   }
-}
-
-/**
- * Best-effort re-index of a rename DESTINATION through the same seam edits use
- * ({@link triggerEditedFileReindex}). That seam only UPDATES an existing
- * file_records row, so for a brand-new destination path (the common case — a
- * rename requires the target NOT to exist) it no-ops and the destination's row is
- * imported by the background workspace sync; it matters only when the destination
- * path had a stale row. Reading the content is bounded (2 MB + binary probe); a
- * binary/oversized/unreadable destination simply skips (non-fatal — the file is
- * already renamed on disk).
- *
- * Gated up front on `workspaceIndexEmbeddingSetId` (same derivation as
- * {@link triggerFileDeletionInvalidation}): with no Workspace Index configured
- * there is nothing to re-index, so this returns before paying for the up-to-2MB
- * destination read.
- */
-export async function triggerRenamedDestinationReindex(args: {
-  runtimeData: RuntimeData | undefined;
-  rootId: string;
-  rootPath: string;
-  workspacePath: string;
-  absolutePath: string;
-}): Promise<void> {
-  const embeddingSetId = args.runtimeData?.workspaceIndexEmbeddingSetId?.trim();
-  if (!embeddingSetId) {
-    return;
-  }
-  // Before the bounded destination read: nothing may be written, so the read is wasted.
-  if (skipsWhileDatabaseIntegrityContained()) {
-    return;
-  }
-
-  let file: { content: string; size: number };
-  try {
-    file = await readWorkspaceTextFile({
-      requestedPath: args.workspacePath,
-      rootPath: args.rootPath,
-    });
-  } catch (error) {
-    logger.debug('Skipped renamed-destination re-index: not readable as text', {
-      error: redactToolErrorForLog(error),
-      path: REDACTED_PATH_LOG_VALUE,
-    });
-    return;
-  }
-  await triggerEditedFileReindex({
-    absolutePath: args.absolutePath,
-    content: file.content,
-    rootId: args.rootId,
-    runtimeData: args.runtimeData,
-    size: file.size,
-    workspacePath: args.workspacePath,
-  });
 }

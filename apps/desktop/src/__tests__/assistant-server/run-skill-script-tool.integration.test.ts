@@ -10,7 +10,6 @@ import {
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { runSkillScriptExecutor } from '../../assistant-server/native-tool-executors-skills';
 import { buildHostNativeTools } from './_host-native-tools';
 import { requireToolExecute } from './_tool-test-helpers';
@@ -383,22 +382,5 @@ describe('brainstrike.runSkillScript', () => {
         })
       ).rejects.toThrow(/root-relative path|canonical/i);
     }
-  });
-});
-
-/**
- * LEGACY-ONLY (BST-1980 C2 deletes this with `assistant-tools.ts`): the legacy
- * builder's `enabledNativeToolIds` filter. On the host, admission decides which
- * tools a run gets (agent-host-admitted-tool-descriptors.integration.test.ts).
- */
-describe('legacy brainstrike.runSkillScript enabled-id filter', () => {
-  it('an enabled id never registers the tool without a trusted skill resolver', async () => {
-    const fixture = await createFixture();
-    expect(
-      buildDesktopAssistantTools({
-        ...runtime(fixture.rootA, fixture.rootB),
-        enabledNativeToolIds: ['brainstrike.runSkillScript'],
-      })
-    ).not.toHaveProperty('brainstrike.runSkillScript');
   });
 });

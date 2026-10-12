@@ -123,7 +123,6 @@ import type {
   IndexerStatus,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { runHybridSearchWith } from '../../assistant-server/hybrid-search-core';
-import { runHybridSearch } from '../../assistant-server/hybrid-search-tool';
 import type { RetrievalToolDependencies } from '../../assistant-server/retrieval-core';
 import { pgliteRetrievalStore } from '../../assistant-server/retrieval-store-pglite';
 import {
@@ -136,101 +135,12 @@ import {
   nativeRetrievalFixture,
 } from './_c1-a-helpers';
 
-function chunk(id: string, content: string) {
-  return {
-    chunkIndex: 0,
-    chunkType: 'text',
-    content,
-    embeddingSetId: 'ws-set',
-    fileRecordId: `file-${id}`,
-    id,
-  };
-}
-
 const workspaceIndexRuntime = {
   workspaceIndexEmbeddingSetId: 'ws-set',
   workspaceIndexingEnabled: true,
   workspaceIndexStatusState: 'idle',
   workspaceRoots: [{ displayName: 'ws', path: '/tmp/ws', rootId: 'root-1' }],
 } as RuntimeData;
-
-/**
- * Legacy-only (BST-1980): Main's PGlite HybridSearchService arms (filePaths
- * scoping and per-arm pool sizing). Host threads always fuse the native index
- * arms with fixed pools and refuse filePaths; these cases are deleted with
- * `LegacyRetrievalStore` in C2.
- */
-describe('desktop hybrid search tool (legacy PG path)', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    getKeyMock.mockResolvedValue('test-api-key');
-    resolveHostedProviderApiKeyMock.mockResolvedValue('fallback-api-key');
-    embedMock.mockResolvedValue({ ok: true, value: { embedding: [0.25, 0.5] } });
-    findByIdsMock.mockImplementation((ids: readonly string[]) =>
-      Promise.resolve(
-        ids.map((id) => ({
-          id,
-          name: `${id}.ts`,
-          path: `/repo/${id}.ts`,
-          tokenCount: 10,
-        }))
-      )
-    );
-    // Vector arm ranks the vector distractor first, target second.
-    searchSimilarMock.mockResolvedValue([
-      { chunk: chunk('chunk-vector-only', 'semantic neighbor'), rank: 1, similarity: 0.99 },
-      { chunk: chunk('chunk-target', 'lease fencing scheduler'), rank: 2, similarity: 0.9 },
-    ]);
-    // Lexical arm ranks the term-stuffed distractor first, target second.
-    fullTextSearchMock.mockResolvedValue([
-      { chunk: chunk('chunk-lexical-only', 'lease lease lease'), rank: 8 },
-      { chunk: chunk('chunk-target', 'lease fencing scheduler'), rank: 3 },
-    ]);
-    dbQueryMock.mockImplementation((sql: string): Promise<{ rows: unknown[] }> => {
-      if (sql.includes('FROM embedding_sets')) {
-        return Promise.resolve({
-          rows: [
-            {
-              dimensions: 2,
-              distance: null,
-              modelId: 'text-embedding-3-small',
-              modelKey: 'openai:text-embedding-3-small',
-            },
-          ],
-        });
-      }
-      if (sql.includes('FROM file_records')) {
-        return Promise.resolve({ rows: [] });
-      }
-      return Promise.resolve({ rows: [] });
-    });
-    getDatabaseMock.mockResolvedValue({ query: dbQueryMock });
-  });
-
-  it('passes filePaths scoping through to BOTH search arms', async () => {
-    await runHybridSearch({ filePaths: ['/repo/a.ts'], query: 'lease' }, workspaceIndexRuntime);
-
-    expect(searchSimilarMock.mock.calls[0]?.[1]).toMatchObject({ filePaths: ['/repo/a.ts'] });
-    expect(fullTextSearchMock.mock.calls[0]?.[1]).toMatchObject({ filePaths: ['/repo/a.ts'] });
-  });
-
-  it('grows BOTH source pools to a requested limit above the 50 default (mirrors the UI path)', async () => {
-    await runHybridSearch({ limit: 80, query: 'lease' }, workspaceIndexRuntime);
-
-    // Repo-level `limit` IS the per-arm source pool size (service maps
-    // vectorLimit/ftsLimit onto it). RRF reranks best from pools at least as
-    // large as the final cut.
-    expect(searchSimilarMock.mock.calls[0]?.[1]).toMatchObject({ limit: 80 });
-    expect(fullTextSearchMock.mock.calls[0]?.[1]).toMatchObject({ limit: 80 });
-  });
-
-  it('never shrinks the source pools below the 50 default for small limits', async () => {
-    await runHybridSearch({ limit: 5, query: 'lease' }, workspaceIndexRuntime);
-
-    expect(searchSimilarMock.mock.calls[0]?.[1]).toMatchObject({ limit: 50 });
-    expect(fullTextSearchMock.mock.calls[0]?.[1]).toMatchObject({ limit: 50 });
-  });
-});
 
 /**
  * The host's hybridSearch: the shared core `retrievalToolExecutors` runs, over

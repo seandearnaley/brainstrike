@@ -1,7 +1,6 @@
 import type { RuntimeData } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { buildHostNativeTools, nativeRuntimeFor } from './_host-native-tools';
 import { requireToolExecute } from './_tool-test-helpers';
 
@@ -80,32 +79,5 @@ describe('run_skill_script bundled-Python wiring', () => {
       signal: undefined,
       userDataDir: '/user-data',
     });
-  });
-});
-
-/**
- * LEGACY-ONLY (BST-1980 C2 deletes this with `assistant-tools.ts`): Main's
- * legacy builder let a caller override its default resolver. The host takes
- * the resolver as a required `runSkillScriptExecutor` argument, so it has no
- * default-versus-override precedence.
- */
-describe('legacy run_skill_script resolver override', () => {
-  beforeEach(() => {
-    runSkillScriptMock.mockClear();
-    desktopResolverMock.mockClear();
-  });
-
-  it('prefers an injected resolver over the desktop default', async () => {
-    const injected = vi.fn(async () => '/injected/python3');
-    const tools = buildDesktopAssistantTools(runtimeData, {
-      resolvePythonExecutable: injected,
-      skillScriptResolver: { resolveScriptExecution: vi.fn() },
-    });
-    const executeTool = requireToolExecute(tools, 'brainstrike.runSkillScript');
-    await executeTool(input);
-    const options = runSkillScriptMock.mock.calls[0]?.[3] as
-      | { resolvePythonExecutable?: () => Promise<string> }
-      | undefined;
-    expect(options?.resolvePythonExecutable).toBe(injected);
   });
 });

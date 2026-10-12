@@ -1,12 +1,14 @@
 /**
  * listWorktrees and manageWorktree over a caller-supplied worktree capability:
- * Main passes its worktree service, the desktop agent host passes Main's
- * narrow worktree calls until the worktree ledger is a host fact. This module
+ * the desktop agent host passes Main's narrow worktree calls until the
+ * worktree ledger is a host fact. This module
  * must not import Electron: the host bundle loads it.
  */
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
-import type { NativeToolBuildContext } from '@brainstrike/host-capabilities/native-tools';
-import type { MastraTool } from './native-tool-executor-context';
+import type {
+  MastraTool,
+  NativeToolBuildContext,
+} from '@brainstrike/host-capabilities/native-tools';
 import { buildWorktreeMastraTools, type WorktreeToolCapability } from './worktree-tools';
 
 /**

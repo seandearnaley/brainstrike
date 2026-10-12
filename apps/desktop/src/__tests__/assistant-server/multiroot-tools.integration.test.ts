@@ -28,9 +28,6 @@ vi.mock('electron', () => ({
 
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { resetToolCallLoopGuards } from '@brainstrike/host-capabilities/native-tools';
-// LEGACY-ONLY (BST-1980 C1): used only by the legacy PGlite retrieval block; deleted
-// with `assistant-tools.ts` in C2.
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { grepSearchExecutor } from '../../assistant-server/native-tool-executors-grep';
 import { nativeGrepFixture } from './_c1-a-helpers';
 import { mainContextDeliveryRequest } from './_c1-c-helpers';
@@ -363,72 +360,5 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
       context: { filePaths: ['/README.md'], root: 'ProjectB' },
     });
     expect(result.appliedCount).toBe(1);
-  });
-
-  // LEGACY-ONLY (BST-1980 C1): semantic retrieval over Main's PGlite chunks through
-  // the legacy builder's `embeddingHostManager` override. Host threads always retrieve
-  // through Main's native index (`hostIndexSearch`); root labelling, root scoping and
-  // the signal there are covered by `retrieval-tool.test.ts` ('retrieval-tool multi-root
-  // on the native index') and `native-retrieval-executors.test.ts`. Deleted in C2.
-  describe('legacy PGlite semantic retrieval', () => {
-    it('Task: semantic search — retrieved chunks are labelled by root and the context is root-prefixed', async () => {
-      const tools = buildDesktopAssistantTools(twoRootRuntime(), {
-        embeddingHostManager: { queryEmbedding: vi.fn(async () => QUERY_VECTOR) },
-      });
-      const executeTool = requireToolExecute(tools, 'brainstrike.queryEmbeddingSpace');
-      const result = await executeTool({
-        context: { embeddingSetId: 'set-1', query: 'shared marker', threshold: 0 },
-      });
-      if ('status' in result) {
-        throw new Error('expected a retrieval result');
-      }
-      // Both roots' README chunks come back, each carrying its owning root.
-      const rootNames = result.chunks
-        .map((c: { metadata?: Record<string, unknown> }) => c.metadata?.['rootName'])
-        .sort();
-      expect(rootNames).toEqual(['ProjectA', 'ProjectB']);
-      // The model-visible context string disambiguates the same relative path.
-      expect(result.context).toContain('[ProjectA]');
-      expect(result.context).toContain('[ProjectB]');
-    });
-
-    it('passes the native tool abort signal to local query embedding', async () => {
-      const queryEmbedding = vi.fn(async () => QUERY_VECTOR);
-      const tools = buildDesktopAssistantTools(twoRootRuntime(), {
-        embeddingHostManager: { queryEmbedding },
-      });
-      const executeTool = requireToolExecute(tools, 'brainstrike.queryEmbeddingSpace');
-      const signal = new AbortController().signal;
-
-      await executeTool(
-        { context: { embeddingSetId: 'set-1', query: 'shared marker', threshold: 0 } },
-        { abortSignal: signal }
-      );
-      expect(queryEmbedding).toHaveBeenCalledWith(expect.any(Object), { signal });
-    });
-
-    it('Task: semantic search scoped by root — only the chosen root is retrieved', async () => {
-      const tools = buildDesktopAssistantTools(twoRootRuntime(), {
-        embeddingHostManager: { queryEmbedding: vi.fn(async () => QUERY_VECTOR) },
-      });
-      const executeTool = requireToolExecute(tools, 'brainstrike.queryEmbeddingSpace');
-      const result = await executeTool({
-        context: {
-          embeddingSetId: 'set-1',
-          query: 'shared marker',
-          root: 'ProjectA',
-          threshold: 0,
-        },
-      });
-      if ('status' in result) {
-        throw new Error('expected a retrieval result');
-      }
-      expect(result.chunks.length).toBeGreaterThan(0);
-      expect(
-        result.chunks.every(
-          (c: { metadata?: Record<string, unknown> }) => c.metadata?.['rootName'] === 'ProjectA'
-        )
-      ).toBe(true);
-    });
   });
 });

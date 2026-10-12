@@ -17,9 +17,6 @@ import {
 } from '@brainstrike/host-capabilities/native-tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { desktopToolDescriptors } from '../../agent-host-platform/desktop-tool-descriptors';
-// LEGACY-ONLY (BST-1980 C1): used only by the legacy provider-gating block at the
-// bottom; deleted with `assistant-tools.ts` in C2.
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { disposeLspServers } from '../../assistant-server/lsp-diagnostics';
 import {
   NATIVE_HYBRID_RETRIEVAL_DESCRIPTION,
@@ -884,105 +881,5 @@ describe('assistant-tools multi-root read tools', () => {
         await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
       }
     }, 30_000);
-  });
-});
-
-// LEGACY-ONLY (BST-1980 C1): provider gating inside the legacy builder
-// (`buildDesktopAssistantTools`). Host runs are gated by Main's admission
-// (`desktopToolDescriptors`: `localProvider` drops the catalog's `unregistered`
-// tools), covered by `agent-host-admitted-tool-descriptors.integration.test.ts`
-// (hosted vs local admissions recorded). Deleted with the legacy composition in C2.
-describe('legacy builder provider gating', () => {
-  describe('manageTaskList provider gating', () => {
-    it('registers manageTaskList for a hosted provider', () => {
-      const tools = buildDesktopAssistantTools({ provider: 'openai' } as RuntimeData);
-      expect(tools['brainstrike.manageTaskList']).toBeDefined();
-    });
-
-    it('registers manageTaskList when no provider is set (production default)', () => {
-      const tools = buildDesktopAssistantTools(undefined);
-      expect(tools['brainstrike.manageTaskList']).toBeDefined();
-    });
-
-    it('omits manageTaskList for the built-in local provider (WebGPU prefill budget)', () => {
-      const tools = buildDesktopAssistantTools({ provider: 'local' } as RuntimeData);
-      expect(tools['brainstrike.manageTaskList']).toBeUndefined();
-    });
-
-    it('omits manageTaskList for the local provider regardless of case/whitespace', () => {
-      const tools = buildDesktopAssistantTools({ provider: '  Local  ' } as RuntimeData);
-      expect(tools['brainstrike.manageTaskList']).toBeUndefined();
-    });
-  });
-
-  describe('worktree tool provider gating', () => {
-    it('omits both worktree tools for the built-in local provider', () => {
-      const tools = buildDesktopAssistantTools({ provider: 'local' } as RuntimeData);
-
-      expect(Object.hasOwn(tools, NATIVE_TOOL_ID.listWorktrees)).toBe(false);
-      expect(Object.hasOwn(tools, NATIVE_TOOL_ID.manageWorktree)).toBe(false);
-      // Falsifier: the gate must not have swallowed its neighbours either.
-      expect(Object.hasOwn(tools, NATIVE_TOOL_ID.readWorkspaceFile)).toBe(true);
-    });
-
-    it('registers both worktree tools for a hosted provider', () => {
-      const tools = buildDesktopAssistantTools({ provider: 'openai' } as RuntimeData);
-
-      expect(Object.hasOwn(tools, NATIVE_TOOL_ID.listWorktrees)).toBe(true);
-      expect(Object.hasOwn(tools, NATIVE_TOOL_ID.manageWorktree)).toBe(true);
-    });
-  });
-
-  describe('command-session provider gating', () => {
-    it('registers both session tools for a hosted provider', () => {
-      const tools = buildDesktopAssistantTools({ provider: 'anthropic' } as RuntimeData);
-      expect(tools['brainstrike.inspectCommandSessions']).toBeDefined();
-      expect(tools['brainstrike.manageCommandSession']).toBeDefined();
-    });
-
-    it('omits both session tools for the built-in local provider', () => {
-      const tools = buildDesktopAssistantTools({ provider: 'local' } as RuntimeData);
-      expect(tools['brainstrike.inspectCommandSessions']).toBeUndefined();
-      expect(tools['brainstrike.manageCommandSession']).toBeUndefined();
-    });
-  });
-
-  describe('suspending tool registration (submitPlan / askUser)', () => {
-    it('registers submitPlan and askUser for a hosted provider', () => {
-      const tools = buildDesktopAssistantTools({ provider: 'openai' } as RuntimeData);
-      expect(tools['brainstrike.submitPlan']).toBeDefined();
-      expect(tools['brainstrike.askUser']).toBeDefined();
-    });
-
-    it('registers the suspending tools when no provider is set (production default)', () => {
-      const tools = buildDesktopAssistantTools(undefined);
-      expect(tools['brainstrike.submitPlan']).toBeDefined();
-      expect(tools['brainstrike.askUser']).toBeDefined();
-    });
-
-    it('omits the suspending tools for the built-in local provider', () => {
-      const tools = buildDesktopAssistantTools({ provider: 'local' } as RuntimeData);
-      expect(tools['brainstrike.submitPlan']).toBeUndefined();
-      expect(tools['brainstrike.askUser']).toBeUndefined();
-    });
-
-    it('passes the suspending tool ids through the enabled-tool allowlist filter', () => {
-      const tools = buildDesktopAssistantTools({
-        enabledNativeToolIds: ['brainstrike.submitPlan', 'brainstrike.askUser'],
-        provider: 'openai',
-      } as RuntimeData);
-      expect(tools['brainstrike.submitPlan']).toBeDefined();
-      expect(tools['brainstrike.askUser']).toBeDefined();
-      expect(tools['brainstrike.readWorkspaceFile']).toBeUndefined();
-    });
-
-    it('rejects unknown enabled tool ids instead of silently filtering them', () => {
-      expect(() =>
-        buildDesktopAssistantTools({
-          enabledNativeToolIds: ['brainstrike.readWorkspaceFile', 'brainstrike.removedNativeTool'],
-          provider: 'local',
-        } as RuntimeData)
-      ).toThrow('Enabled native tool preferences contain unknown tool IDs.');
-    });
   });
 });

@@ -1,10 +1,10 @@
 /**
  * Desktop wiring for the `brainstrike.hybridSearch` assistant tool.
  *
- * An injected native capability uses the existing main-owned scoped reader and
- * workspace-search RRF60 fusion over BM25, grep and vector pools. Without that
- * capability, the retained PG path uses HybridSearchService. Both paths keep
- * explicit collection/root scope and fail the whole call when an arm fails.
+ * The native capability uses the existing main-owned scoped reader and
+ * workspace-search RRF60 fusion over BM25, grep and vector pools, keeping
+ * explicit collection/root scope and failing the whole call when an arm fails.
+ * There is no other similarity path.
 
  */
 
@@ -15,7 +15,6 @@ import {
   type RuntimeData,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
-import { DEFAULT_HYBRID_SOURCE_LIMIT } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
 import {
   resolveAdmittedRetrievalRoots,
@@ -24,22 +23,19 @@ import {
 } from './native-assistant-retrieval';
 import {
   assertAdmittedRetrievalFileRoots,
-  assertEmbeddingDimensions,
-  generateQueryEmbeddingForSet,
   RETRIEVAL_SAFE_ERROR_MESSAGES,
   type RetrievalToolDependencies,
 } from './retrieval-core';
-import { type RetrievalStore, requireLegacyRetrievalStore } from './retrieval-store';
+import type { RetrievalStore } from './retrieval-store';
 import { resolveOptionalWorkspaceRoot } from './workspace-roots';
 
 const logger = createLogger('AssistantHybridSearchTool');
 
 export const HYBRID_SEARCH_TOOL_ID = NATIVE_TOOL_ID.hybridSearch;
 
-const DEFAULT_LIMIT = 20;
+const NO_NATIVE_INDEX_HYBRID_SEARCH =
+  'Retrieval without a native index runs only on Main’s database.';
 const DEFAULT_VECTOR_THRESHOLD = 0.5;
-const DEFAULT_VECTOR_WEIGHT = 1.0;
-const DEFAULT_FTS_WEIGHT = 1.0;
 /** Per-result content cap so a 20-result payload stays inside the tool output budget. */
 const MAX_CONTENT_CHARS_PER_RESULT = 700;
 
@@ -246,95 +242,8 @@ export async function runHybridSearchWith(
       };
       return fitItemsToCharBudget(items, buildResult).result;
     }
-    const embedding = await generateQueryEmbeddingForSet(
-      embeddingSet,
-      query,
-      dependencies,
-      store,
-      signal
-    );
-    signal?.throwIfAborted();
-    assertEmbeddingDimensions(embeddingSet.dimensions, embedding.length);
-
-    const limit = input.limit ?? DEFAULT_LIMIT;
-    const vectorWeight = input.vectorWeight ?? DEFAULT_VECTOR_WEIGHT;
-    const ftsWeight = input.ftsWeight ?? DEFAULT_FTS_WEIGHT;
-    // Grow BOTH source pools with the requested limit (never shrink below the
-    // 50 default) so RRF reranks from pools at least as large as the final
-    // cut — mirrors the UI search paths (workspace-search-executor).
-    const sourcePoolLimit = Math.max(DEFAULT_HYBRID_SOURCE_LIMIT, limit);
-    const { results, metadata } = await requireLegacyRetrievalStore(store).hybridSearch(
-      query,
-      embedding,
-      {
-        embeddingSetId,
-        ftsLimit: sourcePoolLimit,
-        ftsWeight,
-        // The model never renders the per-candidate headline pool; keep the cheap path.
-        includeHeadline: false,
-        limit,
-        vectorLimit: sourcePoolLimit,
-        vectorThreshold: input.vectorThreshold ?? DEFAULT_VECTOR_THRESHOLD,
-        vectorWeight,
-        ...(input.chunkType === undefined ? {} : { chunkType: input.chunkType }),
-        ...(input.filePaths === undefined ? {} : { filePaths: input.filePaths }),
-        ...(root === undefined ? {} : { rootIds: [root.rootId] }),
-        ...(admittedRootIds === undefined ? {} : { rootIds: admittedRootIds }),
-      }
-    );
-
-    const fileRecordIds = Array.from(new Set(results.map((result) => result.chunk.fileRecordId)));
-    const fileMap = await store.fileRecords(fileRecordIds);
-    assertAdmittedRetrievalFileRoots(fileMap, fileRecordIds, admittedRootIds);
-    signal?.throwIfAborted();
-
-    const items: HybridSearchToolResultItem[] = results.map((result) => {
-      const fileInfo = fileMap.get(result.chunk.fileRecordId);
-      return {
-        chunkIndex: result.chunk.chunkIndex,
-        content: result.chunk.content.slice(0, MAX_CONTENT_CHARS_PER_RESULT),
-        id: result.chunk.id,
-        position: result.position,
-        rrfScore: result.rrfScore,
-        sourceCount: result.sourceCount,
-        ...(fileInfo?.name === undefined ? {} : { fileName: fileInfo.name }),
-        ...(fileInfo?.path === undefined ? {} : { filePath: fileInfo.path }),
-        ...(fileInfo?.rootName ? { rootName: fileInfo.rootName } : {}),
-        ...(result.ftsRank === undefined ? {} : { ftsRank: result.ftsRank }),
-        ...(result.headline === undefined ? {} : { headline: result.headline }),
-        ...(result.vectorSimilarity === undefined
-          ? {}
-          : { vectorSimilarity: result.vectorSimilarity }),
-      };
-    });
-
-    // Self-bound the result list to the native-tool output budget (anti-thrash
-    // contract): return a SUCCESSFUL partial result with a hint, never a size error.
-    const buildResult = (kept: HybridSearchToolResultItem[]): HybridSearchToolResult => {
-      const truncated = kept.length < items.length;
-      return {
-        embeddingSetId,
-        ftsWeight,
-        limit,
-        metadata: {
-          ftsResultCount: metadata.ftsResultCount,
-          fusedResultCount: metadata.fusedResultCount,
-          totalMs: metadata.totalMs,
-          vectorResultCount: metadata.vectorResultCount,
-        },
-        query,
-        results: kept,
-        truncated,
-        vectorWeight,
-        ...(root === undefined ? {} : { root: root.displayName }),
-        ...(truncated
-          ? {
-              hint: `Showing ${kept.length} of ${items.length} fused results. Narrow with filePaths, chunkType, or a smaller limit.`,
-            }
-          : {}),
-      };
-    };
-    return fitItemsToCharBudget(items, buildResult).result;
+    // The agent host retrieves only through the native index.
+    throw new Error(NO_NATIVE_INDEX_HYBRID_SEARCH);
   } catch (error) {
     if (dependencies.nativeIndexSearch && signal?.aborted && error instanceof AggregateError) {
       throw new Error(HYBRID_SEARCH_ERROR_MESSAGES.searchFailed, { cause: error });

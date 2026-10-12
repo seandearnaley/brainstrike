@@ -1,10 +1,11 @@
 import { isSupportedProvider } from '@brainstrike/assistant-contract';
 import { listEmbeddingModels } from '@brainstrike/assistant-contract/provider-metadata';
+import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { z } from 'zod';
-import type { DesktopAssistantToolDependencies } from '../assistant-server/native-tool-executor-context';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
 import type { DesktopWorktreeServices } from '../assistant-server/worktree-tool-dependencies';
 import { getDatabase } from '../db-main';
+import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { desktopHostToolServices } from './desktop-host-tool-runtime';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
 import type { DesktopWorkspaceBindingAuthority } from './desktop-workspace-binding';
@@ -15,7 +16,10 @@ import { resolveDesktopMemoryVectors } from './memory-vector-selection';
 export type DesktopCliOwnerIntentReader = NonNullable<DesktopAdmissionReads['cliOwnerIntent']>;
 
 /** Main's tool services for host threads, resolved per run (the worktree services lazily). */
-export type DesktopHostToolServices = DesktopAssistantToolDependencies & DesktopWorktreeServices;
+export interface DesktopHostToolServices extends DesktopWorktreeServices {
+  readonly embeddingHostManager?: Pick<EmbeddingHostManager, 'queryEmbedding'> | undefined;
+  readonly nativeIndexSearch?: IndexSearchCapability | undefined;
+}
 
 /** Catalog dimensions of the recall embedder: hosted from the registry, local from the DB catalog. */
 async function readEmbeddingDimensions(

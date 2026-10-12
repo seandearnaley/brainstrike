@@ -42,8 +42,7 @@ export function runSkillScriptExecutor(
   resolvePythonExecutable: (signal?: AbortSignal) => Promise<string>
 ): NativeToolExecutor {
   // Skill execution is capability-gated by the trusted per-request scan
-  // engine: no resolver, no tool (the enabled-id filter in assistant-tools.ts
-  // treats that omission as the explicit capability result).
+  // engine: no resolver, no tool; omission is the explicit capability result.
   return ({ runtimeData }) => {
     if (!skillScriptResolver) {
       return;

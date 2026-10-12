@@ -2,9 +2,8 @@ import type { RuntimeData } from '@brainstrike/agent';
 import { addLogListener, LogLevel, type LogRecord, setLogLevel } from '@brainstrike/logging';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { getDatabaseMock, readWorkspaceTextFileMock, reindexEditedFileMock } = vi.hoisted(() => ({
+const { getDatabaseMock, reindexEditedFileMock } = vi.hoisted(() => ({
   getDatabaseMock: vi.fn(),
-  readWorkspaceTextFileMock: vi.fn(),
   reindexEditedFileMock: vi.fn(),
 }));
 
@@ -14,17 +13,10 @@ vi.mock('../../assistant-server/reindex-edited-file', async (importOriginal) => 
   reindexEditedFile: reindexEditedFileMock,
   statMtimeMs: vi.fn(async () => 1),
 }));
-vi.mock(
-  '../../../../../packages/host-capabilities/src/native-tools/workspace-text-file-reader',
-  () => ({
-    readWorkspaceTextFile: readWorkspaceTextFileMock,
-  })
-);
 
 import {
   triggerEditedFileReindex,
   triggerFileDeletionInvalidation,
-  triggerRenamedDestinationReindex,
 } from '../../assistant-server/reindex-side-effects';
 import {
   getDesktopDatabaseIntegrity,
@@ -80,8 +72,6 @@ describe('assistant re-index side effects under database integrity containment',
     resetDesktopDatabaseIntegrityForTests();
     getDatabaseMock.mockReset();
     getDatabaseMock.mockResolvedValue({ query: vi.fn() });
-    readWorkspaceTextFileMock.mockReset();
-    readWorkspaceTextFileMock.mockResolvedValue({ content: 'export {};', size: 10 });
     reindexEditedFileMock.mockReset();
     reindexEditedFileMock.mockResolvedValue(false);
     setLogLevel(LogLevel.INFO);
@@ -161,37 +151,6 @@ describe('assistant re-index side effects under database integrity containment',
 
     expect(getDatabaseMock).not.toHaveBeenCalled();
     expect(skipWarnings()).toEqual([]);
-  });
-
-  it('skips the rename-destination re-index while contained without reading the file, warning once', async () => {
-    containDatabase();
-
-    await expect(
-      triggerRenamedDestinationReindex({
-        absolutePath: '/workspace/src/b.ts',
-        rootId: 'root-1',
-        rootPath: '/workspace',
-        runtimeData,
-        workspacePath: '/src/b.ts',
-      })
-    ).resolves.toBeUndefined();
-
-    expect(readWorkspaceTextFileMock).not.toHaveBeenCalled();
-    expect(getDatabaseMock).not.toHaveBeenCalled();
-    expect(skipWarnings()).toHaveLength(1);
-  });
-
-  it('re-indexes the rename destination while the database is healthy', async () => {
-    await triggerRenamedDestinationReindex({
-      absolutePath: '/workspace/src/b.ts',
-      rootId: 'root-1',
-      rootPath: '/workspace',
-      runtimeData,
-      workspacePath: '/src/b.ts',
-    });
-
-    expect(readWorkspaceTextFileMock).toHaveBeenCalledOnce();
-    expect(reindexEditedFileMock).toHaveBeenCalledOnce();
   });
 
   it('contains an integrity error raised by the post-edit re-index and still logs it', async () => {

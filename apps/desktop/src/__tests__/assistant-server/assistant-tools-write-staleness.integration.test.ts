@@ -4,17 +4,12 @@ import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { type RuntimeData, resetFileReadState, withFileLock } from '@brainstrike/agent';
-import { migrate, wasmLoader } from '@brainstrike/db';
 import { resetToolCallLoopGuards } from '@brainstrike/host-capabilities/native-tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-// LEGACY-ONLY (BST-1980 C1): used only by the legacy journal-attribution block at
-// the bottom; deleted with `assistant-tools.ts` in C2.
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { disposeLspServers } from '../../assistant-server/lsp-diagnostics';
 import { buildHostNativeTools } from './_host-native-tools';
 import { requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 import { createWorkspaceFixture } from './_workspace-fixture';
-import { createBudgetedHost } from './fixtures/budgeted-host';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
@@ -24,41 +19,11 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
   };
 });
 
-const {
-  getDatabaseMock,
-  getAllWindowsMock,
-  invalidateManagedCacheMock,
-  loggerErrorMock,
-  loggerWarnMock,
-} = vi.hoisted(() => ({
+const { getAllWindowsMock, loggerErrorMock, loggerWarnMock } = vi.hoisted(() => ({
   getAllWindowsMock: vi.fn(),
-  getDatabaseMock: vi.fn(),
-  invalidateManagedCacheMock: vi.fn(),
   loggerErrorMock: vi.fn(),
   loggerWarnMock: vi.fn(),
 }));
-
-vi.mock('../../db-main', () => ({
-  getDatabase: getDatabaseMock,
-}));
-
-// Keep the real @brainstrike/db exports (EmbeddingSetsRepository, etc.) but stub
-// the index-invalidation seam so delete/rename tests assert this tool's honest
-// indexInvalidated reporting without emulating the invalidator's internals.
-vi.mock('@brainstrike/db', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/db')>();
-  return {
-    ...actual,
-    invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheMock,
-  };
-});
-vi.mock('@brainstrike/db/react', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/db/react')>();
-  return {
-    ...actual,
-    invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheMock,
-  };
-});
 
 vi.mock('electron', () => ({
   BrowserWindow: {
@@ -704,119 +669,4 @@ describe('read-before-write staleness guard', () => {
       await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
     }
   });
-});
-
-// LEGACY-ONLY (BST-1980 C1): the legacy ports' PGlite edit journal
-// (`edit-checkpoint-capture.ts`) attributing a delegated write to the child's
-// durable run. Host threads attribute edits through Core's per-call edit tracker
-// (`HostToolContext.edits`); deleted with the legacy composition in C2.
-describe('legacy journal attribution of delegated native writes', () => {
-  const guardRuntime = (workspaceRootPath: string): RuntimeData =>
-    ({
-      ...singleRootRuntime(workspaceRootPath),
-      memory: { resourceId: 'guard-resource', runId: 'guard-run', threadId: 'guard-thread' },
-    }) as RuntimeData;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    resetToolCallLoopGuards();
-    resetFileReadState();
-  });
-
-  it.each(['guard-run', 'resumed-run'])(
-    'attributes a delegated native write on %s to its durable child run instead of the parent',
-    async (hostRunId) => {
-      const workspaceRootPath = await createWorkspaceFixture();
-      const database = await wasmLoader.createPGlite('memory://child-checkpoint');
-      try {
-        await migrate(database);
-        await database.exec(`INSERT INTO mastra_threads
-          (id, "resourceId", title, "createdAt", "updatedAt") VALUES
-          ('guard-thread', 'guard-resource', 'Parent', NOW(), NOW()),
-          ('child-cedar', 'child-resource', 'Cedar', NOW(), NOW());
-          INSERT INTO brainstrike_assistant_thread_runs
-          (id, resource_id, thread_id, provider, model, runtime_kind, status,
-           started_at, created_at, updated_at, turn_message_id) VALUES
-          ('guard-run', 'guard-resource', 'guard-thread', 'openai', 'test', 'desktop', 'running',
-           NOW(), NOW(), NOW(), 'user-turn');`);
-        if (hostRunId !== 'guard-run') {
-          await database.query(
-            `INSERT INTO brainstrike_assistant_thread_runs
-            (id, resource_id, thread_id, provider, model, runtime_kind, status,
-             started_at, created_at, updated_at, turn_message_id) VALUES
-            ($1, 'guard-resource', 'guard-thread', 'openai', 'test', 'desktop', 'running',
-             NOW(), NOW(), NOW(), 'user-turn')`,
-            [hostRunId]
-          );
-        }
-        const originalHost = createBudgetedHost(database, 'guard-run');
-        const host = createBudgetedHost(database, hostRunId);
-        await originalHost.persist({
-          childResourceId: 'child-resource',
-          childThreadId: 'child-cedar',
-          configuration: { maxSteps: 16, persona: { id: 'worker' } },
-          parentResourceId: 'guard-resource',
-          parentRuntimeRunId: 'parent-native',
-          parentThreadId: 'guard-thread',
-          parentToolCallId: 'delegate-cedar',
-          personaId: 'worker',
-        });
-        const identity = {
-          childRuntimeRunId: 'cedar-native',
-          parentRuntimeRunId: 'parent-native',
-          parentToolCallId: 'delegate-cedar',
-          personaId: 'worker',
-        };
-        await host.bindRun(identity);
-        const event = await host.persistEvent(
-          identity,
-          'cedar-message',
-          {
-            id: 'cedar-start',
-            kind: 'run.started',
-            label: 'Cedar started',
-            status: 'running',
-            timestamp: new Date().toISOString(),
-          },
-          0
-        );
-        getDatabaseMock.mockResolvedValue(database);
-        const tools = buildDesktopAssistantTools({
-          ...guardRuntime(workspaceRootPath),
-          memory: { resourceId: 'guard-resource', runId: hostRunId, threadId: 'guard-thread' },
-        });
-        const execute = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
-        await expect(
-          execute(
-            {
-              agent: { threadId: 'forged-child' },
-              content: 'Forged ownership',
-              path: '/cedar.txt',
-              threadId: 'forged-child',
-            },
-            { agent: { threadId: 'child-cedar', toolCallId: 'cedar-write' } }
-          )
-        ).rejects.toThrow(/Unrecognized keys/);
-        await expect(
-          fsPromises.stat(path.join(workspaceRootPath, 'cedar.txt'))
-        ).rejects.toMatchObject({ code: 'ENOENT' });
-        await execute(
-          { content: 'Cedar completed work\n', path: '/cedar.txt' },
-          { agent: { threadId: 'child-cedar', toolCallId: 'cedar-write' } }
-        );
-        expect(
-          (
-            await database.query(`SELECT thread_id, run_id, resource_id
-          FROM brainstrike_assistant_edit_checkpoints WHERE tool_call_id = 'cedar-write'`)
-          ).rows
-        ).toEqual([
-          { resource_id: 'child-resource', run_id: event.runId, thread_id: 'child-cedar' },
-        ]);
-      } finally {
-        getDatabaseMock.mockReset();
-        await database.close();
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    }
-  );
 });

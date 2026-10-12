@@ -1,31 +1,14 @@
 /**
- * Main's retrieval store over its PGlite database, plus the legacy (no native
- * index) similarity path and hosted query embeddings. Main-only.
+ * Main's retrieval catalog over its PGlite database, which the agent host reads
+ * through `desktop-read/retrieval/*`. Main-only.
  */
-import {
-  EmbeddingSetsRepository,
-  FileChunkRepository,
-  FileRecordRepository,
-  HybridSearchService,
-} from '@brainstrike/db';
-import {
-  type HostedProviderType,
-  hostedProviderRequiresApiKey,
-} from '@brainstrike/embeddings/provider-core';
+import { EmbeddingSetsRepository, FileRecordRepository } from '@brainstrike/db';
 import { createLogger } from '@brainstrike/logging';
 import { type DesktopDatabase, getDatabase } from '../db-main';
-import { createHostedProvider, resolveEmbeddingApiKey } from '../hosted-embeddings';
-import {
-  assertValidSelectionFilePaths,
-  assertValidSelectionSnapshotId,
-  RETRIEVAL_ERROR_MESSAGES,
-  redactRetrievalErrorForLog,
-} from './retrieval-core';
+import { RETRIEVAL_ERROR_MESSAGES, redactRetrievalErrorForLog } from './retrieval-core';
 import type { EmbeddingSetRow, FileRecordRow, RetrievalStore } from './retrieval-store';
 
 const logger = createLogger('AssistantRetrievalTool');
-/** Snapshot time-to-live (ms). Expired snapshots are best-effort cleaned up. */
-const SNAPSHOT_TTL_MS = 1000 * 60 * 60; // 1 hour
 
 interface QueryResult<T> {
   rows: T[];
@@ -60,39 +43,6 @@ async function resolveEmbeddingSet(
     throw new Error(RETRIEVAL_ERROR_MESSAGES.invalidEmbeddingSet);
   }
   return row;
-}
-
-async function createSelectionSnapshot(
-  db: DesktopDatabase,
-  filePaths: readonly string[]
-): Promise<string> {
-  assertValidSelectionFilePaths(filePaths);
-  // Best-effort cleanup to avoid blocking snapshot creation on purge failures.
-  void db
-    .query(
-      `DELETE FROM selection_snapshots
-       WHERE expires_at IS NOT NULL
-         AND expires_at <= NOW()`
-    )
-    .catch(() => {});
-  const expiresAt = new Date(Date.now() + SNAPSHOT_TTL_MS).toISOString();
-  const snapshotResult = (await db.query(
-    `INSERT INTO selection_snapshots (expires_at)
-     VALUES ($1)
-     RETURNING id`,
-    [expiresAt]
-  )) as QueryResult<{ id: string }>;
-  const snapshotId = snapshotResult.rows[0]?.id;
-  if (!snapshotId) {
-    throw new Error(RETRIEVAL_ERROR_MESSAGES.retrievalFailed);
-  }
-  assertValidSelectionSnapshotId(snapshotId);
-  await db.query(
-    `INSERT INTO selection_snapshot_files (snapshot_id, file_path)
-     SELECT $1, UNNEST($2::text[])`,
-    [snapshotId, filePaths]
-  );
-  return snapshotId;
 }
 
 interface RootLabel {
@@ -151,37 +101,6 @@ async function buildFileRecordMap(
   return map;
 }
 
-async function generateQueryEmbedding(
-  provider: HostedProviderType,
-  modelId: string,
-  dimensions: number,
-  query: string,
-  signal?: AbortSignal
-): Promise<number[]> {
-  signal?.throwIfAborted();
-  const apiKey = await resolveEmbeddingApiKey(provider);
-  signal?.throwIfAborted();
-  if (hostedProviderRequiresApiKey(provider) && !apiKey) {
-    throw new Error(RETRIEVAL_ERROR_MESSAGES.missingApiKey);
-  }
-  const hostedProvider = createHostedProvider(provider, modelId, dimensions, apiKey);
-  const result = await hostedProvider.embed({
-    modelId,
-    text: query,
-    ...(signal ? { signal } : {}),
-  });
-  signal?.throwIfAborted();
-  if (!result.ok) {
-    logger.warn('Embedding provider returned error', {
-      error: redactRetrievalErrorForLog(result.error),
-      provider,
-      stage: 'provider-request',
-    });
-    throw new Error(RETRIEVAL_ERROR_MESSAGES.embeddingFailed);
-  }
-  return result.value.embedding;
-}
-
 /** The store over Main's own PGlite database. */
 export function pgliteRetrievalStore(): RetrievalStore {
   return {
@@ -192,20 +111,6 @@ export function pgliteRetrievalStore(): RetrievalStore {
     fileRecords: async (ids) => {
       const db = await getDatabase();
       return buildFileRecordMap(new FileRecordRepository(db), db, ids);
-    },
-    legacy: {
-      createSelectionSnapshot: async (filePaths) =>
-        createSelectionSnapshot(await getDatabase(), filePaths),
-      hostedQueryEmbedding: ({ dimensions, modelId, provider, query, signal }) =>
-        generateQueryEmbedding(provider, modelId, dimensions, query, signal),
-      hybridSearch: async (query, embedding, options) =>
-        new HybridSearchService(new FileChunkRepository(await getDatabase())).search(
-          query,
-          embedding,
-          options
-        ),
-      searchSimilar: async (embedding, options) =>
-        new FileChunkRepository(await getDatabase()).searchSimilar(embedding, options),
     },
   };
 }

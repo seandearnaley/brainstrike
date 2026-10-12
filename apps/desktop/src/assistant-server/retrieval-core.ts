@@ -16,13 +16,6 @@ import {
 } from '@brainstrike/agent';
 import { SecretReadError } from '@brainstrike/agent-host/credential-contract';
 import { ToolInputError } from '@brainstrike/assistant-contract';
-import type { ChunkSearchResult } from '@brainstrike/db';
-import {
-  type EmbeddingProviderType,
-  isHostedProvider,
-  isLocalProviderType,
-  parseProviderModelKey,
-} from '@brainstrike/embeddings/provider-core';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
@@ -32,12 +25,7 @@ import {
   resolveNativeAssistantCollection,
   searchNativeAssistantChunks,
 } from './native-assistant-retrieval';
-import {
-  type EmbeddingSetRow,
-  type FileRecordRow,
-  type RetrievalStore,
-  requireLegacyRetrievalStore,
-} from './retrieval-store';
+import type { FileRecordRow, RetrievalStore } from './retrieval-store';
 import { resolveOptionalWorkspaceRoot } from './workspace-roots';
 
 export type { EmbeddingSetRow, FileRecordRow } from './retrieval-store';
@@ -65,21 +53,10 @@ export function redactRetrievalErrorForLog(error: unknown): {
   };
 }
 
-const DEFAULT_LIMIT = 20;
 const DEFAULT_THRESHOLD = 0.3;
 const DEFAULT_TOKEN_BUDGET = 4000;
-/**
- * Maximum file paths to pass inline in the tool payload before switching to
- * server-side snapshot storage. At the cap this is still small enough for the
- * assistant request, while larger selections move out of the model/tool call.
- */
-const MAX_INLINE_FILE_PATHS = 500;
-/**
- * Absolute snapshot cap for large curated selections. Snapshot ids keep the
- * tool call compact, but this still bounds retained server-side payload size.
- */
-const MAX_SNAPSHOT_FILE_PATHS = 5000;
-const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** Retrieval reads the native index only; the agent host has no other similarity path. */
+const NO_NATIVE_INDEX_RETRIEVAL = 'Retrieval without a native index runs only on Main’s database.';
 
 export const RETRIEVAL_ERROR_MESSAGES = {
   embeddingDimensionMismatch: 'Embedding dimensions do not match the active set.',
@@ -113,11 +90,6 @@ export const RETRIEVAL_SAFE_ERROR_MESSAGES = new Set<string>([
   RETRIEVAL_ERROR_MESSAGES.embeddingFailed,
   RETRIEVAL_ERROR_MESSAGES.missingSourceRange,
 ]);
-
-interface RetrievalSelectionState {
-  filePaths?: string[];
-  selectionSnapshotId?: string;
-}
 
 type RetrievalResultChunk = Omit<PackedContextChunk, 'content'>;
 
@@ -160,44 +132,6 @@ interface RetrievalToolResult {
 }
 
 export type RetrievalToolExecutionResult = RetrievalToolResult | RetrievalUnavailableResult;
-
-function normalizeFilePaths(filePaths: readonly string[] | undefined): string[] | undefined {
-  if (!filePaths || filePaths.length === 0) {
-    return;
-  }
-  const unique = new Set<string>();
-  for (const raw of filePaths) {
-    const trimmed = raw.trim();
-    if (trimmed.length > 0) {
-      unique.add(trimmed);
-    }
-  }
-  return unique.size > 0 ? Array.from(unique) : undefined;
-}
-
-function isValidUuid(value: string): boolean {
-  return UUID_V4_REGEX.test(value);
-}
-
-export function assertValidSelectionSnapshotId(selectionSnapshotId: string): void {
-  if (!isValidUuid(selectionSnapshotId)) {
-    throw new Error(RETRIEVAL_ERROR_MESSAGES.invalidSelectionSnapshot);
-  }
-}
-
-export function assertValidSelectionFilePaths(filePaths: readonly string[]): void {
-  if (filePaths.length === 0) {
-    throw new Error(RETRIEVAL_ERROR_MESSAGES.invalidSelectionFilePaths);
-  }
-  if (filePaths.length > MAX_SNAPSHOT_FILE_PATHS) {
-    throw new Error(RETRIEVAL_ERROR_MESSAGES.selectionTooLarge);
-  }
-  for (const path of filePaths) {
-    if (typeof path !== 'string' || path.trim().length === 0) {
-      throw new Error(RETRIEVAL_ERROR_MESSAGES.invalidSelectionFilePaths);
-    }
-  }
-}
 
 function formatContext(chunks: readonly PackedContextChunk[]): string {
   if (chunks.length === 0) {
@@ -242,21 +176,6 @@ function resolveRuntimeEmbeddingSetId(
     normalizeOptionalText(runtime?.embeddingSetId) ??
     resolveWorkspaceIndexEmbeddingSetId(runtime)
   );
-}
-
-function resolveSelectionFilters(
-  runtime: RuntimeData | undefined,
-  inputFilePaths: readonly string[] | undefined,
-  inputSnapshotId: string | undefined
-): { filePaths?: string[]; snapshotId?: string } {
-  const runtimeSnapshotId = normalizeOptionalText(runtime?.selectionSnapshotId);
-  const snapshotId = runtimeSnapshotId ?? normalizeOptionalText(inputSnapshotId);
-  const runtimePaths = normalizeFilePaths(runtime?.selectionFilePaths);
-  const filePaths = runtimePaths ?? normalizeFilePaths(inputFilePaths);
-  if (snapshotId) {
-    return { snapshotId };
-  }
-  return filePaths ? { filePaths } : {};
 }
 
 function resolveTokenBudget(runtime: RuntimeData | undefined, override?: number): number {
@@ -342,140 +261,12 @@ function toContextChunks(
   return { chunks, skippedSourceRangeChunks };
 }
 
-function resolveProviderForSet(embeddingSet: EmbeddingSetRow): EmbeddingProviderType {
-  const parsed = parseProviderModelKey(embeddingSet.modelKey);
-  if (!parsed) {
-    throw new Error(RETRIEVAL_ERROR_MESSAGES.invalidEmbeddingSet);
-  }
-  return parsed.provider;
-}
-
-export async function generateQueryEmbeddingForSet(
-  embeddingSet: EmbeddingSetRow,
-  query: string,
-  dependencies: RetrievalToolDependencies,
-  store: RetrievalStore,
-  signal?: AbortSignal
-): Promise<number[]> {
-  signal?.throwIfAborted();
-  const provider = resolveProviderForSet(embeddingSet);
-  const startedAt = performance.now();
-  try {
-    if (isHostedProvider(provider)) {
-      return await requireLegacyRetrievalStore(store).hostedQueryEmbedding({
-        dimensions: embeddingSet.dimensions,
-        modelId: embeddingSet.modelId,
-        provider,
-        query,
-        signal,
-      });
-    }
-    if (isLocalProviderType(provider)) {
-      const embeddingHostManager = dependencies.embeddingHostManager;
-      if (!embeddingHostManager) {
-        throw new Error(RETRIEVAL_ERROR_MESSAGES.localEmbeddingHostUnavailable);
-      }
-      const payload = {
-        dimensions: embeddingSet.dimensions,
-        modelId: embeddingSet.modelId,
-        modelKey: embeddingSet.modelKey,
-        query,
-      };
-      return await (signal
-        ? embeddingHostManager.queryEmbedding(payload, { signal })
-        : embeddingHostManager.queryEmbedding(payload));
-    }
-    throw new Error(RETRIEVAL_ERROR_MESSAGES.unsupportedProvider);
-  } catch (error) {
-    const timedOut = error instanceof Error && /timed out/i.test(error.message);
-    if (signal?.aborted || timedOut) {
-      logger.warn('Query embedding interrupted', {
-        aborted: signal?.aborted ?? false,
-        elapsedMs: Math.round(performance.now() - startedAt),
-        provider,
-        stage: isLocalProviderType(provider) ? 'local-host' : 'hosted-provider',
-        timedOut,
-      });
-    }
-    throw error;
-  }
-}
-
 function normalizeQuery(query: string): string {
   const normalized = query.trim();
   if (!normalized) {
     throw new Error(RETRIEVAL_ERROR_MESSAGES.retrievalFailed);
   }
   return normalized;
-}
-
-export function assertEmbeddingDimensions(expected: number, actual: number): void {
-  if (expected === actual) {
-    return;
-  }
-  logger.warn('Embedding dimension mismatch', { actual, expected });
-  throw new Error(RETRIEVAL_ERROR_MESSAGES.embeddingDimensionMismatch);
-}
-
-async function resolveSelectionState(
-  store: RetrievalStore,
-  runtimeData: RuntimeData | undefined,
-  input: RetrievalContextInput
-): Promise<RetrievalSelectionState> {
-  const selection = resolveSelectionFilters(
-    runtimeData,
-    input.filePaths,
-    input.selectionSnapshotId
-  );
-  let selectionSnapshotId = selection.snapshotId;
-  let filePaths = selection.filePaths;
-
-  if (selectionSnapshotId) {
-    assertValidSelectionSnapshotId(selectionSnapshotId);
-  }
-  if (filePaths) {
-    assertValidSelectionFilePaths(filePaths);
-  }
-
-  if (!selectionSnapshotId && filePaths && filePaths.length > MAX_INLINE_FILE_PATHS) {
-    selectionSnapshotId =
-      await requireLegacyRetrievalStore(store).createSelectionSnapshot(filePaths);
-    filePaths = undefined;
-  }
-
-  const state: RetrievalSelectionState = {};
-  if (filePaths) {
-    state.filePaths = filePaths;
-  }
-  if (selectionSnapshotId) {
-    state.selectionSnapshotId = selectionSnapshotId;
-  }
-  return state;
-}
-
-async function searchForChunks(
-  store: RetrievalStore,
-  embedding: number[],
-  embeddingSetId: string,
-  input: RetrievalContextInput,
-  selection: RetrievalSelectionState,
-  rootId: string | undefined,
-  admittedRootIds: readonly string[] | undefined
-): Promise<ChunkSearchResult[]> {
-  const limit = input.limit ?? DEFAULT_LIMIT;
-  const threshold = input.threshold ?? DEFAULT_THRESHOLD;
-
-  return requireLegacyRetrievalStore(store).searchSimilar(embedding, {
-    embeddingSetId,
-    limit,
-    threshold,
-    ...(selection.filePaths ? { filePaths: selection.filePaths } : {}),
-    ...(selection.selectionSnapshotId
-      ? { selectionSnapshotId: selection.selectionSnapshotId }
-      : {}),
-    ...(rootId === undefined ? {} : { rootId }),
-    ...(admittedRootIds === undefined ? {} : { rootIds: admittedRootIds }),
-  });
 }
 
 /** Check actual catalog file ownership before an admitted subset receives content. */
@@ -604,10 +395,11 @@ async function runRetrieval(
         threshold: input.threshold ?? DEFAULT_THRESHOLD,
       })
     : undefined;
-  let selectionState: RetrievalSelectionState = {};
-  let searchResults: Parameters<typeof packRetrievedContext>[1];
-  if (native) {
-    searchResults = native.hits.map(({ hit, similarity }, index) => {
+  if (!native) {
+    throw new Error(NO_NATIVE_INDEX_RETRIEVAL);
+  }
+  const searchResults: Parameters<typeof packRetrievedContext>[1] = native.hits.map(
+    ({ hit, similarity }, index) => {
       if (hit.chunkIndex === null || hit.tokenCount === null || similarity === undefined) {
         throw new ToolInputError('Native source chunk metadata is unavailable.');
       }
@@ -628,28 +420,8 @@ async function runRetrieval(
         rank: index + 1,
         similarity,
       };
-    });
-  } else {
-    const embedding = await generateQueryEmbeddingForSet(
-      embeddingSet,
-      query,
-      dependencies,
-      store,
-      signal
-    );
-    signal?.throwIfAborted();
-    assertEmbeddingDimensions(embeddingSet.dimensions, embedding.length);
-    selectionState = await resolveSelectionState(store, runtimeData, input);
-    searchResults = await searchForChunks(
-      store,
-      embedding,
-      embeddingSetId,
-      input,
-      selectionState,
-      rootId,
-      admittedRootIds
-    );
-  }
+    }
+  );
   const { packed, contextText, skippedSourceRangeChunks } = await packRetrievedContext(
     store,
     searchResults,
@@ -657,7 +429,7 @@ async function runRetrieval(
     input,
     admittedRootIds
   );
-  await native?.assertCurrent();
+  await native.assertCurrent();
   signal?.throwIfAborted();
 
   return {
@@ -666,10 +438,9 @@ async function runRetrieval(
     chunks: stripChunkContent(packed.chunks),
     context: contextText,
     embeddingSetId,
-    limit: native?.limit ?? input.limit ?? DEFAULT_LIMIT,
-    ...(native
-      ? { truncated: native.truncated, ...(native.hint ? { hint: native.hint } : {}) }
-      : {}),
+    limit: native.limit,
+    truncated: native.truncated,
+    ...(native.hint ? { hint: native.hint } : {}),
     query,
     remainingTokens: packed.remainingTokens,
     skipped: packed.skipped + skippedSourceRangeChunks.length,
@@ -677,9 +448,6 @@ async function runRetrieval(
     skippedSourceRangeChunks,
     threshold: input.threshold ?? DEFAULT_THRESHOLD,
     totalTokens: packed.totalTokens,
-    ...(selectionState.selectionSnapshotId
-      ? { selectionSnapshotId: selectionState.selectionSnapshotId }
-      : {}),
   };
 }
 

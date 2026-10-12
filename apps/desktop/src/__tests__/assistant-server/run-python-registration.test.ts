@@ -2,7 +2,6 @@ import type { RuntimeData } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { app } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import {
   type CodeExecutionHost,
   runPythonExecutor,
@@ -273,23 +272,5 @@ describe('run_python sandbox availability wiring', () => {
       reason: 'sandbox_unsupported_runtime',
     });
     expect(resolvePythonExecutable).not.toHaveBeenCalled();
-  });
-});
-
-/**
- * LEGACY-ONLY (BST-1980 C2 deletes this with `assistant-tools.ts`): the legacy
- * builder's local-provider skip. On the host, admission omits run_python for
- * the built-in local provider (agent-host-admitted-tool-descriptors.integration.test.ts,
- * recorded `local` admission).
- */
-describe('legacy run_python local-provider registration', () => {
-  it('is EXCLUDED for the built-in local provider', () => {
-    // Same reasoning as askUser/submitPlan/manageTaskList: the on-device
-    // model's WebGPU prefill budget cannot afford advertising it, and
-    // BST-1070's network escalation is structurally unavailable there.
-    const tools = buildDesktopAssistantTools({ ...runtimeData, provider: 'local' } as RuntimeData, {
-      resolvePythonExecutable: vi.fn(async () => '/bundled/python3'),
-    });
-    expect(tools).not.toHaveProperty(NATIVE_TOOL_ID.runPython);
   });
 });

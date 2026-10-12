@@ -17,12 +17,6 @@ import {
 } from '@brainstrike/host-capabilities/native-tools';
 import { describe, expect, it } from 'vitest';
 import { ZodError } from 'zod';
-// LEGACY-ONLY (BST-1980 C1): the PGlite task-list repository's row validation;
-// deleted with `task-list-repository.ts` in C2.
-import {
-  readThreadTaskList,
-  type TaskListDatabase,
-} from '../../assistant-server/task-list-repository';
 import { buildHostNativeTools, memoryToolState } from './_host-native-tools';
 import { requireToolExecute } from './_tool-test-helpers';
 
@@ -186,55 +180,5 @@ describe('hostTaskListStore stored-list validation', () => {
     await expect(
       readCurrentTaskList([{ activeForm: 'Reading', content: 'Read', id: 'a', status: 'archived' }])
     ).rejects.toThrow(ZodError);
-  });
-});
-
-// LEGACY-ONLY (BST-1980 C1): deleted with `task-list-repository.ts` in C2. The live
-// equivalent is the `hostTaskListStore stored-list validation` block above.
-
-/** A fake DB whose SELECT returns a fixed `tasks` value verbatim, for probing readThreadTaskList's row-shape validation. */
-function createFixedRowDb(tasks: unknown): TaskListDatabase {
-  return {
-    query: async <T = Record<string, unknown>>(sql: string): Promise<{ rows: T[] }> => {
-      if (/^\s*SELECT/i.test(sql)) {
-        return { rows: [{ tasks }] as T[] };
-      }
-      throw new Error(`unexpected sql: ${sql}`);
-    },
-  };
-}
-
-describe('readThreadTaskList row validation', () => {
-  it('returns [] when no row is persisted for the thread (genuine absence)', async () => {
-    const db: TaskListDatabase = {
-      query: async <T = Record<string, unknown>>(): Promise<{ rows: T[] }> => ({ rows: [] as T[] }),
-    };
-    await expect(readThreadTaskList(db, 'thread-missing')).resolves.toEqual([]);
-  });
-
-  it('returns the tasks when every item matches the AssistantTaskItem shape', async () => {
-    const tasks = [
-      { activeForm: 'Reading', content: 'Read', id: 'a', status: 'in_progress' },
-      { activeForm: 'Testing', content: 'Test', id: 'b', status: 'pending' },
-    ];
-    const db = createFixedRowDb(tasks);
-    await expect(readThreadTaskList(db, 'thread-1')).resolves.toEqual(tasks);
-  });
-
-  it('throws on a non-array tasks column (corruption, not absence)', async () => {
-    const db = createFixedRowDb({ not: 'an array' });
-    await expect(readThreadTaskList(db, 'thread-1')).rejects.toThrow(/corrupt/i);
-  });
-
-  it('throws when a task item is missing a required field', async () => {
-    const db = createFixedRowDb([{ activeForm: 'Reading', content: 'Read', status: 'pending' }]);
-    await expect(readThreadTaskList(db, 'thread-1')).rejects.toThrow(/corrupt/i);
-  });
-
-  it('throws when a task item has an unknown status value', async () => {
-    const db = createFixedRowDb([
-      { activeForm: 'Reading', content: 'Read', id: 'a', status: 'archived' },
-    ]);
-    await expect(readThreadTaskList(db, 'thread-1')).rejects.toThrow(/corrupt/i);
   });
 });

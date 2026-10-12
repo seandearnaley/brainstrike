@@ -5,9 +5,6 @@ import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
 import type { BrowserWindow } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-// LEGACY-ONLY (BST-1980 C1): used only by the legacy index-port block at the
-// bottom; deleted with `assistant-tools.ts` in C2.
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import {
   assignWindowRole,
   clearWindowRoleByWebContentsId,
@@ -25,41 +22,11 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
   };
 });
 
-const {
-  getDatabaseMock,
-  getAllWindowsMock,
-  invalidateManagedCacheMock,
-  loggerErrorMock,
-  loggerWarnMock,
-} = vi.hoisted(() => ({
+const { getAllWindowsMock, loggerErrorMock, loggerWarnMock } = vi.hoisted(() => ({
   getAllWindowsMock: vi.fn(),
-  getDatabaseMock: vi.fn(),
-  invalidateManagedCacheMock: vi.fn(),
   loggerErrorMock: vi.fn(),
   loggerWarnMock: vi.fn(),
 }));
-
-vi.mock('../../db-main', () => ({
-  getDatabase: getDatabaseMock,
-}));
-
-// Keep the real @brainstrike/db exports (EmbeddingSetsRepository, etc.) but stub
-// the index-invalidation seam so delete/rename tests assert this tool's honest
-// indexInvalidated reporting without emulating the invalidator's internals.
-vi.mock('@brainstrike/db', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/db')>();
-  return {
-    ...actual,
-    invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheMock,
-  };
-});
-vi.mock('@brainstrike/db/react', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/db/react')>();
-  return {
-    ...actual,
-    invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheMock,
-  };
-});
 
 vi.mock('electron', () => ({
   BrowserWindow: {
@@ -893,79 +860,5 @@ describe('assistant-tools edit lifecycle', () => {
     });
     expect(hiddenSend).not.toHaveBeenCalled();
     await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-  });
-
-  // LEGACY-ONLY (BST-1980 C1): the legacy ports' index maintenance
-  // (`reindex-side-effects.ts` via `legacy-native-tool-ports.ts`). The host binds no
-  // index port (`FileMutationPorts.index`: absent when the shell's index watches files
-  // itself), so delete/rename report `indexInvalidated: false` there, as the migrated
-  // cases above assert. Deleted with the legacy composition in C2.
-  describe('legacy index-port invalidation', () => {
-    it('invalidates the workspace index when the file was indexed (indexInvalidated: true)', async () => {
-      const workspaceRootPath = await createWorkspaceFixture();
-      getDatabaseMock.mockResolvedValue({ query: vi.fn(async () => ({ rows: [] })) });
-      invalidateManagedCacheMock.mockResolvedValue({
-        canceledEmbeddingJobCount: 1,
-        deletedChunkIds: ['chunk-1'],
-        deletedFileRecordIds: ['rec-1'],
-      });
-      try {
-        const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({
-            ...singleRootRuntime(workspaceRootPath),
-            workspaceIndexEmbeddingSetId: 'set-1',
-          } as RuntimeData),
-          'brainstrike.deleteWorkspaceFile'
-        );
-
-        const result = await executeTool({ context: { path: '/src/lib/math.ts' } });
-
-        expect(result.ok).toBe(true);
-        expect(result.indexInvalidated).toBe(true);
-        // The invalidation targets the root-relative path (no leading slash),
-        // scoped to the configured workspace-index embedding set.
-        expect(invalidateManagedCacheMock).toHaveBeenCalledWith(expect.anything(), {
-          embeddingSetId: 'set-1',
-          targets: [{ mode: 'exact', relativePath: 'src/lib/math.ts', rootId: workspaceRootPath }],
-        });
-      } finally {
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    });
-
-    it('invalidates the source path in the workspace index (indexInvalidated: true)', async () => {
-      const workspaceRootPath = await createWorkspaceFixture();
-      // getDatabase resolves; the destination re-index seam looks up file_records
-      // by identity and finds none (new path → no-op).
-      getDatabaseMock.mockResolvedValue({ query: vi.fn(async () => ({ rows: [] })) });
-      invalidateManagedCacheMock.mockResolvedValue({
-        canceledEmbeddingJobCount: 0,
-        deletedChunkIds: ['chunk-src'],
-        deletedFileRecordIds: ['rec-src'],
-      });
-      try {
-        const executeTool = requireToolExecute(
-          buildDesktopAssistantTools({
-            ...singleRootRuntime(workspaceRootPath),
-            workspaceIndexEmbeddingSetId: 'set-1',
-          } as RuntimeData),
-          'brainstrike.renameWorkspaceFile'
-        );
-
-        const result = await executeTool({
-          context: { fromPath: '/src/lib/math.ts', toPath: '/src/lib/arithmetic.ts' },
-        });
-
-        expect(result.ok).toBe(true);
-        expect(result.indexInvalidated).toBe(true);
-        // Invalidation targets the SOURCE path (root-relative, no leading slash).
-        expect(invalidateManagedCacheMock).toHaveBeenCalledWith(expect.anything(), {
-          embeddingSetId: 'set-1',
-          targets: [{ mode: 'exact', relativePath: 'src/lib/math.ts', rootId: workspaceRootPath }],
-        });
-      } finally {
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
-    });
   });
 });

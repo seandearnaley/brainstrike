@@ -18,22 +18,7 @@ import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
 import { CEILING_SCALED_TOOL_RESULT_BUDGET } from '@brainstrike/agent/tool-runtime';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
-import { migrate, wasmLoader } from '@brainstrike/db';
-import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-const { dbHolder } = vi.hoisted(() => ({ dbHolder: { db: null as unknown, fail: false } }));
-
-// LEGACY-ONLY (BST-1980 C1): the database mock serves only the legacy journal
-// block at the bottom; deleted with it in C2.
-vi.mock('../../db-main', () => ({
-  getDatabase: vi.fn(async () => {
-    if (dbHolder.fail) {
-      throw new Error('database unavailable');
-    }
-    return dbHolder.db;
-  }),
-}));
 
 vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
@@ -44,9 +29,6 @@ import {
   ReadWorkspaceFileCursorRegistry,
   resetToolCallLoopGuards,
 } from '@brainstrike/host-capabilities/native-tools';
-// LEGACY-ONLY (BST-1980 C1): used only by the legacy journal block at the bottom;
-// deleted with `assistant-tools.ts` in C2.
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { disposeLspServers, getEditDiagnostics } from '../../assistant-server/lsp-diagnostics';
 import { recordingEditsPort, type TrackedEdit } from './_c1-c-helpers';
 import { buildHostNativeTools, memoryToolState } from './_host-native-tools';
@@ -280,81 +262,6 @@ describe('edit attribution through Core’s tracker', () => {
         )
       ).rejects.toThrow('Core supplied no edit or state capability to a shared native tool');
       await expect(fsPromises.access(path.join(rootPath, 'y.ts'))).rejects.toThrow();
-    });
-  });
-});
-
-// LEGACY-ONLY (BST-1980 C1): the legacy ports' PGlite edit journal
-// (`edit-checkpoint-capture.ts`): a best-effort journal skipped when the database
-// is unavailable or the runtime has no memory thread. Host edits are attributed by
-// Core's per-call tracker, the committed run log (no best-effort store), and a
-// call without it refuses (the gated case above). Deleted with the legacy
-// composition in C2.
-describe('legacy journal capture', () => {
-  let db: PGlite;
-
-  beforeEach(async () => {
-    resetToolCallLoopGuards();
-    rootPath = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'bs-capture-'));
-    db = await wasmLoader.createPGlite('memory://capture-on-edit');
-    await migrate(db);
-    dbHolder.db = db;
-    dbHolder.fail = false;
-    await db.query(
-      `INSERT INTO roots (id, kind, display_name, path, status, created_at)
-     VALUES ($1, 'path', 'Project', $2, 'live', $3)`,
-      [ROOT_ID, rootPath, new Date().toISOString()]
-    );
-  });
-
-  afterEach(async () => {
-    await disposeLspServers();
-    vi.clearAllMocks();
-    await db.close();
-    await fsPromises.rm(rootPath, { force: true, recursive: true });
-  });
-
-  async function listCheckpoints(): Promise<unknown[]> {
-    const result = (await db.query(
-      `SELECT op, path, from_path, after_hash, before_existed, capture_status, tool_call_id, run_id, thread_id
-     FROM brainstrike_assistant_edit_checkpoints ORDER BY occurred_at ASC, id ASC`
-    )) as { rows: unknown[] };
-    return result.rows;
-  }
-
-  describe('capture is non-fatal and gated', () => {
-    it('does not journal or throw when the database is unavailable', async () => {
-      dbHolder.fail = true;
-      const tools = buildDesktopAssistantTools(runtime());
-      const result = await requireToolExecute(tools, 'brainstrike.writeWorkspaceFile')(
-        { content: 'hi', path: '/x.txt' },
-        runContext('call-x')
-      );
-      expect(result).toEqual({
-        bytesWritten: 2,
-        created: true,
-        path: '/x.txt',
-        // BST-1192: rootId is always present on a successful write, DB
-        // unavailability or not — bookkeeping failure must never alter the
-        // already-successful tool result (only the checkpoint journal, and
-        // the projection-rewrite overlay, are skipped).
-        rootId: ROOT_ID,
-        rootName: 'Project',
-      });
-      expect(await fsPromises.readFile(path.join(rootPath, 'x.txt'), 'utf8')).toBe('hi');
-    });
-
-    it('does not journal when there is no active memory thread', async () => {
-      const noMemory = {
-        workspaceRoots: [{ displayName: 'Project', path: rootPath, rootId: ROOT_ID }],
-      } as unknown as RuntimeData;
-      const tools = buildDesktopAssistantTools(noMemory);
-      await requireToolExecute(tools, 'brainstrike.writeWorkspaceFile')(
-        { content: 'hi', path: '/y.ts' },
-        runContext('call-y')
-      );
-      const rows = await listCheckpoints();
-      expect(rows).toHaveLength(0);
     });
   });
 });

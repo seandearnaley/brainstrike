@@ -60,10 +60,6 @@ vi.mock('../../db-main', () => ({
   getDatabase: vi.fn(() => Promise.resolve(mockDesktopDatabase)),
 }));
 
-vi.mock('../../assistant-server/assistant-tools', () => ({
-  buildDesktopAssistantTools: vi.fn(() => ({})),
-}));
-
 vi.mock(
   '../../../../../packages/host-capabilities/src/native-tools/workspace-text-file-reader',
   () => ({

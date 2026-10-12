@@ -4,10 +4,10 @@ import type { SupportedProvider } from '@brainstrike/agent/client';
 import type { ProviderCredential, ProviderKeySource } from '@brainstrike/assistant-contract';
 import type { ResolvedProviderCredential } from '@brainstrike/assistant-service/ports';
 import { createProviderApiKeyReader } from '@brainstrike/assistant-service/provider-credential-projection';
+import { TAVILY_SECRET_PROVIDER } from '@brainstrike/host-capabilities/native-tools';
 import { inspectProviderKeys, readProviderCredential } from '../provider-api-key';
 import { desktopAssistantServerLogger as logger } from './logger';
 import { respondToSecretReadError } from './secret-error-responses';
-import { TAVILY_SECRET_PROVIDER } from './tavily-key';
 
 /**
  * Typed credential reader (BST-1352): the desktop implementation of the

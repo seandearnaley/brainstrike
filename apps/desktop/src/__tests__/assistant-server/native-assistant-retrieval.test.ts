@@ -33,7 +33,6 @@ import {
   runQueryEmbeddingSpaceWith,
 } from '../../assistant-server/retrieval-core';
 import { pgliteRetrievalStore } from '../../assistant-server/retrieval-store-pglite';
-import { runQueryEmbeddingSpace } from '../../assistant-server/retrieval-tool';
 import {
   projectHybridSearchModelOutput,
   projectQueryEmbeddingSpaceModelOutput,
@@ -645,19 +644,3 @@ it.each([
     }
   }
 );
-
-/**
- * Legacy-only (BST-1980): Main's PGlite similarity route when no native index
- * serves the request. Host threads always carry the native index and a
- * catalog-only store; this case is deleted with `LegacyRetrievalStore` in C2.
- */
-describe('legacy PGlite retrieval route', () => {
-  it('preserves the PG route when native capability is absent', async () => {
-    const f = fixture();
-    await runQueryEmbeddingSpace({ embeddingSetId: 'selected', query: 'marker' }, undefined, {
-      embeddingHostManager: { queryEmbedding: f.queryEmbedding },
-    });
-    expect(pg.search).toHaveBeenCalled();
-    expect(f.queryEmbedding.mock.calls[0]?.[0]).not.toHaveProperty('inferencePlan');
-  });
-});

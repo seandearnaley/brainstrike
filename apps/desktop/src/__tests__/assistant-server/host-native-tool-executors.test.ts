@@ -11,8 +11,6 @@ import {
   type HostAppPaths,
   isHostExecutedNativeToolId,
 } from '../../agent-host-platform/host-executed-tools';
-import type { NativeToolExecutorMap } from '../../assistant-server/native-tool-executors';
-import { NATIVE_TOOL_EXECUTORS } from '../../assistant-server/native-tool-executors';
 import {
   buildHostNativeTools,
   nativeRuntimeFor,
@@ -65,20 +63,6 @@ describe('host-executed native tools', () => {
       expect(isHostExecutedNativeToolId(toolId), toolId).toBe(true);
       expect(typeof (executors as Record<string, unknown>)[toolId], toolId).toBe('function');
     }
-  });
-});
-
-/**
- * LEGACY-ONLY (BST-1980 C2 deletes this with `native-tool-executors.ts`): the
- * legacy map's compile-time exhaustiveness. The host's fold is a plain record,
- * pinned at runtime by the case above.
- */
-describe('legacy NATIVE_TOOL_EXECUTORS', () => {
-  it('is exhaustive at compile time: dropping one entry is a type error', () => {
-    const { [NATIVE_TOOL_ID.grepSearch]: _dropped, ...withoutGrep } = NATIVE_TOOL_EXECUTORS;
-    // @ts-expect-error — a map without brainstrike.grepSearch is not a NativeToolExecutorMap
-    const incomplete: NativeToolExecutorMap = withoutGrep;
-    expect(Object.keys(incomplete)).toHaveLength(DESKTOP_NATIVE_TOOL_IDS.length - 1);
   });
 });
 
