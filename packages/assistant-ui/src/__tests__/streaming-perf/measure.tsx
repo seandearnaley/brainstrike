@@ -28,6 +28,8 @@ export interface WindowMeasurement {
   readonly commitDurations: readonly number[];
   /** Commits each token caused anywhere in the page. */
   readonly commitsPerToken: readonly number[];
+  /** The summed `actualDuration` of each token's commits. */
+  readonly tokenDurations: readonly number[];
 }
 
 /**
@@ -102,15 +104,18 @@ export async function run(): Promise<{
     await waitForQuiescence();
     durations.length = 0;
     const commitsPerToken: number[] = [];
+    const tokenDurations: number[] = [];
     recording = true;
     for (const end = cursor + WINDOW_TOKENS; cursor < end; ) {
       const before = instrumentation.commits;
+      const firstCommit = durations.length;
       publish(cursor + 1);
       await waitForQuiescence();
       commitsPerToken.push(instrumentation.commits - before);
+      tokenDurations.push(durations.slice(firstCommit).reduce((total, value) => total + value, 0));
     }
     recording = false;
-    return { commitDurations: [...durations], commitsPerToken };
+    return { commitDurations: [...durations], commitsPerToken, tokenDurations };
   };
   // Sequential on purpose: each window streams on from where the last stopped.
   const windows = {

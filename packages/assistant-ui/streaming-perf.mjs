@@ -7,11 +7,12 @@
  * Builds the long-reply page with the shipped renderer config and React DOM's
  * profiling build, then, RUNS times on a fresh page throttled THROTTLE x over CDP,
  * streams the long reply and records the conversation's <Profiler> actualDuration
- * per commit for 40 tokens at 10%, 50% and 100% of it. Reports, per window, the
- * median and p95 commit duration and the median commits per token, then:
- *   - slope: median at 100% over median at 10% (at most 1.5);
- *   - regression: each window's median against streaming-perf.baseline.json
- *     (at most +30%).
+ * for 40 tokens at 10%, 50% and the end of it. Reports, per window, the median
+ * and p95 per token (the summed duration of a token's commits) and per commit
+ * (information only), and the median commits per token, then checks:
+ *   - slope: per-token median at the end over per-token median at 10% (at most 1.5);
+ *   - regression: each window's per-token median against
+ *     streaming-perf.baseline.json (at most +30%).
  * Exits 1 when either check fails. --update-baseline rewrites the baseline from
  * this run and records the commit it measured.
  *
@@ -119,15 +120,20 @@ try {
   const runs = await measure(outDir);
   const windows = Object.fromEntries(
     LABELS.map((label) => {
-      const durations = runs.flatMap((run) => run.windows[label].commitDurations);
-      const commits = runs.flatMap((run) => run.windows[label].commitsPerToken);
+      const commits = runs.flatMap((run) => run.windows[label].commitDurations);
+      const tokens = runs.flatMap((run) => run.windows[label].tokenDurations);
       return [
         label,
         {
-          commitsPerToken: percentile(commits, 50),
-          median: round(percentile(durations, 50)),
-          p95: round(percentile(durations, 95)),
-          samples: durations.length,
+          commitMedian: round(percentile(commits, 50)),
+          commitP95: round(percentile(commits, 95)),
+          commitsPerToken: percentile(
+            runs.flatMap((run) => run.windows[label].commitsPerToken),
+            50
+          ),
+          tokenMedian: round(percentile(tokens, 50)),
+          tokenP95: round(percentile(tokens, 95)),
+          tokens: tokens.length,
         },
       ];
     })
@@ -135,7 +141,7 @@ try {
   const result = {
     react: runs[0].react,
     runs: RUNS,
-    slope: round(windows['100%'].median / windows['10%'].median),
+    slope: round(windows['100%'].tokenMedian / windows['10%'].tokenMedian),
     throttle: THROTTLE,
     tokens: runs[0].tokens,
     windows,
@@ -158,10 +164,10 @@ try {
       );
     }
     const regressions = LABELS.filter(
-      (label) => windows[label].median > baseline.windows[label].median * REGRESSION_LIMIT
+      (label) => windows[label].tokenMedian > baseline.windows[label].tokenMedian * REGRESSION_LIMIT
     ).map(
       (label) =>
-        `${label}: median ${windows[label].median} ms vs baseline ${baseline.windows[label].median} ms`
+        `${label}: per-token median ${windows[label].tokenMedian} ms vs baseline ${baseline.windows[label].tokenMedian} ms`
     );
     process.stdout.write(
       `${JSON.stringify({ ...result, baselineCommit: baseline.commit }, null, 2)}\n`
