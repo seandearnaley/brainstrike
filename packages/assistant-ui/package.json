@@ -37,9 +37,11 @@
     "@vitejs/plugin-react": "catalog:",
     "@vitest/browser-playwright": "catalog:",
     "@vitest/coverage-v8": "catalog:",
+    "playwright": "catalog:",
     "react-shiki": "catalog:",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
+    "vite": "catalog:",
     "vitest": "catalog:"
   },
   "peerDependencies": {
@@ -116,6 +118,7 @@
     "clean": "node ../../scripts/rimraf.mjs dist .tsbuildinfo",
     "dev": "tsc --build --watch --preserveWatchOutput --verbose",
     "lint": "pnpm -w lint",
+    "perf:streaming": "node streaming-perf.mjs",
     "test": "vitest run --project unit --project compiled",
     "test:browser": "vitest run --project browser",
     "test:coverage": "pnpm run test --coverage --coverage.reporter=json --coverage.reporter=lcov --coverage.reporter=text",
