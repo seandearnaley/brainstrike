@@ -58,7 +58,7 @@ export function App() {
 
 Heavy components (Database and Assistant) are lazy-loaded via `React.lazy()` for automatic code splitting and bundle optimization. This keeps the initial bundle lean while keeping the app-wide assistant workspace mounted across route switches.
 
-**Assistant status resolution:** The Assistant panel calls `GET {base}/assistant/status`. In web builds it defaults to `/api/assistant/status`; in Electron you can provide `window.assistant.getUrl()` or `window.assistant.url` to override (see `resolveAssistantStatusUrl()`). An enabled Hosted Web response includes its registry-validated primary provider/model, configured provider list, and safe key sources so the shell can fix each server provider to its registry default without renderer-side key discovery. Desktop provider lists are seeds merged with renderer discovery so settings-owned Ollama and LM Studio runtimes remain available.
+**Assistant status resolution:** The Assistant panel calls `GET {base}/assistant/status`. Web calls `/api/assistant/status`; desktop reads status from its agent host (`useHostAssistantStatusFetcher`). An enabled Hosted Web response includes its registry-validated primary provider/model, configured provider list, and safe key sources so the shell can fix each server provider to its registry default without renderer-side key discovery. Desktop provider lists are seeds merged with renderer discovery so settings-owned Ollama and LM Studio runtimes remain available.
 
 **MCP tools:** MCP discovery remains part of the assistant runtime, but the shell intentionally has no standalone MCP status banner. Dedicated settings/diagnostics surfaces may show server names and the explicitly selected transport (`stdio`, `streamable-http`, or legacy `sse`), but must never expose URLs, headers, environment values, or credentials.
 
@@ -136,7 +136,7 @@ The Database tab provides a **WASM Postgres** (`PGlite`) with **pgvector** insid
 
 ## Shell contracts (for host apps & tools)
 
-* **Assistant:** `AssistantChatPanel` calls `GET {assistantBase}/assistant/status -> {enabled:boolean,provider?:SupportedProvider,model?:string,reason?:string}`. Set `window.assistant.getUrl()` or `window.assistant.url` to override base. If disabled, the panel shows guidance instead of failing; provider and model are an atomic validated pair when present.
+* **Assistant:** `AssistantChatPanel` calls `GET {assistantBase}/assistant/status -> {enabled:boolean,provider?:SupportedProvider,model?:string,reason?:string}`. If disabled, the panel shows guidance instead of failing; provider and model are an atomic validated pair when present.
 * **Assistant links (BST-1665):** thread markdown must never rely on the anchor
   default. Electron's `will-navigate` fence denies an off-page anchor click
   outright (dead link), and on web the same anchor navigates the SPA away and
@@ -211,7 +211,7 @@ Utilities in `csv-export-core.ts` and `csv-export-utils.ts` generate consistent 
 
 ## Browser/Electron behavior you should count on
 
-* `window.assistant` and `window.mcp` bridges are **optional**. The UI must still render without them.
+* The `window.mcp` bridge is **optional**. The UI must still render without it.
   Read the assistant bridge through `getAssistantBridge()` from
   `@brainstrike/assistant-contract`, which owns its shared shape.
 * Gate platform behavior by the exact optional bridge capability being used

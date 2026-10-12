@@ -3,6 +3,13 @@
 > Read before migrations, models, PGlite, or browser bootstrap. Rules are current;
 > historical records live in `database/<topic>.md`.
 
+## `statement_timeout` IS INERT IN PGLITE
+
+PGlite accepts `statement_timeout` and reports it through `SHOW`, but the WASM
+build never fires it. Never treat it as a bound: PGlite is one connection shared
+with live queries, the job queue and the UI, so an unbounded statement freezes
+the whole app. Evidence: `agent-self-query/pglite-statement-timeout.md`.
+
 ## ATOMIC CHUNK AND JOB WRITES
 
 - `insertChunksAndEnqueueEmbeddingJobs` uses one transaction: construct the chunk
@@ -406,8 +413,8 @@ Guard: `packages/db/__tests__/delegated-invocations.integration.test.ts`.
   in the payload version, not DDL churn.
 - A ledger leaves historical rows NULL rather than backfilling fabricated evidence, and
   keeps the pre-split meaning of any column it redefines (`truncated` now means exactly
-  "model-facing output was clipped"; `engine IS NULL` marks pre-092 folded rows, which
-  the lens reports as `substrate_degraded_rate` rather than truncation).
+  "model-facing output was clipped"; `engine IS NULL` marks pre-092 folded rows, not
+  truncation).
 - Retention on the 60-day ledgers runs inside `runScheduledDatabaseMaintenance` — no new
   scheduler or timer. Idle passes run an unbounded age-DELETE; active-queue passes run a
   cheap `SELECT EXISTS` guard probe, then an `activePruneLimit`-bounded
@@ -433,7 +440,6 @@ process boundary without improving attribution. Evidence:
 `database/tool-call-telemetry-substrate-and-retention.md`.
 Guard: `packages/db/__tests__/reset-table-registry.test.tsx`,
 `scheduled-database-maintenance.test.ts`,
-`search-lens-self-improvement-signal.test.ts`,
 `migration-085-tool-call-telemetry-occurred-at-index.test.ts`,
 `packages/assistant-data/src/__tests__/thread-workspace-contract.test.ts`.
 

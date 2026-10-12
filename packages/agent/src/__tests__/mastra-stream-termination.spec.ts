@@ -67,34 +67,6 @@ describe('mastra streaming: termination and finish-reason policy', () => {
     resetMastraStreamHarness();
   });
 
-  it('applies deterministic context-overflow recovery before surfacing the terminal retry message', async () => {
-    const recover = vi.fn(async () => ({ applied: true }));
-    setMockStreamParts([
-      {
-        error: { code: 'context_length_exceeded', message: 'context window exceeded' },
-        type: 'error',
-      },
-    ]);
-    const iterator = await streamMastraAgent(
-      [{ id: 'user-overflow', parts: [{ text: 'continue' }], role: 'user' }],
-      {
-        runtime: {
-          apiKey: 'test-key',
-          contextOverflowRecovery: recover,
-          provider: 'openai',
-        },
-      }
-    );
-    const chunks: unknown[] = [];
-    for await (const chunk of iterator) {
-      chunks.push(chunk);
-    }
-
-    expect(recover).toHaveBeenCalledOnce();
-    expect(JSON.stringify(chunks)).toContain('deterministic compaction');
-    expect(JSON.stringify(chunks)).toContain('resend');
-  });
-
   it('puts durable run, thread, resource, and root correlation in provider-error diagnostic context', async () => {
     setMockStreamParts([{ error: { message: 'upstream failed', statusCode: 503 }, type: 'error' }]);
     const logRecords: LogRecord[] = [];

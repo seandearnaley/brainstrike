@@ -29,7 +29,6 @@ import {
   AssistantUiPanel,
   BudgetGuardrailProvider,
   DebugBundleProvider,
-  EditCheckpointProvider,
   RunVerdictProvider,
 } from '@brainstrike/assistant-ui';
 import { useDbInitializing, useDbProviderError, usePGliteDatabase } from '@brainstrike/db/react';
@@ -98,7 +97,6 @@ import { useAssistantToolMenu } from './hooks/use-assistant-tool-menu';
 import { useBudgetGuardrailBinding } from './hooks/use-budget-guardrail';
 import { useConfiguredAssistantProviders } from './hooks/use-configured-assistant-providers';
 import { useDebugBundleBinding } from './hooks/use-debug-bundle';
-import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
 import { useEnableModel } from './hooks/use-enable-model';
 import { useForgeBranchLookupActivation, useForgeRunEvents } from './hooks/use-forge-run-events';
 import { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadata';
@@ -1162,15 +1160,8 @@ export function AssistantUiPanelWrapper({
     threads: memoryThreads,
   });
 
-  // Edit checkpoint (undo of agent file edits) context for the mutation tool
-  // cards. Null on web / when no thread is selected (capability gating).
-  const { checkpoints: editCheckpoints, refetch: refetchCheckpoints } = useEditCheckpoints(
-    assistantThreadRepository,
-    selectedMemoryThreadId
-  );
-
   // Per-run 👍/👎 verdict binding (Task Ledger, source 'user'). Gated on the
-  // repository capability — not desktop-only like the checkpoint bridge.
+  // repository capability.
   const runVerdictBinding = useRunVerdictBinding(
     assistantThreadRepository,
     memoryResourceId,
@@ -1197,13 +1188,12 @@ export function AssistantUiPanelWrapper({
   // own rootId-scoped cwd concept.
   const { refresh: refreshChangeset } = useChangeset(mainRootId ?? null, null);
 
-  // Terminal-run bookkeeping (checkpoint re-read, changeset refresh, "Last Turn"
-  // identity), extracted whole into `assistant-panel/use-terminal-run-handlers.ts`.
+  // Terminal-run bookkeeping (changeset refresh, "Last Turn" identity),
+  // extracted whole into `assistant-panel/use-terminal-run-handlers.ts`.
   const { handleRunFailed, handleRunFinished } = useTerminalRunHandlers({
     onRunFailed,
     onRunFinished,
     publishTerminalRunIdentity,
-    refetchCheckpoints,
     refreshChangeset,
   });
 
@@ -1213,90 +1203,88 @@ export function AssistantUiPanelWrapper({
       rootThreadId={selectedMemoryThreadId}
     >
       <AssistantDecisionProviders>
-        <EditCheckpointProvider value={editCheckpoints}>
-          <RunVerdictProvider value={runVerdictBinding}>
-            <DebugBundleProvider value={debugBundleBinding}>
-              <BudgetGuardrailProvider value={budgetGuardrailBinding}>
-                <AssistantUiPanel
-                  isVisible={isVisible}
-                  {...delegatedPanelBinding}
-                  composerDraftCommand={composerDraft.command}
-                  {...(onRunningChange ? { onRunningChange } : {})}
-                  {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
-                  completePreparedRequest={completeRequestAndSettleLiveUsage}
-                  contextWindow={openRouterModelDef?.contextWindow}
-                  cumulativeUsage={cumulativeUsage ?? undefined}
-                  effectiveInputBudget={effectiveInputBudget}
-                  omSegment={omSegment}
-                  openRouterModelMetadataLookup={openRouterMetadata.lookup}
-                  {...(selectedMemoryThreadId
-                    ? {
-                        onComposerDraftCommandApplied: composerDraft.onApplied,
-                        onComposerTextChange: composerDraft.onTextChange,
-                        onStopReread: composerDraft.onStopReread,
-                      }
-                    : {})}
-                  onChildRunUsage={handleChildRunUsage}
-                  onContextBreakdown={handleContextBreakdown}
-                  onProviderSettingsChange={handleProviderSettingsChange}
-                  onProviderSettingsValidationChange={providerDraft.report}
-                  onRunEditActivity={handleRunEditActivity}
-                  onRunFailed={handleRunFailed}
-                  onRunFinished={handleRunFinished}
-                  onStepUsage={handleStepUsage}
-                  onStreamActivity={renewActiveAssistantForegroundActivity}
-                  onThreadRunStart={markUserAuthoredSend}
-                  onToolApprovalRequired={onToolApprovalRequired}
-                  onUsage={handleUsage}
-                  pickerModels={pickerModels}
-                  pickerProviders={pickerProviders}
-                  prepareRequestData={prepareRequestAndResetLiveUsage}
-                  providerGroups={providerGroups}
-                  providerSettings={effectiveProviderSettings}
-                  recentModels={validRecentModels}
-                  workspaceBar={
-                    // The host owns the bar's live-refresh subscriptions.
-                    <WorkspaceBarHost
-                      assistantThreadRepository={assistantThreadRepository}
-                      {...(mainRootId && rootDescriptors?.[mainRootId]
-                        ? { currentMainRoot: rootDescriptors[mainRootId] }
-                        : {})}
-                      database={db}
-                      memoryResourceId={memoryResourceId}
-                      rootDescriptors={rootDescriptors}
-                      selectedMemoryThreadId={selectedMemoryThreadId}
-                    />
-                  }
-                  {...webBodyLimitProps(desktopAssistantBackendAvailable)}
-                  requestData={requestData}
-                  slashCommands={slashCommands}
-                  {...(desktopAssistantBackendAvailable
-                    ? { fileMentions, onFileMentionQueryChange: setFileMentionQuery }
-                    : {})}
-                  toolMenu={toolMenu}
-                  {...(historyAdapter ? { historyAdapter } : {})}
-                  historyGeneration={rewindGeneration}
-                  {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
-                  localChatTransport={localChatTransport}
-                  {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
-                  {...(selectedProvider ? { selectedProvider } : {})}
-                  {...(currentModel ? { selectedModel: currentModel } : {})}
-                  disabled={!isProviderReady || Boolean(disabledReason)}
-                  onEnableModel={handleEnableModel}
-                  onModelChange={handleModelChange}
-                  {...(panelNotice ? { disabledReason: panelNotice } : {})}
-                  {...(planModeAvailable
-                    ? {
-                        onExitPlanMode: exitPlanMode,
-                        onTogglePlanMode: togglePlanMode,
-                        planModeEnabled: planModeEnabledPref,
-                      }
-                    : {})}
-                />
-              </BudgetGuardrailProvider>
-            </DebugBundleProvider>
-          </RunVerdictProvider>
-        </EditCheckpointProvider>
+        <RunVerdictProvider value={runVerdictBinding}>
+          <DebugBundleProvider value={debugBundleBinding}>
+            <BudgetGuardrailProvider value={budgetGuardrailBinding}>
+              <AssistantUiPanel
+                isVisible={isVisible}
+                {...delegatedPanelBinding}
+                composerDraftCommand={composerDraft.command}
+                {...(onRunningChange ? { onRunningChange } : {})}
+                {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
+                completePreparedRequest={completeRequestAndSettleLiveUsage}
+                contextWindow={openRouterModelDef?.contextWindow}
+                cumulativeUsage={cumulativeUsage ?? undefined}
+                effectiveInputBudget={effectiveInputBudget}
+                omSegment={omSegment}
+                openRouterModelMetadataLookup={openRouterMetadata.lookup}
+                {...(selectedMemoryThreadId
+                  ? {
+                      onComposerDraftCommandApplied: composerDraft.onApplied,
+                      onComposerTextChange: composerDraft.onTextChange,
+                      onStopReread: composerDraft.onStopReread,
+                    }
+                  : {})}
+                onChildRunUsage={handleChildRunUsage}
+                onContextBreakdown={handleContextBreakdown}
+                onProviderSettingsChange={handleProviderSettingsChange}
+                onProviderSettingsValidationChange={providerDraft.report}
+                onRunEditActivity={handleRunEditActivity}
+                onRunFailed={handleRunFailed}
+                onRunFinished={handleRunFinished}
+                onStepUsage={handleStepUsage}
+                onStreamActivity={renewActiveAssistantForegroundActivity}
+                onThreadRunStart={markUserAuthoredSend}
+                onToolApprovalRequired={onToolApprovalRequired}
+                onUsage={handleUsage}
+                pickerModels={pickerModels}
+                pickerProviders={pickerProviders}
+                prepareRequestData={prepareRequestAndResetLiveUsage}
+                providerGroups={providerGroups}
+                providerSettings={effectiveProviderSettings}
+                recentModels={validRecentModels}
+                workspaceBar={
+                  // The host owns the bar's live-refresh subscriptions.
+                  <WorkspaceBarHost
+                    assistantThreadRepository={assistantThreadRepository}
+                    {...(mainRootId && rootDescriptors?.[mainRootId]
+                      ? { currentMainRoot: rootDescriptors[mainRootId] }
+                      : {})}
+                    database={db}
+                    memoryResourceId={memoryResourceId}
+                    rootDescriptors={rootDescriptors}
+                    selectedMemoryThreadId={selectedMemoryThreadId}
+                  />
+                }
+                {...webBodyLimitProps(desktopAssistantBackendAvailable)}
+                requestData={requestData}
+                slashCommands={slashCommands}
+                {...(desktopAssistantBackendAvailable
+                  ? { fileMentions, onFileMentionQueryChange: setFileMentionQuery }
+                  : {})}
+                toolMenu={toolMenu}
+                {...(historyAdapter ? { historyAdapter } : {})}
+                historyGeneration={rewindGeneration}
+                {...(loadLocalLlmBackend ? { loadLocalLlmBackend } : {})}
+                localChatTransport={localChatTransport}
+                {...(selectedMemoryThreadId ? { threadKey: selectedMemoryThreadId } : {})}
+                {...(selectedProvider ? { selectedProvider } : {})}
+                {...(currentModel ? { selectedModel: currentModel } : {})}
+                disabled={!isProviderReady || Boolean(disabledReason)}
+                onEnableModel={handleEnableModel}
+                onModelChange={handleModelChange}
+                {...(panelNotice ? { disabledReason: panelNotice } : {})}
+                {...(planModeAvailable
+                  ? {
+                      onExitPlanMode: exitPlanMode,
+                      onTogglePlanMode: togglePlanMode,
+                      planModeEnabled: planModeEnabledPref,
+                    }
+                  : {})}
+              />
+            </BudgetGuardrailProvider>
+          </DebugBundleProvider>
+        </RunVerdictProvider>
       </AssistantDecisionProviders>
     </DelegatedWorkspaceNavigation>
   );

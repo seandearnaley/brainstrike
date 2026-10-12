@@ -347,8 +347,9 @@ deleted; the desktop renderer never calls them.
 
 **Assistant status and provider availability.**
 
-- Status resolves in order: `window.assistant.getUrl()`,
-  `window.assistant.url`, then `/api/assistant/status`.
+- Desktop reads status from its agent host (`providers.readStatus()`); web
+  calls `/api/assistant/status`. The desktop HTTP status endpoint retired with
+  its server (BST-1980).
 - An enabled Hosted Web status advertises its trusted primary runtime pair plus
   every configured provider in the stable priority OpenAI, Anthropic, Google,
   OpenRouter. The primary pair is atomic; incomplete, unknown, duplicate or
@@ -1517,12 +1518,12 @@ closed watch DTO has no terminal event variant, includes their exact count in th
 and suppresses actor state callbacks after closure begins so
 normal teardown cannot create false listener-failure diagnostics.
 
-Desktop lifecycle composition lives in `ipc-mcp.ts`. Shutdown first stops and
-drains the assistant HTTP server, then closes MCP configuration admission, stops
+Desktop lifecycle composition lives in `ipc-mcp.ts`. Shutdown closes MCP
+configuration admission, stops
 the file watcher, awaits every tracked load/replacement/discovery, clears the
 renderer projection, and terminally closes the singleton host. Process, terminal,
-command-session and LSP reapers start in the same settlement batch, so a hung
-drain cannot prevent those attempts. Factory reset uses the same fence but does
+command-session and LSP reapers run earlier, in one `child-processes` settlement
+batch, so a hung reaper cannot prevent the others. Factory reset uses the same fence but does
 not close the singleton: it installs explicit empty authority, purges
 projections, and keeps admission closed through the enclosing purge and visible
 renderer replacement, waiting for the replacement tree's explicit renderer-ready
@@ -2019,7 +2020,8 @@ everything else derived:
 Desktop-only native tools:
 
 - `brainstrike.manageCanvas` is desktop-only because its source of truth is the
-  client-local `brainstrike_canvas_versions` ledger; web has no remote fallback.
+  agent host's run log (one `tool.state.updated` key per canvas); web has no
+  remote fallback.
   It is a deferred workspace tool with an `action` discriminated union and
   explicit `edit` risk, because create/update/rewrite persist durable state.
 - The union branches TOLERATE cross-action
@@ -2363,15 +2365,15 @@ Prompt budgets for the full hosted desktop tool surface:
   builds the real registry and resolved hosted instructions with the default
   skills engine enabled. The canonical authored representation converts the real
   Zod inputs through the Standard Schema input protocol and must stay INSIDE the
-  10,096–10,396 `o200k_base` band: the ceiling bounds growth, the floor detects a
+  9,675–9,975 `o200k_base` band: the ceiling bounds growth, the floor detects a
   tool or schema silently falling out of the registry.
 - When the ceiling fires, TRIM BEFORE RAISING. Move both bounds together — the
   ~300-token width is the contract — and record the trade in the test's comment
   ledger. Do not weaken validation constraints, spoof provider/model identity, or
   remove cross-tool safety invariants to make either number pass.
 - The live actual Mastra/OpenRouter core surface and resolved instructions must
-  stay between 2,000 and 5,000 tokens. The authored eager baseline of 39 tools
-  sits in its 9,340–9,640 band and the 8-tool critical definition surface in its
+  stay between 2,000 and 5,000 tokens. The authored eager baseline of 38 tools
+  sits in its 8,802–9,102 band and the 8-tool critical definition surface in its
   2,016–2,316 band, before discovery controls are added.
 - Both count schemas AND instructions for their declared surfaces, not
   descriptions alone. The core envelope excludes processor-added discovery

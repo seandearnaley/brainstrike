@@ -10,8 +10,8 @@ export const DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS = 60 * 60 * 
 // comment below), so without this the retention DELETE only trades live rows
 // for permanently-dead pages — heap and index disk usage keep growing at the
 // same rate, just with dead tuples instead of rows. Listing it here also gets
-// it ANALYZEd (via `VACUUM (ANALYZE)`), which the token-spend-by-tool lens
-// planner previously never got.
+// it ANALYZEd (via `VACUUM (ANALYZE)`), so its readers' plans have
+// statistics.
 export const DEFAULT_DATABASE_MAINTENANCE_VACUUM_TABLES = [
   'job_queue',
   'brainstrike_tool_call_telemetry',

@@ -6,7 +6,6 @@ function baseRow(overrides: Record<string, unknown> = {}): Record<string, unknow
     billedCostUsd: null,
     completedAt: '2026-07-16T10:01:30.000Z',
     durationMs: '90000',
-    editCount: '2',
     estimatedInputTokens: '0',
     estimatedOutputTokens: '0',
     failedToolCallCount: '1',
@@ -17,7 +16,6 @@ function baseRow(overrides: Record<string, unknown> = {}): Record<string, unknow
     outcomeVerdict: null,
     outputTokens: '300',
     provider: 'anthropic',
-    revertedEditCount: '1',
     runId: 'run-1',
     startedAt: '2026-07-16T10:00:00.000Z',
     status: 'completed',
@@ -32,7 +30,6 @@ describe('mapRunLedgerRow', () => {
     const row = mapRunLedgerRow(baseRow());
     expect(row).toMatchObject({
       durationMs: 90_000,
-      editCount: 2,
       failedToolCallCount: 1,
       inputTokens: 1400,
       model: 'claude-sonnet-5',
@@ -40,7 +37,6 @@ describe('mapRunLedgerRow', () => {
       outcomeVerdict: null,
       outputTokens: 300,
       provider: 'anthropic',
-      revertedEditCount: 1,
       runId: 'run-1',
       status: 'completed',
       threadId: 'thread-1',

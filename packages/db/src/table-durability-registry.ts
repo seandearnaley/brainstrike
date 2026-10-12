@@ -100,14 +100,6 @@ export const TABLE_DURABILITY_REGISTRY: readonly TableDurabilityEntry[] = [
     'Legacy ledger created only by the test-only numbered runner; runMigrations refuses a database that has one, so it is never repaired.'
   ),
   precious(
-    'brainstrike_assistant_compaction_ranges',
-    'Records which messages each LLM-written compaction summary replaced; losing it re-inflates the prompt and the summary cannot be regenerated deterministically.'
-  ),
-  precious(
-    'brainstrike_assistant_edit_checkpoints',
-    'Journal of agent file edits (paths, hashes, reverted_at) that per-tool-card and per-turn Revert are built on; nothing rebuilds it.'
-  ),
-  precious(
     'brainstrike_assistant_message_parents',
     'Branch topology of conversations (parent links) layered over mastra_messages; user-visible structure with no other source.'
   ),
@@ -137,15 +129,11 @@ export const TABLE_DURABILITY_REGISTRY: readonly TableDurabilityEntry[] = [
   ),
   operational(
     'brainstrike_assistant_run_treatments',
-    'Experiment treatment evidence for analytics lenses; losing it voids past attribution but changes no behavior.'
+    'Experiment treatment evidence read by the thread debug export; losing it voids past attribution but changes no behavior.'
   ),
   precious(
     'brainstrike_assistant_run_usage',
     'Per-run token counts and provider-billed cost behind cost history and the spend guardrail; not recomputable.'
-  ),
-  precious(
-    'brainstrike_assistant_task_lists',
-    'The assistant plan per thread, re-injected into every turn; LLM-authored and not recomputable.'
   ),
   precious(
     'brainstrike_assistant_thread_groups',
@@ -166,10 +154,6 @@ export const TABLE_DURABILITY_REGISTRY: readonly TableDurabilityEntry[] = [
   operational(
     'brainstrike_assistant_tool_output_artifacts',
     'Complete oversized tool outputs kept seven days by design; truncating shortens that window and older pages read as missing (the tool can be re-run).'
-  ),
-  precious(
-    'brainstrike_canvas_versions',
-    'Agent-authored Canvas document versions; LLM-generated HTML that would cost a model call to reproduce.'
   ),
   precious(
     'brainstrike_delegated_continuation_decisions',
@@ -251,7 +235,7 @@ export const TABLE_DURABILITY_REGISTRY: readonly TableDurabilityEntry[] = [
   ),
   operational(
     'brainstrike_tool_call_telemetry',
-    'Counts-and-sizes-only per-tool telemetry; baselines for analytics lenses.'
+    'Counts-and-sizes-only per-tool telemetry, read by the thread debug export.'
   ),
   precious(
     'brainstrike_workspace_snapshots',

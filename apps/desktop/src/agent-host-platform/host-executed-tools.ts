@@ -1,10 +1,6 @@
 import { homedir } from 'node:os';
 import type { HostToolContext } from '@brainstrike/agent-host';
-import {
-  NATIVE_TOOL_ID,
-  scanShellCommandForGitSignals,
-  ToolInputError,
-} from '@brainstrike/assistant-contract';
+import { NATIVE_TOOL_ID, scanShellCommandForGitSignals } from '@brainstrike/assistant-contract';
 import {
   isSharedNativeToolId,
   type NativeToolExecutor,
@@ -37,11 +33,6 @@ import {
 } from '../assistant-server/native-tool-executors-skills';
 import { worktreeToolExecutors } from '../assistant-server/native-tool-executors-worktree';
 import type { DiagnosticsReader } from '../assistant-server/query-diagnostics-core';
-import {
-  QUERY_SELF_ERROR_MESSAGES,
-  type QuerySelfRead,
-  type QuerySelfResult,
-} from '../assistant-server/query-self-core';
 import { admittedWorkspaceSkills } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import type { WorkspaceContextBroadcaster } from '../assistant-server/workspace-context-tools';
@@ -61,7 +52,6 @@ import {
   DiagnosticFingerprintItemsSchema,
   GrepIndexResultSchema,
   PlatformShellCompletedResultSchema,
-  QuerySelfReadResultSchema,
   WorktreeArchiveResultSchema,
   WorktreeCreateResultSchema,
   WorktreeListResultSchema,
@@ -77,7 +67,6 @@ const DESKTOP_HOST_TOOL_IDS: ReadonlySet<string> = new Set([
   NATIVE_TOOL_ID.updateWorkspaceContextSelection,
   NATIVE_TOOL_ID.updateWorkspaceTapestrySelections,
   NATIVE_TOOL_ID.queryDiagnostics,
-  NATIVE_TOOL_ID.querySelf,
   ...Object.keys(INSPECTION_TOOL_EXECUTORS),
   NATIVE_TOOL_ID.executeCommand,
   NATIVE_TOOL_ID.grepSearch,
@@ -221,21 +210,6 @@ function hostContextDelivery(request: MainRequest, threadId: string): WorkspaceC
   };
 }
 
-/** querySelf's SQL runs in Main's sandboxed role or index process; only its outcome crosses. */
-function hostQuerySelfRead(request: MainRequest, threadId: string): QuerySelfRead {
-  return async (read, signal) => {
-    const outcome = QuerySelfReadResultSchema.parse(
-      await request('desktop-read/query-self', { request: read, threadId }, signal)
-    );
-    if (outcome.ok) {
-      return outcome.result satisfies QuerySelfResult;
-    }
-    throw outcome.error === 'input'
-      ? new ToolInputError(outcome.message)
-      : new Error(QUERY_SELF_ERROR_MESSAGES.queryFailed);
-  };
-}
-
 /** The diagnostics store stays Main's; its rows arrive projected and scrubbed. */
 function hostDiagnosticsReader(request: MainRequest, threadId: string): DiagnosticsReader {
   return {
@@ -341,10 +315,7 @@ export function desktopHostToolExecutors(
       manager: hostCommandSessionManager(),
       rootsFromRuntime: true,
     })),
-    ...selfInspectionExecutors(
-      hostQuerySelfRead(request, threadId),
-      hostDiagnosticsReader(request, threadId)
-    ),
+    ...selfInspectionExecutors(hostDiagnosticsReader(request, threadId)),
     ...worktreeToolExecutors(({ runtimeData }) =>
       hostWorktreeTools(request, threadId, runtimeData?.memory?.runId)
     ),

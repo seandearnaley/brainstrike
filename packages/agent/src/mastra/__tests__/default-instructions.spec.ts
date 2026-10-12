@@ -780,8 +780,8 @@ describe('tool-discovery capability coverage', () => {
 
   it('omits families whose tools are NOT eligible for the run (web surface)', async () => {
     // Review of #2625: an unconditional list advertised canvas documents,
-    // Python, browser pages, command sessions, diagnostics, DB self-query and
-    // skill scripts to WEB runs whose eligible set excludes those tools
+    // Python, browser pages, command sessions, diagnostics and skill scripts
+    // to WEB runs whose eligible set excludes those tools
     // (WEB_NATIVE_TOOL_IDS) — the model would burn a turn searching for a
     // capability that can never load. The list must derive from the run.
     const { map } = await fullToolNameMap();
@@ -797,7 +797,6 @@ describe('tool-discovery capability coverage', () => {
       'browser pages',
       'command sessions',
       'diagnostics',
-      'DB self-query',
       'skill scripts',
     ]) {
       expect(
@@ -821,21 +820,21 @@ describe('tool-discovery capability coverage', () => {
   });
 });
 describe('model-facing tool names cover the whole catalog (BST-1646)', () => {
-  // The hand-written ModelFacingToolNames interface had fallen EIGHT tools
-  // behind the catalog: a new tool got no slot, so no instruction could ever
-  // name it, and nothing failed. The slot map is now DERIVED from NATIVE_TOOLS.
+  // The hand-written ModelFacingToolNames interface had fallen eight tools
+  // behind the catalog (one of them since removed): a new tool got no slot, so
+  // no instruction could ever name it, and nothing failed. The slot map is now
+  // DERIVED from NATIVE_TOOLS.
   const FORMERLY_MISSING = [
     'brainstrike.inspectCommandSessions',
     'brainstrike.listWorktrees',
     'brainstrike.manageCommandSession',
     'brainstrike.manageWorktree',
     'brainstrike.queryDiagnostics',
-    'brainstrike.querySelf',
     'brainstrike.readToolOutputArtifact',
     'brainstrike.runPython',
   ] as const;
 
-  it('resolves a model-facing name slot for every catalog id, including the eight that were missing', async () => {
+  it('resolves a model-facing name slot for every catalog id, including the ones that were missing', async () => {
     const { NATIVE_TOOL_ID, NATIVE_TOOL_IDS } = await import(
       '@brainstrike/assistant-contract/tool-metadata'
     );

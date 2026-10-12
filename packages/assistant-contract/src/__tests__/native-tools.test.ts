@@ -60,7 +60,6 @@ describe('NATIVE_TOOLS catalog', () => {
         "brainstrike.manageWorktree",
         "brainstrike.queryDiagnostics",
         "brainstrike.queryEmbeddingSpace",
-        "brainstrike.querySelf",
         "brainstrike.readToolOutputArtifact",
         "brainstrike.readWorkspaceContext",
         "brainstrike.readWorkspaceDirectory",
@@ -83,7 +82,7 @@ describe('NATIVE_TOOLS catalog', () => {
   });
 
   it('partitions desktop (brainstrike.*) and skill ids exactly, with no duplicates', () => {
-    expect(DESKTOP_NATIVE_TOOL_IDS).toHaveLength(36);
+    expect(DESKTOP_NATIVE_TOOL_IDS).toHaveLength(35);
     expect(SKILL_NATIVE_TOOL_IDS).toEqual(['skill', 'skill_read', 'skill_search']);
     expect(NATIVE_TOOL_IDS).toEqual([...DESKTOP_NATIVE_TOOL_IDS, ...SKILL_NATIVE_TOOL_IDS]);
     expect(new Set(NATIVE_TOOL_IDS).size).toBe(NATIVE_TOOL_IDS.length);
@@ -170,7 +169,6 @@ describe('NATIVE_TOOLS catalog', () => {
         "symbol and LSP inspection",
         "embedding search",
         "diagnostics",
-        "DB self-query",
         "tool-output artifacts",
       ]
     `);

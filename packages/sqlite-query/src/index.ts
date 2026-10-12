@@ -15,10 +15,8 @@ export {
   spawnQueryProcess,
 } from './process.js';
 export type {
-  SqliteCallerContext,
   SqliteGrepOptions,
   SqliteGrepRows,
-  SqliteQueryRequirement,
   SqliteRows,
   SqliteValue,
 } from './protocol.js';

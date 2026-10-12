@@ -48,9 +48,9 @@ Per-run cost/outcome analytics over tables the assistant already writes.
   `source` (`user` | `edit_revert` | `hook`) and bounded `detail` (2000 chars,
   oversized THROWS — never silently truncated). Writer: `recordRunOutcome`
   (app-shell repository). A later user verdict deliberately replaces a derived
-  `edit_revert` or `hook` label. `edit_revert` labels are derived in
-  `use-edit-checkpoints.ts` after a successful revert (see
-  workspace-context.md § Edit Checkpoint Journal). `hook` labels come from the
+  `edit_revert` or `hook` label. `edit_revert` labels are committed by the
+  agent host's `checkpoint/revert` (see workspace-context.md § Edit
+  checkpoints). `hook` labels come from the
   Stop-hook run-verdict protocol (a Stop hook prints one strict
   `{"brainstrikeRunVerdict":…}` JSON line; see assistant-runtime.md
   § TOOL-LIFECYCLE HOOKS), recorded MAIN-PROCESS-side by
@@ -152,7 +152,7 @@ When changing this flow, update this section and the paired tests
 `packages/assistant-data/src/__tests__/run-ledger-row.test.ts`, the run-outcome and
 run-ledger cases in `assistant-memory-repository.integration.test.ts`
 (including the hook-over-user precedence case), the
-outcome-labeling suite in `use-edit-checkpoints.test.ts`, the hook-verdict
+revert-label cases in `packages/agent-host/__tests__/workspace-edits.integration.test.ts`, the hook-verdict
 suites in `apps/desktop/src/__tests__/assistant-server/`
 (`hooks/run-verdict.test.ts`, the verdict cases in
 `hooks/server-composition.integration.test.ts`,

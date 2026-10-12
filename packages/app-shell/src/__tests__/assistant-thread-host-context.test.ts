@@ -28,7 +28,6 @@ function repositories(deleteOwned: AssistantThreadHostCapability['deleteThread']
     getThreadRunTurnMessageId: vi.fn(),
     listLatestThreadRuns: vi.fn(),
     listMessages: vi.fn(),
-    listThreadCheckpoints: vi.fn(),
     listThreadRunEvents: vi.fn(),
     listThreads: vi.fn(),
     recordRunUsage: vi.fn(),

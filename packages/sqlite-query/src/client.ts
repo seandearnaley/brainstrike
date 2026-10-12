@@ -16,7 +16,6 @@ import {
   type QueryResponse,
   type SqliteGrepOptions,
   type SqliteGrepRows,
-  type SqliteQueryRequirement,
   type SqliteRows,
   type SqliteValue,
 } from './protocol.js';
@@ -40,7 +39,6 @@ export interface OpenSqliteQueryOptions {
 export interface QueryOptions {
   readonly bindings?: Readonly<Record<string, SqliteValue>>;
   readonly maxRows?: number;
-  readonly requirement?: SqliteQueryRequirement;
   readonly signal?: AbortSignal | undefined;
   readonly values?: readonly SqliteValue[];
 }
@@ -177,7 +175,6 @@ export class SqliteQueryClient {
     return this.#rows(
       {
         ...(options.bindings === undefined ? {} : { bindings: options.bindings }),
-        ...(options.requirement === undefined ? {} : { requirement: options.requirement }),
         kind: 'query',
         maxRows: options.maxRows ?? 50,
         sql,

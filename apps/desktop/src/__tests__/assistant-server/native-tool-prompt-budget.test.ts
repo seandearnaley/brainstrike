@@ -176,8 +176,13 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
 // headroom): both bounds move +150 from the ORIGINAL post-raise values
 // (10246 → 10396, 9946 → 10096), width 300 unchanged, putting the unchanged
 // 10246 measurement at the band's MIDPOINT.
-const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 10_396;
-const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 10_096;
+//
+// BST-1995 removed `brainstrike.querySelf` and its lenses, a deliberate drop
+// rather than a tool silently falling out: the authored surface measured 9825.
+// Both bounds move down to centre that measurement (10,396 → 9,975 and
+// 10,096 → 9,675), width 300 unchanged.
+const MAX_AUTHORED_NATIVE_TOOL_TOKENS = 9975;
+const MIN_AUTHORED_NATIVE_TOOL_TOKENS = 9675;
 // BST-1667 TRIM (ceiling UNCHANGED at 5000 — the number is a live contract in
 // docs/agents/assistant-providers.md, assistant-runtime.md, and
 // workspace-context.md). Tool discovery moved to Mastra's manual loading, so
@@ -629,12 +634,14 @@ describe('desktop native tool provider prompt budget', () => {
     // headroom): both bounds move +150 from the ORIGINAL post-raise values
     // (9490 → 9640, 9190 → 9340), width 300 unchanged, putting the unchanged
     // 9490 measurement at the band's MIDPOINT.
+    // BST-1995: `querySelf` removed; the eager aggregate measured 8952, so both
+    // bounds move to centre it (9340 → 8802, 9640 → 9102), width 300 unchanged.
     expect(
       eagerDefinitionTokens,
       'eager aggregate outside its recorded band'
-    ).toBeGreaterThanOrEqual(9340);
+    ).toBeGreaterThanOrEqual(8802);
     expect(eagerDefinitionTokens, 'eager aggregate outside its recorded band').toBeLessThanOrEqual(
-      9640
+      9102
     );
     expect(
       criticalDefinitionTokens,
@@ -687,7 +694,8 @@ describe('desktop native tool provider prompt budget', () => {
       // Recorded aggregates after BST-1173: eager 8593, critical
       // 2166 (the banded assertions above; move the recorded figures WITH any
       // deliberate raise, per the trade-record practice).
-      eagerToolCount: 39,
+      // −1 for the removed `querySelf` (BST-1995), with its +358/+44/+105 above.
+      eagerToolCount: 38,
       // 210 → 234 after the PR #2294 review round: 8 MB `.max()` DoS caps on
       // html/oldString/newString (+500-char titles) serialize into the
       // provider schema, and the description now states that `list` returns
@@ -723,7 +731,7 @@ describe('desktop native tool provider prompt budget', () => {
     });
   });
 
-  it('keeps the authored full hosted registry and instructions within the 10,096-10,396 o200k band', async () => {
+  it('keeps the authored full hosted registry and instructions within the 9,675-9,975 o200k band', async () => {
     expect(PROVIDER_DEFAULT_MODELS.openrouter).toBe(OPENROUTER_PROMPT_BUDGET_MODEL);
     const workspaceSkills = createPromptBudgetWorkspaceSkills();
     const desktopTools = buildPromptBudgetDesktopTools(workspaceSkills);

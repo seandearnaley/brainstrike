@@ -3,9 +3,9 @@
  * DERIVED from its registered Zod input schema (BST-1646 step c).
  *
  * The four hand-mirrored `tool-schemas-display-*.ts` tables this replaces
- * carried their own prose for all 39 tools and drifted from the wire schema
- * (`querySelf` gained an `explain` mode and an `analyze` field the mirror
- * never learned about). Here the wire schema IS the source: Zod 4's
+ * carried their own prose for every tool and drifted from the wire schema
+ * (a tool gained a mode and a field the mirror never learned about). Here the
+ * wire schema IS the source: Zod 4's
  * `z.toJSONSchema` is run with the same `io: 'input'` options the provider
  * wrapper uses, so what the inspector shows is what the model is sent.
  *

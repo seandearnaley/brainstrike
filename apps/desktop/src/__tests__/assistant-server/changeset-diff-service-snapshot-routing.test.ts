@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createChangesetDiffService } from '../../assistant-server/changeset-diff-service';
-import type { EditCheckpointDatabase } from '../../assistant-server/edit-checkpoint-journal';
+import type { MainQueryHandle } from '../../assistant-server/main-query-handle';
 import type {
   InsertWorkspaceSnapshotInput,
   SnapshotRepository,
@@ -22,7 +22,7 @@ import { createSnapshotTurnRegistry } from '../../assistant-server/snapshot-turn
 const AGENT_RUN = { kind: 'agent-run' as const, runId: 'run-1', threadId: 'thread-1' };
 const RUN_RANGE = { fromRunId: 'run-1', kind: 'run-range' as const, threadId: 'thread-1' };
 
-const dummyDb: EditCheckpointDatabase = {
+const dummyDb: MainQueryHandle = {
   query: () => {
     throw new Error('no database in this test');
   },

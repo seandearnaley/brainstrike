@@ -3,7 +3,7 @@ import { performance } from 'node:perf_hooks';
 const BOOT_MEASUREMENT_START_ENV = 'BRAINSTRIKE_BOOT_MEASURE_START_MS';
 const QUIT_AFTER_BOOT_MEASUREMENT_ENV = 'BRAINSTRIKE_BOOT_MEASURE_QUIT_AFTER_LISTEN';
 
-export type BootMeasurementMark = 'app-ready' | 'assistant-listening';
+export type BootMeasurementMark = 'agent-host-ready' | 'app-ready';
 
 /**
  * Emits an opt-in, machine-readable boot marker for the BST-1064 measurement
@@ -42,9 +42,9 @@ export function emitBootMeasurementMark(mark: BootMeasurementMark, isPackaged: b
 }
 
 /**
- * Whether main should quit immediately after the assistant-listening mark,
+ * Whether main should quit at the agent-host-ready mark, before any window work,
  * for the boot-measurement harness. Always false in a packaged build (pass
- * `app.isPackaged`): the quit-after-listen kill switch booting a shipped app
+ * `app.isPackaged`): the quit-after-measurement kill switch booting a shipped app
  * to "started, then exited 0 with no window" would read as "I double-clicked
  * BrainStrike and nothing happened". Unpackaged launches share the same
  * strictness rule as {@link emitBootMeasurementMark}: unset or empty means

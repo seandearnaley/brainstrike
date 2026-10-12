@@ -78,7 +78,6 @@ export type DeferredCapabilityFamilyPhrase =
   | 'symbol and LSP inspection'
   | 'embedding search'
   | 'diagnostics'
-  | 'DB self-query'
   | 'tool-output artifacts';
 
 /**

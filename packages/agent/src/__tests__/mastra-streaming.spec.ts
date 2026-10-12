@@ -2147,10 +2147,8 @@ describe('mastra streaming integration', () => {
             maxSteps: 12,
           },
           apiKey: 'test-key',
-          compactionOverlayLookup: { listActiveCompactionRanges: async () => [] },
           memory: { resourceId: 'workspace-a', threadId: 'thread-1' },
           provider: 'openai',
-          toolProjectionRewriteLookup: { listActiveRewrites: async () => new Map() },
           workspaceSkills: {} as never,
         } as never,
       }
@@ -2170,8 +2168,6 @@ describe('mastra streaming integration', () => {
     expect(options.inputProcessors?.map((processor) => processor.id)).toEqual([
       'skills-processor',
       'tool-call-filter',
-      'tool-projection-rewrite',
-      'compaction-overlay',
       'provider-history-compat',
       'openai-tool-search-history-compat',
       'openai-duplicate-item-compat',

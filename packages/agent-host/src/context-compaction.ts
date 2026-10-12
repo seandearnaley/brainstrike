@@ -10,7 +10,10 @@ import type { HostEvent, HostLogRow } from './protocol.js';
 
 type Compacted = Extract<HostEvent, { type: 'context.compacted' }>;
 
-/** Same ratios as the legacy pre-request compaction (conversation-compaction.ts). */
+/**
+ * Compact once the estimated prompt reaches 90% of the input-token limit, and
+ * reclaim down toward 70% of it.
+ */
 export const CONTEXT_COMPACTION_TRIGGER_RATIO = 0.9;
 export const CONTEXT_COMPACTION_TARGET_RATIO = 0.7;
 
@@ -22,9 +25,8 @@ function chars4(value: unknown): number {
 type ContentPart = Exclude<ModelMessage['content'], string>[number];
 
 /**
- * The legacy compaction's visible-part rules (`estimateCompactionMessageTokens`)
- * over SDK parts: chars/4 of text, tool input and output; an attachment counts
- * as its label, never its inline bytes.
+ * Visible-part token estimate over SDK parts: chars/4 of text, tool input and
+ * output; an attachment counts as its label, never its inline bytes.
  */
 function estimatePart(part: ContentPart): number {
   switch (part.type) {
@@ -221,9 +223,9 @@ function requireUsage(count: number | undefined, field: string): void {
 }
 
 /**
- * The legacy agentic summarizer (`generateAgenticCompactionSummary`) on the
- * run's own admitted model: its instructions, one step, no tools, provider
- * usage required, and the five-section schema check.
+ * Agentic summary on the run's own admitted model: the compaction summarizer
+ * instructions, one step, no tools, provider-reported usage required, and the
+ * five-section schema check.
  */
 export async function summarizeHostContext(
   model: LanguageModel,
@@ -329,7 +331,7 @@ function deterministicEvent(
 }
 
 /**
- * Legacy `createContextOverflowRecovery`: after the provider reported a
+ * Deterministic overflow recovery: after the provider reported a
  * context overflow, drop the oldest droppable turns toward the target (at
  * least one). Undefined when no turn is droppable or no input budget is
  * known, so the run fails as reported and nothing claims headroom.

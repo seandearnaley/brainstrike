@@ -136,11 +136,10 @@ the Mastra error-processor layer.
   abort arrives as a plain `Error`. A cancelled completion stores no reason, like
   the data-stream Stop. Evidence: `assistant-runtime/local-run-stop-classification.md`.
   Guard: `packages/assistant-ui/src/__tests__/local-runtime-adapter.test.ts`.
-- Read the optional desktop assistant transport through `getAssistantBridge()`
-  from `@brainstrike/assistant-contract`, which owns the `window.assistant`
-  shape, returns no capability on web/SSR, and reports a malformed bridge at most
-  once per renderer process. Do not recreate local bridge interfaces, unchecked
-  double casts, or web stubs.
+- The desktop no longer exposes `window.assistant` (its HTTP server retired in
+  BST-1980). The code behind `getAssistantBridge()` is unreachable in production
+  and kept alive only by test stubs until BST-1987 removes it; add no new
+  production caller.
 
 ### Per-tool guard
 
@@ -429,8 +428,8 @@ Guard: `packages/agent/src/__tests__/mastra-error-processors.spec.ts`,
   projection, a `promptBreakdown` to source a baseline from, or both — and skip it
   only when neither is available. Both resume iterators compute `promptBreakdown`
   from the resumed runtime's own breakdown with `messages: []`. The
-  `model_visible_projection_count > 0` ratio-eligibility gate lives in the
-  `estimator-calibration.sql` lens, not the writer.
+  `model_visible_projection_count > 0` ratio-eligibility gate belongs to the
+  reader, not the writer.
 - Pre-request conversation compaction reads the latest thread-scoped calibration
   row whose `prompt_baseline_tokens` is NOT NULL and triggers on
   `previousPromptBaseline + conversationMessageTokens >= 0.90 * inputBudget`. The
@@ -545,11 +544,10 @@ Guard: `packages/agent/src/__tests__/mastra-tool-execution.integration.spec.ts`,
   registry measured without `workspaceSkills` is an undercount. The authored guard
   is not evidence for the provider payload.
 - The per-call input-processor order is SkillsProcessor → ToolSearchProcessor →
-  ProjectionSafeToolCallFilter → ToolProjectionRewriteProcessor →
-  ProviderHistoryCompat → OpenAIToolSearchHistoryCompat →
-  OpenAIDuplicateItemCompat → ProjectionAwareTokenLimiter. The OpenAI-only
-  compatibility seams are absent for every other provider; token limiting is
-  always last.
+  ProjectionSafeToolCallFilter → ProviderHistoryCompat → OpenAIToolSearchHistoryCompat →
+  OpenAIDuplicateItemCompat → BedrockMessageHygiene → ProjectionAwareTokenLimiter.
+  The OpenAI-only and Bedrock-only compatibility seams are absent for every other
+  provider; token limiting is always last.
 - OpenAIDuplicateItemCompat canonicalizes duplicated OpenAI item references at the
   transient boundary without trading one 400 for another: reasoning/text ids keep
   their newest occurrence; a tool call and its output are kept as the newest

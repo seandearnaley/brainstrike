@@ -92,8 +92,8 @@ describe('collectMutationToolCallIds', () => {
 // BST-1115 W5 T4 — the inherited T3 follow-up, PINNED rather than asserted.
 //
 // A files-mode rewind journals an after-capture row per reverted file so redo
-// is possible. Those rows live in the same table `listThreadCheckpoints` reads,
-// so they reach this selector too. They must NOT produce a "Revert all edits"
+// is possible. Those rows arrive with the same checkpoint entries, so they
+// reach this selector too. They must NOT produce a "Revert all edits"
 // footer: they carry `toolCallId: null` (nothing rendered them as a tool call)
 // and their `runId` is the REVERT batch id, which no message owns. That makes
 // the exclusion structural, so no `REWIND_REVERT_TOOL_NAME` filter is needed —

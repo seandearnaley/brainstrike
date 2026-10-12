@@ -14,37 +14,61 @@ import {
 import { CanvasPanel } from '../canvas/canvas-panel';
 import { useChangesNavigationStore } from '../changes/changes-navigation-store';
 
-const queryMock = vi.fn();
+type CanvasMap = ReadonlyMap<string, readonly AssistantThreadHostCanvasVersion[]>;
 
-// IDENTITY-STABLE handle, like the real usePGliteDatabase (a context value):
-// a fresh object per render would re-run every database-keyed effect on every
-// render and spin the panel's clear-then-refetch cycle into an OOM loop.
-const stableDatabaseHandle = { query: queryMock };
+const readCanvases = vi.fn<(threadId: string) => Promise<CanvasMap | undefined>>();
 
-vi.mock('@brainstrike/db/react', () => ({
-  usePGliteDatabase: () => stableDatabaseHandle,
-}));
-
-const SUMMARIES = [
-  { canvasId: 'canvas-1', createdAt: '2026-08-07 01:00:00+00', latestVersion: 3, title: 'Chart' },
-];
-
-function versionRow(version: number) {
+function version(
+  canvasId: string,
+  number: number,
+  createdAt = '2026-08-07T01:00:00.000Z'
+): AssistantThreadHostCanvasVersion {
   return {
-    createdAt: '2026-08-07 01:00:00+00',
+    canvasId,
+    createdAt,
     createdBy: 'assistant',
-    html: `<p>v${version}</p>`,
-    version,
+    html: `<p>${canvasId} v${number}</p>`,
+    title: canvasId === 'canvas-1' ? 'Chart' : 'Report',
+    version: number,
   };
 }
 
-function routeQueries(summaries: readonly unknown[] = SUMMARIES): void {
-  queryMock.mockImplementation((sql: string, params?: readonly unknown[]) => {
-    if (/DISTINCT ON/i.test(sql)) {
-      return Promise.resolve({ rows: [...summaries] });
-    }
-    return Promise.resolve({ rows: [versionRow(Number(params?.[1]))] });
-  });
+function versions(
+  canvasId: string,
+  latest: number,
+  createdAt?: string
+): AssistantThreadHostCanvasVersion[] {
+  return Array.from({ length: latest }, (_, index) => version(canvasId, index + 1, createdAt));
+}
+
+const ONE_CANVAS: CanvasMap = new Map([['canvas-1', versions('canvas-1', 3)]]);
+
+/** canvas-1 is the newest canvas; canvas-2 has more versions. */
+const TWO_CANVASES: CanvasMap = new Map([
+  ['canvas-1', versions('canvas-1', 3, '2026-08-07T02:00:00.000Z')],
+  ['canvas-2', versions('canvas-2', 5, '2026-08-07T01:00:00.000Z')],
+]);
+
+/** The host owns every thread and answers with `canvases`. */
+function ownCanvases(canvases: CanvasMap): void {
+  readCanvases.mockImplementation(async () => canvases);
+}
+
+function createHost(
+  overrides: Partial<AssistantThreadHostCapability> = {}
+): AssistantThreadHostCapability {
+  return {
+    createThread: vi.fn(),
+    deleteThread: vi.fn(async () => undefined),
+    listThreads: vi.fn(async () => []),
+    ownsThread: vi.fn(async () => true),
+    readCanvases,
+    renameThread: vi.fn(),
+    renderThread: vi.fn(),
+    updateThreadBinding: vi.fn(),
+    workspaceRepository: (history) => history,
+    ...overrides,
+  };
 }
 
 // The real ThemeProvider renders null until its async storage load resolves,
@@ -56,17 +80,21 @@ const themeStorageAdapter = {
   setItem: () => Promise.resolve(),
 };
 
-function renderPanel(): ReturnType<typeof render> {
+function renderPanel(
+  host: AssistantThreadHostCapability = createHost()
+): ReturnType<typeof render> {
   return render(
     <ThemeProvider storageAdapter={themeStorageAdapter}>
-      <CanvasPanel shellSrc="https://shell.invalid/canvas-frame.html" />
+      <AssistantThreadHostContext.Provider value={host}>
+        <CanvasPanel shellSrc="https://shell.invalid/canvas-frame.html" />
+      </AssistantThreadHostContext.Provider>
     </ThemeProvider>
   );
 }
 
 describe('CanvasPanel', () => {
   beforeEach(() => {
-    queryMock.mockReset();
+    readCanvases.mockReset();
     useChangesNavigationStore.getState().reset();
     resetAssistantThreadStore();
   });
@@ -79,21 +107,32 @@ describe('CanvasPanel', () => {
     });
   }
 
-  it('shows the no-thread empty state without querying', async () => {
+  it('shows the no-thread empty state without reading', async () => {
     renderPanel();
     expect(await screen.findByText(/appear here/i)).toBeInTheDocument();
-    expect(queryMock).not.toHaveBeenCalled();
+    expect(readCanvases).not.toHaveBeenCalled();
   });
 
   it('shows the empty-thread state when the thread has no canvases', async () => {
-    routeQueries([]);
+    ownCanvases(new Map());
     activateThread('thread-1');
     renderPanel();
     expect(await screen.findByText(/No canvases in this thread/i)).toBeInTheDocument();
   });
 
+  it('fails visibly for a thread the host does not own, never the empty state', async () => {
+    readCanvases.mockResolvedValue(undefined);
+    activateThread('thread-elsewhere');
+    renderPanel();
+
+    expect(await screen.findByTestId('canvas-error')).toHaveTextContent(
+      /not owned by the agent host/
+    );
+    expect(screen.queryByText(/No canvases in this thread/i)).not.toBeInTheDocument();
+  });
+
   it('renders the latest version through the sandboxed CanvasFrame with a version stepper', async () => {
-    routeQueries();
+    ownCanvases(ONE_CANVAS);
     activateThread('thread-1');
     renderPanel();
 
@@ -108,18 +147,8 @@ describe('CanvasPanel', () => {
     expect(screen.getByTestId('canvas-version-previous')).toBeEnabled();
   });
 
-  const TWO_SUMMARIES = [
-    { canvasId: 'canvas-1', createdAt: '2026-08-07 01:00:00+00', latestVersion: 3, title: 'Chart' },
-    {
-      canvasId: 'canvas-2',
-      createdAt: '2026-08-07 02:00:00+00',
-      latestVersion: 5,
-      title: 'Report',
-    },
-  ];
-
   it('shows the canvas the navigation store focused (a canvas:// chip click), not the newest', async () => {
-    routeQueries(TWO_SUMMARIES);
+    ownCanvases(TWO_CANVASES);
     activateThread('thread-1');
     useChangesNavigationStore.getState().openCanvas('canvas-2');
     renderPanel();
@@ -131,7 +160,7 @@ describe('CanvasPanel', () => {
   });
 
   it('the picker writes the store, so a chip click and the picker share one selection', async () => {
-    routeQueries(TWO_SUMMARIES);
+    ownCanvases(TWO_CANVASES);
     activateThread('thread-1');
     renderPanel();
     await waitFor(() => {
@@ -147,7 +176,7 @@ describe('CanvasPanel', () => {
   });
 
   it('a focused id that is not in this thread falls back to the newest canvas', async () => {
-    routeQueries(TWO_SUMMARIES);
+    ownCanvases(TWO_CANVASES);
     activateThread('thread-1');
     useChangesNavigationStore.getState().selectCanvas('canvas-from-another-thread');
     renderPanel();
@@ -158,7 +187,7 @@ describe('CanvasPanel', () => {
   });
 
   it('steps back through history and clamps at version 1', async () => {
-    routeQueries();
+    ownCanvases(ONE_CANVAS);
     activateThread('thread-1');
     renderPanel();
     await waitFor(() => {
@@ -177,7 +206,7 @@ describe('CanvasPanel', () => {
   });
 
   it('surfaces a failed summaries read as a visible error, never the empty-state lie', async () => {
-    queryMock.mockRejectedValue(new Error('relation gone'));
+    readCanvases.mockRejectedValue(new Error('host gone'));
     activateThread('thread-1');
     renderPanel();
 
@@ -186,23 +215,14 @@ describe('CanvasPanel', () => {
   });
 
   it('surfaces a failed version read under the header instead of silently keeping stale content', async () => {
-    let failVersionReads = false;
-    queryMock.mockImplementation((sql: string, params?: readonly unknown[]) => {
-      if (/DISTINCT ON/i.test(sql)) {
-        return Promise.resolve({ rows: [...SUMMARIES] });
-      }
-      if (failVersionReads) {
-        return Promise.reject(new Error('db closed'));
-      }
-      return Promise.resolve({ rows: [versionRow(Number(params?.[1]))] });
-    });
+    ownCanvases(ONE_CANVAS);
     activateThread('thread-1');
     renderPanel();
     await waitFor(() => {
       expect(screen.getByTestId('canvas-version-label')).toHaveTextContent('v3 / 3');
     });
 
-    failVersionReads = true;
+    readCanvases.mockRejectedValue(new Error('host closed'));
     fireEvent.click(screen.getByTestId('canvas-version-previous'));
 
     expect(await screen.findByTestId('canvas-error')).toHaveTextContent(/Canvas read failed/);
@@ -210,64 +230,41 @@ describe('CanvasPanel', () => {
     expect(screen.queryByTitle('Canvas')).not.toBeInTheDocument();
   });
 
-  it('re-queries when a manageCanvas completion bumps the refresh nonce', async () => {
-    routeQueries();
+  it('re-reads when a manageCanvas completion bumps the refresh nonce', async () => {
+    ownCanvases(ONE_CANVAS);
     activateThread('thread-1');
     renderPanel();
     await waitFor(() => {
       expect(screen.getByTestId('canvas-version-label')).toBeInTheDocument();
     });
-    const callsBefore = queryMock.mock.calls.length;
+    const callsBefore = readCanvases.mock.calls.length;
 
-    useChangesNavigationStore.getState().requestCanvasRefresh();
+    act(() => {
+      useChangesNavigationStore.getState().requestCanvasRefresh();
+    });
 
     await waitFor(() => {
-      expect(queryMock.mock.calls.length).toBeGreaterThan(callsBefore);
+      expect(readCanvases.mock.calls.length).toBeGreaterThan(callsBefore);
     });
   });
 
   it("re-reads a host thread's canvases when its committed canvases change", async () => {
-    const version = (number: number): AssistantThreadHostCanvasVersion => ({
-      canvasId: 'canvas-1',
-      createdAt: '2026-10-08T12:00:00.000Z',
-      createdBy: 'assistant',
-      html: `<p>v${number}</p>`,
-      title: 'Chart',
-      version: number,
-    });
-    const versions = [version(1)];
+    const committed = [version('canvas-1', 1)];
+    readCanvases.mockImplementation(async () => new Map([['canvas-1', [...committed]]]));
     const listeners = new Set<() => void>();
     const subscribeCanvases = vi.fn((_threadId: string, listener: () => void) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
     });
-    const host: AssistantThreadHostCapability = {
-      createThread: vi.fn(),
-      deleteThread: vi.fn(async () => undefined),
-      listThreads: vi.fn(async () => []),
-      ownsThread: vi.fn(async () => true),
-      readCanvases: vi.fn(async () => new Map([['canvas-1', [...versions]]])),
-      renameThread: vi.fn(),
-      renderThread: vi.fn(),
-      subscribeCanvases,
-      updateThreadBinding: vi.fn(),
-      workspaceRepository: (history) => history,
-    };
     activateThread('host-thread');
-    const view = render(
-      <ThemeProvider storageAdapter={themeStorageAdapter}>
-        <AssistantThreadHostContext.Provider value={host}>
-          <CanvasPanel shellSrc="https://shell.invalid/canvas-frame.html" />
-        </AssistantThreadHostContext.Provider>
-      </ThemeProvider>
-    );
+    const view = renderPanel(createHost({ subscribeCanvases }));
     await waitFor(() => {
       expect(screen.getByTestId('canvas-version-label')).toHaveTextContent('v1 / 1');
     });
     expect(subscribeCanvases).toHaveBeenCalledWith('host-thread', expect.any(Function));
 
     // A run commits a new version while the panel is open.
-    versions.push(version(2));
+    committed.push(version('canvas-1', 2));
     act(() => {
       for (const listener of listeners) {
         listener();
@@ -276,28 +273,27 @@ describe('CanvasPanel', () => {
     await waitFor(() => {
       expect(screen.getByTestId('canvas-version-label')).toHaveTextContent('v2 / 2');
     });
-    expect(queryMock).not.toHaveBeenCalled();
     view.unmount();
     expect(listeners.size).toBe(0);
   });
 
   it('ignores a background wrapper identity — only the thread store active id selects canvases', async () => {
-    routeQueries([]);
+    ownCanvases(new Map());
     activateThread('thread-1');
     // A background thread's wrapper publishes its identity (the old
-    // last-mount-wins bug) — the panel must keep querying thread-1.
+    // last-mount-wins bug) — the panel must keep reading thread-1.
     useChangesNavigationStore
       .getState()
       .setActiveThreadIdentity({ latestRunId: null, threadId: 'thread-background' });
     renderPanel();
     // The read starts in an effect after the panel first renders, and the empty
-    // state shows while it is in flight: wait for the read itself, not the empty
-    // state, before asserting which thread it queried (BST-1991).
-    const queriedThreads = () => queryMock.mock.calls.map((call) => call[1]?.[0]);
+    // state shows while it is in flight: wait for the host read itself, not the
+    // empty state, before asserting which thread it read (BST-1991).
+    const readThreads = () => readCanvases.mock.calls.map(([threadId]) => threadId);
     await waitFor(() => {
-      expect(queriedThreads()).toContain('thread-1');
+      expect(readThreads()).toContain('thread-1');
     });
     await screen.findByText(/No canvases in this thread/i);
-    expect(queriedThreads()).not.toContain('thread-background');
+    expect(readThreads()).not.toContain('thread-background');
   });
 });

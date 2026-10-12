@@ -1,7 +1,6 @@
 /**
  * Real-git coverage for the T4 SnapshotService additions (BST-1164):
- * `restorePathsFromSnapshot` (the checkpoint-undo seam),
- * `listSnapshotThreadIds` (startup-GC ref inventory), and `pruneHistory`
+ * `listSnapshotThreadIds` (startup-GC ref inventory) and `pruneHistory`
  * (shallow-cut + `git gc` retention). Same harness posture as
  * `snapshot-service.integration.test.ts`: REAL temp dirs, the production
  * `execFileSnapshotGitRunner`, no git mocking.
@@ -13,7 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { execFileSnapshotGitRunner, SnapshotGitError } from '../../assistant-server/snapshot-git';
+import { execFileSnapshotGitRunner } from '../../assistant-server/snapshot-git';
 import {
   createSnapshotService,
   type ShadowRepoHandle,
@@ -35,17 +34,6 @@ async function write(relative: string, content: string): Promise<void> {
   const absolute = path.join(rootPath, relative);
   await fsPromises.mkdir(path.dirname(absolute), { recursive: true });
   await fsPromises.writeFile(absolute, content, 'utf8');
-}
-
-async function readOrNull(relative: string): Promise<string | null> {
-  try {
-    return await fsPromises.readFile(path.join(rootPath, relative), 'utf8');
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return null;
-    }
-    throw error;
-  }
 }
 
 async function snap(threadId = THREAD): Promise<string> {
@@ -79,91 +67,6 @@ beforeEach(async () => {
 afterEach(async () => {
   await fsPromises.rm(rootPath, { force: true, recursive: true });
   await fsPromises.rm(snapshotsBase, { force: true, recursive: true });
-});
-
-describe('restorePathsFromSnapshot', () => {
-  it('restores present paths, deletes snapshot-absent paths (with ancestor pruning), one outcome per input', {
-    timeout: HEAVY_TIMEOUT_MS,
-  }, async () => {
-    await write('kept/a.txt', 'A@start\n');
-    const oid = await snap();
-    await write('kept/a.txt', 'A@later\n');
-    await write('scaffold/deep/new.txt', 'created later\n');
-
-    const outcomes = await service.restorePathsFromSnapshot(handle, oid, [
-      { expectAbsent: false, path: 'kept/a.txt' },
-      { expectAbsent: true, path: 'scaffold/deep/new.txt' },
-    ]);
-    expect(outcomes).toEqual([
-      { outcome: 'restored', path: 'kept/a.txt' },
-      { outcome: 'deleted', path: 'scaffold/deep/new.txt' },
-    ]);
-    expect(await readOrNull('kept/a.txt')).toBe('A@start\n');
-    expect(await readOrNull('scaffold/deep/new.txt')).toBeNull();
-    await expect(fsPromises.stat(path.join(rootPath, 'scaffold'))).rejects.toMatchObject({
-      code: 'ENOENT',
-    });
-  });
-
-  it('refuses (uncovered, untouched) a snapshot-absent path the caller expected PRESENT', {
-    timeout: HEAVY_TIMEOUT_MS,
-  }, async () => {
-    // A gitignored file: staged `add -A` respects the ignore, so the snapshot
-    // never contains it — absence here is a coverage hole, not "turn-created".
-    await write('.gitignore', 'secret.env\n');
-    await write('secret.env', 'S3CR3T@start\n');
-    const oid = await snap();
-    await write('secret.env', 'S3CR3T@edited\n');
-
-    const outcomes = await service.restorePathsFromSnapshot(handle, oid, [
-      { expectAbsent: false, path: 'secret.env' },
-    ]);
-    expect(outcomes).toHaveLength(1);
-    expect(outcomes[0]).toMatchObject({ outcome: 'uncovered', path: 'secret.env' });
-    if (outcomes[0]?.outcome === 'uncovered') {
-      expect(outcomes[0].message).toContain('not covered by the snapshot');
-    }
-    // The live file is UNTOUCHED — deleting it would have destroyed the only
-    // copy (the pre-edit bytes exist nowhere).
-    expect(await readOrNull('secret.env')).toBe('S3CR3T@edited\n');
-  });
-
-  it('treats an already-absent snapshot-absent path as deleted (idempotent), and rejects unsafe paths', {
-    timeout: HEAVY_TIMEOUT_MS,
-  }, async () => {
-    await write('a.txt', 'x\n');
-    const oid = await snap();
-
-    const outcomes = await service.restorePathsFromSnapshot(handle, oid, [
-      { expectAbsent: true, path: 'never-existed.txt' },
-    ]);
-    expect(outcomes).toEqual([{ outcome: 'deleted', path: 'never-existed.txt' }]);
-
-    await expect(
-      service.restorePathsFromSnapshot(handle, oid, [{ expectAbsent: true, path: '../escape.txt' }])
-    ).rejects.toBeInstanceOf(SnapshotGitError);
-    await expect(
-      service.restorePathsFromSnapshot(handle, oid, [{ expectAbsent: true, path: '/abs.txt' }])
-    ).rejects.toBeInstanceOf(SnapshotGitError);
-  });
-
-  it('a glob-looking journal path matches itself literally, never expands', {
-    timeout: HEAVY_TIMEOUT_MS,
-  }, async () => {
-    await write('bracket[ab].txt', 'literal star\n');
-    await write('bracketa.txt', 'not this one\n');
-    const oid = await snap();
-    await write('bracket[ab].txt', 'changed\n');
-    await write('bracketa.txt', 'changed too\n');
-
-    const outcomes = await service.restorePathsFromSnapshot(handle, oid, [
-      { expectAbsent: false, path: 'bracket[ab].txt' },
-    ]);
-    expect(outcomes).toEqual([{ outcome: 'restored', path: 'bracket[ab].txt' }]);
-    expect(await readOrNull('bracket[ab].txt')).toBe('literal star\n');
-    // The sibling the glob WOULD have matched stays untouched.
-    expect(await readOrNull('bracketa.txt')).toBe('changed too\n');
-  });
 });
 
 describe('listSnapshotThreadIds', () => {
