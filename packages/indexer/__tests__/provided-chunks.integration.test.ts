@@ -100,6 +100,28 @@ describe('canonical provided chunks through actual index process', () => {
         })
       ).rejects.toThrow();
     }
+    // Text that only drops a line break (a splitter's rejoined copy) is not the
+    // span: grep would put every later line of the chunk on the wrong line
+    // (BST-1989). The hash matches the changed text, so only the span refuses it.
+    const multiline = captured.result.chunks.find((chunk) => /\S\n[ \t]*\S/u.test(chunk.content));
+    if (!multiline) {
+      throw new Error('The captured fixture needs a multi-line chunk.');
+    }
+    const joined = multiline.content.replace(/(\S)\n[ \t]*(\S)/u, '$1$2');
+    await expect(
+      port.prepareFile({
+        ...snapshot,
+        providedChunks: captured.result.chunks.map((chunk) =>
+          chunk === multiline
+            ? {
+                ...chunk,
+                content: joined,
+                contentHash: createHash('sha256').update(joined).digest('hex'),
+              }
+            : chunk
+        ),
+      })
+    ).rejects.toThrow('source span does not match');
     await expect(port.prepareFile({ ...snapshot, chunkLines: 1 })).rejects.toThrow();
     await expect(
       port.prepareFile({ ...snapshot, providedChunks: [first, first] })
