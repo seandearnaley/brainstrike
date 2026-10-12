@@ -5,6 +5,7 @@ import { DatabaseSync, type SQLOutputValue, type StatementSync } from 'node:sqli
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { SqliteGrepOptions } from '../protocol.js';
 import { SqliteSandbox } from '../sandbox.js';
+import { NATIVE_TRIGRAM_SCHEMA } from './fixtures/native-trigram-schema.js';
 
 let directory: string;
 let writer: DatabaseSync;
@@ -28,7 +29,8 @@ beforeEach(() => {
     CREATE TABLE file_records(id,root_id,path,embedding_set_id,source_path);
     INSERT INTO file_records VALUES('selected','authorized','a.ts','collection','source'),
       ('other','unauthorized','b.ts','other','other'),('retained',NULL,NULL,'collection',NULL);
-    CREATE TABLE file_chunks(id,root_id,file_record_id,content,content_hash,start_line,end_line,chunk_index,chunk_size,chunk_type,start_offset,end_offset,token_count);`);
+    CREATE TABLE file_chunks(id,root_id,file_record_id,content,content_hash,start_line,end_line,chunk_index,chunk_size,chunk_type,start_offset,end_offset,token_count);
+    ${NATIVE_TRIGRAM_SCHEMA}`);
   sandbox = new SqliteSandbox(path);
   transferredRows = 0;
   const prepare = DatabaseSync.prototype.prepare;
@@ -154,14 +156,20 @@ it('does not hide replacement-character matches from invalid UTF-8 TEXT', () => 
   expect(result.rows.map((row) => row[0])).toEqual(['invalid']);
 });
 
-it('prefilters case-insensitive literals while preserving regex scans', () => {
+it('prefilters case-insensitive literals and regexes through case-folded trigram candidates', () => {
   insert('NEEDLE', 'upper');
   insert('needle', 'lower');
   insert('ordinary', 'ordinary');
   expect(sandbox.grep({ ...defaults, caseSensitive: false }).matchedChunks).toBe(2);
   expect(transferredRows).toBe(2);
   transferredRows = 0;
+  // BST-1939: the regex's required `need` selects both case-folded candidates;
+  // the line matcher still decides the one case-sensitive match.
   expect(sandbox.grep({ ...defaults, isRegex: true, pattern: '^NEED' }).matchedChunks).toBe(1);
+  expect(transferredRows).toBe(2);
+  transferredRows = 0;
+  // A regex without a required literal still scans every row.
+  expect(sandbox.grep({ ...defaults, isRegex: true, pattern: '^N.' }).matchedChunks).toBe(1);
   expect(transferredRows).toBe(3);
 });
 
@@ -328,7 +336,8 @@ it.each(['text', 'blob', 'combined blobs'])(
         .prepare('UPDATE file_chunks SET content_hash=?')
         .run(kind === 'text' ? content : Buffer.from(content));
     }
-    expect(() => canonical(defaults)).toThrow();
+    // An unfiltered scan materializes the oversized row and trips the engine limit.
+    expect(() => sandbox.grep({ ...defaults, isRegex: true, pattern: '..' })).toThrow();
     const result = sandbox.grep(defaults);
     expect(result.rows).toEqual([]);
     expect(result.matchedChunks).toBe(0);

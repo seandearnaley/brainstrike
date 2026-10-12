@@ -56,6 +56,8 @@ type CliStringOption =
   | 'root'
   | 'run'
   | 'sha256'
+  | 'since'
+  | 'until'
   | 'skills'
   | 'workspace-instructions'
   | 'thread';
@@ -120,8 +122,10 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       run: { type: 'string' },
       'scope-root': { type: 'string' },
       sha256: { type: 'string' },
+      since: { type: 'string' },
       skills: { type: 'string' },
       thread: { type: 'string' },
+      until: { type: 'string' },
       workspace: { multiple: true, type: 'string' },
       'workspace-instructions': { type: 'string' },
       'workspace-root': { multiple: true, type: 'string' },
@@ -143,6 +147,7 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       'thread read',
       'threads list',
       'threads show',
+      'threads search',
       'workspace search',
       'run',
       'attach',
@@ -311,6 +316,31 @@ async function assertChildCommand(
   }
 }
 
+/** An ISO 8601 date (UTC midnight) or date-time, in ms since the epoch. */
+function cliTime(value: string | undefined, name: string): number | undefined {
+  if (value === undefined) {
+    return;
+  }
+  const time = /^\d{4}-\d{2}-\d{2}(T.+)?$/u.test(value) ? Date.parse(value) : Number.NaN;
+  if (!Number.isFinite(time)) {
+    throw new Error(`--${name} must be an ISO 8601 date or date-time`);
+  }
+  return time;
+}
+
+/** BST-1939: `threads search` asks for the lexical and title arms only; it embeds no query. */
+function threadSearchParams(values: HostCliArguments['values']): HostParams<'thread/search'> {
+  const since = cliTime(values.since, 'since');
+  const until = cliTime(values.until, 'until');
+  return HOST_METHOD_SCHEMAS['thread/search'].parse({
+    query: required(values.query, 'query'),
+    ...(values.limit === undefined ? {} : { limit: Number(values.limit) }),
+    ...(values['scope-root'] === undefined ? {} : { rootId: values['scope-root'] }),
+    ...(since === undefined ? {} : { since }),
+    ...(until === undefined ? {} : { until }),
+  });
+}
+
 async function searchWorkspaceCli(client: HostClient, values: HostCliArguments['values']) {
   const controller = new AbortController();
   const abort = (): void => controller.abort(new Error('Workspace search interrupted'));
@@ -350,6 +380,7 @@ attach --thread <id> [--run <id>] [--json] [--interactive]
 workspace search --thread <id> --scope-root <id> --mode bm25|trigram --query <text> [--limit <n>]
 threads list
 threads show --thread <id> [--from-seq <n>]
+threads search --query <text> [--scope-root <id>] [--since <iso>] [--until <iso>] [--limit <n>]
 host start | host status | host stop
 thread start | thread read --thread <id>
 run start --thread <id> --model <id> --prompt <text>
@@ -372,6 +403,9 @@ hooks trust shows a standalone root's .brainstrike/hooks.json (default: the curr
 and its SHA-256 for review; the host runs its project hooks only at that hash. --sha256
 confirms without a prompt. Desktop roots are approved in Settings > Hooks.
 
+threads search is lexical: words in committed messages and thread titles, fused into one
+ranked list; with no thread holding every word, it matches any word and says so. --scope-root
+keeps threads bound to that workspace root; --since/--until bound message times.
 Question answers use {"answer":"text"} or {"answer":["choice 1","choice 2"]}.
 Plan decisions use {"action":"approved"} or {"action":"rejected","feedback":"reason"}.
 Standalone hosts use an explicit --model provider::model from the canonical catalog.
@@ -468,6 +502,9 @@ Run signals stop and join its execution; attach signals detach.
         break;
       case 'children list':
         print(await client.request('thread/children', { threadId: threadId() }));
+        break;
+      case 'threads search':
+        print(await client.request('thread/search', threadSearchParams(values)));
         break;
       case 'threads list':
         print(await client.request('thread/list', {}));

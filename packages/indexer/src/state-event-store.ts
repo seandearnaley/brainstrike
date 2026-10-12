@@ -439,7 +439,8 @@ export class StateEventStore {
 
   /**
    * Gap 10: committed conversation rows in the requested threads that contain
-   * every query word, best bm25 match first, each with a marked snippet.
+   * every query word (or, when asked, any of them), best bm25 match first,
+   * each with a marked snippet.
    */
   search(input: unknown): readonly StateSearchHit[] {
     const request = decoder(stateSearchSchema)(input);
@@ -458,7 +459,11 @@ export class StateEventStore {
            WHERE state_search_fts MATCH ? AND s.thread_id IN (SELECT value FROM json_each(?))
            ORDER BY rank,s.thread_id,s.seq LIMIT ?`
         )
-        .all(words.map(quote).join(' '), JSON.stringify(request.threadIds), request.limit)
+        .all(
+          words.map(quote).join(request.match === 'any' ? ' OR ' : ' '),
+          JSON.stringify(request.threadIds),
+          request.limit
+        )
     );
   }
 
