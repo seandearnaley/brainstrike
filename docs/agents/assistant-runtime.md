@@ -428,8 +428,8 @@ Guard: `packages/agent/src/__tests__/mastra-error-processors.spec.ts`,
   projection, a `promptBreakdown` to source a baseline from, or both — and skip it
   only when neither is available. Both resume iterators compute `promptBreakdown`
   from the resumed runtime's own breakdown with `messages: []`. The
-  `model_visible_projection_count > 0` ratio-eligibility gate lives in the
-  `estimator-calibration.sql` lens, not the writer.
+  `model_visible_projection_count > 0` ratio-eligibility gate belongs to the
+  reader, not the writer.
 - Pre-request conversation compaction reads the latest thread-scoped calibration
   row whose `prompt_baseline_tokens` is NOT NULL and triggers on
   `previousPromptBaseline + conversationMessageTokens >= 0.90 * inputBudget`. The

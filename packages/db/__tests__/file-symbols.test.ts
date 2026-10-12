@@ -115,8 +115,8 @@ describe('file symbol graph', () => {
 
     it('indexes the traversal join columns', async () => {
       // The name join IS the graph — without these indexes the recursive CTE
-      // seq-scans per recursion level and the planner cost explodes past the
-      // querySelf ceiling on a large workspace. The composite PKs double as
+      // seq-scans per recursion level and the planner cost explodes on a large
+      // workspace. The composite PKs double as
       // the per-file lookup index (deletion path), so file_record_id needs no
       // secondary index — a MEASURED decision (storage section of the
       // migration docstring).
@@ -128,16 +128,6 @@ describe('file symbol graph', () => {
       expect(defs).toContain('file_symbol_refs USING btree (name, kind)');
       expect(defs).toContain('file_symbols USING btree (file_record_id, seq)');
       expect(defs).toContain('file_symbol_refs USING btree (file_record_id, seq)');
-    });
-
-    it('is readable by the querySelf sandbox role', async () => {
-      // Migration 074's ALTER DEFAULT PRIVILEGES must cover these later tables;
-      // this is the tripwire that contract promised.
-      const result = await db.query<{ ok: boolean }>(
-        `SELECT has_table_privilege('brainstrike_agent_readonly', 'file_symbols', 'SELECT')
-            AND has_table_privilege('brainstrike_agent_readonly', 'file_symbol_refs', 'SELECT') AS ok`
-      );
-      expect(result.rows[0]?.ok).toBe(true);
     });
   });
 
@@ -321,7 +311,7 @@ describe('file symbol graph', () => {
   });
 
   describe('the headline traversal', () => {
-    it('answers transitive callers via name join, admitted by the querySelf recursion guard shape', async () => {
+    it('answers transitive callers via name join', async () => {
       // Seed graph: main -> calls run -> calls startEmbeddingWorker.
       // unrelated -> calls somethingElse.
       await seedFileRecord('file-worker', 'src/worker.ts');
@@ -346,9 +336,7 @@ describe('file symbol graph', () => {
         [ref('file-unrelated', 0, 'somethingElse', { fromSymbolSeq: 0 })]
       );
 
-      // The exact statement documented as the querySelf worked example: UNION
-      // (dedup) + join-terminated + explicit depth bound — the shape the
-      // recursion guard preserves (pinned in agent-sql-service.test.ts).
+      // UNION (dedup) + join-terminated + explicit depth bound.
       const result = await db.query<{ depth: number; name: string; path: string }>(
         `WITH RECURSIVE callers(file_record_id, seq, name, depth) AS (
            SELECT s.file_record_id, s.seq, s.name, 0

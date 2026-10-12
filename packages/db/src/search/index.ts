@@ -19,23 +19,6 @@ export {
   type RRFContribution,
   type RRFOptions,
 } from '@brainstrike/utils/rrf';
-// Agent SQL sandbox (brainstrike.querySelf)
-export {
-  AGENT_READONLY_ROLE,
-  type AgentSqlColumnInfo,
-  AgentSqlCostRejectedError,
-  type AgentSqlDatabase,
-  type AgentSqlExplainResult,
-  AgentSqlInputError,
-  type AgentSqlQueryResult,
-  AgentSqlService,
-  type AgentSqlServiceOptions,
-  type AgentSqlTableSummary,
-  AgentSqlUnboundedRecursionError,
-  DEFAULT_AGENT_SQL_COST_CEILING,
-  DEFAULT_AGENT_SQL_MAX_ROWS,
-  MAX_AGENT_SQL_MAX_ROWS,
-} from './agent-sql-service.js';
 // Grep pattern utilities
 export {
   escapeLikeLiteral,

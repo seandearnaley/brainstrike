@@ -5,7 +5,7 @@ import { QueryDiagnosticsInputSchema } from '../schemas/schemas-diagnostics.js';
 // Read-only, bounded access to the local diagnostic event store. Explicitly
 // pinned because it reads application-internal failure context rather than
 // workspace files, and must remain available under the normal read policy
-// without being mistaken for arbitrary self-query SQL.
+// without being mistaken for arbitrary SQL.
 export const queryDiagnostics = defineNativeTool({
   defaults: {
     category: 'analysis',

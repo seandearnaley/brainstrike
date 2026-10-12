@@ -41,7 +41,6 @@ const child = spawn(
         ]
       : [
           'src/__tests__/sandbox.integration.test.ts',
-          'src/__tests__/callers-lens.integration.test.ts',
           'src/__tests__/scoped-grep.integration.test.ts',
           'src/__tests__/trigram-grep-differential.integration.test.ts',
         ]),

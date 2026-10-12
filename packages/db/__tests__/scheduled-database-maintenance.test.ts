@@ -1,13 +1,8 @@
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { coerceLensValues, parseLensFile } from '@brainstrike/assistant-contract';
 import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import type { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { migrate } from '../src/migrations/bootstrap.js';
 import { JobQueue, type JobState } from '../src/queue/job-queue.js';
-import { AgentSqlService } from '../src/search/agent-sql-service.js';
 import {
   DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
   DEFAULT_DATABASE_MAINTENANCE_TOKEN_ESTIMATE_CALIBRATION_RETENTION_MS,
@@ -22,11 +17,6 @@ const RECENT_ISO = '2026-05-01T11:59:00.000Z';
 // 60-day retention cutoff from NOW_ISO is 2026-03-02T12:00:00.000Z.
 const TELEMETRY_OLD_ISO = '2026-02-01T00:00:00.000Z';
 const TELEMETRY_RECENT_ISO = '2026-04-25T00:00:00.000Z';
-
-const TOKEN_SPEND_LENS_PATH = resolve(
-  dirname(fileURLToPath(import.meta.url)),
-  '../../../.brainstrike/lenses/token-spend-by-tool.sql'
-);
 
 async function insertToolCallTelemetry(
   db: PGlite,
@@ -544,44 +534,6 @@ describe('scheduled database maintenance', () => {
         status: 'partial',
       });
       expect(await countToolCallTelemetry(db)).toBe(1);
-    });
-
-    it('leaves the token-spend-by-tool lens output unaffected for rows inside the retention window', async () => {
-      // Rows outside the 60-day window get pruned; the lens result for a
-      // window entirely inside the retention horizon must be identical to
-      // what it would report with no pruning at all.
-      await insertToolCallTelemetry(db, 'old-1', TELEMETRY_OLD_ISO);
-      await db.query(
-        `INSERT INTO brainstrike_tool_call_telemetry
-          (id, thread_id, run_id, tool_id, occurred_at, model_facing_chars, truncated, zero_match, is_pagination_followup)
-         VALUES
-          ('in-window-1', 'thread', 'run', 'grepSearch', $1, 100, false, true, false),
-          ('in-window-2', 'thread', 'run', 'grepSearch', $2, 300, true, false, true)`,
-        [TELEMETRY_RECENT_ISO, RECENT_ISO]
-      );
-
-      const maintenanceResult = await runScheduledDatabaseMaintenance(db, {
-        now: () => new Date(NOW_ISO),
-        terminalJobRetentionMs: DEFAULT_DATABASE_MAINTENANCE_TERMINAL_JOB_RETENTION_MS,
-        toolCallTelemetryRetentionMs: DEFAULT_DATABASE_MAINTENANCE_TOOL_CALL_TELEMETRY_RETENTION_MS,
-      });
-      expect(maintenanceResult.prunedToolCallTelemetryRows).toBe(1);
-
-      const parsed = parseLensFile(
-        'token-spend-by-tool.sql',
-        readFileSync(TOKEN_SPEND_LENS_PATH, 'utf8')
-      );
-      if (!parsed.ok) {
-        throw new Error(parsed.error);
-      }
-      const values = coerceLensValues(parsed.lens.params, [TELEMETRY_RECENT_ISO, RECENT_ISO]);
-      if (!values.ok) {
-        throw new Error(values.error);
-      }
-      const service = new AgentSqlService(db);
-      const result = await service.query(parsed.lens.sql, { params: values.values });
-
-      expect(result.rows).toEqual([['grepSearch', 2, 400, 200, 0.5, 0.5, 2]]);
     });
 
     it('skips the bounded DELETE entirely while active when nothing is past the cutoff (cheap-guard EXISTS probe)', async () => {

@@ -6,11 +6,7 @@
  * `exactOptionalPropertyTypes`.
  */
 import { NATIVE_TOOL_INPUT_SCHEMAS } from '@brainstrike/agent';
-import {
-  LENS_PARAM_TYPES,
-  NATIVE_TOOL_ID,
-  QUERY_SELF_TARGETS,
-} from '@brainstrike/assistant-contract';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { TAPESTRY_COLOR_NAMES } from '@brainstrike/types';
 import { z } from 'zod';
 
@@ -207,74 +203,6 @@ export const ContextTapestryDeliveryRequestSchema = z.strictObject({
 });
 
 export const ContextDeliveryResultSchema = z.object({ notifiedWindowCount: z.number().int() });
-
-/** A querySelf SQL read: the parsed catalog input plus a lens the host resolved from its roots. */
-export const QuerySelfReadRequestSchema = z.strictObject({
-  request: z.strictObject({
-    input: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.querySelf],
-    invocation: z
-      .strictObject({
-        paramSpecs: z.array(
-          z.strictObject({
-            description: z.string(),
-            name: z.string().min(1),
-            type: z.enum(LENS_PARAM_TYPES),
-          })
-        ),
-        params: z.array(z.union([z.string(), z.number(), z.boolean()])),
-        requirement: z
-          .strictObject({ kind: z.literal('caller-vectors'), seedParam: z.string().min(1) })
-          .exactOptional(),
-        sql: z.string().min(1),
-      })
-      .exactOptional(),
-  }),
-  threadId: Id,
-});
-
-const QuerySelfTarget = z.enum(QUERY_SELF_TARGETS);
-
-/** Main's read outcome: a result, the engine's model-correctable message, or the generic failure. */
-export const QuerySelfReadResultSchema = z.union([
-  z.object({
-    ok: z.literal(true),
-    result: z.discriminatedUnion('kind', [
-      z.object({
-        columns: z.array(z.string()),
-        estimatedCost: z.number().exactOptional(),
-        hint: z.string().exactOptional(),
-        kind: z.literal('rows'),
-        rowCount: z.number().int(),
-        rows: z.array(z.object({ cells: z.array(z.string()) })),
-        target: QuerySelfTarget,
-        truncated: z.boolean(),
-      }),
-      z.object({
-        kind: z.literal('tables'),
-        tables: z.array(z.object({ estimatedRows: z.number().nullable(), name: z.string() })),
-        target: QuerySelfTarget,
-        truncated: z.boolean().exactOptional(),
-      }),
-      z.object({
-        columns: z.array(
-          z.object({ dataType: z.string(), name: z.string(), nullable: z.boolean() })
-        ),
-        kind: z.literal('columns'),
-        table: z.string(),
-        target: QuerySelfTarget,
-        truncated: z.boolean().exactOptional(),
-      }),
-      z.object({
-        analyzed: z.boolean(),
-        kind: z.literal('plan'),
-        plan: z.array(z.string()),
-        target: QuerySelfTarget,
-      }),
-    ]),
-  }),
-  z.object({ error: z.literal('input'), message: z.string(), ok: z.literal(false) }),
-  z.object({ error: z.literal('failed'), ok: z.literal(false) }),
-]);
 
 const Severity = z.enum(['warn', 'error', 'fatal']);
 

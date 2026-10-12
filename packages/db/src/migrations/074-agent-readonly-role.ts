@@ -49,22 +49,8 @@ import type { Migration } from './migration-runner';
  * Revoking from PUBLIC (not just from the role) is correct: no application code
  * calls these, and `postgres` retains access as superuser. Pinned by tests.
  */
-export const migration074AgentReadonlyRole: Migration = {
-  down: `
-    DO $$
-    BEGIN
-      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'brainstrike_agent_readonly') THEN
-        ALTER DEFAULT PRIVILEGES IN SCHEMA public
-          REVOKE SELECT ON TABLES FROM brainstrike_agent_readonly;
-        REVOKE SELECT ON ALL TABLES IN SCHEMA public FROM brainstrike_agent_readonly;
-        REVOKE USAGE ON SCHEMA public FROM brainstrike_agent_readonly;
-        DROP ROLE brainstrike_agent_readonly;
-      END IF;
-    END $$;
-  `,
-  ledgerKey: 'custom-074-agent-readonly-role',
-  name: 'agent_readonly_role',
-  up: `
+/** Creates the role and its grants; migration 151's rollback re-applies it. */
+export const AGENT_READONLY_ROLE_CREATE_SQL = `
     DO $$
     BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'brainstrike_agent_readonly') THEN
@@ -84,6 +70,26 @@ export const migration074AgentReadonlyRole: Migration = {
     REVOKE EXECUTE ON FUNCTION pg_sleep_until(timestamp with time zone) FROM PUBLIC;
 
     REVOKE EXECUTE ON FUNCTION set_config(text, text, boolean) FROM PUBLIC;
-  `,
+  `;
+
+/** Drops the role and its grants; migration 151 runs it to remove the role. */
+export const AGENT_READONLY_ROLE_DROP_SQL = `
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'brainstrike_agent_readonly') THEN
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public
+          REVOKE SELECT ON TABLES FROM brainstrike_agent_readonly;
+        REVOKE SELECT ON ALL TABLES IN SCHEMA public FROM brainstrike_agent_readonly;
+        REVOKE USAGE ON SCHEMA public FROM brainstrike_agent_readonly;
+        DROP ROLE brainstrike_agent_readonly;
+      END IF;
+    END $$;
+  `;
+
+export const migration074AgentReadonlyRole: Migration = {
+  down: AGENT_READONLY_ROLE_DROP_SQL,
+  ledgerKey: 'custom-074-agent-readonly-role',
+  name: 'agent_readonly_role',
+  up: AGENT_READONLY_ROLE_CREATE_SQL,
   version: 74,
 };

@@ -2365,15 +2365,15 @@ Prompt budgets for the full hosted desktop tool surface:
   builds the real registry and resolved hosted instructions with the default
   skills engine enabled. The canonical authored representation converts the real
   Zod inputs through the Standard Schema input protocol and must stay INSIDE the
-  10,096–10,396 `o200k_base` band: the ceiling bounds growth, the floor detects a
+  9,675–9,975 `o200k_base` band: the ceiling bounds growth, the floor detects a
   tool or schema silently falling out of the registry.
 - When the ceiling fires, TRIM BEFORE RAISING. Move both bounds together — the
   ~300-token width is the contract — and record the trade in the test's comment
   ledger. Do not weaken validation constraints, spoof provider/model identity, or
   remove cross-tool safety invariants to make either number pass.
 - The live actual Mastra/OpenRouter core surface and resolved instructions must
-  stay between 2,000 and 5,000 tokens. The authored eager baseline of 39 tools
-  sits in its 9,340–9,640 band and the 8-tool critical definition surface in its
+  stay between 2,000 and 5,000 tokens. The authored eager baseline of 38 tools
+  sits in its 8,802–9,102 band and the 8-tool critical definition surface in its
   2,016–2,316 band, before discovery controls are added.
 - Both count schemas AND instructions for their declared surfaces, not
   descriptions alone. The core envelope excludes processor-added discovery
