@@ -24,6 +24,19 @@ export {
   matchesContentPattern,
   matchesExpectedPath,
 } from './metrics';
+// BST-1939: the repository retrieval harness, for the desktop qualification runner.
+export {
+  type CandidatePool,
+  checkRetrievalImprovement,
+  type EvaluationChunkingPolicy,
+  type EvaluationEmbeddingProfile,
+  type EvaluationHit,
+  type RepositoryEvaluationReport,
+  type RepositoryRetrievalFixture,
+  type RetrievalArm,
+  repositoryRetrievalFixtureSchema,
+  runRepositoryRetrievalEvaluation,
+} from './repository-retrieval';
 export {
   type AggregateMetrics,
   DEFAULT_EVALUATION_CONFIG,

@@ -136,9 +136,15 @@ function similarity(left: string, right: string): number {
   return total === 0 ? 0 : shared / total;
 }
 
+/** Words as the state index's lexical arm reads a query: letter, digit and underscore runs. */
+function words(text: string): string[] {
+  return text.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? [];
+}
+
 /**
- * Legacy's title arm: every query word (or, as the fallback, any word)
- * appears in an admitted root thread's title, ranked by trigram similarity.
+ * Legacy's title arm, ranked by trigram similarity: every query word appears
+ * in an admitted root thread's title. The any-word fallback matches whole
+ * title words, so a one-letter query word does not match every title.
  */
 function titleMatches(
   core: HostThreadSearchCore,
@@ -146,11 +152,14 @@ function titleMatches(
   query: string,
   match: 'all' | 'any'
 ): HostResults['thread/search']['titles'] {
-  const words = query.toLowerCase().split(/\s+/u).filter(Boolean);
-  const holds = (title: string): boolean =>
-    match === 'all'
-      ? words.every((word) => title.toLowerCase().includes(word))
-      : words.some((word) => title.toLowerCase().includes(word));
+  const queryWords = query.toLowerCase().split(/\s+/u).filter(Boolean);
+  const holds = (title: string): boolean => {
+    if (match === 'all') {
+      return queryWords.every((word) => title.toLowerCase().includes(word));
+    }
+    const titleWords = new Set(words(title));
+    return words(query).some((word) => titleWords.has(word));
+  };
   return core
     .listThreads()
     .flatMap(({ threadId, title }) =>
@@ -363,8 +372,14 @@ export async function searchHostThreads(
       ? vectors.similar({ ...params.semantic, limit, threadIds })
       : Promise.resolve([]),
   ]);
-  const anyWord = everyWord.messages.length === 0 && everyWord.titles.length === 0;
-  const { messages, titles } = anyWord ? await lexicalArms('any') : everyWord;
+  const relaxed =
+    everyWord.messages.length === 0 && everyWord.titles.length === 0
+      ? await lexicalArms('any')
+      : undefined;
+  // `any-word` reports a relaxation that found something; finding nothing changes nothing.
+  const anyWord =
+    relaxed !== undefined && (relaxed.messages.length > 0 || relaxed.titles.length > 0);
+  const { messages, titles } = relaxed ?? everyWord;
   const similar = await selectedMessages(
     core,
     owned,
