@@ -7,9 +7,13 @@ import type { ChunkingRequestOptions } from '../shared';
 export type { PortableChunkingResult } from '../portable-chunking';
 export type { ChunkingRequestOptions, PortableChunk } from '../shared';
 
+/**
+ * The code parser is the only choice. Python always parses with the vendored
+ * tree-sitter grammar: canonical chunking has no configuration in which it
+ * claims Python but has no parser for it (BST-1983).
+ */
 export interface NodeChunkerOptions {
   readonly parser: 'oxc' | 'babel';
-  readonly treeSitterLanguages: readonly 'python'[];
 }
 export type NodeChunker = (
   content: string,
@@ -21,24 +25,14 @@ export function createNodeChunker(options: NodeChunkerOptions): NodeChunker {
   if ((process as { type?: string }).type === 'browser') {
     throw new Error('Canonical chunking must run in the utility process, never Electron main.');
   }
-  if (
-    (options.parser !== 'oxc' && options.parser !== 'babel') ||
-    !Array.isArray(options.treeSitterLanguages) ||
-    options.treeSitterLanguages.some((language) => language !== 'python')
-  ) {
+  if (options.parser !== 'oxc' && options.parser !== 'babel') {
     throw new Error('Canonical Node parser configuration is invalid.');
   }
-  const enabledTreeSitterLanguages = [...options.treeSitterLanguages];
   const codeAdapter = options.parser === 'oxc' ? oxcNativeAdapter : babelAdapter;
+  const pythonAdapter = treeSitterAdapter('python');
   return (content, chunkOptions) =>
     chunkContent(content, chunkOptions, {
-      enabledTreeSitterLanguages,
-      selectAdapter: (fileName) => {
-        if (/\.pyi?$/i.test(fileName ?? '')) {
-          return enabledTreeSitterLanguages.includes('python') ? treeSitterAdapter('python') : null;
-        }
-        return codeAdapter;
-      },
+      selectAdapter: (fileName) => (/\.pyi?$/i.test(fileName ?? '') ? pythonAdapter : codeAdapter),
       strict: true,
     });
 }

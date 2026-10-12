@@ -8,7 +8,7 @@ const fixture = JSON.parse(
     'utf8'
   )
 );
-const chunker = createNodeChunker({ parser: 'oxc', treeSitterLanguages: ['python'] });
+const chunker = createNodeChunker({ parser: 'oxc' });
 const result = await chunker(fixture.content, {
   filePath: fixture.relativePath,
   maxTokens: 256,
