@@ -231,7 +231,15 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
 
   it('Task: "what folders are open?" — listWorkspaceContext lists both roots', async () => {
     const executeTool = requireToolExecute(
-      buildHostNativeTools(twoRootRuntime()),
+      buildHostNativeTools(twoRootRuntime(), {
+        // The listing reports Main's native index status beside the open roots.
+        request: async (method) => {
+          if (method !== 'desktop-read/index/status') {
+            throw new Error(`Unexpected Main request ${method}`);
+          }
+          return { kind: 'unavailable', reason: 'This case indexes nothing.' };
+        },
+      }),
       'brainstrike.listWorkspaceContext'
     );
     const result = await executeTool({ context: {} });

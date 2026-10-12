@@ -17,7 +17,8 @@ import {
   browserToolExecutors,
 } from '../assistant-server/native-tool-executors-browser';
 import {
-  CONTEXT_TOOL_EXECUTORS,
+  CONTEXT_READ_TOOL_IDS,
+  contextReadExecutors,
   contextWriteExecutors,
 } from '../assistant-server/native-tool-executors-context';
 import { grepSearchExecutor } from '../assistant-server/native-tool-executors-grep';
@@ -44,6 +45,7 @@ import {
 import { admittedWorkspaceSkills } from '../assistant-server/request-skills';
 import { createSecureSkillsFs } from '../assistant-server/skills-fs-deps';
 import type { WorkspaceContextBroadcaster } from '../assistant-server/workspace-context-tools';
+import { nativeWorkspaceIndexSummary } from '../assistant-server/workspace-index-summary';
 import type { WorktreeToolCapability } from '../assistant-server/worktree-tools';
 import { resolvePythonBinary } from '../python-runtime/resolve-python-binary';
 import { resolveDesktopPythonRuntimeResourcesDir } from '../python-runtime/resources-dir';
@@ -71,7 +73,7 @@ const logger = createLogger('DesktopHostTools');
 
 /** Desktop tools the agent host runs in its own process beside the shared ones. */
 const DESKTOP_HOST_TOOL_IDS: ReadonlySet<string> = new Set([
-  ...Object.keys(CONTEXT_TOOL_EXECUTORS),
+  ...CONTEXT_READ_TOOL_IDS,
   NATIVE_TOOL_ID.updateWorkspaceContextSelection,
   NATIVE_TOOL_ID.updateWorkspaceTapestrySelections,
   NATIVE_TOOL_ID.queryDiagnostics,
@@ -328,7 +330,9 @@ export function desktopHostToolExecutors(
       },
       store,
     })),
-    ...CONTEXT_TOOL_EXECUTORS,
+    ...contextReadExecutors(async () =>
+      nativeWorkspaceIndexSummary(await nativeIndexSearch.status())
+    ),
     ...contextWriteExecutors(hostContextDelivery(request, threadId)),
     ...INSPECTION_TOOL_EXECUTORS,
     [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor(hostGrepIndex(request, threadId)),

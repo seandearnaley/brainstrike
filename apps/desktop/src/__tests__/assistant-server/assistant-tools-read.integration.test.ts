@@ -222,6 +222,34 @@ function hostTools(
   });
 }
 
+/** A ready text-only native index: the status the curated-context listing reports. */
+const TEXT_INDEX: Pick<IndexSearchCapability, 'status'> = {
+  status: async () => ({
+    authorizedRootIds: [],
+    embedding: { indexMode: 'text-only' },
+    kind: 'ready',
+    rootReadiness: [],
+    storeId,
+  }),
+};
+
+/** No folder open: the native index has nothing to index. */
+const UNAVAILABLE_INDEX: Pick<IndexSearchCapability, 'status'> = {
+  status: async () => ({
+    kind: 'unavailable',
+    phase: 'setup-required',
+    reason: 'Open a folder to index it.',
+  }),
+};
+
+/** The host fold whose Main answers the native index status, for the context listing. */
+function contextTools(
+  runtimeData: RuntimeData,
+  indexSearch: Pick<IndexSearchCapability, 'status'> = TEXT_INDEX
+): TestMastraTools {
+  return hostTools(runtimeData, { request: mainRequest({ indexSearch }) });
+}
+
 /** Main's ready native index over one root, as the index process answers it. */
 function nativeIndexWith(
   rootId: string,
@@ -2650,7 +2678,7 @@ describe('assistant-tools read tools', () => {
 
   it('lists selected workspace context without returning file contents', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = hostTools({
+    const tools = contextTools({
       ...singleRootRuntime(workspaceRootPath),
       selectionFilePaths: ['/src/main.ts', '/README.md'],
       selectionFolderId: 'root-1',
@@ -2670,11 +2698,61 @@ describe('assistant-tools read tools', () => {
     await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
+  it('reports the native workspace index status in the workspace context listing', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = hostTools(singleRootRuntime(workspaceRootPath), {
+      request: mainRequest({
+        indexSearch: nativeIndexWith(workspaceRootPath, unexpectedGrep, ['set-1']),
+      }),
+    });
+    const executeTool = requireToolExecute(tools, 'brainstrike.listWorkspaceContext');
+
+    const result = await executeTool({ context: {} });
+
+    // The host's index is Main's native index: its status, never renderer hints.
+    expect(result.workspaceIndex).toEqual({
+      embeddingSetId: 'set-1',
+      enabled: true,
+      mode: 'TEXT',
+      paused: false,
+    });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+  });
+
+  it('reports an unavailable native workspace index as disabled', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = hostTools(singleRootRuntime(workspaceRootPath), {
+      request: mainRequest({
+        indexSearch: {
+          status: async () => ({
+            kind: 'unavailable',
+            phase: 'setup-required',
+            reason: 'Choose a search mode to index this folder.',
+          }),
+        },
+      }),
+    });
+    const executeTool = requireToolExecute(tools, 'brainstrike.listWorkspaceContext');
+
+    const result = await executeTool({ context: {} });
+
+    expect(result.workspaceIndex).toEqual({
+      embeddingSetId: null,
+      enabled: false,
+      mode: null,
+      paused: false,
+    });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+  });
+
   it('returns an explicit empty workspace context when root resolution completed with zero roots', async () => {
-    const tools = hostTools({
-      provider: 'openai',
-      workspaceRoots: [],
-    } as RuntimeData);
+    const tools = contextTools(
+      {
+        provider: 'openai',
+        workspaceRoots: [],
+      } as RuntimeData,
+      UNAVAILABLE_INDEX
+    );
     const executeTool = requireToolExecute(tools, 'brainstrike.listWorkspaceContext');
 
     await expect(executeTool({ context: {} })).resolves.toEqual({
@@ -2695,7 +2773,7 @@ describe('assistant-tools read tools', () => {
   });
 
   it('still fails when root resolution did not produce an authoritative result', async () => {
-    const tools = hostTools({
+    const tools = contextTools({
       provider: 'openai',
     } as RuntimeData);
     const executeTool = requireToolExecute(tools, 'brainstrike.listWorkspaceContext');
@@ -2704,7 +2782,7 @@ describe('assistant-tools read tools', () => {
   });
 
   it('still fails when resolved root metadata is malformed', async () => {
-    const tools = hostTools({
+    const tools = contextTools({
       provider: 'openai',
       workspaceRoots: [{ displayName: 'broken', path: 'relative', rootId: 'root-broken' }],
     } as unknown as RuntimeData);
@@ -2714,7 +2792,7 @@ describe('assistant-tools read tools', () => {
   });
 
   it('fails when zero roots retain a selection count from other roots', async () => {
-    const tools = hostTools({
+    const tools = contextTools({
       provider: 'openai',
       selectionFilePathsFromOtherRoots: 1,
       workspaceRoots: [],
@@ -2726,7 +2804,7 @@ describe('assistant-tools read tools', () => {
 
   it('reports selected files living in OTHER workspace roots (multi-root forest)', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = hostTools({
+    const tools = contextTools({
       ...singleRootRuntime(workspaceRootPath),
       selectionFilePaths: ['/src/main.ts'],
       // Multi-root: 4 selected files belong to roots the single-root toolset
@@ -2746,7 +2824,7 @@ describe('assistant-tools read tools', () => {
   it('lists every open workspace root so the model can qualify the other tools', async () => {
     const rootAPath = path.join(os.tmpdir(), 'ProjectA');
     const rootBPath = path.join(os.tmpdir(), 'ProjectB');
-    const tools = hostTools({
+    const tools = contextTools({
       selectionFilePaths: [],
       workspaceRoots: [
         { displayName: 'ProjectA', path: rootAPath, rootId: 'id-a' },
@@ -2765,7 +2843,7 @@ describe('assistant-tools read tools', () => {
 
   it('rejects a workspace context list when only a renderer focus path is present', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = hostTools({
+    const tools = contextTools({
       selectionFilePaths: [],
       workspaceRootPath,
     } as RuntimeData);
@@ -2778,7 +2856,7 @@ describe('assistant-tools read tools', () => {
 
   it('lists token-aware curated workspace context metadata without file contents', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = hostTools({
+    const tools = contextTools({
       ...singleRootRuntime(workspaceRootPath),
       selectionFilePaths: ['/src/main.ts', '/README.md'],
       selectionFolderId: 'root-1',
@@ -2855,7 +2933,7 @@ describe('assistant-tools read tools', () => {
       { length: 2000 },
       (_, i) => `/packages/some-package/src/deeply/nested/dir-${i}/file-with-a-long-name-${i}.ts`
     );
-    const tools = hostTools({
+    const tools = contextTools({
       ...singleRootRuntime(workspaceRootPath),
       selectionFilePaths,
     } as RuntimeData);

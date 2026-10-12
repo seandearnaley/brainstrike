@@ -7,13 +7,7 @@ import type {
   RetrievalUnavailableResult,
   RuntimeData,
 } from '@brainstrike/agent';
-import {
-  ContextPacker,
-  createWorkspaceIndexUnavailableResult,
-  hasWorkspaceIndexRuntimeStatus,
-  normalizeOptionalText,
-  resolveWorkspaceIndexEmbeddingSetId,
-} from '@brainstrike/agent';
+import { ContextPacker } from '@brainstrike/agent';
 import { SecretReadError } from '@brainstrike/agent-host/credential-contract';
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
@@ -165,17 +159,6 @@ function stripChunkContent(chunks: readonly PackedContextChunk[]): RetrievalResu
     ...(chunk.offsets === undefined ? {} : { offsets: chunk.offsets }),
     ...(chunk.score === undefined ? {} : { score: chunk.score }),
   }));
-}
-
-function resolveRuntimeEmbeddingSetId(
-  runtime: RuntimeData | undefined,
-  inputEmbeddingSetId: string | undefined
-): string | undefined {
-  return (
-    normalizeOptionalText(inputEmbeddingSetId) ??
-    normalizeOptionalText(runtime?.embeddingSetId) ??
-    resolveWorkspaceIndexEmbeddingSetId(runtime)
-  );
 }
 
 function resolveTokenBudget(runtime: RuntimeData | undefined, override?: number): number {
@@ -346,6 +329,7 @@ async function runRetrieval(
   input: RetrievalContextInput,
   runtimeData: RuntimeData | undefined,
   dependencies: RetrievalToolDependencies,
+  nativeIndexSearch: IndexSearchCapability,
   store: RetrievalStore,
   signal?: AbortSignal
 ): Promise<RetrievalToolExecutionResult> {
@@ -356,48 +340,26 @@ async function runRetrieval(
     dependencies.admittedWorkspaceRootIds,
     rootId
   );
-  const embeddingSetId = dependencies.nativeIndexSearch
-    ? await resolveNativeAssistantCollection(
-        dependencies.nativeIndexSearch,
-        input.embeddingSetId,
-        signal
-      )
-    : resolveRuntimeEmbeddingSetId(runtimeData, input.embeddingSetId);
-  if (!embeddingSetId) {
-    const unavailable = createWorkspaceIndexUnavailableResult(runtimeData, query);
-    if (unavailable) {
-      return unavailable;
-    }
-    // Invariant, not a user surface (BST-1020 review): runQueryEmbeddingSpace
-    // — the sole caller — admits a request only with an explicit set or
-    // workspace-index runtime status, and createWorkspaceIndexUnavailableResult
-    // returns non-null for exactly that status. Reaching here means the two
-    // predicates diverged; the sanitizer genericizes this loudly.
-    throw new Error(
-      'Retrieval invariant violated: no embedding set and no workspace-index status.'
-    );
-  }
-
+  const embeddingSetId = await resolveNativeAssistantCollection(
+    nativeIndexSearch,
+    input.embeddingSetId,
+    signal
+  );
   signal?.throwIfAborted();
   const embeddingSet = await store.embeddingSet(embeddingSetId);
-  const native = dependencies.nativeIndexSearch
-    ? await searchNativeAssistantChunks({
-        ...input,
-        admittedWorkspaceRootIds: admittedRootIds,
-        capability: dependencies.nativeIndexSearch,
-        embeddingHostManager: dependencies.embeddingHostManager,
-        embeddingSet,
-        embeddingSetId,
-        mode: 'semantic',
-        query,
-        rootId,
-        signal,
-        threshold: input.threshold ?? DEFAULT_THRESHOLD,
-      })
-    : undefined;
-  if (!native) {
-    throw new Error(NO_NATIVE_INDEX_RETRIEVAL);
-  }
+  const native = await searchNativeAssistantChunks({
+    ...input,
+    admittedWorkspaceRootIds: admittedRootIds,
+    capability: nativeIndexSearch,
+    embeddingHostManager: dependencies.embeddingHostManager,
+    embeddingSet,
+    embeddingSetId,
+    mode: 'semantic',
+    query,
+    rootId,
+    signal,
+    threshold: input.threshold ?? DEFAULT_THRESHOLD,
+  });
   const searchResults: Parameters<typeof packRetrievedContext>[1] = native.hits.map(
     ({ hit, similarity }, index) => {
       if (hit.chunkIndex === null || hit.tokenCount === null || similarity === undefined) {
@@ -475,18 +437,20 @@ export async function runQueryEmbeddingSpaceWith(
 ): Promise<RetrievalToolExecutionResult> {
   try {
     signal?.throwIfAborted();
-    const hasExplicitEmbeddingSet = Boolean(normalizeOptionalText(input.embeddingSetId));
-    if (
-      !(
-        dependencies.nativeIndexSearch ||
-        hasExplicitEmbeddingSet ||
-        hasWorkspaceIndexRuntimeStatus(runtimeData)
-      )
-    ) {
-      throw new Error(RETRIEVAL_ERROR_MESSAGES.missingQueryEmbeddingSpace);
+    const { nativeIndexSearch } = dependencies;
+    if (!nativeIndexSearch) {
+      // The agent host retrieves only through the native index.
+      throw new Error(NO_NATIVE_INDEX_RETRIEVAL);
     }
     const explicitRuntimeData = omitImplicitContextRuntimeData(runtimeData);
-    return await runRetrieval(input, explicitRuntimeData, dependencies, store, signal);
+    return await runRetrieval(
+      input,
+      explicitRuntimeData,
+      dependencies,
+      nativeIndexSearch,
+      store,
+      signal
+    );
   } catch (error) {
     if (dependencies.nativeIndexSearch && signal?.aborted && error instanceof AggregateError) {
       throw new Error(RETRIEVAL_ERROR_MESSAGES.retrievalFailed, { cause: error });

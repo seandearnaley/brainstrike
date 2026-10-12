@@ -346,30 +346,6 @@ describe('grep search tool', () => {
     expect(() => projectGrepSearchModelOutput(result)).not.toThrow();
   });
 
-  it('passes the workspace-index embedding set id from runtimeData', async () => {
-    const runtimeData: Partial<RuntimeData> = {
-      workspaceIndexEmbeddingSetId: 'set-1',
-      workspaceIndexingEnabled: true,
-      workspaceIndexStatusState: 'idle',
-    };
-    // The native index scopes grep to the requested collection: it must be
-    // authorized, and every returned hit must belong to it.
-    f = nativeGrepFixture({ authorizedCollectionIds: ['set-1'] });
-    f.serve([{ content: 'needle', embedding_set_id: 'set-1', path: 'src/x.ts', start_line: 1 }]);
-    await expect(
-      grepSearch({ pattern: 'needle' }, runtimeData as RuntimeData)
-    ).resolves.toMatchObject({ totalMatches: 1 });
-    f.serve([{ content: 'needle', embedding_set_id: 'other', path: 'src/x.ts', start_line: 1 }]);
-    await expect(grepSearch({ pattern: 'needle' }, runtimeData as RuntimeData)).rejects.toThrow(
-      /Unable to perform grep search/
-    );
-    f = nativeGrepFixture({ authorizedCollectionIds: ['other'] });
-    await expect(grepSearch({ pattern: 'needle' }, runtimeData as RuntimeData)).rejects.toThrow(
-      /Unable to perform grep search/
-    );
-    expect(f.grep).not.toHaveBeenCalled();
-  });
-
   it('surfaces invalid-regex errors without coercion', async () => {
     await expect(grepSearch({ isRegex: true, pattern: '([' }, undefined)).rejects.toThrow(
       /Invalid regular expression pattern/

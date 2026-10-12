@@ -14,7 +14,7 @@ vi.mock('@brainstrike/db', () => ({
   },
 }));
 
-import type { ListEmbeddingSetsInput, RuntimeData } from '@brainstrike/agent';
+import type { ListEmbeddingSetsInput } from '@brainstrike/agent';
 import { runListEmbeddingSpacesWith } from '../../assistant-server/list-embedding-spaces-core';
 import { pgliteRetrievalStore } from '../../assistant-server/retrieval-store-pglite';
 import { catalogOnly } from './_c1-a-helpers';
@@ -22,15 +22,9 @@ import { catalogOnly } from './_c1-a-helpers';
 /** The host's listEmbeddingSpaces: the shared core over Main's catalog reads. */
 function runListEmbeddingSpaces(
   input: ListEmbeddingSetsInput,
-  runtimeData: RuntimeData | undefined,
   nativeIndexSearch: IndexSearchCapability
 ) {
-  return runListEmbeddingSpacesWith(
-    input,
-    runtimeData,
-    nativeIndexSearch,
-    catalogOnly(pgliteRetrievalStore())
-  );
+  return runListEmbeddingSpacesWith(input, nativeIndexSearch, catalogOnly(pgliteRetrievalStore()));
 }
 
 const setId = '3a1a8c0b-01ee-4d13-9936-d8cc24edbd18';
@@ -102,7 +96,6 @@ it('advertises the authorized native set and observed native counts instead of l
   const native = capability();
   const result = await runListEmbeddingSpaces(
     { includeStats: true, workspaceIndexOnly: true },
-    { workspaceIndexEmbeddingSetId: 'stale-legacy' },
     native
   );
   expect(result.workspaceIndex.embeddingSetId).toBe(setId);
@@ -128,7 +121,6 @@ it('advertises the authorized native set and observed native counts instead of l
 it('reports invalidated native coverage explicitly and never replaces it with legacy counters', async () => {
   const result = await runListEmbeddingSpaces(
     { includeStats: true },
-    undefined,
     capability({ code: 'native-coverage-observation-invalidated', kind: 'invalidated' })
   );
   expect(result).toMatchObject({
@@ -160,7 +152,7 @@ it('preserves ordinary collection statistics without advertising them as native 
       stats,
     },
   ]);
-  const result = await runListEmbeddingSpaces({ includeStats: true }, undefined, capability());
+  const result = await runListEmbeddingSpaces({ includeStats: true }, capability());
   expect(result.spaces[0]).toMatchObject({
     coverage: { ...stats, coveragePercent: 50 },
     id: 'ordinary',

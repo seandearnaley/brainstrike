@@ -1,10 +1,8 @@
 import {
   fitItemsToCharBudget,
   type GrepSearchInput,
-  normalizeOptionalText,
   type RuntimeData,
   type RuntimeWorkspaceRoot,
-  resolveWorkspaceIndexEmbeddingSetId,
 } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import type { GrepMatch, GrepSearchOptions, GrepSearchResult, LineMatcher } from '@brainstrike/db';
@@ -537,7 +535,6 @@ function runIndexSearch(args: {
   /** BST-764: the normalized allowlist — NOT `input.filePaths`. Both passes take this same list. */
   filePaths: readonly string[] | undefined;
   serviceMaxResults: number;
-  embeddingSetId: string | undefined;
   rootId: string | undefined;
   /** Roots the absolute filePaths entries resolved to; pins the index pass to them. */
   rootIds?: readonly string[];
@@ -550,7 +547,6 @@ function runIndexSearch(args: {
     ...(args.filePaths === undefined ? {} : { filePaths: [...args.filePaths] }),
     contextLines: args.contextLines,
     maxResults: args.serviceMaxResults,
-    ...(args.embeddingSetId === undefined ? {} : { embeddingSetId: args.embeddingSetId }),
     ...(args.rootId === undefined ? {} : { rootId: args.rootId }),
     ...(args.rootIds === undefined ? {} : { rootIds: args.rootIds }),
   });
@@ -564,7 +560,6 @@ async function runProbeIndexSearch(args: {
   isRegex: boolean;
   caseSensitive: boolean;
   filePaths: readonly string[] | undefined;
-  embeddingSetId: string | undefined;
   rootId: string | undefined;
   rootIds?: readonly string[];
 }): Promise<ZeroMatchProbeCount> {
@@ -580,7 +575,6 @@ async function runProbeIndexSearch(args: {
     isRegex: args.isRegex,
     maxResults: PROBE_INDEX_MAX_RESULTS,
     pattern: args.pattern,
-    ...(args.embeddingSetId === undefined ? {} : { embeddingSetId: args.embeddingSetId }),
     ...(args.filePaths === undefined ? {} : { filePaths: args.filePaths }),
     ...(args.rootId === undefined ? {} : { rootId: args.rootId }),
     ...(args.rootIds === undefined ? {} : { rootIds: args.rootIds }),
@@ -614,11 +608,6 @@ export async function runGrepSearchWith(
   runtimeData: RuntimeData | undefined,
   index: GrepIndexSearch
 ): Promise<GrepToolResult> {
-  const embeddingSetId =
-    normalizeOptionalText(runtimeData?.embeddingSetId) ??
-    resolveWorkspaceIndexEmbeddingSetId(runtimeData) ??
-    undefined;
-
   // An explicit `root` or durable thread binding scopes the search to one open
   // folder. Resolve it BEFORE the try/catch so an unknown/ambiguous folder
   // surfaces its actionable "Open folders: ..." message to the model instead
@@ -679,7 +668,6 @@ export async function runGrepSearchWith(
     const serviceResult = labelIndexMatchRoots(
       await runIndexSearch({
         contextLines,
-        embeddingSetId,
         filePaths,
         input,
         rootId,
@@ -709,7 +697,6 @@ export async function runGrepSearchWith(
               runCaseProbe: (signal) =>
                 runProbeIndexSearch({
                   caseSensitive: false,
-                  embeddingSetId,
                   filePaths,
                   isRegex,
                   pattern: input.pattern,
@@ -733,7 +720,6 @@ export async function runGrepSearchWith(
               runLiteralProbe: (signal) =>
                 runProbeIndexSearch({
                   caseSensitive,
-                  embeddingSetId,
                   filePaths,
                   isRegex: false,
                   pattern: input.pattern,

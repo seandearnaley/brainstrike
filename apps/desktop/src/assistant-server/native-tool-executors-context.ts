@@ -24,48 +24,58 @@ import {
   runUpdateWorkspaceTapestrySelections,
   type WorkspaceContextBroadcaster,
 } from './workspace-context-tools';
+import type { WorkspaceIndexSummary } from './workspace-index-summary';
 
-export const CONTEXT_TOOL_EXECUTORS: {
+/** The curated-context read tools' ids, for the host's executed-tool set. */
+export const CONTEXT_READ_TOOL_IDS = [
+  NATIVE_TOOL_ID.listWorkspaceContext,
+  NATIVE_TOOL_ID.readWorkspaceContext,
+] as const;
+
+/** The curated-context reads; the listing reports the native index status `readWorkspaceIndex` returns. */
+export function contextReadExecutors(readWorkspaceIndex: () => Promise<WorkspaceIndexSummary>): {
   readonly [NATIVE_TOOL_ID.listWorkspaceContext]: NativeToolExecutor;
   readonly [NATIVE_TOOL_ID.readWorkspaceContext]: NativeToolExecutor;
-} = {
-  [NATIVE_TOOL_ID.listWorkspaceContext]: ({ resolveActiveDomainCharBudget, runtimeData }) => ({
-    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.listWorkspaceContext],
-    execute: async (input: ToolExecuteInput<ListWorkspaceContextInput>) => {
-      const resolvedInput = parseToolExecuteInput(
-        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listWorkspaceContext],
-        input
-      );
-      try {
-        return runListWorkspaceContext(resolvedInput, runtimeData);
-      } catch (error) {
-        logToolFailure('listWorkspaceContext failed', error, resolvedInput);
-        throw error;
-      }
-    },
-    id: NATIVE_TOOL_ID.listWorkspaceContext,
-    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listWorkspaceContext],
-    toModelOutput: (output: unknown) =>
-      projectListWorkspaceContextModelOutput(output, resolveActiveDomainCharBudget()),
-  }),
-  [NATIVE_TOOL_ID.readWorkspaceContext]: ({ runtimeData }) => ({
-    description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.readWorkspaceContext],
-    execute: async (input: ToolExecuteInput<ReadWorkspaceContextInput>) => {
-      const resolvedInput = parseToolExecuteInput(
-        NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceContext],
-        input
-      );
-      try {
-        return await runReadWorkspaceContext(resolvedInput, runtimeData);
-      } catch (error) {
-        logToolFailure('readWorkspaceContext failed', error, resolvedInput);
-        throw error;
-      }
-    },
-    id: NATIVE_TOOL_ID.readWorkspaceContext,
-    inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceContext],
-  }),
-};
+} {
+  return {
+    [NATIVE_TOOL_ID.listWorkspaceContext]: ({ resolveActiveDomainCharBudget, runtimeData }) => ({
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.listWorkspaceContext],
+      execute: async (input: ToolExecuteInput<ListWorkspaceContextInput>) => {
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listWorkspaceContext],
+          input
+        );
+        try {
+          return runListWorkspaceContext(resolvedInput, runtimeData, await readWorkspaceIndex());
+        } catch (error) {
+          logToolFailure('listWorkspaceContext failed', error, resolvedInput);
+          throw error;
+        }
+      },
+      id: NATIVE_TOOL_ID.listWorkspaceContext,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.listWorkspaceContext],
+      toModelOutput: (output: unknown) =>
+        projectListWorkspaceContextModelOutput(output, resolveActiveDomainCharBudget()),
+    }),
+    [NATIVE_TOOL_ID.readWorkspaceContext]: ({ runtimeData }) => ({
+      description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.readWorkspaceContext],
+      execute: async (input: ToolExecuteInput<ReadWorkspaceContextInput>) => {
+        const resolvedInput = parseToolExecuteInput(
+          NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceContext],
+          input
+        );
+        try {
+          return await runReadWorkspaceContext(resolvedInput, runtimeData);
+        } catch (error) {
+          logToolFailure('readWorkspaceContext failed', error, resolvedInput);
+          throw error;
+        }
+      },
+      id: NATIVE_TOOL_ID.readWorkspaceContext,
+      inputSchema: NATIVE_TOOL_INPUT_SCHEMAS[NATIVE_TOOL_ID.readWorkspaceContext],
+    }),
+  };
+}
 
 /** The selection write-backs: validated here, delivered to the windows by `broadcaster`. */
 export function contextWriteExecutors(broadcaster: WorkspaceContextBroadcaster): {
