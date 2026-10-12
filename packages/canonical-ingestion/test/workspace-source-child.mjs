@@ -422,7 +422,7 @@ async function runChild() {
         scanComplete: receipt.scanComplete,
       }),
     onWatchHealth: () => {},
-    parser: { parser: 'oxc', treeSitterLanguages: ['python'] },
+    parser: { parser: 'oxc' },
     publication: {
       abortScan: async () => {},
       beginScan: async (request) => ({

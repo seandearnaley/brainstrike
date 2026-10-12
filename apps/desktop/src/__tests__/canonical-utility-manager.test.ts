@@ -70,7 +70,7 @@ function dependencies(read: () => Promise<void>): CanonicalCollectionDependencie
         throw new Error('TEXT profile resolved');
       },
     },
-    parser: { parser: 'oxc', treeSitterLanguages: [] },
+    parser: { parser: 'oxc' },
     publication: {
       abortScan: async () => {},
       beginScan: async ({ requestId }) => ({ generation: 1, requestId, scope, storeId: 'store' }),
