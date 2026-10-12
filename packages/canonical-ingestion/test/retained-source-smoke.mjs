@@ -45,7 +45,7 @@ const host = new CanonicalIngestionHost({
       assert.fail('TEXT resolved a model profile.');
     },
   },
-  parser: { parser: 'oxc', treeSitterLanguages: ['python'] },
+  parser: { parser: 'oxc' },
   publication: {
     async abortScan() {
       assert.fail('Unexpected cancellation.');

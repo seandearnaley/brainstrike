@@ -8,25 +8,25 @@
         "chunkIndex": 0,
         "chunkSize": 256,
         "chunkType": "recursive",
-        "content": "import { projectToolOutputArtifactPage } from '@brainstrike/agent';\n\n/** The central model-projection wrapper invokes this with the sanitized tool as receiver, including its exact callable id. */\nexport",
-        "contentHash": "e1f8c75f1573d20c9e85245ed1ec8d2557598b726b070e48e98d7a14dac5e9a4",
-        "endLine": 4,
-        "endOffset": 202,
+        "content": "import { projectToolOutputArtifactPage } from '@brainstrike/agent';\n\n/** The central model-projection wrapper invokes this with the sanitized tool as receiver, including its exact callable id. */",
+        "contentHash": "172adf128489486bd2018bdaf00836f4c2c106a04d6cee591e4228e856510923",
+        "endLine": 3,
+        "endOffset": 195,
         "startLine": 1,
         "startOffset": 0,
-        "tokenCount": 39
+        "tokenCount": 38
       },
       {
         "chunkIndex": 1,
         "chunkSize": 256,
         "chunkType": "recursive",
-        "content": "function createArtifactReaderModelProjection(\n  resolveBudget: () => number\n): (this: { id: string }, output: unknown) => unknown {\n  return function projectArtifactReaderModelOutput(this: { id: string }, output: unknown): unknown {\n    return projectToolOutputArtifactPage(output, resolveBudget(), this.id);\n  };\n}",
-        "contentHash": "911cb9ebeb33ab318b0567f1b4f37f008e43940936a256852e329f7898aebc6e",
+        "content": "export function createArtifactReaderModelProjection(\n  resolveBudget: () => number\n): (this: { id: string }, output: unknown) => unknown {\n  return function projectArtifactReaderModelOutput(this: { id: string }, output: unknown): unknown {\n    return projectToolOutputArtifactPage(output, resolveBudget(), this.id);\n  };\n}",
+        "contentHash": "f39ecfafcd30e78ed8293f2f27d95061fca5ae5f05f9c2ebc4271fdff2190c17",
         "endLine": 10,
         "endOffset": 518,
         "startLine": 4,
-        "startOffset": 203,
-        "tokenCount": 70
+        "startOffset": 196,
+        "tokenCount": 71
       }
     ],
     "fileRecordId": "e20bc6da87afe6f2ebd74781176bab42727d9bf52e488b847828d024345a6728",

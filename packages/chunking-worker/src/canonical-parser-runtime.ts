@@ -4,9 +4,12 @@ import { getEnabledTreeSitterLanguages } from './parsers/environment';
 import { selectAdapter } from './parsers/select-adapter';
 import type { AstNode, ParserAdapter } from './parsers/types';
 
-/** Host-local parser capability; never serialized as worker request options. */
+/**
+ * Host-local parser capability; never serialized as worker request options.
+ * A strict runtime parses every language `supportsCanonicalAst` claims for it,
+ * so its `selectAdapter` has an adapter for TypeScript, JavaScript and Python.
+ */
 export interface CanonicalChunkingRuntime {
-  readonly enabledTreeSitterLanguages: readonly string[];
   readonly selectAdapter: (fileName?: string) => ParserAdapter | null;
   readonly strict: boolean;
 }
@@ -57,9 +60,7 @@ export function supportsCanonicalAst(
   if (runtime?.strict) {
     return true;
   }
-  return (runtime?.enabledTreeSitterLanguages ?? getEnabledTreeSitterLanguages()).includes(
-    'python'
-  );
+  return getEnabledTreeSitterLanguages().includes('python');
 }
 
 export async function parseCanonicalSource(

@@ -406,7 +406,7 @@ function decodeReadWorkspaceFileText(
     return bytes ? decoder.decode(bytes, { stream: true }) : decoder.decode();
   } catch (error) {
     if (error instanceof TypeError) {
-      throw new Error(
+      throw new ToolInputError(
         `Path "${requestedPath}" contains malformed UTF-8 and cannot be read as text.`
       );
     }
@@ -422,7 +422,9 @@ function assertReadWorkspaceFileChunkIsText(
   const binaryProbeEnd = Math.min(bytes.length, Math.max(0, 4096 - byteOffset));
   for (let index = 0; index < binaryProbeEnd; index += 1) {
     if (bytes[index] === 0) {
-      throw new Error(`Path "${requestedPath}" is a binary file and cannot be read as text.`);
+      throw new ToolInputError(
+        `Path "${requestedPath}" is a binary file and cannot be read as text.`
+      );
     }
   }
 }
@@ -476,10 +478,10 @@ async function readWorkspaceFilePageSource(args: {
   try {
     const initialStat = await handle.stat();
     if (!initialStat.isFile()) {
-      throw new Error(`Path "${args.requestedPath}" is not a file.`);
+      throw new ToolInputError(`Path "${args.requestedPath}" is not a file.`);
     }
     if (initialStat.size > MAX_READ_WORKSPACE_FILE_BYTES) {
-      throw new Error(
+      throw new ToolInputError(
         `Path "${args.requestedPath}" exceeds ${MAX_READ_WORKSPACE_FILE_BYTES} bytes and cannot be read.`
       );
     }
@@ -699,7 +701,7 @@ export async function runReadWorkspaceFile(
   );
   const requestedPath = continuationCursor?.path ?? input.path;
   if (!requestedPath) {
-    throw new Error('readWorkspaceFile requires path when starting a new read.');
+    throw new ToolInputError('readWorkspaceFile requires path when starting a new read.');
   }
   const topology = describeOpenRootTopology(runtimeData);
   // Resolve both before and after acquiring the per-file lock. A symlink can

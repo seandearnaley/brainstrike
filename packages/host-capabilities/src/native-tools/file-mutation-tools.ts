@@ -187,7 +187,7 @@ export async function runWriteWorkspaceFile(
   // much work an already-doomed oversized write does before failing.
   const buffer = Buffer.from(input.content, 'utf8');
   if (buffer.byteLength > MAX_WRITE_WORKSPACE_FILE_BYTES) {
-    throw new Error(
+    throw new ToolInputError(
       `Content for "${input.path}" is ${buffer.byteLength} bytes, exceeding the ${MAX_WRITE_WORKSPACE_FILE_BYTES} byte write limit.`
     );
   }
@@ -351,7 +351,7 @@ export async function runStringReplaceWorkspaceFile(
 
     const buffer = Buffer.from(replacement.newContent, 'utf8');
     if (buffer.byteLength > MAX_WRITE_WORKSPACE_FILE_BYTES) {
-      throw new Error(
+      throw new ToolInputError(
         `Edited content for "${input.path}" is ${buffer.byteLength} bytes, exceeding the ${MAX_WRITE_WORKSPACE_FILE_BYTES} byte write limit.`
       );
     }
@@ -483,7 +483,7 @@ export async function runDeleteWorkspaceFile(
       leafStats = await fsPromises.lstat(mutationPath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        throw new Error(`Path "${input.path}" does not exist.`);
+        throw new ToolInputError(`Path "${input.path}" does not exist.`);
       }
       throw error;
     }
@@ -491,7 +491,7 @@ export async function runDeleteWorkspaceFile(
     // the pointer, never the target. Only a REAL directory is refused (lstat does
     // not follow the leaf, so a symlink-to-directory reports isDirectory() false).
     if (leafStats.isDirectory()) {
-      throw new Error(
+      throw new ToolInputError(
         `Path "${input.path}" is a directory. Deleting directories is not supported — use executeCommand for that.`
       );
     }
@@ -552,7 +552,7 @@ export async function runRenameWorkspaceFile(
   // expressible through this schema; assert equal canonical roots as defense in
   // depth (never silently accept a cross-root move).
   if (fromResolved.canonicalRootPath !== toResolved.canonicalRootPath) {
-    throw new Error(
+    throw new ToolInputError(
       'Cross-root moves are not supported. Both paths must be in the same open folder.'
     );
   }
@@ -566,7 +566,7 @@ export async function runRenameWorkspaceFile(
     input.fromPath
   );
   if (fromMutationPath === toResolved.absolutePath) {
-    throw new Error(
+    throw new ToolInputError(
       `fromPath and toPath resolve to the same file "${toResolved.workspacePath}"; nothing to rename.`
     );
   }
@@ -585,14 +585,14 @@ export async function runRenameWorkspaceFile(
       fromStats = await fsPromises.lstat(fromMutationPath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        throw new Error(`Path "${input.fromPath}" does not exist.`);
+        throw new ToolInputError(`Path "${input.fromPath}" does not exist.`);
       }
       throw error;
     }
     // A symlink source is moved AS A LINK (rename(2) does not follow the final
     // component). Only a REAL directory is refused.
     if (fromStats.isDirectory()) {
-      throw new Error(
+      throw new ToolInputError(
         `Path "${input.fromPath}" is a directory. Renaming directories is not supported — use executeCommand for that.`
       );
     }
@@ -622,7 +622,7 @@ export async function runRenameWorkspaceFile(
       destinationExists = false;
     }
     if (destinationExists) {
-      throw new Error(
+      throw new ToolInputError(
         `Destination "${input.toPath}" already exists. Delete it first or choose another path (rename does not overwrite).`
       );
     }

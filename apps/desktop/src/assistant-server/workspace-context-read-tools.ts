@@ -14,6 +14,7 @@ import {
   type RuntimeWorkspaceContextRangeMetadata,
   type RuntimeWorkspaceRoot,
 } from '@brainstrike/agent';
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import {
   normalizeWorkspacePath,
   normalizeWorkspacePaths,
@@ -68,7 +69,7 @@ export function resolveSelectionFolderId(
 ): string {
   const folderId = inputFolderId?.trim() || runtimeData?.selectionFolderId?.trim();
   if (!folderId) {
-    throw new Error('No selection folder is available. Select a workspace root first.');
+    throw new ToolInputError('No selection folder is available. Select a workspace root first.');
   }
   return folderId;
 }
@@ -199,7 +200,7 @@ export function runListWorkspaceContext(
   }
   if (workspaceRoots.length === 0) {
     if (resolvedWorkspaceRoots === undefined) {
-      throw new Error(
+      throw new ToolInputError(
         'No folder is open in the workspace. Add a folder in the left file tree first.'
       );
     }
@@ -628,7 +629,7 @@ export async function runReadWorkspaceContext(
   // the FOCUSED root only, so it cannot be resolved against an explicitly chosen
   // root — require explicit filePaths in that case rather than read wrong files.
   if (input.root !== undefined && input.filePaths === undefined) {
-    throw new Error(
+    throw new ToolInputError(
       `Provide filePaths when reading from a specific root ("${root.displayName}"); the selected-context default only applies to the focused folder.`
     );
   }
@@ -636,7 +637,7 @@ export async function runReadWorkspaceContext(
     input.filePaths ? input.filePaths : Array.from(runtimeData?.selectionFilePaths ?? [])
   );
   if (requestedPaths.length === 0) {
-    throw new Error(
+    throw new ToolInputError(
       'No workspace context files are selected. Provide filePaths or select files first.'
     );
   }

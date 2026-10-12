@@ -477,7 +477,8 @@ export function after(): void {
 
         expect(result.skipped).toBe(false);
         expect(result.chunks.some((chunk) => chunk.content.startsWith('method():'))).toBe(false);
-        expect(result.chunks.map((chunk) => chunk.startOffset)).toEqual([0, 7, 119, 126]);
+        // One chunk per exported function, each starting at its `export` (BST-1983).
+        expect(result.chunks.map((chunk) => chunk.startOffset)).toEqual([0, 119]);
       });
 
       it('should split punctuation-poor text to the configured chunk target', async () => {
