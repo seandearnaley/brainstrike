@@ -1,16 +1,17 @@
+import type { ForgeService } from './forge-service';
 import { desktopAssistantServerLogger as logger } from './logger';
-import type { AssistantServerOptions } from './server-options';
 import {
   createShellCorrelation,
   type ShellWorktreeCorrelation,
 } from './shell-worktree-correlation';
+import type { WorktreeService } from './worktree-service';
 import type { WorktreeToolCapability } from './worktree-tools';
 
 /** Main's lazily constructed worktree and forge services for host threads. */
-export type DesktopWorktreeServices = Pick<
-  AssistantServerOptions,
-  'resolveForgeService' | 'resolveWorktreeService'
->;
+export interface DesktopWorktreeServices {
+  readonly resolveForgeService?: (() => ForgeService | null) | undefined;
+  readonly resolveWorktreeService?: (() => WorktreeService | null) | undefined;
+}
 
 /**
  * `createdBy: 'agent'` and the run/thread ids are bound HERE, never taken from

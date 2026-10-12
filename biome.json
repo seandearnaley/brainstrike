@@ -220,7 +220,6 @@
     },
     {
       "includes": [
-        "apps/desktop/src/assistant-server/hooks/**",
         "packages/host-capabilities/src/hooks/**",
         "packages/host-capabilities/__tests__/hooks/**"
       ],
