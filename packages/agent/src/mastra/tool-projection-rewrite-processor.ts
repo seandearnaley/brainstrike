@@ -1,12 +1,6 @@
-import { createLogger } from '@brainstrike/logging';
-import type {
-  ProcessLLMRequestArgs,
-  ProcessLLMRequestResult,
-  Processor,
-} from '@mastra/core/processors';
-import type { ToolProjectionRewriteEntry, ToolProjectionRewriteLookup } from '../types';
+import type { ProcessLLMRequestArgs } from '@mastra/core/processors';
+import type { ToolProjectionRewriteEntry } from '../types';
 
-const logger = createLogger('ToolProjectionRewriteProcessor');
 type Prompt = ProcessLLMRequestArgs['prompt'];
 type AssistantOrToolMessage = Extract<Prompt[number], { role: 'assistant' | 'tool' }>;
 type RewritablePart = AssistantOrToolMessage['content'][number];
@@ -30,7 +24,7 @@ function collectPresentToolCallIds(prompt: Prompt): Set<string> {
   return present;
 }
 
-/** Canonical transient rewrite; shared by the Mastra processor and SDK host. */
+/** Canonical transient rewrite, applied at the provider-request boundary. */
 export function rewriteToolProjectionPrompt(
   inputPrompt: Prompt,
   rewrites: ReadonlyMap<string, ToolProjectionRewriteEntry>
@@ -74,50 +68,4 @@ export function rewriteToolProjectionPrompt(
     return contentChanged ? { ...message, content } : message;
   });
   return { prompt, rewrittenCount };
-}
-
-/**
- * Applies durable overlay rows only at the transient provider boundary.
- *
- * Supersession rows are active only while their superseding call remains in
- * the already-tombstone-filtered prompt. Prune rows have no superseder and
- * remain active whenever their own call is present. Neither kind mutates
- * Mastra-owned message content.
- */
-export class ToolProjectionRewriteProcessor implements Processor<'tool-projection-rewrite'> {
-  readonly id = 'tool-projection-rewrite';
-  readonly name = 'Tool projection stale-read rewriting';
-
-  constructor(
-    private readonly threadId: string,
-    private readonly lookup: ToolProjectionRewriteLookup
-  ) {}
-
-  async processLLMRequest(
-    args: ProcessLLMRequestArgs
-  ): Promise<ProcessLLMRequestResult | undefined> {
-    const rewrites = await this.lookup.listActiveRewrites(this.threadId);
-    if (rewrites.size === 0) {
-      return;
-    }
-    const { prompt, rewrittenCount } = rewriteToolProjectionPrompt(args.prompt, rewrites);
-    if (rewrittenCount === 0) {
-      return;
-    }
-    logger.info(
-      { code: 'tool_projection_history_rewritten', rewrittenCount, threadId: this.threadId },
-      'rewrote overlaid native-tool projections for provider replay'
-    );
-    return { prompt };
-  }
-}
-
-export function buildToolProjectionRewriteInputProcessor(
-  lookup: ToolProjectionRewriteLookup | undefined,
-  threadId: string | undefined
-): Processor | undefined {
-  if (!(lookup && threadId?.trim())) {
-    return;
-  }
-  return new ToolProjectionRewriteProcessor(threadId, lookup);
 }

@@ -116,9 +116,7 @@ function optionalFinalInputMessage(value: AgentMessage | null | undefined): {
 
 /**
  * Injected provider-credential reader, now owned by ./ports (BST-972 B2).
- * Re-exported under the historical name; desktop's structurally identical
- * AgentStreamProviderApiKeyReader unifies onto the ports type when
- * agent-stream-init moves (B4a/B4b). Since BST-1352 the string reader is the
+ * Re-exported under the historical name. Since BST-1352 the string reader is the
  * MIGRATION shim (ports' createProviderApiKeyReader); preparation itself
  * consumes the typed {@link ProviderCredentialReader}.
  */

@@ -212,21 +212,6 @@ export type {
   ChildContinuationStatus,
 } from './mastra/child-continuation-host-port';
 export {
-  buildCompactionOverlayInputProcessor,
-  CompactionOverlayProcessor,
-  filterMessagesByCompactionRanges,
-} from './mastra/compaction-overlay-processor';
-export {
-  type AgenticCompactionSummary,
-  AgenticCompactionSummarySchemaError,
-  type CompactionMessage,
-  collectCompactionToolCallIds,
-  estimateCompactionMessageTokens,
-  generateAgenticCompactionSummary,
-  projectCompactionMessages,
-  projectCompactionMessagesForSummarizer,
-} from './mastra/conversation-compaction';
-export {
   type BackgroundGeneration,
   createDelegatedConversationBinding,
   type DelegatedCancellationControl,
@@ -338,10 +323,6 @@ export {
   isToolProjectionInputRejected,
   ToolProjectionInputRejectedError,
 } from './mastra/tool-projection-input-rejected';
-export {
-  buildToolProjectionRewriteInputProcessor,
-  ToolProjectionRewriteProcessor,
-} from './mastra/tool-projection-rewrite-processor';
 export { createSanitizedToolNameMap } from './mastra/tool-sanitizer';
 // MCP config types and parser (desktop-only usage typically)
 export type {
@@ -827,8 +808,6 @@ export type {
   AssistantUiNode,
   AssistantUiNodeObject,
   AssistantUiScalar,
-  CompactionRangeEntry,
-  CompactionRangeLookup,
   GoogleProviderOptions,
   GoogleThinkingLevel,
   LocalProviderOptions,
@@ -853,5 +832,4 @@ export type {
   TokenEstimateCalibrationSample,
   ToolCallTelemetrySample,
   ToolProjectionRewriteEntry,
-  ToolProjectionRewriteLookup,
 } from './types';
