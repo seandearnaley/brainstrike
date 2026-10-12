@@ -108,6 +108,8 @@ export interface RecordedEvidence {
   readonly corpusSources: readonly { readonly relativePath: string; readonly sha256: string }[];
   readonly directory: string;
   readonly files: readonly CanonicalFile[];
+  /** The recorded frozen fixture: queries and judgments as measured on 2026-10-03. */
+  readonly fixture: unknown;
   readonly grepPools: RecordedGrepPools;
   /** The 2026-10-03 report: metrics, gate and every raw candidate pool. */
   readonly original: RecordedReport;
@@ -153,16 +155,15 @@ const jsonLines = (text: string): unknown[] =>
     .split('\n')
     .map((line) => JSON.parse(line));
 
-/** Loads the verified evidence; the recorded fixture must equal the in-repo frozen fixture. */
+/**
+ * Loads the verified evidence. Its own fixture.json supplies the judgments, so
+ * the recorded run stays self-consistent when a judged file later moves in the repo.
+ */
 export async function loadEvidence(
   directory: string,
-  manifestPath: string,
-  fixtureText: string
+  manifestPath: string
 ): Promise<RecordedEvidence> {
   const manifest = await verifyEvidence(directory, manifestPath);
-  if (createHash('sha256').update(fixtureText).digest('hex') !== manifest.files['fixture.json']) {
-    throw new Error('The in-repo retrieval fixture is not the recorded fixture.');
-  }
   const read = (name: string): Promise<string> => readFile(join(directory, name), 'utf8');
   const index = jsonLines(await read('vectors-index.jsonl')).map((row) =>
     vectorRowSchema.parse(row)
@@ -196,6 +197,7 @@ export async function loadEvidence(
     files: jsonLines(await read('canonical-files.jsonl')).map((row) =>
       canonicalFileSchema.parse(row)
     ),
+    fixture: JSON.parse(await read('fixture.json')),
     grepPools: grepPoolsSchema.parse(JSON.parse(await read('grep-pools.json'))),
     original: reportSchema.parse(JSON.parse(await read('retrieval-report.json'))),
     rootId: manifest.rootId,
