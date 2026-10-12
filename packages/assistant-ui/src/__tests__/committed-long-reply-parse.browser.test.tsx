@@ -8,9 +8,11 @@ import { CommittedAssistantConversation } from '../committed-assistant-conversat
 import {
   answerStepLength,
   instrumentation,
+  measurePublication,
   RecordedCommittedSource,
   recordedBaseline,
   recordedPrompt,
+  recordedRunId,
   recordedStore,
   rejectingNew,
   setActEnvironment,
@@ -18,11 +20,7 @@ import {
   waitForQuiescence,
 } from './committed-assistant-browser-support';
 import { publishLiveText, TEXT_TELEMETRY } from './committed-live-text-support';
-import {
-  LONG_REPLY_FOOTNOTE_TOKEN,
-  LONG_REPLY_LONGEST_BLOCK,
-  LONG_REPLY_TOKENS,
-} from './long-markdown-reply';
+import { LONG_REPLY_FOOTNOTE_TOKEN, LONG_REPLY_TOKENS } from './long-markdown-reply';
 import '@brainstrike/ui/globals.css';
 import '../overrides.css';
 import './assistant-conversation-panel.browser.css';
@@ -46,15 +44,93 @@ vi.mock('remark-gfm', async (importOriginal) => {
 
 const WINDOW_TOKENS = 12;
 
+/** A token that opens a new prose paragraph: a blank line, then a capital letter. */
+const PARAGRAPH_START = /^\n\n[A-Z]/;
+
+/** Tokens until the next blank line, i.e. how long the paragraph opened at `start` streams. */
+function paragraphTokens(start: number): number {
+  const next = LONG_REPLY_TOKENS.findIndex(
+    (token, index) => index > start && token.includes('\n\n')
+  );
+  return (next === -1 ? LONG_REPLY_TOKENS.length : next) - start;
+}
+
 /**
- * BST-1929: every streamed token used to re-parse the whole reply, so the
- * per-token cost grew with the reply's length (react-markdown at p95 19 ms per
- * token at the end of an 11.4k-character reply, against the 8 ms budget).
- * Streamdown memoizes each finished block: a token re-parses only the block it
- * lands in. So the largest text parsed while a token lands is one block, at 10%
- * of the reply and at its end alike.
+ * Where to measure: the second token of a prose paragraph long enough for a
+ * whole window, so every measured token extends the same open block and the
+ * three windows parse comparable text. `end` takes the last such paragraph
+ * that finishes streaming before the reply's closing footnote: from a footnote
+ * on, Streamdown keeps references and definitions together by parsing the
+ * whole reply as one block (a known vendor behaviour, documented in BST-1929).
  */
-test('a streamed token re-parses only the open block, however long the reply grows', async () => {
+function windowStarts(): Readonly<Record<'10%' | '50%' | 'end', number>> {
+  const starts = LONG_REPLY_TOKENS.flatMap((token, index) =>
+    PARAGRAPH_START.test(token) &&
+    paragraphTokens(index) > WINDOW_TOKENS + 1 &&
+    index + 1 + WINDOW_TOKENS <= LONG_REPLY_FOOTNOTE_TOKEN
+      ? [index + 1]
+      : []
+  );
+  const from = (fraction: number): number => {
+    const start = starts.find((index) => index >= LONG_REPLY_TOKENS.length * fraction);
+    if (start === undefined) {
+      throw new Error(`No prose paragraph starts after ${fraction * 100}% of the reply.`);
+    }
+    return start;
+  };
+  const end = starts.at(-1);
+  if (end === undefined) {
+    throw new Error('The long reply has no prose paragraph long enough to measure.');
+  }
+  return { '10%': from(0.1), '50%': from(0.5), end };
+}
+
+/** No commit for this long means the prefix's asynchronous work has finished. */
+const IDLE_MS = 500;
+const IDLE_LIMIT_MS = 15_000;
+
+async function waitForIdle(quietMs: number): Promise<void> {
+  const started = performance.now();
+  let commits = instrumentation.commits;
+  let since = performance.now();
+  for (;;) {
+    await waitForQuiescence();
+    if (instrumentation.commits !== commits) {
+      commits = instrumentation.commits;
+      since = performance.now();
+    } else if (performance.now() - since >= quietMs) {
+      return;
+    }
+    if (performance.now() - started > IDLE_LIMIT_MS) {
+      throw new Error(`The conversation kept committing for ${IDLE_LIMIT_MS} ms.`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
+
+const median = (values: readonly number[]): number => {
+  const sorted = [...values].sort((left, right) => left - right);
+  return sorted[Math.floor(sorted.length / 2)] ?? Number.NaN;
+};
+
+interface TokenWork {
+  /** Commits the token caused anywhere, and those that rendered the streaming message. */
+  readonly commits: number;
+  readonly messageCommits: number;
+  readonly parsedCharacters: number;
+  /** Markdown parses the token caused, and the characters they parsed. */
+  readonly parses: number;
+}
+
+/**
+ * BST-1929: every streamed token used to re-parse the whole reply and re-render
+ * on every reveal frame, so its cost grew with the reply's length (p95 28 ms at
+ * the end of an 11.4k-character reply on main, against an 8 ms budget).
+ * Streamdown memoizes each finished block and reveals words with CSS, so the
+ * work a token causes is structural and the same at any length: one parse of
+ * the open block, one commit of the streaming message.
+ */
+test('a streamed token costs the same parse and commits at 10% of a long reply and at its end', async () => {
   const { baseline } = await recordedBaseline();
   const source = new RecordedCommittedSource();
   source.publishPrefix(answerStepLength);
@@ -84,38 +160,48 @@ test('a streamed token re-parses only the open block, however long the reply gro
   // The recorded run's own live text-delta chunk, carrying the long reply's text.
   const { chunk, runId } = TEXT_TELEMETRY['text-delta'];
   let cursor = 0;
-  const publishThrough = async (end: number): Promise<void> => {
+  const publish = (end: number): void => {
     store.acceptTelemetry(runId, { ...chunk, text: LONG_REPLY_TOKENS.slice(cursor, end).join('') });
     cursor = end;
-    // Quiescence includes the vendor's frame-paced smooth reveal.
-    await waitForQuiescence();
   };
-  const largestParseWhileTokensLand = async (): Promise<number> => {
-    parses.lengths.length = 0;
-    for (const end = cursor + WINDOW_TOKENS; cursor < end; ) {
-      await publishThrough(cursor + 1);
+  const tokensFrom = async (start: number): Promise<readonly TokenWork[]> => {
+    publish(start);
+    // Code blocks in the prefix highlight asynchronously (Shiki, after a short
+    // delay); let that finish so its commits are not counted as a token's.
+    await waitForIdle(IDLE_MS);
+    const work: TokenWork[] = [];
+    for (const end = start + WINDOW_TOKENS; cursor < end; ) {
+      parses.lengths.length = 0;
+      const timing = await measurePublication(() => publish(cursor + 1), true);
+      work.push({
+        commits: timing.commits,
+        messageCommits: timing.commitsByOwner[recordedRunId] ?? 0,
+        parsedCharacters: parses.lengths.reduce((total, length) => total + length, 0),
+        parses: parses.lengths.length,
+      });
     }
-    // Non-vacuous: the tokens really were parsed.
-    expect(parses.lengths.length).toBeGreaterThan(0);
-    return Math.max(...parses.lengths);
+    return work;
   };
 
-  const largest: Record<string, number> = {};
-  // The end window stops before the reply's closing footnote: from a footnote on,
-  // Streamdown keeps references and definitions together by parsing the whole
-  // reply as one block (a known vendor behaviour, documented in BST-1929).
-  for (const [label, windowEnd] of [
-    ['10%', Math.floor(LONG_REPLY_TOKENS.length * 0.1)],
-    ['50%', Math.floor(LONG_REPLY_TOKENS.length * 0.5)],
-    ['end', LONG_REPLY_FOOTNOTE_TOKEN],
-  ] as const) {
-    await publishThrough(windowEnd - WINDOW_TOKENS);
-    largest[label] = await largestParseWhileTokensLand();
+  const windows: Partial<Record<keyof ReturnType<typeof windowStarts>, readonly TokenWork[]>> = {};
+  for (const [label, start] of Object.entries(windowStarts()) as [
+    keyof ReturnType<typeof windowStarts>,
+    number,
+  ][]) {
+    windows[label] = await tokensFrom(start);
   }
+  console.info('LONG_REPLY_TOKEN_WORK', JSON.stringify(windows));
 
-  // A block plus the closing markers the renderer adds to an unfinished one.
-  const oneBlock = LONG_REPLY_LONGEST_BLOCK + 16;
-  console.info('LONG_REPLY_LARGEST_PARSE', JSON.stringify({ largest, oneBlock }));
-  const overOneBlock = Object.entries(largest).filter(([, size]) => size > oneBlock);
-  expect(overOneBlock, `largest parse per window ${JSON.stringify(largest)}`).toEqual([]);
+  const all = Object.values(windows).flat();
+  // Finished blocks are not parsed again while the reply streams: each token
+  // parses exactly one block, the open one.
+  expect(all.map((token) => token.parses)).toEqual(all.map(() => 1));
+  // The streaming message renders in exactly one commit per token, and the
+  // token's commits overall do not change with the reply's length.
+  expect(all.map((token) => token.messageCommits)).toEqual(all.map(() => 1));
+  expect(new Set(all.map((token) => token.commits)).size).toBe(1);
+  // Parse work per token at the end is at most 1.5x what it is at 10%.
+  const parsed = (label: keyof typeof windows): number =>
+    median((windows[label] ?? []).map((token) => token.parsedCharacters));
+  expect(parsed('end')).toBeLessThanOrEqual(1.5 * parsed('10%'));
 }, 60_000);

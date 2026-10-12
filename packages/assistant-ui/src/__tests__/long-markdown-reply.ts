@@ -131,9 +131,6 @@ sections.push(
 
 export const LONG_REPLY = sections.join('\n\n');
 
-/** The longest markdown block (section) in the reply, in characters. */
-export const LONG_REPLY_LONGEST_BLOCK = Math.max(...sections.map((section) => section.length));
-
 /** Model-like tokens: an optional leading space and up to five characters. */
 export const LONG_REPLY_TOKENS: readonly string[] = LONG_REPLY.match(/\s*\S{1,5}|\s+/g) ?? [];
 

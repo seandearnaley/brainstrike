@@ -1,0 +1,29 @@
+{
+  "commit": "7b09ad8c79e1b7b5bfd8c38057e704f3c5effb2b",
+  "recorded": "2026-10-12T16:02:12.834Z",
+  "react": "19.3.0",
+  "runs": 5,
+  "slope": 0.89,
+  "throttle": 4,
+  "tokens": 2648,
+  "windows": {
+    "10%": {
+      "commitsPerToken": 3,
+      "median": 0.9,
+      "p95": 5.5,
+      "samples": 600
+    },
+    "50%": {
+      "commitsPerToken": 3,
+      "median": 0.8,
+      "p95": 4.1,
+      "samples": 600
+    },
+    "100%": {
+      "commitsPerToken": 3,
+      "median": 0.8,
+      "p95": 6.5,
+      "samples": 600
+    }
+  }
+}
