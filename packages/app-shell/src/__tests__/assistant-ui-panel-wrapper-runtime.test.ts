@@ -79,7 +79,6 @@ function createRepositoryStub(
     getThreadRunTurnMessageId: async () => null,
     listLatestThreadRuns: async () => [],
     listMessages: async () => [],
-    listThreadCheckpoints: vi.fn(async () => []),
     listThreadRunEvents: async () => [],
     listThreads: async () => [],
     recordRunUsage: async () => {},

@@ -217,11 +217,9 @@ describe('Database clearing functionality', () => {
       // `tx.query` structurally cannot model — in clear-data.integration.test.tsx.
       expect(queryMock).toHaveBeenCalledWith(`DELETE FROM ${MASTRA_WORKFLOW_TABLE}`);
       // BST-992: FK-less assistant stores that desktop `db:clearAll` cleared
-      // but the web paths silently missed — token/cost history,
-      // edit-checkpoint before-content, and branch topology must not survive
-      // a web Clear Database.
+      // but the web paths silently missed — token/cost history and branch
+      // topology must not survive a web Clear Database.
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_run_usage');
-      expect(queryMock).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_edit_checkpoints');
       expect(queryMock).toHaveBeenCalledWith('DELETE FROM brainstrike_assistant_message_parents');
       // BST-992 convergence boundary: the factory-reset-only caches are NOT
       // cleared by Clear Database on any surface (desktop db:clearAll never

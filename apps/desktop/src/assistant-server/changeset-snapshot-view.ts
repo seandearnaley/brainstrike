@@ -66,7 +66,7 @@ import {
   type RootDiffTarget,
   snapshotMissingError,
 } from './changeset-snapshot-targets';
-import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
+import type { MainQueryHandle } from './main-query-handle';
 import { isFailedSnapshotCaptureOid, type SnapshotRepository } from './snapshot-repository';
 import type { SnapshotService } from './snapshot-service';
 import {
@@ -94,20 +94,20 @@ export interface SnapshotRunAnchor {
 }
 
 export interface SnapshotChangesetResolverDeps {
-  readonly createRepository: (db: EditCheckpointDatabase) => SnapshotRepository;
+  readonly createRepository: (db: MainQueryHandle) => SnapshotRepository;
   /** Host threads' turns, from the host's committed log (BST-1977). */
   readonly hostThreads?: HostThreadTurns | undefined;
   /** Injectable for tests; defaults to {@link readThreadRunAnchor}. */
   readonly readRunAnchor?:
     | ((
-        db: EditCheckpointDatabase,
+        db: MainQueryHandle,
         threadId: string,
         runId: string
       ) => Promise<GitResult<SnapshotRunAnchor | null>>)
     | undefined;
   /** Defaults to the process-shared registry the turn triggers write. */
   readonly registry?: SnapshotTurnRegistry | undefined;
-  readonly resolveDatabase: () => Promise<EditCheckpointDatabase>;
+  readonly resolveDatabase: () => Promise<MainQueryHandle>;
   /** Lazy — the service is constructed at app-ready, after IPC registration. */
   readonly resolveService: () => SnapshotService | null;
 }
@@ -141,7 +141,7 @@ const MEMO_KEY_SEPARATOR = String.fromCharCode(0);
  * database raises 42P01 as itself.
  */
 export async function readThreadRunAnchor(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   threadId: string,
   runId: string
 ): Promise<GitResult<SnapshotRunAnchor | null>> {

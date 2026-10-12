@@ -21,7 +21,6 @@ export {
   type AssistantCheckpointRevertResult,
   type AssistantCheckpointRevertRunResult,
   type AssistantCheckpointUndoAvailability,
-  type AssistantCheckpointUndoAvailabilityMap,
   type AssistantEditCheckpointCaptureStatus,
   type AssistantEditCheckpointOp,
   type AssistantEditCheckpointRecord,

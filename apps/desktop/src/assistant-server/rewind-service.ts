@@ -73,7 +73,7 @@ import type {
 } from '@brainstrike/assistant-contract';
 import type { Changeset } from '@brainstrike/types';
 import type { CheckpointRevertDeps } from './checkpoint-reindex-deps';
-import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
+import type { MainQueryHandle } from './main-query-handle';
 import {
   deleteThreadTombstones,
   deleteTombstoneBatch,
@@ -272,7 +272,7 @@ async function assertPreRevertPairing(
  * front); the apply-time scan is the authority for the gate.
  */
 export async function rewindToMessage(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   args: { readonly messageId: string; readonly threadId: string },
   deps: RewindSnapshotDeps
 ): Promise<AssistantRewindPreviewResult> {
@@ -431,7 +431,7 @@ function refuseRedoIncomplete(
  * are reverted but whose batch no longer exists to redo.
  */
 export async function applyRewind(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   args: {
     readonly acknowledgeConflicts?: boolean;
     readonly messageId: string;
@@ -447,7 +447,7 @@ export async function applyRewind(
  * each function under the lint complexity ceiling. Runs strictly AFTER the
  * gate refusals; see rule 1 in the module header for the order. */
 async function applyFilesRestore(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   args: {
     readonly conflicts: readonly AssistantRewindConflict[];
     readonly connected: readonly CoveredRewindRoot[];
@@ -496,7 +496,7 @@ async function applyFilesRestore(
 }
 
 async function applyRewindLocked(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   args: {
     readonly acknowledgeConflicts?: boolean;
     readonly messageId: string;
@@ -639,7 +639,7 @@ async function applyRewindLocked(
  * one-level-redo contract must not have.
  */
 export async function redoRewind(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   args: { readonly acknowledgeConflicts?: boolean; readonly rewindId: string },
   deps: RewindServiceDeps
 ): Promise<AssistantRewindRedoResult> {
@@ -738,7 +738,7 @@ export async function redoRewind(
  * "nothing outstanding" can never mean "a redo is halfway through undoing it".
  */
 export async function finalizeThreadRewinds(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   threadId: string,
   deps: RewindFinalizationDeps
 ): Promise<AssistantRewindFinalization> {

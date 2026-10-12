@@ -287,7 +287,6 @@ export const THREAD_DELETE_SIDECAR_TABLES = [
   { table: MASTRA_BACKGROUND_TASKS_TABLE, threadColumns: ['thread_id'] },
   { table: TOKEN_ESTIMATE_CALIBRATION_TABLE, threadColumns: ['thread_id'] },
   { table: TOOL_CALL_TELEMETRY_TABLE, threadColumns: ['thread_id'] },
-  { table: 'brainstrike_assistant_edit_checkpoints', threadColumns: ['thread_id'] },
   { table: 'brainstrike_assistant_run_errors', threadColumns: ['thread_id'] },
   { table: 'brainstrike_assistant_message_parents', threadColumns: ['thread_id'] },
   { table: 'brainstrike_assistant_message_tombstones', threadColumns: ['thread_id'] },

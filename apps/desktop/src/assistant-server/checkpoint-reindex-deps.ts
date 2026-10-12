@@ -1,26 +1,19 @@
 /**
- * The reindex seam every checkpoint-revert caller shares.
- *
- * Extracted from `ipc-domains/assistant-checkpoint-ipc.ts` (BST-1115 W5 T4)
- * because Conversation Rewind's `changes` handlers need the SAME
- * `CheckpointRevertDeps` and must not reach through a module that imports
- * `electron` at module scope — `changes-ipc-handlers.ts` is unit-tested
- * without an Electron runtime. Behaviour is unchanged; only the home moved.
+ * The reindex seam Conversation Rewind's `changes` handlers feed after a
+ * restore. It lives outside any module that imports `electron` at module
+ * scope because `changes-ipc-handlers.ts` is unit-tested without an Electron
+ * runtime.
  */
 import type { RuntimeData } from '@brainstrike/agent';
-import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
+import type { MainQueryHandle } from './main-query-handle';
 import { triggerEditedFileReindex, triggerFileDeletionInvalidation } from './reindex-side-effects';
 
 const WORKSPACE_INDEX_SYSTEM_ROLE = 'workspace-index';
 
 /**
- * Reindex actions the snapshot restore engines emit after mutating the
- * filesystem (rewind in `rewind-snapshot-engine.ts`, checkpoint undo in
- * `checkpoint-snapshot-undo.ts`). Originally defined by the retired journal
- * revert executor (`edit-checkpoint-revert.ts`, deleted in BST-1164 T4); the
- * types moved HERE with the seam. The former `rename` action died with that
- * executor: snapshot restores express a rename undo as restore + delete of
- * the two paths, so only those two actions remain.
+ * Reindex actions the snapshot rewind engine (`rewind-snapshot-engine.ts`)
+ * emits after mutating the filesystem. Snapshot restores express a rename
+ * undo as restore + delete of the two paths, so only those two actions exist.
  */
 export type CheckpointReindexAction =
   | {
@@ -44,7 +37,7 @@ export interface CheckpointRevertDeps {
  * missing set means the seams no-op (background sync reconciles) — never a fake.
  */
 export async function createCheckpointReindexDeps(
-  db: EditCheckpointDatabase
+  db: MainQueryHandle
 ): Promise<CheckpointRevertDeps> {
   let workspaceIndexEmbeddingSetId: string | undefined;
   try {

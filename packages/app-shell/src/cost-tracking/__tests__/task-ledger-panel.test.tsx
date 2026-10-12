@@ -15,7 +15,6 @@ function makeRun(overrides: Partial<RunLedgerRow> & { runId: string }): RunLedge
   return {
     completedAt: new Date('2026-07-15T12:00:05Z'),
     durationMs: 5000,
-    editCount: 0,
     estimatedCacheCreationTokens: 0,
     estimatedCacheReadTokens: 0,
     estimatedInputTokens: 0,
@@ -28,7 +27,6 @@ function makeRun(overrides: Partial<RunLedgerRow> & { runId: string }): RunLedge
     outcomeVerdict: null,
     outputTokens: 200,
     provider: 'openai',
-    revertedEditCount: 0,
     startedAt: new Date('2026-07-15T12:00:00Z'),
     status: 'completed',
     threadId: 'thread-1',
@@ -227,7 +225,15 @@ describe('TaskLedgerPanelView', () => {
     });
 
     expect(screen.getByTestId('task-ledger-failed-tools')).toHaveTextContent('2 failed');
+    expect(screen.getByTestId('task-ledger-edits')).toHaveTextContent('3');
     expect(screen.getByTestId('task-ledger-reverted-edits')).toHaveTextContent('1 reverted');
+  });
+
+  it('shows a dash, never 0, for a run with no edit record', () => {
+    renderPanel({ ledger: { rows: [makeRun({ runId: 'run-1' })] } });
+
+    expect(screen.getByTestId('task-ledger-edits')).toHaveTextContent('—');
+    expect(screen.queryByTestId('task-ledger-reverted-edits')).not.toBeInTheDocument();
   });
 
   it('surfaces a ledger load failure as a visible error with a working retry', async () => {

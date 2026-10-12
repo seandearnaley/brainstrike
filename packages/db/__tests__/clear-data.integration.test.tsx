@@ -91,12 +91,6 @@ const SENTINEL_INSERTS = [
      VALUES ('0199a77b-f000-7000-8000-000000000001', 'sentinel-server',
       'https://example.com/mcp', 'sentinel-principal', 'sentinel-task', 'working',
       jsonb_build_array(jsonb_build_object('at', NOW(), 'status', 'working')), NOW(), NOW())`,
-  `INSERT INTO brainstrike_assistant_edit_checkpoints
-     (id, run_id, resource_id, thread_id, tool_name, op, root_id, path,
-      before_existed, after_existed, capture_status, occurred_at, created_at, updated_at)
-     VALUES ('sentinel-checkpoint', 'sentinel-run', 'sentinel-resource', 'sentinel-thread',
-      'write_file', 'write', 'sentinel-root', '/sentinel.txt',
-      false, true, 'created', NOW(), NOW(), NOW())`,
   `INSERT INTO brainstrike_assistant_message_parents
      (message_id, thread_id, resource_id)
      VALUES ('sentinel-message', 'sentinel-thread', 'sentinel-resource')`,
@@ -190,7 +184,6 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
     expect(await countRows('brainstrike_assistant_run_usage')).toBe(0);
     expect(await countRows('brainstrike_mcp_tasks')).toBe(0);
     expect(await countRows('brainstrike_mcp_task_authorities')).toBe(0);
-    expect(await countRows('brainstrike_assistant_edit_checkpoints')).toBe(0);
     expect(await countRows('brainstrike_assistant_message_parents')).toBe(0);
     expect(await countRows('brainstrike_assistant_message_tombstones')).toBe(0);
     expect(await countRows('brainstrike_tool_call_telemetry')).toBe(0);

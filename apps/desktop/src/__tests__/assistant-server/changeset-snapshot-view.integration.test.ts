@@ -33,7 +33,7 @@ import {
   type SnapshotChangesetResolver,
   type SnapshotRunAnchor,
 } from '../../assistant-server/changeset-snapshot-view';
-import type { EditCheckpointDatabase } from '../../assistant-server/edit-checkpoint-journal';
+import type { MainQueryHandle } from '../../assistant-server/main-query-handle';
 import { execFileSnapshotGitRunner } from '../../assistant-server/snapshot-git';
 import {
   FAILED_SNAPSHOT_CAPTURE_OID,
@@ -155,7 +155,7 @@ async function makeHarness(options: HarnessOptions = {}): Promise<Harness> {
   // The database handle is a COUNTER, never a real DB: everything DB-bound
   // is injected (the `readRunAnchor` fake below), so any query
   // through this object is a bug in the module under test.
-  const db: EditCheckpointDatabase = {
+  const db: MainQueryHandle = {
     query: () => {
       throw new Error('the snapshot view must not run raw SQL in these tests');
     },

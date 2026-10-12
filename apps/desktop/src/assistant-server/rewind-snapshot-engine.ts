@@ -3,10 +3,8 @@
  *
  * This module is the FILE half of the rewind engine swap: everything that
  * touches the shadow-git snapshot backbone lives here, and everything about
- * tombstones/messages stays in `rewind-service.ts`, UNCHANGED. The journal
- * (`brainstrike_assistant_edit_checkpoints`) is no longer read or written by
- * any rewind path — it is demoted to an attribution ledger (T4 retires its
- * restore machinery).
+ * tombstones/messages stays in `rewind-service.ts`, UNCHANGED. The former
+ * edit-checkpoint journal plays no part (migration 147 dropped it).
  *
  * THE PREVIEW→APPLY STALENESS GATE (the conflict-detection design, explicit
  * by charter):
@@ -72,7 +70,7 @@ import { resolveWorkspaceWritePath } from '@brainstrike/host-capabilities/native
 import { createLogger } from '@brainstrike/logging';
 import type { ChangedFileEntry } from '@brainstrike/types';
 import type { CheckpointReindexAction } from './checkpoint-reindex-deps';
-import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
+import type { MainQueryHandle } from './main-query-handle';
 import { resolveEarliestBatchTarget, resolveRewindRunRange } from './rewind-repository';
 import {
   isFailedSnapshotCaptureOid,
@@ -196,7 +194,7 @@ function turnStartRowsByRoot(
  *   restorable, exactly like the journal engine treated it.
  */
 export async function resolveFilesCoverage(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   deps: RewindSnapshotDeps,
   threadId: string,
   fromRunId: string
@@ -694,7 +692,7 @@ export type RedoRootsResolution =
  *     visible conflict + `redo-incomplete` honesty path.
  */
 export async function resolveRedoRoots(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   deps: RewindSnapshotDeps,
   threadId: string,
   revertId: string,

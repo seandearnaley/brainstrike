@@ -214,8 +214,8 @@ async function purgeTablesTx(tx: { query: (sql: string) => Promise<unknown> }): 
   // Per-run experiment treatment records (migration 093, BST-1250).
   await clearRelationIfPresent(tx, 'brainstrike_assistant_run_treatments');
   // BST-992 drift fix: FK-less desktop-parity stores web previously missed —
-  // token/cost history, edit-checkpoint before-content, and branch topology
-  // must not survive a web factory reset.
+  // token/cost history and branch topology must not survive a web factory
+  // reset.
   await clearRelationIfPresent(tx, 'brainstrike_assistant_run_usage');
   // Forge PR cache (migration 110, BST-1391): FK-less, must not survive a
   // web factory reset.
@@ -225,7 +225,6 @@ async function purgeTablesTx(tx: { query: (sql: string) => Promise<unknown> }): 
   await clearRelationIfPresent(tx, 'brainstrike_worktrees');
   await clearRelationIfPresent(tx, 'brainstrike_mcp_tasks');
   await clearRelationIfPresent(tx, 'brainstrike_mcp_task_authorities');
-  await clearRelationIfPresent(tx, 'brainstrike_assistant_edit_checkpoints');
   await clearRelationIfPresent(tx, 'brainstrike_assistant_message_parents');
   // Soft-rewind tombstones (migration 080, BST-1115).
   await clearRelationIfPresent(tx, 'brainstrike_assistant_message_tombstones');
@@ -460,10 +459,8 @@ export function createPgliteDirectTransport(
       // Per-run experiment treatment records (migration 093, BST-1250):
       // FK-less experiment evidence must not survive a fresh start.
       await clearRelationIfPresent(tx, 'brainstrike_assistant_run_treatments');
-      // BST-992 drift fix: desktop `db:clearAll` cleared these FK-less stores
-      // but web missed them, so edit-checkpoint before-content and
-      // assistant-ui branch topology survived a web clear.
-      await clearRelationIfPresent(tx, 'brainstrike_assistant_edit_checkpoints');
+      // BST-992 drift fix: desktop `db:clearAll` cleared this FK-less store
+      // but web missed it, so assistant-ui branch topology survived a web clear.
       await clearRelationIfPresent(tx, 'brainstrike_assistant_message_parents');
       // Soft-rewind tombstones (migration 080, BST-1115): bookkeeping over
       // conversation content this clear destroys, so it goes with it.

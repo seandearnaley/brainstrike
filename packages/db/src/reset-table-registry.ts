@@ -61,7 +61,6 @@ const BRAINSTRIKE_RESET_TABLES = [
   'brainstrike_delegated_continuations',
   'brainstrike_delegated_invocations',
   'brainstrike_delegated_conversations',
-  'brainstrike_assistant_edit_checkpoints',
   'brainstrike_assistant_message_parents',
   // Soft-rewind tombstones (migration 080, BST-1115). Hidden-message
   // bookkeeping over conversation content the clear just destroyed: keeping it

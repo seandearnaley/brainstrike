@@ -100,10 +100,6 @@ export const TABLE_DURABILITY_REGISTRY: readonly TableDurabilityEntry[] = [
     'Legacy ledger created only by the test-only numbered runner; runMigrations refuses a database that has one, so it is never repaired.'
   ),
   precious(
-    'brainstrike_assistant_edit_checkpoints',
-    'Journal of agent file edits (paths, hashes, reverted_at) that per-tool-card and per-turn Revert are built on; nothing rebuilds it.'
-  ),
-  precious(
     'brainstrike_assistant_message_parents',
     'Branch topology of conversations (parent links) layered over mastra_messages; user-visible structure with no other source.'
   ),

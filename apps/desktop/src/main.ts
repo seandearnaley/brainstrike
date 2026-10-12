@@ -131,7 +131,6 @@ import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
 import { registerClipboardIpcHandlers } from './ipc-clipboard';
 import { registerContextFilesIpcHandlers } from './ipc-context-files';
 import { registerDesktopDiagnosticsIpcHandlers } from './ipc-desktop-diagnostics';
-import { registerAssistantCheckpointIpcHandlers } from './ipc-domains/assistant-checkpoint-ipc';
 import { registerDatabaseIntegrityIpcHandlers } from './ipc-domains/database-integrity-ipc';
 import { registerProviderAuthIpcHandlers } from './ipc-domains/provider-auth';
 import { listRecentRootEntries } from './ipc-domains/workspace-recent-roots';
@@ -1148,16 +1147,6 @@ ipcDisposers.add('shell', registerShellIpcHandlers());
 ipcDisposers.add('clipboard', registerClipboardIpcHandlers());
 ipcDisposers.add('window-focus', registerWindowFocusIpcHandlers());
 ipcDisposers.add('file-exports', registerFileExportsIpcHandlers());
-// Lazy resolver for the same reason as `resolveSnapshotService` below: this
-// registration runs at module load, the ONE snapshot service is constructed
-// at app-ready. The checkpoint-undo engine restores from turn-start
-// snapshots (BST-1164 T4), so the handlers need the same seams as changes.
-ipcDisposers.add(
-  'assistant-checkpoint',
-  registerAssistantCheckpointIpcHandlers({
-    resolveSnapshotService: () => snapshotService,
-  })
-);
 ipcDisposers.add('git', registerGitIpcHandlers());
 // `resolveInventoryService` is a LAZY getter on purpose: this registration
 // runs at module load, while `gitInventoryService` is only constructed once

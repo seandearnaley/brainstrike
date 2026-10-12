@@ -809,11 +809,6 @@ export function registerDatabaseIpcHandlers(
             // Per-run experiment treatment records (migration 093, BST-1250):
             // FK-less experiment evidence must not survive a fresh start.
             await clearOptionalRelation(tx, 'brainstrike_assistant_run_treatments');
-            // Per-turn edit checkpoint journal (undo of agent file edits): a
-            // factory reset must wipe stored before-content + revert history so
-            // it does not survive a "true fresh start" (FACTORY RESET CONTRACT).
-            // No FK, so nothing cascades it — clear explicitly.
-            await clearOptionalRelation(tx, 'brainstrike_assistant_edit_checkpoints');
             // assistant-ui branch topology is client-owned durable state; clear
             // it explicitly so prompt carousels cannot survive factory reset.
             await clearOptionalRelation(tx, 'brainstrike_assistant_message_parents');

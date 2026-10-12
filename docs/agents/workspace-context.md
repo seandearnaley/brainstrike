@@ -361,76 +361,44 @@ Guard: `packages/agent/src/__tests__/skill-scan.spec.ts`,
 
 ---
 
-## EDIT CHECKPOINT LEDGER + SNAPSHOT UNDO (UNDO OF AGENT FILE EDITS)
+## EDIT CHECKPOINTS (UNDO OF AGENT FILE EDITS)
 
-Every agent file mutation records an ATTRIBUTION row so a per-tool-card Revert
-control and a per-turn footer can restore the prior state from the turn's shadow-git
-snapshot, not from stored content. Desktop-only, capability-gated.
+The agent host owns edit checkpoints. The first time a run changes a path, Core
+captures that path's prior state as a content-addressed StateStore blob and commits a
+`workspace.edit.recorded` row with the edit's attribution. Revert restores a run's
+paths to those baselines. The run log is the only record: thread deletion collects the
+blobs with the thread, and no PGlite table holds edits (migration 147 dropped the old
+journal). Desktop-only, capability-gated.
 
-- Capture INSIDE the existing per-file lock in all four `run*WorkspaceFile`
-  functions, so before-read → mutate → journal write is atomic against concurrent
-  same-file edits. `toolCallId` comes from Mastra's second `execute` argument,
-  identity from `runtimeData.memory`.
-- Native delegated calls resolve the child resource and current host-leg run from
-  their execution thread and authorized durable invocation; the tool factory's parent
-  closure never owns a child checkpoint, and read timestamps and paged-read cursors
-  use that same execution-thread scope.
-- Gate capture on an active memory context and keep it NON-FATAL — debug when the DB
-  is absent, error when it throws. The tool result contract never changes.
-- Store IDENTITY ONLY: op, paths, before/after sha256 and size, timestamps,
-  `reverted_at`. Never populate `before_content`; current rows use
-  `ok`/`created`/`rename` and the canonical snapshot ledger. Remaining readers for
-  old content and `skipped_binary`/`skipped_too_large`/`expired` rows are existing code;
-  under [ADR-0020](../adr/0020-greenfield-data-lifecycle.md), they create no legacy restore obligation or new cleanup task.
-  Preserve current-data revert, reload and explicit unavailable/corrupt evidence.
-- Nothing writes new journal rows: the old desktop writer
-  (`recordEditCheckpoint`) and its row-cap retention are gone. Host threads' edit
-  checkpoints are the host's committed log (`CommittedCheckpoints`).
-  Snapshot-side retention lives in `docs/agents/changeset-diff.md`.
-- LIST is renderer-direct DB across ALL runs, so entries stay revertible after
-  reload; AVAILABILITY is IPC to main (`assistant-checkpoint:availability`), per entry
-  `{restorable}` or `{restorable:false, reason}` from the snapshot ledger's turn
-  brackets.
-- Render pre-engine entries, failed-capture turns and uncovered roots VISIBLY
-  DISABLED with the reason — never a click-time surprise, never silent removal — and
-  treat an id missing from the availability map as unavailable.
-- REVERT is IPC to main (`assistant-checkpoint:revert-*`) with TURN-START SEMANTICS:
-  restore each journaled path to its state at the turn's `turn-start` snapshot and say
-  so in UI copy. Delete a `created` path, pruning empty ancestors bounded at the root;
-  undo a rename as restore-source plus delete-destination.
-- Resolve the stored `root_id` through the roots table and REFUSE a disconnected
-  root. The conflict gate compares current disk sha256 against the newest record's
-  after-state, with `force` as the override. Reuse the write tools' non-fatal reindex
-  seams, stamp `reverted_at` idempotently, and never re-journal a revert.
-- `revertRun(runId)` restores every touched path exactly once — newest record per path
-  wins the gate, older records stamp without re-touching disk — and is HONEST about
-  partial success.
+- A baseline larger than `HOST_EDIT_BASELINE_MAX_BYTES`, a symlink or a non-file is
+  recorded as `unavailable` with its reason, and that entry renders VISIBLY DISABLED
+  with the reason — never a click-time surprise, never silent removal.
+- The conversation reads checkpoints as a fold of committed rows
+  (`foldHostEditCheckpoints`, adapted by `CommittedHostCheckpoints`). Every revert is
+  Core's `checkpoint/revert`, which commits `workspace.edit.reverted` with one outcome
+  per entry.
+- Core refuses a revert while the thread has an unfinished run, and refuses an entry
+  whose workspace folder is no longer connected at the same location. A path whose
+  disk state no longer matches the edit's after-state is a `conflict` unless `force`;
+  a path already at its baseline is left alone. A rename restores its source before
+  removing its destination. A run revert restores each path once.
 - The per-turn footer is RUN-SCOPED: rendered once per run, on the run's LAST leg,
-  counting the run's full snapshot-restorable total and reverting each owned run
-  sequentially, newest first. Why: the default `edit:ask` policy splits one run across
-  several live assistant messages while `revertRun` reverts the whole run.
-- Render a turn whose entries are all snapshot-unavailable as a visible disabled row
-  with the reason. Both controls share one UX contract — confirm → restore, on-disk
-  conflict → "Revert anyway", idempotent after success — and the footer surfaces a
-  visible failure state with retry, never stuck in `reverting`. Pure capability
-  gating: `null` on web, never a disabled stub.
-- A successful revert derives the run's outcome label from the POST-revert journal:
-  all revertible entries reverted → `'failed'`, partial → `'mixed'`, recorded with
-  `source:'edit_revert'`. Labeling is SECONDARY — a failure is logged and never
-  rejects the completed revert — and a later explicit user verdict upserts over it.
-- The footer must appear for the turn that JUST ran, so `useEditCheckpoints` exposes a
-  `refetch` composed into the `onRunFinished`/`onRunFailed` seam rather than polling.
-  Every entries load also fetches the availability map (a failed fetch clears it,
-  disabling every control with a reason), a monotonic generation guard drops a stale
-  refetch, and a `revertRun` that rejects refetches BEFORE rethrowing.
+  reverting each owned run sequentially, newest first. Why: the default `edit:ask`
+  policy splits one run across several live assistant messages.
+- Both controls share one UX contract — confirm → restore, on-disk conflict →
+  "Revert anyway", idempotent after success — and the footer surfaces a visible
+  failure state with retry, never stuck in `reverting`. Pure capability gating: no
+  provider on web, never a disabled stub.
+- A revert that restored anything commits the run's Task Ledger label: every
+  revertible edit reverted → `'failed'`, partial → `'mixed'`, with
+  `source:'edit_revert'`. A later explicit user verdict outranks it.
 
-Key files: `edit-checkpoint-{journal,capture}.ts`, `checkpoint-snapshot-undo.ts`,
-`checkpoint-reindex-deps.ts`, `ipc-domains/assistant-checkpoint-*.ts`,
+Key files: `packages/agent-host/src/workspace-edits.ts`, `edit-checkpoint-view.ts`,
+`apps/desktop/src/renderer/committed-host-checkpoints.ts`,
 `edit-checkpoint-context.tsx`, `tool-fallback-row.tsx`, `checkpoint-turn-revert.tsx`,
-`use-edit-checkpoints.ts`, `packages/assistant-contract/src/edit-checkpoints.ts`.
-Undo uses the T4 swap to snapshot restore, with identity-only storage and no
-destructive migration. Evidence: `workspace-context/edit-checkpoints.md`.
-Guard: `apps/desktop/src/__tests__/assistant-server/edit-checkpoint-journal.integration.test.ts`.
+`packages/assistant-contract/src/edit-checkpoints.ts`.
+Evidence (pre-host journal and snapshot undo): `workspace-context/edit-checkpoints.md`.
+Guard: `packages/agent-host/__tests__/workspace-edits.integration.test.ts`.
 
 ---
 

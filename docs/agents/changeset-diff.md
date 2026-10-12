@@ -75,12 +75,10 @@ Guard: `apps/desktop/src/__tests__/assistant-server/git-service-structured-diff.
   to its log (`changeset-host-turns.ts`); a legacy ledger turn has no attribution
   source. Edit records are never read for diffs. `revertible` is `true` for every
   snapshot-resolved entry; renames appear as `added` + `deleted` pairs.
-- Restore content from snapshots — `changeset-snapshot-view.ts`,
-  `rewind-snapshot-engine.ts`, and `checkpoint-snapshot-undo.ts`, which restores
-  to TURN START (as the UI copy says), gated on disk sha256 vs the newest
-  record's after-state with `force` overriding.
-  `assistant-checkpoint:availability` renders an unavailable entry visibly
-  disabled with a reason, never a click-time surprise.
+- Restore content from snapshots — `changeset-snapshot-view.ts` and
+  `rewind-snapshot-engine.ts`. Per-edit undo is the agent host's own
+  baseline restore (workspace-context.md § Edit checkpoints), not a snapshot
+  restore.
 - `untracked` is reachable only through the `uncommitted` scope, re-probed per
   path by `isPathUntrackedInScope`. `T` maps to `modified`, `C` to `added`, and
   an unresolved conflict (`U`) is a hard `unmerged-path:` error.
