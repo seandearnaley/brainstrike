@@ -11,6 +11,7 @@ import {
   getDatabaseOptimizeDepsInclude,
   getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
+  getTransformersOnnxRuntimeWasmAliases,
   getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
   isBrowserEventsModule,
@@ -177,6 +178,13 @@ export default defineConfig({
     // exceptions below need to precede it.
     alias: [
       { find: '@', replacement: path.resolve(__dirname, './src') },
+      // ONNX Runtime's WASM, emitted from the onnxruntime-web Transformers.js itself
+      // depends on, for both realms that run it: the embedding worker and the
+      // local-model host (BST-2003).
+      ...getTransformersOnnxRuntimeWasmAliases([
+        path.resolve(__dirname, '../../packages/embedding-worker'),
+        path.resolve(__dirname, '../../packages/agent'),
+      ]),
       // Stylesheet/asset imports: the registry deliberately excludes non-code
       // exports (css/json/icons), so these stay explicit.
       {

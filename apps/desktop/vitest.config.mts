@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { getTransformersOnnxRuntimeWasmAliases } from '@brainstrike/build-utils';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
@@ -119,6 +120,11 @@ export default defineConfig({
     alias: [
       ...(coverageEnabled ? NATIVE_PROCESS_ALIASES : []),
       { find: '@', replacement: path.resolve(import.meta.dirname, './src/renderer') },
+      // ONNX Runtime's WASM, as vite.config.mts aliases it (BST-2003).
+      ...getTransformersOnnxRuntimeWasmAliases([
+        path.resolve(import.meta.dirname, '../../packages/embedding-worker'),
+        path.resolve(import.meta.dirname, '../../packages/agent'),
+      ]),
       // The real `electron` entrypoint only exports the binary path and throws
       // when the prebuilt binary is absent (e.g. cache-miss CI lanes). Tests
       // never need the runtime module — they `vi.mock('electron', …)` — so

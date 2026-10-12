@@ -75,6 +75,13 @@ test.describe('Production CSP qualification', () => {
     page.on('pageerror', (error) => {
       pageErrors.push(error.message);
     });
+    // BST-2003: every ONNX Runtime WASM request, from the page or its workers.
+    const ortWasmRequests: string[] = [];
+    page.context().on('request', (request) => {
+      if (/ort-wasm/u.test(new URL(request.url()).pathname)) {
+        ortWasmRequests.push(request.url());
+      }
+    });
     page.on('response', (response) => {
       if (response.url().includes('/assets/embedding.worker-')) {
         const csp = response.headers()['content-security-policy'];
@@ -172,6 +179,11 @@ test.describe('Production CSP qualification', () => {
       });
     }
     expect(embeddingWorkerPolicies).toContain(PRODUCTION_CSP);
+    // ONNX Runtime's WASM is served same-origin, never from a CDN (BST-2003).
+    expect(ortWasmRequests.length).toBeGreaterThan(0);
+    expect(
+      ortWasmRequests.filter((url) => new URL(url).origin !== new URL(baseURL).origin)
+    ).toEqual([]);
     expect(await collectCspDiagnostics(page, pageErrors)).toEqual({
       pageErrors: [],
       violations: [],

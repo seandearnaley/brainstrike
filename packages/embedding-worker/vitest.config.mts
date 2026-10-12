@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { getTransformersOnnxRuntimeWasmAliases } from '@brainstrike/build-utils';
 import { getAsyncUtilTimeout } from '@brainstrike/test-utils/test-timeouts';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
@@ -8,7 +9,12 @@ import { createBrowserProject } from '../config/src/vitest-browser.ts';
 // Resolve workspace deps (worker-runtime, indexing-contract, types) from SOURCE,
 // not built dist. Applied per-project (vitest 4 does not inherit the root-level
 // resolve into `test.projects`). See workspace-src-aliases (incident #1066).
-const srcAliases = workspaceSrcAliases(resolve(import.meta.dirname, '..'));
+// The ONNX Runtime WASM files `src/vite.ts` imports, from Transformers.js's own
+// onnxruntime-web (BST-2003), as the apps alias them.
+const srcAliases = [
+  ...getTransformersOnnxRuntimeWasmAliases([import.meta.dirname]),
+  ...workspaceSrcAliases(resolve(import.meta.dirname, '..')),
+];
 
 const isCI = process.env['CI'] === 'true' || process.env['GITHUB_ACTIONS'] === 'true';
 const runWebGpuMemory = process.env['VITEST_RUN_WEBGPU_MEMORY'] === 'true';

@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { getTransformersOnnxRuntimeWasmAliases } from '@brainstrike/build-utils';
 import LostTestFileReporter from '@brainstrike/test-utils/vitest-lost-file-reporter';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import { defineConfig } from 'vitest/config';
@@ -18,6 +19,11 @@ export default defineConfig({
     // spread, mirroring the packages/* convention from B3 (#1651) and
     // apps/desktop/vitest.config.mts (#1658).
     alias: [
+      // ONNX Runtime's WASM, as vite.config.mts aliases it (BST-2003).
+      ...getTransformersOnnxRuntimeWasmAliases([
+        resolve(import.meta.dirname, '../../packages/embedding-worker'),
+        resolve(import.meta.dirname, '../../packages/agent'),
+      ]),
       // Browser-safe agent subpath entries first (exact specifiers), then the
       // agent ROOT as a plain prefix so `@brainstrike/agent` and its remaining
       // node-only subpaths (`/pglite-mastra-memory`, …) resolve to SOURCE.

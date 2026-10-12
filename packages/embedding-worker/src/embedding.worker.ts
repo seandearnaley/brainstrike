@@ -7,8 +7,10 @@ import {
   EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
   type EmbedWorkerRequestControl,
+  readOnnxWasmPathsFragment,
   requestedEmbeddingPooling,
 } from '@brainstrike/indexing-contract';
+
 import { DEFAULT_EMBEDDING_DIMENSION, MAX_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import type {
   FeatureExtractionPipeline,
@@ -65,17 +67,20 @@ function resolveEmbeddingWorkerInstanceId(): string {
 
 const embeddingWorkerInstanceId = resolveEmbeddingWorkerInstanceId();
 
-function resolveWorkerpoolTelemetryChannelName(): string | null {
+function readWorkerLocationHash(): string | null {
   const workerLocation = (
     globalThis as typeof globalThis & { readonly location?: { readonly hash?: unknown } }
   ).location;
-  if (!(workerLocation && typeof workerLocation.hash === 'string')) {
+  return workerLocation && typeof workerLocation.hash === 'string' ? workerLocation.hash : null;
+}
+
+function resolveWorkerpoolTelemetryChannelName(): string | null {
+  const hash = readWorkerLocationHash();
+  if (hash === null) {
     return null;
   }
 
-  const fragment = workerLocation.hash.startsWith('#')
-    ? workerLocation.hash.slice(1)
-    : workerLocation.hash;
+  const fragment = hash.startsWith('#') ? hash.slice(1) : hash;
   const channelNames = new URLSearchParams(fragment).getAll(
     EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY
   );
@@ -315,7 +320,13 @@ function disposeFeatureExtractorBestEffort(extractor: FeatureExtractor): void {
 interface TransformersRuntime {
   readonly env: {
     allowRemoteModels?: boolean;
-    backends?: { onnx?: { webgpu?: { device?: unknown } } };
+    backends?: {
+      onnx?: {
+        versions?: { web?: string };
+        wasm?: { wasmPaths?: unknown };
+        webgpu?: { device?: unknown };
+      };
+    };
   };
   readonly pipeline: (
     task: 'feature-extraction',
@@ -368,6 +379,28 @@ let transformersRuntimePromise: Promise<TransformersRuntime> | null = testRuntim
   ? Promise.resolve(assertTransformersRuntime(testRuntimeOverride.runtime))
   : null;
 
+/**
+ * Browser ONNX Runtime loads its WASM from the app-served files the worker URL names
+ * (BST-2003). Transformers.js would otherwise point it at jsDelivr, so a worker without
+ * them refuses to run. Node ONNX Runtime (no `versions.web`) loads no WASM.
+ */
+function configureOnnxWasmPaths(env: TransformersRuntime['env']): void {
+  const onnx = env.backends?.onnx;
+  if (!onnx?.versions?.web) {
+    return;
+  }
+  const paths = readOnnxWasmPathsFragment(readWorkerLocationHash() ?? '');
+  if (!paths) {
+    throw new Error(
+      'The embedding worker has no app-served ONNX Runtime WASM URLs; it never loads ONNX Runtime from a CDN.'
+    );
+  }
+  if (!onnx.wasm) {
+    throw new Error('Browser ONNX Runtime exposes no wasm settings for its WASM paths.');
+  }
+  onnx.wasm.wasmPaths = { mjs: paths.mjs, wasm: paths.wasm };
+}
+
 async function getTransformersRuntime(): Promise<TransformersRuntime> {
   if (transformersRuntimePromise !== null) {
     return transformersRuntimePromise;
@@ -386,6 +419,7 @@ async function getTransformersRuntime(): Promise<TransformersRuntime> {
       // Allow remote model downloads when a cache directory is not specified. This aligns with the
       // Transformers.js recommendation for browser deployments. Source: https://huggingface.co/docs/transformers.js/en/integrations/web
       runtime.env.allowRemoteModels = runtime.env.allowRemoteModels ?? true;
+      configureOnnxWasmPaths(runtime.env);
       return {
         env: runtime.env,
         pipeline: runtime.pipeline,
