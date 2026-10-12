@@ -1,8 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { cp, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, type Response, test } from '@playwright/test';
-import type { ProcessMetric } from 'electron';
 import { HomePage } from '../../e2e/page-objects/home-page';
 import { SettingsPage } from '../../e2e/page-objects/settings-page';
 import { configureAssistantProvider } from '../../e2e/utils/assistant-mock';
@@ -16,7 +15,6 @@ import type {
   ModelProviderRequest,
   ModelProviderScript,
   ModelProviderShim,
-  ScriptedToolCall,
 } from '../../e2e/utils/model-provider-shim';
 import type { EMBEDDING_HOST_QUERY_CANCELED_CODE } from '../../src/embedding-host-shared';
 import { type ArtifactFlow, createArtifactFlow } from './artifact-flow';
@@ -30,30 +28,17 @@ import {
 import { waitForCurrentObservation } from './coverage-observation';
 import { nativeBuildComplete } from './native-benchmark';
 import { configureNativeText, readSavedChoices, type SavedNativeChoices } from './native-settings';
-import { startCapturingProvider, toolMessages } from './provider-capture';
+import { startCapturingProvider } from './provider-capture';
 import type { PublicBridges } from './public-bridges';
-import { readIndexQueryStopEvidence, requireIndexQueryStopEvidence } from './query-stop-evidence';
 import { observeSemanticQuery, type SemanticObservation } from './semantic-stop';
 import { assertActualVectorWorker, configureVectorProfile } from './vector-profile';
 
-// runTools creates the three committed source files plus the canonical SQL lens.
-// Artifact preparation changes an existing source; it adds no fifth file.
-const TOOL_CORPUS_FILE_COUNT = 4;
+// runTools indexes the three committed source files. Artifact preparation
+// changes an existing source; it adds no fourth file.
+const TOOL_CORPUS_FILE_COUNT = 3;
 // Compile-time pin to the public contract without loading the application's inference modules.
 const QUERY_CANCELED_CODE: typeof EMBEDDING_HOST_QUERY_CANCELED_CODE =
   'EMBEDDING_HOST_QUERY_CANCELED';
-
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ESRCH') {
-      return false;
-    }
-    throw error;
-  }
-}
 
 function outputText(value: unknown): string {
   if (typeof value === 'string') {
@@ -73,21 +58,6 @@ function outputText(value: unknown): string {
   return String(value);
 }
 
-function requireToolCallId(message: unknown): string {
-  if (
-    typeof message !== 'object' ||
-    message === null ||
-    !('role' in message) ||
-    message.role !== 'tool' ||
-    !('tool_call_id' in message) ||
-    typeof message.tool_call_id !== 'string' ||
-    message.tool_call_id.length === 0
-  ) {
-    throw new Error('Expected the actual returned tool-call identity.');
-  }
-  return message.tool_call_id;
-}
-
 async function runTools(
   label: string,
   script: ModelProviderScript | ((request: ModelProviderRequest) => ModelProviderScript),
@@ -104,15 +74,6 @@ async function runTools(
   const session = await createCandidateSession(label);
   const corpus = path.join(session.runDir, 'corpus');
   await cp(path.join(import.meta.dirname, 'corpus'), corpus, { recursive: true });
-  const lens = await readFile(
-    path.join(session.candidateRoot, '.brainstrike/lenses/callers-hybrid.sql')
-  );
-  await mkdir(path.join(corpus, '.brainstrike/lenses'), { recursive: true });
-  await writeFile(path.join(corpus, '.brainstrike/lenses/callers-hybrid.sql'), lens);
-  await session.record('canonical-lens', {
-    bytes: lens.length,
-    sha256: createHash('sha256').update(lens).digest('hex'),
-  });
   await prepare?.(corpus, session);
   const provider = await startCapturingProvider(script);
   try {
@@ -213,356 +174,6 @@ async function runTools(
     }
   }
 }
-
-const query = (arguments_: Record<string, unknown>): ScriptedToolCall => ({
-  arguments: arguments_,
-  name: 'brainstrike_querySelf',
-});
-
-test('real visible Stop terminates a pending native index query and a fresh request recovers', async () => {
-  const sql =
-    'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM r) SELECT count(*) FROM r';
-  let explained: readonly unknown[] = [];
-  const completedBeforeStop = new Set<string>();
-  await runTools(
-    'query-self-stop',
-    (request) => {
-      if (request.toolNames.length === 0) {
-        return { finalText: 'Native query Stop qualification' };
-      }
-      const outputs = toolMessages(request);
-      for (const output of outputs) {
-        completedBeforeStop.add(requireToolCallId(output));
-      }
-      if (outputs.length === 2) {
-        explained = outputs;
-      }
-      return {
-        finalText: 'M2 pending query unexpectedly completed',
-        toolCallStages: [
-          [{ arguments: { toolName: 'brainstrike_querySelf' }, name: 'load_tool' }],
-          [query({ mode: 'explain', sql, target: 'index' })],
-          [query({ mode: 'query', sql, target: 'index' })],
-        ],
-      };
-    },
-    (outputs) => {
-      expect(outputs).toHaveLength(2);
-      const recoveryCallId = requireToolCallId(outputs[1]);
-      expect(completedBeforeStop.size).toBe(2);
-      expect(completedBeforeStop.has(recoveryCallId)).toBe(false);
-      expect(requireToolCallId(outputs[0])).not.toBe(recoveryCallId);
-      expect(outputText(outputs[1])).toContain('m2_after_user_stop');
-      expect(outputText(outputs[1])).toContain('1941');
-      expect(outputText(outputs)).not.toMatch(/deadline|tool_failed|tool_timeout/i);
-    },
-    undefined,
-    false,
-    async (context, session, provider) => {
-      const panel = context.window.getByTestId('chat-panel');
-      const stdout: string[] = [];
-      const observeOutput = (chunk: Buffer): void => {
-        stdout.push(chunk.toString('utf8'));
-      };
-      const child = context.app.process();
-      if (!child.stdout) {
-        throw new Error('Native query diagnostics require actual main stdout.');
-      }
-      child.stdout.on('data', observeOutput);
-      const metricsStartedAt = performance.now();
-      interface MetricSnapshot {
-        elapsedMs: number;
-        utilities: {
-          creationTime: number;
-          live: boolean;
-          name: string | null;
-          pid: number;
-          serviceName: string | null;
-        }[];
-      }
-      const metricSnapshots: MetricSnapshot[] = [];
-      let lastMetricSnapshot: MetricSnapshot | undefined;
-      let lastMetricIdentity = '';
-      let droppedMetricTransitions = 0;
-      let owner: ProcessMetric | undefined;
-      try {
-        // Protected EXPLAIN checks this SQL; the later cancellation diagnostic
-        // must still prove the new reader admitted its query. Admission, limits
-        // and the production one-second query deadline remain unchanged.
-        await expect
-          .poll(() =>
-            provider
-              .transcript()
-              .some(
-                (turn) =>
-                  turn.decision === 'tool:brainstrike_querySelf' && turn.toolResultCount === 2
-              )
-          )
-          .toBe(true);
-        expect(outputText(explained[1])).toContain('plan');
-        expect(outputText(explained[1])).not.toMatch(/tool_failed|tool_input_invalid|deadline/i);
-        const running = panel
-          .getByTestId('activity-step-row')
-          .and(panel.locator('[title="brainstrike.querySelf"][data-state="running"]'));
-        // Observe public metrics alongside UI readiness within the unchanged
-        // query deadline. fork's serviceName option becomes ProcessMetric.name.
-        const readiness = await Promise.allSettled([
-          expect(running).toHaveCount(1),
-          expect(panel.getByRole('button', { exact: true, name: 'Stop' })).toBeVisible(),
-          expect
-            .poll(
-              async () => {
-                const metrics = await context.app.evaluate(({ app }) => app.getAppMetrics());
-                const utilities = metrics
-                  .filter((metric) => metric.type === 'Utility')
-                  .map((metric) => ({ live: isProcessAlive(metric.pid), metric }));
-                lastMetricSnapshot = {
-                  elapsedMs: performance.now() - metricsStartedAt,
-                  utilities: utilities.map(({ live, metric }) => ({
-                    creationTime: metric.creationTime,
-                    live,
-                    name: metric.name ?? null,
-                    pid: metric.pid,
-                    serviceName: metric.serviceName ?? null,
-                  })),
-                };
-                const identity = JSON.stringify(lastMetricSnapshot.utilities);
-                if (identity !== lastMetricIdentity) {
-                  if (metricSnapshots.length < 32) {
-                    metricSnapshots.push(lastMetricSnapshot);
-                  } else {
-                    droppedMetricTransitions += 1;
-                  }
-                  lastMetricIdentity = identity;
-                }
-                const readers = utilities.filter(
-                  ({ live, metric }) => live && metric.name === 'brainstrike-index-query'
-                );
-                owner = readers.length === 1 ? readers[0]?.metric : undefined;
-                return readers.length;
-              },
-              { intervals: [10], timeout: 15_000 }
-            )
-            .toBe(1),
-        ]);
-        for (const result of readiness) {
-          if (result.status === 'rejected') {
-            throw result.reason;
-          }
-        }
-        if (!owner) {
-          throw new Error('Actual pending index query owner disappeared.');
-        }
-        const queryOwner = owner;
-        expect(isProcessAlive(queryOwner.pid)).toBe(true);
-        const stopStartedAt = performance.now();
-        const [response] = await Promise.all([
-          context.window.waitForResponse(
-            (value) =>
-              new URL(value.url()).pathname === '/assistant/cancel' &&
-              value.request().method() === 'POST'
-          ),
-          panel.getByRole('button', { exact: true, name: 'Stop' }).click(),
-        ]);
-        const request: unknown = response.request().postDataJSON();
-        if (
-          typeof request !== 'object' ||
-          request === null ||
-          !('runId' in request) ||
-          typeof request.runId !== 'string'
-        ) {
-          throw new Error('Visible Stop supplied no validated native run identity.');
-        }
-        const acknowledgement: unknown = await response.json();
-        const after = await context.app.evaluate(({ app }) => app.getAppMetrics());
-        await session.record('visible-query-stop', {
-          acknowledgement,
-          metricsAfterAcknowledgement: after,
-          ownerBeforeStop: queryOwner,
-          protectedExplainResult: explained[1],
-          request,
-          responseStatus: response.status(),
-          stopDurationMs: performance.now() - stopStartedAt,
-        });
-        expect(response.status()).toBe(200);
-        expect(acknowledgement).toEqual({ accepted: true, runId: request.runId });
-        // Electron's metrics inventory may briefly retain an exited PID;
-        // actual process absence is the authoritative termination check.
-        expect(() => process.kill(queryOwner.pid, 0)).toThrow(
-          expect.objectContaining({ code: 'ESRCH' })
-        );
-        const durable = await context.window.evaluate(async (id) => {
-          const query = (
-            window as typeof window & {
-              electronAPI: {
-                db: {
-                  query: (
-                    sql: string,
-                    params: unknown[]
-                  ) => Promise<{ rows: { status: string }[] }>;
-                };
-              };
-            }
-          ).electronAPI.db.query;
-          return (
-            await query('SELECT status FROM brainstrike_assistant_thread_runs WHERE id = $1', [id])
-          ).rows;
-        }, request.runId);
-        await session.record('query-stop-durable-run', durable);
-        expect(durable).toEqual([{ status: 'cancelled' }]);
-        await expect(panel.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0);
-        const stopped = panel
-          .getByTestId('activity-step-row')
-          .and(panel.locator('[title="brainstrike.querySelf"]'))
-          .last();
-        await expect(stopped).toHaveAttribute('data-state', 'cancelled');
-        await session.record(
-          'query-stop-visible-tool-state',
-          await stopped.getAttribute('data-state')
-        );
-        await session.record('query-stop-native-output', stdout);
-        expect(stdout.join('')).not.toMatch(
-          /SqliteQueryDeadlineError|Query exceeded its \d+ ms deadline/
-        );
-        await expect
-          .poll(() => readIndexQueryStopEvidence(stdout, queryOwner.pid), {
-            intervals: [10],
-            timeout: 3000,
-          })
-          .not.toBeNull();
-        await session.record(
-          'query-stop-admitted-request',
-          requireIndexQueryStopEvidence(stdout, queryOwner.pid)
-        );
-        provider.setScript((request) => {
-          expect(
-            outputText(
-              request.messages.findLast(
-                (message) =>
-                  typeof message === 'object' &&
-                  message !== null &&
-                  'role' in message &&
-                  message.role === 'user'
-              )
-            )
-          ).toContain('Run a fresh guarded native query after my Stop.');
-          return {
-            finalText: 'M2 qualification tools completed',
-            toolCallStages: [
-              [{ arguments: { toolName: 'brainstrike_querySelf' }, name: 'load_tool' }],
-              [query({ mode: 'query', sql: 'SELECT 1941 AS m2_after_user_stop', target: 'index' })],
-            ],
-          };
-        });
-        await panel
-          .getByRole('textbox', { name: 'Message input' })
-          .fill('Run a fresh guarded native query after my Stop.');
-        await panel.getByRole('button', { exact: true, name: 'Send' }).click();
-        await expect(
-          panel.getByText('M2 qualification tools completed', { exact: true })
-        ).toBeVisible({ timeout: 90_000 });
-        await expect(
-          panel.getByText('M2 pending query unexpectedly completed', { exact: true })
-        ).toHaveCount(0);
-        expect(stdout.join('')).not.toMatch(
-          /SqliteQueryDeadlineError|Query exceeded its \d+ ms deadline/
-        );
-      } finally {
-        child.stdout?.off('data', observeOutput);
-        await session.record('query-stop-process-metrics', {
-          droppedMetricTransitions,
-          lastMetricSnapshot,
-          snapshots: metricSnapshots,
-        });
-        await session.record('query-stop-native-output-final', stdout);
-      }
-    }
-  );
-});
-
-test('real assistant querySelf app/index, lens routing, text caller refusal and guarded recovery', async () => {
-  await runTools(
-    'query-self-text',
-    {
-      finalText: 'M2 qualification tools completed',
-      toolCallStages: [
-        [{ arguments: { toolName: 'brainstrike_querySelf' }, name: 'load_tool' }],
-        [query({ mode: 'query', sql: 'SELECT 1912 AS m2_app_target', target: 'app' })],
-        [
-          query({
-            mode: 'query',
-            sql: 'SELECT COUNT(*) AS m2_native_files FROM file_records',
-            target: 'index',
-          }),
-        ],
-        [query({ mode: 'listLenses', target: 'index' })],
-        [
-          query({
-            lens: 'callers-hybrid',
-            mode: 'lens',
-            target: 'index',
-            values: ['attachMcpAppShellBridge', 'attachMcpAppShellBridge'],
-          }),
-        ],
-        // Reuse the protected sandbox fixture so a syntax error cannot stand in
-        // for the authorizer's actual attachment refusal.
-        [query({ mode: 'query', sql: "ATTACH ':memory:' AS other", target: 'index' })],
-        [
-          query({
-            mode: 'query',
-            sql: 'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM r) SELECT count(*) FROM r',
-            target: 'index',
-          }),
-        ],
-        [query({ mode: 'query', sql: 'SELECT 1941 AS m2_after_refusal', target: 'index' })],
-      ],
-    },
-    (outputs) => {
-      expect(outputs).toHaveLength(8);
-      expect(outputText(outputs[1])).toContain('1912');
-      expect(outputText(outputs[2])).toMatch(
-        new RegExp(`m2_native_files\\n${TOOL_CORPUS_FILE_COUNT}(?:\\n|$)`)
-      );
-      expect(outputText(outputs[3])).toContain('callers-hybrid');
-      expect(outputText(outputs[4])).toMatch(/vector|profile/i);
-      expect(outputText(outputs[5])).toMatch(
-        /not authorized|prohibited|denied|not allowed|readonly|read-only/i
-      );
-      expect(outputText(outputs[6])).toMatch(/deadline/i);
-      expect(outputText(outputs[7])).toContain('1941');
-    }
-  );
-});
-
-test('real assistant callers-hybrid executes after full native vector publication', async () => {
-  test.setTimeout(600_000);
-  await runTools(
-    'callers-vector',
-    {
-      finalText: 'M2 qualification tools completed',
-      toolCallStages: [
-        [{ arguments: { toolName: 'brainstrike_querySelf' }, name: 'load_tool' }],
-        [
-          query({
-            lens: 'callers-hybrid',
-            mode: 'lens',
-            target: 'index',
-            values: ['attachMcpAppShellBridge', 'attachMcpAppShellBridge'],
-          }),
-        ],
-      ],
-    },
-    (outputs) => {
-      expect(outputs).toHaveLength(2);
-      const actual = outputText(outputs[1]);
-      expect(actual).toMatch(/rows \| returned=[1-9]/);
-      expect(actual).toContain('rrf_score');
-      expect(actual).toContain('bridges.ts');
-    },
-    undefined,
-    true
-  );
-});
 
 test('real stored tool output search finds a match beyond the first 8000 bytes', async () => {
   const marker = 'M2_ARTIFACT_MATCH_AFTER_8000';

@@ -7,8 +7,6 @@ export {
   ListEmbeddingSetsInputSchema,
   type QueryDiagnosticsInput,
   QueryDiagnosticsInputSchema,
-  type QuerySelfInput,
-  QuerySelfInputSchema,
   type QueueStatusInput,
   QueueStatusInputSchema,
   ReembedCollectionInputSchema,

@@ -7,7 +7,6 @@ import {
 } from '@brainstrike/sqlite-query';
 import { app, utilityProcess } from 'electron';
 import { resolveBundledSiblingPath } from './bundled-sibling-path';
-import type { IndexCallerRead } from './native-caller-query';
 import type { NativeCoverageReader } from './native-coverage-reader';
 
 interface IndexQueryTarget {
@@ -24,23 +23,6 @@ const acquisitions = new Set<Promise<SqliteQueryClient>>();
 let target:
   | { readonly acquire: () => IndexQueryTarget; readonly deadlines: IndexQueryDeadlines }
   | undefined;
-
-let callerRead: IndexCallerRead | undefined;
-
-export function installIndexCallerRead(read: IndexCallerRead): void {
-  if (callerRead) {
-    throw new Error('Native caller read authority is already installed.');
-  }
-  callerRead = read;
-}
-
-export const withIndexCallerRead: IndexCallerRead = (work, signal) => {
-  signal?.throwIfAborted();
-  if (!callerRead) {
-    throw new ToolInputError('Current native caller read authority is unavailable.');
-  }
-  return callerRead(work, signal);
-};
 
 /** Main registers its one authoritative, ready index owner; no database path is derived here. */
 export function installIndexQueryTarget(
@@ -67,7 +49,7 @@ export async function openIndexQuery(
   const registered = target;
   if (!registered) {
     throw new ToolInputError(
-      'The SQLite workspace index is unavailable. Enable indexing and wait for its host to become ready; target="app" queries the separate application store.'
+      'The SQLite workspace index is unavailable. Enable indexing and wait for its host to become ready.'
     );
   }
   const index = registered.acquire();

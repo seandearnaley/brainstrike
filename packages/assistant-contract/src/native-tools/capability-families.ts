@@ -11,8 +11,8 @@ import type { DeferredCapabilityFamilyPhrase } from './define.js';
  * (`manageCanvas`) and a skill activation's named `runSkillScript` as
  * nonexistent because neither list mentioned them. Review of #2625 then found
  * the replacement list was UNCONDITIONAL: a web run (whose eligible set
- * excludes canvas, Python, browsers, command sessions, diagnostics, self-query
- * and skill scripts — see `WEB_NATIVE_TOOL_IDS`) would advertise capabilities
+ * excludes canvas, Python, browsers, command sessions, diagnostics and skill
+ * scripts — see `WEB_NATIVE_TOOL_IDS`) would advertise capabilities
  * that can never load.
  *
  * Membership is no longer listed here: each tool definition names its family
@@ -36,7 +36,6 @@ export const DEFERRED_CAPABILITY_FAMILY_PHRASES = [
   'symbol and LSP inspection',
   'embedding search',
   'diagnostics',
-  'DB self-query',
   'tool-output artifacts',
 ] as const satisfies readonly DeferredCapabilityFamilyPhrase[];
 

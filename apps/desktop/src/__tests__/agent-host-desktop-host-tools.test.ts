@@ -113,13 +113,6 @@ function selection(root: string, native: Record<string, unknown> = {}) {
         permissionToolId: NATIVE_TOOL_ID.queryDiagnostics,
         risk: 'read',
       },
-      brainstrike_querySelf: {
-        description: 'Self query',
-        identity: NATIVE_TOOL_ID.querySelf,
-        inputSchema: { type: 'object' },
-        permissionToolId: NATIVE_TOOL_ID.querySelf,
-        risk: 'read',
-      },
       brainstrike_readWorkspaceContext: {
         description: 'Curated context read',
         identity: NATIVE_TOOL_ID.readWorkspaceContext,
@@ -574,7 +567,7 @@ test('the desktop host validates a context selection in its own process and asks
   });
 });
 
-test('the desktop host runs querySelf and queryDiagnostics, reading only Main’s databases through typed reads', async () => {
+test('the desktop host runs queryDiagnostics, reading only Main’s diagnostics store through a typed read', async () => {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'bs-m3-host-self-')));
   directories.push(root);
   const event = {
@@ -599,26 +592,10 @@ test('the desktop host runs querySelf and queryDiagnostics, reading only Main’
     stackTruncated: false,
     threadId: 'host-thread',
   };
-  const request = vi.fn(async (method: string, input: unknown, _signal?: AbortSignal) => {
+  const request = vi.fn(async (method: string, _input: unknown, _signal?: AbortSignal) => {
     switch (method) {
       case 'admission/fresh-roots':
         return [{ displayName: 'A', path: root, rootId: 'root-a' }];
-      case 'desktop-read/query-self': {
-        const sql = (input as { request: { input: { sql?: string } } }).request.input.sql;
-        return sql === 'SELECT 1'
-          ? {
-              ok: true,
-              result: {
-                columns: ['?column?'],
-                kind: 'rows',
-                rowCount: 1,
-                rows: [{ cells: ['1'] }],
-                target: 'app',
-                truncated: false,
-              },
-            }
-          : { error: 'input', message: 'syntax error at or near "SELEC"', ok: false };
-      }
       case 'desktop-read/diagnostics/events':
         return [event];
       default:
@@ -633,32 +610,10 @@ test('the desktop host runs querySelf and queryDiagnostics, reading only Main’
     selected: selection(root),
     threadId: 'host-thread',
   });
-  const querySelf = tools['brainstrike_querySelf'];
   const diagnostics = tools['brainstrike_queryDiagnostics'];
-  if (!(querySelf && diagnostics)) {
-    throw new Error('The self-inspection tools were not built for the host');
+  if (!diagnostics) {
+    throw new Error('The diagnostics tool was not built for the host');
   }
-  await expect(
-    querySelf.execute({ mode: 'query', sql: 'SELECT 1', target: 'app' }, execution())
-  ).resolves.toMatchObject({ kind: 'rows', rows: [{ cells: ['1'] }], target: 'app' });
-  // The engine's own message reaches the model as a correctable input error.
-  await expect(
-    querySelf.execute({ mode: 'query', sql: 'SELEC 1', target: 'app' }, execution())
-  ).resolves.toEqual({
-    error: {
-      code: 'tool_input_invalid',
-      message: 'syntax error at or near "SELEC"',
-      toolName: NATIVE_TOOL_ID.querySelf,
-    },
-    ok: false,
-  });
-  // A local input error never reaches Main.
-  request.mockClear();
-  await expect(
-    querySelf.execute({ analyze: true, mode: 'query', sql: 'SELECT 1', target: 'app' }, execution())
-  ).resolves.toMatchObject({ error: { code: 'tool_input_invalid' }, ok: false });
-  expect(request.mock.calls.map(([method]) => method)).not.toContain('desktop-read/query-self');
-
   await expect(
     diagnostics.execute({ mode: 'events', severity: 'error' }, execution())
   ).resolves.toMatchObject({ items: [event], kind: 'events', returned: 1 });
