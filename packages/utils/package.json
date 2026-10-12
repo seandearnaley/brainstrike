@@ -131,6 +131,10 @@
     "./grep-trigram-plan": {
       "types": "./dist/grep-trigram-plan.d.ts",
       "default": "./dist/grep-trigram-plan.js"
+    },
+    "./rrf": {
+      "types": "./dist/rrf.d.ts",
+      "default": "./dist/rrf.js"
     }
   },
   "files": [

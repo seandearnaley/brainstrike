@@ -15,7 +15,16 @@ import {
   normalizeRRFScores,
   type RankedList,
   RRF_K_DEFAULT,
-} from '../src/search/index.js';
+} from '../rrf.js';
+
+/** The item at `index`; a missing one fails the test instead of reading undefined. */
+function at<T>(items: readonly T[], index: number): T {
+  const item = items[index];
+  if (item === undefined) {
+    throw new Error(`No item at index ${index}`);
+  }
+  return item;
+}
 
 describe('RRF Algorithm', () => {
   describe('RRF_K_DEFAULT', () => {
@@ -84,12 +93,12 @@ describe('RRF Algorithm', () => {
       const result = fuseRankedLists([list]);
 
       expect(result).toHaveLength(2);
-      expect(result[0].id).toBe('doc1');
-      expect(result[1].id).toBe('doc2');
-      expect(result[0].sourceCount).toBe(1);
-      expect(result[0].contributions).toHaveLength(1);
-      expect(result[0].contributions[0].source).toBe('vector');
-      expect(result[0].contributions[0].rank).toBe(1);
+      expect(at(result, 0).id).toBe('doc1');
+      expect(at(result, 1).id).toBe('doc2');
+      expect(at(result, 0).sourceCount).toBe(1);
+      expect(at(result, 0).contributions).toHaveLength(1);
+      expect(at(at(result, 0).contributions, 0).source).toBe('vector');
+      expect(at(at(result, 0).contributions, 0).rank).toBe(1);
     });
 
     it('should fuse two lists with overlapping items', () => {
@@ -148,7 +157,7 @@ describe('RRF Algorithm', () => {
       // doc3: 1/63 + 1/61 ≈ 0.03226
       // Actually all have same score, but doc2 has consistently middle rank
       for (let i = 1; i < result.length; i++) {
-        expect(result[i - 1].rrfScore).toBeGreaterThanOrEqual(result[i].rrfScore);
+        expect(at(result, i - 1).rrfScore).toBeGreaterThanOrEqual(at(result, i).rrfScore);
       }
     });
 
@@ -183,8 +192,8 @@ describe('RRF Algorithm', () => {
 
       const result = fuseRankedLists([list], { limit: 3 });
       expect(result).toHaveLength(3);
-      expect(result[0].id).toBe('doc1');
-      expect(result[2].id).toBe('doc3');
+      expect(at(result, 0).id).toBe('doc1');
+      expect(at(result, 2).id).toBe('doc3');
     });
 
     it('should respect minSourceCount option', () => {
@@ -202,8 +211,8 @@ describe('RRF Algorithm', () => {
 
       // Only doc2 appears in both lists
       expect(result).toHaveLength(1);
-      expect(result[0].id).toBe('doc2');
-      expect(result[0].sourceCount).toBe(2);
+      expect(at(result, 0).id).toBe('doc2');
+      expect(at(result, 0).sourceCount).toBe(2);
     });
 
     it('should use custom k value', () => {
@@ -216,7 +225,7 @@ describe('RRF Algorithm', () => {
       const resultSmallK = fuseRankedLists([list], { k: 10 });
 
       // Smaller k gives higher scores
-      expect(resultSmallK[0].rrfScore).toBeGreaterThan(resultDefault[0].rrfScore);
+      expect(at(resultSmallK, 0).rrfScore).toBeGreaterThan(at(resultDefault, 0).rrfScore);
     });
 
     it('should include contribution details', () => {
@@ -232,13 +241,13 @@ describe('RRF Algorithm', () => {
 
       const result = fuseRankedLists([vectorList, ftsList]);
 
-      expect(result[0].contributions).toHaveLength(2);
+      expect(at(result, 0).contributions).toHaveLength(2);
 
-      const vectorContrib = result[0].contributions.find((c) => c.source === 'vector');
+      const vectorContrib = at(result, 0).contributions.find((c) => c.source === 'vector');
       expect(vectorContrib?.rank).toBe(1);
       expect(vectorContrib?.originalScore).toBe(0.95);
 
-      const ftsContrib = result[0].contributions.find((c) => c.source === 'fts');
+      const ftsContrib = at(result, 0).contributions.find((c) => c.source === 'fts');
       expect(ftsContrib?.rank).toBe(1);
       expect(ftsContrib?.originalScore).toBe(12.5);
     });
@@ -336,9 +345,9 @@ describe('RRF Algorithm', () => {
 
       const normalized = normalizeRRFScores(results);
 
-      expect(normalized[0].rrfScore).toBe(1.0); // Max score becomes 1.0
-      expect(normalized[1].rrfScore).toBe(0.5); // 0.02/0.04 = 0.5
-      expect(normalized[2].rrfScore).toBe(0.25); // 0.01/0.04 = 0.25
+      expect(at(normalized, 0).rrfScore).toBe(1.0); // Max score becomes 1.0
+      expect(at(normalized, 1).rrfScore).toBe(0.5); // 0.02/0.04 = 0.5
+      expect(at(normalized, 2).rrfScore).toBe(0.25); // 0.01/0.04 = 0.25
     });
 
     it('should handle results with max score of 0', () => {
@@ -347,7 +356,7 @@ describe('RRF Algorithm', () => {
       ];
 
       const normalized = normalizeRRFScores(results);
-      expect(normalized[0].rrfScore).toBe(0);
+      expect(at(normalized, 0).rrfScore).toBe(0);
     });
 
     it('maps all-equal non-zero scores to 1.0 without producing NaN', () => {
@@ -381,9 +390,9 @@ describe('RRF Algorithm', () => {
 
       const normalized = normalizeRRFScores(results);
 
-      expect(normalized[0].id).toBe('doc1');
-      expect(normalized[0].sourceCount).toBe(2);
-      expect(normalized[0].contributions).toHaveLength(1);
+      expect(at(normalized, 0).id).toBe('doc1');
+      expect(at(normalized, 0).sourceCount).toBe(2);
+      expect(at(normalized, 0).contributions).toHaveLength(1);
     });
   });
 
@@ -400,16 +409,16 @@ describe('RRF Algorithm', () => {
       expect(list.source).toBe('vector');
       expect(list.items).toHaveLength(3);
       // Should be sorted descending by default
-      expect(list.items[0].id).toBe('doc1'); // 0.95
-      expect(list.items[1].id).toBe('doc3'); // 0.92
-      expect(list.items[2].id).toBe('doc2'); // 0.87
+      expect(at(list.items, 0).id).toBe('doc1'); // 0.95
+      expect(at(list.items, 1).id).toBe('doc3'); // 0.92
+      expect(at(list.items, 2).id).toBe('doc2'); // 0.87
     });
 
     it('should preserve original scores', () => {
       const items = [{ id: 'doc1', score: 0.95 }];
       const list = createRankedList(items, 'vector');
 
-      expect(list.items[0].score).toBe(0.95);
+      expect(at(list.items, 0).score).toBe(0.95);
     });
 
     it('should apply weight option', () => {
@@ -440,9 +449,9 @@ describe('RRF Algorithm', () => {
       const list = createRankedList(items, 'vector', { sortDescending: false });
 
       // Order should be preserved
-      expect(list.items[0].id).toBe('doc1');
-      expect(list.items[1].id).toBe('doc2');
-      expect(list.items[2].id).toBe('doc3');
+      expect(at(list.items, 0).id).toBe('doc1');
+      expect(at(list.items, 1).id).toBe('doc2');
+      expect(at(list.items, 2).id).toBe('doc3');
     });
   });
 

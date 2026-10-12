@@ -2,6 +2,23 @@
  * Search utilities for hybrid search with RRF fusion
  */
 
+// RRF Algorithm
+export {
+  // Core RRF functions
+  calculateRRFContribution,
+  createRankedList,
+  // Types
+  type FusedResult,
+  fuseRankedLists,
+  fuseVectorAndFTS,
+  normalizeRRFScores,
+  type RankedItem,
+  type RankedList,
+  // Constants
+  RRF_K_DEFAULT,
+  type RRFContribution,
+  type RRFOptions,
+} from '@brainstrike/utils/rrf';
 // Agent SQL sandbox (brainstrike.querySelf)
 export {
   AGENT_READONLY_ROLE,
@@ -58,23 +75,6 @@ export {
   QUICK_OPEN_NAME_SEARCH_SQL,
   type QuickOpenFileRow,
 } from './quick-open-query.js';
-// RRF Algorithm
-export {
-  // Core RRF functions
-  calculateRRFContribution,
-  createRankedList,
-  // Types
-  type FusedResult,
-  fuseRankedLists,
-  fuseVectorAndFTS,
-  normalizeRRFScores,
-  type RankedItem,
-  type RankedList,
-  // Constants
-  RRF_K_DEFAULT,
-  type RRFContribution,
-  type RRFOptions,
-} from './rrf.js';
 // Thread hybrid search (thread-native binding of the shared RRF core)
 export {
   createThreadSearchService,
