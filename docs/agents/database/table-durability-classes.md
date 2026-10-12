@@ -21,7 +21,6 @@ Each call read the table's migration header, its repository or writers, its read
 | `file_records`, `file_chunks`, `file_symbols`, `file_symbol_refs` | `workspace-collection-sync-import.ts#runRootFolderCacheImport` | Background indexing (`WorkspaceCollectionSyncService`, triggered by the provider's effects and resync-on-visibility) re-scans each mounted root and re-imports records, chunks and symbols. |
 | `embedding_cache` | `embedding-worker-cache-io.ts#storeToCacheAsync` | The embedding worker writes through as chunks are embedded, so it refills fully after `file_chunks` is rebuilt; truncated alone it stays cold until chunks re-embed. |
 | `brainstrike_thread_message_index`, `brainstrike_thread_search_state` | `thread-search-repository.ts#ThreadSearchRepository` | `sync()` inserts missing index rows from `mastra_messages` in bounded batches and re-seeds missing state rows without re-extraction (its own comment covers the post-reset empty-state case). |
-| `brainstrike_assistant_tool_projection_rewrites` | `tool-projection-rewrite-repository.ts#recordSuccessfulToolProjection` | After the next tracked tool call, the scan re-reads the thread's persisted invocations and re-commits supersession and prune overlays. It is per thread: an idle thread replays its full tool results (larger prompts, no data loss) until its next tracked tool call. |
 
 ## Hard calls
 
@@ -43,7 +42,6 @@ Truncating is safe only for what the table's rebuild path actually restores. Bef
 - `file_*`: only the managed collection rebuilds; manual-import collections need a re-import and lose their membership.
 - `job_queue`: manual-collection embed jobs are not re-enqueued; those chunks stay pending until a manual backfill.
 - `embedding_cache`: refills only when `file_chunks` re-embeds; truncated alone it stays cold.
-- `brainstrike_assistant_tool_projection_rewrites`: rebuilt per thread on its next tracked tool call; an idle thread replays full results until then.
 
 ## What the classes do not cover
 

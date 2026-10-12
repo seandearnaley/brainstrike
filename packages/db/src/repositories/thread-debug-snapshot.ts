@@ -95,9 +95,6 @@ const SECTIONS = {
     encode(a.content, 'base64') AS "contentBase64", ${selectColumns('a', ['byte_length', 'created_at', 'expires_at'])}
     FROM brainstrike_assistant_tool_output_artifacts a JOIN subtree s ON s.thread_id = a.execution_thread_id
     ORDER BY a.created_at, a.id`,
-  toolProjections: `SELECT ${selectColumns('p', ['tool_call_id', 'thread_id', 'rewrite_id', 'superseded_by_tool_call_id', 'marker_text', 'original_chars', 'created_at', 'kind'])}
-    FROM brainstrike_assistant_tool_projection_rewrites p JOIN subtree s USING (thread_id)
-    ORDER BY p.created_at, p.tool_call_id`,
   toolTelemetry: `SELECT ${selectColumns('t', ['id', 'thread_id', 'run_id', 'tool_id', 'occurred_at', 'model_facing_chars', 'truncated', 'zero_match', 'is_pagination_followup', 'engine', 'scan_limited', 'candidates_truncated'])}
     FROM brainstrike_tool_call_telemetry t JOIN subtree s USING (thread_id)
     ORDER BY t.occurred_at, t.id`,

@@ -28,19 +28,39 @@ import {
   runReadWorkspaceFile,
   UNCHANGED_READ_STUB_MESSAGE,
 } from '@brainstrike/host-capabilities/native-tools';
+import type {
+  IndexerGrepResult,
+  IndexSearchCapability,
+} from '@brainstrike/indexing-contract/indexer-client';
 import type { BrowserWindow } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { z } from 'zod';
+import {
+  ContextSelectionDeliveryRequestSchema,
+  GrepIndexRequestSchema,
+} from '../../agent-host-platform/host-tool-wire';
+import { nativeGrepIndex } from '../../agent-host-platform/native-grep-index';
+import { threadScoped } from '../../agent-host-platform/retrieval-wire';
 import type { CommandSessionManager } from '../../assistant-server/command-session-manager';
 import {
   COMMAND_SESSION_TOOL_RESULT_MAX_UTF8_BYTES,
   type CommandSessionPayloadTransform,
 } from '../../assistant-server/command-session-tools';
+import type { GrepIndexSearch } from '../../assistant-server/grep-search-core';
+import { commandSessionExecutors } from '../../assistant-server/native-tool-executors-sessions';
+import { pgliteRetrievalStore } from '../../assistant-server/retrieval-store-pglite';
+import { mainWorkspaceContextBroadcaster } from '../../assistant-server/workspace-context-broadcast';
 import {
   assignWindowRole,
   clearWindowRoleByWebContentsId,
   type DesktopWindowRole,
 } from '../../window-role';
+import { hit, storeId } from '../native-scoped-search-fixture';
+import {
+  buildHostNativeTools,
+  type HostMainRequest,
+  type HostNativeToolsOptions,
+} from './_host-native-tools';
 import { requireTool, requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 import { createWorkspaceFixture, workspaceRuntime } from './_workspace-fixture';
 
@@ -98,16 +118,9 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
   };
 });
 
-const {
-  getDatabaseMock,
-  getAllWindowsMock,
-  invalidateManagedCacheMock,
-  loggerErrorMock,
-  loggerWarnMock,
-} = vi.hoisted(() => ({
+const { getDatabaseMock, getAllWindowsMock, loggerErrorMock, loggerWarnMock } = vi.hoisted(() => ({
   getAllWindowsMock: vi.fn(),
   getDatabaseMock: vi.fn(),
-  invalidateManagedCacheMock: vi.fn(),
   loggerErrorMock: vi.fn(),
   loggerWarnMock: vi.fn(),
 }));
@@ -115,24 +128,6 @@ const {
 vi.mock('../../db-main', () => ({
   getDatabase: getDatabaseMock,
 }));
-
-// Keep the real @brainstrike/db exports (EmbeddingSetsRepository, etc.) but stub
-// the index-invalidation seam so delete/rename tests assert this tool's honest
-// indexInvalidated reporting without emulating the invalidator's internals.
-vi.mock('@brainstrike/db', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/db')>();
-  return {
-    ...actual,
-    invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheMock,
-  };
-});
-vi.mock('@brainstrike/db/react', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/db/react')>();
-  return {
-    ...actual,
-    invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheMock,
-  };
-});
 
 vi.mock('electron', () => ({
   BrowserWindow: {
@@ -152,6 +147,154 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
     })),
   };
 });
+
+/** The 128k-anchor budget: the host always resolves one from the run's context window. */
+const ANCHOR_TOOL_RESULT_BUDGET = resolveScaledToolResultBudget(131_072);
+/** The host's own Tavily key owner, with no key unless a case supplies one. */
+const UNSET_TAVILY_KEY = { resolveApiKey: async (): Promise<string | undefined> => undefined };
+/** One agent host's lifetime cursor registry (the host constructs one per platform). */
+let hostCursorRegistry = new ReadWorkspaceFileCursorRegistry();
+
+/** A Main reply crosses the host connection as JSON. */
+function overWire(value: unknown): unknown {
+  return JSON.parse(JSON.stringify(value)) as unknown;
+}
+
+/**
+ * Main's side of the host tools' typed requests, exactly as
+ * `serveHostToolServices` answers them over Main's live services
+ * (`desktopHostToolServices`): the native index status, grep's indexed half,
+ * the PGlite retrieval catalog and the window delivery of context write-backs.
+ */
+function mainRequest(
+  services: {
+    readonly grepIndex?: GrepIndexSearch;
+    readonly indexSearch?: Pick<IndexSearchCapability, 'status'>;
+  } = {}
+): HostMainRequest {
+  return async (method, input) => {
+    switch (method) {
+      case 'desktop-read/index/status': {
+        threadScoped(z.strictObject({})).parse(input);
+        if (!services.indexSearch) {
+          throw new Error('Main has no workspace index for host threads');
+        }
+        return overWire(await services.indexSearch.status());
+      }
+      case 'desktop-read/grep-index': {
+        const { options } = GrepIndexRequestSchema.parse(input);
+        if (!services.grepIndex) {
+          throw new Error('Main has no grep index for host threads');
+        }
+        return overWire(await services.grepIndex(options));
+      }
+      case 'desktop-read/retrieval/embedding-spaces': {
+        const { request } = threadScoped(z.strictObject({ includeStats: z.boolean() })).parse(
+          input
+        );
+        return overWire(await pgliteRetrievalStore().embeddingSpaces(request));
+      }
+      case 'platform/workspace-context/selection': {
+        const { payload } = ContextSelectionDeliveryRequestSchema.parse(input);
+        return { notifiedWindowCount: await mainWorkspaceContextBroadcaster.selection(payload) };
+      }
+      default:
+        throw new Error(`Unexpected Main request ${method}`);
+    }
+  };
+}
+
+/**
+ * The agent host's live native-tool fold for one call: the host's cursor
+ * registry, a resolved run budget, its Tavily key owner and Main's services.
+ */
+function hostTools(
+  runtimeData: RuntimeData,
+  options: HostNativeToolsOptions = {}
+): TestMastraTools {
+  return buildHostNativeTools(runtimeData, {
+    readFileCursorRegistry: hostCursorRegistry,
+    request: mainRequest(),
+    resolvedToolResultBudget: ANCHOR_TOOL_RESULT_BUDGET,
+    webExtract: UNSET_TAVILY_KEY,
+    webSearch: UNSET_TAVILY_KEY,
+    ...options,
+  });
+}
+
+/** A ready text-only native index: the status the curated-context listing reports. */
+const TEXT_INDEX: Pick<IndexSearchCapability, 'status'> = {
+  status: async () => ({
+    authorizedRootIds: [],
+    embedding: { indexMode: 'text-only' },
+    kind: 'ready',
+    rootReadiness: [],
+    storeId,
+  }),
+};
+
+/** No folder open: the native index has nothing to index. */
+const UNAVAILABLE_INDEX: Pick<IndexSearchCapability, 'status'> = {
+  status: async () => ({
+    kind: 'unavailable',
+    phase: 'setup-required',
+    reason: 'Open a folder to index it.',
+  }),
+};
+
+/** The host fold whose Main answers the native index status, for the context listing. */
+function contextTools(
+  runtimeData: RuntimeData,
+  indexSearch: Pick<IndexSearchCapability, 'status'> = TEXT_INDEX
+): TestMastraTools {
+  return hostTools(runtimeData, { request: mainRequest({ indexSearch }) });
+}
+
+/** Main's ready native index over one root, as the index process answers it. */
+function nativeIndexWith(
+  rootId: string,
+  grep: IndexSearchCapability['grep'],
+  authorizedCollectionIds: string[] = []
+): Pick<IndexSearchCapability, 'grep' | 'status'> {
+  return {
+    grep,
+    status: async () => ({
+      authorizedCollectionIds,
+      authorizedRootIds: [rootId],
+      embedding: { indexMode: 'text-only' },
+      kind: 'ready',
+      rootReadiness: [{ rootId, scanComplete: true }],
+      storeId,
+    }),
+  };
+}
+
+function unexpectedGrep(): Promise<IndexerGrepResult> {
+  return Promise.reject(new Error('This case never greps the native index'));
+}
+
+/** One indexed chunk of `src/x.ts` (lines 10-12) holding a `needle` line. */
+function needleIndex(): Pick<IndexSearchCapability, 'grep' | 'status'> {
+  const found: IndexerGrepResult = {
+    candidateCount: 1,
+    candidatesTruncated: false,
+    embedding: { indexMode: 'text-only' },
+    hits: [
+      {
+        ...hit,
+        content: 'alpha\nneedle line\nomega',
+        endLine: 12,
+        relativePath: 'src/x.ts',
+        rootId: '/tmp/workspace',
+        startLine: 10,
+      },
+    ],
+    scanLimited: false,
+    storeId,
+    truncated: false,
+  };
+  return nativeIndexWith('/tmp/workspace', async () => found);
+}
 
 // Split from the 5,101-line assistant-tools.integration.test.ts (BST-976):
 // one suite per service seam, sharing the fixture module and repeating the
@@ -184,6 +327,7 @@ describe('assistant-tools read tools', () => {
     vi.clearAllMocks();
     resetFileReadState();
     resetToolCallLoopGuards();
+    hostCursorRegistry = new ReadWorkspaceFileCursorRegistry();
     for (const id of trackedWindowIds) {
       clearWindowRoleByWebContentsId(id);
     }
@@ -202,7 +346,7 @@ describe('assistant-tools read tools', () => {
       threadId: string
     ): Promise<ReadWorkspaceFileResult> => {
       const resolvedToolResultBudget = resolveScaledToolResultBudget(contextWindow);
-      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath, threadId), {
+      const tools = hostTools(workspaceRuntime(workspaceRootPath, threadId), {
         resolvedToolResultBudget,
       });
       return await requireToolExecute<ReadWorkspaceFileResult>(
@@ -215,15 +359,19 @@ describe('assistant-tools read tools', () => {
       const floor = await runAt(8192, 'thread-tier-floor');
       const anchor = await runAt(131_072, 'thread-tier-anchor');
       const ceiling = await runAt(262_144, 'thread-tier-ceiling');
-      const defaultTools = buildDesktopAssistantTools(
-        workspaceRuntime(workspaceRootPath, 'thread-tier-default')
-      );
-      const defaultAnchor = await requireToolExecute<ReadWorkspaceFileResult>(
-        defaultTools,
+      // The host always resolves its run budget; the 128k anchor tier is the
+      // historical fixed budget, so its page is byte-identical to that read.
+      const historical = await requireToolExecute<ReadWorkspaceFileResult>(
+        hostTools(workspaceRuntime(workspaceRootPath, 'thread-tier-historical'), {
+          resolvedToolResultBudget: {
+            ...ANCHOR_TOOL_RESULT_BUDGET,
+            domainModelResultCharBudget: MAX_DOMAIN_MODEL_TOOL_RESULT_CHAR_BUDGET,
+          },
+        }),
         'brainstrike.readWorkspaceFile'
       )({ path: '/src/tiered.ts' });
 
-      expect(anchor.content).toBe(defaultAnchor.content);
+      expect(anchor.content).toBe(historical.content);
       expect(floor.content.length).toBeLessThan(anchor.content.length);
       expect(ceiling.content.length).toBeGreaterThan(anchor.content.length);
     } finally {
@@ -253,7 +401,7 @@ describe('assistant-tools read tools', () => {
       path.join(workspaceRootPath, 'notes', 'leak.md')
     );
 
-    const tools = buildDesktopAssistantTools({
+    const tools = hostTools({
       ...singleRootRuntime(workspaceRootPath),
       memory: { resourceId: 'workspace', threadId: 'thread-symlink' },
     } as RuntimeData);
@@ -272,7 +420,7 @@ describe('assistant-tools read tools', () => {
     const workspaceRootPath = await createWorkspaceFixture();
     await fsPromises.writeFile(path.join(workspaceRootPath, '.llmignore'), 'src/lib/\n', 'utf8');
 
-    const tools = buildDesktopAssistantTools({
+    const tools = hostTools({
       ...singleRootRuntime(workspaceRootPath),
       memory: { resourceId: 'workspace', threadId: 'thread-llmignore' },
     } as RuntimeData);
@@ -289,7 +437,7 @@ describe('assistant-tools read tools', () => {
   it('reads a line-numbered workspace file page with a short continuation handle', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
-    const tools = buildDesktopAssistantTools({
+    const tools = hostTools({
       ...singleRootRuntime(workspaceRootPath),
       memory: { resourceId: 'workspace', threadId: 'thread-a' },
     } as RuntimeData);
@@ -329,7 +477,7 @@ describe('assistant-tools read tools', () => {
 
   it('accepts an unchanged provider-emitted range replay and rejects a changed range', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+    const tools = hostTools(workspaceRuntime(workspaceRootPath));
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
 
     try {
@@ -366,8 +514,8 @@ describe('assistant-tools read tools', () => {
     'preserves cursor-only advice through the guard for a changed range (%j)',
     async (changedRange) => {
       const workspaceRootPath = await createWorkspaceFixture();
-      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath), {
-        readWorkspaceFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
+      const tools = hostTools(workspaceRuntime(workspaceRootPath), {
+        readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
       });
       const toolName = 'brainstrike.readWorkspaceFile';
       const executeRead = requireToolExecute<ReadWorkspaceFileResult | GuardedToolError>(
@@ -424,8 +572,8 @@ describe('assistant-tools read tools', () => {
       const registry = new ReadWorkspaceFileCursorRegistry({ now: () => now, ttlMs: 1000 });
       const runtime = workspaceRuntime(workspaceRootPath);
       const toolName = 'brainstrike.readWorkspaceFile';
-      const tools = buildDesktopAssistantTools(runtime, {
-        readWorkspaceFileCursorRegistry: registry,
+      const tools = hostTools(runtime, {
+        readFileCursorRegistry: registry,
       });
       try {
         const first = await requireToolExecute<ReadWorkspaceFileResult>(
@@ -451,7 +599,7 @@ describe('assistant-tools read tools', () => {
             maxChars: 10,
           });
         }
-        const rejectedTools = buildDesktopAssistantTools(
+        const rejectedTools = hostTools(
           {
             ...runtime,
             memory: {
@@ -459,7 +607,7 @@ describe('assistant-tools read tools', () => {
               threadId: rejection === 'thread' ? 'other-thread' : 'assistant-tools-thread',
             },
           } as RuntimeData,
-          { readWorkspaceFileCursorRegistry: registry }
+          { readFileCursorRegistry: registry }
         );
         const executeRead = requireToolExecute<GuardedToolError>(
           {
@@ -503,7 +651,7 @@ describe('assistant-tools read tools', () => {
   it('keeps filesystem read faults redacted through the execution guard', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const toolName = 'brainstrike.readWorkspaceFile';
-    const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+    const tools = hostTools(workspaceRuntime(workspaceRootPath));
     const executeRead = requireToolExecute<GuardedToolError>(
       {
         [toolName]: guardToolExecution(requireTool(tools, toolName), { timeoutMs: 1000, toolName }),
@@ -534,8 +682,8 @@ describe('assistant-tools read tools', () => {
       createHandle: () => `rfh_${String(handleNumber++).padStart(22, 'a')}`,
       maxEntries: 1,
     });
-    const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath), {
-      readWorkspaceFileCursorRegistry: cursorRegistry,
+    const tools = hostTools(workspaceRuntime(workspaceRootPath), {
+      readFileCursorRegistry: cursorRegistry,
     });
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
 
@@ -558,7 +706,7 @@ describe('assistant-tools read tools', () => {
 
   it('rejects a read continuation handle from another assistant thread', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const firstThreadTools = buildDesktopAssistantTools({
+    const firstThreadTools = hostTools({
       ...singleRootRuntime(workspaceRootPath),
       memory: { resourceId: 'workspace', threadId: 'thread-a' },
     } as RuntimeData);
@@ -566,7 +714,7 @@ describe('assistant-tools read tools', () => {
       firstThreadTools,
       'brainstrike.readWorkspaceFile'
     );
-    const otherThreadTools = buildDesktopAssistantTools({
+    const otherThreadTools = hostTools({
       ...singleRootRuntime(workspaceRootPath),
       memory: { resourceId: 'workspace', threadId: 'thread-b' },
     } as RuntimeData);
@@ -598,7 +746,7 @@ describe('assistant-tools read tools', () => {
     await fsPromises.writeFile(path.join(workspaceRootPath, 'src', 'large.ts'), source, 'utf8');
 
     try {
-      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const tools = hostTools(workspaceRuntime(workspaceRootPath));
       const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const fragments: string[] = [];
       let cursor: string | null = null;
@@ -633,7 +781,7 @@ describe('assistant-tools read tools', () => {
     const readFileSpy = vi.spyOn(fsPromises, 'readFile');
 
     try {
-      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const tools = hostTools(workspaceRuntime(workspaceRootPath));
       const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const page = await executeTool({
         maxChars: 100,
@@ -668,7 +816,7 @@ describe('assistant-tools read tools', () => {
     );
 
     try {
-      const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+      const tools = hostTools(singleRootRuntime(workspaceRootPath));
       const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const page = await executeTool({
         maxChars: 100,
@@ -712,7 +860,7 @@ describe('assistant-tools read tools', () => {
       );
 
       try {
-        const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+        const tools = hostTools(singleRootRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
         const page = await executeTool({
           maxChars: 100,
@@ -740,7 +888,7 @@ describe('assistant-tools read tools', () => {
     );
 
     try {
-      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const tools = hostTools(workspaceRuntime(workspaceRootPath));
       const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const first = await executeTool({
         maxChars: 8,
@@ -773,7 +921,7 @@ describe('assistant-tools read tools', () => {
     );
 
     try {
-      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const tools = hostTools(workspaceRuntime(workspaceRootPath));
       const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const first = await executeTool({
         maxChars: 4,
@@ -804,7 +952,7 @@ describe('assistant-tools read tools', () => {
       );
 
       try {
-        const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+        const tools = hostTools(workspaceRuntime(workspaceRootPath));
         const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
 
         await expect(
@@ -823,7 +971,7 @@ describe('assistant-tools read tools', () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
     try {
-      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const tools = hostTools(workspaceRuntime(workspaceRootPath));
       const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const first = await executeTool({
         endLine: 4,
@@ -851,7 +999,7 @@ describe('assistant-tools read tools', () => {
   it('reads a workspace file when execute receives direct args', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
-    const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+    const tools = hostTools(singleRootRuntime(workspaceRootPath));
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
 
     const result = await executeTool({
@@ -873,7 +1021,7 @@ describe('assistant-tools read tools', () => {
     const threadId = 'unchanged-read-thread';
 
     try {
-      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath, threadId));
+      const tools = hostTools(workspaceRuntime(workspaceRootPath, threadId));
       const executeRead = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const executeWrite = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
       const first = await executeRead({ path: '/README.md' });
@@ -912,9 +1060,7 @@ describe('assistant-tools read tools', () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
     try {
-      const tools = buildDesktopAssistantTools(
-        workspaceRuntime(workspaceRootPath, 'read-refusal-thread')
-      );
+      const tools = hostTools(workspaceRuntime(workspaceRootPath, 'read-refusal-thread'));
       const executeRead = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const readmePath = path.join(workspaceRootPath, 'README.md');
 
@@ -948,10 +1094,9 @@ describe('assistant-tools read tools', () => {
       const bigPath = path.join(workspaceRootPath, 'big.txt');
       const lines = Array.from({ length: 500 }, (_, index) => `line ${index}`);
       await fsPromises.writeFile(bigPath, `${lines.join('\n')}\n`, 'utf8');
-      const tools = buildDesktopAssistantTools(
-        workspaceRuntime(workspaceRootPath, 'read-truncated-thread'),
-        { readWorkspaceFileCursorRegistry: new ReadWorkspaceFileCursorRegistry() }
-      );
+      const tools = hostTools(workspaceRuntime(workspaceRootPath, 'read-truncated-thread'), {
+        readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
+      });
       const executeRead = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
 
       const first = await executeRead({ maxChars: 200, path: '/big.txt' });
@@ -983,9 +1128,7 @@ describe('assistant-tools read tools', () => {
       const bigPath = path.join(workspaceRootPath, 'big.txt');
       const lines = Array.from({ length: 500 }, (_, index) => `line ${index}`);
       await fsPromises.writeFile(bigPath, `${lines.join('\n')}\n`, 'utf8');
-      const tools = buildDesktopAssistantTools(
-        workspaceRuntime(workspaceRootPath, 'read-maxchars-thread')
-      );
+      const tools = hostTools(workspaceRuntime(workspaceRootPath, 'read-maxchars-thread'));
       const executeRead = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
 
       const small = await executeRead({ maxChars: 200, path: '/big.txt' });
@@ -1003,7 +1146,7 @@ describe('assistant-tools read tools', () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
     try {
-      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const tools = hostTools(workspaceRuntime(workspaceRootPath));
       const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const result = await executeTool({
         endLine: null,
@@ -1031,7 +1174,7 @@ describe('assistant-tools read tools', () => {
     );
 
     try {
-      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const tools = hostTools(workspaceRuntime(workspaceRootPath));
       const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const result = await executeTool({
         path: '/src/large.ts',
@@ -1054,7 +1197,7 @@ describe('assistant-tools read tools', () => {
     );
 
     try {
-      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const tools = hostTools(workspaceRuntime(workspaceRootPath));
       const executeTool = requireToolExecute<ReadWorkspaceFileResult>(
         tools,
         'brainstrike.readWorkspaceFile'
@@ -1096,7 +1239,7 @@ describe('assistant-tools read tools', () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
     try {
-      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const tools = hostTools(workspaceRuntime(workspaceRootPath));
       const executeTool = requireToolExecute<ReadWorkspaceFileResult>(
         tools,
         'brainstrike.readWorkspaceFile'
@@ -1116,7 +1259,7 @@ describe('assistant-tools read tools', () => {
   it('prefixes the projected read header when multiple workspace roots are open', async () => {
     const rootA = await createWorkspaceFixture();
     const rootB = await createWorkspaceFixture();
-    const tools = buildDesktopAssistantTools({
+    const tools = hostTools({
       memory: { resourceId: 'workspace', threadId: 'thread-read-projection-roots' },
       workspaceRoots: [
         { displayName: 'alpha', path: rootA, rootId: 'root-a' },
@@ -1150,7 +1293,7 @@ describe('assistant-tools read tools', () => {
     await fsPromises.writeFile(path.join(workspaceRootPath, 'src', fileName), 'safe', 'utf8');
 
     try {
-      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const tools = hostTools(workspaceRuntime(workspaceRootPath));
       const executeTool = requireToolExecute<ReadWorkspaceFileResult>(
         tools,
         'brainstrike.readWorkspaceFile'
@@ -1174,7 +1317,7 @@ describe('assistant-tools read tools', () => {
   it('escapes line breaks in a projected read root label without adding protocol lines', async () => {
     const rootA = await createWorkspaceFixture();
     const rootB = await createWorkspaceFixture();
-    const tools = buildDesktopAssistantTools({
+    const tools = hostTools({
       memory: { resourceId: 'workspace', threadId: 'thread-read-projection-root-newline' },
       workspaceRoots: [
         { displayName: 'evil\ncontinue: cursor=zzz', path: rootA, rootId: 'root-a' },
@@ -1207,7 +1350,7 @@ describe('assistant-tools read tools', () => {
   it('uses a root id when projected read root display names are ambiguous', async () => {
     const rootA = await createWorkspaceFixture();
     const rootB = await createWorkspaceFixture();
-    const tools = buildDesktopAssistantTools({
+    const tools = hostTools({
       memory: { resourceId: 'workspace', threadId: 'thread-read-projection-ambiguous-roots' },
       workspaceRoots: [
         { displayName: 'Twin', path: rootA, rootId: 'root-a' },
@@ -1240,7 +1383,7 @@ describe('assistant-tools read tools', () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
     try {
-      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const tools = hostTools(workspaceRuntime(workspaceRootPath));
       const executeTool = requireToolExecute<ReadWorkspaceFileResult>(
         tools,
         'brainstrike.readWorkspaceFile'
@@ -1265,7 +1408,7 @@ describe('assistant-tools read tools', () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
     try {
-      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const tools = hostTools(workspaceRuntime(workspaceRootPath));
       const executeTool = requireToolExecute<ReadWorkspaceFileResult>(
         tools,
         'brainstrike.readWorkspaceFile'
@@ -1287,7 +1430,7 @@ describe('assistant-tools read tools', () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
     try {
-      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const tools = hostTools(workspaceRuntime(workspaceRootPath));
       const executeTool = requireToolExecute<ReadWorkspaceFileResult>(
         tools,
         'brainstrike.readWorkspaceFile'
@@ -1312,7 +1455,7 @@ describe('assistant-tools read tools', () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
     try {
-      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const tools = hostTools(workspaceRuntime(workspaceRootPath));
       const executeTool = requireToolExecute<ReadWorkspaceFileResult>(
         tools,
         'brainstrike.readWorkspaceFile'
@@ -1341,7 +1484,7 @@ describe('assistant-tools read tools', () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
     try {
-      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const tools = hostTools(workspaceRuntime(workspaceRootPath));
       const executeTool = requireToolExecute<ReadWorkspaceFileResult>(
         tools,
         'brainstrike.readWorkspaceFile'
@@ -1369,7 +1512,7 @@ describe('assistant-tools read tools', () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
     try {
-      const tools = buildDesktopAssistantTools(workspaceRuntime(workspaceRootPath));
+      const tools = hostTools(workspaceRuntime(workspaceRootPath));
       const executeTool = requireToolExecute<ReadWorkspaceFileResult>(
         tools,
         'brainstrike.readWorkspaceFile'
@@ -1396,7 +1539,7 @@ describe('assistant-tools read tools', () => {
         runtimeData,
         null
       );
-      const tools = buildDesktopAssistantTools(runtimeData);
+      const tools = hostTools(runtimeData);
       const toModelOutput = requireToolModelOutput<{ type: 'text'; value: string }>(
         tools,
         'brainstrike.readWorkspaceFile'
@@ -1423,9 +1566,7 @@ describe('assistant-tools read tools', () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
     try {
-      const tools = buildDesktopAssistantTools(
-        workspaceRuntime(workspaceRootPath, 'thread-read-loop-guard-dedup')
-      );
+      const tools = hostTools(workspaceRuntime(workspaceRootPath, 'thread-read-loop-guard-dedup'));
       const executeTool = requireToolExecute<ReadWorkspaceFileResult>(
         tools,
         'brainstrike.readWorkspaceFile'
@@ -1455,7 +1596,7 @@ describe('assistant-tools read tools', () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
     try {
-      const tools = buildDesktopAssistantTools(
+      const tools = hostTools(
         workspaceRuntime(workspaceRootPath, 'thread-read-loop-guard-refusal')
       );
       const executeTool = requireToolExecute<
@@ -1478,7 +1619,7 @@ describe('assistant-tools read tools', () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
     try {
-      const tools = buildDesktopAssistantTools({
+      const tools = hostTools({
         workspaceRoots: [
           {
             displayName: 'r'.repeat(NATIVE_TOOL_RESULT_CHAR_BUDGET),
@@ -1521,7 +1662,7 @@ describe('assistant-tools read tools', () => {
         throw error;
       }
 
-      const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+      const tools = hostTools(singleRootRuntime(workspaceRootPath));
       const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
 
       await expect(
@@ -1564,7 +1705,7 @@ describe('assistant-tools read tools', () => {
             releaseLock = resolve;
           })
       );
-      const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+      const tools = hostTools(singleRootRuntime(workspaceRootPath));
       const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const readPromise = executeTool({ path: '/src/retargeted.txt' });
 
@@ -1586,7 +1727,7 @@ describe('assistant-tools read tools', () => {
   it('reads a workspace directory in compact form', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
-    const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+    const tools = hostTools(singleRootRuntime(workspaceRootPath));
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceDirectory');
 
     const result = await executeTool({
@@ -1614,7 +1755,7 @@ describe('assistant-tools read tools', () => {
   it('lists the workspace root for path "." (regression: "." was treated as a hidden segment)', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
-    const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+    const tools = hostTools(singleRootRuntime(workspaceRootPath));
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceDirectory');
 
     const result = await executeTool({
@@ -1647,7 +1788,7 @@ describe('assistant-tools read tools', () => {
   it('reads a workspace directory when execute receives direct args', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
 
-    const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+    const tools = hostTools(singleRootRuntime(workspaceRootPath));
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceDirectory');
 
     const result = await executeTool({
@@ -1668,7 +1809,7 @@ describe('assistant-tools read tools', () => {
 
   it('returns concise entries by default and metadata only with detail: true', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+    const tools = hostTools(singleRootRuntime(workspaceRootPath));
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceDirectory');
 
     const concise = await executeTool({ path: '/src' });
@@ -1691,7 +1832,7 @@ describe('assistant-tools read tools', () => {
 
   it('pages directory entries with offset and emits a continuation hint when truncated', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+    const tools = hostTools(singleRootRuntime(workspaceRootPath));
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceDirectory');
 
     const firstPage = await executeTool({ maxEntries: 2, path: '/src' });
@@ -1709,7 +1850,7 @@ describe('assistant-tools read tools', () => {
   });
 
   it('exposes tool-only context tools and omits legacy context mutation tools from chat runtime', () => {
-    const tools = buildDesktopAssistantTools(singleRootRuntime('/tmp/workspace'));
+    const tools = hostTools(singleRootRuntime('/tmp/workspace'));
 
     expect(tools['brainstrike.listWorkspaceContext']).toBeDefined();
     expect(tools['brainstrike.readWorkspaceContext']).toBeDefined();
@@ -1723,7 +1864,7 @@ describe('assistant-tools read tools', () => {
   });
 
   it('registers compact grep and glob projections without mutating their raw results', () => {
-    const tools = buildDesktopAssistantTools(singleRootRuntime('/tmp/workspace'));
+    const tools = hostTools(singleRootRuntime('/tmp/workspace'));
     const grepRaw = {
       candidatesTruncated: false,
       files: [
@@ -1778,7 +1919,7 @@ describe('assistant-tools read tools', () => {
   it('hands the compact root-prefixed grep header into an exact read in a multi-root workspace', async () => {
     const rootA = await createWorkspaceFixture();
     const rootB = await createWorkspaceFixture();
-    const tools = buildDesktopAssistantTools({
+    const tools = hostTools({
       memory: { resourceId: 'workspace', threadId: 'thread-multi-root-handoff' },
       workspaceRoots: [
         { displayName: 'alpha', path: rootA, rootId: 'root-a' },
@@ -1843,7 +1984,7 @@ describe('assistant-tools read tools', () => {
   });
 
   it('registers compact symbol and LSP projections without mutating raw results', () => {
-    const tools = buildDesktopAssistantTools(singleRootRuntime('/tmp/workspace'));
+    const tools = hostTools(singleRootRuntime('/tmp/workspace'));
     const symbolRaw = {
       matches: [
         {
@@ -1891,7 +2032,7 @@ describe('assistant-tools read tools', () => {
   });
 
   it('registers compact workspace-context projection without mutating the raw result', () => {
-    const tools = buildDesktopAssistantTools(singleRootRuntime('/tmp/workspace'));
+    const tools = hostTools(singleRootRuntime('/tmp/workspace'));
     const toModelOutput = requireToolModelOutput<{ type: string; value: string }>(
       tools,
       'brainstrike.listWorkspaceContext'
@@ -1931,7 +2072,7 @@ describe('assistant-tools read tools', () => {
   });
 
   it('registers compact semantic and hybrid projections without mutating raw results', () => {
-    const tools = buildDesktopAssistantTools(singleRootRuntime('/tmp/workspace'));
+    const tools = hostTools(singleRootRuntime('/tmp/workspace'));
     const semanticRaw = {
       budget: 4000,
       chunkContentIncludedInContext: false,
@@ -1984,7 +2125,7 @@ describe('assistant-tools read tools', () => {
   });
 
   it('registers a compact web-search projection without mutating the raw result', () => {
-    const tools = buildDesktopAssistantTools(singleRootRuntime('/tmp/workspace'));
+    const tools = hostTools(singleRootRuntime('/tmp/workspace'));
     const toModelOutput = requireToolModelOutput<{ type: string; value: string }>(
       tools,
       'brainstrike.webSearch'
@@ -2036,15 +2177,12 @@ describe('assistant-tools read tools', () => {
         )
       )
     ) as typeof fetch;
-    const tools = buildDesktopAssistantTools(
-      { workspaceRootPath: '/tmp/workspace' } as RuntimeData,
-      {
-        webExtract: {
-          fetchImpl,
-          resolveApiKey: async () => 'tvly-test-key',
-        },
-      }
-    );
+    const tools = hostTools({ workspaceRootPath: '/tmp/workspace' } as RuntimeData, {
+      webExtract: {
+        fetchImpl,
+        resolveApiKey: async () => 'tvly-test-key',
+      },
+    });
     const executeTool = requireToolExecute(tools, 'brainstrike.webExtract');
     const toModelOutput = requireToolModelOutput<{ type: string; value: string }>(
       tools,
@@ -2064,12 +2202,9 @@ describe('assistant-tools read tools', () => {
   });
 
   it('executes the grepSearch tool end-to-end with context-wrapped input', async () => {
-    const queryMock = vi.fn().mockResolvedValue({
-      rows: [{ content: 'alpha\nneedle line\nomega', path: 'src/x.ts', start_line: 10 }],
+    const tools = hostTools(singleRootRuntime('/tmp/workspace'), {
+      request: mainRequest({ grepIndex: nativeGrepIndex(needleIndex()) }),
     });
-    getDatabaseMock.mockResolvedValue({ query: queryMock });
-
-    const tools = buildDesktopAssistantTools(singleRootRuntime('/tmp/workspace'));
     const executeTool = requireToolExecute(tools, 'brainstrike.grepSearch');
 
     // contextLines is explicit: the default is 0 (BST-1193), and passing it
@@ -2087,6 +2222,10 @@ describe('assistant-tools read tools', () => {
         line: 11,
         lineText: 'needle line',
         path: 'src/x.ts',
+        // Main's native index names the root of every indexed hit; its label
+        // is that open root's display name.
+        rootId: '/tmp/workspace',
+        rootName: 'workspace',
         // The root '/tmp/workspace' is not on disk, so the live pass is skipped
         // and the hybrid result is index-only.
         source: 'index',
@@ -2095,12 +2234,9 @@ describe('assistant-tools read tools', () => {
   });
 
   it('executes the grepSearch tool in default files mode with context-wrapped input', async () => {
-    const queryMock = vi.fn().mockResolvedValue({
-      rows: [{ content: 'alpha\nneedle line\nomega', path: 'src/x.ts', start_line: 10 }],
+    const tools = hostTools(singleRootRuntime('/tmp/workspace'), {
+      request: mainRequest({ grepIndex: nativeGrepIndex(needleIndex()) }),
     });
-    getDatabaseMock.mockResolvedValue({ query: queryMock });
-
-    const tools = buildDesktopAssistantTools(singleRootRuntime('/tmp/workspace'));
     const executeTool = requireToolExecute(tools, 'brainstrike.grepSearch');
 
     const result = await executeTool({
@@ -2109,15 +2245,24 @@ describe('assistant-tools read tools', () => {
 
     expect(result.outputMode).toBe('files');
     expect(result.files).toEqual([
-      { firstLine: 11, matchCount: 1, path: 'src/x.ts', source: 'index' },
+      {
+        firstLine: 11,
+        matchCount: 1,
+        path: 'src/x.ts',
+        rootId: '/tmp/workspace',
+        rootName: 'workspace',
+        source: 'index',
+      },
     ]);
   });
 
   it('rethrows sanitized grepSearch errors from the execute wrapper', async () => {
-    const queryMock = vi.fn().mockRejectedValue(new Error('relation "file_chunks" does not exist'));
-    getDatabaseMock.mockResolvedValue({ query: queryMock });
-
-    const tools = buildDesktopAssistantTools(singleRootRuntime('/tmp/workspace'));
+    const grep = vi.fn<IndexSearchCapability['grep']>(async () => {
+      throw new Error('relation "file_chunks" does not exist');
+    });
+    const tools = hostTools(singleRootRuntime('/tmp/workspace'), {
+      request: mainRequest({ grepIndex: nativeGrepIndex(nativeIndexWith('/tmp/workspace', grep)) }),
+    });
     const executeTool = requireToolExecute(tools, 'brainstrike.grepSearch');
 
     const promise = executeTool({
@@ -2125,17 +2270,6 @@ describe('assistant-tools read tools', () => {
     });
     await expect(promise).rejects.toThrow(/Unable to perform grep search/);
     await expect(promise).rejects.not.toThrow(/file_chunks/);
-  });
-
-  it('filters native tools to the enabled runtime tool ids when provided', () => {
-    const tools = buildDesktopAssistantTools({
-      enabledNativeToolIds: ['brainstrike.listWorkspaceContext'],
-      workspaceRootPath: '/tmp/workspace',
-    } as RuntimeData);
-
-    expect(tools['brainstrike.listWorkspaceContext']).toBeDefined();
-    expect(tools['brainstrike.readWorkspaceFile']).toBeUndefined();
-    expect(tools['brainstrike.queryEmbeddingSpace']).toBeUndefined();
   });
 
   it('registers compact workspace-scoped inspect and manage command-session tools', async () => {
@@ -2172,7 +2306,9 @@ describe('assistant-tools read tools', () => {
         { displayName: 'web', path: '/workspace/web', rootId: 'db-root-web' },
       ],
     } as RuntimeData;
-    const tools = buildDesktopAssistantTools(runtime, { commandSessionManager: manager });
+    const tools = hostTools(runtime, {
+      executors: commandSessionExecutors(() => ({ manager, rootsFromRuntime: true })),
+    });
     const executeInspect = requireToolExecute(tools, 'brainstrike.inspectCommandSessions');
     const executeManage = requireToolExecute(tools, 'brainstrike.manageCommandSession');
     const abortController = new AbortController();
@@ -2260,7 +2396,9 @@ describe('assistant-tools read tools', () => {
     const runtime = {
       workspaceRoots: [{ displayName: 'api', path: '/workspace/api', rootId: 'db-root-api' }],
     } as RuntimeData;
-    const tools = buildDesktopAssistantTools(runtime, { commandSessionManager: manager });
+    const tools = hostTools(runtime, {
+      executors: commandSessionExecutors(() => ({ manager, rootsFromRuntime: true })),
+    });
     const inspectTransform = (
       tools['brainstrike.inspectCommandSessions'] as { transform?: CommandSessionPayloadTransform }
     ).transform?.transcript;
@@ -2418,7 +2556,9 @@ describe('assistant-tools read tools', () => {
     const runtime = {
       workspaceRoots: [{ displayName: 'api', path: '/workspace/api', rootId: 'db-root-api' }],
     } as RuntimeData;
-    const tools = buildDesktopAssistantTools(runtime, { commandSessionManager: manager });
+    const tools = hostTools(runtime, {
+      executors: commandSessionExecutors(() => ({ manager, rootsFromRuntime: true })),
+    });
     const executeInspect = requireToolExecute(tools, 'brainstrike.inspectCommandSessions');
 
     const listedSessionIds: string[] = [];
@@ -2478,7 +2618,7 @@ describe('assistant-tools read tools', () => {
       id: 'artifact-id',
     };
     expect(
-      buildDesktopAssistantTools({
+      hostTools({
         provider: 'openai',
       } as RuntimeData)['brainstrike.readToolOutputArtifact']
     ).toBeUndefined();
@@ -2493,8 +2633,8 @@ describe('assistant-tools read tools', () => {
         status: 'found' as const,
       };
     });
-    const tools = buildDesktopAssistantTools({ provider: 'openai' } as RuntimeData, {
-      toolOutputArtifactReader: { readRange },
+    const tools = hostTools({ provider: 'openai' } as RuntimeData, {
+      ports: { artifactReader: { readRange } },
     });
     const executeTool = requireToolExecute(tools, 'brainstrike.readToolOutputArtifact');
     const toModelOutput = requireToolModelOutput<{
@@ -2538,14 +2678,10 @@ describe('assistant-tools read tools', () => {
 
   it('lists selected workspace context without returning file contents', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = buildDesktopAssistantTools({
+    const tools = contextTools({
       ...singleRootRuntime(workspaceRootPath),
       selectionFilePaths: ['/src/main.ts', '/README.md'],
       selectionFolderId: 'root-1',
-      workspaceIndexEmbeddingSetId: 'set-1',
-      workspaceIndexingEnabled: true,
-      workspaceIndexingMode: 'root-folder-cache',
-      workspaceIndexingPaused: false,
     } as RuntimeData);
     const executeTool = requireToolExecute(tools, 'brainstrike.listWorkspaceContext');
 
@@ -2555,12 +2691,6 @@ describe('assistant-tools read tools', () => {
     expect(result.selectionFolderId).toBe('root-1');
     expect(result.selectedFileCount).toBe(2);
     expect(result.selectedFiles).toEqual(['/src/main.ts', '/README.md']);
-    expect(result.workspaceIndex).toEqual({
-      embeddingSetId: 'set-1',
-      enabled: true,
-      mode: 'root-folder-cache',
-      paused: false,
-    });
     expect(JSON.stringify(result)).not.toContain('line 1');
     expect(JSON.stringify(result)).not.toContain('# Test Workspace');
     // Single-root: no other-roots count key at all.
@@ -2568,11 +2698,61 @@ describe('assistant-tools read tools', () => {
     await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
+  it('reports the native workspace index status in the workspace context listing', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = hostTools(singleRootRuntime(workspaceRootPath), {
+      request: mainRequest({
+        indexSearch: nativeIndexWith(workspaceRootPath, unexpectedGrep, ['set-1']),
+      }),
+    });
+    const executeTool = requireToolExecute(tools, 'brainstrike.listWorkspaceContext');
+
+    const result = await executeTool({ context: {} });
+
+    // The host's index is Main's native index: its status, never renderer hints.
+    expect(result.workspaceIndex).toEqual({
+      embeddingSetId: 'set-1',
+      enabled: true,
+      mode: 'TEXT',
+      paused: false,
+    });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+  });
+
+  it('reports an unavailable native workspace index as disabled', async () => {
+    const workspaceRootPath = await createWorkspaceFixture();
+    const tools = hostTools(singleRootRuntime(workspaceRootPath), {
+      request: mainRequest({
+        indexSearch: {
+          status: async () => ({
+            kind: 'unavailable',
+            phase: 'setup-required',
+            reason: 'Choose a search mode to index this folder.',
+          }),
+        },
+      }),
+    });
+    const executeTool = requireToolExecute(tools, 'brainstrike.listWorkspaceContext');
+
+    const result = await executeTool({ context: {} });
+
+    expect(result.workspaceIndex).toEqual({
+      embeddingSetId: null,
+      enabled: false,
+      mode: null,
+      paused: false,
+    });
+    await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
+  });
+
   it('returns an explicit empty workspace context when root resolution completed with zero roots', async () => {
-    const tools = buildDesktopAssistantTools({
-      provider: 'openai',
-      workspaceRoots: [],
-    } as RuntimeData);
+    const tools = contextTools(
+      {
+        provider: 'openai',
+        workspaceRoots: [],
+      } as RuntimeData,
+      UNAVAILABLE_INDEX
+    );
     const executeTool = requireToolExecute(tools, 'brainstrike.listWorkspaceContext');
 
     await expect(executeTool({ context: {} })).resolves.toEqual({
@@ -2593,7 +2773,7 @@ describe('assistant-tools read tools', () => {
   });
 
   it('still fails when root resolution did not produce an authoritative result', async () => {
-    const tools = buildDesktopAssistantTools({
+    const tools = contextTools({
       provider: 'openai',
     } as RuntimeData);
     const executeTool = requireToolExecute(tools, 'brainstrike.listWorkspaceContext');
@@ -2602,7 +2782,7 @@ describe('assistant-tools read tools', () => {
   });
 
   it('still fails when resolved root metadata is malformed', async () => {
-    const tools = buildDesktopAssistantTools({
+    const tools = contextTools({
       provider: 'openai',
       workspaceRoots: [{ displayName: 'broken', path: 'relative', rootId: 'root-broken' }],
     } as unknown as RuntimeData);
@@ -2612,7 +2792,7 @@ describe('assistant-tools read tools', () => {
   });
 
   it('fails when zero roots retain a selection count from other roots', async () => {
-    const tools = buildDesktopAssistantTools({
+    const tools = contextTools({
       provider: 'openai',
       selectionFilePathsFromOtherRoots: 1,
       workspaceRoots: [],
@@ -2624,16 +2804,13 @@ describe('assistant-tools read tools', () => {
 
   it('reports selected files living in OTHER workspace roots (multi-root forest)', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = buildDesktopAssistantTools({
+    const tools = contextTools({
       ...singleRootRuntime(workspaceRootPath),
       selectionFilePaths: ['/src/main.ts'],
       // Multi-root: 4 selected files belong to roots the single-root toolset
       // cannot address — the count must be SURFACED, never silently dropped.
       selectionFilePathsFromOtherRoots: 4,
       selectionFolderId: 'root-1',
-      workspaceIndexingEnabled: false,
-      workspaceIndexingMode: 'root-folder-cache',
-      workspaceIndexingPaused: false,
     } as RuntimeData);
     const executeTool = requireToolExecute(tools, 'brainstrike.listWorkspaceContext');
 
@@ -2647,11 +2824,8 @@ describe('assistant-tools read tools', () => {
   it('lists every open workspace root so the model can qualify the other tools', async () => {
     const rootAPath = path.join(os.tmpdir(), 'ProjectA');
     const rootBPath = path.join(os.tmpdir(), 'ProjectB');
-    const tools = buildDesktopAssistantTools({
+    const tools = contextTools({
       selectionFilePaths: [],
-      workspaceIndexingEnabled: false,
-      workspaceIndexingMode: 'root-folder-cache',
-      workspaceIndexingPaused: false,
       workspaceRoots: [
         { displayName: 'ProjectA', path: rootAPath, rootId: 'id-a' },
         { displayName: 'ProjectB', path: rootBPath, rootId: 'id-b' },
@@ -2669,11 +2843,8 @@ describe('assistant-tools read tools', () => {
 
   it('rejects a workspace context list when only a renderer focus path is present', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = buildDesktopAssistantTools({
+    const tools = contextTools({
       selectionFilePaths: [],
-      workspaceIndexingEnabled: false,
-      workspaceIndexingMode: 'root-folder-cache',
-      workspaceIndexingPaused: false,
       workspaceRootPath,
     } as RuntimeData);
     const executeTool = requireToolExecute(tools, 'brainstrike.listWorkspaceContext');
@@ -2685,7 +2856,7 @@ describe('assistant-tools read tools', () => {
 
   it('lists token-aware curated workspace context metadata without file contents', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = buildDesktopAssistantTools({
+    const tools = contextTools({
       ...singleRootRuntime(workspaceRootPath),
       selectionFilePaths: ['/src/main.ts', '/README.md'],
       selectionFolderId: 'root-1',
@@ -2762,7 +2933,7 @@ describe('assistant-tools read tools', () => {
       { length: 2000 },
       (_, i) => `/packages/some-package/src/deeply/nested/dir-${i}/file-with-a-long-name-${i}.ts`
     );
-    const tools = buildDesktopAssistantTools({
+    const tools = contextTools({
       ...singleRootRuntime(workspaceRootPath),
       selectionFilePaths,
     } as RuntimeData);
@@ -2786,7 +2957,7 @@ describe('assistant-tools read tools', () => {
 
   it('reads selected workspace context under file and token limits with explicit skips', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = buildDesktopAssistantTools({
+    const tools = hostTools({
       ...singleRootRuntime(workspaceRootPath),
       selectionFilePaths: ['/src/main.ts', '/README.md'],
     } as RuntimeData);
@@ -2814,7 +2985,7 @@ describe('assistant-tools read tools', () => {
 
   it('does not expose raw filesystem errors for skipped workspace context files', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = buildDesktopAssistantTools({
+    const tools = hostTools({
       ...singleRootRuntime(workspaceRootPath),
       selectionFilePaths: ['/missing.ts'],
     } as RuntimeData);
@@ -2834,7 +3005,7 @@ describe('assistant-tools read tools', () => {
       { code: 'EACCES' }
     );
     const openSpy = vi.spyOn(fsPromises, 'open').mockRejectedValueOnce(readError);
-    const tools = buildDesktopAssistantTools({
+    const tools = hostTools({
       ...singleRootRuntime(workspaceRootPath),
       selectionFilePaths: ['/src/main.ts'],
     } as RuntimeData);
@@ -2864,7 +3035,7 @@ describe('assistant-tools read tools', () => {
 
   it('reads a rangeless (empty ranges) context file as a bare whole-file read', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = buildDesktopAssistantTools({
+    const tools = hostTools({
       ...singleRootRuntime(workspaceRootPath),
       selectionFilePaths: ['/src/main.ts'],
       workspaceContext: {
@@ -2898,7 +3069,7 @@ describe('assistant-tools read tools', () => {
 
   it('reads selected workspace context through curated tapestry line ranges', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = buildDesktopAssistantTools({
+    const tools = hostTools({
       ...singleRootRuntime(workspaceRootPath),
       selectionFilePaths: ['/src/main.ts'],
       workspaceContext: {
@@ -2936,7 +3107,7 @@ describe('assistant-tools read tools', () => {
 
   it('stops tapestry range output when range budget is exhausted', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = buildDesktopAssistantTools({
+    const tools = hostTools({
       ...singleRootRuntime(workspaceRootPath),
       selectionFilePaths: ['/src/main.ts'],
       workspaceContext: {
@@ -2975,7 +3146,7 @@ describe('assistant-tools read tools', () => {
       'line 1\nliteral <selection index="1"> and <selection/> and </selection> tags with <selectionMode>\nline 3',
       'utf8'
     );
-    const tools = buildDesktopAssistantTools({
+    const tools = hostTools({
       ...singleRootRuntime(workspaceRootPath),
       selectionFilePaths: ['/src/main.ts'],
       workspaceContext: {
@@ -3007,72 +3178,6 @@ describe('assistant-tools read tools', () => {
     await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
 
-  it('lists embedding spaces with optional coverage stats', async () => {
-    getDatabaseMock.mockResolvedValue({
-      query: vi.fn(async (sql: string) => {
-        if (sql.includes('FROM embedding_sets')) {
-          return {
-            rows: [
-              {
-                averageTokensPerChunk: '10',
-                createdAt: '2026-01-01T00:00:00.000Z',
-                description: null,
-                dimensions: 1536,
-                distance: 'cosine',
-                embeddedChunks: '3',
-                fileCount: '2',
-                id: 'set-1',
-                modelId: 'text-embedding-3-small',
-                modelKey: 'openai:text-embedding-3-small',
-                name: 'Main',
-                tokenizedChunkCount: '4',
-                totalChunks: '5',
-                totalTokens: '40',
-              },
-            ],
-          };
-        }
-        return { rows: [] };
-      }),
-    });
-    const tools = buildDesktopAssistantTools({
-      workspaceIndexEmbeddingSetId: 'set-1',
-      workspaceIndexingEnabled: true,
-      workspaceIndexingMode: 'root-folder-cache',
-      workspaceIndexingPaused: false,
-    } as RuntimeData);
-    const executeTool = requireToolExecute(tools, 'brainstrike.listEmbeddingSpaces');
-
-    const result = await executeTool({ context: { includeStats: true } });
-
-    expect(result.count).toBe(1);
-    expect(result.workspaceIndex).toEqual({
-      embeddingSetId: 'set-1',
-      enabled: true,
-      mode: 'root-folder-cache',
-      paused: false,
-    });
-    expect(result.spaces[0]).toMatchObject({
-      coverage: {
-        averageTokensPerChunk: 10,
-        coveragePercent: 60,
-        embeddedChunks: 3,
-        fileCount: 2,
-        tokenizedChunkCount: 4,
-        totalChunks: 5,
-        totalTokens: 40,
-      },
-      dimensions: 1536,
-      distance: 'cosine',
-      id: 'set-1',
-      isWorkspaceIndex: true,
-      modelId: 'text-embedding-3-small',
-      modelKey: 'openai:text-embedding-3-small',
-      name: 'Main',
-      recommendedForWorkspaceSearch: true,
-    });
-  });
-
   it('preserves nullable embedding space names in tool output', async () => {
     getDatabaseMock.mockResolvedValue({
       query: vi.fn(async (sql: string) => {
@@ -3095,7 +3200,9 @@ describe('assistant-tools read tools', () => {
         return { rows: [] };
       }),
     });
-    const tools = buildDesktopAssistantTools(undefined);
+    const tools = hostTools({} as RuntimeData, {
+      request: mainRequest({ indexSearch: nativeIndexWith('root-a', unexpectedGrep) }),
+    });
     const executeTool = requireToolExecute(tools, 'brainstrike.listEmbeddingSpaces');
 
     const result = await executeTool({ context: {} });
@@ -3141,12 +3248,12 @@ describe('assistant-tools read tools', () => {
         return { rows: [] };
       }),
     });
-    const tools = buildDesktopAssistantTools({
-      workspaceIndexEmbeddingSetId: 'set-1',
-      workspaceIndexingEnabled: true,
-      workspaceIndexingMode: 'root-folder-cache',
-      workspaceIndexingPaused: false,
-    } as RuntimeData);
+    // The workspace index is the native index's one authorized collection.
+    const tools = hostTools({} as RuntimeData, {
+      request: mainRequest({
+        indexSearch: nativeIndexWith('root-a', unexpectedGrep, ['set-1']),
+      }),
+    });
     const executeTool = requireToolExecute(tools, 'brainstrike.listEmbeddingSpaces');
 
     const result = await executeTool({ context: { workspaceIndexOnly: true } });
@@ -3161,56 +3268,9 @@ describe('assistant-tools read tools', () => {
     ]);
   });
 
-  it('requires an explicit embedding space id for semantic context queries', async () => {
-    const tools = buildDesktopAssistantTools(undefined);
-    const executeTool = requireToolExecute(tools, 'brainstrike.queryEmbeddingSpace');
-
-    await expect(
-      executeTool({
-        context: {
-          query: 'where is context assembled?',
-        },
-      })
-    ).rejects.toThrow('Select an embedding space before querying semantic context.');
-  });
-
-  it('allows semantic context queries without explicit id when the workspace index is blocked', async () => {
-    const tools = buildDesktopAssistantTools({
-      workspaceIndexBlockedReason: 'missing-provider-key',
-      workspaceIndexEmbeddingSetId: 'workspace-index-set',
-      workspaceIndexingEnabled: true,
-      workspaceIndexingPaused: false,
-      workspaceIndexLastError: 'OpenAI key is required for Workspace Index.',
-      workspaceIndexQueueProgress: {
-        failed: 0,
-        pending: 0,
-        processed: 0,
-        totalQueued: 0,
-      },
-      workspaceIndexStatusState: 'blocked',
-    } as RuntimeData);
-    const executeTool = requireToolExecute(tools, 'brainstrike.queryEmbeddingSpace');
-
-    const result = await executeTool({
-      context: {
-        query: 'where is context assembled?',
-      },
-    });
-
-    expect(result).toMatchObject({
-      reason: 'workspace-index-blocked',
-      status: 'unavailable',
-      workspaceIndex: {
-        blockedReason: 'missing-provider-key',
-        embeddingSetId: 'workspace-index-set',
-      },
-    });
-    expect(getDatabaseMock).not.toHaveBeenCalled();
-  });
-
   it('treats a provider-null directory path as omission and rejects malformed payloads', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+    const tools = hostTools(singleRootRuntime(workspaceRootPath));
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceDirectory');
 
     try {
@@ -3254,7 +3314,7 @@ describe('assistant-tools read tools', () => {
     const binaryPath = path.join(workspaceRootPath, 'src', 'image.bin');
     await fsPromises.writeFile(binaryPath, Buffer.from([0, 255, 17, 23]));
 
-    const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+    const tools = hostTools(singleRootRuntime(workspaceRootPath));
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
 
     await expect(
@@ -3267,7 +3327,7 @@ describe('assistant-tools read tools', () => {
   });
 
   it('fails explicitly when workspace root is missing for directory reads', async () => {
-    const tools = buildDesktopAssistantTools(undefined);
+    const tools = hostTools({} as RuntimeData);
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceDirectory');
 
     await expect(
@@ -3281,7 +3341,7 @@ describe('assistant-tools read tools', () => {
 
   it('redacts native tool input and error values from failure logs', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
-    const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+    const tools = hostTools(singleRootRuntime(workspaceRootPath));
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
 
     await expect(
@@ -3319,7 +3379,7 @@ describe('assistant-tools read tools', () => {
       ].join('\n'),
       'utf8'
     );
-    const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+    const tools = hostTools(singleRootRuntime(workspaceRootPath));
     const executeTool = requireToolExecute(tools, 'brainstrike.findWorkspaceSymbol');
 
     const result = await executeTool({ context: { path: '/src/lib/math.ts', query: 'add' } });
@@ -3342,7 +3402,7 @@ describe('assistant-tools read tools', () => {
       path.join(workspaceRootPath, 'src', 'lib', 'bin.dat'),
       Buffer.from([0x41, 0x00, 0x42])
     );
-    const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+    const tools = hostTools(singleRootRuntime(workspaceRootPath));
     const executeTool = requireToolExecute(tools, 'brainstrike.findWorkspaceSymbol');
 
     await expect(
@@ -3389,7 +3449,7 @@ describe('assistant-tools read tools', () => {
     it('reads from the root named by `root` (with explicit filePaths) and labels the result', async () => {
       const { rootA, rootB, cleanup } = await createTwoRootContext();
       try {
-        const tools = buildDesktopAssistantTools(twoRootRuntime(rootA, rootB));
+        const tools = hostTools(twoRootRuntime(rootA, rootB));
         const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceContext');
         const result = await executeTool({
           context: { filePaths: ['/notes.md'], root: 'ProjectB' },
@@ -3405,7 +3465,7 @@ describe('assistant-tools read tools', () => {
     it('resolves `root` by id as well as by display name', async () => {
       const { rootA, rootB, cleanup } = await createTwoRootContext();
       try {
-        const tools = buildDesktopAssistantTools(twoRootRuntime(rootA, rootB));
+        const tools = hostTools(twoRootRuntime(rootA, rootB));
         const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceContext');
         const result = await executeTool({
           context: { filePaths: ['/notes.md'], root: 'id-a' },
@@ -3420,7 +3480,7 @@ describe('assistant-tools read tools', () => {
     it('errors and lists the open folders when `root` is omitted and several are open', async () => {
       const { rootA, rootB, cleanup } = await createTwoRootContext();
       try {
-        const tools = buildDesktopAssistantTools(twoRootRuntime(rootA, rootB));
+        const tools = hostTools(twoRootRuntime(rootA, rootB));
         const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceContext');
         await expect(executeTool({ context: { filePaths: ['/notes.md'] } })).rejects.toThrow(
           /multiple folders.*ProjectA.*ProjectB/is
@@ -3433,7 +3493,7 @@ describe('assistant-tools read tools', () => {
     it('errors with the available folders for an unknown `root`', async () => {
       const { rootA, rootB, cleanup } = await createTwoRootContext();
       try {
-        const tools = buildDesktopAssistantTools(twoRootRuntime(rootA, rootB));
+        const tools = hostTools(twoRootRuntime(rootA, rootB));
         const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceContext');
         await expect(
           executeTool({ context: { filePaths: ['/notes.md'], root: 'Nope' } })
@@ -3446,7 +3506,7 @@ describe('assistant-tools read tools', () => {
     it('requires explicit filePaths when `root` is provided (selection defaults are focused-root only)', async () => {
       const { rootA, rootB, cleanup } = await createTwoRootContext();
       try {
-        const tools = buildDesktopAssistantTools(twoRootRuntime(rootA, rootB));
+        const tools = hostTools(twoRootRuntime(rootA, rootB));
         const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceContext');
         await expect(executeTool({ context: { root: 'ProjectA' } })).rejects.toThrow(/filePaths/i);
       } finally {
@@ -3457,7 +3517,7 @@ describe('assistant-tools read tools', () => {
     it('still reads the focused-root selection default (single root) and labels the result', async () => {
       const workspaceRootPath = await createWorkspaceFixture();
       try {
-        const tools = buildDesktopAssistantTools({
+        const tools = hostTools({
           ...singleRootRuntime(workspaceRootPath),
           selectionFilePaths: ['/src/main.ts'],
         } as RuntimeData);
@@ -3475,7 +3535,7 @@ describe('assistant-tools read tools', () => {
     it('keeps selected-context defaults in the focused root when the thread is bound elsewhere', async () => {
       const { rootA, rootB, cleanup } = await createTwoRootContext();
       try {
-        const tools = buildDesktopAssistantTools({
+        const tools = hostTools({
           ...twoRootRuntime(rootA, rootB),
           boundWorkspaceRootId: 'id-a',
           selectionFilePaths: ['/notes.md'],
@@ -3508,7 +3568,7 @@ describe('assistant-tools read tools', () => {
       createMockWindow({ id: 1002, role: 'embedding-host', send: hiddenSend }),
       createMockWindow({ destroyed: true, id: 1003, role: 'visible-ui', send: vi.fn() }),
     ]);
-    const tools = buildDesktopAssistantTools({
+    const tools = hostTools({
       selectionFolderId: 'root-1',
       workspaceRootPath,
     } as RuntimeData);

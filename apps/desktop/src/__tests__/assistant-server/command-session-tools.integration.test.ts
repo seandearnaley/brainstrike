@@ -3,9 +3,11 @@ import net from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent';
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { afterEach, describe, expect, it } from 'vitest';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { createCommandSessionManager } from '../../assistant-server/command-session-manager';
+import { commandSessionExecutors } from '../../assistant-server/native-tool-executors-sessions';
+import { buildHostNativeTools } from './_host-native-tools';
 import { requireToolExecute } from './_tool-test-helpers';
 
 async function reservePort(): Promise<number> {
@@ -53,11 +55,13 @@ describe('persistent command-session native tools', () => {
     );
     temporaryRoots.push(rootPath);
     const root = { displayName: 'api', path: rootPath, rootId: 'db-root-api' };
-    const manager = createCommandSessionManager({
-      resolver: { listRoots: () => Promise.resolve([root]) },
-    });
+    // The agent host's manager has no root resolver: each start names its run's roots.
+    const manager = createCommandSessionManager({});
     const runtime = { workspaceRoots: [root] } as RuntimeData;
-    const tools = buildDesktopAssistantTools(runtime, { commandSessionManager: manager });
+    const tools = buildHostNativeTools(runtime, {
+      executors: commandSessionExecutors(() => ({ manager, rootsFromRuntime: true })),
+      ids: [NATIVE_TOOL_ID.inspectCommandSessions, NATIVE_TOOL_ID.manageCommandSession],
+    });
     const inspect = requireToolExecute(tools, 'brainstrike.inspectCommandSessions');
     const manage = requireToolExecute(tools, 'brainstrike.manageCommandSession');
     const port = await reservePort();

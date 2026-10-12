@@ -1,8 +1,7 @@
 /**
  * inspectCommandSessions and manageCommandSession over a caller-supplied
- * session manager: Main's legacy threads use its process-wide manager, the
- * desktop agent host its own, starting sessions only in the run's admitted
- * roots. This module must not import Electron: the host bundle loads it.
+ * session manager: the desktop agent host's own, starting sessions only in the
+ * run's admitted roots. This module must not import Electron: the host bundle loads it.
  */
 import {
   type InspectCommandSessionsInput,
@@ -13,6 +12,7 @@ import {
 import { NATIVE_TOOL_ID, TOOL_DESCRIPTIONS } from '@brainstrike/assistant-contract';
 import {
   logToolFailure,
+  type MastraTool,
   type NativeToolBuildContext,
   parseToolExecuteInput,
   type ToolExecuteContext,
@@ -25,7 +25,6 @@ import {
   runInspectCommandSessions,
   runManageCommandSession,
 } from './command-session-tools';
-import type { MastraTool } from './native-tool-executor-context';
 
 export function commandSessionExecutors<Context extends NativeToolBuildContext>(
   dependencies: (context: Context) => CommandSessionToolDependencies

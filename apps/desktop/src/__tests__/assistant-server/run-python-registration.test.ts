@@ -2,7 +2,11 @@ import type { RuntimeData } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { app } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import {
+  type CodeExecutionHost,
+  runPythonExecutor,
+} from '../../assistant-server/native-tool-executors-python';
+import { buildHostNativeTools } from './_host-native-tools';
 import { requireTool } from './_tool-test-helpers';
 
 const fenceSupport = vi.hoisted(() => ({
@@ -12,7 +16,12 @@ const fenceSupport = vi.hoisted(() => ({
 const helperPath = vi.hoisted(() =>
   vi.fn(() => '/resources/app.asar.unpacked/seccomp/apply-seccomp')
 );
+const bundledPython = vi.hoisted(() => vi.fn(async () => '/bundled/python3'));
 vi.mock('../../sandbox-runtime-path', () => ({ resolveDesktopSeccompApplyPath: helperPath }));
+vi.mock('../../python-runtime/resolve-python-binary', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../python-runtime/resolve-python-binary')>()),
+  resolvePythonBinary: bundledPython,
+}));
 vi.mock('@brainstrike/agent/fence-executor', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@brainstrike/agent/fence-executor')>()),
   createFenceExecutorFactory: fenceSupport.factory,
@@ -33,11 +42,23 @@ const runtimeData = {
   workspaceRoots: [{ displayName: 'Site A', path: '/tmp/root-a', rootId: 'root-a' }],
 } as RuntimeData;
 
+/** The agent host's run_python, resolved from the launching desktop's app paths. */
 function toolsFor(overrides: Partial<RuntimeData> = {}) {
-  return buildDesktopAssistantTools(
+  return buildHostNativeTools(
     { ...runtimeData, ...overrides },
-    { resolvePythonExecutable: vi.fn(async () => '/bundled/python3') }
+    {
+      appPaths: { isPackaged: true, resourcesPath: '/resources', userDataPath: '/user-data' },
+      ids: [NATIVE_TOOL_ID.runPython],
+    }
   );
+}
+
+/** run_python over an injected code-execution host, as the host's fold builds it. */
+function toolsWithHost(host: CodeExecutionHost) {
+  return buildHostNativeTools(runtimeData, {
+    executors: { [NATIVE_TOOL_ID.runPython]: runPythonExecutor(host) },
+    ids: [NATIVE_TOOL_ID.runPython],
+  });
 }
 
 function requireRunPythonTool(tools: ReturnType<typeof toolsFor>): RegisteredRunPythonTool {
@@ -56,14 +77,6 @@ function requireRunPythonTool(tools: ReturnType<typeof toolsFor>): RegisteredRun
 describe('run_python registration', () => {
   it('registers run_python for a normal provider', () => {
     expect(toolsFor()).toHaveProperty(NATIVE_TOOL_ID.runPython);
-  });
-
-  it('is EXCLUDED for the built-in local provider', () => {
-    // Same reasoning as askUser/submitPlan/manageTaskList: the on-device
-    // model's WebGPU prefill budget cannot afford advertising it, and
-    // BST-1070's network escalation is structurally unavailable there.
-    const tools = toolsFor({ provider: 'local' } as Partial<RuntimeData>);
-    expect(tools).not.toHaveProperty(NATIVE_TOOL_ID.runPython);
   });
 
   it('is registered as the factory-returned Mastra Tool, not a plain literal', () => {
@@ -193,7 +206,7 @@ describe('run_python sandbox availability wiring', () => {
     );
     fenceSupport.factory.mockClear();
     const tool = requireRunPythonTool(
-      buildDesktopAssistantTools(runtimeData, {
+      toolsWithHost({
         resolvePythonExecutable: vi.fn(async () => '/injected/python3'),
         resolveSeccompApplyPath: () =>
           actual.resolveDesktopSeccompApplyPath(true, 'relative', 'linux', 'x64'),
@@ -216,7 +229,7 @@ describe('run_python sandbox availability wiring', () => {
     fenceSupport.factory.mockClear();
     try {
       const tool = requireRunPythonTool(
-        buildDesktopAssistantTools(runtimeData, {
+        toolsWithHost({
           resolvePythonExecutable: vi.fn(async () => '/injected/python3'),
           resolveSeccompApplyPath,
         })
@@ -251,7 +264,7 @@ describe('run_python sandbox availability wiring', () => {
     fenceSupport.isSupported.mockReturnValueOnce(false);
     const resolvePythonExecutable = vi.fn(async () => '/bundled/python3');
     const tool = requireRunPythonTool(
-      buildDesktopAssistantTools(runtimeData, { resolvePythonExecutable })
+      toolsWithHost({ resolvePythonExecutable, resolveSeccompApplyPath: helperPath })
     );
     await expect(tool.execute({ code: 'print(1)' }, undefined)).resolves.toMatchObject({
       detail: expect.stringContaining('No user code ran'),

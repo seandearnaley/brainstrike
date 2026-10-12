@@ -3,7 +3,7 @@
  * tool.
  *
  * Drives the REAL Mastra agent loop (`streamMastraAgent`) against the REAL
- * desktop string-replace tool from `buildDesktopAssistantTools` — its real
+ * host string-replace tool (the agent host's live executor fold, `_host-native-tools`) — its real
  * `execute`, the real fuzzy-match cascade, real path containment, and a real
  * temp-dir workspace. Only the language model is scripted (provider 'local' with
  * an injected `LocalLlmHostClient`, mirroring write-workspace-file-live-loop.test.ts
@@ -29,7 +29,7 @@ import {
   resetToolCallLoopGuards,
 } from '@brainstrike/host-capabilities/native-tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { buildHostNativeTools } from './_host-native-tools';
 import { requireTool, requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
@@ -117,7 +117,7 @@ describe('stringReplaceWorkspaceFile live Mastra loop (real agent, real tool exe
     await fsPromises.writeFile(path.join(workspaceRootPath, 'src', 'config.ts'), original, 'utf8');
 
     try {
-      const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+      const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
       const editTool = requireTool(tools, 'brainstrike.stringReplaceWorkspaceFile');
 
       const hostClient = createScriptedHostClient({
@@ -188,7 +188,7 @@ describe('stringReplaceWorkspaceFile live Mastra loop (real agent, real tool exe
     );
 
     try {
-      const tools = buildDesktopAssistantTools({
+      const tools = buildHostNativeTools({
         ...singleRootRuntime(workspaceRootPath),
         memory: { resourceId: 'edit-failure-resource', threadId: 'edit-failure-thread' },
       } as RuntimeData);
@@ -267,7 +267,7 @@ describe('stringReplaceWorkspaceFile live Mastra loop (real agent, real tool exe
     );
 
     try {
-      const tools = buildDesktopAssistantTools({
+      const tools = buildHostNativeTools({
         ...singleRootRuntime(workspaceRootPath),
         memory: {
           resourceId: 'edit-failure-write-resource',

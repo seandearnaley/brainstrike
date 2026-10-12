@@ -875,10 +875,12 @@ Guard: `packages/db/__tests__/migration-079-mind-ops-log.test.ts`,
 Desktop workspace inspection history is compacted at the transient
 provider-request boundary without mutating Mastra-owned content.
 
-- **State:** `brainstrike_assistant_tool_projection_rewrites` (migrations 084 +
-  087), `tool_call_id` PK, `thread_id` owning cleanup,
-  `superseded_by_tool_call_id` the live-evidence guard, `marker_text` the exact
-  compact replay. Registered in the reset registry and the sidecar cascade.
+- **State:** committed `tool.projection.rewritten` events in the agent host's
+  run log, folded per thread by `HostProjectionRewrites`
+  (`packages/agent-host/src/projection-rewrites.ts`); a call keeps its first
+  rewrite. `supersededByToolCallId` is the live-evidence guard and
+  `markerText` the exact compact replay. Migration 145 dropped the PGlite table
+  that migrations 084 + 087 created.
 - **Detection is desktop-local, post-success and restart-safe.** After a
   successful read, grep, write or string-replace, scan the thread's visible
   persisted invocations and exclude calls already in the overlay. Identity is
@@ -911,7 +913,7 @@ provider-request boundary without mutating Mastra-owned content.
 - Reset loop guards for the thread scope ONLY after a transaction inserted rows.
 
 Evidence: `assistant-persistence/tool-projection-supersession.md`.
-Guard: `apps/desktop/src/__tests__/assistant-server/tool-projection-rewrite-repository.test.ts`.
+Guard: `packages/host-capabilities/__tests__/tool-projection-supersession.test.ts`.
 
 ## RECENCY-WINDOW TOOL-PROJECTION PRUNING
 

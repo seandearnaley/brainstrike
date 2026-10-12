@@ -263,28 +263,6 @@ describe('owning root registration', () => {
     expect(append).toHaveBeenCalledExactlyOnceWith(
       expect.objectContaining({ runConfig: { custom } })
     );
-    // A running root with the host's live transport: delivered into the
-    // run, nothing appended or queued; when the transport reports no live
-    // run the decision queues as before.
-    resetFollowUpQueueStore();
-    append.mockClear();
-    isRunning = true;
-    const transport = vi.fn(async (_message: unknown) => 'delivered' as const);
-    root.setLiveDecisionTransport(transport);
-    await expect(root.sendDecision('child', message)).resolves.toBe('delivered');
-    expect(transport).toHaveBeenCalledOnce();
-    expect(transport.mock.calls[0]?.[0]).toEqual(
-      expect.objectContaining({ runConfig: { custom } })
-    );
-    expect(append).not.toHaveBeenCalled();
-    expect(useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('root')]).toBe(
-      undefined
-    );
-    root.setLiveDecisionTransport(async () => 'no-live-run');
-    await expect(root.sendDecision('child', message)).resolves.toBe('queued');
-    expect(useFollowUpQueueStore.getState().queuedByThread[followUpQueueKey('root')]).toHaveLength(
-      1
-    );
   });
 
   it('dispatches a persisted decision without live snapshots and refuses a disposed owner after lookup', async () => {

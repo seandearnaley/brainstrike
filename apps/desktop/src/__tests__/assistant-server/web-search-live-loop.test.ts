@@ -2,9 +2,10 @@
  * LIVE-loop coverage for the desktop `brainstrike.webSearch` tool.
  *
  * Drives the REAL Mastra agent loop (`streamMastraAgent`) against the REAL
- * desktop webSearch tool from `buildDesktopAssistantTools` — its real `execute`,
- * the real token-budgeting and result normalization — but with the Tavily fetch
- * and key resolver STUBBED via injected dependencies. No real network, no real
+ * host webSearch tool (the agent host's live executor fold, `_host-native-tools`)
+ * — its real `execute`, the real token-budgeting and result normalization — but
+ * with the Tavily fetch and the host's key owner STUBBED via injected
+ * dependencies. No real network, no real
  * keychain. Only the language model is scripted (provider 'local' with an
  * injected LocalLlmHostClient, mirroring glob-workspace-live-loop.test.ts — no
  * API key, no network).
@@ -22,7 +23,7 @@ import type {
 } from '@brainstrike/agent/local-llm';
 import type { WebSearchToolDependencies } from '@brainstrike/host-capabilities/native-tools';
 import { describe, expect, it, vi } from 'vitest';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { buildHostNativeTools } from './_host-native-tools';
 import { requireTool } from './_tool-test-helpers';
 
 // Restore the REAL streamMastraAgent (the global setup.ts mock replaces it with
@@ -114,7 +115,7 @@ describe('webSearch live Mastra loop (real agent, real tool execute, stubbed Tav
       resolveApiKey,
     };
 
-    const tools = buildDesktopAssistantTools({} as RuntimeData, { webSearch: webSearchDeps });
+    const tools = buildHostNativeTools({} as RuntimeData, { webSearch: webSearchDeps });
     const webSearchTool = requireTool(tools, 'brainstrike.webSearch');
 
     const hostClient = createScriptedHostClient('how to cancel fetch');
@@ -179,7 +180,7 @@ describe('webSearch live Mastra loop (real agent, real tool execute, stubbed Tav
       fetchImpl: fetchImpl as unknown as typeof fetch,
       resolveApiKey: () => Promise.resolve(undefined),
     };
-    const tools = buildDesktopAssistantTools({} as RuntimeData, { webSearch: webSearchDeps });
+    const tools = buildHostNativeTools({} as RuntimeData, { webSearch: webSearchDeps });
     const webSearchTool = requireTool(tools, 'brainstrike.webSearch');
 
     const hostClient = createScriptedHostClient('anything');

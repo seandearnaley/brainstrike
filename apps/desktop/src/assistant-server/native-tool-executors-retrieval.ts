@@ -121,7 +121,6 @@ export function retrievalToolExecutors(
     },
     [NATIVE_TOOL_ID.listEmbeddingSpaces]: (context) => {
       const { dependencies, store } = services(context);
-      const { runtimeData } = context;
       return {
         description: TOOL_DESCRIPTIONS[NATIVE_TOOL_ID.listEmbeddingSpaces],
         execute: async (input: ToolExecuteInput<ListEmbeddingSetsInput>) => {
@@ -132,7 +131,6 @@ export function retrievalToolExecutors(
           try {
             return await runListEmbeddingSpacesWith(
               resolvedInput,
-              runtimeData,
               dependencies.nativeIndexSearch,
               store
             );

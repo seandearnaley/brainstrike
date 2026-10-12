@@ -26,8 +26,12 @@ vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: vi.fn(() => []) },
 }));
 
+import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { resetToolCallLoopGuards } from '@brainstrike/host-capabilities/native-tools';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { grepSearchExecutor } from '../../assistant-server/native-tool-executors-grep';
+import { nativeGrepFixture } from './_c1-a-helpers';
+import { mainContextDeliveryRequest } from './_c1-c-helpers';
+import { buildHostNativeTools } from './_host-native-tools';
 import { requireToolExecute } from './_tool-test-helpers';
 
 const ROOT_A = { displayName: 'ProjectA', rootId: 'root-a' };
@@ -57,6 +61,37 @@ function twoRootRuntime(): RuntimeData {
       { displayName: ROOT_B.displayName, path: rootBPath, rootId: ROOT_B.rootId },
     ],
   } as unknown as RuntimeData;
+}
+
+/**
+ * The host's grep: the live ripgrep pass over both roots plus Main's native
+ * grep index (`nativeGrepIndex`) serving the same indexed README chunks the
+ * PGlite fixture below seeds for the legacy retrieval cases.
+ */
+function hostGrepTools() {
+  // The native index authorizes the runtime's workspace-index collection and both roots.
+  const grep = nativeGrepFixture({
+    authorizedCollectionIds: ['set-1'],
+    authorizedRootIds: [ROOT_A.rootId, ROOT_B.rootId],
+  });
+  grep.serve([
+    {
+      content: 'const sharedMarker = "alpha";',
+      path: 'README.md',
+      root_id: ROOT_A.rootId,
+      start_line: 3,
+    },
+    {
+      content: 'const sharedMarker = "beta";',
+      path: 'README.md',
+      root_id: ROOT_B.rootId,
+      start_line: 3,
+    },
+  ]);
+  return buildHostNativeTools(twoRootRuntime(), {
+    executors: { [NATIVE_TOOL_ID.grepSearch]: grepSearchExecutor(grep.index) },
+    ids: [NATIVE_TOOL_ID.grepSearch],
+  });
 }
 
 describe('multi-root assistant tools (real PGlite + real roots)', () => {
@@ -196,7 +231,15 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
 
   it('Task: "what folders are open?" — listWorkspaceContext lists both roots', async () => {
     const executeTool = requireToolExecute(
-      buildDesktopAssistantTools(twoRootRuntime()),
+      buildHostNativeTools(twoRootRuntime(), {
+        // The listing reports Main's native index status beside the open roots.
+        request: async (method) => {
+          if (method !== 'desktop-read/index/status') {
+            throw new Error(`Unexpected Main request ${method}`);
+          }
+          return { kind: 'unavailable', reason: 'This case indexes nothing.' };
+        },
+      }),
       'brainstrike.listWorkspaceContext'
     );
     const result = await executeTool({ context: {} });
@@ -207,10 +250,7 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
   });
 
   it('Task: grep a shared term — content matches are labelled and same-path roots stay distinct', async () => {
-    const executeTool = requireToolExecute(
-      buildDesktopAssistantTools(twoRootRuntime()),
-      'brainstrike.grepSearch'
-    );
+    const executeTool = requireToolExecute(hostGrepTools(), 'brainstrike.grepSearch');
     const result = await executeTool({
       context: { outputMode: 'content', pattern: 'sharedMarker' },
     });
@@ -228,10 +268,7 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
   });
 
   it('Task: grep scoped to one folder via `root` — only that root matches', async () => {
-    const executeTool = requireToolExecute(
-      buildDesktopAssistantTools(twoRootRuntime()),
-      'brainstrike.grepSearch'
-    );
+    const executeTool = requireToolExecute(hostGrepTools(), 'brainstrike.grepSearch');
     const result = await executeTool({
       context: { outputMode: 'content', pattern: 'sharedMarker', root: 'ProjectB' },
     });
@@ -245,7 +282,7 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
 
   it('Task: read README.md with no root (ambiguous) — errors and lists the open folders', async () => {
     const executeTool = requireToolExecute(
-      buildDesktopAssistantTools(twoRootRuntime()),
+      buildHostNativeTools(twoRootRuntime()),
       'brainstrike.readWorkspaceFile'
     );
     await expect(executeTool({ context: { path: '/README.md' } })).rejects.toThrow(
@@ -254,7 +291,7 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
   });
 
   it("Task: read README.md qualified by root — returns the correct root's file", async () => {
-    const tools = buildDesktopAssistantTools(twoRootRuntime());
+    const tools = buildHostNativeTools(twoRootRuntime());
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
     const a = await executeTool({
       context: { path: '/README.md', root: 'ProjectA' },
@@ -272,7 +309,7 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
 
   it('Task: list a directory in a chosen root — labelled and root-scoped', async () => {
     const executeTool = requireToolExecute(
-      buildDesktopAssistantTools(twoRootRuntime()),
+      buildHostNativeTools(twoRootRuntime()),
       'brainstrike.readWorkspaceDirectory'
     );
     const result = await executeTool({ context: { path: '/', root: 'ProjectA' } });
@@ -282,7 +319,7 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
 
   it('Task: find a symbol in a chosen root — labelled', async () => {
     const executeTool = requireToolExecute(
-      buildDesktopAssistantTools(twoRootRuntime()),
+      buildHostNativeTools(twoRootRuntime()),
       'brainstrike.findWorkspaceSymbol'
     );
     const result = await executeTool({
@@ -294,7 +331,7 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
 
   it('Task: read curated context in a chosen root (explicit filePaths) — labelled by root', async () => {
     const executeTool = requireToolExecute(
-      buildDesktopAssistantTools(twoRootRuntime()),
+      buildHostNativeTools(twoRootRuntime()),
       'brainstrike.readWorkspaceContext'
     );
     const result = await executeTool({
@@ -306,7 +343,7 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
 
   it('Task: read curated context without root (ambiguous) — errors and lists the open folders', async () => {
     const executeTool = requireToolExecute(
-      buildDesktopAssistantTools(twoRootRuntime()),
+      buildHostNativeTools(twoRootRuntime()),
       'brainstrike.readWorkspaceContext'
     );
     await expect(executeTool({ context: { filePaths: ['/README.md'] } })).rejects.toThrow(
@@ -324,67 +361,12 @@ describe('multi-root assistant tools (real PGlite + real roots)', () => {
       workspaceRootPath: rootAPath,
     } as unknown as RuntimeData;
     const executeTool = requireToolExecute(
-      buildDesktopAssistantTools(focusedRuntime),
+      buildHostNativeTools(focusedRuntime, { request: mainContextDeliveryRequest }),
       'brainstrike.updateWorkspaceContextSelection'
     );
     const result = await executeTool({
       context: { filePaths: ['/README.md'], root: 'ProjectB' },
     });
     expect(result.appliedCount).toBe(1);
-  });
-
-  it('Task: semantic search — retrieved chunks are labelled by root and the context is root-prefixed', async () => {
-    const tools = buildDesktopAssistantTools(twoRootRuntime(), {
-      embeddingHostManager: { queryEmbedding: vi.fn(async () => QUERY_VECTOR) },
-    });
-    const executeTool = requireToolExecute(tools, 'brainstrike.queryEmbeddingSpace');
-    const result = await executeTool({
-      context: { embeddingSetId: 'set-1', query: 'shared marker', threshold: 0 },
-    });
-    if ('status' in result) {
-      throw new Error('expected a retrieval result');
-    }
-    // Both roots' README chunks come back, each carrying its owning root.
-    const rootNames = result.chunks
-      .map((c: { metadata?: Record<string, unknown> }) => c.metadata?.['rootName'])
-      .sort();
-    expect(rootNames).toEqual(['ProjectA', 'ProjectB']);
-    // The model-visible context string disambiguates the same relative path.
-    expect(result.context).toContain('[ProjectA]');
-    expect(result.context).toContain('[ProjectB]');
-  });
-
-  it('passes the native tool abort signal to local query embedding', async () => {
-    const queryEmbedding = vi.fn(async () => QUERY_VECTOR);
-    const tools = buildDesktopAssistantTools(twoRootRuntime(), {
-      embeddingHostManager: { queryEmbedding },
-    });
-    const executeTool = requireToolExecute(tools, 'brainstrike.queryEmbeddingSpace');
-    const signal = new AbortController().signal;
-
-    await executeTool(
-      { context: { embeddingSetId: 'set-1', query: 'shared marker', threshold: 0 } },
-      { abortSignal: signal }
-    );
-    expect(queryEmbedding).toHaveBeenCalledWith(expect.any(Object), { signal });
-  });
-
-  it('Task: semantic search scoped by root — only the chosen root is retrieved', async () => {
-    const tools = buildDesktopAssistantTools(twoRootRuntime(), {
-      embeddingHostManager: { queryEmbedding: vi.fn(async () => QUERY_VECTOR) },
-    });
-    const executeTool = requireToolExecute(tools, 'brainstrike.queryEmbeddingSpace');
-    const result = await executeTool({
-      context: { embeddingSetId: 'set-1', query: 'shared marker', root: 'ProjectA', threshold: 0 },
-    });
-    if ('status' in result) {
-      throw new Error('expected a retrieval result');
-    }
-    expect(result.chunks.length).toBeGreaterThan(0);
-    expect(
-      result.chunks.every(
-        (c: { metadata?: Record<string, unknown> }) => c.metadata?.['rootName'] === 'ProjectA'
-      )
-    ).toBe(true);
   });
 });

@@ -1,4 +1,4 @@
-import type { RuntimeData } from '@brainstrike/agent';
+import type { HybridSearchInput, RuntimeData } from '@brainstrike/agent';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
@@ -118,18 +118,22 @@ vi.mock('../../secrets', () => ({
   }),
 }));
 
-import { runHybridSearch } from '../../assistant-server/hybrid-search-tool';
-
-function chunk(id: string, content: string) {
-  return {
-    chunkIndex: 0,
-    chunkType: 'text',
-    content,
-    embeddingSetId: 'ws-set',
-    fileRecordId: `file-${id}`,
-    id,
-  };
-}
+import type {
+  IndexerSearchHit,
+  IndexerStatus,
+} from '@brainstrike/indexing-contract/indexer-client';
+import { runHybridSearchWith } from '../../assistant-server/hybrid-search-core';
+import type { RetrievalToolDependencies } from '../../assistant-server/retrieval-core';
+import { pgliteRetrievalStore } from '../../assistant-server/retrieval-store-pglite';
+import {
+  catalogOnly,
+  nativeCounts,
+  nativeEmbedding,
+  nativeEmbeddingSetRow,
+  nativeHit,
+  nativeProfile,
+  nativeRetrievalFixture,
+} from './_c1-a-helpers';
 
 const workspaceIndexRuntime = {
   workspaceIndexEmbeddingSetId: 'ws-set',
@@ -138,12 +142,64 @@ const workspaceIndexRuntime = {
   workspaceRoots: [{ displayName: 'ws', path: '/tmp/ws', rootId: 'root-1' }],
 } as RuntimeData;
 
-describe('desktop hybrid search tool', () => {
+/**
+ * The host's hybridSearch: the shared core `retrievalToolExecutors` runs, over
+ * Main's native index and catalog reads (no legacy PG path).
+ */
+function hostHybrid(
+  input: HybridSearchInput,
+  runtimeData: RuntimeData | undefined,
+  dependencies: RetrievalToolDependencies
+) {
+  return runHybridSearchWith(input, runtimeData, dependencies, catalogOnly(pgliteRetrievalStore()));
+}
+
+function nativeChunk(id: string, content: string, score: number): IndexerSearchHit {
+  return {
+    ...nativeHit,
+    chunkId: id,
+    content,
+    fileId: `file-${id}`,
+    relativePath: `${id}.ts`,
+    rootId: 'root-1',
+    score,
+  };
+}
+
+describe('desktop hybrid search tool on the native index', () => {
+  let f = nativeRetrievalFixture();
+  let dependencies: RetrievalToolDependencies = {};
+
   beforeEach(() => {
     vi.clearAllMocks();
-    getKeyMock.mockResolvedValue('test-api-key');
-    resolveHostedProviderApiKeyMock.mockResolvedValue('fallback-api-key');
-    embedMock.mockResolvedValue({ ok: true, value: { embedding: [0.25, 0.5] } });
+    f = nativeRetrievalFixture();
+    f.setStatus({
+      ...f.status,
+      authorizedRootIds: ['root-1'],
+      rootReadiness: [{ rootId: 'root-1', scanComplete: true }],
+    } as IndexerStatus);
+    vi.mocked(f.capability.coverage).mockImplementation(async ({ rootIds }) => ({
+      collections: [{ ...nativeCounts, embeddingSetId: 'selected' }],
+      embedding: nativeEmbedding,
+      roots: rootIds.map((rootId) => ({ ...nativeCounts, rootId })),
+      storeId: f.result.storeId,
+      totals: nativeCounts,
+      vectorCoverageComplete: true,
+    }));
+    const target = nativeChunk('chunk-target', 'lease fencing scheduler', 0.1);
+    // Vector arm ranks the vector distractor first, target second.
+    const vectorPool = [nativeChunk('chunk-vector-only', 'semantic neighbor', 0.01), target];
+    // Lexical arm ranks the term-stuffed distractor first, target second.
+    const bm25Pool = [nativeChunk('chunk-lexical-only', 'lease lease lease', 0.2), target];
+    vi.mocked(f.capability.search).mockImplementation(async (request) => ({
+      ...f.result,
+      hits: request.mode === 'vector' ? vectorPool : bm25Pool,
+    }));
+    vi.mocked(f.capability.grep).mockImplementation(async () => ({ ...f.result, hits: [] }));
+    dependencies = {
+      embeddingHostManager: { queryEmbedding: f.queryEmbedding },
+      nativeIndexSearch: f.capability,
+    };
     findByIdsMock.mockImplementation((ids: readonly string[]) =>
       Promise.resolve(
         ids.map((id) => ({
@@ -154,118 +210,91 @@ describe('desktop hybrid search tool', () => {
         }))
       )
     );
-    // Vector arm ranks the vector distractor first, target second.
-    searchSimilarMock.mockResolvedValue([
-      { chunk: chunk('chunk-vector-only', 'semantic neighbor'), rank: 1, similarity: 0.99 },
-      { chunk: chunk('chunk-target', 'lease fencing scheduler'), rank: 2, similarity: 0.9 },
-    ]);
-    // Lexical arm ranks the term-stuffed distractor first, target second.
-    fullTextSearchMock.mockResolvedValue([
-      { chunk: chunk('chunk-lexical-only', 'lease lease lease'), rank: 8 },
-      { chunk: chunk('chunk-target', 'lease fencing scheduler'), rank: 3 },
-    ]);
     dbQueryMock.mockImplementation((sql: string): Promise<{ rows: unknown[] }> => {
       if (sql.includes('FROM embedding_sets')) {
-        return Promise.resolve({
-          rows: [
-            {
-              dimensions: 2,
-              distance: null,
-              modelId: 'text-embedding-3-small',
-              modelKey: 'openai:text-embedding-3-small',
-            },
-          ],
-        });
-      }
-      if (sql.includes('FROM file_records')) {
-        return Promise.resolve({ rows: [] });
+        return Promise.resolve({ rows: [nativeEmbeddingSetRow] });
       }
       return Promise.resolve({ rows: [] });
     });
     getDatabaseMock.mockResolvedValue({ query: dbQueryMock });
   });
 
-  it('routes through HybridSearchService with workspace-index embedding set and root scoping', async () => {
-    const result = await runHybridSearch(
+  it('fuses the native arms over the saved collection with workspace root scoping', async () => {
+    const result = await hostHybrid(
       { query: 'lease fencing scheduler', root: 'ws' },
-      workspaceIndexRuntime
+      workspaceIndexRuntime,
+      dependencies
     );
 
-    // Both arms ran, scoped to the resolved embedding set and workspace root.
-    expect(searchSimilarMock).toHaveBeenCalledTimes(1);
-    expect(searchSimilarMock.mock.calls[0]?.[0]).toEqual([0.25, 0.5]);
-    expect(searchSimilarMock.mock.calls[0]?.[1]).toMatchObject({
-      embeddingSetId: 'ws-set',
+    // Every arm ran, scoped to the resolved workspace root.
+    expect(f.capability.search).toHaveBeenCalledWith({
+      limit: 100,
+      mode: 'vector',
+      profile: nativeProfile,
       rootIds: ['root-1'],
-      threshold: 0.5,
+      vector: Array.from({ length: 384 }, () => 0.1),
     });
-    expect(fullTextSearchMock).toHaveBeenCalledTimes(1);
-    expect(fullTextSearchMock.mock.calls[0]?.[0]).toBe('lease fencing scheduler');
-    // The keyword arm is scoped to the SAME embedding set as the vector arm —
-    // hybrid must never fuse keyword-only chunks from another embedding space.
-    expect(fullTextSearchMock.mock.calls[0]?.[1]).toMatchObject({
-      embeddingSetId: 'ws-set',
+    expect(f.capability.search).toHaveBeenCalledWith({
+      limit: 100,
+      mode: 'bm25',
       rootIds: ['root-1'],
+      text: 'lease fencing scheduler',
     });
+    expect(f.capability.grep).toHaveBeenCalledWith(
+      expect.objectContaining({ pattern: 'lease fencing scheduler', rootIds: ['root-1'] })
+    );
 
     // RRF fusion: the chunk found by BOTH arms outranks each single-arm leader.
-    expect(result.embeddingSetId).toBe('ws-set');
+    expect(result.embeddingSetId).toBe('selected');
     expect(result.results[0]?.id).toBe('chunk-target');
     expect(result.results[0]?.sourceCount).toBe(2);
     expect(result.results.map((item) => item.id)).toContain('chunk-vector-only');
     expect(result.results.map((item) => item.id)).toContain('chunk-lexical-only');
     expect(result.results[0]?.filePath).toBe('/repo/file-chunk-target.ts');
-  });
-
-  it('prefers an explicit embeddingSetId and omits root scoping when no root is given', async () => {
-    await runHybridSearch(
-      { embeddingSetId: 'explicit-set', query: 'lease' },
-      workspaceIndexRuntime
-    );
-
-    expect(searchSimilarMock.mock.calls[0]?.[1]).toMatchObject({ embeddingSetId: 'explicit-set' });
-    expect(searchSimilarMock.mock.calls[0]?.[1]).not.toHaveProperty('rootIds');
-    expect(fullTextSearchMock.mock.calls[0]?.[1]).not.toHaveProperty('rootIds');
-  });
-
-  it('passes filePaths scoping through to BOTH search arms', async () => {
-    await runHybridSearch({ filePaths: ['/repo/a.ts'], query: 'lease' }, workspaceIndexRuntime);
-
-    expect(searchSimilarMock.mock.calls[0]?.[1]).toMatchObject({ filePaths: ['/repo/a.ts'] });
-    expect(fullTextSearchMock.mock.calls[0]?.[1]).toMatchObject({ filePaths: ['/repo/a.ts'] });
-  });
-
-  it('grows BOTH source pools to a requested limit above the 50 default (mirrors the UI path)', async () => {
-    await runHybridSearch({ limit: 80, query: 'lease' }, workspaceIndexRuntime);
-
-    // Repo-level `limit` IS the per-arm source pool size (service maps
-    // vectorLimit/ftsLimit onto it). RRF reranks best from pools at least as
-    // large as the final cut.
-    expect(searchSimilarMock.mock.calls[0]?.[1]).toMatchObject({ limit: 80 });
-    expect(fullTextSearchMock.mock.calls[0]?.[1]).toMatchObject({ limit: 80 });
-  });
-
-  it('never shrinks the source pools below the 50 default for small limits', async () => {
-    await runHybridSearch({ limit: 5, query: 'lease' }, workspaceIndexRuntime);
-
-    expect(searchSimilarMock.mock.calls[0]?.[1]).toMatchObject({ limit: 50 });
-    expect(fullTextSearchMock.mock.calls[0]?.[1]).toMatchObject({ limit: 50 });
-  });
-
-  it('throws when no embedding set is resolvable (no silent fallback)', async () => {
-    await expect(runHybridSearch({ query: 'lease' }, undefined)).rejects.toThrow(
-      /embedding space|Workspace Index/i
-    );
     expect(searchSimilarMock).not.toHaveBeenCalled();
     expect(fullTextSearchMock).not.toHaveBeenCalled();
   });
 
+  it('prefers an explicit embeddingSetId and omits root scoping when no root is given', async () => {
+    await hostHybrid(
+      { embeddingSetId: 'selected', query: 'lease' },
+      workspaceIndexRuntime,
+      dependencies
+    );
+
+    expect(f.capability.search).toHaveBeenCalledWith(
+      expect.objectContaining({ collectionId: 'selected', mode: 'vector', rootIds: [] })
+    );
+    expect(f.capability.search).toHaveBeenCalledWith(
+      expect.objectContaining({ collectionId: 'selected', mode: 'bm25', rootIds: [] })
+    );
+    expect(f.capability.grep).toHaveBeenCalledWith(
+      expect.objectContaining({ collectionId: 'selected', rootIds: [] })
+    );
+  });
+
+  it('throws when no embedding collection is resolvable (no silent fallback)', async () => {
+    f.setStatus({ ...f.status, authorizedCollectionIds: [] } as IndexerStatus);
+
+    await expect(hostHybrid({ query: 'lease' }, undefined, dependencies)).rejects.toThrow(
+      'Native assistant retrieval requires one saved authorized collection.'
+    );
+    expect(f.capability.search).not.toHaveBeenCalled();
+    expect(f.capability.grep).not.toHaveBeenCalled();
+  });
+
   it('surfaces a keyword-arm failure as an error, never a degraded result', async () => {
-    fullTextSearchMock.mockRejectedValue(new Error('full-text query failed'));
+    vi.mocked(f.capability.search).mockImplementation(async (request) => {
+      if (request.mode === 'bm25') {
+        throw new Error('full-text query failed');
+      }
+      return { ...f.result, hits: [] };
+    });
 
     await expect(
-      runHybridSearch({ query: 'lease fencing scheduler' }, workspaceIndexRuntime)
+      hostHybrid({ query: 'lease fencing scheduler' }, workspaceIndexRuntime, dependencies)
     ).rejects.toThrow('Hybrid search failed. Please try again.');
+    expect(f.capability.search).toHaveBeenCalledWith(expect.objectContaining({ mode: 'vector' }));
     expect(loggerError).toHaveBeenCalled();
   });
 });

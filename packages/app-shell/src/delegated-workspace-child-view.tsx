@@ -3,9 +3,7 @@ import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contra
 import {
   createAssistantThreadHistoryAdapter,
   createPgliteAssistantThreadRepository,
-  createSuspendedRunDiscovery,
   hasDurableAssistantUsageCapability,
-  resolveAssistantAuthHeaders,
 } from '@brainstrike/assistant-data';
 import {
   DebugBundleProvider,
@@ -20,15 +18,12 @@ import { type ReactNode, use, useEffect, useMemo, useState, useSyncExternalStore
 import { DelegatedChildConversationPanel } from './delegated-child-conversation-panel';
 import { DelegatedConversationBreadcrumbs } from './delegated-conversation-breadcrumbs';
 import { DelegatedConversationToolbar } from './delegated-conversation-toolbar';
-import { createDelegatedWorkspaceDiscovery } from './delegated-workspace-discovery';
 import { DelegatedWorkspaceNavigation } from './delegated-workspace-navigation';
 import type { ChildNode } from './delegated-workspace-node';
 import { delegatedWorkspaceTabId } from './delegated-workspace-tab';
-import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 import { useDebugBundleBinding } from './hooks/use-debug-bundle';
 import { useEditCheckpoints } from './hooks/use-edit-checkpoints';
 import { resolveDelegatedWorkspaceDecision } from './resolve-delegated-workspace-identity';
-import { sendDelegatedWorkspaceInput } from './send-delegated-workspace-input';
 import { useThreadSearchStore } from './thread-search-store';
 import { useDelegatedConversationInsights } from './use-delegated-conversation-insights';
 import { RootsContext, useDelegatedConversationRoot } from './use-delegated-conversation-root';
@@ -105,9 +100,6 @@ interface ReadyChildViewProps {
   readonly repository: ReturnType<typeof createDelegatedConversationRepository>;
   readonly root: NonNullable<ReturnType<typeof useDelegatedConversationRoot>>;
   readonly searchTarget: ReturnType<typeof useThreadSearchStore.getState>['navigationTarget'];
-  readonly setLoadedSearchRequest: (value: number | undefined) => void;
-  readonly setRefresh: (update: (value: number) => number) => void;
-  readonly setSaved: (value: undefined) => void;
 }
 
 function ReadyChildView({
@@ -122,9 +114,6 @@ function ReadyChildView({
   repository,
   root,
   searchTarget,
-  setLoadedSearchRequest,
-  setRefresh,
-  setSaved,
 }: ReadyChildViewProps) {
   const durableUsage = hasDurableAssistantUsageCapability();
   const isRunning = live?.update.message.status.type === 'running';
@@ -195,52 +184,11 @@ function ReadyChildView({
                 ? {
                     onSendActiveInput: (input: AssistantChildInput, signal: AbortSignal) => {
                       const current = root.store.getConversation(node.threadId);
-                      if (current?.update.message.status.type !== 'running') {
-                        return root.sendFollowup(node.threadId, input, signal);
+                      if (current?.update.message.status.type === 'running') {
+                        // Its live-run input route retired with the desktop assistant server.
+                        throw new Error('Wait for the child to finish before sending it input.');
                       }
-                      const hostRunId = current.update.baseline?.hostRunId;
-                      if (!hostRunId) {
-                        throw new Error('Child input has no active host owner.');
-                      }
-                      return sendDelegatedWorkspaceInput(node, hostRunId, input, signal);
-                    },
-                  }
-                : {})}
-              {...(durableUsage
-                ? {
-                    onCancel: async () => {
-                      const [baseUrl, headers] = await Promise.all([
-                        resolveAssistantBaseUrl(),
-                        resolveAssistantAuthHeaders(),
-                      ]);
-                      const response = await fetch(new URL('/assistant/cancel-child', baseUrl), {
-                        body: JSON.stringify({
-                          ownerResourceId: node.ownerResourceId,
-                          rootThreadId: node.rootThreadId,
-                          scope: 'subtree',
-                          threadId: node.threadId,
-                        }),
-                        headers: { ...headers, 'Content-Type': 'application/json' },
-                        method: 'POST',
-                      });
-                      if (!response.ok) {
-                        const failure: unknown = await response.json();
-                        if (
-                          failure &&
-                          typeof failure === 'object' &&
-                          'message' in failure &&
-                          typeof failure.message === 'string'
-                        ) {
-                          throw new Error(failure.message);
-                        }
-                        throw new Error(
-                          `Child Stop returned an invalid error response (status ${response.status}).`
-                        );
-                      }
-                      root.store.invalidate(node.threadId);
-                      setSaved(undefined);
-                      setLoadedSearchRequest(undefined);
-                      setRefresh((value) => value + 1);
+                      return root.sendFollowup(node.threadId, input, signal);
                     },
                   }
                 : {})}
@@ -315,7 +263,6 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
       ? navigationTarget
       : null;
   const [loadedSearchRequest, setLoadedSearchRequest] = useState<number>();
-  const [refresh, setRefresh] = useState(0);
   useEffect(() => {
     let terminalLeg: string | undefined;
     return root?.store.subscribe(() => {
@@ -349,15 +296,6 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
       ? root.store.getConversation(node.threadId)?.update.baseline?.hostRunId
       : undefined;
     const adapter = createAssistantThreadHistoryAdapter({
-      ...(hasDurableAssistantUsageCapability()
-        ? {
-            discoverSuspendedRuns: createDelegatedWorkspaceDiscovery(
-              repository,
-              node,
-              createSuspendedRunDiscovery(resolveAssistantBaseUrl)
-            ),
-          }
-        : {}),
       repository: createPgliteAssistantThreadRepository(db),
       resourceId: node.resourceId,
       signal: controller.signal,
@@ -388,7 +326,7 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
       active = false;
       controller.abort();
     };
-  }, [db, node, repository, root, refresh, hasLive, searchTarget, loadedSearchRequest]);
+  }, [db, node, repository, root, hasLive, searchTarget, loadedSearchRequest]);
   const boundary = resolveChildLoadingBoundary({
     error: saved && 'error' in saved ? saved.error : undefined,
     hasConversation: Boolean(saved || live),
@@ -416,9 +354,6 @@ export function ChildView({ db, node }: { readonly db: DbHandle; readonly node: 
         repository={repository}
         root={root}
         searchTarget={searchTarget}
-        setLoadedSearchRequest={setLoadedSearchRequest}
-        setRefresh={setRefresh}
-        setSaved={setSaved}
       />
     </DebugBundleProvider>
   );

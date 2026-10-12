@@ -21,7 +21,6 @@ import {
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import type { ShellOutputStreamPart } from '@brainstrike/host-capabilities/native-tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import {
   buildTruncationMarker,
   disposeLiveChildProcesses,
@@ -30,6 +29,7 @@ import {
   resolveShellInvocation,
   runExecuteCommand,
 } from '../../assistant-server/execute-command-tool';
+import { buildHostNativeTools } from './_host-native-tools';
 import {
   readPidWhenWritten,
   requireTool,
@@ -213,9 +213,9 @@ describe('runExecuteCommand — happy path', () => {
     expect(result.stdout.trim()).toBe(root);
   });
 
-  it('executes and projects through the registered desktop tool', async () => {
+  it('executes and projects through the agent host executeCommand tool', async () => {
     const root = await makeWorkspace();
-    const tools = buildDesktopAssistantTools(singleRoot(root));
+    const tools = buildHostNativeTools(singleRoot(root), { ids: ['brainstrike.executeCommand'] });
     const execute = requireToolExecute<ExecuteCommandToolResult>(
       tools,
       'brainstrike.executeCommand'

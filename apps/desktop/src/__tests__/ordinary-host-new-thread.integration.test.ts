@@ -11,6 +11,7 @@ import { createMcpRuntimeClient } from '@brainstrike/agent/mcp-client';
 import { startStatefulMcpHostServer } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
 import {
   attachAgentHost,
+  createAgentHostToolBindings,
   createProductionHostPlatform,
   startAgentHost,
 } from '@brainstrike/agent-host';
@@ -30,7 +31,6 @@ import { _electron, type Page } from 'playwright';
 import { expect, test } from 'vitest';
 import { z } from 'zod';
 import { ensureAssistantShellVisible } from '../../e2e/utils/layout-helpers';
-import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
 import { createDisposableAppProfile } from './helpers/disposable-app-profile';
 
 const execute = promisify(execFile);

@@ -24,10 +24,7 @@ import {
 } from '@brainstrike/host-capabilities/native-tools';
 import { createLogger } from '@brainstrike/logging';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
-import {
-  normalizeRuntimeWorkspaceIndex,
-  type WorkspaceIndexSummary,
-} from './runtime-workspace-index';
+import type { WorkspaceIndexSummary } from './workspace-index-summary';
 import {
   getWorkspaceRoots,
   resolveFocusedWorkspaceRoot,
@@ -188,7 +185,9 @@ interface ListWorkspaceContextToolResult {
 
 export function runListWorkspaceContext(
   input: ListWorkspaceContextInput,
-  runtimeData: RuntimeData | undefined
+  runtimeData: RuntimeData | undefined,
+  /** The native index's status summary, read by the caller. */
+  workspaceIndex: WorkspaceIndexSummary
 ): ListWorkspaceContextToolResult {
   const workspaceRoots = getWorkspaceRoots(runtimeData);
   const resolvedWorkspaceRoots = runtimeData?.workspaceRoots;
@@ -215,7 +214,7 @@ export function runListWorkspaceContext(
       selectedFiles: [],
       selectionFolderId: null,
       truncated: false,
-      workspaceIndex: normalizeRuntimeWorkspaceIndex(runtimeData),
+      workspaceIndex,
       workspaceRootPath: null,
       workspaceRoots: [],
       ...(input.includeTokenEstimates === true ? { tokenEstimates: [] } : {}),
@@ -237,7 +236,6 @@ export function runListWorkspaceContext(
   const offset = input.offset ?? 0;
   // Multi-root forest: count of selected files outside this workspace root.
   const outsideWorkspaceCount = runtimeData?.selectionFilePathsFromOtherRoots ?? 0;
-  const workspaceIndex = normalizeRuntimeWorkspaceIndex(runtimeData);
   const pagedFiles = selectedFiles.slice(offset);
 
   // Large selections can hold thousands of paths; bound the listing (and its

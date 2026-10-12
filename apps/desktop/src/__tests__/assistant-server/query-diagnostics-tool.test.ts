@@ -7,7 +7,7 @@ vi.mock('../../db-main', () => ({
   getDatabase: () => getDatabaseMock(),
 }));
 
-const { buildDesktopAssistantTools } = await import('../../assistant-server/assistant-tools');
+const { buildHostNativeTools } = await import('./_host-native-tools');
 const { runQueryDiagnostics } = await import('../../assistant-server/query-diagnostics-tool');
 
 beforeEach(() => {
@@ -16,7 +16,7 @@ beforeEach(() => {
 
 describe('queryDiagnostics native tool', () => {
   it('is registered under the canonical desktop-native id', () => {
-    const tools = buildDesktopAssistantTools(undefined);
+    const tools = buildHostNativeTools({}, { ids: [NATIVE_TOOL_ID.queryDiagnostics] });
 
     expect(tools).toHaveProperty(NATIVE_TOOL_ID.queryDiagnostics);
   });

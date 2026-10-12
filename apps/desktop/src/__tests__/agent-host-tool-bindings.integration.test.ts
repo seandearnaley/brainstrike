@@ -15,6 +15,7 @@ import {
 } from '@brainstrike/agent/test-fixtures/mcp-host-lifecycle';
 import {
   attachAgentHost,
+  createAgentHostToolBindings,
   createMcpHostToolAdapter,
   readHostRow,
   startAgentHost,
@@ -33,9 +34,8 @@ import {
 } from '@brainstrike/host-capabilities/native-tools';
 import { RootLock, StateStore } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
-import { createAgentHostToolBindings } from '../agent-host-tool-bindings';
-import { legacyNativeToolPorts } from '../assistant-server/legacy-native-tool-ports';
 import { createDesktopMcpHostRuntime } from '../mcp/host-runtime';
+import { hostExecutionPorts } from './assistant-server/_host-native-tools';
 
 function toolCallCount(requests: readonly ObservedMcpHostRequest[]): number {
   return requests
@@ -94,7 +94,7 @@ test.each(['approve', 'deny'] as const)(
       };
       const read = SHARED_NATIVE_TOOL_EXECUTORS[NATIVE_TOOL_ID.readWorkspaceDirectory]({
         isLocalProvider: false,
-        ports: legacyNativeToolPorts(runtimeData),
+        ports: hostExecutionPorts(),
         readFileCursorRegistry: new ReadWorkspaceFileCursorRegistry(),
         resolveActiveDomainCharBudget: () =>
           CEILING_SCALED_TOOL_RESULT_BUDGET.domainModelResultCharBudget,

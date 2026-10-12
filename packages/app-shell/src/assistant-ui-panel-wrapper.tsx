@@ -106,7 +106,6 @@ import { useRunVerdictBinding } from './hooks/use-run-verdict';
 import { useSubagentPersonasRequest } from './hooks/use-subagent-personas-request';
 import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-path';
 import { useAssistantRootHistoryAdapter } from './use-assistant-root-history-adapter';
-import { useAssistantRunControls } from './use-assistant-run-controls';
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
 import { useAssistantThreadTitleSync } from './use-assistant-thread-title-sync';
@@ -807,7 +806,6 @@ export function AssistantUiPanelWrapper({
   }, [assistantThreadRepository, ensureResourceThreads, memoryResourceId]);
 
   const historyAdapter = useAssistantRootHistoryAdapter({
-    desktopBackend: desktopAssistantBackendAvailable,
     repository: assistantThreadRepository,
     resourceId: memoryResourceId,
     threadId: selectedMemoryThreadId,
@@ -845,7 +843,6 @@ export function AssistantUiPanelWrapper({
   const {
     completePreparedRequest,
     getActiveRunUsageContext,
-    getActiveSteerableRunId,
     prepareRequestData,
     renewActiveAssistantForegroundActivity,
   } = useAssistantRequestLifecycle({
@@ -871,12 +868,6 @@ export function AssistantUiPanelWrapper({
     resolvedModelName,
     selectedMemoryThreadId,
     selectedProvider,
-  });
-  const { liveDecisionTransport, steerActiveRun } = useAssistantRunControls({
-    getActiveRunId: getActiveSteerableRunId,
-    ownerResourceId: memoryResourceId,
-    permissionEnforceable: localChatTransport === 'data-stream',
-    rootThreadId: selectedMemoryThreadId,
   });
 
   // Check if a model is enabled - always use DB as source of truth
@@ -1221,7 +1212,7 @@ export function AssistantUiPanelWrapper({
       ownerResourceId={memoryResourceId}
       rootThreadId={selectedMemoryThreadId}
     >
-      <AssistantDecisionProviders liveDecision={liveDecisionTransport}>
+      <AssistantDecisionProviders>
         <EditCheckpointProvider value={editCheckpoints}>
           <RunVerdictProvider value={runVerdictBinding}>
             <DebugBundleProvider value={debugBundleBinding}>
@@ -1232,7 +1223,6 @@ export function AssistantUiPanelWrapper({
                   composerDraftCommand={composerDraft.command}
                   {...(onRunningChange ? { onRunningChange } : {})}
                   {...(attachmentsAvailability ? { attachmentsAvailability } : {})}
-                  {...(steerActiveRun ? { onSteerActiveRun: steerActiveRun } : {})}
                   completePreparedRequest={completeRequestAndSettleLiveUsage}
                   contextWindow={openRouterModelDef?.contextWindow}
                   cumulativeUsage={cumulativeUsage ?? undefined}

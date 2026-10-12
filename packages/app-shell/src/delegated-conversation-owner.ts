@@ -13,7 +13,7 @@ import type {
   DelegatedConversationRuntimeOptions,
   DelegatedConversationUpdate,
 } from '@brainstrike/assistant-ui';
-import { type LiveDecisionTransport, submitDecisionOrQueue } from '@brainstrike/assistant-ui';
+import { submitDecisionOrQueue } from '@brainstrike/assistant-ui';
 import type { AssistantProviderSettingsMap } from '@brainstrike/types';
 import { createStore } from 'zustand/vanilla';
 import { createDelegatedConversationStore } from './delegated-conversation-store';
@@ -63,7 +63,6 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
     selectedModel: null,
   }));
   let runtime: Registration | undefined;
-  let liveDecisionTransport: LiveDecisionTransport | null = null;
   const pending = new Set<() => void>();
   const retirePending = () => {
     for (const retire of [...pending]) {
@@ -138,7 +137,6 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
       await createDelegatedDecisionDispatcher(identity, async (input) => {
         outcome = await submitDecisionOrQueue({
           append: (queued) => owner.thread.append(queued),
-          deliverLive: liveDecisionTransport,
           identityKey,
           isRunning: owner.thread.getState().isRunning === true,
           message: input,
@@ -238,10 +236,6 @@ export function createDelegatedConversationRoot(rootThreadId: string) {
           fail(error);
         }
       });
-    },
-    /** The host's live decision transport (desktop), shared with the root cards. */
-    setLiveDecisionTransport(transport: LiveDecisionTransport | null): void {
-      liveDecisionTransport = transport;
     },
     store,
     subscribeOwner(listener: () => void): () => void {

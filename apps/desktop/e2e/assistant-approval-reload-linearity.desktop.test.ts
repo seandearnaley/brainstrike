@@ -227,11 +227,27 @@ test.describe('approval-turn reload linearity (desktop, BST-1243)', () => {
     await expect(region.getByText(LONG_REPLY_MARKER).first()).toBeVisible({
       timeout: E2E_TIMEOUTS.messageVisibility,
     });
-    await page.getByTestId('assistant-new-thread-button').click();
     // Each thread keeps its panel mounted: send from the new thread's own panel.
-    const healthyPanel = page
+    // Until the first thread's generated title commits, both tabs are named
+    // "New Thread", so the panel is the one whose tab the click selected.
+    const selectedThreadTab = page
+      .getByRole('tab', { selected: true })
+      .and(page.locator('[id^="assistant-thread-tab-"]'));
+    const damagedTabId = await selectedThreadTab.getAttribute('id');
+    if (!damagedTabId) {
+      throw new Error('The damaged thread has no selected thread tab');
+    }
+    await page.getByTestId('assistant-new-thread-button').click();
+    await expect(selectedThreadTab).not.toHaveId(damagedTabId);
+    const healthyPanelId = await selectedThreadTab.getAttribute('aria-controls');
+    if (!healthyPanelId) {
+      throw new Error('The new thread tab controls no panel');
+    }
+    const healthyTabPanel = page
       .getByRole('tabpanel', { exact: true, name: 'New Thread' })
-      .getByRole('region', { exact: true, name: 'Assistant' });
+      .and(page.locator(`[id="${healthyPanelId}"]`));
+    await expect(healthyTabPanel).toBeVisible();
+    const healthyPanel = healthyTabPanel.getByRole('region', { exact: true, name: 'Assistant' });
     await healthyPanel.getByRole('textbox', { name: 'Message input' }).fill(HEALTHY_PROMPT);
     await healthyPanel.getByRole('button', { exact: true, name: 'Send' }).click();
     await expect(page.getByText(healthyReply, { exact: true }).first()).toBeVisible({

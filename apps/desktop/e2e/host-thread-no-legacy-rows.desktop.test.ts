@@ -38,7 +38,6 @@ const LEGACY_TABLES = [
   'brainstrike_assistant_thread_runs',
   'brainstrike_assistant_thread_workspaces',
   'brainstrike_assistant_tool_output_artifacts',
-  'brainstrike_assistant_tool_projection_rewrites',
   'brainstrike_canvas_versions',
   'brainstrike_thread_message_index',
   'brainstrike_tool_call_telemetry',

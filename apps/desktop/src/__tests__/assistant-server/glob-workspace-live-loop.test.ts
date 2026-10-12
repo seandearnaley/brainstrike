@@ -2,8 +2,8 @@
  * LIVE-loop coverage for the desktop `brainstrike.globWorkspace` tool.
  *
  * Drives the REAL Mastra agent loop (`streamMastraAgent`) against the REAL
- * desktop glob tool from `buildDesktopAssistantTools` — its real `execute`, the
- * real FS walk + ignore policy + path containment, against a real temp-dir
+ * host glob tool (the agent host's live executor fold, `_host-native-tools`) —
+ * its real `execute`, the real FS walk + ignore policy + path containment, against a real temp-dir
  * workspace. Only the language model is scripted (provider 'local' with an
  * injected `LocalLlmHostClient`, mirroring write-workspace-file-live-loop.test.ts
  * — no API key, no network).
@@ -24,7 +24,7 @@ import type {
 } from '@brainstrike/agent/local-llm';
 import { resetToolCallLoopGuards } from '@brainstrike/host-capabilities/native-tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { buildHostNativeTools } from './_host-native-tools';
 import { requireTool, singleRootRuntime } from './_tool-test-helpers';
 
 // Restore the REAL streamMastraAgent (the global setup.ts mock replaces it with
@@ -190,7 +190,7 @@ describe('globWorkspace live Mastra loop (real agent, real tool execute)', () =>
   it('lets a real Agent enumerate matching files and excludes ignored dirs', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     try {
-      const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+      const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
       const globTool = requireTool(tools, 'brainstrike.globWorkspace');
 
       const hostClient = createScriptedHostClient('**/*.test.ts');
@@ -249,7 +249,7 @@ describe('globWorkspace live Mastra loop (real agent, real tool execute)', () =>
   it('executes one structured glob then one structured README read before answering', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     try {
-      const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+      const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
       const globTool = requireTool(tools, 'brainstrike.globWorkspace');
       const readTool = requireTool(tools, 'brainstrike.readWorkspaceFile');
       const hostClient = createGlobThenReadHostClient();

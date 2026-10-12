@@ -7,13 +7,24 @@ import { NATIVE_TOOL_DEFAULTS, NATIVE_TOOL_INPUT_SCHEMAS } from '@brainstrike/ag
 import {
   DESKTOP_NATIVE_TOOL_IDS,
   NATIVE_TOOL_ID,
+  SKILL_NATIVE_TOOL_IDS,
   TOOL_DESCRIPTIONS,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
-import { resetToolCallLoopGuards } from '@brainstrike/host-capabilities/native-tools';
+import {
+  ReadWorkspaceFileCursorRegistry,
+  resetToolCallLoopGuards,
+} from '@brainstrike/host-capabilities/native-tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { desktopToolDescriptors } from '../../agent-host-platform/desktop-tool-descriptors';
 import { disposeLspServers } from '../../assistant-server/lsp-diagnostics';
+import {
+  NATIVE_HYBRID_RETRIEVAL_DESCRIPTION,
+  NATIVE_SEMANTIC_RETRIEVAL_DESCRIPTION,
+  NativeHybridSearchInputSchema,
+  NativeQueryEmbeddingSpaceInputSchema,
+} from '../../assistant-server/native-retrieval-schemas';
+import { buildHostNativeTools, nativeRuntimeFor } from './_host-native-tools';
 import { requireTool, requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
@@ -23,41 +34,11 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
   };
 });
 
-const {
-  getDatabaseMock,
-  getAllWindowsMock,
-  invalidateManagedCacheMock,
-  loggerErrorMock,
-  loggerWarnMock,
-} = vi.hoisted(() => ({
+const { getAllWindowsMock, loggerErrorMock, loggerWarnMock } = vi.hoisted(() => ({
   getAllWindowsMock: vi.fn(),
-  getDatabaseMock: vi.fn(),
-  invalidateManagedCacheMock: vi.fn(),
   loggerErrorMock: vi.fn(),
   loggerWarnMock: vi.fn(),
 }));
-
-vi.mock('../../db-main', () => ({
-  getDatabase: getDatabaseMock,
-}));
-
-// Keep the real @brainstrike/db exports (EmbeddingSetsRepository, etc.) but stub
-// the index-invalidation seam so delete/rename tests assert this tool's honest
-// indexInvalidated reporting without emulating the invalidator's internals.
-vi.mock('@brainstrike/db', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/db')>();
-  return {
-    ...actual,
-    invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheMock,
-  };
-});
-vi.mock('@brainstrike/db/react', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/db/react')>();
-  return {
-    ...actual,
-    invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheMock,
-  };
-});
 
 vi.mock('electron', () => ({
   BrowserWindow: {
@@ -131,7 +112,7 @@ describe('assistant-tools multi-root read tools', () => {
         ...twoRootRuntime(rootA, rootB),
         boundWorkspaceRootId: 'id-b',
       } as RuntimeData;
-      const tools = buildDesktopAssistantTools(runtime);
+      const tools = buildHostNativeTools(runtime);
       const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const executeReplaceTool = requireToolExecute(
         tools,
@@ -183,7 +164,7 @@ describe('assistant-tools multi-root read tools', () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     try {
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
+        buildHostNativeTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceFile'
       );
 
@@ -209,7 +190,7 @@ describe('assistant-tools multi-root read tools', () => {
 
     try {
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
+        buildHostNativeTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceFile'
       );
       const first = await executeTool({
@@ -235,7 +216,7 @@ describe('assistant-tools multi-root read tools', () => {
 
     try {
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
+        buildHostNativeTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceFile'
       );
       const first = await executeTool({
@@ -266,7 +247,7 @@ describe('assistant-tools multi-root read tools', () => {
 
     try {
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
+        buildHostNativeTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceFile'
       );
       const first = await executeTool({
@@ -305,8 +286,10 @@ describe('assistant-tools multi-root read tools', () => {
 
     try {
       const runtime = twoRootRuntime(rootA, rootB);
+      // The host holds one cursor registry for its lifetime; every call's tools share it.
+      const readFileCursorRegistry = new ReadWorkspaceFileCursorRegistry();
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(runtime),
+        buildHostNativeTools(runtime, { readFileCursorRegistry }),
         'brainstrike.readWorkspaceFile'
       );
       const first = await executeTool({
@@ -316,7 +299,7 @@ describe('assistant-tools multi-root read tools', () => {
       });
 
       const executeRebuiltTool = requireToolExecute(
-        buildDesktopAssistantTools(runtime),
+        buildHostNativeTools(runtime, { readFileCursorRegistry }),
         'brainstrike.readWorkspaceFile'
       );
       const continued = await executeRebuiltTool({ cursor: first.nextCursor, maxChars: 30 });
@@ -333,7 +316,7 @@ describe('assistant-tools multi-root read tools', () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     try {
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
+        buildHostNativeTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceFile'
       );
       const result = await executeTool({ path: '/README.md', root: 'id-b' });
@@ -347,7 +330,7 @@ describe('assistant-tools multi-root read tools', () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     try {
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
+        buildHostNativeTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceFile'
       );
       await expect(executeTool({ path: '/README.md' })).rejects.toThrow(
@@ -362,7 +345,7 @@ describe('assistant-tools multi-root read tools', () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     try {
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
+        buildHostNativeTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceFile'
       );
       await expect(executeTool({ path: '/README.md', root: 'Nope' })).rejects.toThrow(
@@ -377,7 +360,7 @@ describe('assistant-tools multi-root read tools', () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     try {
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
+        buildHostNativeTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.readWorkspaceDirectory'
       );
       const result = await executeTool({ path: '/', root: 'ProjectA' });
@@ -394,7 +377,7 @@ describe('assistant-tools multi-root read tools', () => {
     const { rootA, rootB, cleanup } = await createTwoRootWorkspace();
     try {
       const executeTool = requireToolExecute(
-        buildDesktopAssistantTools(twoRootRuntime(rootA, rootB)),
+        buildHostNativeTools(twoRootRuntime(rootA, rootB)),
         'brainstrike.findWorkspaceSymbol'
       );
       const result = await executeTool({ path: '/README.md', query: 'fromB', root: 'ProjectB' });
@@ -457,118 +440,62 @@ describe('assistant-tools multi-root read tools', () => {
 
     it('registers every desktop assistant tool in NATIVE_TOOL_DEFAULTS', () => {
       // Tools absent from NATIVE_TOOL_DEFAULTS are excluded from enabledNativeToolIds
-      // (built from NATIVE_TOOL_DEFAULTS) and dropped by buildDesktopAssistantTools
-      // in real assistant runs — so a tool registered here but not there works only
+      // (built from NATIVE_TOOL_DEFAULTS) and never admitted to a host run by Main's
+      // admission — so a tool the host fold registers but the catalog lacks works only
       // in tests. Guard against that drift.
-      const tools = buildDesktopAssistantTools(undefined);
+      const tools = buildHostNativeTools({} as RuntimeData);
       const missing = Object.keys(tools).filter((id) => !(id in NATIVE_TOOL_DEFAULTS));
       expect(missing).toEqual([]);
     });
 
     it('keeps the live desktop registry identical to the canonical catalog', () => {
-      const tools = buildDesktopAssistantTools({ provider: 'openai' } as RuntimeData, {
-        skillScriptResolver: {
-          resolveScriptExecution: async () => {
-            throw new Error('not executed by registry parity test');
-          },
-        },
-        toolOutputArtifactReader: {
-          readRange: async () => ({ status: 'not_found' }),
-        },
+      // Every gated executor present: admitted skills (which also bring the skill
+      // tools), a launching app, a Tavily key owner and an artifact reader.
+      const runtime = { provider: 'openai' } as RuntimeData;
+      const tools = buildHostNativeTools(runtime, {
+        appPaths: { isPackaged: false, resourcesPath: os.tmpdir(), userDataPath: os.tmpdir() },
+        native: nativeRuntimeFor(runtime, { skills: [] }),
+        ports: { artifactReader: { readRange: async () => ({ status: 'not_found' }) } },
+        webExtract: { resolveApiKey: async () => undefined },
+        webSearch: { resolveApiKey: async () => undefined },
       });
-
-      expect(Object.keys(tools).sort()).toEqual([...DESKTOP_NATIVE_TOOL_IDS].sort());
+      expect(Object.keys(tools).sort()).toEqual(
+        [...DESKTOP_NATIVE_TOOL_IDS, ...SKILL_NATIVE_TOOL_IDS].sort()
+      );
+      // The host retrieves through Main's native index: native text and schema.
+      const nativeRetrieval = new Map<string, readonly [string, unknown]>([
+        [
+          NATIVE_TOOL_ID.hybridSearch,
+          [NATIVE_HYBRID_RETRIEVAL_DESCRIPTION, NativeHybridSearchInputSchema],
+        ],
+        [
+          NATIVE_TOOL_ID.queryEmbeddingSpace,
+          [NATIVE_SEMANTIC_RETRIEVAL_DESCRIPTION, NativeQueryEmbeddingSpaceInputSchema],
+        ],
+      ]);
       for (const toolId of DESKTOP_NATIVE_TOOL_IDS) {
         const tool = requireTool(tools, toolId) as {
           description?: string;
           id?: string;
           inputSchema?: unknown;
         };
+        const [description, inputSchema] = nativeRetrieval.get(toolId) ?? [
+          TOOL_DESCRIPTIONS[toolId],
+          NATIVE_TOOL_INPUT_SCHEMAS[toolId],
+        ];
         expect(tool.id).toBe(toolId);
-        expect(tool.description).toBe(TOOL_DESCRIPTIONS[toolId]);
-        expect(tool.inputSchema).toBe(NATIVE_TOOL_INPUT_SCHEMAS[toolId]);
+        expect(tool.description).toBe(description);
+        expect(tool.inputSchema).toBe(inputSchema);
       }
     });
   });
 
-  describe('manageTaskList provider gating', () => {
-    it('registers manageTaskList for a hosted provider', () => {
-      const tools = buildDesktopAssistantTools({ provider: 'openai' } as RuntimeData);
-      expect(tools['brainstrike.manageTaskList']).toBeDefined();
-    });
-
-    it('registers manageTaskList when no provider is set (production default)', () => {
-      const tools = buildDesktopAssistantTools(undefined);
-      expect(tools['brainstrike.manageTaskList']).toBeDefined();
-    });
-
-    it('omits manageTaskList for the built-in local provider (WebGPU prefill budget)', () => {
-      const tools = buildDesktopAssistantTools({ provider: 'local' } as RuntimeData);
-      expect(tools['brainstrike.manageTaskList']).toBeUndefined();
-    });
-
-    it('omits manageTaskList for the local provider regardless of case/whitespace', () => {
-      const tools = buildDesktopAssistantTools({ provider: '  Local  ' } as RuntimeData);
-      expect(tools['brainstrike.manageTaskList']).toBeUndefined();
-    });
-  });
-
-  describe('worktree tool provider gating', () => {
-    it('omits both worktree tools for the built-in local provider', () => {
-      const tools = buildDesktopAssistantTools({ provider: 'local' } as RuntimeData);
-
-      expect(Object.hasOwn(tools, NATIVE_TOOL_ID.listWorktrees)).toBe(false);
-      expect(Object.hasOwn(tools, NATIVE_TOOL_ID.manageWorktree)).toBe(false);
-      // Falsifier: the gate must not have swallowed its neighbours either.
-      expect(Object.hasOwn(tools, NATIVE_TOOL_ID.readWorkspaceFile)).toBe(true);
-    });
-
-    it('registers both worktree tools for a hosted provider', () => {
-      const tools = buildDesktopAssistantTools({ provider: 'openai' } as RuntimeData);
-
-      expect(Object.hasOwn(tools, NATIVE_TOOL_ID.listWorktrees)).toBe(true);
-      expect(Object.hasOwn(tools, NATIVE_TOOL_ID.manageWorktree)).toBe(true);
-    });
-  });
-
-  describe('command-session provider gating', () => {
-    it('registers both session tools for a hosted provider', () => {
-      const tools = buildDesktopAssistantTools({ provider: 'anthropic' } as RuntimeData);
-      expect(tools['brainstrike.inspectCommandSessions']).toBeDefined();
-      expect(tools['brainstrike.manageCommandSession']).toBeDefined();
-    });
-
-    it('omits both session tools for the built-in local provider', () => {
-      const tools = buildDesktopAssistantTools({ provider: 'local' } as RuntimeData);
-      expect(tools['brainstrike.inspectCommandSessions']).toBeUndefined();
-      expect(tools['brainstrike.manageCommandSession']).toBeUndefined();
-    });
-  });
-
   describe('suspending tool registration (submitPlan / askUser)', () => {
-    it('registers submitPlan and askUser for a hosted provider', () => {
-      const tools = buildDesktopAssistantTools({ provider: 'openai' } as RuntimeData);
-      expect(tools['brainstrike.submitPlan']).toBeDefined();
-      expect(tools['brainstrike.askUser']).toBeDefined();
-    });
-
-    it('registers the suspending tools when no provider is set (production default)', () => {
-      const tools = buildDesktopAssistantTools(undefined);
-      expect(tools['brainstrike.submitPlan']).toBeDefined();
-      expect(tools['brainstrike.askUser']).toBeDefined();
-    });
-
-    it('omits the suspending tools for the built-in local provider', () => {
-      const tools = buildDesktopAssistantTools({ provider: 'local' } as RuntimeData);
-      expect(tools['brainstrike.submitPlan']).toBeUndefined();
-      expect(tools['brainstrike.askUser']).toBeUndefined();
-    });
-
     it('registers the factory Tool objects directly so they keep suspendSchema', () => {
       // Re-wrapping in the registry's { description, execute, id, inputSchema }
       // literal shape would DROP suspendSchema and break suspension + the
       // hasSuspendSchema fail-safe. The built entries must carry it.
-      const tools = buildDesktopAssistantTools({ provider: 'anthropic' } as RuntimeData);
+      const tools = buildHostNativeTools({ provider: 'anthropic' } as RuntimeData);
       expect(
         (tools['brainstrike.submitPlan'] as { suspendSchema?: unknown }).suspendSchema
       ).toBeDefined();
@@ -579,24 +506,30 @@ describe('assistant-tools multi-root read tools', () => {
         (tools['brainstrike.askUser'] as { suspendSchema?: unknown }).suspendSchema
       ).toBeDefined();
     });
+  });
 
-    it('passes the suspending tool ids through the enabled-tool allowlist filter', () => {
-      const tools = buildDesktopAssistantTools({
+  // Main's admission (`desktopToolDescriptors`) now owns the enabled-tool allowlist.
+  describe('enabled-tool allowlist (admission descriptors)', () => {
+    const admission = { localProvider: false, skills: false, worktrees: true } as const;
+    it('passes the suspending tool ids through the enabled-tool allowlist filter', async () => {
+      const descriptors = await desktopToolDescriptors({
+        ...admission,
         enabledNativeToolIds: ['brainstrike.submitPlan', 'brainstrike.askUser'],
-        provider: 'openai',
-      } as RuntimeData);
-      expect(tools['brainstrike.submitPlan']).toBeDefined();
-      expect(tools['brainstrike.askUser']).toBeDefined();
-      expect(tools['brainstrike.readWorkspaceFile']).toBeUndefined();
+      });
+      const offered = Object.values(descriptors).map((descriptor) => descriptor.permissionToolId);
+      expect(offered).toContain('brainstrike.submitPlan');
+      expect(offered).toContain('brainstrike.askUser');
+      expect(offered).not.toContain('brainstrike.readWorkspaceFile');
     });
 
-    it('rejects unknown enabled tool ids instead of silently filtering them', () => {
-      expect(() =>
-        buildDesktopAssistantTools({
+    it('rejects unknown enabled tool ids instead of silently filtering them', async () => {
+      await expect(
+        desktopToolDescriptors({
+          ...admission,
           enabledNativeToolIds: ['brainstrike.readWorkspaceFile', 'brainstrike.removedNativeTool'],
-          provider: 'local',
-        } as RuntimeData)
-      ).toThrow('Enabled native tool preferences contain unknown tool IDs.');
+          localProvider: true,
+        })
+      ).rejects.toThrow('Enabled native tool preferences contain unknown tool IDs.');
     });
   });
 
@@ -630,7 +563,7 @@ describe('assistant-tools multi-root read tools', () => {
           'utf8'
         );
 
-        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-thread'));
+        const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-thread'));
         const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
         const executeReplaceTool = requireToolExecute(
           tools,
@@ -663,7 +596,7 @@ describe('assistant-tools multi-root read tools', () => {
     it('omits the lsp field entirely for a non-code (markdown) write', async () => {
       const workspaceRootPath = await createLspWorkspace();
       try {
-        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-thread-2'));
+        const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-thread-2'));
         const executeTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
 
         const result = await executeTool({
@@ -686,7 +619,7 @@ describe('assistant-tools multi-root read tools', () => {
           'export const greeting: string = "hi";\nexport const echo = greeting;\n',
           'utf8'
         );
-        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-inspect'));
+        const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-inspect'));
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         const result = await executeTool({
@@ -715,9 +648,7 @@ describe('assistant-tools multi-root read tools', () => {
           'export const greeting: string = "hi";\nexport const pair = { a: greeting, b: greeting };\n',
           'utf8'
         );
-        const tools = buildDesktopAssistantTools(
-          lspRuntime(workspaceRootPath, 'lsp-inspect-fragment')
-        );
+        const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-inspect-fragment'));
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         // A fragment of line 2 (not the full line): the cursor column must be
@@ -750,7 +681,7 @@ describe('assistant-tools multi-root read tools', () => {
           'export const greeting: string = "hi";\nexport const echo = greeting;\n',
           'utf8'
         );
-        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-markerless'));
+        const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-markerless'));
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         const result = await executeTool({
@@ -774,7 +705,7 @@ describe('assistant-tools multi-root read tools', () => {
           'export const greeting = greeting;\n',
           'utf8'
         );
-        const tools = buildDesktopAssistantTools(
+        const tools = buildHostNativeTools(
           lspRuntime(workspaceRootPath, 'lsp-markerless-repeated')
         );
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
@@ -798,7 +729,7 @@ describe('assistant-tools multi-root read tools', () => {
           'export const greetingSuffix = 1;\nexport const greeting: string = "hi";\n',
           'utf8'
         );
-        const tools = buildDesktopAssistantTools(
+        const tools = buildHostNativeTools(
           lspRuntime(workspaceRootPath, 'lsp-markerless-boundary')
         );
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
@@ -822,9 +753,7 @@ describe('assistant-tools multi-root read tools', () => {
           'export const greeting = 1;\nexport function inspectTarget() {}\n',
           'utf8'
         );
-        const tools = buildDesktopAssistantTools(
-          lspRuntime(workspaceRootPath, 'lsp-markerless-line')
-        );
+        const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-markerless-line'));
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         await expect(
@@ -852,7 +781,7 @@ describe('assistant-tools multi-root read tools', () => {
           'export const x = 1;\n',
           'utf8'
         );
-        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-stale-match'));
+        const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-stale-match'));
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         const inspection = executeTool({
@@ -877,7 +806,7 @@ describe('assistant-tools multi-root read tools', () => {
           'export const pair = { a: value, b: value };\nexport const value = 1;\n',
           'utf8'
         );
-        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-ambiguous'));
+        const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-ambiguous'));
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         await expect(
@@ -909,7 +838,7 @@ describe('assistant-tools multi-root read tools', () => {
           "import { bigSym } from './big';\nexport const use = bigSym;\n",
           'utf8'
         );
-        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-big-target'));
+        const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-big-target'));
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         const result = await executeTool({
@@ -938,7 +867,7 @@ describe('assistant-tools multi-root read tools', () => {
           'export const x = 1;\n',
           'utf8'
         );
-        const tools = buildDesktopAssistantTools(lspRuntime(workspaceRootPath, 'lsp-bad-cursor'));
+        const tools = buildHostNativeTools(lspRuntime(workspaceRootPath, 'lsp-bad-cursor'));
         const executeTool = requireToolExecute(tools, 'brainstrike.lspInspect');
 
         await expect(

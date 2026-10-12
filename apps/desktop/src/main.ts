@@ -38,7 +38,6 @@ import {
 import { disposeLiveChildProcesses } from './assistant-server/execute-command-tool';
 import type { ForgeService } from './assistant-server/forge-service';
 import type { GitInventoryService } from './assistant-server/git-inventory-service';
-import { installDesktopHookApprovalReader } from './assistant-server/hooks/server-integration';
 import { disposeLspServers } from './assistant-server/lsp-diagnostics';
 import { readMainVerificationCredential } from './assistant-server/provider-credentials';
 import { execFileSnapshotGitRunner } from './assistant-server/snapshot-git';
@@ -993,8 +992,6 @@ const agentHostMainClient = createAgentHostMainClient(
 const desktopHookTrust = createDesktopHookTrust((method, params) =>
   agentHostMainClient.request(method, params)
 );
-// Legacy threads run project hooks at the same host-owned trust.
-installDesktopHookApprovalReader((root) => desktopHookTrust.approval(root));
 // Host threads record their turn snapshots in the host's log, not the ledger;
 // the startup snapshot GC keeps their refs while the host lists the thread.
 const readHostThreadIds = async (): Promise<ReadonlySet<string>> =>
@@ -1843,25 +1840,13 @@ if (singleInstanceLockAcquired) {
       try {
         const { url, stop, authToken } = await startAssistantServer(undefined, {
           deprecatedEnvVars: deprecatedEnvVarReports,
-          embeddingHostManager,
           envFileFailures: desktopEnvLoadResult.failures,
-          llmHostManager,
-          nativeIndexSearch,
           // Subscription freshness through the host's one refresher; no token returns.
           providerVerificationService: createProviderVerificationService({
             readCredential: readMainVerificationCredential,
             verifySubscriptionSession: (provider) =>
               agentHostMainClient.request('auth/verify', { provider }),
           }),
-          resolveForgeService: () => forgeService ?? null,
-          resolveWorktreeService: () => worktreeService,
-          // T1 injection point (BST-1164): the run-persistence seam's snapshot
-          // deps — threaded, not yet consumed (T2's turn-boundary triggers
-          // consume them without editing main.ts).
-          snapshots: {
-            createRepository: createSnapshotRepository,
-            service: constructedSnapshotService,
-          },
         });
         assistantUrl = url;
         assistantAuthToken = authToken;

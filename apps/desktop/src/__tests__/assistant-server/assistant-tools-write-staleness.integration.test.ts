@@ -4,14 +4,12 @@ import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { type RuntimeData, resetFileReadState, withFileLock } from '@brainstrike/agent';
-import { migrate, wasmLoader } from '@brainstrike/db';
 import { resetToolCallLoopGuards } from '@brainstrike/host-capabilities/native-tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { disposeLspServers } from '../../assistant-server/lsp-diagnostics';
+import { buildHostNativeTools } from './_host-native-tools';
 import { requireToolExecute, singleRootRuntime } from './_tool-test-helpers';
 import { createWorkspaceFixture } from './_workspace-fixture';
-import { createBudgetedHost } from './fixtures/budgeted-host';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
@@ -21,41 +19,11 @@ vi.mock('@brainstrike/agent', async (importOriginal) => {
   };
 });
 
-const {
-  getDatabaseMock,
-  getAllWindowsMock,
-  invalidateManagedCacheMock,
-  loggerErrorMock,
-  loggerWarnMock,
-} = vi.hoisted(() => ({
+const { getAllWindowsMock, loggerErrorMock, loggerWarnMock } = vi.hoisted(() => ({
   getAllWindowsMock: vi.fn(),
-  getDatabaseMock: vi.fn(),
-  invalidateManagedCacheMock: vi.fn(),
   loggerErrorMock: vi.fn(),
   loggerWarnMock: vi.fn(),
 }));
-
-vi.mock('../../db-main', () => ({
-  getDatabase: getDatabaseMock,
-}));
-
-// Keep the real @brainstrike/db exports (EmbeddingSetsRepository, etc.) but stub
-// the index-invalidation seam so delete/rename tests assert this tool's honest
-// indexInvalidated reporting without emulating the invalidator's internals.
-vi.mock('@brainstrike/db', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/db')>();
-  return {
-    ...actual,
-    invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheMock,
-  };
-});
-vi.mock('@brainstrike/db/react', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@brainstrike/db/react')>();
-  return {
-    ...actual,
-    invalidateManagedCacheEntriesByIdentity: invalidateManagedCacheMock,
-  };
-});
 
 vi.mock('electron', () => ({
   BrowserWindow: {
@@ -110,7 +78,7 @@ describe('read-before-write staleness guard', () => {
     try {
       await promisify(execFile)('git', ['init', '--quiet', workspaceRootPath]);
       await fsPromises.utimes(file, new Date(1000), new Date(1000));
-      const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+      const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const read = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const write = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
       const cedar = { threadId: 'child-cedar', toolCallId: 'cedar-edit' };
@@ -148,7 +116,7 @@ describe('read-before-write staleness guard', () => {
         'baseline',
       ]);
       await fsPromises.writeFile(path.join(workspaceRootPath, 'README.md'), '# User draft\n');
-      const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+      const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const read = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const write = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
       const cedar = { threadId: 'child-cedar', toolCallId: 'cedar-edit' };
@@ -192,7 +160,7 @@ describe('read-before-write staleness guard', () => {
       let holding: Promise<void> | undefined;
       let mutation: Promise<unknown> | undefined;
       try {
-        const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+        const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
         const write = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
         await write(
           { content: 'Completed child effect', path: '/README.md' },
@@ -251,7 +219,7 @@ describe('read-before-write staleness guard', () => {
         workspaceRootPath: focusedRoot,
         workspaceRoots: roots,
       };
-      const tools = buildDesktopAssistantTools(runtime);
+      const tools = buildHostNativeTools(runtime);
       const execution = { agent: { threadId: 'child-bound', toolCallId: 'bound-write' } };
       const command = { command: process.platform === 'win32' ? 'cd' : 'pwd' };
       const shell = await requireToolExecute<{ cwd: string; rootId: string; exitCode: number }>(
@@ -274,7 +242,7 @@ describe('read-before-write staleness guard', () => {
       await expect(
         fsPromises.readFile(path.join(focusedRoot, 'child.txt'), 'utf8')
       ).rejects.toMatchObject({ code: 'ENOENT' });
-      const disconnected = buildDesktopAssistantTools({
+      const disconnected = buildHostNativeTools({
         ...runtime,
         workspaceRoots: roots.filter((root) => root.rootId !== 'bound-root'),
       });
@@ -315,7 +283,7 @@ describe('read-before-write staleness guard', () => {
     const lock = vi.mocked(withFileLock);
     lock.mockClear();
     try {
-      const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+      const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       await expect(
         requireToolExecute(tools, toolId)(input, {
           abortSignal: controller.signal,
@@ -328,107 +296,39 @@ describe('read-before-write staleness guard', () => {
     }
   });
 
-  it.each(['guard-run', 'resumed-run'])(
-    'attributes a delegated native write on %s to its durable child run instead of the parent',
-    async (hostRunId) => {
-      const workspaceRootPath = await createWorkspaceFixture();
-      const database = await wasmLoader.createPGlite('memory://child-checkpoint');
-      try {
-        await migrate(database);
-        await database.exec(`INSERT INTO mastra_threads
-        (id, "resourceId", title, "createdAt", "updatedAt") VALUES
-        ('guard-thread', 'guard-resource', 'Parent', NOW(), NOW()),
-        ('child-cedar', 'child-resource', 'Cedar', NOW(), NOW());
-        INSERT INTO brainstrike_assistant_thread_runs
-        (id, resource_id, thread_id, provider, model, runtime_kind, status,
-         started_at, created_at, updated_at, turn_message_id) VALUES
-        ('guard-run', 'guard-resource', 'guard-thread', 'openai', 'test', 'desktop', 'running',
-         NOW(), NOW(), NOW(), 'user-turn');`);
-        if (hostRunId !== 'guard-run') {
-          await database.query(
-            `INSERT INTO brainstrike_assistant_thread_runs
-          (id, resource_id, thread_id, provider, model, runtime_kind, status,
-           started_at, created_at, updated_at, turn_message_id) VALUES
-          ($1, 'guard-resource', 'guard-thread', 'openai', 'test', 'desktop', 'running',
-           NOW(), NOW(), NOW(), 'user-turn')`,
-            [hostRunId]
-          );
-        }
-        const originalHost = createBudgetedHost(database, 'guard-run');
-        const host = createBudgetedHost(database, hostRunId);
-        await originalHost.persist({
-          childResourceId: 'child-resource',
-          childThreadId: 'child-cedar',
-          configuration: { maxSteps: 16, persona: { id: 'worker' } },
-          parentResourceId: 'guard-resource',
-          parentRuntimeRunId: 'parent-native',
-          parentThreadId: 'guard-thread',
-          parentToolCallId: 'delegate-cedar',
-          personaId: 'worker',
-        });
-        const identity = {
-          childRuntimeRunId: 'cedar-native',
-          parentRuntimeRunId: 'parent-native',
-          parentToolCallId: 'delegate-cedar',
-          personaId: 'worker',
-        };
-        await host.bindRun(identity);
-        const event = await host.persistEvent(
-          identity,
-          'cedar-message',
+  it('rejects forged thread-ownership keys on a delegated native write and writes nothing', async () => {
+    // The live half of the legacy attribution case below: the shared input
+    // schema refuses ownership smuggled through tool input. Attribution itself
+    // is Core's (each dispatched call carries its own edit tracker).
+    const workspaceRootPath = await createWorkspaceFixture();
+    try {
+      const execute = requireToolExecute(
+        buildHostNativeTools(guardRuntime(workspaceRootPath)),
+        'brainstrike.writeWorkspaceFile'
+      );
+      await expect(
+        execute(
           {
-            id: 'cedar-start',
-            kind: 'run.started',
-            label: 'Cedar started',
-            status: 'running',
-            timestamp: new Date().toISOString(),
+            agent: { threadId: 'forged-child' },
+            content: 'Forged ownership',
+            path: '/cedar.txt',
+            threadId: 'forged-child',
           },
-          0
-        );
-        getDatabaseMock.mockResolvedValue(database);
-        const tools = buildDesktopAssistantTools({
-          ...guardRuntime(workspaceRootPath),
-          memory: { resourceId: 'guard-resource', runId: hostRunId, threadId: 'guard-thread' },
-        });
-        const execute = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
-        await expect(
-          execute(
-            {
-              agent: { threadId: 'forged-child' },
-              content: 'Forged ownership',
-              path: '/cedar.txt',
-              threadId: 'forged-child',
-            },
-            { agent: { threadId: 'child-cedar', toolCallId: 'cedar-write' } }
-          )
-        ).rejects.toThrow(/Unrecognized keys/);
-        await expect(
-          fsPromises.stat(path.join(workspaceRootPath, 'cedar.txt'))
-        ).rejects.toMatchObject({ code: 'ENOENT' });
-        await execute(
-          { content: 'Cedar completed work\n', path: '/cedar.txt' },
           { agent: { threadId: 'child-cedar', toolCallId: 'cedar-write' } }
-        );
-        expect(
-          (
-            await database.query(`SELECT thread_id, run_id, resource_id
-        FROM brainstrike_assistant_edit_checkpoints WHERE tool_call_id = 'cedar-write'`)
-          ).rows
-        ).toEqual([
-          { resource_id: 'child-resource', run_id: event.runId, thread_id: 'child-cedar' },
-        ]);
-      } finally {
-        getDatabaseMock.mockReset();
-        await database.close();
-        await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
-      }
+        )
+      ).rejects.toThrow(/Unrecognized keys/);
+      await expect(
+        fsPromises.stat(path.join(workspaceRootPath, 'cedar.txt'))
+      ).rejects.toMatchObject({ code: 'ENOENT' });
+    } finally {
+      await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
     }
-  );
+  });
 
   it('write refuses when the file changed on disk after the assistant read it', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     try {
-      const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+      const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const executeWriteTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
       await executeReadTool({
@@ -453,7 +353,7 @@ describe('read-before-write staleness guard', () => {
   it('a rejected stale continuation does not refresh the write guard', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     try {
-      const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+      const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const executeWriteTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
       const first = await executeReadTool({
@@ -488,7 +388,7 @@ describe('read-before-write staleness guard', () => {
   it('stringReplace refuses when the file changed on disk after the assistant read it', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     try {
-      const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+      const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const executeReplaceTool = requireToolExecute(
         tools,
@@ -525,7 +425,7 @@ describe('read-before-write staleness guard', () => {
   it('write proceeds when unchanged since read, and consecutive writes stay allowed', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     try {
-      const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+      const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const executeWriteTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
       await executeReadTool({
@@ -552,7 +452,7 @@ describe('read-before-write staleness guard', () => {
   it('still allows overwriting a file this scope never observed (compare-only contract)', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     try {
-      const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+      const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const executeWriteTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
       const result = await executeWriteTool({
         context: { content: '# Never read first\n', path: '/README.md' },
@@ -566,7 +466,7 @@ describe('read-before-write staleness guard', () => {
   it('a successful write establishes known state that a later external edit invalidates', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     try {
-      const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+      const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const executeWriteTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
       const executeReplaceTool = requireToolExecute(
         tools,
@@ -596,7 +496,7 @@ describe('read-before-write staleness guard', () => {
   it('rename refuses when the source changed on disk after the assistant read it', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     try {
-      const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+      const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const executeRenameTool = requireToolExecute(tools, 'brainstrike.renameWorkspaceFile');
       await executeReadTool({
@@ -631,7 +531,7 @@ describe('read-before-write staleness guard', () => {
     // not complete.
     const workspaceRootPath = await createWorkspaceFixture();
     try {
-      const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+      const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const canonicalPath = realpathSync(path.join(workspaceRootPath, 'README.md'));
 
@@ -682,7 +582,7 @@ describe('read-before-write staleness guard', () => {
         throw error;
       }
 
-      const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+      const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const executeRenameTool = requireToolExecute(tools, 'brainstrike.renameWorkspaceFile');
       await executeReadTool({
@@ -720,7 +620,7 @@ describe('read-before-write staleness guard', () => {
         throw error;
       }
 
-      const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+      const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const executeRenameTool = requireToolExecute(tools, 'brainstrike.renameWorkspaceFile');
       await executeReadTool({
@@ -741,7 +641,7 @@ describe('read-before-write staleness guard', () => {
   it('re-reading the file clears the refusal (documented recovery path)', async () => {
     const workspaceRootPath = await createWorkspaceFixture();
     try {
-      const tools = buildDesktopAssistantTools(guardRuntime(workspaceRootPath));
+      const tools = buildHostNativeTools(guardRuntime(workspaceRootPath));
       const executeReadTool = requireToolExecute(tools, 'brainstrike.readWorkspaceFile');
       const executeWriteTool = requireToolExecute(tools, 'brainstrike.writeWorkspaceFile');
       await executeReadTool({

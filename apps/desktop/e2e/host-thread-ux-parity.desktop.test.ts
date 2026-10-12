@@ -178,6 +178,9 @@ test('a host question badges its thread as needing input and notifies once', asy
   const form = region.getByRole('group', { name: 'Question for you' });
   await expect(form).toBeVisible({ timeout: 90_000 });
   await expect(strip.getByRole('tab', { name: /, needs your input$/ })).toBeVisible();
+  // The Threads panel row shows the same pending state, from the host's committed runs.
+  const needsYou = page.getByTestId('thread-row').getByTestId('thread-needs-you-glyph');
+  await expect(needsYou).toHaveCount(1);
   await expect
     .poll(() => readNotifications(page), { timeout: 30_000 })
     .toEqual([{ body: 'Has a question for you.', title: 'Assistant' }]);
@@ -186,6 +189,7 @@ test('a host question badges its thread as needing input and notifies once', asy
   await form.getByRole('button', { name: 'Send answer' }).click();
   await expect(region.getByText(ANSWERED_REPLY)).toBeVisible({ timeout: 90_000 });
   await expect(strip.getByRole('tab', { name: /, finished$/ })).toBeVisible({ timeout: 30_000 });
+  await expect(needsYou).toHaveCount(0);
   await expect
     .poll(() => readNotifications(page), { timeout: 30_000 })
     .toEqual([

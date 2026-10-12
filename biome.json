@@ -220,7 +220,6 @@
     },
     {
       "includes": [
-        "apps/desktop/src/assistant-server/hooks/**",
         "packages/host-capabilities/src/hooks/**",
         "packages/host-capabilities/__tests__/hooks/**"
       ],
@@ -416,7 +415,6 @@
         "apps/desktop/e2e/file-explorer-selection.shared.ts",
         "apps/desktop/e2e/utils/electron-helpers.mts",
         "apps/desktop/scripts/__tests__/start-agent-devtools-session.test.mjs",
-        "apps/desktop/src/__tests__/assistant-server/agent-stream-init-and-memory.integration.test.ts",
         "apps/desktop/src/__tests__/assistant-server/assistant-tools-read.integration.test.ts",
         "apps/desktop/src/__tests__/assistant-server/git-service.integration.test.ts",
         "apps/desktop/src/__tests__/llm-host-manager.test.ts",

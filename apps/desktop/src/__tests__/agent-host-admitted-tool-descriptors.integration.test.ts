@@ -40,15 +40,12 @@ vi.mock('../ipc-mcp', () => ({
   readDesktopMcpHostSnapshot: async (runtime: { host: { snapshot(): unknown } }) =>
     structuredClone(runtime.host.snapshot()),
 }));
-// Tool executor code: the shared native-tools barrel (its executor map), the
-// host-tool bindings, the desktop fold and every desktop executor group.
+// Tool executor code: the shared native-tools barrel (its executor map) and
+// every desktop executor factory the agent host composes.
 vi.mock(
   '@brainstrike/host-capabilities/native-tools',
   owner.record('host-capabilities/native-tools')
 );
-vi.mock('../agent-host-tool-bindings', owner.record('agent-host-tool-bindings'));
-vi.mock('../assistant-server/assistant-tools', owner.record('assistant-tools'));
-vi.mock('../assistant-server/native-tool-executors', owner.record('native-tool-executors'));
 vi.mock(
   '../assistant-server/native-tool-executors-browser',
   owner.record('native-tool-executors-browser')
@@ -56,10 +53,6 @@ vi.mock(
 vi.mock(
   '../assistant-server/native-tool-executors-context',
   owner.record('native-tool-executors-context')
-);
-vi.mock(
-  '../assistant-server/native-tool-executors-execution',
-  owner.record('native-tool-executors-execution')
 );
 vi.mock(
   '../assistant-server/native-tool-executors-grep',
@@ -78,10 +71,6 @@ vi.mock(
   owner.record('native-tool-executors-retrieval')
 );
 vi.mock(
-  '../assistant-server/native-tool-executors-search',
-  owner.record('native-tool-executors-search')
-);
-vi.mock(
   '../assistant-server/native-tool-executors-self',
   owner.record('native-tool-executors-self')
 );
@@ -96,10 +85,6 @@ vi.mock(
 vi.mock(
   '../assistant-server/native-tool-executors-skills',
   owner.record('native-tool-executors-skills')
-);
-vi.mock(
-  '../assistant-server/native-tool-executors-workspace',
-  owner.record('native-tool-executors-workspace')
 );
 vi.mock(
   '../assistant-server/native-tool-executors-worktree',

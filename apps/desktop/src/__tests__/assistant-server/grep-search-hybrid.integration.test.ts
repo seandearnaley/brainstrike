@@ -2,7 +2,9 @@
  * Hybrid (index + live) coverage for `brainstrike.grepSearch`.
  *
  * These cases run the REAL live (on-disk) pass against a temp-dir workspace
- * while mocking ONLY the DB (the index pass) — so they exercise the actual
+ * while faking ONLY the indexer behind the host's native grep index
+ * (`nativeGrepIndex`, which Main serves as `desktop-read/grep-index`) — so
+ * they exercise the actual
  * ripgrep/JS-walk discovery, the shared JS matcher, and the merge/dedup/label
  * logic end to end. The point: prove the agent sees FRESH content the index
  * would miss after an edit, and that index + live matches merge correctly.
@@ -10,22 +12,17 @@
 import fsPromises from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import type { RuntimeData } from '@brainstrike/agent';
+import type { GrepSearchInput, RuntimeData } from '@brainstrike/agent';
 import { projectGrepSearchModelOutput } from '@brainstrike/host-capabilities/native-tools';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runGrepSearch } from '../../assistant-server/grep-search-tool';
+import { runGrepSearchWith } from '../../assistant-server/grep-search-core';
 import {
   hasDotGitSegmentForTests,
   resetRipgrepAvailabilityForTests,
   setMaxLiveCandidateFilesForTests,
 } from '../../assistant-server/live-grep';
+import { type IndexedGrepRow, nativeGrepFixture } from './_c1-a-helpers';
 import { singleRootRuntime } from './_tool-test-helpers';
-
-const queryMock = vi.fn();
-
-vi.mock('../../db-main', () => ({
-  getDatabase: vi.fn(async () => ({ query: queryMock })),
-}));
 
 vi.mock('@brainstrike/logging', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/logging')>();
@@ -57,13 +54,26 @@ function singleRoot(rootPath: string): RuntimeData {
   return singleRootRuntime(rootPath);
 }
 
+/** The host's native grep index for the case's workspace root. */
+let index = nativeGrepFixture();
+
+/** The workspace root's indexed chunks, as the native index reports them. */
+function indexRows(root: string, rows: readonly IndexedGrepRow[]): void {
+  index = nativeGrepFixture({ authorizedRootIds: [root] });
+  index.serve(rows);
+}
+
 /** No indexed rows — the index pass returns zero matches. */
-function indexEmpty(): void {
-  queryMock.mockResolvedValue({ rows: [] });
+function indexEmpty(root: string): void {
+  indexRows(root, []);
+}
+
+function runGrepSearch(input: GrepSearchInput, runtimeData: RuntimeData) {
+  return runGrepSearchWith(input, runtimeData, index.index);
 }
 
 beforeEach(() => {
-  queryMock.mockReset();
+  index = nativeGrepFixture();
   resetRipgrepAvailabilityForTests();
 });
 
@@ -82,9 +92,7 @@ describe('grepSearch hybrid — FRESHNESS (the point)', () => {
   it('retains indexed matches with a visible stale-index note when a selected file cannot be read', async () => {
     const root = await makeWorkspace({ 'src/blocked.ts': 'TOKEN\n' });
     const canonicalBlocked = await fsPromises.realpath(path.join(root, 'src/blocked.ts'));
-    queryMock.mockResolvedValue({
-      rows: [{ content: 'TOKEN\n', path: 'src/blocked.ts', start_line: 1 }],
-    });
+    indexRows(root, [{ content: 'TOKEN\n', path: 'src/blocked.ts', start_line: 1 }]);
     const readFile = fsPromises.readFile.bind(fsPromises);
     const denied = vi.spyOn(fsPromises, 'readFile').mockImplementation(async (...args) => {
       if (args[0] === canonicalBlocked) {
@@ -115,7 +123,7 @@ describe('grepSearch hybrid — FRESHNESS (the point)', () => {
       'src/fresh.ts': 'SCOPED_TOKEN\n',
       'src/unrelated.ts': 'SCOPED_TOKEN\n',
     });
-    indexEmpty();
+    indexEmpty(root);
     const result = await runGrepSearch(
       { filePaths: ['src/fresh.ts'], outputMode: 'content', pattern: 'SCOPED_TOKEN' },
       singleRoot(root)
@@ -133,7 +141,7 @@ describe('grepSearch hybrid — FRESHNESS (the point)', () => {
     const root = await makeWorkspace({
       'src/fresh.ts': 'const FRESHLY_EDITED_TOKEN = 42;\n',
     });
-    indexEmpty(); // index has NOTHING for this token
+    indexEmpty(root); // index has NOTHING for this token
 
     const result = await runGrepSearch(
       { outputMode: 'content', pattern: 'FRESHLY_EDITED_TOKEN' },
@@ -169,7 +177,7 @@ describe('grepSearch hybrid — FRESHNESS (the point)', () => {
 
   it('files mode: a fresh-only file is surveyed and labelled live', async () => {
     const root = await makeWorkspace({ 'a/only-on-disk.ts': 'WIDGET_BETA marker line\n' });
-    indexEmpty();
+    indexEmpty(root);
 
     const result = await runGrepSearch({ pattern: 'WIDGET_BETA' }, singleRoot(root));
     if (result.outputMode !== 'files') {
@@ -184,7 +192,7 @@ describe('grepSearch hybrid — FRESHNESS (the point)', () => {
 
   it('projects the producer zero-match variant without inventing a fallback result', async () => {
     const root = await makeWorkspace({ 'src/empty.ts': 'nothing relevant here\n' });
-    indexEmpty();
+    indexEmpty(root);
 
     const result = await runGrepSearch({ pattern: 'ABSENT_TOKEN' }, singleRoot(root));
 
@@ -203,9 +211,7 @@ describe('grepSearch hybrid — merge / dedup / label', () => {
   it('labels a line found in BOTH index and live as "both" (counted once)', async () => {
     const root = await makeWorkspace({ 'src/x.ts': 'shared NEEDLE here\n' });
     // The index ALSO has the exact same (path, line) — startLine 1 → line 1.
-    queryMock.mockResolvedValue({
-      rows: [{ content: 'shared NEEDLE here', path: 'src/x.ts', start_line: 1 }],
-    });
+    indexRows(root, [{ content: 'shared NEEDLE here', path: 'src/x.ts', start_line: 1 }]);
 
     const result = await runGrepSearch(
       { outputMode: 'content', pattern: 'NEEDLE' },
@@ -226,9 +232,7 @@ describe('grepSearch hybrid — merge / dedup / label', () => {
     // On disk: only fresh.ts has the token. Index: only stale.ts (no longer on
     // disk for that token) reports a match — an index-only hit.
     const root = await makeWorkspace({ 'src/fresh.ts': 'TOKEN on disk\n' });
-    queryMock.mockResolvedValue({
-      rows: [{ content: 'TOKEN in index', path: 'src/stale.ts', start_line: 7 }],
-    });
+    indexRows(root, [{ content: 'TOKEN in index', path: 'src/stale.ts', start_line: 7 }]);
 
     const result = await runGrepSearch(
       { outputMode: 'content', pattern: 'TOKEN' },
@@ -247,7 +251,7 @@ describe('grepSearch hybrid — merge / dedup / label', () => {
 describe('grepSearch hybrid — rg-absent fallback (non-silent)', () => {
   it('falls back to the JS file-walk and still finds fresh content, with a note', async () => {
     const root = await makeWorkspace({ 'src/walked.ts': 'WALK_TOKEN present\n' });
-    indexEmpty();
+    indexEmpty(root);
 
     // Force ripgrep "absent": the probe stats the rg binary path, so make that
     // one stat throw (ENOENT) while every other stat behaves normally.
@@ -291,7 +295,7 @@ describe('grepSearch hybrid — path containment (symlink escape)', () => {
     // Symlink (file) pointing OUTSIDE the root, and a symlinked DIR outside.
     await fsPromises.symlink(path.join(outside, 'secret.ts'), path.join(root, 'src', 'escape.ts'));
     await fsPromises.symlink(outside, path.join(root, 'linkdir'));
-    indexEmpty();
+    indexEmpty(root);
 
     const result = await runGrepSearch(
       { outputMode: 'content', pattern: 'SECRET_TOKEN' },
@@ -334,7 +338,7 @@ describe('grepSearch hybrid — live caps surface in truncated (mode parity)', (
       'src/a.ts': 'CAP_TOKEN one\n',
       'src/b.ts': 'CAP_TOKEN two\n',
     });
-    indexEmpty();
+    indexEmpty(root);
     return root;
   }
 
@@ -402,9 +406,7 @@ describe('grepSearch hybrid — totalMatches when the index pass is capped', () 
     const root = await makeWorkspace({ 'docs/big.txt': content });
     // The index holds the SAME file content, so every on-disk match also exists
     // in the index — the merged set is exactly CAPPED_LINE_COUNT lines.
-    queryMock.mockResolvedValue({
-      rows: [{ content, path: 'docs/big.txt', start_line: 1 }],
-    });
+    indexRows(root, [{ content, path: 'docs/big.txt', start_line: 1 }]);
     return root;
   }
 
@@ -476,9 +478,7 @@ describe('grepSearch hybrid — totalMatches when the index pass is capped', () 
       // ...and this file is on disk ONLY — the index has never seen it.
       'src/fresh.ts': 'const PAGED_TOKEN = "brand new";\n',
     });
-    queryMock.mockResolvedValue({
-      rows: [{ content: indexedContent, path: 'docs/big.txt', start_line: 1 }],
-    });
+    indexRows(root, [{ content: indexedContent, path: 'docs/big.txt', start_line: 1 }]);
 
     const result = await runGrepSearch(
       { maxResults: 5, outputMode: 'content', pattern: 'PAGED_TOKEN' },
@@ -517,9 +517,15 @@ describe('grepSearch hybrid — totalMatches when the index pass is capped', () 
 describe('grepSearch hybrid — index unavailable but live works', () => {
   it('returns live-only results when the workspace is not indexed', async () => {
     const root = await makeWorkspace({ 'main.ts': 'UNINDEXED_MARKER value\n' });
-    // Model an un-indexed workspace: the index pass returns nothing, so the
-    // live pass is the SOLE source — grep still works without an index.
-    indexEmpty();
+    // Model an un-indexed workspace: the native index has no configured search
+    // mode, contributes no candidates, so the live pass is the SOLE source —
+    // grep still works without an index.
+    indexEmpty(root);
+    index.status.mockResolvedValue({
+      kind: 'unavailable',
+      phase: 'setup-required',
+      reason: 'Choose a search mode in Search & Indexing settings.',
+    });
 
     const result = await runGrepSearch({ pattern: 'UNINDEXED_MARKER' }, singleRoot(root));
     if (result.outputMode !== 'files') {

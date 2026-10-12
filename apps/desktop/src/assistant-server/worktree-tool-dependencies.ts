@@ -1,17 +1,17 @@
+import type { ForgeService } from './forge-service';
 import { desktopAssistantServerLogger as logger } from './logger';
-import type { AssistantServerOptions } from './server-options';
 import {
   createShellCorrelation,
-  type ShellCorrelationCapability,
   type ShellWorktreeCorrelation,
 } from './shell-worktree-correlation';
+import type { WorktreeService } from './worktree-service';
 import type { WorktreeToolCapability } from './worktree-tools';
 
-/** Main's lazily constructed worktree and forge services, shared by legacy and host threads. */
-export type DesktopWorktreeServices = Pick<
-  AssistantServerOptions,
-  'resolveForgeService' | 'resolveWorktreeService'
->;
+/** Main's lazily constructed worktree and forge services for host threads. */
+export interface DesktopWorktreeServices {
+  readonly resolveForgeService?: (() => ForgeService | null) | undefined;
+  readonly resolveWorktreeService?: (() => WorktreeService | null) | undefined;
+}
 
 /**
  * `createdBy: 'agent'` and the run/thread ids are bound HERE, never taken from
@@ -69,35 +69,5 @@ export function desktopWorktreeToolDependencies(
   return {
     ...(shellCorrelation ? { shellCorrelation } : {}),
     ...(worktreeTools ? { worktreeTools } : {}),
-  };
-}
-
-/**
- * A legacy run's worktree dependencies: the same services, plus the run's
- * timeline breadcrumb for each worktree its shell made (BST-1390), which only
- * legacy runs record in Main. An agent-host run commits its own to the host log.
- */
-export function legacyWorktreeToolDependencies(
-  services: DesktopWorktreeServices,
-  run: { readonly runId: string | undefined; readonly threadId: string | undefined }
-): { shellCorrelation?: ShellCorrelationCapability; worktreeTools?: WorktreeToolCapability } {
-  const { shellCorrelation, ...rest } = desktopWorktreeToolDependencies(services, run);
-  const service = services.resolveWorktreeService?.() ?? null;
-  const { runId } = run;
-  if (!(shellCorrelation && service && runId)) {
-    return { ...rest, ...(shellCorrelation ? { shellCorrelation } : {}) };
-  }
-  return {
-    ...rest,
-    shellCorrelation: {
-      onCommandCompleted: (input) => {
-        void shellCorrelation
-          .onCommandCompleted(input)
-          .then((adopted) => service.recordShellAdoptions(runId, adopted))
-          .catch((error: unknown) => {
-            logger.error('shell worktree breadcrumb failed', { error, runId });
-          });
-      },
-    },
   };
 }

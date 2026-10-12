@@ -358,6 +358,8 @@ const windowThreadCapability = createWindowThreadCapability(
     if (!(host || catalogLoaded)) {
       return <div role="status">Loading assistant threads…</div>;
     }
+    // The agent host is Desktop's only conversation owner: a thread its catalog
+    // does not list fails visibly instead of mounting another runtime.
     return host ? (
       <HostThread
         agentColor={child?.color}
@@ -373,7 +375,11 @@ const windowThreadCapability = createWindowThreadCapability(
         runs={runs}
         threadId={threadId}
       />
-    ) : undefined;
+    ) : (
+      <div aria-label="Agent host error" className="p-4 text-destructive text-sm" role="alert">
+        This thread is not owned by the agent host.
+      </div>
+    );
   }
 );
 

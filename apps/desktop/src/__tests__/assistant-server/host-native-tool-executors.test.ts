@@ -1,12 +1,22 @@
-import { registerToolGuardDeadlineSignal } from '@brainstrike/agent';
-import { DESKTOP_NATIVE_TOOL_IDS, NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { legacyNativeToolPorts } from '../../assistant-server/legacy-native-tool-ports';
+import { type RuntimeData, registerToolGuardDeadlineSignal } from '@brainstrike/agent';
 import {
-  NATIVE_TOOL_EXECUTORS,
-  type NativeToolExecutorMap,
-} from '../../assistant-server/native-tool-executors';
-import { EXECUTION_TOOL_EXECUTORS } from '../../assistant-server/native-tool-executors-execution';
+  DESKTOP_NATIVE_TOOL_IDS,
+  NATIVE_TOOL_ID,
+  SKILL_NATIVE_TOOL_IDS,
+} from '@brainstrike/assistant-contract';
+import { SHARED_NATIVE_TOOL_EXECUTORS } from '@brainstrike/host-capabilities/native-tools';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  desktopHostToolExecutors,
+  type HostAppPaths,
+  isHostExecutedNativeToolId,
+} from '../../agent-host-platform/host-executed-tools';
+import {
+  buildHostNativeTools,
+  nativeRuntimeFor,
+  unexpectedMainRequest,
+} from './_host-native-tools';
+import { requireToolExecute } from './_tool-test-helpers';
 
 const runExecuteCommandWithShellCorrelation = vi.fn().mockResolvedValue({});
 vi.mock('../../assistant-server/execute-command-correlation', () => ({
@@ -19,25 +29,40 @@ vi.mock('../../assistant-server/run-skill-script-tool', () => ({
   runSkillScript: (...args: unknown[]) => runSkillScript(...args),
 }));
 
-/**
- * The executor map is the adapter half of the native-tool contract
- * (BST-1646 step c): exactly one entry per `brainstrike.*` definition. The
- * mapped type makes a missing or stray entry a compile error; this pins the
- * same fact at runtime so a `satisfies Partial<…>` group can never hide one.
- */
-describe('NATIVE_TOOL_EXECUTORS', () => {
-  it('has exactly one executor per desktop catalog id', () => {
-    expect(Object.keys(NATIVE_TOOL_EXECUTORS).sort()).toEqual([...DESKTOP_NATIVE_TOOL_IDS].sort());
-    for (const toolId of DESKTOP_NATIVE_TOOL_IDS) {
-      expect(typeof NATIVE_TOOL_EXECUTORS[toolId], toolId).toBe('function');
-    }
-  });
+const runtime: RuntimeData = {};
+/** A launching desktop's facts: with them the host builds run_python and runSkillScript. */
+const APP_PATHS: HostAppPaths = {
+  isPackaged: true,
+  resourcesPath: '/resources',
+  userDataPath: '/user-data',
+};
+/** Main admitted skills for the run (none needed here: the script runner is mocked). */
+const NATIVE_WITH_SKILLS = nativeRuntimeFor(runtime, { skills: [] });
 
-  it('is exhaustive at compile time: dropping one entry is a type error', () => {
-    const { [NATIVE_TOOL_ID.grepSearch]: _dropped, ...withoutGrep } = NATIVE_TOOL_EXECUTORS;
-    // @ts-expect-error — a map without brainstrike.grepSearch is not a NativeToolExecutorMap
-    const incomplete: NativeToolExecutorMap = withoutGrep;
-    expect(Object.keys(incomplete)).toHaveLength(DESKTOP_NATIVE_TOOL_IDS.length - 1);
+/**
+ * The host's executor fold is the adapter half of the native-tool contract:
+ * every `brainstrike.*` definition a desktop run can admit is executed by the
+ * agent host and has exactly one executor there (shared or Desktop's own), so
+ * no admitted descriptor can reach a host without a way to run it.
+ */
+describe('host-executed native tools', () => {
+  it('has exactly one host executor per desktop catalog id, beside the skill tools', () => {
+    const executors = {
+      ...SHARED_NATIVE_TOOL_EXECUTORS,
+      ...desktopHostToolExecutors(
+        unexpectedMainRequest,
+        'host-thread',
+        NATIVE_WITH_SKILLS,
+        APP_PATHS
+      ),
+    };
+    expect(Object.keys(executors).sort()).toEqual(
+      [...DESKTOP_NATIVE_TOOL_IDS, ...SKILL_NATIVE_TOOL_IDS].sort()
+    );
+    for (const toolId of DESKTOP_NATIVE_TOOL_IDS) {
+      expect(isHostExecutedNativeToolId(toolId), toolId).toBe(true);
+      expect(typeof (executors as Record<string, unknown>)[toolId], toolId).toBe('function');
+    }
   });
 });
 
@@ -54,25 +79,6 @@ describe('native execution executors honour the guard deadline', () => {
     runSkillScript.mockClear();
   });
 
-  const buildContext = () => ({
-    dependencies: {
-      skillScriptResolver: {
-        resolveScriptExecution: vi.fn().mockResolvedValue({
-          command: 'python3',
-          policy: 'trusted',
-          scriptPath: '/tmp/script.py',
-          sourceTier: 'workspace',
-        }),
-      },
-    },
-    isLocalProvider: false,
-    ports: legacyNativeToolPorts(undefined),
-    readFileCursorRegistry: {} as never,
-    resolveActiveDomainCharBudget: () => 1000,
-    resolvedDomainCharBudget: 1000,
-    runtimeData: undefined,
-  });
-
   it('executeCommand aborts on the guard deadline even though the run signal never fires', async () => {
     const runController = new AbortController();
     const guardController = new AbortController();
@@ -80,13 +86,11 @@ describe('native execution executors honour the guard deadline', () => {
     const release = registerToolGuardDeadlineSignal([{}, context], guardController.signal);
 
     try {
-      const entry = EXECUTION_TOOL_EXECUTORS[NATIVE_TOOL_ID.executeCommand](buildContext()) as
-        | { execute: (input: unknown, options: unknown) => Promise<unknown> }
-        | undefined;
-      if (!entry) {
-        throw new Error('executeCommand executor did not build');
-      }
-      await entry.execute({ command: 'echo hi' }, context);
+      const execute = requireToolExecute(
+        buildHostNativeTools(runtime, { ids: [NATIVE_TOOL_ID.executeCommand] }),
+        NATIVE_TOOL_ID.executeCommand
+      );
+      await execute({ command: 'echo hi' }, context);
 
       const [, , options] = runExecuteCommandWithShellCorrelation.mock.calls.at(-1) as [
         unknown,
@@ -111,13 +115,15 @@ describe('native execution executors honour the guard deadline', () => {
     const release = registerToolGuardDeadlineSignal([{}, context], guardController.signal);
 
     try {
-      const entry = EXECUTION_TOOL_EXECUTORS[NATIVE_TOOL_ID.runSkillScript](buildContext()) as
-        | { execute: (input: unknown, options: unknown) => Promise<unknown> }
-        | undefined;
-      if (!entry) {
-        throw new Error('runSkillScript executor did not build');
-      }
-      await entry.execute(
+      const execute = requireToolExecute(
+        buildHostNativeTools(runtime, {
+          appPaths: APP_PATHS,
+          ids: [NATIVE_TOOL_ID.runSkillScript],
+          native: NATIVE_WITH_SKILLS,
+        }),
+        NATIVE_TOOL_ID.runSkillScript
+      );
+      await execute(
         {
           cwd: '.',
           root: '.',

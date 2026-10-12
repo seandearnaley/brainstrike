@@ -70,9 +70,6 @@ const BRAINSTRIKE_RESET_TABLES = [
   // bookkeeping over conversation content the clear just destroyed: keeping it
   // would hide messages that no longer exist on the fresh database.
   'brainstrike_assistant_message_tombstones',
-  // Request-build overlays for superseded native-tool projections (migration
-  // 084, BST-1192). They refer only to thread/message evidence cleared here.
-  'brainstrike_assistant_tool_projection_rewrites',
   'brainstrike_assistant_run_errors',
   'brainstrike_assistant_run_outcomes',
   // Per-run experiment treatment records (migration 093 + assistant-data

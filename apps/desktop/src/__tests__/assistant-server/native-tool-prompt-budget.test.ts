@@ -12,22 +12,18 @@ import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { getAdjustedTimeout } from '@brainstrike/test-utils';
 import { get_encoding } from 'tiktoken';
 import { describe, expect, it, vi } from 'vitest';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { desktopHostToolExecutors } from '../../agent-host-platform/host-executed-tools';
+import { runSkillScriptExecutor } from '../../assistant-server/native-tool-executors-skills';
+import {
+  buildHostNativeTools,
+  nativeRuntimeFor,
+  unexpectedMainRequest,
+} from './_host-native-tools';
 
 vi.mock('@brainstrike/agent', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@brainstrike/agent')>();
   return { ...actual };
 });
-
-vi.mock('electron', () => ({
-  BrowserWindow: {
-    getAllWindows: vi.fn(() => []),
-  },
-}));
-
-vi.mock('../../db-main', () => ({
-  getDatabase: vi.fn(),
-}));
 
 // Raised 8250 → 8300 when querySelf gained its required `mode` discriminator.
 // That was a CORRECTNESS fix, not a nicety: with optional mutually-exclusive
@@ -254,14 +250,57 @@ function createPromptBudgetWorkspaceSkills(): ScannedWorkspaceSkills {
   });
 }
 
+/**
+ * The launching desktop's facts: they give the host its run_python and
+ * runSkillScript interpreter. Building the tools never reads them.
+ */
+const PROMPT_BUDGET_APP_PATHS = {
+  isPackaged: false,
+  resourcesPath: '/prompt-budget/resources',
+  userDataPath: '/prompt-budget/user-data',
+} as const;
+
+function unusedPythonExecutable(): Promise<string> {
+  return Promise.reject(new Error('The prompt-budget suite never runs a skill script'));
+}
+
+/** The host's own Tavily key owner; the suite never calls the web tools. */
+const PROMPT_BUDGET_TAVILY = {
+  resolveApiKey: () => Promise.resolve(undefined),
+};
+
+/**
+ * The agent host's live tool fold, every capability present: Desktop's host
+ * executors with the launching app's paths (run_python), plus runSkillScript
+ * over the run's skills, as the host binds it beside the skill tools the
+ * suite adds from `createAssistantSkillTools` (the host's `skillToolExecutors`
+ * source). Core supplies the thread's artifact reader to every call, and the
+ * host passes its own Tavily key owner to the web tools.
+ */
 function buildPromptBudgetDesktopTools(
   skillScriptResolver: ScannedWorkspaceSkills
 ): NonNullable<RuntimeData['mastraTools']> {
-  return buildDesktopAssistantTools({ provider: 'openrouter' } as RuntimeData, {
-    skillScriptResolver,
-    toolOutputArtifactReader: {
-      readRange: async () => ({ status: 'not_found' }),
+  const runtimeData = { provider: 'openrouter' } as RuntimeData;
+  return buildHostNativeTools(runtimeData, {
+    executors: {
+      ...desktopHostToolExecutors(
+        unexpectedMainRequest,
+        'prompt-budget-thread',
+        nativeRuntimeFor(runtimeData),
+        PROMPT_BUDGET_APP_PATHS
+      ),
+      [NATIVE_TOOL_ID.runSkillScript]: runSkillScriptExecutor(
+        skillScriptResolver,
+        unusedPythonExecutable
+      ),
     },
+    ports: {
+      artifactReader: {
+        readRange: async () => ({ status: 'not_found' }),
+      },
+    },
+    webExtract: PROMPT_BUDGET_TAVILY,
+    webSearch: PROMPT_BUDGET_TAVILY,
   });
 }
 

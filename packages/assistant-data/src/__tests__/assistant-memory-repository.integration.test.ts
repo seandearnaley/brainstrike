@@ -3246,44 +3246,6 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     }
   });
 
-  /**
-   * BST-1651 found a REAL divergence here, and this expectation records the
-   * winner. The retired renderer bootstrap declared `kind` inline in its
-   * `CREATE TABLE` (ordinal 5); migrations 084 + 087 create the table without
-   * it and ADD it (ordinal 8). A freshly bootstrapped database and a migrated
-   * one therefore had different column ORDER for the same table, and nothing
-   * could observe it — the bootstrap's `IF NOT EXISTS` never fires on a
-   * migrated database. The migrations are now the only author, so there is one
-   * order.
-   */
-  it('carries the migration-084/087 tool projection rewrite shape for thread deletion', async () => {
-    const dataDir = createPgliteTestDataDir('tool-projection-rewrite-bootstrap-shape');
-    const db = await createMigratedTestPGlite(dataDir);
-    try {
-      const repository = createPgliteAssistantThreadRepository(db as DbHandle);
-      await repository.createThread('workspace-a');
-
-      const columns = await db.query<{ column_name: string }>(
-        `SELECT column_name
-         FROM information_schema.columns
-         WHERE table_name = 'brainstrike_assistant_tool_projection_rewrites'
-         ORDER BY ordinal_position`
-      );
-      expect(columns.rows.map((row) => row.column_name)).toEqual([
-        'tool_call_id',
-        'thread_id',
-        'rewrite_id',
-        'superseded_by_tool_call_id',
-        'marker_text',
-        'original_chars',
-        'created_at',
-        'kind',
-      ]);
-    } finally {
-      await db.close();
-    }
-  });
-
   it('bootstraps the migration-088 compaction range shape for thread deletion', async () => {
     const dataDir = createPgliteTestDataDir('compaction-range-bootstrap-shape');
     const db = await createMigratedTestPGlite(dataDir);
@@ -4595,12 +4557,6 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       [thread.id]
     );
     await db.query(
-      `INSERT INTO brainstrike_assistant_tool_projection_rewrites
-        (tool_call_id, thread_id, rewrite_id, superseded_by_tool_call_id, marker_text, original_chars)
-       VALUES ('read-old', $1, 'rewrite-delete', 'read-new', 'read a.ts lines 1-2/2 [superseded]', 42)`,
-      [thread.id]
-    );
-    await db.query(
       `INSERT INTO brainstrike_assistant_compaction_ranges
         (compaction_message_id, thread_id, compacted_message_ids, kind)
        VALUES ('summary-delete', $1, '["message-delete"]'::jsonb, 'agentic')`,
@@ -4634,9 +4590,6 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ).resolves.toBe(0);
     await expect(
       countRows(db, 'brainstrike_token_estimate_calibration', 'thread_id', thread.id)
-    ).resolves.toBe(0);
-    await expect(
-      countRows(db, 'brainstrike_assistant_tool_projection_rewrites', 'thread_id', thread.id)
     ).resolves.toBe(0);
     await expect(
       countRows(db, 'brainstrike_assistant_compaction_ranges', 'thread_id', thread.id)

@@ -1,14 +1,10 @@
 /**
  * The `listEmbeddingSpaces` native tool (BST-743): enumerate embedding spaces
- * from the database, flag the Workspace Index space (recommended for workspace
- * search), and optionally attach coverage stats.
- *
- * Leaf module: depends on the database handle and the shared Workspace Index
- * summary leaf — never on `assistant-tools.ts`, so no import cycle is
- * possible.
+ * from the catalog, flag the native index's Workspace Index space (recommended
+ * for workspace search), and optionally attach coverage stats.
  */
 
-import type { ListEmbeddingSetsInput, RuntimeData } from '@brainstrike/agent';
+import type { ListEmbeddingSetsInput } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import type { EmbeddingSpaceListing, EmbeddingSpaceStats } from '@brainstrike/db';
 import type {
@@ -16,10 +12,7 @@ import type {
   IndexSearchCapability,
 } from '@brainstrike/indexing-contract/indexer-client';
 import type { RetrievalStore } from './retrieval-store';
-import {
-  normalizeRuntimeWorkspaceIndex,
-  type WorkspaceIndexSummary,
-} from './runtime-workspace-index';
+import { nativeWorkspaceIndexSummary, type WorkspaceIndexSummary } from './workspace-index-summary';
 
 type AssistantEmbeddingSpaceListing = Omit<EmbeddingSpaceListing, 'stats'> & {
   readonly coverage?:
@@ -52,20 +45,14 @@ interface NativeListing {
 }
 async function readNativeListing(
   capability: IndexSearchCapability,
-  includeStats: boolean,
-  runtimeData: RuntimeData | undefined
+  includeStats: boolean
 ): Promise<NativeListing> {
   const status = await capability.status();
   if (status.kind !== 'ready') {
     throw new ToolInputError(status.reason);
   }
-  const ids = status.authorizedCollectionIds ?? [];
-  const embeddingSetId = ids.length === 1 ? (ids[0] ?? null) : null;
-  const workspaceIndex = {
-    ...normalizeRuntimeWorkspaceIndex(runtimeData),
-    embeddingSetId,
-    mode: status.embedding.indexMode === 'vector-configured' ? 'VECTOR' : 'TEXT',
-  };
+  const workspaceIndex = nativeWorkspaceIndexSummary(status);
+  const { embeddingSetId } = workspaceIndex;
   if (!includeStats || embeddingSetId === null) {
     return { workspaceIndex };
   }
@@ -115,7 +102,6 @@ async function readNativeListing(
 
 export async function runListEmbeddingSpacesWith(
   input: ListEmbeddingSetsInput,
-  runtimeData: RuntimeData | undefined,
   nativeIndexSearch: IndexSearchCapability | undefined,
   store: RetrievalStore
 ): Promise<{
@@ -124,10 +110,12 @@ export async function runListEmbeddingSpacesWith(
   spaces: AssistantEmbeddingSpaceListing[];
   coverageObservation?: NativeListing['coverageObservation'];
 }> {
-  const native = nativeIndexSearch
-    ? await readNativeListing(nativeIndexSearch, input.includeStats === true, runtimeData)
-    : undefined;
-  const workspaceIndex = native?.workspaceIndex ?? normalizeRuntimeWorkspaceIndex(runtimeData);
+  if (!nativeIndexSearch) {
+    // The agent host lists spaces against the native index only.
+    throw new Error('Retrieval without a native index runs only on Main’s database.');
+  }
+  const native = await readNativeListing(nativeIndexSearch, input.includeStats === true);
+  const { workspaceIndex } = native;
   const listings = await store.embeddingSpaces({ includeStats: input.includeStats === true });
   const mappedSpaces = listings.map((listing: EmbeddingSpaceListing) => {
     const isWorkspaceIndex = listing.id === workspaceIndex.embeddingSetId;
@@ -141,11 +129,11 @@ export async function runListEmbeddingSpacesWith(
       modelId: listing.modelId,
       modelKey: listing.modelKey,
       name: listing.name,
+      nativeSearchAuthorized: isWorkspaceIndex,
       recommendedForWorkspaceSearch: isWorkspaceIndex,
-      ...(nativeIndexSearch ? { nativeSearchAuthorized: isWorkspaceIndex } : {}),
     };
-    if (nativeIndexSearch && isWorkspaceIndex) {
-      return native?.coverage ? { ...space, coverage: native.coverage } : space;
+    if (isWorkspaceIndex) {
+      return native.coverage ? { ...space, coverage: native.coverage } : space;
     }
     if (input.includeStats !== true || !listing.stats) {
       return space;
@@ -179,6 +167,6 @@ export async function runListEmbeddingSpacesWith(
     count: spaces.length,
     spaces,
     workspaceIndex,
-    ...(native?.coverageObservation ? { coverageObservation: native.coverageObservation } : {}),
+    ...(native.coverageObservation ? { coverageObservation: native.coverageObservation } : {}),
   };
 }

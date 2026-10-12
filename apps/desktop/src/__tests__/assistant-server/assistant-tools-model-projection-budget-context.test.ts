@@ -6,18 +6,8 @@ import {
   resolveScaledToolResultBudget,
   type ScaledToolResultBudget,
 } from '@brainstrike/agent';
-import { describe, expect, it, vi } from 'vitest';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
-
-vi.mock('electron', () => ({
-  BrowserWindow: {
-    getAllWindows: vi.fn(() => []),
-  },
-}));
-
-vi.mock('../../db-main', () => ({
-  getDatabase: vi.fn(),
-}));
+import { describe, expect, it } from 'vitest';
+import { buildHostNativeTools } from './_host-native-tools';
 
 type ProjectionTools = Parameters<typeof applyToolModelOutputProjections>[0];
 type ProjectableTool = ProjectionTools[string] & {
@@ -63,12 +53,12 @@ describe('desktop projector per-call budget context', () => {
     const anchorBudget = resolveScaledToolResultBudget(131_072);
     const floorBudget = resolveScaledToolResultBudget(8192);
     const ceilingBudget = resolveScaledToolResultBudget(1_050_000);
-    const tools = buildDesktopAssistantTools({ provider: 'openrouter' } as RuntimeData, {
+    const tools = buildHostNativeTools({ provider: 'openrouter' } as RuntimeData, {
       resolvedToolResultBudget: anchorBudget,
     });
     const grepTool = tools[NATIVE_TOOL_ID.grepSearch] as ProjectableTool | undefined;
     if (!grepTool) {
-      throw new TypeError('Expected grepSearch desktop tool');
+      throw new TypeError('Expected grepSearch host tool');
     }
     const matches = Array.from({ length: 500 }, (_, index) => ({
       after: [],
@@ -110,17 +100,19 @@ describe('desktop projector per-call budget context', () => {
   it('fits readToolOutputArtifact to an active floor budget and preserves anchor bytes', () => {
     const anchorBudget = resolveScaledToolResultBudget(131_072);
     const floorBudget = resolveScaledToolResultBudget(8192);
-    const tools = buildDesktopAssistantTools({ provider: 'openrouter' } as RuntimeData, {
-      resolvedToolResultBudget: anchorBudget,
-      toolOutputArtifactReader: {
-        readRange: async () => ({ status: 'not_found' }),
+    const tools = buildHostNativeTools({ provider: 'openrouter' } as RuntimeData, {
+      ports: {
+        artifactReader: {
+          readRange: async () => ({ status: 'not_found' }),
+        },
       },
+      resolvedToolResultBudget: anchorBudget,
     });
     const artifactTool = tools[NATIVE_TOOL_ID.readToolOutputArtifact] as
       | ProjectableTool
       | undefined;
     if (!artifactTool) {
-      throw new TypeError('Expected readToolOutputArtifact desktop tool');
+      throw new TypeError('Expected readToolOutputArtifact host tool');
     }
     const content = 'x'.repeat(5800);
     const raw = {

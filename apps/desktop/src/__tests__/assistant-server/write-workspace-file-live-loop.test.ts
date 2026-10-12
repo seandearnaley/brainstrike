@@ -2,7 +2,7 @@
  * LIVE-loop coverage for the desktop `brainstrike.writeWorkspaceFile` tool.
  *
  * This drives the REAL Mastra agent loop (`streamMastraAgent`) against the REAL
- * desktop write tool from `buildDesktopAssistantTools` — its real `execute`,
+ * host write tool (the agent host's live executor fold, `_host-native-tools`) — its real `execute`,
  * real path containment, and a real temp-dir workspace. Only two seams are
  * scripted: the language model (provider 'local' with an injected
  * `LocalLlmHostClient`, mirroring `mastra-local-host-execution.spec.ts` — no API
@@ -25,7 +25,7 @@ import type {
   LocalLlmHostRequestOptions,
 } from '@brainstrike/agent/local-llm';
 import { describe, expect, it, vi } from 'vitest';
-import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
+import { buildHostNativeTools } from './_host-native-tools';
 import { requireTool, singleRootRuntime } from './_tool-test-helpers';
 
 // Restore the REAL streamMastraAgent (the global setup.ts mock replaces it with
@@ -97,7 +97,7 @@ describe('writeWorkspaceFile live Mastra loop (real agent, real tool execute)', 
     const targetContent = 'export const generated = 42;\n';
 
     try {
-      const tools = buildDesktopAssistantTools(singleRootRuntime(workspaceRootPath));
+      const tools = buildHostNativeTools(singleRootRuntime(workspaceRootPath));
       const writeTool = requireTool(tools, 'brainstrike.writeWorkspaceFile');
 
       const hostClient = createScriptedHostClient({

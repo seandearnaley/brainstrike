@@ -274,16 +274,6 @@ export const TOOL_CALL_TELEMETRY_TABLE = 'brainstrike_tool_call_telemetry';
 export const TOKEN_ESTIMATE_CALIBRATION_TABLE = 'brainstrike_token_estimate_calibration';
 
 /**
- * Transient request-build overlays for superseded or recency-pruned native-tool
- * projections (BST-1192/BST-1200, migrations 084 + 087 in BOTH runners plus
- * the app-shell bootstrap mirror). The mirror is required because thread
- * deletion references every registered sidecar unconditionally, while desktop
- * main owns normal writes.
- */
-export const ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE =
-  'brainstrike_assistant_tool_projection_rewrites';
-
-/**
  * Exact-message overlays for durable conversation compaction summaries
  * (BST-1200 Milestone 2, migration 088 in BOTH runners plus the app-shell
  * bootstrap mirror). The mirror is required because thread deletion references
@@ -312,7 +302,6 @@ export const THREAD_DELETE_SIDECAR_TABLES = [
   { table: 'brainstrike_thread_search_state', threadColumns: ['thread_id'] },
   { table: MASTRA_BACKGROUND_TASKS_TABLE, threadColumns: ['thread_id'] },
   { table: ASSISTANT_COMPACTION_RANGES_TABLE, threadColumns: ['thread_id'] },
-  { table: ASSISTANT_TOOL_PROJECTION_REWRITES_TABLE, threadColumns: ['thread_id'] },
   { table: 'brainstrike_canvas_versions', threadColumns: ['thread_id'] },
   { table: TOKEN_ESTIMATE_CALIBRATION_TABLE, threadColumns: ['thread_id'] },
   { table: TOOL_CALL_TELEMETRY_TABLE, threadColumns: ['thread_id'] },

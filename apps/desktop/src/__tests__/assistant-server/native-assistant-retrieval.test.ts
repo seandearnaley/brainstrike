@@ -2,10 +2,7 @@
 
 import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import type {
-  IndexerStatus,
-  IndexSearchCapability,
-} from '@brainstrike/indexing-contract/indexer-client';
+import type { IndexerStatus } from '@brainstrike/indexing-contract/indexer-client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const lifecycle = vi.hoisted(() => ({ current: undefined as unknown }));
@@ -28,9 +25,14 @@ vi.mock('@brainstrike/db', async (original) => ({
   },
 }));
 
-import { runHybridSearch } from '../../assistant-server/hybrid-search-tool';
+import type { HybridSearchInput, QueryEmbeddingSpaceInput, RuntimeData } from '@brainstrike/agent';
+import { runHybridSearchWith } from '../../assistant-server/hybrid-search-core';
 import { searchNativeAssistantChunks } from '../../assistant-server/native-assistant-retrieval';
-import { runQueryEmbeddingSpace } from '../../assistant-server/retrieval-tool';
+import {
+  type RetrievalToolDependencies,
+  runQueryEmbeddingSpaceWith,
+} from '../../assistant-server/retrieval-core';
+import { pgliteRetrievalStore } from '../../assistant-server/retrieval-store-pglite';
 import {
   projectHybridSearchModelOutput,
   projectQueryEmbeddingSpaceModelOutput,
@@ -41,114 +43,49 @@ import {
   createEmbeddingHostQueryCancellationError,
   createEmbeddingHostQueryEmbeddingErrorReport,
 } from '../../embedding-host-shared';
+import {
+  catalogOnly,
+  nativeCounts as counts,
+  nativeEmbedding as embedding,
+  nativeRetrievalFixture as fixture,
+  nativeHit as hit,
+  nativeProfile as profile,
+  nativeQueryPlan as queryPlan,
+} from './_c1-a-helpers';
 
-const profile = {
-  dimensions: 384,
-  dtype: 'q8',
-  modelId: 'Xenova/all-MiniLM-L6-v2',
-  revision: '751bff37182d3f1213fa05d7196b954e230abad9',
-  tokenCap: 256,
-} as const;
-const profileHash = createHash('sha256')
-  .update(
-    JSON.stringify([
-      profile.modelId,
-      profile.revision,
-      profile.dtype,
-      profile.dimensions,
-      profile.tokenCap,
-    ])
-  )
-  .digest('hex');
-const queryPlan = {
-  inferencePlan: {
-    device: 'wasm',
-    dimensions: profile.dimensions,
-    dtype: profile.dtype,
-    modelId: profile.modelId,
-    revision: profile.revision,
-  },
-  modelKey: `local::${profile.modelId}`,
-} as const;
-const embedding = { indexMode: 'vector-configured', profile, profileHash } as const;
-const hit = {
-  chunkId: 'native-chunk',
-  chunkIndex: 0,
-  chunkSize: 384,
-  chunkType: 'text',
-  content: 'native marker',
-  contentHash: 'c'.repeat(64),
-  embeddingSetId: 'selected',
-  endLine: 1,
-  endOffset: 13,
-  fileId: 'file',
-  relativePath: null,
-  rootId: null,
-  score: 0.1,
-  sourcePath: null,
-  startLine: 1,
-  startOffset: 0,
-  tokenCount: 3,
-} as const;
-const counts = { chunks: 1, indexedFiles: 1, missingVectors: 0, vectors: 1 };
-function fixture() {
-  let status: IndexerStatus = {
-    authorizedCollectionIds: ['selected'],
-    authorizedRootIds: [],
-    collectionReadiness: [{ embeddingSetId: 'selected', scanComplete: true }],
-    embedding,
-    kind: 'ready',
-    queryPlan,
-    rootReadiness: [],
-    storeId: 'a'.repeat(64),
-  };
-  const result = {
-    candidateCount: 1,
-    candidatesTruncated: false,
-    embedding,
-    hits: [hit],
-    scanLimited: false,
-    storeId: 'a'.repeat(64),
-    truncated: false,
-  };
-  const capability: IndexSearchCapability = {
-    coverage: vi.fn(async () => ({
-      collections: [{ ...counts, embeddingSetId: 'selected' }],
-      embedding,
-      roots: [],
-      storeId: result.storeId,
-      totals: counts,
-      vectorCoverageComplete: true,
-    })),
-    coverageBatch: vi.fn<IndexSearchCapability['coverageBatch']>(async (requests) => {
-      const observed = await capability.status();
-      if (observed.kind !== 'ready') {
-        return { kind: 'blocked', reason: observed.reason };
-      }
-      return {
-        coverage: await Promise.all(requests.map((request) => capability.coverage(request))),
-        kind: 'current',
-        status: observed,
-      };
-    }),
-    grep: vi.fn(async () => result),
-    rebuild: vi.fn(),
-    search: vi.fn(async () => result),
-    status: vi.fn(async () => status),
-  };
-  const queryEmbedding = vi.fn(async (_payload: unknown, _options?: { signal?: AbortSignal }) =>
-    Array.from({ length: 384 }, () => 0.1)
+/**
+ * The host's queryEmbeddingSpace and hybridSearch: the shared cores
+ * `retrievalToolExecutors` runs, over Main's catalog reads (no legacy PG path).
+ */
+function hostSemantic(
+  input: QueryEmbeddingSpaceInput,
+  runtimeData: RuntimeData | undefined,
+  dependencies: RetrievalToolDependencies,
+  signal?: AbortSignal
+) {
+  return runQueryEmbeddingSpaceWith(
+    input,
+    runtimeData,
+    dependencies,
+    catalogOnly(pgliteRetrievalStore()),
+    signal
   );
-  return {
-    capability,
-    queryEmbedding,
-    result,
-    setStatus: (next: IndexerStatus) => {
-      status = next;
-    },
-    status,
-  };
 }
+function hostHybrid(
+  input: HybridSearchInput,
+  runtimeData: RuntimeData | undefined,
+  dependencies: RetrievalToolDependencies,
+  signal?: AbortSignal
+) {
+  return runHybridSearchWith(
+    input,
+    runtimeData,
+    dependencies,
+    catalogOnly(pgliteRetrievalStore()),
+    signal
+  );
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   pg.query.mockResolvedValue({
@@ -168,8 +105,8 @@ beforeEach(() => {
   pg.fts.mockResolvedValue([]);
 });
 const tools = [
-  { name: 'semantic', run: runQueryEmbeddingSpace },
-  { name: 'hybrid', run: runHybridSearch },
+  { name: 'semantic', run: hostSemantic },
+  { name: 'hybrid', run: hostHybrid },
 ] as const;
 describe('native assistant retrieval cutover', () => {
   it.each(tools)(
@@ -195,13 +132,13 @@ describe('native assistant retrieval cutover', () => {
       });
       expect(result).toMatchObject({ hint: expect.stringMatching(/partial.*coverage/i) });
       const projected =
-        run === runHybridSearch
+        run === hostHybrid
           ? projectHybridSearchModelOutput(result)
           : projectQueryEmbeddingSpaceModelOutput(result);
       expect(projected.value).toMatch(/hint: Partial index coverage observed/);
       expect(f.queryEmbedding).toHaveBeenCalledOnce();
       expect(f.capability.search).toHaveBeenCalledWith(expect.objectContaining({ mode: 'vector' }));
-      if (run === runHybridSearch) {
+      if (run === hostHybrid) {
         expect(f.capability.search).toHaveBeenCalledWith(expect.objectContaining({ mode: 'bm25' }));
         expect(f.capability.grep).toHaveBeenCalledOnce();
       }
@@ -295,25 +232,35 @@ describe('native assistant retrieval cutover', () => {
     expect(pg.search).not.toHaveBeenCalled();
     expect(pg.fts).not.toHaveBeenCalled();
   });
-  it('preserves the PG route when native capability is absent', async () => {
-    const f = fixture();
-    await runQueryEmbeddingSpace({ embeddingSetId: 'selected', query: 'marker' }, undefined, {
-      embeddingHostManager: { queryEmbedding: f.queryEmbedding },
-    });
-    expect(pg.search).toHaveBeenCalled();
-    expect(f.queryEmbedding.mock.calls[0]?.[0]).not.toHaveProperty('inferencePlan');
-  });
+  it.each([
+    {
+      message: 'Unable to retrieve context right now. Try again.',
+      name: 'semantic',
+      run: hostSemantic,
+    },
+    { message: 'Hybrid search failed. Please try again.', name: 'hybrid', run: hostHybrid },
+  ] as const)(
+    'refuses $name when no native index serves the request on the host catalog store',
+    async ({ message, run }) => {
+      // The host's store has no PG similarity path: without a native index the
+      // request fails visibly (sanitized) instead of reading Main's PGlite chunks.
+      const f = fixture();
+      await expect(
+        run({ embeddingSetId: 'selected', query: 'marker' }, undefined, {
+          embeddingHostManager: { queryEmbedding: f.queryEmbedding },
+        })
+      ).rejects.toThrow(message);
+      expect(pg.search).not.toHaveBeenCalled();
+      expect(pg.fts).not.toHaveBeenCalled();
+    }
+  );
   it('exposes native truncation to the semantic model projection', async () => {
     const f = fixture();
     f.result.candidatesTruncated = true;
-    const result = await runQueryEmbeddingSpace(
-      { embeddingSetId: 'selected', query: 'marker' },
-      undefined,
-      {
-        embeddingHostManager: { queryEmbedding: f.queryEmbedding },
-        nativeIndexSearch: f.capability,
-      }
-    );
+    const result = await hostSemantic({ embeddingSetId: 'selected', query: 'marker' }, undefined, {
+      embeddingHostManager: { queryEmbedding: f.queryEmbedding },
+      nativeIndexSearch: f.capability,
+    });
     if (!('hint' in result && result.hint)) {
       throw new Error('Missing native limitation notice');
     }
@@ -466,7 +413,7 @@ describe('native assistant retrieval cutover', () => {
         queryPlan: { ...queryPlan, inferencePlan: mismatch },
       } as IndexerStatus);
       await expect(
-        runQueryEmbeddingSpace({ embeddingSetId: 'selected', query: 'marker' }, undefined, {
+        hostSemantic({ embeddingSetId: 'selected', query: 'marker' }, undefined, {
           embeddingHostManager: { queryEmbedding: f.queryEmbedding },
           nativeIndexSearch: f.capability,
         })
@@ -512,7 +459,7 @@ describe('native assistant retrieval cutover', () => {
             : { hits: [{ ...hit, embeddingSetId: 'foreign' }] }),
       });
       await expect(
-        runQueryEmbeddingSpace({ embeddingSetId: 'selected', query: 'marker' }, undefined, {
+        hostSemantic({ embeddingSetId: 'selected', query: 'marker' }, undefined, {
           embeddingHostManager: { queryEmbedding: f.queryEmbedding },
           nativeIndexSearch: f.capability,
         })
@@ -526,7 +473,7 @@ describe('native assistant retrieval cutover', () => {
     const settled = vi.fn();
     vi.mocked(f.capability.grep).mockImplementation(() => held.promise);
     vi.mocked(f.capability.search).mockRejectedValue(new Error('native read failed'));
-    const outcome = runHybridSearch({ embeddingSetId: 'selected', query: 'marker' }, undefined, {
+    const outcome = hostHybrid({ embeddingSetId: 'selected', query: 'marker' }, undefined, {
       embeddingHostManager: { queryEmbedding: f.queryEmbedding },
       nativeIndexSearch: f.capability,
     }).catch((error: unknown) => {
@@ -545,7 +492,7 @@ describe('native assistant retrieval cutover', () => {
     async (options) => {
       const f = fixture();
       await expect(
-        runHybridSearch({ embeddingSetId: 'selected', query: 'marker', ...options }, undefined, {
+        hostHybrid({ embeddingSetId: 'selected', query: 'marker', ...options }, undefined, {
           embeddingHostManager: { queryEmbedding: f.queryEmbedding },
           nativeIndexSearch: f.capability,
         })
@@ -575,7 +522,7 @@ describe('native assistant retrieval cutover', () => {
         });
       }
       await expect(
-        runQueryEmbeddingSpace({ embeddingSetId: 'selected', query: 'marker' }, undefined, {
+        hostSemantic({ embeddingSetId: 'selected', query: 'marker' }, undefined, {
           embeddingHostManager: { queryEmbedding: f.queryEmbedding },
           nativeIndexSearch: f.capability,
         })
@@ -591,14 +538,10 @@ describe('native assistant retrieval cutover', () => {
       inferencePlan: { ...queryPlan.inferencePlan, device: 'webgpu' as const },
     };
     f.setStatus({ ...f.status, queryPlan: plan } as IndexerStatus);
-    await runQueryEmbeddingSpace(
-      { embeddingSetId: 'selected', query: 'raw query text' },
-      undefined,
-      {
-        embeddingHostManager: { queryEmbedding: f.queryEmbedding },
-        nativeIndexSearch: f.capability,
-      }
-    );
+    await hostSemantic({ embeddingSetId: 'selected', query: 'raw query text' }, undefined, {
+      embeddingHostManager: { queryEmbedding: f.queryEmbedding },
+      nativeIndexSearch: f.capability,
+    });
     expect(f.queryEmbedding.mock.calls[0]?.[0]).toEqual({
       dimensions: 384,
       inferencePlan: plan.inferencePlan,

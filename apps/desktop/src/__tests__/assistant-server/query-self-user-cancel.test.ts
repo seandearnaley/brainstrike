@@ -2,8 +2,11 @@ import { registerToolGuardDeadlineSignal } from '@brainstrike/agent';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
 import { type QueryProcess, SqliteQueryClient } from '@brainstrike/sqlite-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { legacyNativeToolPorts } from '../../assistant-server/legacy-native-tool-ports';
-import { EXECUTION_TOOL_EXECUTORS } from '../../assistant-server/native-tool-executors-execution';
+import { selfInspectionExecutors } from '../../assistant-server/native-tool-executors-self';
+import { mainDiagnosticsReader } from '../../assistant-server/query-diagnostics-tool';
+import { mainQuerySelfRead } from '../../assistant-server/query-self-tool';
+import { buildHostNativeTools } from './_host-native-tools';
+import { requireToolExecute } from './_tool-test-helpers';
 
 const { getDatabase, openIndexQuery } = vi.hoisted(() => ({
   getDatabase: vi.fn(),
@@ -39,20 +42,18 @@ function reader() {
   return { admitted, exit: () => exit(), process };
 }
 
+/** querySelf over Main's own read, the same read Main serves a host thread's querySelf. */
 function executor() {
-  const entry = EXECUTION_TOOL_EXECUTORS[NATIVE_TOOL_ID.querySelf]({
-    dependencies: {},
-    isLocalProvider: false,
-    ports: legacyNativeToolPorts(undefined),
-    readFileCursorRegistry: {} as never,
-    resolveActiveDomainCharBudget: () => 6000,
-    resolvedDomainCharBudget: 6000,
-    runtimeData: undefined,
-  });
-  if (!(entry && 'execute' in entry && entry.execute)) {
-    throw new Error('querySelf executor is required.');
-  }
-  return entry.execute;
+  return requireToolExecute(
+    buildHostNativeTools(
+      {},
+      {
+        executors: selfInspectionExecutors(mainQuerySelfRead(), mainDiagnosticsReader),
+        ids: [NATIVE_TOOL_ID.querySelf],
+      }
+    ),
+    NATIVE_TOOL_ID.querySelf
+  );
 }
 
 beforeEach(() => {
