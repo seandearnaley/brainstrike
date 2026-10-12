@@ -9,13 +9,20 @@ import {
   type AssistantThreadHostChild,
   useAssistantThreadHost,
 } from './assistant-thread-host-context';
-import { Failure } from './delegated-workspace-child-view';
 import { HostChildConversationHeader } from './host-child-conversation-header';
 import { HostChildSurface } from './host-child-surface';
 import { type HostChildWorkspaceTab, readHostChildWorkspaceTab } from './host-child-workspace-tab';
 
 function asError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value));
+}
+
+function Failure({ error }: { readonly error: Error }) {
+  return (
+    <div className="p-4 text-destructive" role="alert">
+      {error.message}
+    </div>
+  );
 }
 
 const MISSING = 'The child conversation is missing or does not belong to this workspace.';
