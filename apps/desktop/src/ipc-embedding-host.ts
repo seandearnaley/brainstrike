@@ -13,11 +13,13 @@ import {
   EMBEDDING_HOST_REPORT_DOCUMENT_EMBEDDINGS_RESPONSE_CHANNEL,
   EMBEDDING_HOST_REPORT_QUERY_EMBEDDING_RESPONSE_CHANNEL,
   EMBEDDING_HOST_REPORT_STATUS_CHANNEL,
+  EMBEDDING_HOST_REPORT_WEBGPU_ADAPTER_RESPONSE_CHANNEL,
   EMBEDDING_HOST_RESET_CHANNEL,
   EMBEDDING_HOST_STOP_CHANNEL,
   EMBEDDING_HOST_WEBGPU_ADAPTER_CHANNEL,
   type EmbeddingHostStatusReport,
 } from './embedding-host-shared';
+import { assertEmbeddingHostWebGpuAdapterResponseReport } from './embedding-host-webgpu-adapter';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
 import { createDesktopIpcRegistry, type DesktopIpcRegistry } from './platform/desktop-ipc-registry';
 import { registerBackgroundRuntimeLifecycleIpcHandlers } from './register-background-runtime-lifecycle-ipc';
@@ -112,6 +114,15 @@ export function registerEmbeddingHostIpcHandlers(
     EMBEDDING_HOST_WEBGPU_ADAPTER_CHANNEL,
     { roles: ['visible-ui'] },
     () => manager.webgpuAdapter()
+  );
+  registry.registerEvent(
+    'embeddings',
+    EMBEDDING_HOST_REPORT_WEBGPU_ADAPTER_RESPONSE_CHANNEL,
+    (event, response) =>
+      manager.acceptWebGpuAdapterResponseReport(
+        event.sender.id,
+        assertEmbeddingHostWebGpuAdapterResponseReport(response)
+      )
   );
   registry.registerEvent(
     'embeddings',

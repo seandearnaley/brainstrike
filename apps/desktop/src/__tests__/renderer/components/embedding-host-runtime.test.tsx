@@ -75,7 +75,7 @@ describe('EmbeddingHostRuntime', () => {
     storeState.hasHydrated = true;
     storeState.devicePref = 'webgpu';
     storeState.devicePrefConfigured = false;
-    detectDeviceCapabilitiesMock.mockResolvedValue({
+    detectDeviceCapabilitiesMock.mockResolvedValueOnce({
       detectedAt: 1,
       recommendationReason: 'WASM fallback (WebGPU not available)',
       recommendedDevice: 'wasm',

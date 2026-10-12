@@ -9,11 +9,11 @@ import type {
   EmbeddingHostQueryEmbeddingResponseReport,
   EmbeddingHostStatus,
 } from '../../embedding-host-shared';
+import type { EmbeddingHostWebGpuAdapterResponseReport } from '../../embedding-host-webgpu-adapter';
 import {
   createEmbeddingHostStatus,
   type EmbeddingHostStatusOptions,
 } from './embedding-host-status';
-import type { EmbeddingHostWebGpuFact } from './embedding-host-webgpu';
 
 export function getEmbeddingHostBridge(): {
   onDocumentEmbeddingsCancel?: (
@@ -34,6 +34,8 @@ export function getEmbeddingHostBridge(): {
   ) => () => void;
   reportQueryEmbeddingResponse?: (response: EmbeddingHostQueryEmbeddingResponseReport) => void;
   reportStatus?: (status: EmbeddingHostStatus) => void;
+  onWebgpuAdapterRequest?: (callback: (request: unknown) => void) => () => void;
+  reportWebgpuAdapterResponse?: (response: EmbeddingHostWebGpuAdapterResponseReport) => void;
 } | null {
   const hostWindow = window as Window & {
     embeddingHost?: {
@@ -55,6 +57,8 @@ export function getEmbeddingHostBridge(): {
       ) => () => void;
       reportQueryEmbeddingResponse?: (response: EmbeddingHostQueryEmbeddingResponseReport) => void;
       reportStatus?: (status: EmbeddingHostStatus) => void;
+      onWebgpuAdapterRequest?: (callback: (request: unknown) => void) => () => void;
+      reportWebgpuAdapterResponse?: (response: EmbeddingHostWebGpuAdapterResponseReport) => void;
     };
   };
   return hostWindow.embeddingHost ?? null;
@@ -71,16 +75,8 @@ export function getPowerBridge(): {
   return hostWindow.power ?? null;
 }
 
-/** This host's WebGPU detection (BST-1993); every status report carries it once known. */
-let webgpuFact: EmbeddingHostWebGpuFact = {};
-
-/** Record the detection a host start just ran, replacing an earlier start's. */
-export function recordEmbeddingHostWebGpu(fact: EmbeddingHostWebGpuFact): void {
-  webgpuFact = fact;
-}
-
 function reportStatus(status: EmbeddingHostStatus): void {
-  getEmbeddingHostBridge()?.reportStatus?.({ ...status, ...webgpuFact });
+  getEmbeddingHostBridge()?.reportStatus?.(status);
 }
 
 export function reportQueryEmbeddingResponse(

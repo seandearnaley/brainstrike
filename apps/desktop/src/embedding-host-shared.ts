@@ -3,7 +3,6 @@ import {
   type EmbeddingTelemetrySnapshot,
 } from '@brainstrike/embedding-worker';
 import type { CatalogEmbeddingWorkerPlan } from '@brainstrike/embeddings/inference-plan';
-import type { WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
 import type {
   BackgroundRuntimeProgress,
   BackgroundRuntimeStatus,
@@ -36,7 +35,9 @@ const EMBEDDING_HOST_CHANNELS = EMBEDDING_HOST_RUNTIME.createScopedChannels({
   queryEmbeddingRequest: 'query-embedding-request',
   reportDocumentEmbeddingsResponse: 'report-document-embeddings-response',
   reportQueryEmbeddingResponse: 'report-query-embedding-response',
+  reportWebgpuAdapterResponse: 'report-webgpu-adapter-response',
   webgpuAdapter: 'webgpu-adapter',
+  webgpuAdapterRequest: 'webgpu-adapter-request',
 });
 export const EMBEDDING_HOST_STATUS_EVENT = EMBEDDING_HOST_LIFECYCLE_CHANNELS.statusEvent;
 export const EMBEDDING_HOST_COMMAND_EVENT = EMBEDDING_HOST_CHANNELS.command;
@@ -61,6 +62,10 @@ export const EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL =
 export const EMBEDDING_HOST_CANCEL_BACKFILL_CHANNEL = EMBEDDING_HOST_CHANNELS.cancelBackfill;
 export const EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL = EMBEDDING_HOST_CHANNELS.queryEmbedding;
 export const EMBEDDING_HOST_WEBGPU_ADAPTER_CHANNEL = EMBEDDING_HOST_CHANNELS.webgpuAdapter;
+export const EMBEDDING_HOST_WEBGPU_ADAPTER_REQUEST_EVENT =
+  EMBEDDING_HOST_CHANNELS.webgpuAdapterRequest;
+export const EMBEDDING_HOST_REPORT_WEBGPU_ADAPTER_RESPONSE_CHANNEL =
+  EMBEDDING_HOST_CHANNELS.reportWebgpuAdapterResponse;
 export const EMBEDDING_BACKFILL_CANCELED_MESSAGE = 'Embedding backfill was canceled.' as const;
 
 export type EmbeddingBackfillSource = 'background-indexing' | 'manual';
@@ -136,10 +141,6 @@ export interface EmbeddingHostRuntimeMetadata {
 export type EmbeddingHostStatus = BackgroundRuntimeStatus<'embedding-host'> & {
   readonly commandId?: string;
   readonly embeddingRuntime?: EmbeddingHostRuntimeMetadata;
-  /** The host's own WebGPU detection, run once at start whatever the saved device (BST-1993). */
-  readonly webgpuAdapter?: WebGpuAdapterAvailability;
-  /** Why that detection failed; absent with `webgpuAdapter`. */
-  readonly webgpuAdapterError?: string;
 };
 export type EmbeddingHostStatusReport = EmbeddingHostStatus;
 export type EmbeddingHostCommand = RuntimeRequestEnvelope<'control', EmbeddingHostCommandPayload>;
@@ -370,80 +371,16 @@ export function assertEmbeddingHostStatus(value: unknown): EmbeddingHostStatusRe
     ...(embeddingRuntime === undefined
       ? {}
       : { embeddingRuntime: assertEmbeddingHostRuntimeMetadata(embeddingRuntime) }),
-    ...assertWebGpuAdapterFact(value as Record<string, unknown>),
   };
 }
 
 /** A status report's optional host fields, carried unchanged into main's status. */
 export function reportedHostFields(
   status: EmbeddingHostStatus
-): Pick<
-  EmbeddingHostStatus,
-  'commandId' | 'embeddingRuntime' | 'webgpuAdapter' | 'webgpuAdapterError'
-> {
+): Pick<EmbeddingHostStatus, 'commandId' | 'embeddingRuntime'> {
   return {
     ...(status.commandId ? { commandId: status.commandId } : {}),
     ...(status.embeddingRuntime ? { embeddingRuntime: status.embeddingRuntime } : {}),
-    ...(status.webgpuAdapter ? { webgpuAdapter: status.webgpuAdapter } : {}),
-    ...(status.webgpuAdapterError === undefined
-      ? {}
-      : { webgpuAdapterError: status.webgpuAdapterError }),
-  };
-}
-
-/** A started host's WebGPU detection, or why there is none. */
-export function readWebGpuAdapter(status: EmbeddingHostStatus): WebGpuAdapterAvailability {
-  if (status.state !== 'running') {
-    throw new Error(status.lastError ?? 'The embedding host is not running.');
-  }
-  if (status.webgpuAdapterError !== undefined) {
-    throw new Error(status.webgpuAdapterError);
-  }
-  if (!status.webgpuAdapter) {
-    throw new Error('The embedding host has not reported WebGPU availability.');
-  }
-  return status.webgpuAdapter;
-}
-
-function assertWebGpuAdapterFact(
-  status: Record<string, unknown>
-): Pick<EmbeddingHostStatus, 'webgpuAdapter' | 'webgpuAdapterError'> {
-  const adapter = status['webgpuAdapter'];
-  const error = status['webgpuAdapterError'];
-  if (adapter !== undefined && error !== undefined) {
-    throw new Error(
-      'Embedding host status cannot carry both webgpuAdapter and webgpuAdapterError.'
-    );
-  }
-  if (error !== undefined) {
-    return {
-      webgpuAdapterError: assertNonEmptyString(
-        error,
-        'Embedding host status webgpuAdapterError must be a non-empty string.'
-      ),
-    };
-  }
-  if (adapter === undefined) {
-    return {};
-  }
-  const candidate = adapter as Record<string, unknown>;
-  if (
-    !(adapter && typeof adapter === 'object' && !Array.isArray(adapter)) ||
-    Object.keys(candidate).some((key) => key !== 'available' && key !== 'reason') ||
-    typeof candidate['available'] !== 'boolean'
-  ) {
-    throw new Error(
-      'Embedding host status webgpuAdapter must be exactly { available: boolean, reason: string }.'
-    );
-  }
-  return {
-    webgpuAdapter: {
-      available: candidate['available'],
-      reason: assertNonEmptyString(
-        candidate['reason'],
-        'Embedding host status webgpuAdapter.reason must be a non-empty string.'
-      ),
-    },
   };
 }
 
@@ -824,7 +761,7 @@ export function assertEmbeddingHostDocumentEmbeddingsResponseReport(
   throw new Error('Invalid document embeddings response envelope.');
 }
 
-function assertEmbeddingHostErrorPayload(
+export function assertEmbeddingHostErrorPayload(
   payload: Record<string, unknown>
 ): EmbeddingHostQueryEmbeddingErrorReport['payload'] {
   return {

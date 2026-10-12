@@ -102,6 +102,10 @@ import type {
   EmbeddingHostQueryEmbeddingResponseReport,
   EmbeddingHostStatus,
 } from './embedding-host-shared';
+import type {
+  EmbeddingHostWebGpuAdapterRequest,
+  EmbeddingHostWebGpuAdapterResponseReport,
+} from './embedding-host-webgpu-adapter';
 import type { LoggingSettingsPayload } from './logging-shared';
 import {
   assertDesktopElectronApiKeyParity,
@@ -826,6 +830,14 @@ const embeddingHost = {
       ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.embeddingHost.status, listener);
     };
   },
+  onWebgpuAdapterRequest: (callback: (request: EmbeddingHostWebGpuAdapterRequest) => void) => {
+    const listener = (_event: unknown, request: EmbeddingHostWebGpuAdapterRequest) =>
+      callback(request);
+    ipcRenderer.on(DESKTOP_IPC_CHANNELS.embeddingHost.webgpuAdapterRequest, listener);
+    return () => {
+      ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.embeddingHost.webgpuAdapterRequest, listener);
+    };
+  },
   queryEmbedding: (
     payload: EmbeddingHostQueryEmbeddingPayload,
     options?: { readonly requestId: string }
@@ -844,6 +856,9 @@ const embeddingHost = {
   },
   reportStatus: (status: EmbeddingHostStatus): void => {
     ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportStatus, status);
+  },
+  reportWebgpuAdapterResponse: (response: EmbeddingHostWebGpuAdapterResponseReport): void => {
+    ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportWebgpuAdapterResponse, response);
   },
   reset: (): Promise<EmbeddingHostStatus> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.reset),

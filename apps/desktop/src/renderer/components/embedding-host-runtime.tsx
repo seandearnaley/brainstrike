@@ -25,7 +25,6 @@ import {
 import {
   getEmbeddingHostBridge,
   getPowerBridge,
-  recordEmbeddingHostWebGpu,
   reportDocumentEmbeddingsResponse,
   reportEmbeddingHostRuntimeStatus,
   reportEmbeddingHostRuntimeStatusForRuntimeId,
@@ -59,7 +58,7 @@ import {
   embeddingHostDevice,
   withResolvedHostDevice,
 } from './embedding-host-runtime-metadata';
-import { detectEmbeddingHostWebGpu } from './embedding-host-webgpu';
+import { answerWebGpuAdapterRequest } from './embedding-host-webgpu';
 import {
   resolveHydratedEmbeddingWorkerPreferences,
   resolveHydratedVectorDevicePreference,
@@ -395,18 +394,6 @@ interface StartEmbeddingHostWorkerOptions {
   readonly stopPromiseRef: MutableRefObject<Promise<void> | null>;
 }
 
-/** Loads the queue bootstrap and records this host's WebGPU detection; false once superseded. */
-async function prepareEmbeddingHostStart(isCurrent: () => boolean): Promise<boolean> {
-  await ensureEmbeddingQueueBootstrapLoaded(isCurrent);
-  if (!isCurrent()) {
-    return false;
-  }
-  // Settings recommends a model by this host's own WebGPU detection (BST-1993). It only
-  // reports availability: a native plan keeps its device and the saved preference is untouched.
-  recordEmbeddingHostWebGpu(await detectEmbeddingHostWebGpu());
-  return isCurrent();
-}
-
 async function startEmbeddingHostWorkerRuntime({
   backgroundAdmission,
   backgroundWorker,
@@ -440,7 +427,8 @@ async function startEmbeddingHostWorkerRuntime({
   }
 
   try {
-    if (!(await prepareEmbeddingHostStart(() => !(isDisposed() || isStopping())))) {
+    await ensureEmbeddingQueueBootstrapLoaded(() => !(isDisposed() || isStopping()));
+    if (isDisposed() || isStopping()) {
       return;
     }
     // Native pinned requests own their execution plan. Opening their request queue
@@ -924,6 +912,23 @@ export function EmbeddingHostRuntime(): null {
       }),
     []
   );
+
+  // Settings asks for this host's WebGPU detection with its own request and response, so
+  // status reports stay canonical for the renderer's runtime store (BST-1993).
+  useEffect(() => {
+    const bridge = getEmbeddingHostBridge();
+    const report = bridge?.reportWebgpuAdapterResponse;
+    if (!(bridge?.onWebgpuAdapterRequest && report)) {
+      return;
+    }
+    return bridge.onWebgpuAdapterRequest((request) => {
+      answerWebGpuAdapterRequest(request, report).catch((error: unknown) => {
+        logger.error('Embedding host could not answer a WebGPU adapter request', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    });
+  }, []);
 
   useEffect(() => {
     let disposed = false;

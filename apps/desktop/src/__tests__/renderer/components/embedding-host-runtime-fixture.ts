@@ -1,7 +1,6 @@
 import { resolve } from 'node:path';
 import { resetEmbeddingTelemetryForTests } from '@brainstrike/embedding-worker/testing';
 import { beforeEach, vi } from 'vitest';
-import { recordEmbeddingHostWebGpu } from '../../../renderer/components/embedding-host-bridge';
 
 const {
   commandListenerRef,
@@ -25,10 +24,12 @@ const {
   queryEmbeddingListenerRef,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
+  reportWebgpuAdapterResponseMock,
   setDetectedDevicePrefMock,
   startEmbeddingWorkerMock,
   stopMock,
   storeState,
+  webgpuAdapterListenerRef,
 } = vi.hoisted(() => ({
   commandListenerRef: {
     current: null as null | ((command: unknown) => void),
@@ -83,6 +84,7 @@ const {
   reportDocumentEmbeddingsResponseMock: vi.fn(),
   reportQueryEmbeddingResponseMock: vi.fn(),
   reportStatusMock: vi.fn(),
+  reportWebgpuAdapterResponseMock: vi.fn(),
   retireEmbeddingQueueMock: vi.fn(async () => {}),
   setDetectedDevicePrefMock: vi.fn(),
   startEmbeddingWorkerMock: vi.fn(),
@@ -96,6 +98,9 @@ const {
       storeState.devicePref = devicePref;
       setDetectedDevicePrefMock(devicePref);
     }),
+  },
+  webgpuAdapterListenerRef: {
+    current: null as null | ((request: unknown) => void),
   },
 }));
 
@@ -215,9 +220,9 @@ export function installEmbeddingHostRuntimeFixture(): void {
     retireEmbeddingQueueMock.mockReset().mockResolvedValue(undefined);
     generateDocumentEmbeddingsMock.mockReset();
     reportStatusMock.mockReset();
+    reportWebgpuAdapterResponseMock.mockReset();
     stopMock.mockResolvedValue(undefined);
     resetEmbeddingTelemetryForTests();
-    recordEmbeddingHostWebGpu({});
     currentDbRef.current = dbHandle;
     storeState.hasHydrated = false;
     storeState.devicePref = 'webgpu';
@@ -274,9 +279,16 @@ export function installEmbeddingHostRuntimeFixture(): void {
             queryEmbeddingListenerRef.current = null;
           };
         },
+        onWebgpuAdapterRequest: (callback: (request: unknown) => void) => {
+          webgpuAdapterListenerRef.current = callback;
+          return () => {
+            webgpuAdapterListenerRef.current = null;
+          };
+        },
         reportDocumentEmbeddingsResponse: reportDocumentEmbeddingsResponseMock,
         reportQueryEmbeddingResponse: reportQueryEmbeddingResponseMock,
         reportStatus: reportStatusMock,
+        reportWebgpuAdapterResponse: reportWebgpuAdapterResponseMock,
       },
     });
 
@@ -314,9 +326,11 @@ export {
   reportDocumentEmbeddingsResponseMock,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
+  reportWebgpuAdapterResponseMock,
   retireEmbeddingQueueMock,
   setDetectedDevicePrefMock,
   startEmbeddingWorkerMock,
   stopMock,
   storeState,
+  webgpuAdapterListenerRef,
 };

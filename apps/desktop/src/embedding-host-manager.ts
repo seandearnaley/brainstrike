@@ -14,6 +14,7 @@ import {
   joinQueryEmbeddingInterruption,
   queryResponseFailure,
 } from './embedding-host-inference-settlement';
+import { stopEmbeddingHostPowerSaveBlocker } from './embedding-host-power-save-blocker';
 import {
   createEmbeddingHostCommand,
   createEmbeddingHostDocumentEmbeddingsCancel,
@@ -29,6 +30,7 @@ import {
   EMBEDDING_HOST_STATUS_ADAPTER,
   EMBEDDING_HOST_STATUS_EVENT,
   EMBEDDING_HOST_STOPPED_RUNTIME_ID,
+  EMBEDDING_HOST_WEBGPU_ADAPTER_REQUEST_EVENT,
   type EmbeddingHostDocumentEmbeddingsPayload,
   type EmbeddingHostDocumentEmbeddingsRequest,
   type EmbeddingHostDocumentEmbeddingsResponseReport,
@@ -37,10 +39,13 @@ import {
   type EmbeddingHostQueryEmbeddingResponseReport,
   type EmbeddingHostStatus,
   type EmbeddingHostStatusReport,
-  readWebGpuAdapter,
   reportedHostFields,
 } from './embedding-host-shared';
 import { waitForHostStartup } from './embedding-host-startup';
+import {
+  EmbeddingHostWebGpuAdapterRequests,
+  type EmbeddingHostWebGpuAdapterResponseReport,
+} from './embedding-host-webgpu-adapter';
 import { HostedEmbeddingRequests } from './hosted-embedding-requests';
 import { createHostRequestChannel, type HostRequestChannel } from './platform/host-request-channel';
 import {
@@ -72,6 +77,7 @@ export interface EmbeddingHostManagerOptions {
 export class EmbeddingHostManager {
   private readonly hostedRequests: HostedEmbeddingRequests;
   private readonly startup = new EmbeddingHostStartup();
+  private readonly webgpuAdapterRequests = new EmbeddingHostWebGpuAdapterRequests();
   private disposed = false;
   private disposing = false;
   private reportedRuntimeId: string | null = null;
@@ -300,7 +306,24 @@ export class EmbeddingHostManager {
 
   /** Settings' WebGPU detection: an on-demand start, like a native request, loads no model. */
   async webgpuAdapter(): Promise<WebGpuAdapterAvailability> {
-    return readWebGpuAdapter(await this.ensureHostStarted({ waitForRunning: true }, false));
+    return await this.webgpuAdapterRequests.detect(
+      () => this.ensureHostStarted({ waitForRunning: true }, false),
+      (request) =>
+        this.requireHostWindow().webContents.send(
+          EMBEDDING_HOST_WEBGPU_ADAPTER_REQUEST_EVENT,
+          request
+        ),
+      HOST_READY_TIMEOUT_MS
+    );
+  }
+
+  acceptWebGpuAdapterResponseReport(
+    senderId: number,
+    report: EmbeddingHostWebGpuAdapterResponseReport
+  ): void {
+    if (this.lifecycle.getHostWindow()?.webContents.id === senderId) {
+      this.webgpuAdapterRequests.accept(report);
+    }
   }
 
   private async ensureHostStarted(
@@ -931,46 +954,11 @@ export class EmbeddingHostManager {
 
   private stopPowerSaveBlocker(): void {
     this.clearPendingIdleStop();
-    const blockerId = this.powerSaveBlockerId;
-    if (blockerId === null) {
-      return;
-    }
-    try {
-      if (powerSaveBlocker.isStarted(blockerId)) {
-        powerSaveBlocker.stop(blockerId);
-        logger.info('powerSaveBlocker stopped for idle embedding host', {
-          id: blockerId,
-          runtimeId: this.getStatus().runtimeId,
-        });
-      }
-      this.powerSaveBlockerId = null;
-    } catch (stopError) {
-      // Keep a verifiably active blocker for the next Stop; its non-null id prevents duplicates.
-      // Clear stale ids so syncPowerSaveBlocker can start a new blocker.
-      if (this.isPowerSaveBlockerStillActive(blockerId)) {
-        logger.warn('powerSaveBlocker stop failed; blocker still active, keeping id to retry', {
-          error: stopError,
-          id: blockerId,
-          runtimeId: this.getStatus().runtimeId,
-        });
-        return;
-      }
-      logger.warn('powerSaveBlocker stop failed; clearing stale blocker id', {
-        error: stopError,
-        id: blockerId,
-        runtimeId: this.getStatus().runtimeId,
-      });
-      this.powerSaveBlockerId = null;
-    }
-  }
-
-  private isPowerSaveBlockerStillActive(blockerId: number): boolean {
-    try {
-      return powerSaveBlocker.isStarted(blockerId);
-    } catch {
-      // The recheck itself failing means the id is unusable either way;
-      // treat it as stale so the manager cannot wedge.
-      return false;
+    if (this.powerSaveBlockerId !== null) {
+      this.powerSaveBlockerId = stopEmbeddingHostPowerSaveBlocker(
+        this.powerSaveBlockerId,
+        this.getStatus().runtimeId
+      );
     }
   }
 

@@ -84,6 +84,9 @@ interface EmbeddingHostStatus {
 
 /** Stop correlation belongs to the host protocol, not the canonical UI status.
  * Keep every other field so the status store still rejects unknown extensions. */
+/** The only fields beyond the canonical runtime status a desktop embedding-host status carries. */
+export const EMBEDDING_RUNTIME_STATUS_EXTENSION_KEYS: readonly string[] = ['embeddingRuntime'];
+
 function projectDesktopRuntimeStatus(status: EmbeddingHostStatus): EmbeddingRuntimeStatus {
   const runtimeStatus = { ...status };
   Reflect.deleteProperty(runtimeStatus, 'commandId');
@@ -308,7 +311,7 @@ export function useEmbeddingRuntimeController(
       desktopHost
         ? createBackgroundRuntimeStatus('embedding-host', 'embedding-host:stopped', 'stopped')
         : createStoppedLocalStatus(localRuntimeIdRef.current),
-      { allowedExtensionKeys: ['embeddingRuntime'] }
+      { allowedExtensionKeys: EMBEDDING_RUNTIME_STATUS_EXTENSION_KEYS }
     )
   );
   const backfillListenersRef = useRef(

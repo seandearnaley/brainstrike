@@ -65,6 +65,7 @@ export const MANUAL_PRODUCTION_REGISTRATIONS: readonly ManualIpcRegistration[] =
       [DESKTOP_IPC_CHANNELS.embeddingHost.reportDocumentEmbeddingsResponse, 'event'],
       [DESKTOP_IPC_CHANNELS.embeddingHost.reportQueryEmbeddingResponse, 'event'],
       [DESKTOP_IPC_CHANNELS.embeddingHost.webgpuAdapter, 'invoke'],
+      [DESKTOP_IPC_CHANNELS.embeddingHost.reportWebgpuAdapterResponse, 'event'],
       [DESKTOP_IPC_CHANNELS.llmHost.ensureStarted, 'invoke'],
       [DESKTOP_IPC_CHANNELS.llmHost.getStatus, 'invoke'],
       [DESKTOP_IPC_CHANNELS.llmHost.reportStatus, 'event'],
