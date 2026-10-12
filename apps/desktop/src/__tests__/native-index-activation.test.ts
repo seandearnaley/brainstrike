@@ -132,6 +132,29 @@ it('retains the assistant profile through index settings replacement and rebuild
   expect(mocks.closeProfile).toHaveBeenCalledOnce();
 });
 
+it('closes only the native owner for a root-data deletion and resumes on the same profile', async () => {
+  // BST-2001: the profile's attachment is the agent host, so a deletion that
+  // retired it replaced the host and interrupted its runs.
+  mocks.manager.attachCanonicalCollection.mockImplementation(
+    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
+  );
+  const { activation } = fixture();
+  try {
+    await activation.acquireProfile();
+    await activation.acquire();
+    await activation.closeNativeOwner();
+    expect(mocks.close).toHaveBeenCalledOnce();
+    expect(mocks.closeProfile).not.toHaveBeenCalled();
+    await activation.resume();
+    await activation.acquire();
+    expect(mocks.createProfileOwner).toHaveBeenCalledOnce();
+    expect(mocks.closeProfile).not.toHaveBeenCalled();
+  } finally {
+    await activation.close();
+  }
+  expect(mocks.closeProfile).toHaveBeenCalledOnce();
+});
+
 it('retries a failed host start once that host has released Root; Main retirement stays terminal', async () => {
   const { activation } = fixture();
   try {

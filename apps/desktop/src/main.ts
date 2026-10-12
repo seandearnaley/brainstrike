@@ -996,7 +996,7 @@ const nativeRootDataDeletion = createNativeRootDataDeletion({
     await nativeIndexActivation.getSearchAuthority();
     return nativeIndexActivation.captureAcknowledgedAuthority();
   },
-  closeOwner: () => nativeIndexActivation.close(),
+  closeOwner: () => nativeIndexActivation.closeNativeOwner(),
   deleteCanonicalRoot: async (mounted) => {
     const { deleteManagedRootData } = await import('@brainstrike/db');
     await deleteManagedRootData(await getDbHostManager().getDatabase(), {
