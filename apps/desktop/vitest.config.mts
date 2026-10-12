@@ -39,6 +39,7 @@ export function resolveDesktopTestShard(
  */
 export const ELECTRON_RUNTIME_TESTS = [
   'src/__tests__/assistant-server/native-assistant-retrieval.integration.test.ts',
+  'src/__tests__/assistant-server/native-markdown-grep-lines.integration.test.ts',
   'src/__tests__/assistant-server/query-self-scoped-callers.integration.test.ts',
 ];
 // Shared by integration and coverage so real child entrypoints keep emitted siblings.

@@ -175,25 +175,26 @@ function findSourceMatchEndOffset(
   return chunkOffset === chunkContent.length ? contentOffset : null;
 }
 
-/** Validate a supplied span with the chunker's existing matcher; do not relocate it. */
+/**
+ * A supplied chunk is valid only as the exact source span it claims; it is never
+ * relocated. Grep reads a chunk's lines as the file's lines from `startLine`, so
+ * text that differs from the span, even only in whitespace, would report hits on
+ * the wrong line (BST-1989).
+ */
 export function matchesChunkSourceRange(
   content: string,
   chunkContent: string,
   startOffset: number,
   endOffset: number
 ): boolean {
-  if (
-    !(Number.isSafeInteger(startOffset) && Number.isSafeInteger(endOffset)) ||
-    startOffset < 0 ||
-    endOffset <= startOffset ||
-    endOffset > content.length ||
-    chunkContent.length === 0
-  ) {
-    return false;
-  }
-  const source = content.slice(startOffset, endOffset);
-  const match = findSourceRangeForChunkContent(source, chunkContent, 0);
-  return match?.startOffset === 0 && match.endOffset === source.length;
+  return (
+    Number.isSafeInteger(startOffset) &&
+    Number.isSafeInteger(endOffset) &&
+    startOffset >= 0 &&
+    endOffset > startOffset &&
+    endOffset <= content.length &&
+    content.slice(startOffset, endOffset) === chunkContent
+  );
 }
 
 function findSourceMatchStartOffset(
