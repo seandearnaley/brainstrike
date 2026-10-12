@@ -6,7 +6,7 @@ The contract holds the rules; this file is the record behind them, extracted
 verbatim from the pre-distillation contract.
 
 Since BST-1980 the agent host owns every canvas as committed
-`tool.state.updated` rows in the thread's run log, and migration 146 dropped
+`tool.state.updated` rows in the thread's run log, and migration 147 dropped
 the PGlite table described below. The first two paragraphs are history.
 
 Persisted Canvas HTML is application-owned, local-first state in
@@ -38,6 +38,6 @@ by the `canvas://<canvasId>` chip on the tool card); reset clears it.
 
 Paired tests: `canvas-document-content.test.ts`, `manage-canvas-tool.test.ts`,
 `host-thread-canvases.test.ts`, `canvas-read-repository.test.ts`,
-`canvas-panel.test.tsx`, `migration-146-drop-pglite-chat-sidecars.test.ts` and
+`canvas-panel.test.tsx`, `migration-147-drop-pglite-chat-sidecars.test.ts` and
 the `host-thread-canvas-live` desktop E2E.
 

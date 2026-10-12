@@ -10,10 +10,10 @@ import { createPGliteTestDataDir } from './test-data-dir';
 
 const TABLE = 'brainstrike_assistant_edit_checkpoints';
 
-function migration147(): Migration {
-  const migration = migrations.find((candidate) => candidate.version === 147);
+function migration148(): Migration {
+  const migration = migrations.find((candidate) => candidate.version === 148);
   if (!migration) {
-    throw new Error('Migration 147 is missing.');
+    throw new Error('Migration 148 is missing.');
   }
   return migration;
 }
@@ -34,7 +34,7 @@ async function indexesOf(db: PGlite): Promise<string[]> {
   return result.rows.map((row) => row.indexname);
 }
 
-describe('migration 147: drop the unread edit-checkpoint journal (BST-1980)', () => {
+describe('migration 148: drop the unread edit-checkpoint journal (BST-1980)', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
@@ -44,7 +44,7 @@ describe('migration 147: drop the unread edit-checkpoint journal (BST-1980)', ()
     );
     runner = new MigrationRunner(db);
     await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 147));
+    await runner.up(migrations.filter((migration) => migration.version < 148));
   });
 
   afterEach(async () => db.close());
@@ -59,16 +59,16 @@ describe('migration 147: drop the unread edit-checkpoint journal (BST-1980)', ()
     );
     expect(await tableExists(db)).toBe(true);
 
-    await runner.runMigration(migration147());
-    await db.exec(migration147().up as string);
+    await runner.runMigration(migration148());
+    await db.exec(migration148().up as string);
 
     expect(await tableExists(db)).toBe(false);
     expect(await indexesOf(db)).toEqual([]);
   });
 
   it('down restores the empty migration-052 shape', async () => {
-    await runner.runMigration(migration147());
-    await db.exec(migration147().down as string);
+    await runner.runMigration(migration148());
+    await db.exec(migration148().down as string);
 
     expect(await tableExists(db)).toBe(true);
     expect((await db.query(`SELECT * FROM ${TABLE}`)).rows).toEqual([]);
@@ -81,7 +81,7 @@ describe('migration 147: drop the unread edit-checkpoint journal (BST-1980)', ()
   });
 });
 
-describe('migration 147 in the drizzle runner', () => {
+describe('migration 148 in the drizzle runner', () => {
   let db: PGlite;
 
   beforeEach(() => {

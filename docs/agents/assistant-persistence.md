@@ -1061,7 +1061,7 @@ messages from the provider prompt, leaving every raw message unchanged in
   `brainstrikeCompactionSummary`, validated by a strict guard. Migration 088 added
   `brainstrike_assistant_compaction_ranges` (FK-less, thread-scoped) storing the
   exact ordered id set, because persisted ids are opaque, not sortable range keys.
-  Nothing wrote it after the old desktop path was deleted; migration 146 dropped it.
+  Nothing wrote it after the old desktop path was deleted; migration 147 dropped it.
 - **Exclusion, not deletion.** `CompactionOverlayProcessor` implements
   `processInputStep` in the same per-call `inputProcessors` pipeline as
   `ToolProjectionRewriteProcessor`; Mastra fixes the ordering, so compaction runs
@@ -1229,7 +1229,7 @@ Canvas HTML is owned by the agent host: each version is a committed
 `tool.state.updated` row under one key per canvas in the thread's run log
 (`packages/host-capabilities/src/native-tools/canvas-state.ts`). Versions sharing
 `canvasId` form one document and the greatest integer `version` is current.
-Migration 146 dropped the PGlite `brainstrike_canvas_versions` table that
+Migration 147 dropped the PGlite `brainstrike_canvas_versions` table that
 migration 082 created.
 
 - The Canvas panel reads through `host.readCanvases` (`foldHostCanvases`). A thread

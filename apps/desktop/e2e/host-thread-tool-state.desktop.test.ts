@@ -50,7 +50,7 @@ async function enableModel(page: Page): Promise<void> {
 
 /**
  * Whether the legacy assistant's task list and canvas tables exist. Migration
- * 146 dropped them: a host thread owns both facts in its own log.
+ * 147 dropped them: a host thread owns both facts in its own log.
  */
 async function legacyToolStateTables(page: Page): Promise<Record<string, boolean>> {
   return await page.evaluate(async () => {

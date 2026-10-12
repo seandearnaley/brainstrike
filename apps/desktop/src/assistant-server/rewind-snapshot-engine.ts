@@ -4,7 +4,7 @@
  * This module is the FILE half of the rewind engine swap: everything that
  * touches the shadow-git snapshot backbone lives here, and everything about
  * tombstones/messages stays in `rewind-service.ts`, UNCHANGED. The former
- * edit-checkpoint journal plays no part (migration 147 dropped it).
+ * edit-checkpoint journal plays no part (migration 148 dropped it).
  *
  * THE PREVIEW→APPLY STALENESS GATE (the conflict-detection design, explicit
  * by charter):

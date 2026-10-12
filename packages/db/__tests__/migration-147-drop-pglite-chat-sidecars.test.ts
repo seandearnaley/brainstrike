@@ -14,10 +14,10 @@ const TABLES = [
   'brainstrike_canvas_versions',
 ] as const;
 
-function migration146(): Migration {
-  const migration = migrations.find((candidate) => candidate.version === 146);
+function migration147(): Migration {
+  const migration = migrations.find((candidate) => candidate.version === 147);
   if (!migration) {
-    throw new Error('Migration 146 is missing.');
+    throw new Error('Migration 147 is missing.');
   }
   return migration;
 }
@@ -40,7 +40,7 @@ async function columnsOf(db: PGlite, table: string): Promise<string[]> {
   return result.rows.map((row) => row.columnName);
 }
 
-describe('migration 146: drop the unwritten PGlite chat sidecars (BST-1980)', () => {
+describe('migration 147: drop the unwritten PGlite chat sidecars (BST-1980)', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
@@ -48,7 +48,7 @@ describe('migration 146: drop the unwritten PGlite chat sidecars (BST-1980)', ()
     db = await wasmLoader.createPGlite(createPGliteTestDataDir('pglite-test-drop-chat-sidecars'));
     runner = new MigrationRunner(db);
     await runner.initialize();
-    await runner.up(migrations.filter((migration) => migration.version < 146));
+    await runner.up(migrations.filter((migration) => migration.version < 147));
   });
 
   afterEach(async () => db.close());
@@ -69,8 +69,8 @@ describe('migration 146: drop the unwritten PGlite chat sidecars (BST-1980)', ()
     );
     expect(await presentTables(db)).toEqual([...TABLES]);
 
-    await runner.runMigration(migration146());
-    await db.exec(migration146().up as string);
+    await runner.runMigration(migration147());
+    await db.exec(migration147().up as string);
 
     expect(await presentTables(db)).toEqual([]);
     const indexes = await db.query('SELECT indexname FROM pg_indexes WHERE tablename = ANY($1)', [
@@ -80,8 +80,8 @@ describe('migration 146: drop the unwritten PGlite chat sidecars (BST-1980)', ()
   });
 
   it('down restores the empty migration-050/082/088 shapes', async () => {
-    await runner.runMigration(migration146());
-    await db.exec(migration146().down as string);
+    await runner.runMigration(migration147());
+    await db.exec(migration147().down as string);
 
     expect(await columnsOf(db, 'brainstrike_assistant_task_lists')).toEqual([
       'thread_id',
@@ -113,7 +113,7 @@ describe('migration 146: drop the unwritten PGlite chat sidecars (BST-1980)', ()
   });
 });
 
-describe('migration 146 in the drizzle runner', () => {
+describe('migration 147 in the drizzle runner', () => {
   let db: PGlite;
 
   beforeEach(() => {

@@ -144,8 +144,8 @@ import { migration142OpenaiAnthropicOpenrouterBedrockCatalogModels } from './142
 import { migration143AgentIdentityPalettes } from './143-agent-identity-palettes.js';
 import { migration144AgentFamilyColors } from './144-agent-family-colors.js';
 import { migration145DropToolProjectionRewrites } from './145-drop-tool-projection-rewrites.js';
-import { migration146DropPgliteChatSidecars } from './146-drop-pglite-chat-sidecars.js';
-import { migration147DropAssistantEditCheckpoints } from './147-drop-assistant-edit-checkpoints.js';
+import { migration147DropPgliteChatSidecars } from './147-drop-pglite-chat-sidecars.js';
+import { migration148DropAssistantEditCheckpoints } from './148-drop-assistant-edit-checkpoints.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -296,8 +296,8 @@ export const migrations: Migration[] = [
   migration143AgentIdentityPalettes,
   migration144AgentFamilyColors,
   migration145DropToolProjectionRewrites,
-  migration146DropPgliteChatSidecars,
-  migration147DropAssistantEditCheckpoints,
+  migration147DropPgliteChatSidecars,
+  migration148DropAssistantEditCheckpoints,
 ];
 
 // Export base migrations (without chunks table) for test environments

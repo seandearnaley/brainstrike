@@ -367,7 +367,7 @@ The agent host owns edit checkpoints. The first time a run changes a path, Core
 captures that path's prior state as a content-addressed StateStore blob and commits a
 `workspace.edit.recorded` row with the edit's attribution. Revert restores a run's
 paths to those baselines. The run log is the only record: thread deletion collects the
-blobs with the thread, and no PGlite table holds edits (migration 147 dropped the old
+blobs with the thread, and no PGlite table holds edits (migration 148 dropped the old
 journal). Desktop-only, capability-gated.
 
 - A baseline larger than `HOST_EDIT_BASELINE_MAX_BYTES`, a symlink or a non-file is
