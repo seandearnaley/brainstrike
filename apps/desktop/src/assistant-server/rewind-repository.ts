@@ -15,7 +15,7 @@ import {
   ASSISTANT_MESSAGE_TOMBSTONES_TABLE,
   MASTRA_MEMORY_TABLES,
 } from '@brainstrike/assistant-contract';
-import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
+import type { MainQueryHandle } from './main-query-handle';
 
 const RUNS_TABLE = 'brainstrike_assistant_thread_runs';
 
@@ -62,7 +62,7 @@ const TERMINAL_RUN_STATUSES = ['cancelled', 'completed', 'failed'] as const;
  * unmigrated database now raises 42P01 and the gate refuses by throwing.
  */
 export async function hasInFlightThreadRun(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   threadId: string
 ): Promise<boolean> {
   const result = await db.query<{ present: boolean }>(
@@ -92,8 +92,8 @@ interface MessageAnchorRow {
 /**
  * Resolve everything a rewind to `messageId` covers on the conversation side.
  * Returns `null` when the message does not exist IN THIS THREAD (a message id
- * belonging to another thread counts as missing — never a cross-thread leak,
- * mirroring `listRunRangeCheckpoints`'s anchor posture). Migration 117 owns
+ * belonging to another thread counts as missing — never a cross-thread leak).
+ * Migration 117 owns
  * `mastra_messages`, so its absence is no longer a case this coerces to
  * `null` (BST-1651) — an unmigrated database raises 42P01.
  *
@@ -102,7 +102,7 @@ interface MessageAnchorRow {
  * `Date` back in as a bound could exclude the very anchor row it came from.
  */
 export async function resolveRewindTarget(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   threadId: string,
   messageId: string
 ): Promise<RewindTarget | null> {
@@ -188,7 +188,7 @@ export async function resolveRewindTarget(
  * 42P01 rather than reporting a reason.
  */
 export async function resolveRewindRunRange(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   target: RewindTarget
 ): Promise<AssistantRewindRange> {
   // TURN GROUPING (BST-1163): a run carrying `turn_message_id` is in range
@@ -267,7 +267,7 @@ export async function resolveRewindRunRange(
  * against — the modal shows the resolved range, not the requested one.
  */
 export async function resolveRewindMessageForRun(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   threadId: string,
   runId: string
 ): Promise<string | null> {
@@ -325,7 +325,7 @@ export async function resolveRewindMessageForRun(
  * finalization and no longer exists either — callers re-check the batch.
  */
 export async function resolveEarliestBatchTarget(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   threadId: string,
   messageIds: readonly string[]
 ): Promise<RewindTarget | null> {
@@ -372,7 +372,7 @@ export interface TombstoneRow {
  * transaction; message IDs cannot tell which rewind happened last.
  */
 export async function insertTombstoneBatch(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   batch: {
     readonly messageIds: readonly string[];
     readonly revertId: string | null;
@@ -400,7 +400,7 @@ export async function insertTombstoneBatch(
 }
 
 export async function listTombstoneBatch(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   rewindId: string
 ): Promise<readonly TombstoneRow[]> {
   const result = await db.query<TombstoneRow>(
@@ -421,7 +421,7 @@ export async function listTombstoneBatch(
  * refused, not silently reordered.
  */
 export async function isLatestRewindBatch(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   threadId: string,
   rewindId: string
 ): Promise<boolean> {
@@ -437,7 +437,7 @@ export async function isLatestRewindBatch(
 }
 
 export async function deleteTombstoneBatch(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   rewindId: string
 ): Promise<readonly string[]> {
   const result = await db.query<{ messageId: string }>(
@@ -450,7 +450,7 @@ export async function deleteTombstoneBatch(
 }
 
 export async function listThreadTombstones(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   threadId: string
 ): Promise<readonly TombstoneRow[]> {
   const result = await db.query<TombstoneRow>(
@@ -465,7 +465,7 @@ export async function listThreadTombstones(
 }
 
 export async function deleteThreadTombstones(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   threadId: string
 ): Promise<readonly string[]> {
   const result = await db.query<{ messageId: string }>(

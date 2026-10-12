@@ -1,13 +1,7 @@
 /**
- * Assistant-server credential resolution (BST-1352): the typed
- * `resolveProviderCredential` reader and the string `resolveProviderApiKey`
- * migration shim built on it. The string surface must keep the EXACT
- * pre-BST-1352 observable behavior: env/stored keys resolve to strings, and a
- * stored non-api_key credential surfaces as the SecretReadError-shaped
- * `credential_type_unsupported` failure (never a stringified credential,
- * never a silent "not configured").
+ * Desktop credential resolution (BST-1352): the typed `resolveProviderCredential`
+ * reader the persona availability handler uses.
  */
-import { matchSecretReadError } from '@brainstrike/assistant-contract';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const logger = vi.hoisted(() => ({
@@ -38,10 +32,7 @@ vi.mock('../../provider-api-key', () => ({
   resolveProviderEnvKey: vi.fn(),
 }));
 
-import {
-  resolveProviderApiKey,
-  resolveProviderCredential,
-} from '../../assistant-server/provider-credentials';
+import { resolveProviderCredential } from '../../assistant-server/provider-credentials';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -88,43 +79,5 @@ describe('resolveProviderCredential (typed reader)', () => {
   it('returns undefined when nothing is configured', async () => {
     mockReadProviderCredential.mockResolvedValue(undefined);
     await expect(resolveProviderCredential('openai')).resolves.toBeUndefined();
-  });
-});
-
-describe('resolveProviderApiKey (string migration shim over the typed reader)', () => {
-  it('projects api_key credentials to the key string', async () => {
-    mockReadProviderCredential.mockResolvedValue({
-      key: 'the-key',
-      source: 'env',
-      type: 'api_key',
-    });
-    await expect(resolveProviderApiKey('openai')).resolves.toBe('the-key');
-  });
-
-  it('throws the credential_type_unsupported SecretReadError shape for a stored oauth credential', async () => {
-    // Pre-BST-1352 this came from SecretsService.getKey; the shim must keep
-    // the same structural classification (matchSecretReadError) so the HTTP
-    // path still maps it to the api_key_unreadable 400.
-    mockReadProviderCredential.mockResolvedValue({
-      access: 'secret-access',
-      expires: 1,
-      refresh: 'secret-refresh',
-      source: 'stored',
-      type: 'oauth',
-    });
-    let thrown: unknown;
-    try {
-      await resolveProviderApiKey('anthropic');
-    } catch (error) {
-      thrown = error;
-    }
-    const match = matchSecretReadError(thrown);
-    expect(match).toMatchObject({ code: 'credential_type_unsupported', provider: 'anthropic' });
-    expect((thrown as Error).message).not.toContain('secret-access');
-  });
-
-  it('returns undefined when nothing is configured', async () => {
-    mockReadProviderCredential.mockResolvedValue(undefined);
-    await expect(resolveProviderApiKey('openai')).resolves.toBeUndefined();
   });
 });

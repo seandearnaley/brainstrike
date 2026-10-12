@@ -168,7 +168,7 @@ describe('desktop IPC registry', () => {
       const handler = vi.fn();
       registry.registerAuthorizedInvoke(
         'agent',
-        'assistant:get-auth',
+        'agent:host-connect',
         { roles: ['visible-ui'] },
         handler
       );
@@ -176,7 +176,7 @@ describe('desktop IPC registry', () => {
 
       await expect(
         registeredHandler?.({ sender: { id: senderId }, senderFrame: { url: BUILT_RENDERER_URL } })
-      ).rejects.toThrow('Desktop IPC assistant:get-auth requires sender role visible-ui.');
+      ).rejects.toThrow('Desktop IPC agent:host-connect requires sender role visible-ui.');
       expect(handler).not.toHaveBeenCalled();
       clearWindowRoleByWebContentsId(senderId);
     }
@@ -331,12 +331,12 @@ describe('desktop IPC registry', () => {
     const registry = createRegistry(ipcMain);
 
     expect(() =>
-      registry.registerAuthorizedInvoke('agent', 'assistant:get-auth', { roles: [] }, vi.fn())
+      registry.registerAuthorizedInvoke('agent', 'agent:host-connect', { roles: [] }, vi.fn())
     ).toThrow('Desktop IPC sender policy must allow at least one window role.');
     expect(() =>
       registry.registerAuthorizedInvoke(
         'agent',
-        'assistant:get-auth',
+        'agent:host-connect',
         { roles: ['visible-ui', 'visible-ui'] },
         vi.fn()
       )

@@ -57,8 +57,9 @@ import { create } from 'zustand';
  * `liveRefreshNonce` (BST-1115 smoke feedback: "the ux needs to show changes
  * in real time — we need to review what the agent is doing") is how the
  * Last Turn view GROWS while the run that produced it is still going. The
- * edit-checkpoint journal is written in main per edit, so re-resolving the
- * SAME `agent-run` changeset mid-run returns the files journaled so far —
+ * live view diffs the work tree against the turn-start snapshot, so
+ * re-resolving the SAME `agent-run` changeset mid-run returns the files
+ * edited so far —
  * there is nothing to invent and no new IPC to add. `AssistantUiPanelWrapper`
  * bumps this (throttled) from the renderer's own run stream every time a
  * file-mutation tool completes, and `useChangeset` re-resolves on it exactly

@@ -45,7 +45,6 @@ function makeMessagesOnlyRepository(): AssistantThreadRepository {
         role: 'user' as const,
       },
     ]),
-    listThreadCheckpoints: vi.fn(async () => []),
     listThreadRunEvents: vi.fn(async () => []),
     listThreads: vi.fn(),
     recordRunUsage: vi.fn(),
@@ -404,7 +403,6 @@ describe('createAssistantThreadHistoryAdapter', () => {
           role: 'assistant',
         },
       ]),
-      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
       recordRunUsage: vi.fn(),
@@ -729,7 +727,6 @@ describe('createAssistantThreadHistoryAdapter', () => {
       getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => []),
-      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
       recordRunUsage: vi.fn(),
@@ -762,7 +759,6 @@ describe('createAssistantThreadHistoryAdapter', () => {
       getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => []),
-      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
       recordMessageParent,
@@ -819,7 +815,6 @@ describe('createAssistantThreadHistoryAdapter', () => {
           role: 'user',
         },
       ]),
-      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
       recordRunUsage: vi.fn(),
@@ -860,7 +855,6 @@ describe('createAssistantThreadHistoryAdapter', () => {
           role: 'assistant',
         },
       ]),
-      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => [
         {
           id: 'event-1',
@@ -946,7 +940,6 @@ describe('createAssistantThreadHistoryAdapter', () => {
           role: 'assistant',
         },
       ]),
-      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
       recordRunUsage: vi.fn(),
@@ -1032,7 +1025,6 @@ describe('createAssistantThreadHistoryAdapter', () => {
           role: 'assistant',
         },
       ]),
-      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
       recordRunUsage: vi.fn(),
@@ -1105,7 +1097,6 @@ describe('createAssistantThreadHistoryAdapter', () => {
           role: 'assistant',
         },
       ]),
-      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
       recordRunUsage: vi.fn(),
@@ -1168,7 +1159,6 @@ describe('createAssistantThreadHistoryAdapter', () => {
           role: 'tool',
         },
       ]),
-      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
       recordRunUsage: vi.fn(),
@@ -1240,7 +1230,6 @@ describe('createAssistantThreadHistoryAdapter', () => {
           role: 'user',
         },
       ]),
-      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => []),
       listThreads: vi.fn(),
       recordRunUsage: vi.fn(),
@@ -1288,7 +1277,6 @@ describe('createAssistantThreadHistoryAdapter', () => {
             role: 'assistant',
           },
         ]),
-        listThreadCheckpoints: vi.fn(async () => []),
         listThreadRunEvents: vi.fn(async () => []),
         listThreads: vi.fn(),
         recordRunUsage: vi.fn(),
@@ -1391,7 +1379,6 @@ describe('createAssistantThreadHistoryAdapter — Mastra v2 persisted dialect', 
       getThreadRunTurnMessageId: vi.fn(async () => null),
       listLatestThreadRuns: vi.fn(),
       listMessages: vi.fn(async () => args.messages),
-      listThreadCheckpoints: vi.fn(async () => []),
       listThreadRunEvents: vi.fn(async () => args.runEvents ?? []),
       listThreads: vi.fn(),
       recordRunUsage: vi.fn(),
@@ -2913,70 +2900,6 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     }
   );
 
-  it('lists thread edit checkpoints across all runs and omits before_content', async () => {
-    const db = createMockDb();
-    db.query.mockImplementation(async (sql: string) => {
-      if (sql.includes('FROM brainstrike_assistant_edit_checkpoints')) {
-        return {
-          rows: [
-            {
-              afterExisted: true,
-              afterHash: 'after-hash',
-              beforeExisted: false,
-              beforeHash: null,
-              beforeSize: null,
-              captureStatus: 'created',
-              fromPath: null,
-              id: 'ckpt-1',
-              occurredAt: new Date('2026-04-22T10:00:00Z'),
-              op: 'write',
-              path: '/new.ts',
-              resourceId: '/tmp/workspace-a',
-              revertedAt: null,
-              rootId: 'root-1',
-              runId: 'run-1',
-              threadId: 'thread-1',
-              toolCallId: 'call-1',
-              toolName: 'brainstrike.writeWorkspaceFile',
-            },
-          ],
-        };
-      }
-      return { rows: [] };
-    });
-    const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
-
-    const checkpoints = await repository.listThreadCheckpoints('thread-1');
-
-    expect(checkpoints).toHaveLength(1);
-    expect(checkpoints[0]).toEqual({
-      afterExisted: true,
-      afterHash: 'after-hash',
-      beforeExisted: false,
-      beforeHash: null,
-      beforeSize: null,
-      captureStatus: 'created',
-      fromPath: null,
-      id: 'ckpt-1',
-      occurredAt: '2026-04-22T10:00:00.000Z',
-      op: 'write',
-      path: '/new.ts',
-      resourceId: '/tmp/workspace-a',
-      revertedAt: null,
-      rootId: 'root-1',
-      runId: 'run-1',
-      threadId: 'thread-1',
-      toolCallId: 'call-1',
-      toolName: 'brainstrike.writeWorkspaceFile',
-    });
-    expect(checkpoints[0]).not.toHaveProperty('beforeContent');
-    // Queried by thread only (across all runs), never narrowed to a single run.
-    const checkpointCall = db.query.mock.calls.find((call) =>
-      String(call[0]).includes('brainstrike_assistant_edit_checkpoints')
-    );
-    expect(String(checkpointCall?.[0])).not.toContain('LIMIT 1');
-  });
-
   it('probes for the run table before writes and never creates schema', async () => {
     const db = createMockDb();
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
@@ -3243,31 +3166,6 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     } finally {
       await bootstrapDb.close();
       await migratedDb.close();
-    }
-  });
-
-  it('bootstraps the migration-088 compaction range shape for thread deletion', async () => {
-    const dataDir = createPgliteTestDataDir('compaction-range-bootstrap-shape');
-    const db = await createMigratedTestPGlite(dataDir);
-    try {
-      const repository = createPgliteAssistantThreadRepository(db as DbHandle);
-      await repository.createThread('workspace-a');
-
-      const columns = await db.query<{ column_name: string }>(
-        `SELECT column_name
-         FROM information_schema.columns
-         WHERE table_name = 'brainstrike_assistant_compaction_ranges'
-         ORDER BY ordinal_position`
-      );
-      expect(columns.rows.map((row) => row.column_name)).toEqual([
-        'compaction_message_id',
-        'thread_id',
-        'compacted_message_ids',
-        'kind',
-        'created_at',
-      ]);
-    } finally {
-      await db.close();
     }
   });
 
@@ -4537,13 +4435,6 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       [thread.id]
     );
     await db.query(
-      `INSERT INTO brainstrike_canvas_versions
-        (id, canvas_id, thread_id, resource_id, title, html, version, created_by)
-       VALUES ('canvas-version-delete', 'canvas-delete', $1, 'workspace-a',
-        'Delete me', '<p>Delete me</p>', 1, 'assistant')`,
-      [thread.id]
-    );
-    await db.query(
       `INSERT INTO brainstrike_tool_call_telemetry
         (id, thread_id, run_id, tool_id, model_facing_chars)
        VALUES ('tool-telemetry-delete', $1, 'run-delete', 'brainstrike.grepSearch', 42)`,
@@ -4554,12 +4445,6 @@ describe('createPgliteAssistantThreadRepository integration', () => {
         (id, thread_id, run_id, model, provider, estimated_prompt_tokens,
          final_step_prompt_tokens)
        VALUES ('calibration-delete', $1, 'run-delete', 'model', 'provider', 42, 50)`,
-      [thread.id]
-    );
-    await db.query(
-      `INSERT INTO brainstrike_assistant_compaction_ranges
-        (compaction_message_id, thread_id, compacted_message_ids, kind)
-       VALUES ('summary-delete', $1, '["message-delete"]'::jsonb, 'agentic')`,
       [thread.id]
     );
 
@@ -4583,16 +4468,10 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       countRows(db, 'brainstrike_assistant_message_tombstones', 'thread_id', thread.id)
     ).resolves.toBe(0);
     await expect(
-      countRows(db, 'brainstrike_canvas_versions', 'thread_id', thread.id)
-    ).resolves.toBe(0);
-    await expect(
       countRows(db, 'brainstrike_tool_call_telemetry', 'thread_id', thread.id)
     ).resolves.toBe(0);
     await expect(
       countRows(db, 'brainstrike_token_estimate_calibration', 'thread_id', thread.id)
-    ).resolves.toBe(0);
-    await expect(
-      countRows(db, 'brainstrike_assistant_compaction_ranges', 'thread_id', thread.id)
     ).resolves.toBe(0);
   });
 
@@ -4612,17 +4491,6 @@ describe('createPgliteAssistantThreadRepository integration', () => {
           (id, thread_id, content, role, type, "createdAt", "resourceId")
          VALUES ($1, $2, '{}'::jsonb, 'user', 'text', NOW(), 'workspace-a')`,
         [`message-${thread.id}`, thread.id]
-      );
-      await db.query(
-        `INSERT INTO brainstrike_assistant_edit_checkpoints (
-           id, run_id, resource_id, thread_id, tool_name, op, root_id, path,
-           before_existed, before_content, before_size, after_existed,
-           capture_status, occurred_at, created_at, updated_at
-         ) VALUES (
-           $1, 'run-1', 'workspace-a', $2, 'brainstrike.writeWorkspaceFile', 'write',
-           'root-1', '/a.txt', true, 'BEFORE', 6, true, 'ok', NOW(), NOW(), NOW()
-         )`,
-        [`checkpoint-${thread.id}`, thread.id]
       );
       await db.query(
         `INSERT INTO brainstrike_assistant_thread_placements
@@ -4645,12 +4513,6 @@ describe('createPgliteAssistantThreadRepository integration', () => {
         [`message-${thread.id}`, thread.id]
       );
       await db.query(
-        `INSERT INTO brainstrike_canvas_versions
-          (id, canvas_id, thread_id, resource_id, title, html, version, created_by)
-         VALUES ($1, $2, $3, 'workspace-a', 'Bulk canvas', '<p>canvas</p>', 1, 'assistant')`,
-        [`canvas-version-${thread.id}`, `canvas-${thread.id}`, thread.id]
-      );
-      await db.query(
         `INSERT INTO brainstrike_tool_call_telemetry
           (id, thread_id, run_id, tool_id, model_facing_chars)
          VALUES ($1, $2, $3, 'brainstrike.globWorkspace', 17)`,
@@ -4663,12 +4525,6 @@ describe('createPgliteAssistantThreadRepository integration', () => {
          VALUES ($1, $2, $3, 'model', 'provider', 17, 20)`,
         [`calibration-${thread.id}`, thread.id, `run-${thread.id}`]
       );
-      await db.query(
-        `INSERT INTO brainstrike_assistant_compaction_ranges
-          (compaction_message_id, thread_id, compacted_message_ids, kind)
-         VALUES ($1, $2, $3::jsonb, 'deterministic')`,
-        [`summary-${thread.id}`, thread.id, JSON.stringify([`message-${thread.id}`])]
-      );
     }
 
     await repository.deleteThreads([first.id, second.id]);
@@ -4677,13 +4533,8 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     await expect(countRows(db, 'mastra_threads', 'id', second.id)).resolves.toBe(0);
     await expect(countRows(db, 'mastra_threads', 'id', survivor.id)).resolves.toBe(1);
     await expect(countRows(db, 'mastra_messages', 'thread_id', first.id)).resolves.toBe(0);
-    await expect(
-      countRows(db, 'brainstrike_assistant_edit_checkpoints', 'thread_id', second.id)
-    ).resolves.toBe(0);
+    await expect(countRows(db, 'mastra_messages', 'thread_id', second.id)).resolves.toBe(0);
     await expect(countRows(db, 'mastra_messages', 'thread_id', survivor.id)).resolves.toBe(1);
-    await expect(
-      countRows(db, 'brainstrike_assistant_edit_checkpoints', 'thread_id', survivor.id)
-    ).resolves.toBe(1);
     await expect(
       countRows(db, 'brainstrike_assistant_thread_placements', 'thread_id', first.id)
     ).resolves.toBe(0);
@@ -4711,15 +4562,6 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     await expect(
       countRows(db, 'brainstrike_assistant_message_parents', 'thread_id', survivor.id)
     ).resolves.toBe(1);
-    await expect(countRows(db, 'brainstrike_canvas_versions', 'thread_id', first.id)).resolves.toBe(
-      0
-    );
-    await expect(
-      countRows(db, 'brainstrike_canvas_versions', 'thread_id', second.id)
-    ).resolves.toBe(0);
-    await expect(
-      countRows(db, 'brainstrike_canvas_versions', 'thread_id', survivor.id)
-    ).resolves.toBe(1);
     await expect(
       countRows(db, 'brainstrike_tool_call_telemetry', 'thread_id', first.id)
     ).resolves.toBe(0);
@@ -4737,15 +4579,6 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ).resolves.toBe(0);
     await expect(
       countRows(db, 'brainstrike_token_estimate_calibration', 'thread_id', survivor.id)
-    ).resolves.toBe(1);
-    await expect(
-      countRows(db, 'brainstrike_assistant_compaction_ranges', 'thread_id', first.id)
-    ).resolves.toBe(0);
-    await expect(
-      countRows(db, 'brainstrike_assistant_compaction_ranges', 'thread_id', second.id)
-    ).resolves.toBe(0);
-    await expect(
-      countRows(db, 'brainstrike_assistant_compaction_ranges', 'thread_id', survivor.id)
     ).resolves.toBe(1);
     // The op-log seam (BST-993): one tombstone per actually-deleted thread.
     await expect(countRows(db, 'brainstrike_mind_ops', 'entity_id', first.id)).resolves.toBe(1);
@@ -4807,43 +4640,6 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     await expect(countRows(db, 'mastra_threads', 'id', thread.id)).resolves.toBe(1);
     // A rejected bulk delete must not write tombstones for threads it kept.
     await expect(countRows(db, 'brainstrike_mind_ops', 'entity_id', thread.id)).resolves.toBe(0);
-  });
-
-  it('purges edit-checkpoint rows for the deleted thread in real PGlite', async () => {
-    // The checkpoint journal has NO FK to mastra_threads (bare-PGlite migration
-    // constraint), so deleteThread must explicitly delete its rows or up to
-    // 32 MB/thread of before_content is stranded until factory reset.
-    pgliteDataDir = createPgliteTestDataDir('assistant-thread-delete-checkpoints');
-    const db = await createMigratedTestPGlite(pgliteDataDir);
-    const repository = createPgliteAssistantThreadRepository(db as DbHandle);
-    const thread = await repository.createThread('workspace-a');
-
-    const insertCheckpoint = async (id: string, threadId: string): Promise<void> => {
-      await db.query(
-        `INSERT INTO brainstrike_assistant_edit_checkpoints (
-           id, run_id, resource_id, thread_id, tool_name, op, root_id, path,
-           before_existed, before_content, before_size, after_existed,
-           capture_status, occurred_at, created_at, updated_at
-         ) VALUES (
-           $1, 'run-1', 'workspace-a', $2, 'brainstrike.writeWorkspaceFile', 'write',
-           'root-1', '/a.txt', true, 'BEFORE', 6, true, 'ok', NOW(), NOW(), NOW()
-         )`,
-        [id, threadId]
-      );
-    };
-    await insertCheckpoint('ckpt-1', thread.id);
-    await insertCheckpoint('ckpt-2', thread.id);
-    // A sibling thread's checkpoint must survive the delete.
-    await insertCheckpoint('ckpt-other', 'other-thread');
-
-    await repository.deleteThread(thread.id);
-
-    await expect(
-      countRows(db, 'brainstrike_assistant_edit_checkpoints', 'thread_id', thread.id)
-    ).resolves.toBe(0);
-    await expect(
-      countRows(db, 'brainstrike_assistant_edit_checkpoints', 'thread_id', 'other-thread')
-    ).resolves.toBe(1);
   });
 
   it('persists curated metadata without changing conversational recency', async () => {
@@ -5440,19 +5236,6 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       status: 'failed',
       timestamp: '2026-07-16T10:00:07.000Z',
     } satisfies AssistantRunEvent);
-    await db.query(
-      `INSERT INTO brainstrike_assistant_edit_checkpoints
-        (id, run_id, resource_id, thread_id, tool_name, op, root_id, path,
-         before_existed, after_existed, capture_status, reverted_at,
-         occurred_at, created_at, updated_at)
-       VALUES
-        ('cp-1', 'run-1', 'workspace-a', $1, 'writeWorkspaceFile', 'write', 'root-1',
-         'src/a.ts', true, true, 'ok', NULL, NOW(), NOW(), NOW()),
-        ('cp-2', 'run-1', 'workspace-a', $1, 'writeWorkspaceFile', 'write', 'root-1',
-         'src/b.ts', true, true, 'ok', NOW(), NOW(), NOW(), NOW())`,
-      [thread.id]
-    );
-
     // Run 2: newer, failed transport, no usage/events, labeled failed by revert.
     await repository.createThreadRun({
       id: 'run-2' as HostRunId,
@@ -5493,7 +5276,6 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     expect(run1).toMatchObject({
       billedCostUsd: 0.5,
       durationMs: 90_000,
-      editCount: 2,
       // The second usage row carried no provider-reported cost, so its tokens
       // surface as the estimated remainder alongside the PARTIAL exact figure.
       estimatedInputTokens: 400,
@@ -5506,23 +5288,24 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       outcomeVerdict: null,
       outputTokens: 300,
       provider: 'anthropic',
-      revertedEditCount: 1,
       runId: 'run-1',
       status: 'completed',
       threadId: thread.id,
       toolCallCount: 3,
     });
+    // PGlite keeps no edit record, so its rows omit the edit counts rather
+    // than claim zero; only agent-host rows carry them.
+    expect(run1).not.toHaveProperty('editCount');
+    expect(run1).not.toHaveProperty('revertedEditCount');
     expect(run1?.startedAt.toISOString()).toBe('2026-07-16T10:00:00.000Z');
     expect(run1?.completedAt?.toISOString()).toBe('2026-07-16T10:01:30.000Z');
 
     expect(run2).toMatchObject({
-      editCount: 0,
       failedToolCallCount: 0,
       inputTokens: 0,
       outcomeSource: 'edit_revert',
       outcomeVerdict: 'failed',
       outputTokens: 0,
-      revertedEditCount: 0,
       runId: 'run-2',
       status: 'failed',
       toolCallCount: 0,

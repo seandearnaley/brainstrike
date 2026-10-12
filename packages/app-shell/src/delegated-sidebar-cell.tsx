@@ -1,79 +1,11 @@
-import { getAgentColorStyles } from '@brainstrike/types/agent-color';
-import { Button } from '@brainstrike/ui';
-import { type CSSProperties, useSyncExternalStore } from 'react';
-import { getDelegatedColorPresentation } from './agent-color-presentation';
-import { ASSISTANT_THREAD_ICON_PRESENTATION } from './assistant-thread-presentation';
 import type { DelegatedSidebarRow } from './delegated-sidebar-rows';
-import { threadWorkspaceNavigation } from './thread-workspace/live-thread-workspace-navigation';
-import { useDelegatedConversationRoot } from './use-delegated-conversation-root';
 
-const Icon = ASSISTANT_THREAD_ICON_PRESENTATION.message.iconComponent;
-const emptySubscribe = () => () => undefined;
-function ChildRow({ row }: { readonly row: Extract<DelegatedSidebarRow, { kind: 'delegated' }> }) {
-  const root = useDelegatedConversationRoot(row.node.ownerResourceId, row.node.rootThreadId);
-  const snapshot = useSyncExternalStore(root?.store.subscribe ?? emptySubscribe, () =>
-    root?.store.getConversation(row.node.threadId)
-  );
-  const unread = useSyncExternalStore(
-    root?.store.subscribe ?? emptySubscribe,
-    () => root?.store.hasUnread(row.node.threadId) ?? false
-  );
-  const status = snapshot?.update.message.status.type;
-  const needsInput = snapshot ? status === 'requires-action' : row.needsInput;
-  const appearance = getDelegatedColorPresentation(row.node.color);
-  return (
-    <button
-      className={`flex w-full min-w-0 items-center gap-2 rounded px-2 py-1 text-left text-xs ${appearance.idleClassName}`}
-      data-agent-color={row.node.color}
-      onClick={() =>
-        threadWorkspaceNavigation.open(row.node.ownerResourceId, row.node.rootThreadId, row.id)
-      }
-      style={appearance.style}
-      type="button"
-    >
-      <span
-        className={`flex size-5 shrink-0 items-center justify-center rounded-md border ${appearance.markClassName}`}
-      >
-        <Icon aria-hidden="true" className="size-3.5" />
-      </span>
-      <span className="truncate">{row.node.displayName}</span>
-      {row.parentColor ? (
-        <span
-          aria-hidden="true"
-          className="bs-agent-parent-cue size-2 shrink-0 rounded-full"
-          style={getAgentColorStyles(row.parentColor) as CSSProperties}
-          title="Parent agent color"
-        />
-      ) : null}
-      {unread ? (
-        <span aria-label="Unread child activity" className="shrink-0 text-xs" role="img">
-          •
-        </span>
-      ) : null}
-      <span className="ml-auto shrink-0 text-muted-foreground">
-        {status === 'running' ? 'Working' : needsInput ? 'Needs input' : 'Child'}
-      </span>
-    </button>
-  );
-}
+/** An expanded host thread's loading, empty or error state beneath it. */
 export function DelegatedSidebarCell({
   row,
-  onShowMore,
 }: {
-  readonly row: Exclude<DelegatedSidebarRow, { kind: 'host-child' }>;
-  readonly onShowMore: (id: string) => void;
+  readonly row: Extract<DelegatedSidebarRow, { kind: 'delegated-state' }>;
 }) {
-  if (row.kind === 'delegated') {
-    return <ChildRow row={row} />;
-  }
-  const moreFor = row.moreFor;
-  if (moreFor) {
-    return (
-      <Button onClick={() => onShowMore(moreFor)} size="sm" variant="ghost">
-        {row.label}
-      </Button>
-    );
-  }
   return (
     <p
       className={`px-2 py-1 text-xs ${row.isError ? 'text-destructive' : 'text-muted-foreground'}`}

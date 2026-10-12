@@ -47,10 +47,4 @@ describe('snapshot service lifecycle wiring', () => {
     );
     expect(source.indexOf('startSnapshotStartupMaintenance({', maintenanceIndex + 1)).toBe(-1);
   });
-
-  it('threads the snapshot service into the assistant-checkpoint IPC handlers lazily (T4 undo engine)', () => {
-    expect(source).toMatch(
-      /registerAssistantCheckpointIpcHandlers\(\{\s*resolveSnapshotService: \(\) => snapshotService,\s*\}\)/
-    );
-  });
 });

@@ -770,7 +770,7 @@ describe('shared conversation panel', () => {
   });
 
   it('routes a running child grant directly to its owner without appending or cancelling', async () => {
-    const dispatch = vi.fn<DecisionRoute['dispatch']>().mockResolvedValue('delivered');
+    const dispatch = vi.fn<DecisionRoute['dispatch']>().mockResolvedValue('sent');
     const onNew = vi.fn<ExternalStoreAdapter<ThreadMessageLike>['onNew']>(async () => undefined);
     const onCancel = vi.fn(async () => undefined);
     const grantCategoryForSession = vi.fn();

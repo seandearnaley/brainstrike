@@ -12,7 +12,7 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const desktopRoot = path.resolve(scriptDirectory, '..');
 const repoRoot = path.resolve(desktopRoot, '..', '..');
 const resultsPath = path.join(scriptDirectory, 'measure-boot-results.json');
-const bootMarkPattern = /^BOOT_MARK (app-ready|assistant-listening) ([0-9]+(?:\.[0-9]+)?)$/;
+const bootMarkPattern = /^BOOT_MARK (app-ready|agent-host-ready) ([0-9]+(?:\.[0-9]+)?)$/;
 const minimumRuns = 10;
 // Electron's own SIGTERM handler in apps/desktop/src/main.ts runs a graceful
 // shutdown bounded by a 5000ms forced-exit ceiling (SIGNAL_SHUTDOWN_TIMEOUT_MS).
@@ -51,7 +51,7 @@ function printUsage() {
   process.stdout.write('  --help               Show this help\n\n');
   process.stdout.write(
     'Methodology notes:\n' +
-      '  - Measures the unpackaged main-process boot up to assistant-listen; \n' +
+      '  - Measures the unpackaged main-process boot up to agent-host ready; \n' +
       '    no ELECTRON_IS_E2E_TEST / --test-mode (E2E test mode changes launch \n' +
       '    mode, macOS activation policy, secret handling, and preference \n' +
       "    overrides). Profile isolation uses only Electron's native \n" +
@@ -60,7 +60,7 @@ function printUsage() {
       '    stand: BRAINSTRIKE_DISABLE_FILE_LOGS=1 (skips file-log sink \n' +
       "    construction), --no-sandbox (matches this repo's own unpackaged \n" +
       '    `pnpm start` launch configuration; a packaged app runs sandboxed), \n' +
-      '    and quit-after-listen (no window/renderer work is in the number).\n' +
+      '    and quit at agent-host ready (no window/renderer work is in the number).\n' +
       '  - Runs one discarded warm-up launch first (profile creation + PGlite \n' +
       '    migrations happen once, not once per measured run), then reuses that \n' +
       '    same warmed profile directory for all --n measured runs. This reports \n' +
@@ -302,7 +302,7 @@ async function runOnce({ appPath, binaryPath, timeoutMs, userDataDirectory }) {
         rememberOutput(`stdout: ${stdoutBuffer}`);
         parseOutputLine(stdoutBuffer, marks);
       }
-      if (marks['app-ready'] === undefined || marks['assistant-listening'] === undefined) {
+      if (marks['app-ready'] === undefined || marks['agent-host-ready'] === undefined) {
         reject(
           new Error(
             `Electron exited before all boot marks (code=${String(code)}, signal=${String(signal)}).\n${outputTail.join('\n')}`
@@ -319,8 +319,8 @@ async function runOnce({ appPath, binaryPath, timeoutMs, userDataDirectory }) {
         return;
       }
       resolve({
+        agentHostReadyMs: marks['agent-host-ready'],
         appReadyMs: marks['app-ready'],
-        assistantListeningMs: marks['assistant-listening'],
       });
     });
 
@@ -373,7 +373,7 @@ function printSummary(label, runCount, summaries) {
   process.stdout.write(`\nBoot measurements: ${label} (n=${runCount})\n`);
   console.table([
     { mark: 'app-ready', ...summaries.appReady },
-    { mark: 'assistant-listening', ...summaries.assistantListening },
+    { mark: 'agent-host-ready', ...summaries.agentHostReady },
   ]);
 }
 
@@ -421,7 +421,7 @@ async function main() {
       const run = await runOnce({ appPath, binaryPath, timeoutMs, userDataDirectory });
       runs.push(run);
       process.stdout.write(
-        `app-ready=${run.appReadyMs.toFixed(3)} ms, assistant-listening=${run.assistantListeningMs.toFixed(3)} ms\n`
+        `app-ready=${run.appReadyMs.toFixed(3)} ms, agent-host-ready=${run.agentHostReadyMs.toFixed(3)} ms\n`
       );
     }
   } finally {
@@ -429,8 +429,8 @@ async function main() {
   }
 
   const summaries = {
+    agentHostReady: summarize(runs.map((run) => run.agentHostReadyMs)),
     appReady: summarize(runs.map((run) => run.appReadyMs)),
-    assistantListening: summarize(runs.map((run) => run.assistantListeningMs)),
   };
   // Numbers are printed before any persistence work: a disk/permissions
   // failure on the write must not destroy minutes of idle-host measurement.

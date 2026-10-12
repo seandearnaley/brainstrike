@@ -11,50 +11,11 @@
  * satisfies it structurally (the pre-B1 `Pick<LlmHostManager, ...>` alias
  * asserted the same compatibility from the desktop side).
  */
-import type {
-  AgentMessage,
-  AssistantToolApprovalAction,
-  AssistantToolResumeAction,
-  MastraAgentRuntimeOptions,
-  ProviderAuthInput,
-  RuntimeData,
-} from '@brainstrike/agent';
 import type { LocalLlmHostClient } from '@brainstrike/agent/local-llm';
 import type { ProviderCredential } from '@brainstrike/assistant-contract';
-import type { AssistantChildFollowupAction } from '@brainstrike/assistant-contract/child-followup';
-import type { AgentStreamResult } from './types.js';
 
 type LocalLlmGenerateArgs = Parameters<LocalLlmHostClient['generate']>;
 type LocalLlmWarmupArgs = Parameters<LocalLlmHostClient['warmup']>;
-
-/** Process-local options independent of serialized RuntimeData, including host capabilities. */
-type SerializableIndependentStreamRuntimeOptions = Pick<
-  MastraAgentRuntimeOptions,
-  | 'backgroundTaskScope'
-  | 'conversationBinding'
-  | 'memory'
-  | 'storage'
-  | 'toolOutputArtifactInlineMaxSerializedCharsByToolName'
-  | 'toolOutputArtifactStore'
->;
-
-export interface AssistantStreamRuntimeOptions extends SerializableIndependentStreamRuntimeOptions {
-  /**
-   * Provider auth travels as a direct stream option, never through RuntimeData
-   * or RequestContext: custom_fetch may contain a closure, which serialization
-   * would silently discard.
-   */
-  authInput?: ProviderAuthInput;
-  /** Live-run MCP Apps admission observer; process-local like `mcpHost`. */
-  mcpAppAdmission?: NonNullable<MastraAgentRuntimeOptions['mcpAppAdmission']>;
-  /**
-   * The live host object graph is process-local and cannot survive request
-   * serialization. Hosts inject it directly at the stream boundary.
-   */
-  mcpHost?: NonNullable<MastraAgentRuntimeOptions['mcpHost']>;
-  /** Trusted host task authorities (BST-1566); process-local like `mcpHost`. */
-  mcpTaskTracking?: NonNullable<MastraAgentRuntimeOptions['mcpTaskTracking']>;
-}
 
 export interface AssistantLlmHostManager {
   generateForMain(
@@ -129,48 +90,10 @@ export type ProviderCredentialReader = (
 // ./provider-credential-projection — ports.ts stays a structural surface.
 
 /**
- * Stream-initializer capability (BST-972 B3): produce the turn's
- * AgentStreamResult from the prepared request core. Injected so
- * runAssistantTurn moves BEFORE the initializer implementation does — the
- * desktop composes agent-stream-init (with its MCP-config load, tool floor,
- * and memory factory closed over) until B4 moves that engine too.
+ * A workspace text-file reader with the same containment/size/binary guards as
+ * the read tools (implemented host-side; context injectors route through it).
  */
-export type StreamInitializer = (params: {
-  readonly childFollowupAction?: AssistantChildFollowupAction | undefined;
-  readonly apiKey: string | undefined;
-  /**
-   * Provider auth input (BST-1352), threaded as a DIRECT parameter end to end
-   * (runAssistantTurn → initializer → stream options). NEVER placed on
-   * `runtimeData`/RequestContext — toJSON drops functions, so a custom_fetch
-   * closure would vanish silently.
-   */
-  readonly authInput?: ProviderAuthInput | undefined;
-  readonly messages: AgentMessage[];
-  readonly runId: string | undefined;
-  readonly runtimeData: RuntimeData;
-  readonly signal: AbortSignal;
-  readonly toolApprovalAction?: AssistantToolApprovalAction | undefined;
-  readonly toolResumeAction?: AssistantToolResumeAction | undefined;
-}) => Promise<AgentStreamResult>;
-
-/**
- * RunPersistencePort (partial, BST-972 B3): terminal run-row status. The
- * desktop adapter is run-persistence.ts's recordDesktopAssistantThreadRunStatus
- * with db-main's getDatabase closed over; failures are logged there, never
- * thrown (the write is bookkeeping relative to the served turn).
- *
- * PROVENANCE RULE (docs/agents/assistant-persistence.md, settled 2026-07-24 —
- * carried onto this port deliberately): the run relations are created ONLY by
- * the renderer's bootstrap, and holding a runId implies they exist because
- * repository.createThreadRun is the sole minting site. ANY new producer that
- * mints runIds — an in-process caller of this service is exactly the "second
- * producer" hazard that section names — must guarantee that schema bootstrap
- * itself before its first write.
- */
-export interface RunPersistencePort {
-  readonly recordThreadRunStatus: (
-    runId: string,
-    status: 'cancelled' | 'completed' | 'failed',
-    error: string | null
-  ) => Promise<void>;
-}
+export type WorkspaceFileReader = (args: {
+  rootPath: string;
+  requestedPath: string;
+}) => Promise<{ content: string; path: string; size: number }>;

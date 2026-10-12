@@ -2,12 +2,7 @@
 // (Vercel function-size trace, PR #2127).
 
 import type { SupportedProvider } from '@brainstrike/agent/client';
-import {
-  isSupportedProvider,
-  OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET,
-  type RuntimeAssistantMemorySettings,
-  type RuntimeData,
-} from '@brainstrike/agent/hosted-web';
+import { isSupportedProvider, type RuntimeData } from '@brainstrike/agent/hosted-web';
 
 export interface DesktopMemoryModelTargetDescriptor {
   readonly model: string;
@@ -110,32 +105,6 @@ export function parseObservationalMemoryModelTarget(
     formatLabel: 'Observational memory model target',
     unsupportedProviderLabel: 'observational memory',
   });
-}
-
-/**
- * The {provider, model} the OM observer/reflector actually runs on this
- * request, for attributing child-run-usage rows (BST-953). Undefined when OM
- * is off or the target is unresolvable — in that state no observer runs, so no
- * OM usage chunks can arrive; a chunk that somehow does is dropped with a
- * visible warn by the persister rather than written under a guessed model.
- */
-export function resolveDesktopObserverUsageTarget(
-  memorySettings: RuntimeAssistantMemorySettings | undefined
-): { readonly model: string; readonly provider: string } | undefined {
-  const observationalMemory = memorySettings?.observationalMemory;
-  if (
-    !observationalMemory?.enabled ||
-    observationalMemory.modelTarget === OBSERVATIONAL_MEMORY_AUTO_MODEL_TARGET
-  ) {
-    return;
-  }
-  try {
-    return parseObservationalMemoryModelTarget(observationalMemory.modelTarget);
-  } catch {
-    // Memory construction parses the same target and throws loudly; reaching
-    // here means no observer was built for this run.
-    return;
-  }
 }
 
 export function parseSemanticRecallEmbeddingModelTarget(

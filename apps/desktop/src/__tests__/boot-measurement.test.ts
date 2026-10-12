@@ -42,7 +42,7 @@ describe('emitBootMeasurementMark', () => {
       process.env[START_ENV] = value;
     }
     const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
-    emitBootMeasurementMark('assistant-listening', false);
+    emitBootMeasurementMark('agent-host-ready', false);
     expect(write).not.toHaveBeenCalled();
   });
 

@@ -8,8 +8,8 @@
  * resolution (e.g. `resolveTurnBounds`) is T2's to build ON TOP of these —
  * it is deliberately absent here, not forgotten.
  *
- * Takes the same injected `EditCheckpointDatabase` seam the rewind/journal
- * repositories use (db-main's handle in production, a bare PGlite in tests).
+ * Takes the same injected `MainQueryHandle` seam the rewind repository uses
+ * (db-main's handle in production, a bare PGlite in tests).
  * This module never creates the table: migration 081 (both runners) and the
  * renderer bootstrap mirror own the DDL.
  *
@@ -38,7 +38,7 @@
 
 import { randomBytes } from 'node:crypto';
 import { WORKSPACE_SNAPSHOTS_TABLE } from '@brainstrike/assistant-contract';
-import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
+import type { MainQueryHandle } from './main-query-handle';
 import { assertValidOid } from './snapshot-git';
 import type { SnapshotKind } from './snapshot-service';
 
@@ -200,7 +200,7 @@ export interface SnapshotRepository {
 }
 
 /** The factory main.ts threads to the changes/assistant-server seams (T1). */
-export function createSnapshotRepository(db: EditCheckpointDatabase): SnapshotRepository {
+export function createSnapshotRepository(db: MainQueryHandle): SnapshotRepository {
   async function insertSnapshot(
     input: InsertWorkspaceSnapshotInput
   ): Promise<WorkspaceSnapshotRow> {

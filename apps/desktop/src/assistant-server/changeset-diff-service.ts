@@ -7,10 +7,8 @@
  * Dispatch is purely by `changeset.kind`:
  * - `agent-run` / `run-range` ⇒ `changeset-snapshot-view.ts` (the W7
  *   shadow-git snapshot engine: turn-boundary ref pairs over
- *   `SnapshotService.diffRefs`; the edit-checkpoint journal is joined for
- *   per-file ATTRIBUTION metadata only). The former journal fold
- *   (`changeset-journal-view.ts`) is NO LONGER REACHABLE from this dispatch
- *   — the module remains only for the rewind engine until T4 retires it.
+ *   `SnapshotService.diffRefs`; a settled host run's committed tool edits
+ *   supply per-file ATTRIBUTION metadata only).
  *   When the snapshot deps are not wired (a build/test constructing this
  *   service without them), these kinds resolve to a typed
  *   `snapshot-engine-unavailable:` failure — never a silent journal
@@ -36,11 +34,11 @@
  * machine-readable prefix (never a silent fallback) — the authoritative
  * registry:
  * `changeset-snapshot-view.ts`: `snapshot-engine-unavailable:`,
- * `changeset-snapshot-missing:`, `changeset-snapshot-capture-failed:`.
+ * `changeset-snapshot-missing:`, `changeset-snapshot-capture-failed:`,
+ * `run-anchor-missing:`.
  * `changeset-git-scope.ts`: `outside-roots-unsupported:`, `base-ref-unresolved:`,
  * `head-unborn:`, `commit-id-unresolved:`, `unmerged-path:`.
- * `edit-checkpoint-journal.ts` (reused verbatim, not redefined here):
- * `run-anchor-missing:`. (`runs-unavailable:` was retired by BST-1651 with
+ * (`runs-unavailable:` was retired by BST-1651 with
  * the relation probes that produced it — migrations 117/118 own those
  * relations, so an absent one is an unmigrated database, not a state this
  * dispatch can describe.)
@@ -55,15 +53,15 @@ import {
   createSnapshotChangesetResolver,
   type SnapshotChangesetResolver,
 } from './changeset-snapshot-view';
-import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
 import { type GitCommandRunner, toErrorMessage } from './git-service';
+import type { MainQueryHandle } from './main-query-handle';
 import type { SnapshotRepository } from './snapshot-repository';
 import type { SnapshotService } from './snapshot-service';
 import type { SnapshotTurnRegistry } from './snapshot-turn-registry';
 
 /** W7 snapshot-engine wiring (threaded from main.ts via the changes IPC options). */
 export interface ChangesetDiffServiceSnapshotDeps {
-  readonly createRepository: (db: EditCheckpointDatabase) => SnapshotRepository;
+  readonly createRepository: (db: MainQueryHandle) => SnapshotRepository;
   /** Host threads' turns, from the host's committed log (BST-1977). */
   readonly hostThreads?: HostThreadTurns | undefined;
   /** Injectable for tests; defaults to the process-shared registry. */
@@ -72,7 +70,7 @@ export interface ChangesetDiffServiceSnapshotDeps {
 }
 
 export interface ChangesetDiffServiceDeps {
-  readonly resolveDatabase: () => Promise<EditCheckpointDatabase>;
+  readonly resolveDatabase: () => Promise<MainQueryHandle>;
   /** The audited `resolveRootCwd` seam (`workspace-root-cwd.ts`), already
    * partially applied by the caller to its `WorkspaceRootResolver`/`domain`/
    * `logger` — this service only ever supplies `rootId`. */

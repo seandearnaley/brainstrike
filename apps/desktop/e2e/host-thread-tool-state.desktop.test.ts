@@ -48,24 +48,29 @@ async function enableModel(page: Page): Promise<void> {
   }, MODEL);
 }
 
-/** Rows in the legacy assistant's task list and canvas tables, which a host thread never writes. */
-async function legacyToolStateRows(page: Page): Promise<Record<string, number>> {
+/**
+ * Whether the legacy assistant's task list and canvas tables exist. Migration
+ * 147 dropped them: a host thread owns both facts in its own log.
+ */
+async function legacyToolStateTables(page: Page): Promise<Record<string, boolean>> {
   return await page.evaluate(async () => {
     const db = (
       window as unknown as {
         electronAPI: {
           db: {
-            query: (sql: string, params: unknown[]) => Promise<{ rows: { count: number }[] }>;
+            query: (sql: string, params: unknown[]) => Promise<{ rows: { present: boolean }[] }>;
           };
         };
       }
     ).electronAPI.db;
-    const counts: Record<string, number> = {};
+    const present: Record<string, boolean> = {};
     for (const table of ['brainstrike_assistant_task_lists', 'brainstrike_canvas_versions']) {
-      const { rows } = await db.query(`SELECT count(*)::int AS count FROM ${table}`, []);
-      counts[table] = rows[0]?.count ?? -1;
+      const { rows } = await db.query('SELECT to_regclass($1) IS NOT NULL AS present', [
+        `public.${table}`,
+      ]);
+      present[table] = rows[0]?.present === true;
     }
-    return counts;
+    return present;
   });
 }
 
@@ -144,9 +149,9 @@ test('a host run’s task list and canvas survive a reload and are gone with the
     const before = await readAgentHostLog(userDataDir);
     expect(before.threads).toBe(1);
     expect(before.typeCounts['tool.state.updated']).toBe(2);
-    expect(await legacyToolStateRows(page)).toEqual({
-      brainstrike_assistant_task_lists: 0,
-      brainstrike_canvas_versions: 0,
+    expect(await legacyToolStateTables(page)).toEqual({
+      brainstrike_assistant_task_lists: false,
+      brainstrike_canvas_versions: false,
     });
 
     // Delete the titled thread from the Threads panel while another (new) host thread is active.
@@ -168,9 +173,9 @@ test('a host run’s task list and canvas survive a reload and are gone with the
     const after = await readAgentHostLog(userDataDir);
     expect(after.threads).toBe(1);
     expect(after.typeCounts['tool.state.updated']).toBeUndefined();
-    expect(await legacyToolStateRows(page)).toEqual({
-      brainstrike_assistant_task_lists: 0,
-      brainstrike_canvas_versions: 0,
+    expect(await legacyToolStateTables(page)).toEqual({
+      brainstrike_assistant_task_lists: false,
+      brainstrike_canvas_versions: false,
     });
     expect(modelProvider.refusals()).toEqual([]);
   } finally {

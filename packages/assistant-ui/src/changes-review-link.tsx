@@ -37,8 +37,8 @@ function countDistinctFiles(entries: readonly AssistantEditCheckpointRecord[]): 
  * hook's ownership condition and this link could never appear — even though
  * the changeset resolver still surfaces those entries (honestly marked
  * non-revertible) and Review is exactly how the user reaches that expired-
- * content state. `useEditCheckpointEntries()` reads the SAME underlying
- * journal data `listThreadCheckpoints` populates, unfiltered.
+ * content state. `useEditCheckpointEntries()` reads the SAME entries the
+ * checkpoint provider supplies, unfiltered.
  *
  * The label counts DISTINCT FILES touched, not journal rows: a file written
  * twice in one run (e.g. write then string_replace) is one edited file, not

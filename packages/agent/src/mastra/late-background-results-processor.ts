@@ -30,7 +30,7 @@ function outcomeOutput(task: BackgroundTask): ToolResultOutput {
  * The transient provider boundary can: this `processLLMRequest` processor
  * rewrites the acknowledgement tool results of the run's late-returned tasks
  * into their saved outcomes on every request of the resumed run, exactly as
- * `ToolProjectionRewriteProcessor` overlays stale reads. Memory is restored
+ * `rewriteToolProjectionPrompt` overlays stale reads. Memory is restored
  * separately once the leg settles (`restoreLateBackgroundResults`).
  */
 export class LateBackgroundResultsProcessor implements Processor<'late-background-results'> {

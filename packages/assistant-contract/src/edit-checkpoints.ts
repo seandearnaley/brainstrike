@@ -101,9 +101,3 @@ export interface AssistantCheckpointRevertRunResult {
 export type AssistantCheckpointUndoAvailability =
   | { readonly restorable: true }
   | { readonly reason: string; readonly restorable: false };
-
-/** Per-thread availability map keyed by journal entry id
- * (`assistant-checkpoint:availability` IPC response). */
-export interface AssistantCheckpointUndoAvailabilityMap {
-  readonly byCheckpointId: Readonly<Record<string, AssistantCheckpointUndoAvailability>>;
-}

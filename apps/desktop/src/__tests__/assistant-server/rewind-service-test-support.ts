@@ -31,7 +31,7 @@ import path from 'node:path';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import type { PGlite } from '@electric-sql/pglite';
 import type { CheckpointReindexAction } from '../../assistant-server/checkpoint-reindex-deps';
-import type { EditCheckpointDatabase } from '../../assistant-server/edit-checkpoint-journal';
+import type { MainQueryHandle } from '../../assistant-server/main-query-handle';
 import type { RewindServiceDeps } from '../../assistant-server/rewind-service';
 import {
   createSnapshotRepository,
@@ -196,7 +196,7 @@ export interface SnapshotHarness {
 export async function createSnapshotHarness(db: PGlite): Promise<SnapshotHarness> {
   const snapshotsBaseDir = await makeTempDir('bs-rewind-snapbase-');
   return {
-    repository: createSnapshotRepository(db as unknown as EditCheckpointDatabase),
+    repository: createSnapshotRepository(db as unknown as MainQueryHandle),
     service: createSnapshotService({
       runner: fixtureSnapshotGitRunner,
       snapshotsBaseDir,

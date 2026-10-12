@@ -6,8 +6,9 @@ import { type SerializedDesktopError, serializeDesktopError } from '../desktop-e
  * The ONE order desktop main tears down in. Each owner stops while everything
  * it depends on is still alive: a factory reset in flight finishes first (it
  * needs its replacement renderer and reopens the agent host), renderers before
- * the hosts they call, the assistant server before the MCP host it uses, the
- * agent host's admission fenced before Main's MCP control closes (a host
+ * the hosts they call, Main's child processes (shell, terminals, command
+ * sessions, LSP) reaped early, the agent host's admission fenced before Main's
+ * MCP control closes (a host
  * starting after it would be refused), git and forge before the
  * database they read, and `database-drain` last: it stops everything that
  * issues database work. Two things deliberately sit OUTSIDE this sequence and
@@ -19,7 +20,7 @@ import { type SerializedDesktopError, serializeDesktopError } from '../desktop-e
 export const DESKTOP_SHUTDOWN_STEP_ORDER = [
   'factory-reset',
   'renderers',
-  'assistant-server',
+  'child-processes',
   'native-index',
   'mcp-runtime',
   'file-system',
@@ -61,8 +62,6 @@ export interface DesktopShutdownRunPlan {
   readonly closeDatabase: () => Promise<void>;
   /** Closes the durable NDJSON error log. Runs last, after the aggregate failure warn. */
   readonly closeErrorLogSink: () => void;
-  /** Read after 'mcp-runtime' settles; false records `McpShutdownOrderingError`. */
-  readonly isAssistantServerDrained: () => boolean;
   readonly steps: Readonly<Record<DesktopShutdownStepName, DesktopShutdownStepRun>>;
 }
 
@@ -208,13 +207,6 @@ export function createDesktopGracefulShutdown(
       const failure = toFailure(outcome);
       if (failure) {
         failures.push(failure);
-      }
-      if (outcome.step === 'mcp-runtime' && !plan.isAssistantServerDrained()) {
-        failures.push({
-          message: 'Closed MCP host before assistant-server drain completed',
-          name: 'McpShutdownOrderingError',
-          step: 'mcp-runtime',
-        });
       }
     };
 

@@ -35,7 +35,6 @@ import { createActiveBackgroundResultsProcessor } from '../active-background-res
 import type { MastraAgentRuntime, MastraAgentRuntimeOptions } from '../agent-runtime';
 import { observeNativeBackgroundExecutor } from '../background-executor-identity';
 import { buildBedrockMessageHygieneInputProcessor } from '../bedrock-message-hygiene';
-import { buildCompactionOverlayInputProcessor } from '../compaction-overlay-processor';
 import { buildProviderHistoryCompatInputProcessor } from '../error-processors';
 import { createMastraAgentError } from '../mastra-agent-error';
 import { buildOpenAIDuplicateItemCompatInputProcessor } from '../openai-duplicate-item-compat';
@@ -44,7 +43,6 @@ import { ProjectionAwareTokenLimiter } from '../projection-aware-token-limiter';
 import type { ProjectionSafeToolCallFilter } from '../projection-safe-tool-call-filter';
 import { createDelegationConfig, type DelegationOutcomeCapture } from '../subagent-delegation';
 import type { DelegationUsageCapture } from '../tool-lifecycle-processors';
-import { buildToolProjectionRewriteInputProcessor } from '../tool-projection-rewrite-processor';
 import type { BrainstrikeToolSearchProcessor } from '../tool-search-runtime';
 import { createAssistantMessageIdGenerator } from './assistant-message-id';
 
@@ -172,14 +170,6 @@ export function buildToolLoopOptions(
   const openAIDuplicateItemCompat = buildOpenAIDuplicateItemCompatInputProcessor(
     runtimeData?.provider ?? ''
   );
-  const toolProjectionRewrite = buildToolProjectionRewriteInputProcessor(
-    runtimeData?.toolProjectionRewriteLookup,
-    runtimeData?.memory?.threadId
-  );
-  const compactionOverlay = buildCompactionOverlayInputProcessor(
-    runtimeData?.compactionOverlayLookup,
-    runtimeData?.memory?.threadId
-  );
   const tokenLimiter = inputTokenLimit
     ? new ProjectionAwareTokenLimiter({
         limit: inputTokenLimit,
@@ -202,10 +192,6 @@ export function buildToolLoopOptions(
     skillsProcessor,
     toolSearchProcessor,
     toolHistoryFilter,
-    toolProjectionRewrite,
-    // Adjacent for readability only: processInputStep always runs before the
-    // rewrite processor's processLLMRequest, independent of array position.
-    compactionOverlay,
     historyCompat,
     openAIToolSearchHistoryCompat,
     openAIDuplicateItemCompat,

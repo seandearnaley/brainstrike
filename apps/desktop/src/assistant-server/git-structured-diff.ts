@@ -102,7 +102,7 @@ import {
  * Per-side full-content cap for {@link StructuredFileDiff}: a side (old or new)
  * larger than this degrades that file's `content` to `hunks-only` instead of
  * inlining full text (spec §11 Q3). Deliberately kept in NOMINAL parity with the
- * edit-checkpoint journal's per-file capture cap (`MAX_WRITE_WORKSPACE_FILE_BYTES`
+ * file-mutation tools' per-file write cap (`MAX_WRITE_WORKSPACE_FILE_BYTES`
  * in `file-mutation-tools.ts`, `2_000_000` bytes) — both exist so a single file
  * can't blow main-process memory on a read that has to hold full before/after
  * text. The two constants are NOT byte-identical today (`2 * 1024 * 1024` here

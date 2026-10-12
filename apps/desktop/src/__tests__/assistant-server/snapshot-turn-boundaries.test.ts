@@ -9,7 +9,7 @@
  */
 import type { StreamChunk } from '@brainstrike/agent';
 import { describe, expect, it } from 'vitest';
-import type { EditCheckpointDatabase } from '../../assistant-server/edit-checkpoint-journal';
+import type { MainQueryHandle } from '../../assistant-server/main-query-handle';
 import {
   FAILED_SNAPSHOT_CAPTURE_OID,
   type InsertWorkspaceSnapshotInput,
@@ -112,7 +112,7 @@ function fakeService(options?: { readonly failRootIds?: readonly string[] }) {
   return { calls, service };
 }
 
-const dummyDb: EditCheckpointDatabase = {
+const dummyDb: MainQueryHandle = {
   query: () => {
     throw new Error('the boundary controller must not query the database directly');
   },

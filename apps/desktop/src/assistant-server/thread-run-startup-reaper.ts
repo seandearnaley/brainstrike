@@ -56,7 +56,7 @@ import {
   REAP_CLOCK_SKEW_MARGIN_MS,
   reapOrphanedAssistantThreadRuns,
 } from '@brainstrike/assistant-data/assistant-thread-run-reaper';
-import type { EditCheckpointDatabase } from './edit-checkpoint-journal';
+import type { MainQueryHandle } from './main-query-handle';
 
 export { ORPHANED_THREAD_RUN_ERROR, REAP_CLOCK_SKEW_MARGIN_MS };
 
@@ -78,7 +78,7 @@ export interface ThreadRunReapReport {
  * name). Throws only on a genuine database failure.
  */
 export async function reapOrphanedThreadRuns(
-  db: EditCheckpointDatabase,
+  db: MainQueryHandle,
   bootedAt: Date
 ): Promise<ThreadRunReapReport> {
   const report = await reapOrphanedAssistantThreadRuns(db, bootedAt);

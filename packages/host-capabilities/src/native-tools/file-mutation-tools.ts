@@ -8,7 +8,7 @@
  *
  * Edit attribution, Workspace Index maintenance and LSP diagnostics are the
  * shell's ports (`FileMutationPorts`): the agent host passes Core's edit
- * tracker; Desktop's legacy server passes its journal, reindex and LSP.
+ * tracker, reindex and LSP.
  */
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';

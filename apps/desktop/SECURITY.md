@@ -241,10 +241,8 @@ The first `oauth_subscription` provider. Descriptor:
      break the constraint — no accidental refactor can.
   2. *Live* — `createInteractiveSubscriptionFetchFactory` re-checks per
      resolution (never captured once) that a `visible-ui` window exists, via
-     `assertInteractiveProviderAuthSender`. The assistant server's own bearer
-     token is already `visible-ui`-only (`assistant:get-auth` is role-gated),
-     so this is a second lock on an already-bolted door — deliberately, because
-     the gate requires the check at the credential-resolution layer.
+     `assertInteractiveProviderAuthSender`, deliberately at the
+     credential-resolution layer as the gate requires.
   Pinned by `src/__tests__/provider-auth/subscription-fetch.test.ts` and
   `packages/assistant-service/src/__tests__/provider-credential-projection-oauth.test.ts`.
 - **Honest identification (gate constraint 5).** `originator: brainstrike` on

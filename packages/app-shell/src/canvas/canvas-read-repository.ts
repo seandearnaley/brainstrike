@@ -1,23 +1,15 @@
 /**
  * Renderer-side READ access to canvas documents (BST-1173).
  *
- * Mirrors the SQL shapes of the desktop write repository
- * (`apps/desktop/src/assistant-server/canvas-repository.ts`) against the same
- * `brainstrike_canvas_versions` table (migration 082), but is strictly
- * read-only: all writes go through the `brainstrike.manageCanvas` tool in the
- * assistant server. Works on both targets — the table exists wherever the
- * migrations ran (desktop DB host, web renderer PGlite).
- *
- * SQL strings are BUILT INSIDE the functions (module-scope contract-constant
- * reads are the chunk-init hazard class guarded by
- * verify-mastra-schema-init-order).
+ * The agent host is the only owner: a thread's canvases are the committed
+ * versions in its run log, read through `host.readCanvases`. All writes go
+ * through the `brainstrike.manageCanvas` tool. A thread the host does not own
+ * has no canvas owner, so every read of it rejects rather than answering empty.
  */
-import { CANVAS_VERSIONS_TABLE } from '@brainstrike/assistant-contract';
-import type { AssistantThreadHostCapability } from '../assistant-thread-host-context';
-
-export interface CanvasReadDatabase {
-  query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[] }>;
-}
+import type {
+  AssistantThreadHostCanvasVersion,
+  AssistantThreadHostCapability,
+} from '../assistant-thread-host-context';
 
 export interface CanvasPanelSummary {
   readonly canvasId: string;
@@ -33,58 +25,25 @@ export interface CanvasPanelVersion {
   readonly version: number;
 }
 
-/** Latest version per canvas in the thread, newest first. */
-export async function listThreadCanvasSummaries(
-  db: CanvasReadDatabase,
-  threadId: string
-): Promise<readonly CanvasPanelSummary[]> {
-  const result = await db.query<CanvasPanelSummary>(
-    `SELECT * FROM (
-       SELECT DISTINCT ON (canvas_id)
-         canvas_id AS "canvasId",
-         title AS "title",
-         version AS "latestVersion",
-         created_at::text AS "createdAt"
-       FROM ${CANVAS_VERSIONS_TABLE}
-      WHERE thread_id = $1
-      ORDER BY canvas_id, version DESC
-     ) AS latest
-     ORDER BY latest."createdAt" DESC`,
-    [threadId]
-  );
-  return result.rows;
-}
+type CanvasHost = Pick<AssistantThreadHostCapability, 'readCanvases'> | undefined;
 
-/** One specific version's content, or `null` when it does not exist. */
-export async function getCanvasVersion(
-  db: CanvasReadDatabase,
-  canvasId: string,
-  version: number
-): Promise<CanvasPanelVersion | null> {
-  const result = await db.query<CanvasPanelVersion>(
-    `SELECT
-       html AS "html",
-       version AS "version",
-       created_by AS "createdBy",
-       created_at::text AS "createdAt"
-     FROM ${CANVAS_VERSIONS_TABLE}
-    WHERE canvas_id = $1 AND version = $2
-    LIMIT 1`,
-    [canvasId, version]
-  );
-  return result.rows[0] ?? null;
-}
-
-/** Latest version per canvas, newest first, from the thread's owner: its host, else history. */
-export async function readThreadCanvasSummaries(
-  db: CanvasReadDatabase,
-  host: Pick<AssistantThreadHostCapability, 'readCanvases'> | undefined,
+async function readOwnedCanvases(
+  host: CanvasHost,
   threadId: string
-): Promise<readonly CanvasPanelSummary[]> {
+): Promise<ReadonlyMap<string, readonly AssistantThreadHostCanvasVersion[]>> {
   const owned = await host?.readCanvases?.(threadId);
   if (!owned) {
-    return await listThreadCanvasSummaries(db, threadId);
+    throw new Error('This thread is not owned by the agent host, so it has no canvases.');
   }
+  return owned;
+}
+
+/** Latest version per canvas of a host-owned thread, newest first. */
+export async function readThreadCanvasSummaries(
+  host: CanvasHost,
+  threadId: string
+): Promise<readonly CanvasPanelSummary[]> {
+  const owned = await readOwnedCanvases(host, threadId);
   return [...owned.values()]
     .flatMap((versions) => {
       const latest = versions.at(-1);
@@ -102,18 +61,14 @@ export async function readThreadCanvasSummaries(
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
 }
 
-/** One version's content from the thread's owner, or null when it does not exist. */
+/** One version's content of a host-owned thread, or null when it does not exist. */
 export async function readThreadCanvasVersion(
-  db: CanvasReadDatabase,
-  host: Pick<AssistantThreadHostCapability, 'readCanvases'> | undefined,
+  host: CanvasHost,
   threadId: string,
   canvasId: string,
   version: number
 ): Promise<CanvasPanelVersion | null> {
-  const owned = await host?.readCanvases?.(threadId);
-  if (!owned) {
-    return await getCanvasVersion(db, canvasId, version);
-  }
+  const owned = await readOwnedCanvases(host, threadId);
   const found = owned.get(canvasId)?.find((candidate) => candidate.version === version);
   return found
     ? {
