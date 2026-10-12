@@ -1,5 +1,4 @@
 import type { ChildProcess } from 'node:child_process';
-import { once } from 'node:events';
 import { rm } from 'node:fs/promises';
 
 interface InteractiveChildFixtureOptions<Window> {
@@ -52,17 +51,15 @@ export async function runInteractiveChildFixture<Window>({
     }
   }
 
-  // Observe exit before requesting disposal: Playwright's close can resolve
-  // before the owned process exits. Keep the existing five-second exit bound.
-  const results = await Promise.allSettled([
-    Promise.resolve().then(() => electron.dispose()),
-    ownedProcess ? waitForOwnedExit(ownedProcess) : Promise.resolve(),
-  ]);
-  for (const result of results) {
-    if (result.status === 'rejected') {
-      failures.push(result.reason);
+  // Resolves once the owned process has exited.
+  await settle(() => electron.dispose());
+  await settle(() => {
+    if (ownedProcess && ownedProcess.exitCode !== 0) {
+      throw new Error(
+        `Interactive fixture Electron exited with code=${ownedProcess.exitCode}, signal=${ownedProcess.signalCode}`
+      );
     }
-  }
+  });
   await settle(closeProvider);
   await settle(() => {
     for (const key of Object.keys(environment)) {
@@ -92,17 +89,6 @@ export async function runInteractiveChildFixture<Window>({
       {
         cause: failures[0],
       }
-    );
-  }
-}
-
-async function waitForOwnedExit(ownedProcess: ChildProcess): Promise<void> {
-  if (ownedProcess.exitCode === null && ownedProcess.signalCode === null) {
-    await once(ownedProcess, 'exit', { signal: AbortSignal.timeout(5000) });
-  }
-  if (ownedProcess.exitCode !== 0) {
-    throw new Error(
-      `Interactive fixture Electron exited with code=${ownedProcess.exitCode}, signal=${ownedProcess.signalCode}`
     );
   }
 }
