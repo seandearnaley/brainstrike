@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { appendFile, copyFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -10,31 +11,30 @@ import { canonicalFileSchema, verifyEvidence } from './evidence.ts';
 import grep from './fixtures/recorded-grep-excerpt.json' with { type: 'json' };
 import report from './fixtures/recorded-report-excerpt.json' with { type: 'json' };
 
-const FIXTURE = join(
-  import.meta.dirname,
-  '../../../../packages/agent/src/evaluation/fixtures/repository-retrieval.json'
-);
-
 test('refuses recorded evidence whose bytes differ from the pinned manifest', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'bs-retrieval-evidence-'));
   try {
-    await copyFile(FIXTURE, join(directory, 'fixture.json'));
+    // A recorded artifact under its own pinned hash, as evidence-manifest.json pins them.
+    const recorded = await readFile(
+      join(import.meta.dirname, 'fixtures/recorded-report-excerpt.json')
+    );
+    await writeFile(join(directory, 'retrieval-report.json'), recorded);
     const manifest = join(directory, 'manifest.json');
     await writeFile(
       manifest,
       JSON.stringify({
         evidence: 'test',
         files: {
-          'fixture.json': '8f968116a9eebce827af9e637a6039dcc2b22856830f455646ba03d43d5cce82',
+          'retrieval-report.json': createHash('sha256').update(recorded).digest('hex'),
         },
         rootId: 'root',
       })
     );
     await verifyEvidence(directory, manifest);
-    await appendFile(join(directory, 'fixture.json'), ' ');
+    await appendFile(join(directory, 'retrieval-report.json'), ' ');
     await assert.rejects(
       verifyEvidence(directory, manifest),
-      /Recorded evidence fixture\.json changed/u
+      /Recorded evidence retrieval-report\.json changed/u
     );
   } finally {
     await rm(directory, { force: true, recursive: true });

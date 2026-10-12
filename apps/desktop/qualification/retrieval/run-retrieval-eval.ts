@@ -6,7 +6,7 @@
  *
  * It reads the recorded canonical chunks, source snapshots and vectors (hashes
  * pinned in evidence-manifest.json), builds a fresh native index through the
- * public IndexerPort, and runs the frozen fixture through the existing
+ * public IndexerPort, and runs the recorded frozen fixture through the existing
  * evaluation harness: precision, recall and MRR per arm, and the
  * vector-retention gate (hybrid must gain 0.05 recall@10 or MRR, losing
  * neither). No model loads and nothing leaves the machine.
@@ -17,7 +17,7 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -38,10 +38,6 @@ import { compareControl, compareRecordedGrep } from './compare.ts';
 import { loadEvidence } from './evidence.ts';
 
 const here = import.meta.dirname;
-const FIXTURE = join(
-  here,
-  '../../../../packages/agent/src/evaluation/fixtures/repository-retrieval.json'
-);
 
 const { values } = parseArgs({
   options: { evidence: { type: 'string' }, out: { type: 'string' } },
@@ -53,13 +49,8 @@ if (!(values.evidence && values.out)) {
   );
 }
 const evidenceDirectory = values.evidence;
-const fixtureText = await readFile(FIXTURE, 'utf8');
-const evidence = await loadEvidence(
-  evidenceDirectory,
-  join(here, 'evidence-manifest.json'),
-  fixtureText
-);
-const fixture = repositoryRetrievalFixtureSchema.parse(JSON.parse(fixtureText));
+const evidence = await loadEvidence(evidenceDirectory, join(here, 'evidence-manifest.json'));
+const fixture = repositoryRetrievalFixtureSchema.parse(evidence.fixture);
 const queryIds = new Map(fixture.queries.map(({ id, query }) => [query, id]));
 const electron: unknown = createRequire(join(here, '../../package.json'))('electron');
 if (typeof electron !== 'string') {
