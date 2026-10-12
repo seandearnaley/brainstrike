@@ -220,6 +220,29 @@ describe('native provider and search controller observation refresh', () => {
     return { ...mounted, pending };
   }
 
+  it('names the setting that turns semantic search on when Text search is saved (BST-1981)', async () => {
+    preferences.nativeIndexMode = 'TEXT';
+    const mounted = mountController();
+    try {
+      // The saved Text choice reaches the index on its next status poll.
+      mounted.refresh({ ...ready, embedding: { indexMode: 'text-only' }, queryPlan: undefined });
+      await waitFor(
+        () => expect(vi.mocked(mounted.capability.status).mock.calls.length).toBeGreaterThan(1),
+        { timeout: 5000 }
+      );
+      await waitFor(() =>
+        expect(mounted.result.current.controller.semanticAvailability).toEqual({
+          available: false,
+          reason:
+            'Semantic search is off. Choose “Text and semantic search” in Search & Indexing settings.',
+        })
+      );
+    } finally {
+      mounted.unmount();
+      preferences.nativeIndexMode = 'VECTOR';
+    }
+  });
+
   it('refreshes an invalidated scan observation through the batch API without singleton IPC failure', async () => {
     vi.useFakeTimers();
     const mounted = mountController();

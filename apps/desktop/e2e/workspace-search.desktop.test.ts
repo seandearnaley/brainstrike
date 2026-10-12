@@ -1,6 +1,31 @@
+import type { Page } from '@playwright/test';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
+import { HomePage } from './page-objects/home-page';
 import { ensureMockWorkspaceOpen } from './utils/layout-helpers';
+
+/** Every control in the Search panel, with whether it paints inside the panel and takes a click. */
+async function searchControlLayout(page: Page) {
+  return await page.getByTestId('explorer-search-panel-search').evaluate((panel) => {
+    const bounds = panel.getBoundingClientRect();
+    return {
+      controls: [...panel.querySelectorAll('button, input')].map((control) => {
+        const box = control.getBoundingClientRect();
+        const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+        return {
+          inside: box.left >= bounds.left - 0.5 && box.right <= bounds.right + 0.5,
+          name:
+            control.getAttribute('aria-label') ??
+            control.getAttribute('placeholder') ??
+            control.textContent?.trim(),
+          reachable: hit === control || control.contains(hit),
+        };
+      }),
+      panelWidth: bounds.width,
+      scrollWidth: panel.scrollWidth,
+    };
+  });
+}
 
 /**
  * Workspace-search smoke (desktop).
@@ -67,6 +92,40 @@ test.describe('Desktop workspace search', () => {
     });
   });
 
+  test('every search control fits inside the Search panel at the default window size', async ({
+    window,
+  }) => {
+    test.setTimeout(60_000);
+    // BST-1981: the default 1536px window gives the Explorer panel 180px; the
+    // header once laid out at 311px and pushed the toggles past its edge.
+    await ensureMockWorkspaceOpen(window);
+    await ensureFileExplorerPanelVisible(window);
+    const tabStrip = window.getByRole('tablist', { name: 'Explorer and search' });
+    await tabStrip.getByRole('tab', { name: 'Search' }).click();
+    const searchPanel = window.getByTestId('explorer-search-panel-search');
+    await expect(searchPanel.getByRole('button', { name: 'Use regular expression' })).toBeVisible({
+      timeout: 15_000,
+    });
+    // A query's error card is part of the panel too.
+    await searchPanel.getByPlaceholder('Search workspace').fill('export');
+    await expect(searchPanel.getByRole('alert')).toBeVisible({ timeout: 20_000 });
+    const layout = await searchControlLayout(window);
+    expect(layout.panelWidth).toBeLessThanOrEqual(200);
+    expect(layout.scrollWidth).toBeLessThanOrEqual(Math.ceil(layout.panelWidth));
+    expect(layout.controls.map(({ name }) => name)).toEqual(
+      expect.arrayContaining([
+        'Text',
+        'Semantic',
+        'Search workspace',
+        'Match case',
+        'Match whole word',
+        'Use regular expression',
+        'Retry',
+      ])
+    );
+    expect(layout.controls.filter(({ inside, reachable }) => !(inside && reachable))).toEqual([]);
+  });
+
   test('a mounted workspace with no search mode chosen tells the user how to enable semantic search', async ({
     window,
   }) => {
@@ -84,6 +143,36 @@ test.describe('Desktop workspace search', () => {
       await semantic.hover();
       await expect(window.getByRole('tooltip').first()).toHaveText(
         'Choose a search mode in Search & Indexing settings.',
+        { timeout: 2000 }
+      );
+    }).toPass({ timeout: 30_000 });
+  });
+
+  test('Text search mode tells the user which setting turns semantic search on', async ({
+    window,
+  }) => {
+    test.setTimeout(60_000);
+    await ensureMockWorkspaceOpen(window);
+    const home = new HomePage(window);
+    await home.openSettings();
+    await window
+      .getByRole('navigation', { name: 'Settings categories' })
+      .getByRole('button', { name: 'Search & Indexing' })
+      .click();
+    await window.getByRole('combobox', { name: 'Search mode' }).click();
+    await window.getByRole('option', { exact: true, name: 'Text search' }).click();
+    await home.leaveSettings();
+    await ensureFileExplorerPanelVisible(window);
+    const tabStrip = window.getByRole('tablist', { name: 'Explorer and search' });
+    await tabStrip.getByRole('tab', { name: 'Search' }).click();
+    const semantic = window
+      .getByTestId('explorer-search-panel-search')
+      .getByRole('button', { name: 'Semantic' });
+    await expect(semantic).toHaveAttribute('aria-disabled', 'true', { timeout: 15_000 });
+    await expect(async () => {
+      await semantic.hover();
+      await expect(window.getByRole('tooltip').first()).toHaveText(
+        'Semantic search is off. Choose “Text and semantic search” in Search & Indexing settings.',
         { timeout: 2000 }
       );
     }).toPass({ timeout: 30_000 });
