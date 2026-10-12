@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { z } from 'zod';
 import { recordedPolicyGrep } from './arms.ts';
+import { marginReport, pairedBootstrap } from './bootstrap-margin.ts';
 import { compareControl } from './compare.ts';
 import { canonicalFileSchema, verifyEvidence } from './evidence.ts';
 import grep from './fixtures/recorded-grep-excerpt.json' with { type: 'json' };
@@ -81,4 +82,29 @@ test('the recorded grep policy reproduces its recorded pool order', () => {
     () => recordedPolicyGrep({ files }, new Map(), grep.result.query, 100),
     /No native chunk/u
   );
+});
+
+test('the paired bootstrap is deterministic, exact for constant deltas and flags the bar', () => {
+  assert.deepEqual(pairedBootstrap([0.02, 0.02, 0.02], 2000, 7), {
+    high: 0.02,
+    low: 0.02,
+    mean: 0.02,
+  });
+  const deltas = Array.from({ length: 100 }, (_, index) => (index % 10 === 0 ? 1 : 0));
+  assert.deepEqual(pairedBootstrap(deltas, 10_000, 1939), pairedBootstrap(deltas, 10_000, 1939));
+  const interval = pairedBootstrap(deltas, 10_000, 1939);
+  assert.ok(interval.low > 0 && interval.low < 0.1 && interval.high > 0.1);
+  const rows = (hybrid: number[]) => ({
+    hybrid: { mrr: hybrid, recallAt10: hybrid },
+    lexical: { mrr: hybrid.map(() => 0), recallAt10: hybrid.map(() => 0) },
+    queryIds: hybrid.map((_, index) => `q${index}`),
+  });
+  const margins = marginReport(
+    { flat: rows([0, 0, 0, 0]), lift: rows([0.1, 0.1, 0.1, 0.1]) },
+    1000,
+    1
+  );
+  assert.equal(margins['flat']?.recallAt10.excludesZero, false);
+  assert.equal(margins['lift']?.recallAt10.clearsBarAtLowerBound, true);
+  assert.throws(() => pairedBootstrap([], 1000, 1), /needs differences/u);
 });

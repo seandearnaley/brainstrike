@@ -31,6 +31,7 @@ export {
   type EvaluationChunkingPolicy,
   type EvaluationEmbeddingProfile,
   type EvaluationHit,
+  evaluateJudgedHits,
   type RepositoryEvaluationReport,
   type RepositoryRetrievalFixture,
   type RetrievalArm,

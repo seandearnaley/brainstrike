@@ -234,10 +234,18 @@ async function readVectorSet(directory: string): Promise<VectorSet> {
 export async function loadCandidate(
   directory: string,
   manifestPath: string
-): Promise<{ readonly profile: CandidateProfile; readonly vectors: VectorSet }> {
+): Promise<{
+  readonly name: string;
+  readonly profile: CandidateProfile;
+  readonly vectors: VectorSet;
+}> {
   await verifyEvidence(directory, manifestPath);
   const settings = z
-    .object({ profile: candidateProfileSchema })
+    .object({ profile: candidateProfileSchema, profileName: z.string().min(1) })
     .parse(JSON.parse(await readFile(join(directory, 'embedding-settings.json'), 'utf8')));
-  return { profile: settings.profile, vectors: await readVectorSet(directory) };
+  return {
+    name: settings.profileName,
+    profile: settings.profile,
+    vectors: await readVectorSet(directory),
+  };
 }

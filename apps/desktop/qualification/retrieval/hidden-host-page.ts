@@ -14,6 +14,11 @@ interface VendorTensor {
   readonly type: string;
 }
 interface VendorTokenizer {
+  decode(
+    ids: number[],
+    // biome-ignore lint/style/useNamingConvention: Transformers.js option names.
+    options: { clean_up_tokenization_spaces: boolean; skip_special_tokens: boolean }
+  ): string;
   encode(text: string): number[];
   // biome-ignore lint/style/useNamingConvention: Transformers.js API name.
   readonly model_max_length: number;
@@ -84,6 +89,25 @@ export interface QualificationPage {
     readonly lastHiddenState: number[];
   }>;
   terminate(): void;
+  /**
+   * Cuts each text to the loaded tokenizer's first `cap` tokens, special
+   * tokens included, by decoding that token prefix; `exact` says whether the
+   * cut text re-encodes to exactly that prefix.
+   */
+  truncate(
+    texts: readonly string[],
+    cap: number
+  ): Promise<
+    {
+      /** The re-encoded cut differs from the token prefix at most in its last token. */
+      readonly boundaryOnly: boolean;
+      readonly capped: boolean;
+      readonly exact: boolean;
+      readonly text: string;
+      /** The uncut text's token count, special tokens included. */
+      readonly tokens: number;
+    }[]
+  >;
 }
 
 const integers = (tensor: VendorTensor): number[][] =>
@@ -169,6 +193,40 @@ export async function install(transformersUrl: string, workerUrl: string): Promi
     },
     terminate() {
       client.terminate();
+    },
+    async truncate(texts, cap) {
+      if (!tokenizer) {
+        throw new Error('Load the tokenizer before truncating.');
+      }
+      const loaded = tokenizer;
+      const specials = loaded.encode('').length;
+      return texts.map((text) => {
+        const content = loaded.encode(text).slice(1, -1);
+        const tokens = content.length + specials;
+        if (tokens <= cap) {
+          return { boundaryOnly: true, capped: false, exact: true, text, tokens };
+        }
+        // Byte-level decoding without space clean-up, so the cut text re-encodes to its prefix.
+        const decode = (ids: number[]) =>
+          // biome-ignore lint/style/useNamingConvention: Transformers.js option names.
+          loaded.decode(ids, { clean_up_tokenization_spaces: false, skip_special_tokens: true });
+        let kept = cap - specials;
+        let cut = decode(content.slice(0, kept));
+        while (loaded.encode(cut).length > cap && kept > 0) {
+          kept -= 1;
+          cut = decode(content.slice(0, kept));
+        }
+        const again = loaded.encode(cut).slice(1, -1);
+        const leading = again.findIndex((id, index) => id !== content[index]);
+        const matching = leading < 0 ? again.length : leading;
+        return {
+          boundaryOnly: matching >= kept - 1,
+          capped: true,
+          exact: again.length === kept && matching === kept,
+          text: cut,
+          tokens,
+        };
+      });
     },
   };
   (window as unknown as { qualification: QualificationPage }).qualification = page;

@@ -1,0 +1,11 @@
+{
+  "evidence": "BST-1939 Phase 3 truncation control granite-small-r2-webgpu-fp16-cap256: onnx-community/granite-embedding-small-english-r2-ONNX at 1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8, fp16, CLS pooling, each text cut to its first 256 tokens (special tokens included, as the MiniLM control capped), produced in the hidden embedding host on 2026-10-12 (produce-hidden-host-vectors.ts --token-cap 256).",
+  "files": {
+    "embedding-batches.jsonl": "fc4fd962773aee59e00a77bc8da400f000f8c46456081537a307ff23a6009c55",
+    "embedding-settings.json": "fca559d0f1050932d41ef6c824a47b84b312f010749093b19b51237396e0d6ad",
+    "embedding-summary.json": "f5509dc2523ac396d03f68538112d8273351b4c80e4b5db47287773f118ab2c2",
+    "vectors-index.jsonl": "62561ca4b40d472d091b859c2e700dcd9211b8190206b9e0cc6eddfc6f2fe3d8",
+    "vectors.f32": "55f7bc06e24b4cb9604a028e2273a5d72b1cb465479ccbd4e70c3df3b2002b81"
+  },
+  "rootId": "bst1922-ed97957e030dd3345c232650199dbc88929dad24"
+}

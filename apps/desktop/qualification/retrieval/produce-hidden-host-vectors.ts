@@ -40,6 +40,7 @@ const OPTIONS = [
   'profile-name',
   'revision',
   'scratch',
+  'token-cap',
 ] as const;
 const input = z
   .object({
@@ -53,6 +54,8 @@ const input = z
     'profile-name': z.string().min(1),
     revision: z.string().min(1),
     scratch: z.string().min(1),
+    /** A token cap below the model's own, applied by cutting each text to its token prefix. */
+    'token-cap': z.coerce.number().int().positive().optional(),
   })
   .parse(
     parseArgs({
@@ -261,6 +264,15 @@ try {
       (arg) => (window as unknown as HostWindow).qualification.embed(arg.model, arg.texts),
       { model, texts }
     );
+  const tokenCap = input['token-cap'] ?? tokenizer.modelMaxLength;
+  if (tokenCap > tokenizer.modelMaxLength) {
+    throw new Error(`--token-cap ${tokenCap} exceeds the model's ${tokenizer.modelMaxLength}`);
+  }
+  const truncate = (texts: readonly string[]) =>
+    page.evaluate(
+      (arg) => (window as unknown as HostWindow).qualification.truncate(arg.texts, arg.cap),
+      { cap: tokenCap, texts }
+    );
 
   // The first request loads the weights through the production worker; its
   // pooling is then checked against the vendor pipeline's for the same model.
@@ -315,9 +327,14 @@ try {
   let count = 0;
   let maxTokens = 0;
   let overCap = 0;
+  let inexact = 0;
+  let beyondBoundary = 0;
   for (let start = 0; start < entries.length; start += BATCH) {
     const batch = entries.slice(start, start + BATCH);
-    const result = await embed(batch.map(({ text }) => text));
+    const cut = await truncate(batch.map(({ text }) => text));
+    inexact += cut.filter(({ exact }) => !exact).length;
+    beyondBoundary += cut.filter(({ boundaryOnly }) => !boundaryOnly).length;
+    const result = await embed(cut.map(({ text }) => text));
     const { metadata } = result;
     if (
       result.vectors.length !== batch.length ||
@@ -337,14 +354,16 @@ try {
         throw new Error(`Invalid vector for ${entry.id}`);
       }
       flat.set(vector, index * DIMENSIONS);
-      const tokens = result.tokens[index] ?? 0;
+      const tokens = cut[index]?.tokens ?? 0;
       maxTokens = Math.max(maxTokens, tokens);
-      overCap += Number(tokens > tokenizer.modelMaxLength);
+      const capped = cut[index]?.capped ?? false;
+      overCap += Number(capped || tokens > tokenizer.modelMaxLength);
       const { text, ...identity } = entry;
       rows.push(
         JSON.stringify({
           ...identity,
-          modelCapApplied: tokens > tokenizer.modelMaxLength,
+          ...(capped ? { cappedTokensExact: cut[index]?.exact } : {}),
+          modelCapApplied: capped || tokens > tokenizer.modelMaxLength,
           textHash: createHash('sha256').update(text).digest('hex'),
           uncappedTokens: tokens,
           vectorIndex: count + index,
@@ -381,7 +400,7 @@ try {
     normalization: 'l2',
     pooling: input.pooling,
     revision,
-    tokenCap: tokenizer.modelMaxLength,
+    tokenCap,
   };
   await writeFile(
     join(input.out, 'embedding-settings.json'),
@@ -409,6 +428,8 @@ try {
         chunkCount: chunks.length,
         count,
         embedMs,
+        inexactBeyondLastToken: beyondBoundary,
+        inexactCapPrefixes: inexact,
         loadMs,
         maxTokens,
         overCap,
