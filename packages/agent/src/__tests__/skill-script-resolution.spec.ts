@@ -44,7 +44,12 @@ function makeDeps(fs: MemoryFs): SkillContentDeps & SkillScanDeps {
 }
 
 function makeEngine(
-  options: { allowedToolRule?: string; disabled?: boolean; shadowed?: boolean } = {}
+  options: {
+    allowedToolRule?: string;
+    disabled?: boolean;
+    shadowed?: boolean;
+    launcher?: string;
+  } = {}
 ) {
   const globalDir = '/home/user/.claude/skills/site-design';
   const rootDir = '/workspace/.brainstrike/skills/site-design';
@@ -87,6 +92,13 @@ function makeEngine(
     ].join('\n');
     files[`${rootDir}/scripts/palette.mjs`] = 'console.log("local")';
   }
+  if (options.launcher !== undefined) {
+    dirs[`${winnerDir}/scripts`] = [
+      ...(dirs[`${winnerDir}/scripts`] ?? []),
+      { kind: 'file', name: 'impeccable' },
+    ];
+    files[`${winnerDir}/scripts/impeccable`] = options.launcher;
+  }
   const fs = { dirs, files };
   const deps = makeDeps(fs);
   const engine = createScannedWorkspaceSkills({
@@ -122,6 +134,51 @@ describe('typed skill-script resolution', () => {
       sourceTier: 'global-claude',
     });
   });
+
+  // The 2026-10-12 debug pack's scripts/impeccable is a recorded #!/bin/sh launcher.
+  it.each(['#!/bin/sh', '#!/usr/bin/env bash'])(
+    'executes an extensionless shell launcher with the declared %s interpreter',
+    async (header) => {
+      const { engine } = makeEngine({
+        allowedToolRule: 'Bash(bash .claude/skills/site-design/scripts/*)',
+        launcher: `${header}\necho context`,
+      });
+      await expect(
+        engine.resolveScriptExecution({
+          runtime: 'bash',
+          scriptPath: 'scripts/impeccable',
+          skillName: 'site-design',
+        })
+      ).resolves.toMatchObject({
+        policy: 'matched-allowed-tools',
+        scriptPath: 'scripts/impeccable',
+      });
+      await expect(
+        engine.resolveScriptExecution({
+          runtime: 'node',
+          scriptPath: 'scripts/impeccable',
+          skillName: 'site-design',
+        })
+      ).rejects.toThrow(/runtime.*does not match/i);
+    }
+  );
+  it.each([
+    'echo no-interpreter',
+    '#!/bin/zsh\necho wrong-interpreter',
+    '#!/bin/sh -c\necho injected-option',
+  ])(
+    'rejects an extensionless launcher without a supported exact shebang: %s',
+    async (launcher) => {
+      const { engine } = makeEngine({ allowedToolRule: 'Bash(*)', launcher });
+      await expect(
+        engine.resolveScriptExecution({
+          runtime: 'bash',
+          scriptPath: 'scripts/impeccable',
+          skillName: 'site-design',
+        })
+      ).rejects.toThrow(/runtime.*does not match/i);
+    }
+  );
 
   it('binds a workspace-local skill to its owning durable root', async () => {
     const { engine } = makeEngine({ shadowed: true });

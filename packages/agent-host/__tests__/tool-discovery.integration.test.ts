@@ -223,3 +223,22 @@ test('a deferred tool called before load_tool settles its run visibly, and never
   // The model reads the failure and the run ends; it never waits on the call.
   expect(events.at(-1)).toMatchObject({ outcome: 'completed', type: 'run.finished' });
 });
+
+// Regression: the real host passed an empty eager surface to load_tool.
+test('loading an already admitted eager tool succeeds through the production host', async () => {
+  const model = scriptedToolSequence([
+    { input: { toolNames: [EAGER, DEFERRED] }, toolId: 'load_tool' },
+    { input: {}, toolId: EAGER },
+    { input: {}, toolId: DEFERRED },
+  ]);
+  const host = await discoveryHost([model], { policies: DEFAULT_PERMISSION_POLICIES, yolo: false });
+  const events = await host.run('Load and use the admitted tools.');
+  expect(events.at(-1)).toMatchObject({ outcome: 'completed', type: 'run.finished' });
+  expect(
+    events.find(
+      (event) => event.type === 'effect.finished' && event.toolCallId === 'recorded-call-1'
+    )
+  ).toMatchObject({ output: { alreadyLoaded: [EAGER], loaded: [DEFERRED], success: true } });
+  expect(offered(model, 0)).toEqual(FIRST_STEP);
+  expect(offered(model, 1)).toEqual([...FIRST_STEP, DEFERRED].sort());
+});

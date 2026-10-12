@@ -311,9 +311,41 @@ describe('BrainstrikeToolSearchProcessor', () => {
     expect(Object.keys(next.tools)).toContain(SECOND_DEFERRED_TOOL_ID);
   });
 
+  it('recognizes captured eager tool names and mixed eager/deferred loads without widening authority', async () => {
+    const processor = createProcessor();
+    const args = {
+      ...createStepArgs({ threadId: 'eager-load' }),
+      tools: {
+        brainstrike_globWorkspace: createDeferredTool(),
+        brainstrike_readWorkspaceFile: createDeferredTool(),
+      },
+    };
+    const { tools } = await processor.processInputStep(args);
+    for (const toolName of ['brainstrike_globWorkspace', 'brainstrike_readWorkspaceFile']) {
+      await expect(tools.load_tool.execute?.({ toolName })).resolves.toMatchObject({
+        success: true,
+        toolName,
+      });
+    }
+    await expect(
+      tools.load_tool.execute?.({
+        toolNames: ['brainstrike_globWorkspace', DEFERRED_TOOL_ID, 'brainstrike_nope'],
+      })
+    ).resolves.toMatchObject({
+      alreadyLoaded: ['brainstrike_globWorkspace'],
+      loaded: [DEFERRED_TOOL_ID],
+      notFound: ['brainstrike_nope'],
+      success: false,
+    });
+    const next = await processor.processInputStep({ ...args, stepNumber: 1 });
+    expect(next.tools.brainstrike_globWorkspace).toBe(args.tools.brainstrike_globWorkspace);
+    expect(next.tools).toHaveProperty(DEFERRED_TOOL_ID);
+    expect(next.tools).not.toHaveProperty('brainstrike_nope');
+  });
+
   it('refuses an exact name that is eligible but not in the deferred catalog', async () => {
     // load_tool can only select from the post-gate catalog the processor was
-    // built with; a core (eager) tool or a gated-out tool is simply absent,
+    // built with; a tool absent from both it and the authorized eager step is unavailable,
     // so exact-name loading widens nothing the fuzzy path did not already
     // reach (review of #3049).
     const processor = createProcessor();

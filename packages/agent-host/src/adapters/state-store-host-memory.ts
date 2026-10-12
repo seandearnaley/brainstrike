@@ -394,11 +394,15 @@ export class StateStoreHostMemory implements HostRunOwner {
       rows,
       (runId) => path.has(runId) || runId === this.identity.runId
     );
+    // A recalled live turn can still contain unanswered tool calls (BST-1932).
+    // Only settled turns from other threads are provider history.
+    const recallable = recallableRunIds(rows, this.identity.threadId);
     for (const started of rows) {
       if (
         (!this.resourceRecall && started.threadId !== this.identity.threadId) ||
         started.event.type !== 'run.started' ||
         started.event.runId === this.identity.runId ||
+        !recallable.has(started.event.runId) ||
         compacted.has(started.event.runId) ||
         (started.threadId === this.identity.threadId && !path.has(started.event.runId))
       ) {
@@ -692,4 +696,14 @@ async function readMemoryRows(
   // resource's other threads.
   const scope = threadIds ? new Set([...threadIds].filter((id) => threads.has(id))) : threads;
   return [...context.readCommittedRows(scope)];
+}
+
+function recallableRunIds(rows: readonly HostLogRow[], threadId: string): Set<string> {
+  return new Set(
+    rows.flatMap((row) =>
+      'runId' in row.event && (row.threadId === threadId || row.event.type === 'run.finished')
+        ? [row.event.runId]
+        : []
+    )
+  );
 }

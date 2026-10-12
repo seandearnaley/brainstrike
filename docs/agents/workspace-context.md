@@ -275,6 +275,8 @@ Desktop-only by construction; web builds no bridge or engine.
   root and root-relative cwd. The trusted scan engine rejects absolute or traversal
   paths, disabled or shadowed skills, missing or list-unregistered scripts,
   runtime-extension mismatches, and unmatched Claude `allowed-tools: Bash(...)` rules.
+  An extensionless script must declare a matching supported interpreter in its shebang;
+  the same bounded content reader and all execution/approval checks still apply.
 - Spawn direct argv, never a shell command string, through the shared
   bounded-output/process-tree lifecycle and the normal `execute:ask` gate. Pin a
   workspace-local skill to its owning durable root; a global skill may target any

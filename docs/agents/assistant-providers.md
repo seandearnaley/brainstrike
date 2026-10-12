@@ -2237,6 +2237,8 @@ Evidence: `assistant-providers/tool-preference-lock.md`.
   partitioning happens only after guards, hooks, plan mode, permission,
   approval-storage, provider web-search, artifact settlement and model-output
   projection; it cannot restore a tool an earlier stage omitted.
+- `load_tool` acknowledges tools already present in the authorized eager surface.
+  Mixed requests still use Mastra for deferred loading; omitted/gated tools remain unavailable.
 - Unknown caller-supplied local tools, provider-defined web search, Mastra's
   `skill`/`skill_read`/`skill_search` controls and the eligible
   `readToolOutputArtifact` recovery control stay EAGER — deferring them would

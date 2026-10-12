@@ -416,7 +416,11 @@ function readLoadResult(
   return { message, success };
 }
 
-function wrapLoadTool(loadTool: LoadTool, stepNumber: number | undefined): LoadTool {
+function wrapLoadTool(
+  loadTool: LoadTool,
+  stepNumber: number | undefined,
+  eagerToolIds: ReadonlySet<string>
+): LoadTool {
   const execute = loadTool.execute;
   if (!execute) {
     throw createMastraAgentError('mastra_agent_tool_discovery_failure', {
@@ -426,7 +430,28 @@ function wrapLoadTool(loadTool: LoadTool, stepNumber: number | undefined): LoadT
   }
   return cloneMetaTool(loadTool, {
     execute: async (...args: Parameters<typeof execute>) => {
-      const result = await execute(...args);
+      const [input, ...context] = args;
+      const requested = [
+        ...new Set([...(input.toolNames ?? []), ...(input.toolName ? [input.toolName] : [])]),
+      ];
+      const eager = requested.filter((name) => eagerToolIds.has(name));
+      const deferred = requested.filter((name) => !eagerToolIds.has(name));
+      // The current step already authorized these tools; loading must not report
+      // them missing merely because Mastra's deferred catalog omits them.
+      if (eager.length > 0 && input.toolNames === undefined && deferred.length === 0) {
+        return {
+          message: `Tool "${input.toolName}" is already available.`,
+          success: true,
+          toolName: input.toolName,
+        };
+      }
+      const result =
+        eager.length === 0
+          ? await execute(...args)
+          : deferred.length > 0
+            ? await execute({ toolNames: deferred }, ...context)
+            : { loadedCount: 0, message: '', success: true };
+
       const loadResult = readLoadResult(result);
       if (!loadResult) {
         throw createMastraAgentError('mastra_agent_tool_discovery_failure', {
@@ -439,11 +464,25 @@ function wrapLoadTool(loadTool: LoadTool, stepNumber: number | undefined): LoadT
         stepNumber,
         success: loadResult.success,
       });
-      // Only the sentence changes; Mastra's `toolName` / `loaded` fields —
+      // Mastra's deferred `toolName` / `loaded` fields —
       // which its context store parses to derive the loaded set — are
       // returned untouched.
-      const loadedResult = result as Extract<Awaited<ReturnType<typeof execute>>, object>;
-      return { ...loadedResult, message: describeLoadResult(loadResult.message) };
+      const loadedResult = result as Extract<
+        Awaited<ReturnType<typeof execute>>,
+        { success: boolean }
+      >;
+      return {
+        ...loadedResult,
+        ...(eager.length > 0
+          ? { alreadyLoaded: [...eager, ...(loadedResult.alreadyLoaded ?? [])] }
+          : {}),
+        message: [
+          describeLoadResult(loadResult.message),
+          ...(eager.length > 0 ? [`Already available: ${eager.join(', ')}`] : []),
+        ]
+          .filter(Boolean)
+          .join(' | '),
+      };
     },
   });
 }
@@ -670,7 +709,7 @@ export class BrainstrikeToolSearchProcessor {
       }
       const tools = {
         ...result.tools,
-        [LOAD_TOOL_ID]: wrapLoadTool(loadTool, args.stepNumber),
+        [LOAD_TOOL_ID]: wrapLoadTool(loadTool, args.stepNumber, baseToolIds),
         [LIST_AVAILABLE_TOOLS_ID]: this.catalogTool,
       };
 
