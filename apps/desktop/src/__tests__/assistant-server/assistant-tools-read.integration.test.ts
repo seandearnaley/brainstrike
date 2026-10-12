@@ -3025,13 +3025,18 @@ describe('assistant-tools read tools', () => {
     const workspaceRootPath = await createWorkspaceFixture();
     const tools = hostTools({
       ...singleRootRuntime(workspaceRootPath),
-      selectionFilePaths: ['/missing.ts'],
+      // The skip reason is decided by the refusal's type, never by its text: a
+      // missing file whose name reads like the size-limit message is missing.
+      selectionFilePaths: ['/missing.ts', '/exceeds-limit-name.txt'],
     } as RuntimeData);
     const executeTool = requireToolExecute(tools, 'brainstrike.readWorkspaceContext');
 
     const result = await executeTool({ context: {} });
 
-    expect(result.skippedFiles).toEqual([{ path: '/missing.ts', reason: 'missing' }]);
+    expect(result.skippedFiles).toEqual([
+      { path: '/missing.ts', reason: 'missing' },
+      { path: '/exceeds-limit-name.txt', reason: 'missing' },
+    ]);
     expect(JSON.stringify(result.skippedFiles)).not.toContain(workspaceRootPath);
     await fsPromises.rm(workspaceRootPath, { force: true, recursive: true });
   });
@@ -3393,7 +3398,7 @@ describe('assistant-tools read tools', () => {
     expect(loggerErrorMock).toHaveBeenCalledWith('readWorkspaceFile failed', {
       error: expect.objectContaining({
         code: 'tool_input_invalid',
-        name: 'WorkspacePathMissingError',
+        name: 'WorkspacePathRefusal',
         redacted: true,
       }),
       input: {

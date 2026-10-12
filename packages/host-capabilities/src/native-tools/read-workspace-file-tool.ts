@@ -43,6 +43,7 @@ import { readStateScope } from './workspace-file-staleness.js';
 import { decodedWorkspaceTextModelOutputChars } from './workspace-model-projection-helpers.js';
 import {
   missingWorkspacePathRefusal,
+  WorkspacePathRefusal,
   withStableWorkspaceFileLock,
 } from './workspace-path-resolution.js';
 import { MAX_READ_WORKSPACE_FILE_BYTES } from './workspace-text-file-reader.js';
@@ -425,7 +426,8 @@ function assertReadWorkspaceFileChunkIsText(
   const binaryProbeEnd = Math.min(bytes.length, Math.max(0, 4096 - byteOffset));
   for (let index = 0; index < binaryProbeEnd; index += 1) {
     if (bytes[index] === 0) {
-      throw new ToolInputError(
+      throw new WorkspacePathRefusal(
+        'binary',
         `Path "${requestedPath}" is a binary file and cannot be read as text.`
       );
     }
@@ -481,10 +483,11 @@ async function readWorkspaceFilePageSource(args: {
   try {
     const initialStat = await handle.stat();
     if (!initialStat.isFile()) {
-      throw new ToolInputError(`Path "${args.requestedPath}" is not a file.`);
+      throw new WorkspacePathRefusal('not-file', `Path "${args.requestedPath}" is not a file.`);
     }
     if (initialStat.size > MAX_READ_WORKSPACE_FILE_BYTES) {
-      throw new ToolInputError(
+      throw new WorkspacePathRefusal(
+        'too-large',
         `Path "${args.requestedPath}" exceeds ${MAX_READ_WORKSPACE_FILE_BYTES} bytes and cannot be read.`
       );
     }
