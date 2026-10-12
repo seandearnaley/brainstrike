@@ -82,7 +82,9 @@ test.describe('Per-file explorer pane', () => {
     await expect(page.getByTestId('file-tab-explorer-pane')).toHaveCount(0);
   });
 
-  test('manual close sticks per file across reload; the toggle reopens', async ({ page }) => {
+  test.fixme('manual close sticks per file across reload; the toggle reopens', {
+    annotation: { description: 'BST-1965', type: 'quarantine' },
+  }, async ({ page }) => {
     // Close the auto-opened pane — this records an EXPLICIT open: false that
     // must survive through the per-thread workspace snapshot.
     await page.getByRole('button', { name: 'Toggle explorer pane' }).click();

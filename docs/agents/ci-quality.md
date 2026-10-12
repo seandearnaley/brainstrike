@@ -21,6 +21,12 @@
   and required/advisory gate descriptions below describe these disabled
   definitions; they do not authorize cloud execution or make CI a delivery gate.
 
+- The preserved full-regression definitions cover web and two desktop shards,
+  with a `Desktop Full Regression` fan-in. Existing quarantines use `test.fixme`
+  plus a `quarantine` annotation naming an owner-held ticket. A quarantine
+  ticket closes only when its `fixme` is removed in the same PR; never delete
+  a spec to get green. These definitions remain disabled with cloud CI.
+
 ### Review and CI budget
 
 - Before implementing, record acceptance criteria and the PR base; search open

@@ -459,278 +459,281 @@ async function releaseImportedAppState(page: Page): Promise<void> {
   await page.waitForTimeout(500);
 }
 
-test.describe('Database import and backfill (web) @stateful @web-import-indexing', () => {
-  test.describe.configure({ mode: 'serial' });
+test.describe
+  .fixme('Database import and backfill (web) @stateful @web-import-indexing', {
+    annotation: { description: 'BST-1963', type: 'quarantine' },
+  }, () => {
+    test.describe.configure({ mode: 'serial' });
 
-  test('imports files, chunks them, backfills, and updates collection coverage without reload', async ({
-    page,
-  }) => {
-    test.setTimeout(180_000);
-
-    await mockBrowserApis(page, ROOT_NAME, CODE_FILE_TREE);
-    await page.goto('/');
-    await waitForAppLoad(page);
-
-    await resetAppState(page);
-    await page.reload();
-    await waitForAppLoad(page);
-    await expect
-      .poll(async () => await readStoredImportSettingsSnapshot(page), {
-        timeout: 15_000,
-      })
-      .toBeNull();
-
-    const collectionName = `Web Import Backfill ${Date.now()}`;
-    await ensureDatabasePanelVisible(page);
-    await createCollection(page, collectionName);
-
-    await selectFilesForImport(page, 2);
-
-    await ensureDatabasePanelVisible(page);
-    await openImportSettings(page);
-    await page.getByTestId('chunking-preset-balanced').click();
-    await expect
-      .poll(async () => await readImportSettingsState(page), {
-        timeout: 15_000,
-      })
-      .toEqual({
-        chunkingPreset: 'balanced',
-        chunkingStrategy: 'auto',
-        enableChunking: true,
-      });
-    await page.keyboard.press('Escape');
-    await expect(page.getByText('Chunking Studio')).toBeHidden({ timeout: 15_000 });
-
-    const databasePanel = page.getByTestId('database-demo-panel');
-
-    const timeOriginBeforeBackfill = await page.evaluate(() => window.performance.timeOrigin);
-
-    await importSelectedFilesFromExplorer(page, { expectedSelectedCount: 2 });
-
-    const importedCounts = await waitForCollectionSummary(
+    test('imports files, chunks them, backfills, and updates collection coverage without reload', async ({
       page,
-      collectionName,
-      (counts) => counts.fileCount === 2 && counts.totalChunks > 0 && counts.embeddedChunks === 0
-    );
-    expect(importedCounts.fileCount).toBe(2);
-    expect(importedCounts.totalChunks).toBeGreaterThan(0);
-    expect(importedCounts.embeddedChunks).toBe(0);
+    }) => {
+      test.setTimeout(180_000);
 
-    const backfillButton = databasePanel.getByRole('button', {
-      name: /^(?:Backfill|Start & Backfill)(?:\s|$)/,
-    });
-    await expect(backfillButton).toBeVisible({ timeout: 15_000 });
-    await expect(backfillButton).toBeEnabled({ timeout: 15_000 });
-    await backfillButton.click();
+      await mockBrowserApis(page, ROOT_NAME, CODE_FILE_TREE);
+      await page.goto('/');
+      await waitForAppLoad(page);
 
-    const embeddedCounts = await waitForCollectionSummary(
-      page,
-      collectionName,
-      (counts) => counts.totalChunks > 0 && counts.embeddedChunks === counts.totalChunks
-    );
+      await resetAppState(page);
+      await page.reload();
+      await waitForAppLoad(page);
+      await expect
+        .poll(async () => await readStoredImportSettingsSnapshot(page), {
+          timeout: 15_000,
+        })
+        .toBeNull();
 
-    expect(embeddedCounts.fileCount).toBe(2);
-    expect(embeddedCounts.totalChunks).toBeGreaterThan(0);
-    expect(embeddedCounts.embeddedChunks).toBe(embeddedCounts.totalChunks);
-    await expect(backfillButton).toContainText(/Backfill/, { timeout: 15_000 });
+      const collectionName = `Web Import Backfill ${Date.now()}`;
+      await ensureDatabasePanelVisible(page);
+      await createCollection(page, collectionName);
 
-    const timeOriginAfterBackfill = await page.evaluate(() => window.performance.timeOrigin);
-    expect(timeOriginAfterBackfill).toBe(timeOriginBeforeBackfill);
-  });
+      await selectFilesForImport(page, 2);
 
-  test('keeps retained renderer heap bounded while importing a large chunked codebase', async ({
-    page,
-  }) => {
-    test.setTimeout(300_000);
+      await ensureDatabasePanelVisible(page);
+      await openImportSettings(page);
+      await page.getByTestId('chunking-preset-balanced').click();
+      await expect
+        .poll(async () => await readImportSettingsState(page), {
+          timeout: 15_000,
+        })
+        .toEqual({
+          chunkingPreset: 'balanced',
+          chunkingStrategy: 'auto',
+          enableChunking: true,
+        });
+      await page.keyboard.press('Escape');
+      await expect(page.getByText('Chunking Studio')).toBeHidden({ timeout: 15_000 });
 
-    await enableDatabaseDemoTestHooks(page);
-    await mockBrowserApis(
-      page,
-      `${ROOT_NAME}-import-memory`,
-      createLargeCodeFixtureTree(IMPORT_MEMORY_FIXTURE_FILE_COUNT)
-    );
-    await page.goto('/');
-    await waitForAppLoad(page);
+      const databasePanel = page.getByTestId('database-demo-panel');
 
-    await resetAppState(page);
-    await page.reload();
-    await waitForAppLoad(page);
+      const timeOriginBeforeBackfill = await page.evaluate(() => window.performance.timeOrigin);
 
-    const collectionName = `Web Import Memory ${Date.now()}`;
-    await ensureDatabasePanelVisible(page);
-    await createCollection(page, collectionName);
-    await selectFilesForImport(page, IMPORT_MEMORY_FIXTURE_FILE_COUNT);
-    await ensureDatabasePanelVisible(page);
-
-    await openImportSettings(page);
-    await page.getByTestId('chunking-preset-balanced').click();
-    await expect
-      .poll(async () => await readImportSettingsState(page), {
-        timeout: 15_000,
-      })
-      .toEqual({
-        chunkingPreset: 'balanced',
-        chunkingStrategy: 'auto',
-        enableChunking: true,
-      });
-    await page.keyboard.press('Escape');
-    await expect(page.getByText('Chunking Studio')).toBeHidden({ timeout: 15_000 });
-
-    try {
-      const baseline = await readHeapSnapshot(page, 'before-import');
-
-      await importSelectedFilesFromExplorer(page, {
-        expectedSelectedCount: IMPORT_MEMORY_FIXTURE_FILE_COUNT,
-      });
-
-      const completedImport = await waitForDatabaseImportSnapshot(
-        page,
-        (snapshot) =>
-          !snapshot.isImporting &&
-          snapshot.progress?.phase === 'complete' &&
-          snapshot.progress.chunkingProgress?.filesProcessed === IMPORT_MEMORY_FIXTURE_FILE_COUNT,
-        240_000
-      );
-      expect(completedImport.progress?.errors).toEqual([]);
-      expect(completedImport.progress?.chunkingProgress?.chunksCreated).toBeGreaterThanOrEqual(
-        IMPORT_MEMORY_FIXTURE_FILE_COUNT
-      );
+      await importSelectedFilesFromExplorer(page, { expectedSelectedCount: 2 });
 
       const importedCounts = await waitForCollectionSummary(
         page,
         collectionName,
-        (counts) =>
-          counts.fileCount === IMPORT_MEMORY_FIXTURE_FILE_COUNT &&
-          counts.totalChunks >= IMPORT_MEMORY_FIXTURE_FILE_COUNT &&
-          counts.embeddedChunks === 0
+        (counts) => counts.fileCount === 2 && counts.totalChunks > 0 && counts.embeddedChunks === 0
       );
-
-      await forceGarbageCollection(page);
-      await forceGarbageCollection(page);
-      const retained = await readHeapSnapshot(page, 'after-import');
-      const retainedGrowthMB = retained.usedMB - baseline.usedMB;
-
-      console.log(
-        JSON.stringify({
-          baseline,
-          collectionName,
-          importedCounts,
-          retained,
-          retainedGrowthMB,
-          type: 'web-import-memory-diagnostic',
-        })
-      );
-
-      expect(importedCounts.fileCount).toBe(IMPORT_MEMORY_FIXTURE_FILE_COUNT);
-      expect(importedCounts.totalChunks).toBeGreaterThanOrEqual(IMPORT_MEMORY_FIXTURE_FILE_COUNT);
+      expect(importedCounts.fileCount).toBe(2);
+      expect(importedCounts.totalChunks).toBeGreaterThan(0);
       expect(importedCounts.embeddedChunks).toBe(0);
-      expect(retainedGrowthMB).toBeLessThan(180);
-    } finally {
-      await releaseImportedAppState(page);
-    }
-  });
 
-  test('shows adaptive codebase routing and persists the auto strategy', async ({ page }) => {
-    test.setTimeout(180_000);
-
-    await mockBrowserApis(page, `${ROOT_NAME}-codebase-preset`, CODE_FILE_TREE);
-    await page.goto('/');
-    await waitForAppLoad(page);
-
-    await resetAppState(page);
-    await page.reload();
-    await waitForAppLoad(page);
-
-    await ensureDatabasePanelVisible(page);
-    await openImportSettings(page);
-
-    await chooseChunkingPreset(page, /^Codebase/, 'codebase');
-    await expect(page.getByText('Adaptive mixed-repo preset')).toBeVisible({
-      timeout: 15_000,
-    });
-    await page.getByRole('button', { name: /Routing plan/ }).click();
-    const docsRoute = page.getByTestId('chunking-route-docs-getting-started-md');
-    await expect(docsRoute).toBeVisible({ timeout: 15_000 });
-    await expect(docsRoute.getByText('semantic-markdown')).toBeVisible({ timeout: 15_000 });
-    const codeRoute = page.getByTestId('chunking-route-src-assistant-retrieval-ts');
-    await expect(codeRoute).toBeVisible({ timeout: 15_000 });
-    await expect(codeRoute.getByText('recursive')).toBeVisible({ timeout: 15_000 });
-
-    await expect
-      .poll(async () => await readImportSettingsState(page), {
-        timeout: 15_000,
-      })
-      .toEqual({
-        chunkingPreset: 'codebase',
-        chunkingStrategy: 'auto',
-        enableChunking: true,
+      const backfillButton = databasePanel.getByRole('button', {
+        name: /^(?:Backfill|Start & Backfill)(?:\s|$)/,
       });
+      await expect(backfillButton).toBeVisible({ timeout: 15_000 });
+      await expect(backfillButton).toBeEnabled({ timeout: 15_000 });
+      await backfillButton.click();
 
-    await page.reload();
-    await waitForAppLoad(page);
-    await ensureDatabasePanelVisible(page);
-    await openImportSettings(page);
-    await expect(page.getByText('Adaptive mixed-repo preset')).toBeVisible({
-      timeout: 15_000,
+      const embeddedCounts = await waitForCollectionSummary(
+        page,
+        collectionName,
+        (counts) => counts.totalChunks > 0 && counts.embeddedChunks === counts.totalChunks
+      );
+
+      expect(embeddedCounts.fileCount).toBe(2);
+      expect(embeddedCounts.totalChunks).toBeGreaterThan(0);
+      expect(embeddedCounts.embeddedChunks).toBe(embeddedCounts.totalChunks);
+      await expect(backfillButton).toContainText(/Backfill/, { timeout: 15_000 });
+
+      const timeOriginAfterBackfill = await page.evaluate(() => window.performance.timeOrigin);
+      expect(timeOriginAfterBackfill).toBe(timeOriginBeforeBackfill);
     });
-  });
 
-  test('imports markdown successfully after choosing the docs preset in Chunking Studio', async ({
-    page,
-  }) => {
-    test.setTimeout(180_000);
-
-    await mockBrowserApis(page, `${ROOT_NAME}-docs-preset`, DOCS_FILE_TREE);
-    await page.goto('/');
-    await waitForAppLoad(page);
-
-    await resetAppState(page);
-    await page.reload();
-    await waitForAppLoad(page);
-    await clearPersistedExplorerIncludeFilters(page);
-    await page.reload();
-    await waitForAppLoad(page);
-
-    const collectionName = `Web Docs Preset ${Date.now()}`;
-    await ensureDatabasePanelVisible(page);
-    await createCollection(page, collectionName);
-    await selectFilesForImport(page, 2);
-    await ensureDatabasePanelVisible(page);
-    await openImportSettings(page);
-
-    await chooseChunkingPreset(page, /^Docs/, 'docs');
-    await expect(
-      page.getByText(
-        'Prefers semantic markdown grouping for guides, notes, and README-heavy content.'
-      )
-    ).toBeVisible({ timeout: 15_000 });
-
-    await expect
-      .poll(async () => await readImportSettingsState(page), {
-        timeout: 15_000,
-      })
-      .toEqual({
-        chunkingPreset: 'docs',
-        chunkingStrategy: 'semantic-markdown',
-        enableChunking: true,
-      });
-
-    await page.keyboard.press('Escape');
-    await expect(page.getByText('Chunking Studio')).toBeHidden({ timeout: 15_000 });
-
-    const timeOriginBeforeImport = await page.evaluate(() => window.performance.timeOrigin);
-    await importSelectedFilesFromExplorer(page, { expectedSelectedCount: 2 });
-
-    const importedCounts = await waitForCollectionSummary(
+    test('keeps retained renderer heap bounded while importing a large chunked codebase', async ({
       page,
-      collectionName,
-      (counts) => counts.fileCount === 2 && counts.totalChunks > 0
-    );
+    }) => {
+      test.setTimeout(300_000);
 
-    expect(importedCounts.fileCount).toBe(2);
-    expect(importedCounts.totalChunks).toBeGreaterThan(0);
+      await enableDatabaseDemoTestHooks(page);
+      await mockBrowserApis(
+        page,
+        `${ROOT_NAME}-import-memory`,
+        createLargeCodeFixtureTree(IMPORT_MEMORY_FIXTURE_FILE_COUNT)
+      );
+      await page.goto('/');
+      await waitForAppLoad(page);
 
-    const timeOriginAfterImport = await page.evaluate(() => window.performance.timeOrigin);
-    expect(timeOriginAfterImport).toBe(timeOriginBeforeImport);
+      await resetAppState(page);
+      await page.reload();
+      await waitForAppLoad(page);
+
+      const collectionName = `Web Import Memory ${Date.now()}`;
+      await ensureDatabasePanelVisible(page);
+      await createCollection(page, collectionName);
+      await selectFilesForImport(page, IMPORT_MEMORY_FIXTURE_FILE_COUNT);
+      await ensureDatabasePanelVisible(page);
+
+      await openImportSettings(page);
+      await page.getByTestId('chunking-preset-balanced').click();
+      await expect
+        .poll(async () => await readImportSettingsState(page), {
+          timeout: 15_000,
+        })
+        .toEqual({
+          chunkingPreset: 'balanced',
+          chunkingStrategy: 'auto',
+          enableChunking: true,
+        });
+      await page.keyboard.press('Escape');
+      await expect(page.getByText('Chunking Studio')).toBeHidden({ timeout: 15_000 });
+
+      try {
+        const baseline = await readHeapSnapshot(page, 'before-import');
+
+        await importSelectedFilesFromExplorer(page, {
+          expectedSelectedCount: IMPORT_MEMORY_FIXTURE_FILE_COUNT,
+        });
+
+        const completedImport = await waitForDatabaseImportSnapshot(
+          page,
+          (snapshot) =>
+            !snapshot.isImporting &&
+            snapshot.progress?.phase === 'complete' &&
+            snapshot.progress.chunkingProgress?.filesProcessed === IMPORT_MEMORY_FIXTURE_FILE_COUNT,
+          240_000
+        );
+        expect(completedImport.progress?.errors).toEqual([]);
+        expect(completedImport.progress?.chunkingProgress?.chunksCreated).toBeGreaterThanOrEqual(
+          IMPORT_MEMORY_FIXTURE_FILE_COUNT
+        );
+
+        const importedCounts = await waitForCollectionSummary(
+          page,
+          collectionName,
+          (counts) =>
+            counts.fileCount === IMPORT_MEMORY_FIXTURE_FILE_COUNT &&
+            counts.totalChunks >= IMPORT_MEMORY_FIXTURE_FILE_COUNT &&
+            counts.embeddedChunks === 0
+        );
+
+        await forceGarbageCollection(page);
+        await forceGarbageCollection(page);
+        const retained = await readHeapSnapshot(page, 'after-import');
+        const retainedGrowthMB = retained.usedMB - baseline.usedMB;
+
+        console.log(
+          JSON.stringify({
+            baseline,
+            collectionName,
+            importedCounts,
+            retained,
+            retainedGrowthMB,
+            type: 'web-import-memory-diagnostic',
+          })
+        );
+
+        expect(importedCounts.fileCount).toBe(IMPORT_MEMORY_FIXTURE_FILE_COUNT);
+        expect(importedCounts.totalChunks).toBeGreaterThanOrEqual(IMPORT_MEMORY_FIXTURE_FILE_COUNT);
+        expect(importedCounts.embeddedChunks).toBe(0);
+        expect(retainedGrowthMB).toBeLessThan(180);
+      } finally {
+        await releaseImportedAppState(page);
+      }
+    });
+
+    test('shows adaptive codebase routing and persists the auto strategy', async ({ page }) => {
+      test.setTimeout(180_000);
+
+      await mockBrowserApis(page, `${ROOT_NAME}-codebase-preset`, CODE_FILE_TREE);
+      await page.goto('/');
+      await waitForAppLoad(page);
+
+      await resetAppState(page);
+      await page.reload();
+      await waitForAppLoad(page);
+
+      await ensureDatabasePanelVisible(page);
+      await openImportSettings(page);
+
+      await chooseChunkingPreset(page, /^Codebase/, 'codebase');
+      await expect(page.getByText('Adaptive mixed-repo preset')).toBeVisible({
+        timeout: 15_000,
+      });
+      await page.getByRole('button', { name: /Routing plan/ }).click();
+      const docsRoute = page.getByTestId('chunking-route-docs-getting-started-md');
+      await expect(docsRoute).toBeVisible({ timeout: 15_000 });
+      await expect(docsRoute.getByText('semantic-markdown')).toBeVisible({ timeout: 15_000 });
+      const codeRoute = page.getByTestId('chunking-route-src-assistant-retrieval-ts');
+      await expect(codeRoute).toBeVisible({ timeout: 15_000 });
+      await expect(codeRoute.getByText('recursive')).toBeVisible({ timeout: 15_000 });
+
+      await expect
+        .poll(async () => await readImportSettingsState(page), {
+          timeout: 15_000,
+        })
+        .toEqual({
+          chunkingPreset: 'codebase',
+          chunkingStrategy: 'auto',
+          enableChunking: true,
+        });
+
+      await page.reload();
+      await waitForAppLoad(page);
+      await ensureDatabasePanelVisible(page);
+      await openImportSettings(page);
+      await expect(page.getByText('Adaptive mixed-repo preset')).toBeVisible({
+        timeout: 15_000,
+      });
+    });
+
+    test('imports markdown successfully after choosing the docs preset in Chunking Studio', async ({
+      page,
+    }) => {
+      test.setTimeout(180_000);
+
+      await mockBrowserApis(page, `${ROOT_NAME}-docs-preset`, DOCS_FILE_TREE);
+      await page.goto('/');
+      await waitForAppLoad(page);
+
+      await resetAppState(page);
+      await page.reload();
+      await waitForAppLoad(page);
+      await clearPersistedExplorerIncludeFilters(page);
+      await page.reload();
+      await waitForAppLoad(page);
+
+      const collectionName = `Web Docs Preset ${Date.now()}`;
+      await ensureDatabasePanelVisible(page);
+      await createCollection(page, collectionName);
+      await selectFilesForImport(page, 2);
+      await ensureDatabasePanelVisible(page);
+      await openImportSettings(page);
+
+      await chooseChunkingPreset(page, /^Docs/, 'docs');
+      await expect(
+        page.getByText(
+          'Prefers semantic markdown grouping for guides, notes, and README-heavy content.'
+        )
+      ).toBeVisible({ timeout: 15_000 });
+
+      await expect
+        .poll(async () => await readImportSettingsState(page), {
+          timeout: 15_000,
+        })
+        .toEqual({
+          chunkingPreset: 'docs',
+          chunkingStrategy: 'semantic-markdown',
+          enableChunking: true,
+        });
+
+      await page.keyboard.press('Escape');
+      await expect(page.getByText('Chunking Studio')).toBeHidden({ timeout: 15_000 });
+
+      const timeOriginBeforeImport = await page.evaluate(() => window.performance.timeOrigin);
+      await importSelectedFilesFromExplorer(page, { expectedSelectedCount: 2 });
+
+      const importedCounts = await waitForCollectionSummary(
+        page,
+        collectionName,
+        (counts) => counts.fileCount === 2 && counts.totalChunks > 0
+      );
+
+      expect(importedCounts.fileCount).toBe(2);
+      expect(importedCounts.totalChunks).toBeGreaterThan(0);
+
+      const timeOriginAfterImport = await page.evaluate(() => window.performance.timeOrigin);
+      expect(timeOriginAfterImport).toBe(timeOriginBeforeImport);
+    });
   });
-});

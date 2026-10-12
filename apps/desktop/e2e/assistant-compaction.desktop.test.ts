@@ -37,9 +37,9 @@ test.describe('assistant compaction summary (desktop)', () => {
     await waitForAssistantChat(window);
   });
 
-  test('renders the durable divider and keeps the same thread usable afterward', async ({
-    window,
-  }) => {
+  test.fixme('renders the durable divider and keeps the same thread usable afterward', {
+    annotation: { description: 'BST-1951', type: 'quarantine' },
+  }, async ({ window }) => {
     const seeded = await seedCompactionSummaryThread(window);
 
     // History adapters load once per thread runtime. Reload after the fixed

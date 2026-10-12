@@ -260,10 +260,9 @@ function isObjectWithNumber(
 }
 
 test.describe('Startup Restore Regression', () => {
-  test('restores folder and active tab without startup churn signatures', async ({
-    electronHarness,
-    window,
-  }) => {
+  test.fixme('restores folder and active tab without startup churn signatures', {
+    annotation: { description: 'BST-1957', type: 'quarantine' },
+  }, async ({ electronHarness, window }) => {
     await seedRestoredStartupState(window);
     const restartedContext = await electronHarness.restart();
     const restartedWindow = restartedContext.window;

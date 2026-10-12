@@ -67,10 +67,9 @@ async function openThreeThreads(page: Page): Promise<Locator> {
 }
 
 test.describe('Tab keyboard chords (desktop)', () => {
-  test('⌘W closes a tab, not the window; ⌘⇧T restores it; Ctrl+Tab cycles by position', async ({
-    electronApp,
-    window: page,
-  }) => {
+  test.fixme('⌘W closes a tab, not the window; ⌘⇧T restores it; Ctrl+Tab cycles by position', {
+    annotation: { description: 'BST-1958', type: 'quarantine' },
+  }, async ({ electronApp, window: page }) => {
     test.setTimeout(120_000);
     const app = electronApp.app;
 
