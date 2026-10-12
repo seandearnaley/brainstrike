@@ -3,7 +3,7 @@
  *
  *   pnpm exec node apps/desktop/qualification/retrieval/run-retrieval-eval.ts \
  *     --evidence <recorded BST-1922 directory> --out <summary.json> \
- *     [--candidate <produced vector directory> --candidate-manifest <pinned hashes>]
+ *     [--candidate <produced vector directory> --candidate-manifest <pinned hashes>]...
  *
  * It reads the recorded canonical chunks, source snapshots and vectors (hashes
  * pinned in evidence-manifest.json), builds a fresh native index through the
@@ -26,6 +26,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import {
+  evaluateJudgedHits,
   type RepositoryEvaluationReport,
   repositoryRetrievalFixtureSchema,
   runRepositoryRetrievalEvaluation,
@@ -45,27 +46,27 @@ const here = import.meta.dirname;
 
 const { values } = parseArgs({
   options: {
-    candidate: { type: 'string' },
-    'candidate-manifest': { type: 'string' },
+    candidate: { multiple: true, type: 'string' },
+    'candidate-manifest': { multiple: true, type: 'string' },
     evidence: { type: 'string' },
     out: { type: 'string' },
   },
   strict: true,
 });
-if (
-  !(values.evidence && values.out) ||
-  Boolean(values.candidate) !== Boolean(values['candidate-manifest'])
-) {
+const candidateDirectories = values.candidate ?? [];
+const candidateManifests = values['candidate-manifest'] ?? [];
+if (!(values.evidence && values.out) || candidateDirectories.length !== candidateManifests.length) {
   throw new Error(
     'Usage: run-retrieval-eval.ts --evidence <recorded directory> --out <summary.json> [--candidate <dir> --candidate-manifest <json>]'
   );
 }
 const evidenceDirectory = values.evidence;
 const evidence = await loadEvidence(evidenceDirectory, join(here, 'evidence-manifest.json'));
-const candidate =
-  values.candidate && values['candidate-manifest']
-    ? await loadCandidate(values.candidate, values['candidate-manifest'])
-    : undefined;
+const candidates = await Promise.all(
+  candidateDirectories.map((directory, index) =>
+    loadCandidate(directory, candidateManifests[index] ?? '')
+  )
+);
 const fixture = repositoryRetrievalFixtureSchema.parse(evidence.fixture);
 const queryIds = new Map(fixture.queries.map(({ id, query }) => [query, id]));
 const electron: unknown = createRequire(join(here, '../../package.json'))('electron');
@@ -75,6 +76,38 @@ if (typeof electron !== 'string') {
 
 type Mode = keyof RepositoryEvaluationReport['modes'];
 const MODES: readonly Mode[] = ['bm25', 'grep', 'trigram', 'vector', 'lexical', 'hybrid'];
+
+/**
+ * Each query's recall@10 and reciprocal rank in the modes the gate compares,
+ * recomputed with the harness's own judged metric; their means must equal the
+ * report's, so the per-query rows are the measurement's own.
+ */
+function perQuery(report: RepositoryEvaluationReport) {
+  const judged = new Map(fixture.queries.map((query) => [query.id, query]));
+  const rows = Object.fromEntries(
+    (['vector', 'lexical', 'hybrid'] as const).map((mode) => {
+      const results = report.queries.map(({ id, rankings }) => {
+        const query = judged.get(id);
+        if (!query) {
+          throw new Error(`Report query ${id} is not in the fixture`);
+        }
+        return evaluateJudgedHits(query, rankings[mode]);
+      });
+      const recallAt10 = results.map((result) => result.recallAtK[10] ?? 0);
+      const mrr = results.map((result) => result.mrr);
+      const mean = (values: readonly number[]) =>
+        values.reduce((sum, value) => sum + value, 0) / values.length;
+      if (
+        Math.abs(mean(recallAt10) - (report.modes[mode].meanRecallAtK[10] ?? 0)) > 1e-12 ||
+        Math.abs(mean(mrr) - report.modes[mode].meanMrr) > 1e-12
+      ) {
+        throw new Error(`Per-query ${mode} metrics disagree with the report's means`);
+      }
+      return [mode, { mrr, recallAt10 }];
+    })
+  );
+  return { queryIds: report.queries.map(({ id }) => id), ...rows };
+}
 
 function summarize(report: RepositoryEvaluationReport) {
   return {
@@ -90,6 +123,7 @@ function summarize(report: RepositoryEvaluationReport) {
         },
       ])
     ),
+    perQuery: perQuery(report),
   };
 }
 
@@ -186,9 +220,9 @@ try {
       };
     });
     const control = compareControl(controlReport, evidence.original);
-    let candidateReport: RepositoryEvaluationReport | undefined;
-    if (candidate) {
-      const candidateDirectory = join(directory, 'candidate');
+    const candidateReports: { name: string; report: RepositoryEvaluationReport }[] = [];
+    for (const [index, candidate] of candidates.entries()) {
+      const candidateDirectory = join(directory, `candidate-${index}`);
       await mkdir(candidateDirectory);
       const candidateCorpus = await buildNativeCorpus(
         evidence,
@@ -197,21 +231,25 @@ try {
         candidateDirectory
       );
       try {
-        candidateReport = await evaluate(candidateCorpus, candidate.profile, recordedPolicy);
+        candidateReports.push({
+          name: candidate.name,
+          report: await evaluate(candidateCorpus, candidate.profile, recordedPolicy),
+        });
       } finally {
         await candidateCorpus.port.close();
       }
     }
     const summary = {
-      ...(candidate && candidateReport
-        ? {
-            candidate: {
-              ...summarize(candidateReport),
-              ab: abTable(controlReport, candidateReport),
-              profile: candidate.profile,
-            },
-          }
-        : {}),
+      candidates: Object.fromEntries(
+        candidateReports.map(({ name, report }, index) => [
+          name,
+          {
+            ...summarize(report),
+            ab: abTable(controlReport, report),
+            profile: candidates[index]?.profile,
+          },
+        ])
+      ),
       control: {
         ...summarize(controlReport),
         comparison: control,
@@ -227,15 +265,22 @@ try {
       const before = evidence.original.modes[mode];
       const after = controlReport.modes[mode];
       const current = productionReport.modes[mode];
-      const other = candidateReport?.modes[mode];
-      return `${mode.padEnd(8)} original R@10 ${before?.meanRecallAtK['10']} MRR ${before?.meanMrr} | control R@10 ${after.meanRecallAtK[10]} MRR ${after.meanMrr} | production R@10 ${current.meanRecallAtK[10]} MRR ${current.meanMrr}${other ? ` | candidate R@10 ${other.meanRecallAtK[10]} MRR ${other.meanMrr}` : ''}`;
+      const others = candidateReports
+        .map(
+          ({ name, report }) =>
+            ` | ${name} R@10 ${report.modes[mode].meanRecallAtK[10]} MRR ${report.modes[mode].meanMrr}`
+        )
+        .join('');
+      return `${mode.padEnd(8)} original R@10 ${before?.meanRecallAtK['10']} MRR ${before?.meanMrr} | control R@10 ${after.meanRecallAtK[10]} MRR ${after.meanMrr} | production R@10 ${current.meanRecallAtK[10]} MRR ${current.meanMrr}${others}`;
     };
     process.stdout.write(
       `${MODES.map(row).join('\n')}\n` +
         `gate original ${JSON.stringify(evidence.original.gate)}\n` +
         `gate control ${JSON.stringify(controlReport.gate)}\n` +
         `gate production ${JSON.stringify(productionReport.gate)}\n` +
-        (candidateReport ? `gate candidate ${JSON.stringify(candidateReport.gate)}\n` : '') +
+        candidateReports
+          .map(({ name, report }) => `gate ${name} ${JSON.stringify(report.gate)}\n`)
+          .join('') +
         `control reproduced: ${summary.control.reproduced} (${control.differences.length} metric differences, ${control.pools.differing.length}/${control.pools.compared} pools differ, ${grepDrift.length} grep policy drifts)\n`
     );
     if (!summary.control.reproduced) {
