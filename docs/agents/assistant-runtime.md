@@ -544,11 +544,10 @@ Guard: `packages/agent/src/__tests__/mastra-tool-execution.integration.spec.ts`,
   registry measured without `workspaceSkills` is an undercount. The authored guard
   is not evidence for the provider payload.
 - The per-call input-processor order is SkillsProcessor → ToolSearchProcessor →
-  ProjectionSafeToolCallFilter → ToolProjectionRewriteProcessor →
-  ProviderHistoryCompat → OpenAIToolSearchHistoryCompat →
-  OpenAIDuplicateItemCompat → ProjectionAwareTokenLimiter. The OpenAI-only
-  compatibility seams are absent for every other provider; token limiting is
-  always last.
+  ProjectionSafeToolCallFilter → ProviderHistoryCompat → OpenAIToolSearchHistoryCompat →
+  OpenAIDuplicateItemCompat → BedrockMessageHygiene → ProjectionAwareTokenLimiter.
+  The OpenAI-only and Bedrock-only compatibility seams are absent for every other
+  provider; token limiting is always last.
 - OpenAIDuplicateItemCompat canonicalizes duplicated OpenAI item references at the
   transient boundary without trading one 400 for another: reasoning/text ids keep
   their newest occurrence; a tool call and its output are kept as the newest
