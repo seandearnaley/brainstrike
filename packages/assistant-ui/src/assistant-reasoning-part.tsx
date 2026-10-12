@@ -3,7 +3,7 @@ import { stripProviderCitationMarkers } from '@brainstrike/assistant-contract/ci
 
 export function AssistantReasoningPart() {
   const { text } = useMessagePartReasoning();
-  // Reasoning renders as raw text, NOT through MarkdownTextPrimitive, so it
+  // Reasoning renders as raw text, NOT through the markdown primitive, so it
   // does not inherit that component's `preprocess`. No leak has been observed
   // here (reasoning summaries carry no inline markers today), but this is
   // visible model-authored text and the strip is a pure function — leaving the

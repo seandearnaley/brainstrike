@@ -15,6 +15,7 @@ import {
   secondReasoning,
   secondTools,
 } from './assistant-activity-timeline-fixtures';
+import { streamedText } from './streamed-text';
 
 /** Hydration-only renders: reaching the model at all is the failure. */
 const neverRunAdapter: ChatModelAdapter = {
@@ -176,7 +177,8 @@ describe('assistant activity chronology through the real runtime', () => {
     render(<Harness adapter={adapter} />);
     await user.type(screen.getByRole('textbox', { name: 'Message' }), 'Inspect this issue.');
     await user.click(screen.getByRole('button', { name: 'Send' }));
-    await screen.findByText('I found the issue.');
+    // The text part is still the running tail here, so its words stream as spans.
+    await screen.findByText(streamedText('I found the issue.'));
     try {
       await act(async () => {
         think.release();

@@ -149,7 +149,7 @@
   },
   "devDependencies": {
     "@assistant-ui/react": "catalog:",
-    "@assistant-ui/react-markdown": "catalog:",
+    "@assistant-ui/react-streamdown": "catalog:",
     "@assistant-ui/styles": "catalog:",
     "@brainstrike/build-utils": "workspace:*",
     "@brainstrike/config": "workspace:*",

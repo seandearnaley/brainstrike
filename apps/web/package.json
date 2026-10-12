@@ -38,7 +38,7 @@
   },
   "devDependencies": {
     "@assistant-ui/react": "catalog:",
-    "@assistant-ui/react-markdown": "catalog:",
+    "@assistant-ui/react-streamdown": "catalog:",
     "@assistant-ui/styles": "catalog:",
     "@biomejs/biome": "2.5.14",
     "@brainstrike/build-utils": "workspace:*",

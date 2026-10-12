@@ -13,7 +13,7 @@ export interface CodeBlockProps {
 /**
  * Composed code box (header + body in one wrapper) for pipelines that own the
  * whole fence element (file preview, notes). The chat pipeline cannot use this
- * composition — @assistant-ui/react-markdown renders header and highlighter as
+ * composition — its markdown renderer emits header and highlighter as
  * siblings — so it mounts CodeBlockHeader/CodeBlockBody separately; the halves
  * share the border/rounding contract and read as the same box.
  */
