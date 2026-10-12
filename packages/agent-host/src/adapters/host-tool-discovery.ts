@@ -147,13 +147,18 @@ export async function createHostToolDiscovery(
   });
   const step = async (run: HostRunKey): Promise<DiscoveryTools> =>
     (
-      await processor.processInputStep(
-        createPersistedStepArgs(await options.readRunMessages(run), model, undefined)
-      )
+      await processor.processInputStep({
+        ...createPersistedStepArgs(await options.readRunMessages(run), model, undefined),
+        tools: surface.coreTools,
+      })
     ).tools;
   // The declarations (descriptions, schemas) of a run that loaded nothing yet.
-  const initial = (await processor.processInputStep(createPersistedStepArgs([], model, undefined)))
-    .tools;
+  const initial = (
+    await processor.processInputStep({
+      ...createPersistedStepArgs([], model, undefined),
+      tools: surface.coreTools,
+    })
+  ).tools;
   const tools: Record<string, HostTool> = {
     [LIST_AVAILABLE_TOOLS_ID]: discoveryHostTool(
       initial[LIST_AVAILABLE_TOOLS_ID],
@@ -168,10 +173,9 @@ export async function createHostToolDiscovery(
       async (run) => (await step(run))[SEARCH_TOOLS_ID]
     ),
   };
-  const eager = Object.keys(surface.coreTools);
   return {
     discovery: {
-      activeTools: async (run) => [...eager, ...Object.keys(await step(run))],
+      activeTools: async (run) => Object.keys(await step(run)),
       toolIds: new Set(Object.keys(tools)),
     },
     tools,

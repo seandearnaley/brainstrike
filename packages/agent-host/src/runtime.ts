@@ -120,6 +120,7 @@ export async function startAgentHost(
     | 'providers'
     | 'searchState'
     | 'searchStateVectors'
+    | 'searchWorkspace'
   > => ({
     ...(platform?.auth ? { auth: platform.auth } : {}),
     ...(platform?.mcpContent ? { mcpContent: platform.mcpContent } : {}),
@@ -127,6 +128,7 @@ export async function startAgentHost(
     ...(platform?.mcpSettings ? { mcpSettings: platform.mcpSettings } : {}),
     ...(platform?.providers ? { providers: platform.providers } : {}),
     ...(platform?.searchState ? { searchState: platform.searchState } : {}),
+    ...(platform?.searchWorkspace ? { searchWorkspace: platform.searchWorkspace } : {}),
     ...(platform?.searchStateVectors ? { searchStateVectors: platform.searchStateVectors } : {}),
   });
   const ownedPlatform: HostPlatform = {

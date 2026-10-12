@@ -271,6 +271,11 @@ test.describe('Workspace Index background indexing (web) @stateful @web-indexing
       }
     });
 
+    // The reload and background writes must use production's joined durable
+    // writes, not the ephemeral test store's fire-and-forget filesystem sync.
+    await page.addInitScript(() => {
+      Reflect.set(window, '__brainstrikeWebE2ERequireDurableWrites__', true);
+    });
     await mockBrowserApis(page, 'web-workspace-index-root', WORKSPACE_INDEX_TREE);
     await page.goto('/');
     await resetAppState(page);

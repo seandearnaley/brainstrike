@@ -61,6 +61,7 @@ interface RendererHostLifecycleOptions<TStatus extends RendererHostStatusShape> 
   readonly onStatusChanged?: (status: TStatus) => void;
   readonly onWindowClosed?: (window: BrowserWindow) => void;
   readonly role: Exclude<DesktopWindowRole, 'visible-ui'>;
+  readonly startupQuery?: () => Readonly<Record<string, string>>;
   readonly statusEventName: string;
   readonly timeoutMessage: string;
 }
@@ -397,18 +398,14 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     // allowlist in agreement (an earlier bug had this class branch on
     // `app.isPackaged || --test-mode` on its own and point `pnpm start`'s
     // hosts at a dev server that wasn't running).
+    const query = { ...this.options.startupQuery?.(), mode: this.options.mode, runtimeId };
     if (target.kind === 'built-renderer') {
       await window.loadFile(target.rendererPath, {
-        query: {
-          mode: this.options.mode,
-          runtimeId,
-        },
+        query,
       });
       return;
     }
-    await window.loadURL(
-      `${target.url}?mode=${encodeURIComponent(this.options.mode)}&runtimeId=${encodeURIComponent(runtimeId)}`
-    );
+    await window.loadURL(`${target.url}?${new URLSearchParams(query).toString()}`);
   }
 
   private async createWindow(runtimeId: string): Promise<BrowserWindow> {

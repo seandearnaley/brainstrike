@@ -1,3 +1,16 @@
+Empty committed reasoning summaries remain in canonical provider history but do not
+produce transcript disclosures; visible reasoning retains its original order.
+
+Current Desktop execution boundary (M4): the shared agent host owns runs,
+children, log replay and decisions. Desktop assistant HTTP serves provider status,
+verification and OpenRouter metadata only; old execution/discovery/resume routes
+and `agent:chat` IPC have been removed. Historical Mastra/PGlite sections below
+continue to describe shared/web code where still consumed, not Desktop execution.
+
+Resource recall includes only settled turns from other host threads. A live parent
+with a pending approval cannot become a child's completed provider history. Current-run
+continuation and selected same-thread ancestry retain their existing owners.
+
 # Assistant Persistence, Notifications, Context Meter
 
 > Read before changing message persistence or reload hydration, run
@@ -1527,6 +1540,15 @@ Guard: `packages/db/__tests__/migration-068-tool-output-artifacts.test.ts`,
 `packages/agent/src/mastra/__tests__/tool-output-artifact-settlement.spec.ts`.
 
 ## THREADS PANEL HYBRID SEARCH
+
+Current host threads (ADR-0011/0018) search their committed prompts, assistant
+text, tool outputs, human decisions and terminal diagnostics through the existing
+derived state index. Tool/decision hits retain the source run and sequence and
+navigate to that run's existing assistant message; they introduce no message IDs
+or history writer. Ordinary successful completion adds no content-free search
+row. Scope, selected-branch filtering, explicit rebuild and deletion remain the
+existing host/indexer operations. The legacy Mastra/PGlite path below remains a
+separate removal boundary, not the current host's search authority.
 
 Hybrid lexical + semantic + title search over threads. Mastra has no cross-thread
 content search, so this is Brainstrike-owned derived state under the same ownership

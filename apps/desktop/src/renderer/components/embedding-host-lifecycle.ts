@@ -9,6 +9,14 @@ import {
 
 const logger = createLogger('EmbeddingHostRuntime');
 
+/** A legacy preference admission failure leaves the shared inference owner healthy. */
+export class EmbeddingBackgroundAdmissionError extends Error {
+  constructor(cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.name = 'EmbeddingBackgroundAdmissionError';
+  }
+}
+
 /** A disposed Effect still records failures, but cannot publish over its replacement. */
 export function createEmbeddingHostLifecycleFailureHandler(
   runtimeIdRef: MutableRefObject<string>,
@@ -80,13 +88,16 @@ export function createQueryEmbeddingRequestParseErrorReport(
 export function createEmbeddingHostCommandHandler(owner: {
   getRuntimeId(): string;
   isDisposed(): boolean;
+  isFailed(): boolean;
+  isStopping(): boolean;
   stop(): Promise<void>;
   reset(nextRuntimeId: string): Promise<void>;
+  startBackground(): Promise<void>;
   /** Settles after reporting the outcome itself; the worker is not touched. */
   resolveDevice(): Promise<void>;
   report(
     runtimeId: string,
-    state: 'stopped' | 'error',
+    state: 'running' | 'stopped' | 'error',
     commandId: string,
     lastError?: string
   ): void;
@@ -109,11 +120,25 @@ export function createEmbeddingHostCommandHandler(owner: {
       return;
     }
     const pending =
-      next.payload.action === 'stop' ? owner.stop() : owner.reset(next.payload.nextRuntimeId);
+      next.payload.action === 'stop'
+        ? owner.stop()
+        : next.payload.action === 'start-background'
+          ? owner.startBackground()
+          : owner.reset(next.payload.nextRuntimeId);
     void pending.then(
       () => {
-        if (next.payload.action === 'stop' && !owner.isDisposed()) {
-          owner.report(next.runtimeId, 'stopped', next.requestId);
+        if (
+          !(
+            owner.isDisposed() ||
+            (next.payload.action === 'start-background' && owner.isStopping())
+          ) &&
+          (next.payload.action === 'stop' || next.payload.action === 'start-background')
+        ) {
+          owner.report(
+            next.runtimeId,
+            next.payload.action === 'stop' ? 'stopped' : 'running',
+            next.requestId
+          );
         }
       },
       (error: unknown) => {
@@ -121,10 +146,17 @@ export function createEmbeddingHostCommandHandler(owner: {
           error,
           requestId: next.requestId,
         });
-        if (!owner.isDisposed()) {
+        if (
+          !(
+            owner.isDisposed() ||
+            (next.payload.action === 'start-background' && owner.isStopping())
+          )
+        ) {
           owner.report(
             owner.getRuntimeId(),
-            'error',
+            error instanceof EmbeddingBackgroundAdmissionError && !owner.isFailed()
+              ? 'running'
+              : 'error',
             next.requestId,
             error instanceof Error ? error.message : String(error)
           );

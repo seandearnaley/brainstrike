@@ -44,6 +44,10 @@ type CliStringOption =
   | 'interaction'
   | 'mcp-config'
   | 'model'
+  | 'mode'
+  | 'query'
+  | 'limit'
+  | 'scope-root'
   | 'platform'
   | 'prompt'
   | 'provider'
@@ -101,16 +105,20 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       interaction: { type: 'string' },
       interactive: { type: 'boolean' },
       json: { type: 'boolean' },
+      limit: { type: 'string' },
       'mcp-config': { type: 'string' },
+      mode: { type: 'string' },
       model: { type: 'string' },
       'non-interactive': { type: 'boolean' },
       platform: { type: 'string' },
       prompt: { type: 'string' },
       provider: { type: 'string' },
+      query: { type: 'string' },
       region: { type: 'string' },
       'resume-data': { type: 'string' },
       root: { type: 'string' },
       run: { type: 'string' },
+      'scope-root': { type: 'string' },
       sha256: { type: 'string' },
       skills: { type: 'string' },
       thread: { type: 'string' },
@@ -127,10 +135,15 @@ function parseHostCliArgs(args: string[]): HostCliArguments {
       'host status',
       'host stop',
       'help',
+      'children list',
+      'child send',
+      'child input',
+      'child stop',
       'thread start',
       'thread read',
       'threads list',
       'threads show',
+      'workspace search',
       'run',
       'attach',
       'run start',
@@ -279,6 +292,48 @@ function cliWorkspaceConfiguration(input: CliWorkspaceRunInput | undefined): {
   return input ? { configuration: input } : {};
 }
 
+/** Named child controls refuse a top-level thread before issuing a mutation. */
+async function assertChildCommand(
+  client: HostClient,
+  command: string,
+  selected: string | undefined
+): Promise<void> {
+  if (!command.startsWith('child ')) {
+    return;
+  }
+  const { rows } = await client.request('thread/read', {
+    fromSeq: 0,
+    threadId: required(selected, 'thread'),
+  });
+  const started = rows.find(({ event }) => event.type === 'thread.started')?.event;
+  if (started?.type !== 'thread.started' || !('origin' in started)) {
+    throw new Error(`${command} requires a child thread`);
+  }
+}
+
+async function searchWorkspaceCli(client: HostClient, values: HostCliArguments['values']) {
+  const controller = new AbortController();
+  const abort = (): void => controller.abort(new Error('Workspace search interrupted'));
+  process.once('SIGINT', abort);
+  process.once('SIGTERM', abort);
+  try {
+    return await client.request(
+      'workspace/search',
+      HOST_METHOD_SCHEMAS['workspace/search'].parse({
+        limit: Number(values.limit ?? 20),
+        mode: required(values.mode, 'mode'),
+        query: required(values.query, 'query'),
+        rootId: required(values['scope-root'], 'scope-root'),
+        threadId: required(values.thread, 'thread'),
+      }),
+      controller.signal
+    );
+  } finally {
+    process.off('SIGINT', abort);
+    process.off('SIGTERM', abort);
+  }
+}
+
 /** CLI is a client of the root owner; it never runs a second model/tool loop. */
 export async function runHostCli(
   args: string[],
@@ -292,12 +347,17 @@ export async function runHostCli(
 
 run "prompt" --model <id> [--thread <id>] [--json] [--non-interactive]
 attach --thread <id> [--run <id>] [--json] [--interactive]
+workspace search --thread <id> --scope-root <id> --mode bm25|trigram --query <text> [--limit <n>]
 threads list
 threads show --thread <id> [--from-seq <n>]
 host start | host status | host stop
 thread start | thread read --thread <id>
 run start --thread <id> --model <id> --prompt <text>
 run stop --thread <id> --run <id>
+children list --thread <parent-id>
+child send --thread <child-id> --model <id> --prompt <text>
+child input --thread <child-id> --run <id> --model <id> --prompt <text>
+child stop --thread <child-id> --run <id>
 interaction respond --thread <id> --run <id> --interaction <id> --decision approve|deny
 interaction resume --thread <id> --run <id> --interaction <id> --resume-data <json>
 log follow --thread <id> [--from-seq <n>]
@@ -371,6 +431,7 @@ Run signals stop and join its execution; attach signals detach.
   const runId = (): string => required(values.run, 'run');
   try {
     assertCredentialAuthority(spawned, values);
+    await assertChildCommand(client, command, values.thread);
     switch (command) {
       case 'hooks trust':
         print(
@@ -401,6 +462,12 @@ Run signals stop and join its execution; attach signals detach.
       }
       case 'thread start':
         print(await client.request('thread/start', { commandId }));
+        break;
+      case 'workspace search':
+        print(await searchWorkspaceCli(client, values));
+        break;
+      case 'children list':
+        print(await client.request('thread/children', { threadId: threadId() }));
         break;
       case 'threads list':
         print(await client.request('thread/list', {}));
@@ -447,6 +514,7 @@ Run signals stop and join its execution; attach signals detach.
           threadId: threadId(),
         });
         break;
+      case 'child send':
       case 'run start':
         print(
           await client.request('run/start', {
@@ -458,6 +526,18 @@ Run signals stop and join its execution; attach signals detach.
           })
         );
         break;
+      case 'child input':
+        print(
+          await client.request('run/input', {
+            commandId,
+            modelId: required(values.model, 'model'),
+            prompt: required(values.prompt, 'prompt'),
+            runId: runId(),
+            threadId: threadId(),
+          })
+        );
+        break;
+      case 'child stop':
       case 'run stop':
         print(
           await client.request('run/stop', { commandId, runId: runId(), threadId: threadId() })

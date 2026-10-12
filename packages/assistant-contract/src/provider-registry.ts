@@ -149,20 +149,9 @@ export interface LlmModelDefinition extends BaseModelDefinition {
    * evidence supports a reviewed free hosted route; they stay distinct from "cost unavailable."
    */
   pricing?: {
-    /**
-     * USD per 1M prompt-cache READ tokens. Declared only on routes that bill
-     * cache reads at their own published rate — the first-party Anthropic
-     * models (0.1× input) and the Bedrock routes that accept explicit cache
-     * points (Anthropic-on-Bedrock 0.1× input; Amazon Nova 0.25× input).
-     */
+    /** Published USD per 1M cache-read tokens, including automatic provider caching. */
     cacheReadPerMTok?: number;
-    /**
-     * USD per 1M prompt-cache WRITE tokens. Declared only where the vendor
-     * bills cache writes at a PREMIUM over the input rate (Anthropic
-     * first-party and Anthropic-on-Bedrock: 1.25× input). Deliberately absent
-     * for Amazon Nova, which bills cache writes at the ordinary input rate —
-     * absence means "no premium", never "unknown".
-     */
+    /** Published USD per 1M cache-write tokens; absence means the rate is unknown. */
     cacheWritePerMTok?: number;
     inputPerMTok: number;
     /**

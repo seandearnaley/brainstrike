@@ -141,6 +141,7 @@ export interface ProductionHostPlatformOptions {
   readonly resolveWorkspaceRoot?: HostPlatform['resolveWorkspaceRoot'];
   /** The snapshot owner's rewind restores; absent where none exists (the CLI). */
   readonly rewindFiles?: HostPlatform['rewindFiles'];
+  readonly searchWorkspace?: HostPlatform['searchWorkspace'];
   /** The native-tool output rewrite policy (host-capabilities). */
   readonly selectProjectionRewrites?: HostPlatform['selectProjectionRewrites'];
   readonly startup: HostStartupContext;
@@ -630,6 +631,7 @@ export async function createProductionHostPlatform<Configuration extends Product
     ...productionMemoryReadiness(options),
     readPermissionPolicy: options.readPermissionPolicy,
     ...(options.mcp ? { mcp: options.mcp } : {}),
+    ...(options.searchWorkspace ? { searchWorkspace: options.searchWorkspace } : {}),
     searchState: (request) => index.search(request),
     // The caller's profile is the index's to validate, as every vector profile is.
     searchStateVectors: {

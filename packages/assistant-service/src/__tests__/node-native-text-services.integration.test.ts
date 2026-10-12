@@ -78,6 +78,7 @@ async function runFixture(mode: Mode, signal: AbortSignal): Promise<unknown> {
   const ownerBundles = await mkdtemp(path.join(path.dirname(driver), '.m3-native-text-'));
   try {
     const entries = [
+      'desktop-profile-runtime',
       'native-index-runtime',
       'native-index-read-authority',
       'native-index-settings',

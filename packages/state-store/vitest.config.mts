@@ -8,6 +8,7 @@ export default defineConfig({
     alias: [...workspaceSrcAliases(resolve(import.meta.dirname, '..'))],
   },
   test: {
+    coverage: { reportOnFailure: true },
     environment: 'node',
     exclude: ['node_modules', 'dist'],
     // One file at a time, as in the M0 spikes: the suites spawn competing

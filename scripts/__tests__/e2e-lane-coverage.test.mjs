@@ -55,6 +55,8 @@ const LANE_FLAGS =
 function createFixtureRepo({
   includeDesktopTargetedScript = true,
   extraWorkflowSteps = [],
+  desktopExtras = {},
+  desktopScripts = {},
   webExtras = {},
   webLanes = {},
   webScripts = {},
@@ -88,6 +90,7 @@ function createFixtureRepo({
               }
             : {}),
           'test:e2e:lane:full-regression': 'pnpm exec playwright test --project=regression',
+          ...desktopScripts,
         },
       },
       null,
@@ -125,6 +128,9 @@ function createFixtureRepo({
   write(root, 'apps/desktop/e2e/desktop.test.ts', "test('desktop flow', async () => {});\n");
 
   for (const [relativePath, contents] of Object.entries(webExtras)) {
+    write(root, relativePath, contents);
+  }
+  for (const [relativePath, contents] of Object.entries(desktopExtras)) {
     write(root, relativePath, contents);
   }
   return root;
@@ -172,6 +178,56 @@ test('control: a fixture with every spec wired into a lane reports no violations
     report.apps.some((app) => app.app === 'web' && app.specCount >= 2),
     'the clean fixture must actually contain web specs, or the control proves nothing'
   );
+});
+
+test('explicit local performance qualification preserves soak reachability without claiming default coverage', async () => {
+  const root = createFixtureRepo({
+    desktopExtras: {
+      'apps/desktop/e2e/soak.test.ts':
+        "test('retains memory under load @perf @desktop-soak', async () => {});\n",
+    },
+    desktopScripts: {
+      'test:e2e:stress':
+        'node scripts/run-env.mjs BRAINSTRIKE_E2E_PERF=1 -- pnpm exec playwright test e2e/soak.test.ts --project=perf',
+    },
+  });
+  const report = await analyzeFixture(root);
+  assert.deepEqual(report.violations, []);
+  const desktop = report.apps.find((app) => app.app === 'desktop');
+  assert.deepEqual(desktop.manualQualificationNames, ['test:e2e:stress']);
+  assert.ok(!desktop.laneNames.includes('test:e2e:stress'));
+});
+
+test('a soak without an executable opt-in command remains an orphan', async () => {
+  for (const command of [undefined, 'pnpm exec playwright test e2e/soak.test.ts --project=perf']) {
+    const root = createFixtureRepo({
+      desktopExtras: {
+        'apps/desktop/e2e/soak.test.ts':
+          "test('retains memory under load @perf @desktop-soak', async () => {});\n",
+      },
+      desktopScripts: command ? { 'test:e2e:stress': command } : {},
+    });
+    const report = await analyzeFixture(root);
+    assert.ok(kinds(report).includes('orphan-spec'));
+  }
+});
+
+test('an explicit native qualification command supplies local reachability only', async () => {
+  const root = createFixtureRepo({
+    desktopExtras: {
+      'apps/desktop/e2e/retirement.test.ts':
+        "test('retires the native owner @desktop-embedding-retirement', async () => {});\n",
+    },
+    desktopScripts: {
+      'test:e2e:qualification:retirement':
+        'pnpm exec playwright test e2e/retirement.test.ts --project=regression',
+    },
+  });
+  const report = await analyzeFixture(root);
+  assert.deepEqual(report.violations, []);
+  const desktop = report.apps.find((app) => app.app === 'desktop');
+  assert.ok(desktop.manualQualificationNames.includes('test:e2e:qualification:retirement'));
+  assert.ok(!desktop.laneNames.includes('test:e2e:qualification:retirement'));
 });
 
 test('MONEY TEST: a planted orphan tag and orphan spec are caught and drive a non-zero exit', async () => {

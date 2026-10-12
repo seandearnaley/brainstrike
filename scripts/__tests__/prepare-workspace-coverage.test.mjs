@@ -67,7 +67,9 @@ test('prepareWorkspaceCoverage merges split package coverage into canonical repo
       fileCoverage(path.join(dir, '.git', 'ignored.js'), 1)
     );
 
-    const results = prepareWorkspaceCoverage({ roots: [path.join(dir, 'packages')] });
+    const results = prepareWorkspaceCoverage({
+      roots: [path.relative(process.cwd(), path.join(dir, 'packages'))],
+    });
 
     assert.deepEqual(
       results.map((result) => ({
@@ -84,6 +86,49 @@ test('prepareWorkspaceCoverage merges split package coverage into canonical repo
     assert.deepEqual(Object.keys(merged).sort(), [sourceA, sourceB].sort());
     await assert.rejects(access(path.join(packageRoot, 'coverage-db-a')), { code: 'ENOENT' });
     await assert.rejects(access(path.join(packageRoot, 'coverage-db-b')), { code: 'ENOENT' });
+  } finally {
+    await rm(dir, { force: true, recursive: true });
+  }
+});
+
+test('credits shared source to its owning package and unions independent consumer coverage', async () => {
+  const dir = await mkdtemp(path.join(tmpdir(), 'brainstrike-shared-coverage-'));
+  try {
+    const roots = ['packages', 'apps'].map((name) => path.join(dir, name));
+    const owner = path.join(roots[0], 'shared');
+    const consumer = path.join(roots[1], 'desktop');
+    for (const packageRoot of [owner, consumer]) {
+      await mkdir(path.join(packageRoot, 'coverage'), { recursive: true });
+      await writeJson(path.join(packageRoot, 'package.json'), { name: path.basename(packageRoot) });
+    }
+    const shared = path.join(owner, 'src', 'shared.ts');
+    const untested = path.join(owner, 'src', 'untested.ts');
+    const app = path.join(consumer, 'src', 'app.ts');
+    await writeJson(path.join(owner, 'coverage', 'coverage-final.json'), {
+      ...fileCoverage(shared, 0),
+      ...fileCoverage(untested, 0),
+    });
+    await writeJson(path.join(consumer, 'coverage', 'coverage-final.json'), {
+      ...fileCoverage(shared, 3),
+      ...fileCoverage(app, 1),
+    });
+    prepareWorkspaceCoverage({ roots });
+    const ownerReport = JSON.parse(
+      await readFile(path.join(owner, 'coverage', 'coverage-final.json'), 'utf8')
+    );
+    const consumerReport = JSON.parse(
+      await readFile(path.join(consumer, 'coverage', 'coverage-final.json'), 'utf8')
+    );
+    assert.equal(ownerReport[shared].s[0], 3);
+    assert.equal(ownerReport[untested].s[0], 0);
+    assert.deepEqual(Object.keys(consumerReport), [app]);
+    // Re-preparing must not discard the consumer's contribution.
+    prepareWorkspaceCoverage({ roots });
+    const repeated = JSON.parse(
+      await readFile(path.join(owner, 'coverage', 'coverage-final.json'), 'utf8')
+    );
+    assert.equal(repeated[shared].s[0], 3);
+    assert.equal(repeated[untested].s[0], 0);
   } finally {
     await rm(dir, { force: true, recursive: true });
   }

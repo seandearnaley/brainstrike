@@ -5,6 +5,8 @@ import {
   CommittedAssistantLogProjection,
   type CommittedAssistantLogRow,
 } from '../committed-assistant-log-projection';
+import { committedStepParts } from '../committed-step-text';
+import emptyReasoning from './fixtures/luna-empty-reasoning.json';
 
 const rows: readonly CommittedAssistantLogRow[] = recording;
 const start = rows.find(({ event }) => event['type'] === 'run.started');
@@ -134,4 +136,24 @@ it('a replay that dropped the step’s oldest text opens with a visible notice u
   expect(texts(projection)).toEqual([
     { status: { type: 'complete' }, text: 'Host run completed.' },
   ]);
+});
+
+// October 12 owner export: encrypted reasoning items have no visible summary.
+it('omits recorded empty thinking disclosures while retaining the answer and visible reasoning', () => {
+  const original = JSON.stringify(emptyReasoning);
+  const parts = committedStepParts(emptyReasoning);
+  expect(parts.some(({ part }) => part.type === 'reasoning')).toBe(false);
+  expect(parts.some(({ part }) => part.type === 'text' && part.text.length > 0)).toBe(true);
+  expect(JSON.stringify(emptyReasoning)).toBe(original);
+  expect(
+    committedStepParts([
+      {
+        content: [
+          { text: '  \n', type: 'reasoning' },
+          { text: 'Visible reasoning.', type: 'reasoning' },
+        ],
+        role: 'assistant',
+      },
+    ]).map(({ part }) => part.text)
+  ).toEqual(['Visible reasoning.']);
 });

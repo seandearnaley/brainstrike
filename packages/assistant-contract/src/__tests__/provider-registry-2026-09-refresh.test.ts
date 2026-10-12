@@ -13,10 +13,9 @@ import {
  */
 describe('2026-09 catalog refresh (BST-1804)', () => {
   /**
-   * OpenAI model pages. Cache rates are published but omitted: a cache rate
-   * may only travel with a `promptCaching` dialect and there is no `openai`
-   * member (BST-1354). The ladder is declared because the undeclared family
-   * default offers `minimal` (not on the page) and withholds `max` (on it).
+   * OpenAI model pages. Billing rates are independent of request cache dialects.
+   * The ladder is declared because the family default offers `minimal` (not
+   * on the page) and withholds `max` (on it).
    */
   it.each([
     ['gpt-6-sol', 'GPT-6 Sol', 2, 10],
@@ -30,7 +29,11 @@ describe('2026-09 catalog refresh (BST-1804)', () => {
         label,
         maxOutputTokens: 128_000,
         nativeToolSearch: 'openai',
-        pricing: { inputPerMTok, outputPerMTok },
+        pricing: {
+          inputPerMTok,
+          outputPerMTok,
+          ...(id === 'gpt-6-luna' ? { cacheReadPerMTok: 0.01, cacheWritePerMTok: 0.125 } : {}),
+        },
         reasoning: {
           defaultEffort: 'medium',
           mandatory: false,

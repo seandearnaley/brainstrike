@@ -68,7 +68,9 @@ export function createMcpLabFaultRuntime(
       }
       let outcome: 'aborted' | 'settled' = 'settled';
       try {
-        return await applyMcpLabHttpFault(applied, displacedResponse, signal);
+        const response = await applyMcpLabHttpFault(applied, displacedResponse, signal);
+        await execution.waitForRelease?.(signal);
+        return response;
       } catch (error) {
         if (signal?.aborted === true && error instanceof Error && error.name === 'AbortError') {
           outcome = 'aborted';

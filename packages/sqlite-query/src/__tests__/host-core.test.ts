@@ -1,7 +1,8 @@
 import { serialize } from 'node:v8';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createQueryHost } from '../host-core.js';
 import type { QueryResponse, SqliteRows } from '../protocol.js';
+import { SqliteRuntimeRefusedError } from '../runtime-refusal.js';
 
 const { queryMock } = vi.hoisted(() => ({ queryMock: vi.fn<() => SqliteRows>() }));
 vi.mock('../sandbox.js', () => ({
@@ -13,7 +14,26 @@ vi.mock('../sandbox.js', () => ({
   },
 }));
 
+beforeEach(() => queryMock.mockReset());
+
 describe('complete process response budget', () => {
+  it('preserves a runtime refusal through the process response boundary', () => {
+    const responses: QueryResponse[] = [];
+    const receive = createQueryHost((response) => responses.push(response));
+    receive({ databasePath: 'owned.sqlite', id: 1, kind: 'open' });
+    const refusal = new SqliteRuntimeRefusedError('Engine memory accounting is unavailable.');
+    queryMock.mockImplementationOnce(() => {
+      throw refusal;
+    });
+    receive({ id: 2, kind: 'query', maxRows: 1, sql: 'SELECT 1', values: [] });
+    expect(responses.at(-1)).toEqual({
+      id: 2,
+      kind: 'error',
+      message: refusal.message,
+      name: refusal.name,
+    });
+    expect(refusal.code).toBe('sqlite_runtime_refused');
+  });
   it('refuses native coverage in a generic SQL owner', () => {
     const responses: QueryResponse[] = [];
     const receive = createQueryHost((response) => responses.push(response));

@@ -36,7 +36,7 @@ function includes(rule: ResourceRule | undefined, filename: string): boolean {
 describe('bundled Python resource packaging', () => {
   it('prepares packaging resources for the builder target and starts with host-only preparation', () => {
     expect(packageJson.build.beforePack).toBe('./scripts/prepare-python-runtime-before-pack.mjs');
-    expect(packageJson.scripts['pack']).toBe('pnpm build && electron-builder --dir');
+    expect(packageJson.scripts['pack']).toBe('pnpm build:cached && electron-builder --dir');
     expect(packageJson.scripts['dist']).toBe('pnpm build && electron-builder');
     expect(packageJson.scripts['start']).toBe(
       'node scripts/fetch-python-runtime.mjs --platform=host && pnpm build && electron . --no-sandbox --brainstrike-desktop-launch-mode=built'

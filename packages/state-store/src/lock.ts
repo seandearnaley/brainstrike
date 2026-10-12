@@ -32,7 +32,6 @@ import {
   readdirSync,
   readFileSync,
   realpathSync,
-  renameSync,
   rmSync,
   unlinkSync,
   writeSync,
@@ -41,6 +40,7 @@ import { createRequire } from 'node:module';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { newRetryStats, type RetryStats, retrySharing } from './fs-retry.mjs';
+import { replaceLockFileSync } from './lock-file-replacement.js';
 
 export interface LockOwner {
   readonly host: string;
@@ -561,7 +561,7 @@ export class RootLock {
           // A read/listing EPERM is an authority failure, never a rename retry.
           throw new ReleaseAuthorityError(cause);
         }
-        renameSync(candidate, path);
+        replaceLockFileSync(candidate, path);
       };
       if (process.platform === 'win32') {
         const error = retrySharing(rename, this.releaseStats);

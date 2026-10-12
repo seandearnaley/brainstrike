@@ -123,13 +123,17 @@ export const SUBAGENT_REJECTED_OUTCOME = 'rejected';
  * `persona-assembly.ts`.
  */
 export function delegationDescriptionForPersona(
-  persona: Pick<AssistantPersonaDefinition, 'description' | 'maxSteps'>,
+  persona: Pick<AssistantPersonaDefinition, 'description' | 'maxSteps' | 'mode'>,
   settings: RuntimeSubagentSettings
 ): string {
   const steps = effectiveChildStepBudget(persona, settings);
   const summary = steps >= 2 ? ', one of which is reserved for its summary' : '';
+  const capability =
+    personaMode(persona) === 'worker'
+      ? 'Can supervise child agents within the remaining depth budget. For hierarchical research, use workers as supervisors and read-only Explorers as leaves; keep each task within the user-authorized scope.'
+      : 'Read-only leaf: cannot spawn child agents. For a hierarchy, choose an available worker-mode supervisor instead; do not assign onward delegation to this persona.';
   return (
-    `${persona.description} Runs at most ${steps} ${steps === 1 ? 'step' : 'steps'}${summary} — ` +
+    `${persona.description} ${capability} Runs at most ${steps} ${steps === 1 ? 'step' : 'steps'}${summary} — ` +
     'scope the task to that budget and split anything larger across several ' +
     `delegations. The root turn permits at most ${settings.maxDepth} descendant levels, ` +
     `${settings.maxInvocations} invocations, ${settings.maxConcurrentWork} active work operations, ` +

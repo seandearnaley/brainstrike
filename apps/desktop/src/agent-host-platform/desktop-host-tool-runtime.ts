@@ -1,6 +1,5 @@
 /** Main's stores and services the agent host's own tools read through Main. */
 import { mainBrowserToolRunner } from '../assistant-server/browser-agent-tools';
-import { pgliteGrepIndex } from '../assistant-server/grep-search-tool';
 import { mainDiagnosticsReader } from '../assistant-server/query-diagnostics-tool';
 import { mainQuerySelfRead } from '../assistant-server/query-self-tool';
 import { pgliteRetrievalStore } from '../assistant-server/retrieval-store-pglite';
@@ -10,6 +9,7 @@ import {
   desktopWorktreeToolDependencies,
 } from '../assistant-server/worktree-tool-dependencies';
 import type { DesktopShellCorrelation, HostToolServiceCapabilities } from './host-tool-services';
+import { nativeGrepIndex } from './native-grep-index';
 import type { DesktopHostToolServices } from './production-desktop-capabilities';
 
 /** The Main-owned stores and services host threads' own tools read through Main. */
@@ -17,7 +17,9 @@ export function desktopHostToolServices(
   dependencies: DesktopHostToolServices
 ): HostToolServiceCapabilities {
   return {
-    grepIndex: pgliteGrepIndex,
+    ...(dependencies.nativeIndexSearch
+      ? { grepIndex: nativeGrepIndex(dependencies.nativeIndexSearch) }
+      : {}),
     ...(dependencies.nativeIndexSearch ? { indexSearch: dependencies.nativeIndexSearch } : {}),
     browser: mainBrowserToolRunner,
     contextDelivery: mainWorkspaceContextBroadcaster,

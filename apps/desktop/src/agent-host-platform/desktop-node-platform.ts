@@ -61,6 +61,7 @@ import {
   PlatformTurnSnapshotResultSchema,
   PlatformWorkspaceAcquireResultSchema,
 } from './platform-wire';
+import { IndexSearchResultSchema } from './retrieval-wire';
 
 const logger = createLogger('DesktopNodePlatform');
 
@@ -485,6 +486,46 @@ export async function createDesktopHostConfiguration(
         PlatformRewindOutcomesSchema.parse(await request('platform/rewind/redo', input)),
       redoConflicts: async (input) =>
         PlatformRewindConflictsSchema.parse(await request('platform/rewind/redo-conflicts', input)),
+    },
+    searchWorkspace: async (input, signal) => {
+      const result = IndexSearchResultSchema.parse(
+        await request(
+          'desktop-read/index/search',
+          {
+            request: {
+              limit: input.limit,
+              mode: input.mode,
+              rootIds: [input.rootId],
+              text: input.query,
+            },
+            threadId: input.threadId,
+          },
+          signal
+        )
+      );
+      signal.throwIfAborted();
+      return {
+        candidateCount: result.candidateCount,
+        candidatesTruncated: result.candidatesTruncated,
+        hits: result.hits.map((hit) => {
+          if (hit.rootId !== input.rootId || !hit.relativePath) {
+            throw new Error('Native text search returned a file outside the requested root');
+          }
+          return {
+            chunkId: hit.chunkId,
+            content: hit.content,
+            endLine: hit.endLine,
+            fileId: hit.fileId,
+            path: hit.relativePath,
+            rootId: hit.rootId,
+            score: hit.score,
+            startLine: hit.startLine,
+          };
+        }),
+        scanLimited: result.scanLimited,
+        storeId: result.storeId,
+        truncated: result.truncated,
+      };
     },
     selectProjectionRewrites: selectHostProjectionRewrites,
     validateWorkspaceBinding: async ({ binding, runId, signal, threadId }) => {

@@ -170,6 +170,7 @@ export const IndexSearchResultSchema = z.object({
 export const IndexGrepRequestSchema = z.strictObject({
   caseSensitive: z.boolean(),
   collectionId: Id.exactOptional(),
+  filePaths: z.array(Id).max(1000).exactOptional(),
   isRegex: z.boolean(),
   limit: z.number().int().positive(),
   pattern: z.string().min(1),

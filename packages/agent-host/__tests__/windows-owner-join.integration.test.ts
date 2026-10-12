@@ -1,8 +1,15 @@
 import { type ChildProcess, spawn } from 'node:child_process';
+import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { processStartTime } from '@brainstrike/state-store';
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import { z } from 'zod';
+import {
+  closeFixtureHost,
+  createFixtureCloseControl,
+} from './fixtures/cooperative-host-fixture.js';
+import * as fixtureEvents from './fixtures/owned-fixture-process.js';
 import { observeFixtureChild } from './fixtures/owned-fixture-process.js';
 
 const powershell = process.env['M3_WINDOWS_POWERSHELL'] ?? 'pwsh.exe';
@@ -83,7 +90,78 @@ afterEach(async () => {
   }
   await Promise.all([...observers.values()].map((value) => value.done));
   observers.clear();
+  vi.restoreAllMocks();
 });
+
+test.runIf(process.platform === 'win32')(
+  'cooperative pipe disappearance still joins its live recorded owner',
+  async () => {
+    const owned = await target();
+    const control = createFixtureCloseControl(tmpdir());
+    const server = createServer();
+    await new Promise<void>((resolve) => server.listen(control.endpoint, resolve));
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve()))
+    );
+    const events = vi.spyOn(fixtureEvents, 'recordFixtureEvent');
+    let settled = false;
+    const joining = closeFixtureHost(
+      {
+        endpoint: control.endpoint,
+        hostVersion: '0.1.0',
+        pid: owned.pid,
+        protocolVersion: 1,
+        start: owned.start,
+        token: control.token,
+      },
+      control
+    ).finally(() => {
+      settled = true;
+    });
+    await expect
+      .poll(() =>
+        events.mock.calls.some(([event]) => event === 'cooperative-host-close-transport-ended')
+      )
+      .toBe(true);
+    expect(settled).toBe(false);
+    expect(processStartTime(owned.pid)).toBe(owned.start);
+    owned.child.stdin?.end('close\n');
+    await joining;
+    expect(processStartTime(owned.pid)).not.toBe(owned.start);
+  }
+);
+
+test.runIf(process.platform === 'win32')(
+  'cooperative close preserves a live owner protocol refusal',
+  async () => {
+    const owned = await target();
+    const control = createFixtureCloseControl(tmpdir());
+    const server = createServer((socket) => {
+      socket.on('data', () => socket.end('refused\n'));
+    });
+    await new Promise<void>((resolve) => server.listen(control.endpoint, resolve));
+    try {
+      await expect(
+        closeFixtureHost(
+          {
+            endpoint: control.endpoint,
+            hostVersion: '0.1.0',
+            pid: owned.pid,
+            protocolVersion: 1,
+            start: owned.start,
+            token: control.token,
+          },
+          control
+        )
+      ).rejects.toThrow('Fixture owner did not accept cooperative close');
+      expect(processStartTime(owned.pid)).toBe(owned.start);
+    } finally {
+      await new Promise<void>((resolve, reject) =>
+        server.close((error) => (error ? reject(error) : resolve()))
+      );
+    }
+  }
+);
 
 test.runIf(process.platform === 'win32')(
   'owner join waits on its verified handle when the child exits after validation',

@@ -61,3 +61,35 @@ test('a model without a catalog rate shows its tokens and no cost', () => {
     totalTokens: 104,
   });
 });
+
+test('Luna cache writes preserve the rendered meter and price recorded usage', () => {
+  const ledger = new HostThreadLedger();
+  const cached = recordedRows('openai::gpt-6-luna').map((row) =>
+    row.event.type === 'model.step'
+      ? HostLogRowSchema.parse({
+          ...row,
+          event: {
+            ...row.event,
+            usage: {
+              inputTokenDetails: { cacheReadTokens: 60, cacheWriteTokens: 10, noCacheTokens: 30 },
+              inputTokens: 100,
+              outputTokens: 25,
+              totalTokens: 125,
+            },
+          },
+        })
+      : row
+  );
+  seed(ledger, cached);
+  const { result } = renderHook(() => useHostThreadUsage(ledger, threadId));
+  expect(result.current).toMatchObject({
+    cacheCreationTokens: 40,
+    cacheReadTokens: 240,
+    cost: { available: true, provenance: 'captured-usage-estimate' },
+    totalTokens: 500,
+  });
+  // Four recorded steps: (30*0.1 + 60*0.01 + 10*0.125 + 25*0.5)/1e6 each.
+  if (result.current?.cost.available) {
+    expect(result.current.cost.usdAmount).toBeCloseTo(0.000_069_4, 12);
+  }
+});

@@ -16,14 +16,34 @@ const nodeEnvironment = { ...process.env };
 nodeEnvironment.ELECTRON_RUN_AS_NODE = '1';
 nodeEnvironment.SQLITE_QUERY_TEST_EXEC_PATH = executable;
 nodeEnvironment.INDEXER_TEST_EXEC_PATH = process.execPath;
+// The sandbox requires Electron's SQLite memory-accounting build in coverage too.
+const coverage = process.argv.includes('--coverage');
+if (coverage) {
+  const preload = fileURLToPath(
+    new URL('../../../scripts/native-ipc-coverage.cjs', import.meta.url)
+  );
+  nodeEnvironment.BRAINSTRIKE_NATIVE_COVERAGE_ENTRY = fileURLToPath(
+    new URL('../dist/query-host.js', import.meta.url)
+  );
+  nodeEnvironment.NODE_OPTIONS = `${nodeEnvironment.NODE_OPTIONS ?? ''} --require ${JSON.stringify(preload)}`;
+}
 const child = spawn(
   executable,
   [
     fileURLToPath(new URL('../../../node_modules/vitest/vitest.mjs', import.meta.url)),
     'run',
-    'src/__tests__/sandbox.integration.test.ts',
-    'src/__tests__/callers-lens.integration.test.ts',
-    'src/__tests__/scoped-grep.integration.test.ts',
+    ...(coverage
+      ? [
+          '--coverage',
+          '--coverage.reporter=json',
+          '--coverage.reporter=lcov',
+          '--coverage.reporter=text',
+        ]
+      : [
+          'src/__tests__/sandbox.integration.test.ts',
+          'src/__tests__/callers-lens.integration.test.ts',
+          'src/__tests__/scoped-grep.integration.test.ts',
+        ]),
   ],
   {
     cwd: fileURLToPath(new URL('..', import.meta.url)),
@@ -38,7 +58,9 @@ child.on('exit', (code, signal) => {
   if (signal) {
     throw new Error(`SQLite query integration runtime exited with ${signal}.`);
   }
-  if (code !== 0) {
+  // The separate utility-process proof belongs to the integration lane;
+  // coverage instruments the complete Vitest suite under the qualified runtime.
+  if (coverage || code !== 0) {
     process.exitCode = code ?? 1;
     return;
   }

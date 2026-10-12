@@ -58,6 +58,22 @@ function projectedEvent(input: unknown): HostEvent | undefined {
   return HostEventSchema.parse(event);
 }
 
+/** Visible tool/decision history belongs to the run's existing assistant message. */
+function runHistoryText(event: HostEvent): string | null {
+  switch (event.type) {
+    case 'effect.finished':
+      return JSON.stringify(event.output);
+    case 'interaction.requested':
+      return `${event.kind} ${event.toolId}\n${JSON.stringify(event.input)}`;
+    case 'interaction.responded':
+      return 'decision' in event ? event.decision : JSON.stringify(event.resumeData);
+    case 'run.finished':
+      return event.detail ? `${event.outcome} ${event.detail}` : null;
+    default:
+      return null;
+  }
+}
+
 /** Recognized committed content only; metadata and gaps contribute no FTS text. */
 export function text(input: unknown): string | null {
   const event = projectedEvent(input);
@@ -70,10 +86,8 @@ export function text(input: unknown): string | null {
     case 'model.step':
     case 'model.messages':
       return event.messages.length > 0 ? JSON.stringify(event.messages) : null;
-    case 'effect.finished':
-      return JSON.stringify(event.output);
     default:
-      return null;
+      return runHistoryText(event);
   }
 }
 
@@ -90,9 +104,9 @@ function assistantText(message: unknown): string[] {
 }
 
 /**
- * Gap 10: the event's searchable conversation row, as legacy indexed user and
- * assistant text: a user's prompt (a regeneration adds no message, and a wake
- * delivers no typed one) or the text an assistant step wrote.
+ * Committed history under the message the UI already renders: a typed prompt,
+ * assistant text, tool result, decision or terminal diagnostic. Regeneration
+ * and wake prompts do not introduce another user message.
  */
 export function search(
   input: unknown
@@ -104,10 +118,13 @@ export function search(
       ? { role: 'user', runId: event.runId, text: event.prompt }
       : null;
   }
-  if (event?.type !== 'model.step' && event?.type !== 'model.messages') {
+  if (!(event && 'runId' in event)) {
     return null;
   }
-  const text = event.messages.flatMap(assistantText).join('\n').trim();
+  const text =
+    event.type === 'model.step' || event.type === 'model.messages'
+      ? event.messages.flatMap(assistantText).join('\n').trim()
+      : runHistoryText(event);
   return text ? { role: 'assistant', runId: event.runId, text } : null;
 }
 

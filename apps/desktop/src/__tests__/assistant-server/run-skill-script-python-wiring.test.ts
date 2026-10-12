@@ -1,5 +1,6 @@
 import type { RuntimeData } from '@brainstrike/agent';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { buildDesktopAssistantTools } from '../../assistant-server/assistant-tools';
 import { requireToolExecute } from './_tool-test-helpers';
 
 type RunSkillScript = typeof import('../../assistant-server/run-skill-script-tool').runSkillScript;
@@ -45,7 +46,6 @@ describe('run_skill_script bundled-Python wiring', () => {
   });
 
   it('defaults resolvePythonExecutable to the desktop bundled-CPython capability', async () => {
-    const { buildDesktopAssistantTools } = await import('../../assistant-server/assistant-tools');
     const tools = buildDesktopAssistantTools(runtimeData, {
       skillScriptResolver: { resolveScriptExecution: vi.fn() },
     });
@@ -59,7 +59,6 @@ describe('run_skill_script bundled-Python wiring', () => {
   });
 
   it('prefers an injected resolver over the desktop default', async () => {
-    const { buildDesktopAssistantTools } = await import('../../assistant-server/assistant-tools');
     const injected = vi.fn(async () => '/injected/python3');
     const tools = buildDesktopAssistantTools(runtimeData, {
       resolvePythonExecutable: injected,

@@ -6,7 +6,7 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures/electron-fixture';
 import { HomePage } from './page-objects/home-page';
 import { SettingsPage } from './page-objects/settings-page';
-import { configureAssistantProvider, enableAssistantCatalogModel } from './utils/assistant-mock';
+import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import type { ModelProviderShim } from './utils/model-provider-shim';
@@ -15,8 +15,6 @@ import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const REASON = 'Workspace reads are disabled by a project hook';
 const LEGACY_TITLE = 'Legacy thread from before the host';
-// The shim serves OpenRouter metadata for this recorded model only.
-const LEGACY_MODEL = 'openrouter::anthropic/claude-sonnet-4.6';
 
 // A real workspace root whose project hooks file blocks workspace reads. The
 // host runs it only at a hash it trusts; HOME holds no global hooks.
@@ -128,7 +126,7 @@ test('a project hook runs on a host thread only after it is approved in Settings
   expect(modelProvider.refusals()).toEqual([]);
 });
 
-test('a legacy thread runs the project hook at the trust the host owns', async ({
+test('a retired thread cannot start the removed execution path', async ({
   modelProvider,
   window: page,
 }) => {
@@ -141,8 +139,8 @@ test('a legacy thread runs the project hook at the trust the host owns', async (
   await hooks.getByRole('button', { exact: true, name: 'Approve' }).click();
   await expect(hooks.getByText('Trusted', { exact: true })).toBeVisible();
 
-  // A legacy thread (one from before the host, served by Main's legacy server)
-  // reads the same host-owned trust, so the hook blocks there too.
+  // The retired owner is read-only. Host-owned trust cannot resurrect its
+  // removed HTTP execution path; the current-host case above proves enforcement.
   const [legacyThreadId] = await seedThreadRows(page, [{ folder: null, title: LEGACY_TITLE }]);
   const { reloadRenderer } = await loadElectronHelpers();
   await reloadRenderer(page, 'hook-trust-legacy-thread');
@@ -161,21 +159,14 @@ test('a legacy thread runs the project hook at the trust the host owns', async (
     .getByTestId(`assistant-thread-panel-${legacyThreadId}`)
     .getByTestId('chat-panel');
   await expect(legacy).toBeVisible({ timeout: E2E_TIMEOUTS.messageVisibility });
-  await configureAssistantProvider(page, {
-    compositeModelKey: LEGACY_MODEL,
-    provider: 'openrouter',
-  });
-  await enableAssistantCatalogModel(page, LEGACY_MODEL);
-  scriptRead(modelProvider, 'The legacy read was blocked.');
-  const requestsBefore = modelProvider.requests().length;
   const legacyInput = legacy.getByRole('textbox', { name: 'Message input' });
   await expect(legacyInput).toBeVisible({ timeout: E2E_TIMEOUTS.inputVisibility });
-  await legacyInput.fill('Read notes.txt');
-  await legacy.getByRole('button', { exact: true, name: 'Send' }).click();
-  await expect(legacy.getByText('The legacy read was blocked.').first()).toBeVisible({
-    timeout: E2E_TIMEOUTS.messageVisibility,
-  });
-  expect(modelProvider.requests().length).toBeGreaterThan(requestsBefore);
-  expect(lastFollowUp(modelProvider)).toContain(REASON);
+  await expect(legacyInput).toBeDisabled();
+  await expect(legacy.getByRole('button', { exact: true, name: 'Send' })).toBeDisabled();
+  expect(
+    modelProvider
+      .requests()
+      .filter(({ requestBody }) => (requestBody as { stream?: unknown }).stream === true)
+  ).toHaveLength(0);
   expect(modelProvider.refusals()).toEqual([]);
 });

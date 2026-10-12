@@ -6,6 +6,21 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   resolve: {
     alias: [
+      // Coverage includes the same real native-process cases as integration.
+      ...(process.argv.includes('--coverage')
+        ? [
+            {
+              find: /^@brainstrike\/indexer$/,
+              replacement: resolve(import.meta.dirname, '../indexer/dist/index.js'),
+            },
+          ]
+        : []),
+      // The public process entry starts a real emitted writer sibling. Source
+      // aliasing sends it to a nonexistent src/writer-worker.js (BST-1935).
+      {
+        find: /^@brainstrike\/indexer\/host$/,
+        replacement: resolve(import.meta.dirname, '../indexer/dist/process-core.js'),
+      },
       // Core tests run Node-only provider/tool code directly from source.
       {
         find: /^@brainstrike\/agent$/,

@@ -181,6 +181,9 @@ export function createNativeIndexSearchCapability(
       return result;
     },
     grep: async (request) => {
+      if (request.filePaths !== undefined) {
+        throw new Error('Native file-path grep requires the canonical scoped index capability.');
+      }
       await authorize(request.rootIds);
       const result = await grepSnapshot(request, dependencies.openQuery);
       await authorize(request.rootIds);

@@ -131,7 +131,9 @@ describe('embedding host shared command helpers', () => {
         runtimeId: 'embedding-host:runtime-1',
         type: 'request',
       })
-    ).toThrow('Embedding host command payload.action must be "reset", "resolve-device" or "stop".');
+    ).toThrow(
+      'Embedding host command payload.action must be "reset", "resolve-device", "start-background" or "stop".'
+    );
   });
 
   it('fails fast when reset commands omit nextRuntimeId', () => {

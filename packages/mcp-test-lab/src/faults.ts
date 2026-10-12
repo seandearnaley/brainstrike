@@ -845,6 +845,17 @@ export function createMcpLabFaultPlan(
     },
     executionState: executionTracker.state,
     hasRemainingPhase,
+    holdDelay(faultId: string): () => void {
+      if (ownership !== 'fresh') {
+        throw new Error('MCP lab delay holds must be acquired before session startup');
+      }
+      if (
+        !immutableDeclarations.some((entry) => entry.id === faultId && entry.fault.kind === 'delay')
+      ) {
+        throw new Error(`MCP lab fault "${faultId}" is not a configured delay`);
+      }
+      return executionTracker.hold(faultId);
+    },
     observations() {
       return Object.freeze(observations.slice());
     },

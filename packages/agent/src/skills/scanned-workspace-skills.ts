@@ -139,6 +139,12 @@ const RUNTIME_EXTENSIONS: Readonly<Record<SkillScriptRuntime, ReadonlySet<string
   python3: new Set(['.py']),
 };
 
+const RUNTIME_SHEBANGS: Readonly<Record<SkillScriptRuntime, ReadonlySet<string>>> = {
+  bash: new Set(['#!/bin/sh', '#!/bin/bash', '#!/usr/bin/env sh', '#!/usr/bin/env bash']),
+  node: new Set(['#!/usr/bin/node', '#!/usr/bin/env node']),
+  python3: new Set(['#!/usr/bin/python3', '#!/usr/bin/env python3']),
+};
+
 function scriptExtension(scriptPath: string): string {
   const fileName = scriptPath.split('/').at(-1) ?? '';
   const dotIndex = fileName.lastIndexOf('.');
@@ -350,6 +356,20 @@ export function createScannedWorkspaceSkills(
     return { absFile: joinPath(skill.dirAbsPath, [...segments]), skill };
   }
 
+  function matchesScriptRuntime(
+    runtime: SkillScriptRuntime,
+    skillName: string,
+    scriptPath: string
+  ): boolean {
+    const extension = scriptExtension(scriptPath);
+    if (extension) {
+      return RUNTIME_EXTENSIONS[runtime].has(extension);
+    }
+    return RUNTIME_SHEBANGS[runtime].has(
+      readTextContent(skillName, scriptPath)?.split(/\r?\n/, 1)[0] ?? ''
+    );
+  }
+
   function readTextContent(skillIdentifier: string, relPath: string): string | null {
     const resolved = resolveContentPath(skillIdentifier, relPath);
     if (!resolved) {
@@ -517,7 +537,8 @@ export function createScannedWorkspaceSkills(
           `Script "${canonicalPath}" is missing from the enabled "${skill.name}" skill`
         );
       }
-      if (!RUNTIME_EXTENSIONS[input.runtime].has(scriptExtension(canonicalPath))) {
+      const matchesRuntime = matchesScriptRuntime(input.runtime, skill.name, canonicalPath);
+      if (!matchesRuntime) {
         throw new ToolInputError(
           `Requested runtime "${input.runtime}" does not match script "${canonicalPath}"`
         );

@@ -57,6 +57,50 @@ Evidence: `ci-quality/local-only-validation.md`, `ci-quality/ci-minute-audit.md`
 `ci-quality/vercel-parser-dependencies.md`, `ci-quality/build-tooling-dependencies.md`.
 Guard: `scripts/__tests__/check-ci-parity.test.mjs`.
 
+### Developer feedback and deliberate stress qualification
+
+- `pnpm check:routine` has an under-30-minute acceptance requirement on an
+  installed workspace. It keeps all unit tests, integrations outside desktop
+  and agent-host, explicit core integrations for those two packages, browser
+  tests, and web/desktop smoke. The core integrations exercise authentication,
+  approval/denial, committed persistence, restart/reconnect, physical Stop and
+  root ownership. This is not the complete integration or full E2E matrix.
+  The runner prints that omission and fails turnaround acceptance at 30 minutes.
+- `pnpm check --full` retains the complete integration matrices and broader
+  regression/coverage plan. `pnpm check:release` adds deliberate stress and
+  native-retirement qualification; it is not subject to the routine time target.
+- During iteration, `pnpm test:affected` uses the existing Turbo affected-input
+  selection for unit and integration tests, with the same dependency graph,
+  native-test cache exclusions, fatal-process reporting, and concurrency caps as
+  `pnpm test`. Set `TURBO_SCM_BASE` to the reviewed integration base and
+  `TURBO_SCM_HEAD` to the candidate SHA. This is selected feedback, not a full
+  regression result; native/runtime changes still need the affected platform.
+- Run the composed candidate's required acceptance once. Reuse results only
+  when their source, runtime, build, and environment inputs are unchanged.
+  Keep package verification against the artifact actually being delivered;
+  do not repack an identical artifact between scenarios or cache native passes.
+- Six embedding idle/memory/scale cases retain their original workloads,
+  assertions, and observation periods under `@perf @embedding-soak`. Invoke them
+  with `pnpm --filter @brainstrike/desktop run test:e2e:stress`. They are absent
+  from ordinary `regression` selection and are reported as deliberate local
+  qualification, never as a default pass. Run them for embedding memory/idle
+  lifecycle changes and deliberate stress qualification. Immediate crash,
+  forced host-loss, backfill completion, ownership, and permission checks stay
+  in their existing correctness/integration selections.
+- Routine lock testing uses one eight-process race; state-store `test:stress`
+  retains ten rounds. Routine live-query testing uses 12 mutations and three
+  three-collection switch cycles; desktop `test:e2e:stress:live-query` retains
+  100 mutations and ten cycles with the original assertions and memory bounds.
+  A readiness
+  handshake opens each race and the winner is released only after every
+  contender decides; fixed startup/hold sleeps are not correctness evidence.
+- Commit type-checks use the same per-worktree Turbo cache wrapper as normal
+  builds and checks. Do not reintroduce a separate raw-Turbo cache in hooks.
+- Local desktop E2E setup and unsigned `pack` use the existing Turbo build
+  graph and artifact cache. Source and dependency changes invalidate the build;
+  renderer flags (`VITE_*`, `EMBED_QUEUE_ENABLED`, `NODE_ENV`) are hashed too.
+  A missing main or renderer entry fails setup before starting test workers.
+
 ### Web Chromium provisioning
 
 - Web Chromium E2E uses the explicit provisioned CfT executable; a missing
@@ -91,6 +135,10 @@ Guard: `packages/config/__tests__/vitest-browser.test.ts`.
   allocation. `Unit` accepts skipped shards only for a verified empty selection;
   failed selection, missing output, or an unsuccessful selected shard fails it.
   Push/manual and local validation retain the complete suite.
+- Local Mac desktop unit tests use two isolated forks through
+  `vitest.unit.config.mts`. Native integrations and coverage retain the base
+  serialized config; Windows, Linux, CI and explicit native shards remain at
+  one worker. The unit and integration suffix partition is unchanged.
 - Job and `--global-timeout` values are failure ceilings; aim for a PR verdict
   in 15 minutes. Judge a ceiling as a ratio to measured runtime and raise or
   split the lane when you add work. An `interrupted` test plus a missing
@@ -233,7 +281,7 @@ Guard: `scripts/__tests__/run-turbo-command.test.mjs`.
   cannot pin to a git-ignored file fails. Keep it ahead of `dist/`-producing steps.
 - Deliberate crossings carry `// @boundaries-ignore <reason>` at the import.
   `architecture-domain-boundaries.mjs` owns cross-domain direction rules.
-- Native process integration proofs use public package specifiers resolved to emitted Core/indexer/query entries before source aliases. Their uncached tasks declare build edges. The source-alias guard permits only the named integration config and exact native specifiers; ordinary test configs remain source-only.
+- Native process integration and coverage proofs use public package specifiers resolved to emitted Core/indexer/query entries before source aliases. Their tasks declare the same native build edges. Coverage uses the qualified Electron SQLite runtime where memory accounting is required. The source-alias guard permits only the named native configs and exact specifiers; other workspace imports remain source-only.
 - Do not upgrade Turbo to >=2.11.3 until vendor walking judges tracked files
   under ignore patterns; recheck the real tracked-source guard before upgrading.
 
@@ -481,6 +529,16 @@ parenthesised `scripts/__tests__/<name>.test.mjs` contracts above.
   all seven archives arrive. Add no generated planner or larger shared timeout.
 - Only scripts invoking `--coverage` owe a JSON artifact; a native package's
   `test:coverage` may run uninstrumented.
+- Coverage includes existing native integration cases in state-store, file-system
+  and MCP lab.
+  Indexer, state-store and SQLite query also collect owned-process V8 execution
+  through `run-native-coverage.mjs`, remapped with the pinned Vitest converter.
+  Desktop collects shared Core modules it exercises; workspace preparation merges
+  hits into the source package, preserving uncovered entries and existing floors.
+  External include globs are absolute (Vitest matches external source by absolute
+  path); owning-package reports supply the complete unexecuted-source baseline.
+  The SQLite reader coverage preload flushes V8 before IPC responses so the
+  existing forced-close lifecycle cannot discard its execution data.
 
 Evidence: `ci-quality/coverage-workflow.md`.
 

@@ -19,7 +19,7 @@ import {
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const guardScript = path.join(repoRoot, 'scripts', 'verify-package-build-strategies.mjs');
-const tscBin = path.join(repoRoot, 'node_modules', '.bin', 'tsc');
+const tscBin = path.join(repoRoot, 'node_modules', '@typescript', 'native', 'bin', 'tsc');
 
 function makeFixture(packages) {
   const dir = mkdtempSync(path.join(tmpdir(), 'build-strategy-guard-'));
@@ -179,10 +179,14 @@ test('MONEY TEST: TypeScript NodeNext rejects extensionless Node ESM imports its
   ]) {
     const dir = makeFixture({ drifted: { source } });
     try {
-      const result = spawnSync(tscBin, ['--project', 'packages/drifted/tsconfig.json'], {
-        cwd: dir,
-        encoding: 'utf8',
-      });
+      const result = spawnSync(
+        process.execPath,
+        [tscBin, '--project', 'packages/drifted/tsconfig.json'],
+        {
+          cwd: dir,
+          encoding: 'utf8',
+        }
+      );
       assert.notEqual(result.status, 0, 'the compiler control must be observed failing');
       assert.match(`${result.stdout}${result.stderr}`, /TS2835/);
     } finally {
@@ -335,6 +339,16 @@ test('RULE: node-library packages must be type=module tsc-only packages with .js
   assert.deepEqual(
     staleChunkPattern.map((entry) => entry.kind),
     ['bundled-residue-in-node-library']
+  );
+});
+
+test('export patterns match emitted files and reject empty output patterns', () => {
+  assert.deepEqual(runFixture({ library: { exports: { './*': './dist/*.js' } } }), []);
+  assert.deepEqual(
+    runFixture({ library: { exports: { './*': './dist/missing/*.js' } } }).map(
+      (entry) => entry.kind
+    ),
+    ['non-tsc-export-target']
   );
 });
 

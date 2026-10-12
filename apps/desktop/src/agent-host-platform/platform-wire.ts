@@ -1,4 +1,3 @@
-import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
 import {
   HOST_OBSERVER_AWAITING_REASONS,
   HostRewindConflictSchema,
@@ -6,13 +5,8 @@ import {
   HostTurnSnapshotRootSchema,
   HostTurnSnapshotSchema,
 } from '@brainstrike/agent-host/protocol';
+import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import {
-  CliWorkspaceRootsSchema,
-  CliWorkspaceSelectionSchema,
-} from '@brainstrike/agent-host/standalone-workspace-input';
-import type { PermissionToolGateSnapshot } from '@brainstrike/assistant-contract';
-import {
-  PERMISSION_DECISIONS,
   runtimeSubagentSettingsSchema,
   TOOL_RISK_CATEGORIES,
 } from '@brainstrike/assistant-contract';
@@ -20,13 +14,30 @@ import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/th
 import { type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
 import { z } from 'zod';
 import {
+  PlatformMemoryOptionsSchema,
+  PlatformMemorySettingsSchema,
+  PlatformModelConfigurationSchema,
+  PlatformWorkspaceContextSchema,
+} from './platform-client-configuration';
+import {
   InferencePlanSchema,
   QueryEmbeddingPayloadSchema,
   QueryEmbeddingResultSchema,
 } from './retrieval-wire';
 
+export {
+  PlatformClientConfigurationSchema,
+  PlatformMemoryOptionsSchema,
+  PlatformMemorySettingsSchema,
+  PlatformModelConfigurationSchema,
+  PlatformPolicySchema,
+  type PlatformSubagentsIntent,
+  PlatformSubagentsIntentSchema,
+  PlatformWorkspaceContextSchema,
+  platformPermissionPolicy,
+} from './platform-client-configuration';
+
 const Id = z.string().min(1);
-const Decision = z.enum(PERMISSION_DECISIONS);
 /** ADR-0017: one native process the host started; `group` leaders are signalled as a whole group. */
 export const PlatformNativeChildSchema = z.strictObject({
   group: z.boolean(),
@@ -37,101 +48,6 @@ export const PlatformWorkspaceBindingRequestSchema = z.strictObject({
   binding: ThreadWorkspaceBindingSchema,
   threadId: Id,
 });
-export const PlatformPolicySchema = z.strictObject({
-  perToolOverrides: z.record(z.string(), Decision).optional(),
-  policies: z.strictObject({ edit: Decision, execute: Decision, mcp: Decision, read: Decision }),
-  sessionGrants: z.array(z.enum(TOOL_RISK_CATEGORIES)).optional(),
-  yolo: z.boolean(),
-});
-export function platformPermissionPolicy(input: unknown): PermissionToolGateSnapshot {
-  const policy = PlatformPolicySchema.parse(input);
-  return {
-    policies: policy.policies,
-    yolo: policy.yolo,
-    ...(policy.perToolOverrides ? { perToolOverrides: policy.perToolOverrides } : {}),
-    ...(policy.sessionGrants ? { sessionGrants: policy.sessionGrants } : {}),
-  };
-}
-export const PlatformModelConfigurationSchema = z.strictObject({
-  model: Id,
-  modelSettings: z
-    .strictObject({
-      frequencyPenalty: z.number().optional(),
-      maxOutputTokens: z.number().optional(),
-      presencePenalty: z.number().optional(),
-      temperature: z.number().optional(),
-      topP: z.number().optional(),
-    })
-    .transform(
-      (settings): NonNullable<RuntimeData['modelSettings']> => ({
-        ...(settings.frequencyPenalty === undefined
-          ? {}
-          : { frequencyPenalty: settings.frequencyPenalty }),
-        ...(settings.maxOutputTokens === undefined
-          ? {}
-          : { maxOutputTokens: settings.maxOutputTokens }),
-        ...(settings.presencePenalty === undefined
-          ? {}
-          : { presencePenalty: settings.presencePenalty }),
-        ...(settings.temperature === undefined ? {} : { temperature: settings.temperature }),
-        ...(settings.topP === undefined ? {} : { topP: settings.topP }),
-      })
-    )
-    .optional(),
-  provider: Id,
-  providerOptions: z.record(z.string(), z.record(z.string(), z.json())).optional(),
-});
-export const PlatformMemoryOptionsSchema = z.strictObject({
-  lastMessages: z.union([z.literal(false), z.number().int().positive()]),
-  workingMemory: z.strictObject({
-    enabled: z.boolean(),
-    scope: z.enum(['thread', 'resource']),
-    template: z.string(),
-  }),
-});
-export const PlatformMemorySettingsSchema = z.strictObject({
-  observationalMemory: z.strictObject({
-    enabled: z.boolean(),
-    messageTokens: z.number().positive(),
-    modelTarget: Id,
-    observationTokens: z.number().positive(),
-    retrievalMode: z.enum(['off', 'messages', 'vector']),
-    scope: z.enum(['thread', 'resource']),
-  }),
-  semanticRecall: z.strictObject({
-    embeddingModelTarget: z.string().nullable(),
-    enabled: z.boolean(),
-    messageRange: z.number().int().nonnegative(),
-    scope: z.enum(['thread', 'resource']),
-    topK: z.number().int().positive(),
-  }),
-});
-const NullableTokens = z.number().nonnegative().nullable();
-export const PlatformWorkspaceContextSchema = z.strictObject({
-  files: z.array(
-    z.strictObject({
-      approxTokens: NullableTokens,
-      outputApproxTokens: NullableTokens,
-      path: Id,
-      ranges: z.array(
-        z.strictObject({
-          approxTokens: NullableTokens.optional(),
-          endLine: z.number().int().positive(),
-          isActive: z.boolean(),
-          startLine: z.number().int().positive(),
-        })
-      ),
-      rootDisplayName: z.string().optional(),
-      rootId: Id.optional(),
-    })
-  ),
-  includeProjectTree: z.boolean(),
-  projectTreeApproxTokens: NullableTokens,
-  projectTreeTokenCountLoading: z.boolean(),
-  selectedOutputApproxTokens: NullableTokens,
-  selectedSourceApproxTokens: NullableTokens,
-  tokenBudget: z.number().positive().optional(),
-});
 /** The indexer's one vector profile rule validates a recall embedding profile. */
 const PlatformVectorProfileSchema = z.custom<VectorProfile>((input) => {
   try {
@@ -141,13 +57,6 @@ const PlatformVectorProfileSchema = z.custom<VectorProfile>((input) => {
     return false;
   }
 }, 'Memory vectors require a supported embedding profile');
-/** BST-1932: the renderer's subagent preferences, captured with each run's input. */
-export const PlatformSubagentsIntentSchema = z.strictObject({
-  delegationEnabled: z.boolean(),
-  disabledPersonaIds: z.array(Id),
-  settings: runtimeSubagentSettingsSchema,
-});
-export type PlatformSubagentsIntent = z.infer<typeof PlatformSubagentsIntentSchema>;
 /** A resolved persona crossing from Main's persona owner to the host. */
 const PlatformPersonaSchema = z.strictObject({
   allowedToolIds: z.array(Id),
@@ -159,34 +68,6 @@ const PlatformPersonaSchema = z.strictObject({
   mode: z.enum(['read-only', 'worker']).optional(),
   model: z.strictObject({ modelId: Id, provider: Id }).optional(),
   source: z.enum(['built-in', 'user']).optional(),
-});
-/** Existing UI preference owners supply only non-secret intent; roots remain Main-owned. */
-export const PlatformClientConfigurationSchema = z.strictObject({
-  agentLoop: z
-    .strictObject({
-      inputTokenLimit: z.number().int().positive().optional(),
-      maxSteps: z.number().int().positive().optional(),
-    })
-    .optional(),
-  cliWorkspace: CliWorkspaceSelectionSchema.optional(),
-  enabledNativeToolIds: z.array(Id),
-  memoryOptions: PlatformMemoryOptionsSchema,
-  memorySettings: PlatformMemorySettingsSchema,
-  modelConfiguration: PlatformModelConfigurationSchema,
-  permissionPolicy: PlatformPolicySchema,
-  selectionFolderId: Id.optional(),
-  skillsPreference: z
-    .strictObject({
-      disabledSkillKeys: z.array(z.string()),
-      masterEnabled: z.boolean(),
-    })
-    .optional(),
-  subagents: PlatformSubagentsIntentSchema.optional(),
-  workspaceContext: PlatformWorkspaceContextSchema.optional(),
-  workspaceInstructionsPreference: z.strictObject({
-    masterEnabled: z.boolean(),
-    oversizedOptInByRootId: z.record(z.string(), z.boolean()),
-  }),
 });
 /** One enabled skill of the run's scan: its paths, frontmatter and SKILL.md instructions. */
 export const PlatformAdmittedSkillSchema = z.strictObject({

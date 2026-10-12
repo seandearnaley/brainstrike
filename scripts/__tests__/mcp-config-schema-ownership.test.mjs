@@ -57,7 +57,7 @@ test('shared MCP grammar stays subpath-owned with capability-scoped adapters', (
   const root = parseSource('packages/assistant-contract/src/index.ts');
   const agent = parseSource('packages/agent/src/mcp/config.ts');
   const runtime = parseSource('packages/agent/src/mastra/mcp-runtime-client.ts');
-  const desktop = parseSource('apps/desktop/src/mcp-loader.ts');
+  const desktop = parseSource('packages/host-capabilities/src/mcp/config-file.ts');
 
   assert.ok(callCount(owner, 'strictObject') > 0);
   assert.ok(callCount(owner, 'discriminatedUnion') > 0);

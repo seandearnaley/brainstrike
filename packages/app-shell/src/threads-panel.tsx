@@ -2336,7 +2336,9 @@ export function ThreadsPanel({ loadEmbeddingQueue = null }: ThreadsPanelProps = 
           onDeleteThread={handleDeleteThread}
           onMoveThreadToGroup={handleMoveThreadToGroup}
           onNewThreadInFolder={handleCreateThreadInFolder}
-          onRefreshAgentColors={canRefreshAgentColors() ? handleRefreshAgentColors : undefined}
+          onRefreshAgentColors={
+            canRefreshAgentColors(host !== null) ? handleRefreshAgentColors : undefined
+          }
           onRenameThread={handleRenameThread}
           onSelectThread={handleSelectThread}
           onUpdateThreadMetadata={handleUpdateThreadMetadata}

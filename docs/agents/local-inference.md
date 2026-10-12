@@ -99,6 +99,10 @@ Guard: `embedding-input-plan.spec.ts`, `streaming-worker-client-completion.spec.
   dimensions without legacy catalog or device-preference resolution.
 - Local native document requests require the same validated plan and 1–64 unchanged
   texts; use document `generateEmbeddings` semantics and preserve output order.
+  Pinned requests open the hidden request queue without starting the legacy
+  background worker or resolving its device preferences. A subsequent explicit
+  background start enables that worker in the same renderer, with the existing
+  preference checks; it does not replace an owner with native inference in flight.
   Query and document work share one FIFO, cache identity and physical inference
   owner; both public query and document promises and pending identities settle only after completion or joined retirement on every outcome.
 - Preserve caller cancellation reasons; distinguish the host's exact cancel code from independent failures. Aggregate Stop and every failed destruction attempt in the shared retirement outcome before publishing inference rejection. Sending cancel never proves settlement.

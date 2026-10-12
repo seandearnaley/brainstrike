@@ -22,6 +22,7 @@ export default defineConfig({
     },
     environment: 'happy-dom',
     exclude: ['node_modules', 'dist'],
+    fsModuleCache: true,
     globals: true,
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
     // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally

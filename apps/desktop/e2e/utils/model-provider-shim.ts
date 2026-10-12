@@ -62,9 +62,21 @@ export interface ModelProviderScript {
    * `toolCall` once one tool-result for that turn comes back, then `finalText`.
    */
   readonly deferredTool?: true;
+  /** Responses API usage classes as emitted by the OpenAI adapter (including automatic cache writes). */
+  /** Recorded Luna reasoning shape: encrypted state without a visible summary. */
+  readonly emptyResponsesReasoning?: true;
   readonly finalText: string;
   /** For a selector that begins a new scripted stage in an existing model turn. */
   readonly ignorePriorToolResults?: true;
+  readonly responsesUsage?: {
+    readonly ['input_tokens']: number;
+    readonly ['input_tokens_details']: {
+      readonly ['cached_tokens']: number;
+      readonly ['cache_write_tokens']: number;
+    };
+    readonly ['output_tokens']: number;
+    readonly ['total_tokens']: number;
+  };
   /**
    * Fail a streaming turn mid-stream: the response opens, then the provider's
    * own stream error event carries this message, as a provider outage does.
@@ -535,10 +547,11 @@ function writeJsonCompletion(response: ServerResponse, turn: ResolvedTurn): void
  */
 function responsesTurn(
   turn: ResolvedTurn,
-  model: string
+  model: string,
+  usage?: ModelProviderScript['responsesUsage']
 ): {
   readonly completed: Record<string, unknown>;
-  readonly items: readonly Record<string, unknown>[];
+  items: readonly Record<string, unknown>[];
   readonly response: Record<string, unknown>;
 } {
   const response = {
@@ -565,7 +578,7 @@ function responsesTurn(
         ...response,
         output: [item],
         status: 'completed',
-        usage: { ['input_tokens']: 4, ['output_tokens']: 3, ['total_tokens']: 7 },
+        usage: usage ?? { ['input_tokens']: 4, ['output_tokens']: 3, ['total_tokens']: 7 },
       },
       items: [
         {
@@ -681,7 +694,25 @@ async function writeResponsesTurn(
   if ('finalText' in turn) {
     await script.beforeFinalText;
   }
-  const frames = responsesTurn(turn, model);
+  const frames = responsesTurn(turn, model, script.responsesUsage);
+  if (script.emptyResponsesReasoning) {
+    const item = {
+      ['encrypted_content']: 'opaque-fixture-state',
+      id: `rs_e2e_${randomUUID()}`,
+      summary: [],
+      type: 'reasoning',
+    };
+    frames.completed['output'] = [item, ...(frames.completed['output'] as unknown[])];
+    // Preserve the provider's item ordering and indexes, including tool frames.
+    for (const frame of frames.items) {
+      frame['output_index'] = Number(frame['output_index']) + 1;
+    }
+    frames.items = [
+      { item, ['output_index']: 0, type: 'response.output_item.added' },
+      { item, ['output_index']: 0, type: 'response.output_item.done' },
+      ...frames.items,
+    ];
+  }
   if (stream !== true) {
     if (!('finalText' in turn)) {
       await script.beforeToolFinish;

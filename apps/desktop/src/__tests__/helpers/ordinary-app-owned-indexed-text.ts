@@ -1,15 +1,19 @@
 // @vitest-environment node
 
+import { execFile } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { createConnection } from 'node:net';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 import { AGENT_HOST_PROTOCOL_VERSION, attachAgentHost } from '@brainstrike/agent-host';
+import { HOST_RESULT_SCHEMAS } from '@brainstrike/agent-host/protocol';
 import { ASSISTANT_PREFERENCES_STORE_VERSION } from '@brainstrike/app-state/stores/assistant-preferences-store-version';
 import {
   DEFAULT_RUNTIME_ASSISTANT_MEMORY_SETTINGS,
   parseOpenRouterModelMetadata,
 } from '@brainstrike/assistant-contract';
+import { parseGrepToolResult } from '@brainstrike/host-capabilities/grep-search-result-contract';
 import { decodeHostRecord } from '@brainstrike/host-lease';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
@@ -80,7 +84,7 @@ async function providerPortRefused(baseUrl: string): Promise<boolean> {
 }
 
 export async function qualifyOrdinaryAppIndexedText(
-  options: { readonly stopHost?: boolean } = {}
+  options: { readonly cliGrep?: boolean; readonly stopHost?: boolean } = {}
 ): Promise<void> {
   const { evidence, root: disposable } = await createDisposableAppProfile(
     options.stopHost ? 'brainstrike-m3-app-owned-stop-' : 'brainstrike-m3-app-owned-indexed-text-'
@@ -123,6 +127,22 @@ export async function qualifyOrdinaryAppIndexedText(
     }
     if (!workspaceRootId) {
       throw new Error('The ordinary workspace has no authoritative root identity');
+    }
+    if (options.cliGrep) {
+      return {
+        finalText: 'The CLI received scoped indexed and live text.',
+        toolCall: {
+          arguments: {
+            filePaths: ['indexed-proof.md'],
+            isRegex: false,
+            maxResults: 5,
+            outputMode: 'content',
+            pattern: 'INDEXEDTEXTSENTINEL4802',
+            root: workspaceRootId,
+          },
+          name: 'brainstrike_grepSearch',
+        },
+      };
     }
     return {
       finalText: 'The selected indexed SQLite text result was received.',
@@ -450,13 +470,46 @@ export async function qualifyOrdinaryAppIndexedText(
     }
     activeThreadId = threadId;
     checkpoint('ordinary-indexed-text-new-thread-rendered');
-    const input = page
-      .getByTestId(`assistant-thread-panel-${threadId}`)
-      .getByRole('textbox', { name: 'Message input' });
-    await input.fill(
-      'Use querySelf target index to find INDEXEDTEXTSENTINEL4802 in indexed-proof.md.'
-    );
-    await input.press('Enter');
+    if (options.cliGrep) {
+      const require = createRequire(import.meta.url);
+      const bin = join(
+        dirname(require.resolve('@brainstrike/host-capabilities')),
+        '../bin/brainstrike.mjs'
+      );
+      const result = await promisify(execFile)(
+        process.execPath,
+        [
+          bin,
+          '--data-root',
+          profile,
+          'run',
+          'start',
+          '--thread',
+          threadId,
+          '--model',
+          'openrouter::anthropic/claude-sonnet-4.6',
+          '--prompt',
+          'Find INDEXEDTEXTSENTINEL4802 literally in indexed-proof.md.',
+        ],
+        {
+          env: {
+            PATH: process.env['PATH'],
+            SystemRoot: process.env['SystemRoot'],
+            TMPDIR: process.env['TMPDIR'],
+          },
+          timeout: 30_000,
+        }
+      );
+      await writeFile(join(evidence, 'cli-send.json'), JSON.stringify(result, null, 2));
+    } else {
+      const input = page
+        .getByTestId(`assistant-thread-panel-${threadId}`)
+        .getByRole('textbox', { name: 'Message input' });
+      await input.fill(
+        'Use querySelf target index to find INDEXEDTEXTSENTINEL4802 in indexed-proof.md.'
+      );
+      await input.press('Enter');
+    }
     await expect
       .poll(
         async () =>
@@ -484,56 +537,158 @@ export async function qualifyOrdinaryAppIndexedText(
         2
       )
     );
-    const calls = rows.flatMap(({ event }) =>
-      event.type === 'effect.started' && event.toolId === 'brainstrike_querySelf' ? [event] : []
-    );
-    expect(calls).toHaveLength(4);
-    const results = calls.map((call) => {
+    if (options.cliGrep) {
+      const calls = rows.flatMap(({ event }) =>
+        event.type === 'effect.started' && event.toolId === 'brainstrike_grepSearch' ? [event] : []
+      );
+      expect(calls).toHaveLength(1);
       const finished = rows.find(
-        ({ event }) => event.type === 'effect.finished' && event.toolCallId === call.toolCallId
+        ({ event }) => event.type === 'effect.finished' && event.toolCallId === calls[0]?.toolCallId
       )?.event;
       if (finished?.type !== 'effect.finished') {
-        throw new Error('The ordinary Root did not commit its querySelf index result');
+        throw new Error('The real CLI did not commit its grep result');
       }
-      return finished.output;
-    });
-    const tables = z
-      .object({
-        kind: z.literal('tables'),
-        tables: z.array(z.object({ name: z.string() })),
-        target: z.literal('index'),
-      })
-      .parse(results[0]);
-    expect(tables.tables.map(({ name }) => name)).toEqual(
-      expect.arrayContaining(['file_records', 'file_chunks', 'file_chunks_fts'])
-    );
-    for (const description of results.slice(1, 3)) {
-      z.object({ kind: z.literal('columns'), target: z.literal('index') }).parse(description);
+      const result = parseGrepToolResult(finished.output);
+      expect(result.outputMode).toBe('content');
+      if (result.outputMode !== 'content') {
+        throw new Error('The CLI grep returned the wrong output mode');
+      }
+      expect(result.matches).toHaveLength(1);
+      expect(result.matches[0]).toMatchObject({
+        line: 2,
+        lineText: searchLine,
+        path: 'indexed-proof.md',
+        rootId: mountedRootId,
+        source: 'both',
+      });
+      expect(result.truncated).toBe(false);
+      expect(
+        rows.some(({ event }) => event.type === 'run.finished' && event.outcome === 'completed')
+      ).toBe(true);
+      expect(
+        providerRequests
+          .flatMap(({ messages }) => messages)
+          .some(
+            (message) =>
+              z.object({ role: z.literal('tool') }).safeParse(message).success &&
+              JSON.stringify(message).includes(searchLine)
+          )
+      ).toBe(true);
+      checkpoint('ordinary-cli-indexed-and-live-grep-completed');
+      // Same production CLI, host, profile and canonical native index; no model
+      // or querySelf hop is involved in ranked text reads.
+      const require = createRequire(import.meta.url);
+      const bin = join(
+        dirname(require.resolve('@brainstrike/host-capabilities')),
+        '../bin/brainstrike.mjs'
+      );
+      const search = (mode: string, rootId: string) =>
+        promisify(execFile)(
+          process.execPath,
+          [
+            bin,
+            '--data-root',
+            profile,
+            'workspace',
+            'search',
+            '--thread',
+            threadId,
+            '--scope-root',
+            rootId,
+            '--mode',
+            mode,
+            '--query',
+            'INDEXEDTEXTSENTINEL4802',
+            '--limit',
+            '5',
+          ],
+          {
+            env: {
+              PATH: process.env['PATH'],
+              SystemRoot: process.env['SystemRoot'],
+              TMPDIR: process.env['TMPDIR'],
+            },
+            timeout: 30_000,
+          }
+        );
+      for (const mode of ['bm25', 'trigram']) {
+        const response = await search(mode, mountedRootId);
+        await writeFile(join(evidence, `cli-${mode}.json`), response.stdout);
+        const textResult = HOST_RESULT_SCHEMAS['workspace/search'].parse(
+          JSON.parse(response.stdout)
+        );
+        expect(textResult.hits.length).toBeGreaterThan(0);
+        expect(textResult.hits.every((hit) => hit.rootId === mountedRootId)).toBe(true);
+        expect(textResult.hits.find((hit) => hit.path === 'indexed-proof.md')).toMatchObject({
+          content: expect.stringContaining(searchLine),
+          endLine: expect.any(Number),
+          startLine: expect.any(Number),
+        });
+        expect(textResult.truncated).toBe(false);
+      }
+      await expect(search('bm25', 'unmounted-root')).rejects.toThrow();
+      await expect(search('vector', mountedRootId)).rejects.toThrow();
+      checkpoint('ordinary-cli-bm25-trigram-completed');
+    } else {
+      const calls = rows.flatMap(({ event }) =>
+        event.type === 'effect.started' && event.toolId === 'brainstrike_querySelf' ? [event] : []
+      );
+      expect(calls).toHaveLength(4);
+      const results = calls.map((call) => {
+        const finished = rows.find(
+          ({ event }) => event.type === 'effect.finished' && event.toolCallId === call.toolCallId
+        )?.event;
+        if (finished?.type !== 'effect.finished') {
+          throw new Error('The ordinary Root did not commit its querySelf index result');
+        }
+        return finished.output;
+      });
+      const tables = z
+        .object({
+          kind: z.literal('tables'),
+          tables: z.array(z.object({ name: z.string() })),
+          target: z.literal('index'),
+        })
+        .parse(results[0]);
+      expect(tables.tables.map(({ name }) => name)).toEqual(
+        expect.arrayContaining(['file_records', 'file_chunks', 'file_chunks_fts'])
+      );
+      for (const description of results.slice(1, 3)) {
+        z.object({ kind: z.literal('columns'), target: z.literal('index') }).parse(description);
+      }
+      const result = z
+        .object({
+          columns: z.array(z.string()),
+          kind: z.literal('rows'),
+          rowCount: z.literal(1),
+          rows: z.array(z.object({ cells: z.array(z.string()) })),
+          target: z.literal('index'),
+          truncated: z.literal(false),
+        })
+        .parse(results[3]);
+      expect(result.columns).toEqual([
+        'file_name',
+        'file_path',
+        'content',
+        'start_line',
+        'end_line',
+      ]);
+      expect(result.rows).toHaveLength(1);
+      expect(result.rows[0]?.cells[0]).toBe('indexed-proof.md');
+      expect(result.rows[0]?.cells[2]).toContain(searchLine);
+      const toolMessages = providerRequests.flatMap(({ messages }) =>
+        messages.filter(
+          (message) => z.object({ role: z.literal('tool') }).safeParse(message).success
+        )
+      );
+      expect(JSON.stringify(toolMessages)).toContain('indexed-proof.md');
+      expect(JSON.stringify(toolMessages)).toContain(searchLine);
+      expect(JSON.stringify(toolMessages)).not.toContain('unselected-proof.md');
+      expect(
+        rows.some(({ event }) => event.type === 'run.finished' && event.outcome === 'completed')
+      ).toBe(true);
+      checkpoint('ordinary-native-sqlite-index-query-result-completed');
     }
-    const result = z
-      .object({
-        columns: z.array(z.string()),
-        kind: z.literal('rows'),
-        rowCount: z.literal(1),
-        rows: z.array(z.object({ cells: z.array(z.string()) })),
-        target: z.literal('index'),
-        truncated: z.literal(false),
-      })
-      .parse(results[3]);
-    expect(result.columns).toEqual(['file_name', 'file_path', 'content', 'start_line', 'end_line']);
-    expect(result.rows).toHaveLength(1);
-    expect(result.rows[0]?.cells[0]).toBe('indexed-proof.md');
-    expect(result.rows[0]?.cells[2]).toContain(searchLine);
-    const toolMessages = providerRequests.flatMap(({ messages }) =>
-      messages.filter((message) => z.object({ role: z.literal('tool') }).safeParse(message).success)
-    );
-    expect(JSON.stringify(toolMessages)).toContain('indexed-proof.md');
-    expect(JSON.stringify(toolMessages)).toContain(searchLine);
-    expect(JSON.stringify(toolMessages)).not.toContain('unselected-proof.md');
-    expect(
-      rows.some(({ event }) => event.type === 'run.finished' && event.outcome === 'completed')
-    ).toBe(true);
-    checkpoint('ordinary-native-sqlite-index-query-result-completed');
     if (options.stopHost) {
       const beforeStop = await application.evaluate(({ app }) => app.getAppMetrics());
       const nativeOwners = beforeStop

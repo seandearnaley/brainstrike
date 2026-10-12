@@ -8,7 +8,8 @@
     },
     "test:coverage": {
       // The full coverage lane includes those same native process proofs.
-      "dependsOn": ["$TURBO_EXTENDS$", "build"]
+      "dependsOn": ["$TURBO_EXTENDS$", "build", "@brainstrike/host-capabilities#build"],
+      "cache": false
     }
   }
 }

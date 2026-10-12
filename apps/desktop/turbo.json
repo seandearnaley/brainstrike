@@ -2,7 +2,8 @@
   "extends": ["//"],
   "tasks": {
     "build": {
-      "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/verify-no-cross-chunk-cycles.mjs"]
+      "env": ["VITE_*", "EMBED_QUEUE_ENABLED", "NODE_ENV"],
+      "inputs": ["$TURBO_DEFAULT$", ".env*", "$TURBO_ROOT$/scripts/verify-no-cross-chunk-cycles.mjs"]
     },
     "build:renderer": {
       "inputs": ["$TURBO_DEFAULT$", "$TURBO_ROOT$/scripts/verify-no-cross-chunk-cycles.mjs"]
@@ -69,8 +70,12 @@
         "$TURBO_EXTENDS$",
         "@brainstrike/agent#build",
         "@brainstrike/agent-host#build",
+        "@brainstrike/assistant-contract#build",
         "@brainstrike/assistant-data#build",
-        "@brainstrike/assistant-service#build"
+        "@brainstrike/assistant-service#build",
+        "@brainstrike/db#build",
+        "@brainstrike/indexer#build",
+        "@brainstrike/sqlite-query#build"
       ],
       // Same cross-package input: the coverage lane runs the full suite
       // including vite-config.test.ts.

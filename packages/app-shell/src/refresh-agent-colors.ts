@@ -2,7 +2,11 @@ import { getAssistantBridge } from '@brainstrike/assistant-contract';
 import { resolveAssistantAuthHeaders } from '@brainstrike/assistant-data';
 import { resolveAssistantBaseUrl } from './hooks/use-assistant-availability';
 
-export function canRefreshAgentColors(): boolean {
+export function canRefreshAgentColors(hasThreadHost = false): boolean {
+  // Shared-host threads have no legacy HTTP color-refresh mutation.
+  if (hasThreadHost) {
+    return false;
+  }
   const bridge = getAssistantBridge();
   return typeof bridge?.getAuth === 'function' && typeof bridge?.getUrl === 'function';
 }

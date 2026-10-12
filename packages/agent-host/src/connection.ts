@@ -64,6 +64,7 @@ export interface HostConnectionOptions {
   readonly searchState?: HostPlatform['searchState'];
   /** The semantic arm's index operations, where the host owns a state index. */
   readonly searchStateVectors?: HostPlatform['searchStateVectors'];
+  readonly searchWorkspace?: HostPlatform['searchWorkspace'];
 }
 
 /** All transports enter this same authenticated method dispatcher. */
@@ -84,6 +85,7 @@ export function bindHostConnection(
     providers,
     searchState,
     searchStateVectors,
+    searchWorkspace,
   } = options;
   let initialized = false;
   let disposed = false;
@@ -198,6 +200,27 @@ export function bindHostConnection(
   handle('thread/read', async (params) => ({
     rows: await core.read(params.threadId, params.fromSeq),
   }));
+  handle('workspace/search', async (params, signal) => {
+    if (!searchWorkspace) {
+      throw new Error('Indexed workspace text search is unavailable on this host');
+    }
+    const { binding } = core.readWorkspaceBinding(params.threadId);
+    if (
+      binding &&
+      (binding.operatingRootId || binding.secondaryRootIds || binding.checkoutLocalRootId) &&
+      ![
+        binding.operatingRootId,
+        ...(binding.secondaryRootIds ?? []),
+        binding.checkoutLocalRootId,
+      ].includes(params.rootId)
+    ) {
+      throw new Error('Search root is outside the thread workspace binding');
+    }
+    signal.throwIfAborted();
+    const result = await searchWorkspace(params, signal);
+    signal.throwIfAborted();
+    return result;
+  });
   handle('thread/search', (params) =>
     searchHostThreads(core, searchState, searchStateVectors, params)
   );

@@ -7,17 +7,24 @@
       // processes and reads OS process start times (`ps`, PowerShell). Pass/fail
       // depends on the installed native binary and the host OS, inputs turbo does
       // not hash, so a cache hit would replay a green this machine never proved.
-      // Tests import workspace code from SOURCE, so there is no `build` edge.
+      // JS imports use source, but RootLock loads native OS locking. Without
+      // these edges the root unit plan can rebuild/remove the addon while
+      // corruption tests load it (Mac local run: missing secure_fs_native.node).
       // cache:false does NOT exempt strict-env filtering; package configs
       // REPLACE array fields. Redeclare to keep CI/COVERAGE visible. Sync with
       // root.
       "cache": false,
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/secure-fs-native#build", "@brainstrike/windows-job-native#build"],
       "passThroughEnv": ["CI", "COVERAGE"]
     },
+    "test:integration": {
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/secure-fs-native#build", "@brainstrike/windows-job-native#build"]
+    },
     "test:coverage": {
-      // Runs the IDENTICAL suite (`pnpm run test --coverage`), so it needs the
-      // same `cache: false`; see `test` above.
-      "cache": false
+      // Coverage includes the integration suites and native writer processes.
+      // The memory-domain suite imports the production token calculator.
+      "cache": false,
+      "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/secure-fs-native#build", "@brainstrike/windows-job-native#build", "@brainstrike/agent-host#build"]
     }
   }
 }

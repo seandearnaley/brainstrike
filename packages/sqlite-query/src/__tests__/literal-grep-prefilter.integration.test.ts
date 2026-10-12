@@ -246,12 +246,27 @@ it('retains fatal non-finite file record IDs in the root-authorized join', () =>
 });
 
 it.each([9_223_372_036_854_775_807n, -9_223_372_036_854_775_808n])(
-  'retains native integer conversion errors for %s on nonmatching rows',
+  'retains native integer conversion behavior for %s on nonmatching rows',
   (value) => {
     insert('ordinary');
     writer.prepare('UPDATE file_chunks SET token_count=?').run(value);
-    expect(() => canonical(defaults)).toThrow('too large');
-    expect(() => sandbox.grep(defaults)).toThrow('too large');
+    // Electron's Node 24 accepts INT64_MIN; Node 26 rejects it. Preserve the
+    // actual native conversion, including errors, rather than pinning a runtime.
+    let nativeError: unknown;
+    try {
+      writer.prepare('SELECT token_count FROM file_chunks').get();
+    } catch (error) {
+      nativeError = error;
+    }
+    if (nativeError !== undefined) {
+      expect(nativeError).toBeInstanceOf(RangeError);
+      expect(() => canonical(defaults)).toThrow(nativeError as Error);
+      expect(() => sandbox.grep(defaults)).toThrow(nativeError as Error);
+      return;
+    }
+    const expected = canonical(defaults);
+    expect(expected.rows).toEqual([]);
+    expect(sandbox.grep(defaults)).toEqual(expected);
   }
 );
 
@@ -264,6 +279,9 @@ it('does not retain valid finite numbers solely for their numeric storage type',
 
 it('preserves matches after malformed UTF-8 prefixes for well-formed Unicode literals', () => {
   for (const pattern of ['ab', 'é漢', '😀x', '\u0000x']) {
+    // The fixture is one snapshot, not 256 independently durable commits.
+    // Windows ff1 qualification spent 20s fsyncing setup and under 100ms querying it.
+    writer.exec('BEGIN');
     writer.exec('DELETE FROM file_chunks');
     const insertBytes = writer.prepare(
       "INSERT INTO file_chunks VALUES(?,'authorized','selected',CAST(? AS TEXT),'hash',1,1,0,384,'text',0,3,1)"
@@ -271,6 +289,7 @@ it('preserves matches after malformed UTF-8 prefixes for well-formed Unicode lit
     for (let byte = 0; byte < 256; byte += 1) {
       insertBytes.run(`byte-${byte}`, Buffer.concat([Buffer.from([byte]), Buffer.from(pattern)]));
     }
+    writer.exec('COMMIT');
     const options = { ...defaults, maxRows: 200, pattern };
     const result = sandbox.grep(options);
     expect(result).toEqual(canonical(options));

@@ -15,6 +15,13 @@
         "build"
       ],
       "cache": false
+    },
+    "test:coverage": {
+      "dependsOn": [
+        "$TURBO_EXTENDS$",
+        "build"
+      ],
+      "cache": false
     }
   }
 }

@@ -129,7 +129,6 @@ import { EmbeddingHostManager } from './embedding-host-manager';
 import { createFactoryResetRendererReplacementCoordinator } from './factory-reset-renderer-replacement';
 import { resolveFolderCandidatesFromArgv } from './folder-argv';
 import { createDatabaseRootResolver } from './git-ipc-handlers';
-import { registerAgentIpcHandlers } from './ipc-agent';
 import { registerBrowserIpcHandlers } from './ipc-browser';
 import { registerChangesIpcHandlers } from './ipc-changes';
 import { registerChunkingHostIpcHandlers } from './ipc-chunking-host';
@@ -1555,7 +1554,6 @@ if (singleInstanceLockAcquired) {
           },
         })
       );
-      ipcDisposers.add('agent', registerAgentIpcHandlers());
       ipcDisposers.add('mcp', registerMcpIpcHandlers({ runtime: getMainMcpHostControl() }));
       ipcDisposers.add('runtime', registerRuntimeIpcHandlers());
       logger.debug('Ready-dependent IPC handlers registered successfully');

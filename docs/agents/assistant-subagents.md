@@ -12,6 +12,8 @@ Guard: `packages/db/__tests__/thread-debug-snapshot.integration.test.ts`.
 
 ## First-class subagent architecture gate
 
+- Model-facing delegation descriptions state leaf versus supervisor capability.
+  Hierarchical exploration uses worker supervisors with read-only Explorer leaves.
 - Only a `mode: worker` child receives `agent-*` tools. Explorer, Analyst and any
   persona without an explicit `mode` are read-only leaves.
 - Every child pause surfaces in the leg that raised it and the leg reads to
@@ -755,6 +757,15 @@ Evidence: `assistant-subagents/child-view-binding.md`.
 Guard: `apps/desktop/src/__tests__/assistant-server/delegated-resume-parity.integration.test.ts`.
 
 ### Host-owned child view binding
+
+Desktop and standalone CLI compose the same Node persona resolver from
+`@brainstrike/host-capabilities/delegation`. Its secure file scan lives in
+`@brainstrike/assistant-service/node-workspace-services`; both shells keep the
+existing built-in/user persona precedence and Core-owned child scheduler.
+Standalone records canonical default subagent settings in its stateless run
+intent and narrows child tools to that host's admitted capabilities. This does
+not supply Desktop's saved settings or workspace/index capabilities to a
+standalone host.
 
 - The shared child view combines the baseline with its live leg through the
   public assistant-ui external-store runtime and converter, which updates a

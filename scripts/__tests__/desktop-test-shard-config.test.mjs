@@ -29,7 +29,7 @@ test('both desktop lanes resolve native sharding without changing file serializa
   const previous = process.env.DESKTOP_TEST_SHARD;
   process.env.DESKTOP_TEST_SHARD = '2/3';
   try {
-    for (const config of ['vitest.config.mts', 'vitest.integration.config.mts']) {
+    for (const config of ['vitest.unit.config.mts', 'vitest.integration.config.mts']) {
       const { test: vitestConfig } = await resolveConfig({
         config: path.resolve('apps/desktop', config),
         fileParallelism: false,
@@ -71,7 +71,7 @@ test('native desktop shards discover every real unit and integration file exactl
   const cli = path.join(path.dirname(require.resolve('vitest/package.json')), 'vitest.mjs');
   const root = path.resolve('apps/desktop');
   for (const lane of [
-    { args: ['--exclude', '**/*.integration.test.*'], config: 'vitest.config.mts' },
+    { args: ['--exclude', '**/*.integration.test.*'], config: 'vitest.unit.config.mts' },
     { args: [], config: 'vitest.integration.config.mts' },
   ]) {
     const files = JSON.parse(

@@ -59,7 +59,7 @@ const {
 } = shared;
 
 test.describe('Embedding Host Renderer - crash b', () => {
-  test('@desktop-embedding-crash-b tracks per-process memory growth rate during sustained backfill (crash repro test 6)', async ({
+  test('@desktop-embedding-crash-b @perf @embedding-soak tracks per-process memory growth rate during sustained backfill (crash repro test 6)', async ({
     electronApp,
     electronHarness,
     window,
@@ -928,7 +928,7 @@ test.describe('Embedding Host Renderer - crash b', () => {
     }
   });
 
-  test('@desktop-embedding-crash-b diagnoses per-process memory growth during sustained backfill (crash repro test 7 — diagnostic)', async ({
+  test('@desktop-embedding-crash-b @perf @embedding-soak diagnoses per-process memory growth during sustained backfill (crash repro test 7 — diagnostic)', async ({
     electronApp,
     electronHarness,
     window,

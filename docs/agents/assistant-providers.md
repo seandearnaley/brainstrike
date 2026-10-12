@@ -694,9 +694,10 @@ per request.
   `LlmModelDefinition.promptCaching` through
   `packages/agent/src/providers/prompt-caching.ts`; neither the factory nor the
   wrappers may match on a model-id substring, and an undeclared route is sent NO
-  breakpoints rather than a guessed dialect. A cache RATE and a `promptCaching`
-  dialect travel together; an absent `cacheWritePerMTok` means "no premium",
-  never "unknown".
+  breakpoints rather than a guessed dialect. Billing rates are independent of
+  this request dialect: automatic provider caching can report cache tokens
+  without explicit breakpoints. If a reported cache class has no published
+  rate, show cost unavailable while retaining usage; never assume zero cost.
 - **Reasoning is per-model, by DIALECT.** `LlmModelDefinition.bedrockReasoning`
   is `'adaptive' | 'budget-tokens' | 'max-reasoning-effort'`, and the dialects do
   not follow vendor lines. Every Claude-family row is REQUIRED to declare one
@@ -2236,6 +2237,8 @@ Evidence: `assistant-providers/tool-preference-lock.md`.
   partitioning happens only after guards, hooks, plan mode, permission,
   approval-storage, provider web-search, artifact settlement and model-output
   projection; it cannot restore a tool an earlier stage omitted.
+- `load_tool` acknowledges tools already present in the authorized eager surface.
+  Mixed requests still use Mastra for deferred loading; omitted/gated tools remain unavailable.
 - Unknown caller-supplied local tools, provider-defined web search, Mastra's
   `skill`/`skill_read`/`skill_search` controls and the eligible
   `readToolOutputArtifact` recovery control stay EAGER — deferring them would

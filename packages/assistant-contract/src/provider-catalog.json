@@ -67,13 +67,15 @@
         "vision": "supported"
       },
       {
-        "_note": "Identity, limits, modalities, streaming, tool search, reasoning ladder and\nstandard short-context pricing: OpenAI model page and pricing page,\nretrieved 2026-09-22 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-6-luna\nhttps://developers.openai.com/api/docs/pricing\nREASONING LADDER DECLARED: the page reads \"reasoning.effort supports none,\nlow, medium (default), high, xhigh, and max\", so the undeclared\nOPENAI_FAMILY_DEFAULT_EFFORTS fallback (offers minimal, withholds max) is\nwrong for this row, as it is for gpt-6-astra. `none` is offered, so\n`mandatory` is false.\nCACHE RATES OMITTED: $0.01/MTok cached input and $0.125/MTok cache writes\nare published, but a cache rate may only travel with a `promptCaching`\ndialect and there is no `openai` member (BST-1354), as on gpt-6-astra.\nLONG-CONTEXT TIER NOT MODELLED: prompts above 272K input tokens bill at\n$0.20 input / $0.75 output; the schema carries one rate pair (BST-1708).\ntokenMeasurement is the sibling-row convention: OpenAI publishes no\ntokenizer for this model.",
+        "_note": "Identity, limits, modalities, streaming, tool search, reasoning ladder and\nstandard short-context pricing: OpenAI model page and pricing page,\nretrieved 2026-09-22 (BST-1804):\nhttps://developers.openai.com/api/docs/models/gpt-6-luna\nhttps://developers.openai.com/api/docs/pricing\nREASONING LADDER DECLARED: the page reads \"reasoning.effort supports none,\nlow, medium (default), high, xhigh, and max\", so the undeclared\nOPENAI_FAMILY_DEFAULT_EFFORTS fallback (offers minimal, withholds max) is\nwrong for this row, as it is for gpt-6-astra. `none` is offered, so\n`mandatory` is false.\nCACHE RATES: $0.01/MTok cached input and $0.125/MTok cache writes,\nreverified on the model page 2026-10-11. Automatic caching reports these\nusage classes without an explicit promptCaching request dialect.\nLONG-CONTEXT TIER NOT MODELLED: prompts above 272K input tokens bill at\n$0.20 input / $0.75 output; the schema carries one rate pair (BST-1708).\ntokenMeasurement is the sibling-row convention: OpenAI publishes no\ntokenizer for this model.",
         "contextWindow": 1050000,
         "id": "gpt-6-luna",
         "label": "GPT-6 Luna",
         "maxOutputTokens": 128000,
         "nativeToolSearch": "openai",
         "pricing": {
+          "cacheReadPerMTok": 0.01,
+          "cacheWritePerMTok": 0.125,
           "inputPerMTok": 0.1,
           "outputPerMTok": 0.5
         },

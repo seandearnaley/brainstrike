@@ -20,6 +20,8 @@ export interface McpLabFaultPlan {
   consumeIfConfigured(consumption: McpLabFaultConsumption): McpLabFault | undefined;
   executionState(faultId: string): McpLabFaultExecutionState;
   hasRemainingPhase(phase: McpLabProtocolPhase): boolean;
+  /** Hold a delay before session claim; its existing request/session abort still joins it. */
+  holdDelay(faultId: string): () => void;
   observations(): readonly McpLabFaultObservation[];
   untriggeredIds(): readonly string[];
 }

@@ -121,15 +121,25 @@ function parseGrep(raw: readonly unknown[]): [IndexerGrepRequest] {
   const record = one(raw);
   assertSupportedKeys(
     record,
-    ['rootIds', 'collectionId', 'pattern', 'isRegex', 'caseSensitive', 'limit'],
+    ['rootIds', 'collectionId', 'filePaths', 'pattern', 'isRegex', 'caseSensitive', 'limit'],
     'native grep'
   );
+  const filePaths = record['filePaths'];
+  if (
+    filePaths !== undefined &&
+    (!Array.isArray(filePaths) ||
+      filePaths.length > 1000 ||
+      filePaths.some((value) => typeof value !== 'string' || value.length === 0))
+  ) {
+    throw new TypeError('Native grep file paths must be at most 1000 nonempty strings.');
+  }
   if (typeof record['isRegex'] !== 'boolean' || typeof record['caseSensitive'] !== 'boolean') {
     throw new TypeError('Native grep requires explicit regex and case policies.');
   }
   return [
     {
       ...collectionScope(record),
+      ...(filePaths === undefined ? {} : { filePaths: filePaths as string[] }),
       caseSensitive: record['caseSensitive'],
       isRegex: record['isRegex'],
       limit: limit(record),

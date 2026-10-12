@@ -16,9 +16,6 @@ import type { WorktreesBridge } from '../worktrees/worktrees-bridge';
 
 declare global {
   interface Window {
-    agent?: {
-      chat?: (messages: unknown[], runtime?: unknown) => Promise<unknown[]>;
-    };
     /**
      * Edit checkpoint (undo of agent file edits) revert bridge. Desktop only —
      * web never defines it (no assistant server / main process). Invoke-only.

@@ -1,6 +1,7 @@
 {
   "extends": ["//"],
   "tasks": {
+    "test:coverage": { "cache": false, "dependsOn": ["$TURBO_EXTENDS$", "@brainstrike/file-system#build"] },
     "test:integration": { "dependsOn": ["@brainstrike/file-system#build"] }
   }
 }

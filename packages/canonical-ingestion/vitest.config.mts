@@ -4,7 +4,20 @@ import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-alias
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
-  resolve: { alias: [...workspaceSrcAliases(path.resolve(import.meta.dirname, '..'))] },
+  resolve: {
+    alias: [
+      // Coverage includes the real native-process integration fixtures.
+      ...(process.argv.includes('--coverage')
+        ? [
+            {
+              find: /^@brainstrike\/indexer$/,
+              replacement: path.resolve(import.meta.dirname, '../indexer/dist/index.js'),
+            },
+          ]
+        : []),
+      ...workspaceSrcAliases(path.resolve(import.meta.dirname, '..')),
+    ],
+  },
   test: {
     environment: 'node',
     globals: true,

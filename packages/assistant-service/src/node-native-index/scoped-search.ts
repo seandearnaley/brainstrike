@@ -412,7 +412,11 @@ export function createNativeScopedSearchCapability(
       dependencies.withRead(async (read) => {
         const snapshot = await capture(read);
         const scopes = requestedScopes(snapshot.authority, request);
-        const bindings = selectedBindings(snapshot.authority, scopes);
+        const bindings = selectedBindings(snapshot.authority, scopes).filter(
+          (file) =>
+            request.filePaths === undefined ||
+            (file.relativePath !== null && request.filePaths.includes(file.relativePath))
+        );
         const result = await grepSnapshot(
           request,
           dependencies.openQuery,

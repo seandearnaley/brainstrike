@@ -27,9 +27,11 @@ export interface PackagedCoreFixture {
   authorizationDelaySettled(): boolean;
   close(): Promise<PackagedCoreFixtureCleanupReport>;
   readonly manifest: PackagedCoreFixtureManifest;
+  releaseAuthorization(): void;
 }
 export interface PackagedCoreFixtureOptions {
   readonly authorizationDelayMs?: number;
+  readonly holdAuthorization?: boolean;
 }
 function assertLoopbackEndpoint(session: McpLabSession): URL {
   if (
@@ -57,6 +59,9 @@ export async function startPackagedCoreFixture(
   id: PackagedCoreFixtureId,
   options: PackagedCoreFixtureOptions = {}
 ): Promise<PackagedCoreFixture> {
+  if (options.holdAuthorization && options.authorizationDelayMs === undefined) {
+    throw new Error('Holding authorization requires a configured OAuth authorization delay');
+  }
   if (
     options.authorizationDelayMs !== undefined &&
     (!Number.isSafeInteger(options.authorizationDelayMs) ||
@@ -78,6 +83,11 @@ export async function startPackagedCoreFixture(
             match: { method: 'oauth/authorize', occurrence: 1, phase: 'authorization' },
           },
         ]);
+  // The Windows packaged cancellation proof outlasted the old one-second timer.
+  // Keep the existing fault/session owner pending until the UI actually cancels.
+  const releaseAuthorization = options.holdAuthorization
+    ? faultPlan?.holdDelay('packaged-core-authorization-delay')
+    : undefined;
   const session =
     id === 'oauth-reference'
       ? await startMcpLabScenario(id, {
@@ -109,6 +119,7 @@ export async function startPackagedCoreFixture(
       },
       close: async () => toCleanupReport(await session.close()),
       manifest,
+      releaseAuthorization: () => releaseAuthorization?.(),
     });
   } catch (error) {
     try {

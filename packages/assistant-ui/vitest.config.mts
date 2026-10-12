@@ -34,6 +34,13 @@ const browserProject = createBrowserProject({
 const sharedBrowserOptions: BrowserConfigOptions = browserProject.test.browser;
 
 const workspaceAliases = [
+  // The rendered-controls fixtures load the web app's real theme. These
+  // stylesheet imports are resolved by that app's Vite aliases, so mirror
+  // them here; otherwise a missing CSS import overlays every browser test.
+  ...['workspace-search', 'db-explorer'].map((name) => ({
+    find: `@brainstrike/${name}/styles.css`,
+    replacement: resolve(import.meta.dirname, `../${name}/styles.css`),
+  })),
   {
     find: /^@brainstrike\/ui$/,
     replacement: resolve(import.meta.dirname, '../ui/src/index.ts'),
