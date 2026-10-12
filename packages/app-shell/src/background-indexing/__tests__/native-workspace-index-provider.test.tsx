@@ -297,3 +297,72 @@ it.each(['status', 'batch'] as const)(
     mounted.unmount();
   }
 );
+
+it.each([
+  { files: 2, label: 'one folder', rootIds: ['root'] },
+  { files: 0, label: 'no folder left', rootIds: [] },
+])(
+  'reports Text search ready with no collection: $label (BST-1988)',
+  async ({ files, rootIds }) => {
+    useBackgroundIndexingPreferencesStore.setState({
+      managedCollectionId: null,
+      nativeIndexMode: 'TEXT',
+    });
+    // The shape the desktop recorded for the TEXT partition: roots only, no collection.
+    const status = {
+      authorizedCollectionIds: [],
+      authorizedRootIds: rootIds,
+      collectionReadiness: [],
+      embedding: { indexMode: 'text-only' as const },
+      kind: 'ready' as const,
+      rootReadiness: rootIds.map((rootId) => ({ rootId, scanComplete: true })),
+      storeId: 'store',
+    };
+    const counts = { chunks: files * 2, indexedFiles: files, missingVectors: 0, vectors: 0 };
+    const coverage = {
+      embedding: status.embedding,
+      roots: rootIds.map((rootId) => ({ rootId, ...counts })),
+      storeId: 'store',
+      totals: counts,
+      vectorCoverageComplete: true,
+    };
+    const capability = {
+      coverage: vi.fn(),
+      coverageBatch: vi.fn(
+        async (): Promise<IndexerCoverageBatch> => ({
+          coverage: [coverage],
+          kind: 'current',
+          status,
+        })
+      ),
+      grep: vi.fn(),
+      rebuild: vi.fn(),
+      search: vi.fn(),
+      status: vi.fn(async (): Promise<IndexerStatus> => status),
+    };
+    const mounted = render(
+      <NativeWorkspaceIndexProvider capability={capability}>
+        <span>Workspace</span>
+      </NativeWorkspaceIndexProvider>
+    );
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('idle')
+    );
+    expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+      lastError: null,
+      managedCollectionId: null,
+      processedFiles: files,
+    });
+    expect(useIndexingActivityStore.getState().managedCollectionStats).toMatchObject({
+      collectionId: null,
+      stats: {
+        chunkCount: files * 2,
+        embeddingSetId: null,
+        fileCount: files,
+        pendingChunkCount: 0,
+      },
+      status: 'ready',
+    });
+    mounted.unmount();
+  }
+);

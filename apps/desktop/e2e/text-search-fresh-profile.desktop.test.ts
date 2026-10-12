@@ -8,7 +8,6 @@ import { randomUUID } from 'node:crypto';
 import { mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { Page } from '@playwright/test';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
@@ -18,6 +17,7 @@ import { readCommittedRuns } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { seedRoot } from './utils/seed-root';
+import { chooseTextSearch, textReadiness } from './utils/text-search-mode';
 
 const API_KEY = 'test-key-text-search-fresh-profile';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
@@ -45,32 +45,6 @@ async function enableChatModel(page: Page): Promise<void> {
       'openrouter',
     ]);
   }, MODEL);
-}
-
-/** Text search through the visible Search & Indexing control, choosing no embedding model. */
-async function chooseTextSearch(page: Page): Promise<void> {
-  const home = new HomePage(page);
-  await home.openSettings();
-  const section = await new SettingsPage(page).openCategory(
-    /Search & Indexing/i,
-    'search-indexing'
-  );
-  await section.getByRole('combobox', { name: 'Search mode' }).click();
-  await page.getByRole('option', { exact: true, name: 'Text search' }).click();
-  await home.leaveSettings();
-}
-
-async function nativeStatus(
-  page: Page
-): Promise<Awaited<ReturnType<IndexSearchCapability['status']>>> {
-  return await page.evaluate(async () => {
-    const capability = (window as Window & { readonly indexSearch?: IndexSearchCapability })
-      .indexSearch;
-    if (!capability) {
-      throw new Error('The native index capability is unavailable');
-    }
-    return await capability.status();
-  });
 }
 
 /** What the fresh profile chose: saved preferences and every embedding collection row. */
@@ -112,18 +86,31 @@ test('a fresh profile text-searches a folder with no embedding model chosen', as
 
     // The native text index builds for the folder without a collection or model.
     await expect
-      .poll(
-        async () => {
-          const status = await nativeStatus(page);
-          return status.kind === 'ready' &&
-            status.rootReadiness.length === 1 &&
-            status.rootReadiness.every((rootState) => rootState.scanComplete)
-            ? { indexMode: status.embedding.indexMode, kind: status.kind }
-            : status;
-        },
-        { timeout: 120_000 }
-      )
-      .toEqual({ indexMode: 'text-only', kind: 'ready' });
+      .poll(() => textReadiness(page), { timeout: 120_000 })
+      .toEqual({ folders: 1, indexMode: 'text-only', kind: 'ready' });
+
+    // Every readiness surface says Text search is ready; only semantic search needs a model.
+    await expect(page.getByTestId('indexing-status-value')).toHaveText('Ready', {
+      timeout: 30_000,
+    });
+    await page.getByTestId('indexing-status-trigger').first().click();
+    const popover = page.getByTestId('indexing-status-popover');
+    await expect(popover).toContainText('Text search');
+    await expect(popover.getByTestId('managed-stat-files')).toHaveText('2');
+    await expect(popover).toContainText('Not used by Text search');
+    await expect(popover).not.toContainText('Setup required');
+    await expect(popover).not.toContainText('set up a collection');
+    await page.keyboard.press('Escape');
+    const home = new HomePage(page);
+    await home.openSettings();
+    const settings = await new SettingsPage(page).openCategory(
+      /Search & Indexing/i,
+      'search-indexing'
+    );
+    await expect(settings).toContainText('Collection: Not used by Text search');
+    await expect(settings).not.toContainText('Setup required');
+    await expect(settings).not.toContainText('set up a collection');
+    await home.leaveSettings();
     expect(await savedChoices(page)).toEqual({
       collections: [],
       state: expect.objectContaining({

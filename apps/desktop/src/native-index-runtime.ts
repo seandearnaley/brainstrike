@@ -61,15 +61,15 @@ export interface NativeIndexRuntime<Attachment = unknown> {
   ): Promise<T>;
 }
 
+/**
+ * An authority with no scopes is legitimate: Text search with no collection
+ * (the TEXT partition, BST-1988) has only its folders' scopes, so with no
+ * folder there is nothing to index. A collection always contributes its scope.
+ */
 function retainAuthority(authority: NativeIndexAuthority): NativeIndexAuthority {
   const rootIds = [...authority.rootIds].sort();
   if (new Set(rootIds).size !== rootIds.length || rootIds.some((id) => !id.trim())) {
     throw new Error('Native index requires distinct nonblank authoritative root ids.');
-  }
-  if (authority.scopes.length === 0) {
-    throw new Error(
-      'No authorized desktop workspace or collection is available for native indexing.'
-    );
   }
   return {
     fileBindings: authority.fileBindings.map((binding) => ({

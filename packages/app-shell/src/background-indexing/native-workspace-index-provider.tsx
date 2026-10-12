@@ -180,28 +180,26 @@ function publishNativeProgress(
     queueProgress: null,
     state: complete ? 'idle' : 'scanning',
   };
+  // A collection counts its own scope; the TEXT partition (no collection) is its folders.
   const counts =
     collectionId === null
-      ? undefined
+      ? coverage.totals
       : coverage.collections?.find((row) => row.embeddingSetId === collectionId);
-  if (collectionId !== null && !counts) {
+  if (!counts) {
     throw new Error('Native coverage omitted the selected collection.');
   }
   const stats: IndexingManagedCollectionStatsState = {
     collectionId,
     error: null,
-    stats:
-      counts && collectionId !== null
-        ? {
-            chunkCount: counts.chunks,
-            dirty: !complete,
-            embeddedChunkCount: counts.vectors,
-            embeddingSetId: collectionId,
-            fileCount: counts.indexedFiles,
-            lastRefreshedAt: new Date().toISOString(),
-            pendingChunkCount: mode === 'TEXT' ? 0 : counts.missingVectors,
-          }
-        : null,
+    stats: {
+      chunkCount: counts.chunks,
+      dirty: !complete,
+      embeddedChunkCount: counts.vectors,
+      embeddingSetId: collectionId,
+      fileCount: counts.indexedFiles,
+      lastRefreshedAt: new Date().toISOString(),
+      pendingChunkCount: mode === 'TEXT' ? 0 : counts.missingVectors,
+    },
     status: complete ? 'ready' : 'pending',
   };
   useWorkspaceCollectionSyncStatusStore.getState().setStatus(status);
@@ -219,7 +217,8 @@ function getNativeSetupMessage(
   if (mode === null) {
     return 'Choose a search mode in Search & Indexing settings.';
   }
-  if (collectionId === null) {
+  // Text search needs no model (BST-1988); only semantic search needs a collection.
+  if (mode === 'VECTOR' && collectionId === null) {
     return 'Choose an embedding model and set up a collection in Search & Indexing settings.';
   }
   return null;

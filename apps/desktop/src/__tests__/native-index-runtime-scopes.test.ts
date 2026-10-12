@@ -106,6 +106,18 @@ function fixture(initial: Authority) {
   };
 }
 
+it('acquires an empty authority: Text search with no collection and no folder (BST-1988)', async () => {
+  // The TEXT partition's only scopes are its folders, so its last folder's
+  // removal leaves nothing to index; that is a ready, empty index, not a refusal.
+  const f = fixture({ fileBindings: [], rootIds: [], scopes: [] });
+  await expect(f.runtime.acquire()).resolves.toBe(f.port);
+  expect(f.createIndexOwner).toHaveBeenCalledExactlyOnceWith({
+    fileBindings: [],
+    rootIds: [],
+    scopes: [],
+  });
+});
+
 it('joins original-authority rooted collection removal before closing the writer', async () => {
   const rooted = {
     ...binding,
