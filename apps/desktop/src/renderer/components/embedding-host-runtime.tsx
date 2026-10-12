@@ -1,17 +1,8 @@
-import {
-  ensureVectorPreferencesHydrated,
-  useVectorPreferencesStore,
-} from '@brainstrike/app-state/stores/vector-preferences-store';
 import { createEmbeddingCacheRepository } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { getEmbeddingTelemetrySnapshot } from '@brainstrike/embedding-worker';
 import { resolveViteEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
-import {
-  type DeviceCapabilities,
-  detectDeviceCapabilities,
-  type EmbeddingDeviceType,
-  type EmbeddingResult,
-} from '@brainstrike/embeddings';
+import type { EmbeddingResult } from '@brainstrike/embeddings';
 import { SimpleEmbeddingService } from '@brainstrike/embeddings/service';
 import {
   createForegroundEmbeddingGate,
@@ -66,20 +57,16 @@ import {
   embeddingHostDevice,
   withResolvedHostDevice,
 } from './embedding-host-runtime-metadata';
+import {
+  resolveHydratedEmbeddingWorkerPreferences,
+  resolveHydratedVectorDevicePreference,
+} from './embedding-host-worker-preferences';
 import { startEmbeddingTelemetryReporter } from './embedding-telemetry-reporter';
 import { createEmbeddingWorkerConfig } from './embedding-worker-config';
 
 const logger = createLogger('EmbeddingHostRuntime');
 const QUERY_DRAIN_TIMEOUT_MS = 5000;
 const MAX_RECOVERABLE_WEBGPU_DEVICE_LOSS_RESTARTS = 2;
-const AUTOMATIC_WASM_RECOMMENDATION_ERROR =
-  'Workspace Index requires WebGPU for automatic local embedding execution. Device detection recommended WASM, which is a slow/debug backend and will not be selected automatically.';
-
-interface HydratedEmbeddingWorkerPreferences {
-  readonly devicePref: EmbeddingDeviceType;
-  readonly reinitEveryN: number;
-}
-
 async function ensureEmbeddingQueueBootstrapLoaded(isCurrent: () => boolean): Promise<void> {
   const module = await import('../create-embedding-queue');
   await module.reopenEmbeddingQueue(isCurrent);
@@ -115,53 +102,6 @@ function createFatalErrorHandler(
 
 function isRecoverableEmbeddingWorkerFatalError(message: string): boolean {
   return /WebGPU device lost|device lost/i.test(message);
-}
-
-function createAutomaticWasmRecommendationError(detected: DeviceCapabilities): Error {
-  const details = [
-    detected.recommendationReason,
-    detected.webgpuUnavailableReason,
-    detected.webgpuApiPresent ? null : 'WebGPU API is not present.',
-    detected.webgpuAdapterAvailable ? null : 'WebGPU adapter is unavailable.',
-    detected.webWorkersAvailable ? null : 'Web Workers are unavailable.',
-  ].filter((value): value is string => typeof value === 'string' && value.trim().length > 0);
-  return new Error(
-    details.length > 0
-      ? `${AUTOMATIC_WASM_RECOMMENDATION_ERROR} ${details.join(' ')}`
-      : AUTOMATIC_WASM_RECOMMENDATION_ERROR
-  );
-}
-
-async function resolveHydratedEmbeddingWorkerPreferences(): Promise<HydratedEmbeddingWorkerPreferences> {
-  const vectorPreferences = await ensureVectorPreferencesHydrated({
-    forceReload: true,
-  });
-  if (vectorPreferences.devicePrefConfigured) {
-    return {
-      devicePref: vectorPreferences.devicePref,
-      reinitEveryN: vectorPreferences.reinitEveryN,
-    };
-  }
-
-  const detected = await detectDeviceCapabilities();
-  const detectedDevice = detected.recommendedDevice;
-  if (detectedDevice === 'wasm') {
-    if (vectorPreferences.devicePref !== 'webgpu') {
-      useVectorPreferencesStore.getState().setDetectedDevicePref('webgpu');
-    }
-    throw createAutomaticWasmRecommendationError(detected);
-  }
-  if (vectorPreferences.devicePref !== detectedDevice) {
-    useVectorPreferencesStore.getState().setDetectedDevicePref(detectedDevice);
-  }
-  return {
-    devicePref: detectedDevice,
-    reinitEveryN: vectorPreferences.reinitEveryN,
-  };
-}
-
-async function resolveHydratedVectorDevicePreference(): Promise<EmbeddingDeviceType> {
-  return (await resolveHydratedEmbeddingWorkerPreferences()).devicePref;
 }
 
 function assertEmbeddingResultDimensions(
@@ -435,12 +375,14 @@ function resolveEmbeddingHostRuntimeId(): string {
 
 interface StartEmbeddingHostWorkerOptions {
   readonly activeRef: MutableRefObject<boolean>;
+  readonly backgroundWorker: boolean;
   readonly controllerRef: MutableRefObject<EmbeddingWorkerController | null>;
   readonly db: NonNullable<ReturnType<typeof usePGliteDatabase>>;
   readonly embeddingRuntimeRef: MutableRefObject<EmbeddingHostRuntimeMetadata | null>;
   readonly fatalErrorRef: MutableRefObject<string | null>;
   readonly gate: ForegroundEmbeddingGate;
   readonly isDisposed: () => boolean;
+  readonly isQueryActive: () => boolean;
   readonly isStopping: () => boolean;
   readonly onFatalError: (error: Error) => void;
   readonly onWorkerActivityChange: (active: boolean) => void;
@@ -450,6 +392,7 @@ interface StartEmbeddingHostWorkerOptions {
 }
 
 async function startEmbeddingHostWorkerRuntime({
+  backgroundWorker,
   activeRef,
   controllerRef,
   db,
@@ -458,6 +401,7 @@ async function startEmbeddingHostWorkerRuntime({
   gate,
   isDisposed,
   isStopping,
+  isQueryActive,
   onFatalError,
   onWorkerActivityChange,
   runtimeIdRef,
@@ -479,6 +423,12 @@ async function startEmbeddingHostWorkerRuntime({
   try {
     await ensureEmbeddingQueueBootstrapLoaded(() => !(isDisposed() || isStopping()));
     if (isDisposed() || isStopping()) {
+      return;
+    }
+    // Native pinned requests own their execution plan. Opening their request queue
+    // must not admit the unrelated legacy background worker or resolve its device.
+    if (!backgroundWorker) {
+      reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'running');
       return;
     }
     const hydratedPreferences = await resolveHydratedEmbeddingWorkerPreferences();
@@ -507,7 +457,7 @@ async function startEmbeddingHostWorkerRuntime({
           return;
         }
         reportEmbeddingHostRuntimeStatus(runtimeIdRef, backendMismatchError ? 'error' : 'running', {
-          active: backendMismatchError ? false : activeRef.current,
+          active: isQueryActive() || (!backendMismatchError && activeRef.current),
           embeddingRuntime: embeddingRuntimeRef.current,
           lastError: backendMismatchError,
         });
@@ -533,7 +483,7 @@ async function startEmbeddingHostWorkerRuntime({
     }
     const fatalError = fatalErrorRef.current;
     reportEmbeddingHostRuntimeStatus(runtimeIdRef, fatalError ? 'error' : 'running', {
-      active: fatalError ? false : activeRef.current,
+      active: isQueryActive() || (!fatalError && activeRef.current),
       embeddingRuntime: embeddingRuntimeRef.current,
       lastError: fatalError,
     });
@@ -546,6 +496,7 @@ async function startEmbeddingHostWorkerRuntime({
     fatalErrorRef.current = message;
     if (!isStopping()) {
       reportEmbeddingHostRuntimeStatus(runtimeIdRef, 'error', {
+        active: isQueryActive(),
         lastError: message,
       });
     }
@@ -565,9 +516,13 @@ export function EmbeddingHostRuntime(): null {
   const runtimeIdRef = useRef<string>(resolveEmbeddingHostRuntimeId());
   const stopPromiseRef = useRef<Promise<void> | null>(null);
   const stoppedByCommandRef = useRef(false);
+  const backgroundWorkerRef = useRef(
+    new URLSearchParams(window.location.search).get('embeddingStart') !== 'on-demand'
+  );
   const controlsRef = useRef<{
     stop(): Promise<void>;
     reset(nextRuntimeId: string): Promise<void>;
+    startBackground(): Promise<void>;
   } | null>(null);
   const queryEmbeddingOwnerRef = useRef<QueryEmbeddingRuntimeOwner | null>(null);
   const gateRef = useRef<ForegroundEmbeddingGate>(createForegroundEmbeddingGate());
@@ -641,12 +596,14 @@ export function EmbeddingHostRuntime(): null {
       }
       const started = startEmbeddingHostWorkerRuntime({
         activeRef,
+        backgroundWorker: backgroundWorkerRef.current,
         controllerRef,
         db,
         embeddingRuntimeRef,
         fatalErrorRef,
         gate: gateRef.current,
         isDisposed: () => disposed,
+        isQueryActive: () => queryEmbeddingActiveCountRef.current > 0,
         isStopping: () => stopPromiseRef.current !== null,
         onFatalError,
         onWorkerActivityChange,
@@ -833,7 +790,20 @@ export function EmbeddingHostRuntime(): null {
       await startWorker();
     };
 
-    controlsRef.current = { reset: resetWorker, stop: () => stopWorker('command-stop') };
+    controlsRef.current = {
+      reset: resetWorker,
+      startBackground: async () => {
+        backgroundWorkerRef.current = true;
+        await startWorker();
+        if (fatalErrorRef.current) {
+          throw new Error(fatalErrorRef.current);
+        }
+        if (stoppedByCommandRef.current || disposed) {
+          throw new Error('Embedding host stopped during background startup.');
+        }
+      },
+      stop: () => stopWorker('command-stop'),
+    };
 
     let channel: BroadcastChannel | null = null;
     if (typeof BroadcastChannel !== 'undefined') {
@@ -929,8 +899,13 @@ export function EmbeddingHostRuntime(): null {
       createEmbeddingHostCommandHandler({
         getRuntimeId: () => runtimeIdRef.current,
         isDisposed: () => disposed,
+        isStopping: () => stoppedByCommandRef.current || stopPromiseRef.current !== null,
         report: (runtimeId, state, commandId, lastError) =>
           reportEmbeddingHostRuntimeStatusForRuntimeId(runtimeId, state, {
+            active:
+              state !== 'stopped' &&
+              (activeRef.current ||
+                (queryEmbeddingOwnerRef.current?.activeCountRef.current ?? 0) > 0),
             commandId,
             embeddingRuntime: embeddingRuntimeRef.current,
             ...(lastError === undefined ? {} : { lastError }),
@@ -956,6 +931,13 @@ export function EmbeddingHostRuntime(): null {
               embeddingRuntime: next,
             });
           }
+        },
+        startBackground: async () => {
+          const controls = controlsRef.current;
+          if (!controls) {
+            throw new Error('Embedding host database is unavailable for background startup.');
+          }
+          await controls.startBackground();
         },
         stop: async () => {
           stoppedByCommandRef.current = true;

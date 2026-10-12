@@ -6,6 +6,7 @@ import { isHostedProvider, parseProviderModelKey } from '@brainstrike/embeddings
 import { createLogger } from '@brainstrike/logging';
 import { createRuntimeId } from '@brainstrike/worker-runtime';
 import { type BrowserWindow, powerSaveBlocker } from 'electron';
+import { EmbeddingHostStartup } from './embedding-host-background-startup';
 import {
   documentResponseFailure,
   joinDocumentEmbeddingInterruption,
@@ -67,6 +68,7 @@ export interface EmbeddingHostManagerOptions {
 
 export class EmbeddingHostManager {
   private readonly hostedRequests: HostedEmbeddingRequests;
+  private readonly startup = new EmbeddingHostStartup();
   private disposed = false;
   private disposing = false;
   private reportedRuntimeId: string | null = null;
@@ -260,6 +262,7 @@ export class EmbeddingHostManager {
         this.lifecycle.setStatus(createStoppedEmbeddingHostStatus());
       },
       role: 'embedding-host',
+      startupQuery: () => this.startup.query(),
       statusEventName: EMBEDDING_HOST_STATUS_EVENT,
       timeoutMessage: 'Timed out waiting for embedding host state transition.',
     });
@@ -289,6 +292,13 @@ export class EmbeddingHostManager {
   }
 
   async ensureStarted(options?: { waitForRunning?: boolean }): Promise<EmbeddingHostStatus> {
+    return this.ensureHostStarted(options, true);
+  }
+
+  private async ensureHostStarted(
+    options: { waitForRunning?: boolean } | undefined,
+    backgroundWorker: boolean
+  ): Promise<EmbeddingHostStatus> {
     this.assertNotDisposed('ensureStarted');
     if (this.stopping) {
       await this.stopping;
@@ -303,7 +313,16 @@ export class EmbeddingHostManager {
         status.lastError ?? 'Embedding host failed with inference in flight.'
       );
     }
-    return this.lifecycle.ensureStarted(options);
+    return this.startup.ensure({
+      assertCurrent: () => this.assertNotDisposed('ensureStarted'),
+      backgroundWorker,
+      lifecycle: this.lifecycle,
+      options,
+      send: (command) =>
+        this.requireHostWindow().webContents.send(EMBEDDING_HOST_COMMAND_EVENT, command),
+      stopping: () => this.stopping,
+      timeoutMs: HOST_READY_TIMEOUT_MS,
+    });
   }
 
   async stop(): Promise<EmbeddingHostStatus> {
@@ -311,12 +330,7 @@ export class EmbeddingHostManager {
     return this.stopHost();
   }
 
-  /**
-   * A vector preference changed: a running host re-resolves the device an
-   * unpinned load runs on (`hostDevice`), as a new legacy query service did.
-   * Its background worker keeps its device until the host restarts. A host
-   * that is not running, or a disposed manager, has no device to re-resolve.
-   */
+  /** Re-resolve a running host's unpinned device; its background worker keeps its device until restart. */
   resolveDevice(): void {
     const window = this.lifecycle.getHostWindow();
     const status = this.getStatus();
@@ -512,13 +526,7 @@ export class EmbeddingHostManager {
     }
   }
 
-  /**
-   * Destroy the embedding host renderer process and restart it fresh.
-   * This is the only reliable way to release WebGPU/Dawn GPU buffers,
-   * which are tied to the Chromium renderer process lifetime — neither
-   * tensor.dispose() nor session.release() releases them from the shared
-   * GPU process. Used during large backfills to cap GPU memory growth.
-   */
+  /** Restart to release process-owned WebGPU/Dawn memory that tensor/session disposal cannot free. */
   async destroyAndRestart(): Promise<EmbeddingHostStatus> {
     this.assertNotDisposed('destroyAndRestart');
     this.controlState = 'restarting';
@@ -558,7 +566,7 @@ export class EmbeddingHostManager {
     }
 
     const status = await waitForHostStartup(
-      this.ensureStarted({ waitForRunning: true }),
+      this.ensureHostStarted({ waitForRunning: true }, !payload.inferencePlan),
       options?.signal
     );
     options?.signal?.throwIfAborted();
@@ -605,7 +613,7 @@ export class EmbeddingHostManager {
     options?.signal?.throwIfAborted();
     this.assertNotDisposed('documentEmbeddings');
     const status = await waitForHostStartup(
-      this.ensureStarted({ waitForRunning: true }),
+      this.ensureHostStarted({ waitForRunning: true }, false),
       options?.signal
     );
     options?.signal?.throwIfAborted();
@@ -933,13 +941,8 @@ export class EmbeddingHostManager {
       }
       this.powerSaveBlockerId = null;
     } catch (stopError) {
-      // stop() throwing has two distinct failure directions:
-      // - The id is stale (already stopped/invalid — the common case): keeping
-      //   it would permanently wedge syncPowerSaveBlocker, so clear it.
-      // - The OS block is verifiably STILL ACTIVE: clearing would discard the
-      //   only handle to an unstoppable blocker (machine never sleeps). Keep
-      //   the id so the next stop cycle retries; the start path guards on a
-      //   non-null id, so no duplicate blocker can start meanwhile.
+      // Keep a verifiably active blocker for the next Stop; its non-null id prevents duplicates.
+      // Clear stale ids so syncPowerSaveBlocker can start a new blocker.
       if (this.isPowerSaveBlockerStillActive(blockerId)) {
         logger.warn('powerSaveBlocker stop failed; blocker still active, keeping id to retry', {
           error: stopError,

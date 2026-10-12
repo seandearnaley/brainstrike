@@ -67,7 +67,7 @@ export interface EmbeddingHostBackfillRequest {
   readonly source?: EmbeddingBackfillSource;
 }
 
-export type EmbeddingHostCommandAction = 'reset' | 'resolve-device' | 'stop';
+export type EmbeddingHostCommandAction = 'reset' | 'resolve-device' | 'start-background' | 'stop';
 
 export type EmbeddingHostCommandPayload =
   | {
@@ -76,6 +76,9 @@ export type EmbeddingHostCommandPayload =
     }
   | {
       readonly action: 'stop';
+    }
+  | {
+      readonly action: 'start-background';
     }
   | {
       /** Re-resolve `hostDevice` from the saved preference; the worker keeps its device. */
@@ -190,7 +193,7 @@ export function assertEmbeddingHostQueryEmbeddingCancel(
 export const EMBEDDING_HOST_STOPPED_RUNTIME_ID = EMBEDDING_HOST_RUNTIME.stoppedRuntimeId;
 
 export function createEmbeddingHostCommand(
-  action: 'resolve-device' | 'stop',
+  action: 'resolve-device' | 'start-background' | 'stop',
   runtimeId: string
 ): EmbeddingHostCommand;
 export function createEmbeddingHostCommand(
@@ -244,9 +247,14 @@ export function assertEmbeddingHostCommand(value: unknown): EmbeddingHostCommand
     throw new Error('Embedding host command must have channel="control".');
   }
   const action = payload['action'];
-  if (action !== 'reset' && action !== 'resolve-device' && action !== 'stop') {
+  if (
+    action !== 'reset' &&
+    action !== 'resolve-device' &&
+    action !== 'start-background' &&
+    action !== 'stop'
+  ) {
     throw new Error(
-      'Embedding host command payload.action must be "reset", "resolve-device" or "stop".'
+      'Embedding host command payload.action must be "reset", "resolve-device", "start-background" or "stop".'
     );
   }
   if (action === 'reset') {
