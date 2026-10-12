@@ -71,7 +71,7 @@ Index: `docs/adr/` (0001–0020).
 11. **Docs are not a per-PR tax.** AGENTS.md stays under 150 lines, and real decisions go in `docs/adr/`. No exact line pins, and no requirement to edit docs alongside code.
 12. **Guards need an incident.** A new guard links the real defect it would have caught. Never write a guard that checks another guard.
 13. **Spike before fleet.** Engine swaps, migrations, CI systems and agent fleets start as a spike of at most two days, with the owner's written go/no-go before fan-out. Scheduled automation that opens PRs or issues, other than failure alerts under rule 7, stays off until v1.
-14. **Release is the critical path.** Until v1 ships: release first, then red-suite fixes. Everything else needs the owner's explicit yes.
+14. **Main is the development branch.** Since M5 (12 October 2026), work branches from `main` and merges back to it; there is no milestone stack. Release (M7) is unscheduled: features and fixes need a ticket, not a release justification.
 
 ## Stack & style
 
