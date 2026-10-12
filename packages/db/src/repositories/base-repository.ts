@@ -232,13 +232,22 @@ export abstract class BaseFileRecordRepository implements IFileRecordRepository 
   }
 
   async findByManagedCacheIdentity(
-    embeddingSetId: string,
+    embeddingSetId: string | null,
     rootId: string,
     relativePath: string
   ): Promise<FileRecord | null> {
     return await measureDatabaseQuery('file-tree', async () => {
-      const sql = `SELECT * FROM ${this.tableName} WHERE embedding_set_id = $1 AND root_id = $2 AND path = $3 ORDER BY updated_at DESC LIMIT 1`;
-      const result = await this.db.query(sql, [embeddingSetId, rootId, relativePath]);
+      // A null set is the native TEXT partition alone (BST-1988), never any collection.
+      const result =
+        embeddingSetId === null
+          ? await this.db.query(
+              `SELECT * FROM ${this.tableName} WHERE embedding_set_id IS NULL AND root_id = $1 AND path = $2 ORDER BY updated_at DESC LIMIT 1`,
+              [rootId, relativePath]
+            )
+          : await this.db.query(
+              `SELECT * FROM ${this.tableName} WHERE embedding_set_id = $1 AND root_id = $2 AND path = $3 ORDER BY updated_at DESC LIMIT 1`,
+              [embeddingSetId, rootId, relativePath]
+            );
       const row = result.rows[0];
 
       if (!isFileRecordRow(row)) {

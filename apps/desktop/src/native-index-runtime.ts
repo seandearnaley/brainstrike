@@ -53,7 +53,8 @@ export interface NativeIndexRuntime<Attachment = unknown> {
   retireFailedProfile(): Promise<boolean>;
   retireProfile(reason?: unknown): Promise<void>;
   retireReads(): Promise<void>;
-  retireWorkspaceCollectionFiles(embeddingSetId: string): Promise<void>;
+  /** Retire one partition's workspace files: a collection, or null for the TEXT partition. */
+  retireWorkspaceCollectionFiles(embeddingSetId: string | null): Promise<void>;
   withRead<T>(
     acquireRead: () => Promise<NativePort>,
     work: (captured: CapturedNativeIndexAuthority) => Promise<T>
@@ -151,7 +152,8 @@ export function createNativeIndexRuntime<Attachment>(
   let acknowledgedAuthority: NativeIndexAuthority | undefined;
   let acknowledgedPort: NativePort | undefined;
   let bindingRemovalPending = false;
-  let outgoingCollectionId: string | undefined;
+  // undefined: no retirement pending; null: the TEXT partition's files (BST-1988).
+  let outgoingCollectionId: string | null | undefined;
   let outgoingPort: NativePort | undefined;
   let outgoingFiles: Map<string, IndexFileBinding> | undefined;
   let workspaceRetirement: Promise<void> | undefined;
@@ -346,8 +348,8 @@ export function createNativeIndexRuntime<Attachment>(
     });
     return workspaceRetirement;
   };
-  const retireWorkspaceCollectionFiles = (embeddingSetId: string): Promise<void> => {
-    if (closing || !embeddingSetId.trim()) {
+  const retireWorkspaceCollectionFiles = (embeddingSetId: string | null): Promise<void> => {
+    if (closing || (embeddingSetId !== null && !embeddingSetId.trim())) {
       return Promise.reject(
         new Error('Native workspace retirement cannot change a closing owner.')
       );

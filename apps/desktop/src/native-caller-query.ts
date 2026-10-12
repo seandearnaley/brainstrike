@@ -20,8 +20,10 @@ export function createNativeCallerRead(
     withRead(async (read) => {
       signal?.throwIfAborted();
       const authority = await read.getAuthority();
+      const { collectionId } = authority;
       if (
         authority.profile === null ||
+        collectionId === null ||
         !authority.readiness.some(
           (receipt) =>
             receipt.scanComplete &&
@@ -35,9 +37,9 @@ export function createNativeCallerRead(
       }
       const info = await read.port.info();
       const context: SqliteCallerContext = {
-        collectionId: authority.collectionId,
+        collectionId,
         fileIds: authority.bindings
-          .filter((binding) => binding.embeddingSetId === authority.collectionId)
+          .filter((binding) => binding.embeddingSetId === collectionId)
           .map((binding) => binding.fileId),
         profile: authority.profile,
         storeId: info.storeId,

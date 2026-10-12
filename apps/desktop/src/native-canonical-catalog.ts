@@ -45,7 +45,8 @@ export interface NativeCanonicalCatalogScope {
   assertCurrent(): void;
   /** Validate the exact securely-read discovery against this same mounted main-owned grant. */
   assertDiscoveredSource(file: CanonicalDiscoveredSourceFile): void;
-  readonly embeddingSetId: string;
+  /** The saved collection, or null for the TEXT partition, which has workspace scopes only. */
+  readonly embeddingSetId: string | null;
   /** Main-owned PG/grant projection; the utility path never establishes authority. */
   resolveIdentity(record: NativeCanonicalCatalogRecord): CanonicalFileIdentity;
 }
@@ -263,7 +264,7 @@ export function createNativeCanonicalCatalog<Profile>(
     const authority = await dependencies.resolveScope(scope, context);
     checkCurrent(authority, context);
     if (
-      !authority.embeddingSetId.trim() ||
+      (authority.embeddingSetId !== null && !authority.embeddingSetId.trim()) ||
       (scope.kind === 'collection' && authority.embeddingSetId !== scope.embeddingSetId)
     ) {
       throw new Error('Canonical collection membership does not match scope authority.');

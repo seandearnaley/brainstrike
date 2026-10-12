@@ -30,7 +30,8 @@ import type { NativeScopeReadiness } from './read-contracts.js';
 
 export interface NativeSearchAuthority {
   readonly bindings: readonly IndexFileBinding[];
-  readonly collectionId: string;
+  /** The saved collection, or null for the TEXT partition: workspace scopes only (BST-1988). */
+  readonly collectionId: string | null;
   readonly generation: number;
   readonly profile: VectorProfile | null;
   readonly queryPlan: Extract<IndexerStatus, { kind: 'ready' }>['queryPlan'];
@@ -254,20 +255,24 @@ function projectStatus(
   storeId: string,
   embedding: IndexerEmbeddingState
 ): Extract<IndexerStatus, { kind: 'ready' }> {
+  const { collectionId } = authority;
   return {
-    authorizedCollectionIds: [authority.collectionId],
+    authorizedCollectionIds: collectionId === null ? [] : [collectionId],
     authorizedRootIds: authority.rootIds,
-    collectionReadiness: [
-      {
-        embeddingSetId: authority.collectionId,
-        scanComplete: authority.readiness.some(
-          (receipt) =>
-            receipt.scope.kind === 'collection' &&
-            receipt.scope.embeddingSetId === authority.collectionId &&
-            receipt.scanComplete
-        ),
-      },
-    ],
+    collectionReadiness:
+      collectionId === null
+        ? []
+        : [
+            {
+              embeddingSetId: collectionId,
+              scanComplete: authority.readiness.some(
+                (receipt) =>
+                  receipt.scope.kind === 'collection' &&
+                  receipt.scope.embeddingSetId === collectionId &&
+                  receipt.scanComplete
+              ),
+            },
+          ],
     embedding,
     kind: 'ready',
     publicationProgress: authority.readiness.flatMap(
