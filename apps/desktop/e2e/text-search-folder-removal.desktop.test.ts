@@ -13,7 +13,7 @@ import type { Locator, Page } from '@playwright/test';
 import { ensureFileExplorerPanelVisible } from './file-explorer-selection.shared';
 import { expect, test } from './fixtures/electron-fixture';
 import { seedRoot } from './utils/seed-root';
-import { chooseTextSearch, textReadiness } from './utils/text-search-mode';
+import { chooseTextSearch, expectStatusBarReady, textReadiness } from './utils/text-search-mode';
 
 function workspaceFolder(prefix: string, file: string): string {
   const folder = realpathSync(mkdtempSync(path.join(os.tmpdir(), prefix)));
@@ -69,6 +69,7 @@ test.describe('Text search folder removal (desktop)', () => {
       await expect(page.getByTestId('single-root-header-row')).toHaveCount(0, { timeout: 30_000 });
       await expect.poll(() => textReadiness(page), { timeout: 60_000 }).toEqual(textReady(0));
       await expectDisconnectSucceeded(page);
+      await expectStatusBarReady(page);
 
       await electronApp.app.evaluate((_electron, folder) => {
         process.env['BRAINSTRIKE_E2E_REAL_ROOT_PATH'] = folder;
@@ -120,6 +121,7 @@ test.describe('Text search folder removal (desktop)', () => {
       await expect(page.getByTestId('single-root-header-row')).toHaveCount(0, { timeout: 30_000 });
       await expect.poll(() => textReadiness(page), { timeout: 60_000 }).toEqual(textReady(0));
       await expectDisconnectSucceeded(page);
+      await expectStatusBarReady(page);
 
       await setPickerFolder(next);
       await showExplorer(page);

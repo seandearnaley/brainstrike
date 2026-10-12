@@ -17,7 +17,7 @@ import { readCommittedRuns } from './utils/agent-host-log';
 import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible } from './utils/layout-helpers';
 import { seedRoot } from './utils/seed-root';
-import { chooseTextSearch, textReadiness } from './utils/text-search-mode';
+import { chooseTextSearch, expectStatusBarReady, textReadiness } from './utils/text-search-mode';
 
 const API_KEY = 'test-key-text-search-fresh-profile';
 // The shim's one recorded OpenRouter metadata fixture, so no metadata request is refused.
@@ -80,9 +80,15 @@ test('a fresh profile text-searches a folder with no embedding model chosen', as
   writeFileSync(path.join(root, 'notes.txt'), `first line\n${MARKER} in the notes\n`);
   writeFileSync(path.join(root, 'other.txt'), 'nothing to find here\n');
   try {
+    // Text search is ready before any folder is added: there is nothing to index yet.
+    await chooseTextSearch(page);
+    await expect
+      .poll(() => textReadiness(page), { timeout: 60_000 })
+      .toEqual({ folders: 0, indexMode: 'text-only', kind: 'ready' });
+    await expectStatusBarReady(page);
+
     await seedRoot(page, root, { reloadReason: 'm6-text-first-root', rootId: randomUUID() });
     await enableChatModel(page);
-    await chooseTextSearch(page);
 
     // The native text index builds for the folder without a collection or model.
     await expect

@@ -44,6 +44,24 @@ async function readNativeProgress(
       reason: 'Native indexing is activating the selected collection.',
     };
   }
+  // Text search with no collection and no folder has nothing to cover: the
+  // index is ready and empty. The native capability refuses an empty scope, so
+  // there is nothing to ask (BST-1988).
+  if (collectionId === null && status.authorizedRootIds.length === 0) {
+    return {
+      complete: true,
+      coverage: {
+        embedding: status.embedding,
+        roots: [],
+        storeId: status.storeId,
+        totals: { chunks: 0, indexedFiles: 0, missingVectors: 0, vectors: 0 },
+        vectorCoverageComplete: true,
+      },
+      identity: progressIdentity(status, collectionId),
+      kind: 'ready',
+      status,
+    };
+  }
   const observation = await capability.coverageBatch([
     {
       rootIds: status.authorizedRootIds,

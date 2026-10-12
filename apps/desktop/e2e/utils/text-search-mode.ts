@@ -1,5 +1,5 @@
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
-import type { Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import { HomePage } from '../page-objects/home-page';
 import { SettingsPage } from '../page-objects/settings-page';
 
@@ -28,6 +28,17 @@ export async function nativeStatus(
     }
     return await capability.status();
   });
+}
+
+/**
+ * The status bar reads Ready, and still does after the provider's next progress
+ * reads (it polls every 2 s); a refused read would flip it to Blocked.
+ */
+export async function expectStatusBarReady(page: Page): Promise<void> {
+  const status = page.getByTestId('indexing-status-value');
+  await expect(status).toHaveText('Ready', { timeout: 30_000 });
+  await page.waitForTimeout(5000);
+  await expect(status).toHaveText('Ready');
 }
 
 /** A compact readiness summary: Text-ready with this many fully scanned folders, or the raw status. */

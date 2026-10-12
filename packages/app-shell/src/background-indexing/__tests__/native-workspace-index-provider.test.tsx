@@ -12,6 +12,7 @@ import {
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import type {
   IndexerCoverageBatch,
+  IndexerCoverageRequest,
   IndexerStatus,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { act, render, waitFor } from '@testing-library/react';
@@ -329,11 +330,13 @@ it.each([
     const capability = {
       coverage: vi.fn(),
       coverageBatch: vi.fn(
-        async (): Promise<IndexerCoverageBatch> => ({
-          coverage: [coverage],
-          kind: 'current',
-          status,
-        })
+        async (requests: readonly IndexerCoverageRequest[]): Promise<IndexerCoverageBatch> => {
+          // As the native capability does: an empty workspace scope is refused.
+          if (requests.some((request) => request.rootIds.length === 0 && !request.collectionId)) {
+            throw new Error('Native workspace search requires connected roots.');
+          }
+          return { coverage: [coverage], kind: 'current', status };
+        }
       ),
       grep: vi.fn(),
       rebuild: vi.fn(),
@@ -348,6 +351,8 @@ it.each([
     await waitFor(() =>
       expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('idle')
     );
+    // With no folder and no collection there is nothing to cover, so nothing is asked.
+    expect(capability.coverageBatch).toHaveBeenCalledTimes(rootIds.length === 0 ? 0 : 1);
     expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
       lastError: null,
       managedCollectionId: null,
