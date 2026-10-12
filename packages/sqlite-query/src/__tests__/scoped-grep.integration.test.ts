@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import { SqliteQueryClient, spawnQueryProcess } from '../../dist/index.js';
+import { NATIVE_TRIGRAM_SCHEMA } from './fixtures/native-trigram-schema.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'brainstrike-scoped-grep-'));
 const databasePath = join(directory, 'index.sqlite');
@@ -15,6 +16,7 @@ beforeAll(async () => {
     CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT,path TEXT,embedding_set_id TEXT,source_path TEXT);
     INSERT INTO file_records VALUES('retained',NULL,NULL,'selected',NULL),('other',NULL,NULL,'unauthorized',NULL);
     CREATE TABLE file_chunks(id TEXT,root_id TEXT,file_record_id TEXT,content TEXT,content_hash TEXT,start_line INTEGER,end_line INTEGER,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER);
+    ${NATIVE_TRIGRAM_SCHEMA}
     INSERT INTO file_chunks VALUES('${'b'.repeat(64)}',NULL,'retained','actual retained marker','${'c'.repeat(64)}',1,1,0,384,'text',0,22,4),('${'d'.repeat(64)}',NULL,'other','actual retained marker','${'e'.repeat(64)}',1,1,0,384,'text',0,22,4);`);
   writer.close();
   const executable = process.env['SQLITE_QUERY_TEST_EXEC_PATH'];

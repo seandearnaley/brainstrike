@@ -19,6 +19,7 @@
  * never degrades silently (`metadata.semanticArmUsed` is always explicit).
  */
 
+import { createRankedList, fuseRankedLists, normalizeRRFScores } from '@brainstrike/utils/rrf';
 import type {
   ThreadMessageFtsMatch,
   ThreadMessageFtsOptions,
@@ -27,7 +28,6 @@ import type {
   ThreadTitleMatch,
   ThreadTitleSearchOptions,
 } from '../models/thread-search.js';
-import { createRankedList, fuseRankedLists, normalizeRRFScores } from './rrf.js';
 
 /** The three repository arms this service fuses (structural, DI-friendly). */
 export interface ThreadSearchServiceRepository {

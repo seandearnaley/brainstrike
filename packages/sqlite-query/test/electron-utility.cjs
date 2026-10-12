@@ -34,6 +34,8 @@ app
       INSERT INTO index_metadata VALUES(1,10,'${'a'.repeat(64)}','text-only',NULL,NULL);
       CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT,path TEXT);
       CREATE TABLE file_chunks(id TEXT,root_id TEXT,file_record_id TEXT,content TEXT,content_hash TEXT,start_line INTEGER,end_line INTEGER,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER);
+      CREATE VIRTUAL TABLE file_chunks_trigram USING fts5(content,content='file_chunks',tokenize='trigram');
+      CREATE TRIGGER chunks_insert AFTER INSERT ON file_chunks BEGIN INSERT INTO file_chunks_trigram(rowid,content) VALUES(new.rowid,new.content); END;
       INSERT INTO file_records VALUES('file-a','root-a','proof.ts');
       INSERT INTO file_chunks VALUES('one','root-a','file-a','CAFÉ alpha','hash-one',1,1,0,10,'text',0,10,3),('two','root-a','file-a','alphabet','hash-two',2,2,1,8,'text',11,19,1);`);
     writer.close();
