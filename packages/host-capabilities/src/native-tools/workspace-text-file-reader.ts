@@ -10,6 +10,7 @@
  * never on `assistant-tools.ts`, so no import cycle is possible.
  */
 import fsPromises from 'node:fs/promises';
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import { assertNotAgentIgnored } from './agent-ignore-guard.js';
 import { resolveWorkspaceAbsolutePath } from './workspace-path-resolution.js';
 
@@ -37,10 +38,10 @@ export async function readWorkspaceTextFile(args: {
 
   const stat = await fsPromises.stat(resolved.absolutePath);
   if (!stat.isFile()) {
-    throw new Error(`Path "${args.requestedPath}" is not a file.`);
+    throw new ToolInputError(`Path "${args.requestedPath}" is not a file.`);
   }
   if (stat.size > MAX_READ_WORKSPACE_FILE_BYTES) {
-    throw new Error(
+    throw new ToolInputError(
       `Path "${args.requestedPath}" exceeds ${MAX_READ_WORKSPACE_FILE_BYTES} bytes and cannot be read in full.`
     );
   }
@@ -49,7 +50,9 @@ export async function readWorkspaceTextFile(args: {
   const binaryProbeLength = Math.min(fileBuffer.length, 4096);
   for (let index = 0; index < binaryProbeLength; index += 1) {
     if (fileBuffer[index] === 0) {
-      throw new Error(`Path "${args.requestedPath}" is a binary file and cannot be read as text.`);
+      throw new ToolInputError(
+        `Path "${args.requestedPath}" is a binary file and cannot be read as text.`
+      );
     }
   }
 

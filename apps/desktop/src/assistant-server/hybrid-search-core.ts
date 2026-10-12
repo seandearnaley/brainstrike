@@ -9,6 +9,7 @@
  */
 
 import { fitItemsToCharBudget, type HybridSearchInput, type RuntimeData } from '@brainstrike/agent';
+import { SecretReadError } from '@brainstrike/agent-host/credential-contract';
 import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import {
@@ -16,11 +17,7 @@ import {
   resolveNativeAssistantCollection,
   searchNativeAssistantChunks,
 } from './native-assistant-retrieval';
-import {
-  assertAdmittedRetrievalFileRoots,
-  RETRIEVAL_SAFE_ERROR_MESSAGES,
-  type RetrievalToolDependencies,
-} from './retrieval-core';
+import { assertAdmittedRetrievalFileRoots, type RetrievalToolDependencies } from './retrieval-core';
 import type { RetrievalStore } from './retrieval-store';
 import { resolveOptionalWorkspaceRoot } from './workspace-roots';
 
@@ -40,8 +37,6 @@ export const HYBRID_SEARCH_ERROR_MESSAGES = {
     'Select an embedding space or enable the Workspace Index before hybrid search.',
   searchFailed: 'Hybrid search failed. Please try again.',
 } as const;
-
-const SAFE_HYBRID_ERROR_MESSAGES = new Set<string>(Object.values(HYBRID_SEARCH_ERROR_MESSAGES));
 
 /** Mirrors `redactToolErrorForLog` in assistant-tools.ts: DB/provider errors can
  * embed request-derived content in `.message`; never log it verbatim. */
@@ -99,19 +94,19 @@ export interface HybridSearchToolResult {
   vectorWeight: number;
 }
 
+/**
+ * The same rule as retrieval's handleRetrievalError, decided by type and never
+ * by message text (BST-1985): a `ToolInputError` refusal passes through, a
+ * stored key the user must repair becomes one, and everything else is logged
+ * redacted behind the generic failure.
+ */
 function handleHybridSearchError(error: unknown): never {
   if (error instanceof ToolInputError) {
-    // Same invariant as retrieval-tool's handleRetrievalError (BST-1020):
-    // ToolInputError is deliberately model-actionable input prose (already
-    // path-redacted at its source). Today root resolution runs OUTSIDE this
-    // try, so this is structural insurance rather than a behavior change — a
-    // refactor moving it inside must not silently genericize the prose.
     throw error;
   }
-  const message =
-    error instanceof Error ? error.message : HYBRID_SEARCH_ERROR_MESSAGES.searchFailed;
-  if (SAFE_HYBRID_ERROR_MESSAGES.has(message) || RETRIEVAL_SAFE_ERROR_MESSAGES.has(message)) {
-    throw new Error(message);
+  if (error instanceof SecretReadError) {
+    // The shared builder's repair guidance names the provider, never the secret.
+    throw new ToolInputError(error.message);
   }
   logger.error('Hybrid search tool failed', { error: redactErrorForLog(error) });
   throw new Error(HYBRID_SEARCH_ERROR_MESSAGES.searchFailed);
@@ -127,7 +122,7 @@ export async function runHybridSearchWith(
   signal?.throwIfAborted();
   const query = input.query.trim();
   if (!query) {
-    throw new Error(HYBRID_SEARCH_ERROR_MESSAGES.invalidQuery);
+    throw new ToolInputError(HYBRID_SEARCH_ERROR_MESSAGES.invalidQuery);
   }
   const root = resolveOptionalWorkspaceRoot(runtimeData, input.root);
   const admittedRootIds = resolveAdmittedRetrievalRoots(

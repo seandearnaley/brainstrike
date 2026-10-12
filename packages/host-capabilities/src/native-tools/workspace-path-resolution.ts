@@ -13,6 +13,7 @@
 import fsPromises from 'node:fs/promises';
 import path from 'node:path';
 import { type RuntimeData, withFileLock } from '@brainstrike/agent';
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import { isWithinRoot, normalizeWorkspacePath } from './workspace-path.js';
 
 export function normalizeWorkspaceRootPath(value: string | undefined): string | undefined {
@@ -29,7 +30,7 @@ export function normalizeWorkspaceRootPath(value: string | undefined): string | 
 export function resolveWorkspaceRootPath(runtimeData: RuntimeData | undefined): string {
   const rootPath = normalizeWorkspaceRootPath(runtimeData?.workspaceRootPath);
   if (!rootPath) {
-    throw new Error(
+    throw new ToolInputError(
       'No folder is open in the workspace. Add a folder in the left file tree first.'
     );
   }
@@ -50,7 +51,7 @@ export async function resolveWorkspaceAbsolutePath(
   const canonicalRootPath = await fsPromises.realpath(rootPath);
   const canonicalAbsolutePath = await fsPromises.realpath(absolutePath);
   if (!isWithinRoot(canonicalRootPath, canonicalAbsolutePath)) {
-    throw new Error(`Path "${workspacePath}" is outside the selected workspace root.`);
+    throw new ToolInputError(`Path "${workspacePath}" is outside the selected workspace root.`);
   }
   return {
     absolutePath: canonicalAbsolutePath,
@@ -107,12 +108,12 @@ export async function resolveWorkspaceLeafMutationPath(
     canonicalParent = await fsPromises.realpath(path.dirname(requestedAbsolutePath));
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      throw new Error(`Path "${workspacePath}" does not exist.`);
+      throw new ToolInputError(`Path "${workspacePath}" does not exist.`);
     }
     throw error;
   }
   if (!isWithinRoot(canonicalRootPath, canonicalParent)) {
-    throw new Error(`Path "${workspacePath}" is outside the selected workspace root.`);
+    throw new ToolInputError(`Path "${workspacePath}" is outside the selected workspace root.`);
   }
   return path.join(canonicalParent, path.basename(requestedAbsolutePath));
 }

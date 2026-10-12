@@ -69,22 +69,6 @@ export const RETRIEVAL_ERROR_MESSAGES = {
   unsupportedProvider: 'Embedding provider is not supported by assistant retrieval.',
 } as const;
 
-/** Exported for the hybrid search tool, which reuses the same embedding path. */
-export const RETRIEVAL_SAFE_ERROR_MESSAGES = new Set<string>([
-  RETRIEVAL_ERROR_MESSAGES.missingQueryEmbeddingSpace,
-  RETRIEVAL_ERROR_MESSAGES.invalidEmbeddingSet,
-  RETRIEVAL_ERROR_MESSAGES.embeddingSetLookupFailed,
-  RETRIEVAL_ERROR_MESSAGES.unsupportedProvider,
-  RETRIEVAL_ERROR_MESSAGES.localEmbeddingHostUnavailable,
-  RETRIEVAL_ERROR_MESSAGES.missingApiKey,
-  RETRIEVAL_ERROR_MESSAGES.invalidSelectionSnapshot,
-  RETRIEVAL_ERROR_MESSAGES.invalidSelectionFilePaths,
-  RETRIEVAL_ERROR_MESSAGES.selectionTooLarge,
-  RETRIEVAL_ERROR_MESSAGES.embeddingDimensionMismatch,
-  RETRIEVAL_ERROR_MESSAGES.embeddingFailed,
-  RETRIEVAL_ERROR_MESSAGES.missingSourceRange,
-]);
-
 type RetrievalResultChunk = Omit<PackedContextChunk, 'content'>;
 
 type QueryEmbeddingHost = Pick<EmbeddingHostManager, 'queryEmbedding'>;
@@ -304,7 +288,7 @@ async function packRetrievedContext(
     logger.warn('All retrieved chunks are missing source ranges', {
       skippedForMissingSourceRange: skippedSourceRangeChunks.length,
     });
-    throw new Error(RETRIEVAL_ERROR_MESSAGES.missingSourceRange);
+    throw new ToolInputError(RETRIEVAL_ERROR_MESSAGES.missingSourceRange);
   }
   if (skippedSourceRangeChunks.length > 0) {
     logger.warn('Some retrieved chunks are missing source ranges', {
@@ -413,16 +397,20 @@ async function runRetrieval(
   };
 }
 
+/**
+ * What the model may see is decided by type, never by message text (BST-1985):
+ * a `ToolInputError` refusal (e.g. workspace-root resolution) passes through,
+ * and a stored key the user must repair becomes one; everything else is logged
+ * redacted behind the generic failure. The execution guard returns only a
+ * `ToolInputError` verbatim, so a plain Error is never a way to reach the model.
+ */
 function handleRetrievalError(error: unknown): never {
-  if (error instanceof SecretReadError || error instanceof ToolInputError) {
-    // Both are deliberately safe surfaces: SecretReadError is user-actionable
-    // key repair guidance, and ToolInputError (e.g. workspace-root
-    // resolution) is model-actionable input prose. Never genericize them.
+  if (error instanceof ToolInputError) {
     throw error;
   }
-  const message = error instanceof Error ? error.message : RETRIEVAL_ERROR_MESSAGES.retrievalFailed;
-  if (RETRIEVAL_SAFE_ERROR_MESSAGES.has(message)) {
-    throw new Error(message);
+  if (error instanceof SecretReadError) {
+    // The shared builder's repair guidance names the provider, never the secret.
+    throw new ToolInputError(error.message);
   }
   logger.error('Retrieval tool failed', { error: redactRetrievalErrorForLog(error) });
   throw new Error(RETRIEVAL_ERROR_MESSAGES.retrievalFailed);

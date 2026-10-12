@@ -13,6 +13,7 @@ import {
   type ReadWorkspaceDirectoryInput,
   type RuntimeData,
 } from '@brainstrike/agent';
+import { ToolInputError } from '@brainstrike/assistant-contract';
 import { resolveWorkspaceRoot } from '@brainstrike/assistant-service/node-workspace-services';
 import { defaultCollator } from '@brainstrike/utils/collator';
 import {
@@ -169,7 +170,7 @@ export async function runReadWorkspaceDirectory(
 
   const baseStats = await fsPromises.stat(resolvedBase.absolutePath);
   if (!baseStats.isDirectory()) {
-    throw new Error(`Path "${normalizedPath}" is not a directory.`);
+    throw new ToolInputError(`Path "${normalizedPath}" is not a directory.`);
   }
 
   const depth = input.depth ?? DEFAULT_DIRECTORY_DEPTH;
