@@ -59,7 +59,7 @@ export interface EvaluationEmbeddingProfile {
   dtype: 'q8' | 'fp16' | 'fp32';
   modelId: string;
   normalization: 'l2';
-  pooling: 'mean';
+  pooling: 'mean' | 'cls';
   revision: string;
   tokenCap: number;
 }
@@ -69,7 +69,7 @@ const embeddingProfileSchema = z.object({
   dtype: z.enum(['q8', 'fp16', 'fp32']),
   modelId: z.string().min(1),
   normalization: z.literal('l2'),
-  pooling: z.literal('mean'),
+  pooling: z.enum(['mean', 'cls']),
   revision: z.string().regex(/^[a-f0-9]{40}$/u),
   tokenCap: z.number().int().positive(),
 });

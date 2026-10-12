@@ -133,6 +133,33 @@ describe('repository retrieval quality', () => {
       })
     ).rejects.toThrow(/revision/);
   });
+  it.each([
+    ['cls', 'bm25 unavailable'],
+    ['max', 'pooling'],
+  ])('admits only mean or CLS pooling (%s)', async (pooling, failure) => {
+    // BST-1939: a CLS-pooled model reaches the searches; any other pooling is refused first.
+    await expect(
+      runRepositoryRetrievalEvaluation(repositoryRetrievalFixture, {
+        chunking: { chunkLines: 20, kind: 'line' as const },
+        corpusSources: repositoryRetrievalFixture.sources,
+        profile: {
+          device: 'webgpu',
+          dimensions: 384,
+          dtype: 'fp16',
+          modelId: 'model',
+          normalization: 'l2',
+          pooling: pooling as 'cls',
+          revision: 'a'.repeat(40),
+          tokenCap: 8192,
+        },
+        profileHash: 'a'.repeat(64),
+        readSource: (path) => readFileSync(resolve(root, path), 'utf8'),
+        search: async (arm) => {
+          throw new Error(`${arm} unavailable`);
+        },
+      })
+    ).rejects.toThrow(failure);
+  });
   it('does not issue a quality report when a search source fails', async () => {
     await expect(
       runRepositoryRetrievalEvaluation(repositoryRetrievalFixture, {

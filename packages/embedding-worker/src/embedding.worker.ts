@@ -23,6 +23,7 @@ import type {
   EmbeddingDevice,
   EmbeddingDeviceHint,
   EmbeddingDType,
+  EmbeddingPooling,
   EmbedWorkerBatch,
   EmbedWorkerComplete,
   EmbedWorkerError,
@@ -880,6 +881,7 @@ interface EmbeddingContext {
   readonly estimatedModelBytes: number | null;
   readonly id: string;
   readonly model: string;
+  readonly pooling: EmbeddingPooling;
   readonly provider?: string;
   readonly revision?: string;
   readonly started: number;
@@ -918,6 +920,7 @@ function createContext(payload: EmbedWorkerRequest): EmbeddingContext {
     estimatedModelBytes,
     id: payload.id,
     model: payload.model,
+    pooling: payload.pooling ?? 'mean',
     ...(payload.revision === undefined ? {} : { revision: payload.revision }),
     started: typeof performance === 'undefined' ? Date.now() : performance.now(),
     targetDimension: requestedDimension,
@@ -1145,7 +1148,7 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
   let startIndex = 0;
   for (const endIndex of createBatchEnds(context, state)) {
     const slice = texts.slice(startIndex, endIndex);
-    const rawOutput = await extractEmbeddingBatch(extractor, slice);
+    const rawOutput = await extractEmbeddingBatch(extractor, slice, context.pooling);
     const vectorsFromBatch = isTransformersTensor(rawOutput, runtime)
       ? convertTensorToVectors(rawOutput, truncateDim)
       : vectorsFromPipelineOutput(rawOutput, truncateDim);
@@ -1222,7 +1225,7 @@ async function runBatches(
   for (const endIndex of createBatchEnds(context, state)) {
     throwIfWorkerpoolRequestCanceled(id);
     const slice = texts.slice(startIndex, endIndex);
-    const rawOutput = await extractEmbeddingBatch(extractor, slice);
+    const rawOutput = await extractEmbeddingBatch(extractor, slice, context.pooling);
     const vectorsFromBatch = isTransformersTensor(rawOutput, runtime)
       ? convertTensorToVectors(rawOutput, truncateDim)
       : vectorsFromPipelineOutput(rawOutput, truncateDim);
