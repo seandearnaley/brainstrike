@@ -82,6 +82,12 @@ export interface ModelProviderScript {
    * own stream error event carries this message, as a provider outage does.
    */
   readonly streamError?: string;
+  /**
+   * Text a streaming final turn sends BEFORE `beforeFinalText` holds it: a
+   * reply already streaming when the user stops or the app quits. A
+   * non-streaming request refuses it.
+   */
+  readonly streamedBeforeHold?: string;
   /** Omit for a response-only turn, including native background wakeups. */
   readonly toolCall?: ScriptedToolCall;
   /** Emit successive tool turns as each preceding stage's results arrive. */
@@ -473,14 +479,17 @@ async function writeStreamingToolCall(
   response.end('data: [DONE]\n\n');
 }
 
-function writeStreamingFinalText(response: ServerResponse, finalText: string): void {
+async function writeStreamingFinalText(
+  response: ServerResponse,
+  finalText: string,
+  script: ModelProviderScript
+): Promise<void> {
   const { created, id } = completionIdentity();
-  writeEventStreamHead(response);
-  response.write(
+  const content = (text: string) =>
     sseChunk({
       choices: [
         {
-          delta: { content: finalText, role: 'assistant' },
+          delta: { content: text, role: 'assistant' },
           ['finish_reason']: null,
           index: 0,
         },
@@ -489,8 +498,16 @@ function writeStreamingFinalText(response: ServerResponse, finalText: string): v
       id,
       model: 'e2e-scripted-model',
       object: 'chat.completion.chunk',
-    })
-  );
+    });
+  if (script.streamedBeforeHold === undefined) {
+    await script.beforeFinalText;
+    writeEventStreamHead(response);
+  } else {
+    writeEventStreamHead(response);
+    response.write(content(script.streamedBeforeHold));
+    await script.beforeFinalText;
+  }
+  response.write(content(finalText));
   response.write(
     sseChunk({
       choices: [{ delta: {}, ['finish_reason']: 'stop', index: 0 }],
@@ -648,12 +665,14 @@ async function writeTurn(
     return;
   }
   if (stream !== true) {
+    if (script.streamedBeforeHold !== undefined && 'finalText' in turn) {
+      throw new Error('streamedBeforeHold is served on a streaming turn only.');
+    }
     writeJsonCompletion(response, turn);
     return;
   }
   if ('finalText' in turn) {
-    await script.beforeFinalText;
-    writeStreamingFinalText(response, turn.finalText);
+    await writeStreamingFinalText(response, turn.finalText, script);
     return;
   }
   await writeStreamingToolCall(response, turn.calls, script.beforeToolFinish);
@@ -691,10 +710,21 @@ async function writeResponsesTurn(
   stream: boolean | undefined,
   script: ModelProviderScript
 ): Promise<void> {
-  if ('finalText' in turn) {
+  const prefix = 'finalText' in turn ? script.streamedBeforeHold : undefined;
+  if (prefix !== undefined && stream !== true) {
+    throw new Error('streamedBeforeHold is served on a streaming turn only.');
+  }
+  if ('finalText' in turn && prefix === undefined) {
     await script.beforeFinalText;
   }
-  const frames = responsesTurn(turn, model, script.responsesUsage);
+  // A held reply is one message: its streamed prefix, then the rest after the hold.
+  const frames = responsesTurn(
+    prefix === undefined || !('finalText' in turn)
+      ? turn
+      : { finalText: `${prefix}${turn.finalText}` },
+    model,
+    script.responsesUsage
+  );
   if (script.emptyResponsesReasoning) {
     const item = {
       ['encrypted_content']: 'opaque-fixture-state',
@@ -724,6 +754,16 @@ async function writeResponsesTurn(
   writeEventStreamHead(response);
   response.write(sseChunk({ response: frames.response, type: 'response.created' }));
   for (const frame of frames.items) {
+    if (
+      prefix !== undefined &&
+      'finalText' in turn &&
+      frame['type'] === 'response.output_text.delta'
+    ) {
+      response.write(sseChunk({ ...frame, delta: prefix }));
+      await script.beforeFinalText;
+      response.write(sseChunk({ ...frame, delta: turn.finalText }));
+      continue;
+    }
     response.write(sseChunk(frame));
   }
   if (!('finalText' in turn)) {

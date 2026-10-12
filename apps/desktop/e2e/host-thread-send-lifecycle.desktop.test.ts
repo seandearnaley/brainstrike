@@ -70,7 +70,7 @@ test('a second send while the first is being admitted keeps its draft and starts
   expect(modelProvider.refusals()).toEqual([]);
 });
 
-test('a run the host interrupted when the app quit is marked after relaunch', async ({
+test('a reply the app quit mid-stream keeps its text and one interrupted marker after relaunch (BST-1982)', async ({
   electron,
   modelProvider,
 }) => {
@@ -81,20 +81,20 @@ test('a run the host interrupted when the app quit is marked after relaunch', as
   modelProvider.setScript(({ toolNames }) =>
     toolNames.length === 0
       ? { finalText: 'Interrupted lifecycle' }
-      : { beforeFinalText: hold.promise, finalText: 'NEVER_COMMITTED' }
+      : {
+          beforeFinalText: hold.promise,
+          finalText: 'NEVER_COMMITTED',
+          streamedBeforeHold: 'STREAMED_BEFORE_QUIT',
+        }
   );
   const { input, region } = assistantRegion(page);
   await expect(input).toBeVisible({ timeout: 30_000 });
   await input.fill('Run until the app quits.');
   await input.press('Enter');
-  await expect(region.getByRole('button', { exact: true, name: 'Stop' })).toBeVisible({
-    timeout: 30_000,
-  });
-  await expect
-    .poll(() => modelProvider.requests().filter(({ toolNames }) => toolNames.length > 0).length)
-    .toBeGreaterThan(0);
+  // The reply is streaming: its text shows live before the app quits.
+  await expect(region.getByText('STREAMED_BEFORE_QUIT')).toBeVisible({ timeout: 30_000 });
 
-  // Quit mid-run: the provider turn is still open, so the host ends the run.
+  // Quit mid-stream: the host closes while the step is open.
   await electron.closeForStateSeeding();
   hold.resolve();
   page = await electron.ensureWindow();
@@ -103,6 +103,51 @@ test('a run the host interrupted when the app quit is marked after relaunch', as
   await expect(relaunched.getByText('Run until the app quits.', { exact: true })).toBeVisible({
     timeout: 30_000,
   });
-  await expect(relaunched.getByText('Reply interrupted', { exact: true })).toBeVisible();
+  await expect(relaunched.getByText('STREAMED_BEFORE_QUIT')).toBeVisible();
+  await expect(relaunched.getByText('Reply interrupted', { exact: true })).toHaveCount(1);
   await expect(relaunched.getByText('NEVER_COMMITTED', { exact: true })).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath('quit-mid-stream-relaunched.png') });
+});
+
+test('a text-only Stop keeps its text and shows one Stopped marker, after a reload too (BST-1982)', async ({
+  electron,
+  modelProvider,
+}) => {
+  test.setTimeout(120_000);
+  const page = await electron.ensureWindow();
+  await openHostThread(page);
+  const hold = Promise.withResolvers<void>();
+  modelProvider.setScript(({ toolNames }) =>
+    toolNames.length === 0
+      ? { finalText: 'Stopped lifecycle' }
+      : {
+          beforeFinalText: hold.promise,
+          finalText: 'NEVER_COMMITTED',
+          streamedBeforeHold: 'STREAMED_BEFORE_STOP',
+        }
+  );
+  const { input, region } = assistantRegion(page);
+  await expect(input).toBeVisible({ timeout: 30_000 });
+  await input.fill('Write until I stop you.');
+  await input.press('Enter');
+  await expect(region.getByText('STREAMED_BEFORE_STOP')).toBeVisible({ timeout: 30_000 });
+  await region.getByRole('button', { exact: true, name: 'Stop' }).click();
+  await expect(region.getByRole('button', { exact: true, name: 'Stop' })).toHaveCount(0, {
+    timeout: 30_000,
+  });
+  hold.resolve();
+  await expect(region.getByText('STREAMED_BEFORE_STOP')).toBeVisible();
+  await expect(region.getByText('Stopped', { exact: true })).toHaveCount(1);
+  await page.screenshot({ path: test.info().outputPath('text-only-stop.png') });
+
+  // A reload folds the same committed log.
+  await page.reload();
+  await openHostThread(page);
+  const reloaded = assistantRegion(page).region;
+  await expect(reloaded.getByText('Write until I stop you.', { exact: true })).toBeVisible({
+    timeout: 30_000,
+  });
+  await expect(reloaded.getByText('STREAMED_BEFORE_STOP')).toBeVisible();
+  await expect(reloaded.getByText('Stopped', { exact: true })).toHaveCount(1);
+  await expect(reloaded.getByText('NEVER_COMMITTED', { exact: true })).toHaveCount(0);
 });

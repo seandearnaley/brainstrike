@@ -30,6 +30,7 @@ import {
   type ToolRiskCategory,
 } from '@brainstrike/assistant-contract/tool-metadata';
 import { parsePartialJsonObject } from 'assistant-stream/utils';
+import { activityTraceShowsEnd } from './assistant-activity-grouping';
 import { committedApprovalOptions } from './committed-approval-options';
 import {
   committedAttachments,
@@ -130,6 +131,8 @@ interface ProjectedRun {
   readonly overlay: Set<string>;
   readonly partIndexes: Map<string, number>;
   readonly runId: string;
+  /** The commit time of the run's `run.started`, when the row carries one. */
+  readonly startedAt: number | undefined;
   step: number;
   /** A step started and neither its `model.step` nor a Stop's partial committed yet. */
   stepOpen: boolean;
@@ -140,7 +143,7 @@ interface ProjectedRun {
 
 type ProjectedRunEvent = Pick<
   AssistantRunEvent,
-  'detail' | 'kind' | 'label' | 'metadata' | 'status'
+  'detail' | 'durationMs' | 'kind' | 'label' | 'metadata' | 'status'
 >;
 
 function toolOwnership(
@@ -596,6 +599,7 @@ export class CommittedAssistantLogProjection {
       overlay: new Set(),
       partIndexes: new Map(),
       runId,
+      startedAt: row.ts,
       step: 0,
       stepOpen: false,
       terminal: false,
@@ -836,15 +840,26 @@ export class CommittedAssistantLogProjection {
         status: 'completed',
       });
     }
-    if (outcome === 'interrupted') {
-      // A Stop's activity trace reads "Stopped after Ns". A run the host ended
-      // itself (closing, or recovery on restart) has no trace when it streamed
-      // only text, and the vendor shows no `other` status, so the committed
-      // outcome and the host's reason are this always-visible row (BST-1981).
-      this.runEvent(run, row, 'interrupted', {
-        ...(typeof event['detail'] === 'string' ? { detail: event['detail'] } : {}),
+    if (
+      (outcome === 'stopped' || outcome === 'interrupted') &&
+      !activityTraceShowsEnd(this.message(run).content)
+    ) {
+      // An early end gets exactly one marker. A call cut off mid-run carries it
+      // in its activity trace ("Stopped after Ns"); otherwise, as for a reply
+      // that streamed only text, the vendor shows nothing for the incomplete
+      // status, so the committed end is this always-visible row (BST-1981,
+      // BST-1982), with the host's reason when it gave one.
+      this.runEvent(run, row, outcome, {
+        ...(typeof event['detail'] === 'string' && outcome === 'interrupted'
+          ? { detail: event['detail'] }
+          : {}),
+        // A Stop ends the run in this host session, so its committed times
+        // give "Stopped after Ns"; a recovered interruption spans the downtime.
+        ...(outcome === 'stopped' && row.ts !== undefined && run.startedAt !== undefined
+          ? { durationMs: row.ts - run.startedAt }
+          : {}),
         kind: 'run.cancelled',
-        label: 'Reply interrupted',
+        label: outcome === 'stopped' ? 'Stopped' : 'Reply interrupted',
         status: 'cancelled',
       });
     }
