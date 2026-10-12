@@ -206,8 +206,13 @@ export function bindHostConnection(
     }
     const { binding } = core.readWorkspaceBinding(params.threadId);
     if (
-      binding?.operatingRootId &&
-      ![binding.operatingRootId, ...(binding.secondaryRootIds ?? [])].includes(params.rootId)
+      binding &&
+      (binding.operatingRootId || binding.secondaryRootIds || binding.checkoutLocalRootId) &&
+      ![
+        binding.operatingRootId,
+        ...(binding.secondaryRootIds ?? []),
+        binding.checkoutLocalRootId,
+      ].includes(params.rootId)
     ) {
       throw new Error('Search root is outside the thread workspace binding');
     }

@@ -53,6 +53,7 @@ test('CLI ranked text preserves provenance, rejects unsupported scope/mode and j
         truncated: false,
       };
     },
+    validateWorkspaceBinding: async () => undefined,
   };
   const host = await startAgentHost({ lifetime: 'persistent', root }, platform);
   const client = await attachAgentHost(host.record);
@@ -93,6 +94,24 @@ test('CLI ranked text preserves provenance, rejects unsupported scope/mode and j
     await expect(cli('vector')).rejects.toThrow();
     expect(calls).toEqual(['bm25', 'trigram']);
     await expect(cli('bm25', 'foreign')).rejects.toThrow('Unauthorized root');
+    await client.request('thread/workspace/binding/update', {
+      commandId: randomUUID(),
+      patch: { secondaryRootIds: ['secondary'] },
+      threadId,
+    });
+    // The native host admits `selected`; the thread's narrower binding must refuse it first.
+    const beforeOutOfScope = calls.length;
+    await expect(cli('bm25', 'selected')).rejects.toThrow(
+      'Search root is outside the thread workspace binding'
+    );
+    expect(calls).toHaveLength(beforeOutOfScope);
+    await client.request('thread/workspace/binding/update', {
+      commandId: randomUUID(),
+      patch: { secondaryRootIds: ['selected'] },
+      threadId,
+    });
+    expect((await cli('trigram')).hits[0]?.rootId).toBe('selected');
+
     const controller = new AbortController();
     const pending = client.request(
       'workspace/search',

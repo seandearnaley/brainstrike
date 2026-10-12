@@ -1,7 +1,7 @@
 import type { RuntimeData } from '@brainstrike/assistant-contract';
 import type { AssistantThreadDraftRuntime } from '@brainstrike/assistant-data';
 import type { z } from 'zod';
-import { PlatformClientConfigurationSchema } from './platform-wire';
+import { PlatformClientConfigurationSchema } from './platform-client-configuration';
 
 export type DesktopHostIntent = z.output<typeof PlatformClientConfigurationSchema>;
 

@@ -17,6 +17,10 @@ vi.mock('../hooks/use-assistant-availability', () => ({
 describe('saved agent color refresh client', () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it('does not offer the removed HTTP action for shared-host threads', () => {
+    expect(canRefreshAgentColors(true)).toBe(false);
+  });
+
   it('posts the root owner and reports the committed count', async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ changed: 4 }), { status: 200 }));
     vi.stubGlobal('fetch', fetch);
