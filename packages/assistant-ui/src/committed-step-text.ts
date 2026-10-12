@@ -126,6 +126,11 @@ function committedTextPart(entry: unknown): TextPart | undefined {
   if (!((type === 'text' || type === 'reasoning') && typeof content?.['text'] === 'string')) {
     return;
   }
+  // Recorded Luna runs carry opaque reasoning without a displayable summary.
+  // Keep it in the host log/provider history, not as an empty transcript disclosure.
+  if (type === 'reasoning' && content['text'].trim().length === 0) {
+    return;
+  }
   const metadata = providerMetadata(content['providerOptions']);
   return {
     ...(metadata ? { providerMetadata: metadata } : {}),

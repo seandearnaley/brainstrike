@@ -12,6 +12,8 @@ Guard: `packages/db/__tests__/thread-debug-snapshot.integration.test.ts`.
 
 ## First-class subagent architecture gate
 
+- Model-facing delegation descriptions state leaf versus supervisor capability.
+  Hierarchical exploration uses worker supervisors with read-only Explorer leaves.
 - Only a `mode: worker` child receives `agent-*` tools. Explorer, Analyst and any
   persona without an explicit `mode` are read-only leaves.
 - Every child pause surfaces in the leg that raised it and the leg reads to

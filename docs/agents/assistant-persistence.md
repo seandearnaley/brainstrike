@@ -1,3 +1,6 @@
+Empty committed reasoning summaries remain in canonical provider history but do not
+produce transcript disclosures; visible reasoning retains its original order.
+
 Current Desktop execution boundary (M4): the shared agent host owns runs,
 children, log replay and decisions. Desktop assistant HTTP serves provider status,
 verification and OpenRouter metadata only; old execution/discovery/resume routes
