@@ -85,7 +85,7 @@
       "sha256": "39dc0fb61877b81edfc1c098dad9fdf83a8b8d3c5e3c8fccd3933cce728972ff"
     },
     {
-      "relativePath": "packages/db/src/search/rrf.ts",
+      "relativePath": "packages/utils/src/rrf.ts",
       "sha256": "1dd287b7d5c5b26d9195da03f1809f38df3c0b71b5dc3434e364046d1b28fbb5"
     }
   ],
@@ -1618,7 +1618,7 @@
       "judgments": [
         {
           "id": "repo-096-answer-1",
-          "relativePath": "packages/db/src/search/rrf.ts",
+          "relativePath": "packages/utils/src/rrf.ts",
           "startLine": 107,
           "endLine": 107,
           "evidence": "return weight * (1 / (k + rank));",
@@ -1634,7 +1634,7 @@
       "judgments": [
         {
           "id": "repo-097-answer-1",
-          "relativePath": "packages/db/src/search/rrf.ts",
+          "relativePath": "packages/utils/src/rrf.ts",
           "startLine": 187,
           "endLine": 187,
           "evidence": "entry.contributions.push(createContributionEntry(source, rank, contribution, item.score));",
@@ -1650,7 +1650,7 @@
       "judgments": [
         {
           "id": "repo-098-answer-1",
-          "relativePath": "packages/db/src/search/rrf.ts",
+          "relativePath": "packages/utils/src/rrf.ts",
           "startLine": 201,
           "endLine": 201,
           "evidence": "if (data.sourceCount >= minSourceCount) {",
@@ -1666,7 +1666,7 @@
       "judgments": [
         {
           "id": "repo-099-answer-1",
-          "relativePath": "packages/db/src/search/rrf.ts",
+          "relativePath": "packages/utils/src/rrf.ts",
           "startLine": 301,
           "endLine": 301,
           "evidence": "const collapsedScore = maxScore === 0 ? 0 : 1;",
@@ -1682,7 +1682,7 @@
       "judgments": [
         {
           "id": "repo-100-answer-1",
-          "relativePath": "packages/db/src/search/rrf.ts",
+          "relativePath": "packages/utils/src/rrf.ts",
           "startLine": 331,
           "endLine": 331,
           "evidence": "ranked.sort((a, b) => b.score - a.score);",
