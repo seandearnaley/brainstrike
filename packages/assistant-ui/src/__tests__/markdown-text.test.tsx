@@ -13,9 +13,9 @@ vi.mock('@assistant-ui/react', () => ({
   useMessagePartText: useMessagePartTextMock,
 }));
 
-// Mock @assistant-ui/react-markdown before importing
-vi.mock('@assistant-ui/react-markdown', () => ({
-  MarkdownTextPrimitive: ({
+// Mock the markdown primitive before importing
+vi.mock('@assistant-ui/react-streamdown', () => ({
+  StreamdownTextPrimitive: ({
     className,
     components,
   }: {
@@ -33,7 +33,6 @@ vi.mock('@assistant-ui/react-markdown', () => ({
       })}
     </div>
   ),
-  unstable_memoizeMarkdownComponents: (components: Record<string, unknown>) => components,
 }));
 
 // Mock the syntax highlighter

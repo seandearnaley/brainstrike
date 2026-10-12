@@ -31,7 +31,7 @@ describe('@brainstrike/assistant-ui package contract', () => {
         '.',
         // Two leaf modules, imported INSTEAD of the root barrel so a host can
         // provide or read the link seam without dragging the lazy panel graph
-        // (assistant-ui-panel, react-markdown, Shiki) into the eager chunk.
+        // (assistant-ui-panel, Streamdown, Shiki) into the eager chunk.
         // They stay split because a file exporting both a component and a hook
         // trips react-refresh/only-export-components.
         './assistant-link-capabilities',

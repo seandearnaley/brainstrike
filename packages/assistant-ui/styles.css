@@ -4,3 +4,10 @@
  */
 
 @source "./src";
+
+/*
+ * Streamdown (the assistant markdown renderer) ships its caret and block chrome
+ * as Tailwind utility classes. Tailwind does not scan node_modules, so name its
+ * dist explicitly, as the vendor's CSS setup documents.
+ */
+@source "./node_modules/streamdown/dist/*.js";

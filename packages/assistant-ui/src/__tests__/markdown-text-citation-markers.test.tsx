@@ -10,8 +10,6 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AssistantMessageText, UserMessageText } from '../assistant-message-text';
 
-vi.mock('@assistant-ui/react-markdown/styles/dot.css', () => ({}));
-
 // Verbatim leak observed live (GPT-5.6 Terra + native webSearch): OpenAI's
 // private-use citation delimiters wrapping a `cite`/`turn0search0` payload.
 // Escaped rather than literal — these codepoints are invisible in a diff.
@@ -73,7 +71,7 @@ function UserMessageHarness() {
 }
 
 // Renders through the REAL assistant-ui runtime and the REAL
-// MarkdownTextPrimitive (react-markdown + remark-gfm), so it pins what reaches
+// StreamdownTextPrimitive (Streamdown + remark-gfm), so it pins what reaches
 // the DOM rather than which props we passed. markdown-text.test.tsx mocks the
 // primitive and therefore cannot catch this class of leak.
 describe('MarkdownText citation-marker leakage', () => {

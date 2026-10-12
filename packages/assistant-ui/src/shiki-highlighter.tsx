@@ -1,4 +1,4 @@
-import type { SyntaxHighlighterProps } from '@assistant-ui/react-markdown';
+import type { SyntaxHighlighterProps } from '@assistant-ui/react-streamdown';
 import { CodeBlockBody } from '@brainstrike/ui/code-block';
 import { memo } from 'react';
 
