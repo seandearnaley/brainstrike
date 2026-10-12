@@ -10,8 +10,47 @@ type RuntimeWorkspaceRoot = NonNullable<RuntimeData['workspaceRoots']>[number];
 
 export interface DesktopWorkspaceBindingDependencies {
   borrowRoot(root: RuntimeWorkspaceRoot): Promise<CanonicalWorkspaceLease>;
+  /** The catalog's display name for each id it still records, live or not. */
+  readRootNames(ids: readonly string[]): Promise<ReadonlyMap<string, string>>;
   readRoots(): Promise<readonly RuntimeWorkspaceRoot[]>;
   readWorktree(id: string): Promise<ManagedWorktreeRow | null>;
+}
+
+/** A thread folder the workspace no longer serves, named when the catalog still knows it. */
+export interface RemovedThreadRoot {
+  readonly displayName?: string;
+  readonly rootId: string;
+}
+
+const FOLDER_LIST = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' });
+
+function removedRootsMessage(roots: readonly RemovedThreadRoot[]): string {
+  const named = roots.flatMap((root) => (root.displayName ? [`"${root.displayName}"`] : []));
+  const unnamed = roots.length - named.length;
+  if (named.length === 0) {
+    return unnamed === 1
+      ? "A folder this thread uses was removed from the workspace. Remove it from this thread in the composer's folder menu."
+      : `${unnamed} folders this thread uses were removed from the workspace. Remove them from this thread in the composer's folder menu.`;
+  }
+  const others =
+    unnamed === 0 ? [] : [unnamed === 1 ? '1 other folder' : `${unnamed} other folders`];
+  const list = FOLDER_LIST.format([...named, ...others]);
+  return roots.length === 1
+    ? `The folder ${list} was removed from the workspace. Re-add it, or remove it from this thread in the composer's folder menu.`
+    : `The folders ${list} were removed from the workspace. Re-add them, or remove them from this thread in the composer's folder menu.`;
+}
+
+/**
+ * BST-1990: the thread's binding names folders the workspace no longer serves.
+ * Every bound folder must be live, so the run or binding write is refused; the
+ * message names each folder and both repairs, which the user reads verbatim.
+ */
+export class ThreadRootsRemovedError extends Error {
+  override readonly name = 'ThreadRootsRemovedError';
+
+  constructor(readonly roots: readonly RemovedThreadRoot[]) {
+    super(removedRootsMessage(roots));
+  }
 }
 
 export interface DesktopWorkspaceBindingBorrow {
@@ -78,6 +117,19 @@ export class DesktopWorkspaceBindingAuthority {
     ];
     const roots = await this.dependencies.readRoots();
     request.signal.throwIfAborted();
+    const removed = ids.filter((id) => !roots.some((root) => root.rootId === id));
+    if (removed.length > 0) {
+      const names = await this.dependencies.readRootNames(removed);
+      request.signal.throwIfAborted();
+      throw new ThreadRootsRemovedError(
+        removed.map((rootId) => {
+          const displayName =
+            names.get(rootId) ??
+            (rootId === binding.operatingRootId ? binding.operatingRootDisplayName : undefined);
+          return displayName ? { displayName, rootId } : { rootId };
+        })
+      );
+    }
     const selected = ids.map((id) => {
       const matches = roots.filter((root) => root.rootId === id);
       if (matches.length !== 1) {

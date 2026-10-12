@@ -799,8 +799,15 @@ root with a per-row "Set as main".
   inventing one.
 - "Make primary" re-binds the THREAD through the same three `operatingRoot*` keys
   `persistThreadRootBinding` writes, in ONE metadata write with the secondary set; it
-  never calls `setMainRoot`. "Remove from thread" only edits `secondaryRootIds` and
-  never disconnects the folder from the workspace.
+  never calls `setMainRoot`. "Remove from thread" never disconnects the folder from the
+  workspace.
+- A thread folder whose `roots` row is gone or not live is marked "Removed from the
+  workspace" (BST-1990). The host refuses every run and binding write while the binding
+  names one, naming the folder (`ThreadRootsRemovedError`), so each repair drops every
+  removed folder in the same write: Make primary on a live folder; Remove from this
+  thread, which on a removed primary promotes the first live secondary; Re-add folder
+  (the Recents re-mount); and "Use another folder…", offered only when no thread folder
+  is live. The rows are re-read whenever the mounted set changes.
 - While checkout mode is Worktree, making a secondary primary includes the Local
   transition in that SAME write, so operating root and checkout record never disagree:
   the former worktree primary leaves the thread with an explicit success toast, other
