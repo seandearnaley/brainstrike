@@ -3246,31 +3246,6 @@ describe('createPgliteAssistantThreadRepository thread runs', () => {
     }
   });
 
-  it('bootstraps the migration-088 compaction range shape for thread deletion', async () => {
-    const dataDir = createPgliteTestDataDir('compaction-range-bootstrap-shape');
-    const db = await createMigratedTestPGlite(dataDir);
-    try {
-      const repository = createPgliteAssistantThreadRepository(db as DbHandle);
-      await repository.createThread('workspace-a');
-
-      const columns = await db.query<{ column_name: string }>(
-        `SELECT column_name
-         FROM information_schema.columns
-         WHERE table_name = 'brainstrike_assistant_compaction_ranges'
-         ORDER BY ordinal_position`
-      );
-      expect(columns.rows.map((row) => row.column_name)).toEqual([
-        'compaction_message_id',
-        'thread_id',
-        'compacted_message_ids',
-        'kind',
-        'created_at',
-      ]);
-    } finally {
-      await db.close();
-    }
-  });
-
   it('persists provider-reported billed cost with run usage', async () => {
     const db = createMockDb();
     const repository = createPgliteAssistantThreadRepository(db as unknown as DbHandle);
@@ -4537,13 +4512,6 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       [thread.id]
     );
     await db.query(
-      `INSERT INTO brainstrike_canvas_versions
-        (id, canvas_id, thread_id, resource_id, title, html, version, created_by)
-       VALUES ('canvas-version-delete', 'canvas-delete', $1, 'workspace-a',
-        'Delete me', '<p>Delete me</p>', 1, 'assistant')`,
-      [thread.id]
-    );
-    await db.query(
       `INSERT INTO brainstrike_tool_call_telemetry
         (id, thread_id, run_id, tool_id, model_facing_chars)
        VALUES ('tool-telemetry-delete', $1, 'run-delete', 'brainstrike.grepSearch', 42)`,
@@ -4554,12 +4522,6 @@ describe('createPgliteAssistantThreadRepository integration', () => {
         (id, thread_id, run_id, model, provider, estimated_prompt_tokens,
          final_step_prompt_tokens)
        VALUES ('calibration-delete', $1, 'run-delete', 'model', 'provider', 42, 50)`,
-      [thread.id]
-    );
-    await db.query(
-      `INSERT INTO brainstrike_assistant_compaction_ranges
-        (compaction_message_id, thread_id, compacted_message_ids, kind)
-       VALUES ('summary-delete', $1, '["message-delete"]'::jsonb, 'agentic')`,
       [thread.id]
     );
 
@@ -4583,16 +4545,10 @@ describe('createPgliteAssistantThreadRepository integration', () => {
       countRows(db, 'brainstrike_assistant_message_tombstones', 'thread_id', thread.id)
     ).resolves.toBe(0);
     await expect(
-      countRows(db, 'brainstrike_canvas_versions', 'thread_id', thread.id)
-    ).resolves.toBe(0);
-    await expect(
       countRows(db, 'brainstrike_tool_call_telemetry', 'thread_id', thread.id)
     ).resolves.toBe(0);
     await expect(
       countRows(db, 'brainstrike_token_estimate_calibration', 'thread_id', thread.id)
-    ).resolves.toBe(0);
-    await expect(
-      countRows(db, 'brainstrike_assistant_compaction_ranges', 'thread_id', thread.id)
     ).resolves.toBe(0);
   });
 
@@ -4645,12 +4601,6 @@ describe('createPgliteAssistantThreadRepository integration', () => {
         [`message-${thread.id}`, thread.id]
       );
       await db.query(
-        `INSERT INTO brainstrike_canvas_versions
-          (id, canvas_id, thread_id, resource_id, title, html, version, created_by)
-         VALUES ($1, $2, $3, 'workspace-a', 'Bulk canvas', '<p>canvas</p>', 1, 'assistant')`,
-        [`canvas-version-${thread.id}`, `canvas-${thread.id}`, thread.id]
-      );
-      await db.query(
         `INSERT INTO brainstrike_tool_call_telemetry
           (id, thread_id, run_id, tool_id, model_facing_chars)
          VALUES ($1, $2, $3, 'brainstrike.globWorkspace', 17)`,
@@ -4662,12 +4612,6 @@ describe('createPgliteAssistantThreadRepository integration', () => {
            final_step_prompt_tokens)
          VALUES ($1, $2, $3, 'model', 'provider', 17, 20)`,
         [`calibration-${thread.id}`, thread.id, `run-${thread.id}`]
-      );
-      await db.query(
-        `INSERT INTO brainstrike_assistant_compaction_ranges
-          (compaction_message_id, thread_id, compacted_message_ids, kind)
-         VALUES ($1, $2, $3::jsonb, 'deterministic')`,
-        [`summary-${thread.id}`, thread.id, JSON.stringify([`message-${thread.id}`])]
       );
     }
 
@@ -4711,15 +4655,6 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     await expect(
       countRows(db, 'brainstrike_assistant_message_parents', 'thread_id', survivor.id)
     ).resolves.toBe(1);
-    await expect(countRows(db, 'brainstrike_canvas_versions', 'thread_id', first.id)).resolves.toBe(
-      0
-    );
-    await expect(
-      countRows(db, 'brainstrike_canvas_versions', 'thread_id', second.id)
-    ).resolves.toBe(0);
-    await expect(
-      countRows(db, 'brainstrike_canvas_versions', 'thread_id', survivor.id)
-    ).resolves.toBe(1);
     await expect(
       countRows(db, 'brainstrike_tool_call_telemetry', 'thread_id', first.id)
     ).resolves.toBe(0);
@@ -4737,15 +4672,6 @@ describe('createPgliteAssistantThreadRepository integration', () => {
     ).resolves.toBe(0);
     await expect(
       countRows(db, 'brainstrike_token_estimate_calibration', 'thread_id', survivor.id)
-    ).resolves.toBe(1);
-    await expect(
-      countRows(db, 'brainstrike_assistant_compaction_ranges', 'thread_id', first.id)
-    ).resolves.toBe(0);
-    await expect(
-      countRows(db, 'brainstrike_assistant_compaction_ranges', 'thread_id', second.id)
-    ).resolves.toBe(0);
-    await expect(
-      countRows(db, 'brainstrike_assistant_compaction_ranges', 'thread_id', survivor.id)
     ).resolves.toBe(1);
     // The op-log seam (BST-993): one tombstone per actually-deleted thread.
     await expect(countRows(db, 'brainstrike_mind_ops', 'entity_id', first.id)).resolves.toBe(1);

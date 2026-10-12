@@ -2020,7 +2020,8 @@ everything else derived:
 Desktop-only native tools:
 
 - `brainstrike.manageCanvas` is desktop-only because its source of truth is the
-  client-local `brainstrike_canvas_versions` ledger; web has no remote fallback.
+  agent host's run log (one `tool.state.updated` key per canvas); web has no
+  remote fallback.
   It is a deferred workspace tool with an `action` discriminated union and
   explicit `edit` risk, because create/update/rewrite persist durable state.
 - The union branches TOLERATE cross-action

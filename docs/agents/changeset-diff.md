@@ -13,7 +13,8 @@
   with `?? 0`; never coerce the entry's own field. Every kind resolved through
   `ChangesetDiffService` computes real totals today.
 - `toolAttributed` is ABSENT when no attribution join ran (every `git-scope`
-  changeset; the live mid-turn view). Absent means "no badge", never `false`.
+  changeset; the live mid-turn view; a legacy ledger turn). Absent means "no
+  badge", never `false`.
 - `StructuredFileDiffContent` has three variants — `binary`, `full`,
   `hunks-only` — and `hunks-only` carries a four-value `reason`. A `full`
   payload with empty `hunks` is consistent: `full` promises both sides' text,
@@ -70,9 +71,9 @@ Guard: `apps/desktop/src/__tests__/assistant-server/git-service-structured-diff.
 - Fail the WHOLE view with `changeset-snapshot-capture-failed:` on any
   `FAILED_SNAPSHOT_CAPTURE_OID` sentinel in a resolved pair; never "diff what we
   can". Pre-engine turns are `changeset-snapshot-missing:`.
-- Join the edit-checkpoint journal for `toolAttributed` ATTRIBUTION only: it is
-  an attribution-only ledger, `before_content` is never populated, and journal
-  content is never read for diffs. `revertible` is `true` for every
+- `toolAttributed` comes only from the tool edits a settled host run committed
+  to its log (`changeset-host-turns.ts`); a legacy ledger turn has no attribution
+  source. Edit records are never read for diffs. `revertible` is `true` for every
   snapshot-resolved entry; renames appear as `added` + `deleted` pairs.
 - Restore content from snapshots — `changeset-snapshot-view.ts`,
   `rewind-snapshot-engine.ts`, and `checkpoint-snapshot-undo.ts`, which restores

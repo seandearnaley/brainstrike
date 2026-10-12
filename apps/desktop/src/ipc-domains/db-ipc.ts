@@ -809,10 +809,6 @@ export function registerDatabaseIpcHandlers(
             // Per-run experiment treatment records (migration 093, BST-1250):
             // FK-less experiment evidence must not survive a fresh start.
             await clearOptionalRelation(tx, 'brainstrike_assistant_run_treatments');
-            // Durable per-thread assistant task list (P0 task-list tool): a
-            // factory reset must wipe the plan so it does not survive a "true
-            // fresh start" (FACTORY RESET CONTRACT). No FK, so clear explicitly.
-            await clearOptionalRelation(tx, 'brainstrike_assistant_task_lists');
             // Per-turn edit checkpoint journal (undo of agent file edits): a
             // factory reset must wipe stored before-content + revert history so
             // it does not survive a "true fresh start" (FACTORY RESET CONTRACT).
@@ -829,18 +825,12 @@ export function registerDatabaseIpcHandlers(
             // bookkeeping for threads this clear destroys. No FK, so clear
             // explicitly per the FACTORY RESET CONTRACT.
             await clearOptionalRelation(tx, 'brainstrike_workspace_snapshots');
-            // Versioned Canvas documents (migration 082, BST-1173): no FK, so
-            // clear their thread-owned content explicitly.
-            await clearOptionalRelation(tx, 'brainstrike_canvas_versions');
             // Durable per-tool model-facing telemetry (migration 083): no FK,
             // so counters for deleted runs must be cleared explicitly.
             await clearOptionalRelation(tx, 'brainstrike_tool_call_telemetry');
             // Estimator/provider prompt-token calibration pairs (migration
             // 086): no FK, so calibration evidence is cleared explicitly.
             await clearOptionalRelation(tx, 'brainstrike_token_estimate_calibration');
-            // Conversation-compaction ranges (migration 088): no FK, so exact
-            // summarized-message sets are cleared explicitly.
-            await clearOptionalRelation(tx, 'brainstrike_assistant_compaction_ranges');
             // Revisions cascade from prompt_items. The singleton embedding
             // profile is app configuration and remains available after clear.
             await clearOptionalRelation(tx, 'prompt_items');

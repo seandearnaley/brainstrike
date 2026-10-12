@@ -91,8 +91,6 @@ const SENTINEL_INSERTS = [
      VALUES ('0199a77b-f000-7000-8000-000000000001', 'sentinel-server',
       'https://example.com/mcp', 'sentinel-principal', 'sentinel-task', 'working',
       jsonb_build_array(jsonb_build_object('at', NOW(), 'status', 'working')), NOW(), NOW())`,
-  `INSERT INTO brainstrike_assistant_task_lists (thread_id, resource_id)
-     VALUES ('sentinel-thread', 'sentinel-resource')`,
   `INSERT INTO brainstrike_assistant_edit_checkpoints
      (id, run_id, resource_id, thread_id, tool_name, op, root_id, path,
       before_existed, after_existed, capture_status, occurred_at, created_at, updated_at)
@@ -106,21 +104,12 @@ const SENTINEL_INSERTS = [
   `INSERT INTO brainstrike_assistant_message_tombstones
      (message_id, thread_id, rewind_id)
      VALUES ('sentinel-message', 'sentinel-thread', 'sentinel-rewind')`,
-  // BST-1200: exact-message compaction overlays are durable FK-less state.
-  `INSERT INTO brainstrike_assistant_compaction_ranges
-     (compaction_message_id, thread_id, compacted_message_ids, kind)
-     VALUES ('sentinel-summary', 'sentinel-thread', '["sentinel-message"]'::jsonb, 'agentic')`,
   // BST-1164: shadow-git snapshot ledger rows map threads the clear just
   // destroyed onto shadow commits.
   `INSERT INTO brainstrike_workspace_snapshots
      (id, thread_id, root_id, root_path, commit_oid, kind)
      VALUES ('sentinel-snapshot', 'sentinel-thread', 'sentinel-root', '/sentinel',
       'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0', 'turn-start')`,
-  // BST-1173: canvas versions are durable thread-owned documents.
-  `INSERT INTO brainstrike_canvas_versions
-     (id, canvas_id, thread_id, resource_id, title, html, version, created_by)
-     VALUES ('sentinel-canvas-version', 'sentinel-canvas', 'sentinel-thread',
-      'sentinel-resource', 'Sentinel', '<p>sentinel</p>', 1, 'assistant')`,
   // BST-1190: durable counts/sizes-only tool-call telemetry.
   `INSERT INTO brainstrike_tool_call_telemetry
      (id, thread_id, run_id, tool_id, model_facing_chars)
@@ -201,12 +190,9 @@ describe('DbProvider clear/reset (real PGlite transaction semantics)', () => {
     expect(await countRows('brainstrike_assistant_run_usage')).toBe(0);
     expect(await countRows('brainstrike_mcp_tasks')).toBe(0);
     expect(await countRows('brainstrike_mcp_task_authorities')).toBe(0);
-    expect(await countRows('brainstrike_assistant_task_lists')).toBe(0);
     expect(await countRows('brainstrike_assistant_edit_checkpoints')).toBe(0);
     expect(await countRows('brainstrike_assistant_message_parents')).toBe(0);
     expect(await countRows('brainstrike_assistant_message_tombstones')).toBe(0);
-    expect(await countRows('brainstrike_assistant_compaction_ranges')).toBe(0);
-    expect(await countRows('brainstrike_canvas_versions')).toBe(0);
     expect(await countRows('brainstrike_tool_call_telemetry')).toBe(0);
     expect(await countRows('brainstrike_token_estimate_calibration')).toBe(0);
     expect(await countRows('brainstrike_workspace_snapshots')).toBe(0);

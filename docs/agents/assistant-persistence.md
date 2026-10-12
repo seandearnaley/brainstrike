@@ -1058,10 +1058,10 @@ messages from the provider prompt, leaving every raw message unchanged in
   rather than quietly resolving to a different number.
 - **Persistence is a metadata marker, not a new enum:** an ordinary
   `role: 'assistant'` message whose `metadata.custom` carries
-  `brainstrikeCompactionSummary`, validated by a strict guard. Migration 088 adds
+  `brainstrikeCompactionSummary`, validated by a strict guard. Migration 088 added
   `brainstrike_assistant_compaction_ranges` (FK-less, thread-scoped) storing the
   exact ordered id set, because persisted ids are opaque, not sortable range keys.
-  Registered in both runners plus `THREAD_DELETE_SIDECAR_TABLES` and factory reset.
+  Nothing wrote it after the old desktop path was deleted; migration 146 dropped it.
 - **Exclusion, not deletion.** `CompactionOverlayProcessor` implements
   `processInputStep` in the same per-call `inputProcessors` pipeline as
   `ToolProjectionRewriteProcessor`; Mastra fixes the ordering, so compaction runs
@@ -1225,15 +1225,18 @@ proves the renderer transport, divider and durable reload, not a native recall).
 
 ## CANVAS DOCUMENT VERSIONS
 
-Persisted Canvas HTML is application-owned local-first state in
-`brainstrike_canvas_versions` (migration 082). Rows sharing `canvas_id` form one
-document and the greatest integer `version` is current.
+Canvas HTML is owned by the agent host: each version is a committed
+`tool.state.updated` row under one key per canvas in the thread's run log
+(`packages/host-capabilities/src/native-tools/canvas-state.ts`). Versions sharing
+`canvasId` form one document and the greatest integer `version` is current.
+Migration 146 dropped the PGlite `brainstrike_canvas_versions` table that
+migration 082 created.
 
-- Ids are app-side uuidv7, timestamps read as `created_at::text`, and `created_by`
-  is CHECK-constrained to `assistant | user` and validated again on repository
-  reads. No FKs — the numbered runner uses a bare schema.
-- `THREAD_DELETE_SIDECAR_TABLES` owns cleanup for all three thread-delete
-  implementations; the reset registry owns all three clear paths.
+- The Canvas panel reads through `host.readCanvases` (`foldHostCanvases`). A thread
+  the host does not own has no canvases: the read rejects and the panel shows the
+  error, never the empty state.
+- `created_by` is `assistant | user`, validated by `HostCanvasVersionSchema`.
+  Thread deletion erases a thread's canvases with its log.
 - Every update or rewrite writes a NEW version. Exact updates require `oldString`
   to occur once: zero and multiple matches return `no_match` and
   `ambiguous_match`, and a missing canvas returns `not_found`. Stored-vocabulary
@@ -1245,8 +1248,9 @@ document and the greatest integer `version` is current.
   reset clears it.
 
 Evidence: `assistant-persistence/canvas-document-versions.md`.
-Guard: `packages/db/__tests__/migration-082-canvas-documents.test.ts`,
-`canvas-repository.test.ts`, `manage-canvas-tool.test.ts`.
+Guard: `packages/app-shell/src/__tests__/canvas-read-repository.test.ts`,
+`canvas-panel.test.tsx`, `apps/desktop/src/__tests__/host-thread-canvases.test.ts`,
+`apps/desktop/e2e/host-thread-canvas-live.desktop.test.ts`.
 
 ## TOOL-CALL TOKEN TELEMETRY
 

@@ -1,18 +1,12 @@
-import { PGlite } from '@electric-sql/pglite';
-import { pg_trgm as pgTrgm } from '@electric-sql/pglite/contrib/pg_trgm';
-import { pg_textsearch as pgTextsearch } from '@electric-sql/pglite-pg_textsearch';
-import { vector } from '@electric-sql/pglite-pgvector';
+import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { runMigrations } from '../src/drizzle/migrate.js';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { getResetTables } from '../src/reset-table-registry.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 import { createPGliteTestDataDir } from './test-data-dir';
 
 const TABLE = 'brainstrike_canvas_versions';
 const THREAD_INDEX = 'brainstrike_canvas_versions_thread_idx';
 const VERSION_INDEX = 'brainstrike_canvas_versions_canvas_version_idx';
-const DRIZZLE_RUN_TIMEOUT_MS = 60_000;
 
 async function listIndexes(db: PGlite): Promise<string[]> {
   const result = await db.query<{ indexname: string }>(
@@ -130,36 +124,4 @@ describe('migration 082: canvas documents (BST-1173)', () => {
 
     expect(await countTable(db)).toBe(0);
   });
-
-  it('is registered for factory reset and every table-enumerating clear path', () => {
-    expect(getResetTables()).toContain(TABLE);
-  });
-});
-
-describe('migration 082 in the drizzle runner (both runners invariant)', () => {
-  let db: PGlite;
-
-  beforeEach(() => {
-    db = new PGlite({
-      extensions: { pg_textsearch: pgTextsearch, pg_trgm: pgTrgm, vector },
-    });
-  });
-
-  afterEach(async () => {
-    await db.close();
-  });
-
-  it(
-    'creates the same table and indexes production runs',
-    async () => {
-      const result = await runMigrations(db);
-      expect(result.success).toBe(true);
-
-      expect(await countTable(db)).toBe(1);
-      const indexes = await listIndexes(db);
-      expect(indexes).toContain(THREAD_INDEX);
-      expect(indexes).toContain(VERSION_INDEX);
-    },
-    DRIZZLE_RUN_TIMEOUT_MS
-  );
 });

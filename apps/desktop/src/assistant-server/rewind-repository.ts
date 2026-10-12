@@ -92,8 +92,8 @@ interface MessageAnchorRow {
 /**
  * Resolve everything a rewind to `messageId` covers on the conversation side.
  * Returns `null` when the message does not exist IN THIS THREAD (a message id
- * belonging to another thread counts as missing — never a cross-thread leak,
- * mirroring `listRunRangeCheckpoints`'s anchor posture). Migration 117 owns
+ * belonging to another thread counts as missing — never a cross-thread leak).
+ * Migration 117 owns
  * `mastra_messages`, so its absence is no longer a case this coerces to
  * `null` (BST-1651) — an unmigrated database raises 42P01.
  *

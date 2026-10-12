@@ -125,9 +125,6 @@ function mainResolver(
   const resolver = createSnapshotChangesetResolver({
     createRepository: () => ledger,
     hostThreads: createHostThreadTurns(source),
-    loadAttribution: () => {
-      throw new Error('a host thread never reads the edit-checkpoint journal');
-    },
     readRunAnchor: () => {
       throw new Error('a host thread never reads the legacy runs table');
     },

@@ -201,20 +201,12 @@ export const ASSISTANT_MESSAGE_TOMBSTONES_TABLE = 'brainstrike_assistant_message
 export const WORKSPACE_SNAPSHOTS_TABLE = 'brainstrike_workspace_snapshots';
 
 /**
- * Persisted Canvas document version ledger (BST-1173, migration 082 in BOTH
- * runners plus the app-shell bootstrap mirror). Rows sharing `canvas_id` form
- * one document; the greatest version is current. Thread-keyed sidecar with an
- * explicit delete stage and no Mastra foreign key.
- */
-export const CANVAS_VERSIONS_TABLE = 'brainstrike_canvas_versions';
-
-/**
  * Storage ceiling for a single canvas document, in UTF-8 BYTES.
  *
- * It lives beside the table rather than beside the schema because two places
- * enforce it and they are in different packages: the `manageCanvas` input
- * schema bounds each incoming FIELD, and the desktop repository bounds the
- * COMPOSED result of an update — which is the only path that can produce a
+ * It lives in this shared contract rather than beside the schema because two
+ * places enforce it and they are in different packages: the `manageCanvas`
+ * input schema bounds each incoming FIELD, and the host's canvas store bounds
+ * the COMPOSED result of an update — which is the only path that can produce a
  * document larger than any field it was given. One constant, so the two cannot
  * drift.
  */
@@ -274,14 +266,6 @@ export const TOOL_CALL_TELEMETRY_TABLE = 'brainstrike_tool_call_telemetry';
 export const TOKEN_ESTIMATE_CALIBRATION_TABLE = 'brainstrike_token_estimate_calibration';
 
 /**
- * Exact-message overlays for durable conversation compaction summaries
- * (BST-1200 Milestone 2, migration 088 in BOTH runners plus the app-shell
- * bootstrap mirror). The mirror is required because thread deletion references
- * every registered sidecar unconditionally, while desktop main owns writes.
- */
-export const ASSISTANT_COMPACTION_RANGES_TABLE = 'brainstrike_assistant_compaction_ranges';
-
-/**
  * The ordered thread-delete cascade over Brainstrike sidecar tables keyed by
  * thread identity. Any matching ownership/provenance column selects a row.
  * All three delete implementations (single CTE, bulk CTE, and
@@ -301,8 +285,6 @@ export const THREAD_DELETE_SIDECAR_TABLES = [
   { table: 'brainstrike_thread_message_index', threadColumns: ['thread_id'] },
   { table: 'brainstrike_thread_search_state', threadColumns: ['thread_id'] },
   { table: MASTRA_BACKGROUND_TASKS_TABLE, threadColumns: ['thread_id'] },
-  { table: ASSISTANT_COMPACTION_RANGES_TABLE, threadColumns: ['thread_id'] },
-  { table: 'brainstrike_canvas_versions', threadColumns: ['thread_id'] },
   { table: TOKEN_ESTIMATE_CALIBRATION_TABLE, threadColumns: ['thread_id'] },
   { table: TOOL_CALL_TELEMETRY_TABLE, threadColumns: ['thread_id'] },
   { table: 'brainstrike_assistant_edit_checkpoints', threadColumns: ['thread_id'] },

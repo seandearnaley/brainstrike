@@ -383,8 +383,9 @@ snapshot, not from stored content. Desktop-only, capability-gated.
   old content and `skipped_binary`/`skipped_too_large`/`expired` rows are existing code;
   under [ADR-0020](../adr/0020-greenfield-data-lifecycle.md), they create no legacy restore obligation or new cleanup task.
   Preserve current-data revert, reload and explicit unavailable/corrupt evidence.
-- `BRAINSTRIKE_CHECKPOINT_MAX_ROWS` is strict-parsed with no silent fallback and
-  hard-deletes the oldest rows after every insert — the whole retention policy.
+- Nothing writes new journal rows: the old desktop writer
+  (`recordEditCheckpoint`) and its row-cap retention are gone. Host threads' edit
+  checkpoints are the host's committed log (`CommittedCheckpoints`).
   Snapshot-side retention lives in `docs/agents/changeset-diff.md`.
 - LIST is renderer-direct DB across ALL runs, so entries stay revertible after
   reload; AVAILABILITY is IPC to main (`assistant-checkpoint:availability`), per entry

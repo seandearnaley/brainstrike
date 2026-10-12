@@ -14,8 +14,8 @@
  * - the LIVE Last Turn view (worktree side) shows mid-turn edits with ZERO
  *   database reads (the BST-1169 starvation rule) and no turn-end snapshot;
  * - totals are REAL numbers (numstat sums), never the journal's null;
- * - the attribution join labels tool-edited files and NOT shell-created
- *   ones (view-level metadata only);
+ * - a legacy ledger turn has no attribution source, so no file carries
+ *   `toolAttributed` (host turns attribute from their committed log);
  * - failed captures and pre-engine turns resolve to typed, honest errors —
  *   never a partial diff (plan global constraint 4);
  * - `fileDiff` disambiguates the same relative path across roots by rootId;
@@ -30,7 +30,6 @@ import type { GitResult } from '@brainstrike/types';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createSnapshotChangesetResolver,
-  type SnapshotAttributionRecord,
   type SnapshotChangesetResolver,
   type SnapshotRunAnchor,
 } from '../../assistant-server/changeset-snapshot-view';
@@ -141,7 +140,6 @@ interface Harness {
 }
 
 interface HarnessOptions {
-  readonly attributionRecords?: readonly SnapshotAttributionRecord[];
   readonly runAnchors?: Readonly<Record<string, SnapshotRunAnchor>>;
 }
 
@@ -155,7 +153,7 @@ async function makeHarness(options: HarnessOptions = {}): Promise<Harness> {
   const { readCount, repository, rows } = makeLedger();
   let dbReads = 0;
   // The database handle is a COUNTER, never a real DB: everything DB-bound
-  // is injected (`loadAttribution`/`readRunAnchor` fakes below), so any query
+  // is injected (the `readRunAnchor` fake below), so any query
   // through this object is a bug in the module under test.
   const db: EditCheckpointDatabase = {
     query: () => {
@@ -173,8 +171,6 @@ async function makeHarness(options: HarnessOptions = {}): Promise<Harness> {
   });
   const resolver = createSnapshotChangesetResolver({
     createRepository: () => repository,
-    loadAttribution: (_db, _span): Promise<GitResult<readonly SnapshotAttributionRecord[]>> =>
-      Promise.resolve({ ok: true, value: options.attributionRecords ?? [] }),
     readRunAnchor: (_db, _threadId, runId): Promise<GitResult<SnapshotRunAnchor | null>> =>
       Promise.resolve({ ok: true, value: options.runAnchors?.[runId] ?? null }),
     registry,
@@ -225,20 +221,10 @@ function agentRun(runId: string) {
 
 describe('changeset-snapshot-view — multi-root settled turn (the headline bar)', () => {
   it(
-    'a turn over 2 git roots + 1 plain root captures the tool edit, the SHELL-created file, and the plain-root edit, with REAL totals and attribution badges',
+    'a turn over 2 git roots + 1 plain root captures the tool edit, the SHELL-created file, and the plain-root edit, with REAL totals and no attribution',
     async () => {
       const fixture = await makeMultiRootFixture();
-      const harness = await makeHarness({
-        attributionRecords: [
-          // The assistant tool journaled ONLY the gitA edit; the gitB file
-          // was a direct fs write (shell side effect) and gets no record.
-          // PRODUCTION PATH SHAPE: journal rows record NORMALIZED workspace
-          // paths with a LEADING SLASH (`resolveWorkspaceWritePath`), while
-          // snapshot diffs are root-relative — the join must normalize, or
-          // `toolAttributed` is false for every tool edit in production.
-          { fromPath: null, path: '/src/index.ts', rootId: 'root-a' },
-        ],
-      });
+      const harness = await makeHarness();
 
       await harness.controller.beginLeg({
         anchorMessageId: 'msg-1',
@@ -268,17 +254,17 @@ describe('changeset-snapshot-view — multi-root settled turn (the headline bar)
         result.value.files.map((file) => [`${file.rootId}:${file.path}`, file])
       );
 
-      // The tool edit (gitA), attributed.
-      expect(byKey.get('root-a:src/index.ts')).toMatchObject({
-        status: 'modified',
-        toolAttributed: true,
-      });
-      // THE BAR: the shell-created file (gitB) appears, UNattributed.
+      // The tool edit (gitA).
+      expect(byKey.get('root-a:src/index.ts')).toMatchObject({ status: 'modified' });
+      // THE BAR: the shell-created file (gitB) appears.
       expect(byKey.get('root-b:shell-note.txt')).toMatchObject({
         additions: 1,
         status: 'added',
-        toolAttributed: false,
       });
+      // A legacy ledger turn has no attribution source: no file claims one.
+      for (const file of result.value.files) {
+        expect(file).not.toHaveProperty('toolAttributed');
+      }
       // The plain (non-git) root's edit and addition both appear.
       expect(byKey.get('root-c:notes.txt')?.status).toBe('modified');
       expect(byKey.get('root-c:new-plain.txt')?.status).toBe('added');

@@ -45,8 +45,6 @@ import {
 } from '../../assistant-server/checkpoint-snapshot-undo';
 import {
   type EditCheckpointDatabase,
-  type EditCheckpointInput,
-  recordEditCheckpoint,
   sha256Hex,
 } from '../../assistant-server/edit-checkpoint-journal';
 import { execFileSnapshotGitRunner } from '../../assistant-server/snapshot-git';
@@ -61,6 +59,10 @@ import {
   type SnapshotService,
 } from '../../assistant-server/snapshot-service';
 import { createSnapshotTurnRegistry } from '../../assistant-server/snapshot-turn-registry';
+import {
+  type EditCheckpointRowInput,
+  insertEditCheckpointRow,
+} from './edit-checkpoint-test-support';
 
 const execFileAsync = promisify(execFile);
 const HEAVY_TIMEOUT_MS = 60_000;
@@ -125,7 +127,7 @@ async function recordTurnStart(runId = RUN): Promise<string> {
   return commitOid;
 }
 
-function journalInput(overrides: Partial<EditCheckpointInput> = {}): EditCheckpointInput {
+function journalInput(overrides: Partial<EditCheckpointRowInput> = {}): EditCheckpointRowInput {
   return {
     afterExisted: true,
     afterHash: null,
@@ -142,7 +144,7 @@ function journalInput(overrides: Partial<EditCheckpointInput> = {}): EditCheckpo
     toolCallId: 'call-1',
     toolName: 'brainstrike.writeWorkspaceFile',
     ...overrides,
-  } as EditCheckpointInput;
+  } as EditCheckpointRowInput;
 }
 
 async function hashOf(content: string): Promise<string> {
@@ -202,7 +204,7 @@ describe('undoCheckpointEntry', () => {
     // the deliberate semantic change.
     await write('a.txt', 'edit-1\n');
     await write('a.txt', 'edit-2\n');
-    const record = await recordEditCheckpoint(
+    const record = await insertEditCheckpointRow(
       db,
       journalInput({ afterHash: await hashOf('edit-2\n') })
     );
@@ -228,7 +230,7 @@ describe('undoCheckpointEntry', () => {
     await write('keep.txt', 'keep\n');
     await recordTurnStart();
     await write('scaffold/deep/new.txt', 'created\n');
-    const record = await recordEditCheckpoint(
+    const record = await insertEditCheckpointRow(
       db,
       journalInput({
         afterHash: await hashOf('created\n'),
@@ -257,7 +259,7 @@ describe('undoCheckpointEntry', () => {
     await write('doomed.txt', 'precious\n');
     await recordTurnStart();
     await fsPromises.unlink(path.join(rootPath, 'doomed.txt'));
-    const record = await recordEditCheckpoint(
+    const record = await insertEditCheckpointRow(
       db,
       journalInput({
         afterExisted: false,
@@ -282,7 +284,7 @@ describe('undoCheckpointEntry', () => {
       path.join(rootPath, 'old-name.txt'),
       path.join(rootPath, 'new-name.txt')
     );
-    const record = await recordEditCheckpoint(
+    const record = await insertEditCheckpointRow(
       db,
       journalInput({
         // The capture site hashes the rename DESTINATION (same bytes the
@@ -312,7 +314,7 @@ describe('undoCheckpointEntry', () => {
       path.join(rootPath, 'old-name.txt'),
       path.join(rootPath, 'new-name.txt')
     );
-    const record = await recordEditCheckpoint(
+    const record = await insertEditCheckpointRow(
       db,
       journalInput({
         afterHash: await hashOf('contents\n'),
@@ -354,7 +356,7 @@ describe('undoCheckpointEntry', () => {
       path.join(rootPath, 'old-name.txt'),
       path.join(rootPath, 'new-name.txt')
     );
-    const record = await recordEditCheckpoint(
+    const record = await insertEditCheckpointRow(
       db,
       journalInput({
         afterHash: null,
@@ -383,7 +385,7 @@ describe('undoCheckpointEntry', () => {
     await write('a.txt', 'turn-start\n');
     await recordTurnStart();
     await write('a.txt', 'edit\n');
-    const record = await recordEditCheckpoint(
+    const record = await insertEditCheckpointRow(
       db,
       journalInput({ afterHash: await hashOf('edit\n') })
     );
@@ -408,7 +410,7 @@ describe('undoCheckpointEntry', () => {
     await write('a.txt', 'turn-start\n');
     await recordTurnStart();
     await write('a.txt', 'edit\n');
-    const record = await recordEditCheckpoint(
+    const record = await insertEditCheckpointRow(
       db,
       journalInput({ afterHash: await hashOf('edit\n') })
     );
@@ -426,7 +428,7 @@ describe('undoCheckpointEntry', () => {
     timeout: HEAVY_TIMEOUT_MS,
   }, async () => {
     await write('a.txt', 'edit\n');
-    const record = await recordEditCheckpoint(
+    const record = await insertEditCheckpointRow(
       db,
       journalInput({ afterHash: await hashOf('edit\n') })
     );
@@ -452,7 +454,7 @@ describe('undoCheckpointEntry', () => {
       threadId: THREAD,
     });
     await write('a.txt', 'edit\n');
-    const record = await recordEditCheckpoint(
+    const record = await insertEditCheckpointRow(
       db,
       journalInput({ afterHash: await hashOf('edit\n') })
     );
@@ -481,7 +483,7 @@ describe('undoCheckpointEntry', () => {
     await write('secret.env', 'turn-start-secret\n');
     await recordTurnStart();
     await write('secret.env', 'edited-secret\n');
-    const record = await recordEditCheckpoint(
+    const record = await insertEditCheckpointRow(
       db,
       journalInput({ afterHash: await hashOf('edited-secret\n'), path: 'secret.env' })
     );
@@ -528,7 +530,7 @@ describe('undoCheckpointEntry', () => {
     // `resolveWorkspaceWritePath` keeps the REQUESTED spelling, so a tool that
     // asked for "src/utils.txt" journals that — the git tree lookup is
     // case-sensitive and misses, which must refuse, not delete the real file.
-    const record = await recordEditCheckpoint(
+    const record = await insertEditCheckpointRow(
       db,
       journalInput({ afterHash: await hashOf('edited\n'), path: 'src/utils.txt' })
     );
@@ -554,7 +556,7 @@ describe('undoCheckpointEntry', () => {
     await write('lead.txt', 'turn-start\n');
     await recordTurnStart();
     await write('lead.txt', 'edited\n');
-    const record = await recordEditCheckpoint(
+    const record = await insertEditCheckpointRow(
       db,
       journalInput({ afterHash: await hashOf('edited\n'), path: '/lead.txt' })
     );
@@ -588,7 +590,7 @@ describe('undoCheckpointRun', () => {
       threadId: childThread,
     });
     await write('a.txt', 'Child edit');
-    const checkpoint = await recordEditCheckpoint(
+    const checkpoint = await insertEditCheckpointRow(
       db,
       journalInput({
         afterHash: await hashOf('Child edit'),
@@ -633,7 +635,7 @@ describe('undoCheckpointRun', () => {
       threadId: childThread,
     });
     await write('a.txt', 'First child edit');
-    const child = await recordEditCheckpoint(
+    const child = await insertEditCheckpointRow(
       db,
       journalInput({
         afterHash: await hashOf('First child edit'),
@@ -642,7 +644,7 @@ describe('undoCheckpointRun', () => {
       })
     );
     await write('a.txt', 'Later sibling edit');
-    const sibling = await recordEditCheckpoint(
+    const sibling = await insertEditCheckpointRow(
       db,
       journalInput({
         afterHash: await hashOf('Later sibling edit'),
@@ -666,9 +668,9 @@ describe('undoCheckpointRun', () => {
     await write('a.txt', 'Parent baseline');
     await recordTurnStart();
     await write('a.txt', 'Parent effect');
-    await recordEditCheckpoint(db, journalInput({ afterHash: await hashOf('Parent effect') }));
+    await insertEditCheckpointRow(db, journalInput({ afterHash: await hashOf('Parent effect') }));
     await write('child.txt', 'Completed child effect');
-    const child = await recordEditCheckpoint(
+    const child = await insertEditCheckpointRow(
       db,
       journalInput({
         afterHash: await hashOf('Completed child effect'),
@@ -706,7 +708,7 @@ describe('undoCheckpointRun', () => {
     const base = Date.now();
     // Two edits of the SAME file plus a created file, all one run.
     await write('a.txt', 'edit-1\n');
-    await recordEditCheckpoint(
+    await insertEditCheckpointRow(
       db,
       journalInput({
         afterHash: await hashOf('edit-1\n'),
@@ -715,7 +717,7 @@ describe('undoCheckpointRun', () => {
       })
     );
     await write('a.txt', 'edit-2\n');
-    await recordEditCheckpoint(
+    await insertEditCheckpointRow(
       db,
       journalInput({
         afterHash: await hashOf('edit-2\n'),
@@ -724,7 +726,7 @@ describe('undoCheckpointRun', () => {
       })
     );
     await write('b.txt', 'created\n');
-    await recordEditCheckpoint(
+    await insertEditCheckpointRow(
       db,
       journalInput({
         afterHash: await hashOf('created\n'),
@@ -790,7 +792,7 @@ describe('undoCheckpointRun', () => {
 
       const base = Date.now();
       await write('src/config.ts', 'a-edited\n');
-      await recordEditCheckpoint(
+      await insertEditCheckpointRow(
         db,
         journalInput({
           afterHash: await hashOf('a-edited\n'),
@@ -800,7 +802,7 @@ describe('undoCheckpointRun', () => {
         })
       );
       await fsPromises.writeFile(path.join(rootPathB, 'src/config.ts'), 'b-edited\n', 'utf8');
-      await recordEditCheckpoint(
+      await insertEditCheckpointRow(
         db,
         journalInput({
           afterHash: await hashOf('b-edited\n'),
@@ -834,7 +836,7 @@ describe('listCheckpointUndoAvailability', () => {
     timeout: HEAVY_TIMEOUT_MS,
   }, async () => {
     // Pre-engine record: a run with NO snapshot rows at all yet.
-    const preEngine = await recordEditCheckpoint(
+    const preEngine = await insertEditCheckpointRow(
       db,
       journalInput({ path: 'pre.txt', runId: 'run-pre-engine', toolCallId: 'call-pre' })
     );
@@ -847,7 +849,10 @@ describe('listCheckpointUndoAvailability', () => {
     // Covered record.
     await write('a.txt', 'turn-start\n');
     await recordTurnStart();
-    const covered = await recordEditCheckpoint(db, journalInput({ afterHash: await hashOf('x') }));
+    const covered = await insertEditCheckpointRow(
+      db,
+      journalInput({ afterHash: await hashOf('x') })
+    );
     // Failed-capture record: its own later turn recorded a sentinel row.
     await repository.insertSnapshot({
       commitOid: FAILED_SNAPSHOT_CAPTURE_OID,
@@ -857,7 +862,7 @@ describe('listCheckpointUndoAvailability', () => {
       runId: 'run-failed',
       threadId: THREAD,
     });
-    const failed = await recordEditCheckpoint(
+    const failed = await insertEditCheckpointRow(
       db,
       journalInput({ path: 'f.txt', runId: 'run-failed', toolCallId: 'call-f' })
     );

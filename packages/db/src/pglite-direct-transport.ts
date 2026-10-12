@@ -214,8 +214,8 @@ async function purgeTablesTx(tx: { query: (sql: string) => Promise<unknown> }): 
   // Per-run experiment treatment records (migration 093, BST-1250).
   await clearRelationIfPresent(tx, 'brainstrike_assistant_run_treatments');
   // BST-992 drift fix: FK-less desktop-parity stores web previously missed —
-  // token/cost history, task lists, edit-checkpoint before-content, and
-  // branch topology must not survive a web factory reset.
+  // token/cost history, edit-checkpoint before-content, and branch topology
+  // must not survive a web factory reset.
   await clearRelationIfPresent(tx, 'brainstrike_assistant_run_usage');
   // Forge PR cache (migration 110, BST-1391): FK-less, must not survive a
   // web factory reset.
@@ -225,21 +225,16 @@ async function purgeTablesTx(tx: { query: (sql: string) => Promise<unknown> }): 
   await clearRelationIfPresent(tx, 'brainstrike_worktrees');
   await clearRelationIfPresent(tx, 'brainstrike_mcp_tasks');
   await clearRelationIfPresent(tx, 'brainstrike_mcp_task_authorities');
-  await clearRelationIfPresent(tx, 'brainstrike_assistant_task_lists');
   await clearRelationIfPresent(tx, 'brainstrike_assistant_edit_checkpoints');
   await clearRelationIfPresent(tx, 'brainstrike_assistant_message_parents');
   // Soft-rewind tombstones (migration 080, BST-1115).
   await clearRelationIfPresent(tx, 'brainstrike_assistant_message_tombstones');
   // Shadow-git snapshot ledger (migration 081, BST-1164).
   await clearRelationIfPresent(tx, 'brainstrike_workspace_snapshots');
-  // Versioned Canvas documents (migration 082, BST-1173).
-  await clearRelationIfPresent(tx, 'brainstrike_canvas_versions');
   // Durable per-tool model-facing telemetry (migration 083).
   await clearRelationIfPresent(tx, 'brainstrike_tool_call_telemetry');
   // Estimator/provider prompt-token calibration pairs (migration 086).
   await clearRelationIfPresent(tx, 'brainstrike_token_estimate_calibration');
-  // Durable conversation-compaction ranges (migration 088).
-  await clearRelationIfPresent(tx, 'brainstrike_assistant_compaction_ranges');
   await clearRelationIfPresent(tx, 'brainstrike_thread_message_index');
   await clearRelationIfPresent(tx, 'brainstrike_thread_search_state');
   await clearRelationIfPresent(tx, 'brainstrike_diagnostic_events');
@@ -465,10 +460,9 @@ export function createPgliteDirectTransport(
       // Per-run experiment treatment records (migration 093, BST-1250):
       // FK-less experiment evidence must not survive a fresh start.
       await clearRelationIfPresent(tx, 'brainstrike_assistant_run_treatments');
-      // BST-992 drift fix: desktop `db:clearAll` cleared these three FK-less
-      // stores but web missed them, so the assistant task list, edit-checkpoint
-      // before-content, and assistant-ui branch topology survived a web clear.
-      await clearRelationIfPresent(tx, 'brainstrike_assistant_task_lists');
+      // BST-992 drift fix: desktop `db:clearAll` cleared these FK-less stores
+      // but web missed them, so edit-checkpoint before-content and
+      // assistant-ui branch topology survived a web clear.
       await clearRelationIfPresent(tx, 'brainstrike_assistant_edit_checkpoints');
       await clearRelationIfPresent(tx, 'brainstrike_assistant_message_parents');
       // Soft-rewind tombstones (migration 080, BST-1115): bookkeeping over
@@ -477,15 +471,10 @@ export function createPgliteDirectTransport(
       // Shadow-git snapshot ledger (migration 081, BST-1164): turn↔commit-oid
       // bookkeeping for threads this clear destroys, so it goes with them.
       await clearRelationIfPresent(tx, 'brainstrike_workspace_snapshots');
-      // Versioned Canvas documents (migration 082, BST-1173): thread-owned
-      // content must not survive the threads/resources this clear destroys.
-      await clearRelationIfPresent(tx, 'brainstrike_canvas_versions');
       // Durable per-tool model-facing telemetry (migration 083): FK-less.
       await clearRelationIfPresent(tx, 'brainstrike_tool_call_telemetry');
       // Estimator/provider prompt-token calibration pairs (migration 086): FK-less.
       await clearRelationIfPresent(tx, 'brainstrike_token_estimate_calibration');
-      // Durable conversation-compaction ranges (migration 088): FK-less.
-      await clearRelationIfPresent(tx, 'brainstrike_assistant_compaction_ranges');
       // Complete tool output can contain sensitive command results and has no FK
       // to Mastra-owned message tables, so it must be deleted explicitly.
       await clearRelationIfPresent(tx, 'brainstrike_assistant_tool_output_artifacts');
