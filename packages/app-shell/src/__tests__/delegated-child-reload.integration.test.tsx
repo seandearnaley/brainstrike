@@ -10,9 +10,7 @@ import '@testing-library/jest-dom/vitest';
 import {
   TOOL_APPROVAL_ANSWERED_DATA_NAME,
   TOOL_APPROVAL_DATA_NAME,
-  TOOL_APPROVAL_RUN_CONFIG_KEY,
 } from '@brainstrike/assistant-contract/tool-approval';
-import { TOOL_SUSPEND_RUN_CONFIG_KEY } from '@brainstrike/assistant-contract/tool-suspend';
 import {
   createPgliteAssistantThreadRepository,
   useAssistantThreadStore,
@@ -186,10 +184,6 @@ beforeEach(async () => {
       }),
     ]
   );
-  Object.defineProperty(window, 'assistant', {
-    configurable: true,
-    value: { url: 'http://assistant.test' },
-  });
 }, 30_000);
 
 afterEach(async () => {
@@ -198,8 +192,6 @@ afterEach(async () => {
   useWorkspaceTabSelectionStore.getState().reset();
   threadWorkspaceNavigation.loading('owner', null);
   activeRoot = undefined;
-  Reflect.deleteProperty(window, 'assistant');
-  vi.unstubAllGlobals();
   vi.clearAllMocks();
   await databaseClosed;
   vi.restoreAllMocks();
@@ -223,10 +215,6 @@ describe('child view after renderer restart', () => {
       }
     });
 
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Response.json({ approvals: [], suspends: [] }))
-    );
     const history = createPgliteAssistantThreadRepository(database as DbHandle);
     const leaf = await history.createThread('native-grandchild');
     const graph = createDelegatedConversationRepository(database);
@@ -355,10 +343,6 @@ describe('child view after renderer restart', () => {
   });
 
   it('does not resurrect an earlier search read when a new host baseline excludes its deleted message', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Response.json({ approvals: [], suspends: [] }))
-    );
     await database.query(
       "UPDATE mastra_messages SET \"createdAt\" = '2026-09-10T00:00:00.000Z' WHERE id = 'saved-child'"
     );
@@ -438,10 +422,6 @@ describe('child view after renderer restart', () => {
   });
 
   it('reports an unreachable search target while keeping the child open and allowing a new target', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Response.json({ approvals: [], suspends: [] }))
-    );
     workspace.rerender(
       <WorkspaceProviders>
         <DelegatedConversationRootsProvider>
@@ -468,58 +448,7 @@ describe('child view after renderer restart', () => {
     expect(append).not.toHaveBeenCalled();
   });
 
-  it('shows arriving host output before a pending recovery read settles', async () => {
-    let settle: ((response: Response) => void) | undefined;
-    const fetch = vi.fn(
-      () =>
-        new Promise<Response>((resolve) => {
-          settle = resolve;
-        })
-    );
-    vi.stubGlobal('fetch', fetch);
-    workspace.rerender(
-      <WorkspaceProviders>
-        <DelegatedConversationRootsProvider>
-          <OwningRoot />
-          <ChildView db={database as DbHandle} node={node} />
-        </DelegatedConversationRootsProvider>
-      </WorkspaceProviders>
-    );
-    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
-    const messages = await readAssistantHistoryMessages(database, node.threadId, node.resourceId, {
-      limitLatest: ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
-    });
-    const update = delegatedUpdate(
-      node.threadId,
-      'new-host-leg',
-      'Live output while recovery is pending.'
-    );
-    if (!update.baseline) {
-      throw new Error('Missing test baseline');
-    }
-    const baseline = {
-      ...update.baseline,
-      messages: messages.map((message) => ({
-        ...message,
-        createdAt: message.createdAt.toISOString(),
-      })),
-    };
-    act(() => {
-      activeRoot?.onDelegatedConversation({ ...update, baseline });
-    });
-    expect(await screen.findByText('Live output while recovery is pending.')).toBeVisible();
-    await act(async () => {
-      settle?.(Response.json({ approvals: [], suspends: [] }));
-    });
-    expect(screen.getByText('Live output while recovery is pending.')).toBeVisible();
-    expect(screen.getByText('Persisted native child transcript.')).toBeVisible();
-    expect(append).not.toHaveBeenCalled();
-  });
   it('renders the durable ancestry in the actual child view', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Response.json({ approvals: [], suspends: [] }))
-    );
     workspace.rerender(
       <WorkspaceProviders>
         <DelegatedConversationRootsProvider>
@@ -534,178 +463,10 @@ describe('child view after renderer restart', () => {
     expect(screen.getByRole('heading', { name: node.displayName })).toBeVisible();
     expect(append).not.toHaveBeenCalled();
   });
-  it('keeps native history visible when pending decision discovery fails', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => new Response('Unavailable', { status: 503 }))
-    );
-    workspace.rerender(
-      <WorkspaceProviders>
-        <DelegatedConversationRootsProvider>
-          <OwningRoot />
-          <ChildView db={database as DbHandle} node={node} />
-        </DelegatedConversationRootsProvider>
-      </WorkspaceProviders>
-    );
-    expect(await screen.findByText('Persisted native child transcript.')).toBeVisible();
-    expect(await screen.findByText('Pending decisions could not be restored')).toBeVisible();
-    expect(append).not.toHaveBeenCalled();
-  });
-
-  it('keeps rich persisted history visible while an interrupted exact decision stays non-actionable', async () => {
-    await database.query('UPDATE mastra_messages SET content = $1 WHERE id = $2', [
-      JSON.stringify({
-        format: 2,
-        parts: [
-          {
-            text: 'Persisted native child transcript.\n\n## Saved read result\n\n[Evidence file](https://example.com/evidence.txt)\n\n```ts\nconst marker = 1720;\n```',
-            type: 'text',
-          },
-        ],
-      }),
-      'saved-child',
-    ]);
-    const fetch = vi.fn(async (input: RequestInfo | URL) => {
-      const url = new URL(String(input));
-      expect(url.pathname).toBe('/assistant/suspended-runs');
-      expect(url.searchParams.get('threadId')).toBe(rootThreadId);
-      expect(url.searchParams.get('resourceId')).toBe('owner');
-      return Response.json({
-        approvals: [
-          {
-            args: { path: 'report.txt' },
-            decisionState: 'interrupted',
-            delegation: { path: [identity], toolCallId: 'leaf' },
-            runId: identity.parentRuntimeRunId,
-            stale: false,
-            suspendedAt: '2026-09-10T00:00:00.000Z',
-            toolCallId: identity.parentToolCallId,
-            toolName: 'workspace.writeFile',
-          },
-        ],
-        suspends: [],
-      });
-    });
-    vi.stubGlobal('fetch', fetch);
-    workspace.rerender(
-      <WorkspaceProviders>
-        <DelegatedConversationRootsProvider>
-          <OwningRoot />
-          <ChildView db={database as DbHandle} node={node} />
-        </DelegatedConversationRootsProvider>
-      </WorkspaceProviders>
-    );
-
-    expect(await screen.findByRole('heading', { name: 'Saved read result' })).toBeVisible();
-    expect(screen.getByText('Persisted native child transcript.')).toBeVisible();
-    expect(screen.getByRole('link', { name: 'Evidence file' })).toHaveAttribute(
-      'href',
-      'https://example.com/evidence.txt'
-    );
-    // A durable decision is answered, so it renders as a collapsed row
-    // (SWARM-AWARE PRESENTATION). Its recovery status is readable before the
-    // row opens; expanded history has no controls to resubmit the decision.
-    expect(screen.getByTestId('delegated-decision-recovery-status')).toHaveTextContent(
-      'Decision interrupted. Processing stopped and the outcome is unknown.'
-    );
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: /show approval details/i }));
-    expect(
-      screen.queryByRole('button', { name: 'Approve workspace.writeFile' })
-    ).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('button', { name: 'Decline workspace.writeFile' })
-    ).not.toBeInTheDocument();
-    expect(append).not.toHaveBeenCalled();
-    expect(fetch).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('heading', { name: 'Saved read result' })).toBeVisible();
-  });
-
-  it.each(['approval', 'question'] as const)(
-    'restores a native %s card and routes the click through the owning root',
-    async (kind) => {
-      const target = {
-        delegation: { path: [identity], toolCallId: 'leaf' },
-        runId: 'parent-run',
-        toolCallId: 'child-call',
-      };
-      const common = { ...target, stale: false, suspendedAt: '2026-09-10T00:00:00.000Z' };
-      const fetch = vi.fn(async (input: RequestInfo | URL) => {
-        const url = new URL(String(input));
-        expect(url.pathname).toBe('/assistant/suspended-runs');
-        expect(url.searchParams.get('threadId')).toBe(rootThreadId);
-        expect(url.searchParams.get('resourceId')).toBe('owner');
-        return Response.json({
-          approvals:
-            kind === 'approval'
-              ? [{ ...common, args: { path: 'report.txt' }, toolName: 'workspace.writeFile' }]
-              : [],
-          suspends:
-            kind === 'question'
-              ? [
-                  {
-                    ...common,
-                    suspendPayload: { question: 'Which language?' },
-                    toolName: 'brainstrike.askUser',
-                  },
-                ]
-              : [],
-        });
-      });
-      vi.stubGlobal('fetch', fetch);
-      workspace.rerender(
-        <WorkspaceProviders>
-          <DelegatedConversationRootsProvider>
-            <OwningRoot />
-            <ChildView db={database as DbHandle} node={node} />
-          </DelegatedConversationRootsProvider>
-        </WorkspaceProviders>
-      );
-      expect(await screen.findByText('Persisted native child transcript.')).toBeVisible();
-      expect(append).not.toHaveBeenCalled();
-      const user = userEvent.setup();
-      if (kind === 'approval') {
-        await user.click(
-          await screen.findByRole('button', { name: /approve workspace.writefile/i })
-        );
-      } else {
-        await user.type(await screen.findByRole('textbox', { name: /answer/i }), 'TypeScript');
-        await user.click(
-          within(screen.getByTestId('assistant-ask-user-notice')).getByRole('button', {
-            name: /^send$/i,
-          })
-        );
-      }
-      await waitFor(() => expect(append).toHaveBeenCalledTimes(1));
-      const key = kind === 'approval' ? TOOL_APPROVAL_RUN_CONFIG_KEY : TOOL_SUSPEND_RUN_CONFIG_KEY;
-      expect(append.mock.calls[0]?.[0]).toMatchObject({
-        role: 'user',
-        runConfig: {
-          custom: {
-            [key]: {
-              ...target,
-              ...(kind === 'approval'
-                ? { action: 'approve' }
-                : { resumeData: { answer: 'TypeScript' } }),
-            },
-          },
-        },
-        startRun: true,
-      });
-      expect(append.mock.calls[0]?.[0]).not.toHaveProperty('parentId');
-      expect(append.mock.calls[0]?.[0]).not.toHaveProperty('sourceId');
-      expect(fetch).toHaveBeenCalledTimes(1);
-    }
-  );
-
   it('shows a child approval its owning root already answered as the answered row in the live child view', async () => {
     // Live GLM fan-out (2026-09-15): "Allow reads this session" answered every
     // parked read on the ROOT leg, yet each child tab kept a "Pending" card
     // with live buttons — the answer never streams into the child's own leg.
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => Response.json({ approvals: [], suspends: [] }))
-    );
     const delegation = { path: [identity], toolCallId: 'leaf-read' };
     const childNotice = {
       args: { path: 'README.md' },

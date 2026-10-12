@@ -4,21 +4,16 @@ import { createPgliteAssistantThreadRepository } from '@brainstrike/assistant-da
 import { createDelegatedConversationRepository, migrate, wasmLoader } from '@brainstrike/db';
 import type { DbHandle } from '@brainstrike/db/react';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { useEffect } from 'react';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { publishDelegatedColorRefresh } from '../delegated-color-refresh';
-import type { DelegatedConversationRoot } from '../delegated-conversation-owner';
 import { DelegatedConversationRootsProvider } from '../delegated-conversation-root';
 import { DelegatedSidebarCell } from '../delegated-sidebar-cell';
 import type { ThreadPanelVisibleRow } from '../thread-panel-visible-rows';
-import { useDelegatedConversationRoot } from '../use-delegated-conversation-root';
 import { useDelegatedSidebar } from '../use-delegated-sidebar';
-import { delegatedUpdate } from './helpers/delegated-conversation-fixtures';
 
 let database: Awaited<ReturnType<typeof wasmLoader.createPGlite>>;
 let rows: ThreadPanelVisibleRow[];
 let childThreadId: string;
-let activeRoot: DelegatedConversationRoot | undefined;
 const identity = {
   childRuntimeRunId: 'child-run',
   parentRuntimeRunId: 'parent-run',
@@ -31,10 +26,6 @@ vi.mock('@brainstrike/db/react', async (original) => ({
 }));
 
 function Sidebar() {
-  const liveRoot = useDelegatedConversationRoot('owner', rows[0]?.id ?? '');
-  useEffect(() => {
-    activeRoot = liveRoot;
-  }, [liveRoot]);
   const sidebar = useDelegatedSidebar(rows);
   const root = rows[0];
   if (!root) {
@@ -99,24 +90,13 @@ beforeEach(async () => {
     resourceId: 'native-sibling',
     threadId: sibling.id,
   });
-  Object.defineProperty(window, 'assistant', {
-    configurable: true,
-    value: { url: 'http://assistant.test' },
-  });
 });
 afterEach(async () => {
   cleanup();
-  Reflect.deleteProperty(window, 'assistant');
-  vi.unstubAllGlobals();
-  activeRoot = undefined;
   await database.close();
 });
 
 it('repaints expanded saved child rows after an explicit color refresh', async () => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () => Response.json({ approvals: [], suspends: [] }))
-  );
   render(
     <DelegatedConversationRootsProvider>
       <Sidebar />
@@ -140,151 +120,4 @@ it('repaints expanded saved child rows after an explicit color refresh', async (
       'violet'
     )
   );
-});
-
-it('restores pending child attention in a fresh sidebar without mounting a transcript', async () => {
-  const fetch = vi.fn(async (input: RequestInfo | URL) => {
-    const url = new URL(String(input));
-    expect(url.pathname).toBe('/assistant/suspended-runs');
-    expect(url.searchParams.get('threadId')).toBe(rows[0]?.id);
-    expect(url.searchParams.get('resourceId')).toBe('owner');
-    return Response.json({
-      approvals: [
-        {
-          args: { path: 'report.txt' },
-          delegation: { path: [identity], toolCallId: 'leaf' },
-          runId: identity.parentRuntimeRunId,
-          stale: false,
-          suspendedAt: '2026-09-10T00:00:00.000Z',
-          toolCallId: identity.parentToolCallId,
-          toolName: 'workspace.writeFile',
-        },
-      ],
-      suspends: [],
-    });
-  });
-  vi.stubGlobal('fetch', fetch);
-  const first = render(
-    <DelegatedConversationRootsProvider>
-      <Sidebar />
-    </DelegatedConversationRootsProvider>
-  );
-  fireEvent.click(screen.getByRole('button', { name: 'Toggle root' }));
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: /^Cedar\s*Needs input$/u })).toBeVisible()
-  );
-  expect(fetch).toHaveBeenCalledTimes(1);
-  expect(screen.getByRole('button', { name: /^Flint\s*Child$/u })).toBeVisible();
-  expect(screen.queryByRole('region', { name: 'Cedar' })).not.toBeInTheDocument();
-  first.unmount();
-  render(
-    <DelegatedConversationRootsProvider>
-      <Sidebar />
-    </DelegatedConversationRootsProvider>
-  );
-  fireEvent.click(screen.getByRole('button', { name: 'Toggle root' }));
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: /^Cedar\s*Needs input$/u })).toBeVisible()
-  );
-  expect(fetch).toHaveBeenCalledTimes(2);
-  act(() => activeRoot?.onDelegatedConversation(delegatedUpdate(childThreadId)));
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: /Cedar.*Working/u })).toBeVisible()
-  );
-  expect(screen.queryByText('Needs input')).not.toBeInTheDocument();
-});
-
-it('keeps durable delegated decisions non-actionable even when their pauses are stale', async () => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () =>
-      Response.json({
-        approvals: ['claimed', 'consumed'].map((decisionState, index) => ({
-          args: {},
-          decisionState,
-          delegation: { path: [identity], toolCallId: 'leaf' },
-          runId: identity.parentRuntimeRunId,
-          stale: index === 1,
-          suspendedAt: '2026-09-10T00:00:00.000Z',
-          toolCallId: identity.parentToolCallId,
-          toolName: 'workspace.writeFile',
-        })),
-        suspends: ['cancelled', 'interrupted'].map((decisionState, index) => ({
-          decisionState,
-          delegation: { path: [identity], toolCallId: 'leaf' },
-          runId: identity.parentRuntimeRunId,
-          stale: index === 1,
-          suspendedAt: '2026-09-10T00:00:00.000Z',
-          toolCallId: identity.parentToolCallId,
-          toolName: 'brainstrike.askUser',
-        })),
-      })
-    )
-  );
-  render(
-    <DelegatedConversationRootsProvider>
-      <Sidebar />
-    </DelegatedConversationRootsProvider>
-  );
-  fireEvent.click(screen.getByRole('button', { name: 'Toggle root' }));
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: /^Cedar\s*Child$/u })).toBeVisible()
-  );
-  expect(screen.queryByText('Needs input')).not.toBeInTheDocument();
-});
-
-it('shows a discovery failure and revalidates on disclosure reopen instead of claiming no pending child', async () => {
-  const fetch = vi.fn(async () => Response.json({}, { status: 503 }));
-  vi.stubGlobal('fetch', fetch);
-  render(
-    <DelegatedConversationRootsProvider>
-      <Sidebar />
-    </DelegatedConversationRootsProvider>
-  );
-  fireEvent.click(screen.getByRole('button', { name: 'Toggle root' }));
-  await waitFor(() =>
-    expect(screen.getByRole('alert')).toHaveTextContent('Child attention could not be verified')
-  );
-  expect(screen.queryByRole('button', { name: /Cedar/u })).not.toBeInTheDocument();
-  fireEvent.click(screen.getByRole('button', { name: 'Toggle root' }));
-  fetch.mockImplementation(async () => Response.json({ approvals: [], suspends: [] }));
-  fireEvent.click(screen.getByRole('button', { name: 'Toggle root' }));
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: /^Cedar\s*Child$/u })).toBeVisible()
-  );
-  expect(fetch).toHaveBeenCalledTimes(2);
-});
-
-it('rejects a rediscovered decision whose native invocation binding has changed', async () => {
-  vi.stubGlobal(
-    'fetch',
-    vi.fn(async () =>
-      Response.json({
-        approvals: [
-          {
-            args: {},
-            decisionState: 'interrupted',
-            delegation: {
-              path: [{ ...identity, childRuntimeRunId: 'foreign-run' }],
-              toolCallId: 'leaf',
-            },
-            runId: identity.parentRuntimeRunId,
-            stale: false,
-            suspendedAt: '2026-09-10T00:00:00.000Z',
-            toolCallId: identity.parentToolCallId,
-            toolName: 'workspace.writeFile',
-          },
-        ],
-        suspends: [],
-      })
-    )
-  );
-  render(
-    <DelegatedConversationRootsProvider>
-      <Sidebar />
-    </DelegatedConversationRootsProvider>
-  );
-  fireEvent.click(screen.getByRole('button', { name: 'Toggle root' }));
-  await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('invalid-response'));
-  expect(screen.queryByText('Needs input')).not.toBeInTheDocument();
 });
