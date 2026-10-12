@@ -131,9 +131,6 @@ sections.push(
 
 export const LONG_REPLY = sections.join('\n\n');
 
-/** The longest markdown block (section) in the reply, in characters. */
-export const LONG_REPLY_LONGEST_BLOCK = Math.max(...sections.map((section) => section.length));
-
 /** Model-like tokens: an optional leading space and up to five characters. */
 export const LONG_REPLY_TOKENS: readonly string[] = LONG_REPLY.match(/\s*\S{1,5}|\s+/g) ?? [];
 
@@ -155,3 +152,45 @@ export const LONG_REPLY_FOOTNOTE_TOKEN = ((): number => {
 })();
 
 export const LONG_REPLY_WORDS = LONG_REPLY.split(/\s+/).filter(Boolean).length;
+
+/** A token that opens a new prose paragraph: a blank line, then a capital letter. */
+const PARAGRAPH_START = /^\n\n[A-Z]/;
+
+/** Tokens until the next blank line, i.e. how long the paragraph opened at `start` streams. */
+function paragraphTokens(start: number): number {
+  const next = LONG_REPLY_TOKENS.findIndex(
+    (token, index) => index > start && token.includes('\n\n')
+  );
+  return (next === -1 ? LONG_REPLY_TOKENS.length : next) - start;
+}
+
+/**
+ * Where to measure `windowTokens` streamed tokens at 10% and 50% of the reply and
+ * at its end: the second token of a prose paragraph long enough for the whole
+ * window, so every measured token extends the same open block and the windows
+ * parse comparable text. `end` takes the last such paragraph that finishes
+ * before the closing footnote (see LONG_REPLY_FOOTNOTE_TOKEN).
+ */
+export function longReplyWindowStarts(
+  windowTokens: number
+): Readonly<Record<'10%' | '50%' | 'end', number>> {
+  const starts = LONG_REPLY_TOKENS.flatMap((token, index) =>
+    PARAGRAPH_START.test(token) &&
+    paragraphTokens(index) > windowTokens + 1 &&
+    index + 1 + windowTokens <= LONG_REPLY_FOOTNOTE_TOKEN
+      ? [index + 1]
+      : []
+  );
+  const from = (fraction: number): number => {
+    const start = starts.find((index) => index >= LONG_REPLY_TOKENS.length * fraction);
+    if (start === undefined) {
+      throw new Error(`No prose paragraph starts after ${fraction * 100}% of the reply.`);
+    }
+    return start;
+  };
+  const end = starts.at(-1);
+  if (end === undefined) {
+    throw new Error('The long reply has no prose paragraph long enough to measure.');
+  }
+  return { '10%': from(0.1), '50%': from(0.5), end };
+}

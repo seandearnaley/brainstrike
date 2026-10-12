@@ -65,10 +65,10 @@ export {
 
 // ---- React instrumentation (spike s-ui, aisdk-b4-ui report "How it was measured") ----
 
-const { instrumentation, measurePublication, waitForQuiescence } =
+const { instrumentation, measurePublication, waitForQuiescence, waitForSettled } =
   createPublicationInstrumentation('named-vendor');
 
-export { instrumentation, measurePublication, waitForQuiescence };
+export { instrumentation, measurePublication, waitForQuiescence, waitForSettled };
 
 // ---- Browser interaction and geometry helpers ----
 
@@ -343,7 +343,7 @@ export function report(measurement: Measurement, react: string): Record<string, 
       rootCommits: measurement.child.map((phase) => phase.rootCommits),
     },
     interval:
-      'spike s-ui: publish (sync-lane, uSES) + 20-microtask drain + every React Scheduler/tap MessageChannel task (entry -> +20 microtask hops) until two quiet animation frames; idle excluded',
+      'spike s-ui: publish (sync-lane, uSES) + 20-microtask drain + every React Scheduler/tap MessageChannel task (entry -> +20 microtask hops) until the published text has committed and one animation frame and task pass quietly; idle excluded',
     longAnimationFrames: measurement.loafSupported
       ? {
           observed: measurement.frames.map((entry) => ({
@@ -400,6 +400,11 @@ export type MountTrial = (recorded: {
   readonly firstChild: ThreadMessage;
   readonly saved: ThreadMessage;
 }) => Promise<TrialHandles>;
+
+/** The text the answer's markdown part has committed to the DOM ('' before it mounts). */
+function renderedAnswerText(answer: HTMLElement): string {
+  return [...answer.querySelectorAll('.aui-md')].at(-1)?.textContent ?? '';
+}
 
 /**
  * Mounts ATTRIBUTION_TRIALS walked trials then TRIALS timed trials. Each trial
@@ -481,6 +486,12 @@ export async function measureRecordedTextPublications(
           rootCommits: views.root - rootBefore,
           rootSelectorRenders: countsSince(counts, countsBefore),
         });
+        // What each publication leaves rendered in the answer's text part.
+        const publishedText: Record<TextKind, string> = {
+          'text-delta': tokenText,
+          'text-end': tokenText,
+          'text-start': '',
+        };
         for (const kind of TEXT_KINDS) {
           const unrelated = watchUnchanged({
             composer: handles.composer,
@@ -492,7 +503,8 @@ export async function measureRecordedTextPublications(
           const toolCardBefore = views.toolCard;
           const timing = await measurePublication(
             () => handles.publishText(kind),
-            attributeRenders
+            attributeRenders,
+            () => renderedAnswerText(handles.answer) === publishedText[kind]
           );
           const unrelatedDom = unrelated.read();
           unrelated.stop();

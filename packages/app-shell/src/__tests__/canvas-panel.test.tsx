@@ -286,9 +286,14 @@ describe('CanvasPanel', () => {
       .getState()
       .setActiveThreadIdentity({ latestRunId: null, threadId: 'thread-background' });
     renderPanel();
+    // The read starts in an effect after the panel first renders, and the empty
+    // state shows while it is in flight: wait for the host read itself, not the
+    // empty state, before asserting which thread it read (BST-1991).
+    const readThreads = () => readCanvases.mock.calls.map(([threadId]) => threadId);
+    await waitFor(() => {
+      expect(readThreads()).toContain('thread-1');
+    });
     await screen.findByText(/No canvases in this thread/i);
-    const read = readCanvases.mock.calls.map(([threadId]) => threadId);
-    expect(read).toContain('thread-1');
-    expect(read).not.toContain('thread-background');
+    expect(readThreads()).not.toContain('thread-background');
   });
 });
