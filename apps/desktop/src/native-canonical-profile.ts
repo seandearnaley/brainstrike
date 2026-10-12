@@ -8,15 +8,13 @@ import type { EmbeddingSet } from '@brainstrike/db';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import {
   type CatalogEmbeddingWorkerPlan,
+  type CatalogModelFacts,
   resolveCatalogEmbeddingPlan,
   type SelectedEmbeddingRequestPlan,
 } from '@brainstrike/embeddings/inference-plan';
 import { isHostedProvider, parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
 import { type VectorProfile, vectorProfileHash } from '@brainstrike/indexer';
-import {
-  type CatalogEmbeddingModel,
-  decodeCatalogEmbeddingModel,
-} from '@brainstrike/indexing-contract';
+import { decodeCatalogEmbeddingModel } from '@brainstrike/indexing-contract';
 import { Schema } from 'effect';
 import type { EmbeddingHostDocumentEmbeddingsPayload } from './embedding-host-shared';
 import { generateHostedEmbeddings } from './hosted-embeddings';
@@ -50,10 +48,7 @@ export interface NativeCanonicalProfile {
 }
 
 /** The catalog facts a local plan takes from the model's `models` row (BST-1993). */
-export type NativeCatalogModel = Pick<
-  CatalogEmbeddingModel,
-  'contextWindow' | 'dimensions' | 'id' | 'pooling' | 'revision'
->;
+export type NativeCatalogModel = CatalogModelFacts;
 
 /** Pure resolution. Reading a profile neither enables vectors nor changes saved choices. */
 export function resolveNativeCanonicalProfile(
@@ -170,6 +165,7 @@ export class NativeCanonicalProfileResolver {
       dimensions: metadata.dimensions,
       id: metadata.modelId,
       ...(catalog.pooling === undefined ? {} : { pooling: catalog.pooling }),
+      ...(catalog.prompts === undefined ? {} : { prompts: catalog.prompts }),
       ...(catalog.revision === undefined ? {} : { revision: catalog.revision }),
     });
   }

@@ -52,6 +52,19 @@ describe('embedding-models utilities', () => {
     ).toBe(false);
   });
 
+  it("carries a catalog row's pooling and prompts into the model config (BST-1993)", () => {
+    const prompts = {
+      document: '',
+      query: 'Represent this sentence for searching relevant passages: ',
+    };
+    expect(
+      toEmbeddingModelConfig(
+        makeModel({ capabilities: { pooling: 'cls', prompts, type: 'embedding' } })
+      )
+    ).toMatchObject({ pooling: 'cls', prompts });
+    expect(toEmbeddingModelConfig(makeModel())).not.toHaveProperty('prompts');
+  });
+
   it('maps DbModel to ModelConfig with metadata', () => {
     const model = makeModel({
       description: null,

@@ -20,6 +20,14 @@ describe('canonical utility profile boundary (BST-1993)', () => {
     expect(vectorProfileHash(decoded)).toBe(vectorProfileHash(granite));
   });
 
+  it('carries catalog prompts across the utility boundary (BST-1993)', () => {
+    const prompted = {
+      ...granite,
+      prompts: { document: '', query: 'Represent this sentence for searching relevant passages: ' },
+    };
+    expect(decode(vectorProfileSchema)(prompted)).toEqual(prompted);
+  });
+
   it('refuses pooling on a hosted profile and an unknown pooling', () => {
     expect(() =>
       decode(vectorProfileSchema)({

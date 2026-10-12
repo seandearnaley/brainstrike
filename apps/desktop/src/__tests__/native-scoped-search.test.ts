@@ -356,13 +356,14 @@ it('uses the full saved scoped vector profile while the independent legacy engin
   ).rejects.toThrow('differs');
 });
 
-it('reports a CLS profile in status with the identity the renderer mirror computes (BST-1993)', async () => {
+it('reports a CLS, prompted profile in status with the identity the renderer mirror computes (BST-1993)', async () => {
   const granite = {
     dimensions: 384,
     distance: 'cosine',
     dtype: 'fp16',
     modelId: 'onnx-community/granite-embedding-small-english-r2-ONNX',
     pooling: 'cls',
+    prompts: { document: 'doc: ', query: 'ask: ' },
     provider: 'local',
     revision: '1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8',
   } as const;

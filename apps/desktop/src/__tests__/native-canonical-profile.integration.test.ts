@@ -67,10 +67,15 @@ beforeAll(async () => {
     VALUES ($1,'local','BGE Small',$2,$3), ($4,'local','Granite Embedding Small R2',$5,$6)`,
     [
       localSelection.modelId,
-      { defaultDimension: 384, type: 'embedding' },
+      { defaultDimension: 384, prompts: { document: '', query: '' }, type: 'embedding' },
       { size: '~34MB' },
       GRANITE_ID,
-      { defaultDimension: 384, pooling: 'cls', type: 'embedding' },
+      {
+        defaultDimension: 384,
+        pooling: 'cls',
+        prompts: { document: '', query: '' },
+        type: 'embedding',
+      },
       { execution: { wasm: 'q8', webgpu: 'fp16' }, revision: GRANITE_REVISION },
     ]
   );
@@ -171,7 +176,11 @@ it('resolves the granite catalog pooling and pin through the real catalog join (
   };
   f.readLocalSelection.mockResolvedValue(chosen);
   const resolved = await f.instance.resolve(scope('granite'), context());
-  expect(resolved.workerPlan).toEqual({ ...chosen, pooling: 'cls' });
+  expect(resolved.workerPlan).toEqual({
+    ...chosen,
+    pooling: 'cls',
+    prompts: { document: '', query: '' },
+  });
   expect(resolved.profile).toMatchObject({ pooling: 'cls', revision: GRANITE_REVISION });
   f.readLocalSelection.mockResolvedValue(localSelection);
   expect((await f.instance.resolve(scope('local'), context())).workerPlan).not.toHaveProperty(

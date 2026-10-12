@@ -13,11 +13,16 @@ const nonnegative = Schema.Int.check(
 const hash = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/u));
 /** How a local model's token states become one vector; absent means 'mean' (see `poolingIdentity`). */
 const pooling = Schema.optionalKey(Schema.Literals(['mean', 'cls']));
+/** The model catalog's query/document prompts, none being two empty strings (see `promptIdentity`). */
+const prompts = Schema.optionalKey(
+  Schema.Struct({ document: Schema.String, query: Schema.String })
+);
 export const profileSchema = Schema.Struct({
   dimensions: positive,
   dtype: Schema.Literals(['q8', 'fp16', 'fp32']),
   modelId: nonblank,
   pooling,
+  prompts,
   revision: Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/u)),
   tokenCap: positive,
 });

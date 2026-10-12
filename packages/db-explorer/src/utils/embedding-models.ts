@@ -1,5 +1,6 @@
 import type { DbModel } from '@brainstrike/app-state/stores/model-registry-store';
 import {
+  decodeCatalogEmbeddingFacts,
   isHostedProvider,
   type EmbeddingModelConfig as ModelConfig,
   parseEmbeddingProviderModelKey,
@@ -94,6 +95,7 @@ export function toEmbeddingModelConfig(model: DbModel): ModelConfig {
   const quantized = readQuantizedFlag(model.parameters);
 
   return {
+    ...decodeCatalogEmbeddingFacts(model.capabilities, model.id),
     description,
     dimensions,
     id: model.id,

@@ -132,6 +132,27 @@ describe('hidden pinned document batch', () => {
       expect.objectContaining({ type: 'result' })
     );
   });
+  it("hands a plan's catalog prompts to the embedding service (BST-1993)", async () => {
+    const prompts = {
+      document: '',
+      query: 'Represent this sentence for searching relevant passages: ',
+    };
+    generateDocumentEmbeddingsMock.mockResolvedValue(results());
+    await mount();
+    await act(async () =>
+      documentEmbeddingsListenerRef.current?.(
+        createEmbeddingHostDocumentEmbeddingsRequest('test-runtime', {
+          dimensions: 384,
+          inferencePlan: { ...plan, prompts },
+          modelId: plan.modelId,
+          modelKey: 'native:documents',
+          texts: ['document'],
+        })
+      )
+    );
+    await waitFor(() => expect(initializeMock).toHaveBeenCalled());
+    expect(initializeMock).toHaveBeenLastCalledWith(expect.objectContaining({ prompts }));
+  });
   it('refuses a granite batch whose worker did not apply CLS pooling (BST-1993)', async () => {
     generateDocumentEmbeddingsMock.mockResolvedValue(graniteResults('mean'));
     await mount();

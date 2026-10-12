@@ -87,6 +87,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
       modelId: modelConfig.id,
       quantized: shouldQuantize,
       ...(modelConfig.pooling === undefined ? {} : { pooling: modelConfig.pooling }),
+      ...(modelConfig.prompts === undefined ? {} : { prompts: modelConfig.prompts }),
       ...(cacheDir ? { cacheDir } : {}),
     };
 
@@ -120,7 +121,9 @@ export class SimpleEmbeddingService implements EmbeddingService {
     this._status = 'initializing';
 
     if (config) {
-      this._config = { ...this._config, ...config };
+      // Pooling and prompts belong to the model being loaded: never inherit a previous one's.
+      const { pooling: _pooling, prompts: _prompts, ...kept } = this._config;
+      this._config = { ...kept, ...config };
     }
 
     const maybeModelConfig = config?.modelConfig;
@@ -146,13 +149,8 @@ export class SimpleEmbeddingService implements EmbeddingService {
     if (this._status !== 'ready' || !this._backend.isInitialized()) {
       throw new Error('Service not initialized. Call initialize() first.');
     }
-    // Default path treats input as a document/passsage for retrieval
-    const withPrompt = applyRetrievalPrompt(
-      text,
-      'document',
-      this._currentModelConfig?.id || this._config.modelId,
-      this._currentModelKey
-    );
+    // Default path treats input as a document/passage for retrieval
+    const withPrompt = this.prompted(text, 'document');
     return this._backend.generateEmbedding(withPrompt, this._config.modelId, options);
   }
 
@@ -163,14 +161,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
     if (this._status !== 'ready' || !this._backend.isInitialized()) {
       throw new Error('Service not initialized. Call initialize() first.');
     }
-    const withPrompts = texts.map((text) =>
-      applyRetrievalPrompt(
-        text,
-        'document',
-        this._currentModelConfig?.id || this._config.modelId,
-        this._currentModelKey
-      )
-    );
+    const withPrompts = texts.map((text) => this.prompted(text, 'document'));
     return this._backend.generateEmbeddings(withPrompts, this._config.modelId, options);
   }
 
@@ -182,20 +173,23 @@ export class SimpleEmbeddingService implements EmbeddingService {
     if (this._status !== 'ready' || !this._backend.isInitialized()) {
       throw new Error('Service not initialized. Call initialize() first.');
     }
-    const withPrompts = texts.map((text) =>
-      applyRetrievalPrompt(
-        text,
-        'document',
-        this._currentModelConfig?.id || this._config.modelId,
-        this._currentModelKey
-      )
-    );
+    const withPrompts = texts.map((text) => this.prompted(text, 'document'));
     return await this._backend.generateEmbeddingsStream(
       withPrompts,
       this._config.modelId,
       onBatch,
       options
     );
+  }
+
+  /**
+   * The model's own prompt for this role, exactly as its catalog row states it
+   * (BST-1993). No prompt stated means the raw text; nothing is guessed from
+   * the model's name.
+   */
+  private prompted(text: string, role: 'query' | 'document'): string {
+    const prompt = this._config.prompts?.[role] ?? '';
+    return `${prompt}${text}`;
   }
 
   calculateSimilarity(embedding1: number[], embedding2: number[]): SimilarityResult {
@@ -222,12 +216,7 @@ export class SimpleEmbeddingService implements EmbeddingService {
     if (this._status !== 'ready' || !this._backend.isInitialized()) {
       throw new Error('Service not initialized. Call initialize() first.');
     }
-    const withPrompt = applyRetrievalPrompt(
-      text,
-      'query',
-      this._currentModelConfig?.id || this._config.modelId,
-      this._currentModelKey
-    );
+    const withPrompt = this.prompted(text, 'query');
     return this._backend.generateEmbedding(withPrompt, this._config.modelId, options);
   }
 
@@ -292,44 +281,4 @@ export class SimpleEmbeddingService implements EmbeddingService {
       },
     });
   }
-}
-
-// Lightweight, model-aware prompting to improve retrieval alignment
-function applyRetrievalPrompt(
-  text: string,
-  role: 'query' | 'document',
-  modelId: string,
-  modelKey: string | null
-): string {
-  const id = (modelId || '').toLowerCase();
-  const key = (modelKey || '').toLowerCase();
-
-  // BGE-M3 specifically does NOT need prefixes per official BAAI docs
-  // https://huggingface.co/BAAI/bge-m3/discussions/35
-  // "bge-m3 doesn't need prefix instruction"
-  const isBgeM3 = id.includes('bge-m3') || key.includes('bge-m3');
-  if (isBgeM3) {
-    return text; // No prefix for M3
-  }
-
-  // Other BGE models (bge-base, bge-large, bge-small, etc.) DO need prefixes
-  const isBge = id.includes('bge-') || key.includes('bge-');
-  if (isBge) {
-    return (role === 'query' ? 'query: ' : 'passage: ') + text;
-  }
-
-  // Jina code/base: lightly steer towards code retrieval
-  const isJina = id.includes('jina-embeddings') || key.includes('jina');
-  if (isJina) {
-    if (role === 'query') {
-      return `Represent the programming question for retrieving relevant code snippets:\n${text}`;
-    }
-    return `Represent the following code snippet for retrieval:\n${text}`;
-  }
-
-  // Sentence transformers and general models: generic retrieval steering
-  if (role === 'query') {
-    return `Search query for semantic retrieval:\n${text}`;
-  }
-  return `Document passage for semantic retrieval:\n${text}`;
 }

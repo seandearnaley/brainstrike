@@ -6,6 +6,8 @@ export interface IndexerEmbeddingProfile {
   readonly modelId: string;
   /** A local model's pooling (BST-1993); absent means 'mean'. */
   readonly pooling?: 'mean' | 'cls';
+  /** A local model's catalog prompts (BST-1993); none is two empty strings. */
+  readonly prompts?: { readonly document: string; readonly query: string };
   readonly provider?:
     | 'local'
     | 'transformers'
@@ -73,6 +75,8 @@ export type IndexerStatus =
           readonly device: 'wasm' | 'webgpu';
           /** The catalog model's pooling (BST-1993); absent means 'mean'. */
           readonly pooling?: 'mean' | 'cls';
+          /** The catalog model's prompts (BST-1993); absent means none. */
+          readonly prompts?: { readonly document: string; readonly query: string };
         };
       };
       readonly rootReadiness: readonly IndexerRootReadiness[];
@@ -190,12 +194,16 @@ export interface IndexSearchCapability {
 
 /**
  * Same canonical profile identity used by native scoped storage; legacy foundation stays unchanged.
- * Mirrors the native pooling rule: the default 'mean' adds nothing and 'cls' is appended.
+ * Mirrors the native rules: the default 'mean' pooling adds nothing and 'cls' is appended; a
+ * profile that states catalog prompts (none being two empty strings) appends the pair.
  */
 export function indexerEmbeddingProfileValues(
   profile: IndexerEmbeddingProfile
-): readonly (string | number | null)[] {
-  const pooling = profile.pooling === 'cls' ? ['cls'] : [];
+): readonly unknown[] {
+  const pooling = [
+    ...(profile.pooling === 'cls' ? ['cls'] : []),
+    ...(profile.prompts ? [[profile.prompts.query, profile.prompts.document]] : []),
+  ];
   return profile.provider === undefined
     ? [
         profile.modelId,
@@ -251,12 +259,16 @@ export function validIndexerEmbeddingProfile(profile: IndexerEmbeddingProfile): 
       ['cosine', 'l2', 'ip'].includes(profile.distance ?? '') &&
       profile.dtype === undefined &&
       profile.pooling === undefined &&
+      profile.prompts === undefined &&
       profile.revision === undefined &&
       profile.tokenCap === undefined
     );
   }
   return (
     (profile.pooling === undefined || profile.pooling === 'mean' || profile.pooling === 'cls') &&
+    (profile.prompts === undefined ||
+      (typeof profile.prompts.query === 'string' &&
+        typeof profile.prompts.document === 'string')) &&
     (profile.provider === undefined || ['cosine', 'l2', 'ip'].includes(profile.distance ?? '')) &&
     profile.dtype !== undefined &&
     ['q4', 'q8', 'fp16', 'fp32'].includes(profile.dtype) &&

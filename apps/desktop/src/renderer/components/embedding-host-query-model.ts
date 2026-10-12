@@ -1,7 +1,10 @@
 import { createPriorityDbHandle } from '@brainstrike/db';
 import type { usePGliteDatabase } from '@brainstrike/db/react';
 import type { ModelConfig } from '@brainstrike/embeddings';
-import { requestedEmbeddingPooling } from '@brainstrike/indexing-contract';
+import {
+  decodeCatalogEmbeddingFacts,
+  requestedEmbeddingPooling,
+} from '@brainstrike/indexing-contract';
 import type { EmbeddingHostInferenceRequest } from '../../embedding-host-shared';
 
 interface DbModelRow {
@@ -84,12 +87,7 @@ export async function loadQueryEmbeddingModelConfig(
     );
   }
 
-  const pooling = capabilities['pooling'];
-  if (pooling !== undefined && pooling !== 'mean' && pooling !== 'cls') {
-    throw new Error(
-      `Local embedding model ${request.payload.modelId} states an unsupported pooling.`
-    );
-  }
+  const { pooling, prompts } = decodeCatalogEmbeddingFacts(capabilities, row.id);
   return {
     description: row.description ?? '',
     dimensions,
@@ -97,6 +95,7 @@ export async function loadQueryEmbeddingModelConfig(
     name: row.name,
     origin: row.providerId,
     ...(pooling === undefined ? {} : { pooling }),
+    ...(prompts === undefined ? {} : { prompts }),
     quantized: false,
     tags: [row.providerId, resolveOptionalString(capabilities['type']) ?? 'embedding'],
     ...(resolveOptionalString(parameters['size'])
@@ -118,6 +117,7 @@ export function queryEmbeddingServiceIdentity(request: EmbeddingHostInferenceReq
     plan?.device ?? null,
     plan?.dtype ?? null,
     plan ? requestedEmbeddingPooling(plan) : null,
+    plan?.prompts ? [plan.prompts.query, plan.prompts.document] : null,
   ]);
 }
 

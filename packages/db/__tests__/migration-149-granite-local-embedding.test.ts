@@ -25,7 +25,7 @@ async function readRow(db: PGlite, id: string): Promise<CatalogRow | undefined> 
   return result.rows[0];
 }
 
-describe('migration 149: granite is the recommended local embedding model (BST-1993)', () => {
+describe('migration 149: local embedding model facts and the recommended granite (BST-1993)', () => {
   let db: PGlite;
   let runner: MigrationRunner;
 
@@ -53,6 +53,7 @@ describe('migration 149: granite is the recommended local embedding model (BST-1
       execution: { wasm: 'q8', webgpu: 'fp16' },
       id: GRANITE_ID,
       pooling: 'cls',
+      prompts: { document: '', query: '' },
       revision: '1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8',
     });
     // Listed ahead of every other local embedding model.
@@ -62,12 +63,34 @@ describe('migration 149: granite is the recommended local embedding model (BST-1
       [GRANITE_ID]
     );
     expect(others.rows.every((row) => row.sort_order > granite.sort_order)).toBe(true);
-    // An existing mean-pooled row is untouched and still states no pooling.
+    // Every local embedding row states its card's prompts; none is stated as none.
     const miniLm = await readRow(db, MINILM_ID);
     if (!miniLm) {
       throw new Error('MiniLM must stay in the catalog');
     }
-    expect(decodeCatalogEmbeddingModel(miniLm)).toEqual({ dimensions: 384, id: MINILM_ID });
+    expect(decodeCatalogEmbeddingModel(miniLm)).toEqual({
+      dimensions: 384,
+      id: MINILM_ID,
+      prompts: { document: '', query: '' },
+    });
+    const stated = await db.query<{ id: string; prompts: unknown }>(
+      `SELECT id, capabilities->'prompts' AS prompts FROM models
+       WHERE provider_id = 'local' AND capabilities->>'type' = 'embedding' ORDER BY id`
+    );
+    const none = { document: '', query: '' };
+    const bge = {
+      document: '',
+      query: 'Represent this sentence for searching relevant passages: ',
+    };
+    expect(stated.rows).toEqual([
+      { id: 'Xenova/all-MiniLM-L6-v2', prompts: none },
+      { id: 'Xenova/bge-base-en-v1.5', prompts: bge },
+      { id: 'Xenova/bge-large-en-v1.5', prompts: bge },
+      { id: 'Xenova/bge-small-en-v1.5', prompts: bge },
+      { id: 'Xenova/jina-embeddings-v2-base-en', prompts: none },
+      { id: 'jinaai/jina-embeddings-v2-base-code', prompts: none },
+      { id: GRANITE_ID, prompts: none },
+    ]);
 
     // Re-applying keeps the user's toggle (database.md rule 3).
     const up = migrations.find(({ version }) => version === 149)?.up;
@@ -80,5 +103,6 @@ describe('migration 149: granite is the recommended local embedding model (BST-1
 
     await runner.down(migrations, 148);
     expect(await readRow(db, GRANITE_ID)).toBeUndefined();
+    expect((await readRow(db, MINILM_ID))?.capabilities).not.toHaveProperty('prompts');
   });
 });

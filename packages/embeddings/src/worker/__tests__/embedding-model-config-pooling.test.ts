@@ -34,6 +34,26 @@ describe('legacy catalog model config pooling (BST-1993)', () => {
     ).resolves.toMatchObject({ dimensions: 384, pooling: 'cls' });
   });
 
+  it('carries the catalog row prompts, so a legacy load embeds what the card says', async () => {
+    const prompts = {
+      document: '',
+      query: 'Represent this sentence for searching relevant passages: ',
+    };
+    await expect(
+      getModelConfigFromDb(
+        database({ defaultDimension: 384, prompts, type: 'embedding' }),
+        GRANITE_ID
+      )
+    ).resolves.toMatchObject({ prompts });
+    invalidateModelConfigCache();
+    await expect(
+      getModelConfigFromDb(
+        database({ defaultDimension: 384, prompts: { query: 7 }, type: 'embedding' }),
+        GRANITE_ID
+      )
+    ).rejects.toThrow('prompts');
+  });
+
   it('leaves pooling absent for rows that state none', async () => {
     const config = await getModelConfigFromDb(
       database(JSON.stringify({ defaultDimension: 384, type: 'embedding' })),

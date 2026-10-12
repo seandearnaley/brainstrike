@@ -396,13 +396,24 @@ function assertSelectedQueryIdentity(
         plan.inferencePlan.dimensions !== profile.dimensions ||
         plan.inferencePlan.dtype !== profile.dtype ||
         requestedEmbeddingPooling(plan.inferencePlan) !== requestedEmbeddingPooling(profile) ||
+        !samePrompts(plan.inferencePlan.prompts, profile.prompts) ||
         !['wasm', 'webgpu'].includes(plan.inferencePlan.device)
       : profile.provider === undefined ||
         profile.provider === 'local' ||
         profile.provider === 'transformers')
   ) {
     refuse(
-      'Native query inference requires the exact saved model, revision, dimensions, dtype, pooling, device and distance profile.'
+      'Native query inference requires the exact saved model, revision, dimensions, dtype, pooling, prompts, device and distance profile.'
     );
   }
+}
+
+/** Two plans state the same catalog prompts (or both predate stated prompts). */
+function samePrompts(
+  left: { readonly document: string; readonly query: string } | undefined,
+  right: { readonly document: string; readonly query: string } | undefined
+): boolean {
+  return left === undefined || right === undefined
+    ? left === right
+    : left.query === right.query && left.document === right.document;
 }

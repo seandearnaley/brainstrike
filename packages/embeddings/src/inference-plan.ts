@@ -2,6 +2,7 @@ import type {
   CatalogEmbeddingModel,
   EmbeddingDType,
   EmbeddingPooling,
+  EmbeddingPrompts,
 } from '@brainstrike/indexing-contract';
 
 export interface SelectedEmbeddingRequestPlan {
@@ -18,6 +19,8 @@ export interface CatalogEmbeddingWorkerPlan {
   readonly modelId: string;
   /** The catalog model's pooling; absent asks the worker for 'mean'. */
   readonly pooling?: EmbeddingPooling;
+  /** The catalog model's query/document prompts; absent embeds raw text. */
+  readonly prompts?: EmbeddingPrompts;
   readonly revision?: string;
 }
 export interface CatalogEmbeddingProfile {
@@ -25,9 +28,16 @@ export interface CatalogEmbeddingProfile {
   readonly dtype: EmbeddingDType;
   readonly modelId: string;
   readonly pooling?: EmbeddingPooling;
+  readonly prompts?: EmbeddingPrompts;
   readonly revision?: string;
   readonly tokenCap?: number;
 }
+/** The catalog facts a plan takes: a decoded row has them all; a caller may pass fewer. */
+export type CatalogModelFacts = Pick<CatalogEmbeddingModel, 'dimensions' | 'id'> &
+  Partial<
+    Pick<CatalogEmbeddingModel, 'contextWindow' | 'execution' | 'pooling' | 'prompts' | 'revision'>
+  >;
+
 /** Validate execution DTOs independently of catalog authorization, including in preload. */
 export function validateCatalogEmbeddingWorkerPlan(
   request: SelectedEmbeddingRequestPlan
@@ -66,7 +76,7 @@ export function validateCatalogEmbeddingWorkerPlan(
  */
 export function resolveCatalogEmbeddingPlan(
   request: SelectedEmbeddingRequestPlan,
-  model: Pick<CatalogEmbeddingModel, 'contextWindow' | 'dimensions' | 'id' | 'pooling' | 'revision'>
+  model: CatalogModelFacts
 ):
   | { readonly kind: 'unavailable'; readonly reason: string }
   | {
@@ -91,6 +101,7 @@ export function resolveCatalogEmbeddingPlan(
     workerPlan = {
       ...validateCatalogEmbeddingWorkerPlan(request),
       ...(model.pooling === undefined ? {} : { pooling: model.pooling }),
+      ...(model.prompts === undefined ? {} : { prompts: model.prompts }),
     };
   } catch (error) {
     return { kind: 'unavailable', reason: error instanceof Error ? error.message : String(error) };
@@ -137,7 +148,7 @@ export function quantizesUnpinnedLoad(model: {
  * pooling (BST-1993) is loaded exactly as it states.
  */
 export function unpinnedCatalogEmbeddingPlan(
-  model: Pick<CatalogEmbeddingModel, 'dimensions' | 'execution' | 'id' | 'pooling' | 'revision'>,
+  model: CatalogModelFacts,
   device: 'webgpu' | 'wasm'
 ): CatalogEmbeddingWorkerPlan {
   return {
@@ -151,6 +162,7 @@ export function unpinnedCatalogEmbeddingPlan(
       ),
     modelId: model.id,
     ...(model.pooling === undefined ? {} : { pooling: model.pooling }),
+    ...(model.prompts === undefined ? {} : { prompts: model.prompts }),
     ...(model.revision === undefined ? {} : { revision: model.revision }),
   };
 }

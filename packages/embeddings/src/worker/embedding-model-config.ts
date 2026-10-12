@@ -1,5 +1,5 @@
 import type { IDatabase } from '@brainstrike/db';
-import type { EmbeddingPooling } from '@brainstrike/indexing-contract';
+import { decodeCatalogEmbeddingFacts } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
 import type { ModelConfig } from '../types.js';
@@ -125,8 +125,8 @@ export async function getModelConfigFromDb(
     dbModelConfigCache.set(modelId, null);
     return null;
   }
-  // BST-1993: a stated pooling is a property of the model; an unknown one refuses the load.
-  const pooling = parseCatalogPooling(row.capabilities, modelId);
+  // BST-1993: stated pooling and prompts are properties of the model; malformed ones refuse.
+  const { pooling, prompts } = decodeCatalogEmbeddingFacts(row.capabilities, modelId);
   const capabilities = parseCapabilities(row.capabilities);
   const parameters = parseParameters(row.parameters);
 
@@ -141,23 +141,11 @@ export async function getModelConfigFromDb(
     ...(parameters.size === undefined ? {} : { size: parameters.size }),
     ...(parameters.contextWindow === undefined ? {} : { contextWindow: parameters.contextWindow }),
     ...(pooling === undefined ? {} : { pooling }),
+    ...(prompts === undefined ? {} : { prompts }),
   };
 
   dbModelConfigCache.set(modelId, modelConfig);
   return modelConfig;
-}
-
-function parseCatalogPooling(
-  raw: DbModelRow['capabilities'],
-  modelId: string
-): EmbeddingPooling | undefined {
-  const value: unknown = typeof raw === 'string' ? JSON.parse(raw) : raw;
-  const pooling: unknown =
-    value && typeof value === 'object' ? Reflect.get(value, 'pooling') : undefined;
-  if (pooling === undefined || pooling === 'mean' || pooling === 'cls') {
-    return pooling;
-  }
-  throw new Error(`Catalog model ${modelId} states an unsupported pooling.`);
 }
 
 /**

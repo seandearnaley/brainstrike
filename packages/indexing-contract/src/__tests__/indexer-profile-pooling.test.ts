@@ -23,7 +23,7 @@ const hash = (profile: IndexerEmbeddingProfile): string =>
     .digest('hex');
 
 describe('browser profile identity mirrors native pooling (BST-1993)', () => {
-  it('hashes CLS like the native identity and mean or absent like before', () => {
+  it('hashes CLS like the native identity, and mean or absent as one identity', () => {
     expect(hash({ ...local, pooling: 'cls' })).toBe(CLS_VECTOR_HASH);
     expect(hash(local)).toBe(MEAN_VECTOR_HASH);
     expect(hash({ ...local, pooling: 'mean' })).toBe(MEAN_VECTOR_HASH);

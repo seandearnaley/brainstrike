@@ -695,7 +695,11 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
         ? [
             {
               // Its catalog row: a mean-pooled local model states no pooling or pins.
-              catalogCapabilities: { defaultDimension: 384, type: 'embedding' },
+              catalogCapabilities: {
+                defaultDimension: 384,
+                prompts: { document: '', query: '' },
+                type: 'embedding',
+              },
               catalogParameters: null,
               dimensions: 384,
               distance: 'cosine',

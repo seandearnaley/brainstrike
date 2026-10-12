@@ -14,16 +14,32 @@ function optionalRevision(value: unknown): value is string | undefined {
 function optionalPooling(value: unknown): value is 'mean' | 'cls' | undefined {
   return value === undefined || value === 'mean' || value === 'cls';
 }
+/** Catalog prompts as Main resolves them, none being two empty strings (preload-pure). */
+function optionalPrompts(
+  value: unknown
+): value is { readonly document: string; readonly query: string } | undefined {
+  if (value === undefined) {
+    return true;
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  return (
+    Object.keys(value).length === 2 &&
+    typeof Reflect.get(value, 'query') === 'string' &&
+    typeof Reflect.get(value, 'document') === 'string'
+  );
+}
 /** Pure shared trust decoder; main and sandboxed preloads retain the exact same plan. */
 export function decodeNativeEmbeddingWorkerPlan(value: unknown): CatalogEmbeddingWorkerPlan {
   const plan = parseRecord(value, 'native embedding worker plan');
   // An unknown field refuses: a dropped field would silently change the vectors (BST-1993).
   assertSupportedKeys(
     plan,
-    ['device', 'dimensions', 'dtype', 'modelId', 'pooling', 'revision'],
+    ['device', 'dimensions', 'dtype', 'modelId', 'pooling', 'prompts', 'revision'],
     'native embedding worker plan'
   );
-  const { modelId, dimensions, device, dtype, pooling, revision } = plan;
+  const { modelId, dimensions, device, dtype, pooling, prompts, revision } = plan;
   if (
     !(
       typeof modelId === 'string' &&
@@ -32,11 +48,12 @@ export function decodeNativeEmbeddingWorkerPlan(value: unknown): CatalogEmbeddin
       (device === 'wasm' || device === 'webgpu') &&
       validDtype(dtype) &&
       optionalPooling(pooling) &&
+      optionalPrompts(prompts) &&
       optionalRevision(revision)
     )
   ) {
     throw new TypeError(
-      'Native embedding plan requires model, dimensions, device, dtype and a valid optional pooling and revision.'
+      'Native embedding plan requires model, dimensions, device, dtype and a valid optional pooling, prompts and revision.'
     );
   }
   return {
@@ -45,6 +62,7 @@ export function decodeNativeEmbeddingWorkerPlan(value: unknown): CatalogEmbeddin
     dtype,
     modelId,
     ...(pooling === undefined ? {} : { pooling }),
+    ...(prompts === undefined ? {} : { prompts }),
     ...(revision === undefined ? {} : { revision }),
   };
 }
@@ -53,10 +71,21 @@ export function decodeNativeEmbeddingProfile(value: unknown): IndexerEmbeddingPr
   const profile = parseRecord(value, 'native embedding profile');
   assertSupportedKeys(
     profile,
-    ['provider', 'distance', 'modelId', 'dimensions', 'pooling', 'revision', 'dtype', 'tokenCap'],
+    [
+      'provider',
+      'distance',
+      'modelId',
+      'dimensions',
+      'pooling',
+      'prompts',
+      'revision',
+      'dtype',
+      'tokenCap',
+    ],
     'native embedding profile'
   );
-  const { modelId, dimensions, provider, distance, dtype, pooling, revision, tokenCap } = profile;
+  const { modelId, dimensions, provider, distance, dtype, pooling, prompts, revision, tokenCap } =
+    profile;
   if (!(typeof modelId === 'string' && modelId.trim() && positiveDimension(dimensions))) {
     throw new TypeError('Native embedding profile has invalid model or dimensions.');
   }
@@ -87,6 +116,7 @@ export function decodeNativeEmbeddingProfile(value: unknown): IndexerEmbeddingPr
       !(
         validDtype(dtype) &&
         optionalPooling(pooling) &&
+        optionalPrompts(prompts) &&
         optionalRevision(revision) &&
         (tokenCap === undefined ||
           (typeof tokenCap === 'number' && Number.isSafeInteger(tokenCap) && tokenCap > 0))
@@ -99,6 +129,7 @@ export function decodeNativeEmbeddingProfile(value: unknown): IndexerEmbeddingPr
   } else if (
     dtype !== undefined ||
     pooling !== undefined ||
+    prompts !== undefined ||
     revision !== undefined ||
     tokenCap !== undefined
   ) {

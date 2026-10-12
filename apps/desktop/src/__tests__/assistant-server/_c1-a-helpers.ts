@@ -8,7 +8,7 @@
  * those shapes: a native `IndexSearchCapability` answering the way Main's
  * does, and a store restricted to the catalog reads the host can reach.
  */
-import { createHash } from 'node:crypto';
+import { embeddingProfileHash } from '@brainstrike/indexer';
 import type {
   IndexerGrepRequest,
   IndexerGrepResult,
@@ -28,17 +28,8 @@ export const nativeProfile = {
   revision: '751bff37182d3f1213fa05d7196b954e230abad9',
   tokenCap: 256,
 } as const;
-const profileHash = createHash('sha256')
-  .update(
-    JSON.stringify([
-      nativeProfile.modelId,
-      nativeProfile.revision,
-      nativeProfile.dtype,
-      nativeProfile.dimensions,
-      nativeProfile.tokenCap,
-    ])
-  )
-  .digest('hex');
+// The indexer's own identity rule, never a copy of its formula.
+const profileHash = embeddingProfileHash(nativeProfile);
 export const nativeQueryPlan = {
   inferencePlan: {
     device: 'wasm',

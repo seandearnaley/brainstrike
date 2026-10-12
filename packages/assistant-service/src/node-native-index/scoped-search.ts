@@ -80,6 +80,9 @@ function embeddingState(profile: VectorProfile | null): IndexerEmbeddingState {
         ...('pooling' in profile && profile.pooling !== undefined
           ? { pooling: profile.pooling }
           : {}),
+        ...('prompts' in profile && profile.prompts !== undefined
+          ? { prompts: profile.prompts }
+          : {}),
         ...('revision' in profile && profile.revision !== undefined
           ? { revision: profile.revision }
           : {}),
@@ -96,6 +99,7 @@ function embeddingState(profile: VectorProfile | null): IndexerEmbeddingState {
     dtype,
     modelId,
     ...(profile.pooling === undefined ? {} : { pooling: profile.pooling }),
+    ...(profile.prompts === undefined ? {} : { prompts: profile.prompts }),
     revision,
     tokenCap,
   };

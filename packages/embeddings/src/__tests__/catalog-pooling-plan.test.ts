@@ -5,8 +5,14 @@ import { resolveCatalogEmbeddingPlan, unpinnedCatalogEmbeddingPlan } from '../in
 // The granite catalog row (migration 149) and an existing mean-pooled row, as PGlite returns them.
 const GRANITE_ID = 'onnx-community/granite-embedding-small-english-r2-ONNX';
 const GRANITE_REVISION = '1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8';
+const NONE = { document: '', query: '' };
 const graniteRow = {
-  capabilities: { defaultDimension: 384, pooling: 'cls', type: 'embedding' },
+  capabilities: {
+    defaultDimension: 384,
+    pooling: 'cls',
+    prompts: { document: '', query: '' },
+    type: 'embedding',
+  },
   id: GRANITE_ID,
   parameters: {
     execution: { wasm: 'q8', webgpu: 'fp16' },
@@ -15,7 +21,7 @@ const graniteRow = {
   },
 };
 const miniLmRow = {
-  capabilities: { defaultDimension: 384, type: 'embedding' },
+  capabilities: { defaultDimension: 384, prompts: { document: '', query: '' }, type: 'embedding' },
   id: 'Xenova/all-MiniLM-L6-v2',
   parameters: { size: '~23MB' },
 };
@@ -27,11 +33,13 @@ describe('catalog pooling and pins (BST-1993)', () => {
       execution: { wasm: 'q8', webgpu: 'fp16' },
       id: GRANITE_ID,
       pooling: 'cls',
+      prompts: NONE,
       revision: GRANITE_REVISION,
     });
     expect(decodeCatalogEmbeddingModel(miniLmRow)).toEqual({
       dimensions: 384,
       id: 'Xenova/all-MiniLM-L6-v2',
+      prompts: NONE,
     });
     // JSON text columns decode the same way as jsonb objects.
     expect(
@@ -52,7 +60,7 @@ describe('catalog pooling and pins (BST-1993)', () => {
     expect(() => decodeCatalogEmbeddingModel({ ...graniteRow, ...change })).toThrow();
   });
 
-  it('requests CLS for the granite profile and keeps mean (no pooling) elsewhere', () => {
+  it('requests CLS for the granite profile and keeps mean (no pooling) elsewhere, both stating no prompts', () => {
     const granite = decodeCatalogEmbeddingModel(graniteRow);
     const selection = {
       device: 'webgpu' as const,
@@ -68,9 +76,10 @@ describe('catalog pooling and pins (BST-1993)', () => {
         dtype: 'fp16',
         modelId: GRANITE_ID,
         pooling: 'cls',
+        prompts: NONE,
         revision: GRANITE_REVISION,
       },
-      workerPlan: { ...selection, pooling: 'cls' },
+      workerPlan: { ...selection, pooling: 'cls', prompts: NONE },
     });
     const miniLm = decodeCatalogEmbeddingModel(miniLmRow);
     const meanSelection = { ...selection, modelId: miniLm.id, revision: undefined };
@@ -78,9 +87,47 @@ describe('catalog pooling and pins (BST-1993)', () => {
     const plan = resolveCatalogEmbeddingPlan(unpinned, miniLm);
     expect(plan).toEqual({
       kind: 'ready',
-      profile: { dimensions: 384, dtype: 'fp16', modelId: miniLm.id },
-      workerPlan: unpinned,
+      profile: { dimensions: 384, dtype: 'fp16', modelId: miniLm.id, prompts: NONE },
+      workerPlan: { ...unpinned, prompts: NONE },
     });
+  });
+
+  it("carries a row's stated prompts into the plan and profile, and none where it states none", () => {
+    const bgeQuery = 'Represent this sentence for searching relevant passages: ';
+    const bge = decodeCatalogEmbeddingModel({
+      capabilities: {
+        defaultDimension: 384,
+        prompts: { document: '', query: bgeQuery },
+        type: 'embedding',
+      },
+      id: 'Xenova/bge-small-en-v1.5',
+      parameters: null,
+    });
+    const selection = {
+      device: 'wasm' as const,
+      dimensions: 384,
+      dtype: 'q8',
+      modelId: 'Xenova/bge-small-en-v1.5',
+    };
+    expect(resolveCatalogEmbeddingPlan(selection, bge)).toEqual({
+      kind: 'ready',
+      profile: {
+        dimensions: 384,
+        dtype: 'q8',
+        modelId: selection.modelId,
+        prompts: { document: '', query: bgeQuery },
+      },
+      workerPlan: { ...selection, prompts: { document: '', query: bgeQuery } },
+    });
+    expect(unpinnedCatalogEmbeddingPlan(bge, 'wasm')).toMatchObject({
+      prompts: { document: '', query: bgeQuery },
+    });
+    expect(
+      resolveCatalogEmbeddingPlan(
+        { ...selection, modelId: 'Xenova/all-MiniLM-L6-v2' },
+        decodeCatalogEmbeddingModel(miniLmRow)
+      )
+    ).toMatchObject({ kind: 'ready', workerPlan: { prompts: NONE } });
   });
 
   it.each([undefined, 'a'.repeat(40)])(
@@ -115,6 +162,7 @@ describe('catalog pooling and pins (BST-1993)', () => {
         dtype,
         modelId: GRANITE_ID,
         pooling: 'cls',
+        prompts: NONE,
         revision: GRANITE_REVISION,
       });
     }

@@ -13,6 +13,7 @@ const Id = z.string().min(1);
 const Count = z.number().int().nonnegative();
 const Dtype = z.enum(['q4', 'q8', 'fp16', 'fp32']);
 const Pooling = z.enum(['mean', 'cls']);
+const Prompts = z.strictObject({ document: z.string(), query: z.string() });
 
 const EmbeddingProfileSchema = z.object({
   dimensions: z.number().int().positive(),
@@ -20,6 +21,7 @@ const EmbeddingProfileSchema = z.object({
   dtype: Dtype.exactOptional(),
   modelId: z.string(),
   pooling: Pooling.exactOptional(),
+  prompts: Prompts.exactOptional(),
   provider: z
     .enum(['local', 'transformers', 'openai', 'google', 'cohere', 'voyage', 'ollama', 'lmstudio'])
     .exactOptional(),
@@ -42,6 +44,7 @@ export const InferencePlanSchema = z.object({
   dtype: Dtype,
   modelId: z.string(),
   pooling: Pooling.exactOptional(),
+  prompts: Prompts.exactOptional(),
   revision: z.string().exactOptional(),
 });
 
