@@ -1,9 +1,16 @@
+import {
+  type BoundaryTransport,
+  createBoundaryCapability,
+} from '@brainstrike/assistant-contract/boundary-result';
 import type { AssistantThreadGroupsRepository } from '@brainstrike/assistant-data';
 import type { ThreadGroupsCapability } from '@brainstrike/types';
 export function getThreadGroupsCapability(): ThreadGroupsCapability | undefined {
-  return typeof window === 'undefined'
-    ? undefined
-    : (window as Window & { threadGroups?: ThreadGroupsCapability }).threadGroups;
+  const transport =
+    typeof window === 'undefined'
+      ? undefined
+      : (window as Window & { threadGroups?: BoundaryTransport<ThreadGroupsCapability> })
+          .threadGroups;
+  return transport ? createBoundaryCapability<ThreadGroupsCapability>(transport) : undefined;
 }
 export function createNativeThreadGroupsRepository(
   capability: ThreadGroupsCapability

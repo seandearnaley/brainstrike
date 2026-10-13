@@ -1,3 +1,5 @@
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { ElectronFileRecordRepository, type FileRecordRepository } from '@brainstrike/db';
 import { useFileRecordRepository } from '@brainstrike/db/react';
 import { act, renderHook, waitFor } from '@testing-library/react';
@@ -31,7 +33,7 @@ const mockUseFileRecordRepository = vi.mocked(useFileRecordRepository);
 describe('useDatabaseStatusSync', () => {
   afterEach(() => vi.unstubAllGlobals());
   it('reports the native writer only after its catalog read and disables the PG arm', async () => {
-    const pending = Promise.withResolvers<{ models: []; providers: [] }>();
+    const pending = Promise.withResolvers<BoundaryResult<{ models: []; providers: [] }>>();
     vi.stubGlobal('modelCatalog', { read: () => pending.promise });
     mockUseFileRecordRepository.mockImplementation((options) => {
       if (options?.enabled !== false) {
@@ -41,7 +43,7 @@ describe('useDatabaseStatusSync', () => {
     });
     renderHook(() => useDatabaseStatusSync());
     expect(useDatabaseStatusStore.getState().loading).toBe(true);
-    await act(async () => pending.resolve({ models: [], providers: [] }));
+    await act(async () => pending.resolve({ ok: true, value: { models: [], providers: [] } }));
     expect(useDatabaseStatusStore.getState()).toMatchObject({
       connected: true,
       loading: false,
@@ -50,9 +52,7 @@ describe('useDatabaseStatusSync', () => {
   });
   it('reports a failed native writer without selecting the PG arm', async () => {
     vi.stubGlobal('modelCatalog', {
-      read: async () => {
-        throw new Error('Host unavailable');
-      },
+      read: async () => ({ error: INTERNAL_FAULT, ok: false }),
     });
     mockUseFileRecordRepository.mockReturnValue(null);
     renderHook(() => useDatabaseStatusSync());
@@ -61,7 +61,7 @@ describe('useDatabaseStatusSync', () => {
         connected: false,
         loading: false,
         location: 'SQLite',
-        testResult: 'Host unavailable',
+        testResult: INTERNAL_FAULT.message,
       })
     );
     expect(mockUseFileRecordRepository).toHaveBeenCalledWith({ enabled: false });

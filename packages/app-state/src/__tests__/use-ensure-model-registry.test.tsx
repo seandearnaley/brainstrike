@@ -1,4 +1,5 @@
 import { type ModelCatalogCapability, projectModelCatalog } from '@brainstrike/assistant-contract';
+import type { BoundaryTransport } from '@brainstrike/assistant-contract/boundary-result';
 import type { IDatabase } from '@brainstrike/db';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { act, renderHook, waitFor } from '@testing-library/react';
@@ -31,8 +32,10 @@ describe('useEnsureModelRegistry after a failed registry fetch', () => {
     const db = { query } as unknown as IDatabase;
     renderHook(() => useEnsureModelRegistry({ db }));
     await waitFor(() => {
-      expect(useModelRegistryStore.getState().error).toBe('registry unavailable');
+      expect(useModelRegistryStore.getState().error).toEqual(expect.any(String));
     });
+    const retainedError = useModelRegistryStore.getState().error;
+    expect(retainedError).not.toBe('');
     expect(registryFetches(query)).toBe(1);
 
     const errors: (string | null)[] = [];
@@ -44,7 +47,7 @@ describe('useEnsureModelRegistry after a failed registry fetch', () => {
     unsubscribe();
     expect(registryFetches(query)).toBe(1);
     expect(errors).not.toContain(null);
-    expect(later.result.current).toBe('registry unavailable');
+    expect(later.result.current).toBe(retainedError);
 
     // Retry and the header Refresh call fetchRegistry directly.
     query.mockResolvedValue({ rows: [] });
@@ -62,12 +65,15 @@ describe('desktop model catalog consumer', () => {
   it('loads with no database and disables the lazy SQL hook even with a provided database', async () => {
     __resetModelRegistryStoreForTests();
     const snapshot = projectModelCatalog({ models: [], providers: [] });
-    const read = vi.fn(async () => snapshot);
-    const catalog: ModelCatalogCapability = {
-      initializeProviderDefaults: async () => ({ outcome: 'preserved', snapshot }),
+    const read = vi.fn(async () => ({ ok: true as const, value: snapshot }));
+    const catalog: BoundaryTransport<ModelCatalogCapability> = {
+      initializeProviderDefaults: async () => ({
+        ok: true,
+        value: { outcome: 'preserved', snapshot },
+      }),
       read,
-      setModels: async () => ({ previous: [], snapshot }),
-      setProvider: async () => snapshot,
+      setModels: async () => ({ ok: true, value: { previous: [], snapshot } }),
+      setProvider: async () => ({ ok: true, value: snapshot }),
     };
     vi.stubGlobal('modelCatalog', catalog);
     const query = vi.fn().mockRejectedValue(new Error('PG must be unavailable'));

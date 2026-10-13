@@ -18,7 +18,12 @@ async function recommendedRows(page: Page): Promise<Record<string, boolean>> {
       if (!window.modelCatalog) {
         throw new Error('Canonical model catalog unavailable');
       }
-      const { models } = await window.modelCatalog.read();
+      const { models } = await window.modelCatalog.read().then((result) => {
+        if (!result.ok) {
+          throw new Error(result.error.message);
+        }
+        return result.value;
+      });
       const wanted = new Set<string>(ids);
       return Object.fromEntries(
         models

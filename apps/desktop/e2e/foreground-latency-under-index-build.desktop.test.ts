@@ -125,8 +125,10 @@ function readFiles(): number {
 async function readIndexSummary(page: Page): Promise<IndexSummary> {
   return await page.evaluate(async () => {
     const capability = (
-      globalThis as typeof globalThis & { readonly indexSearch?: IndexSearchCapability }
-    ).indexSearch;
+      globalThis as typeof globalThis & {
+        readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
+      }
+    ).__brainstrikeTestHooks__?.indexSearch;
     if (!capability) {
       throw new Error('The native index capability is unavailable.');
     }

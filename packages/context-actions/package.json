@@ -36,5 +36,8 @@
     "type-check": "tsc --noEmit && tsc --noEmit --project tsconfig.test.json"
   },
   "type": "module",
-  "types": "./dist/index.d.ts"
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@brainstrike/assistant-contract": "workspace:*"
+  }
 }

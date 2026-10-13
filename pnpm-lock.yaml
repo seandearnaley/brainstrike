@@ -2036,6 +2036,9 @@ importers:
 
   packages/context-actions:
     dependencies:
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -2578,6 +2581,9 @@ importers:
       '@brainstrike/app-state':
         specifier: workspace:*
         version: link:../app-state
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
       '@brainstrike/context-actions':
         specifier: workspace:*
         version: link:../context-actions
@@ -4095,6 +4101,9 @@ importers:
 
   packages/utils:
     dependencies:
+      '@brainstrike/assistant-contract':
+        specifier: workspace:*
+        version: link:../assistant-contract
       '@brainstrike/logging':
         specifier: workspace:*
         version: link:../logging

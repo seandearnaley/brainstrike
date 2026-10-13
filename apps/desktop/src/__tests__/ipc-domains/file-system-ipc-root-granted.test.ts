@@ -15,6 +15,7 @@ vi.mock('@brainstrike/logging', async (importOriginal) => {
 
 import { registerFileSystemIpcHandlers } from '../../ipc-domains/file-system-ipc';
 import {
+  capabilityHandler,
   createFileSystem,
   createStorage,
   getRootsCatalog,
@@ -30,7 +31,7 @@ function grantedStorage(grantedPath: string): ElectronStorageAdapter {
 }
 
 async function invokeAddRootByPath(requestedPath: string): Promise<unknown> {
-  const handler = handlers.get('fs:addRootByPath');
+  const handler = capabilityHandler('fs:addRootByPath');
   if (!handler) {
     throw new Error('fs:addRootByPath handler was not registered');
   }

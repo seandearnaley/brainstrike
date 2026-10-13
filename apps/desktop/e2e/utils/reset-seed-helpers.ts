@@ -28,9 +28,14 @@ export async function seedNativeResetProbe(
             throw new Error('Canonical source capability missing');
           }
           return (
-            (await window.sourceFiles.list()).find(
-              (file) => file.fileName === 'reset-indexed-probe.txt'
-            )?.chunksCount ?? 0
+            (
+              await window.sourceFiles.list().then((result) => {
+                if (!result.ok) {
+                  throw new Error(result.error.message);
+                }
+                return result.value;
+              })
+            ).find((file) => file.fileName === 'reset-indexed-probe.txt')?.chunksCount ?? 0
           );
         }),
       { timeout: 60_000 }
@@ -41,13 +46,25 @@ export async function seedNativeResetProbe(
     if (!files) {
       throw new Error('Canonical source capability missing');
     }
-    const indexed = (await files.list()).find(
-      (file) => file.fileName === 'reset-indexed-probe.txt'
-    );
+    const indexed = (
+      await files.list().then((result) => {
+        if (!result.ok) {
+          throw new Error(result.error.message);
+        }
+        return result.value;
+      })
+    ).find((file) => file.fileName === 'reset-indexed-probe.txt');
     if (!indexed) {
       throw new Error('Actual indexed source missing');
     }
-    const chunks = await files.chunks({ fileId: indexed.fileId, limit: 100, offset: 0 });
+    const chunks = await files
+      .chunks({ fileId: indexed.fileId, limit: 100, offset: 0 })
+      .then((result) => {
+        if (!result.ok) {
+          throw new Error(result.error.message);
+        }
+        return result.value;
+      });
     if (
       chunks.kind !== 'available' ||
       chunks.total === 0 ||
@@ -56,17 +73,24 @@ export async function seedNativeResetProbe(
       throw new Error('Actual native reset probe chunks unavailable');
     }
     const content = 'Canonical imported reset marker';
-    const imported = await files.import({
-      embeddingSetId: null,
-      files: [
-        {
-          content,
-          name: 'reset-imported-probe.txt',
-          path: 'reset-imported-probe.txt',
-          size: content.length,
-        },
-      ],
-    });
+    const imported = await files
+      .import({
+        embeddingSetId: null,
+        files: [
+          {
+            content,
+            name: 'reset-imported-probe.txt',
+            path: 'reset-imported-probe.txt',
+            size: content.length,
+          },
+        ],
+      })
+      .then((result) => {
+        if (!result.ok) {
+          throw new Error(result.error.message);
+        }
+        return result.value;
+      });
     const receipt = imported.items[0];
     if (!receipt?.imported || receipt.file.content !== content) {
       throw new Error('Imported reset probe was not committed');
@@ -89,10 +113,22 @@ export async function readNativeResetProbe(
       throw new Error('Canonical source capability missing');
     }
     return {
-      files: (await source.list()).length,
-      retainedProbeIds: (await source.read([ids.indexedFileId, ids.importedFileId], 4096)).map(
-        (file) => file.fileId
-      ),
+      files: (
+        await source.list().then((result) => {
+          if (!result.ok) {
+            throw new Error(result.error.message);
+          }
+          return result.value;
+        })
+      ).length,
+      retainedProbeIds: (
+        await source.read([ids.indexedFileId, ids.importedFileId], 4096).then((result) => {
+          if (!result.ok) {
+            throw new Error(result.error.message);
+          }
+          return result.value;
+        })
+      ).map((file) => file.fileId),
     };
   }, probe);
 }

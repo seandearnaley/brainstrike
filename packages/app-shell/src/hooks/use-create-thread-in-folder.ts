@@ -1,3 +1,4 @@
+import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   type AssistantThreadCatalogRepository,
   createPgliteAssistantThreadRepository,
@@ -69,7 +70,7 @@ export function useCreateThreadInFolderRepository(
               ...(folder.path ? { operatingRootPath: folder.path } : {}),
             });
           } catch (error: unknown) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message = describeBoundaryError(error);
             toast({
               description: `Could not bind it to ${folder.displayName}. Open the thread and select ${folder.displayName} to retry. Error: ${message}`,
               title: 'Thread created in No folder',
@@ -79,7 +80,7 @@ export function useCreateThreadInFolderRepository(
         })
         .catch((error: unknown) => {
           toast({
-            description: error instanceof Error ? error.message : String(error),
+            description: describeBoundaryError(error),
             title: `New thread in ${folder.displayName} failed`,
             variant: 'destructive',
           });

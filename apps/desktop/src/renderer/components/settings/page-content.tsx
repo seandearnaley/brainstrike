@@ -55,11 +55,13 @@ import {
 } from '@brainstrike/settings-ui/settings-page-content';
 import { FileCog, Layers } from 'lucide-react';
 import { useMemo } from 'react';
+import { indexSearchContract } from '../../../ipc-domains/index-search.contract';
 import {
   type DesktopHostMcpSettings,
   resolveDesktopHostMcpSettings,
   resolveDesktopMcpContent,
 } from '../../host-mcp-settings';
+import { createIpcCapability } from '../../ipc-capability';
 import { DesktopLoggingSettings } from './logging-settings';
 import { useWorktreeSettings } from './use-worktree-settings';
 
@@ -413,7 +415,12 @@ export default function SettingsPageContent() {
 
     return [
       createAppearanceSettingsCategory(),
-      createSearchIndexingSettingsCategory(window.indexSearch, visibleLocalExecution()),
+      createSearchIndexingSettingsCategory(
+        window.indexSearch
+          ? createIpcCapability(window.indexSearch, indexSearchContract)
+          : undefined,
+        visibleLocalExecution()
+      ),
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       createCostTrackingSettingsCategory(),
       createLocalRuntimeSettingsCategory(),

@@ -36,7 +36,12 @@ async function enableChatModel(page: Page): Promise<void> {
     if (!window.modelCatalog) {
       throw new Error('Desktop model catalog is unavailable');
     }
-    await window.modelCatalog.setModels([model], true);
+    await window.modelCatalog.setModels([model], true).then((result) => {
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.value;
+    });
   }, MODEL);
 }
 
@@ -51,7 +56,12 @@ async function savedChoices(page: Page): Promise<{ collections: unknown[]; state
     if (!window.collectionCatalog) {
       throw new Error('Desktop collection catalog is unavailable');
     }
-    const collections = await window.collectionCatalog.list();
+    const collections = await window.collectionCatalog.list().then((result) => {
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.value;
+    });
     return {
       collections: [...collections],
       state: saved ? (JSON.parse(saved) as { state: unknown }).state : null,

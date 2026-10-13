@@ -76,7 +76,10 @@ describe('hidden preload runtime capability manifest', () => {
     const catalog = exposed.get('modelCatalog') as { read(): Promise<unknown> };
     expect(Object.keys(catalog)).toEqual(['read']);
     invokeMock.mockResolvedValueOnce({ ok: true, value: { models: [], providers: [] } });
-    await expect(catalog.read()).resolves.toEqual({ models: [], providers: [] });
+    await expect(catalog.read()).resolves.toEqual({
+      ok: true,
+      value: { models: [], providers: [] },
+    });
     expect(exposed.get('electronAPI')).not.toHaveProperty('db');
     expect(exposed.has('databaseIntegrity')).toBe(false);
   });
@@ -102,7 +105,7 @@ describe('hidden preload runtime capability manifest', () => {
     expect(exposed.has('electronAPI')).toBe(false);
     const ids = ['file-1'];
     invokeMock.mockResolvedValueOnce({ ok: true, value: [] });
-    await expect(sources.read(ids, 1024)).resolves.toEqual([]);
+    await expect(sources.read(ids, 1024)).resolves.toEqual({ ok: true, value: [] });
     expect(invokeMock).toHaveBeenLastCalledWith(sourceFilesContract.read.channel, ids, 1024);
   });
   it('keeps each hidden role bridge at its exact runtime key set', async () => {
@@ -144,7 +147,10 @@ describe('hidden preload runtime capability manifest', () => {
       error: { category: 'storage', code: 'closed', message: 'Catalog unavailable' },
       ok: false,
     });
-    await expect(catalog.read()).rejects.toMatchObject({ category: 'storage', code: 'closed' });
+    await expect(catalog.read()).resolves.toMatchObject({
+      error: { category: 'storage', code: 'closed' },
+      ok: false,
+    });
     expect(invokeMock).toHaveBeenCalledOnce();
     expect(exposed.has('databaseIntegrity')).toBe(false);
   });

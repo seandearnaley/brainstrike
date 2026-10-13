@@ -304,6 +304,14 @@ Guard: `packages/agent/src/__tests__/mastra-stream-first-output.integration.spec
 
 ### Provider errors, tripwires and finish reasons
 
+The agent host keeps the original SDK error in `HostRunOutcome` and its private
+failure log. Before publishing a durable `stream.chunk` error it substitutes that
+owner's already-resolved public detail, the same bounded, scrubbed projection used
+by `run.finished`. SDK request/response bodies and retry graphs never enter the
+public error chunk; live and reopened views consume the same stored projection.
+The existing expired-OpenAI-item decision retains only its stable code,
+non-retryable flag and fixed confirmation instruction alongside that projection.
+
 - Classify every provider/model error at the single stream-mapper choke point. No
   provider-specific fetch wrapper or retry-attempt instrumentation participates.
 - The terminal `run.failed` event carries one namespaced `metadata.runError`
@@ -313,8 +321,11 @@ Guard: `packages/agent/src/__tests__/mastra-stream-first-output.integration.spec
   `mastra_agent_stream_provider_error` when the bounded cause walk found an
   `httpStatus`, `providerRequestId`, allowlisted `responseHeaders` or an AI SDK
   api-call marker, and `mastra_agent_stream_local_error` when it found none. A
-  local runtime fault must never wear the provider label, nor the reverse. Emit at
-  most four bounded cause strings; end every truncated string with
+  local runtime fault must never wear the provider label, nor the reverse. Local
+  classifications carry only their stable code: raw message/cause prose stays in
+  the original private diagnostic logger cause, because event metadata also
+  appears in expanded run activity and debug exports. Provider classifications
+  retain their allowlisted evidence. Emit at most four bounded provider cause strings; end every truncated string with
   `… [truncated]`.
 - Response headers are a literal, case-normalized allowlist limited to rate-limit,
   `Retry-After` and provider request-id variants. Request/response bodies,

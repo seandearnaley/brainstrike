@@ -2,6 +2,10 @@ import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-r
 import { useAssistantPreferencesStore } from '@brainstrike/app-state/stores/assistant-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import type { RuntimeModelSettings } from '@brainstrike/assistant-contract';
+import {
+  type BoundaryTransport,
+  createBoundaryCapability,
+} from '@brainstrike/assistant-contract/boundary-result';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import type { AssistantThreadCatalogRepository } from '@brainstrike/assistant-data';
 import {
@@ -252,10 +256,14 @@ interface ConnectedPromptManagerProps {
 }
 
 export function ConnectedPromptManager(props: ConnectedPromptManagerProps) {
-  const capability =
+  const transport =
     typeof window === 'undefined'
       ? undefined
-      : (window as Window & { promptLibrary?: PromptLibraryCapability }).promptLibrary;
+      : (window as Window & { promptLibrary?: BoundaryTransport<PromptLibraryCapability> })
+          .promptLibrary;
+  const capability = transport
+    ? createBoundaryCapability<PromptLibraryCapability>(transport)
+    : undefined;
   return capability ? (
     <NativePromptManager {...props} capability={capability} />
   ) : (

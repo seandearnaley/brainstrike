@@ -1,3 +1,4 @@
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   type AssistantMemoryThread,
   useAssistantThreadGroupsStore,
@@ -2789,9 +2790,10 @@ describe('ThreadsPanel folders', () => {
     fireEvent.click(screen.getByTestId('thread-folder-new-thread'));
 
     expect(await screen.findByText('Thread created in No folder')).toBeVisible();
+    expect(screen.queryByText(/Metadata update failed in PGlite/)).not.toBeInTheDocument();
     expect(
       screen.getByText(
-        'Could not bind it to workspace-a. Open the thread and select workspace-a to retry. Error: Metadata update failed in PGlite'
+        `Could not bind it to workspace-a. Open the thread and select workspace-a to retry. Error: ${INTERNAL_FAULT.message}`
       )
     ).toBeVisible();
     await waitFor(() => {
@@ -3069,7 +3071,13 @@ it('loads host conversations, retained folders and custom groups without a PG pr
   ]);
   Object.defineProperty(window, 'threadGroups', {
     configurable: true,
-    value: { readRoots, request },
+    value: {
+      readRoots: async () => ({ ok: true, value: await readRoots() }),
+      request: async (...args: Parameters<typeof request>) => ({
+        ok: true,
+        value: await request(...args),
+      }),
+    },
   });
   renderThreadsPanel(host);
   expect(await screen.findByText('Host current')).toBeVisible();

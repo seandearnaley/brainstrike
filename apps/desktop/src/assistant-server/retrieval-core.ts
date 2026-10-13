@@ -9,7 +9,7 @@ import type {
 } from '@brainstrike/agent';
 import { ContextPacker } from '@brainstrike/agent';
 import { SecretReadError } from '@brainstrike/agent-host/credential-contract';
-import { ToolInputError } from '@brainstrike/assistant-contract';
+import { BoundaryFailureError, ToolInputError } from '@brainstrike/assistant-contract';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import { countTokensHeuristic } from '@brainstrike/tokenization';
@@ -399,13 +399,16 @@ async function runRetrieval(
 
 /**
  * What the model may see is decided by type, never by message text (BST-1985):
- * a `ToolInputError` refusal (e.g. workspace-root resolution) passes through,
+ * a `ToolInputError` or typed boundary refusal passes through unchanged,
  * and a stored key the user must repair becomes one; everything else is logged
  * redacted behind the generic failure. The execution guard returns only a
  * `ToolInputError` verbatim, so a plain Error is never a way to reach the model.
  */
 function handleRetrievalError(error: unknown): never {
-  if (error instanceof ToolInputError) {
+  if (
+    error instanceof ToolInputError ||
+    (error instanceof BoundaryFailureError && error.failure.kind === 'refusal')
+  ) {
     throw error;
   }
   if (error instanceof SecretReadError) {

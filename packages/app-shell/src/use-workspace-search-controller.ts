@@ -1,6 +1,10 @@
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
 import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
+import {
+  BoundaryFailureError,
+  describeBoundaryError,
+} from '@brainstrike/assistant-contract/boundary-failure';
 import { createGrepSearchService, createHybridSearchService } from '@brainstrike/db';
 import { type DbHandle, useFileChunkRepository, usePGliteDatabase } from '@brainstrike/db/react';
 import {
@@ -208,6 +212,10 @@ export function createNativeWorkspaceSearchRunners(
           error.code === 'native-index-transitioning'
         ) {
           onTransitioning(generation, mode);
+          return;
+        }
+        if (error instanceof BoundaryFailureError) {
+          useWorkspaceSearchStore.getState().failSearch(describeBoundaryError(error), generation);
           return;
         }
         useWorkspaceSearchStore
@@ -449,7 +457,12 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
       pending = true;
       do {
         refreshRequested = false;
-        const value = await getNativeSemanticAvailability(availabilityScope);
+        const value = await getNativeSemanticAvailability(availabilityScope).catch(
+          (error: unknown) => ({
+            available: false,
+            reason: describeBoundaryError(error),
+          })
+        );
         if (!current) {
           return;
         }

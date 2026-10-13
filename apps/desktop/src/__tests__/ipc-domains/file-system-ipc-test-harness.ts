@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { readBoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { WorkspaceRootPort, WorkspaceRootRecord } from '@brainstrike/state-store';
@@ -122,4 +123,15 @@ export function clearE2eFileSystemFixture(): void {
 export function setE2eFileSystemFixture(fixture: unknown): void {
   (globalThis as { [E2E_FILE_SYSTEM_FIXTURE_KEY]?: unknown })[E2E_FILE_SYSTEM_FIXTURE_KEY] =
     fixture;
+}
+
+/** Functional consumer: decode the actual registered Main handler's wire result. */
+export function capabilityHandler(channel: string): IpcHandler {
+  return async (event, ...args) => {
+    const handler = handlers.get(channel);
+    if (!handler) {
+      throw new Error(`Unregistered filesystem channel: ${channel}`);
+    }
+    return readBoundaryResult(await handler(event, ...args));
+  };
 }

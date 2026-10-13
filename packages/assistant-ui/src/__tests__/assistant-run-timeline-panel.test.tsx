@@ -7,6 +7,7 @@ import type { ReactNode } from 'react';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { resolveAssistantRunEventStatus } from '../assistant-run-event-derivation';
 import { AssistantRunTimeline } from '../assistant-run-timeline';
+import localFailureEvent from './fixtures/local-failure-event.json';
 
 beforeAll(() => {
   global.ResizeObserver = class {
@@ -120,6 +121,17 @@ describe('AssistantRunTimeline', () => {
     expect(screen.getByText('thread-1')).toBeInTheDocument();
     expect(screen.getByText('resourceId')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /collapse run activity/i })).toBeInTheDocument();
+  });
+
+  it('shows a committed local failure code without exposing private exception paths when expanded', async () => {
+    // Recorded from the real child-continuation integration stream; the producer
+    // regression separately verifies this envelope and private logger cause.
+    const user = userEvent.setup();
+    const { container } = wrap(<AssistantRunTimeline data={localFailureEvent} />);
+    await user.click(screen.getByRole('button', { name: /expand run activity/i }));
+    expect(screen.getByText(/mastra_agent_stream_local_error/)).toBeInTheDocument();
+    expect(container.textContent).not.toContain('/Users/fixture/private/');
+    expect(container.textContent).not.toContain('Provider refused continuation');
   });
 
   it('expands detail text and JSON-safe metadata values', async () => {

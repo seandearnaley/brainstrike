@@ -12,6 +12,7 @@ import {
   useSkillsPreferencesStore,
 } from '@brainstrike/app-state/stores/skills-preferences-store';
 import type { SkillsScanResultSummary } from '@brainstrike/assistant-contract';
+import type { BoundaryTransport } from '@brainstrike/assistant-contract/boundary-result';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -22,11 +23,11 @@ interface SkillsBridge {
 }
 
 function setBridge(bridge: SkillsBridge | undefined): void {
-  const host = window as { skills?: SkillsBridge };
+  const host = window as { skills?: BoundaryTransport<SkillsBridge> };
   if (bridge === undefined) {
     Reflect.deleteProperty(host, 'skills');
   } else {
-    host.skills = bridge;
+    host.skills = { scan: async () => ({ ok: true, value: await bridge.scan() }) };
   }
 }
 
@@ -87,7 +88,10 @@ describe('SkillsSettingsSection', () => {
   });
 
   it('treats a present-but-malformed bridge as absent (shared resolver fails closed)', () => {
-    setBridge({ scan: 'not-a-function' } as unknown as SkillsBridge);
+    Object.defineProperty(window, 'skills', {
+      configurable: true,
+      value: { scan: 'not-a-function' },
+    });
     render(<SkillsSettingsSection />);
     expect(screen.getByText(/desktop/i)).toBeInTheDocument();
   });

@@ -1,5 +1,5 @@
 import type { AssistantRunEvent } from '@brainstrike/assistant-contract';
-import { renderHook } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 /**
@@ -32,7 +32,7 @@ function installWindowFocus(initiallyFocused: boolean): FakeWindowFocus {
   Object.defineProperty(window, 'windowFocus', {
     configurable: true,
     value: {
-      isFocused: () => Promise.resolve(initiallyFocused),
+      isFocused: () => Promise.resolve({ ok: true, value: initiallyFocused }),
       onChange: (callback: (focused: boolean) => void) => {
         listeners.add(callback);
         return () => {
@@ -73,16 +73,16 @@ function stubNotification(): ReturnType<typeof vi.fn> {
   return NotificationMock;
 }
 
-async function mountHook() {
+async function mountHook(expectedFocus: boolean) {
   const { useNotificationPreferencesStore } = await import(
     '@brainstrike/app-state/stores/notification-preferences-store'
   );
   useNotificationPreferencesStore.getState().setMasterEnabled(true);
   const { useAssistantRunNotifications } = await import('../use-assistant-run-notifications');
   const { result } = renderHook(() => useAssistantRunNotifications());
-  // Lets the bridge's initial `isFocused()` read settle inside `use-app-active`.
-  await Promise.resolve();
-  await Promise.resolve();
+  // Wait for the actual decoded focus state, including the transport promise.
+  const { isAppActive } = await import('@brainstrike/hooks');
+  await waitFor(() => expect(isAppActive()).toBe(expectedFocus));
   return result;
 }
 
@@ -109,7 +109,7 @@ describe('useAssistantRunNotifications on the native window-focus signal', () =>
     setDocument({ focused: false });
     installWindowFocus(true);
     const NotificationMock = stubNotification();
-    const result = await mountHook();
+    const result = await mountHook(true);
 
     result.current.onRunFinished(FINISHED_EVENT);
 
@@ -120,7 +120,7 @@ describe('useAssistantRunNotifications on the native window-focus signal', () =>
     setDocument({ focused: true });
     installWindowFocus(false);
     const NotificationMock = stubNotification();
-    const result = await mountHook();
+    const result = await mountHook(false);
 
     result.current.onRunFinished(FINISHED_EVENT);
 
@@ -131,7 +131,7 @@ describe('useAssistantRunNotifications on the native window-focus signal', () =>
     setDocument({ focused: false });
     const nativeFocus = installWindowFocus(true);
     const NotificationMock = stubNotification();
-    const result = await mountHook();
+    const result = await mountHook(true);
 
     nativeFocus.emit(false);
     result.current.onRunFinished(FINISHED_EVENT);
@@ -146,7 +146,7 @@ describe('useAssistantRunNotifications on the native window-focus signal', () =>
     setDocument({ focused: false });
     const nativeFocus = installWindowFocus(true);
     const NotificationMock = stubNotification();
-    const result = await mountHook();
+    const result = await mountHook(true);
     const { isAppActive } = await import('@brainstrike/hooks');
 
     for (const [index, focused] of [true, false, true, false].entries()) {

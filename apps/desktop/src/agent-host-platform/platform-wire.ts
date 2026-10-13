@@ -7,6 +7,7 @@ import {
 } from '@brainstrike/agent-host/protocol';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import {
+  ReferencedFileFailureSchema,
   runtimeSubagentSettingsSchema,
   TOOL_RISK_CATEGORIES,
 } from '@brainstrike/assistant-contract';
@@ -130,6 +131,7 @@ export const PlatformSelectionSchema = z.strictObject({
   }),
   /** The admitted runtime the host's shared native tools execute against. */
   nativeRuntime: PlatformNativeRuntimeSchema,
+  referencedFileFailures: z.array(ReferencedFileFailureSchema).optional(),
   resourceId: Id,
   system: z.string().optional(),
   tools: z.record(

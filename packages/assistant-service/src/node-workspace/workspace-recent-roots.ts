@@ -1,5 +1,10 @@
 import path from 'node:path';
-import { AccessError, type DirectoryHandle } from '@brainstrike/file-system';
+import {
+  BoundaryFailureError,
+  fault,
+  refusalError,
+} from '@brainstrike/assistant-contract/boundary-failure';
+import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import type { RecentRootEntry } from '@brainstrike/types';
 import { pathsEqual } from './workspace-root-paths.js';
@@ -332,7 +337,12 @@ export async function resolveGrantedRootHandle(
     return { grantSource: 'recents', handle };
   }
   if (!isManagedWorktreePath) {
-    throw new AccessError(NEVER_GRANTED_MESSAGE, requestedPath, 'read');
+    throw refusalError(
+      'authorization',
+      'workspace.never-granted',
+      NEVER_GRANTED_MESSAGE,
+      'Choose this folder with Add folder to grant access.'
+    );
   }
 
   let authorization: ManagedWorktreeAuthorization;
@@ -342,16 +352,27 @@ export async function resolveGrantedRootHandle(
     // A broken authorizer must not become an implicit grant, and must not be
     // silent either.
     logger.error('managed-worktree authorization check threw', { error, path: normalized });
-    throw new AccessError(NEVER_GRANTED_MESSAGE, requestedPath, 'read');
+    throw new BoundaryFailureError(
+      fault({
+        category: 'availability',
+        code: 'workspace.authorization-unavailable',
+        message: 'Folder authorization is unavailable.',
+        remedy: 'Retry connecting the folder.',
+      }),
+      { cause: error }
+    );
   }
   if (authorization === 'authorized') {
     return { grantSource: 'managed-worktree', handle };
   }
-  throw new AccessError(
+  throw refusalError(
+    'authorization',
+    authorization === 'managed-but-unauthorized'
+      ? 'workspace.managed-not-authorized'
+      : 'workspace.never-granted',
     authorization === 'managed-but-unauthorized'
       ? MANAGED_BUT_UNAUTHORIZED_MESSAGE
       : NEVER_GRANTED_MESSAGE,
-    requestedPath,
-    'read'
+    'Choose this folder with Add folder to grant access.'
   );
 }

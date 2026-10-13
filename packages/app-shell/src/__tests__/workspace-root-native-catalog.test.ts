@@ -1,3 +1,4 @@
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import type { DbHandle } from '@brainstrike/db/react';
 import type { ThreadCatalogRoot } from '@brainstrike/types';
 import { afterEach, expect, it, vi } from 'vitest';
@@ -14,7 +15,10 @@ const root: ThreadCatalogRoot = {
 };
 const candidate = { displayName: root.displayName, path: root.path };
 function install(readRoots: () => Promise<readonly ThreadCatalogRoot[]>) {
-  Object.defineProperty(window, 'threadGroups', { configurable: true, value: { readRoots } });
+  Object.defineProperty(window, 'threadGroups', {
+    configurable: true,
+    value: { readRoots: async () => ({ ok: true, value: await readRoots() }) },
+  });
 }
 afterEach(() => Reflect.deleteProperty(window, 'threadGroups'));
 
@@ -54,7 +58,7 @@ it('propagates a native read failure without retrying or querying SQL', async ()
   install(readRoots);
   await expect(
     resolveRootIdAfterReconciliation({ query } as unknown as DbHandle, candidate, () => false)
-  ).resolves.toEqual({ error: cause, kind: 'unresolved' });
+  ).resolves.toMatchObject({ error: { cause, failure: INTERNAL_FAULT }, kind: 'unresolved' });
   expect(readRoots).toHaveBeenCalledOnce();
   expect(query).not.toHaveBeenCalled();
 });

@@ -400,7 +400,12 @@ export async function clearDatabaseRecords(page: Page): Promise<Page> {
     if (!window.sourceFiles) {
       throw new Error('Canonical source capability missing after content clear');
     }
-    return await window.sourceFiles.list();
+    return await window.sourceFiles.list().then((result) => {
+      if (!result.ok) {
+        throw new Error(result.error.message);
+      }
+      return result.value;
+    });
   });
   expect(remaining).toEqual([]);
   return activePage;

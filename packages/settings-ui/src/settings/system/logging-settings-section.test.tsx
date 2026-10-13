@@ -1,3 +1,4 @@
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { DIAGNOSTIC_EVENTS_PURGE_LIMIT } from '@brainstrike/db';
 import { LogLevel, type LogRecord } from '@brainstrike/logging';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -410,7 +411,7 @@ describe('LoggingSettingsSection export NDJSON button', () => {
     await waitFor(() =>
       expect(toastMock).toHaveBeenCalledWith(
         expect.objectContaining({
-          description: 'database unavailable',
+          description: INTERNAL_FAULT.message,
           title: 'Failed to export diagnostics',
           variant: 'destructive',
         })

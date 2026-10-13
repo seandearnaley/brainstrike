@@ -24,7 +24,9 @@
  * owner finds each root's pre-revert snapshot by `rewindId`, so an
  * interrupted rewind stays redoable.
  */
+
 import { randomUUID } from 'node:crypto';
+import { refusalError } from '@brainstrike/assistant-contract';
 import type { HostRunState } from './core-state.js';
 import type { Json } from './json-value.js';
 import type { HostPlatform } from './ports.js';
@@ -276,7 +278,7 @@ export class HostThreadRewinds {
       }
       const { rewindFiles, targets } = this.fileTargets(target);
       if (params.previewId === undefined) {
-        throw new Error('A files rewind needs its preview');
+        throw refusalError('input', 'rewind.preview-required', 'A files rewind needs its preview');
       }
       const request = { previewId: params.previewId, threadId: params.threadId };
       const conflicts = await rewindFiles.drift(request);
@@ -314,7 +316,11 @@ export class HostThreadRewinds {
         !(rewind?.current && rewind.phase === 'rewound') ||
         rewind.started.rewindId !== params.rewindId
       ) {
-        throw new Error("Only the thread's newest rewind can be redone, before a new run starts");
+        throw refusalError(
+          'conflict',
+          'rewind.redo-unavailable',
+          "Only the thread's newest rewind can be redone, before a new run starts"
+        );
       }
       const { rewindId } = params;
       const redoStarted: HostEvent = {
@@ -362,7 +368,11 @@ export class HostThreadRewinds {
   private assertIdle(threadId: string): void {
     for (const run of this.ports.owner().runs.values()) {
       if (run.threadId === threadId && !run.terminal) {
-        throw new Error('A rewind is refused while the thread has an active run');
+        throw refusalError(
+          'conflict',
+          'rewind.run-active',
+          'A rewind is refused while the thread has an active run'
+        );
       }
     }
   }
@@ -381,7 +391,11 @@ export class HostThreadRewinds {
     const answering = threadRuns.filter((run) => run.branch.userMessageId === messageId);
     const first = answering[0];
     if (!first) {
-      throw new Error('The rewind target is not a committed user message of this thread');
+      throw refusalError(
+        'input',
+        'rewind.target-unknown',
+        'The rewind target is not a committed user message of this thread'
+      );
     }
     if (rewoundRunId !== undefined) {
       return {
@@ -403,7 +417,11 @@ export class HostThreadRewinds {
           : byId.get(cursor.branch.parentMessageId);
     }
     if (!cursor) {
-      throw new Error("The rewind target is not on the thread's current branch");
+      throw refusalError(
+        'conflict',
+        'rewind.target-off-branch',
+        "The rewind target is not on the thread's current branch"
+      );
     }
     path.push(cursor);
     return {
@@ -420,10 +438,14 @@ export class HostThreadRewinds {
   } {
     const rewindFiles = this.ports.owner().platform.rewindFiles;
     if (!rewindFiles) {
-      throw new Error('This host has no workspace snapshot owner to restore files');
+      throw refusalError(
+        'configuration',
+        'rewind.files-unavailable',
+        'This host has no workspace snapshot owner to restore files'
+      );
     }
     if ('reason' in target.files) {
-      throw new Error(target.files.reason);
+      throw refusalError('conflict', 'rewind.files-unrestorable', target.files.reason);
     }
     return { rewindFiles, targets: target.files.targets };
   }

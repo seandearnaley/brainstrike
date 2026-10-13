@@ -74,7 +74,14 @@ async function readCollectionRows(page: Page): Promise<CollectionRow[]> {
     if (!window.collectionCatalog) {
       throw new Error('Desktop collection catalog is unavailable');
     }
-    return (await window.collectionCatalog.list()).map((row) => ({
+    return (
+      await window.collectionCatalog.list().then((result) => {
+        if (!result.ok) {
+          throw new Error(result.error.message);
+        }
+        return result.value;
+      })
+    ).map((row) => ({
       dimensions: row.dimensions,
       id: row.id,
       model_id: row.modelId,
@@ -100,8 +107,11 @@ async function readNativeStatus(
   page: Page
 ): Promise<Awaited<ReturnType<IndexSearchCapability['status']>>> {
   return await page.evaluate(async () => {
-    const capability = (window as Window & { readonly indexSearch?: IndexSearchCapability })
-      .indexSearch;
+    const capability = (
+      window as Window & {
+        readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
+      }
+    ).__brainstrikeTestHooks__?.indexSearch;
     if (!capability) {
       throw new Error('Native indexing capability is unavailable.');
     }
@@ -126,13 +136,20 @@ async function createCatalogCollection(page: Page): Promise<string> {
     if (!window.collectionCatalog) {
       throw new Error('Desktop collection catalog is unavailable');
     }
-    const collection = await window.collectionCatalog.create({
-      dimensions: 384,
-      distance: 'cosine',
-      metadata: { name: 'Selected collection' },
-      modelId: 'Xenova/all-MiniLM-L6-v2',
-      modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-    });
+    const collection = await window.collectionCatalog
+      .create({
+        dimensions: 384,
+        distance: 'cosine',
+        metadata: { name: 'Selected collection' },
+        modelId: 'Xenova/all-MiniLM-L6-v2',
+        modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+      })
+      .then((result) => {
+        if (!result.ok) {
+          throw new Error(result.error.message);
+        }
+        return result.value;
+      });
     return collection.id;
   });
 }

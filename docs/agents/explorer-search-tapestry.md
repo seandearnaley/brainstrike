@@ -49,6 +49,8 @@
   and optimistically available. Why: the semantic executor's FTS arm is scoped
   only by `embedding_set_id`, so an ungated run silently returns lexical-only
   results.
+- Present typed native Search failures through the shared boundary formatter, retaining
+  the public message and remedy without exposing private causes or stacks.
 - Keep the store session-only, registered through
   `registerFactoryResetSessionStore`; the active tab persists in
   `context-explorer-layout-store`.

@@ -1,11 +1,13 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract';
 import { describe, expect, it } from 'vitest';
 
 import {
   LOCAL_RUN_ERROR_FALLBACK_CODE,
   PROVIDER_RUN_ERROR_FALLBACK_CODE,
 } from '../../provider-error-metadata';
+import { OpenAIStoredItemExpiredError } from '../../providers/openai-expired-item';
 import type { RuntimeData, StreamChunkTool } from '../../types';
 import {
   asMastraStreamPart,
@@ -45,6 +47,16 @@ function deepFreeze<T>(value: T): T {
   }
   return value;
 }
+
+it('keeps the explicit replay decision for a classified expired OpenAI item', () => {
+  const original = new Error('private provider payload with sk-synthetic-only');
+  const error = new OpenAIStoredItemExpiredError(original);
+  const resolved = resolveProviderError(error, undefined);
+  expect(resolved.failure).toMatchObject({ category: 'configuration', kind: 'refusal' });
+  expect(resolved.detail).toBe(error.message);
+  expect(resolved.detail).not.toContain(original.message);
+  expect(error.cause).toBe(original);
+});
 
 describe('asMastraStreamPart', () => {
   it('passes objects through untouched', () => {
@@ -378,7 +390,7 @@ describe('extractErrorMessage', () => {
 describe('resolveProviderError', () => {
   it('prefers the extracted message over the run error message', () => {
     expect(resolveProviderError(new Error('model unavailable'), undefined).detail).toBe(
-      'model unavailable'
+      INTERNAL_FAULT.message
     );
   });
 
@@ -394,8 +406,8 @@ describe('resolveProviderError', () => {
     const openrouter = resolveProviderError(value, { provider: ' OpenRouter ' } as RuntimeData);
     const anthropic = resolveProviderError(value, { provider: 'anthropic' } as RuntimeData);
     expect(openrouter.runError.code).toBe('context_length_exceeded');
-    expect(openrouter.detail).toBe('[context_length_exceeded] slow down');
-    expect(anthropic.detail).toBe('slow down');
+    expect(openrouter.failure.providerEvidence).toBe('[context_length_exceeded] slow down');
+    expect(anthropic.failure.providerEvidence).toBe('slow down');
   });
 
   it('omits the prefix when OpenRouter yielded only a fallback classification', () => {
@@ -406,13 +418,13 @@ describe('resolveProviderError', () => {
       provider: 'openrouter',
     } as RuntimeData);
     expect(local.runError.code).toBe(LOCAL_RUN_ERROR_FALLBACK_CODE);
-    expect(local.detail).toBe('opaque');
+    expect(local.detail).toBe(INTERNAL_FAULT.message);
 
     const provider = resolveProviderError({ message: 'opaque', statusCode: 500 }, {
       provider: 'openrouter',
     } as RuntimeData);
     expect(provider.runError.code).toBe(PROVIDER_RUN_ERROR_FALLBACK_CODE);
-    expect(provider.detail).toBe('opaque');
+    expect(provider.failure.providerEvidence).toBe('opaque');
   });
 
   // BST-1384: a provider 401 is the ONE wrong-credential status (the same rule
@@ -518,7 +530,10 @@ describe('resolveProviderError', () => {
         { message: 'Your account is not allowed to use this model.', statusCode: 403 },
         { provider: 'openrouter' } as RuntimeData
       );
-      expect(resolved.detail).toBe('Your account is not allowed to use this model.');
+      expect(resolved.failure.providerEvidence).toBe(
+        'Your account is not allowed to use this model.'
+      );
+      expect(resolved.failure.code).toBe('provider.request-rejected');
     });
 
     it('never classifies a local (evidence-free) failure as a rejected key', () => {
@@ -528,7 +543,7 @@ describe('resolveProviderError', () => {
         provider: 'openrouter',
       } as RuntimeData);
       expect(resolved.runError.code).toBe(LOCAL_RUN_ERROR_FALLBACK_CODE);
-      expect(resolved.detail).toBe('User not found.');
+      expect(resolved.detail).toBe(INTERNAL_FAULT.message);
     });
   });
 });

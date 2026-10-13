@@ -28,7 +28,11 @@ test('ordinary app Main validates a committed host root through its actual catal
         if (!(bridge && files)) {
           throw new Error('Ordinary app owner capabilities are unavailable');
         }
-        const rows = (await files.restoreRoots())
+        const reply = await files.restoreRoots();
+        if (!reply.ok) {
+          throw new Error(reply.error.message);
+        }
+        const rows = reply.value
           .filter((root) => root.rootId === expectedRootId)
           .map((root) => ({
             id: root.rootId,

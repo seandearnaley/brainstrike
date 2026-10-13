@@ -3,6 +3,7 @@ import {
   useBackgroundIndexingPreferencesStore,
 } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
+import { usePanelLayoutStore } from '@brainstrike/app-state/stores/panel-layout-store';
 import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
@@ -75,6 +76,7 @@ const graniteModel = makeDbModel({
 describe('SearchIndexingSettingsSection', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    usePanelLayoutStore.setState({ activeTab: 'settings' });
     vi.stubGlobal(
       'ResizeObserver',
       class {
@@ -452,10 +454,35 @@ describe('SearchIndexingSettingsSection', () => {
       fail(new Error('WebGPU detection failed: GPU process crashed'));
       await Promise.resolve();
     });
-    expect((await screen.findByRole('alert')).textContent).toContain(
-      'WebGPU detection failed: GPU process crashed'
-    );
+    expect((await screen.findByRole('alert')).textContent).toContain("Couldn't detect WebGPU.");
     expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('retries failed WebGPU detection once when Settings reopens, but retains a successful result', async () => {
+    withLocalModels();
+    const webgpuAdapter = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('raw IPC request 17 failed'))
+      .mockResolvedValue({ available: true, reason: 'WebGPU acceleration available' });
+    render(
+      <SearchIndexingSettingsSection
+        localExecution={{ webgpuAdapter }}
+        nativeIndex={{ rebuild: vi.fn() }}
+      />
+    );
+    await screen.findByRole('alert');
+    await act(async () => {
+      usePanelLayoutStore.getState().setActiveTab('explorer');
+      usePanelLayoutStore.getState().setActiveTab('settings');
+    });
+    await waitFor(() => expect(webgpuAdapter).toHaveBeenCalledTimes(2));
+    await screen.findByRole('note');
+    await act(async () => {
+      usePanelLayoutStore.getState().setActiveTab('explorer');
+      usePanelLayoutStore.getState().setActiveTab('settings');
+    });
+    expect(webgpuAdapter).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('describes the measured cost of a catalog WASM plan it does not recommend (BST-1993)', async () => {

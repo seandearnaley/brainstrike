@@ -2,6 +2,7 @@ import {
   ASSISTANT_STREAM_EVENT_ID_HEADER,
   ASSISTANT_STREAM_MESSAGE_ID_HEADER,
 } from '@brainstrike/assistant-contract/assistant-stream-session';
+import { readBoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { SecretsWriteResult } from '@brainstrike/assistant-contract/secrets-bridge';
 import { TOOL_SUSPEND_DATA_NAME } from '@brainstrike/assistant-contract/tool-suspend';
 import type { Page } from '@playwright/test';
@@ -366,18 +367,25 @@ export async function enableAssistantCatalogModel(
   const separator = compositeModelKey.indexOf('::');
   const provider = compositeModelKey.slice(0, separator);
   const model = compositeModelKey.slice(separator + 2);
-  const rows = await page.evaluate(
-    async ([providerId, modelId]) => {
+  readBoundaryResult(
+    await page.evaluate(async (modelId) => {
       const catalog = window.modelCatalog;
       if (!catalog) {
         throw new Error('The desktop model catalog capability is unavailable');
       }
-      await catalog.setModels([modelId], true);
-      const after = await catalog.read();
-      return after.models.filter((row) => row.id === modelId && row.providerId === providerId);
-    },
-    [provider, model] as const
+      return await catalog.setModels([modelId], true);
+    }, model)
   );
+  const after = readBoundaryResult(
+    await page.evaluate(async () => {
+      const catalog = window.modelCatalog;
+      if (!catalog) {
+        throw new Error('The desktop model catalog capability is unavailable');
+      }
+      return await catalog.read();
+    })
+  );
+  const rows = after.models.filter((row) => row.id === model && row.providerId === provider);
   const [row] = rows;
   const enabled =
     rows.length === 1 &&

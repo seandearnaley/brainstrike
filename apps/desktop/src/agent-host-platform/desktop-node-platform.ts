@@ -17,8 +17,10 @@ import {
   type ProductionHostRunConfiguration,
   readHostPermissionPolicy,
 } from '@brainstrike/agent-host';
+import { fromBoundaryResponseError } from '@brainstrike/agent-host/boundary-wire';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
 import type { SupportedProvider } from '@brainstrike/assistant-contract';
+import { refusalError } from '@brainstrike/assistant-contract';
 import { isSupportedProvider } from '@brainstrike/assistant-contract/provider-metadata';
 import { parseObservationalMemoryModelTarget } from '@brainstrike/assistant-service/memory-model-targets';
 import { createHostCapabilities } from '@brainstrike/host-capabilities';
@@ -78,7 +80,11 @@ function desktopRuntimeConfiguration(
 ): RuntimeData & { readonly provider: SupportedProvider } {
   const provider = selected.configuration.provider;
   if (!isSupportedProvider(provider)) {
-    throw new Error('Desktop selected an unsupported provider');
+    throw refusalError(
+      'configuration',
+      'provider.unsupported',
+      'Desktop selected an unsupported provider'
+    );
   }
   return {
     model: selected.configuration.model,
@@ -137,7 +143,12 @@ export function borrowedLocalInference(
   const models = admittedLocalModels(selected);
   const admitted = (modelId: string): void => {
     if (!models.has(modelId)) {
-      throw new Error('Local generation is not part of this admitted thread selection');
+      throw refusalError(
+        'authorization',
+        'model.not-admitted',
+        'Local generation is not part of this admitted thread selection',
+        'Select the model for this thread and retry.'
+      );
     }
   };
   const borrow = async (
@@ -160,7 +171,12 @@ export function borrowedLocalInference(
       queryEmbedding: async ({ query }, options) => {
         const local = selected.localEmbedding;
         if (!local) {
-          throw new Error('Local embedding is not part of this admitted thread selection');
+          throw refusalError(
+            'configuration',
+            'embedding.not-configured',
+            'Local embedding is not part of this admitted thread selection',
+            'Select a local embedding model in Settings.'
+          );
         }
         const { workerPlan } = local;
         return await mainQueryEmbedding(
@@ -293,6 +309,11 @@ export async function createDesktopHostConfiguration(
     signal?.addEventListener('abort', cancel, { once: true });
     try {
       return await connection.sendRequest(method, input, cancellation.token);
+    } catch (cause) {
+      // Main's typed failure (or the internal fault) continues to this host's caller.
+      throw fromBoundaryResponseError(cause, (message, fields) =>
+        logger.error(message, { ...fields, method })
+      );
     } finally {
       signal?.removeEventListener('abort', cancel);
       cancellation.dispose();
@@ -387,7 +408,12 @@ export async function createDesktopHostConfiguration(
       // (signed legal gate, constraint 4), including restart recovery.
       const resolveAuth = (selectedProvider: string): Promise<ProviderAuthInput | undefined> => {
         if (closing) {
-          throw new Error('Provider selection is closing');
+          throw refusalError(
+            'availability',
+            'provider.selection-closing',
+            'Provider selection is closing.',
+            'Retry after selecting a model.'
+          );
         }
         return host.auth.resolveProviderAuth(selectedProvider, admission.origin);
       };
@@ -461,6 +487,7 @@ export async function createDesktopHostConfiguration(
         ...(hooks ? { hooks } : {}),
         // Core commits the hook files this run did not load (`hooks.skipped`).
         hookSkips: skipped,
+        referencedFileFailures: selected.referencedFileFailures,
         ...(selected.system === undefined ? {} : { system: selected.system }),
         maxSteps: selected.maxSteps,
         memory,
@@ -487,7 +514,12 @@ export async function createDesktopHostConfiguration(
     // The saved policy, else the admitted run's; Core remains the only gate.
     readPermissionPolicy: (threadId) => runAdmission.readPermissionPolicy(threadId),
     resolveProviderAuth: async () => {
-      throw new Error('Desktop provider auth requires an admitted thread selection');
+      throw refusalError(
+        'authorization',
+        'provider.not-admitted',
+        'Provider access requires an admitted thread selection.',
+        'Select a model for this thread and retry.'
+      );
     },
     resolveWorkspaceRoot: async ({ rootId, signal }) =>
       z

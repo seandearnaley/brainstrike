@@ -10,7 +10,11 @@ import type {
   ProviderAuthStartMethod,
   ProviderAuthStatus,
 } from '@brainstrike/assistant-contract';
-import { findProviderDefinition, isSupportedProvider } from '@brainstrike/assistant-contract';
+import {
+  findProviderDefinition,
+  isSupportedProvider,
+  refusalError,
+} from '@brainstrike/assistant-contract';
 import { HOST_VERSION } from '@brainstrike/host-lease';
 import type { HostCredentials } from '../credentials.js';
 import { purgeMcpOAuthRuntimeState } from '../mcp/oauth-client-provider.js';
@@ -68,14 +72,29 @@ export interface HostAuthority extends HostAuthService {
 /** A key credential must match the provider's own authentication form. */
 function assertLoginCredential(provider: string, credential: HostLoginCredential): void {
   if (!isSupportedProvider(provider)) {
-    throw new Error('Unsupported provider credential login');
+    throw refusalError(
+      'configuration',
+      'auth.provider-unsupported',
+      'Unsupported provider credential login',
+      'Choose a supported provider.'
+    );
   }
   const authType = findProviderDefinition(provider)?.authType;
   if (authType !== 'api_key' && authType !== 'aws') {
-    throw new Error(`Provider ${provider} does not accept a credential login`);
+    throw refusalError(
+      'authorization',
+      'auth.credential-login-unavailable',
+      'This provider does not accept a credential login',
+      'Connect subscription providers from the desktop Settings.'
+    );
   }
   if (credential.type !== authType) {
-    throw new Error(`Provider ${provider} requires a ${authType} credential`);
+    throw refusalError(
+      'input',
+      'auth.credential-type-invalid',
+      `This provider requires a ${authType} credential`,
+      'Supply the credential type declared by the selected provider.'
+    );
   }
 }
 

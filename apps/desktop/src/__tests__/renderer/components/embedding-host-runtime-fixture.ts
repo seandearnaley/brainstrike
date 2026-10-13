@@ -225,7 +225,7 @@ export function installEmbeddingHostRuntimeFixture(): void {
     });
     Object.defineProperty(window, 'modelCatalog', {
       configurable: true,
-      value: { read: readModelCatalogMock },
+      value: { read: async () => ({ ok: true, value: await readModelCatalogMock() }) },
     });
     retireEmbeddingQueueMock.mockReset().mockResolvedValue(undefined);
     generateDocumentEmbeddingsMock.mockReset();

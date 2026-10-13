@@ -61,8 +61,11 @@ async function enableTextIndexing(page: Page): Promise<void> {
 /** The paths of the native index's hits for `pattern` across every authorized root. */
 async function indexedPathsMatching(page: Page, pattern: string): Promise<string[] | 'not-ready'> {
   return await page.evaluate(async (needle) => {
-    const capability = (window as Window & { readonly indexSearch?: IndexSearchCapability })
-      .indexSearch;
+    const capability = (
+      window as Window & {
+        readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
+      }
+    ).__brainstrikeTestHooks__?.indexSearch;
     if (!capability) {
       throw new Error('The native index capability is unavailable');
     }

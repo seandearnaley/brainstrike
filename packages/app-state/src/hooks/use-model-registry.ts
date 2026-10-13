@@ -1,4 +1,8 @@
 import type { ModelCatalogCapability } from '@brainstrike/assistant-contract';
+import {
+  type BoundaryTransport,
+  createBoundaryCapability,
+} from '@brainstrike/assistant-contract/boundary-result';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import { useEffect } from 'react';
@@ -15,10 +19,14 @@ export interface UseEnsureModelRegistryOptions {
 export function useModelRegistrySource(
   providedSource?: ModelRegistrySource | null
 ): ModelRegistrySource | null {
-  const catalog =
+  const transport =
     typeof window === 'undefined'
       ? undefined
-      : (window as Window & { modelCatalog?: ModelCatalogCapability }).modelCatalog;
+      : (window as Window & { modelCatalog?: BoundaryTransport<ModelCatalogCapability> })
+          .modelCatalog;
+  const catalog = transport
+    ? createBoundaryCapability<ModelCatalogCapability>(transport)
+    : undefined;
   const contextDb = usePGliteDatabase({ enabled: !(catalog || providedSource) });
   return catalog ?? providedSource ?? contextDb;
 }

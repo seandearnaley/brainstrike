@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import type { MockLanguageModelV4 } from 'ai/test';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import { committedMemoryTranscript } from '../src/adapters/committed-memory-transcript.js';
 import { readHostRow } from '../src/event-storage.js';
 import type { HostEvent } from '../src/protocol.js';
+import { captureHostFailureDiagnostics } from './fixtures/host-failure-diagnostics.js';
 import {
   deterministicEmbedding,
   memoryVectorHost as fixture,
@@ -143,6 +145,7 @@ test.each(['thread', 'resource'] as const)(
 );
 
 test('missing semantic capability fails the run before embedding or the SDK call', async () => {
+  const diagnostics = captureHostFailureDiagnostics();
   const current = await fixture({ semanticScope: 'thread' });
   try {
     const { threadId } = await current.core.startThread({ commandId: randomUUID() });
@@ -164,13 +167,12 @@ test('missing semantic capability fails the run before embedding or the SDK call
         { timeout: 30_000 }
       )
       .toBe(true);
-    // The run commits its failure, naming the missing capability.
+    // The public run stays safe; diagnostics name the actual missing capability.
     expect(finished).toMatchObject({
-      detail: expect.stringContaining(
-        'Memory open failed: Semantic recall requires the borrowed vector owner'
-      ),
+      detail: INTERNAL_FAULT.message,
       outcome: 'failed',
     });
+    diagnostics.expectCause('Semantic recall requires the borrowed vector owner');
     expect(current.embeddingCalls).toHaveLength(0);
     expect(current.models.flatMap((model) => model.doStreamCalls)).toHaveLength(0);
     expect(current.workingReads).toHaveLength(0);

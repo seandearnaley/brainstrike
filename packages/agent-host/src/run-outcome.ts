@@ -1,4 +1,7 @@
-import { ProviderRequestContextOverflowError } from '@brainstrike/agent/provider-request';
+import {
+  OpenAIStoredItemExpiredError,
+  ProviderRequestContextOverflowError,
+} from '@brainstrike/agent/provider-request';
 import {
   describeEmptyModelResponse,
   describeStreamStall,
@@ -12,6 +15,7 @@ import {
   StreamStalledError,
   ToolCallInputStreamingTimeoutError,
 } from '@brainstrike/agent/provider-runtime';
+import { createLogger } from '@brainstrike/logging';
 import {
   APICallError,
   type FinishReason,
@@ -20,6 +24,8 @@ import {
   type ToolSet,
 } from 'ai';
 import type { HostEvent } from './protocol.js';
+
+const logger = createLogger('AgentHost');
 
 /** Finish reasons that complete a run. Every other reason is a visible failure. */
 const COMPLETED_FINISH_REASONS: ReadonlySet<FinishReason> = new Set(['stop', 'tool-calls']);
@@ -140,6 +146,12 @@ export class HostRunOutcome {
    */
   fail(cause: unknown): void {
     this.cause = cause;
+    logger.error('Assistant model attempt failed', {
+      cause,
+      rootId: this.configuration?.boundWorkspaceRootId,
+      runId: this.configuration?.memory?.runId,
+      threadId: this.configuration?.memory?.threadId,
+    });
     this.failure =
       cause instanceof StreamStalledError
         ? describeStreamStall(cause, {
@@ -150,6 +162,18 @@ export class HostRunOutcome {
         : cause instanceof ToolCallInputStreamingTimeoutError
           ? describeToolCallInputTimeout(cause)
           : resolveProviderError(cause, this.configuration).detail;
+  }
+
+  /** Preserve the existing replay decision without publishing its private SDK cause. */
+  publicError(): string | { code: string; message: string; retryable: false } | undefined {
+    if (this.cause instanceof OpenAIStoredItemExpiredError) {
+      return {
+        code: this.cause.code,
+        message: OpenAIStoredItemExpiredError.publicMessage,
+        retryable: this.cause.retryable,
+      };
+    }
+    return this.detail();
   }
 
   /** The attempt ended because a watchdog found the stream stalled. */

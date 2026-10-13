@@ -255,23 +255,30 @@ describe('preload contract-derived bridges', () => {
     expect(mockInvoke).toHaveBeenLastCalledWith(databasePathContract.getUserDataPath.channel);
   });
 
-  it('routes clipboard.writeText to the manifest channel and unwraps the result envelope', async () => {
+  it('routes clipboard.writeText to the manifest channel and transports the result envelope', async () => {
     mockInvoke.mockResolvedValueOnce({ ok: true, value: undefined });
-    await expect(exposedApi('clipboard')['writeText']?.('copied')).resolves.toBeUndefined();
+    await expect(exposedApi('clipboard')['writeText']?.('copied')).resolves.toEqual({
+      ok: true,
+      value: undefined,
+    });
     expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.clipboard.writeText, 'copied');
 
     mockInvoke.mockResolvedValueOnce({
       error: { category: 'clipboard', code: 'write_failed', message: 'clipboard locked' },
       ok: false,
     });
-    await expect(exposedApi('clipboard')['writeText']?.('copied')).rejects.toThrow(
-      'clipboard locked (clipboard · write_failed)'
-    );
+    await expect(exposedApi('clipboard')['writeText']?.('copied')).resolves.toEqual({
+      error: { category: 'clipboard', code: 'write_failed', message: 'clipboard locked' },
+      ok: false,
+    });
   });
 
-  it('routes windowFocus.isFocused to the manifest channel and unwraps the result envelope', async () => {
+  it('routes windowFocus.isFocused to the manifest channel and transports the result envelope', async () => {
     mockInvoke.mockResolvedValueOnce({ ok: true, value: true });
-    await expect(exposedApi('windowFocus')['isFocused']?.()).resolves.toBe(true);
+    await expect(exposedApi('windowFocus')['isFocused']?.()).resolves.toEqual({
+      ok: true,
+      value: true,
+    });
     expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.windowFocus.isFocused);
 
     mockInvoke.mockResolvedValueOnce({
@@ -282,9 +289,10 @@ describe('preload contract-derived bridges', () => {
       },
       ok: false,
     });
-    await expect(exposedApi('windowFocus')['isFocused']?.()).rejects.toThrow(
-      'The requesting renderer has no live BrowserWindow. (window-focus · window_unavailable)'
-    );
+    await expect(exposedApi('windowFocus')['isFocused']?.()).resolves.toMatchObject({
+      error: { code: 'window_unavailable' },
+      ok: false,
+    });
   });
 
   it('subscribes windowFocus.onChange to the push channel and returns its unsubscribe', () => {
@@ -393,7 +401,10 @@ describe('preload contract-derived bridges', () => {
     const request = { filter: { favoritesOnly: true }, operation: 'list' };
     const receipt = { accepted: true, items: [], revisions: [] };
     mockInvoke.mockResolvedValueOnce({ ok: true, value: receipt });
-    await expect(exposedApi('promptLibrary')['request']?.(request)).resolves.toEqual(receipt);
+    await expect(exposedApi('promptLibrary')['request']?.(request)).resolves.toEqual({
+      ok: true,
+      value: receipt,
+    });
     expect(mockInvoke).toHaveBeenLastCalledWith(
       DESKTOP_IPC_CHANNELS.promptLibrary.request,
       request
@@ -406,8 +417,9 @@ describe('preload contract-derived bridges', () => {
       },
       ok: false,
     });
-    await expect(exposedApi('promptLibrary')['request']?.(request)).rejects.toMatchObject({
-      code: 'prompt_library_failed',
+    await expect(exposedApi('promptLibrary')['request']?.(request)).resolves.toMatchObject({
+      error: { code: 'prompt_library_failed' },
+      ok: false,
     });
   });
 
@@ -416,9 +428,12 @@ describe('preload contract-derived bridges', () => {
     ['contextFiles', 'scan', DESKTOP_IPC_CHANNELS.contextFiles.scan],
     ['skills', 'scan', DESKTOP_IPC_CHANNELS.skills.scan],
     ['userCommands', 'list', DESKTOP_IPC_CHANNELS.userCommands.list],
-  ])('%s.%s invokes %s and unwraps the value', async (name, method, channelName) => {
+  ])('%s.%s invokes %s and transports the envelope', async (name, method, channelName) => {
     mockInvoke.mockResolvedValueOnce({ ok: true, value: { marker: name } });
-    await expect(exposedApi(name)[method]?.()).resolves.toEqual({ marker: name });
+    await expect(exposedApi(name)[method]?.()).resolves.toEqual({
+      ok: true,
+      value: { marker: name },
+    });
     expect(mockInvoke).toHaveBeenLastCalledWith(channelName);
   });
   it('forwards retained diagnostic read filters without exposing SQL', async () => {

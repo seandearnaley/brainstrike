@@ -23,7 +23,11 @@ export async function readWorkspaceRootRows(page: Page): Promise<readonly Worksp
     if (!files) {
       throw new Error('Desktop filesystem capability is unavailable');
     }
-    return (await files.restoreRoots())
+    const reply = await files.restoreRoots();
+    if (!reply.ok) {
+      throw new Error(reply.error.message);
+    }
+    return reply.value
       .map((root) => ({
         displayName: root.displayName,
         id: root.rootId,

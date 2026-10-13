@@ -1,3 +1,4 @@
+import { INTERNAL_FAULT, refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import { renderHook, waitFor } from '@testing-library/react';
 import { createElement, type ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -114,8 +115,7 @@ describe('useCreateThreadInFolder', () => {
 
     await waitFor(() =>
       expect(toastMock).toHaveBeenCalledExactlyOnceWith({
-        description:
-          'Could not bind it to brainstrike. Open the thread and select brainstrike to retry. Error: metadata unavailable',
+        description: `Could not bind it to brainstrike. Open the thread and select brainstrike to retry. Error: ${INTERNAL_FAULT.message}`,
         title: 'Thread created in No folder',
         variant: 'destructive',
       })
@@ -138,7 +138,12 @@ describe('useCreateThreadInFolder', () => {
         metadata: unknown
       ) => owner.updateThreadMetadata(threadId, metadata)
     );
-    const refusal = new Error('This host has no live thread workspace binding capability');
+    const refusal = refusalError(
+      'availability',
+      'workspace.binding-unavailable',
+      'The folder binding is unavailable.',
+      'Reconnect the folder.'
+    );
     const host: AssistantThreadHostCapability = {
       createThread: vi.fn(async (resourceId: string) => ({
         createdAt: new Date('2026-10-08T00:00:00Z'),
@@ -171,6 +176,7 @@ describe('useCreateThreadInFolder', () => {
     expect(history.updateThreadMetadata).not.toHaveBeenCalled();
     expect(toastMock.mock.calls[0]?.[0]).toMatchObject({ variant: 'destructive' });
     expect(String(toastMock.mock.calls[0]?.[0]?.description)).toContain(refusal.message);
+    expect(String(toastMock.mock.calls[0]?.[0]?.description)).toContain('Reconnect the folder.');
   });
 
   it('surfaces a rejected thread creation without writing metadata', async () => {
@@ -185,7 +191,7 @@ describe('useCreateThreadInFolder', () => {
 
     await waitFor(() =>
       expect(toastMock).toHaveBeenCalledExactlyOnceWith({
-        description: 'create unavailable',
+        description: INTERNAL_FAULT.message,
         title: 'New thread in brainstrike failed',
         variant: 'destructive',
       })

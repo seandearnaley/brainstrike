@@ -1,6 +1,7 @@
 import path from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
 import type { HostPlatform } from '@brainstrike/agent-host';
+import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract';
 import { ThreadWorkspaceBindingSchema } from '@brainstrike/assistant-contract/thread-workspace-binding';
 import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
 import type { ManagedWorktreeRow } from '@brainstrike/types';
@@ -45,11 +46,17 @@ function removedRootsMessage(roots: readonly RemovedThreadRoot[]): string {
  * Every bound folder must be live, so the run or binding write is refused; the
  * message names each folder and both repairs, which the user reads verbatim.
  */
-export class ThreadRootsRemovedError extends Error {
+export class ThreadRootsRemovedError extends BoundaryFailureError {
   override readonly name = 'ThreadRootsRemovedError';
 
   constructor(readonly roots: readonly RemovedThreadRoot[]) {
-    super(removedRootsMessage(roots));
+    super(
+      refusal({
+        category: 'conflict',
+        code: 'workspace.folder-removed',
+        message: removedRootsMessage(roots),
+      })
+    );
   }
 }
 

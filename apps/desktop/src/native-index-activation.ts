@@ -555,11 +555,18 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     inventory?: readonly NativeCanonicalCatalogRecord[]
   ): Promise<void> => {
     const records = inventory ?? (await loadRecords(current));
+    const sources = current.sources;
     const pending = inventory
       ? undefined
-      : deferNativeIndexCatalog(current, records, current.sources?.collectionScan);
+      : deferNativeIndexCatalog(
+          current,
+          records,
+          sources?.collectionScan ?? sources?.scanAdmission?.getWorkspaceCompletions()
+        );
     if (pending) {
-      await pending;
+      // Passive catalog observation must not invalidate the discovery publication
+      // whose committed records it just read. Internal inventory never joins itself.
+      await (sources?.scanAdmission?.joinPublication(pending) ?? pending);
       await refreshCatalog(current, join);
       return;
     }

@@ -2,7 +2,6 @@ import {
   WORKSPACE_ROOT_MANAGED_BUT_UNAUTHORIZED_MESSAGE,
   WORKSPACE_ROOT_NEVER_GRANTED_MESSAGE,
 } from '@brainstrike/app-shell/workspace-connect/workspace-connect-bridge';
-import { AccessError } from '@brainstrike/file-system';
 import type { WorkspaceRootReply } from '@brainstrike/state-store';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -554,10 +553,11 @@ describe('resolveGrantedRootHandle managed-worktree gate (BST-1390, spec §6.2)'
 
     await expect(request).rejects.toEqual(
       expect.objectContaining({
-        message: 'Folder was never granted in this app; use Add Folder to grant it.',
+        cause: expect.objectContaining({ message: 'authorizer exploded' }),
+        code: 'workspace.authorization-unavailable',
       })
     );
-    await expect(request).rejects.toBeInstanceOf(AccessError);
+    await expect(request).rejects.toMatchObject({ failure: { kind: 'fault' } });
     expect(loggerMock.error).toHaveBeenCalledWith('managed-worktree authorization check threw', {
       error: expect.objectContaining({ message: 'authorizer exploded' }),
       path: '/managed/app/bright-fox',

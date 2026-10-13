@@ -142,6 +142,7 @@ export const ASSISTANT_RUN_EVENT_KINDS = [
   // `toolCallId` and is not `tool.*`, so it needs no card-suppression
   // exemption.
   'provider.request.warned',
+  'reference.unavailable',
   'run.cancelled',
   'run.database.retried',
   'run.failed',

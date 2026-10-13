@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "dependencies": {
     "@brainstrike/app-state": "workspace:*",
+    "@brainstrike/assistant-contract": "workspace:*",
     "@brainstrike/context-actions": "workspace:*",
     "@brainstrike/db": "workspace:*",
     "@brainstrike/file-explorer": "workspace:*",

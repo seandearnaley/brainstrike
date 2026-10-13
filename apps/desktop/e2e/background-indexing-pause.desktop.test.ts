@@ -66,13 +66,20 @@ test.describe('Workspace Index pause controls', { tag: '@smoke' }, () => {
         throw new Error('Desktop collection catalog is unavailable');
       }
       return (
-        await globalThis.window.collectionCatalog.create({
-          dimensions: 384,
-          distance: 'cosine',
-          metadata: { name: 'Pause control collection' },
-          modelId: 'Xenova/all-MiniLM-L6-v2',
-          modelKey: 'local::Xenova/all-MiniLM-L6-v2',
-        })
+        await globalThis.window.collectionCatalog
+          .create({
+            dimensions: 384,
+            distance: 'cosine',
+            metadata: { name: 'Pause control collection' },
+            modelId: 'Xenova/all-MiniLM-L6-v2',
+            modelKey: 'local::Xenova/all-MiniLM-L6-v2',
+          })
+          .then((result) => {
+            if (!result.ok) {
+              throw new Error(result.error.message);
+            }
+            return result.value;
+          })
       ).id;
     });
     await homePage.openSettings();

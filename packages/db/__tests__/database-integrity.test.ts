@@ -1,3 +1,4 @@
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import type { DatabaseIntegritySnapshot, DatabaseIntegrityState } from '@brainstrike/types';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -37,7 +38,7 @@ function createHarness(read: () => Promise<DatabaseIntegritySnapshot> = async ()
   const bridge: DesktopDatabaseIntegrityBridge = {
     getState: () => {
       calls.push('getState');
-      return read();
+      return read().then((value) => ({ ok: true as const, value }));
     },
     onChanged: (callback) => {
       calls.push('onChanged');
@@ -126,7 +127,7 @@ describe('createDatabaseIntegrityWatcher', () => {
       .mockResolvedValueOnce(healthy(4));
     const watcher = createDatabaseIntegrityWatcher(createHarness(read).bridge);
 
-    await expect(watcher.current()).rejects.toThrow('ipc unavailable');
+    await expect(watcher.current()).rejects.toThrow(INTERNAL_FAULT.message);
     await expect(watcher.current()).resolves.toEqual(healthy(4));
     watcher.dispose();
   });

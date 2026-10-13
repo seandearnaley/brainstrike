@@ -7,7 +7,6 @@ import {
 import {
   ASSISTANT_RUN_EVENT_DATA_NAME,
   type AssistantRunEvent,
-  describeHookSkip,
   describeRunAttempt,
   PROVIDER_CALL_WARNING_RUN_EVENT_KIND,
   providerCallWarningDetail,
@@ -33,11 +32,11 @@ import {
 import { parsePartialJsonObject } from 'assistant-stream/utils';
 import { activityTraceShowsEnd } from './assistant-activity-grouping';
 import { committedApprovalOptions } from './committed-approval-options';
+import { committedFileNotices } from './committed-file-notices';
 import {
   committedAttachments,
   committedStreamData,
   mcpToolsUnavailableNotice,
-  readHookSkips,
   readRunAttempt,
   record,
   requiredString,
@@ -471,20 +470,6 @@ export class CommittedAssistantLogProjection {
     }
   }
 
-  /** Each hook file the run did not load, as an always-visible failed notice. */
-  private hookSkips(run: ProjectedRun, row: CommittedAssistantLogRow): void {
-    for (const [index, skip] of readHookSkips(row.event).entries()) {
-      const notice = describeHookSkip(skip, 'review it in Settings > Hooks');
-      this.runEvent(run, row, `hook-skip:${index}`, {
-        detail: notice.detail,
-        kind: 'hook.notice',
-        label: notice.label,
-        metadata: { path: skip.path, reason: skip.reason },
-        status: 'failed',
-      });
-    }
-  }
-
   private tool(
     run: ProjectedRun,
     input: Readonly<Record<string, unknown>>,
@@ -703,8 +688,11 @@ export class CommittedAssistantLogProjection {
       this.data(run, row, notice, ASSISTANT_RUN_EVENT_DATA_NAME);
       return;
     }
-    if (event['type'] === 'hooks.skipped') {
-      this.hookSkips(run, row);
+    const fileNotices = committedFileNotices(event);
+    if (fileNotices) {
+      for (const { key, event: notice } of fileNotices) {
+        this.runEvent(run, row, key, notice);
+      }
       return;
     }
     if (event['type'] === 'context.compacted') {

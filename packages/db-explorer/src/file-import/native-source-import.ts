@@ -1,10 +1,16 @@
 import type { SourceFilesCapability } from '@brainstrike/assistant-contract';
+import {
+  type BoundaryTransport,
+  createBoundaryCapability,
+} from '@brainstrike/assistant-contract/boundary-result';
 import type { FileImportRepositoryPort } from './file-import-types';
 
 export function getSourceFilesCapability(): SourceFilesCapability | undefined {
-  return typeof window === 'undefined'
-    ? undefined
-    : (window as Window & { sourceFiles?: SourceFilesCapability }).sourceFiles;
+  const transport =
+    typeof window === 'undefined'
+      ? undefined
+      : (window as Window & { sourceFiles?: BoundaryTransport<SourceFilesCapability> }).sourceFiles;
+  return transport ? createBoundaryCapability<SourceFilesCapability>(transport) : undefined;
 }
 
 /** Native Main owns durable import and its existing collection ingestion join. */

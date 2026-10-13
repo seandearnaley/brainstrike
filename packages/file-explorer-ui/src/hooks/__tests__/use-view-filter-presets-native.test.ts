@@ -1,3 +1,5 @@
+import { refusal } from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryTransport } from '@brainstrike/assistant-contract/boundary-result';
 import type { ViewFilterPresetCapability } from '@brainstrike/types';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
@@ -20,8 +22,11 @@ afterEach(() => {
   Reflect.deleteProperty(window, 'viewFilterPresets');
 });
 test('mounts without DbProvider and uses committed preset capability for read and mutations', async () => {
-  const request = vi.fn<ViewFilterPresetCapability['request']>(async (input) =>
-    input.operation === 'delete' ? { deleted: true, presets: [] } : { presets: [record] }
+  const request = vi.fn<BoundaryTransport<ViewFilterPresetCapability>['request']>(
+    async (input) => ({
+      ok: true,
+      value: input.operation === 'delete' ? { deleted: true, presets: [] } : { presets: [record] },
+    })
   );
   Object.defineProperty(window, 'viewFilterPresets', { configurable: true, value: { request } });
   const { result } = renderHook(() => useViewFilterPresets());
@@ -46,14 +51,19 @@ test('mounts without DbProvider and uses committed preset capability for read an
   expect(request).toHaveBeenCalledWith({ id: record.id, operation: 'delete' });
 });
 test('a failed native read is explicit and never falls through to browser storage', async () => {
-  const failure = new Error('Preset owner unavailable');
-  const request = vi.fn().mockRejectedValue(failure);
+  const failure = refusal({
+    category: 'availability',
+    code: 'catalog.closed',
+    message: 'Preset owner unavailable',
+    remedy: 'Reopen the app.',
+  });
+  const request = vi.fn().mockResolvedValue(structuredClone({ error: failure, ok: false }));
   Object.defineProperty(window, 'viewFilterPresets', { configurable: true, value: { request } });
   const { result } = renderHook(() => useViewFilterPresets());
-  await waitFor(() => expect(result.current.error).toBe(failure));
+  await waitFor(() => expect(result.current.error).toMatchObject({ failure }));
   expect(result.current.loading).toBe(false);
   expect(result.current.presets).toEqual([]);
   await expect(
     result.current.createPreset({ excludes: [], includes: [], name: 'test' })
-  ).rejects.toBe(failure);
+  ).rejects.toMatchObject({ failure });
 });

@@ -3,6 +3,10 @@ import {
   useVectorStatusUIStore,
 } from '@brainstrike/app-state/stores/vector-status-ui-store';
 import type { CollectionCatalogCapability } from '@brainstrike/assistant-contract';
+import {
+  type BoundaryTransport,
+  createBoundaryCapability,
+} from '@brainstrike/assistant-contract/boundary-result';
 import type { EmbeddingSetSystemRole } from '@brainstrike/db';
 import type { usePGliteDatabase } from '@brainstrike/db/react';
 import { makeLiveQueryKey, usePGliteLiveQuery } from '@brainstrike/db/react';
@@ -369,9 +373,12 @@ function areCollectionsEqual(
 }
 
 export function getCollectionCatalog(): CollectionCatalogCapability | undefined {
-  return typeof window === 'undefined'
-    ? undefined
-    : (window as Window & { collectionCatalog?: CollectionCatalogCapability }).collectionCatalog;
+  const transport =
+    typeof window === 'undefined'
+      ? undefined
+      : (window as Window & { collectionCatalog?: BoundaryTransport<CollectionCatalogCapability> })
+          .collectionCatalog;
+  return transport ? createBoundaryCapability<CollectionCatalogCapability>(transport) : undefined;
 }
 
 /**

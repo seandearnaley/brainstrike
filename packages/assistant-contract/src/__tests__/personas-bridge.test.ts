@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { BoundaryTransport } from '../boundary-result.js';
 import {
   ASSISTANT_PERSONAS_BRIDGE_REQUIRED_METHODS,
   type AssistantPersonasBridge,
@@ -30,11 +31,11 @@ describe('resolveAssistantPersonasBridge', () => {
     expect(resolveAssistantPersonasBridge()).toBeNull();
   });
 
-  it('returns the bridge when every required method is a function', () => {
-    const bridge: AssistantPersonasBridge = {
-      list: () => Promise.resolve({ personas: [] }),
+  it('decodes the transport when every required method is a function', async () => {
+    const bridge: BoundaryTransport<AssistantPersonasBridge> = {
+      list: () => Promise.resolve({ ok: true, value: { personas: [] } }),
     };
     vi.stubGlobal('window', { assistantPersonas: bridge });
-    expect(resolveAssistantPersonasBridge()).toBe(bridge);
+    await expect(resolveAssistantPersonasBridge()?.list()).resolves.toEqual({ personas: [] });
   });
 });

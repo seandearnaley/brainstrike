@@ -1,4 +1,6 @@
 import { EventEmitter } from 'node:events';
+import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { NativeWorkspaceSearchExecutor } from '@brainstrike/workspace-search/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -152,7 +154,7 @@ describe('actual native search to query IPC physical owner', () => {
           invoke(senderA, DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbedding, {
             payload: request,
             ...options,
-          }) as Promise<number[]>,
+          }) as Promise<BoundaryResult<number[]>>,
       },
     });
   });
@@ -295,7 +297,10 @@ describe('actual native search to query IPC physical owner', () => {
       createEmbeddingHostQueryCancellationError()
     );
     await expect(result).resolves.toEqual(
-      expect.objectContaining({ message: 'Query requester closed.' })
+      expect.objectContaining({
+        error: expect.objectContaining({ code: 'boundary.internal' }),
+        ok: false,
+      })
     );
     expect(senderA.listenerCount('destroyed')).toBe(0);
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(0);
@@ -305,7 +310,10 @@ describe('actual native search to query IPC physical owner', () => {
       payload,
       requestId: 'same-token',
     });
-    const firstRejected = expect(first).rejects.toThrow('Query embedding cancelled');
+    const firstRejected = expect(first).resolves.toMatchObject({
+      error: { code: 'boundary.internal' },
+      ok: false,
+    });
     await flush();
     await expect(
       invoke(senderB, DESKTOP_IPC_CHANNELS.embeddingHost.cancelQueryEmbedding, 'same-token')
@@ -316,7 +324,7 @@ describe('actual native search to query IPC physical owner', () => {
         payload,
         requestId: 'same-token',
       })
-    ).rejects.toThrow('already used');
+    ).resolves.toMatchObject({ error: { code: 'embedding.request-reused' }, ok: false });
     const second = invoke(senderB, DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbedding, {
       payload,
       requestId: 'same-token',
@@ -343,13 +351,13 @@ describe('actual native search to query IPC physical owner', () => {
     await firstRejected;
     expect(manager.getPlatformStatus().pendingRequestCount).toBe(1);
     terminal(requests()[1] as EmbeddingHostQueryEmbeddingRequest);
-    await expect(second).resolves.toEqual(vector);
+    await expect(second).resolves.toEqual({ ok: true, value: vector });
     await expect(
       invoke(senderA, DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbedding, {
         payload,
         requestId: 'same-token',
       })
-    ).rejects.toThrow('already used');
+    ).resolves.toMatchObject({ error: { code: 'embedding.request-reused' }, ok: false });
     const cancel = fixture.handlers.get(DESKTOP_IPC_CHANNELS.embeddingHost.cancelQueryEmbedding);
     await expect(
       cancel?.({ sender: senderA, senderFrame: { url: 'https://foreign.invalid/' } }, 'same-token')
@@ -362,7 +370,7 @@ describe('actual native search to query IPC physical owner', () => {
   it('preserves independent hidden errors after cancellation instead of classifying an AbortError name', async () => {
     const controller = new AbortController();
     const result = generateDesktopQueryEmbedding(payload, { signal: controller.signal });
-    const rejected = expect(result).rejects.toBeInstanceOf(AggregateError);
+    const rejected = expect(result).rejects.toBeInstanceOf(BoundaryFailureError);
     await flush();
     controller.abort(new Error('search superseded'));
     await flush();

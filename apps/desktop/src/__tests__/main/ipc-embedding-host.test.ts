@@ -213,7 +213,7 @@ describe('embedding host IPC handlers', () => {
           requestId: 'query-test',
         }
       )
-    ).resolves.toEqual([0.125, 0.75]);
+    ).resolves.toEqual({ ok: true, value: [0.125, 0.75] });
     expect(manager.queryEmbedding).toHaveBeenCalledWith(
       {
         dimensions: 384,
@@ -225,6 +225,46 @@ describe('embedding host IPC handlers', () => {
     );
     unregister();
     clearWindowRoleByWebContentsId(sender.id);
+  });
+
+  it('transports a device loss as data without its private cause', async () => {
+    const loss = Object.assign(new Error('WebGPU device was lost.'), {
+      cause: new Error('/private/model-cache/device-stack'),
+      code: 'EMBEDDING_DEVICE_LOST',
+      name: 'DeviceLost',
+    });
+    const manager = { queryEmbedding: vi.fn().mockRejectedValue(loss), stop: vi.fn() };
+    const unregister = registerEmbeddingHostIpcHandlers(manager as never, { stop: manager.stop });
+    const sender = Object.assign(new EventEmitter(), { id: 71 });
+    assignWindowRole({ once: vi.fn(), webContents: sender } as never, 'visible-ui');
+    try {
+      const handler = handlers.get(EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL);
+      const response = await handler?.(
+        { sender, senderFrame: createAllowlistedSenderFrame() },
+        {
+          payload: {
+            dimensions: 2,
+            modelId: 'local-model',
+            modelKey: 'local::model',
+            query: 'query',
+          },
+          requestId: 'device-loss',
+        }
+      );
+      expect(response).toMatchObject({
+        error: {
+          category: 'availability',
+          code: 'EMBEDDING_DEVICE_LOST',
+          kind: 'fault',
+          remedy: 'Choose the model again to retry.',
+        },
+        ok: false,
+      });
+      expect(JSON.stringify(response)).not.toContain('/private/model-cache');
+    } finally {
+      unregister();
+      clearWindowRoleByWebContentsId(sender.id);
+    }
   });
 
   it('answers WebGPU availability for the visible renderer only (BST-1993)', async () => {

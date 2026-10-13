@@ -166,10 +166,10 @@ describe('WorkspaceRootRegistry', () => {
     expect(rootB.readFile).toHaveBeenCalledWith('file.txt', expect.any(Number));
     await expect(
       readScoped(`${sharedPresentationPath}/file.txt`, '/canonical/target-a', 'root-b')
-    ).rejects.toThrow('does not match the mounted workspace root');
+    ).rejects.toMatchObject({ code: 'workspace.root-mismatch' });
     await expect(
       readScoped(`${sharedPresentationPath}/file.txt`, sharedPresentationPath, undefined)
-    ).rejects.toThrow('durable rootId');
+    ).rejects.toMatchObject({ code: 'workspace.root-id-invalid' });
   });
 
   it('logs malformed scoped authority exactly once without expanding non-string diagnostics', async () => {

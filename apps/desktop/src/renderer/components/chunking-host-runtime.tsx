@@ -1,4 +1,5 @@
 import type { SourceFilesCapability } from '@brainstrike/assistant-contract';
+import { createBoundaryCapability } from '@brainstrike/assistant-contract/boundary-result';
 import type { ChunkingRequestOptions, ChunkResult } from '@brainstrike/file-import';
 import { getChunkingStrategy, useChunkingWorkerContext } from '@brainstrike/file-import';
 import { createLogger } from '@brainstrike/logging';
@@ -80,11 +81,11 @@ interface FileRecordRow {
 }
 
 async function loadFileRecordById(fileRecordId: string): Promise<FileRecordRow> {
-  const files = (window as Window & { sourceFiles?: Pick<SourceFilesCapability, 'read'> })
-    .sourceFiles;
-  if (!files) {
+  const transport = window.sourceFiles;
+  if (!transport) {
     throw new Error('Chunking host canonical source bridge is not available.');
   }
+  const files = createBoundaryCapability<Pick<SourceFilesCapability, 'read'>>(transport);
   const records = await files.read([fileRecordId], Number.MAX_SAFE_INTEGER);
   const row = Array.isArray(records) ? records[0] : undefined;
   if (!row || row.fileId !== fileRecordId) {

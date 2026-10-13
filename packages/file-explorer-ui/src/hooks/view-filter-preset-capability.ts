@@ -1,3 +1,7 @@
+import {
+  type BoundaryTransport,
+  createBoundaryCapability,
+} from '@brainstrike/assistant-contract/boundary-result';
 import type {
   CreateViewFilterPresetInput,
   UpdateViewFilterPresetInput,
@@ -7,9 +11,12 @@ import type {
 } from '@brainstrike/types';
 
 export function getViewFilterPresetCapability(): ViewFilterPresetCapability | undefined {
-  return typeof window === 'undefined'
-    ? undefined
-    : (window as Window & { viewFilterPresets?: ViewFilterPresetCapability }).viewFilterPresets;
+  const transport =
+    typeof window === 'undefined'
+      ? undefined
+      : (window as Window & { viewFilterPresets?: BoundaryTransport<ViewFilterPresetCapability> })
+          .viewFilterPresets;
+  return transport ? createBoundaryCapability<ViewFilterPresetCapability>(transport) : undefined;
 }
 function preset(record: ViewFilterPresetRecord): ViewFilterPreset {
   return {

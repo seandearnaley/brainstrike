@@ -74,7 +74,11 @@ async function addRoot(page: Page): Promise<string> {
     if (!window.electronAPI) {
       throw new Error('Desktop bridge unavailable');
     }
-    return (await window.electronAPI.fileSystem.restoreRoots()).map((root) => ({
+    const reply = await window.electronAPI.fileSystem.restoreRoots();
+    if (!reply.ok) {
+      throw new Error(reply.error.message);
+    }
+    return reply.value.map((root) => ({
       id: root.rootId,
       permissionState: root.permissionState,
     }));

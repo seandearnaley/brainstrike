@@ -9,9 +9,11 @@ import {
   type HostParams,
 } from '@brainstrike/agent-host/protocol';
 import { CommittedThreadSession } from '@brainstrike/agent-host/thread-view';
-import type {
-  AssistantChildAttachment,
-  AssistantChildInput,
+import {
+  type AssistantChildAttachment,
+  type AssistantChildInput,
+  BoundaryFailureError,
+  describeBoundaryError,
 } from '@brainstrike/assistant-contract';
 import {
   type CommittedAssistantCommands,
@@ -148,8 +150,11 @@ function isRunNotAdmitted(cause: unknown): cause is Error {
 
 /** A host refusal's JSON-RPC code; undefined for a failure that never reached the host. */
 function hostErrorCode(cause: unknown): number | undefined {
+  const response = cause instanceof BoundaryFailureError ? cause.cause : cause;
   const code: unknown =
-    typeof cause === 'object' && cause !== null && 'code' in cause ? cause.code : undefined;
+    typeof response === 'object' && response !== null && 'code' in response
+      ? response.code
+      : undefined;
   return typeof code === 'number' ? code : undefined;
 }
 
@@ -220,7 +225,7 @@ export function createCommittedHostConversation(
         threadId,
       });
       // Not sent: the vendor gives the composer its draft back.
-      throw isRunNotAdmitted(cause) ? new MessageNotSentError(cause.message) : cause;
+      throw isRunNotAdmitted(cause) ? new MessageNotSentError(describeBoundaryError(cause)) : cause;
     }
   };
   const commands: CommittedAssistantCommands = {

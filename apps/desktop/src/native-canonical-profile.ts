@@ -261,18 +261,30 @@ export class NativeCanonicalInference implements InferencePort {
     if (!pending) {
       return;
     }
-    await pending.completion;
-    if (this.pending.get(requestId) === pending) {
-      this.pending.delete(requestId);
+    try {
+      await pending.completion;
+    } finally {
+      // Completion proves physical settlement on every outcome. Keep the original
+      // failure for this join, without retaining an already-settled request forever.
+      if (this.pending.get(requestId) === pending) {
+        this.pending.delete(requestId);
+      }
     }
   }
 
   async close(): Promise<void> {
     this.closed = true;
-    const results = await Promise.allSettled([...this.pending.keys()].map((id) => this.cancel(id)));
-    const errors = results.flatMap((result) =>
-      result.status === 'rejected' ? [result.reason as unknown] : []
-    );
+    const requestIds = [...this.pending.keys()];
+    const canceled = await Promise.allSettled(requestIds.map((id) => this.cancel(id)));
+    // A failed cancellation still needs its physical join and ownership consumption.
+    const joined = await Promise.allSettled(requestIds.map((id) => this.join(id)));
+    const errors = [
+      ...new Set(
+        [...canceled, ...joined].flatMap((result) =>
+          result.status === 'rejected' ? [result.reason as unknown] : []
+        )
+      ),
+    ];
     if (errors.length > 0) {
       throw new AggregateError(errors, 'Canonical inference retirement failed.');
     }

@@ -56,13 +56,30 @@ test('Clear Database removes native files and a waiting host run while retaining
         throw new Error('Configuration capabilities missing');
       }
       localStorage.setItem('clear-content-retained-setting', 'retained');
-      await window.viewFilterPresets.request({
-        input: { excludes: [], includes: ['src/**'], name: 'Clear retained preset' },
-        operation: 'create',
-      });
+      await window.viewFilterPresets
+        .request({
+          input: { excludes: [], includes: ['src/**'], name: 'Clear retained preset' },
+          operation: 'create',
+        })
+        .then((result) => {
+          if (!result.ok) {
+            throw new Error(result.error.message);
+          }
+          return result.value;
+        });
       return {
-        models: await window.modelCatalog.read(),
-        presets: await window.viewFilterPresets.request({ operation: 'list' }),
+        models: await window.modelCatalog.read().then((result) => {
+          if (!result.ok) {
+            throw new Error(result.error.message);
+          }
+          return result.value;
+        }),
+        presets: await window.viewFilterPresets.request({ operation: 'list' }).then((result) => {
+          if (!result.ok) {
+            throw new Error(result.error.message);
+          }
+          return result.value;
+        }),
       };
     });
     await clearDatabaseRecords(page);
@@ -80,8 +97,18 @@ test('Clear Database removes native files and a waiting host run while retaining
       ).toEqual({ apps: false, tasks: true });
       expect(
         await current.evaluate(async () => ({
-          models: await window.modelCatalog!.read(),
-          presets: await window.viewFilterPresets!.request({ operation: 'list' }),
+          models: await window.modelCatalog!.read().then((result) => {
+            if (!result.ok) {
+              throw new Error(result.error.message);
+            }
+            return result.value;
+          }),
+          presets: await window.viewFilterPresets!.request({ operation: 'list' }).then((result) => {
+            if (!result.ok) {
+              throw new Error(result.error.message);
+            }
+            return result.value;
+          }),
         }))
       ).toEqual(retained);
       expect(

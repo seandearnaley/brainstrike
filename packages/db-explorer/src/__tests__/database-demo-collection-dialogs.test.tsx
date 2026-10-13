@@ -1,4 +1,5 @@
 import type { CollectionCatalogCapability } from '@brainstrike/assistant-contract';
+import type { BoundaryTransport } from '@brainstrike/assistant-contract/boundary-result';
 import { useEmbeddingSetsRepository } from '@brainstrike/db/react';
 import type { CollectionPickerCollection } from '@brainstrike/ui';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -25,13 +26,13 @@ afterEach(() => vi.unstubAllGlobals());
 
 it('passes the actual native catalog repository to Delete and waits for its committed result', async () => {
   const removed = Promise.withResolvers<boolean>();
-  const remove = vi.fn(() => removed.promise);
+  const remove = vi.fn<CollectionCatalogCapability['delete']>(() => removed.promise);
   const unavailable = async (): Promise<never> => {
     throw new Error('Unexpected catalog operation');
   };
-  const catalog: CollectionCatalogCapability = {
+  const catalog: BoundaryTransport<CollectionCatalogCapability> = {
     create: unavailable,
-    delete: remove,
+    delete: async (id) => ({ ok: true, value: await remove(id) }),
     ensureWorkspaceIndex: unavailable,
     get: unavailable,
     list: unavailable,

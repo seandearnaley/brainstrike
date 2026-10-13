@@ -122,8 +122,20 @@ async function enableCatalogModel(page: Page, provider: string, model: string): 
       if (!window.modelCatalog) {
         throw new Error('Desktop model catalog unavailable');
       }
-      await window.modelCatalog.setModels([modelId], true);
-      return (await window.modelCatalog.read()).models
+      await window.modelCatalog.setModels([modelId], true).then((result) => {
+        if (!result.ok) {
+          throw new Error(result.error.message);
+        }
+        return result.value;
+      });
+      return (
+        await window.modelCatalog.read().then((result) => {
+          if (!result.ok) {
+            throw new Error(result.error.message);
+          }
+          return result.value;
+        })
+      ).models
         .filter((row) => row.id === modelId && row.providerId === providerId)
         .map((row) => ({ id: row.id, isEnabled: row.isEnabled, providerId: row.providerId }));
     },

@@ -1,4 +1,5 @@
 import type { ModelCatalogCapability } from '@brainstrike/assistant-contract';
+import { createBoundaryCapability } from '@brainstrike/assistant-contract/boundary-result';
 import { getEmbeddingTelemetrySnapshot } from '@brainstrike/embedding-worker';
 import { resolveViteEmbeddingWorkerUrlHref } from '@brainstrike/embedding-worker/vite';
 import type { EmbeddingResult } from '@brainstrike/embeddings';
@@ -357,7 +358,9 @@ export function EmbeddingHostRuntime(): null {
   const gateRef = useRef<ForegroundEmbeddingGate>(createForegroundEmbeddingGate());
 
   useEffect(() => {
-    const catalog = window.modelCatalog;
+    const catalog = window.modelCatalog
+      ? createBoundaryCapability<Pick<ModelCatalogCapability, 'read'>>(window.modelCatalog)
+      : undefined;
     let queryOwner = createQueryEmbeddingRuntimeOwner(catalog);
     queryEmbeddingOwnerRef.current = queryOwner;
     const queryEmbeddingActiveCountRef = queryOwner.activeCountRef;

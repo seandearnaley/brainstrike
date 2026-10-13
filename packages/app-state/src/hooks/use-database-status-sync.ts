@@ -1,4 +1,8 @@
 import type { ModelCatalogCapability } from '@brainstrike/assistant-contract';
+import {
+  type BoundaryTransport,
+  createBoundaryCapability,
+} from '@brainstrike/assistant-contract/boundary-result';
 import { type DrizzleFileRecordRepository, ElectronFileRecordRepository } from '@brainstrike/db';
 import { useFileRecordRepository } from '@brainstrike/db/react';
 import { useEffect } from 'react';
@@ -26,10 +30,14 @@ function resolveLocation(repo: DrizzleFileRecordRepository | ElectronFileRecordR
  * Runs even when the Database tab is not mounted so the status bar reflects reality.
  */
 export function useDatabaseStatusSync(): void {
-  const catalog =
+  const transport =
     typeof window === 'undefined'
       ? undefined
-      : (window as Window & { modelCatalog?: ModelCatalogCapability }).modelCatalog;
+      : (window as Window & { modelCatalog?: BoundaryTransport<ModelCatalogCapability> })
+          .modelCatalog;
+  const catalog = transport
+    ? createBoundaryCapability<ModelCatalogCapability>(transport)
+    : undefined;
   const repository = useFileRecordRepository({ enabled: !catalog });
 
   useEffect(() => {

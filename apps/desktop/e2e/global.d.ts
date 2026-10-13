@@ -13,7 +13,9 @@ declare global {
     agent?: {
       chat?: (messages: unknown[], runtime?: unknown) => Promise<unknown[]>;
     };
-    collectionCatalog?: import('@brainstrike/assistant-contract').CollectionCatalogCapability;
+    collectionCatalog?: import('@brainstrike/assistant-contract/boundary-result').BoundaryTransport<
+      import('@brainstrike/assistant-contract').CollectionCatalogCapability
+    >;
     electronAPI?: import('../src/types/desktop-electron-api').VisibleDesktopElectronApi;
     // Shape defined ONCE in
     // @brainstrike/assistant-contract/env-bootstrap-bridge. Declared so an
@@ -27,12 +29,18 @@ declare global {
       watch?: () => Promise<{ watching: boolean }>;
       unwatch?: () => Promise<{ watching: false }>;
     };
-    modelCatalog?: import('@brainstrike/assistant-contract').ModelCatalogCapability;
+    modelCatalog?: import('@brainstrike/assistant-contract/boundary-result').BoundaryTransport<
+      import('@brainstrike/assistant-contract').ModelCatalogCapability
+    >;
     // Shape defined ONCE in @brainstrike/assistant-contract/secrets-bridge;
     // e2e keeps every method optional (bridge presence is capability-checked).
     secrets?: Partial<import('@brainstrike/assistant-contract/secrets-bridge').SecretsBridge>;
-    sourceFiles?: import('@brainstrike/assistant-contract').SourceFilesCapability;
-    viewFilterPresets?: import('@brainstrike/types').ViewFilterPresetCapability;
+    sourceFiles?: import('@brainstrike/assistant-contract/boundary-result').BoundaryTransport<
+      import('@brainstrike/assistant-contract').SourceFilesCapability
+    >;
+    viewFilterPresets?: import('@brainstrike/assistant-contract/boundary-result').BoundaryTransport<
+      import('@brainstrike/types').ViewFilterPresetCapability
+    >;
   }
 }
 

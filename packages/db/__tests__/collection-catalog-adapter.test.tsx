@@ -1,3 +1,5 @@
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryTransport } from '@brainstrike/assistant-contract/boundary-result';
 // @vitest-environment jsdom
 
 import type { CollectionCatalogCapability } from '@brainstrike/assistant-contract';
@@ -16,13 +18,14 @@ test('desktop collection consumers use the authoritative capability without a da
     modelId: 'Xenova/all-MiniLM-L6-v2',
     modelKey: 'local::Xenova/all-MiniLM-L6-v2',
   };
-  const catalog: CollectionCatalogCapability = {
-    create: vi.fn(async () => item),
-    delete: vi.fn(async () => true),
-    ensureWorkspaceIndex: vi.fn(async () => item),
-    get: vi.fn(async () => item),
-    list: vi.fn(async () => [item]),
-    update: vi.fn(async () => item),
+  const catalog: BoundaryTransport<CollectionCatalogCapability> = {
+    create: vi.fn(async () => ({ ok: true as const, value: item })),
+    delete: vi.fn(async () => ({ ok: true as const, value: true })),
+    ensureWorkspaceIndex: vi.fn(async () => ({ ok: true as const, value: item })),
+    get: vi.fn(async () => ({ ok: true as const, value: item })),
+    list: vi.fn(async () => ({ ok: true as const, value: [item] })),
+    snapshot: vi.fn(async () => ({ ok: true as const, value: [] })),
+    update: vi.fn(async () => ({ ok: true as const, value: item })),
   };
   vi.stubGlobal('collectionCatalog', catalog);
   const { result } = renderHook(useEmbeddingSetsRepository);
@@ -44,5 +47,5 @@ test('desktop collection consumers use the authoritative capability without a da
   await result.current?.delete(item.id);
   expect(catalog.delete).toHaveBeenCalledWith(item.id);
   vi.mocked(catalog.list).mockRejectedValueOnce(new Error('writer unavailable'));
-  await expect(result.current?.findAll()).rejects.toThrow('writer unavailable');
+  await expect(result.current?.findAll()).rejects.toMatchObject({ failure: INTERNAL_FAULT });
 });

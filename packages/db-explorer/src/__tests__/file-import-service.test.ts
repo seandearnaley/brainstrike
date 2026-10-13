@@ -1,4 +1,6 @@
 import type { SourceFilesCapability } from '@brainstrike/assistant-contract';
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
+import type { BoundaryTransport } from '@brainstrike/assistant-contract/boundary-result';
 import type { IFileNode } from '@brainstrike/types';
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -474,12 +476,12 @@ describe('canonical desktop source imports', () => {
   };
   function install(importFiles: SourceFilesCapability['import']): void {
     vi.stubGlobal('sourceFiles', {
-      chunks: async () => ({ kind: 'unavailable', reason: 'Not selected' }),
+      chunks: async () => ({ ok: true, value: { kind: 'unavailable', reason: 'Not selected' } }),
       delete: vi.fn(),
-      import: importFiles,
+      import: async (input) => ({ ok: true, value: await importFiles(input) }),
       list: vi.fn(),
       read: vi.fn(),
-    } satisfies SourceFilesCapability);
+    } satisfies BoundaryTransport<SourceFilesCapability>);
     mockDecodeFileSelection.mockReturnValue({ folderId: 'root', path: 'note.txt' });
     mockBulkImport.mockImplementation(() => {
       throw new Error('PG must not be used');
@@ -556,7 +558,11 @@ describe('canonical desktop source imports', () => {
         'collection'
       )
     );
-    expect(onError).toHaveBeenCalledWith(expect.objectContaining({ cause: failure }));
+    expect(onError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cause: expect.objectContaining({ cause: failure, failure: INTERNAL_FAULT }),
+      })
+    );
     expect(mockBulkImport).not.toHaveBeenCalled();
   });
 });

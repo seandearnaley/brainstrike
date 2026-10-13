@@ -35,17 +35,18 @@ interface CatalogObservation {
 export function deferNativeIndexCatalog(
   current: CatalogObservation,
   records: readonly NativeCanonicalCatalogRecord[],
-  scan: Promise<void> | undefined
+  scan: Promise<void> | readonly Promise<void>[] | undefined
 ): Promise<void> | undefined {
   if (
     !scan ||
+    (Array.isArray(scan) && scan.length === 0) ||
     (!current.queuedCatalogRecords &&
       current.observedCatalogFingerprint === catalogFingerprint(records))
   ) {
     return undefined;
   }
   current.queuedCatalogRecords = records;
-  return scan;
+  return Promise.all(Array.isArray(scan) ? scan : [scan]).then(() => {});
 }
 
 export function catalogReadiness(current: CatalogObservation): readonly NativeScopeReadiness[] {

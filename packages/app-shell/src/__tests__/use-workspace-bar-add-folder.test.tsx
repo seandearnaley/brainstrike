@@ -691,7 +691,10 @@ it('attaches a native added folder using its canonical catalog identity with no 
   const readRoots = vi.fn(async () =>
     Object.entries(ROOT_ROW_BY_ID).map(([id, root]) => ({ ...root, id, status: 'live' }))
   );
-  Object.defineProperty(window, 'threadGroups', { configurable: true, value: { readRoots } });
+  Object.defineProperty(window, 'threadGroups', {
+    configurable: true,
+    value: { readRoots: async () => ({ ok: true, value: await readRoots() }) },
+  });
   try {
     const { result } = await setup({}, rootDescriptors, null);
     await waitFor(() =>

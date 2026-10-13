@@ -322,9 +322,17 @@ async function exercise(fault: Fault, stage?: 'decoder' | 'dispatch'): Promise<v
     } else {
       expect(result?.status).toBe('rejected');
       if (result?.status === 'rejected') {
+        // The client throws the typed failure; the transport's response error is its cause.
         expect(result.reason).toMatchObject({
-          code:
-            fault === 'stop-error' ? ErrorCodes.InternalError : ErrorCodes.PendingResponseRejected,
+          cause: {
+            code:
+              fault === 'stop-error'
+                ? ErrorCodes.InternalError
+                : ErrorCodes.PendingResponseRejected,
+          },
+          failure: {
+            code: fault === 'stop-error' ? 'boundary.internal' : 'host.connection-lost',
+          },
         });
       }
     }

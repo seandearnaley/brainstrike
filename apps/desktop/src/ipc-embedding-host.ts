@@ -1,3 +1,4 @@
+import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import { ipcMain, type WebContents } from 'electron';
 import type { EmbeddingHostManager } from './embedding-host-manager';
 import {
@@ -21,7 +22,11 @@ import {
 } from './embedding-host-shared';
 import { assertEmbeddingHostWebGpuAdapterResponseReport } from './embedding-host-webgpu-adapter';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
-import { createDesktopIpcRegistry, type DesktopIpcRegistry } from './platform/desktop-ipc-registry';
+import {
+  createDesktopIpcRegistry,
+  type DesktopIpcRegistry,
+  settleIpcResult,
+} from './platform/desktop-ipc-registry';
 import { registerBackgroundRuntimeLifecycleIpcHandlers } from './register-background-runtime-lifecycle-ipc';
 
 export function registerEmbeddingHostIpcHandlers(
@@ -172,54 +177,60 @@ function registerQueryEmbeddingRequests(
     'embeddings',
     EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL,
     { roles: ['visible-ui'] },
-    async (event, raw: unknown) => {
-      if (!(raw && typeof raw === 'object')) {
-        throw new Error('Invalid query request.');
-      }
-      const request = raw as Record<string, unknown>;
-      const requestId = assertQueryRequestId(request['requestId']);
-      const payload = assertEmbeddingHostQueryEmbeddingPayload(request['payload']);
-      let owner = senders.get(event.sender.id);
-      if (!owner) {
-        const onDestroyed = (): void => {
-          senders.delete(event.sender.id);
-        };
-        owner = { onDestroyed, sender: event.sender, tokens: new Set() };
-        senders.set(event.sender.id, owner);
-        event.sender.once('destroyed', onDestroyed);
-      }
-      if (owner.tokens.has(requestId)) {
-        throw new Error('Query requestId was already used by this sender.');
-      }
-      owner.tokens.add(requestId);
-      const key = `${event.sender.id}:${requestId}`;
-      const controller = new AbortController();
-      const onDestroyed = (): void => controller.abort(new Error('Query requester closed.'));
-      event.sender.once('destroyed', onDestroyed);
-      const completion: Promise<QueryOutcome> = Promise.resolve()
-        .then(() => manager.queryEmbedding(payload, { signal: controller.signal }))
-        .then(
-          (embedding) => ({ embedding, kind: 'result' }),
-          (error: unknown) => ({
-            error,
-            kind:
-              controller.signal.aborted && error === controller.signal.reason
-                ? 'cancelled'
-                : 'error',
-          })
-        );
-      queries.set(key, { completion, controller });
-      try {
-        const outcome = await completion;
-        if (outcome.kind !== 'result') {
-          throw outcome.error;
+    (event, raw: unknown) =>
+      settleIpcResult({ category: 'embeddings', code: 'embedding.query-failed' }, async () => {
+        if (!(raw && typeof raw === 'object')) {
+          throw new Error('Invalid query request.');
         }
-        return outcome.embedding;
-      } finally {
-        queries.delete(key);
-        event.sender.removeListener('destroyed', onDestroyed);
-      }
-    }
+        const request = raw as Record<string, unknown>;
+        const requestId = assertQueryRequestId(request['requestId']);
+        const payload = assertEmbeddingHostQueryEmbeddingPayload(request['payload']);
+        let owner = senders.get(event.sender.id);
+        if (!owner) {
+          const onDestroyed = (): void => {
+            senders.delete(event.sender.id);
+          };
+          owner = { onDestroyed, sender: event.sender, tokens: new Set() };
+          senders.set(event.sender.id, owner);
+          event.sender.once('destroyed', onDestroyed);
+        }
+        if (owner.tokens.has(requestId)) {
+          throw refusalError(
+            'conflict',
+            'embedding.request-reused',
+            'This embedding request has already been used.',
+            'Start a new search.'
+          );
+        }
+        owner.tokens.add(requestId);
+        const key = `${event.sender.id}:${requestId}`;
+        const controller = new AbortController();
+        const onDestroyed = (): void => controller.abort(new Error('Query requester closed.'));
+        event.sender.once('destroyed', onDestroyed);
+        const completion: Promise<QueryOutcome> = Promise.resolve()
+          .then(() => manager.queryEmbedding(payload, { signal: controller.signal }))
+          .then(
+            (embedding) => ({ embedding, kind: 'result' }),
+            (error: unknown) => ({
+              error,
+              kind:
+                controller.signal.aborted && error === controller.signal.reason
+                  ? 'cancelled'
+                  : 'error',
+            })
+          );
+        queries.set(key, { completion, controller });
+        try {
+          const outcome = await completion;
+          if (outcome.kind !== 'result') {
+            throw outcome.error;
+          }
+          return outcome.embedding;
+        } finally {
+          queries.delete(key);
+          event.sender.removeListener('destroyed', onDestroyed);
+        }
+      })
   );
   registry.registerAuthorizedInvoke(
     'embeddings',

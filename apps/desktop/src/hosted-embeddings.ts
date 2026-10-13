@@ -18,34 +18,12 @@ import {
 } from '@brainstrike/local-runtime';
 import { createLogger } from '@brainstrike/logging';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
+import { HostedEmbeddingError } from './hosted-embedding-error';
 import { getSecretsService } from './secrets';
 
 const logger = createLogger('DesktopHostedEmbeddings');
 
-/** Why a hosted embedding request was refused (BST-1994). */
-export type HostedEmbeddingErrorKind =
-  | 'missing-key'
-  | 'input-too-long'
-  | 'rate-limit'
-  | 'provider-status'
-  | 'network';
-
-/**
- * A typed hosted embedding refusal. `message` is model-safe: no keys, host paths
- * or raw provider body. Raw provider detail travels only on `cause`, which is
- * logged and redacted. The name and shape are a contract with the
- * `platform/embedding/query` refusal mapping (BST-1996).
- */
-export class HostedEmbeddingError extends Error {
-  override readonly name = 'HostedEmbeddingError';
-  constructor(
-    readonly kind: HostedEmbeddingErrorKind,
-    message: string,
-    options?: { cause?: unknown }
-  ) {
-    super(message, options);
-  }
-}
+export { HostedEmbeddingError, type HostedEmbeddingErrorKind } from './hosted-embedding-error';
 
 const ERROR_MESSAGES = {
   missingApiKey: 'No API key configured for the embedding provider.',
@@ -191,6 +169,12 @@ export async function generateHostedEmbeddings(input: {
     ) {
       throw input.signal.reason;
     }
+    // Keep the original typed provider diagnostic in Main before the utility
+    // fault channel deliberately projects plain-object causes to Error text.
+    logger.error('Hosted embedding request failed', {
+      error: result.error,
+      provider: input.provider,
+    });
     throw hostedRefusal(input.provider, result.error);
   }
   input.signal.throwIfAborted();

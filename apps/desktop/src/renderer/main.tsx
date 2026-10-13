@@ -7,9 +7,11 @@ import {
   provideHostPermissionPolicyPersistence,
 } from '@brainstrike/app-state/stores/permission-policy-store';
 import { useSecretsStore } from '@brainstrike/app-state/stores/secrets-store';
+import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
 import { resolveBootstrapTreeSitterLanguages } from '@brainstrike/chunking-worker';
 import { AdaptersProvider } from '@brainstrike/file-explorer-hooks';
 import { createFixtureCapableAdapter } from '@brainstrike/file-system';
+import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import {
   addLogListener,
   applyLoggingPreferences,
@@ -26,6 +28,7 @@ import { installPerformanceMeasureGuard } from '@brainstrike/utils/performance-m
 import { bindRuntimeLogRecord, createRuntimeLogBindings } from '@brainstrike/worker-runtime';
 import { StrictMode, Suspense, useEffect } from 'react';
 import ReactDOM, { type Root as ReactRoot } from 'react-dom/client';
+import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import { ElectronRendererFileSystemAdapter, ElectronRendererStorageAdapter } from './adapters';
 import { connectDesktopAgentHost } from './agent-host-client';
 import { McpTaskStatusE2eHarness } from './components/mcp-task-status-e2e-harness-lazy';
@@ -36,6 +39,7 @@ import {
 } from './desktop-bridge-contract';
 import { resolveDesktopRendererRole } from './desktop-renderer-role';
 import { hostPermissionPolicyPersistence } from './host-permission-policy';
+import { createIpcCapability } from './ipc-capability';
 import './log-buffer';
 import './styles.css';
 import { ChunkingHostApp } from './components/chunking-host-app';
@@ -174,7 +178,7 @@ async function syncLoggingPreferencesFromMain(): Promise<void> {
     return;
   }
   try {
-    const payload = await window.logging.getPreferences();
+    const payload = await callBoundary(() => window.logging.getPreferences());
     useLoggingPreferencesStore.getState().setPreferences(payload.preferences);
   } catch (error) {
     rendererLogger.warn('Failed to synchronize logging preferences from main process', { error });
@@ -343,6 +347,7 @@ declare global {
     // biome-ignore lint/style/useNamingConvention: Shared global sentinel uses double underscores for clarity
     __BRAINSTRIKE_READY__?: boolean;
     __brainstrikeTestHooks__?: {
+      indexSearch?: IndexSearchCapability;
       notifySecretsChanged: () => void;
       setAssistantModel: (compositeKey: string) => void;
     };
@@ -376,6 +381,10 @@ function App() {
     }
 
     window.__brainstrikeTestHooks__ = {
+      // Functional fixtures use the production consumer adapter; window.indexSearch remains the raw transport.
+      ...(window.indexSearch
+        ? { indexSearch: createIpcCapability(window.indexSearch, indexSearchContract) }
+        : {}),
       notifySecretsChanged: () => {
         useSecretsStore.getState().notifySecretsChanged();
       },

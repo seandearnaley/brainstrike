@@ -577,7 +577,15 @@ describe('ConnectedPromptManager', () => {
       revisions: [],
       similarities: [],
     }));
-    Object.defineProperty(window, 'promptLibrary', { configurable: true, value: { request } });
+    Object.defineProperty(window, 'promptLibrary', {
+      configurable: true,
+      value: {
+        request: async (...args: Parameters<typeof request>) => ({
+          ok: true,
+          value: await request(...args),
+        }),
+      },
+    });
     render(<ConnectedPromptManager loadEmbeddingQueue={null} />);
     await screen.findByTestId('prompt-workbench-panel');
     await waitFor(() => expect(mocks.embedPendingPromptItems).toHaveBeenCalledOnce());

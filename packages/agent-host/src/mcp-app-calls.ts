@@ -2,6 +2,7 @@ import {
   type McpAppOrigin,
   type PermissionToolGateSnapshot,
   readMcpAppToolInvocationResult,
+  refusalError,
 } from '@brainstrike/assistant-contract';
 import type { HostThreadGrants } from './core-state.js';
 import { jsonValue } from './json-value.js';
@@ -39,7 +40,11 @@ export function decideHostMcpAppCall(
       sameApp(readMcpAppToolInvocationResult(event.output)?.app, call.app)
   );
   if (!mounted) {
-    throw new Error('No committed tool result of this thread mounted this MCP App');
+    throw refusalError(
+      'authorization',
+      'mcp-app.not-mounted',
+      'No committed tool result of this thread mounted this MCP App'
+    );
   }
   const decision = hostPolicyDecision(
     policy,
@@ -48,7 +53,11 @@ export function decideHostMcpAppCall(
     `${call.app.serverId}.${call.toolName}`
   );
   if (decision === 'deny') {
-    throw new Error('The permission policy denies this MCP App tool call');
+    throw refusalError(
+      'authorization',
+      'mcp-app.denied',
+      'The permission policy denies this MCP App tool call'
+    );
   }
   return decision;
 }
@@ -83,11 +92,19 @@ export class HostMcpAppCalls {
   ): Promise<HostResults['mcp/app/call']> {
     const decision = await this.decide(params);
     if (decision === 'ask' && !params.approved) {
-      throw new Error('This MCP App tool call needs the user’s approval');
+      throw refusalError(
+        'authorization',
+        'mcp-app.approval-required',
+        'This MCP App tool call needs the user’s approval'
+      );
     }
     const mcp = this.ports.platform().mcp;
     if (!mcp) {
-      throw new Error('This host has no MCP authority for app tool calls');
+      throw refusalError(
+        'configuration',
+        'mcp-app.unavailable',
+        'This host has no MCP authority for app tool calls'
+      );
     }
     const result = await mcp.callAppTool(
       { arguments: params.arguments, serverId: params.app.serverId, toolName: params.toolName },

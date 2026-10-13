@@ -1,3 +1,4 @@
+import { refusal } from '@brainstrike/assistant-contract/boundary-failure';
 import { render, screen } from '@testing-library/react';
 import { afterEach, expect, test, vi } from 'vitest';
 
@@ -14,19 +15,22 @@ test('Manage renders canonical counts without a database and marks inactive vect
   Object.defineProperty(window, 'collectionCatalog', {
     configurable: true,
     value: {
-      snapshot: async () => [
-        {
-          counts: { chunks: 4, files: 2, unprocessedFiles: 0 },
-          createdAt: '2026-10-13T00:00:00.000Z',
-          dimensions: 384,
-          distance: 'cosine',
-          id: 'collection',
-          modelId: 'model',
-          modelKey: 'local::model',
-          name: 'Documents',
-          vectors: { kind: 'unavailable', reason: 'Collection is not active' },
-        },
-      ],
+      snapshot: async () => ({
+        ok: true,
+        value: [
+          {
+            counts: { chunks: 4, files: 2, unprocessedFiles: 0 },
+            createdAt: '2026-10-13T00:00:00.000Z',
+            dimensions: 384,
+            distance: 'cosine',
+            id: 'collection',
+            modelId: 'model',
+            modelKey: 'local::model',
+            name: 'Documents',
+            vectors: { kind: 'unavailable', reason: 'Collection is not active' },
+          },
+        ],
+      }),
     },
   });
   render(
@@ -41,9 +45,15 @@ test('Manage surfaces a catalog failure rather than offering an empty collection
   Object.defineProperty(window, 'collectionCatalog', {
     configurable: true,
     value: {
-      snapshot: async () => {
-        throw new Error('Catalog read failed');
-      },
+      snapshot: async () => ({
+        error: refusal({
+          category: 'availability',
+          code: 'catalog.unavailable',
+          message: 'Catalog read failed',
+          remedy: 'Reopen the app.',
+        }),
+        ok: false,
+      }),
     },
   });
   render(

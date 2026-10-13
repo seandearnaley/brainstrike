@@ -1,3 +1,4 @@
+import { type BoundaryTransport, callBoundary } from './boundary-result.js';
 /**
  * Structural typing + capability resolution for the desktop `window.skills`
  * Agent Skills discovery bridge (Settings → Skills panel + the composer's "/"
@@ -57,7 +58,7 @@ export function resolveSkillsBridge(): SkillsBridge | null {
   if (typeof window === 'undefined') {
     return null;
   }
-  const bridge = (window as Window & { skills?: Partial<SkillsBridge> }).skills;
+  const bridge = (window as Window & { skills?: Partial<BoundaryTransport<SkillsBridge>> }).skills;
   if (!bridge) {
     return null;
   }
@@ -68,5 +69,6 @@ export function resolveSkillsBridge(): SkillsBridge | null {
     logger.error('window.skills bridge is malformed; skills surfaces disabled', { missing });
     return null;
   }
-  return bridge as SkillsBridge;
+  const transport = bridge as BoundaryTransport<SkillsBridge>;
+  return { scan: () => callBoundary(() => transport.scan()) };
 }

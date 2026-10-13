@@ -167,9 +167,10 @@ describe('window-focus IPC handler', () => {
 
     await expect(handlers.get('window-focus:is-focused')?.(event)).resolves.toEqual({
       error: {
-        category: 'window-focus',
-        code: 'window_unavailable',
-        message: 'The requesting renderer has no live BrowserWindow.',
+        category: 'availability',
+        code: 'window.unavailable',
+        kind: 'refusal',
+        message: 'This window is no longer available.',
       },
       ok: false,
     });

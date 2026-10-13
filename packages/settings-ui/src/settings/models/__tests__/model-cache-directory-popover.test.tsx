@@ -1,3 +1,4 @@
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import '@testing-library/jest-dom/vitest';
 import {
   __resetModelRegistryStoreForTests,
@@ -69,7 +70,7 @@ describe('ModelCacheDirectoryPopover', () => {
     await userEvent.click(select);
 
     expect(toast).toHaveBeenCalledWith({
-      description: 'The directory picker failed without an error message.',
+      description: INTERNAL_FAULT.message,
       title: 'Directory selection failed',
       variant: 'destructive',
     });

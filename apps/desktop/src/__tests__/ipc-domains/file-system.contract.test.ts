@@ -40,13 +40,17 @@ describe('file-system IPC contracts', () => {
     ]);
   });
 
-  it('maps every spec to the file manifest with raw invokes and visible-UI authorization', () => {
+  it('maps each transport envelope and visible-UI authorization', () => {
     const expectedChannels = new Set<string>(Object.values(DESKTOP_IPC_CHANNELS.files));
     const specs = [...Object.values(fileSystemContract), ...Object.values(fileSystemWatchContract)];
     for (const spec of specs) {
       expect(expectedChannels.has(spec.channel)).toBe(true);
       if (spec.kind === 'invoke') {
-        expect(spec.envelope).toBe('raw');
+        expect(spec.envelope).toBe(
+          Object.values(fileSystemContract).some((core) => core.channel === spec.channel)
+            ? 'ipc-result'
+            : 'raw'
+        );
         expect(spec.roles).toEqual(['visible-ui']);
       }
     }

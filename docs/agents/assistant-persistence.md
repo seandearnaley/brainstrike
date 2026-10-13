@@ -24,6 +24,18 @@ continuation and selected same-thread ancestry retain their existing owners.
 > delegated-child storage. Rules here are true now; the record behind each is in
 > `assistant-persistence/<topic>.md`.
 
+## Referenced-file failure notices
+
+The actual desktop context read returns safe structured reference failures beside
+its model text. Core commits one `references.unavailable` batch with the admitted
+run through the existing event writer; each entry names the existing root ID,
+requested relative path and validated boundary failure. The transcript and CLI
+project those committed facts as visible notices. Reload and recovery never read
+files again or infer notices from system-prompt prose. Successful attachments and
+their content keep the existing context owner; deletion and reset erase notices
+with their run's ordinary log. Unknown read faults stay generic, with original
+causes in private diagnostics.
+
 ## ASSISTANT THREAD PERSISTENCE & RELOAD HYDRATION
 
 **Thread workspace snapshots** for M3 host-owned threads are committed as

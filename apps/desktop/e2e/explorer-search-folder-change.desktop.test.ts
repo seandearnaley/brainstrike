@@ -54,8 +54,11 @@ async function chooseTextSearch(page: Page): Promise<void> {
 /** The native index's state: the folders it serves with a finished scan, or why it serves none. */
 async function indexReadiness(page: Page): Promise<unknown> {
   return await page.evaluate(async () => {
-    const capability = (window as Window & { readonly indexSearch?: IndexSearchCapability })
-      .indexSearch;
+    const capability = (
+      window as Window & {
+        readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
+      }
+    ).__brainstrikeTestHooks__?.indexSearch;
     if (!capability) {
       throw new Error('The native index capability is unavailable');
     }

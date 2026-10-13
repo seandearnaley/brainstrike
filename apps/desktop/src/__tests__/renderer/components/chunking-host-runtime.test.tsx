@@ -60,7 +60,9 @@ describe('ChunkingHostRuntime', () => {
       },
     });
 
-    vi.stubGlobal('sourceFiles', { read: readSourceMock });
+    vi.stubGlobal('sourceFiles', {
+      read: async (...args: unknown[]) => ({ ok: true, value: await readSourceMock(...args) }),
+    });
 
     window.history.replaceState({}, '', '/?mode=chunking-host&runtimeId=test-runtime');
   });

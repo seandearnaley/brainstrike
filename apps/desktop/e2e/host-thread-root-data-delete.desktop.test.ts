@@ -66,8 +66,11 @@ async function rootIdOf(page: Page, rootPath: string): Promise<string> {
 /** The roots the native index has fully scanned and authorizes, or `not-ready`. */
 async function scannedRoots(page: Page): Promise<readonly string[] | 'not-ready'> {
   return await page.evaluate(async () => {
-    const capability = (window as Window & { readonly indexSearch?: IndexSearchCapability })
-      .indexSearch;
+    const capability = (
+      window as Window & {
+        readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
+      }
+    ).__brainstrikeTestHooks__?.indexSearch;
     if (!capability) {
       throw new Error('The native index capability is unavailable');
     }
@@ -85,7 +88,14 @@ async function indexedFileCount(page: Page, rootId: string): Promise<number> {
     if (!window.sourceFiles) {
       throw new Error('Canonical source capability unavailable');
     }
-    return (await window.sourceFiles.list()).filter((file) => file.rootId === wanted).length;
+    return (
+      await window.sourceFiles.list().then((result) => {
+        if (!result.ok) {
+          throw new Error(result.error.message);
+        }
+        return result.value;
+      })
+    ).filter((file) => file.rootId === wanted).length;
   }, rootId);
 }
 

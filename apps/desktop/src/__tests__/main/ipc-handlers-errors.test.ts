@@ -1,4 +1,7 @@
+import { BoundaryFailureError, INTERNAL_FAULT } from '@brainstrike/assistant-contract';
+import { readBoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,13 +15,40 @@ vi.mock('electron', () => ({
   app: { getPath: vi.fn(() => '/Users/test/Documents') },
   ipcMain: {
     handle: vi.fn((channel: string, listener: IpcHandler) => {
-      handlers.set(channel, listener);
+      handlers.set(channel, async (event, ...args) =>
+        readBoundaryResult(await listener(event, ...args))
+      );
     }),
   },
 }));
 
 import { registerIpcHandlers } from '../../ipc-handlers';
 import { getRootsCatalog, resetRootsCatalog } from '../ipc-domains/file-system-ipc-test-harness';
+
+async function expectCorrelatedStorageFault(run: () => unknown, original: Error): Promise<void> {
+  const records: LogRecord[] = [];
+  const unsubscribe = addLogListener((record) => records.push(record));
+  try {
+    const failure = await Promise.resolve()
+      .then(run)
+      .catch((cause: unknown) => cause);
+    expect(failure).toBeInstanceOf(BoundaryFailureError);
+    const outcome = (failure as BoundaryFailureError).failure;
+    expect(outcome).toEqual({ ...INTERNAL_FAULT, correlationId: expect.any(String) });
+    const fields = records
+      .flatMap((record) => record.args)
+      .find(
+        (arg) =>
+          typeof arg === 'object' &&
+          arg !== null &&
+          'correlationId' in arg &&
+          arg.correlationId === outcome.correlationId
+      );
+    expect(fields).toMatchObject({ error: { message: original.message, stack: original.stack } });
+  } finally {
+    unsubscribe();
+  }
+}
 
 describe('ipc-handlers error branches', () => {
   let fsAdapter: ElectronFileSystemAdapter;
@@ -63,19 +93,20 @@ describe('ipc-handlers error branches', () => {
 
   it('fs:restoreLastFolder propagates storage errors', async () => {
     const handler = handlers.get('fs:restoreLastFolder');
-    (storage.getItem as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new Error('boom')
-    );
-    await expect(handler?.(createTrustedInvokeEvent())).rejects.toThrow('boom');
+    const original = new Error('fixture storage read failure');
+    vi.mocked(storage.getItem).mockRejectedValueOnce(original);
+    await expectCorrelatedStorageFault(() => handler?.(createTrustedInvokeEvent()), original);
   });
 
   it('fs:saveLastFolder propagates storage.setItem errors', async () => {
     await handlers.get('fs:addRoot')?.(createTrustedInvokeEvent());
     const handler = handlers.get('fs:saveLastFolder');
-    (storage.setItem as unknown as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
-      new Error('boom')
+    const original = new Error('fixture storage write failure');
+    vi.mocked(storage.setItem).mockRejectedValueOnce(original);
+    await expectCorrelatedStorageFault(
+      () => handler?.(createTrustedInvokeEvent(), '/test/workspace'),
+      original
     );
-    await expect(handler?.(createTrustedInvokeEvent(), '/test/workspace')).rejects.toThrow('boom');
     expect(storage.setItem).toHaveBeenCalled();
   });
 });

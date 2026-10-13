@@ -1,3 +1,8 @@
+import {
+  type BoundaryFailure,
+  BoundaryFailureError,
+  BoundaryFailureSchema,
+} from '@brainstrike/assistant-contract/boundary-failure';
 import { makeThrowingDecoder } from '@brainstrike/effect-kit';
 import type {
   ScopedCoverage,
@@ -8,6 +13,7 @@ import type {
 } from '@brainstrike/indexer';
 import { isChunkingStrategy } from '@brainstrike/text-splitter';
 import { Schema } from 'effect';
+import { hostedEmbeddingFailure } from './hosted-embedding-error';
 
 export const CANONICAL_CHANNEL = 'canonical-ingestion-v1';
 export const MAX_CANONICAL_MESSAGE_BYTES = 32 * 1024 * 1024;
@@ -457,12 +463,17 @@ const fields = { channel: Schema.Literal(CANONICAL_CHANNEL), owner: identifier }
 export interface CanonicalFault {
   readonly cause?: CanonicalFault;
   readonly errors?: readonly CanonicalFault[];
+  readonly failure?: BoundaryFailure;
   readonly message: string;
   readonly name: string;
 }
+const boundaryFailureSchema = Schema.declare(
+  (input: unknown): input is BoundaryFailure => BoundaryFailureSchema.safeParse(input).success
+);
 export const faultSchema: Schema.Codec<CanonicalFault> = Schema.Struct({
   cause: Schema.optionalKey(Schema.suspend(() => faultSchema)),
   errors: Schema.optionalKey(Schema.Array(Schema.suspend(() => faultSchema))),
+  failure: Schema.optionalKey(boundaryFailureSchema),
   message: Schema.String,
   name: identifier,
 });
@@ -525,7 +536,10 @@ export function canonicalFault(
   const visited = new Set([...ancestors, error]);
   const errors: readonly unknown[] | undefined =
     error instanceof AggregateError ? error.errors : undefined;
+  const failure =
+    error instanceof BoundaryFailureError ? error.failure : hostedEmbeddingFailure(error);
   return {
+    ...(failure === undefined ? {} : { failure: BoundaryFailureSchema.parse(failure) }),
     ...(error instanceof Error && error.cause !== undefined
       ? { cause: canonicalFault(error.cause, visited) }
       : {}),
@@ -538,7 +552,9 @@ export function canonicalError(fault: CanonicalFault): Error {
   const options = fault.cause ? { cause: canonicalError(fault.cause) } : {};
   const error = fault.errors
     ? new AggregateError(fault.errors.map(canonicalError), fault.message, options)
-    : new Error(fault.message, options);
+    : fault.failure
+      ? new BoundaryFailureError(fault.failure, options)
+      : new Error(fault.message, options);
   error.name = fault.name;
   return error;
 }

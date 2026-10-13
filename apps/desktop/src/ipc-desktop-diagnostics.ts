@@ -4,20 +4,15 @@ import {
   collectDesktopPlatformDiagnostics,
   DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL,
   type DesktopPlatformDiagnosticsProviders,
-  type DesktopPlatformDiagnosticsSnapshot,
 } from './desktop-platform-diagnostics';
-import {
-  assertMainLogWindowRequest,
-  type MainLogWindowResult,
-} from './diagnostics/main-log-window';
-import type { ProcessCounterSnapshot } from './diagnostics/process-counter-ring';
+import { assertMainLogWindowRequest } from './diagnostics/main-log-window';
 import {
   assertRetainedEventsQuery,
   assertRetainedFingerprintCount,
   assertUnseenDiagnosticsWatermark,
 } from './diagnostics/retained-events-request';
 import { DESKTOP_IPC_CHANNELS } from './platform/desktop-ipc-channels';
-import { createDesktopIpcRegistry } from './platform/desktop-ipc-registry';
+import { createDesktopIpcRegistry, settleIpcResult } from './platform/desktop-ipc-registry';
 
 const UNAUTHENTICATED_SENDER_POLICY = {
   reason:
@@ -33,8 +28,10 @@ export function registerDesktopDiagnosticsIpcHandlers(
     'diagnostics',
     DESKTOP_DIAGNOSTICS_GET_SNAPSHOT_CHANNEL,
     UNAUTHENTICATED_SENDER_POLICY,
-    async (): Promise<DesktopPlatformDiagnosticsSnapshot> =>
-      collectDesktopPlatformDiagnostics(providers)
+    () =>
+      settleIpcResult({ category: 'diagnostics', code: 'diagnostics.snapshot-failed' }, () =>
+        collectDesktopPlatformDiagnostics(providers)
+      )
   );
 
   // The window is validated BEFORE the provider is touched: a malformed or
@@ -43,15 +40,20 @@ export function registerDesktopDiagnosticsIpcHandlers(
     'diagnostics',
     DESKTOP_IPC_CHANNELS.diagnostics.readMainLogWindow,
     UNAUTHENTICATED_SENDER_POLICY,
-    async (_event, request: unknown): Promise<MainLogWindowResult> =>
-      await providers.mainLog.readWindow(assertMainLogWindowRequest(request, Date.now()))
+    (_event, request: unknown) =>
+      settleIpcResult({ category: 'diagnostics', code: 'diagnostics.log-read-failed' }, () =>
+        providers.mainLog.readWindow(assertMainLogWindowRequest(request, Date.now()))
+      )
   );
 
   registry.registerUnauthenticatedInvoke(
     'diagnostics',
     DESKTOP_IPC_CHANNELS.diagnostics.readProcessCounters,
     UNAUTHENTICATED_SENDER_POLICY,
-    (): ProcessCounterSnapshot => providers.processCounters.getSnapshot()
+    () =>
+      settleIpcResult({ category: 'diagnostics', code: 'diagnostics.counters-failed' }, () =>
+        providers.processCounters.getSnapshot()
+      )
   );
 
   registry.registerAuthorizedInvoke(

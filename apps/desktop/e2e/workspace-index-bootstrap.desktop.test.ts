@@ -68,7 +68,14 @@ async function readCollectionRows(page: Page): Promise<CollectionRow[]> {
     if (!window.collectionCatalog) {
       throw new Error('Desktop collection catalog is unavailable');
     }
-    return (await window.collectionCatalog.list()).map((row) => ({
+    return (
+      await window.collectionCatalog.list().then((result) => {
+        if (!result.ok) {
+          throw new Error(result.error.message);
+        }
+        return result.value;
+      })
+    ).map((row) => ({
       dimensions: row.dimensions,
       id: row.id,
       model_id: row.modelId,
@@ -94,8 +101,11 @@ async function readNativeStatus(
   page: Page
 ): Promise<Awaited<ReturnType<IndexSearchCapability['status']>>> {
   return await page.evaluate(async () => {
-    const capability = (window as Window & { readonly indexSearch?: IndexSearchCapability })
-      .indexSearch;
+    const capability = (
+      window as Window & {
+        readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
+      }
+    ).__brainstrikeTestHooks__?.indexSearch;
     if (!capability) {
       throw new Error('Native indexing capability is unavailable.');
     }
@@ -108,13 +118,20 @@ async function createCatalogCollection(page: Page): Promise<string> {
     if (!window.collectionCatalog) {
       throw new Error('Desktop collection catalog is unavailable');
     }
-    const collection = await window.collectionCatalog.create({
-      dimensions: 384,
-      distance: 'cosine',
-      metadata: { name: 'Fresh collection' },
-      modelId: 'Xenova/bge-small-en-v1.5',
-      modelKey: 'local::Xenova/bge-small-en-v1.5',
-    });
+    const collection = await window.collectionCatalog
+      .create({
+        dimensions: 384,
+        distance: 'cosine',
+        metadata: { name: 'Fresh collection' },
+        modelId: 'Xenova/bge-small-en-v1.5',
+        modelKey: 'local::Xenova/bge-small-en-v1.5',
+      })
+      .then((result) => {
+        if (!result.ok) {
+          throw new Error(result.error.message);
+        }
+        return result.value;
+      });
     return collection.id;
   });
 }
@@ -175,9 +192,11 @@ test.describe('Workspace Index first run (desktop)', () => {
               await window.evaluate(async () => {
                 const capability = (
                   globalThis as typeof globalThis & {
-                    readonly indexSearch?: IndexSearchCapability;
+                    readonly __brainstrikeTestHooks__?: {
+                      readonly indexSearch?: IndexSearchCapability;
+                    };
                   }
-                ).indexSearch;
+                ).__brainstrikeTestHooks__?.indexSearch;
                 if (!capability) {
                   throw new Error('Native capability missing');
                 }
@@ -214,10 +233,10 @@ test.describe('Workspace Index first run (desktop)', () => {
           .toBe(true);
         const semanticResult = await window.evaluate(async () => {
           const bridges = globalThis as typeof globalThis & {
-            readonly indexSearch?: IndexSearchCapability;
+            readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
             readonly embeddingHost?: VisibleEmbeddingHostBridge;
           };
-          const capability = bridges.indexSearch;
+          const capability = bridges.__brainstrikeTestHooks__?.indexSearch;
           const bridge = bridges.embeddingHost;
           if (!(capability && bridge && 'queryEmbedding' in bridge)) {
             throw new Error('Native search/query bridge unavailable');
@@ -230,7 +249,7 @@ test.describe('Workspace Index first run (desktop)', () => {
           ) {
             throw new Error('Selected collection has no ready semantic query plan');
           }
-          const vector = await bridge.queryEmbedding({
+          const response = await bridge.queryEmbedding({
             dimensions: status.embedding.profile.dimensions,
             modelId: status.embedding.profile.modelId,
             modelKey: status.queryPlan.modelKey,
@@ -239,6 +258,10 @@ test.describe('Workspace Index first run (desktop)', () => {
               ? { inferencePlan: status.queryPlan.inferencePlan }
               : {}),
           });
+          if (!response.ok) {
+            throw new Error(JSON.stringify(response.error));
+          }
+          const vector = response.value;
           const result = await capability.search({
             limit: 5,
             mode: 'vector',
@@ -284,6 +307,80 @@ test.describe('Workspace Index first run (desktop)', () => {
       }
     });
   }
+
+  test(
+    'completes paused semantic setup after choosing a local execution',
+    { tag: '@smoke' },
+    async ({ homePage, window }, testInfo) => {
+      await openSearchIndexingSettings({ homePage, page: window });
+      await window.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
+      await window.getByRole('option', { name: /BGE Small/ }).click();
+      await window.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
+      await expect(window.getByRole('combobox', { name: 'Managed collection' })).toContainText(
+        'Workspace Index (BGE Small)',
+        { timeout: 15_000 }
+      );
+      await window.getByRole('combobox', { name: 'Search mode' }).click();
+      await window.getByRole('option', { exact: true, name: 'Text search' }).click();
+      await expect
+        .poll(() => readNativeStatus(window), { timeout: 15_000 })
+        .toMatchObject({ embedding: { indexMode: 'text-only' }, kind: 'ready' });
+      const initial = await readSavedPreferences(window);
+      expect(initial.managedCollectionId).not.toBeNull();
+      await window.getByRole('button', { name: 'Pause workspace index' }).click();
+      await expect
+        .poll(() => readSavedPreferences(window), { timeout: 15_000 })
+        .toMatchObject({ paused: true });
+
+      // Mode is saved before execution: this is a real failed open with no writer,
+      // not a source pause on an already configured semantic host.
+      await window.getByRole('combobox', { name: 'Search mode' }).click();
+      await window.getByRole('option', { exact: true, name: 'Text and semantic search' }).click();
+      await expect
+        .poll(() => readNativeStatus(window), { timeout: 15_000 })
+        .toMatchObject({ cause: { kind: 'setup-required' }, kind: 'unavailable' });
+      const incomplete = await readNativeStatus(window);
+      await window.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
+      await window.getByRole('option', { name: /BGE Small/ }).click();
+      await window.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
+      await window.getByRole('combobox', { name: 'Local model execution' }).click();
+      await window.getByRole('option', { exact: true, name: 'WASM · Q8' }).click();
+      await expect
+        .poll(() => readSavedPreferences(window), { timeout: 15_000 })
+        .toMatchObject({
+          managedCollectionId: initial.managedCollectionId,
+          nativeIndexMode: 'VECTOR',
+          nativeLocalSelection: {
+            device: 'wasm',
+            dtype: 'q8',
+            modelId: 'Xenova/bge-small-en-v1.5',
+          },
+          paused: true,
+        });
+      // Paused read authority needs a real native writer, but no document inference
+      // or model download. Do not resume ingestion to make this assertion pass.
+      await expect
+        .poll(() => readNativeStatus(window), { timeout: 15_000 })
+        .toMatchObject({
+          authorizedCollectionIds: [initial.managedCollectionId],
+          embedding: {
+            indexMode: 'vector-configured',
+            profile: { dtype: 'q8', modelId: 'Xenova/bge-small-en-v1.5' },
+          },
+          kind: 'ready',
+          queryPlan: { inferencePlan: { device: 'wasm', dtype: 'q8' } },
+        });
+      await expect(window.getByRole('button', { name: 'Resume workspace index' })).toBeVisible();
+      await testInfo.attach('paused-semantic-setup', {
+        body: JSON.stringify({
+          incomplete,
+          preferences: await readSavedPreferences(window),
+          status: await readNativeStatus(window),
+        }),
+        contentType: 'application/json',
+      });
+    }
+  );
 
   test('does not invent a collection or native search mode for a fresh profile', async ({
     electron,

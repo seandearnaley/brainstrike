@@ -1,3 +1,4 @@
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -122,7 +123,10 @@ describe('useCrossRootCost', () => {
     const readRoots = vi
       .fn()
       .mockResolvedValue([{ displayName: 'Current folder', id: 'root-b', path: '/fixture' }]);
-    Object.defineProperty(window, 'threadGroups', { configurable: true, value: { readRoots } });
+    Object.defineProperty(window, 'threadGroups', {
+      configurable: true,
+      value: { readRoots: async () => ({ ok: true, value: await readRoots() }) },
+    });
     usePGliteDatabaseMock.mockImplementation(({ enabled }: { enabled?: boolean } = {}) => {
       if (enabled !== false) {
         throw new Error('Native costs attempted PGlite');
@@ -151,6 +155,8 @@ describe('useCrossRootCost', () => {
     const failure = new Error('Catalog unavailable');
     readRoots.mockRejectedValue(failure);
     const failed = renderHook(() => useCrossRootCost(usage));
-    await waitFor(() => expect(failed.result.current.error).toBe(failure));
+    await waitFor(() =>
+      expect(failed.result.current.error).toMatchObject({ cause: failure, failure: INTERNAL_FAULT })
+    );
   });
 });

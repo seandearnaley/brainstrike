@@ -102,7 +102,7 @@ it('reads retained native roots and reconnect status without a database provider
   const readRoots = vi.fn(async () => [{ ...row, status }]);
   Object.defineProperty(window, 'threadGroups', {
     configurable: true,
-    value: { readRoots },
+    value: { readRoots: async () => ({ ok: true, value: await readRoots() }) },
   });
   const { result } = renderHook(() => useThreadRoots({ ...params, database: null }));
   await waitFor(() => expect(result.current.primaryRemoved).toBe(true));

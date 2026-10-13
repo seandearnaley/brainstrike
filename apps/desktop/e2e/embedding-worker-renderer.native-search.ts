@@ -43,13 +43,20 @@ export async function createNativeImportedSearchFixture(
     if (!(window.collectionCatalog && window.sourceFiles)) {
       throw new Error('Desktop source capabilities unavailable');
     }
-    const collection = await window.collectionCatalog.create({
-      dimensions: 384,
-      distance: 'cosine',
-      metadata: { name },
-      modelId: 'Xenova/bge-small-en-v1.5',
-      modelKey: 'local::Xenova/bge-small-en-v1.5',
-    });
+    const collection = await window.collectionCatalog
+      .create({
+        dimensions: 384,
+        distance: 'cosine',
+        metadata: { name },
+        modelId: 'Xenova/bge-small-en-v1.5',
+        modelKey: 'local::Xenova/bge-small-en-v1.5',
+      })
+      .then((result) => {
+        if (!result.ok) {
+          throw new Error(result.error.message);
+        }
+        return result.value;
+      });
     const embeddingSetId = collection.id;
     const files = [
       {
@@ -63,14 +70,21 @@ export async function createNativeImportedSearchFixture(
         name: 'mock-file2.ts',
       },
     ];
-    await window.sourceFiles.import({
-      embeddingSetId,
-      files: files.map((file) => ({
-        ...file,
-        path: `/import/${file.name}`,
-        size: new TextEncoder().encode(file.content).length,
-      })),
-    });
+    await window.sourceFiles
+      .import({
+        embeddingSetId,
+        files: files.map((file) => ({
+          ...file,
+          path: `/import/${file.name}`,
+          size: new TextEncoder().encode(file.content).length,
+        })),
+      })
+      .then((result) => {
+        if (!result.ok) {
+          throw new Error(result.error.message);
+        }
+        return result.value;
+      });
     return { embeddingSetId, fileCount: files.length };
   }, collectionName);
 }
@@ -143,20 +157,20 @@ export async function observeNativeCollectionWork(
 ): Promise<NativeCollectionWork | null> {
   return await page.evaluate(async (id) => {
     const browser = window as Window & {
-      indexSearch?: IndexSearchCapability;
+      __brainstrikeTestHooks__?: { indexSearch?: IndexSearchCapability };
       embeddingHost?: VisibleEmbeddingHostBridge;
     };
-    if (!(browser.indexSearch && browser.embeddingHost)) {
+    if (!(browser.__brainstrikeTestHooks__?.indexSearch && browser.embeddingHost)) {
       throw new Error('Native index or embedding host capability unavailable');
     }
-    const status = await browser.indexSearch.status();
+    const status = await browser.__brainstrikeTestHooks__?.indexSearch.status();
     if (status.kind !== 'ready') {
       if (status.phase === 'blocked') {
         throw new Error(status.reason);
       }
       return null;
     }
-    const observation = await browser.indexSearch.coverageBatch([
+    const observation = await browser.__brainstrikeTestHooks__?.indexSearch.coverageBatch([
       { collectionId: id, rootIds: [] },
     ]);
     if (observation.kind === 'blocked') {
@@ -192,8 +206,11 @@ export async function waitForNativeCollectionCoverage(
       async () =>
         await page
           .evaluate(async (id) => {
-            const capability = (window as Window & { indexSearch?: IndexSearchCapability })
-              .indexSearch;
+            const capability = (
+              window as Window & {
+                __brainstrikeTestHooks__?: { indexSearch?: IndexSearchCapability };
+              }
+            ).__brainstrikeTestHooks__?.indexSearch;
             if (!capability) {
               throw new Error('Native index capability unavailable');
             }
@@ -285,7 +302,9 @@ export async function searchNativeCollection(
 ) {
   return await page.evaluate(
     async ({ id, queryVector }) => {
-      const capability = (window as Window & { indexSearch?: IndexSearchCapability }).indexSearch;
+      const capability = (
+        window as Window & { __brainstrikeTestHooks__?: { indexSearch?: IndexSearchCapability } }
+      ).__brainstrikeTestHooks__?.indexSearch;
       if (!capability) {
         throw new Error('Native index capability unavailable');
       }

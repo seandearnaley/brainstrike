@@ -228,7 +228,15 @@ test('joins renderer IPC producers before closing their hosts @smoke', async ({
     const produce = async () => {
       let completed = 0;
       while (true) {
-        await Promise.all([catalog.read(), chunkingHost.ensureStarted()]);
+        await Promise.all([
+          catalog.read().then((result) => {
+            if (!result.ok) {
+              throw new Error(result.error.message);
+            }
+            return result.value;
+          }),
+          chunkingHost.ensureStarted(),
+        ]);
         completed += 1;
         if (completed === 3) {
           ready.resolve();

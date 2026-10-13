@@ -1,4 +1,8 @@
 import type { CollectionCatalogCapability } from '@brainstrike/assistant-contract';
+import {
+  type BoundaryTransport,
+  createBoundaryCapability,
+} from '@brainstrike/assistant-contract/boundary-result';
 /**
  * The DbProvider consumer hooks, split out of `db-provider.tsx` so that file
  * exports only the component: mixing hook and component exports breaks the
@@ -261,10 +265,14 @@ export function useDrizzleDb(options: { enabled?: boolean } = {}): DrizzleDb | n
  * Use this to manage embedding sets (collections) in the database.
  */
 export function useEmbeddingSetsRepository(): IEmbeddingSetsRepository | null {
-  const catalog =
+  const transport =
     typeof window === 'undefined'
       ? undefined
-      : (window as Window & { collectionCatalog?: CollectionCatalogCapability }).collectionCatalog;
+      : (window as Window & { collectionCatalog?: BoundaryTransport<CollectionCatalogCapability> })
+          .collectionCatalog;
+  const catalog = transport
+    ? createBoundaryCapability<CollectionCatalogCapability>(transport)
+    : undefined;
   const desktop = useMemo(
     () => (catalog ? createCollectionCatalogRepository(catalog) : null),
     [catalog]

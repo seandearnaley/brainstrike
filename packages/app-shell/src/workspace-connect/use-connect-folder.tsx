@@ -1,3 +1,7 @@
+import {
+  BoundaryFailureError,
+  describeBoundaryError,
+} from '@brainstrike/assistant-contract/boundary-failure';
 /**
  * The ONE seam every W6 entry point converges on (BST-1393, spec §7): the
  * File menu, `brainstrike <path>` argv, macOS `open-file`, `second-instance`
@@ -26,24 +30,9 @@ import type { DirectoryHandle } from '@brainstrike/file-system';
 import { createLogger } from '@brainstrike/logging';
 import { ToastAction, toast } from '@brainstrike/ui';
 import { useCallback } from 'react';
-import {
-  WORKSPACE_ROOT_NEVER_GRANTED_MESSAGES as NEVER_GRANTED_MESSAGES,
-  stripIpcInvokeEnvelope,
-  type WorkspaceOpenPathRequest,
-} from './workspace-connect-bridge';
+import type { WorkspaceOpenPathRequest } from './workspace-connect-bridge';
 
 const logger = createLogger('ConnectFolder');
-
-/**
- * Display copy: the shared bridge stripper removes the `ipcRenderer.invoke`
- * envelope (and any `*Error:` class name) — see `stripIpcInvokeEnvelope`'s
- * doc for the live finding that put it there. The BEHAVIORAL never-granted
- * match below does NOT rely on this stripping; it matches by suffix.
- */
-function messageOf(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error);
-  return stripIpcInvokeEnvelope(raw);
-}
 
 export interface ConnectFolderApi {
   /**
@@ -83,7 +72,7 @@ export function useConnectFolder(): ConnectFolderApi {
     } catch (error: unknown) {
       logger.error('Open Folder failed', { error });
       toast({
-        description: messageOf(error),
+        description: describeBoundaryError(error),
         title: 'Could not open that folder',
         variant: 'destructive',
       });
@@ -113,18 +102,15 @@ export function useConnectFolder(): ConnectFolderApi {
         }
         return handle;
       } catch (error: unknown) {
-        const message = messageOf(error);
+        const message = describeBoundaryError(error);
         logger.warn('Folder connection refused', { message, origin, path });
-        // BEHAVIORAL match by SUFFIX, deliberately not equality on the
-        // stripped message: the stripper above recognizes the envelope plus
-        // any `*Error:` class name, but a future refusal thrown through a
-        // class whose name doesn't end in `Error` would leave its prefix on
-        // the message and an equality check would go dark silently AGAIN —
-        // the third notch on the exact failure the L5 e2e caught live. The
-        // canonical refusal sentences are long and specific, so a suffix
-        // match cannot fire on an unrelated error; the stripper stays for
-        // the DISPLAY paths below, where a stale prefix is only cosmetic.
-        if (NEVER_GRANTED_MESSAGES.some((refusal) => message.endsWith(refusal))) {
+        if (
+          error instanceof BoundaryFailureError &&
+          error.failure.kind === 'refusal' &&
+          error.failure.category === 'authorization' &&
+          (error.code === 'workspace.never-granted' ||
+            error.code === 'workspace.managed-not-authorized')
+        ) {
           toast({
             action: (
               <ToastAction
@@ -135,7 +121,7 @@ export function useConnectFolder(): ConnectFolderApi {
                 Add folder…
               </ToastAction>
             ),
-            description: `BrainStrike has never been granted access to ${path}. Choose it with "Add folder…" to grant access — this is the same confirmation the folder picker asks for.`,
+            description: `${path}: ${message}`,
             // Persistent for the same reason the rewind redo toast is: this
             // toast IS the remedy, and a 5s default would strand it.
             persistent: true,

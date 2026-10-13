@@ -1,6 +1,7 @@
-import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
+import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import type { ipcMain as ElectronIpcMain, IpcMainEvent, IpcMainInvokeEvent } from 'electron';
+import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import { type DesktopWindowRole, getWindowRoleByWebContentsId } from '../window-role';
 import {
   type DesktopIpcSenderFrameAllowlist,
@@ -371,7 +372,14 @@ export function registerDomain<C extends Contract>(
       domain,
       spec.channel,
       { roles: spec.roles },
-      (_event, ...raw: readonly unknown[]) => invoke(...spec.parseArgs(raw))
+      (_event, ...raw: readonly unknown[]) => {
+        if (spec.envelope === 'raw') {
+          return invoke(...spec.parseArgs(raw));
+        }
+        return settleIpcResult({ category: domain, code: spec.channel }, () =>
+          invoke(...spec.parseArgs(raw))
+        ).then((result) => (result.ok ? result.value : result));
+      }
     );
   }
 }
@@ -384,20 +392,18 @@ export function registerDomain<C extends Contract>(
  */
 export async function settleIpcResult<T>(
   failure: { readonly category: string; readonly code: string },
-  run: () => Promise<T>
+  run: () => T | Promise<T>
 ): Promise<IpcResult<T>> {
   try {
     return ipcOk(await run());
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    if (error instanceof NativeIndexRefusalError) {
-      return ipcFailure(failure.category, error.code, message);
-    }
-    logger.error('Desktop IPC contract handler failed', {
-      category: failure.category,
-      code: failure.code,
-      error,
-    });
-    return ipcFailure(failure.category, failure.code, message);
+    return ipcFailure(
+      nativeIndexBoundaryFailure(error, (message, fields) =>
+        logger.error(
+          message,
+          error instanceof NativeIndexRefusalError ? fields : { ...fields, operation: failure }
+        )
+      )
+    );
   }
 }
