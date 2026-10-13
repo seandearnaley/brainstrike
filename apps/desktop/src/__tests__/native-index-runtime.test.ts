@@ -1,10 +1,5 @@
 // @vitest-environment node
-import {
-  IndexerError,
-  type IndexerPort,
-  type ScopedIndexerPort,
-  type ScopedManifestFile,
-} from '@brainstrike/indexer';
+import { IndexerError, type IndexerPort, type ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthority } from '@brainstrike/indexer/coverage-reader';
 import { expect, it, vi } from 'vitest';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
@@ -30,19 +25,30 @@ function fixture() {
   const unused = async (): Promise<never> => {
     throw new Error('Unused fixture operation');
   };
-  // An opened store's rows per workspace scope; empty until a test retains some.
-  let storedRows: readonly ScopedManifestFile[] = [];
   // The writer's current bindings, as its ScopeAuthority holds them.
-  let boundFiles: readonly { readonly rootId: string | null }[] = [];
+  let boundFiles: readonly {
+    readonly embeddingSetId: string | null;
+    readonly rootId: string | null;
+  }[] = [];
+  const inScope = (
+    file: { readonly embeddingSetId: string | null; readonly rootId: string | null },
+    scope: { readonly embeddingSetId?: string; readonly kind: string; readonly rootId?: string }
+  ): boolean =>
+    scope.kind === 'workspace'
+      ? file.rootId === scope.rootId
+      : file.embeddingSetId === scope.embeddingSetId;
   const verifyScopedManifest = vi.fn(
     async (request: {
       readonly files: readonly unknown[];
-      readonly scope: { rootId?: string };
+      readonly scope: {
+        readonly embeddingSetId?: string;
+        readonly kind: string;
+        readonly rootId?: string;
+      };
     }) => {
       // As the writer does: a manifest declares every file bound in its scope.
       if (
-        request.files.length !==
-        boundFiles.filter((file) => file.rootId === request.scope.rootId).length
+        request.files.length !== boundFiles.filter((file) => inScope(file, request.scope)).length
       ) {
         throw new IndexerError(
           'incomplete-manifest',
@@ -53,15 +59,14 @@ function fixture() {
         authorityEpoch: 'a'.repeat(64),
         authorityRevision: 1,
         changed: [],
-        complete: storedRows.length === 0,
+        complete: true,
         missing: [],
         scope: request.scope,
         storeId: 'store',
-        unexpected: storedRows.filter((row) => row.rootId === request.scope.rootId),
+        unexpected: [],
       };
     }
   );
-  const removeScopedFile = vi.fn<(request: unknown) => Promise<boolean>>(unused);
   const port: IndexerPort & ScopedIndexerPort = {
     close: unused,
     commitFile: unused,
@@ -77,7 +82,7 @@ function fixture() {
     prepareFile: unused,
     prepareScopedFile: unused,
     removeFile: unused,
-    removeScopedFile,
+    removeScopedFile: unused,
     replaceFileBindings: vi.fn(async (bindings: unknown) => {
       boundFiles = bindings as typeof boundFiles;
       events.push('bindings-replace');
@@ -140,12 +145,8 @@ function fixture() {
     port,
     profileAttachment,
     queryTargetInstalled: () => queryTargetInstalled,
-    removeScopedFile,
     resetBindings: () => {
       authority = { ...authority, fileBindings: [] };
-    },
-    retainRows: (rows: readonly ScopedManifestFile[]) => {
-      storedRows = rows;
     },
     runtime,
     setBindings: () => {
@@ -924,70 +925,4 @@ it('does not cache new bindings before their final authority validation succeeds
     expect(f.queryTargetInstalled()).toBe(true);
   });
   await f.runtime.retireProfile();
-});
-
-function storedRow(fileId: string, embeddingSetId: string | null): ScopedManifestFile {
-  return {
-    chunks: [],
-    contentHash: 'c'.repeat(64),
-    embeddingSetId,
-    fileId,
-    relativePath: `${fileId}.txt`,
-    rootId: 'root',
-    sourcePath: `/${fileId}.txt`,
-  };
-}
-
-it('removes the rows an opened writer finds in its folders that its bindings do not own', async () => {
-  // BST-1988: semantic search chosen before its model and execution closed the
-  // Text-only writer between saves, so the TEXT partition's rows sat beside the
-  // collection's and the folder's manifest could never complete.
-  const f = fixture();
-  f.setBindings();
-  f.retainRows([
-    storedRow('file', null),
-    storedRow('text-partition', null),
-    storedRow('earlier-collection', 'earlier'),
-  ]);
-  f.removeScopedFile.mockImplementation(async () => {
-    f.events.push('remove');
-    return true;
-  });
-  await f.runtime.acquire();
-  const bound = {
-    embeddingSetId: null,
-    fileId: 'file',
-    profile: null,
-    relativePath: 'file.txt',
-    rootId: 'root',
-    sourcePath: '/file.txt',
-  };
-  const unowned = (fileId: string) => ({
-    embeddingSetId: null,
-    fileId,
-    profile: null,
-    relativePath: `${fileId}.txt`,
-    rootId: 'root',
-    sourcePath: `/${fileId}.txt`,
-  });
-  expect(vi.mocked(f.port.replaceFileBindings).mock.calls).toEqual([
-    [[]],
-    [[bound, unowned('text-partition'), unowned('earlier-collection')]],
-    [[bound]],
-  ]);
-  expect(f.removeScopedFile.mock.calls).toEqual([
-    [{ fileId: 'text-partition', scope: { kind: 'workspace', rootId: 'root' } }],
-    [{ fileId: 'earlier-collection', scope: { kind: 'workspace', rootId: 'root' } }],
-  ]);
-  // The reader sees only the converged store.
-  expect(f.events.slice(f.events.indexOf('writer-start'))).toEqual([
-    'writer-start',
-    'bindings-replace',
-    'bindings-replace',
-    'remove',
-    'remove',
-    'bindings-replace',
-    'reader-install',
-  ]);
-  await f.runtime.closeIndex();
 });

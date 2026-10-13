@@ -315,6 +315,8 @@ it('joins absent retained files under the original ACK before revoking their nat
   const initial = { fileBindings: [binding, preserved], rootIds: [], scopes: [collection] };
   const f = fixture(initial);
   await f.runtime.acquire();
+  // The open lists its stored rows with no binding held (BST-1988); count from here.
+  f.replaceFileBindings.mockClear();
   const captured = f.runtime.captureAcknowledgedAuthority();
   const held = Promise.withResolvers<boolean>();
   f.removeScopedFile.mockReturnValueOnce(held.promise);
@@ -339,6 +341,8 @@ it('retains failed absent-file removal and its ACK for explicit retry before bin
   const initial = { fileBindings: [binding], rootIds: [], scopes: [collection] };
   const f = fixture(initial);
   await f.runtime.acquire();
+  // The open lists its stored rows with no binding held (BST-1988); count from here.
+  f.replaceFileBindings.mockClear();
   const captured = f.runtime.captureAcknowledgedAuthority();
   const failure = new Error('Deleted canonical data did not retire.');
   f.removeScopedFile.mockRejectedValueOnce(failure);
@@ -357,6 +361,8 @@ it('refuses authority drift during absent-file removal and revalidates before re
   const initial = { fileBindings: [binding], rootIds: [], scopes: [collection] };
   const f = fixture(initial);
   await f.runtime.acquire();
+  // The open lists its stored rows with no binding held (BST-1988); count from here.
+  f.replaceFileBindings.mockClear();
   const captured = f.runtime.captureAcknowledgedAuthority();
   f.removeScopedFile.mockImplementationOnce(async () => {
     f.setAuthority(initial);
@@ -407,7 +413,14 @@ it('opens a retained rootless collection using its real scope and binding', asyn
   const f = fixture(authority);
   await expect(f.runtime.acquire()).resolves.toBe(f.port);
   expect(f.createIndexOwner).toHaveBeenCalledWith(authority);
-  expect(f.events).toEqual(['readers-exited', 'writer-ready', 'reader-installed']);
+  // The open lists its collection's stored rows with no binding held, then restores it.
+  expect(f.events).toEqual([
+    'readers-exited',
+    'writer-ready',
+    'bindings-ack',
+    'bindings-ack',
+    'reader-installed',
+  ]);
 });
 
 it('waits for full binding replacement acknowledgment before returning the owner', async () => {
@@ -433,6 +446,8 @@ it('waits for full binding replacement acknowledgment before returning the owner
 it('joins an admitted reader before acknowledging same-scope membership revocation', async () => {
   const f = fixture({ fileBindings: [binding], rootIds: ['root'], scopes: [collection] });
   await f.runtime.acquire();
+  // The open lists its stored rows with no binding held (BST-1988); count from here.
+  f.replaceFileBindings.mockClear();
   f.events.length = 0;
   const readerExit = Promise.withResolvers<void>();
   f.closeQueries.mockReturnValueOnce(readerExit.promise);
@@ -452,6 +467,8 @@ it('joins an admitted reader before acknowledging same-scope membership revocati
 it('keeps failed same-scope reader retirement retryable before replacing bindings', async () => {
   const f = fixture({ fileBindings: [binding], rootIds: ['root'], scopes: [collection] });
   await f.runtime.acquire();
+  // The open lists its stored rows with no binding held (BST-1988); count from here.
+  f.replaceFileBindings.mockClear();
   f.events.length = 0;
   const failure = new Error('old membership reader has not exited');
   f.closeQueries.mockRejectedValueOnce(failure);
@@ -554,6 +571,8 @@ it('refuses authority changed during reader retirement before replacing bindings
   const initial = { fileBindings: [binding], rootIds: ['root'], scopes: [collection] };
   const f = fixture(initial);
   await f.runtime.acquire();
+  // The open lists its stored rows with no binding held (BST-1988); count from here.
+  f.replaceFileBindings.mockClear();
   f.events.length = 0;
   const readerExit = Promise.withResolvers<void>();
   f.closeQueries.mockReturnValueOnce(readerExit.promise);
