@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   createProfileOwner: vi.fn(),
   database: { query: vi.fn(), transaction: vi.fn() },
   destroy: vi.fn(),
+  /** The current profile owner's `lost`: its ready host exited without Main asking. */
+  loseHost: vi.fn(),
   manager: {
     attachCanonicalCollection: vi.fn(),
     attachCanonicalWorkspace: vi.fn(),
@@ -34,7 +36,10 @@ export function createActivation(
 ): ReturnType<typeof createNativeIndexActivation> {
   return createNativeIndexActivation({
     ...options,
-    profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
+    profile: createDesktopProfileRuntime((lost) => {
+      mocks.loseHost.mockImplementation(lost);
+      return createDesktopHostLease({ root: '/owned/profile' });
+    }),
   });
 }
 
@@ -182,7 +187,10 @@ export function fixture(applicationOverride?: ApplicationIpcDomain) {
     embedding: transport,
     onError,
     onReceipt,
-    profile: createDesktopProfileRuntime(() => createDesktopHostLease({ root: '/owned/profile' })),
+    profile: createDesktopProfileRuntime((lost) => {
+      mocks.loseHost.mockImplementation(lost);
+      return createDesktopHostLease({ root: '/owned/profile' });
+    }),
     storage,
   });
   return { activation, onError, onReceipt, storage, transport };

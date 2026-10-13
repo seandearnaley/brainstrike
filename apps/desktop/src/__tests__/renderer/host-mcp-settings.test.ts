@@ -3,6 +3,7 @@ import type { McpPresentationEvent, McpSettingsEvent } from '@brainstrike/agent-
 import type { McpHostSnapshot, McpTaskPresentation } from '@brainstrike/assistant-contract';
 import { describe, expect, it, vi } from 'vitest';
 import { connectDesktopAgentHost } from '../../renderer/agent-host-client';
+import { createDesktopHostConnection } from '../../renderer/desktop-host-connection';
 import {
   createDesktopHostMcpSettings,
   resolveDesktopMcpContent,
@@ -52,6 +53,7 @@ function fakeHost() {
   });
   const host = {
     close: vi.fn(async () => undefined),
+    closed: new Promise<void>(() => undefined),
     onMcpPresentation: vi.fn((listener: (event: McpPresentationEvent) => void) => {
       pushPresentation = listener;
       return () => undefined;
@@ -75,7 +77,9 @@ function fakeHost() {
 describe('desktop host MCP settings (BST-1930 c5b)', () => {
   it('subscribes once and hands its listeners the status the stream started after', async () => {
     const fake = fakeHost();
-    const settings = createDesktopHostMcpSettings(async () => fake.host);
+    const settings = createDesktopHostMcpSettings(
+      createDesktopHostConnection(async () => fake.host)
+    );
     const first = vi.fn();
     const second = vi.fn();
     settings.subscribe(first);
@@ -104,7 +108,9 @@ describe('desktop host MCP settings (BST-1930 c5b)', () => {
 
   it('reads status and runs lifecycle control as host requests', async () => {
     const fake = fakeHost();
-    const settings = createDesktopHostMcpSettings(async () => fake.host);
+    const settings = createDesktopHostMcpSettings(
+      createDesktopHostConnection(async () => fake.host)
+    );
 
     await expect(settings.request('mcp/status/read', {})).resolves.toEqual(status(9));
     await settings.request('mcp/server/control', {
@@ -122,7 +128,9 @@ describe('desktop host MCP settings (BST-1930 c5b)', () => {
 describe('desktop host MCP presentations (BST-1930 c5c)', () => {
   it('opens the presentation stream once, apart from settings, and replays its current cards', async () => {
     const fake = fakeHost();
-    const settings = createDesktopHostMcpSettings(async () => fake.host);
+    const settings = createDesktopHostMcpSettings(
+      createDesktopHostConnection(async () => fake.host)
+    );
     const first = vi.fn();
     const second = vi.fn();
     settings.subscribePresentation(first);
@@ -152,7 +160,9 @@ describe('desktop host MCP presentations (BST-1930 c5c)', () => {
 
   it('runs task actions and answers server input as host requests', async () => {
     const fake = fakeHost();
-    const settings = createDesktopHostMcpSettings(async () => fake.host);
+    const settings = createDesktopHostMcpSettings(
+      createDesktopHostConnection(async () => fake.host)
+    );
     const handle = card('a').handle;
     const settlement = {
       action: 'decline' as const,
@@ -190,6 +200,7 @@ describe('desktop host MCP content (BST-1930 c5d)', () => {
     );
     vi.mocked(connectDesktopAgentHost).mockResolvedValue({
       close: vi.fn(async () => undefined),
+      closed: new Promise<void>(() => undefined),
       onMcpPresentation: vi.fn(() => () => undefined),
       onMcpSettings: vi.fn(() => () => undefined),
       request,

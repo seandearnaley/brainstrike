@@ -17,11 +17,9 @@ import {
 } from './chunking-host-shared';
 import { createHostRequestChannel, type HostRequestChannel } from './platform/host-request-channel';
 import { RendererHostLifecycle } from './renderer-host-lifecycle';
-import { waitForWindowClosed } from './window-lifecycle-utils';
 
 const logger = createLogger('ChunkingHostManager');
 const CHUNKING_HOST_REQUEST_TIMEOUT_MS = 30_000;
-const CHUNKING_HOST_STOP_DESTROY_TIMEOUT_MS = 500;
 
 type ChunkingRequestKind = 'batch' | 'file';
 
@@ -123,43 +121,43 @@ export class ChunkingHostManager {
   }
 
   async stop(): Promise<ChunkingHostStatus> {
-    this.rejectPendingRequests('Chunking host stopped while requests were in flight.');
-    this.lifecycle.setStatus(
-      CHUNKING_HOST_STATUS_ADAPTER.createStatus({
-        active: false,
-        lastError: null,
-        runtimeId: this.getStatus().runtimeId,
-        state: 'stopping',
-      })
-    );
-
-    const window = this.lifecycle.getHostWindow();
-    if (window && !window.isDestroyed()) {
-      // Register the closed listener BEFORE destroy() — Electron's destroy()
-      // synchronously sets isDestroyed()=true, so waitForWindowClosed must be
-      // called while the window is still alive to capture the 'closed' event.
-      const closedPromise = waitForWindowClosed(window, CHUNKING_HOST_STOP_DESTROY_TIMEOUT_MS);
-      this.lifecycle.destroyHostWindow();
-      await closedPromise;
-    }
-
-    this.lifecycle.clearHostWindow();
+    await this.lifecycle.stop(async () => {
+      this.rejectPendingRequests('Chunking host stopped while requests were in flight.');
+      this.lifecycle.setStatus(
+        CHUNKING_HOST_STATUS_ADAPTER.createStatus({
+          active: false,
+          lastError: null,
+          runtimeId: this.getStatus().runtimeId,
+          state: 'stopping',
+        })
+      );
+    });
     this.lifecycle.setStatus(createStoppedChunkingHostStatus());
     return this.getStatus();
   }
 
   async reset(): Promise<ChunkingHostStatus> {
     await this.stop();
-    return this.ensureStarted({ waitForRunning: true });
+    return this.lifecycle.restart();
   }
 
   async dispose(): Promise<void> {
-    // Like the embedding and LLM managers: a failed stop still retires the
-    // lifecycle, and the failure still reaches the shutdown step.
+    const failures: unknown[] = [];
     try {
       await this.stop();
-    } finally {
-      this.lifecycle.dispose();
+    } catch (cause) {
+      failures.push(cause);
+    }
+    try {
+      await this.lifecycle.dispose();
+    } catch (cause) {
+      failures.push(cause);
+    }
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'Host stop and disposal failed.');
     }
   }
 
@@ -236,6 +234,9 @@ export class ChunkingHostManager {
   }
 
   acceptStatusReport(senderId: number, report: ChunkingHostStatusReport): void {
+    if (!this.lifecycle.acceptsStatus(senderId, report)) {
+      return;
+    }
     const window = this.lifecycle.getHostWindow();
     if (!window || window.isDestroyed()) {
       return;

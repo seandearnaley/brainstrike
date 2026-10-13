@@ -422,61 +422,51 @@ export class EmbeddingHostManager {
   }
 
   private async stopHostOnce(timeoutMs: number): Promise<EmbeddingHostStatus> {
-    const window = this.lifecycle.getHostWindow();
-    if (!window || window.isDestroyed()) {
-      if (window) {
-        await this.destroyInferenceHostWindow();
-      }
-      this.lifecycle.clearHostWindow();
-      this.lifecycle.setStatus(createStoppedEmbeddingHostStatus());
-      this.rejectSettledInferenceRequests(
-        'Embedding host stopped while inference requests were in flight.'
-      );
-      return this.getStatus();
-    }
-
-    this.lifecycle.setStatus(
-      EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
-        active: false,
-        lastError: null,
-        runtimeId: this.getStatus().runtimeId,
-        state: 'stopping',
-      })
-    );
-    this.clearPendingInactiveStatus();
-    const { runtimeId } = this.getStatus();
-
-    const command = createEmbeddingHostCommand('stop', runtimeId);
+    const runtimeId = this.getStatus().runtimeId;
     try {
-      window.webContents.send(EMBEDDING_HOST_COMMAND_EVENT, command);
-      const status = await this.lifecycle.waitForStatus(
-        (nextStatus) =>
-          nextStatus.commandId === command.requestId &&
-          (nextStatus.state === 'stopped' || nextStatus.state === 'error'),
-        timeoutMs
+      await this.lifecycle.stop(async () => {
+        const window = this.lifecycle.getHostWindow();
+        if (!window || window.isDestroyed()) {
+          return;
+        }
+        this.lifecycle.setStatus(
+          EMBEDDING_HOST_STATUS_ADAPTER.createStatus({
+            active: false,
+            lastError: null,
+            runtimeId,
+            state: 'stopping',
+          })
+        );
+        this.clearPendingInactiveStatus();
+        const command = createEmbeddingHostCommand('stop', runtimeId);
+        const acknowledgement = this.lifecycle.waitForStatus(
+          (next) =>
+            next.commandId === command.requestId &&
+            (next.state === 'stopped' || next.state === 'error'),
+          timeoutMs
+        );
+        void acknowledgement.catch(() => {});
+        window.webContents.send(EMBEDDING_HOST_COMMAND_EVENT, command);
+        const status = await acknowledgement;
+        if (status.state === 'error') {
+          throw new Error(status.lastError ?? 'Embedding renderer reported a failed stop.');
+        }
+      });
+    } catch (cause) {
+      // A failed physical close retains the inference lifetime until the owner's receipt.
+      await this.joinInferenceRetirement(
+        [cause],
+        this.lifecycle.joinPhysicalClose().then(() => {
+          this.lifecycle.setStatus(createStoppedEmbeddingHostStatus(runtimeId));
+        })
       );
-      if (status.state === 'error') {
-        throw new Error(status.lastError ?? 'Embedding renderer reported a failed stop.');
-      }
-      this.rejectSettledInferenceRequests(
-        'Embedding host stopped while inference requests were in flight.'
-      );
-      return status;
-    } catch (error) {
-      let failure = error;
-      try {
-        await this.destroyInferenceHostWindow([error]);
-      } catch (retirementError) {
-        failure = retirementError;
-      }
-      this.lifecycle.clearHostWindow();
-      this.lifecycle.setStatus(createStoppedEmbeddingHostStatus(runtimeId));
-      this.rejectSettledInferenceRequests(
-        failure instanceof Error ? failure : new Error(String(failure)),
-        true
-      );
-      throw failure;
+      throw cause;
     }
+    this.lifecycle.setStatus(createStoppedEmbeddingHostStatus(runtimeId));
+    this.rejectSettledInferenceRequests(
+      'Embedding host stopped while inference requests were in flight.'
+    );
+    return this.getStatus();
   }
 
   async reset(): Promise<EmbeddingHostStatus> {
@@ -493,7 +483,7 @@ export class EmbeddingHostManager {
     this.assertNotDisposed('reset');
     const window = this.lifecycle.getHostWindow();
     if (!window || window.isDestroyed()) {
-      return this.ensureStarted();
+      return this.lifecycle.restart();
     }
     const currentRuntimeId = this.getStatus().runtimeId;
     const nextRuntimeId = createRuntimeId('embedding-host');
@@ -570,8 +560,7 @@ export class EmbeddingHostManager {
       this.rejectSettledInferenceRequests(
         'Embedding host restarted while inference requests were in flight.'
       );
-      this.lifecycle.clearHostWindow();
-      return await this.ensureStarted({ waitForRunning: true });
+      return await this.lifecycle.restart();
     } finally {
       this.controlState = null;
     }
@@ -687,52 +676,42 @@ export class EmbeddingHostManager {
     }
   }
 
-  /** Join the actual close/exit event; isDestroyed and a destroy send are not a completion ack. */
+  /** The lifecycle owns destruction; this record only aggregates pending request failures. */
   private async destroyInferenceHostWindow(
     initialFailures: readonly unknown[] = []
   ): Promise<void> {
+    const reason = initialFailures[0] ?? new Error('Embedding inference host retired.');
     if (this.retirement) {
-      this.retirement.failures.push(...initialFailures);
-      const window = this.lifecycle.getHostWindow();
-      if (window && !window.isDestroyed()) {
-        try {
-          window.destroy();
-        } catch (error) {
-          this.retirement.failures.push(error);
-          logger.error(
-            'Embedding host retirement retry failed; physical settlement is still pending',
-            {
-              error,
-            }
-          );
-        }
+      const retirement = this.retirement;
+      retirement.failures.push(...initialFailures);
+      try {
+        await this.lifecycle.retire(reason);
+      } catch (cause) {
+        retirement.failures.push(cause);
+        logger.error(
+          'Embedding host retirement retry failed; physical settlement is still pending',
+          { error: cause }
+        );
       }
+      return retirement.promise;
+    }
+    const failures = [...initialFailures];
+    const closing = this.lifecycle.retire(reason).catch(async (cause: unknown) => {
+      failures.push(cause);
+      logger.error('Embedding host destruction failed; physical settlement is still pending', {
+        error: cause,
+      });
+      await this.lifecycle.joinPhysicalClose();
+    });
+    return this.joinInferenceRetirement(failures, closing);
+  }
+
+  private joinInferenceRetirement(failures: unknown[], physical: Promise<void>): Promise<void> {
+    if (this.retirement) {
+      this.retirement.failures.push(...failures);
       return this.retirement.promise;
     }
-    const window = this.lifecycle.getHostWindow();
-    if (!window || this.documentRequests.size() + this.queryRequests.size() === 0) {
-      try {
-        this.lifecycle.destroyHostWindow();
-      } catch (error) {
-        throw initialFailures.length > 0
-          ? new AggregateError([...initialFailures, error], 'Embedding host retirement failed.')
-          : error;
-      }
-      return;
-    }
-    const contents = window.webContents;
-    const closed = new Promise<void>((resolve) => {
-      const retired = (): void => {
-        window.removeListener('closed', retired);
-        contents.removeListener('render-process-gone', retired);
-        this.lifecycle.clearHostWindow(window);
-        resolve();
-      };
-      window.once('closed', retired);
-      contents.once('render-process-gone', retired);
-    });
-    const failures = [...initialFailures];
-    const promise = closed.then(() => {
+    const promise = physical.then(() => {
       this.retirement = null;
       if (failures.length === 0) {
         return;
@@ -748,14 +727,6 @@ export class EmbeddingHostManager {
       throw failure;
     });
     this.retirement = { failures, promise };
-    try {
-      window.destroy();
-    } catch (error) {
-      failures.push(error);
-      logger.error('Embedding host destruction failed; physical settlement is still pending', {
-        error,
-      });
-    }
     return promise;
   }
 
@@ -777,6 +748,7 @@ export class EmbeddingHostManager {
     // a backfill arriving mid-teardown would otherwise replace the very window
     // stop() is waiting on, orphaning that wait for its whole timeout.
     this.disposing = true;
+    const failures: unknown[] = [];
     try {
       if (this.hostedRequests.hasPending) {
         await this.hostedRequests.retire();
@@ -787,19 +759,41 @@ export class EmbeddingHostManager {
       if (status.state !== 'starting' || this.reportedRuntimeId === status.runtimeId) {
         await this.stopHost(EMBEDDING_HOST_SHUTDOWN_TIMEOUT_MS);
       }
-    } finally {
-      this.disposed = true;
-      this.clearPendingInactiveStatus();
+    } catch (cause) {
+      failures.push(cause);
+    }
+    this.disposed = true;
+    this.clearPendingInactiveStatus();
+    try {
       await this.destroyInferenceHostWindow();
       this.rejectSettledInferenceRequests(
         'Embedding host disposed while inference requests were in flight.'
       );
+    } catch (cause) {
+      failures.push(cause);
+    }
+    try {
       this.stopPowerSaveBlocker();
-      this.lifecycle.dispose();
+    } catch (cause) {
+      failures.push(cause);
+    }
+    try {
+      await this.lifecycle.dispose();
+    } catch (cause) {
+      failures.push(cause);
+    }
+    if (failures.length === 1) {
+      throw failures[0];
+    }
+    if (failures.length > 1) {
+      throw new AggregateError(failures, 'Embedding host stop and disposal failed.');
     }
   }
 
   acceptStatusReport(senderId: number, report: EmbeddingHostStatusReport): void {
+    if (!this.lifecycle.acceptsStatus(senderId, report)) {
+      return;
+    }
     const window = this.lifecycle.getHostWindow();
     if (!window || window.isDestroyed()) {
       return;

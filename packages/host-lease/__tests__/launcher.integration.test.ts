@@ -133,7 +133,11 @@ test('the shared startup deadline bounds an injected starter and supplies its ab
     await new Promise<void>((resolve) => setTimeout(resolve, 75));
     expect(settled).toBe(true);
     expect(signal?.aborted).toBe(true);
-    expect(await observed).toBeInstanceOf(Error);
+    expect(await observed).toMatchObject({
+      cause: expect.any(Error),
+      name: 'OwnedHostStartError',
+      reason: 'deadline',
+    });
   } finally {
     gate.resolve();
     await observed;

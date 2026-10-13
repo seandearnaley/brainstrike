@@ -270,7 +270,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
       10_000
     );
     expect(lifecycleState.destroyHostWindow).toHaveBeenCalledTimes(1);
-    expect(lifecycleState.clearHostWindow).toHaveBeenCalledTimes(1);
+    expect(lifecycleState.getStatus().state).toBe('stopped');
     expect(lifecycleState.setStatus).toHaveBeenLastCalledWith(
       expect.objectContaining({ runtimeId: 'embedding-host-runtime', state: 'stopped' })
     );
@@ -553,8 +553,7 @@ describe('EmbeddingHostManager powerSaveBlocker lifecycle', () => {
     });
 
     expect(lifecycleState.destroyHostWindow).toHaveBeenCalledTimes(1);
-    expect(lifecycleState.clearHostWindow).toHaveBeenCalledTimes(1);
-    expect(lifecycleState.ensureStarted).toHaveBeenCalledWith({ waitForRunning: true });
+    expect(lifecycleState.restart).toHaveBeenCalledOnce();
   });
 
   it('rejects pending query embedding requests after joining destruction and restarting the host', async () => {
@@ -906,6 +905,18 @@ describe('EmbeddingHostManager teardown ownership', () => {
     await disposing;
     expect(lifecycleState.waitForStatus).toHaveBeenCalledOnce();
     expect(lifecycleState.dispose).toHaveBeenCalledOnce();
+  });
+
+  it('preserves independent Stop and final disposal failures', async () => {
+    const stopFailure = new Error('Renderer stop deadline exceeded');
+    const disposalFailure = new Error('Lifecycle disposal failed');
+    lifecycleState.waitForStatus.mockRejectedValueOnce(stopFailure);
+    lifecycleState.dispose.mockRejectedValueOnce(disposalFailure);
+    const outcome = await createEmbeddingHostManager()
+      .dispose()
+      .catch((cause: unknown) => cause);
+    expect(outcome).toBeInstanceOf(AggregateError);
+    expect((outcome as AggregateError).errors).toEqual([stopFailure, disposalFailure]);
   });
 
   it('preserves a failed host stop while still destroying the owned renderer', async () => {

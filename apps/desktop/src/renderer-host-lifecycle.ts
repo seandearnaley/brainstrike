@@ -1,16 +1,22 @@
+import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
+import { BoundaryFailureError, processLost } from '@brainstrike/assistant-contract';
 import { runAtPromiseBoundary } from '@brainstrike/effect-kit';
 import { createLogger } from '@brainstrike/logging';
 import { createRuntimeId } from '@brainstrike/worker-runtime';
-import { Effect, Schedule } from 'effect';
-import { app, BrowserWindow } from 'electron';
+import { Effect } from 'effect';
+import { app, BrowserWindow, type Event, type RenderProcessGoneDetails } from 'electron';
+import {
+  type ChildGenerationContext,
+  type ChildResource,
+  createChildSupervisor,
+} from './child-supervisor';
 import {
   type DesktopRendererTarget,
   resolveDesktopRendererTarget,
 } from './desktop-renderer-target';
 import { resolveDistRoot } from './dist-root';
-import { waitForWindowClosed } from './window-lifecycle-utils';
 import {
   assignWindowRole,
   clearWindowRoleByWebContentsId,
@@ -19,14 +25,8 @@ import {
 } from './window-role';
 
 const DEFAULT_HOST_READY_TIMEOUT_MS = 30_000;
-const HOST_LOAD_RETRY_ATTEMPTS = 3;
-const HOST_LOAD_RETRY_DELAY_MS = 300;
 const logger = createLogger('RendererHostLifecycle');
 const RENDERER_HOST_LIFECYCLE_DISPOSED_CODE = 'RENDERER_HOST_LIFECYCLE_DISPOSED';
-
-class HostLoadFailure {
-  constructor(readonly cause: unknown) {}
-}
 
 export type RendererHostLifecycleState = 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
 
@@ -76,23 +76,25 @@ function createLifecycleDisposedError(role: Exclude<DesktopWindowRole, 'visible-
   return error;
 }
 
-function isLifecycleDisposedError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    (
-      error as Error & {
-        code?: string;
-      }
-    ).code === RENDERER_HOST_LIFECYCLE_DISPOSED_CODE
-  );
+class RendererHostStop extends Error {
+  constructor(readonly protocol: () => Promise<void>) {
+    super('Explicit hidden renderer stop');
+  }
 }
 
 export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   private readonly events = new EventEmitter();
-  private hostWindow: BrowserWindow | null = null;
+  private host: {
+    readonly window: BrowserWindow;
+    readonly context: ChildGenerationContext;
+    readonly closed: Promise<void>;
+  } | null = null;
+  private readonly supervisor = createChildSupervisor<TStatus>({
+    create: (context) => this.createResource(context),
+    restart: 'lazy',
+  });
   private readonly pendingWaiterRejectors = new Set<(error: Error) => void>();
   private disposed = false;
-  private startupPromise: Promise<TStatus> | null = null;
   private status: TStatus;
 
   constructor(private readonly options: RendererHostLifecycleOptions<TStatus>) {
@@ -100,7 +102,7 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   getHostWindow(): BrowserWindow | null {
-    return this.hostWindow;
+    return this.host?.window ?? null;
   }
 
   getStatus(): TStatus {
@@ -108,125 +110,43 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
   }
 
   isHostWindow(window: BrowserWindow): boolean {
-    return this.hostWindow?.id === window.id;
+    return this.host?.window.id === window.id;
   }
 
   async ensureStarted(options?: { waitForRunning?: boolean }): Promise<TStatus> {
     if (this.disposed) {
-      throw new Error(`${this.options.role} lifecycle has been disposed.`);
+      throw createLifecycleDisposedError(this.options.role);
     }
-
-    const waitForRunning = options?.waitForRunning ?? true;
-    const existingWindow = this.hostWindow;
-
-    if (this.startupPromise) {
-      if (!waitForRunning) {
-        return this.getStatus();
-      }
-      return this.startupPromise;
-    }
-
-    if (existingWindow && !existingWindow.isDestroyed()) {
-      if (this.status.state === 'running') {
-        return this.getStatus();
-      }
-      if (this.status.state === 'starting') {
-        if (!waitForRunning) {
-          return this.getStatus();
-        }
-        return this.waitForStatus(
-          (status) => status.state === 'running' || status.state === 'error',
-          DEFAULT_HOST_READY_TIMEOUT_MS
-        );
-      }
-
-      if (this.status.state === 'stopping') {
-        // A stop owner is awaiting this window's cooperative 'stopped' report.
-        // Replacing the window here would orphan that wait for its full timeout
-        // and let the stop then destroy the replacement. Let the stop settle.
-        await this.waitForStatus(
-          (status) => status.state !== 'stopping',
-          DEFAULT_HOST_READY_TIMEOUT_MS
-        );
-        return this.ensureStarted(options);
-      }
-
-      // An existing hidden host window in stopped/error is not usable for new work.
-      // Replace it inside the startup promise so concurrent callers share one restart path.
-    }
-
-    const runtimeId = createRuntimeId(this.options.role);
-    this.setStatus(
-      this.options.createStatus({
-        active: false,
-        lastError: null,
-        runtimeId,
-        state: 'starting',
-      })
-    );
-
-    // startupPromise serializes replacement work, so this snapshot remains valid for the lifetime
-    // of the in-flight startup attempt even if later callers arrive while it is pending.
-    const shouldReplaceExistingWindow =
-      !!existingWindow &&
-      !existingWindow.isDestroyed() &&
-      existingWindow.id === this.hostWindow?.id;
-
-    this.startupPromise = Promise.resolve().then(async (): Promise<TStatus> => {
-      if (shouldReplaceExistingWindow) {
-        this.destroyHostWindow();
-      }
-
-      try {
-        const window = await this.createWindow(runtimeId);
-        if (this.disposed) {
-          this.clearHostWindow(window);
-          if (!window.isDestroyed()) {
-            clearWindowRoleByWebContentsId(window.webContents.id);
-            window.destroy();
+    const child = await this.supervisor;
+    try {
+      const admitted = await child.start({ afterStop: true });
+      const ready = admitted.ready
+        .catch(async (cause: unknown) => {
+          // Only the sole owner's recorded physical loss admits the one replacement.
+          if ((await child.snapshot()).kind === 'lost') {
+            return child.acquire();
           }
-          return this.getStatus();
-        }
-        this.hostWindow = window;
-        this.attachWindow(window);
-      } catch (error) {
-        return this.settleStartupFailure(error, runtimeId);
-      }
-
-      try {
-        return await this.waitForStatus(
-          (status) => status.state === 'running' || status.state === 'error',
-          DEFAULT_HOST_READY_TIMEOUT_MS
-        );
-      } catch (error) {
-        if (isLifecycleDisposedError(error)) {
-          return this.getStatus();
-        }
-        const message = error instanceof Error ? error.message : String(error);
-        this.destroyHostWindow();
-        this.setStatus(
-          this.options.createStatus({
-            active: false,
-            lastError: message,
-            runtimeId: this.status.runtimeId,
-            state: 'error',
-          })
-        );
+          throw cause;
+        })
+        .catch((cause: unknown) => this.retireStartupFailure(cause));
+      if (options?.waitForRunning === false) {
+        void ready;
         return this.getStatus();
       }
-    });
-    const startupPromise = this.startupPromise;
-    void startupPromise.finally(() => {
-      if (this.startupPromise === startupPromise) {
-        this.startupPromise = null;
-      }
-    });
-
-    if (!waitForRunning) {
+      await ready;
       return this.getStatus();
+    } catch (cause) {
+      return this.retireStartupFailure(cause);
     }
+  }
 
-    return startupPromise;
+  /** Explicit Start/Reset action; passive acquisition cannot rearm a failed child. */
+  async restart(): Promise<TStatus> {
+    if (this.disposed) {
+      throw createLifecycleDisposedError(this.options.role);
+    }
+    await (await this.supervisor).restart();
+    return this.getStatus();
   }
 
   waitForStatus(predicate: (status: TStatus) => boolean, timeoutMs: number): Promise<TStatus> {
@@ -285,39 +205,54 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     this.events.emit(this.options.statusEventName, snapshot);
   }
 
-  clearHostWindow(window?: BrowserWindow): void {
-    if (window && this.hostWindow?.id !== window.id) {
-      return;
-    }
-    this.hostWindow = null;
+  /** The manager writes its protocol; the supervisor owns its complete release join. */
+  async stop(protocol: () => Promise<void> = async () => {}): Promise<void> {
+    await (await this.supervisor).stop(new RendererHostStop(protocol));
   }
 
-  destroyHostWindow(): void {
-    const window = this.hostWindow;
-    this.hostWindow = null;
-    if (window) {
-      this.rejectPendingStatusWaiters(
-        this.disposed
-          ? createLifecycleDisposedError(this.options.role)
-          : this.createWindowClosedError()
-      );
+  acceptsStatus(senderId: number, status: RendererHostStatusShape): boolean {
+    const host = this.host;
+    if (!host || host.window.isDestroyed() || host.window.webContents.id !== senderId) {
+      return false;
     }
-    if (window && !window.isDestroyed()) {
-      clearWindowRoleByWebContentsId(window.webContents.id);
-      window.destroy();
+    if (!host.context.signal.aborted) {
+      return true;
     }
+    return (
+      status.runtimeId === this.status.runtimeId &&
+      (status.state === 'stopped' || status.state === 'error')
+    );
   }
 
-  dispose(): void {
-    if (this.disposed) {
+  /** The physical resource's receipt, also borrowed by pending inference settlement. */
+  joinPhysicalClose(): Promise<void> {
+    return this.host?.closed ?? Promise.resolve();
+  }
+
+  /** Failure retirement preserves the owner's loss/budget; it is not an explicit Stop. */
+  async retire(cause: unknown, runtimeId?: string): Promise<void> {
+    const host = this.host;
+    if (runtimeId !== undefined && (!host || this.status.runtimeId !== runtimeId)) {
       return;
     }
+    if (host && !host.context.signal.aborted) {
+      await host.context.lost(cause);
+    }
+    await (await this.supervisor).retireLost();
+  }
+
+  async destroyHostWindow(): Promise<void> {
+    const cause = this.disposed
+      ? createLifecycleDisposedError(this.options.role)
+      : this.createWindowClosedError();
+    this.rejectPendingStatusWaiters(cause);
+    await (await this.supervisor).stop(cause);
+  }
+
+  async dispose(): Promise<void> {
     this.disposed = true;
-    this.destroyHostWindow();
-    // Any caller already awaiting the previously captured startup promise still needs a concrete
-    // disposal signal here; otherwise it would sit until the status wait timeout fires.
-    this.startupPromise = null;
     this.rejectPendingStatusWaiters(createLifecycleDisposedError(this.options.role));
+    await this.destroyHostWindow();
     this.events.removeAllListeners();
     this.status = this.options.createStoppedStatus();
   }
@@ -331,6 +266,19 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
       rejectPendingWaiter(error);
     }
     this.pendingWaiterRejectors.clear();
+  }
+
+  private async retireStartupFailure(cause: unknown): Promise<TStatus> {
+    let failure = cause;
+    try {
+      await (await this.supervisor).retireLost();
+    } catch (cleanup) {
+      failure = new AggregateError(
+        [cause, cleanup],
+        'Hidden renderer startup and retirement failed.'
+      );
+    }
+    return this.settleStartupFailure(failure, this.status.runtimeId);
   }
 
   private settleStartupFailure(error: unknown, runtimeId: string): TStatus {
@@ -408,122 +356,159 @@ export class RendererHostLifecycle<TStatus extends RendererHostStatusShape> {
     await window.loadURL(`${target.url}?${new URLSearchParams(query).toString()}`);
   }
 
-  private async createWindow(runtimeId: string): Promise<BrowserWindow> {
-    // Resolved once, before the retry loop: an unconfigured target is a boot
-    // ordering bug, not a transient load failure, so it fails by name here
-    // instead of being retried and reported as a generic load error.
+  private createResource(context: ChildGenerationContext): ChildResource<TStatus> {
+    // Target/configuration and construction failures are not retryable child losses.
     const target = resolveDesktopRendererTarget();
-    const owner = this;
-    let lastError: Error | null = null;
-    let attempt = 0;
-    const load = Effect.gen(function* () {
-      attempt++;
-      if (owner.disposed) {
-        throw new Error(`${owner.options.role} lifecycle was disposed during load retry.`);
+    const runtimeId = createRuntimeId(this.options.role);
+    this.setStatus(
+      this.options.createStatus({ active: false, lastError: null, runtimeId, state: 'starting' })
+    );
+    const window = this.buildWindow();
+    const contents = window.webContents;
+    const physical = Promise.withResolvers<void>();
+    assignWindowRole(window, this.options.role);
+    this.host = { closed: physical.promise, context, window };
+    const current = (): boolean => this.host?.window === window;
+    const lost = (cause: unknown): void => {
+      if (!context.signal.aborted) {
+        void context.lost(cause).catch((error: unknown) => {
+          logger.error('Hidden renderer loss could not be settled', {
+            error,
+            windowRole: this.options.role,
+          });
+        });
       }
-      const window = owner.buildWindow();
-      assignWindowRole(window, owner.options.role);
-      // Expose the in-flight window to status-report acceptance BEFORE the
-      // page-load await: the host app can mount and send its one-shot
-      // 'running' status while loadURL/loadFile is still pending. If the
-      // manager's acceptStatusReport can't see this window yet, that report
-      // is dropped and ensureStarted waits out the full ready timeout (then
-      // destroys a perfectly healthy host).
-      owner.hostWindow = window;
-      yield* Effect.tryPromise({
-        catch: (error) => new HostLoadFailure(error),
-        try: () => owner.loadWindow(window, target, runtimeId),
-      }).pipe(
-        Effect.catch((failure) =>
-          Effect.gen(function* () {
-            if (owner.disposed) {
-              throw createLifecycleDisposedError(owner.options.role);
-            }
-            lastError =
-              failure.cause instanceof Error ? failure.cause : new Error(String(failure.cause));
-            logger.warn(
-              `${owner.options.role} failed to load (attempt ${attempt}/${HOST_LOAD_RETRY_ATTEMPTS})`,
-              {
-                attempt,
-                errorMessage: lastError.message,
-              }
-            );
-            owner.clearHostWindow(window);
-            clearWindowRoleByWebContentsId(window.webContents.id);
-            if (attempt < HOST_LOAD_RETRY_ATTEMPTS) {
-              // Register the closed listener BEFORE destroy() — Electron's destroy()
-              // synchronously sets isDestroyed()=true, so waitForWindowClosed must
-              // capture the 'closed' event while the window is still alive. The 300ms
-              // timeout acts as a maximum wait; if 'closed' fires sooner, we retry
-              // immediately (the goal is resource release, not a guaranteed backoff).
-              const closedPromise = waitForWindowClosed(window, HOST_LOAD_RETRY_DELAY_MS);
-              window.destroy();
-              yield* Effect.promise(() => closedPromise);
-            } else {
-              window.destroy();
-            }
-            return yield* Effect.fail(failure);
-          })
-        )
-      );
-      return window;
-    });
-    try {
-      return await runAtPromiseBoundary(
-        Effect.retry(load, Schedule.recurs(HOST_LOAD_RETRY_ATTEMPTS - 1))
-      );
-    } catch (error) {
-      if (!(error instanceof HostLoadFailure)) {
-        // Construction, disposal, and cleanup failures are terminal defects.
-        throw error;
-      }
-      throw new Error(
-        `${this.options.role} failed to load after ${HOST_LOAD_RETRY_ATTEMPTS} attempts`,
-        { cause: lastError }
-      );
-    }
-  }
-
-  private attachWindow(window: BrowserWindow): void {
-    window.on('closed', () => {
-      if (this.hostWindow?.id !== window.id) {
+    };
+    const onClosed = (): void => {
+      physical.resolve();
+      clearWindowRoleByWebContentsId(contents.id);
+      if (!current()) {
         return;
       }
-      this.hostWindow = null;
+      this.host = null;
       this.rejectPendingStatusWaiters(this.createWindowClosedError());
-      this.options.onWindowClosed?.(window);
-    });
-
-    window.webContents.on('render-process-gone', (_event, details) => {
-      if (this.hostWindow?.id !== window.id) {
+      if (!context.signal.aborted) {
+        const cause = this.processFailure({ reason: 'window-closed' });
+        this.options.onWindowClosed?.(window);
+        lost(cause);
+      }
+    };
+    const onGone = (_event: Event, details: RenderProcessGoneDetails): void => {
+      physical.resolve();
+      if (!current()) {
         return;
       }
+      if (context.signal.aborted) {
+        if (this.pendingWaiterRejectors.size > 0) {
+          this.rejectPendingStatusWaiters(
+            this.processFailure({ exitCode: details.exitCode, reason: details.reason })
+          );
+        }
+        return;
+      }
+      const message = `${this.options.role} renderer exited (${details.reason}, code ${details.exitCode})`;
       this.options.onRenderProcessGone?.({
         exitCode: details.exitCode,
-        message: `${this.options.role} renderer exited (${details.reason}, code ${details.exitCode})`,
+        message,
         reason: details.reason,
         window,
       });
-    });
-
-    window.webContents.on(
-      'did-fail-load',
-      (_event, errorCode, errorDescription, url, isMainFrame) => {
-        if (!isMainFrame) {
-          return;
-        }
-        if (this.hostWindow?.id !== window.id) {
-          return;
-        }
-        this.options.onDidFailLoad?.({
-          errorCode,
-          errorDescription,
-          message: `${this.options.role} failed to load (${errorCode}): ${errorDescription}`,
-          url,
-          window,
-        });
+      const cause = this.processFailure({ exitCode: details.exitCode, reason: details.reason });
+      this.rejectPendingStatusWaiters(cause);
+      lost(cause);
+    };
+    const onLoadFailed = (
+      _event: Event,
+      errorCode: number,
+      errorDescription: string,
+      url: string,
+      isMainFrame: boolean
+    ): void => {
+      if (!(isMainFrame && current()) || context.signal.aborted) {
+        return;
       }
-    );
+      this.options.onDidFailLoad?.({
+        errorCode,
+        errorDescription,
+        message: `${this.options.role} failed to load (${errorCode}): ${errorDescription}`,
+        url,
+        window,
+      });
+    };
+    window.on('closed', onClosed);
+    contents.on('render-process-gone', onGone);
+    contents.on('did-fail-load', onLoadFailed);
+    const close = async (reason: unknown): Promise<void> => {
+      const failures: unknown[] = [];
+      if (reason instanceof RendererHostStop && !window.isDestroyed()) {
+        try {
+          await reason.protocol();
+        } catch (cause) {
+          failures.push(cause);
+        }
+      }
+      this.rejectPendingStatusWaiters(
+        context.signal.reason instanceof Error
+          ? context.signal.reason
+          : this.createWindowClosedError()
+      );
+      try {
+        if (!window.isDestroyed()) {
+          window.destroy();
+        }
+      } catch (cause) {
+        failures.push(cause);
+        throw failures.length === 1
+          ? cause
+          : new AggregateError(failures, 'Hidden renderer stop and destruction failed.');
+      }
+      await physical.promise;
+      window.removeListener('closed', onClosed);
+      contents.removeListener('render-process-gone', onGone);
+      contents.removeListener('did-fail-load', onLoadFailed);
+      clearWindowRoleByWebContentsId(contents.id);
+      if (current()) {
+        this.host = null;
+      }
+      if (failures.length > 0) {
+        throw failures[0];
+      }
+    };
+    const ready = this.loadWindow(window, target, runtimeId)
+      .catch(async (cause: unknown) => {
+        if (!context.signal.aborted) {
+          await context.lost(cause);
+        }
+        throw cause;
+      })
+      .then(async () => {
+        context.signal.throwIfAborted();
+        const status = await this.waitForStatus(
+          (next) => next.state === 'running' || next.state === 'error',
+          DEFAULT_HOST_READY_TIMEOUT_MS
+        );
+        if (status.state === 'error') {
+          throw new Error(status.lastError ?? this.options.timeoutMessage);
+        }
+        return status;
+      });
+    return { close, ready };
+  }
+
+  private processFailure(facts: {
+    readonly exitCode?: number;
+    readonly reason: string;
+  }): BoundaryFailureError {
+    const failure = {
+      ...processLost({ child: this.options.role, ...facts }),
+      correlationId: randomUUID(),
+    };
+    logger.error('Hidden renderer process lost', {
+      ...facts,
+      correlationId: failure.correlationId,
+      windowRole: this.options.role,
+    });
+    return new BoundaryFailureError(failure);
   }
 
   private broadcastStatus(snapshot: TStatus): void {

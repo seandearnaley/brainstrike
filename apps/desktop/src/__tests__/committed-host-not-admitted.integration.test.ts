@@ -10,7 +10,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type AppendMessage, isMessageNotSentError } from '@assistant-ui/react';
-import { attachAgentHost, startAgentHost } from '@brainstrike/agent-host';
+import { attachAgentHost, type HostClient, startAgentHost } from '@brainstrike/agent-host';
 import { HOST_RUN_NOT_ADMITTED_CODE } from '@brainstrike/agent-host/protocol';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
 import { afterEach, expect, test, vi } from 'vitest';
@@ -50,42 +50,68 @@ function message(text: string): AppendMessage {
   };
 }
 
-test('a send refused before admission is not sent, so its draft comes back', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'bs-m6-not-admitted-'));
-  owned.push(() => rm(root, { force: true, recursive: true }));
-  const host = await startAgentHost(
-    { lifetime: 'persistent', root },
-    {
-      admitRun: async () => {
-        throw REMOVED;
-      },
-      close: async () => undefined,
-      maxSteps: 3,
-      readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
-    }
-  );
-  owned.push(() => host.close());
-  const client = await attachAgentHost(host.record);
-  owned.push(() => client.close());
-  const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
-  const conversation = createCommittedHostConversation({ client, modelId: 'scripted', threadId });
-  owned.push(async () => {
-    conversation.close();
-    await client.request('thread/list', {});
-  });
+test.each([false, true])(
+  'a send refused before admission restores its draft (close after reply: %s)',
+  async (closeAfterReply) => {
+    const root = await mkdtemp(join(tmpdir(), 'bs-m6-not-admitted-'));
+    owned.push(() => rm(root, { force: true, recursive: true }));
+    const host = await startAgentHost(
+      { lifetime: 'persistent', root },
+      {
+        admitRun: async () => {
+          throw REMOVED;
+        },
+        close: async () => undefined,
+        maxSteps: 3,
+        readPermissionPolicy: () => ({ policies: DEFAULT_PERMISSION_POLICIES, yolo: false }),
+      }
+    );
+    owned.push(() => host.close());
+    const client = await attachAgentHost(host.record);
+    owned.push(() => client.close());
+    const { threadId } = await client.request('thread/start', { commandId: randomUUID() });
+    const request: HostClient['request'] = async (method, params, ...rest) => {
+      try {
+        return await client.request(method, params, ...rest);
+      } catch (cause) {
+        // The real reply has been decoded; close the real socket before returning
+        // it to the conversation, reproducing reply-before-close delivery ordering.
+        if (closeAfterReply && method === 'run/start') {
+          await client.close();
+        }
+        throw cause;
+      }
+    };
+    const replacement = vi.fn(async () => {
+      throw new Error('An answered refusal must not read a replacement');
+    });
+    const conversation = createCommittedHostConversation({
+      client: { ...client, request },
+      modelId: 'scripted',
+      replacement,
+      threadId,
+    });
+    owned.push(async () => {
+      conversation.close();
+      if (!closeAfterReply) {
+        await client.request('thread/list', {});
+      }
+    });
 
-  const refusal: unknown = await conversation.commands.onNew?.(message('Hello')).then(
-    () => undefined,
-    (cause: unknown) => cause
-  );
+    const refusal: unknown = await conversation.commands.onNew?.(message('Hello')).then(
+      () => undefined,
+      (cause: unknown) => cause
+    );
 
-  expect(isMessageNotSentError(refusal)).toBe(true);
-  expect(refusal).toMatchObject({ message: REFUSAL });
-  // The refusal is logged at warn with the host's code, never silently dropped.
-  expect(warn).toHaveBeenCalledWith(
-    expect.any(String),
-    expect.objectContaining({ code: HOST_RUN_NOT_ADMITTED_CODE, method: 'run/start', threadId })
-  );
-  const { rows } = await client.request('thread/read', { fromSeq: 0, threadId });
-  expect(rows.some(({ event }) => event.type === 'run.started')).toBe(false);
-});
+    expect(isMessageNotSentError(refusal)).toBe(true);
+    expect(refusal).toMatchObject({ message: REFUSAL });
+    // The refusal is logged at warn with the host's code, never silently dropped.
+    expect(warn).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: HOST_RUN_NOT_ADMITTED_CODE, method: 'run/start', threadId })
+    );
+    expect(replacement).not.toHaveBeenCalled();
+    const rows = await host.core.read(threadId, 0);
+    expect(rows.some(({ event }) => event.type === 'run.started')).toBe(false);
+  }
+);
