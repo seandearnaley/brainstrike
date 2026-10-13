@@ -15,7 +15,9 @@ export const testBase: InlineConfig = {
   // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
   maxWorkers: process.env['CI'] ? '50%' : '100%',
   mockReset: true,
-  pool: 'threads',
+  // Forks, Vitest's default. Node 26 worker threads segfault in ModuleWrap's per-Environment
+  // module map under load, on macOS and Linux (BST-2002); forks start no worker threads.
+  pool: 'forks',
   restoreMocks: true,
   setupFiles: ['@brainstrike/test-utils/vitest.setup'],
   testTimeout: 10_000,

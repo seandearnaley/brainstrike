@@ -98,9 +98,6 @@ export default defineConfig({
           include: ['src/__tests__/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.test.{ts,tsx}'],
           maxWorkers: process.env['CI'] ? '50%' : '100%',
           name: 'unit',
-          // Forks, not threads: under load, Node 26.8.2 worker threads crashed this suite in
-          // ModuleWrap's per-Environment module map (BST-2002). Forks start no worker threads.
-          pool: 'forks',
           sequence: {
             groupOrder: 0,
           },

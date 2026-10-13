@@ -29,7 +29,6 @@ export default defineConfig({
     include: ['src/__tests__/**/*.test.{ts,tsx}'],
     // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
     maxWorkers: process.env['CI'] ? '50%' : '100%',
-    pool: 'threads',
     reporters: ['default', new LostTestFileReporter()],
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
   },

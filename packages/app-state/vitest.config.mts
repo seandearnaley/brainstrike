@@ -34,7 +34,6 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     maxWorkers: process.env['CI'] ? '50%' : '100%',
-    pool: 'threads',
     reporters: ['default', new LostTestFileReporter()],
     // Hook-free: applies TEST_TIMEOUT_MULTIPLIER to @testing-library/dom's
     // waitFor/findBy budget and nothing else (BST-1299). This lane opts out
