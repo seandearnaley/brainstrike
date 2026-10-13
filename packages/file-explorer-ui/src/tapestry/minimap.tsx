@@ -596,7 +596,7 @@ const TapestryThreadNotice = ({
   onAddToThread: MinimapProps['onAddToThread'];
 }) => (
   <div
-    className="flex min-w-0 items-center gap-1.5 text-[10px] text-amber-700 dark:text-amber-400"
+    className="flex min-w-0 items-center gap-1.5 text-[10px] text-warning"
     data-testid={`tapestry-thread-notice-${file.rootFolderId}`}
   >
     <span className="truncate">
