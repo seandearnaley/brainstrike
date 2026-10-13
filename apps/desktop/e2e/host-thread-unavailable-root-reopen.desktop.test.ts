@@ -32,9 +32,11 @@ test('after all saved folders become unavailable, a fresh unbound chat sends whi
   let parked = false;
   await writeFile(path.join(rootPath, 'root-restore.txt'), 'current-format root fixture\n');
   modelProvider.setScript(({ messages }) => ({
-    finalText: JSON.stringify(messages).includes('UNBOUND_AFTER_REOPEN')
-      ? 'UNBOUND_SEND_SUCCEEDED'
-      : 'BOUND_SEND_SUCCEEDED',
+    finalText: JSON.stringify(messages).includes('BOUND_AFTER_RECONNECT')
+      ? 'RECONNECTED_SEND_SUCCEEDED'
+      : JSON.stringify(messages).includes('UNBOUND_AFTER_REOPEN')
+        ? 'UNBOUND_SEND_SUCCEEDED'
+        : 'BOUND_SEND_SUCCEEDED',
   }));
   try {
     await ensureMockWorkspaceOpen(page);
@@ -95,6 +97,41 @@ test('after all saved folders become unavailable, a fresh unbound chat sends whi
     expect(starts).toHaveLength(1);
     expect(starts?.[0]?.workspaceBinding?.operatingRootId).toBeUndefined();
     expect(starts?.[0]?.configuration['intent']).not.toHaveProperty('selectionFolderId');
+    // Reconnect the original bound thread through its visible repair action.
+    await reopened.locator(`#assistant-thread-tab-${boundThread.threadId}`).click();
+    await expect(folder).toHaveAccessibleName(/removed from the workspace/u);
+    await rename(parkedPath, rootPath);
+    parked = false;
+    await folder.click();
+    await reopened.getByTestId(`workspace-bar-root-${before.binding?.operatingRootId}`).focus();
+    await reopened.keyboard.press('ArrowRight');
+    await reopened.getByText('Re-add folder', { exact: true }).click();
+    await expect(reopened.getByText('root-restore.txt').first()).toBeVisible();
+    await expect(folder).toHaveAccessibleName(
+      `Folder: ${before.binding?.operatingRootDisplayName}`
+    );
+    await send(reopened, 'BOUND_AFTER_RECONNECT', 'RECONNECTED_SEND_SUCCEEDED');
+    const reconnected = await withAppHost(userDataDir, async (client) => ({
+      binding: await client.request('thread/workspace/binding/read', {
+        threadId: boundThread.threadId,
+      }),
+      log: await client.request('thread/read', { fromSeq: 0, threadId: boundThread.threadId }),
+    }));
+    expect(reconnected.binding.binding).toEqual(before.binding);
+    const boundStarts = reconnected.log.rows.flatMap(({ event }) =>
+      event.type === 'run.started' ? [event.snapshot] : []
+    );
+    expect(boundStarts).toHaveLength(2);
+    expect(boundStarts[1]?.workspaceBinding).toEqual(boundStarts[0]?.workspaceBinding);
+    expect(boundStarts[1]?.workspaceBinding?.operatingRootId).toBe(before.binding?.operatingRootId);
+    expect(boundStarts[1]?.configuration['intent']).toHaveProperty(
+      'selectionFolderId',
+      before.binding?.operatingRootId
+    );
+    await test.info().attach('reconnected-binding-and-admission', {
+      body: JSON.stringify({ binding: reconnected.binding, starts: boundStarts }, null, 2),
+      contentType: 'application/json',
+    });
     expect(modelProvider.refusals()).toEqual([]);
   } finally {
     await electron.dispose();
