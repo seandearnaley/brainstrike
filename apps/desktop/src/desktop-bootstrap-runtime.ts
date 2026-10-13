@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { HostCredentialStoreSelection } from '@brainstrike/host-capabilities/credentials';
 import type { HostAttachment } from '@brainstrike/host-lease';
 import { app, MessageChannelMain, type MessagePortMain } from 'electron';
 import { configureAgentDevtoolsCommandLine } from './agent-devtools-config';
@@ -40,6 +41,7 @@ interface PendingPlatform {
 export interface DesktopBootstrapRuntime {
   bindPlatform(binding: BindPlatform): void;
   bindSecondInstanceFocus(focus: () => void): void;
+  readonly credentialStore: HostCredentialStoreSelection;
   readonly environment: ReturnType<typeof getDesktopEnvironmentBootstrapResult>;
   readonly mainEntryPath: string;
   readonly privateClients: ReturnType<typeof createAgentHostPrivateClients>;
@@ -84,17 +86,21 @@ function applyExplicitPathIsolation(agentDevtoolsConfig: {
   return userDataDir;
 }
 
-function applyDevelopmentPathIsolation(): string | undefined {
+function applyDevelopmentPathIsolation():
+  | { readonly userData: string; readonly credentialStore: HostCredentialStoreSelection }
+  | undefined {
   if (app.isPackaged || isIsolatedDesktopTestRun() || isElectronE2ETestMode()) {
     return;
   }
+  // Keep the existing launch credential namespace while isolating workspace state.
+  const credentialStore = desktopCredentialStoreSelection();
   // Pin DB/Core first. Changing Electron paths must not change that authority.
   const userData = resolveDevelopmentUserDataPath(resolveDesktopDatabaseLocation());
   const logs = path.join(userData, 'logs');
   fs.mkdirSync(logs, { recursive: true });
   app.setPath('userData', userData);
   app.setPath('logs', logs);
-  return userData;
+  return { credentialStore, userData };
 }
 
 function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
@@ -105,10 +111,11 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
     process.argv
   );
   registerPrivilegedSchemes();
-  const userDataDir =
-    applyExplicitPathIsolation(agentDevtoolsConfig) ??
-    applyDevelopmentPathIsolation() ??
-    app.getPath('userData');
+  const explicitUserData = applyExplicitPathIsolation(agentDevtoolsConfig);
+  const development = explicitUserData ? undefined : applyDevelopmentPathIsolation();
+  const userDataDir = explicitUserData ?? development?.userData ?? app.getPath('userData');
+  const credentialStore =
+    development?.credentialStore ?? desktopCredentialStoreSelection(userDataDir);
   // Windows cannot rename Chromium's live files during factory reset. Give
   // its Session owner a separate container in ordinary launches too; reset
   // clears it through Electron before physically purging app-owned files.
@@ -222,7 +229,7 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
             resourcesPath: process.resourcesPath,
             userDataPath: app.getPath('userData'),
           },
-          credentialStore: desktopCredentialStoreSelection(),
+          credentialStore,
           ...(environment.failures.length > 0
             ? { envFileFailures: [...environment.failures] }
             : {}),
@@ -260,6 +267,7 @@ function createDesktopBootstrapRuntime(): DesktopBootstrapRuntime {
     bindSecondInstanceFocus: (focus) => {
       focusSecondInstance = focus;
     },
+    credentialStore,
     environment,
     mainEntryPath,
     privateClients,

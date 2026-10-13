@@ -222,7 +222,14 @@ it.each(['incident-a', 'incident-b'])(
     );
     expect(await fixture.options?.platformOptions?.()).toMatchObject({
       appPaths: { userDataPath: expectedUserData },
-      credentialStore: { kind: 'keyring', service: `brainstrike-desktop:${expectedUserData}` },
+      credentialStore: {
+        kind: 'keyring',
+        service: `brainstrike-desktop:${resolve('/disposable/shared-user-data')}`,
+      },
+    });
+    expect(runtime.credentialStore).toEqual({
+      kind: 'keyring',
+      service: `brainstrike-desktop:${resolve('/disposable/shared-user-data')}`,
     });
     const { resolveDesktopDatabaseLocation } = await import('../../desktop-database-location');
     expect(resolveDesktopDatabaseLocation()).toMatchObject({

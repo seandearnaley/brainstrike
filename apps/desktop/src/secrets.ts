@@ -5,7 +5,7 @@ import {
   createHostCredentials,
   type HostCredentials,
 } from '@brainstrike/host-capabilities/credentials';
-import { desktopCredentialStoreSelection } from './desktop-credential-selection';
+import { getDesktopBootstrapRuntime } from './desktop-bootstrap-runtime';
 
 export {
   credentialStoredKeyFingerprint,
@@ -19,7 +19,9 @@ export { desktopCredentialStoreSelection } from './desktop-credential-selection'
 let desktopCredentials: HostCredentials | undefined;
 
 function getDesktopCredentials(): HostCredentials {
-  desktopCredentials ??= createHostCredentials({ selection: desktopCredentialStoreSelection() });
+  desktopCredentials ??= createHostCredentials({
+    selection: getDesktopBootstrapRuntime().credentialStore,
+  });
   return desktopCredentials;
 }
 
