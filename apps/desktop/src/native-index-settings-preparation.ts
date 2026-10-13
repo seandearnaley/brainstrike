@@ -71,12 +71,40 @@ interface SettingsOwner<Current extends { settings: NativeIndexSettings }> {
   transition(): Promise<void>;
 }
 
-export async function reconfigureNativeSavedSettings<
-  Current extends {
-    settings: NativeIndexSettings;
-    sources?: { controller: AbortController } | undefined;
-  },
->(owner: SettingsOwner<Current> & { readonly terminalRequested: boolean }): Promise<void> {
+type ReconfigurationOwner<Current extends { settings: NativeIndexSettings }> =
+  SettingsOwner<Current> & {
+    /** Its running sources started, and no startup, scan or watch failure is recorded. */
+    sourcesHealthy(current: Current): boolean;
+    readonly terminalRequested: boolean;
+  };
+
+interface LiveGraph {
+  settings: NativeIndexSettings;
+  sources?: { controller: AbortController } | undefined;
+}
+
+/** What saved settings need from the live graph; `unchanged` is the live choice, running. */
+function reconfiguration<Current extends LiveGraph>(
+  current: Current | undefined,
+  settings: NativeIndexSettings
+): 'apply' | 'transition' | 'unchanged' {
+  if (
+    !current ||
+    nativeIndexConfigurationIdentity(current.settings) !==
+      nativeIndexConfigurationIdentity(settings)
+  ) {
+    return 'transition';
+  }
+  if (settings.paused !== current.settings.paused || current.sources?.controller.signal.aborted) {
+    return 'apply';
+  }
+  return current.sources ? 'unchanged' : 'transition';
+}
+
+/** The saved settings to reconfigure to, or the invalidation unreadable settings start. */
+async function readReconfiguration<Current extends { settings: NativeIndexSettings }>(
+  owner: ReconfigurationOwner<Current>
+): Promise<{ readonly settings: NativeIndexSettings } | { readonly invalidated: Promise<void> }> {
   if (owner.terminalRequested) {
     throw new NativeAuthorityTransitionError(
       'Native owner terminal retirement has closed transition admission.'
@@ -87,19 +115,54 @@ export async function reconfigureNativeSavedSettings<
     settings = await owner.readSettings();
   } catch (error) {
     owner.assertAdmission();
-    return owner.invalidate(error).complete();
+    return { invalidated: owner.invalidate(error).complete() };
   }
   owner.assertAdmission();
-  const current = owner.current();
-  if (
-    !current ||
-    nativeIndexConfigurationIdentity(current.settings) !==
-      nativeIndexConfigurationIdentity(settings) ||
-    (settings.paused === current.settings.paused && !current.sources?.controller.signal.aborted)
-  ) {
-    return owner.transition();
+  return { settings };
+}
+
+/**
+ * A settings save. Saving the configuration and pause state already live, with
+ * healthy running sources, changes nothing: one setup is often two saves (the
+ * search mode, then the model execution), and a second full transition would
+ * close reads and retire the first one's work for no change (BST-1988). After
+ * a failure, the same save still transitions, so saving again retries. Committed
+ * roots changing is {@link reconfigureNativeRoots}.
+ */
+export async function reconfigureNativeSavedSettings<Current extends LiveGraph>(
+  owner: ReconfigurationOwner<Current>
+): Promise<void> {
+  const read = await readReconfiguration(owner);
+  if ('invalidated' in read) {
+    return read.invalidated;
   }
-  return owner.apply(current, settings, () => owner.suspend(current));
+  const current = owner.current();
+  const needed = reconfiguration(current, read.settings);
+  if (needed === 'apply' && current) {
+    return owner.apply(current, read.settings, () => owner.suspend(current));
+  }
+  if (needed === 'unchanged' && current && owner.sourcesHealthy(current)) {
+    return;
+  }
+  return owner.transition();
+}
+
+/**
+ * Committed roots changed. Unchanged settings still need a transition, which
+ * leases every root again; a pause change or aborted sources apply as for a save.
+ */
+export async function reconfigureNativeRoots<Current extends LiveGraph>(
+  owner: ReconfigurationOwner<Current>
+): Promise<void> {
+  const read = await readReconfiguration(owner);
+  if ('invalidated' in read) {
+    return read.invalidated;
+  }
+  const current = owner.current();
+  if (reconfiguration(current, read.settings) === 'apply' && current) {
+    return owner.apply(current, read.settings, () => owner.suspend(current));
+  }
+  return owner.transition();
 }
 
 /** Stateless preparation; the activation retains every graph, epoch and physical owner. */

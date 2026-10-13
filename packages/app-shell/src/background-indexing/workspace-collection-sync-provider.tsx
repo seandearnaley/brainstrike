@@ -1493,9 +1493,10 @@ function LegacyWorkspaceCollectionSyncProvider({ children }: { readonly children
       hasHydrated,
       indexingPolicyPreset,
       isAccessLoading,
-      managedCollectionId,
       onBootstrap: triggerWorkspaceIndexBootstrap,
       onError: reportAsyncError,
+      // The web producer indexes into its collection and waits for one to exist.
+      partition: { kind: 'collection', managedCollectionId },
       publishPaused: ({
         activeRootPath,
         managedCollectionId: collectionId,

@@ -41,6 +41,7 @@ import {
   mocks,
   requestedScope,
   resetActivationFixture,
+  saveSettingsChange,
   scope,
   storeId,
   unused,
@@ -115,10 +116,11 @@ it('retains the assistant profile through index settings replacement and rebuild
   mocks.manager.attachCanonicalCollection.mockImplementation(
     async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
   );
-  const { activation } = fixture();
+  const { activation, storage } = fixture();
   try {
     await activation.acquireProfile();
     await activation.acquire();
+    await saveSettingsChange(storage, { indexingPolicyPreset: 'full-root' });
     await activation.reconfigure();
     expect(mocks.close).toHaveBeenCalledOnce();
     expect(mocks.closeProfile).not.toHaveBeenCalled();
@@ -463,10 +465,11 @@ it.each(['close', 'destroyAndRetireProfile'] as const)(
     mocks.manager.attachCanonicalCollection.mockImplementation(
       async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
     );
-    const { activation } = fixture();
+    const { activation, storage } = fixture();
     await activation.acquire();
     const writerExit = Promise.withResolvers<void>();
     mocks.close.mockReturnValueOnce(writerExit.promise);
+    await saveSettingsChange(storage, { indexingPolicyPreset: 'full-root' });
     const changing = activation.reconfigure().catch((error: unknown) => error);
     await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledOnce());
     expect(mocks.closeProfile).not.toHaveBeenCalled();

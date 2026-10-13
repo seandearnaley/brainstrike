@@ -144,7 +144,8 @@ export const configSchema = Schema.Struct({
   lease: Schema.NullOr(
     Schema.Struct({ canonicalPath: identifier, generation: identifier, rootId: identifier })
   ),
-  managedCollectionId: identifier,
+  // Null only for a workspace in the TEXT partition (BST-1988); a collection names itself.
+  managedCollectionId: Schema.NullOr(identifier),
   mode: Schema.Literals(['TEXT', 'VECTOR']),
   parser: Schema.Struct({ parser: Schema.Literals(['oxc', 'babel']) }),
   request: Schema.Struct({

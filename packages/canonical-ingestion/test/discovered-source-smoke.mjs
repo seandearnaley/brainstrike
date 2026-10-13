@@ -72,6 +72,7 @@ const host = new CanonicalIngestionHost({
       assert.fail('TEXT resolved a model profile.');
     },
   },
+  managedCollectionId: canonical.embeddingSetId,
   parser: { parser: 'oxc' },
   publication: {
     async abortScan() {

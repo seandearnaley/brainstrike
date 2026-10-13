@@ -144,6 +144,7 @@ import { migration142OpenaiAnthropicOpenrouterBedrockCatalogModels } from './142
 import { migration143AgentIdentityPalettes } from './143-agent-identity-palettes.js';
 import { migration144AgentFamilyColors } from './144-agent-family-colors.js';
 import { migration145DropToolProjectionRewrites } from './145-drop-tool-projection-rewrites.js';
+import { migration146FileRecordsTextPartitionIdentity } from './146-file-records-text-partition-identity.js';
 import { migration147DropPgliteChatSidecars } from './147-drop-pglite-chat-sidecars.js';
 import { migration148DropAssistantEditCheckpoints } from './148-drop-assistant-edit-checkpoints.js';
 import { migration151DropAgentReadonlyRole } from './151-drop-agent-readonly-role.js';
@@ -297,6 +298,7 @@ export const migrations: Migration[] = [
   migration143AgentIdentityPalettes,
   migration144AgentFamilyColors,
   migration145DropToolProjectionRewrites,
+  migration146FileRecordsTextPartitionIdentity,
   migration147DropPgliteChatSidecars,
   migration148DropAssistantEditCheckpoints,
   migration151DropAgentReadonlyRole,

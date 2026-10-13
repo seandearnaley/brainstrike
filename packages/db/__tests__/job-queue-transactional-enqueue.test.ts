@@ -56,9 +56,11 @@ describe('JobQueue transactional enqueue', () => {
          id, name, path, size, content_hash, token_count, created_at, updated_at, processed_at,
          root_id
        )
-       VALUES ($1, 'a.ts', 'a.ts', 12, 'file-hash', 3, $2, $2, $2, 'root-1')
+       VALUES ($1, $3, $3, 12, 'file-hash', 3, $2, $2, $2, 'root-1')
        ON CONFLICT (id) DO NOTHING`,
-      [fileRecordId, now]
+      // One path per file: rooted rows with no collection are the TEXT partition,
+      // unique per (root, path) since migration 146.
+      [fileRecordId, now, `${fileRecordId}.ts`]
     );
   }
 

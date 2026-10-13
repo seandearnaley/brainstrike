@@ -1019,7 +1019,7 @@ ipcDisposers.add(
     nativeIndexSearch,
     createNativeRootRegistration({
       isShuttingDown: isDesktopShuttingDown,
-      reconfigure: () => nativeIndexActivation.reconfigure(),
+      reconfigureRoots: () => nativeIndexActivation.reconfigureRoots(),
       reportError: reportNativeIndexActivationError,
       transition: (operation) => nativeRootDataDeletion.transition(operation),
     })
