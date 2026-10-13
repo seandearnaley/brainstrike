@@ -411,7 +411,7 @@ it('retains failed pause cleanup for explicit retry and keeps reset behind that 
   await activation.acquireRead();
   expect(mocks.acquire).toHaveBeenCalledOnce();
   await activation.destroyAndRetireProfile();
-  expect(mocks.destroy).toHaveBeenCalledOnce();
+  expect(mocks.destroy).toHaveBeenCalledTimes(2);
 });
 
 function vectorPauseFixture() {
@@ -637,7 +637,7 @@ it('starts exact document cancellation before waiting for an admitted native rea
   await reading;
   await pausing;
   expect(await starting).toBeInstanceOf(Error);
-  expect(mocks.close).toHaveBeenCalledOnce();
+  expect(mocks.close).toHaveBeenCalledTimes(2);
 });
 
 it('retires source borrows on Pause while the original mounted read-authority borrow remains live', async () => {
@@ -880,7 +880,7 @@ it('refuses reused read ownership when source retirement left the actual manager
   });
   await activation.reconfigure();
   await activation.acquireRead();
-  expect(mocks.close).toHaveBeenCalledOnce();
+  expect(mocks.close).toHaveBeenCalledTimes(2);
   expect(mocks.acquire).toHaveBeenCalledTimes(2);
   await activation.close();
 });

@@ -388,7 +388,7 @@ it.each([
     expect(retire).toHaveBeenCalled();
     expect(child.channel.pendingCount).toBe(0);
     expect(parent.channel.pendingCount).toBe(0);
-    expect(mocks.close).toHaveBeenCalledOnce();
+    expect(mocks.close).toHaveBeenCalledTimes(2);
     expect(mocks.closeProfile).toHaveBeenCalledOnce();
     await parent.close();
   }

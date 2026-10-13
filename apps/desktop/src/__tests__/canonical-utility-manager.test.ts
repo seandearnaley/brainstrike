@@ -476,7 +476,10 @@ it('fences scans at physical utility exit and rejects pending work only after ad
     await expect(attachment.scan('late')).rejects.toThrow(/closed|admission/);
   } finally {
     release();
-    await expect(result).resolves.toMatchObject({ message: 'Indexer utility exited.' });
+    await expect(result).resolves.toMatchObject({
+      code: 'process.lost',
+      failure: { category: 'availability', kind: 'fault', process: { child: 'index-utility' } },
+    });
     await manager.close();
   }
   expect(engine.close).not.toHaveBeenCalled();

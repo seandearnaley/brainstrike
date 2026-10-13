@@ -89,6 +89,8 @@ export type NativeIndexState =
 
 /** Everything that can happen to the index. */
 export type NativeIndexEvent =
+  | { readonly kind: 'host-lost'; readonly generation: number }
+  | { readonly kind: 'host-ready'; readonly generation: number }
   | { readonly kind: 'profile-resume' }
   | { readonly kind: 'profile-resumed'; readonly generation: number }
   | { readonly kind: 'rebuild-settings'; readonly settings: NativeIndexSettings }
@@ -348,6 +350,8 @@ function closedTransition(
       }
       break;
     case 'fence':
+    case 'host-lost':
+    case 'host-ready':
     case 'opened':
     case 'failure':
       return unchanged(state);
@@ -359,6 +363,27 @@ function closedTransition(
 
 function assertNever(value: never): never {
   throw new TypeError(`Unhandled native index lifecycle value: ${JSON.stringify(value)}`);
+}
+
+function hostLost(state: NativeIndexState, generation: number): NativeIndexTransition {
+  const settings = liveSettings(state);
+  return state.generation === generation && settings
+    ? {
+        actions: [],
+        state: {
+          from: state.generation,
+          generation: state.generation + 1,
+          kind: 'transitioning',
+          settings,
+        },
+      }
+    : unchanged(state);
+}
+
+function hostReady(state: NativeIndexState, generation: number): NativeIndexTransition {
+  return state.kind === 'transitioning' && state.generation === generation
+    ? { actions: [{ destroy: false, generation, kind: 'open' }], state }
+    : unchanged(state);
 }
 
 /** The one pure, total transition function. */
@@ -380,6 +405,10 @@ export function reduceNativeIndex(
       : reduceNativeIndex(state.previous, event);
   }
   switch (event.kind) {
+    case 'host-lost':
+      return hostLost(state, event.generation);
+    case 'host-ready':
+      return hostReady(state, event.generation);
     case 'profile-resumed':
       return state.kind === 'resuming' && state.generation === event.generation
         ? { actions: [], state: { generation: state.generation, kind: 'idle' } }

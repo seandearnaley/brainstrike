@@ -86,10 +86,10 @@ it('retains the assistant profile through index settings replacement and rebuild
     await activation.acquire();
     await saveSettingsChange(storage, { indexingPolicyPreset: 'full-root' });
     await activation.reconfigure();
-    expect(mocks.close).toHaveBeenCalledOnce();
+    expect(mocks.close).toHaveBeenCalledTimes(2);
     expect(mocks.closeProfile).not.toHaveBeenCalled();
     await activation.rebuild();
-    expect(mocks.destroy).toHaveBeenCalledOnce();
+    expect(mocks.destroy).toHaveBeenCalledTimes(2);
     expect(mocks.closeProfile).not.toHaveBeenCalled();
     await activation.acquireProfile();
   } finally {
@@ -109,7 +109,7 @@ it('closes only the native owner for a root-data deletion and resumes on the sam
     await activation.acquireProfile();
     await activation.acquire();
     await activation.closeNativeOwner();
-    expect(mocks.close).toHaveBeenCalledOnce();
+    expect(mocks.close).toHaveBeenCalledTimes(2);
     expect(mocks.closeProfile).not.toHaveBeenCalled();
     await activation.resume();
     await activation.acquire();

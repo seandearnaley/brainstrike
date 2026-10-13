@@ -371,3 +371,26 @@ it('an explicit profile retirement escalates a prior shutdown fence and releases
   await lifecycle.dispatch({ kind: 'terminal', reason: 'profile-retired' });
   expect(e.performed).toEqual([{ kind: 'close' }, { kind: 'retire-profile' }]);
 });
+
+it('fences a lost writer without waiting for its held initial open action', async () => {
+  const e = executor();
+  const held = Promise.withResolvers<void>();
+  e.execute.mockImplementationOnce(async (action) => {
+    await held.promise;
+    return action.kind === 'open' ? { generation: action.generation, kind: 'opened' } : undefined;
+  });
+  const lifecycle = await createNativeIndexLifecycle({ generation: 0, kind: 'idle' }, e);
+  const opening = lifecycle.start(Promise.resolve(TEXT));
+  await vi.waitFor(() => expect(e.execute).toHaveBeenCalledOnce());
+  const lost = await lifecycle.dispatch({ generation: 1, kind: 'host-lost' });
+  expect(lost).toEqual({ from: 1, generation: 2, kind: 'transitioning', settings: TEXT });
+  expect(e.fence).toHaveBeenCalledOnce();
+  held.resolve();
+  await opening;
+  expect(await lifecycle.state()).toBe(lost);
+  await lifecycle.dispatch({ generation: 2, kind: 'host-ready' });
+  expect(await lifecycle.state()).toEqual({ generation: 2, kind: 'ready', settings: TEXT });
+  expect(e.execute).toHaveBeenCalledTimes(2);
+  await lifecycle.dispatch({ generation: 1, kind: 'host-lost' });
+  expect(e.fence).toHaveBeenCalledOnce();
+});

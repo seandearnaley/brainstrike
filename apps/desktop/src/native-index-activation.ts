@@ -11,6 +11,7 @@ import type { IndexerPort, ScopedIndexerPort, VectorProfile } from '@brainstrike
 import { getDatabase } from './db-main';
 import { resolveDesktopDatabaseProfileDirectory } from './desktop-database-location';
 import { generateHostedEmbeddings } from './hosted-embeddings';
+import type { IndexerHostManager } from './indexer-host-manager';
 import {
   acquireIndexerHost,
   closeIndexerRuntime,
@@ -55,6 +56,7 @@ import {
   vectorCollectionId,
 } from './native-index-partition';
 import { decodeRoots } from './native-index-pg-decoders';
+import { createNativeIndexProcessHandover } from './native-index-process-handover';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from './native-index-runtime';
 import { createNativeScanAdmission } from './native-index-scan-admission';
 import {
@@ -65,7 +67,8 @@ import {
 import { createNativeSourceInventory } from './native-index-source-inventory';
 import {
   type NativeIndexSources,
-  retireNativeIndexSources,
+  retireNativeGraphSources,
+  suspendNativeIndexSources,
 } from './native-index-source-retirement';
 import { createNativeIndexWatchHealthHandler } from './native-index-watch-health';
 import type { NativeScopedRead, NativeSearchAuthority } from './native-scoped-search';
@@ -145,7 +148,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       const databasePath = path.join(resolveDesktopDatabaseProfileDirectory(), 'index.sqlite');
       const creation = acquireIndexerHost(
         { ...authorized, dbPath: databasePath, embedding: { indexMode: 'text-only' } },
-        { closeMs: 1000, exitMs: 1000, requestMs: 5000, startupMs: 60_000 }
+        { closeMs: 1000, exitMs: 1000, requestMs: 5000, startupMs: 60_000 },
+        handover
       );
       creation.catch(() => undefined);
       return {
@@ -164,51 +168,33 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       installIndexQueryTarget(getReadyIndexerHost, { deadlineMs: 1000, startupDeadlineMs: 5000 }),
     profile: dependencies.profile,
   });
-  const suspendSources = async (current: Graph): Promise<void> => {
-    const sources = current.sources;
-    if (!sources) {
-      return;
-    }
-    await retireNativeIndexSources(sources, () => getReadyIndexerHost().retireCanonicalSources());
-    if (current.sources === sources) {
-      current.sources = undefined;
-    }
-  };
-  const retireSources = async (): Promise<void> => {
-    graph?.controller.abort(new TransitionError('Native indexing admission closed.'));
-    const results = await Promise.allSettled([
-      runtime.retireReads(),
-      graph ? suspendSources(graph) : undefined,
-    ]);
-    const failures = results.flatMap((result) =>
-      result.status === 'rejected' ? [result.reason as unknown] : []
-    );
-    if (failures.length > 0) {
-      throw failures.length === 1
-        ? failures[0]
-        : new AggregateError(failures, 'Retirement failed.');
-    }
-    await graph?.sources?.startup?.catch(() => undefined);
-    // Startup can acquire a graph or late source owner while its caller closes admission.
-    if (graph) {
-      await suspendSources(graph);
-      for (const [id, lease] of graph.leases) {
-        await lease.retire();
-        graph.leases.delete(id);
-      }
-    }
-    await closeAllIndexQueries();
-  };
-  const stopSourcesOwned = (): Promise<void> => {
+  const retireSources = (manager?: IndexerHostManager): Promise<void> =>
+    retireNativeGraphSources({
+      closeQueries: closeAllIndexQueries,
+      graph: () => graph,
+      retireAttachments: () => (manager ?? getReadyIndexerHost()).retireCanonicalSources(),
+      retireReads: runtime.retireReads,
+    });
+  const stopSourcesOwned = (manager?: IndexerHostManager): Promise<void> => {
     const current = graph;
     if (!current) {
-      return retireSources();
+      return retireSources(manager);
     }
-    current.retirement ??= retireSources().finally(() => {
+    current.retirement ??= retireSources(manager).finally(() => {
       current.retirement = undefined;
     });
     return current.retirement;
   };
+  const handover = createNativeIndexProcessHandover({
+    graph: () => graph,
+    lifecycle: () => lifecycle,
+    onError: dependencies.onError,
+    released: () => {
+      graph = undefined;
+    },
+    retireSources: stopSourcesOwned,
+    runtime,
+  });
   const startOwned = async (settings: NativeIndexSettings, generation: number): Promise<void> => {
     if (!settings.enabled) {
       throw new Error('Native indexing is disabled in saved settings.');
@@ -605,9 +591,13 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     await stopSourcesOwned();
     if (destroy) {
       await runtime.destroyIndex();
+      await destroyIndexerRuntime(closeAllIndexQueries);
     } else {
       await runtime.closeIndex();
+      await closeIndexerRuntime(closeAllIndexQueries);
     }
+    // A replacement process can exist before native read bindings; its supervisor
+    // must also physically retire before this outer activation releases ownership.
     graph = undefined;
   };
   const applySources = async (settings: NativeIndexSettings): Promise<void> => {
@@ -616,7 +606,9 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       throw new TransitionError('Native Pause has no retained read authority.');
     }
     current.settings = settings;
-    await suspendSources(current).catch((error: unknown) => {
+    await suspendNativeIndexSources(current, () =>
+      getReadyIndexerHost().retireCanonicalSources()
+    ).catch((error: unknown) => {
       throw new NativeSourceRetirementFailure({ error });
     });
     assertCurrent(current);

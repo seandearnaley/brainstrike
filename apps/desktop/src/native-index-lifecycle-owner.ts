@@ -157,16 +157,30 @@ export async function createNativeIndexLifecycle(
   });
   const dispatch = (event: NativeIndexEvent): Promise<NativeIndexState> =>
     runAtPromiseBoundary(
-      event.kind === 'terminal' || event.kind === 'fence' || event.kind === 'stop-sources'
+      event.kind === 'host-lost'
         ? prepare(event).pipe(
-            Effect.flatMap((transition) => {
-              if (transition.actions.length > 0 || event.kind === 'fence') {
-                executor.fence();
-              }
-              return permit.withPermits(1)(execute(event, transition));
-            })
+            Effect.tap((transition) =>
+              Effect.sync(() => {
+                if (
+                  transition.state.kind === 'transitioning' &&
+                  transition.state.from === event.generation
+                ) {
+                  executor.fence();
+                }
+              })
+            ),
+            Effect.map((transition) => transition.state)
           )
-        : permit.withPermits(1)(step(event))
+        : event.kind === 'terminal' || event.kind === 'fence' || event.kind === 'stop-sources'
+          ? prepare(event).pipe(
+              Effect.flatMap((transition) => {
+                if (transition.actions.length > 0 || event.kind === 'fence') {
+                  executor.fence();
+                }
+                return permit.withPermits(1)(execute(event, transition));
+              })
+            )
+          : permit.withPermits(1)(step(event))
     );
   const preparePause = (
     read: () => Promise<NativeIndexSettings>,

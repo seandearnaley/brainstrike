@@ -53,6 +53,8 @@ vi.mock('../host-lease-manager', () => ({
     return { acquire: () => mocks.acquireProfile(), close: mocks.closeProfile };
   },
 }));
+// These spies count facade invocations. Outer activation always joins the supervisor,
+// including before native rebind; the real supervisor releases each physical child once.
 vi.mock('../indexer-runtime', () => ({
   acquireIndexerHost: mocks.acquire,
   closeIndexerRuntime: mocks.close,

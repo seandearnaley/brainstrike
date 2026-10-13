@@ -35,6 +35,17 @@ const deadlines = {
   requestMs: mode === 'request' ? 150 : 5000,
   startupMs: mode === 'startup' ? 150 : 5000,
 };
+// This utility proof owns no native graph borrowers; the real process still joins its exit.
+const borrowers = {
+  lost: async () => ({
+    failed: async (cause: unknown) => {
+      throw cause;
+    },
+    ready: async () => {},
+  }),
+  released: () => {},
+  retire: async () => {},
+};
 async function run(): Promise<void> {
   await app.whenReady();
   const { openIndexer } = await import('@brainstrike/indexer');
@@ -58,7 +69,7 @@ async function run(): Promise<void> {
   }
   const manager =
     mode === 'positive'
-      ? await acquireIndexerHost(options, deadlines)
+      ? await acquireIndexerHost(options, deadlines, borrowers)
       : await IndexerHostManager.create(
           {
             dbPath,
@@ -78,9 +89,9 @@ async function run(): Promise<void> {
   if (mode === 'positive') {
     assert.equal(getReadyIndexerHost(), manager);
     assert.equal(getReadyIndexerPort(), port);
-    assert.equal(await acquireIndexerHost(options, deadlines), manager);
+    assert.equal(await acquireIndexerHost(options, deadlines, borrowers), manager);
     await assert.rejects(
-      acquireIndexerHost({ ...options, rootIds: ['root-a'] }, deadlines),
+      acquireIndexerHost({ ...options, rootIds: ['root-a'] }, deadlines, borrowers),
       /explicitly closed/
     );
   }
@@ -134,7 +145,7 @@ async function run(): Promise<void> {
     rootId: 'root-a',
   };
   const activeManager =
-    mode === 'positive' ? await acquireIndexerHost(options, deadlines) : manager;
+    mode === 'positive' ? await acquireIndexerHost(options, deadlines, borrowers) : manager;
   const activePort = await activeManager.start();
   const plan = await activePort.prepareFile(snapshot);
   await activePort.commitTextFile({ plan });
@@ -197,7 +208,8 @@ async function run(): Promise<void> {
     mode === 'positive'
       ? await acquireIndexerHost(
           { ...options, embedding: { indexMode: 'open-existing' } },
-          deadlines
+          deadlines,
+          borrowers
         )
       : await IndexerHostManager.create(
           {

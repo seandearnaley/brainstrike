@@ -46,10 +46,14 @@ export interface NativeIndexRuntime<Attachment = unknown> {
   captureAcknowledgedAuthority(): CapturedNativeIndexAuthority;
   closeIndex(): Promise<void>;
   destroyIndex(): Promise<void>;
+  /** Called only after the owning process and all borrowers physically release. */
+  indexReleased(): void;
   mutateAuthority<T>(expected: NativePort, work: () => Promise<T>): Promise<T>;
   resume(signal?: AbortSignal): Promise<void>;
   /** Joins a failed acquisition's release (its host exited, port closed); false when none failed. */
   retireFailedProfile(): Promise<boolean>;
+  /** Borrow retirement only; the process supervisor joins physical close separately. */
+  retireIndexBorrowers(): Promise<void>;
   retireProfile(reason?: unknown): Promise<void>;
   retireReads(): Promise<void>;
   withRead<T>(
@@ -407,6 +411,24 @@ export function createNativeIndexRuntime<Attachment>(
     port = ready;
     return ready;
   };
+  const retireIndexBorrowers = async (): Promise<void> => {
+    closed = true;
+    readsClosed = true;
+    await acquisition?.catch(() => undefined);
+    await authorityMutation?.catch(() => undefined);
+    await joinReads();
+    await closeQueries();
+  };
+  const indexReleased = (): void => {
+    indexOwner = undefined;
+    port = undefined;
+    scopes = '';
+    bindings = '';
+    acknowledgedAuthority = undefined;
+    acknowledgedPort = undefined;
+    bindingRemovalPending = false;
+    authorityMutation = undefined;
+  };
   const closeIndex = (destroy = false): Promise<void> => {
     closed = true;
     readsClosed = true;
@@ -419,10 +441,7 @@ export function createNativeIndexRuntime<Attachment>(
     closingKind = kind;
     // Keep failed cleanup retryable and keep its owner until it actually exits.
     closing ??= (async () => {
-      await acquisition?.catch(() => undefined);
-      await authorityMutation?.catch(() => undefined);
-      await joinReads();
-      await closeQueries();
+      await retireIndexBorrowers();
       if (destroy && indexOwner) {
         if (!indexOwner.destroy) {
           throw new Error('Native index owner has no destructive reset capability.');
@@ -431,14 +450,7 @@ export function createNativeIndexRuntime<Attachment>(
       } else {
         await indexOwner?.close();
       }
-      indexOwner = undefined;
-      port = undefined;
-      scopes = '';
-      bindings = '';
-      acknowledgedAuthority = undefined;
-      acknowledgedPort = undefined;
-      bindingRemovalPending = false;
-      authorityMutation = undefined;
+      indexReleased();
     })().finally(() => {
       closing = undefined;
       closingKind = undefined;
@@ -480,6 +492,7 @@ export function createNativeIndexRuntime<Attachment>(
     captureAcknowledgedAuthority,
     closeIndex: () => closeIndex(),
     destroyIndex: () => closeIndex(true),
+    indexReleased,
     mutateAuthority: <T>(expected: NativePort, work: () => Promise<T>): Promise<T> => {
       if (closed) {
         return Promise.reject(
@@ -523,6 +536,7 @@ export function createNativeIndexRuntime<Attachment>(
       await acquireProfile(undefined, signal);
     },
     retireFailedProfile: dependencies.profile.retireFailed,
+    retireIndexBorrowers,
     retireProfile: (reason) => dependencies.profile.retire(closeIndex(), reason),
     retireReads: async (): Promise<void> => {
       readsClosed = true;

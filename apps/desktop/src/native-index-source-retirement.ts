@@ -2,6 +2,7 @@ import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
 import { NativeAuthorityTransitionError } from './native-authority-transition';
 import type { NativeCanonicalCatalogRecord } from './native-canonical-catalog';
 import type { NativeCanonicalInference } from './native-canonical-profile';
+import type { NativeIndexActivationGraph } from './native-index-graph';
 import type { createNativeScanAdmission } from './native-index-scan-admission';
 
 export interface NativeIndexSources {
@@ -105,4 +106,53 @@ export function retireNativeIndexSources(
     sources.retirement = undefined;
   });
   return sources.retirement;
+}
+
+/** Clear a graph's source handle only after its existing attachment owner has joined. */
+export async function suspendNativeIndexSources(
+  graph: { sources?: NativeIndexSources | undefined },
+  retireAttachments: () => Promise<void>
+): Promise<void> {
+  const sources = graph.sources;
+  if (!sources) {
+    return;
+  }
+  await retireNativeIndexSources(sources, retireAttachments);
+  if (graph.sources === sources) {
+    graph.sources = undefined;
+  }
+}
+
+/** The native graph keeps all late source and root borrows through their physical join. */
+export async function retireNativeGraphSources(dependencies: {
+  graph(): NativeIndexActivationGraph | undefined;
+  retireReads(): Promise<void>;
+  retireAttachments(): Promise<void>;
+  closeQueries(): Promise<void>;
+}): Promise<void> {
+  dependencies
+    .graph()
+    ?.controller.abort(new NativeAuthorityTransitionError('Native indexing admission closed.'));
+  const current = dependencies.graph();
+  const results = await Promise.allSettled([
+    dependencies.retireReads(),
+    current ? suspendNativeIndexSources(current, dependencies.retireAttachments) : undefined,
+  ]);
+  const failures = results.flatMap((result) =>
+    result.status === 'rejected' ? [result.reason as unknown] : []
+  );
+  if (failures.length > 0) {
+    throw failures.length === 1 ? failures[0] : new AggregateError(failures, 'Retirement failed.');
+  }
+  await dependencies.graph()?.sources?.startup?.catch(() => undefined);
+  // Startup can acquire a graph or late source owner while admission is closed.
+  const late = dependencies.graph();
+  if (late) {
+    await suspendNativeIndexSources(late, dependencies.retireAttachments);
+    for (const [id, lease] of late.leases) {
+      await lease.retire();
+      late.leases.delete(id);
+    }
+  }
+  await dependencies.closeQueries();
 }

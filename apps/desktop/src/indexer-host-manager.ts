@@ -1,3 +1,4 @@
+import { BoundaryFailureError, processLost } from '@brainstrike/assistant-contract';
 import type { CanonicalWorkspaceRuntimeDependencies } from '@brainstrike/canonical-ingestion';
 import { runWithTimeout } from '@brainstrike/effect-kit';
 import type { IndexerOptions, IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
@@ -27,6 +28,7 @@ export class IndexerHostManager {
   readonly #options: IndexerOptions;
   readonly #deadlines: IndexerDeadlines;
   readonly #entryPath: string;
+  readonly #onLost: ((cause: unknown) => void) | undefined;
   #connection: IndexerConnection | undefined;
   #start: Promise<IndexerPort & ScopedIndexerPort & CoverageAuthorityPort> | undefined;
   #canonical: CanonicalUtilityParent | undefined;
@@ -38,7 +40,12 @@ export class IndexerHostManager {
   #sourceRetirement: Promise<void> | undefined;
   #sourceRetirementOwned = false;
 
-  private constructor(options: IndexerOptions, deadlines: IndexerDeadlines, entryPath: string) {
+  private constructor(
+    options: IndexerOptions,
+    deadlines: IndexerDeadlines,
+    entryPath: string,
+    onLost?: (cause: unknown) => void
+  ) {
     const embedding =
       options.embedding.indexMode === 'vector-configured'
         ? Object.freeze({
@@ -49,6 +56,7 @@ export class IndexerHostManager {
     this.#options = { ...options, embedding, rootIds: Object.freeze([...options.rootIds]) };
     this.#deadlines = deadlines;
     this.#entryPath = entryPath;
+    this.#onLost = onLost;
     this.databasePath = options.dbPath;
     this.acquisitionEmbedding = embedding;
     this.rootIds = this.#options.rootIds;
@@ -57,7 +65,8 @@ export class IndexerHostManager {
   static async create(
     input: unknown,
     deadlineInput: unknown,
-    entryPath = resolveBundledSiblingPath('Indexer host', 'indexer-host-entry.js')
+    entryPath = resolveBundledSiblingPath('Indexer host', 'indexer-host-entry.js'),
+    onLost?: (cause: unknown) => void
   ): Promise<IndexerHostManager> {
     const { validateIndexerOptions, validateIndexerDeadlines } = await import(
       '@brainstrike/indexer/transport'
@@ -65,7 +74,8 @@ export class IndexerHostManager {
     return new IndexerHostManager(
       validateIndexerOptions(input),
       validateIndexerDeadlines(deadlineInput),
-      entryPath
+      entryPath,
+      onLost
     );
   }
 
@@ -94,8 +104,8 @@ export class IndexerHostManager {
         child.postMessage(message);
       },
       (error) => {
-        this.#closed = true;
         this.#transportFailure = error;
+        this.#lost(error);
         for (const notify of protocolErrors) {
           notify(error);
         }
@@ -107,8 +117,9 @@ export class IndexerHostManager {
       onError: (listener) => {
         protocolErrors.add(listener);
         const error = (type: string, location: string, report: string): void => {
-          this.#closed = true;
-          listener(new Error(`Indexer utility process ${type} at ${location}: ${report}`));
+          const cause = new Error(`Indexer utility process ${type} at ${location}: ${report}`);
+          listener(cause);
+          this.#lost(cause);
         };
         child.on('error', error);
         return () => {
@@ -117,13 +128,14 @@ export class IndexerHostManager {
         };
       },
       onExit: (listener) => {
-        const exit = (): void => {
-          this.#closed = true;
-          this.#exitCleanup ??= canonical.exited(new Error('Indexer utility exited.'));
+        const exit = (exitCode: number): void => {
+          const cause = new BoundaryFailureError(processLost({ child: 'index-utility', exitCode }));
+          this.#exitCleanup ??= canonical.exited(cause);
           void this.#exitCleanup.catch(() => {
             this.#exitCleanupFailed = true;
           });
           listener();
+          this.#lost(cause);
         };
         child.on('exit', exit);
         return () => child.off('exit', exit);
@@ -137,8 +149,8 @@ export class IndexerHostManager {
           try {
             canonical.receive(value);
           } catch (error) {
-            this.#closed = true;
             this.#transportFailure = error;
+            this.#lost(error);
             for (const notify of protocolErrors) {
               notify(error);
             }
@@ -283,16 +295,25 @@ export class IndexerHostManager {
     return runWithTimeout(() => work, {
       onTimeout: () => {
         onTimeout?.();
-        this.#closed = true;
+        const cause = new Error(
+          'Canonical utility request exceeded its explicit deadline; its owner remains retained for close.'
+        );
+        this.#lost(cause);
         // Stop admission synchronously. The parent retains unfinished/failed retirement for close().
         const retirement = this.#canonical?.close();
         void retirement?.catch(() => {});
-        return new Error(
-          'Canonical utility request exceeded its explicit deadline; its owner remains retained for close.'
-        );
+        return cause;
       },
       timeoutMs,
     });
+  }
+
+  #lost(cause: unknown): void {
+    if (this.#closed) {
+      return;
+    }
+    this.#closed = true;
+    this.#onLost?.(cause);
   }
 
   get exited(): boolean {

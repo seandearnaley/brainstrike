@@ -141,7 +141,7 @@ it('joins real late source cancellation before closing the native engine and pro
   await initial;
   expect(child.channel.pendingCount).toBe(0);
   expect(parent.channel.pendingCount).toBe(0);
-  expect(mocks.close).toHaveBeenCalledOnce();
+  expect(mocks.close).toHaveBeenCalledTimes(2);
   expect(mocks.closeProfile).toHaveBeenCalledOnce();
   await parent.close();
 });
@@ -168,7 +168,7 @@ it('closes an admitted initial collection scan before joining startup, and joins
   physical.resolve();
   await retiring;
   expect(await initial).toBeInstanceOf(Error);
-  expect(mocks.destroy).toHaveBeenCalledOnce();
+  expect(mocks.destroy).toHaveBeenCalledTimes(2);
   expect(mocks.closeProfile).toHaveBeenCalledOnce();
 });
 
@@ -199,7 +199,7 @@ it('rebuilds only the derived writer with the saved collection and no inference 
   await activation.rebuild();
   expect(modes).toEqual(['TEXT', 'TEXT']);
   expect(close).toHaveBeenCalledOnce();
-  expect(mocks.destroy).toHaveBeenCalledOnce();
+  expect(mocks.destroy).toHaveBeenCalledTimes(2);
   expect(mocks.acquire).toHaveBeenCalledTimes(2);
   expect(transport.documentEmbeddings).not.toHaveBeenCalled();
   expect(storage.getItem).toHaveBeenCalledTimes(2);
@@ -239,7 +239,7 @@ it('retains a failed source close and refuses derived deletion until explicit re
   await expect(activation.acquire()).rejects.toThrow('closed');
   await activation.destroyAndRetireProfile();
   expect(close).toHaveBeenCalledTimes(2);
-  expect(mocks.destroy).toHaveBeenCalledOnce();
+  expect(mocks.destroy).toHaveBeenCalledTimes(2);
 });
 
 it('exposes actual native progress while the initial owned collection scan is still running', async () => {
@@ -545,12 +545,12 @@ it('joins retained rooted-row convergence before admitting the replacement write
     scope: { kind: 'workspace', rootId: 'root' },
   });
   expect(lease.retire).toHaveBeenCalledOnce();
-  expect(mocks.close).toHaveBeenCalledOnce();
+  expect(mocks.close).toHaveBeenCalledTimes(2);
   expect(mocks.acquire).toHaveBeenCalledTimes(2);
   await expect(activation.acquireRead()).rejects.toThrow('transitioning');
   removal.resolve(true);
   await changing;
-  expect(mocks.close).toHaveBeenCalledOnce();
+  expect(mocks.close).toHaveBeenCalledTimes(2);
   expect(mocks.acquire).toHaveBeenCalledTimes(2);
   expect((await activation.getSearchAuthority()).collectionId).toBe('next');
   await activation.close();
@@ -861,6 +861,6 @@ it('joins physical grep disposal before retiring read authority during a genuine
   expect(await pending).toBeInstanceOf(Error);
   expect(await replacing).toEqual(new Error('Native indexing is disabled in saved settings.'));
   expect(close).toHaveBeenCalledOnce();
-  expect(mocks.close).toHaveBeenCalledOnce();
+  expect(mocks.close).toHaveBeenCalledTimes(2);
   await f.activation.close();
 });
