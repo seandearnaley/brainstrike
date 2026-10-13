@@ -24,13 +24,11 @@ const budgetGuardrailLogger = createLogger('BudgetGuardrail');
  * `overridden` is session-lived (component state): "Send anyway" applies until
  * the assistant panel unmounts, and is never persisted.
  */
-export function useBudgetGuardrailBinding(
-  resourceIdOverride?: string | null
-): BudgetGuardrailContextValue | null {
+export function useBudgetGuardrailBinding(): BudgetGuardrailContextValue | null {
   const dailyCapUsd = useAssistantBudgetPreferencesStore((state) => state.dailyCapUsd);
   // Agent-host threads' committed provider calls count toward the same cap.
   const { usage: hostUsage } = useAssistantThreadHostLedger();
-  const spendState = useDailySpend(resourceIdOverride, hostUsage);
+  const spendState = useDailySpend(hostUsage);
   const [overridden, setOverridden] = useState(false);
   const override = useCallback(() => setOverridden(true), []);
 

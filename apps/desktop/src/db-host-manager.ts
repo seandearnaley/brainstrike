@@ -27,7 +27,6 @@ import {
   type DbHostRequest,
   type DbHostRequestEnvelope,
   type DbHostResponseEnvelope,
-  type DbHostRowMode,
   type DbHostTransactionStartResult,
   isDbHostToMainMessage,
   parseDbHostProgressEnvelope,
@@ -656,16 +655,11 @@ class DefaultDbHostManager implements DbHostManager {
         exec: async (sql, params) =>
           await this.send({ kind: 'maintenance:exec', sql, ...(params ? { params } : {}) }),
       },
-      query: async <TRecord = unknown>(
-        sql: string,
-        params?: readonly unknown[],
-        options?: { readonly rowMode?: DbHostRowMode }
-      ) =>
+      query: async <TRecord = unknown>(sql: string, params?: readonly unknown[]) =>
         await this.send<DbHostQueryResult<TRecord>>({
           kind: 'query',
           sql,
           ...(params ? { params } : {}),
-          ...(options?.rowMode ? { rowMode: options.rowMode } : {}),
         }),
       transaction: async <TResult>(fn: (tx: RemoteDbTransaction) => Promise<TResult>) =>
         await this.#transaction(fn),
@@ -731,17 +725,12 @@ class DefaultDbHostManager implements DbHostManager {
           transactionId,
           ...(params ? { params } : {}),
         }),
-      query: async <TRecord = unknown>(
-        sql: string,
-        params?: readonly unknown[],
-        options?: { readonly rowMode?: DbHostRowMode }
-      ) =>
+      query: async <TRecord = unknown>(sql: string, params?: readonly unknown[]) =>
         await this.send<DbHostQueryResult<TRecord>>({
           kind: 'transaction:query',
           sql,
           transactionId,
           ...(params ? { params } : {}),
-          ...(options?.rowMode ? { rowMode: options.rowMode } : {}),
         }),
     };
     try {

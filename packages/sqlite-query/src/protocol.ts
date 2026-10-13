@@ -16,12 +16,6 @@ const Value = Schema.Union([
   Schema.BigInt,
   Schema.Uint8Array,
 ]);
-export const RowsSchema = Schema.Struct({
-  columns: Schema.Array(Schema.String),
-  rows: Schema.Array(Schema.Array(Value)),
-  truncated: Schema.Boolean,
-});
-export type SqliteRows = typeof RowsSchema.Type;
 export type SqliteValue = typeof Value.Type;
 
 export const GrepRowsSchema = Schema.Struct({
@@ -43,13 +37,6 @@ const GrepFields = {
 const GrepRequestSchema = Schema.Struct({ id: Id, kind: Schema.Literal('grep'), ...GrepFields });
 export type SqliteGrepOptions = Omit<typeof GrepRequestSchema.Type, 'id' | 'kind'>;
 
-const QueryFields = {
-  bindings: Schema.optional(Schema.Record(Schema.String, Value)),
-  id: Id,
-  maxRows: Schema.Int.check(Schema.isBetween({ maximum: 200, minimum: 1 })),
-  sql: Schema.String,
-  values: Schema.Array(Value),
-};
 const RequestSchema = Schema.Union([
   Schema.Struct({
     authority: coverageAuthoritySchema,
@@ -63,9 +50,6 @@ const RequestSchema = Schema.Union([
   }),
   GrepRequestSchema,
   Schema.Struct({ databasePath: Schema.String, id: Id, kind: Schema.Literal('open') }),
-  Schema.Struct({ kind: Schema.Literal('query'), ...QueryFields }),
-  Schema.Struct({ id: Id, kind: Schema.Literal('describeTable'), table: Schema.String }),
-  Schema.Struct({ id: Id, kind: Schema.Literal('listTables') }),
 ]);
 const ResponseSchema = Schema.Union([
   Schema.Struct({
@@ -76,7 +60,6 @@ const ResponseSchema = Schema.Union([
   Schema.Struct({ error: faultSchema, id: Id, kind: Schema.Literal('nativeCoverageError') }),
   Schema.Struct({ id: Id, kind: Schema.Literal('grepRows'), result: GrepRowsSchema }),
   Schema.Struct({ id: Id, kind: Schema.Literal('ready') }),
-  Schema.Struct({ id: Id, kind: Schema.Literal('rows'), result: RowsSchema }),
   Schema.Struct({
     id: Id,
     kind: Schema.Literal('error'),

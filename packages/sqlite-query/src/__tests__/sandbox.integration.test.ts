@@ -1,108 +1,242 @@
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { embeddingProfileHash } from '@brainstrike/indexer';
+import { planGrepTrigramCandidates } from '@brainstrike/utils/grep-trigram-plan';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { SqliteQueryClient, spawnQueryProcess } from '../../dist/index.js';
+import {
+  type QueryProcess,
+  type SqliteGrepOptions,
+  SqliteQueryClient,
+  SqliteQueryDeadlineError,
+  spawnQueryProcess,
+} from '../../dist/index.js';
 import { NATIVE_TRIGRAM_SCHEMA } from './fixtures/native-trigram-schema.js';
 
 const directory = mkdtempSync(join(tmpdir(), 'brainstrike-sqlite-query-'));
-const databasePath = join(directory, 'index.sqlite');
 const executable = process.env['SQLITE_QUERY_TEST_EXEC_PATH'];
 const clients: SqliteQueryClient[] = [];
-const hash = (): string => createHash('sha256').update(readFileSync(databasePath)).digest('hex');
-let originalHash: string;
-let client: SqliteQueryClient;
 
-async function open(deadlineMs = 1000): Promise<SqliteQueryClient> {
+interface BuiltIndex {
+  readonly chunkIds: Readonly<Record<string, readonly string[]>>;
+}
+
+/** Commits the fixture through the real IndexerPort writer under its qualified Node. */
+function buildIndex(databasePath: string, mode?: 'append'): BuiltIndex {
+  const writer = process.env['INDEXER_TEST_EXEC_PATH'];
+  if (!writer) {
+    throw new Error('An explicit qualified Node writer executable is required.');
+  }
+  const built = spawnSync(
+    writer,
+    ['src/__tests__/fixtures/build-lifecycle-index.mjs', databasePath, ...(mode ? [mode] : [])],
+    { encoding: 'utf8', env: { ...process.env, ELECTRON_RUN_AS_NODE: undefined } }
+  );
+  if (built.status !== 0) {
+    throw new Error(`Real IndexerPort fixture failed: ${built.stderr}`);
+  }
+  return JSON.parse(built.stdout) as BuiltIndex;
+}
+
+/** Opens a grep reader in a real query process and reports that process's pid. */
+async function open(
+  databasePath: string,
+  deadlineMs = 1000
+): Promise<{ readonly client: SqliteQueryClient; readonly pid: number }> {
   if (!executable) {
     throw new Error('SQLITE_QUERY_TEST_EXEC_PATH must identify a qualified Electron executable.');
   }
-  const result = await SqliteQueryClient.open({
+  let owned: QueryProcess | undefined;
+  const client = await SqliteQueryClient.open({
     databasePath,
     deadlineMs,
-    spawn: () => spawnQueryProcess({ environment: { ELECTRON_RUN_AS_NODE: '1' }, executable }),
+    spawn: () => {
+      owned = spawnQueryProcess({ environment: { ELECTRON_RUN_AS_NODE: '1' }, executable });
+      return owned;
+    },
     startupDeadlineMs: 5000,
   });
-  clients.push(result);
-  return result;
+  clients.push(client);
+  const pid = owned?.pid;
+  if (pid === undefined) {
+    throw new Error('The query process reported no pid.');
+  }
+  return { client, pid };
 }
 
-beforeAll(async () => {
-  const writer = new DatabaseSync(databasePath);
-  writer.exec(`CREATE TABLE file_records(id TEXT PRIMARY KEY, content TEXT);
-    INSERT INTO file_records VALUES('one','index search chunk');
-    CREATE VIRTUAL TABLE file_chunks_fts USING fts5(content);
-    INSERT INTO file_chunks_fts VALUES('index search chunk');`);
-  writer.close();
-  originalHash = hash();
-  client = await open();
+function exited(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return error instanceof Error && 'code' in error && error.code === 'ESRCH';
+  }
+}
+
+const indexPath = join(directory, 'index.sqlite');
+const hash = (): string => createHash('sha256').update(readFileSync(indexPath)).digest('hex');
+let index: BuiltIndex;
+let originalHash: string;
+const proof = (pattern: string, overrides: Partial<SqliteGrepOptions> = {}): SqliteGrepOptions => ({
+  caseSensitive: true,
+  isRegex: false,
+  maxRows: 100,
+  pattern,
+  rootIds: ['proof-root'],
+  ...overrides,
 });
+// Quadratic backtracking over runaway-root's 300,000-character line: tens of seconds.
+// `\w` overlaps `\d`, so V8 cannot make the `+` atomic as it does for `[a-z]+[0-9]`.
+const runaway: SqliteGrepOptions = {
+  caseSensitive: true,
+  isRegex: true,
+  maxRows: 1,
+  pattern: String.raw`\w+\d`,
+  rootIds: ['runaway-root'],
+};
+const ids = (rows: readonly (readonly unknown[])[]): unknown[] => rows.map((row) => row[0]).sort();
+const settle = (promise: Promise<unknown>): Promise<unknown> =>
+  promise.catch((error: unknown) => error);
+
+beforeAll(() => {
+  index = buildIndex(indexPath);
+  // The writer closed, so its WAL is checkpointed into the main file hashed and copied here.
+  expect(existsSync(`${indexPath}-wal`)).toBe(false);
+  originalHash = hash();
+}, 60_000);
 
 afterAll(async () => {
-  await Promise.all(clients.map((owned) => owned.close()));
+  await Promise.allSettled(clients.map((owned) => owned.close()));
   rmSync(directory, { force: true, recursive: true });
 });
 
-describe('qualified engine refuses unsafe SQL and retains index bytes', () => {
-  it.each([
-    "ATTACH ':memory:' AS other",
-    `VACUUM INTO '${join(directory, 'stolen.sqlite')}'`,
-    'VACUUM',
-    "SELECT load_extension('missing')",
-    "SELECT vec_npy_file('missing')",
-    "SELECT fts3_tokenizer('simple')",
-    "SELECT sqlite_log(1, 'x')",
-    'CREATE TEMP TABLE evil(value)',
-    'CREATE TABLE evil(value)',
-    "INSERT INTO file_records VALUES('two','changed')",
-    "UPDATE file_records SET content='changed'",
-    'DELETE FROM file_records',
-    'DROP TABLE file_records',
-    'BEGIN',
-    'SAVEPOINT s',
-    'ANALYZE',
-    'PRAGMA writable_schema=1',
-    'PRAGMA hard_heap_limit=0',
-    'PRAGMA query_only',
-    'PRAGMA wal_checkpoint(TRUNCATE)',
-    'SELECT 1; DROP TABLE file_records',
-    'SELECT length(randomblob(20000000))',
-  ])('refuses %s', async (sql) => {
-    await expect(client.query(sql)).rejects.toThrow();
+describe('grep reader over a real IndexerPort index', () => {
+  it('runs every production grep statement shape through the real authorizer', async () => {
+    // Fail closed: the authorizer admits only the functions and pragma grep's own
+    // statements use. The first BST-1997 draft dropped PRAGMA data_version, which
+    // FTS5 reads before every trigram MATCH, and every trigram grep was refused.
+    // A new function or pragma in grep's SQL fails here, not for a user.
+    const { client } = await open(indexPath);
+    const [cafe, alphabet] = index.chunkIds['proof'] ?? [];
+    const both = [cafe, alphabet].sort();
+    const shapes: readonly {
+      readonly expected: readonly (string | undefined)[];
+      readonly filter: 'trigram' | 'instr' | 'lower' | 'none';
+      readonly options: SqliteGrepOptions;
+    }[] = [
+      { expected: both, filter: 'trigram', options: proof('alpha') },
+      { expected: both, filter: 'instr', options: proof('al') },
+      { expected: both, filter: 'lower', options: proof('AL', { caseSensitive: false }) },
+      {
+        expected: [alphabet],
+        filter: 'none',
+        options: proof(String.raw`^a\w+t$`, { isRegex: true }),
+      },
+      { expected: [cafe], filter: 'trigram', options: proof('café', { caseSensitive: false }) },
+    ];
+    for (const { expected, filter, options } of shapes) {
+      const plan = planGrepTrigramCandidates(
+        options.pattern,
+        options.isRegex,
+        options.caseSensitive
+      );
+      expect({ filter, plan: plan.kind }).toEqual({
+        filter,
+        plan: filter === 'trigram' ? 'candidates' : 'scan',
+      });
+      for (const scope of [{}, { fileIds: ['proof'], rootIds: [] }]) {
+        const result = await client.grep({ ...options, ...scope });
+        expect({ filter, ids: ids(result.rows), scope }).toEqual({ filter, ids: expected, scope });
+      }
+    }
+    expect((await client.grep(proof('alpha', { fileIds: [], rootIds: [] }))).rows).toEqual([]);
     expect(hash()).toBe(originalHash);
-    expect(existsSync(join(directory, 'stolen.sqlite'))).toBe(false);
   });
 
-  it('runs FTS5, vector functions, recursive reads and bound values', async () => {
-    expect(
-      (
-        await client.query(
-          'SELECT bm25(file_chunks_fts) FROM file_chunks_fts WHERE file_chunks_fts MATCH ?',
-          { values: ['index'] }
-        )
-      ).rows
-    ).toHaveLength(1);
-    expect(
-      (await client.query('SELECT vec_length(vec_f32(?))', { values: ['[1,2,3]'] })).rows
-    ).toEqual([[3]]);
-    expect(
-      (
-        await client.query('SELECT content FROM file_records WHERE id=?', {
-          values: ["x'; DROP TABLE file_records; --"],
-        })
-      ).rows
-    ).toEqual([]);
-    const result = await client.query(
-      'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM r WHERE n<500) SELECT n FROM r',
-      { maxRows: 7 }
+  it('keeps hostile patterns and scopes as bound values and leaves the index bytes unchanged', async () => {
+    const { client } = await open(indexPath);
+    for (const options of [
+      proof("x'; DROP TABLE file_chunks; --"),
+      proof('"alpha" OR *', { caseSensitive: false }),
+      proof(String.raw`alpha"\) OR \("a`, { isRegex: true }),
+      proof('alpha', { rootIds: ["x') OR 1=1 OR ('"] }),
+      proof('alpha', { fileIds: ["x') OR 1=1 OR ('"], rootIds: [] }),
+    ]) {
+      const result = await client.grep(options);
+      expect({ options, rows: result.rows }).toEqual({ options, rows: [] });
+    }
+    expect(ids((await client.grep(proof('alpha'))).rows)).toEqual(
+      [...(index.chunkIds['proof'] ?? [])].sort()
     );
-    expect(result.rows).toHaveLength(7);
-    expect(result.truncated).toBe(true);
+    expect(hash()).toBe(originalHash);
   });
 
+  it('refuses an oversized grep result before the parent reads it and keeps the reader', async () => {
+    const { client } = await open(indexPath);
+    const wide = { ...proof('budget'), maxRows: 200, rootIds: ['wide-root'] };
+    await expect(client.grep(wide)).rejects.toThrow('process-message budget');
+    const capped = await client.grep({ ...wide, maxRows: 100 });
+    expect(capped.rows).toHaveLength(100);
+    expect(capped.matchedChunks).toBe(210);
+    expect(capped.truncated).toBe(true);
+  });
+
+  it('kills a runaway grep at its deadline, keeps that error, and lets the real writer commit for a fresh reader', async () => {
+    const appendPath = join(directory, 'append.sqlite');
+    copyFileSync(indexPath, appendPath);
+    const { client: doomed, pid } = await open(appendPath, 150);
+    let ticks = 0;
+    const interval = setInterval(() => {
+      ticks += 1;
+    }, 10);
+    let deadline: unknown;
+    try {
+      deadline = await settle(doomed.grep(runaway));
+    } finally {
+      clearInterval(interval);
+    }
+    expect(deadline).toBeInstanceOf(SqliteQueryDeadlineError);
+    expect(ticks).toBeGreaterThan(3);
+    await doomed.close();
+    expect(exited(pid)).toBe(true);
+    await expect(doomed.grep(proof('alpha'))).rejects.toBe(deadline);
+    const appended = buildIndex(appendPath, 'append');
+    const { client: fresh } = await open(appendPath);
+    expect(ids((await fresh.grep(proof('writer remains'))).rows)).toEqual(
+      appended.chunkIds['afterKill']
+    );
+  });
+
+  it('owner close stops an in-flight grep and resolves only after the reader exits', async () => {
+    // Host Stop, reset and shutdown stop index reads this way (closeAllIndexQueries).
+    const { client, pid } = await open(indexPath, 60_000);
+    const inflight = settle(client.grep(runaway));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const started = performance.now();
+    await client.close();
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(exited(pid)).toBe(true);
+    expect(await inflight).toMatchObject({ message: 'SQLite query client is closed.' });
+    expect(hash()).toBe(originalHash);
+  });
+
+  it('a reader crash rejects the in-flight grep and leaves the client dead', async () => {
+    const { client, pid } = await open(indexPath, 60_000);
+    const inflight = settle(client.grep(runaway));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    process.kill(pid, 'SIGKILL');
+    const crash = await inflight;
+    expect(crash).toMatchObject({ message: 'SQLite query process exited.' });
+    await expect(client.grep(proof('alpha'))).rejects.toBe(crash);
+    await client.close();
+    expect(hash()).toBe(originalHash);
+  });
+});
+
+describe('grep reader over hand-built index metadata', () => {
   it('runs canonical literal and regex grep over authorized native chunk identities', async () => {
     const grepPath = join(directory, 'grep.sqlite');
     const writer = new DatabaseSync(grepPath);
@@ -297,62 +431,6 @@ describe('qualified engine refuses unsafe SQL and retains index bytes', () => {
     } finally {
       await grepClient.close();
       writer.close();
-    }
-  });
-
-  it('binds repeated numbered parameters without SQL interpolation', async () => {
-    const value = "x'; DROP TABLE file_records; --";
-    const result = await client.query('SELECT $1 AS first, $1 AS repeated, $2 AS second', {
-      bindings: { ['$1']: value, ['$2']: 2 },
-    });
-    expect(result.rows).toEqual([[value, value, 2]]);
-    expect(hash()).toBe(originalHash);
-  });
-
-  it('preserves duplicate columns and introspects a bound table', async () => {
-    const result = await client.query('SELECT 1 AS id, 2 AS id;');
-    expect(result.columns).toEqual(['id', 'id']);
-    expect(result.rows).toEqual([[1, 2]]);
-    expect((await client.describeTable('file_records')).rows.map((row) => row[0])).toEqual([
-      'id',
-      'content',
-    ]);
-    expect((await client.listTables()).rows.some((row) => row[0] === 'file_records')).toBe(true);
-  });
-
-  it('refuses oversized IPC results before returning them to the parent', async () => {
-    await expect(
-      client.query(
-        'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM r WHERE n<20) SELECT hex(zeroblob(40000)) FROM r'
-      )
-    ).rejects.toThrow('process-message budget');
-    expect((await client.query('SELECT length(zeroblob(40000))')).rows).toEqual([[40_000]]);
-  });
-
-  it('kills a runaway process, preserves its deadline error, releases the writer and permits an explicit fresh host', async () => {
-    const doomed = await open(150);
-    let ticks = 0;
-    const interval = setInterval(() => {
-      ticks += 1;
-    }, 10);
-    try {
-      await expect(
-        doomed.query(
-          'WITH RECURSIVE r(n) AS (SELECT 1 UNION ALL SELECT n+1 FROM r) SELECT count(*) FROM r'
-        )
-      ).rejects.toThrow('deadline');
-      await doomed.close();
-      expect(ticks).toBeGreaterThan(3);
-      await expect(doomed.query('SELECT 1')).rejects.toThrow('deadline');
-      const writer = new DatabaseSync(databasePath);
-      writer.exec("INSERT INTO file_records VALUES('after-kill','writer remains usable')");
-      writer.close();
-      const fresh = await open();
-      expect(
-        (await fresh.query("SELECT content FROM file_records WHERE id='after-kill'")).rows
-      ).toEqual([['writer remains usable']]);
-    } finally {
-      clearInterval(interval);
     }
   });
 });

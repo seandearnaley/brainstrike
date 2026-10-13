@@ -1144,7 +1144,7 @@ export function AssistantUiPanelWrapper({
   // when no cap is configured or the durable spend capability is absent (web);
   // the gate/notice logic lives in packages/ui, the spend derivation in
   // cost-tracking/use-daily-spend.ts — this is wiring only.
-  const budgetGuardrailBinding = useBudgetGuardrailBinding(memoryResourceId);
+  const budgetGuardrailBinding = useBudgetGuardrailBinding();
 
   // Changeset lifecycle refresh (BST-1113 Task 4): no changeset SELECTION UI
   // exists yet (W4 wires it), so `changeset` is hardcoded null here — the
@@ -1189,7 +1189,6 @@ export function AssistantUiPanelWrapper({
                   ? {
                       onComposerDraftCommandApplied: composerDraft.onApplied,
                       onComposerTextChange: composerDraft.onTextChange,
-                      onStopReread: composerDraft.onStopReread,
                     }
                   : {})}
                 onChildRunUsage={handleChildRunUsage}

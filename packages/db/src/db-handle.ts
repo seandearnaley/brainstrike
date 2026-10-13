@@ -81,8 +81,8 @@ export function createDbHandle(executor: QueryExecutor): DbHandle {
     workOptions?: unknown
   ) => {
     // A 4th argument only ever originates from a priority proxy stacked over a
-    // scheduler-backed handle: a native per-query config (drizzle's parser
-    // set, the sandbox's rowMode) occupies the 3rd slot, pushing the
+    // scheduler-backed handle: a native per-query config (drizzle's row mode
+    // and parser set) occupies the 3rd slot, pushing the
     // scheduler work options to the 4th (appendDatabaseWorkOptions THROWS on
     // unscheduled stacks instead of emitting one). Forward it — the scheduled
     // executor variadic-splits trailing work options. This wrapper's fixed

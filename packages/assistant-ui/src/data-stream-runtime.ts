@@ -1,16 +1,13 @@
 import type {
   ChatModelAdapter,
   ChatModelRunOptions,
-  CreateResumeRunConfig,
   LocalRuntimeOptionsBase,
   ThreadMessage,
 } from '@assistant-ui/react';
 import { useLocalRuntime } from '@assistant-ui/react';
 import {
   ASSISTANT_ATTACHMENTS_COMBINED_MAX_BYTES,
-  type AssistantActiveRunSession,
   AssistantAttachmentValidationError,
-  type AssistantDiscoveredRun,
   dataUrlByteLength,
   isMatchingToolAction,
   type RuntimeTransportImageElision,
@@ -43,18 +40,13 @@ import {
   unstable_toolResultStream,
 } from 'assistant-stream';
 import { asAsyncIterableStream } from 'assistant-stream/utils';
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ACTION_PAUSED_OWNER_MESSAGE_ID_KEY,
   excludeApprovalActionMessages,
   isActionRunConfig,
   isApprovalActionMessage,
 } from './approval-action-message';
-import {
-  type AssistantReplayMessageIdentityRef,
-  remapAssistantReplayHistoryItem,
-  useAssistantRunReattachment,
-} from './assistant-run-reattachment';
 import { deferMessageFinishUntilFlush } from './defer-message-finish';
 import {
   createDelegatedConversationTap,
@@ -225,8 +217,6 @@ export interface CancelledAssistantRun {
 export type BrainstrikeDataStreamRuntimeOptions = {
   /** Internal, per-history barrier for action echo writes. */
   actionHistoryBarrier?: AssistantActionHistoryBarrier;
-  activeRunSession?: AssistantActiveRunSession;
-  discoveredRun?: AssistantDiscoveredRun;
   api: string;
   body?:
     | ((
@@ -251,8 +241,6 @@ export type BrainstrikeDataStreamRuntimeOptions = {
   onCancel?: (cancelled: CancelledAssistantRun) => void;
   onError?: (error: Error) => void;
   onFinish?: (message: ThreadMessage) => void;
-  /** Reports replay-only failures so the active session can schedule a bounded retry. */
-  onReplayError?: (error: Error, eventId: string) => void;
   onResponse?: (response: Response, parentMessageId?: string | null) => Promise<void> | void;
   /** Resolve a transient pause notice through the current exported thread graph. */
   resolveInputParentMessageId?: (parentId: string | null) => string | null;
@@ -274,8 +262,6 @@ export type BrainstrikeDataStreamRuntimeOptions = {
    * advance into fetch after the run has reached a terminal state.
    */
   requestPreparationTimeoutMs?: number;
-  replayRetryToken?: number;
-  resumeApi?: string;
   /**
    * Called with the RAW payload of each `brainstrike.context-breakdown` data
    * part (run-start prompt breakdown). The payload is deliberately `unknown`:
@@ -311,10 +297,6 @@ export type BrainstrikeDataStreamRuntimeOptions = {
 type BrainstrikeDataStreamRuntimeOptionsSource =
   | BrainstrikeDataStreamRuntimeOptions
   | (() => BrainstrikeDataStreamRuntimeOptions);
-
-export class AssistantStreamReplayUnavailableError extends Error {
-  override readonly name = 'AssistantStreamReplayUnavailableError';
-}
 
 export class AssistantRequestPreparationTimeoutError extends Error {
   override readonly name = 'AssistantRequestPreparationTimeoutError';
@@ -1551,55 +1533,6 @@ export class BrainstrikeDataStreamRuntimeAdapter implements ChatModelAdapter {
     return () => abortSignal.removeEventListener('abort', onAbort);
   }
 
-  async *resume(
-    runOptions: ChatModelRunOptions,
-    {
-      eventId,
-      resumeApi,
-    }: {
-      readonly eventId: string;
-      readonly resumeApi: string;
-    }
-  ) {
-    const { abortSignal } = runOptions;
-    const releaseCancelHandler = this.registerCancelHandler(abortSignal, () => [
-      ...runOptions.messages,
-      runOptions.unstable_getMessage(),
-    ]);
-    try {
-      const requestPreparationTimeoutMs =
-        this.options.requestPreparationTimeoutMs === undefined
-          ? DEFAULT_ASSISTANT_REQUEST_PREPARATION_TIMEOUT_MS
-          : this.options.requestPreparationTimeoutMs;
-      const { headersValue } = await prepareRequestInputs(
-        this.options.headers === undefined ? {} : { headers: this.options.headers },
-        abortSignal,
-        requestPreparationTimeoutMs
-      );
-      const headers = new Headers(headersValue);
-      headers.set('Last-Event-ID', eventId);
-      const response = await fetch(resumeApi, {
-        credentials: this.options.credentials ?? 'same-origin',
-        headers,
-        method: 'GET',
-        signal: abortSignal,
-      });
-      if (response.status === 404) {
-        throw new AssistantStreamReplayUnavailableError(
-          `Status 404: ${await readBoundedHttpErrorResponseText(response)}`
-        );
-      }
-      yield* this.consumeResponse(response, runOptions, false, releaseCancelHandler);
-    } catch (error: unknown) {
-      const replayError = error instanceof Error ? error : new Error(String(error));
-      this.options.onReplayError?.(replayError, eventId);
-      this.reportError(error);
-      throw error;
-    } finally {
-      releaseCancelHandler();
-    }
-  }
-
   async *run({
     messages,
     runConfig,
@@ -1736,7 +1669,6 @@ function createRuntimeRequestOptionsSnapshot(input: {
   readonly onDelegatedConversation: BrainstrikeDataStreamRuntimeOptions['onDelegatedConversation'];
   readonly onError: BrainstrikeDataStreamRuntimeOptions['onError'];
   readonly onFinish: BrainstrikeDataStreamRuntimeOptions['onFinish'];
-  readonly onReplayError: BrainstrikeDataStreamRuntimeOptions['onReplayError'];
   readonly onResponse: BrainstrikeDataStreamRuntimeOptions['onResponse'];
   readonly resolveInputParentMessageId: BrainstrikeDataStreamRuntimeOptions['resolveInputParentMessageId'];
   readonly prepareRequestWarmup: BrainstrikeDataStreamRuntimeOptions['prepareRequestWarmup'];
@@ -1762,7 +1694,6 @@ function createRuntimeRequestOptionsSnapshot(input: {
       : { onDelegatedConversation: input.onDelegatedConversation }),
     ...(input.onError === undefined ? {} : { onError: input.onError }),
     ...(input.onFinish === undefined ? {} : { onFinish: input.onFinish }),
-    ...(input.onReplayError === undefined ? {} : { onReplayError: input.onReplayError }),
     ...(input.onResponse === undefined ? {} : { onResponse: input.onResponse }),
     ...(input.resolveInputParentMessageId === undefined
       ? {}
@@ -1782,8 +1713,6 @@ function createRuntimeRequestOptionsSnapshot(input: {
 
 export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRuntimeOptions) {
   const {
-    activeRunSession,
-    discoveredRun,
     adapters,
     api,
     body,
@@ -1796,14 +1725,11 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onDelegatedConversation,
     onError,
     onFinish,
-    onReplayError,
     onResponse,
     resolveInputParentMessageId,
     prepareRequestWarmup,
-    replayRetryToken = 0,
     requestBodyLimitBytes,
     requestPreparationTimeoutMs,
-    resumeApi,
     onUsage,
     unstable_humanToolNames,
   } = options;
@@ -1827,7 +1753,6 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     onDelegatedConversation,
     onError,
     onFinish,
-    onReplayError,
     onResponse,
     onUsage,
     prepareRequestWarmup,
@@ -1845,11 +1770,8 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
     () => new BrainstrikeDataStreamRuntimeAdapter(() => optionsRef.current),
     []
   );
-  const [replayIdentity] = useState<AssistantReplayMessageIdentityRef>(() => ({
-    current: null,
-  }));
   const [historyRuntime] = useState(() => new AssistantHistoryRuntimeBinding());
-  const replayAwareAdapters = useMemo(() => {
+  const historyAdapters = useMemo(() => {
     const history = adapters?.history;
     if (!history) {
       return adapters;
@@ -1859,10 +1781,9 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
       history: {
         ...history,
         append: async (item) => {
-          const identity = replayIdentity.current;
           const write = Promise.resolve().then(() => {
             if (!isActionRunConfig(item.runConfig)) {
-              return history.append(remapAssistantReplayHistoryItem(item, identity));
+              return history.append(item);
             }
             if (item.message.role !== 'user') {
               throw new AssistantActionHistoryWriteError(
@@ -1884,7 +1805,7 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
                 },
               },
             };
-            return history.append(remapAssistantReplayHistoryItem(actionItem, identity));
+            return history.append(actionItem);
           });
           if (isActionRunConfig(item.runConfig)) {
             const trackedWrite = boundActionHistoryWrite(
@@ -1902,10 +1823,10 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
         },
       },
     };
-  }, [actionHistoryBarrier, adapters, historyRuntime, replayIdentity, requestPreparationTimeoutMs]);
+  }, [actionHistoryBarrier, adapters, historyRuntime, requestPreparationTimeoutMs]);
 
   const runtime = useLocalRuntime(chatModelAdapter, {
-    ...(replayAwareAdapters ? { adapters: replayAwareAdapters } : {}),
+    ...(historyAdapters ? { adapters: historyAdapters } : {}),
     ...(maxSteps ? { maxSteps } : {}),
     // biome-ignore lint/style/useNamingConvention: assistant-ui LocalRuntimeOptions field.
     ...(unstable_humanToolNames ? { unstable_humanToolNames } : {}),
@@ -1917,26 +1838,6 @@ export function useBrainstrikeDataStreamRuntime(options: BrainstrikeDataStreamRu
       resolveInputParentMessageId ??
       ((parentId) =>
         resolveDurableInputParentMessageId(parentId, runtime.thread.export().messages));
-  });
-  const replayStream = useCallback<NonNullable<CreateResumeRunConfig['stream']>>(
-    (runOptions) => {
-      if (!(activeRunSession && resumeApi)) {
-        throw new Error('Assistant run replay requires an active session and resume endpoint.');
-      }
-      return chatModelAdapter.resume(runOptions, {
-        eventId: activeRunSession.eventId,
-        resumeApi,
-      });
-    },
-    [activeRunSession, chatModelAdapter, resumeApi]
-  );
-  useAssistantRunReattachment({
-    discoveredRun,
-    identityRef: replayIdentity,
-    record: activeRunSession,
-    replayRetryToken,
-    runtime,
-    stream: replayStream,
   });
   return runtime;
 }
