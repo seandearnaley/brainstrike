@@ -5,9 +5,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  getTransformersOnnxRuntimeWasmAliases,
   ONNX_RUNTIME_WASM_SUBPATHS,
+  ONNX_RUNTIME_WASM_URLS_MODULE,
   resolveTransformersOnnxRuntimeWasmFiles,
+  transformersOnnxRuntimeWasmUrlsPlugin,
 } from '../onnx-runtime-wasm.js';
 
 const packagesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -64,17 +65,21 @@ describe('ONNX Runtime WASM from Transformers.js own dependency (BST-2003)', () 
     }
   });
 
-  it('aliases the exact specifiers, with or without a Vite query', () => {
-    const aliases = getTransformersOnnxRuntimeWasmAliases([embeddingWorker]);
+  it('serves the virtual module as Vite asset URLs of exactly those files', () => {
+    const plugin = transformersOnnxRuntimeWasmUrlsPlugin([embeddingWorker]);
     const files = resolveTransformersOnnxRuntimeWasmFiles([embeddingWorker]);
-    for (const subpath of ONNX_RUNTIME_WASM_SUBPATHS) {
-      const alias = aliases.find(({ find }) => find.test(subpath));
-      expect(alias?.replacement).toBe(files[subpath]);
-      expect(`${subpath}?url`.replace(alias?.find ?? /$^/u, alias?.replacement ?? '')).toBe(
-        `${files[subpath]}?url`
-      );
-      expect(alias?.find.test(`${subpath}.map`)).toBe(false);
-    }
+    const resolved = plugin.resolveId(ONNX_RUNTIME_WASM_URLS_MODULE);
+    expect(resolved).toBe(`\0${ONNX_RUNTIME_WASM_URLS_MODULE}`);
+    expect(plugin.resolveId('onnxruntime-web/ort-wasm-simd-threaded.asyncify.mjs')).toBeUndefined();
+    expect(plugin.load(ONNX_RUNTIME_WASM_URLS_MODULE)).toBeUndefined();
+    const [mjs, wasm] = ONNX_RUNTIME_WASM_SUBPATHS;
+    expect(plugin.load(resolved ?? '')).toBe(
+      [
+        `export { default as mjs } from ${JSON.stringify(`${files[mjs]}?url`)};`,
+        `export { default as wasm } from ${JSON.stringify(`${files[wasm]}?url`)};`,
+        '',
+      ].join('\n')
+    );
   });
 
   it('refuses consumers whose Transformers.js would load different ONNX Runtime files', () => {

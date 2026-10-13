@@ -11,7 +11,6 @@ import {
   getDatabaseOptimizeDepsInclude,
   getHeavyRuntimeOptimizeDepsExclude,
   getLazySurfaceOptimizeDepsEntries,
-  getTransformersOnnxRuntimeWasmAliases,
   getTreeSitterGrammarCopyTargets,
   getWorkerpoolBrowserStubAliases,
   isBrowserEventsModule,
@@ -19,6 +18,7 @@ import {
   isSanitizedPersistMergeModule,
   isZustandModule,
   preserveWorkerEntryPlugin,
+  transformersOnnxRuntimeWasmUrlsPlugin,
 } from '@brainstrike/build-utils';
 import { workspaceSrcAliases } from '@brainstrike/test-utils/workspace-src-aliases';
 import tailwindcss from '@tailwindcss/vite';
@@ -141,6 +141,13 @@ export default defineConfig({
     ],
   },
   plugins: [
+    // ONNX Runtime's WASM, emitted from the onnxruntime-web Transformers.js itself depends
+    // on, for both realms that run it: the embedding worker and the local-model host
+    // (BST-2003).
+    transformersOnnxRuntimeWasmUrlsPlugin([
+      path.resolve(__dirname, '../../packages/embedding-worker'),
+      path.resolve(__dirname, '../../packages/agent'),
+    ]),
     // __BRAINSTRIKE_BUILD_ID__: the packaged app is one build per version.
     buildIdPlugin([
       { name: 'apps/desktop/package.json version', read: () => desktopPackage.version },
@@ -178,13 +185,6 @@ export default defineConfig({
     // exceptions below need to precede it.
     alias: [
       { find: '@', replacement: path.resolve(__dirname, './src') },
-      // ONNX Runtime's WASM, emitted from the onnxruntime-web Transformers.js itself
-      // depends on, for both realms that run it: the embedding worker and the
-      // local-model host (BST-2003).
-      ...getTransformersOnnxRuntimeWasmAliases([
-        path.resolve(__dirname, '../../packages/embedding-worker'),
-        path.resolve(__dirname, '../../packages/agent'),
-      ]),
       // Stylesheet/asset imports: the registry deliberately excludes non-code
       // exports (css/json/icons), so these stay explicit.
       {

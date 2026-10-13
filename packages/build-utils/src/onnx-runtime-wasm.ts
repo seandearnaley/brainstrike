@@ -11,15 +11,6 @@ export const ONNX_RUNTIME_WASM_SUBPATHS = [
   'onnxruntime-web/ort-wasm-simd-threaded.asyncify.wasm',
 ] as const;
 
-export interface OnnxRuntimeWasmAlias {
-  readonly find: RegExp;
-  readonly replacement: string;
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-}
-
 /**
  * Resolves the ORT WASM files from the onnxruntime-web that each consumer's
  * `@huggingface/transformers` itself depends on (BST-2003). No workspace package
@@ -63,16 +54,39 @@ export function resolveTransformersOnnxRuntimeWasmFiles(
   return first;
 }
 
+/** The Vite virtual module that exports the app-served ORT WASM URLs as `mjs` and `wasm`. */
+export const ONNX_RUNTIME_WASM_URLS_MODULE = 'virtual:brainstrike/ort-wasm-urls';
+const RESOLVED_ONNX_RUNTIME_WASM_URLS_MODULE = `\0${ONNX_RUNTIME_WASM_URLS_MODULE}`;
+
 /**
- * Exact Vite aliases for the ORT WASM subpaths, so a Vite-only module can import them
- * with `?url` and Vite emits and serves the installed files (BST-2003).
+ * Serves `virtual:brainstrike/ort-wasm-urls` (BST-2003), following Vite's virtual module
+ * convention (https://vite.dev/guide/api-plugin#virtual-modules-convention). The module
+ * imports the resolved files with `?url`, so Vite emits and serves the installed ORT
+ * files, and source never names onnxruntime-web, which no workspace package depends on.
  */
-export function getTransformersOnnxRuntimeWasmAliases(
-  consumerPackageDirs: readonly string[]
-): OnnxRuntimeWasmAlias[] {
+export function transformersOnnxRuntimeWasmUrlsPlugin(consumerPackageDirs: readonly string[]): {
+  readonly name: string;
+  resolveId(id: string): string | undefined;
+  load(id: string): string | undefined;
+} {
   const files = resolveTransformersOnnxRuntimeWasmFiles(consumerPackageDirs);
-  return ONNX_RUNTIME_WASM_SUBPATHS.map((subpath) => ({
-    find: new RegExp(`^${escapeRegExp(subpath)}(?=\\?|$)`, 'u'),
-    replacement: files[subpath],
-  }));
+  const [mjsSubpath, wasmSubpath] = ONNX_RUNTIME_WASM_SUBPATHS;
+  return {
+    load(id) {
+      if (id !== RESOLVED_ONNX_RUNTIME_WASM_URLS_MODULE) {
+        return;
+      }
+      return [
+        `export { default as mjs } from ${JSON.stringify(`${files[mjsSubpath]}?url`)};`,
+        `export { default as wasm } from ${JSON.stringify(`${files[wasmSubpath]}?url`)};`,
+        '',
+      ].join('\n');
+    },
+    name: 'brainstrike:onnx-runtime-wasm-urls',
+    resolveId(id) {
+      return id === ONNX_RUNTIME_WASM_URLS_MODULE
+        ? RESOLVED_ONNX_RUNTIME_WASM_URLS_MODULE
+        : undefined;
+    },
+  };
 }

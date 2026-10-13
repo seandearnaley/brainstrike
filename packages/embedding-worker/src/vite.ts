@@ -1,10 +1,14 @@
+/// <reference path="./ort-wasm-urls.d.ts" />
+
+// The installed onnxruntime-web files Transformers.js loads, emitted and served by Vite.
+// Every Vite config serving this entry adds `transformersOnnxRuntimeWasmUrlsPlugin`
+// (@brainstrike/build-utils, BST-2003), which provides this virtual module.
+import {
+  wasm as onnxWasmBinaryUrl,
+  mjs as onnxWasmMjsUrl,
+} from 'virtual:brainstrike/ort-wasm-urls';
 import { withOnnxWasmPathsFragment } from '@brainstrike/indexing-contract';
 import type { OnnxWasmPaths } from '@brainstrike/types';
-// The installed onnxruntime-web files Transformers.js loads, emitted and served by Vite.
-// Apps alias these specifiers to Transformers.js's own dependency through
-// `getTransformersOnnxRuntimeWasmAliases` (@brainstrike/build-utils, BST-2003).
-import onnxWasmMjsUrl from 'onnxruntime-web/ort-wasm-simd-threaded.asyncify.mjs?url';
-import onnxWasmBinaryUrl from 'onnxruntime-web/ort-wasm-simd-threaded.asyncify.wasm?url';
 import embeddingWorkerUrlHref from './embedding.worker.ts?worker&url';
 
 /**
