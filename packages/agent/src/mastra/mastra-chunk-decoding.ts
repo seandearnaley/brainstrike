@@ -15,9 +15,18 @@
  * See docs/agents/mastra-boundary.md R6.
  */
 import {
+  type BoundaryFailure,
+  BoundaryFailureError,
+  describeBoundaryFailure,
+  fault,
+  INTERNAL_FAULT,
+  refusal,
+} from '@brainstrike/assistant-contract';
+import {
   findProviderDefinition,
   type ProviderAuthType,
 } from '@brainstrike/assistant-contract/provider-registry';
+import { scrubLikelySecretValues } from '@brainstrike/utils/diagnostics';
 import {
   extractProviderRunError,
   isLocalRunErrorClassification,
@@ -26,6 +35,7 @@ import {
   PROVIDER_RUN_ERROR_FALLBACK_CODE,
   type ProviderRunError,
 } from '../provider-error-metadata';
+import { OpenAIStoredItemExpiredError } from '../providers/openai-expired-item';
 import type { AssistantRunEventJson, AssistantRunEventMetadata } from '../run-events';
 import { sanitizeAssistantRunEventMetadata } from '../run-events';
 import type { RuntimeData, StreamChunkTool, StreamFinishReason } from '../types';
@@ -504,6 +514,7 @@ export function resolveTripwire(part: unknown): ResolvedTripwire {
 
 export interface ResolvedProviderError {
   detail: string;
+  failure: BoundaryFailure;
   runError: ProviderRunError;
 }
 
@@ -589,12 +600,12 @@ const REJECTED_CREDENTIAL_UNKNOWN_PROVIDER_REMEDY = `The provider rejected the c
  * pre-change visible detail WAS the raw body and `runError.message` persists
  * it regardless, so nothing new is exposed here.
  */
-function describeRejectedCredential(provider: string | undefined, providerBody: string): string {
+function describeRejectedCredential(provider: string | undefined): string {
   const definition = provider === undefined ? undefined : findProviderDefinition(provider);
   const remedy = definition
     ? rejectedCredentialRemedy(definition.authType, definition.displayName)
     : REJECTED_CREDENTIAL_UNKNOWN_PROVIDER_REMEDY;
-  return `${remedy} Provider response: ${providerBody}`;
+  return remedy;
 }
 
 export function resolveProviderError(
@@ -602,29 +613,56 @@ export function resolveProviderError(
   runtimeData: RuntimeData | undefined
 ): ResolvedProviderError {
   const runError = extractProviderRunError(value);
+  if (value instanceof BoundaryFailureError) {
+    return { detail: describeBoundaryFailure(value.failure), failure: value.failure, runError };
+  }
+  if (value instanceof OpenAIStoredItemExpiredError) {
+    const failure = refusal({
+      category: 'configuration',
+      code: 'provider.request-rejected',
+      message: OpenAIStoredItemExpiredError.publicMessage,
+    });
+    return { detail: describeBoundaryFailure(failure), failure, runError };
+  }
+  if (isLocalRunErrorClassification(runError.code)) {
+    return { detail: INTERNAL_FAULT.message, failure: INTERNAL_FAULT, runError };
+  }
   const extractedDetail = extractErrorMessage(value);
   const providerBody =
     extractedDetail && extractedDetail !== '[object Object]'
       ? extractedDetail
-      : (runError.message ?? 'agent_stream_error');
+      : (runError.message ?? 'No provider response detail was supplied.');
   const provider = runtimeData?.provider?.trim().toLowerCase();
-  // An httpStatus is provider evidence by construction (see
-  // extractProviderRunError), so a 401 here always crossed to the provider —
-  // a local fault can never wear the rejected-credential wording.
-  const detail =
-    runError.httpStatus === REJECTED_CREDENTIAL_HTTP_STATUS
-      ? describeRejectedCredential(provider, providerBody)
-      : providerBody;
-  // Both fallback codes are classifications, not provider-issued codes — only
-  // stable typed codes earn the visible `[code]` prefix.
   const includeStableCode =
-    provider === 'openrouter' &&
-    runError.code !== PROVIDER_RUN_ERROR_FALLBACK_CODE &&
-    runError.code !== LOCAL_RUN_ERROR_FALLBACK_CODE;
-  return {
-    detail: includeStableCode ? `[${runError.code}] ${detail}` : detail,
-    runError,
-  };
+    provider === 'openrouter' && runError.code !== PROVIDER_RUN_ERROR_FALLBACK_CODE;
+  const evidence = scrubLikelySecretValues(providerBody).text;
+  const providerEvidence = truncateStreamDetail(
+    includeStableCode ? `[${runError.code}] ${evidence}` : evidence,
+    MAX_VISIBLE_PROVIDER_ERROR_CHARS
+  );
+  const failure =
+    runError.httpStatus === REJECTED_CREDENTIAL_HTTP_STATUS
+      ? refusal({
+          category: 'authorization',
+          code: 'provider.credential-rejected',
+          message: describeRejectedCredential(provider),
+          providerEvidence,
+        })
+      : (runError.httpStatus !== undefined && runError.httpStatus >= 500) ||
+          runError.httpStatus === 429
+        ? fault({
+            category: 'availability',
+            code: 'provider.unavailable',
+            message: 'The provider could not complete this request.',
+            providerEvidence,
+          })
+        : refusal({
+            category: 'configuration',
+            code: 'provider.request-rejected',
+            message: 'The provider rejected this request.',
+            providerEvidence,
+          });
+  return { detail: describeBoundaryFailure(failure), failure, runError };
 }
 
 export function buildProviderErrorDiagnosticCode(runError: ProviderRunError): string {

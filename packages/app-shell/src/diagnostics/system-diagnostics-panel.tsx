@@ -1,3 +1,8 @@
+import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
+import {
+  type BoundaryTransport,
+  callBoundary,
+} from '@brainstrike/assistant-contract/boundary-result';
 /**
  * System Diagnostics Panel (BST-181)
  *
@@ -154,7 +159,8 @@ function getDesktopDiagnosticsBridge(): DesktopDiagnosticsBridge | null {
     'getSnapshot' in candidate &&
     typeof candidate.getSnapshot === 'function'
   ) {
-    return candidate as DesktopDiagnosticsBridge;
+    const transport = candidate as BoundaryTransport<DesktopDiagnosticsBridge>;
+    return { getSnapshot: () => callBoundary(() => transport.getSnapshot()) };
   }
   return null;
 }
@@ -1037,7 +1043,7 @@ export function SystemDiagnosticsPanel({
       (error: unknown) => {
         if (!cancelled) {
           setDesktopSnapshot(null);
-          setDesktopDiagnosticsError(error instanceof Error ? error.message : String(error));
+          setDesktopDiagnosticsError(describeBoundaryError(error));
         }
       }
     );

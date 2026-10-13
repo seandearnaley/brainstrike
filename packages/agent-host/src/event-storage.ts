@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { refusalError } from '@brainstrike/assistant-contract';
 import {
   type AppendItem,
   BLOBS_DIR,
@@ -27,7 +28,7 @@ export async function readHostThreadHistory(
   fromSeq: number
 ): Promise<HostLogRow[]> {
   if (!threads.has(threadId)) {
-    throw new Error('Unknown thread');
+    throw refusalError('input', 'thread.unknown', 'Unknown thread');
   }
   return Promise.all(
     (await store.read(threadId, fromSeq + 1)).map((row) => readHostRow(store, row))

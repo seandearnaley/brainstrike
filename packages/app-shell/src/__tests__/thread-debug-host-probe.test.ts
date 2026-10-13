@@ -13,19 +13,23 @@ describe('readThreadDebugHostProbe', () => {
     Object.assign(window, {
       desktopDiagnostics: {
         getSnapshot: () => Promise.resolve({}),
-        readMainLogWindow: () => Promise.resolve({}),
+        readMainLogWindow: () => Promise.resolve({ ok: true, value: { lines: [] } }),
       },
     });
     expect(readThreadDebugHostProbe()).toBeNull();
   });
 
-  it('returns the bridge when both host readers exist', () => {
+  it('decodes both host readers after transport', async () => {
     const bridge = {
       getSnapshot: () => Promise.resolve({}),
-      readMainLogWindow: () => Promise.resolve({}),
-      readProcessCounters: () => Promise.resolve({}),
+      readMainLogWindow: () => Promise.resolve({ ok: true, value: { lines: [] } }),
+      readProcessCounters: () => Promise.resolve({ ok: true, value: { samples: [] } }),
     };
     Object.assign(window, { desktopDiagnostics: bridge });
-    expect(readThreadDebugHostProbe()).toBe(bridge);
+    const probe = readThreadDebugHostProbe();
+    await expect(probe?.readMainLogWindow({ since: 'start', until: 'end' })).resolves.toEqual({
+      lines: [],
+    });
+    await expect(probe?.readProcessCounters()).resolves.toEqual({ samples: [] });
   });
 });

@@ -89,7 +89,9 @@ describe('useAppActive', () => {
 describe('useAppActive with the native window-focus capability', () => {
   interface FakeWindowFocusBridge {
     readonly emit: (focused: boolean) => void;
-    readonly isFocused: ReturnType<typeof vi.fn<() => Promise<boolean>>>;
+    readonly isFocused: ReturnType<
+      typeof vi.fn<() => Promise<{ readonly ok: true; readonly value: boolean }>>
+    >;
     readonly onChange: ReturnType<typeof vi.fn>;
     readonly unsubscribe: ReturnType<typeof vi.fn>;
   }
@@ -97,7 +99,7 @@ describe('useAppActive with the native window-focus capability', () => {
   function installBridge(readInitial: () => Promise<boolean>): FakeWindowFocusBridge {
     const listeners = new Set<(focused: boolean) => void>();
     const unsubscribe = vi.fn();
-    const isFocused = vi.fn<() => Promise<boolean>>(readInitial);
+    const isFocused = vi.fn(async () => ({ ok: true as const, value: await readInitial() }));
     const onChange = vi.fn((callback: (focused: boolean) => void) => {
       listeners.add(callback);
       return () => {

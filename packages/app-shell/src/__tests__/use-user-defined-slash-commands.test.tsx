@@ -1,4 +1,5 @@
 import type { UserSlashCommandsListResult } from '@brainstrike/assistant-contract';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -19,7 +20,7 @@ import { useAssistantComposerCommandStore } from '../assistant-composer-command-
 import { useUserDefinedSlashCommands } from '../use-user-defined-slash-commands';
 
 interface MutableWindow {
-  userCommands?: { list?: () => Promise<UserSlashCommandsListResult> } | undefined;
+  userCommands?: { list?: () => Promise<BoundaryResult<UserSlashCommandsListResult>> } | undefined;
 }
 
 function asMutableWindow(): MutableWindow {
@@ -27,7 +28,9 @@ function asMutableWindow(): MutableWindow {
 }
 
 function setBridge(result: UserSlashCommandsListResult | null): void {
-  asMutableWindow().userCommands = result ? { list: () => Promise.resolve(result) } : undefined;
+  asMutableWindow().userCommands = result
+    ? { list: () => Promise.resolve({ ok: true, value: result }) }
+    : undefined;
 }
 
 beforeEach(() => {
@@ -199,8 +202,8 @@ describe('useUserDefinedSlashCommands', () => {
     const deferreds: ((result: UserSlashCommandsListResult) => void)[] = [];
     const list = vi.fn(
       () =>
-        new Promise<UserSlashCommandsListResult>((resolve) => {
-          deferreds.push(resolve);
+        new Promise<BoundaryResult<UserSlashCommandsListResult>>((resolve) => {
+          deferreds.push((value) => resolve({ ok: true, value }));
         })
     );
     asMutableWindow().userCommands = { list };

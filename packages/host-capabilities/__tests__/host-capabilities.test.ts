@@ -1,8 +1,9 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { toBoundaryFailure } from '@brainstrike/agent-host/boundary-wire';
 import { providerEnvKeys } from '@brainstrike/assistant-contract';
-import { afterEach, expect, test } from 'vitest';
+import { afterEach, expect, test, vi } from 'vitest';
 import {
   createHostCredentials,
   createHostProviderAuth,
@@ -33,6 +34,15 @@ test('no explicit selection means no credential authority, never a file fallback
   expect(() => credentials.secrets()).toThrow(HostCredentialStoreUnselectedError);
   const resolve = createHostProviderAuth({ credentials, env: {} });
   await expect(resolve('openai')).rejects.toThrow(HostCredentialStoreUnselectedError);
+  await expect(resolve('openai')).rejects.toMatchObject({
+    code: 'host_credential_store_unselected',
+    failure: {
+      category: 'configuration',
+      code: 'credential.store-unselected',
+      kind: 'refusal',
+      remedy: expect.any(String),
+    },
+  });
   await credentials.close();
 });
 
@@ -82,4 +92,34 @@ test('a selected private file store keeps the existing account and file shape', 
   const resolve = createHostProviderAuth({ credentials: reopened, env: {} });
   await expect(resolve('openai')).resolves.toEqual({ apiKey: 'file-fixture-key', kind: 'api_key' });
   await reopened.close();
+});
+
+// Real credential construction keeps an unexpected backend error private; it is
+// not a user-correctable selection refusal just because both involve credentials.
+test('an unknown credential backend fault retains its diagnostic cause without leaking it', async () => {
+  const cause = new Error('Recorded backend failure at /private/fixture-credential-store');
+  const credentials = createHostCredentials({
+    createNativeBackend: () => {
+      throw cause;
+    },
+    selection: { kind: 'keyring', service: 'brainstrike-test-disposable' },
+  });
+  const log = vi.fn();
+  try {
+    expect(() => credentials.secrets()).toThrow(cause);
+    const failure = toBoundaryFailure(cause, log);
+    expect(failure).toMatchObject({
+      category: 'internal',
+      code: 'boundary.internal',
+      correlationId: expect.any(String),
+      kind: 'fault',
+    });
+    expect(JSON.stringify(failure)).not.toContain('/private/');
+    expect(log).toHaveBeenCalledExactlyOnceWith('Untyped failure crossed a process boundary', {
+      correlationId: failure.correlationId,
+      error: cause,
+    });
+  } finally {
+    await credentials.close();
+  }
 });

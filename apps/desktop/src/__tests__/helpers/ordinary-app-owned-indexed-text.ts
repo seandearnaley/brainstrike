@@ -15,7 +15,6 @@ import {
 } from '@brainstrike/assistant-contract';
 import { parseGrepToolResult } from '@brainstrike/host-capabilities/grep-search-result-contract';
 import { decodeHostRecord } from '@brainstrike/host-lease';
-import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { processStartTime, RootLock } from '@brainstrike/state-store';
 import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { _electron, type ElectronApplication } from 'playwright';
@@ -365,19 +364,23 @@ export async function qualifyOrdinaryAppIndexedText(
       .poll(
         async () => {
           const publication = await page.evaluate(async (rootId) => {
-            const capability = (
-              globalThis as typeof globalThis & {
-                readonly indexSearch?: IndexSearchCapability;
-              }
-            ).indexSearch;
+            const capability = window.indexSearch;
             if (!capability) {
               throw new Error('The ordinary desktop has no native index capability');
             }
-            const status = await capability.status();
+            const statusResult = await capability.status();
+            if (!statusResult.ok) {
+              throw new Error(statusResult.error.message);
+            }
+            const status = statusResult.value;
             if (status.kind !== 'ready' || status.embedding.indexMode !== 'text-only') {
               return { ready: false, status };
             }
-            const observation = await capability.coverageBatch([{ rootIds: [rootId] }]);
+            const coverageResult = await capability.coverageBatch([{ rootIds: [rootId] }]);
+            if (!coverageResult.ok) {
+              throw new Error(coverageResult.error.message);
+            }
+            const observation = coverageResult.value;
             if (observation.kind === 'blocked') {
               throw new Error(observation.reason);
             }

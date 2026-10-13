@@ -5,6 +5,7 @@ import type {
   ProviderAuthStartMethod,
   ProviderAuthStatus,
 } from '@brainstrike/assistant-contract';
+import { refusalError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import { getOAuthProviderDescriptor } from './descriptor-registry.js';
 import { isProviderAuthFlowCancelled, ProviderAuthFlowError } from './errors.js';
@@ -36,8 +37,11 @@ export function assertInteractiveProviderAuthOrigin(origin: HostClientOrigin | u
   if (origin === PROVIDER_AUTH_INTERACTIVE_ORIGIN) {
     return;
   }
-  throw new Error(
-    `Provider OAuth flows require an interactive desktop origin (${PROVIDER_AUTH_INTERACTIVE_ORIGIN}); got ${origin ?? 'no live client'}. Subscription auth is structurally unavailable to non-interactive contexts.`
+  throw refusalError(
+    'authorization',
+    'auth.interactive-origin-required',
+    'Provider OAuth flows require an interactive desktop origin. Subscription auth is structurally unavailable to non-interactive contexts.',
+    'Connect this provider from the desktop Settings.'
   );
 }
 

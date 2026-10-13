@@ -61,13 +61,13 @@ export async function readNativeObservation(
 ): Promise<CoverageObservation<NativeSnapshot>> {
   return await context.window.evaluate(async () => {
     const api = window as typeof window & {
-      indexSearch?: IndexSearchCapability;
+      __brainstrikeTestHooks__?: { indexSearch?: IndexSearchCapability };
       embeddingHost?: { getStatus(): Promise<EmbeddingHostStatus> };
     };
-    if (!(api.indexSearch && api.embeddingHost)) {
+    if (!(api.__brainstrikeTestHooks__?.indexSearch && api.embeddingHost)) {
       throw new Error('Native index and embedding status capabilities are required.');
     }
-    const indexSearch = api.indexSearch;
+    const indexSearch = api.__brainstrikeTestHooks__?.indexSearch;
     const requestsFor = (
       initialStatus: Extract<NativeSnapshot['status'], { kind: 'ready' }>
     ): Parameters<IndexSearchCapability['coverageBatch']>[0] => {

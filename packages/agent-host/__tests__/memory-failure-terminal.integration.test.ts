@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import type { RuntimeData } from '@brainstrike/agent/provider-runtime';
 import { resolveScaledToolResultBudget } from '@brainstrike/agent/tool-runtime';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import type { VectorProfile } from '@brainstrike/indexer';
 import type { MastraEmbeddingModel } from '@mastra/core/vector';
 import { MockLanguageModelV4 } from 'ai/test';
@@ -17,6 +18,7 @@ import {
 import type { HostEvent } from '../dist/protocol.js';
 import { type AgentHost, startAgentHost } from '../dist/runtime.js';
 import { scriptedToolSequence } from '../dist/test-fixtures/scripted-model.js';
+import { captureHostFailureDiagnostics } from './fixtures/host-failure-diagnostics.js';
 
 type Memory = Pick<ProductionHostRunConfiguration['memory'], 'native' | 'vectors'>;
 type Finished = Extract<HostEvent, { type: 'run.finished' }>;
@@ -219,12 +221,21 @@ test.each([
 ])(
   'a memory $step failure ends the run as failed and the thread accepts the next run',
   async ({ memory, step }) => {
+    const diagnostics = captureHostFailureDiagnostics();
     const host = await failureHost(memory);
     try {
       expect(await host.run('Which city did I mention?')).toMatchObject({
-        detail: expect.stringContaining(`Memory ${step} failed`),
+        detail: INTERNAL_FAULT.message,
         outcome: 'failed',
       });
+      diagnostics.expectCause(`Memory ${step} failed`);
+      diagnostics.expectCause(
+        step === 'open'
+          ? 'Observational memory requires resolved concrete observer and reflector models'
+          : step === 'observe'
+            ? 'Recorded observer failure'
+            : 'Recorded embedder failure'
+      );
       // The owner was released: the same thread admits and completes another run.
       expect(await host.run('Report completion.')).toMatchObject({ outcome: 'completed' });
       expect(fetch).not.toHaveBeenCalled();

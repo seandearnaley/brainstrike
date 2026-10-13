@@ -1,4 +1,5 @@
 import type { ElectronVectorPreferencesBridge } from '@brainstrike/app-state/stores/vector-preferences-store';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { ChunkResult } from '@brainstrike/chunking-worker';
 import type { DatabaseWorkOptions, DesktopDatabaseBridge } from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
@@ -41,6 +42,7 @@ import type {
   EmbeddingHostWebGpuAdapterRequest,
   EmbeddingHostWebGpuAdapterResponseReport,
 } from '../embedding-host-webgpu-adapter';
+import type { DesktopFileSystemTransport } from '../ipc-domains/file-system.contract';
 
 export interface DesktopStorageBridge {
   clear: () => Promise<void>;
@@ -154,7 +156,7 @@ type EmbeddingHostDatabaseBridge = Pick<
 export interface VisibleDesktopElectronApi extends LayoutElectronAPI {
   db: VisibleDesktopDatabaseBridge;
   dbLive: DesktopLiveQueryBridge;
-  fileSystem: DesktopFileSystemBridge;
+  fileSystem: DesktopFileSystemTransport;
   getUserDataPath: () => Promise<string>;
   storage: DesktopStorageBridge;
 }
@@ -228,7 +230,7 @@ export interface VisibleEmbeddingHostBridge {
   queryEmbedding: (
     payload: EmbeddingHostQueryEmbeddingPayload,
     options?: { readonly requestId: string }
-  ) => Promise<number[]>;
+  ) => Promise<BoundaryResult<number[]>>;
   reportDocumentEmbeddingsResponse: (
     response: EmbeddingHostDocumentEmbeddingsResponseReport
   ) => void;

@@ -1,5 +1,7 @@
 import {
+  describeBoundaryError,
   describeHookSkip,
+  describeReferencedFileFailure,
   describeRunAttempt,
   providerCallWarningDetail,
   providerCallWarningLabel,
@@ -146,6 +148,12 @@ export class HostRunNotices {
       return [notice.ended, ...(notice.resumed ? [notice.resumed] : [])].map(
         (line) => `${line.label}: ${line.detail}`
       );
+    }
+    if (event.type === 'references.unavailable') {
+      return event.files.map((file) => {
+        const notice = describeReferencedFileFailure(file);
+        return `${notice.label}: ${notice.detail}`;
+      });
     }
     if (event.type === 'hooks.skipped') {
       return event.files.map((file) => {
@@ -367,7 +375,7 @@ export class CommittedThreadSession {
       (cause: unknown) => {
         if (active) {
           this.update({
-            error: cause instanceof Error ? cause.message : String(cause),
+            error: describeBoundaryError(cause),
             isLoading: false,
           });
         }

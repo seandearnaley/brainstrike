@@ -20,7 +20,7 @@ import {
   WORKTREE_TOOLS_UNAVAILABLE,
   type WorktreeToolCapability,
 } from '../assistant-server/worktree-tools';
-import { HostedEmbeddingError, type HostedEmbeddingErrorKind } from '../hosted-embeddings';
+import { isActionableHostedEmbeddingError } from '../hosted-embedding-error';
 import { attachHostCommandSessions } from './host-command-session-client';
 import {
   BrowserNavigateRequestSchema,
@@ -85,13 +85,6 @@ function required<T>(value: T | undefined, what: string): T {
   return value;
 }
 
-/** Hosted embedding refusals the model can act on; a provider status or network failure is a fault. */
-const REFUSED_HOSTED_EMBEDDING_KINDS: ReadonlySet<HostedEmbeddingErrorKind> = new Set([
-  'missing-key',
-  'input-too-long',
-  'rate-limit',
-]);
-
 /**
  * BST-1996: a read's result, or the refusal Main raised in it, as the data the
  * host raises again as a ToolInputError (`RefusableOutcomeSchema`). A refusal
@@ -110,7 +103,7 @@ export async function refusalOutcome<T>(
     if (
       error instanceof ToolInputError ||
       error instanceof SecretReadError ||
-      (error instanceof HostedEmbeddingError && REFUSED_HOSTED_EMBEDDING_KINDS.has(error.kind))
+      isActionableHostedEmbeddingError(error)
     ) {
       return { message: error.message, ok: false as const };
     }

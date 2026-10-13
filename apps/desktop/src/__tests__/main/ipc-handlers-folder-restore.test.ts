@@ -1,3 +1,4 @@
+import { readBoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { DirectoryHandle } from '@brainstrike/file-system';
 import type { ElectronFileSystemAdapter } from '@brainstrike/file-system/electron';
 import type { ElectronStorageAdapter } from '@brainstrike/storage/electron';
@@ -12,7 +13,9 @@ vi.mock('electron', () => ({
   app: { getPath: vi.fn() },
   ipcMain: {
     handle: vi.fn((channel: string, handler: IpcHandler) => {
-      handlers.set(channel, handler);
+      handlers.set(channel, async (event, ...args) =>
+        readBoundaryResult(await handler(event, ...args))
+      );
     }),
   },
 }));
@@ -75,7 +78,10 @@ describe('IPC handlers - last-folder preference', () => {
     ).resolves.toBeNull();
     await expect(
       handlers.get('fs:saveLastFolder')?.(createTrustedInvokeEvent(), '/test/workspace')
-    ).rejects.toThrow('must reference a persisted mounted root');
+    ).rejects.toMatchObject({
+      code: 'boundary.internal',
+      failure: { category: 'internal', kind: 'fault' },
+    });
     expect(storedValues.has('rootsList')).toBe(false);
   });
 

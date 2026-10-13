@@ -94,7 +94,8 @@ afterEach(async () => {
   for (const dataRoot of roots.splice(0)) {
     const owner = RootLock.inspect(dataRoot)?.owner;
     if (owner && !owner.released) {
-      expect(await command(dataRoot, ['host', 'stop'])).toMatchObject({ code: 0 });
+      const stopped = await command(dataRoot, ['host', 'stop']);
+      expect(stopped, JSON.stringify(stopped)).toMatchObject({ code: 0 });
       await expect.poll(() => processStartTime(owner.pid)).toBeNull();
     }
     await removeFixtureRoot(dataRoot);
@@ -528,7 +529,14 @@ test('real bin refuses unsafe credential files and conflicting captured capabili
         prompt: 'Rejected capability request',
         threadId,
       })
-    ).rejects.toThrow('capabilities unavailable');
+    ).rejects.toMatchObject({
+      failure: {
+        category: 'configuration',
+        code: 'run.capabilities-unavailable',
+        kind: 'refusal',
+        remedy: expect.any(String),
+      },
+    });
     await expect(
       client.request('run/start', {
         commandId: randomUUID(),
@@ -565,6 +573,7 @@ test.each([
   );
   expect(result.code).toBe(1);
   expect(result.stderr).toContain(reason);
+  expect(result.stderr).toMatch(/Choose a|Use the desktop host/);
   expect((await receipts(http.receipt)).some((item) => item['phase'] === 'provider-request')).toBe(
     false
   );
@@ -592,6 +601,7 @@ test('real bin never guesses a credential service or silently falls back to a fi
   );
   expect(result.code).toBe(1);
   expect(result.stderr).toContain('explicitly selected credential service');
+  expect(result.stderr).toContain('--credential-store');
   const completed = await receipts(http.receipt);
   expect(completed.some((item) => item['phase'] === 'provider-request')).toBe(false);
   expect(completed.some((item) => item['phase'] === 'forbidden-capability')).toBe(false);

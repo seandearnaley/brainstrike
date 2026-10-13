@@ -119,5 +119,7 @@ test('the ChatGPT subscription provider has no CLI credential login', async () =
   const result = await login(dataRoot, ['--provider', 'openai-codex'], 'not-a-subscription\n');
   expect(result.code).toBe(1);
   expect(result.stderr).toContain('does not accept a credential login');
+  expect(result.stderr).toContain('desktop Settings');
+  expect(result.stderr).not.toContain('not-a-subscription');
   expect(await storedSecrets(dataRoot)).toEqual({});
 });

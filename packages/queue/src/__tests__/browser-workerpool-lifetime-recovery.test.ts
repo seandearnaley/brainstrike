@@ -156,6 +156,43 @@ describe('workerpool lifetime recovery', () => {
     }
   );
 
+  it('retires an idle lost GPU worker without creating a runtime until explicit work', async () => {
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
+    const recordFailure = vi.fn();
+    const adapter = createWorkerpoolAdapter({
+      telemetry: {
+        recordBatch: vi.fn(),
+        recordFailure,
+        recordPipelineCache: vi.fn(),
+        removeSource: vi.fn(),
+      },
+      workerUrl: '/worker.js',
+    });
+    const options = poolFactoryMock.mock.calls[0]?.[1] as {
+      onCreateWorker: (args: { script: string; workerOpts: WorkerOptions }) => {
+        workerOpts: WorkerOptions;
+      };
+    };
+    const worker = options.onCreateWorker({ script: '/worker.js', workerOpts: { type: 'module' } });
+    broadcastChannelInstances[0]!.emit({
+      cause: 'destroyed',
+      code: 'EMBEDDING_DEVICE_LOST',
+      message: 'device lost',
+      type: 'worker-lifetime-error',
+      workerInstanceId: worker.workerOpts.name!.slice(EMBED_WORKER_INSTANCE_NAME_PREFIX.length),
+    });
+    await vi.waitFor(() => expect(poolTerminateMock).toHaveBeenCalledOnce());
+    expect(poolFactoryMock).toHaveBeenCalledOnce();
+    expect(poolExecMock).not.toHaveBeenCalled();
+    expect(recordFailure).not.toHaveBeenCalled();
+    const next = createCancelablePromise<QueueResult>();
+    poolExecMock.mockReturnValue(next.promise);
+    const retry = adapter.add(createTask('explicit-next'));
+    next.resolve(createResult('explicit-next'));
+    await expect(retry).resolves.toMatchObject({ id: 'explicit-next' });
+    expect(poolFactoryMock).toHaveBeenCalledTimes(2);
+  });
+
   it('ignores a queued lifetime error from a retired pool generation', async () => {
     const execution = createCancelablePromise<QueueResult>();
     poolExecMock.mockReturnValue(execution.promise);

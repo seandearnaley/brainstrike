@@ -267,23 +267,30 @@ describe('preload contract-derived bridges', () => {
     expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.db.getUserDataPath);
   });
 
-  it('routes clipboard.writeText to the manifest channel and unwraps the result envelope', async () => {
+  it('routes clipboard.writeText to the manifest channel and transports the result envelope', async () => {
     mockInvoke.mockResolvedValueOnce({ ok: true, value: undefined });
-    await expect(exposedApi('clipboard')['writeText']?.('copied')).resolves.toBeUndefined();
+    await expect(exposedApi('clipboard')['writeText']?.('copied')).resolves.toEqual({
+      ok: true,
+      value: undefined,
+    });
     expect(mockInvoke).toHaveBeenCalledWith(DESKTOP_IPC_CHANNELS.clipboard.writeText, 'copied');
 
     mockInvoke.mockResolvedValueOnce({
       error: { category: 'clipboard', code: 'write_failed', message: 'clipboard locked' },
       ok: false,
     });
-    await expect(exposedApi('clipboard')['writeText']?.('copied')).rejects.toThrow(
-      'clipboard locked (clipboard · write_failed)'
-    );
+    await expect(exposedApi('clipboard')['writeText']?.('copied')).resolves.toEqual({
+      error: { category: 'clipboard', code: 'write_failed', message: 'clipboard locked' },
+      ok: false,
+    });
   });
 
-  it('routes windowFocus.isFocused to the manifest channel and unwraps the result envelope', async () => {
+  it('routes windowFocus.isFocused to the manifest channel and transports the result envelope', async () => {
     mockInvoke.mockResolvedValueOnce({ ok: true, value: true });
-    await expect(exposedApi('windowFocus')['isFocused']?.()).resolves.toBe(true);
+    await expect(exposedApi('windowFocus')['isFocused']?.()).resolves.toEqual({
+      ok: true,
+      value: true,
+    });
     expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.windowFocus.isFocused);
 
     mockInvoke.mockResolvedValueOnce({
@@ -294,9 +301,10 @@ describe('preload contract-derived bridges', () => {
       },
       ok: false,
     });
-    await expect(exposedApi('windowFocus')['isFocused']?.()).rejects.toThrow(
-      'The requesting renderer has no live BrowserWindow. (window-focus · window_unavailable)'
-    );
+    await expect(exposedApi('windowFocus')['isFocused']?.()).resolves.toMatchObject({
+      error: { code: 'window_unavailable' },
+      ok: false,
+    });
   });
 
   it('subscribes windowFocus.onChange to the push channel and returns its unsubscribe', () => {
@@ -322,19 +330,23 @@ describe('preload contract-derived bridges', () => {
     );
   });
 
-  it('routes databaseIntegrity.getState to the manifest channel and unwraps the result envelope', async () => {
+  it('routes databaseIntegrity.getState to the manifest channel and transports the result envelope', async () => {
     const snapshot = { revision: 0, state: { kind: 'healthy' } };
     mockInvoke.mockResolvedValueOnce({ ok: true, value: snapshot });
-    await expect(exposedApi('databaseIntegrity')['getState']?.()).resolves.toEqual(snapshot);
+    await expect(exposedApi('databaseIntegrity')['getState']?.()).resolves.toEqual({
+      ok: true,
+      value: snapshot,
+    });
     expect(mockInvoke).toHaveBeenLastCalledWith(DESKTOP_IPC_CHANNELS.db.integrityState);
 
     mockInvoke.mockResolvedValueOnce({
       error: { category: 'database', code: 'unavailable', message: 'integrity unavailable' },
       ok: false,
     });
-    await expect(exposedApi('databaseIntegrity')['getState']?.()).rejects.toThrow(
-      'integrity unavailable (database · unavailable)'
-    );
+    await expect(exposedApi('databaseIntegrity')['getState']?.()).resolves.toMatchObject({
+      error: { code: 'unavailable' },
+      ok: false,
+    });
   });
 
   it('derives the nested production storage and layout bridges', async () => {
@@ -415,9 +427,12 @@ describe('preload contract-derived bridges', () => {
     ['contextFiles', 'scan', DESKTOP_IPC_CHANNELS.contextFiles.scan],
     ['skills', 'scan', DESKTOP_IPC_CHANNELS.skills.scan],
     ['userCommands', 'list', DESKTOP_IPC_CHANNELS.userCommands.list],
-  ])('%s.%s invokes %s and unwraps the value', async (name, method, channelName) => {
+  ])('%s.%s invokes %s and transports the envelope', async (name, method, channelName) => {
     mockInvoke.mockResolvedValueOnce({ ok: true, value: { marker: name } });
-    await expect(exposedApi(name)[method]?.()).resolves.toEqual({ marker: name });
+    await expect(exposedApi(name)[method]?.()).resolves.toEqual({
+      ok: true,
+      value: { marker: name },
+    });
     expect(mockInvoke).toHaveBeenLastCalledWith(channelName);
   });
 });

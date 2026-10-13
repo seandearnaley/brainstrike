@@ -4,6 +4,7 @@ import {
   isPermissionDenied,
   NATIVE_TOOL_ID,
   type PermissionToolGateSnapshot,
+  refusalError,
   resolvePermissionDecision,
 } from '@brainstrike/assistant-contract';
 import {
@@ -58,7 +59,7 @@ export function prepareHostProviderStep(
 export function assertHostRunStartAvailable(runs: Iterable<HostRunState>, threadId: string): void {
   for (const active of runs) {
     if (active.threadId === threadId && !active.terminal) {
-      throw new Error('Thread already has an active root run');
+      throw refusalError('conflict', 'run.already-active', 'Thread already has an active root run');
     }
   }
 }
@@ -750,4 +751,12 @@ export function hostModelStepEvents(run: HostRunState, step: StepResult<ToolSet>
     },
     ...hostStepInteractions(run, step.content),
   ];
+}
+
+/** One committed admission batch; recovery reads the log rather than rereading references. */
+export function hostReferencedFileEvents(admission: HostRunAdmission, runId: string): HostEvent[] {
+  if (!admission.referencedFileFailures?.length) {
+    return [];
+  }
+  return [{ files: [...admission.referencedFileFailures], runId, type: 'references.unavailable' }];
 }

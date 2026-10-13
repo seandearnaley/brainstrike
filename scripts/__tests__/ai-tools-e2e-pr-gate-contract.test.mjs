@@ -49,6 +49,7 @@ const DESKTOP_SMOKE_SPECS = [
   'e2e/workspace-bar.desktop.test.ts',
   'e2e/worktree-map.desktop.test.ts',
   'e2e/worktree-mode.desktop.test.ts',
+  'e2e/workspace-index-bootstrap.desktop.test.ts',
 ];
 const DESKTOP_DELEGATED_SMOKE_SPECS = [
   'e2e/delegated-child-control.desktop.test.ts',

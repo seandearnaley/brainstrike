@@ -1,12 +1,15 @@
 import { timingSafeEqual } from 'node:crypto';
-import type { HostRecord } from '@brainstrike/host-lease';
 import {
-  type CancellationToken,
-  ErrorCodes,
-  type MessageConnection,
-  ResponseError,
-} from 'vscode-jsonrpc';
+  BoundaryFailureError,
+  fault,
+  refusal,
+  refusalError,
+} from '@brainstrike/assistant-contract';
+import type { HostRecord } from '@brainstrike/host-lease';
+import { createLogger } from '@brainstrike/logging';
+import { type CancellationToken, type MessageConnection, ResponseError } from 'vscode-jsonrpc';
 import { bindHostAuthMethods } from './auth-connection.js';
+import { toBoundaryResponseError } from './boundary-wire.js';
 import type { HostCore } from './core.js';
 import { hostChildStatusChanged } from './core-child-runs.js';
 import { HostRunNotAdmittedError } from './core-run-lifecycle.js';
@@ -69,21 +72,23 @@ export interface HostConnectionOptions {
 }
 
 /** All transports enter this same authenticated method dispatcher. */
-/**
- * The host's refusal as its client reads it. vscode-jsonrpc reports a plain
- * Error as "Request <method> failed with message: …"; a client reads the
- * refusal as the host wrote it, the reason its user is shown (BST-1981, as
- * main-platform.ts does). A run the host never admitted keeps its own code
- * (BST-1990, D4), so the client may hand the message back for a resend.
- */
-function hostResponseError(cause: unknown): unknown {
-  if (cause instanceof HostRunNotAdmittedError) {
-    return new ResponseError(HOST_RUN_NOT_ADMITTED_CODE, cause.message);
-  }
-  return cause instanceof Error && !(cause instanceof ResponseError)
-    ? new ResponseError(ErrorCodes.InternalError, cause.message)
-    : cause;
-}
+const logger = createLogger('AgentHostConnection');
+
+const UNAUTHENTICATED = refusal({
+  category: 'authorization',
+  code: 'host.unauthenticated',
+  message: 'This connection has not authenticated with the agent host.',
+});
+const HOST_CLEANUP_FAILED = fault({
+  category: 'internal',
+  code: 'host.cleanup-failed',
+  message: 'Host cleanup failed, so the agent host kept its Root.',
+});
+const HOST_CLOSING = fault({
+  category: 'availability',
+  code: 'host.closing',
+  message: 'The agent host is closing.',
+});
 
 export function bindHostConnection(
   connection: MessageConnection,
@@ -148,21 +153,32 @@ export function bindHostConnection(
   ): void => {
     disposables.push(
       connection.onRequest(method, async (input: unknown, token: CancellationToken) => {
-        if (disposed || (!initialized && method !== 'initialize')) {
-          throw new Error('Host connection requires authentication');
-        }
-        if (lifecycle?.closing) {
-          throw new Error('Host is closing');
-        }
         // The client's `$/cancelRequest` aborts the work its request started.
         const controller = new AbortController();
         const cancelled = token.onCancellationRequested(() =>
           controller.abort(new Error('The client cancelled the request'))
         );
         try {
+          if (disposed || (!initialized && method !== 'initialize')) {
+            throw new BoundaryFailureError(UNAUTHENTICATED);
+          }
+          if (lifecycle?.closing) {
+            throw new BoundaryFailureError(HOST_CLOSING);
+          }
           return await request(parseHostParams(method, input), controller.signal);
         } catch (cause) {
-          throw hostResponseError(cause);
+          // A typed failure travels as the response data; anything else is
+          // logged here and travels as the fixed internal fault (BST-2007/2010).
+          const notAdmitted = cause instanceof HostRunNotAdmittedError;
+          const response = toBoundaryResponseError(
+            notAdmitted ? cause.cause : cause,
+            (message, fields) => logger.error(message, { ...fields, method })
+          );
+          // Admission and its reason are separate facts: keep the host's existing
+          // RPC discriminator while the original cause owns the typed payload.
+          throw notAdmitted
+            ? new ResponseError(HOST_RUN_NOT_ADMITTED_CODE, response.message, response.data)
+            : response;
         } finally {
           cancelled.dispose();
         }
@@ -171,9 +187,18 @@ export function bindHostConnection(
   };
   handle('host/stop', async () => {
     if (!lifecycle) {
-      throw new Error('Host lifecycle is unavailable on this transport');
+      throw refusalError(
+        'configuration',
+        'host.lifecycle-unavailable',
+        'Host lifecycle is unavailable on this transport'
+      );
     }
-    await lifecycle.stop();
+    try {
+      await lifecycle.stop();
+    } catch (cause) {
+      // The physical cleanup's causes are logged under the fault's correlation id.
+      throw new BoundaryFailureError(HOST_CLEANUP_FAILED, { cause });
+    }
     return { outcome: 'stopped', rootReleased: true };
   });
   handle('initialize', (params) => {
@@ -182,10 +207,18 @@ export function bindHostConnection(
       params.protocolVersion !== record.protocolVersion ||
       params.hostVersion !== record.hostVersion
     ) {
-      throw new Error('Host protocol or version mismatch');
+      throw refusalError(
+        'configuration',
+        'host.version-mismatch',
+        'Host protocol or version mismatch'
+      );
     }
     if (!timingSafeEqual(Buffer.from(params.token, 'hex'), Buffer.from(record.token, 'hex'))) {
-      throw new Error('Host authentication failed');
+      throw refusalError(
+        'authorization',
+        'host.authentication-failed',
+        'Host authentication failed'
+      );
     }
     attached();
     initialized = true;
@@ -215,7 +248,11 @@ export function bindHostConnection(
   }));
   handle('workspace/search', async (params, signal) => {
     if (!searchWorkspace) {
-      throw new Error('Indexed workspace text search is unavailable on this host');
+      throw refusalError(
+        'configuration',
+        'workspace.search-unavailable',
+        'Indexed workspace text search is unavailable on this host'
+      );
     }
     const { binding } = core.readWorkspaceBinding(params.threadId);
     if (
@@ -227,7 +264,11 @@ export function bindHostConnection(
         binding.checkoutLocalRootId,
       ].includes(params.rootId)
     ) {
-      throw new Error('Search root is outside the thread workspace binding');
+      throw refusalError(
+        'authorization',
+        'workspace.root-outside-binding',
+        'Search root is outside the thread workspace binding'
+      );
     }
     signal.throwIfAborted();
     const result = await searchWorkspace(params, signal);

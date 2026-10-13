@@ -1,3 +1,4 @@
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import type { WatcherHealthEvent } from '@brainstrike/types';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -13,6 +14,23 @@ describe('ElectronRendererFileSystemAdapter', () => {
   beforeEach(() => {
     adapter = new ElectronRendererFileSystemAdapter();
     vi.clearAllMocks();
+  });
+
+  it('reconstructs a folder authorization refusal after the context bridge', async () => {
+    mockElectronAPI.fileSystem.requestDirectoryAccess.mockResolvedValueOnce({
+      error: {
+        category: 'authorization',
+        code: 'workspace.never-granted',
+        kind: 'refusal',
+        message: 'Folder access was declined.',
+        remedy: 'Choose this folder with Add folder to grant access.',
+      },
+      ok: false,
+    } as never);
+    await expect(adapter.requestDirectoryAccess()).rejects.toMatchObject({
+      code: 'workspace.never-granted',
+      failure: { remedy: 'Choose this folder with Add folder to grant access.' },
+    });
   });
 
   it('declares platform "electron" (roots registry derives kind "path" from this)', () => {
@@ -40,7 +58,10 @@ describe('ElectronRendererFileSystemAdapter', () => {
         platform: 'electron' as const,
       };
 
-      mockElectronAPI.fileSystem.requestDirectoryAccess.mockResolvedValueOnce(mockHandle);
+      mockElectronAPI.fileSystem.requestDirectoryAccess.mockResolvedValueOnce({
+        ok: true,
+        value: mockHandle,
+      });
 
       await adapter.requestDirectoryAccess();
 
@@ -70,7 +91,7 @@ describe('ElectronRendererFileSystemAdapter', () => {
         },
       ];
 
-      mockElectronAPI.fileSystem.readDirectory.mockResolvedValue(mockFiles);
+      mockElectronAPI.fileSystem.readDirectory.mockResolvedValue({ ok: true, value: mockFiles });
 
       const result = await adapter.readDirectory(mockHandle);
 
@@ -89,7 +110,7 @@ describe('ElectronRendererFileSystemAdapter', () => {
       };
       const mockContent = 'file content';
 
-      mockElectronAPI.fileSystem.readFile.mockResolvedValue(mockContent);
+      mockElectronAPI.fileSystem.readFile.mockResolvedValue({ ok: true, value: mockContent });
 
       const result = await adapter.readFile(mockHandle);
 
@@ -101,7 +122,7 @@ describe('ElectronRendererFileSystemAdapter', () => {
   describe('exists', () => {
     it('should call electronAPI.fileSystem.exists with path', async () => {
       const testPath = '/test/path';
-      mockElectronAPI.fileSystem.exists.mockResolvedValue(true);
+      mockElectronAPI.fileSystem.exists.mockResolvedValue({ ok: true, value: true });
 
       const result = await adapter.exists(testPath);
 
@@ -111,7 +132,7 @@ describe('ElectronRendererFileSystemAdapter', () => {
 
     it('should return false when file does not exist', async () => {
       const testPath = '/nonexistent/path';
-      mockElectronAPI.fileSystem.exists.mockResolvedValue(false);
+      mockElectronAPI.fileSystem.exists.mockResolvedValue({ ok: true, value: false });
 
       const result = await adapter.exists(testPath);
 
@@ -125,7 +146,7 @@ describe('ElectronRendererFileSystemAdapter', () => {
       const absolutePath = '/Users/test/project/file.ts';
       const mockContent = 'export const example = "hello";';
 
-      mockElectronAPI.fileSystem.readFileByPath.mockResolvedValue(mockContent);
+      mockElectronAPI.fileSystem.readFileByPath.mockResolvedValue({ ok: true, value: mockContent });
 
       const result = await adapter.readFileByPath(absolutePath);
 
@@ -137,7 +158,10 @@ describe('ElectronRendererFileSystemAdapter', () => {
       const testPath = '/test/documents/readme.md';
       const expectedContent = '# Test README\n\nThis is a test file.';
 
-      mockElectronAPI.fileSystem.readFileByPath.mockResolvedValue(expectedContent);
+      mockElectronAPI.fileSystem.readFileByPath.mockResolvedValue({
+        ok: true,
+        value: expectedContent,
+      });
 
       const result = await adapter.readFileByPath(testPath);
 
@@ -149,13 +173,22 @@ describe('ElectronRendererFileSystemAdapter', () => {
 
       mockElectronAPI.fileSystem.readFileByPath.mockRejectedValue(new Error('File not found'));
 
-      await expect(adapter.readFileByPath(testPath)).rejects.toThrow('File not found');
+      await expect(adapter.readFileByPath(testPath)).rejects.toThrow(INTERNAL_FAULT.message);
     });
 
     it('should propagate path validation errors from main process', async () => {
       const invalidPath = '/etc/passwd';
 
-      mockElectronAPI.fileSystem.readFileByPath.mockRejectedValue(new Error('Invalid path'));
+      mockElectronAPI.fileSystem.readFileByPath.mockResolvedValue({
+        error: {
+          category: 'input',
+          code: 'workspace.path-invalid',
+          kind: 'refusal',
+          message: 'Invalid path',
+          remedy: 'Choose a connected folder.',
+        },
+        ok: false,
+      } as never);
 
       await expect(adapter.readFileByPath(invalidPath)).rejects.toThrow('Invalid path');
       expect(mockElectronAPI.fileSystem.readFileByPath).toHaveBeenCalledWith(invalidPath);
@@ -167,7 +200,10 @@ describe('ElectronRendererFileSystemAdapter', () => {
       const absolutePath = '/Users/test/project/file.txt';
       const rootPath = '/Users/test/project';
       const rootId = 'root-project';
-      mockElectronAPI.fileSystem.readFileByAbsolutePath.mockResolvedValue('absolute content');
+      mockElectronAPI.fileSystem.readFileByAbsolutePath.mockResolvedValue({
+        ok: true,
+        value: 'absolute content',
+      });
 
       await expect(adapter.readFileByAbsolutePath(absolutePath, rootPath, rootId)).resolves.toBe(
         'absolute content'
@@ -189,7 +225,10 @@ describe('ElectronRendererFileSystemAdapter', () => {
     ])(
       'rejects malformed explicit read authority root=$rootPath path=$absolutePath',
       async ({ absolutePath, rootPath }) => {
-        mockElectronAPI.fileSystem.readFileByPath.mockResolvedValue('unsafe-content');
+        mockElectronAPI.fileSystem.readFileByPath.mockResolvedValue({
+          ok: true,
+          value: 'unsafe-content',
+        });
 
         await expect(
           adapter.readFileByAbsolutePath(absolutePath, rootPath, 'root-project')
@@ -221,7 +260,7 @@ describe('ElectronRendererFileSystemAdapter', () => {
         persisted: true,
         rootId: 'abc-123',
       };
-      mockElectronAPI.fileSystem.addRoot.mockResolvedValueOnce(mockDescriptor);
+      mockElectronAPI.fileSystem.addRoot.mockResolvedValueOnce({ ok: true, value: mockDescriptor });
 
       const result = await adapter.addRoot();
 
@@ -247,7 +286,10 @@ describe('ElectronRendererFileSystemAdapter', () => {
           rootId: 'root-a',
         },
       ];
-      mockElectronAPI.fileSystem.restoreRoots.mockResolvedValueOnce(mockDescriptors);
+      mockElectronAPI.fileSystem.restoreRoots.mockResolvedValueOnce({
+        ok: true,
+        value: mockDescriptors,
+      });
 
       const result = await adapter.restoreRoots();
 
@@ -256,7 +298,7 @@ describe('ElectronRendererFileSystemAdapter', () => {
     });
 
     it('should return empty array when no roots are stored', async () => {
-      mockElectronAPI.fileSystem.restoreRoots.mockResolvedValueOnce([]);
+      mockElectronAPI.fileSystem.restoreRoots.mockResolvedValueOnce({ ok: true, value: [] });
 
       const result = await adapter.restoreRoots();
 
@@ -273,7 +315,10 @@ describe('ElectronRendererFileSystemAdapter', () => {
         platform: 'electron' as const,
       };
 
-      mockElectronAPI.fileSystem.restoreLastFolder.mockResolvedValue(mockHandle);
+      mockElectronAPI.fileSystem.restoreLastFolder.mockResolvedValue({
+        ok: true,
+        value: mockHandle,
+      });
 
       const result = await adapter.restoreLastFolder();
 
@@ -282,7 +327,7 @@ describe('ElectronRendererFileSystemAdapter', () => {
     });
 
     it('should return null when no folder to restore', async () => {
-      mockElectronAPI.fileSystem.restoreLastFolder.mockResolvedValue(null);
+      mockElectronAPI.fileSystem.restoreLastFolder.mockResolvedValue({ ok: true, value: null });
 
       const result = await adapter.restoreLastFolder();
 
@@ -293,7 +338,7 @@ describe('ElectronRendererFileSystemAdapter', () => {
     it('should handle errors gracefully', async () => {
       mockElectronAPI.fileSystem.restoreLastFolder.mockRejectedValue(new Error('Restore failed'));
 
-      await expect(adapter.restoreLastFolder()).rejects.toThrow('Restore failed');
+      await expect(adapter.restoreLastFolder()).rejects.toThrow(INTERNAL_FAULT.message);
     });
   });
 });

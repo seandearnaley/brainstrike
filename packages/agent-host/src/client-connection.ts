@@ -1,5 +1,9 @@
+import { BoundaryFailureError, INTERNAL_FAULT } from '@brainstrike/assistant-contract';
 import type { HostAttachment, HostRecord } from '@brainstrike/host-lease';
+import { createLogger } from '@brainstrike/logging';
 import { CancellationTokenSource, type MessageConnection } from 'vscode-jsonrpc';
+import type { ZodType } from 'zod';
+import { fromBoundaryResponseError } from './boundary-wire.js';
 import {
   AGENT_HOST_PROTOCOL_VERSION,
   HOST_CHILDREN_CHANGED,
@@ -39,6 +43,36 @@ export interface HostClient extends HostAttachment {
     signal?: AbortSignal
   ): Promise<HostResults[M]>;
 }
+const logger = createLogger('AgentHostClient');
+
+/** A failed response becomes the host's typed failure (or the internal fault), never raw text. */
+async function sendTyped(method: string, send: () => Promise<unknown>): Promise<unknown> {
+  try {
+    return await send();
+  } catch (cause) {
+    throw fromBoundaryResponseError(cause, (message, fields) =>
+      logger.error(message, { ...fields, method })
+    );
+  }
+}
+
+/** A result this client cannot read is logged, and its user sees the internal fault. */
+function readResult<M extends HostMethod>(method: M, result: unknown): HostResults[M] {
+  // Widened once: indexing the result map by a generic method is too deep for tsc.
+  const schema: ZodType<unknown> = HOST_RESULT_SCHEMAS[method];
+  const parsed = schema.safeParse(result);
+  if (parsed.success) {
+    return parsed.data as HostResults[M];
+  }
+  const correlationId = crypto.randomUUID();
+  logger.error('The agent host sent a result this client cannot read', {
+    correlationId,
+    issues: parsed.error.issues,
+    method,
+  });
+  throw new BoundaryFailureError({ ...INTERNAL_FAULT, correlationId }, { cause: parsed.error });
+}
+
 /** Browser-safe connection; the private lease record comes from the owning launcher. */
 export async function authenticateHostClient(
   connection: MessageConnection,
@@ -161,18 +195,20 @@ export async function authenticateHostClient(
     ): Promise<HostResults[M]> => {
       const parsed = parseHostParams(method, params);
       if (!signal) {
-        return HOST_RESULT_SCHEMAS[method].parse(
-          await connection.sendRequest(method, parsed)
-        ) as HostResults[M];
+        return readResult(
+          method,
+          await sendTyped(method, () => connection.sendRequest(method, parsed))
+        );
       }
       signal.throwIfAborted();
       const cancellation = new CancellationTokenSource();
       const cancel = (): void => cancellation.cancel();
       signal.addEventListener('abort', cancel, { once: true });
       try {
-        return HOST_RESULT_SCHEMAS[method].parse(
-          await connection.sendRequest(method, parsed, cancellation.token)
-        ) as HostResults[M];
+        return readResult(
+          method,
+          await sendTyped(method, () => connection.sendRequest(method, parsed, cancellation.token))
+        );
       } finally {
         signal.removeEventListener('abort', cancel);
         cancellation.dispose();

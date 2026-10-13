@@ -1,6 +1,7 @@
 // @vitest-environment node
 
 import { ToolInputError } from '@brainstrike/assistant-contract';
+import { vectorProfileHash } from '@brainstrike/indexer';
 import { expect, it, vi } from 'vitest';
 import { searchNativeAssistantChunks } from '../assistant-server/native-assistant-retrieval';
 import { fixture, profile, progressAuthority } from './native-scoped-search-fixture';
@@ -82,6 +83,22 @@ it.each(
   }
 );
 
+it.each(['profile', 'store'] as const)(
+  'keeps a mismatched reader %s fatal instead of treating it as an input refusal',
+  async (change) => {
+    const f = fixture(profile);
+    if (change === 'store') {
+      f.replaceStore();
+    } else {
+      f.replaceAuthority({ ...f.getAuthority(), profile: { ...profile, tokenCap: 512 } });
+    }
+    const pending = f.capability.coverageBatch([{ collectionId: 'selected', rootIds: [] }]);
+    await expect(pending).rejects.toBeInstanceOf(Error);
+    await expect(pending).rejects.not.toBeInstanceOf(ToolInputError);
+    expect(f.searchScopes).not.toHaveBeenCalled();
+  }
+);
+
 it.each(['owner-generation', 'profile', 'store', 'roots'] as const)(
   'refuses assistant retrieval when %s changes during query inference',
   async (change) => {
@@ -97,6 +114,20 @@ it.each(['owner-generation', 'profile', 'store', 'roots'] as const)(
       modelKey: `local::${profile.modelId}`,
     };
     f.replaceAuthority({ ...f.getAuthority(), queryPlan });
+    // A replaced authority has its own matching reader. Stale reader rows instead
+    // exercise the separate storage-integrity failure, before the query refusal.
+    const coverage = f.coverageBatch.getMockImplementation()!;
+    f.coverageBatch.mockImplementation(async (requests) => {
+      const rows = await coverage(requests);
+      const currentProfile = f.getAuthority().profile;
+      const { storeId } = await f.port.info();
+      return rows.map((row) => ({
+        ...row,
+        profile: currentProfile,
+        profileHash: currentProfile === null ? null : vectorProfileHash(currentProfile),
+        storeId,
+      }));
+    });
     const queryEmbedding = vi.fn(async () => {
       const authority = f.getAuthority();
       if (change === 'store') {

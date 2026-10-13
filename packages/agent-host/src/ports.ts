@@ -15,6 +15,7 @@ import type {
   ProviderAuthStartMethod,
   ProviderAuthStatus,
   ProviderVerificationSnapshot,
+  ReferencedFileFailure,
   ToolRiskCategory,
 } from '@brainstrike/assistant-contract';
 import type { AssistantContextBreakdown } from '@brainstrike/assistant-contract/context-breakdown';
@@ -338,6 +339,7 @@ export interface HostRunAdmission {
    * committed record when it is on. Absent means off.
    */
   readObservation?(threadId: string): Promise<HostObservationalMemoryState>;
+  readonly referencedFileFailures?: readonly ReferencedFileFailure[];
   readonly snapshot: HostRunSnapshot;
   readonly tools: Readonly<Record<string, HostTool>>;
   /** Configured MCP servers this run proceeds without; committed with `run.started`. */

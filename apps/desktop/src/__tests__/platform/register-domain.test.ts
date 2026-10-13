@@ -1,3 +1,4 @@
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import type { IpcMainInvokeEvent } from 'electron';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -102,7 +103,7 @@ describe('registerDomain', () => {
     expect(ipcMain.on).not.toHaveBeenCalled();
   });
 
-  it('runs parseArgs after authorization and before the handler, and throws on malformed input', async () => {
+  it('runs parseArgs after authorization and before the handler, and settles malformed input as a boundary fault', async () => {
     const ipcMain = createMockIpcMain();
     const registry = createRegistry(ipcMain);
     const writeText = vi.fn(() => ipcOk(undefined));
@@ -113,7 +114,10 @@ describe('registerDomain', () => {
     await expect(handler(event, 'hello')).resolves.toEqual({ ok: true, value: undefined });
     expect(writeText).toHaveBeenCalledWith('hello');
 
-    await expect(handler(event, 42)).rejects.toThrow('fixture writeText requires a string payload');
+    await expect(handler(event, 42)).resolves.toEqual({
+      error: { ...INTERNAL_FAULT, correlationId: expect.any(String) },
+      ok: false,
+    });
     expect(writeText).toHaveBeenCalledTimes(1);
   });
 
@@ -170,7 +174,7 @@ describe('settleIpcResult', () => {
         Promise.reject(new Error('database unavailable'))
       )
     ).resolves.toEqual({
-      error: { category: 'skills', code: 'scan_failed', message: 'database unavailable' },
+      error: { ...INTERNAL_FAULT, correlationId: expect.any(String) },
       ok: false,
     });
   });

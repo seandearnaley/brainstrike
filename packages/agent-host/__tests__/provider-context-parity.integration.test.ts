@@ -809,6 +809,10 @@ test('production expired-item HTTP failure retains the typed decision boundary a
         })
         .parse(errors[0]).error
     ).toEqual({ code: 'openai_stored_item_expired', retryable: false });
+    const publicError = z.object({ error: z.object({ message: z.string() }) }).parse(errors[0]);
+    expect(publicError.error.message).toBe(result.terminal.detail);
+    expect(publicError.error.message).not.toContain('rs_expired');
+    expect(JSON.stringify(errors)).not.toContain('responseBody');
     expect(
       result.events.some((event) => event.type === 'model.step' && event.runId === result.runId)
     ).toBe(false);

@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { BoundaryFailureError, describeBoundaryFailure } from '@brainstrike/assistant-contract';
 import { launchHost } from '@brainstrike/host-lease';
 import { trustCliProjectHooks } from './cli-hooks-trust.js';
 import { readCliMcpInput, settleCliMcpInput } from './cli-mcp-input.js';
@@ -719,7 +720,13 @@ export async function runHostCliProcess(
   try {
     await runHostCli(args, process.stdout, defaults);
   } catch (cause: unknown) {
-    process.stderr.write(`${cause instanceof Error ? cause.message : String(cause)}\n`);
+    const message =
+      cause instanceof BoundaryFailureError
+        ? describeBoundaryFailure(cause.failure)
+        : cause instanceof Error
+          ? cause.message
+          : String(cause);
+    process.stderr.write(`${message}\n`);
     process.exitCode = cause instanceof HostCliExitError ? cause.exitCode : 1;
   }
 }

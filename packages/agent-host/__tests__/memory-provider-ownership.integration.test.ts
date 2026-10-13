@@ -3,12 +3,14 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { RootLock, RootLockedError, StateStore } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
 import { z } from 'zod';
 import { HostCore } from '../src/core.js';
 import type { HostPlatform } from '../src/ports.js';
 import type { HostEvent } from '../src/protocol.js';
+import { captureHostFailureDiagnostics } from './fixtures/host-failure-diagnostics.js';
 import { MemoryProviderOwnershipFixture } from './fixtures/memory-provider-ownership.js';
 import { scriptedModel } from './fixtures/scripted-model.js';
 
@@ -209,7 +211,8 @@ test('a stopped approval allows the next same-thread provider call with committe
   }
 });
 
-test('a joined source cancellation failure is the stopped run’s visible detail and releases ownership', async () => {
+test('a joined source cancellation failure has a safe stopped detail, keeps its cause and releases ownership', async () => {
+  const diagnostics = captureHostFailureDiagnostics();
   const failure = new Error('Original observer source cancellation failed');
   const host = await setup(failure);
   try {
@@ -227,7 +230,7 @@ test('a joined source cancellation failure is the stopped run’s visible detail
     await fixture.cancelEntered.promise;
     fixture.releaseCancel.resolve();
     // The raw source physically joined; its failed cancellation is the run's
-    // visible outcome, and Stop replays the same acknowledged result.
+    // safe outcome, and Stop replays the same acknowledged result.
     await expect(stopped).resolves.toEqual({ outcome: 'stopped' });
     await expect(host.core.stop(params)).resolves.toEqual({ outcome: 'stopped' });
     expect(host.retained()).toBe(0);
@@ -235,9 +238,10 @@ test('a joined source cancellation failure is the stopped run’s visible detail
       (event) => event.type === 'run.finished'
     );
     expect(finished).toMatchObject({
-      detail: expect.stringContaining(failure.message),
+      detail: INTERNAL_FAULT.message,
       outcome: 'stopped',
     });
+    diagnostics.expectCause(failure.message);
   } finally {
     await host.teardown();
   }

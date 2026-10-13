@@ -20,11 +20,14 @@ import type {
   LanguageModelV2CallOptions,
   LanguageModelV2StreamPart,
 } from '@ai-sdk/provider';
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract';
 import { PGlite } from '@electric-sql/pglite';
 import { createTool } from '@mastra/core/tools';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import type { PgliteDatabase, PgliteMastraMemoryOptions } from '../pglite-mastra-memory';
+import { readProviderRunError } from '../provider-error-metadata';
+import { LOCAL_TOOL_CALL_ARGUMENTS_INVALID } from '../providers/local/local-tool-call-validation';
 import { AssistantDataStreamSession } from '../stream/data-stream';
 import type { StreamChunk } from '../types';
 
@@ -645,19 +648,23 @@ describe("'ask' suspends for approval and resumes (real @mastra/core/agent + rea
     expect(askExecute).not.toHaveBeenCalled();
     expect(
       chunks.some(
-        (chunk) =>
-          chunk.type === 'text-delta' && chunk.value.includes('local_tool_call_arguments_invalid')
+        (chunk) => chunk.type === 'text-delta' && chunk.value.includes(INTERNAL_FAULT.message)
       )
     ).toBe(true);
-    expect(
-      chunks.some(
-        (chunk) =>
-          chunk.type === 'run-event' &&
-          chunk.event.kind === 'run.failed' &&
-          (chunk.event.metadata?.['runError'] as { code?: unknown } | null | undefined)?.code ===
-            'local_tool_call_arguments_invalid'
-      )
-    ).toBe(true);
+    const failure = chunks.find(
+      (chunk): chunk is Extract<StreamChunk, { type: 'run-event' }> =>
+        chunk.type === 'run-event' && chunk.event.kind === 'run.failed'
+    );
+    expect(readProviderRunError(failure?.event.metadata)).toEqual({
+      code: LOCAL_TOOL_CALL_ARGUMENTS_INVALID,
+    });
+
+    const visibleText = chunks
+      .filter((chunk) => chunk.type === 'text-delta')
+      .map((chunk) => chunk.value)
+      .join('');
+    expect(visibleText).not.toContain(LOCAL_TOOL_CALL_ARGUMENTS_INVALID);
+    expect(visibleText).not.toContain('BST-708 manual approval preview');
 
     const discovered = await listSuspendedMastraRuns(thread, {
       runtime: { provider: 'ollama' },

@@ -20,9 +20,13 @@ import { foldHostRuns } from '../src/thread-view.js';
 import {
   anthropicMessageJson,
   anthropicMessagesText,
+  openAIResponsesError,
   openAIResponsesJson,
   openAIResponsesText,
 } from './fixtures/provider-responses.js';
+import recordedProviderFailure from './fixtures/recorded-provider-failure.json' with {
+  type: 'json',
+};
 
 type Provider = 'openai' | 'anthropic';
 type Finished = Extract<HostEvent, { type: 'run.finished' }>;
@@ -259,7 +263,7 @@ test.each(cases)('%s HTTP 400 (%s) commits a failed run', async (provider, messa
   expect(sdkErrors).toEqual([{ message, name: 'AI_APICallError', statusCode: 400 }]);
   expect(errorChunks(rows)).toContainEqual(
     expect.objectContaining({
-      error: expect.objectContaining({ statusCode: 400 }),
+      error: terminal.detail,
       type: 'error',
     })
   );
@@ -396,3 +400,34 @@ test('a provider that stays unavailable fails visibly after the bounded retries'
   expect(terminal.detail).toContain('Service unavailable.');
   expect(titleRequests).toBe(0);
 });
+
+// Exact synthetic response body recorded by the desktop acceptance run on
+// 5f08de621 (13 October 2026), F5 host seq 51. Production adapters recreate the
+// direct HTTP envelope and exact stream-error payload, including the SDK retry
+// wrapper. No fake Error serialization is used.
+test.each(['direct-http', 'stream-retry'] as const)(
+  '%s commits only the bounded public provider failure',
+  async (kind) => {
+    const { rows, runRequests, terminal } = await runAgainstProviderHttp('openai', () =>
+      kind === 'direct-http'
+        ? jsonError(400, { error: recordedProviderFailure })
+        : openAIResponsesError('offline-model', recordedProviderFailure)
+    );
+    expect(runRequests).toBe(kind === 'direct-http' ? 1 : 3);
+    expect(terminal.outcome).toBe('failed');
+    expect(terminal.detail).toContain('Controlled provider outage');
+    expect(terminal.detail).toContain('[redacted-secret:api-key]');
+    const evidence = terminal.detail?.split('Provider response: ')[1];
+    expect(evidence?.length).toBeLessThanOrEqual(600);
+    const failures = errorChunks(rows).filter(
+      (chunk) => !!chunk && typeof chunk === 'object' && 'type' in chunk && chunk.type === 'error'
+    );
+    // The live log and later thread/read use these same stored rows. No raw SDK
+    // body, retry graph, URL, prompt, or credential may cross inside an error chunk.
+    expect(failures).toEqual([{ error: terminal.detail, type: 'error' }]);
+    expect(JSON.stringify(rows)).not.toContain('sk-smoke-private-only-12345678901234567890');
+    expect(foldHostRuns(rows)).toEqual([
+      expect.objectContaining({ detail: terminal.detail, status: 'failed' }),
+    ]);
+  }
+);

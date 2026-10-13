@@ -1,0 +1,15 @@
+{
+  "detail": "Something went wrong. The details were recorded in the diagnostic log.",
+  "id": "run-event-47914d17-c05b-4656-be6e-8b4dc94289f8",
+  "kind": "run.failed",
+  "label": "Assistant run failed",
+  "status": "failed",
+  "timestamp": "2026-10-13T18:53:35.532Z",
+  "metadata": {
+    "runError": {
+      "code": "mastra_agent_stream_local_error"
+    },
+    "continuationId": "human-followup"
+  },
+  "runId": "4d6d3e3b-6fd7-4573-b83a-9bab34d39b0b"
+}
