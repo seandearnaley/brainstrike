@@ -175,6 +175,7 @@ catalog:
   yaml: ^2.9.0
   zod: ^4.6.5
   zustand: ^5.0.15
+  '@sqlite.org/sqlite-wasm': 3.53.4-build1
 overrides:
   # BST-1929: hold react-streamdown's own dependencies at the newest releases at
   # least 14 days old when it was added, so the lockfile has one react-markdown

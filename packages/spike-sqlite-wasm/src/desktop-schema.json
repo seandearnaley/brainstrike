@@ -1,0 +1,906 @@
+{
+  "generatedAt": "2026-10-13T04:51:23.298Z",
+  "index": {
+    "ftsConfig": [
+      {
+        "table": "state_events_fts",
+        "key": "secure-delete",
+        "value": 1
+      },
+      {
+        "table": "state_search_fts",
+        "key": "secure-delete",
+        "value": 1
+      }
+    ],
+    "objects": [
+      {
+        "type": "table",
+        "name": "index_metadata",
+        "tableName": "index_metadata",
+        "sql": "CREATE TABLE index_metadata(singleton INTEGER PRIMARY KEY CHECK(singleton=1),schema_version INTEGER NOT NULL,store_id TEXT NOT NULL,index_mode TEXT NOT NULL CHECK(index_mode IN ('text-only','vector-configured')),profile_json TEXT,profile_hash TEXT,CHECK((index_mode='text-only' AND profile_json IS NULL AND profile_hash IS NULL) OR (index_mode='vector-configured' AND profile_json IS NOT NULL AND profile_hash IS NOT NULL)))",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "file_records",
+        "tableName": "file_records",
+        "sql": "CREATE TABLE file_records(id TEXT PRIMARY KEY,root_id TEXT,name TEXT NOT NULL,path TEXT,embedding_set_id TEXT,source_path TEXT,scoped INTEGER NOT NULL DEFAULT 0 CHECK(scoped IN (0,1)),content_hash TEXT NOT NULL,snapshot_hash TEXT NOT NULL,UNIQUE(root_id,id),CHECK((root_id IS NULL AND path IS NULL AND embedding_set_id IS NOT NULL AND scoped=1) OR (root_id IS NOT NULL AND path IS NOT NULL)))",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "file_chunks",
+        "tableName": "file_chunks",
+        "sql": "CREATE TABLE file_chunks(pk INTEGER PRIMARY KEY,id TEXT UNIQUE NOT NULL,root_id TEXT,file_record_id TEXT NOT NULL,start_line INTEGER NOT NULL,end_line INTEGER NOT NULL,content TEXT NOT NULL,content_hash TEXT NOT NULL,embedding_hash TEXT,chunk_index INTEGER,chunk_size INTEGER,chunk_type TEXT,start_offset INTEGER,end_offset INTEGER,token_count INTEGER,has_vector INTEGER NOT NULL CHECK(has_vector IN (0,1)),CHECK(has_vector=0 OR embedding_hash IS NOT NULL),CHECK((chunk_index IS NULL AND chunk_size IS NULL AND chunk_type IS NULL AND start_offset IS NULL AND end_offset IS NULL AND token_count IS NULL) OR (chunk_index IS NOT NULL AND chunk_size IS NOT NULL AND chunk_type IS NOT NULL AND start_offset IS NOT NULL AND end_offset IS NOT NULL AND token_count IS NOT NULL AND chunk_index>=0 AND chunk_size>0 AND chunk_type IN ('text','sentence','recursive') AND start_offset>=0 AND end_offset>start_offset AND token_count>0)),FOREIGN KEY(file_record_id) REFERENCES file_records(id) ON DELETE CASCADE)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "chunks_file",
+        "tableName": "file_chunks",
+        "sql": "CREATE INDEX chunks_file ON file_chunks(root_id,file_record_id)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "chunks_file_record",
+        "tableName": "file_chunks",
+        "sql": "CREATE INDEX chunks_file_record ON file_chunks(file_record_id)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "file_symbols",
+        "tableName": "file_symbols",
+        "sql": "CREATE TABLE file_symbols(file_record_id TEXT NOT NULL REFERENCES file_records(id) ON DELETE CASCADE,seq INTEGER NOT NULL,name TEXT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('function','class','method','variable','interface','type','enum')),exported INTEGER NOT NULL CHECK(exported IN (0,1)),start_line INTEGER NOT NULL,end_line INTEGER NOT NULL,start_offset INTEGER NOT NULL,end_offset INTEGER NOT NULL,PRIMARY KEY(file_record_id,seq)) WITHOUT ROWID",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "idx_file_symbols_name",
+        "tableName": "file_symbols",
+        "sql": "CREATE INDEX idx_file_symbols_name ON file_symbols(name)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "file_symbol_refs",
+        "tableName": "file_symbol_refs",
+        "sql": "CREATE TABLE file_symbol_refs(file_record_id TEXT NOT NULL REFERENCES file_records(id) ON DELETE CASCADE,seq INTEGER NOT NULL,from_symbol_seq INTEGER,name TEXT NOT NULL,kind TEXT NOT NULL CHECK(kind IN ('call','import','extends','implements')),module TEXT,line INTEGER NOT NULL,PRIMARY KEY(file_record_id,seq),FOREIGN KEY(file_record_id,from_symbol_seq) REFERENCES file_symbols(file_record_id,seq) ON DELETE CASCADE) WITHOUT ROWID",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "idx_file_symbol_refs_name_kind",
+        "tableName": "file_symbol_refs",
+        "sql": "CREATE INDEX idx_file_symbol_refs_name_kind ON file_symbol_refs(name,kind)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "file_chunks_fts",
+        "tableName": "file_chunks_fts",
+        "sql": "CREATE VIRTUAL TABLE file_chunks_fts USING fts5(content,content='file_chunks',content_rowid='pk',tokenize='porter unicode61')",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "file_chunks_fts_data",
+        "tableName": "file_chunks_fts_data",
+        "sql": "CREATE TABLE 'file_chunks_fts_data'(id INTEGER PRIMARY KEY, block BLOB)",
+        "shadow": true
+      },
+      {
+        "type": "table",
+        "name": "file_chunks_fts_idx",
+        "tableName": "file_chunks_fts_idx",
+        "sql": "CREATE TABLE 'file_chunks_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID",
+        "shadow": true
+      },
+      {
+        "type": "table",
+        "name": "file_chunks_fts_docsize",
+        "tableName": "file_chunks_fts_docsize",
+        "sql": "CREATE TABLE 'file_chunks_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)",
+        "shadow": true
+      },
+      {
+        "type": "table",
+        "name": "file_chunks_fts_config",
+        "tableName": "file_chunks_fts_config",
+        "sql": "CREATE TABLE 'file_chunks_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID",
+        "shadow": true
+      },
+      {
+        "type": "table",
+        "name": "file_chunks_trigram",
+        "tableName": "file_chunks_trigram",
+        "sql": "CREATE VIRTUAL TABLE file_chunks_trigram USING fts5(content,content='file_chunks',content_rowid='pk',tokenize='trigram')",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "file_chunks_trigram_data",
+        "tableName": "file_chunks_trigram_data",
+        "sql": "CREATE TABLE 'file_chunks_trigram_data'(id INTEGER PRIMARY KEY, block BLOB)",
+        "shadow": true
+      },
+      {
+        "type": "table",
+        "name": "file_chunks_trigram_idx",
+        "tableName": "file_chunks_trigram_idx",
+        "sql": "CREATE TABLE 'file_chunks_trigram_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID",
+        "shadow": true
+      },
+      {
+        "type": "table",
+        "name": "file_chunks_trigram_docsize",
+        "tableName": "file_chunks_trigram_docsize",
+        "sql": "CREATE TABLE 'file_chunks_trigram_docsize'(id INTEGER PRIMARY KEY, sz BLOB)",
+        "shadow": true
+      },
+      {
+        "type": "table",
+        "name": "file_chunks_trigram_config",
+        "tableName": "file_chunks_trigram_config",
+        "sql": "CREATE TABLE 'file_chunks_trigram_config'(k PRIMARY KEY, v) WITHOUT ROWID",
+        "shadow": true
+      },
+      {
+        "type": "table",
+        "name": "vec_chunks",
+        "tableName": "vec_chunks",
+        "sql": "CREATE VIRTUAL TABLE vec_chunks USING vec0(id INTEGER PRIMARY KEY,root_id TEXT PARTITION KEY,bin BIT[384],+emb BLOB)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "vec_chunks_info",
+        "tableName": "vec_chunks_info",
+        "sql": "CREATE TABLE \"vec_chunks_info\" (key text primary key, value any)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "vec_chunks_chunks",
+        "tableName": "vec_chunks_chunks",
+        "sql": "CREATE TABLE \"vec_chunks_chunks\"(chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,size INTEGER NOT NULL,sequence_id integer,partition00,validity BLOB NOT NULL, rowids BLOB NOT NULL)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "vec_chunks_rowids",
+        "tableName": "vec_chunks_rowids",
+        "sql": "CREATE TABLE \"vec_chunks_rowids\"(rowid INTEGER PRIMARY KEY AUTOINCREMENT,id,chunk_id INTEGER,chunk_offset INTEGER)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "vec_chunks_vector_chunks00",
+        "tableName": "vec_chunks_vector_chunks00",
+        "sql": "CREATE TABLE \"vec_chunks_vector_chunks00\"(rowid PRIMARY KEY,vectors BLOB NOT NULL)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "vec_chunks_auxiliary",
+        "tableName": "vec_chunks_auxiliary",
+        "sql": "CREATE TABLE \"vec_chunks_auxiliary\"( rowid integer PRIMARY KEY , value00)",
+        "shadow": false
+      },
+      {
+        "type": "trigger",
+        "name": "chunks_insert",
+        "tableName": "file_chunks",
+        "sql": "CREATE TRIGGER chunks_insert AFTER INSERT ON file_chunks BEGIN\n          INSERT INTO file_chunks_fts(rowid,content) VALUES(new.pk,new.content);\n          INSERT INTO file_chunks_trigram(rowid,content) VALUES(new.pk,new.content);\n        END",
+        "shadow": false
+      },
+      {
+        "type": "trigger",
+        "name": "chunks_delete",
+        "tableName": "file_chunks",
+        "sql": "CREATE TRIGGER chunks_delete AFTER DELETE ON file_chunks BEGIN\n          INSERT INTO file_chunks_fts(file_chunks_fts,rowid,content) VALUES('delete',old.pk,old.content);\n          INSERT INTO file_chunks_trigram(file_chunks_trigram,rowid,content) VALUES('delete',old.pk,old.content);\n        END",
+        "shadow": false
+      },
+      {
+        "type": "trigger",
+        "name": "chunks_update",
+        "tableName": "file_chunks",
+        "sql": "CREATE TRIGGER chunks_update AFTER UPDATE ON file_chunks BEGIN\n          INSERT INTO file_chunks_fts(file_chunks_fts,rowid,content) VALUES('delete',old.pk,old.content);\n          INSERT INTO file_chunks_trigram(file_chunks_trigram,rowid,content) VALUES('delete',old.pk,old.content);\n          INSERT INTO file_chunks_fts(rowid,content) VALUES(new.pk,new.content);\n          INSERT INTO file_chunks_trigram(rowid,content) VALUES(new.pk,new.content);\n        END",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "index_scope_authority",
+        "tableName": "index_scope_authority",
+        "sql": "CREATE TABLE index_scope_authority(singleton INTEGER PRIMARY KEY CHECK(singleton=1),epoch TEXT NOT NULL)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "files_collection",
+        "tableName": "file_records",
+        "sql": "CREATE INDEX files_collection ON file_records(embedding_set_id,id)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "vector_profiles",
+        "tableName": "vector_profiles",
+        "sql": "CREATE TABLE vector_profiles(profile_hash TEXT PRIMARY KEY,profile_json TEXT NOT NULL,dimensions INTEGER NOT NULL CHECK(dimensions>0))",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "scoped_vectors",
+        "tableName": "scoped_vectors",
+        "sql": "CREATE TABLE scoped_vectors(pk INTEGER PRIMARY KEY,chunk_pk INTEGER NOT NULL REFERENCES file_chunks(pk) ON DELETE CASCADE,profile_hash TEXT NOT NULL REFERENCES vector_profiles(profile_hash),content_hash TEXT NOT NULL,dimensions INTEGER NOT NULL,emb BLOB NOT NULL CHECK(typeof(emb)='blob' AND vec_length(emb)=dimensions),UNIQUE(chunk_pk,profile_hash))",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "state_index_source",
+        "tableName": "state_index_source",
+        "sql": "CREATE TABLE state_index_source(singleton INTEGER PRIMARY KEY CHECK(singleton=1),root TEXT,projection_identity TEXT,resource_grants TEXT NOT NULL)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "state_event_rows",
+        "tableName": "state_event_rows",
+        "sql": "CREATE TABLE state_event_rows(pk INTEGER PRIMARY KEY,thread_id TEXT NOT NULL,seq INTEGER NOT NULL CHECK(seq>0),payload TEXT NOT NULL,content TEXT,gap_reason TEXT,UNIQUE(thread_id,seq))",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "state_event_blob_refs",
+        "tableName": "state_event_blob_refs",
+        "sql": "CREATE TABLE state_event_blob_refs(event_pk INTEGER NOT NULL REFERENCES state_event_rows(pk) ON DELETE CASCADE,hash TEXT NOT NULL,PRIMARY KEY(event_pk,hash)) WITHOUT ROWID",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "state_blob_hash",
+        "tableName": "state_event_blob_refs",
+        "sql": "CREATE INDEX state_blob_hash ON state_event_blob_refs(hash)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "state_thread_cursors",
+        "tableName": "state_thread_cursors",
+        "sql": "CREATE TABLE state_thread_cursors(thread_id TEXT PRIMARY KEY,seq INTEGER NOT NULL CHECK(seq>=0)) WITHOUT ROWID",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "state_dropped_blob_refs",
+        "tableName": "state_dropped_blob_refs",
+        "sql": "CREATE TABLE state_dropped_blob_refs(thread_id TEXT NOT NULL,hash TEXT NOT NULL,PRIMARY KEY(thread_id,hash)) WITHOUT ROWID",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "state_events_fts",
+        "tableName": "state_events_fts",
+        "sql": "CREATE VIRTUAL TABLE state_events_fts USING fts5(content,content='state_event_rows',content_rowid='pk',tokenize='unicode61')",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "state_events_fts_data",
+        "tableName": "state_events_fts_data",
+        "sql": "CREATE TABLE 'state_events_fts_data'(id INTEGER PRIMARY KEY, block BLOB)",
+        "shadow": true
+      },
+      {
+        "type": "table",
+        "name": "state_events_fts_idx",
+        "tableName": "state_events_fts_idx",
+        "sql": "CREATE TABLE 'state_events_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID",
+        "shadow": true
+      },
+      {
+        "type": "table",
+        "name": "state_events_fts_docsize",
+        "tableName": "state_events_fts_docsize",
+        "sql": "CREATE TABLE 'state_events_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)",
+        "shadow": true
+      },
+      {
+        "type": "table",
+        "name": "state_events_fts_config",
+        "tableName": "state_events_fts_config",
+        "sql": "CREATE TABLE 'state_events_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID",
+        "shadow": true
+      },
+      {
+        "type": "trigger",
+        "name": "state_event_insert",
+        "tableName": "state_event_rows",
+        "sql": "CREATE TRIGGER state_event_insert AFTER INSERT ON state_event_rows BEGIN\n        INSERT INTO state_events_fts(rowid,content) VALUES(new.pk,new.content);\n      END",
+        "shadow": false
+      },
+      {
+        "type": "trigger",
+        "name": "state_event_delete",
+        "tableName": "state_event_rows",
+        "sql": "CREATE TRIGGER state_event_delete AFTER DELETE ON state_event_rows BEGIN\n        INSERT INTO state_events_fts(state_events_fts,rowid,content) VALUES('delete',old.pk,old.content);\n      END",
+        "shadow": false
+      },
+      {
+        "type": "trigger",
+        "name": "state_event_update",
+        "tableName": "state_event_rows",
+        "sql": "CREATE TRIGGER state_event_update AFTER UPDATE ON state_event_rows BEGIN\n        INSERT INTO state_events_fts(state_events_fts,rowid,content) VALUES('delete',old.pk,old.content);\n        INSERT INTO state_events_fts(rowid,content) VALUES(new.pk,new.content);\n      END",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "state_search_rows",
+        "tableName": "state_search_rows",
+        "sql": "CREATE TABLE state_search_rows(event_pk INTEGER PRIMARY KEY REFERENCES state_event_rows(pk) ON DELETE CASCADE,thread_id TEXT NOT NULL,seq INTEGER NOT NULL CHECK(seq>0),run_id TEXT NOT NULL,role TEXT NOT NULL CHECK(role IN ('user','assistant')),text TEXT NOT NULL)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "state_search_thread",
+        "tableName": "state_search_rows",
+        "sql": "CREATE INDEX state_search_thread ON state_search_rows(thread_id,seq)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "state_search_fts",
+        "tableName": "state_search_fts",
+        "sql": "CREATE VIRTUAL TABLE state_search_fts USING fts5(text,content='state_search_rows',content_rowid='event_pk',tokenize='porter unicode61')",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "state_search_fts_data",
+        "tableName": "state_search_fts_data",
+        "sql": "CREATE TABLE 'state_search_fts_data'(id INTEGER PRIMARY KEY, block BLOB)",
+        "shadow": true
+      },
+      {
+        "type": "table",
+        "name": "state_search_fts_idx",
+        "tableName": "state_search_fts_idx",
+        "sql": "CREATE TABLE 'state_search_fts_idx'(segid, term, pgno, PRIMARY KEY(segid, term)) WITHOUT ROWID",
+        "shadow": true
+      },
+      {
+        "type": "table",
+        "name": "state_search_fts_docsize",
+        "tableName": "state_search_fts_docsize",
+        "sql": "CREATE TABLE 'state_search_fts_docsize'(id INTEGER PRIMARY KEY, sz BLOB)",
+        "shadow": true
+      },
+      {
+        "type": "table",
+        "name": "state_search_fts_config",
+        "tableName": "state_search_fts_config",
+        "sql": "CREATE TABLE 'state_search_fts_config'(k PRIMARY KEY, v) WITHOUT ROWID",
+        "shadow": true
+      },
+      {
+        "type": "trigger",
+        "name": "state_search_insert",
+        "tableName": "state_search_rows",
+        "sql": "CREATE TRIGGER state_search_insert AFTER INSERT ON state_search_rows BEGIN\n    INSERT INTO state_search_fts(rowid,text) VALUES(new.event_pk,new.text);\n  END",
+        "shadow": false
+      },
+      {
+        "type": "trigger",
+        "name": "state_search_delete",
+        "tableName": "state_search_rows",
+        "sql": "CREATE TRIGGER state_search_delete AFTER DELETE ON state_search_rows BEGIN\n    INSERT INTO state_search_fts(state_search_fts,rowid,text) VALUES('delete',old.event_pk,old.text);\n  END",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "state_search_vectors",
+        "tableName": "state_search_vectors",
+        "sql": "CREATE TABLE state_search_vectors(event_pk INTEGER NOT NULL REFERENCES state_search_rows(event_pk) ON DELETE CASCADE,profile_hash TEXT NOT NULL,dimensions INTEGER NOT NULL CHECK(dimensions>0),emb BLOB NOT NULL CHECK(length(emb)=dimensions*4),PRIMARY KEY(event_pk,profile_hash)) WITHOUT ROWID",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "state_search_vector_failures",
+        "tableName": "state_search_vector_failures",
+        "sql": "CREATE TABLE state_search_vector_failures(event_pk INTEGER NOT NULL REFERENCES state_search_rows(event_pk) ON DELETE CASCADE,profile_hash TEXT NOT NULL,error TEXT NOT NULL,failed_at INTEGER NOT NULL,PRIMARY KEY(event_pk,profile_hash)) WITHOUT ROWID",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "state_message_generation",
+        "tableName": "state_message_generation",
+        "sql": "CREATE TABLE state_message_generation(singleton INTEGER PRIMARY KEY CHECK(singleton=1),generation INTEGER NOT NULL CHECK(generation>=0),pending_cleanup INTEGER NOT NULL CHECK(pending_cleanup IN (0,1)))",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "state_message_profiles",
+        "tableName": "state_message_profiles",
+        "sql": "CREATE TABLE state_message_profiles(hash TEXT PRIMARY KEY,json TEXT NOT NULL,dimensions INTEGER NOT NULL CHECK(dimensions>0))",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "state_message_vectors",
+        "tableName": "state_message_vectors",
+        "sql": "CREATE TABLE state_message_vectors(\n        pk INTEGER PRIMARY KEY,root_id TEXT NOT NULL,resource_id TEXT NOT NULL,thread_id TEXT NOT NULL,\n        message_id TEXT NOT NULL,seq INTEGER NOT NULL CHECK(seq>0),segment_ordinal INTEGER NOT NULL CHECK(segment_ordinal>=0),\n        profile_hash TEXT NOT NULL REFERENCES state_message_profiles(hash),source_hash TEXT NOT NULL,\n        dimensions INTEGER NOT NULL,emb BLOB NOT NULL CHECK(length(emb)=dimensions*4),\n        UNIQUE(thread_id,message_id,segment_ordinal,profile_hash))",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "state_message_scope",
+        "tableName": "state_message_vectors",
+        "sql": "CREATE INDEX state_message_scope ON state_message_vectors(root_id,resource_id,thread_id,profile_hash)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "state_observation_vectors",
+        "tableName": "state_observation_vectors",
+        "sql": "CREATE TABLE state_observation_vectors(\n      pk INTEGER PRIMARY KEY,id TEXT NOT NULL,root_id TEXT NOT NULL,resource_id TEXT NOT NULL,thread_id TEXT NOT NULL,\n      group_id TEXT NOT NULL,range TEXT NOT NULL,segment_ordinal INTEGER NOT NULL CHECK(segment_ordinal>=0),\n      profile_hash TEXT NOT NULL REFERENCES state_message_profiles(hash),source_hash TEXT NOT NULL,\n      text TEXT NOT NULL,observed_at TEXT,dimensions INTEGER NOT NULL CHECK(dimensions>0),\n      emb BLOB NOT NULL CHECK(length(emb)=dimensions*4),UNIQUE(id,profile_hash))",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "state_observation_scope",
+        "tableName": "state_observation_vectors",
+        "sql": "CREATE INDEX state_observation_scope ON state_observation_vectors(root_id,resource_id,thread_id,profile_hash)",
+        "shadow": false
+      }
+    ],
+    "pageSize": 4096,
+    "sqliteVersion": "3.53.4",
+    "userVersion": 0
+  },
+  "note": "Desktop DDL as created by StateStore.open + openIndexer (text-only, stateRoot set) on better-sqlite3.",
+  "state": {
+    "ftsConfig": [],
+    "objects": [
+      {
+        "type": "table",
+        "name": "run_events",
+        "tableName": "run_events",
+        "sql": "CREATE TABLE run_events (\n    id INTEGER PRIMARY KEY,\n    thread_id TEXT NOT NULL,\n    seq INTEGER NOT NULL,\n    type TEXT NOT NULL,\n    run_id TEXT,\n    payload TEXT NOT NULL,\n    crc INTEGER NOT NULL,\n    raw_count INTEGER,\n    created_at REAL NOT NULL, hydrate INTEGER NOT NULL DEFAULT 1 CHECK (hydrate IN (0, 1)),\n    UNIQUE (thread_id, seq)\n  )",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "run_sync",
+        "tableName": "run_sync",
+        "sql": "CREATE TABLE run_sync (thread_id TEXT PRIMARY KEY, seq INTEGER NOT NULL, at REAL NOT NULL) WITHOUT ROWID",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "settings",
+        "tableName": "settings",
+        "sql": "CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "purge_intent",
+        "tableName": "purge_intent",
+        "sql": "CREATE TABLE purge_intent (\n    thread_id TEXT NOT NULL,\n    seq INTEGER NOT NULL,\n    hashes TEXT NOT NULL, operation TEXT NOT NULL DEFAULT 'event'\n    CHECK (operation IN ('event','thread')), memory_resources TEXT NOT NULL DEFAULT '[]'\n    CHECK (json_valid(memory_resources) AND json_type(memory_resources) = 'array'),\n    PRIMARY KEY (thread_id, seq)\n  )",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "threads",
+        "tableName": "threads",
+        "sql": "CREATE TABLE threads (\n  id TEXT PRIMARY KEY NOT NULL,\n  last_seq INTEGER NOT NULL CHECK (last_seq >= 0),\n  created_at REAL NOT NULL,\n  updated_at REAL NOT NULL\n) STRICT",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "brainstrike_assistant_task_lists",
+        "tableName": "brainstrike_assistant_task_lists",
+        "sql": "CREATE TABLE brainstrike_assistant_task_lists (\n      thread_id   TEXT PRIMARY KEY NOT NULL,\n      resource_id TEXT NOT NULL,\n      tasks TEXT CHECK (tasks IS NULL OR json_valid(tasks)) NOT NULL DEFAULT '[]',\n      updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))\n    ) STRICT",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "brainstrike_assistant_edit_checkpoints",
+        "tableName": "brainstrike_assistant_edit_checkpoints",
+        "sql": "CREATE TABLE brainstrike_assistant_edit_checkpoints (\n      id             TEXT PRIMARY KEY NOT NULL,\n      run_id         TEXT NOT NULL,\n      resource_id    TEXT NOT NULL,\n      thread_id      TEXT NOT NULL,\n      tool_call_id   TEXT,\n      tool_name      TEXT NOT NULL,\n      op             TEXT NOT NULL CHECK (op IN ('write','string_replace','delete','rename')),\n      root_id        TEXT NOT NULL,\n      path           TEXT NOT NULL,\n      from_path      TEXT,\n      before_existed INTEGER CHECK (before_existed IN (0,1)) NOT NULL,\n      before_hash    TEXT,\n      before_content TEXT,\n      before_size    INTEGER,\n      after_hash     TEXT,\n      after_existed INTEGER CHECK (after_existed IN (0,1)) NOT NULL,\n      capture_status TEXT NOT NULL CHECK (capture_status IN\n                       ('ok','created','skipped_binary','skipped_too_large','expired','rename')),\n      reverted_at    TEXT,\n      occurred_at    TEXT NOT NULL,\n      created_at     TEXT NOT NULL,\n      updated_at     TEXT NOT NULL\n    ) STRICT",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_assistant_edit_checkpoints_thread_idx",
+        "tableName": "brainstrike_assistant_edit_checkpoints",
+        "sql": "CREATE INDEX brainstrike_assistant_edit_checkpoints_thread_idx\n      ON brainstrike_assistant_edit_checkpoints (thread_id, resource_id, occurred_at ASC, id ASC)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_assistant_edit_checkpoints_run_idx",
+        "tableName": "brainstrike_assistant_edit_checkpoints",
+        "sql": "CREATE INDEX brainstrike_assistant_edit_checkpoints_run_idx\n      ON brainstrike_assistant_edit_checkpoints (run_id, occurred_at ASC, id ASC)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_assistant_edit_checkpoints_revert_idx",
+        "tableName": "brainstrike_assistant_edit_checkpoints",
+        "sql": "CREATE INDEX brainstrike_assistant_edit_checkpoints_revert_idx\n      ON brainstrike_assistant_edit_checkpoints (thread_id, reverted_at)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "brainstrike_assistant_run_outcomes",
+        "tableName": "brainstrike_assistant_run_outcomes",
+        "sql": "CREATE TABLE brainstrike_assistant_run_outcomes (\n      run_id      TEXT PRIMARY KEY NOT NULL,\n      thread_id   TEXT NOT NULL,\n      resource_id TEXT NOT NULL,\n      verdict     TEXT NOT NULL CHECK (verdict IN ('succeeded','failed','mixed')),\n      source      TEXT NOT NULL CHECK (source IN ('user','edit_revert','hook')),\n      detail      TEXT,\n      labeled_at  TEXT NOT NULL,\n      created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),\n      updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))\n    ) STRICT",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_assistant_run_outcomes_thread_idx",
+        "tableName": "brainstrike_assistant_run_outcomes",
+        "sql": "CREATE INDEX brainstrike_assistant_run_outcomes_thread_idx\n      ON brainstrike_assistant_run_outcomes (thread_id, resource_id)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_assistant_run_outcomes_resource_idx",
+        "tableName": "brainstrike_assistant_run_outcomes",
+        "sql": "CREATE INDEX brainstrike_assistant_run_outcomes_resource_idx\n      ON brainstrike_assistant_run_outcomes (resource_id, labeled_at DESC)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "brainstrike_diagnostic_events",
+        "tableName": "brainstrike_diagnostic_events",
+        "sql": "CREATE TABLE brainstrike_diagnostic_events (\n      id          TEXT PRIMARY KEY NOT NULL,\n      occurred_at TEXT NOT NULL,\n      severity    TEXT NOT NULL CHECK (severity IN ('warn','error','fatal')),\n      source      TEXT NOT NULL,\n      scope       TEXT,\n      code        TEXT,\n      message     TEXT NOT NULL,\n      stack       TEXT,\n      cause_chain TEXT CHECK (cause_chain IS NULL OR json_valid(cause_chain)),\n      context TEXT CHECK (context IS NULL OR json_valid(context)),\n      fingerprint TEXT NOT NULL,\n      session_id  TEXT NOT NULL,\n      run_id      TEXT,\n      thread_id   TEXT,\n      resource_id TEXT,\n      root_id     TEXT,\n      app_version TEXT NOT NULL,\n      platform    TEXT NOT NULL,\n      created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))\n    ) STRICT",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "bst_diagnostic_events_occurred_idx",
+        "tableName": "brainstrike_diagnostic_events",
+        "sql": "CREATE INDEX bst_diagnostic_events_occurred_idx\n      ON brainstrike_diagnostic_events (occurred_at DESC)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "bst_diagnostic_events_fingerprint_idx",
+        "tableName": "brainstrike_diagnostic_events",
+        "sql": "CREATE INDEX bst_diagnostic_events_fingerprint_idx\n      ON brainstrike_diagnostic_events (fingerprint, occurred_at DESC)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "bst_diagnostic_events_thread_idx",
+        "tableName": "brainstrike_diagnostic_events",
+        "sql": "CREATE INDEX bst_diagnostic_events_thread_idx\n      ON brainstrike_diagnostic_events (thread_id) WHERE thread_id IS NOT NULL",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "bst_diagnostic_events_severity_idx",
+        "tableName": "brainstrike_diagnostic_events",
+        "sql": "CREATE INDEX bst_diagnostic_events_severity_idx\n      ON brainstrike_diagnostic_events (severity, occurred_at DESC)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "brainstrike_assistant_run_errors",
+        "tableName": "brainstrike_assistant_run_errors",
+        "sql": "CREATE TABLE brainstrike_assistant_run_errors (\n      run_id              TEXT PRIMARY KEY NOT NULL,\n      thread_id           TEXT NOT NULL,\n      resource_id         TEXT NOT NULL,\n      code                TEXT NOT NULL,\n      message             TEXT,\n      cause_chain TEXT CHECK (cause_chain IS NULL OR json_valid(cause_chain)),\n      http_status         INTEGER,\n      provider_request_id TEXT,\n      response_headers TEXT CHECK (response_headers IS NULL OR json_valid(response_headers)),\n      occurred_at         TEXT NOT NULL,\n      created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),\n      CONSTRAINT bst_assistant_run_errors_run_check\n        CHECK (length(run_id) > 0),\n      CONSTRAINT bst_assistant_run_errors_thread_check\n        CHECK (length(thread_id) > 0),\n      CONSTRAINT bst_assistant_run_errors_resource_check\n        CHECK (length(resource_id) > 0),\n      CONSTRAINT bst_assistant_run_errors_code_check\n        CHECK (length(code) > 0),\n      CONSTRAINT bst_assistant_run_errors_cause_chain_check\n        CHECK (cause_chain IS NULL OR json_type(cause_chain) = 'array'),\n      CONSTRAINT bst_assistant_run_errors_http_status_check\n        CHECK (http_status IS NULL OR http_status BETWEEN 100 AND 599),\n      CONSTRAINT bst_assistant_run_errors_response_headers_check\n        CHECK (response_headers IS NULL OR json_type(response_headers) = 'object')\n    ) STRICT",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "bst_assistant_run_errors_thread_idx",
+        "tableName": "brainstrike_assistant_run_errors",
+        "sql": "CREATE INDEX bst_assistant_run_errors_thread_idx\n      ON brainstrike_assistant_run_errors (thread_id, occurred_at DESC)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "bst_assistant_run_errors_resource_idx",
+        "tableName": "brainstrike_assistant_run_errors",
+        "sql": "CREATE INDEX bst_assistant_run_errors_resource_idx\n      ON brainstrike_assistant_run_errors (resource_id, occurred_at DESC)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "bst_diagnostic_events_run_idx",
+        "tableName": "brainstrike_diagnostic_events",
+        "sql": "CREATE INDEX bst_diagnostic_events_run_idx\n      ON brainstrike_diagnostic_events (run_id, occurred_at DESC)\n      WHERE run_id IS NOT NULL",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "brainstrike_mind_ops",
+        "tableName": "brainstrike_mind_ops",
+        "sql": "CREATE TABLE brainstrike_mind_ops (\n      seq INTEGER PRIMARY KEY AUTOINCREMENT,\n      entity_kind TEXT NOT NULL CHECK (entity_kind IN ('thread', 'prompt_item')),\n      entity_id TEXT NOT NULL,\n      op TEXT NOT NULL CHECK (op = 'delete'),\n      resource_id TEXT,\n      occurred_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))\n    ) STRICT",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_mind_ops_entity_idx",
+        "tableName": "brainstrike_mind_ops",
+        "sql": "CREATE INDEX brainstrike_mind_ops_entity_idx\n      ON brainstrike_mind_ops (entity_kind, entity_id)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "brainstrike_assistant_message_tombstones",
+        "tableName": "brainstrike_assistant_message_tombstones",
+        "sql": "CREATE TABLE brainstrike_assistant_message_tombstones (\n      message_id TEXT PRIMARY KEY NOT NULL,\n      thread_id TEXT NOT NULL,\n      rewind_id TEXT NOT NULL,\n      revert_id TEXT,\n      tombstoned_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))\n    ) STRICT",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_assistant_message_tombstones_thread_idx",
+        "tableName": "brainstrike_assistant_message_tombstones",
+        "sql": "CREATE INDEX brainstrike_assistant_message_tombstones_thread_idx\n      ON brainstrike_assistant_message_tombstones (thread_id)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_assistant_message_tombstones_rewind_idx",
+        "tableName": "brainstrike_assistant_message_tombstones",
+        "sql": "CREATE INDEX brainstrike_assistant_message_tombstones_rewind_idx\n      ON brainstrike_assistant_message_tombstones (rewind_id)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "brainstrike_workspace_snapshots",
+        "tableName": "brainstrike_workspace_snapshots",
+        "sql": "CREATE TABLE brainstrike_workspace_snapshots (\n      id TEXT PRIMARY KEY NOT NULL,\n      thread_id TEXT NOT NULL,\n      run_id TEXT,\n      root_id TEXT NOT NULL,\n      root_path TEXT NOT NULL,\n      commit_oid TEXT NOT NULL,\n      kind TEXT NOT NULL CHECK (kind IN ('turn-start', 'turn-end', 'pre-revert')),\n      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))\n    ) STRICT",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_workspace_snapshots_thread_idx",
+        "tableName": "brainstrike_workspace_snapshots",
+        "sql": "CREATE INDEX brainstrike_workspace_snapshots_thread_idx\n      ON brainstrike_workspace_snapshots (thread_id, created_at)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_workspace_snapshots_root_idx",
+        "tableName": "brainstrike_workspace_snapshots",
+        "sql": "CREATE INDEX brainstrike_workspace_snapshots_root_idx\n      ON brainstrike_workspace_snapshots (root_id)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "brainstrike_token_estimate_calibration",
+        "tableName": "brainstrike_token_estimate_calibration",
+        "sql": "CREATE TABLE brainstrike_token_estimate_calibration (\n      id TEXT PRIMARY KEY NOT NULL,\n      thread_id TEXT NOT NULL,\n      run_id TEXT NOT NULL,\n      model TEXT NOT NULL,\n      provider TEXT NOT NULL,\n      estimated_prompt_tokens INTEGER NOT NULL CHECK (estimated_prompt_tokens >= 0),\n      final_step_prompt_tokens INTEGER NOT NULL CHECK (final_step_prompt_tokens >= 0),\n      step_count INTEGER NOT NULL DEFAULT 1 CHECK (step_count >= 1),\n      model_visible_projection_count INTEGER NOT NULL DEFAULT 0 CHECK (model_visible_projection_count >= 0),\n      occurred_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),\n      resolved_domain_budget_tokens INTEGER CHECK (resolved_domain_budget_tokens IS NULL OR resolved_domain_budget_tokens > 0),\n      resolved_transport_budget_tokens INTEGER CHECK (resolved_transport_budget_tokens IS NULL OR resolved_transport_budget_tokens > 0),\n      prompt_baseline_tokens INTEGER CHECK (prompt_baseline_tokens IS NULL OR prompt_baseline_tokens > 0)\n    ) STRICT",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_token_estimate_calibration_thread_idx",
+        "tableName": "brainstrike_token_estimate_calibration",
+        "sql": "CREATE INDEX brainstrike_token_estimate_calibration_thread_idx\n      ON brainstrike_token_estimate_calibration (thread_id)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_token_estimate_calibration_model_idx",
+        "tableName": "brainstrike_token_estimate_calibration",
+        "sql": "CREATE INDEX brainstrike_token_estimate_calibration_model_idx\n      ON brainstrike_token_estimate_calibration (model, occurred_at DESC)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_token_estimate_calibration_occurred_at_idx",
+        "tableName": "brainstrike_token_estimate_calibration",
+        "sql": "CREATE INDEX brainstrike_token_estimate_calibration_occurred_at_idx\n      ON brainstrike_token_estimate_calibration (occurred_at)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "brainstrike_assistant_compaction_ranges",
+        "tableName": "brainstrike_assistant_compaction_ranges",
+        "sql": "CREATE TABLE brainstrike_assistant_compaction_ranges (\n      compaction_message_id TEXT PRIMARY KEY NOT NULL,\n      thread_id TEXT NOT NULL,\n      compacted_message_ids TEXT CHECK (compacted_message_ids IS NULL OR json_valid(compacted_message_ids)) NOT NULL,\n      kind TEXT NOT NULL CHECK (kind IN ('agentic', 'deterministic')),\n      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))\n    ) STRICT",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_assistant_compaction_ranges_thread_idx",
+        "tableName": "brainstrike_assistant_compaction_ranges",
+        "sql": "CREATE INDEX brainstrike_assistant_compaction_ranges_thread_idx\n      ON brainstrike_assistant_compaction_ranges (thread_id)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "brainstrike_assistant_run_treatments",
+        "tableName": "brainstrike_assistant_run_treatments",
+        "sql": "CREATE TABLE brainstrike_assistant_run_treatments (\n      run_id TEXT PRIMARY KEY NOT NULL,\n      thread_id TEXT NOT NULL,\n      resource_id TEXT NOT NULL,\n      experiment_id TEXT,\n      variant TEXT,\n      injection_status TEXT NOT NULL CHECK (\n        injection_status IN ('continuation', 'injected', 'no_waste', 'preference_malformed', 'preference_off', 'query_failed')\n      ),\n      signal_injected INTEGER CHECK (signal_injected IN (0,1)) NOT NULL,\n      signal_content_hash TEXT,\n      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),\n      CONSTRAINT brainstrike_assistant_run_treatments_injected_consistency\n        CHECK (signal_injected = (injection_status = 'injected'))\n    ) STRICT",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_assistant_run_treatments_created_at_idx",
+        "tableName": "brainstrike_assistant_run_treatments",
+        "sql": "CREATE INDEX brainstrike_assistant_run_treatments_created_at_idx\n      ON brainstrike_assistant_run_treatments (created_at)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "brainstrike_worktrees",
+        "tableName": "brainstrike_worktrees",
+        "sql": "CREATE TABLE brainstrike_worktrees (\n      id TEXT PRIMARY KEY NOT NULL,\n      repo_common_dir TEXT NOT NULL,\n      path TEXT NOT NULL UNIQUE,\n      branch TEXT,\n      base_ref TEXT NOT NULL,\n      created_by TEXT NOT NULL CHECK (created_by IN ('agent', 'user')),\n      thread_id TEXT,\n      run_id TEXT,\n      setup_status TEXT NOT NULL DEFAULT 'none'\n        CHECK (setup_status IN ('failed', 'none', 'skipped', 'succeeded')),\n      setup_output TEXT,\n      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),\n      archived_at TEXT,\n      archive_snapshot_ref TEXT,\n      setup_reason TEXT,\n      CONSTRAINT brainstrike_worktrees_archive_consistency\n        CHECK ((archived_at IS NULL) = (archive_snapshot_ref IS NULL))\n    ) STRICT",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_worktrees_repo_active_idx",
+        "tableName": "brainstrike_worktrees",
+        "sql": "CREATE INDEX brainstrike_worktrees_repo_active_idx\n      ON brainstrike_worktrees (repo_common_dir)\n      WHERE archived_at IS NULL",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_worktrees_thread_idx",
+        "tableName": "brainstrike_worktrees",
+        "sql": "CREATE INDEX brainstrike_worktrees_thread_idx\n      ON brainstrike_worktrees (thread_id)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "brainstrike_forge_prs",
+        "tableName": "brainstrike_forge_prs",
+        "sql": "CREATE TABLE brainstrike_forge_prs (\n      repo_common_dir TEXT NOT NULL,\n      branch TEXT NOT NULL,\n      number INTEGER,\n      url TEXT,\n      title TEXT,\n      state TEXT CHECK (state IS NULL OR state IN ('open', 'closed', 'merged')),\n      is_draft INTEGER CHECK (is_draft IN (0,1)),\n      review_decision TEXT,\n      checks_json TEXT CHECK (checks_json IS NULL OR json_valid(checks_json)),\n      head_sha TEXT,\n      observed_at TEXT NOT NULL,\n      PRIMARY KEY (repo_common_dir, branch),\n      CHECK (\n        (\n          number IS NULL AND url IS NULL AND title IS NULL AND state IS NULL\n          AND is_draft IS NULL AND checks_json IS NULL AND head_sha IS NULL\n        ) OR (\n          number IS NOT NULL AND url IS NOT NULL AND title IS NOT NULL AND state IS NOT NULL\n          AND is_draft IS NOT NULL AND checks_json IS NOT NULL AND head_sha IS NOT NULL\n        )\n      )\n    ) STRICT",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "brainstrike_mcp_task_authorities",
+        "tableName": "brainstrike_mcp_task_authorities",
+        "sql": "CREATE TABLE brainstrike_mcp_task_authorities (\n      authority_epoch TEXT PRIMARY KEY NOT NULL,\n      server_id TEXT NOT NULL CHECK (length(CAST(server_id AS BLOB)) BETWEEN 1 AND 512),\n      resource TEXT NOT NULL CHECK (length(CAST(resource AS BLOB)) BETWEEN 1 AND 2048),\n      principal_id TEXT NOT NULL CHECK (length(CAST(principal_id AS BLOB)) BETWEEN 1 AND 512),\n      runtime_id TEXT NOT NULL CHECK (length(CAST(runtime_id AS BLOB)) BETWEEN 1 AND 512),\n      connection_generation INTEGER NOT NULL CHECK (connection_generation >= 0),\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      retired_at TEXT,\n      UNIQUE (authority_epoch, server_id, resource, principal_id),\n      CHECK (created_at <= updated_at),\n      CHECK (retired_at IS NULL OR retired_at = updated_at)\n    ) STRICT",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_mcp_task_authorities_live_scope_idx",
+        "tableName": "brainstrike_mcp_task_authorities",
+        "sql": "CREATE UNIQUE INDEX brainstrike_mcp_task_authorities_live_scope_idx\n      ON brainstrike_mcp_task_authorities (server_id, resource, principal_id)\n      WHERE retired_at IS NULL",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "brainstrike_mcp_tasks",
+        "tableName": "brainstrike_mcp_tasks",
+        "sql": "CREATE TABLE brainstrike_mcp_tasks (\n      server_id TEXT NOT NULL CHECK (length(CAST(server_id AS BLOB)) BETWEEN 1 AND 512),\n      resource TEXT NOT NULL CHECK (length(CAST(resource AS BLOB)) BETWEEN 1 AND 2048),\n      principal_id TEXT NOT NULL CHECK (length(CAST(principal_id AS BLOB)) BETWEEN 1 AND 512),\n      task_id TEXT NOT NULL CHECK (length(CAST(task_id AS BLOB)) BETWEEN 1 AND 1024),\n      status TEXT NOT NULL CHECK (\n        status IN ('working', 'input_required', 'completed', 'failed', 'cancelled')\n      ),\n      status_message TEXT,\n      input_metadata TEXT CHECK (input_metadata IS NULL OR json_valid(input_metadata)),\n      result_metadata TEXT CHECK (result_metadata IS NULL OR json_valid(result_metadata)),\n      history TEXT CHECK (history IS NULL OR json_valid(history)) NOT NULL,\n      created_at TEXT NOT NULL,\n      updated_at TEXT NOT NULL,\n      terminal_at TEXT,\n      authority_epoch TEXT NOT NULL,\n      blocked_diagnostic TEXT CHECK (blocked_diagnostic IS NULL OR (json_valid(blocked_diagnostic) AND json_type(blocked_diagnostic) = 'object')), thread_id TEXT REFERENCES threads(id) ON DELETE CASCADE,\n      PRIMARY KEY (authority_epoch, task_id),\n      FOREIGN KEY (authority_epoch, server_id, resource, principal_id) REFERENCES brainstrike_mcp_task_authorities(authority_epoch, server_id, resource, principal_id) ON DELETE CASCADE,\n      CHECK (length(CAST(COALESCE(blocked_diagnostic, '') AS BLOB)) <= 4096),\n      CHECK (input_metadata IS NULL OR json_type(input_metadata) = 'object'),\n      CHECK (result_metadata IS NULL OR json_type(result_metadata) = 'object'),\n      CHECK (status_message IS NULL OR length(CAST(status_message AS BLOB)) <= 4096),\n      CHECK (json_type(history) = 'array' AND json_array_length(history) BETWEEN 1 AND 32),\n      CHECK (length(CAST(COALESCE(input_metadata, '') AS BLOB)) <= 65536),\n      CHECK (length(CAST(COALESCE(result_metadata, '') AS BLOB)) <= 65536),\n      CHECK (status <> 'input_required' OR input_metadata IS NOT NULL),\n      CHECK (status NOT IN ('completed', 'failed') OR result_metadata IS NOT NULL),\n      CHECK ((status IN ('completed', 'failed', 'cancelled') OR blocked_diagnostic IS NOT NULL) = (terminal_at IS NOT NULL)),\n      CHECK (created_at <= updated_at AND (terminal_at IS NULL OR terminal_at = updated_at))\n    ) STRICT",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_mcp_tasks_resume_idx",
+        "tableName": "brainstrike_mcp_tasks",
+        "sql": "CREATE INDEX brainstrike_mcp_tasks_resume_idx\n      ON brainstrike_mcp_tasks (authority_epoch, updated_at)\n      WHERE terminal_at IS NULL",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "brainstrike_assistant_run_events",
+        "tableName": "brainstrike_assistant_run_events",
+        "sql": "CREATE TABLE brainstrike_assistant_run_events (\n  id TEXT PRIMARY KEY NOT NULL,\n  run_id TEXT NOT NULL,\n  resource_id TEXT NOT NULL,\n  thread_id TEXT NOT NULL,\n  sequence INTEGER NOT NULL,\n  kind TEXT NOT NULL,\n  status TEXT NOT NULL,\n  label TEXT NOT NULL,\n  detail TEXT,\n  duration_ms INTEGER,\n  metadata TEXT CHECK (metadata IS NULL OR json_valid(metadata)),\n  occurred_at TEXT NOT NULL,\n  created_at TEXT NOT NULL,\n  updated_at TEXT NOT NULL\n    ) STRICT",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_assistant_run_events_thread_idx",
+        "tableName": "brainstrike_assistant_run_events",
+        "sql": "CREATE INDEX brainstrike_assistant_run_events_thread_idx\n  ON brainstrike_assistant_run_events (thread_id, resource_id, sequence ASC, occurred_at ASC)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_assistant_run_events_run_idx",
+        "tableName": "brainstrike_assistant_run_events",
+        "sql": "CREATE INDEX brainstrike_assistant_run_events_run_idx\n  ON brainstrike_assistant_run_events (run_id, sequence ASC, occurred_at ASC)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_assistant_run_events_approval_pause_idx",
+        "tableName": "brainstrike_assistant_run_events",
+        "sql": "CREATE INDEX brainstrike_assistant_run_events_approval_pause_idx\n  ON brainstrike_assistant_run_events (resource_id, thread_id)\n  WHERE kind = 'tool.approval.requested'",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_assistant_run_events_approval_answer_at_idx",
+        "tableName": "brainstrike_assistant_run_events",
+        "sql": "CREATE INDEX brainstrike_assistant_run_events_approval_answer_at_idx\n  ON brainstrike_assistant_run_events (resource_id, thread_id, (json_extract(metadata, '$.toolCallId')), occurred_at)\n  WHERE kind IN ('tool.started', 'tool.completed', 'tool.failed', 'tool.resume.unsupported')",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "brainstrike_assistant_run_usage",
+        "tableName": "brainstrike_assistant_run_usage",
+        "sql": "CREATE TABLE brainstrike_assistant_run_usage (\n      id TEXT PRIMARY KEY NOT NULL,\n      thread_id TEXT NOT NULL,\n      run_id TEXT NOT NULL,\n      resource_id TEXT NOT NULL,\n      model TEXT NOT NULL,\n      provider TEXT NOT NULL,\n      input_tokens INTEGER NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),\n      output_tokens INTEGER NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),\n      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),\n      root_id TEXT,\n      billed_cost_usd TEXT CHECK (billed_cost_usd IS NULL OR (length(billed_cost_usd) > 0 AND billed_cost_usd NOT GLOB '*[^0-9.]*' AND billed_cost_usd NOT GLOB '*.*.*' AND billed_cost_usd GLOB '*[0-9]*')),\n      cache_read_input_tokens INTEGER CHECK (cache_read_input_tokens >= 0),\n      cache_creation_input_tokens INTEGER CHECK (cache_creation_input_tokens >= 0),\n      run_kind TEXT NOT NULL DEFAULT 'chat' CHECK (run_kind IN ('chat','subagent','compaction-summary','om-observation','om-reflection')),\n      delegation_parent_run_id TEXT,\n      delegation_tool_call_id TEXT,\n      continuation_id TEXT,\n      CHECK ((delegation_parent_run_id IS NULL AND delegation_tool_call_id IS NULL) OR\n        (delegation_parent_run_id IS NOT NULL AND delegation_tool_call_id IS NOT NULL AND\n          length(trim(delegation_parent_run_id)) > 0 AND length(trim(delegation_tool_call_id)) > 0 AND run_kind = 'subagent'))\n    ) STRICT",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_assistant_run_usage_thread_idx",
+        "tableName": "brainstrike_assistant_run_usage",
+        "sql": "CREATE INDEX brainstrike_assistant_run_usage_thread_idx\n      ON brainstrike_assistant_run_usage (thread_id)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_assistant_run_usage_root_idx",
+        "tableName": "brainstrike_assistant_run_usage",
+        "sql": "CREATE INDEX brainstrike_assistant_run_usage_root_idx ON brainstrike_assistant_run_usage(resource_id, root_id)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_assistant_run_usage_delegation_idx",
+        "tableName": "brainstrike_assistant_run_usage",
+        "sql": "CREATE UNIQUE INDEX brainstrike_assistant_run_usage_delegation_idx ON brainstrike_assistant_run_usage(thread_id, delegation_parent_run_id, delegation_tool_call_id)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_assistant_run_usage_continuation_idx",
+        "tableName": "brainstrike_assistant_run_usage",
+        "sql": "CREATE UNIQUE INDEX brainstrike_assistant_run_usage_continuation_idx ON brainstrike_assistant_run_usage(continuation_id, run_id)",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "brainstrike_memory_scopes",
+        "tableName": "brainstrike_memory_scopes",
+        "sql": "CREATE TABLE brainstrike_memory_scopes (\n  resource_id TEXT PRIMARY KEY NOT NULL,\n  revision INTEGER NOT NULL CHECK (revision >= 0)\n) STRICT",
+        "shadow": false
+      },
+      {
+        "type": "table",
+        "name": "brainstrike_memory_entities",
+        "tableName": "brainstrike_memory_entities",
+        "sql": "CREATE TABLE brainstrike_memory_entities (\n  kind TEXT NOT NULL CHECK (kind IN ('thread','resource','observation')),\n  id TEXT NOT NULL,\n  resource_id TEXT NOT NULL REFERENCES brainstrike_memory_scopes(resource_id) ON DELETE CASCADE,\n  thread_id TEXT REFERENCES threads(id) ON DELETE CASCADE,\n  payload TEXT NOT NULL CHECK (json_valid(payload) AND json_type(payload) = 'object'),\n  PRIMARY KEY (kind,id)\n) STRICT",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_memory_entities_resource",
+        "tableName": "brainstrike_memory_entities",
+        "sql": "CREATE INDEX brainstrike_memory_entities_resource ON brainstrike_memory_entities(resource_id,kind)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_memory_entities_thread",
+        "tableName": "brainstrike_memory_entities",
+        "sql": "CREATE INDEX brainstrike_memory_entities_thread ON brainstrike_memory_entities(thread_id)",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "brainstrike_mcp_tasks_thread_idx",
+        "tableName": "brainstrike_mcp_tasks",
+        "sql": "CREATE INDEX brainstrike_mcp_tasks_thread_idx ON brainstrike_mcp_tasks(thread_id) WHERE thread_id IS NOT NULL",
+        "shadow": false
+      },
+      {
+        "type": "index",
+        "name": "run_events_hydrate",
+        "tableName": "run_events",
+        "sql": "CREATE INDEX run_events_hydrate ON run_events (thread_id, seq) WHERE hydrate = 1",
+        "shadow": false
+      }
+    ],
+    "pageSize": 4096,
+    "sqliteVersion": "3.53.4",
+    "userVersion": 6
+  }
+}

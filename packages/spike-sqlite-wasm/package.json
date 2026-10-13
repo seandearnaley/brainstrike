@@ -1,0 +1,24 @@
+{
+  "name": "@brainstrike/spike-sqlite-wasm",
+  "description": "THROWAWAY BST-1940 spike: official sqlite-wasm (opfs-sahpool, WAL, EXCLUSIVE) against PGlite on the web workload. Never merged.",
+  "version": "0.0.0",
+  "dependencies": {
+    "@brainstrike/logging": "workspace:*",
+    "@electric-sql/pglite": "catalog:",
+    "@electric-sql/pglite-pg_textsearch": "catalog:",
+    "@electric-sql/pglite-pgvector": "catalog:",
+    "@sqlite.org/sqlite-wasm": "catalog:"
+  },
+  "devDependencies": {
+    "better-sqlite3": "catalog:",
+    "playwright": "catalog:",
+    "vite": "catalog:"
+  },
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "spike:build": "vite build",
+    "spike:run": "node bench/run.mjs"
+  },
+  "type": "module"
+}

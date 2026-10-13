@@ -111,6 +111,9 @@ catalogs:
     '@smithy/util-utf8':
       specifier: ^4.5.2
       version: 4.5.2
+    '@sqlite.org/sqlite-wasm':
+      specifier: 3.53.4-build1
+      version: 3.53.4-build1
     '@stryker-mutator/api':
       specifier: ^10.0.0
       version: 10.0.0
@@ -3558,6 +3561,34 @@ importers:
       zustand:
         specifier: 'catalog:'
         version: 5.0.15(@types/react@19.3.0)(immer@10.2.0)(react@19.3.0)(use-sync-external-store@1.6.0(react@19.3.0))
+
+  packages/spike-sqlite-wasm:
+    dependencies:
+      '@brainstrike/logging':
+        specifier: workspace:*
+        version: link:../logging
+      '@electric-sql/pglite':
+        specifier: 'catalog:'
+        version: 0.5.8(patch_hash=07412deadecaa3a5f5ba73c838108f930cb9092762ffb0c8f8deb495ef138311)
+      '@electric-sql/pglite-pg_textsearch':
+        specifier: 'catalog:'
+        version: 0.0.10(@electric-sql/pglite@0.5.8(patch_hash=07412deadecaa3a5f5ba73c838108f930cb9092762ffb0c8f8deb495ef138311))
+      '@electric-sql/pglite-pgvector':
+        specifier: 'catalog:'
+        version: 0.0.9(@electric-sql/pglite@0.5.8(patch_hash=07412deadecaa3a5f5ba73c838108f930cb9092762ffb0c8f8deb495ef138311))
+      '@sqlite.org/sqlite-wasm':
+        specifier: 'catalog:'
+        version: 3.53.4-build1
+    devDependencies:
+      better-sqlite3:
+        specifier: 'catalog:'
+        version: 13.0.3
+      playwright:
+        specifier: 'catalog:'
+        version: 1.63.0
+      vite:
+        specifier: 'catalog:'
+        version: 8.3.1(@types/node@26.1.0)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0)(tsx@4.23.12)(yaml@2.9.0)
 
   packages/sqlite-native:
     dependencies:
@@ -9164,6 +9195,10 @@ packages:
   '@smithy/util-utf8@4.5.2':
     resolution: {integrity: sha512-7wNWV7SugHpcMA7uzEawJNpE0GrasXM7a9E+1+Wm6NxVuDClESac/AKt+G7jMZNUz5vBLWqKlqVV7Sv7AtUr6Q==}
     engines: {node: '>=18.0.0'}
+
+  '@sqlite.org/sqlite-wasm@3.53.4-build1':
+    resolution: {integrity: sha512-U8pvL0patYHMgieD8JxxYJTlh9m1LUX8+BDYb7MiKQzBI89f2qbdmdcG/PvnPaLm9wsBbv4VlVG453ixnxBOnA==}
+    engines: {node: '>=22'}
 
   '@standard-community/standard-json@0.3.6':
     resolution: {integrity: sha512-tuXKz1Ps4al0W4xhfwii7v4lskKtOv3QE7mcouRVThrBdOR6JzY4Vea3nsxcEnte84bOJvMvXGmOMWE3IBbHyA==}
@@ -20093,6 +20128,8 @@ snapshots:
       '@smithy/core': 3.33.3
       tslib: 2.8.1
 
+  '@sqlite.org/sqlite-wasm@3.53.4-build1': {}
+
   '@standard-community/standard-json@0.3.6(@standard-schema/spec@1.1.0)(@types/json-schema@7.0.15)(zod-to-json-schema@3.25.2(zod@4.6.5))(zod@4.6.5)':
     dependencies:
       '@standard-schema/spec': 1.1.0
@@ -27028,6 +27065,22 @@ snapshots:
       tinyglobby: 0.2.17
     optionalDependencies:
       '@types/node': 24.13.3
+      esbuild: 0.28.2
+      fsevents: 2.3.3
+      jiti: 2.7.0
+      terser: 5.50.0
+      tsx: 4.23.12
+      yaml: 2.9.0
+
+  vite@8.3.1(@types/node@26.1.0)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.50.0)(tsx@4.23.12)(yaml@2.9.0):
+    dependencies:
+      lightningcss: 1.33.0
+      picomatch: 4.0.7
+      postcss: 8.5.28
+      rolldown: 1.2.11
+      tinyglobby: 0.2.17
+    optionalDependencies:
+      '@types/node': 26.1.0
       esbuild: 0.28.2
       fsevents: 2.3.3
       jiti: 2.7.0

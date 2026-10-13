@@ -1,0 +1,64 @@
+{
+  "bm25": {
+    "comparedScores": 66339,
+    "exactScores": 49024,
+    "maxRelativeScoreDelta": 5.034718202022347e-16,
+    "queries": 1190
+  },
+  "corpus": {
+    "chunks": 1606,
+    "nativeSqlite": "3.53.4"
+  },
+  "ddl": {
+    "native": [
+      {
+        "detail": "no such module: vec0",
+        "name": "vec_chunks",
+        "outcome": "error",
+        "type": "table"
+      },
+      {
+        "detail": "no such function: vec_length",
+        "name": "scoped_vectors",
+        "outcome": "error",
+        "type": "table"
+      }
+    ],
+    "wasm": [
+      {
+        "detail": "SQLITE_ERROR: sqlite3 result code 1: no such module: vec0",
+        "name": "vec_chunks",
+        "outcome": "error",
+        "type": "table"
+      },
+      {
+        "detail": "SQLITE_ERROR: sqlite3 result code 1: no such function: vec_length",
+        "name": "scoped_vectors",
+        "outcome": "error",
+        "type": "table"
+      }
+    ]
+  },
+  "failures": [],
+  "failureCount": 0,
+  "failureKinds": {},
+  "grep": {
+    "cases": 3588,
+    "candidatePlans": 3586,
+    "plansWithMatches": 1725
+  },
+  "history": {
+    "messages": 2000,
+    "queries": 800
+  },
+  "integrity": {
+    "file_chunks_fts": "ok",
+    "file_chunks_trigram": "ok",
+    "state_search_fts": "ok",
+    "state_events_fts": "ok"
+  },
+  "trigramSearch": {
+    "queries": 1969
+  },
+  "wasmSqlite": "3.53.4"
+}
