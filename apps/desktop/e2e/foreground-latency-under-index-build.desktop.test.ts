@@ -258,7 +258,13 @@ test.describe('Foreground latency under a full index build', () => {
           return await capability.status();
         });
         if (nativeScope.kind !== 'ready' || nativeScope.authorizedCollectionIds?.length !== 1) {
-          throw new Error('Native benchmark scope is not ready with one authorized collection');
+          await testInfo.attach('native-benchmark-scope', {
+            body: JSON.stringify(nativeScope, null, 2),
+            contentType: 'application/json',
+          });
+          throw new Error(
+            `Native benchmark scope is not ready with one authorized collection: ${JSON.stringify(nativeScope)}`
+          );
         }
         const embeddingSetId = nativeScope.authorizedCollectionIds[0];
         if (!embeddingSetId) {
