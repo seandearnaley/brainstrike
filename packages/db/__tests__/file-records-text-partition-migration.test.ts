@@ -29,7 +29,7 @@ it('creates the TEXT partition identity index and drops it on the way down', {
   timeout: 60_000,
 }, async () => {
   await runner.initialize();
-  await runner.up(migrations);
+  await runner.up(migrations.filter((entry) => entry.version <= migration.version));
   expect(await runner.getCurrentVersion()).toBeGreaterThanOrEqual(migration.version);
   expect(await indexDefinition()).toBe(
     'CREATE UNIQUE INDEX idx_file_records_text_partition_identity ON public.file_records USING btree (root_id, path) WHERE ((embedding_set_id IS NULL) AND (root_id IS NOT NULL))'

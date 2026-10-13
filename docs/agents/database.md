@@ -3,6 +3,17 @@
 > Read before migrations, models, PGlite, or browser bootstrap. Rules are current;
 > historical records live in `database/<topic>.md`.
 
+## Current delegation storage
+
+The agent host owns current delegated threads, decisions, usage and budgets in its
+existing log. Migration 152 removes the unwritten PGlite delegation owner: the
+seven `brainstrike_delegated_*` tables and three `brainstrike_delegation_*` budget
+tables, plus the three invocation/continuation link columns on run usage. Shared
+web run, event and usage tables and their writers remain. Web search, deletion and
+debug export operate on the selected ordinary thread/resource; they do not consult
+a delegated graph. The delegated PGlite sections below are historical schema
+records, not current runtime authority. No compatibility data conversion occurs.
+
 ## `statement_timeout` IS INERT IN PGLITE
 
 PGlite accepts `statement_timeout` and reports it through `SHOW`, but the WASM

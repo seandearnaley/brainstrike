@@ -19,7 +19,6 @@ import type { AssistantDiscoveredRun } from '@brainstrike/assistant-contract/ass
 import type { HostRunId } from '@brainstrike/assistant-contract/host-run-id';
 import {
   DEFAULT_THREAD_TITLE,
-  DELEGATED_THREAD_DELETE_CTES,
   MASTRA_MEMORY_TABLES,
   MIND_OPS_TABLE,
   THREAD_DELETE_SIDECAR_TABLES,
@@ -45,17 +44,13 @@ import {
   type AssistantHistoryMessage,
   type AssistantThreadMessageListOptions,
   type AssistantThreadRunEventListOptions,
-  createDelegatedConversationRepository,
   readAssistantHistoryMessages,
   readAssistantHistoryRunEvents,
   recordAssistantHistoryParent,
 } from '@brainstrike/db';
 
 import type { DbHandle } from '@brainstrike/db/react';
-import {
-  type DelegatedReplayProofInput,
-  hasPendingDelegatedReplayCall,
-} from './assistant-delegated-replay-proof';
+import type { DelegatedReplayProofInput } from './assistant-delegated-replay-proof';
 
 export {
   ASSISTANT_HISTORY_HYDRATION_MESSAGE_LIMIT,
@@ -187,19 +182,9 @@ export interface AssistantThreadRunRecord {
 }
 
 export interface CreateAssistantThreadRunInput {
-  /** Resolve the original turn from the owned durable continuation before insertion. */
-  readonly childContinuation?: { readonly id: string; readonly nativeRunId: string };
   readonly completedAt?: Date | null;
-  /**
-   * The approval/resume decision this leg answers, when it answers one
-   * (BST-1749, migration 140). The GENERATION it belongs to is derived from
-   * durable state — a delegated pause through its invocation's host leg, a
-   * root-own pause through the native run the host mapped — so every leg of
-   * one generation carries the same ledger identity. A leg with no decision
-   * (an initial send, a regeneration) opens its own generation.
-   */
+  /** Resolve an ordinary approval/resume leg through its original native run. */
   readonly decision?: {
-    readonly delegated: boolean;
     readonly runId: string;
     readonly toolCallId: string;
   };
@@ -748,16 +733,7 @@ export function readSoleGenerationRunId(
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
-/**
- * The GENERATION a new leg belongs to (migration 140, BST-1749). An initial
- * send or a regeneration opens its OWN; a leg that answers a decision inherits
- * the generation of the leg whose paused run it continues — a child
- * continuation through its receipt, a DELEGATED pause through its invocation's
- * host leg, a ROOT-OWN pause through the native run the host mapped. NULL when
- * nothing maps that run (a pause parked before migration 140, or a surface
- * that maps no native runs at all): the background ledger throws there rather
- * than guess an identity no other leg of the turn shares.
- */
+/** Ordinary initial sends own their generation; resumes use the existing native-run mapping. */
 async function resolveGenerationRunId(
   database: Parameters<typeof createPgliteAssistantThreadRepository>[0],
   input: CreateAssistantThreadRunInput
@@ -769,26 +745,6 @@ async function resolveGenerationRunId(
     );
     return readSoleGenerationRunId(found.rows);
   };
-  if (input.childContinuation) {
-    return await readGeneration(
-      `SELECT owner.generation_run_id AS "generationRunId"
-         FROM brainstrike_delegated_continuations continuation
-         JOIN ${ASSISTANT_THREAD_RUNS_TABLE} owner ON owner.id = continuation.host_run_id
-        WHERE continuation.id = $1 AND continuation.owner_resource_id = $2
-          AND continuation.root_thread_id = $3`,
-      [input.childContinuation.id, input.resourceId, input.threadId]
-    );
-  }
-  if (input.decision?.delegated) {
-    return await readGeneration(
-      `SELECT owner.generation_run_id AS "generationRunId"
-         FROM brainstrike_delegated_invocations invocation
-         JOIN ${ASSISTANT_THREAD_RUNS_TABLE} owner ON owner.id = invocation.host_run_id
-        WHERE invocation.owner_resource_id = $1 AND invocation.root_thread_id = $2
-          AND invocation.parent_runtime_run_id = $3 AND invocation.parent_tool_call_id = $4`,
-      [input.resourceId, input.threadId, input.decision.runId, input.decision.toolCallId]
-    );
-  }
   if (input.decision) {
     return await readGeneration(
       `SELECT owner.generation_run_id AS "generationRunId"
@@ -848,7 +804,6 @@ export function requiredAssistantMemoryRelations(): readonly string[] {
       ASSISTANT_RUN_USAGE_TABLE,
       ASSISTANT_RUN_OUTCOMES_TABLE,
       MIND_OPS_TABLE,
-      'brainstrike_delegated_conversations',
       // `roots` is not assistant-owned (migration 039 creates it), but
       // CROSS_ROOT_USAGE_AGGREGATION_SQL reads it through `LEFT JOIN roots`.
       // Without it here, a handle carrying every assistant relation but no
@@ -3022,23 +2977,7 @@ export function createPgliteAssistantThreadRepository(
     },
     async createThreadRun(input: CreateAssistantThreadRunInput): Promise<AssistantThreadRunRecord> {
       await initialize();
-      let turnMessageId = input.turnMessageId ?? null;
-      if (input.childContinuation) {
-        const receipt = await createDelegatedConversationRepository(database).getContinuation(
-          { ownerResourceId: input.resourceId, rootThreadId: input.threadId },
-          input.childContinuation.id
-        );
-        if (
-          !receipt ||
-          receipt.nativeRunId !== input.childContinuation.nativeRunId ||
-          !['awaiting-approval', 'awaiting-input'].includes(receipt.state)
-        ) {
-          throw new Error(
-            'Child continuation decision is no longer pending or does not belong to this root.'
-          );
-        }
-        turnMessageId = receipt.turnMessageId;
-      }
+      const turnMessageId = input.turnMessageId ?? null;
       const generationRunId = await resolveGenerationRunId(database, input);
       const now = new Date();
       const startedAt = input.startedAt ?? now;
@@ -3120,9 +3059,9 @@ export function createPgliteAssistantThreadRepository(
       const sidecarCounts = THREAD_DELETE_SIDECAR_TABLES.map(
         ({ table }) => `(SELECT count(*) FROM deleted_${table}) AS "deleted_${table}_count"`
       ).join(',\n          ');
-      const result = await database.query<{ allAuthorized: boolean }>(
+      await database.query(
         `WITH RECURSIVE requested(id) AS (VALUES ($1::text)),
-          ${DELEGATED_THREAD_DELETE_CTES},
+          deletion_threads AS (SELECT id FROM requested),
           deleted_observational_memory AS (
             DELETE FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
             WHERE "threadId" IN (SELECT id FROM deletion_threads)
@@ -3146,7 +3085,6 @@ export function createPgliteAssistantThreadRepository(
             RETURNING seq
           )
          SELECT
-          (SELECT all_authorized FROM deletion_scope_validation) AS "allAuthorized",
           (SELECT count(*) FROM deleted_observational_memory) AS deleted_observational_memory_count,
           (SELECT count(*) FROM deleted_messages) AS deleted_message_count,
           ${sidecarCounts},
@@ -3154,11 +3092,6 @@ export function createPgliteAssistantThreadRepository(
           (SELECT count(*) FROM inserted_mind_ops) AS inserted_mind_op_count`,
         [threadId]
       );
-      if (result.rows[0]?.allAuthorized !== true) {
-        throw new Error('Delegated branch deletion requires unchanged native ownership.', {
-          cause: { operation: 'delete-delegated-branch', requestedThreadIds: [threadId] },
-        });
-      }
     },
     async deleteThreads(threadIds: readonly string[]): Promise<void> {
       requireAssistantThreadIds(threadIds);
@@ -3167,7 +3100,7 @@ export function createPgliteAssistantThreadRepository(
         `WITH RECURSIVE requested(id) AS (
             VALUES ${threadIdValuesSql(threadIds)}
           ),
-          ${DELEGATED_THREAD_DELETE_CTES},
+          deletion_threads AS (SELECT id FROM requested),
           validation AS (
             SELECT COUNT(threads.id) = ${threadIds.length} AS all_found
             FROM requested
@@ -3209,7 +3142,6 @@ export function createPgliteAssistantThreadRepository(
           )
          SELECT
           (SELECT all_found FROM validation) AS "allFound",
-          (SELECT all_authorized FROM deletion_scope_validation) AS "allAuthorized",
           (SELECT count(*) FROM deleted_observational_memory) AS "deletedObservationalMemoryCount",
           (SELECT count(*) FROM deleted_messages) AS "deletedMessageCount",
           ${THREAD_DELETE_SIDECAR_TABLES.map(
@@ -3220,11 +3152,6 @@ export function createPgliteAssistantThreadRepository(
         [...threadIds]
       );
       assertAllBulkThreadsFound(result.rows[0]);
-      if (result.rows[0]?.['allAuthorized'] !== true) {
-        throw new Error('Delegated branch deletion requires unchanged native ownership.', {
-          cause: { operation: 'delete-delegated-branch', requestedThreadIds: [...threadIds] },
-        });
-      }
     },
     async getCrossRootUsage(resourceId: string): Promise<readonly CrossRootUsageRow[]> {
       await initialize();
@@ -3360,10 +3287,6 @@ export function createPgliteAssistantThreadRepository(
       );
       const value = result.rows[0]?.turnMessageId;
       return typeof value === 'string' && value.length > 0 ? value : null;
-    },
-    async hasPendingDelegatedToolCall(input) {
-      await initialize();
-      return hasPendingDelegatedReplayCall(database, input);
     },
     async hasResolvedToolCallInGeneration(hostRunId, toolCallId) {
       requireString(hostRunId, 'hostRunId');

@@ -111,7 +111,7 @@ describe('anthropic claude opus 5 migration', () => {
     timeout: 60_000,
   }, async () => {
     await runner.initialize();
-    await runner.up(migrations);
+    await runner.up(migrations.filter((entry) => entry.version <= migration.version));
     await runner.down(migrations, migration.version - 1);
 
     const res = await db.query<{ id: string; sort_order: number }>(

@@ -1,7 +1,6 @@
 import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
-import { createDelegatedConversationRepository } from '../src/repositories/delegated-conversation-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 import { createPGliteTestDataDir } from './test-data-dir.js';
 
@@ -28,17 +27,12 @@ describe('migration 143 agent identity palettes', () => {
       VALUES ('root', 'owner', 'Root', '{}', now(), now()),
              ('old-child', 'old-resource', 'Old child', '{}', now(), now()),
              ('new-child', 'new-resource', 'New child', '{}', now(), now());`);
-    const repository = createDelegatedConversationRepository(db);
-    const scope = { ownerResourceId: 'owner', rootThreadId: 'root' };
-    await repository.registerRoot(scope);
-    await repository.createChild(scope, {
-      color: 'rose',
-      configuration: {},
-      displayName: 'Old',
-      parentThreadId: 'root',
-      resourceId: 'old-resource',
-      threadId: 'old-child',
-    });
+    await db.exec(`INSERT INTO brainstrike_delegated_conversations
+      (thread_id, owner_resource_id, root_thread_id, resource_id, configuration)
+      VALUES ('root', 'owner', 'root', 'owner', NULL)`);
+    await db.exec(`INSERT INTO brainstrike_delegated_conversations
+      (thread_id, owner_resource_id, root_thread_id, parent_thread_id, resource_id, configuration, display_name, color)
+      VALUES ('old-child', 'owner', 'root', 'root', 'old-resource', '{}', 'Old', 'rose')`);
 
     const migration = migrations.find((candidate) => candidate.version === 143);
     if (!migration) {
@@ -48,14 +42,9 @@ describe('migration 143 agent identity palettes', () => {
     await db.exec(`INSERT INTO brainstrike_assistant_thread_groups
       (id, resource_id, name, rank, color)
       VALUES ('new-group', 'owner', 'New', 'a1', 'cyan');`);
-    await repository.createChild(scope, {
-      color: 'lime',
-      configuration: {},
-      displayName: 'New',
-      parentThreadId: 'root',
-      resourceId: 'new-resource',
-      threadId: 'new-child',
-    });
+    await db.exec(`INSERT INTO brainstrike_delegated_conversations
+      (thread_id, owner_resource_id, root_thread_id, parent_thread_id, resource_id, configuration, display_name, color)
+      VALUES ('new-child', 'owner', 'root', 'root', 'new-resource', '{}', 'New', 'lime')`);
 
     expect(
       (
@@ -64,7 +53,13 @@ describe('migration 143 agent identity palettes', () => {
         )
       ).rows
     ).toEqual([{ color: 'cyan' }, { color: 'rose' }]);
-    expect(await repository.get(scope, 'new-child')).toMatchObject({ color: 'lime' });
+    expect(
+      (
+        await db.query(
+          "SELECT color FROM brainstrike_delegated_conversations WHERE thread_id = 'new-child'"
+        )
+      ).rows
+    ).toEqual([{ color: 'lime' }]);
     await expect(
       db.exec(
         `UPDATE brainstrike_assistant_thread_groups SET color = 'magenta' WHERE id = 'new-group'`

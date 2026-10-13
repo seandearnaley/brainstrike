@@ -1,5 +1,4 @@
 import { DEFAULT_RUNTIME_SUBAGENT_SETTINGS } from '@brainstrike/assistant-contract/subagent-settings';
-import { createDelegatedConversationRepository, runDrizzleMigrations } from '@brainstrike/db';
 import { createEnginePglite } from '@brainstrike/db/pglite-factory';
 import { createLogger } from '@brainstrike/logging';
 import type { PGlite } from '@electric-sql/pglite';
@@ -242,9 +241,6 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
   it.each([true, false])(
     'exposes per-invocation identity before child publication (explicit memory=%s)',
     async (childMemory) => {
-      await runDrizzleMigrations(database);
-      const graph = createDelegatedConversationRepository(database);
-      const rootScope = { ownerResourceId: 'owner', rootThreadId: 'root' };
       const scopes = new Map<string, { threadId: string; resourceId: string }>();
       const parentRuns = new Map<string, string>();
       const processedRuns = new Map<string, Set<string>>();
@@ -255,28 +251,6 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
           threadId: identity.childThreadId,
         });
         expect(nativeThread?.resourceId).toBe(identity.childResourceId);
-        await graph.registerRoot(rootScope);
-        await graph.createChild(rootScope, {
-          color: 'blue',
-          configuration: identity.configuration,
-          displayName: identity.parentToolCallId,
-          parentThreadId: identity.parentThreadId,
-          resourceId: identity.childResourceId,
-          threadId: identity.childThreadId,
-        });
-        await database.query(`INSERT INTO brainstrike_assistant_thread_runs
-          (id, resource_id, thread_id, provider, model, runtime_kind, status,
-            started_at, created_at, updated_at, turn_message_id)
-          VALUES ('host-leg', 'owner', 'root', 'openai', 'scripted', 'desktop', 'running',
-            NOW(), NOW(), NOW(), 'user-turn') ON CONFLICT (id) DO NOTHING`);
-        await graph.createInvocation(rootScope, {
-          hostRunId: 'host-leg',
-          parentRuntimeRunId: identity.parentRuntimeRunId,
-          parentThreadId: identity.parentThreadId,
-          parentToolCallId: identity.parentToolCallId,
-          personaId: identity.personaId,
-          threadId: identity.childThreadId,
-        });
         parentRuns.set(identity.parentToolCallId, identity.parentRuntimeRunId);
         scopes.set(identity.parentToolCallId, {
           resourceId: identity.childResourceId,
@@ -337,7 +311,6 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
       const output = await parent.stream('Run both tasks', {
         memory: { resource: 'owner', thread: 'root' },
       });
-      const reloadedGraph = createDelegatedConversationRepository(database);
       for await (const chunk of output.fullStream) {
         if (chunk.type !== 'tool-output') {
           continue;
@@ -353,26 +326,17 @@ describe('installed Mastra delegation contract (BST-1716)', () => {
         if (!boundScope) {
           throw new Error('Published child has no bound scope');
         }
-        const persisted = await reloadedGraph.get(rootScope, boundScope.threadId);
-        expect(persisted).toMatchObject({
-          displayName: invocation,
-          resourceId: boundScope.resourceId,
-        });
+        expect(
+          (await backing.memory.getThreadById({ threadId: boundScope.threadId }))?.resourceId
+        ).toBe(boundScope.resourceId);
         const parentRuntimeRunId = parentRuns.get(invocation);
         if (!parentRuntimeRunId) {
           throw new Error('Missing observed parent run');
         }
-        const key = { parentRuntimeRunId, parentToolCallId: invocation };
         if (nested.type === 'start') {
-          await graph.bindInvocationRun(rootScope, { ...key, personaId: 'child' }, nested.runId);
           publishedRuns.set(invocation, nested.runId);
         }
-        expect(await reloadedGraph.getInvocation(rootScope, key)).toMatchObject({
-          childRuntimeRunId: nested.runId,
-          hostRunId: 'host-leg',
-          threadId: boundScope.threadId,
-          turnMessageId: 'user-turn',
-        });
+        expect(publishedRuns.get(invocation)).toBe(nested.runId);
       }
       expect(effect).toHaveBeenCalledTimes(2);
       expect(completions).toHaveBeenCalledTimes(2);
