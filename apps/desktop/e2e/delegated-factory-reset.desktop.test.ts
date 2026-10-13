@@ -177,6 +177,17 @@ test.describe('@destructive', () => {
       await waitForDatabaseReady(page);
       const oldIds = new Set(before.map((thread) => thread.threadId));
       const assertCleared = async (): Promise<void> => {
+        // Main starts the agent host without awaiting it (acquireProfile at boot), so a
+        // ready database does not mean the host has published its record. Wait until the
+        // host answers, then read what it committed.
+        await expect
+          .poll(() =>
+            readTree().then(
+              () => 'answering',
+              (error: unknown) => String(error)
+            )
+          )
+          .toBe('answering');
         expect((await readTree()).filter((thread) => oldIds.has(thread.threadId))).toEqual([]);
         await expect(page.getByRole('tab', { exact: true, name: callSign })).toHaveCount(0);
         await openSubagents(page);
