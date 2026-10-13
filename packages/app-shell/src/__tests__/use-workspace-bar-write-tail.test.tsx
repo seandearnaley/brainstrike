@@ -187,7 +187,7 @@ const query = vi.fn(async (sql: string, params?: unknown[]) => {
     return {
       rows: ids.flatMap((id) => {
         const row = ROOT_ROW_BY_ID[id];
-        return row ? [{ displayName: row.displayName, id, path: row.path }] : [];
+        return row ? [{ displayName: row.displayName, id, path: row.path, status: 'live' }] : [];
       }),
     };
   }

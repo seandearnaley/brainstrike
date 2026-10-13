@@ -11,10 +11,13 @@ const setup = () => userEvent.setup({ pointerEventsCheck: 0 });
 const baseBarProps = {
   onAddFolder: vi.fn(),
   onMakePrimary: vi.fn(),
+  onRemovePrimary: vi.fn(),
   onRemoveSecondary: vi.fn(),
+  onUseFolder: vi.fn(),
   primaryRoot: { displayName: 'app', path: '/work/app', rootId: 'r-1' },
   recentRoots: [],
   secondaryRoots: [],
+  workspaceFolders: [],
 };
 
 const mode = (overrides: Partial<WorkspaceBarMode> = {}): WorkspaceBarMode => ({

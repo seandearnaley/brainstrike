@@ -13,10 +13,13 @@ function baseProps(overrides: Partial<WorkspaceBarProps> = {}): WorkspaceBarProp
   return {
     onAddFolder: vi.fn(),
     onMakePrimary: vi.fn(),
+    onRemovePrimary: vi.fn(),
     onRemoveSecondary: vi.fn(),
+    onUseFolder: vi.fn(),
     primaryRoot: { displayName: 'brainstrike', path: '/ws/brainstrike', rootId: 'r-main' },
     recentRoots: [],
     secondaryRoots: [],
+    workspaceFolders: [],
     ...overrides,
   };
 }
