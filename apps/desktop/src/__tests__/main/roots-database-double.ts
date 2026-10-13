@@ -18,6 +18,9 @@ export function createRootsDatabaseDouble(): WorkspaceRootsQueryable & {
   const rows: RootRow[] = [];
   const query = async <T>(sql: string, params: readonly unknown[] = []): Promise<{ rows: T[] }> => {
     const statement = sql.replace(/\s+/g, ' ').trim();
+    if (statement === 'SELECT id, path FROM roots WHERE path IS NOT NULL') {
+      return { rows: rows.map(({ id, path }) => ({ id, path }) as T) };
+    }
     if (statement.startsWith('SELECT id FROM roots WHERE path = $1')) {
       return { rows: rows.filter((row) => row.path === params[0]).map(({ id }) => ({ id }) as T) };
     }
