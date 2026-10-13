@@ -6,7 +6,7 @@ import {
   EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
   EMBEDDING_DEVICE_LOST_CODE,
-  EmbeddingDeviceLostError,
+  type EmbeddingDeviceLostError,
   type EmbedWorkerLifetimeError,
   type EmbedWorkerPipelineCacheDiagnostic,
   type EmbedWorkerRequestControl,
@@ -24,77 +24,21 @@ import {
   type QueueAdapter,
   type QueueAddBulkOptions,
   type QueueAddOptions,
-  type QueueErrorEvent,
-  type QueueProgressEvent,
   type QueueResult,
   type TaskPayload,
   toWorkerRequest,
 } from '../types.js';
 import { estimateHardwareConcurrency, ProgressEmitter } from '../util.js';
+import { joinDeviceLossRetirement } from './device-loss-retirement.js';
+import {
+  assertCurrentTaskWorkerEvent,
+  readDeviceLoss,
+  readWorkerEvent,
+  throwIfWorkerError,
+  type WorkerEvent,
+} from './workerpool-events.js';
 
 const logger = createLogger('BrowserWorkerpoolAdapter');
-
-type WorkerEvent = QueueProgressEvent | QueueErrorEvent;
-
-function readWorkerEvent(value: unknown): WorkerEvent | null {
-  if (!(value && typeof value === 'object' && !Array.isArray(value))) {
-    return null;
-  }
-  const record = value as Record<string, unknown>;
-  const typeValue = record['type'];
-  if (typeValue === 'progress') {
-    if (
-      !(typeof record['id'] === 'string' && record['id'].length > 0) ||
-      (record['phase'] !== 'initializing' &&
-        record['phase'] !== 'embedding' &&
-        record['phase'] !== 'complete') ||
-      !(
-        typeof record['progress'] === 'number' &&
-        Number.isFinite(record['progress']) &&
-        record['progress'] >= 0 &&
-        record['progress'] <= 1
-      )
-    ) {
-      throw new Error('Embedding worker request progress event is malformed.');
-    }
-    return value as QueueProgressEvent;
-  }
-  if (typeValue === 'error') {
-    if (
-      !(
-        typeof record['id'] === 'string' &&
-        record['id'].length > 0 &&
-        typeof record['message'] === 'string' &&
-        record['message'].length > 0 &&
-        (record['cause'] === undefined || typeof record['cause'] === 'string') &&
-        (record['code'] === undefined || record['code'] === EMBEDDING_DEVICE_LOST_CODE)
-      )
-    ) {
-      throw new Error('Embedding worker request error event is malformed.');
-    }
-    return value as QueueErrorEvent;
-  }
-  return null;
-}
-
-function assertCurrentTaskWorkerEvent(workerEvent: WorkerEvent, taskId: string): void {
-  if (workerEvent.id !== taskId) {
-    throw new Error('Embedding worker request event id must match the current task id.');
-  }
-}
-
-function readDeviceLoss(workerEvent: WorkerEvent): EmbeddingDeviceLostError | null {
-  if (workerEvent.type !== 'error' || workerEvent.code !== EMBEDDING_DEVICE_LOST_CODE) {
-    return null;
-  }
-  return new EmbeddingDeviceLostError(workerEvent.cause ?? workerEvent.message);
-}
-
-function throwIfWorkerError(workerEvent: WorkerEvent): void {
-  if (workerEvent.type === 'error') {
-    throw new Error(workerEvent.message, { cause: workerEvent.cause });
-  }
-}
 
 function readPipelineCacheDiagnostic(value: unknown): EmbedWorkerPipelineCacheDiagnostic | null {
   if (typeof value !== 'object' || value === null) {
@@ -380,6 +324,34 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
   }
   let workerLifetimeTelemetryFailure: Error | null = null;
   let workerLifetimeRecovery: Promise<void> | null = null;
+  // Join vendor executions, never public add() outcomes which themselves join retirement.
+  const vendorExecutions = new Set<Promise<unknown>>();
+  let gpuRetirement: Promise<void> | null = null;
+  let gpuPoolRetired = false;
+  let terminateGpuPool: (() => Promise<void>) | null = null;
+  const retireGpuWorkerpool = (): void => {
+    if (gpuRetirement !== null || terminalState !== 'active') {
+      return;
+    }
+    const retirement = joinDeviceLossRetirement({
+      executions: vendorExecutions,
+      onFailure: (error) => {
+        workerLifetimeTelemetryFailure = new Error('WebGPU worker retirement failed.', {
+          cause: error,
+        });
+        return workerLifetimeTelemetryFailure;
+      },
+      onRetired: () => {
+        clearEmbeddingTelemetrySources();
+        activeWorkerInstanceIds.clear();
+        gpuPoolRetired = true;
+      },
+      terminate: terminatePool,
+    });
+    gpuRetirement = retirement.join;
+    terminateGpuPool = retirement.terminate;
+  };
+
   const recoverWorkerpoolAfterLifetimeError = (
     event: Pick<EmbedWorkerLifetimeError, 'message' | 'workerInstanceId'>,
     idleClosure = false
@@ -461,7 +433,14 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
         (event.data as Record<string, unknown>)['type'] === 'worker-lifetime-error'
       ) {
         assertEmbedWorkerLifetimeError(event.data);
-        recoverWorkerpoolAfterLifetimeError(event.data);
+        if (event.data.code === EMBEDDING_DEVICE_LOST_CODE) {
+          assertManagedWorkerInstanceId(event.data.workerInstanceId);
+          if (activeWorkerInstanceIds.has(event.data.workerInstanceId)) {
+            retireGpuWorkerpool();
+          }
+        } else {
+          recoverWorkerpoolAfterLifetimeError(event.data);
+        }
         return;
       }
       if (
@@ -541,6 +520,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
   const joinPhysicalFailure = async (failure: unknown): Promise<unknown> => {
     try {
       await physicalRetirement;
+      await gpuRetirement;
     } catch (retirementError) {
       if (retirementError !== failure) {
         return new AggregateError(
@@ -552,6 +532,26 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     return failure;
   };
 
+  const waitForLifetimeRecovery = async (): Promise<void> => {
+    if (workerLifetimeRecovery !== null) {
+      await workerLifetimeRecovery;
+      assertAcceptingWork();
+    }
+    if (gpuRetirement !== null) {
+      await gpuRetirement;
+      assertAcceptingWork();
+    }
+  };
+
+  const restoreRetiredGpuPool = (): void => {
+    if (gpuPoolRetired) {
+      pool = createPool();
+      gpuPoolRetired = false;
+      gpuRetirement = null;
+      terminateGpuPool = null;
+    }
+  };
+
   const execute = async (
     task: TaskPayload,
     opts?: QueueAddOptions | QueueAddBulkOptions
@@ -559,10 +559,8 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     if (paused) {
       await waitForResume();
     }
-    const recovery = workerLifetimeRecovery;
-    if (recovery !== null) {
-      await recovery;
-      assertAcceptingWork();
+    if (workerLifetimeRecovery ?? gpuRetirement) {
+      await waitForLifetimeRecovery();
     }
     const signal = (opts as QueueAddOptions | undefined)?.signal;
     if (signal?.aborted) {
@@ -571,6 +569,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
       throw reason;
     }
     assertAcceptingWork();
+    restoreRetiredGpuPool();
     let abortRequested = false;
     const postRequestControl = (type: EmbedWorkerRequestControl['type']): void => {
       if (managedChannelsClosed) {
@@ -681,6 +680,9 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
           const deviceFailure = readDeviceLoss(workerEvent);
           if (deviceFailure) {
             deviceLoss = deviceFailure;
+            // The correlated error proves physical inference/session cleanup has settled.
+            // Pool retirement still waits every admitted vendor execution, including this RPC.
+            retireGpuWorkerpool();
             return;
           }
           throwIfWorkerError(workerEvent);
@@ -695,6 +697,12 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
         }
       },
     }) as WorkerPoolPromise<QueueResult>;
+    const vendorExecution = Promise.resolve(cancelable);
+    vendorExecutions.add(vendorExecution);
+    void vendorExecution.then(
+      () => vendorExecutions.delete(vendorExecution),
+      () => vendorExecutions.delete(vendorExecution)
+    );
     if (telemetryError.current) {
       cancelable.cancel();
     }
@@ -895,7 +903,12 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
         }
       }
       try {
-        await terminatePool();
+        if (gpuRetirement === null) {
+          await terminatePool();
+        } else {
+          await terminateGpuPool?.();
+          await gpuRetirement;
+        }
       } catch (error) {
         failures.push(error);
       }

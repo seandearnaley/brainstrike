@@ -821,6 +821,13 @@ describe('embedding worker runtime', () => {
 
     resolveLost?.({ message: 'device was lost', reason: 'destroyed' });
     await flushMicrotasks();
+    expect(telemetryPostMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'worker-lifetime-error' })
+    );
+    expect(postMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'error' }),
+      expect.any(Array)
+    );
 
     handleMessage({
       data: { batchIndex: 0, id: 'stream-device-loss', type: 'stream-ack' },
@@ -837,6 +844,9 @@ describe('embedding worker runtime', () => {
     );
     expect(telemetryPostMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({ type: 'telemetry-source-closed' })
+    );
+    expect(telemetryPostMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'EMBEDDING_DEVICE_LOST', type: 'worker-lifetime-error' })
     );
     expect(closeMock).not.toHaveBeenCalled();
   });
@@ -1380,15 +1390,23 @@ describe('embedding worker runtime', () => {
     }
   });
 
-  it('activates WebGPU guard, ticks keep-alive, and recovers quietly after idle device loss', async () => {
+  it('fences both transports after idle GPU loss without fabricating an active error', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('navigator', { gpu: {} });
 
     const closeMock = vi.fn();
+    const postMessage = vi.fn();
+    let receive: ((event: MessageEvent<unknown>) => void) | undefined;
     vi.stubGlobal('self', {
+      addEventListener: (type: string, handler: (event: MessageEvent<unknown>) => void) => {
+        if (type === 'message') {
+          receive = handler;
+        }
+      },
       close: closeMock,
       onerror: undefined,
       onunhandledrejection: undefined,
+      postMessage,
     });
 
     let resolveLost:
@@ -1442,14 +1460,37 @@ describe('embedding worker runtime', () => {
       lost: new Promise(() => {}),
       queue: { submit: submitMock },
     });
-    await runEmbedding({
-      deviceHint: 'webgpu',
-      id: 'webgpu-guard-reload',
-      model: 'bge-m3',
-      texts: ['hello again'],
-      type: 'embed',
-    });
-    expect(pipelineMock).toHaveBeenCalledTimes(2);
+    await expect(
+      runEmbedding({
+        deviceHint: 'webgpu',
+        id: 'webgpu-guard-reload',
+        model: 'bge-m3',
+        texts: ['hello again'],
+        type: 'embed',
+      })
+    ).rejects.toMatchObject({ code: 'EMBEDDING_DEVICE_LOST' });
+    receive?.({
+      data: {
+        request: {
+          deviceHint: 'webgpu',
+          id: 'idle-stream',
+          model: 'bge-m3',
+          texts: ['not admitted'],
+          type: 'embed',
+        },
+        type: 'stream-embed',
+      },
+    } as MessageEvent<unknown>);
+    await flushMicrotasks();
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'EMBEDDING_DEVICE_LOST', type: 'worker-lifetime-error' }),
+      []
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'EMBEDDING_DEVICE_LOST', id: 'idle-stream', type: 'error' }),
+      []
+    );
+    expect(pipelineMock).toHaveBeenCalledTimes(1);
   });
 
   it('scopes active WebGPU device loss to the workerpool request id', async () => {
@@ -1505,6 +1546,106 @@ describe('embedding worker runtime', () => {
         code: 'EMBEDDING_DEVICE_LOST',
         id: 'active-device-loss',
         type: 'error',
+      })
+    );
+  });
+
+  it('joins cached GPU disposal before a finishing WASM request announces retirement', async () => {
+    const lost = Promise.withResolvers<{ message: string; reason: string }>();
+    const disposal = Promise.withResolvers<void>();
+    const wasmInference = Promise.withResolvers<Float32Array>();
+    const postMessage = vi.fn();
+    vi.stubGlobal('self', { postMessage });
+    await setWebGpuDevice({
+      createCommandEncoder: () => ({ finish: () => ({}) }),
+      lost: lost.promise,
+      queue: { submit: vi.fn() },
+    });
+    const dispose = vi.fn(() => disposal.promise);
+    const wasmExtract = vi.fn(() => wasmInference.promise);
+    pipelineMock
+      .mockResolvedValueOnce(Object.assign(async () => new Float32Array([1, 0, 0]), { dispose }))
+      .mockResolvedValueOnce(wasmExtract);
+    const run = await loadWorker();
+    await run({
+      deviceHint: 'webgpu',
+      id: 'warm-gpu',
+      model: 'bge-m3',
+      texts: ['hello'],
+      type: 'embed',
+    });
+    const wasm = run({
+      deviceHint: 'wasm',
+      id: 'active-wasm',
+      model: 'bge-m3',
+      texts: ['hello'],
+      type: 'embed',
+    });
+    await waitForAssertion(() => expect(wasmExtract).toHaveBeenCalledOnce());
+    lost.resolve({ message: 'cached device destroyed', reason: 'destroyed' });
+    await waitForAssertion(() => expect(dispose).toHaveBeenCalledOnce());
+    wasmInference.resolve(new Float32Array([1, 0, 0]));
+    await wasm;
+    const prematureNotice = postMessage.mock.calls.some(
+      ([event]) => event.type === 'worker-lifetime-error'
+    );
+    disposal.resolve();
+    await flushMicrotasks();
+    expect(prematureNotice).toBe(false);
+    await waitForAssertion(() =>
+      expect(postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'EMBEDDING_DEVICE_LOST', type: 'worker-lifetime-error' }),
+        []
+      )
+    );
+  });
+
+  it('joins failed session disposal and preserves device loss plus the independent cleanup cause', async () => {
+    const lost = Promise.withResolvers<{ message: string; reason: string }>();
+    const inference = Promise.withResolvers<Float32Array>();
+    const disposal = Promise.withResolvers<void>();
+    const disposalError = new Error('session disposal rejected');
+    await setWebGpuDevice({
+      createCommandEncoder: () => ({ finish: () => ({}) }),
+      lost: lost.promise,
+      queue: { submit: vi.fn() },
+    });
+    const dispose = vi.fn(() => disposal.promise);
+    const extract = vi.fn(() => inference.promise);
+    pipelineMock.mockResolvedValue(Object.assign(extract, { dispose }));
+    const run = await loadWorker();
+    const settled = vi.fn();
+    const outcome = run({
+      deviceHint: 'webgpu',
+      id: 'loss-cleanup',
+      model: 'bge-m3',
+      texts: ['hello'],
+      type: 'embed',
+    }).catch((error: unknown) => {
+      settled();
+      return error;
+    });
+    await waitForAssertion(() => expect(extract).toHaveBeenCalledOnce());
+    lost.resolve({ message: 'device1 destroyed', reason: 'destroyed' });
+    await flushMicrotasks();
+    expect(dispose).not.toHaveBeenCalled();
+    inference.resolve(new Float32Array([1, 0, 0]));
+    await waitForAssertion(() => expect(dispose).toHaveBeenCalledOnce());
+    expect(settled).not.toHaveBeenCalled();
+    disposal.reject(disposalError);
+    const failure = await outcome;
+    expect(failure).toMatchObject({
+      cause: expect.any(AggregateError),
+      code: 'EMBEDDING_DEVICE_LOST',
+    });
+    expect((failure as Error).cause).toMatchObject({
+      errors: [expect.objectContaining({ code: 'EMBEDDING_DEVICE_LOST' }), disposalError],
+    });
+    expect(workerEmitMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cause: expect.stringContaining('session disposal rejected'),
+        code: 'EMBEDDING_DEVICE_LOST',
+        id: 'loss-cleanup',
       })
     );
   });

@@ -19,7 +19,7 @@ export interface OwnedWebGpuDevice {
 }
 
 /** The hidden worker owns the device; disposing ORT sessions never releases it (BST-2005). */
-export function createWebGpuDeviceOwner(onLost: () => void): {
+export function createWebGpuDeviceOwner(onLost: (error: EmbeddingDeviceLostError) => void): {
   acquire: () => Promise<OwnedWebGpuDevice>;
 } {
   let current: Promise<OwnedWebGpuDevice> | null = null;
@@ -60,8 +60,7 @@ export function createWebGpuDeviceOwner(onLost: () => void): {
       void device.lost.then((info) => {
         owned.error = new EmbeddingDeviceLostError(`${String(info.reason)}: ${info.message}`);
         if (current === pending) {
-          current = null;
-          onLost();
+          onLost(owned.error);
         }
       });
       return owned;

@@ -372,13 +372,20 @@ Environment variables: `VITE_EMBED_CONCURRENCY` (default 1), `VITE_EMBED_LEASE_M
   replaces a pool worker through workerpool's managed lifetime-error channel — a direct
   worker re-reports through the owner-visible uncaught-worker-error path instead.
 - The hidden embedding worker owns one explicit WebGPU device and passes it to each
-  ONNX session through Transformers.js `session_options.executionProviders`. Session
-  eviction releases sessions, not the worker's device. Actual device loss invalidates
-  GPU cache entries and surfaces `DeviceLost` (`EMBEDDING_DEVICE_LOST`) only after
-  physical inference settles; it never self-closes or cancels the managed worker.
-  A subsequent explicit request can acquire a new device; the failed request is not
-  retried or downgraded. Settings shows a plain detection failure and retries failed
-  adapter detection when the keep-mounted Settings tab is reopened.
+  ONNX session through Transformers.js `session_options.executionProviders`. Healthy
+  model changes release sessions and retain that device. Actual device loss is terminal
+  for this inference worker: fence both transports immediately, join physical inference
+  and session disposal, preserve `DeviceLost` (`EMBEDDING_DEVICE_LOST`) with independent
+  cleanup causes, and notify the existing lifetime owner without `self.close()`.
+  The queue fences new admission, joins already-admitted vendor executions (not public
+  outcomes that themselves await retirement), and joins one `Pool.terminate(true)` before
+  rejecting the lost request. Sibling work is not cancelled by device loss. Explicit
+  owner Stop may force that same retirement. Only a later explicit request creates a
+  replacement pool; failed retirement stays visible and blocks replacement. Idle loss
+  fabricates no active request error. Direct streams retain the batch ACK boundary and
+  retire through their existing runtime owner. No automatic replay or device downgrade.
+  Settings shows a plain detection failure and retries failed adapter detection when
+  the keep-mounted Settings tab is reopened.
 - Keep worker-global diagnostics on the pool-unique `BroadcastChannel` and
   request-scoped cancellation on the separate derived channel, so siblings never consume
   one another's telemetry as control traffic. Abort between inference batches with

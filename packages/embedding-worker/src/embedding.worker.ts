@@ -421,10 +421,66 @@ async function getTransformersRuntime(): Promise<TransformersRuntime> {
 const GPU_KEEPALIVE_INTERVAL_MS = 15_000;
 const pipelineDevices = new WeakMap<FeatureExtractor, OwnedWebGpuDevice>();
 const pipelineInferences = new WeakMap<FeatureExtractor, Set<Promise<unknown>>>();
-const webGpuDeviceOwner = createWebGpuDeviceOwner(() => {
+let deviceRetirement: Promise<void> | null = null;
+let deviceDisposalFailure: unknown;
+let deviceLossNotified = false;
+let deviceRetirementSettled = false;
+const webGpuDeviceOwner = createWebGpuDeviceOwner((error) => {
+  // ORT retains lost-device state beyond session disposal (BST-2005 real-device smoke).
+  // Fence this runtime before any asynchronous cleanup or owner notification.
+  workerLifetimeFailure = error;
   stopKeepAlive();
   pipelineCacheController.invalidateWebGpuPipelines();
+  deviceRetirement = pipelineCacheController.waitForPendingDisposals().catch((failure: unknown) => {
+    deviceDisposalFailure = failure;
+    workerLifetimeFailure = new EmbeddingDeviceLostError(
+      new AggregateError([error, failure], 'WebGPU device loss and session disposal failed.')
+    );
+  });
+  void deviceRetirement.then(() => {
+    deviceRetirementSettled = true;
+    notifyDeviceRetirement();
+  });
 });
+
+function notifyDeviceRetirement(): void {
+  if (
+    deviceLossNotified ||
+    !deviceRetirementSettled ||
+    activeWorkerpoolRequestId !== null ||
+    activeStreamRequestIds.size > 0 ||
+    !(workerLifetimeFailure instanceof EmbeddingDeviceLostError)
+  ) {
+    return;
+  }
+  deviceLossNotified = true;
+  const cause = serializeErrorCause(workerLifetimeFailure.cause);
+  const event: EmbedWorkerLifetimeError = {
+    ...(cause === undefined ? {} : { cause }),
+    code: workerLifetimeFailure.code,
+    message: workerLifetimeFailure.message,
+    type: 'worker-lifetime-error',
+    workerInstanceId: embeddingWorkerInstanceId,
+  };
+  if (workerpoolTelemetryChannel) {
+    workerpoolTelemetryChannel.postMessage(event);
+  } else {
+    postStreamEvent(event);
+  }
+}
+
+async function joinDeviceRetirement(error: unknown): Promise<unknown> {
+  if (deviceRetirement === null) {
+    return error;
+  }
+  await deviceRetirement;
+  if (deviceDisposalFailure !== undefined) {
+    return new EmbeddingDeviceLostError(
+      new AggregateError([error, deviceDisposalFailure], 'Embedding inference and disposal failed.')
+    );
+  }
+  return error;
+}
 
 /** Handle for the keep-alive interval so it can be stopped on device loss. */
 let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
@@ -473,6 +529,10 @@ const pipelineCacheController = createEmbeddingPipelineCacheController<FeatureEx
     const cause = error instanceof Error ? error.message : String(error);
     const message = `Embedding pipeline disposal failed for ${cacheKey} (${reason}).`;
     errorLog(message, { cause });
+    // Device-loss retirement publishes the joined independent disposal failure.
+    if (deviceRetirement !== null) {
+      return;
+    }
     if (workerpoolTelemetryChannel) {
       workerpoolTelemetryChannel.postMessage({
         cause,
@@ -687,18 +747,6 @@ async function extractOwnedEmbeddingBatch(
   active.add(operation);
   try {
     return await operation;
-  } catch (error) {
-    if (pipelineDevices.get(extractor)?.error) {
-      try {
-        await pipelineCacheController.waitForPendingDisposals();
-      } catch (disposalError) {
-        throw new AggregateError(
-          [error, disposalError],
-          'Embedding inference and disposal failed.'
-        );
-      }
-    }
-    throw error;
   } finally {
     active.delete(operation);
     if (active.size === 0) {
@@ -883,6 +931,8 @@ function createInitialState(
 
 async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
   if (workerLifetimeFailure !== null) {
+    await deviceRetirement;
+    emitErrorEvent(payload.id, workerLifetimeFailure);
     throw workerLifetimeFailure;
   }
   const context = createContext(payload);
@@ -925,15 +975,16 @@ async function embed(payload: EmbedWorkerRequest): Promise<EmbedWorkerSuccess> {
     const result = await processEmbeddings(context, state);
     return result;
   } catch (error) {
-    if (!isAbortError(error)) {
-      emitErrorEvent(context.id, error);
+    const failure = await joinDeviceRetirement(error);
+    if (!isAbortError(failure)) {
+      emitErrorEvent(context.id, failure);
     }
-    // Always throw a proper Error object so workerpool can serialize it correctly
-    throw normalizeError(error);
+    throw normalizeError(failure);
   } finally {
     canceledWorkerpoolRequestIds.delete(id);
     activeWorkerpoolRequestId = null;
     isInferenceActive = false;
+    notifyDeviceRetirement();
   }
 }
 
@@ -1023,7 +1074,8 @@ function postStreamEvent(
     | EmbedWorkerComplete
     | EmbedWorkerError
     | EmbedWorkerPipelineCacheDiagnostic
-    | EmbedWorkerProgress,
+    | EmbedWorkerProgress
+    | EmbedWorkerLifetimeError,
   transferList?: Transferable[]
 ): void {
   if (typeof self === 'undefined' || typeof self.postMessage !== 'function') {
@@ -1214,6 +1266,15 @@ function serializeErrorCause(error: unknown): string | undefined {
   if (error === undefined || error === null) {
     return;
   }
+  if (error instanceof AggregateError) {
+    return JSON.stringify({
+      errors: error.errors.map(serializeErrorCause),
+      message: error.message,
+    });
+  }
+  if (error instanceof Error && error.cause !== undefined) {
+    return JSON.stringify({ cause: serializeErrorCause(error.cause), message: error.message });
+  }
   if (error instanceof Error) {
     // Include stack trace if available for debugging
     return error.stack ?? error.message;
@@ -1305,6 +1366,9 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
     void (async () => {
       let context: EmbeddingContext | null = null;
       try {
+        if (workerLifetimeFailure !== null) {
+          throw workerLifetimeFailure;
+        }
         context = createContext(payload);
         activeStreamRequestIds.add(context.id);
         const requestedDimension = context.targetDimension ?? DEFAULT_EMBEDDING_DIMENSION;
@@ -1313,11 +1377,12 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
         isInferenceActive = true;
         await streamEmbeddings(context, state);
       } catch (error) {
+        const failure = await joinDeviceRetirement(error);
         postStreamEvent({
-          cause: serializeErrorCause(error),
-          ...(error instanceof EmbeddingDeviceLostError ? { code: error.code } : {}),
+          cause: serializeErrorCause(failure),
+          ...(failure instanceof EmbeddingDeviceLostError ? { code: failure.code } : {}),
           id: context?.id ?? requestId,
-          message: error instanceof Error ? error.message : String(error),
+          message: failure instanceof Error ? failure.message : String(failure),
           type: 'error',
         });
       } finally {
@@ -1325,6 +1390,7 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
           activeStreamRequestIds.delete(context.id);
         }
         isInferenceActive = false;
+        notifyDeviceRetirement();
       }
     })();
   });

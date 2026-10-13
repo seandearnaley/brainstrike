@@ -128,7 +128,7 @@ describe('pipeline cache metadata and dispose', () => {
     expect(pipelineMock).toHaveBeenCalledTimes(2);
   });
 
-  it('invalidateWebGpuPipelines disposes only webgpu entries', async () => {
+  it('device loss disposes GPU sessions and fences the entire inference runtime', async () => {
     let resolveLost: ((info: { reason?: string; message: string }) => void) | undefined;
     const lost = new Promise<{ reason?: string; message: string }>((resolve) => {
       resolveLost = resolve;
@@ -138,8 +138,9 @@ describe('pipeline cache metadata and dispose', () => {
     const gpuExtractor = Object.assign(async () => new Float32Array([1, 0, 0]), {
       dispose: disposeMock,
     });
+    const wasmDispose = vi.fn();
     const wasmExtractor = Object.assign(async () => new Float32Array([0, 1, 0]), {
-      dispose: disposeMock,
+      dispose: wasmDispose,
     });
 
     // First call returns GPU extractor, second returns WASM extractor
@@ -188,32 +189,23 @@ describe('pipeline cache metadata and dispose', () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    // A later explicit request acquires a healthy device after the prior device was lost.
-    installMockWebGpuDevice();
-
-    // After invalidation, GPU pipeline should require reload
+    // Session invalidation is selective, but ORT runtime reuse after actual loss is forbidden.
     pipelineMock.mockClear();
-    await runEmbedding({
-      deviceHint: 'webgpu',
-      id: 'gpu-2',
-      model: 'gpu-model',
-      texts: ['again'],
-      type: 'embed',
-    });
-    // GPU pipeline was invalidated, so pipeline() should be called again
-    expect(pipelineMock).toHaveBeenCalledTimes(1);
-
-    // WASM pipeline should still be cached
-    pipelineMock.mockClear();
-    await runEmbedding({
-      deviceHint: 'wasm',
-      id: 'wasm-2',
-      model: 'wasm-model',
-      texts: ['again'],
-      type: 'embed',
-    });
-    // WASM pipeline still cached, pipeline() should NOT be called
+    for (const deviceHint of ['webgpu', 'wasm'] as const) {
+      await expect(
+        runEmbedding({
+          deviceHint,
+          id: `${deviceHint}-after-loss`,
+          model: `${deviceHint}-model`,
+          texts: ['again'],
+          type: 'embed',
+        })
+      ).rejects.toMatchObject({ code: 'EMBEDDING_DEVICE_LOST' });
+    }
+    expect(disposeMock).toHaveBeenCalledOnce();
+    expect(wasmDispose).not.toHaveBeenCalled();
     expect(pipelineMock).not.toHaveBeenCalled();
+    expect(closeMock).not.toHaveBeenCalled();
   });
 
   it('loadPipeline updates lastUsedAt on cache hit', async () => {
