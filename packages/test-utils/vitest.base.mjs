@@ -11,7 +11,8 @@ export const testBase = {
   // Vitest 4: use maxWorkers instead of poolOptions.threads.maxThreads
   maxWorkers: Number.isFinite(envMax) && envMax > 0 ? envMax : defaultMaxWorkers,
   mockReset: true,
-  pool: 'threads',
+  // Forks, Vitest's default: Node 26 worker threads segfault under load (BST-2002).
+  pool: 'forks',
   restoreMocks: true,
   setupFiles: ['@brainstrike/test-utils/vitest.setup'],
   testTimeout: 10_000,

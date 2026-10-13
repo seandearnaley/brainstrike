@@ -91,7 +91,6 @@ export default defineConfig({
           include: ['src/__tests__/**/*.test.{ts,tsx}', 'src/**/__tests__/**/*.test.{ts,tsx}'],
           maxWorkers: process.env['CI'] ? '50%' : '100%',
           name: 'unit',
-          pool: 'threads',
           sequence: {
             groupOrder: 0,
           },
@@ -113,7 +112,6 @@ export default defineConfig({
           // Same as `unit`: one run of both projects needs one maxWorkers per groupOrder.
           maxWorkers: process.env['CI'] ? '50%' : '100%',
           name: 'compiled',
-          pool: 'threads',
           sequence: {
             groupOrder: 0,
           },

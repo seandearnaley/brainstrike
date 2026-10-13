@@ -44,7 +44,6 @@ export default defineConfig({
     isolate: true,
     // Vitest 4: use maxWorkers: 1 instead of poolOptions.threads.singleThread
     maxWorkers: 1,
-    pool: 'threads',
     reporters: ['default', new LostTestFileReporter()],
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     testTimeout: 30_000,

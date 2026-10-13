@@ -114,8 +114,6 @@ export default defineConfig({
     ],
     // Adaptive: prevent oversubscription on CI (2 vCPU), uncapped locally
     maxWorkers: process.env['CI'] ? '50%' : '100%',
-    // Use threads pool with increased parallelization for better CPU utilization
-    pool: 'threads',
     reporters: ['default', new LostTestFileReporter()],
     setupFiles: ['@brainstrike/test-utils/vitest.setup'],
     testTimeout: 15_000, // uiComponent timeout (getAdjustedTimeout not available in build context)
