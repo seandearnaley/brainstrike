@@ -125,7 +125,8 @@ describe('frontier models migrations', () => {
     timeout: 60_000,
   }, async () => {
     await runner.initialize();
-    await runner.up(migrations);
+    // The catalog rollback spans 033 through the Ling Flash addition in 072.
+    await runner.up(migrations.filter((entry) => entry.version <= 72));
     await runner.down(migrations, 32);
 
     const ids = await modelIds(db);
@@ -190,7 +191,8 @@ describe('frontier models migrations', () => {
     timeout: 60_000,
   }, async () => {
     await runner.initialize();
-    await runner.up(migrations);
+    // Include the 070 MiniMax correction alongside the 061 vision patch.
+    await runner.up(migrations.filter((entry) => entry.version <= 70));
 
     const vision = async (id: string): Promise<string | null | undefined> => {
       const res = await db.query(
@@ -276,7 +278,7 @@ describe('frontier models migrations', () => {
     };
 
     expect(await vision()).toBe('false');
-    await runner.up(migrations);
+    await runner.up(migrations.filter((entry) => entry.version <= 70));
     expect(await vision()).toBe('true');
 
     await runner.down(migrations, 69);
@@ -290,7 +292,7 @@ describe('frontier models migrations', () => {
       db.query('SELECT billed_cost_usd FROM brainstrike_assistant_run_usage LIMIT 0')
     ).rejects.toThrow();
 
-    await runner.up(migrations);
+    await runner.up(migrations.filter((entry) => entry.version <= 58));
     await expect(
       db.query('SELECT billed_cost_usd FROM brainstrike_assistant_run_usage LIMIT 0')
     ).resolves.toBeDefined();
@@ -1033,7 +1035,7 @@ describe('frontier models migrations', () => {
     timeout: 60_000,
   }, async () => {
     await runner.initialize();
-    await runner.up(migrations);
+    await runner.up(migrations.filter((entry) => entry.version <= 104));
 
     const readRows = async (): Promise<
       Array<{
@@ -1133,7 +1135,7 @@ describe('frontier models migrations', () => {
           true
         )
     `);
-    await runner.up(migrations);
+    await runner.up(migrations.filter((entry) => entry.version <= 104));
 
     expect((await readRows())[0]).toEqual({
       capabilities: { streaming: true, type: 'llm', vision: true },

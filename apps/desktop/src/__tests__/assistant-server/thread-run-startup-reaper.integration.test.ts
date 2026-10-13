@@ -344,54 +344,18 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
     ]);
   });
 
-  /**
-   * PR #3206 review (C): the background-task sweep runs AFTER the
-   * native-decision repair that predates it. That repair is what stops a dead
-   * leg from owning native resume admission, and it used to run unconditionally
-   * — so a background-task statement that throws (an absent relation, a lock,
-   * anything) must not be able to skip it. The reap is one fire-and-forget
-   * caller with no transaction, so ORDER is the whole guarantee.
-   *
-   * What this case pins is exactly that: all three repairs completed before the
-   * sweep raised. It does NOT pin "the sweep is last in the function" — since
-   * the sweep throws here, nothing could follow it in any ordering.
-   */
-  it('repairs native decisions BEFORE sweeping background tasks, so a failing sweep cannot skip the repair', async () => {
+  it('retains completed run reaping when the background task sweep fails', async () => {
     const db = await makeFixtureDb('reaper-statement-order');
-    // The one failure this statement can plausibly raise on a database that
-    // never had the relation; any throw would do.
     await db.exec('DROP TABLE mastra_background_tasks');
-    const statements: string[] = [];
-    const recording = {
-      async query<T = Record<string, unknown>>(
-        sql: string,
-        params?: readonly unknown[]
-      ): Promise<{ rows: T[] }> {
-        statements.push(sql);
-        return await asHandle(db).query<T>(sql, params);
-      },
-    } satisfies MainQueryHandle;
-
-    await expect(reapOrphanedThreadRuns(recording, BOOTED_AT)).rejects.toMatchObject({
+    await expect(reapOrphanedThreadRuns(asHandle(db), BOOTED_AT)).rejects.toMatchObject({
       code: '42P01',
     });
-
-    const decisions = statements.findIndex((sql) =>
-      sql.includes('brainstrike_delegated_tool_decisions')
+    const pending = await db.query(
+      `SELECT id FROM brainstrike_assistant_thread_runs
+      WHERE status IN ('running', 'cancelling') AND started_at < $1`,
+      [new Date(BOOTED_AT.getTime() - REAP_CLOCK_SKEW_MARGIN_MS)]
     );
-    const backgroundTasks = statements.findIndex((sql) => sql.includes('mastra_background_tasks'));
-    // Both continuation repairs belong to the same pre-existing group.
-    const continuations = statements.filter((sql) =>
-      sql.includes('brainstrike_delegated_continuation')
-    ).length;
-    expect({ continuations, ranDecisionRepair: decisions >= 0 }).toEqual({
-      continuations: 2,
-      ranDecisionRepair: true,
-    });
-    // Nothing ran after the sweep raised. This is trivially true here BECAUSE
-    // it raised, so it does not pin "the sweep is last in source" — what this
-    // case pins is the useful half: all three repairs completed first.
-    expect(backgroundTasks).toBe(statements.length - 1);
+    expect(pending.rows).toEqual([]);
   });
 
   /**
@@ -413,26 +377,11 @@ describe('reapOrphanedThreadRuns (BST-1162)', () => {
     // the only database that lacks the header lacks the timeline too — a bare
     // `DROP TABLE` on the parent alone is refused, and `CASCADE` would hide
     // which relations this case actually means to remove.
-    // Migration 127 adds invocation identity as another dependent of the header.
-    await db.exec(
-      'ALTER TABLE brainstrike_assistant_run_usage DROP CONSTRAINT brainstrike_assistant_run_usage_delegation_fk'
-    );
-    // Migration 139 adds swarm diagnostics rows that reference the run header.
-    await db.exec(
-      'DROP TABLE brainstrike_assistant_prompt_manifests; DROP TABLE brainstrike_delegated_wakeups; DROP TABLE brainstrike_delegated_live_decisions'
-    );
-    await db.exec(
-      'DROP TABLE brainstrike_delegated_tool_decisions; DROP TABLE brainstrike_delegated_invocations'
-    );
-    await db.exec('ALTER TABLE brainstrike_assistant_run_usage DROP COLUMN continuation_id');
-    await db.exec(
-      'DROP TABLE brainstrike_delegated_continuation_decisions; DROP TABLE brainstrike_delegated_continuations'
-    );
+    await db.exec('DROP TABLE brainstrike_assistant_prompt_manifests');
     // Migration 140 maps each native ROOT run to the leg that started it, so
     // it is another dependent of the header this fixture means to remove.
     await db.exec('DROP TABLE brainstrike_assistant_native_runs');
     await db.exec('DROP TABLE brainstrike_assistant_run_events');
-    await db.exec('DROP TABLE brainstrike_delegation_step_reservations');
     await db.exec('DROP TABLE brainstrike_assistant_thread_runs');
 
     // The code, never the prose: 42P01 is `undefined_table`. `rejects` also

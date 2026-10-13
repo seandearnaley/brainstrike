@@ -177,7 +177,7 @@ describe('action replay prefix', () => {
       '2026-08-10T17:00:02Z'
     );
     await repository.createThreadRun({
-      decision: { delegated: false, runId: 'native-run', toolCallId: 'canvas-call' },
+      decision: { runId: 'native-run', toolCallId: 'canvas-call' },
       id: 'worker-host' as HostRunId,
       model: 'gpt-test',
       provider: 'openai',
@@ -394,7 +394,7 @@ describe('action replay prefix', () => {
       timestamp: '2026-08-10T17:00:02Z',
     });
     await repository.createThreadRun({
-      decision: { delegated: false, runId: 'native-run', toolCallId: 'canvas-call' },
+      decision: { runId: 'native-run', toolCallId: 'canvas-call' },
       id: 'resume-host' as HostRunId,
       model: 'gpt-test',
       provider: 'openai',

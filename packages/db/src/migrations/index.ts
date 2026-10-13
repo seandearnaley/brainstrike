@@ -149,6 +149,7 @@ import { migration147DropPgliteChatSidecars } from './147-drop-pglite-chat-sidec
 import { migration148DropAssistantEditCheckpoints } from './148-drop-assistant-edit-checkpoints.js';
 import { migration149GraniteLocalEmbeddingProfile } from './149-granite-local-embedding-profile.js';
 import { migration151DropAgentReadonlyRole } from './151-drop-agent-readonly-role.js';
+import { migration152DropRetiredPgliteDelegation } from './152-drop-retired-pglite-delegation.js';
 import type { Migration } from './migration-runner';
 
 // Export all migrations in order
@@ -304,6 +305,7 @@ export const migrations: Migration[] = [
   migration148DropAssistantEditCheckpoints,
   migration149GraniteLocalEmbeddingProfile,
   migration151DropAgentReadonlyRole,
+  migration152DropRetiredPgliteDelegation,
 ];
 
 // Export base migrations (without chunks table) for test environments

@@ -1,6 +1,5 @@
 import { ASSISTANT_THREAD_COLOR_IDS } from '@brainstrike/assistant-data';
-import { DELEGATED_CONVERSATION_COLOR_IDS } from '@brainstrike/db';
-import { getAgentColorStyles } from '@brainstrike/types/agent-color';
+import { AGENT_SEMANTIC_COLOR_IDS, getAgentColorStyles } from '@brainstrike/types/agent-color';
 import { describe, expect, it } from 'vitest';
 import {
   ASSISTANT_THREAD_COLOR_PALETTES,
@@ -48,7 +47,7 @@ describe('assistant thread presentation', () => {
   });
 
   it('resolves every durable metadata color to a solid mark and color surface', () => {
-    expect(DELEGATED_CONVERSATION_COLOR_IDS).toEqual(ASSISTANT_THREAD_COLOR_IDS);
+    expect(AGENT_SEMANTIC_COLOR_IDS).toEqual(ASSISTANT_THREAD_COLOR_IDS);
     expect(ASSISTANT_THREAD_COLOR_PALETTES.map(({ label }) => label)).toEqual([
       'Studio',
       'Voltage',

@@ -155,46 +155,6 @@ export const TABLE_DURABILITY_REGISTRY: readonly TableDurabilityEntry[] = [
     'brainstrike_assistant_tool_output_artifacts',
     'Complete oversized tool outputs kept seven days by design; truncating shortens that window and older pages read as missing (the tool can be re-run).'
   ),
-  precious(
-    'brainstrike_delegated_continuation_decisions',
-    'Exact approval and resume decisions admitted for a child continuation; stops an answered call from being answered or executed again.'
-  ),
-  precious(
-    'brainstrike_delegated_continuations',
-    'Human wake-admission ledger for delegated child threads, holding the user input text and paused state (awaiting approval or input).'
-  ),
-  precious(
-    'brainstrike_delegated_conversations',
-    'Ancestry graph of delegated child conversations (parent, root, name, color, configuration) layered over their mastra_threads.'
-  ),
-  precious(
-    'brainstrike_delegated_invocations',
-    'Identity and original tool call of each delegation, the access authority for the child conversation it created.'
-  ),
-  operational(
-    'brainstrike_delegated_live_decisions',
-    'Append-only debug-pack evidence of approval and resume decisions; never runtime authority.'
-  ),
-  precious(
-    'brainstrike_delegated_tool_decisions',
-    'Host admission of exact child tool approvals; permanent leaf uniqueness rejects repeat answers, and a retained row marks an effect that may already have run.'
-  ),
-  operational(
-    'brainstrike_delegated_wakeups',
-    'Append-only debug-pack evidence of why a parent run woke; never runtime authority.'
-  ),
-  precious(
-    'brainstrike_delegation_budgets',
-    'Per-turn delegation budget counters; a delegated turn without its row fails visibly before inference, so a paused turn could not resume.'
-  ),
-  precious(
-    'brainstrike_delegation_child_budgets',
-    'Per-child step and output-token counters under a delegation turn budget; spend already incurred cannot be rebuilt.'
-  ),
-  precious(
-    'brainstrike_delegation_step_reservations',
-    'Unsettled output-token reservations of in-flight delegated steps; settlement charges the child budget exactly once.'
-  ),
   operational(
     'brainstrike_diagnostic_events',
     'Structured diagnostic log rows for the debug pack; nothing depends on them at runtime.'

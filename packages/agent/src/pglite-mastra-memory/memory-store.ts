@@ -79,7 +79,6 @@ import {
 } from './memory-row-mapping';
 import {
   ASSISTANT_MESSAGE_TOMBSTONES_TABLE,
-  DELEGATED_THREAD_DELETE_CTES,
   MASTRA_MEMORY_SCHEMA_SQL,
   MASTRA_MEMORY_TABLES,
   MIND_OPS_TABLE,
@@ -460,31 +459,10 @@ export class PgliteMemoryStore extends MemoryStorage {
       // five sequential to_regclass round trips collapsed into one).
       const probed = await tx.query<{ table: string }>(
         'SELECT t AS table FROM unnest($1::text[]) AS t WHERE to_regclass(t) IS NOT NULL',
-        [
-          [
-            ...THREAD_DELETE_SIDECAR_TABLES.map((entry) => entry.table),
-            MIND_OPS_TABLE,
-            'brainstrike_delegated_conversations',
-          ],
-        ]
+        [[...THREAD_DELETE_SIDECAR_TABLES.map((entry) => entry.table), MIND_OPS_TABLE]]
       );
       const present = new Set(probed.rows.map((row) => row.table));
-      let threadIds = [threadId];
-      if (present.has('brainstrike_delegated_conversations')) {
-        const scope = await tx.query<{ allAuthorized: boolean; threadIds: string[] }>(
-          `WITH RECURSIVE requested(id) AS (VALUES ($1::text)), ${DELEGATED_THREAD_DELETE_CTES}
-           SELECT (SELECT all_authorized FROM deletion_scope_validation) AS "allAuthorized",
-             ARRAY(SELECT id FROM deletion_threads) AS "threadIds"`,
-          [threadId]
-        );
-        const row = scope.rows[0];
-        if (row?.allAuthorized !== true || !Array.isArray(row.threadIds)) {
-          throw new Error('Delegated branch deletion requires unchanged native ownership.', {
-            cause: { operation: 'delete-delegated-branch', requestedThreadIds: [threadId] },
-          });
-        }
-        threadIds = row.threadIds;
-      }
+      const threadIds = [threadId];
       await tx.query(
         `DELETE FROM ${MASTRA_MEMORY_TABLES.observationalMemory}
          WHERE "threadId" = ANY($1::text[]) OR "lookupKey" = ANY($2::text[])`,

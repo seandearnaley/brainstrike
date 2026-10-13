@@ -22,7 +22,7 @@ describe('gemma local llm migration', () => {
     timeout: 60_000,
   }, async () => {
     await runner.initialize();
-    await runner.up(migrations);
+    await runner.up(migrations.filter((entry) => entry.version <= 28));
 
     const beforeRollback = await db.query(`
         SELECT id

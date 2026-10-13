@@ -52,15 +52,6 @@ export type MastraResetTable =
  * RESET CONTRACT, docs/agents/platform-contracts.md).
  */
 const BRAINSTRIKE_RESET_TABLES = [
-  // Delegation ancestry is user data. Its self-FKs cascade the graph.
-  'brainstrike_delegation_step_reservations',
-  'brainstrike_delegation_child_budgets',
-  'brainstrike_delegation_budgets',
-  'brainstrike_delegated_tool_decisions',
-  'brainstrike_delegated_continuation_decisions',
-  'brainstrike_delegated_continuations',
-  'brainstrike_delegated_invocations',
-  'brainstrike_delegated_conversations',
   'brainstrike_assistant_message_parents',
   // Soft-rewind tombstones (migration 080, BST-1115). Hidden-message
   // bookkeeping over conversation content the clear just destroyed: keeping it
@@ -197,7 +188,7 @@ export function getLazyMastraResetTables(): readonly MastraResetTable[] {
   return [MASTRA_VECTOR_TABLE, MASTRA_WORKFLOW_TABLE];
 }
 
-/** The full 41-relation reset set (26 Brainstrike + 9 core + the Mastra six). */
+/** The complete current-schema reset set. */
 export function getResetTables(): readonly ResetTable[] {
   return [...BRAINSTRIKE_RESET_TABLES, ...CORE_RESET_TABLES, ...getMastraResetTables()];
 }
@@ -242,10 +233,6 @@ export const RESET_EXCLUDED_TABLES = {
   brainstrike_assistant_run_events:
     'migration 118; FK ON DELETE CASCADE from brainstrike_assistant_thread_runs AND mastra_threads',
   brainstrike_assistant_thread_runs: 'migration 118; FK ON DELETE CASCADE from mastra_threads',
-  brainstrike_delegated_live_decisions:
-    'migration 139; FK ON DELETE CASCADE from brainstrike_assistant_thread_runs',
-  brainstrike_delegated_wakeups:
-    'migration 139; FK ON DELETE CASCADE from brainstrike_assistant_thread_runs',
   brainstrike_thread_search_profiles:
     'singleton search profile — configuration, intentionally survives (platform-contracts)',
   file_relationships: 'FK ON DELETE CASCADE from file_records (migration 003)',
