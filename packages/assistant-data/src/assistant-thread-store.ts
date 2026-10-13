@@ -10,6 +10,8 @@ import {
 } from './assistant-memory-repository';
 import { resolveAssistantMemoryResourceId } from './assistant-memory-resource';
 import {
+  type AssistantThreadLoadState,
+  assertThreadCatalogLoadedAfterFailure,
   omitRecordKey,
   omitRecordKeys,
   restoreThreadCatalog,
@@ -20,12 +22,6 @@ import { mergeAssistantThreadMetadata } from './assistant-thread-metadata-merge'
 type AssistantThreadModelSettings = RuntimeModelSettings;
 
 type AssistantThreadProviderOptions = Record<string, unknown>;
-
-type AssistantThreadLoadState =
-  | { readonly status: 'idle' }
-  | { readonly status: 'loading' }
-  | { readonly status: 'ready' }
-  | { readonly error: string; readonly status: 'error' };
 
 interface AssistantThreadState {
   activeThreadIdByResourceId: Record<string, string>;
@@ -527,6 +523,7 @@ export const useAssistantThreadStore = create<AssistantThreadState>()(
         if (initialLoad) {
           await initialLoad;
         }
+        assertThreadCatalogLoadedAfterFailure(get(), resourceId);
         set((state) => ({
           loadStateByResourceId: {
             ...state.loadStateByResourceId,

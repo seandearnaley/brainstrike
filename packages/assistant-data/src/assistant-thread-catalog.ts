@@ -59,3 +59,22 @@ export function restoreThreadCatalog(
       : state.unavailableSavedThreadByResourceId,
   };
 }
+
+export type AssistantThreadLoadState =
+  | { readonly status: 'idle' }
+  | { readonly status: 'loading' }
+  | { readonly status: 'ready' }
+  | { readonly error: string; readonly status: 'error' };
+
+/** New cannot turn a failed catalog into a partial ready list (BST-1987). */
+export function assertThreadCatalogLoadedAfterFailure(
+  state: Pick<CatalogState, 'threadsByResourceId'> & {
+    loadStateByResourceId: Record<string, AssistantThreadLoadState>;
+  },
+  resourceId: string
+): void {
+  const load = state.loadStateByResourceId[resourceId];
+  if (load?.status === 'error' && !Object.hasOwn(state.threadsByResourceId, resourceId)) {
+    throw new Error(load.error);
+  }
+}

@@ -38,6 +38,8 @@ const DESKTOP_SMOKE_SPECS = [
   'e2e/file-system.test.ts',
   'e2e/forge-pr.desktop.test.ts',
   'e2e/git-panel.desktop.test.ts',
+  'e2e/host-thread-catalog.desktop.test.ts',
+  'e2e/host-thread-unavailable-root-reopen.desktop.test.ts',
   'e2e/local-runtime-probe.desktop.test.ts',
   'e2e/secrets-settings.test.ts',
   'e2e/subagent-persona-availability.desktop.test.ts',

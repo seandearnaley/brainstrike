@@ -102,6 +102,12 @@ function getThreadTabMark(
   return mark;
 }
 
+function getNewThreadAction(retryCatalog: boolean): { label: string; text: string } {
+  return retryCatalog
+    ? { label: 'Retry loading conversations', text: 'Retry' }
+    : { label: 'New assistant thread', text: 'New' };
+}
+
 export interface AssistantThreadTabsWorkspaceProps {
   readonly fixedProviderModels?: AssistantUiPanelWrapperProps['fixedProviderModels'];
   readonly loadLocalLlmBackend?: AssistantUiPanelWrapperProps['loadLocalLlmBackend'];
@@ -164,6 +170,9 @@ export function AssistantThreadTabsWorkspace({
   const unavailableSavedThread = useAssistantThreadStore(
     (state) => state.unavailableSavedThreadByResourceId[resourceId]
   );
+  const retryCatalog =
+    loadState.status === 'error' && !Object.hasOwn(threadsByResourceId, resourceId);
+  const newThreadAction = getNewThreadAction(retryCatalog);
   const newThreadDisabled = loadState.status === 'loading';
   // The thread whose transcript this component renders: the active tab, unless
   // a database or load-error card below replaces the panels. (The loading card
@@ -268,6 +277,10 @@ export function AssistantThreadTabsWorkspace({
   );
 
   const createNewThread = useCallback(async (): Promise<void> => {
+    if (retryCatalog && repository) {
+      await ensureResourceThreads(repository, resourceId);
+      return;
+    }
     if (host) {
       await createThread({ createThread: (id) => host.createThread(id) }, resourceId);
       return;
@@ -276,7 +289,7 @@ export function AssistantThreadTabsWorkspace({
       throw new Error('Assistant memory requires an initialized PGlite database.');
     }
     await createThread(repository, resourceId);
-  }, [createThread, host, repository, resourceId]);
+  }, [createThread, ensureResourceThreads, host, repository, resourceId, retryCatalog]);
 
   const handleNewThreadClick = useCallback((): void => {
     createNewThread().catch(() => {
@@ -438,7 +451,7 @@ export function AssistantThreadTabsWorkspace({
               </span>
             ) : null}
             <Button
-              aria-label="New assistant thread"
+              aria-label={newThreadAction.label}
               className={TAB_STRIP_ICON_BUTTON_CLASS_NAME}
               data-testid="assistant-new-thread-button"
               disabled={newThreadDisabled}
@@ -452,7 +465,7 @@ export function AssistantThreadTabsWorkspace({
                 className="@min-[380px]/tab-strip:inline hidden"
                 data-testid="assistant-new-thread-label"
               >
-                New
+                {newThreadAction.text}
               </span>
             </Button>
           </>
