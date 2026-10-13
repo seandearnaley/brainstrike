@@ -11,7 +11,7 @@ import {
 } from './assistant-ui-panel-wrapper-test-support';
 
 test('disables hosted web chat without a workspace before request preparation', async () => {
-  Reflect.deleteProperty(window, 'assistant');
+  Reflect.deleteProperty(window, 'agentHost');
   fileExplorerMocks.rootDirectoryHandle = null;
 
   await renderAssistantPanel(['openai'], () =>

@@ -17,7 +17,7 @@ vi.mock('@brainstrike/db/react', () => ({
   usePGliteLiveQuery: usePGliteLiveQueryMock,
 }));
 
-import { RUN_LEDGER_AGGREGATION_SQL } from '../../assistant-memory-repository';
+import { mapRunLedgerRow } from '../../assistant-memory-repository';
 import { TASK_LEDGER_RUN_LIMIT, useRunLedger } from '../use-run-ledger';
 
 type AgentHostBridge = { connect: (requestId: string) => Promise<void> } | undefined;
@@ -52,6 +52,15 @@ function makeRawRow(overrides: Record<string, unknown> = {}): Record<string, unk
 }
 
 describe('useRunLedger', () => {
+  it('reads only committed host runs without a PGlite database', () => {
+    usePGliteDatabaseMock.mockReturnValue(null);
+    const row = mapRunLedgerRow(makeRawRow());
+    const { result } = renderHook(() => useRunLedger([row]));
+    expect(result.current.available).toBe(true);
+    expect(result.current.rows).toEqual([row]);
+    expect(usePGliteLiveQueryMock).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     usePGliteDatabaseMock.mockReset();
     usePGliteLiveQueryMock.mockReset();
@@ -69,107 +78,23 @@ describe('useRunLedger', () => {
     vi.restoreAllMocks();
   });
 
-  it('is unavailable and disables the live query when the PGlite handle is absent', () => {
-    usePGliteDatabaseMock.mockReturnValue(null);
-
-    const { result } = renderHook(() => useRunLedger());
-
-    expect(result.current.available).toBe(false);
-    expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(
-      expect.objectContaining({ enabled: false })
-    );
-  });
-
-  it('is unavailable on WEB even with a PGlite handle (no desktop assistant backend)', () => {
-    usePGliteDatabaseMock.mockReturnValue({});
+  it('is unavailable on web', () => {
     setDesktopAgentHost(undefined);
-
     const { result } = renderHook(() => useRunLedger());
-
     expect(result.current.available).toBe(false);
-    expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(
-      expect.objectContaining({ enabled: false })
-    );
-  });
-
-  it('queries the shared ledger aggregation with the panel row limit', () => {
-    usePGliteDatabaseMock.mockReturnValue({});
-
-    renderHook(() => useRunLedger());
-
-    expect(usePGliteLiveQueryMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        enabled: true,
-        params: ['brainstrike:workspace', TASK_LEDGER_RUN_LIMIT],
-        query: RUN_LEDGER_AGGREGATION_SQL,
-      })
-    );
-  });
-
-  it('maps live-query rows through the strict repo parser (bigint string → number)', () => {
-    usePGliteDatabaseMock.mockReturnValue({});
-    usePGliteLiveQueryMock.mockReturnValue({
-      error: null,
-      loading: false,
-      refresh: vi.fn(),
-      rows: [makeRawRow({ billedCostUsd: '0.42' })],
-    });
-
-    const { result } = renderHook(() => useRunLedger());
-
-    expect(result.current.error).toBeNull();
-    expect(result.current.rows).toEqual([
-      {
-        billedCostUsd: 0.42,
-        completedAt: new Date('2026-07-15T12:00:05.000Z'),
-        durationMs: 5000,
-        estimatedCacheCreationTokens: 0,
-        estimatedCacheReadTokens: 0,
-        estimatedInputTokens: 0,
-        estimatedOutputTokens: 0,
-        failedToolCallCount: 1,
-        inputTokens: 1500,
-        model: 'gpt-5.2',
-        outcomeDetail: null,
-        outcomeSource: 'user',
-        outcomeVerdict: 'succeeded',
-        outputTokens: 300,
-        provider: 'openai',
-        runId: 'run-1',
-        startedAt: new Date('2026-07-15T12:00:00.000Z'),
-        status: 'completed',
-        threadId: 'thread-1',
-        toolCallCount: 5,
-      },
-    ]);
-  });
-
-  it('omits billedCostUsd (never fabricates $0) when no exact cost was captured', () => {
-    usePGliteDatabaseMock.mockReturnValue({});
-    usePGliteLiveQueryMock.mockReturnValue({
-      error: null,
-      loading: false,
-      refresh: vi.fn(),
-      rows: [makeRawRow()],
-    });
-
-    const { result } = renderHook(() => useRunLedger());
-
-    expect(result.current.rows[0]).not.toHaveProperty('billedCostUsd');
-  });
-
-  it('surfaces a malformed aggregate row as an error, never fabricated zeros', () => {
-    usePGliteDatabaseMock.mockReturnValue({});
-    usePGliteLiveQueryMock.mockReturnValue({
-      error: null,
-      loading: false,
-      refresh: vi.fn(),
-      rows: [makeRawRow({ inputTokens: 'not-a-number' })],
-    });
-
-    const { result } = renderHook(() => useRunLedger());
-
-    expect(result.current.error).toBeInstanceOf(Error);
     expect(result.current.rows).toEqual([]);
+    expect(usePGliteLiveQueryMock).not.toHaveBeenCalled();
+  });
+
+  it('orders and limits committed host runs without mutating the snapshot', () => {
+    const rows = Array.from({ length: TASK_LEDGER_RUN_LIMIT + 5 }, (_, index) =>
+      mapRunLedgerRow(
+        makeRawRow({ runId: String(index), startedAt: new Date(index * 1000).toISOString() })
+      )
+    );
+    const { result } = renderHook(() => useRunLedger(rows));
+    expect(result.current.rows).toHaveLength(TASK_LEDGER_RUN_LIMIT);
+    expect(result.current.rows[0]?.runId).toBe('54');
+    expect(rows[0]?.runId).toBe('0');
   });
 });

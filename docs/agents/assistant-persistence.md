@@ -1313,6 +1313,14 @@ Guard: `packages/db/__tests__/migration-086-token-estimate-calibration.test.ts`,
 
 ## TASK LEDGER (RUN OUTCOMES + LEDGER READ MODEL)
 
+Desktop's Task Ledger and rolling spend use only the agent host's committed runs
+and provider calls. They issue no PGlite run/usage query and do not wait for a
+PGlite handle. Cross-root cost keeps the roots display-name query while taking
+usage exclusively from the host. Web's local provider still writes PGlite run,
+event and usage tables; those repository methods and reset registrations remain.
+The pre-host HTTP bridge, stream replay and suspended-run discovery injection
+are removed; web request preparation and completion retain their lifecycle.
+
 Per-run cost and outcome analytics over tables the assistant already writes.
 
 - **Experiment treatments:** `brainstrike_assistant_run_treatments` (migration 093,
@@ -1346,17 +1354,16 @@ Per-run cost and outcome analytics over tables the assistant already writes.
   edit-checkpoint totals and reverted counts, computed `durationMs`, and the
   outcome label. `RUN_LEDGER_AGGREGATION_SQL` + `mapRunLedgerRow` are the exported
   single source of truth, and the strict mapper THROWS on malformed aggregates.
-- **Ledger panel** renders inside the Cost Tracking settings category,
-  renderer-direct over a PGlite live query (limit 50), gated on
+- **Ledger panel** renders inside the Cost Tracking settings category from the
+  agent host's newest 50 committed runs, gated on
   `hasDurableAssistantUsageCapability()` like the sibling panel. Honest cost: exact
   renders as-is, a registry-priced remainder is "est.", unpriced models read "cost
   unavailable", zero-usage runs read "no usage recorded" — NEVER a fabricated $0.
-  Malformed aggregates and query failures surface as a visible error with retry,
-  never an empty-but-fine panel.
+  PGlite aggregate failures cannot hide the host's committed run list.
 - **Budget guardrails:** caps (`dailyCapUsd`, `perRunCapUsd`, both null = off)
   persist with STRICT set validation (finite > 0 or null, else THROW) and reset
-  with factory reset. Spend is DERIVED, never stored: `DAILY_SPEND_AGGREGATION_SQL`
-  sums a ROLLING `NOW() - INTERVAL '24 hours'` window — deliberately timezone-free,
+  with factory reset. Desktop spend is DERIVED from committed host provider calls
+  in a rolling 24-hour window — deliberately timezone-free,
   so ALL copy says "last 24h", never "today" — binding each SQL param exactly once.
   Exclude unpriced-model tokens from the total and surface them as an explicit
   "+N unpriced" marker, never a fabricated price.

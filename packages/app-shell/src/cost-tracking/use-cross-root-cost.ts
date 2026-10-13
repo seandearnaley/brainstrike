@@ -1,9 +1,6 @@
 import {
-  CROSS_ROOT_USAGE_AGGREGATION_SQL,
   type CrossRootUsageRow,
   hasDurableAssistantUsageCapability,
-  mapCrossRootUsageRow,
-  resolveAssistantMemoryResourceId,
 } from '@brainstrike/assistant-data';
 import { makeLiveQueryKey, usePGliteDatabase, usePGliteLiveQuery } from '@brainstrike/db/react';
 import { useMemo } from 'react';
@@ -16,17 +13,7 @@ import { useMemo } from 'react';
  */
 export type CrossRootUsageQueryRow = CrossRootUsageRow;
 
-/**
- * Cross-root durable usage for the workspace, reactive via a PGlite live query.
- *
- * `available` reflects the durable-usage CAPABILITY (the desktop assistant
- * backend that actually writes the rows), NOT the raw PGlite handle: brainstrike
- * is local-first, so WEB also runs under a PGlite `DbProvider`, but web
- * assistant usage is session-only (in-renderer LocalRuntimeChat) and is never
- * persisted via `recordRunUsage`. On web `available` is false → the panel
- * renders an honest session-only state, NOT zeros, and no query is issued
- * against the (web-empty) usage table.
- */
+/** Desktop usage comes exclusively from the agent host. */
 export interface CrossRootCostState {
   /** Whether durable cross-root usage is recorded here (desktop assistant backend). */
   readonly available: boolean;
@@ -40,31 +27,6 @@ interface MappedRows {
   readonly rows: readonly CrossRootUsageQueryRow[];
 }
 
-/**
- * Map raw live-query rows through the repo's STRICT parser. A malformed row
- * (non-finite/negative aggregate, non-string provider/model) THROWS in
- * mapCrossRootUsageRow exactly as it does on the repo path; we catch it here and
- * surface it as an error so the panel reads "couldn't load cost", never a
- * fabricated $0 / 0 tokens (no silent fallbacks).
- */
-function mapLiveRows(rawRows: readonly Record<string, unknown>[]): MappedRows {
-  try {
-    return { error: null, rows: rawRows.map(mapCrossRootUsageRow) };
-  } catch (error: unknown) {
-    return { error: error instanceof Error ? error : new Error(String(error)), rows: [] };
-  }
-}
-
-/**
- * Reactive cross-root usage rows for the workspace. Subscribes to a PGlite live
- * query on mount and auto-unsubscribes on unmount (the underlying hook owns the
- * lifecycle). When durable usage is unavailable (web), the query is disabled and
- * `available` is false.
- *
- * The query string + row parser are shared with the validated repo method
- * (CROSS_ROOT_USAGE_AGGREGATION_SQL + mapCrossRootUsageRow) so the aggregation
- * and the strict no-fabrication contract can never drift between the two paths.
- */
 const NO_HOST_ROOT_USAGE: readonly CrossRootUsageRow[] = [];
 const NO_PARAMS: readonly unknown[] = [];
 
@@ -99,52 +61,32 @@ function nameHostRows(
 
 /** `hostRootUsage`: agent-host threads' committed provider calls per root, listed beside. */
 export function useCrossRootCost(
-  resourceIdOverride?: string | null,
   hostRootUsage: readonly CrossRootUsageRow[] = NO_HOST_ROOT_USAGE
 ): CrossRootCostState {
   const database = usePGliteDatabase();
-  // Gate on the SAME capability that gates the durable WRITE (the desktop
-  // assistant backend), not the raw PGlite handle — web has a handle but never
-  // writes these rows. Requiring the handle too keeps the query strictly off
-  // until PGlite is actually ready.
-  const available = database !== null && hasDurableAssistantUsageCapability();
-  const resourceId = resolveAssistantMemoryResourceId(resourceIdOverride);
-  const params = useMemo(() => [resourceId], [resourceId]);
-
-  const liveQuery = usePGliteLiveQuery<Record<string, unknown>>({
-    cacheKey: makeLiveQueryKey('cross-root-usage', resourceId),
-    enabled: available,
-    params,
-    query: CROSS_ROOT_USAGE_AGGREGATION_SQL,
-  });
-
+  const available = hasDurableAssistantUsageCapability();
   const namesQuery = usePGliteLiveQuery<Record<string, unknown>>({
     cacheKey: makeLiveQueryKey('cross-root-root-names'),
-    enabled: available && hostRootUsage.some((row) => row.rootId !== null),
+    enabled: available && database !== null && hostRootUsage.some((row) => row.rootId !== null),
     params: NO_PARAMS,
     query: ROOT_DISPLAY_NAMES_SQL,
   });
 
   const mapped = useMemo<MappedRows>(() => {
-    const history = mapLiveRows(liveQuery.rows);
-    // A malformed history row stays an error: host rows never stand in for it.
-    if (history.error || hostRootUsage.length === 0) {
-      return history;
-    }
     try {
       return {
         error: null,
-        rows: [...history.rows, ...nameHostRows(hostRootUsage, namesQuery.rows)],
+        rows: available ? nameHostRows(hostRootUsage, namesQuery.rows) : NO_HOST_ROOT_USAGE,
       };
     } catch (error: unknown) {
       return { error: error instanceof Error ? error : new Error(String(error)), rows: [] };
     }
-  }, [hostRootUsage, liveQuery.rows, namesQuery.rows]);
+  }, [available, hostRootUsage, namesQuery.rows]);
 
   return {
     available,
-    error: liveQuery.error ?? namesQuery.error ?? mapped.error,
-    loading: liveQuery.loading || namesQuery.loading,
+    error: namesQuery.error ?? mapped.error,
+    loading: namesQuery.loading,
     rows: mapped.rows,
   };
 }

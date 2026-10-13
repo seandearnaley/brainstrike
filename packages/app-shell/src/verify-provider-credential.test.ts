@@ -6,11 +6,6 @@ vi.mock('./provider-verification-client', () => ({
   fetchProviderVerification: vi.fn(),
 }));
 
-vi.mock('./hooks/use-assistant-availability', () => ({
-  resolveAssistantAuthHeaders: async () => ({ 'x-test-auth': 'token' }),
-  resolveAssistantBaseUrl: async () => 'http://127.0.0.1:51234',
-}));
-
 const snapshot = {
   freshness: 'live',
   result: { checkedAt: '2026-08-18T12:00:00.000Z', status: 'verified' },
@@ -21,7 +16,7 @@ describe('verifyProviderCredential', () => {
     vi.mocked(fetchProviderVerification).mockReset();
   });
 
-  it('resolves the assistant transport before probing, and forwards the caller signal', async () => {
+  it('probes the web assistant, and forwards the caller signal', async () => {
     vi.mocked(fetchProviderVerification).mockResolvedValue(snapshot);
     const controller = new AbortController();
 
@@ -29,8 +24,8 @@ describe('verifyProviderCredential', () => {
 
     expect(fetchProviderVerification).toHaveBeenCalledTimes(1);
     expect(fetchProviderVerification).toHaveBeenCalledWith({
-      authHeaders: { 'x-test-auth': 'token' },
-      baseUrl: 'http://127.0.0.1:51234',
+      authHeaders: {},
+      baseUrl: '/api',
       providerId: 'openai',
       signal: controller.signal,
     });
