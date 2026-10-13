@@ -50,6 +50,11 @@ test('a host run’s approved file write is undone from its tool card, says so, 
   const root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'bs-m3-checkpoint-undo-')));
   const notes = path.join(root, 'notes.txt');
   writeFileSync(notes, ORIGINAL);
+  // The second run writes another file: the read-before-write guard refuses a rewrite of
+  // notes.txt, which the undo changed on disk since the agent last saw it.
+  const draft = path.join(root, 'draft.txt');
+  writeFileSync(draft, ORIGINAL);
+  let target = 'notes.txt';
   try {
     await seedRoot(page, root, {
       disableBackgroundIndexing: true,
@@ -62,7 +67,7 @@ test('a host run’s approved file write is undone from its tool card, says so, 
       return name
         ? {
             finalText: REPLY,
-            toolCall: { arguments: { content: REWRITTEN, path: 'notes.txt' }, name },
+            toolCall: { arguments: { content: REWRITTEN, path: target }, name },
           }
         : { finalText: `No write tool offered: ${request.toolNames.join(', ')}` };
     });
@@ -118,31 +123,33 @@ test('a host run’s approved file write is undone from its tool card, says so, 
     await expect(didNotWork).toHaveAttribute('aria-pressed', 'true', { timeout: 30_000 });
     await expect(reloaded.getByTestId('run-verdict-derived')).toHaveCount(0);
 
-    // A forced failure: a second run rewrites the file, the user changes it on disk, and Core
+    // A forced failure: a second run rewrites a file, the user changes it on disk, and Core
     // refuses the undo as a conflict. Nothing is restored, so nothing claims it was.
-    await reloaded.getByRole('textbox', { name: 'Message input' }).fill('Rewrite the notes again.');
+    target = 'draft.txt';
+    await reloaded.getByRole('textbox', { name: 'Message input' }).fill('Rewrite the draft.');
     await reloaded.getByRole('button', { exact: true, name: 'Send' }).click();
     const approveAgain = reloaded.getByRole('button', { name: /^Approve / });
     await expect(approveAgain).toBeVisible({ timeout: 90_000 });
     await approveAgain.click();
     await expect(reloaded.getByText(REPLY)).toHaveCount(2, { timeout: 90_000 });
-    expect(readFileSync(notes, 'utf8')).toBe(REWRITTEN);
+    expect(readFileSync(draft, 'utf8')).toBe(REWRITTEN);
     await expect
       .poll(
         async () => (await readAgentHostLog(electron.getUserDataDir())).typeCounts['run.finished'],
         { timeout: 30_000 }
       )
       .toBe(2);
-    writeFileSync(notes, USER_EDIT);
+    writeFileSync(draft, USER_EDIT);
     await reloaded.getByTestId('checkpoint-revert').click();
     await reloaded.getByTestId('checkpoint-revert-confirm').click();
     const revertAnyway = reloaded.getByTestId('checkpoint-revert-anyway');
     await expect(revertAnyway).toBeVisible({ timeout: 30_000 });
-    expect(readFileSync(notes, 'utf8')).toBe(USER_EDIT);
+    expect(readFileSync(draft, 'utf8')).toBe(USER_EDIT);
     await expect(reloaded.getByTestId('run-verdict-derived')).toHaveCount(0);
     // Forcing it restores the run's baseline, and the run is marked failed like the first.
     await revertAnyway.click();
     await expect(reloaded.getByTestId('checkpoint-reverted')).toHaveCount(2, { timeout: 30_000 });
+    expect(readFileSync(draft, 'utf8')).toBe(ORIGINAL);
     expect(readFileSync(notes, 'utf8')).toBe(ORIGINAL);
     await expect(reloaded.getByTestId('run-verdict-derived')).toHaveText(REVERTED_LABEL, {
       timeout: 30_000,
