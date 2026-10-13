@@ -28,7 +28,7 @@ function executor() {
       return action.kind === 'open' ? { generation: action.generation, kind: 'opened' } : undefined;
     }
   );
-  return { execute, performed };
+  return { execute, fence: vi.fn(), performed };
 }
 
 it('a save of the configuration already live performs nothing', async () => {
@@ -90,7 +90,7 @@ it('a failed open records that generation failure before its error reaches the c
 it('a closed index refuses an event with its typed cause and performs nothing', async () => {
   const e = executor();
   const lifecycle = await createNativeIndexLifecycle(
-    { generation: 4, kind: 'closed', reason: 'shutdown' },
+    { generation: 4, kind: 'closed', reason: 'shutdown', retirement: 'complete' },
     e
   );
   const refused = await lifecycle
@@ -113,5 +113,125 @@ it('profile retirement closes the generation, then releases the agent-host profi
     generation: 2,
     kind: 'closed',
     reason: 'profile-retired',
+    retirement: 'complete',
   });
+});
+
+it('retains a failed native close for explicit retry before profile retirement', async () => {
+  const e = executor();
+  const failure = new Error('Canonical utility attachments did not retire.');
+  e.execute.mockRejectedValueOnce(failure);
+  const lifecycle = await createNativeIndexLifecycle(ready, e);
+  await expect(lifecycle.dispatch({ kind: 'terminal', reason: 'profile-retired' })).rejects.toBe(
+    failure
+  );
+  e.execute.mockClear();
+  await lifecycle.dispatch({ kind: 'terminal', reason: 'profile-retired' });
+  expect(e.execute.mock.calls.map(([action]) => action.kind)).toEqual(['close', 'retire-profile']);
+});
+
+it('profile retirement after folder deletion still releases the profile exactly once', async () => {
+  const e = executor();
+  const lifecycle = await createNativeIndexLifecycle(ready, e);
+  await lifecycle.dispatch({ kind: 'terminal', reason: 'root-data-deletion' });
+  await lifecycle.dispatch({ kind: 'terminal', reason: 'profile-retired' });
+  expect(e.performed.filter((action) => action.kind === 'retire-profile')).toHaveLength(1);
+});
+
+it('a failed pause retains a failed state, instead of claiming its sources are ready', async () => {
+  const e = executor();
+  const failure = new Error('Canonical utility attachments did not retire.');
+  e.execute.mockRejectedValueOnce(failure);
+  const lifecycle = await createNativeIndexLifecycle(ready, e);
+  await expect(
+    lifecycle.dispatch({ kind: 'settings-saved', settings: { ...VECTOR, paused: true } })
+  ).rejects.toBe(failure);
+  await expect(lifecycle.state()).resolves.toMatchObject({
+    cause: { kind: 'source-failure', message: failure.message },
+    generation: 1,
+    kind: 'failed',
+  });
+});
+
+it('terminal retirement fences admission and aborts a held open before joining its physical close', async () => {
+  const e = executor();
+  const opening = Promise.withResolvers<void>();
+  const finishing = Promise.withResolvers<void>();
+  const interrupted = new Error('Native owner terminal retirement requested.');
+  e.fence.mockImplementation(() => opening.reject(interrupted));
+  e.execute.mockImplementationOnce(async () => {
+    try {
+      await opening.promise;
+    } finally {
+      await finishing.promise;
+    }
+    return;
+  });
+  const lifecycle = await createNativeIndexLifecycle(ready, e);
+  const changed = lifecycle
+    .dispatch({ kind: 'settings-saved', settings: TEXT })
+    .catch((error: unknown) => error);
+  await vi.waitFor(() => expect(e.execute).toHaveBeenCalledOnce());
+  const closing = lifecycle.dispatch({ kind: 'terminal', reason: 'profile-retired' });
+  await expect(lifecycle.state()).resolves.toMatchObject({ kind: 'closed', retirement: 'pending' });
+  expect(e.fence).toHaveBeenCalledOnce();
+  expect(e.execute).toHaveBeenCalledOnce();
+  finishing.resolve();
+  expect(await changed).toBe(interrupted);
+  await expect(closing).resolves.toMatchObject({ kind: 'closed', retirement: 'complete' });
+  expect(e.execute.mock.calls.map(([action]) => action.kind)).toEqual([
+    'open',
+    'close',
+    'retire-profile',
+  ]);
+});
+
+it('a pending failed close refuses resume until its physical cleanup succeeds', async () => {
+  const e = executor();
+  const failure = new Error('Canonical utility attachments did not retire.');
+  e.execute.mockRejectedValueOnce(failure);
+  const lifecycle = await createNativeIndexLifecycle(ready, e);
+  await expect(lifecycle.dispatch({ kind: 'terminal', reason: 'root-data-deletion' })).rejects.toBe(
+    failure
+  );
+  await expect(lifecycle.dispatch({ kind: 'resume', settings: TEXT })).rejects.toBeInstanceOf(
+    NativeIndexEventRefusedError
+  );
+  await lifecycle.dispatch({ kind: 'terminal', reason: 'root-data-deletion' });
+  await expect(lifecycle.dispatch({ kind: 'resume', settings: TEXT })).resolves.toMatchObject({
+    kind: 'ready',
+  });
+});
+
+it('does not repeat a successful profile retirement when shutdown asks again', async () => {
+  const e = executor();
+  const lifecycle = await createNativeIndexLifecycle(ready, e);
+  await lifecycle.dispatch({ kind: 'terminal', reason: 'profile-retired' });
+  await lifecycle.dispatch({ kind: 'terminal', reason: 'profile-retired' });
+  expect(e.performed).toEqual([{ kind: 'close' }, { kind: 'retire-profile' }]);
+});
+
+it('a settings save queued behind an open cannot reopen after terminal retirement', async () => {
+  const e = executor();
+  const held = Promise.withResolvers<void>();
+  e.execute.mockImplementationOnce(async (action) => {
+    await held.promise;
+    return action.kind === 'open' ? { generation: action.generation, kind: 'opened' } : undefined;
+  });
+  const lifecycle = await createNativeIndexLifecycle(ready, e);
+  const opening = lifecycle.dispatch({ kind: 'settings-saved', settings: TEXT });
+  const queued = lifecycle
+    .dispatch({ kind: 'settings-saved', settings: VECTOR })
+    .catch((error: unknown) => error);
+  await vi.waitFor(() => expect(e.execute).toHaveBeenCalledOnce());
+  const closing = lifecycle.dispatch({ kind: 'terminal', reason: 'profile-retired' });
+  held.resolve();
+  await opening;
+  expect(await queued).toBeInstanceOf(NativeIndexEventRefusedError);
+  await closing;
+  expect(e.execute.mock.calls.map(([action]) => action.kind)).toEqual([
+    'open',
+    'close',
+    'retire-profile',
+  ]);
 });

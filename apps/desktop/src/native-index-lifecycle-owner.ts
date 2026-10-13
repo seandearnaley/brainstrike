@@ -5,6 +5,7 @@ import {
   type NativeIndexCause,
   type NativeIndexEvent,
   type NativeIndexState,
+  type NativeIndexTransition,
   reduceNativeIndex,
 } from './native-index-lifecycle';
 
@@ -21,6 +22,8 @@ export class NativeIndexEventRefusedError extends Data.TaggedError('NativeIndexE
 /** Performs the reducer's actions. An opened generation reports `opened` back. */
 export interface NativeIndexLifecycleExecutor {
   execute(action: NativeIndexAction): Promise<NativeIndexEvent | undefined>;
+  /** Abort admitted work immediately; execute(close) still joins its physical exit. */
+  fence(): void;
 }
 
 export interface NativeIndexLifecycle {
@@ -44,36 +47,61 @@ export async function createNativeIndexLifecycle(
   );
   const perform = (action: NativeIndexAction) =>
     Effect.tryPromise({ catch: (error: unknown) => error, try: () => executor.execute(action) });
-  const step = (event: NativeIndexEvent): Effect.Effect<NativeIndexState, unknown> =>
-    Effect.gen(function* () {
-      const transition = reduceNativeIndex(yield* SubscriptionRef.get(ref), event);
-      if (transition.refused) {
-        return yield* new NativeIndexEventRefusedError({
-          cause: transition.refused,
-          event: event.kind,
-        });
+  const prepare = Effect.fnUntraced(function* (event: NativeIndexEvent) {
+    const transition = reduceNativeIndex(yield* SubscriptionRef.get(ref), event);
+    if (transition.refused) {
+      return yield* new NativeIndexEventRefusedError({
+        cause: transition.refused,
+        event: event.kind,
+      });
+    }
+    yield* SubscriptionRef.set(ref, transition.state);
+    return transition;
+  });
+  const execute = Effect.fnUntraced(function* (
+    event: NativeIndexEvent,
+    transition: NativeIndexTransition
+  ): Effect.fn.Return<NativeIndexState, unknown> {
+    for (const action of transition.actions) {
+      const followUp = yield* perform(action).pipe(
+        Effect.catch((error: unknown) =>
+          action.kind === 'open' || action.kind === 'apply-sources'
+            ? step({
+                generation: transition.state.generation,
+                kind: 'failure',
+                message: error instanceof Error ? error.message : String(error),
+              }).pipe(Effect.andThen(Effect.fail(error)))
+            : Effect.fail(error)
+        )
+      );
+      if (followUp) {
+        yield* step(followUp);
       }
-      yield* SubscriptionRef.set(ref, transition.state);
-      for (const action of transition.actions) {
-        const followUp = yield* perform(action).pipe(
-          Effect.catch((error: unknown) =>
-            action.kind === 'open'
-              ? step({
-                  generation: action.generation,
-                  kind: 'failure',
-                  message: error instanceof Error ? error.message : String(error),
-                }).pipe(Effect.andThen(Effect.fail(error)))
-              : Effect.fail(error)
-          )
-        );
-        if (followUp) {
-          yield* step(followUp);
-        }
-      }
-      return yield* SubscriptionRef.get(ref);
-    });
+    }
+    if (event.kind === 'terminal' && transition.actions.length > 0) {
+      yield* step({ generation: transition.state.generation, kind: 'retired' });
+    }
+    return yield* SubscriptionRef.get(ref);
+  });
+  const step = Effect.fnUntraced(function* (
+    event: NativeIndexEvent
+  ): Effect.fn.Return<NativeIndexState, unknown> {
+    return yield* execute(event, yield* prepare(event));
+  });
   return {
-    dispatch: (event) => runAtPromiseBoundary(permit.withPermits(1)(step(event))),
+    dispatch: (event) =>
+      runAtPromiseBoundary(
+        event.kind === 'terminal'
+          ? prepare(event).pipe(
+              Effect.flatMap((transition) => {
+                if (transition.actions.length > 0) {
+                  executor.fence();
+                }
+                return permit.withPermits(1)(execute(event, transition));
+              })
+            )
+          : permit.withPermits(1)(step(event))
+      ),
     state: () => runAtPromiseBoundary(SubscriptionRef.get(ref)),
   };
 }

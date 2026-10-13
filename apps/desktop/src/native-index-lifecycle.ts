@@ -63,6 +63,7 @@ export type NativeIndexState =
       readonly kind: 'closed';
       readonly generation: number;
       readonly reason: NativeIndexCloseReason;
+      readonly retirement: 'pending' | 'complete';
     };
 
 /** Everything that can happen to the index. */
@@ -81,6 +82,8 @@ export type NativeIndexEvent =
   | { readonly kind: 'rebuild' }
   /** Close for good: shutdown, reset, or profile retirement. */
   | { readonly kind: 'terminal'; readonly reason: NativeIndexCloseReason }
+  /** Every physical close action has joined successfully. */
+  | { readonly kind: 'retired'; readonly generation: number }
   /** Reset finished; open again from the saved settings. */
   | { readonly kind: 'resume'; readonly settings: NativeIndexSettings };
 
@@ -208,7 +211,7 @@ function terminal(state: NativeIndexState, reason: NativeIndexCloseReason): Nati
       reason === 'profile-retired'
         ? [{ kind: 'close' }, { kind: 'retire-profile' }]
         : [{ kind: 'close' }],
-    state: { generation: state.generation + 1, kind: 'closed', reason },
+    state: { generation: state.generation + 1, kind: 'closed', reason, retirement: 'pending' },
   };
 }
 
@@ -216,10 +219,21 @@ function closedTransition(
   state: Extract<NativeIndexState, { readonly kind: 'closed' }>,
   event: NativeIndexEvent
 ): NativeIndexTransition {
-  if (event.kind === 'resume') {
+  if (event.kind === 'retired' && event.generation === state.generation) {
+    return { actions: [], state: { ...state, retirement: 'complete' } };
+  }
+  if (event.kind === 'resume' && state.retirement === 'complete') {
     return open(state, event.settings);
   }
-  if (event.kind === 'terminal' || event.kind === 'opened' || event.kind === 'failure') {
+  if (event.kind === 'terminal') {
+    if (state.retirement === 'pending') {
+      return terminal(state, state.reason === 'profile-retired' ? state.reason : event.reason);
+    }
+    return event.reason === 'profile-retired' && state.reason !== 'profile-retired'
+      ? terminal(state, event.reason)
+      : unchanged(state);
+  }
+  if (event.kind === 'retired' || event.kind === 'opened' || event.kind === 'failure') {
     return unchanged(state);
   }
   return { actions: [], refused: { kind: 'closed', reason: state.reason }, state };
@@ -244,6 +258,8 @@ export function reduceNativeIndex(
       return opened(state, event.generation);
     case 'rebuild':
       return rebuild(state);
+    case 'retired':
+      return unchanged(state);
     case 'resume':
       return unchanged(state);
     case 'roots-changed':

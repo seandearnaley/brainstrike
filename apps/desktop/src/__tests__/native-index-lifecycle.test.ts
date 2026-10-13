@@ -32,7 +32,12 @@ const failed: NativeIndexState = {
 };
 const opening: NativeIndexState = { generation: 3, kind: 'opening', settings: VECTOR };
 const unconfigured: NativeIndexState = { cause: SETUP, generation: 3, kind: 'unconfigured' };
-const closed: NativeIndexState = { generation: 3, kind: 'closed', reason: 'shutdown' };
+const closed: NativeIndexState = {
+  generation: 3,
+  kind: 'closed',
+  reason: 'shutdown',
+  retirement: 'complete',
+};
 
 const saved = (settings: typeof TEXT): NativeIndexEvent => ({ kind: 'settings-saved', settings });
 const openAction = (generation: number, destroy = false) => ({
@@ -137,7 +142,7 @@ describe('terminal closure', () => {
     for (const reason of ['shutdown', 'reset', 'root-data-deletion'] as const) {
       const next = reduceNativeIndex(ready, { kind: 'terminal', reason });
       expect(next.actions).toEqual([{ kind: 'close' }]);
-      expect(next.state).toEqual({ generation: 4, kind: 'closed', reason });
+      expect(next.state).toEqual({ generation: 4, kind: 'closed', reason, retirement: 'pending' });
     }
   });
 
@@ -171,7 +176,12 @@ describe('terminal closure', () => {
   it('a folder’s data deleted with its native owner closed reopens on resume (BST-2001)', () => {
     const deleting = reduceNativeIndex(ready, { kind: 'terminal', reason: 'root-data-deletion' });
     expect(deleting.actions).toEqual([{ kind: 'close' }]);
-    expect(reduceNativeIndex(deleting.state, { kind: 'resume', settings: VECTOR })).toEqual({
+    expect(
+      reduceNativeIndex(
+        reduceNativeIndex(deleting.state, { generation: 4, kind: 'retired' }).state,
+        { kind: 'resume', settings: VECTOR }
+      )
+    ).toEqual({
       actions: [openAction(5)],
       state: { generation: 5, kind: 'opening', settings: VECTOR },
     });
