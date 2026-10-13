@@ -8,6 +8,8 @@ export interface EmbeddingLifecycleStatus {
   runtimeId: string;
   runtimeKind?: 'embedding-host';
   state: 'error' | 'running' | 'starting' | 'stopped' | 'stopping';
+  webgpuAdapter?: { available: boolean; reason: string };
+  webgpuAdapterError?: string;
 }
 
 const { currentLifecycleStatus, lifecycleState, mockHostWindow } = vi.hoisted(() => {
@@ -86,8 +88,16 @@ vi.mock('electron', () => ({
   },
 }));
 
+/** The lifecycle callbacks the latest manager registered, so a test can retire its host. */
+const lifecycleCallbacks = vi.hoisted(() => ({
+  current: null as { readonly onWindowClosed: () => void } | null,
+}));
+
 vi.mock('../renderer-host-lifecycle', () => ({
-  RendererHostLifecycle: vi.fn().mockImplementation(function MockRendererHostLifecycle() {
+  RendererHostLifecycle: vi.fn().mockImplementation(function MockRendererHostLifecycle(options: {
+    readonly onWindowClosed: () => void;
+  }) {
+    lifecycleCallbacks.current = options;
     return lifecycleState;
   }),
 }));
@@ -124,6 +134,7 @@ export {
   createEmbeddingHostManager,
   currentLifecycleStatus,
   hostedEmbeddingMock,
+  lifecycleCallbacks,
   lifecycleState,
   mockHostWindow,
   powerSaveBlockerIsStartedMock,

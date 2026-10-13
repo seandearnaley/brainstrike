@@ -132,6 +132,29 @@ it('retains the assistant profile through index settings replacement and rebuild
   expect(mocks.closeProfile).toHaveBeenCalledOnce();
 });
 
+it('closes only the native owner for a root-data deletion and resumes on the same profile', async () => {
+  // BST-2001: the profile's attachment is the agent host, so a deletion that
+  // retired it replaced the host and interrupted its runs.
+  mocks.manager.attachCanonicalCollection.mockImplementation(
+    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
+  );
+  const { activation } = fixture();
+  try {
+    await activation.acquireProfile();
+    await activation.acquire();
+    await activation.closeNativeOwner();
+    expect(mocks.close).toHaveBeenCalledOnce();
+    expect(mocks.closeProfile).not.toHaveBeenCalled();
+    await activation.resume();
+    await activation.acquire();
+    expect(mocks.createProfileOwner).toHaveBeenCalledOnce();
+    expect(mocks.closeProfile).not.toHaveBeenCalled();
+  } finally {
+    await activation.close();
+  }
+  expect(mocks.closeProfile).toHaveBeenCalledOnce();
+});
+
 it('retries a failed host start once that host has released Root; Main retirement stays terminal', async () => {
   const { activation } = fixture();
   try {
@@ -673,6 +696,8 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
     distance: 'cosine',
     dtype: 'q8',
     modelId: 'Xenova/all-MiniLM-L6-v2',
+    // The catalog row states MiniLM's prompts (none), so the resolved profile carries them.
+    prompts: { document: '', query: '' },
     provider: 'transformers',
     revision: '751bff37182d3f1213fa05d7196b954e230abad9',
   } as const;
@@ -694,6 +719,13 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
       : sql.includes('FROM embedding_sets')
         ? [
             {
+              // Its catalog row: a mean-pooled local model states no pooling or pins.
+              catalogCapabilities: {
+                defaultDimension: 384,
+                prompts: { document: '', query: '' },
+                type: 'embedding',
+              },
+              catalogParameters: null,
               dimensions: 384,
               distance: 'cosine',
               id: 'selected',

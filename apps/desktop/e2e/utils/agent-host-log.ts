@@ -32,6 +32,16 @@ async function hostRecordPath(userDataDir: string): Promise<string> {
   return path.join(userDataDir, String(match));
 }
 
+/** The running app's agent host process, as its published record names it. */
+export async function readHostProcess(
+  userDataDir: string
+): Promise<{ readonly pid: number; readonly start: string }> {
+  const record = decodeHostRecord(
+    JSON.parse(await readFile(await hostRecordPath(userDataDir), 'utf8'))
+  );
+  return { pid: record.pid, start: record.start };
+}
+
 async function attachAppHost(userDataDir: string): Promise<HostClient> {
   const record = decodeHostRecord(
     JSON.parse(await readFile(await hostRecordPath(userDataDir), 'utf8'))

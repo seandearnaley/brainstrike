@@ -34,12 +34,28 @@ function settings(
   };
 }
 
+const GRANITE_ID = 'onnx-community/granite-embedding-small-english-r2-ONNX';
+const GRANITE_REVISION = '1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8';
+const NONE = { document: '', query: '' };
 function sources(device: Promise<'webgpu' | 'wasm'>) {
   return {
-    readDimensions: vi.fn(async (provider: string, modelId: string) =>
-      provider === 'local' ? 384 : modelId === 'text-embedding-3-small' ? 1536 : 0
+    readDimensions: vi.fn(async (_provider: string, modelId: string) =>
+      modelId === 'text-embedding-3-small' ? 1536 : 0
     ),
     readLocalDevice: vi.fn(() => device),
+    // The local catalog rows: both state no prompts; granite states CLS and its pins.
+    readLocalModel: vi.fn(async (modelId: string) =>
+      modelId === GRANITE_ID
+        ? {
+            dimensions: 384,
+            execution: { wasm: 'q8', webgpu: 'fp16' } as const,
+            id: modelId,
+            pooling: 'cls' as const,
+            prompts: NONE,
+            revision: GRANITE_REVISION,
+          }
+        : { dimensions: 384, id: modelId, prompts: NONE }
+    ),
   };
 }
 
@@ -71,7 +87,13 @@ test('local recall pins the embedding host unpinned load of any local model', as
     settings(`local/${localModel}`),
     sources(Promise.resolve('webgpu'))
   );
-  const workerPlan = { device: 'webgpu', dimensions: 384, dtype: 'fp16', modelId: localModel };
+  const workerPlan = {
+    device: 'webgpu',
+    dimensions: 384,
+    dtype: 'fp16',
+    modelId: localModel,
+    prompts: NONE,
+  };
   expect(resolved).toEqual({
     local: { modelKey: `local::${localModel}`, workerPlan },
     profile: {
@@ -79,7 +101,37 @@ test('local recall pins the embedding host unpinned load of any local model', as
       distance: 'cosine',
       dtype: 'fp16',
       modelId: localModel,
+      prompts: NONE,
       provider: 'local',
+    },
+  });
+});
+
+test('local granite recall embeds with its catalog CLS pooling, pin and dtype (BST-1993)', async () => {
+  const resolved = await resolveDesktopMemoryVectors(
+    settings(`local/${GRANITE_ID}`),
+    sources(Promise.resolve('wasm'))
+  );
+  const workerPlan = {
+    device: 'wasm',
+    dimensions: 384,
+    dtype: 'q8',
+    modelId: GRANITE_ID,
+    pooling: 'cls',
+    prompts: NONE,
+    revision: GRANITE_REVISION,
+  };
+  expect(resolved).toEqual({
+    local: { modelKey: `local::${GRANITE_ID}`, workerPlan },
+    profile: {
+      dimensions: 384,
+      distance: 'cosine',
+      dtype: 'q8',
+      modelId: GRANITE_ID,
+      pooling: 'cls',
+      prompts: NONE,
+      provider: 'local',
+      revision: GRANITE_REVISION,
     },
   });
 });
@@ -98,6 +150,7 @@ test('a host now on WASM re-pins recall to another profile instead of mixing vec
     dimensions: 384,
     dtype: 'q4',
     modelId: localModel,
+    prompts: NONE,
   });
   if (!(webgpu && wasm)) {
     throw new Error('Both local profiles are required');

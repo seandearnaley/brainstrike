@@ -30,6 +30,7 @@ function createQueueAdapterStub(): QueueAdapter {
           elapsedMs: 1,
           fallbackApplied: false,
           model: 'local:test',
+          pooling: 'mean',
         },
         type: 'result',
         vectors: [new Float32Array([1, 2, 3])],

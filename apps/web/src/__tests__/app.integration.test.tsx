@@ -17,6 +17,7 @@ const createQueueStub = (): QueueAdapter => {
       elapsedMs: 0,
       fallbackApplied: false,
       model: 'stub-model',
+      pooling: 'mean',
     },
     type: 'result',
     vectors: [new Float32Array(0)],

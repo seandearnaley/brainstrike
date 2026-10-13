@@ -4,6 +4,7 @@ import {
   unpinnedCatalogEmbeddingPlan,
 } from '@brainstrike/embeddings/inference-plan';
 import type { VectorProfile } from '@brainstrike/indexer';
+import type { CatalogEmbeddingModel } from '@brainstrike/indexing-contract';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import { waitForHostStartup } from '../embedding-host-startup';
 import { resolveNativeCanonicalProfile } from '../native-canonical-profile';
@@ -20,10 +21,12 @@ export interface DesktopMemoryVectorSelection {
 }
 
 export interface DesktopMemoryVectorSources {
-  /** The selected model's catalog dimensions; an unknown model throws. */
+  /** A hosted model's catalog dimensions; an unknown model throws. */
   readDimensions(provider: string, modelId: string): Promise<number>;
   /** The device the embedding host resolved for unpinned loads; rejects with its reason. */
   readLocalDevice(): Promise<'webgpu' | 'wasm'>;
+  /** A local model's catalog row (dimensions, pooling, pins); an unknown model throws. */
+  readLocalModel(modelId: string): Promise<CatalogEmbeddingModel>;
 }
 
 /**
@@ -48,7 +51,10 @@ export async function resolveDesktopMemoryVectors(
   }
   const target = parseSemanticRecallEmbeddingModelTarget(semanticRecall.embeddingModelTarget);
   const modelKey = `${target.provider}::${target.model}`;
-  const dimensions = await sources.readDimensions(target.provider, target.model);
+  const local = target.provider === 'local' ? await sources.readLocalModel(target.model) : null;
+  const dimensions = local
+    ? local.dimensions
+    : await sources.readDimensions(target.provider, target.model);
   const resolved = resolveNativeCanonicalProfile(
     {
       dimensions,
@@ -57,12 +63,8 @@ export async function resolveDesktopMemoryVectors(
       modelId: target.model,
       modelKey,
     },
-    target.provider === 'local'
-      ? unpinnedCatalogEmbeddingPlan(
-          { dimensions, id: target.model },
-          await sources.readLocalDevice()
-        )
-      : undefined
+    local ? unpinnedCatalogEmbeddingPlan(local, await sources.readLocalDevice()) : undefined,
+    local ?? undefined
   );
   return {
     profile: resolved.profile,

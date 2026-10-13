@@ -4,6 +4,7 @@ import { copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { embeddingProfileHash } from '@brainstrike/indexer';
 import { planGrepTrigramCandidates } from '@brainstrike/utils/grep-trigram-plan';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
@@ -393,17 +394,8 @@ describe('grep reader over hand-built index metadata', () => {
         revision: 'a'.repeat(40),
         tokenCap: 256,
       };
-      const profileHash = createHash('sha256')
-        .update(
-          JSON.stringify([
-            profile.modelId,
-            profile.revision,
-            profile.dtype,
-            profile.dimensions,
-            profile.tokenCap,
-          ])
-        )
-        .digest('hex');
+      // The indexer's own identity rule, never a copy of its formula.
+      const profileHash = embeddingProfileHash(profile);
       writer
         .prepare("INSERT OR REPLACE INTO index_metadata VALUES(1,8,?,'vector-configured',?,?)")
         .run('b'.repeat(64), JSON.stringify(profile), profileHash);

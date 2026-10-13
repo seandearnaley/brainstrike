@@ -15,12 +15,6 @@ interface UseAssistantThreadRequestDataArgs {
   readonly agentLoopSettings: RuntimeData['agentLoop'] | undefined;
   readonly boundWorkspaceRootId?: string | undefined;
   readonly enabledNativeToolIds: readonly string[];
-  /**
-   * Opt-in experiment enrollment (desktop data-stream only, BST-1251).
-   * Attribution metadata recorded on the run's treatment row; requires both
-   * fields, so callers pass a complete pair or nothing.
-   */
-  readonly experimentAssignment?: RuntimeData['experimentAssignment'];
   readonly hostedMemoryBackendAvailable: boolean;
   /**
    * The client's declared MAIN root (activeRootIds[0]); ordering hint for the
@@ -45,8 +39,6 @@ interface UseAssistantThreadRequestDataArgs {
     readonly filePaths: string[];
     readonly folderId: string | null | undefined;
   };
-  /** Desktop-only opt-in self-improvement signal preference. */
-  readonly selfImprovementSignalPreference?: RuntimeData['selfImprovementSignalPreference'];
   readonly semanticRecallSettings: RuntimeAssistantSemanticRecallSettings;
   /**
    * Opt-in Agent Skills preference; only set on the desktop data-stream
@@ -81,7 +73,6 @@ export function useAssistantThreadRequestData({
   agentLoopSettings,
   boundWorkspaceRootId,
   enabledNativeToolIds,
-  experimentAssignment,
   hostedMemoryBackendAvailable,
   mainRootId,
   mainRootPath,
@@ -96,7 +87,6 @@ export function useAssistantThreadRequestData({
   selectedMemoryThreadId,
   selectionData,
   semanticRecallSettings,
-  selfImprovementSignalPreference,
   skillsPreference,
   subagentPersonasRequest,
   workspaceInstructionsPreference,
@@ -120,7 +110,6 @@ export function useAssistantThreadRequestData({
         agentLoopSettings,
         ...(boundWorkspaceRootId ? { boundWorkspaceRootId } : {}),
         enabledNativeToolIds,
-        ...(experimentAssignment ? { experimentAssignment } : {}),
         hostedMemoryBackendAvailable,
         ...(mainRootId ? { mainRootId } : {}),
         ...(mainRootPath ? { mainRootPath } : {}),
@@ -133,7 +122,6 @@ export function useAssistantThreadRequestData({
         requestedReasoningEffort,
         selectedMemoryThreadId,
         selectionData,
-        ...(selfImprovementSignalPreference ? { selfImprovementSignalPreference } : {}),
         workspaceContext: runtimeWorkspaceContext,
         ...(skillsPreference ? { skillsPreference } : {}),
         ...(subagentPersonasRequest ? { subagentPersonasRequest } : {}),
@@ -146,7 +134,6 @@ export function useAssistantThreadRequestData({
       agentLoopSettings,
       boundWorkspaceRootId,
       enabledNativeToolIds,
-      experimentAssignment,
       hostedMemoryBackendAvailable,
       mainRootId,
       mainRootPath,
@@ -160,7 +147,6 @@ export function useAssistantThreadRequestData({
       selectedMemoryThreadId,
       selectionData,
       runtimeWorkspaceContext,
-      selfImprovementSignalPreference,
       skillsPreference,
       subagentPersonasRequest,
       subagentSettings,

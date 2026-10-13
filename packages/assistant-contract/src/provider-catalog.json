@@ -2454,7 +2454,7 @@
     "_note": "transformers.js generate() is not streaming",
     "authType": "none",
     "capabilities": {
-      "embeddings": false,
+      "embeddings": true,
       "llm": true,
       "streaming": false
     },
@@ -2472,6 +2472,35 @@
         "tagline": "Runs privately on this device",
         "type": "llm",
         "vision": "unsupported"
+      },
+      {
+        "_note": "BST-1993: Settings recommends granite only with WebGPU, by the embedding\nhost's own detection. On the BST-1922 eval its WASM q8 took 33 s per\n64-chunk batch with a 4.2 GB hidden-host peak, against 26.5 s and 2.2 GB\nfor BGE Small q8, which is recommended without WebGPU instead. Its CLS\npooling, pinned revision and per-device execution dtype live in its DB\ncatalog row (migration 149), which the embedding path reads.",
+        "defaultDimension": 384,
+        "executionNotes": {
+          "wasm": "Without WebGPU, Granite runs about 125 times slower (33 s against 0.26 s per 64 chunks on Brainstrike's retrieval eval), and its embedding host can use more than 4 GB of memory."
+        },
+        "id": "onnx-community/granite-embedding-small-english-r2-ONNX",
+        "label": "Granite Embedding Small R2",
+        "recommendedExecution": {
+          "device": "webgpu",
+          "dtype": "fp16",
+          "reason": "It finds the most relevant results on Brainstrike's retrieval eval of 100 code and docs queries: 60% in the top 10, against 52% for all-MiniLM-L6-v2."
+        },
+        "supportsStandardDimension": false,
+        "type": "embedding"
+      },
+      {
+        "_note": "BST-1993: the recommended local embedding model without WebGPU. Measured\nagainst granite on WASM q8 (BST-1922 eval, 500-chunk sample).",
+        "defaultDimension": 384,
+        "id": "Xenova/bge-small-en-v1.5",
+        "label": "BGE Small",
+        "recommendedExecution": {
+          "device": "wasm",
+          "dtype": "q8",
+          "reason": "Without WebGPU it embeds faster than Granite with about half the memory: 26 s against 33 s per 64 chunks, and a 2.2 GB peak against 4.2 GB."
+        },
+        "supportsStandardDimension": false,
+        "type": "embedding"
       }
     ],
     "runtime": "browser"

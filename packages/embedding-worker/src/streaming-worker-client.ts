@@ -2,6 +2,7 @@ import {
   assertEmbedWorkerBatch,
   assertEmbedWorkerComplete,
   assertEmbedWorkerPipelineCacheDiagnostic,
+  requestedEmbeddingPooling,
 } from '@brainstrike/indexing-contract';
 import { createWorkerRuntimeClient } from '@brainstrike/worker-runtime';
 import {
@@ -174,6 +175,11 @@ function assertStreamCompletionMatchesRequest(
   if (complete.metadata.revision !== request.revision) {
     throw new Error(
       'Embedding worker complete.metadata.revision does not match the request revision.'
+    );
+  }
+  if (complete.metadata.pooling !== requestedEmbeddingPooling(request)) {
+    throw new Error(
+      'Embedding worker complete.metadata.pooling does not match the request pooling.'
     );
   }
   const expectedDtype = request.dtype ?? 'fp16';
