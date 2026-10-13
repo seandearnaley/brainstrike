@@ -12,6 +12,7 @@ import {
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
 import type {
   IndexerCoverageBatch,
+  IndexerCoverageRequest,
   IndexerStatus,
 } from '@brainstrike/indexing-contract/indexer-client';
 import { act, render, waitFor } from '@testing-library/react';
@@ -294,6 +295,79 @@ it.each(['status', 'batch'] as const)(
     } else {
       expect(capability.coverageBatch).toHaveBeenCalledTimes(2);
     }
+    mounted.unmount();
+  }
+);
+
+it.each([
+  { files: 2, label: 'one folder', rootIds: ['root'] },
+  { files: 0, label: 'no folder left', rootIds: [] },
+])(
+  'reports Text search ready with no collection: $label (BST-1988)',
+  async ({ files, rootIds }) => {
+    useBackgroundIndexingPreferencesStore.setState({
+      managedCollectionId: null,
+      nativeIndexMode: 'TEXT',
+    });
+    // The shape the desktop recorded for the TEXT partition: roots only, no collection.
+    const status = {
+      authorizedCollectionIds: [],
+      authorizedRootIds: rootIds,
+      collectionReadiness: [],
+      embedding: { indexMode: 'text-only' as const },
+      kind: 'ready' as const,
+      rootReadiness: rootIds.map((rootId) => ({ rootId, scanComplete: true })),
+      storeId: 'store',
+    };
+    const counts = { chunks: files * 2, indexedFiles: files, missingVectors: 0, vectors: 0 };
+    const coverage = {
+      embedding: status.embedding,
+      roots: rootIds.map((rootId) => ({ rootId, ...counts })),
+      storeId: 'store',
+      totals: counts,
+      vectorCoverageComplete: true,
+    };
+    const capability = {
+      coverage: vi.fn(),
+      coverageBatch: vi.fn(
+        async (requests: readonly IndexerCoverageRequest[]): Promise<IndexerCoverageBatch> => {
+          // As the native capability does: an empty workspace scope is refused.
+          if (requests.some((request) => request.rootIds.length === 0 && !request.collectionId)) {
+            throw new Error('Native workspace search requires connected roots.');
+          }
+          return { coverage: [coverage], kind: 'current', status };
+        }
+      ),
+      grep: vi.fn(),
+      rebuild: vi.fn(),
+      search: vi.fn(),
+      status: vi.fn(async (): Promise<IndexerStatus> => status),
+    };
+    const mounted = render(
+      <NativeWorkspaceIndexProvider capability={capability}>
+        <span>Workspace</span>
+      </NativeWorkspaceIndexProvider>
+    );
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState().state).toBe('idle')
+    );
+    // With no folder and no collection there is nothing to cover, so nothing is asked.
+    expect(capability.coverageBatch).toHaveBeenCalledTimes(rootIds.length === 0 ? 0 : 1);
+    expect(useWorkspaceCollectionSyncStatusStore.getState()).toMatchObject({
+      lastError: null,
+      managedCollectionId: null,
+      processedFiles: files,
+    });
+    expect(useIndexingActivityStore.getState().managedCollectionStats).toMatchObject({
+      collectionId: null,
+      stats: {
+        chunkCount: files * 2,
+        embeddingSetId: null,
+        fileCount: files,
+        pendingChunkCount: 0,
+      },
+      status: 'ready',
+    });
     mounted.unmount();
   }
 );

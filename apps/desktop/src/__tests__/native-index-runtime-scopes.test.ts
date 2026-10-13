@@ -1,9 +1,10 @@
 // @vitest-environment node
-import type {
-  IndexerPort,
-  IndexFileBinding,
-  IndexScope,
-  ScopedIndexerPort,
+import {
+  IndexerError,
+  type IndexerPort,
+  type IndexFileBinding,
+  type IndexScope,
+  type ScopedIndexerPort,
 } from '@brainstrike/indexer';
 import { expect, it, vi } from 'vitest';
 import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
@@ -31,9 +32,39 @@ function fixture(initial: Authority) {
   const unused = async (): Promise<never> => {
     throw new Error('Unused fixture operation');
   };
-  const replaceFileBindings = vi.fn(async (_bindings: readonly IndexFileBinding[]) => {
+  // The writer's current bindings, as its ScopeAuthority holds them.
+  let bound: readonly IndexFileBinding[] = [];
+  const replaceFileBindings = vi.fn(async (bindings: readonly IndexFileBinding[]) => {
+    bound = bindings;
     events.push('bindings-ack');
   });
+  // An opened store holding no rows its bindings do not own (BST-1988 convergence).
+  const verifyScopedManifest = vi.fn(
+    async (request: { readonly files: readonly unknown[]; readonly scope: IndexScope }) => {
+      const { scope } = request;
+      const inScope = bound.filter((file) =>
+        scope.kind === 'workspace'
+          ? file.rootId === scope.rootId
+          : file.embeddingSetId === scope.embeddingSetId
+      );
+      if (request.files.length !== inScope.length) {
+        throw new IndexerError(
+          'incomplete-manifest',
+          'A scoped manifest must declare the complete current canonical file inventory.'
+        );
+      }
+      return {
+        authorityEpoch: 'a'.repeat(64),
+        authorityRevision: 1,
+        changed: [],
+        complete: true,
+        missing: [],
+        scope,
+        storeId: 'store',
+        unexpected: [],
+      };
+    }
+  );
   const removeScopedFile = vi.fn(async (_request: unknown) => {
     events.push('native-removal-ack');
     return true;
@@ -58,7 +89,8 @@ function fixture(initial: Authority) {
     search: unused,
     searchScopes: unused,
     verifyManifest: unused,
-    verifyScopedManifest: unused,
+    verifyScopedManifest:
+      verifyScopedManifest as unknown as ScopedIndexerPort['verifyScopedManifest'],
   };
   const closeQueries = vi.fn(async () => {
     events.push('readers-exited');
@@ -66,10 +98,11 @@ function fixture(initial: Authority) {
   const closeWriter = vi.fn(async () => {
     events.push('writer-exited');
   });
-  const createIndexOwner = vi.fn(async (_authority: Authority) => ({
+  const createIndexOwner = vi.fn(async (opened: Authority) => ({
     close: closeWriter,
     databasePath: '/owned/index.sqlite',
     start: async () => {
+      bound = opened.fileBindings;
       events.push('writer-ready');
       return port;
     },
@@ -105,6 +138,18 @@ function fixture(initial: Authority) {
     },
   };
 }
+
+it('acquires an empty authority: Text search with no collection and no folder (BST-1988)', async () => {
+  // The TEXT partition's only scopes are its folders, so its last folder's
+  // removal leaves nothing to index; that is a ready, empty index, not a refusal.
+  const f = fixture({ fileBindings: [], rootIds: [], scopes: [] });
+  await expect(f.runtime.acquire()).resolves.toBe(f.port);
+  expect(f.createIndexOwner).toHaveBeenCalledExactlyOnceWith({
+    fileBindings: [],
+    rootIds: [],
+    scopes: [],
+  });
+});
 
 it('joins original-authority rooted collection removal before closing the writer', async () => {
   const rooted = {
@@ -270,6 +315,8 @@ it('joins absent retained files under the original ACK before revoking their nat
   const initial = { fileBindings: [binding, preserved], rootIds: [], scopes: [collection] };
   const f = fixture(initial);
   await f.runtime.acquire();
+  // The open lists its stored rows with no binding held (BST-1988); count from here.
+  f.replaceFileBindings.mockClear();
   const captured = f.runtime.captureAcknowledgedAuthority();
   const held = Promise.withResolvers<boolean>();
   f.removeScopedFile.mockReturnValueOnce(held.promise);
@@ -294,6 +341,8 @@ it('retains failed absent-file removal and its ACK for explicit retry before bin
   const initial = { fileBindings: [binding], rootIds: [], scopes: [collection] };
   const f = fixture(initial);
   await f.runtime.acquire();
+  // The open lists its stored rows with no binding held (BST-1988); count from here.
+  f.replaceFileBindings.mockClear();
   const captured = f.runtime.captureAcknowledgedAuthority();
   const failure = new Error('Deleted canonical data did not retire.');
   f.removeScopedFile.mockRejectedValueOnce(failure);
@@ -312,6 +361,8 @@ it('refuses authority drift during absent-file removal and revalidates before re
   const initial = { fileBindings: [binding], rootIds: [], scopes: [collection] };
   const f = fixture(initial);
   await f.runtime.acquire();
+  // The open lists its stored rows with no binding held (BST-1988); count from here.
+  f.replaceFileBindings.mockClear();
   const captured = f.runtime.captureAcknowledgedAuthority();
   f.removeScopedFile.mockImplementationOnce(async () => {
     f.setAuthority(initial);
@@ -362,7 +413,14 @@ it('opens a retained rootless collection using its real scope and binding', asyn
   const f = fixture(authority);
   await expect(f.runtime.acquire()).resolves.toBe(f.port);
   expect(f.createIndexOwner).toHaveBeenCalledWith(authority);
-  expect(f.events).toEqual(['readers-exited', 'writer-ready', 'reader-installed']);
+  // The open lists its collection's stored rows with no binding held, then restores it.
+  expect(f.events).toEqual([
+    'readers-exited',
+    'writer-ready',
+    'bindings-ack',
+    'bindings-ack',
+    'reader-installed',
+  ]);
 });
 
 it('waits for full binding replacement acknowledgment before returning the owner', async () => {
@@ -388,6 +446,8 @@ it('waits for full binding replacement acknowledgment before returning the owner
 it('joins an admitted reader before acknowledging same-scope membership revocation', async () => {
   const f = fixture({ fileBindings: [binding], rootIds: ['root'], scopes: [collection] });
   await f.runtime.acquire();
+  // The open lists its stored rows with no binding held (BST-1988); count from here.
+  f.replaceFileBindings.mockClear();
   f.events.length = 0;
   const readerExit = Promise.withResolvers<void>();
   f.closeQueries.mockReturnValueOnce(readerExit.promise);
@@ -407,6 +467,8 @@ it('joins an admitted reader before acknowledging same-scope membership revocati
 it('keeps failed same-scope reader retirement retryable before replacing bindings', async () => {
   const f = fixture({ fileBindings: [binding], rootIds: ['root'], scopes: [collection] });
   await f.runtime.acquire();
+  // The open lists its stored rows with no binding held (BST-1988); count from here.
+  f.replaceFileBindings.mockClear();
   f.events.length = 0;
   const failure = new Error('old membership reader has not exited');
   f.closeQueries.mockRejectedValueOnce(failure);
@@ -509,6 +571,8 @@ it('refuses authority changed during reader retirement before replacing bindings
   const initial = { fileBindings: [binding], rootIds: ['root'], scopes: [collection] };
   const f = fixture(initial);
   await f.runtime.acquire();
+  // The open lists its stored rows with no binding held (BST-1988); count from here.
+  f.replaceFileBindings.mockClear();
   f.events.length = 0;
   const readerExit = Promise.withResolvers<void>();
   f.closeQueries.mockReturnValueOnce(readerExit.promise);

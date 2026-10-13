@@ -228,6 +228,26 @@ function formatCoverageStatus(
   return `${coveragePercent}%`;
 }
 
+/** The popover's embedding-coverage row; Text search reads no embeddings (BST-1988). */
+function embeddingCoverage(
+  managedStats: IndexingManagedCollectionStatsState,
+  textSearch: boolean
+): { readonly label: string; readonly percent: number | undefined; readonly title: string } {
+  if (textSearch) {
+    return {
+      label: 'Not used by Text search',
+      percent: undefined,
+      title: 'Text search uses no embeddings',
+    };
+  }
+  const percent = getCoveragePercent(managedStats);
+  return {
+    label: formatCoverageStatus(managedStats, percent),
+    percent: percent ?? undefined,
+    title: getStatsStatusText(managedStats),
+  };
+}
+
 function formatDurableQueue(snapshot: IndexingActivitySnapshot): string {
   if (!snapshot.queue) {
     return 'Queue unavailable';
@@ -488,6 +508,9 @@ export function IndexingStatusItem({
   );
   const paused = useBackgroundIndexingPreferencesStore((state) => state.paused);
   const setPaused = useBackgroundIndexingPreferencesStore((state) => state.setPaused);
+  const nativeIndexMode = useBackgroundIndexingPreferencesStore((state) => state.nativeIndexMode);
+  // Text search reads the native text index and uses no embeddings (BST-1988).
+  const textSearch = Boolean(nativeIndexSearch) && nativeIndexMode === 'TEXT';
   const syncStatus = useWorkspaceCollectionSyncStatusStore(selectCollectionSyncStatus);
   const displayStatus = getDisplayStatus({
     enabled,
@@ -501,14 +524,14 @@ export function IndexingStatusItem({
   const metricRows = getWorkspaceCollectionSyncMetricRows(syncStatus);
   const currentActivity = currentIndexActivity(syncStatus, Boolean(nativeIndexSearch));
   const stats = getVisibleStats(managedStats);
-  const coveragePercent = getCoveragePercent(managedStats);
+  const coverage = embeddingCoverage(managedStats, textSearch);
   const combinedError = indexingError(syncStatus, managedStats, snapshot);
   const collectionName =
     syncStatus.managedCollectionName ??
     snapshot.background.managedCollectionName ??
     managedStats.collectionId ??
     managedCollectionId ??
-    'Not configured';
+    (textSearch ? 'Text search' : 'Not configured');
   const showPauseControl =
     shouldShowWorkspaceCollectionSyncPauseControl(syncStatus.state) ||
     shouldShowWorkspaceCollectionSyncPauseControl(snapshot.background.state);
@@ -611,17 +634,14 @@ export function IndexingStatusItem({
           <div className="space-y-1.5">
             <div className="flex min-h-4 items-center justify-between gap-3 text-[11px]">
               <span className="text-muted-foreground">Embedding coverage</span>
-              <span
-                className="w-32 truncate text-right tabular-nums"
-                title={getStatsStatusText(managedStats)}
-              >
-                {formatCoverageStatus(managedStats, coveragePercent)}
+              <span className="w-36 truncate text-right tabular-nums" title={coverage.title}>
+                {coverage.label}
               </span>
             </div>
             <Progress
               aria-label="Workspace Index embedding coverage"
               className="h-1.5"
-              value={coveragePercent ?? undefined}
+              value={coverage.percent}
             />
           </div>
 

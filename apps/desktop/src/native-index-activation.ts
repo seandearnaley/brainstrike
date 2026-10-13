@@ -35,6 +35,7 @@ import {
 } from './native-canonical-profile';
 import { createNativeCanonicalPublication } from './native-canonical-publication';
 import { isolateNativeCoverage } from './native-coverage-reader';
+import { nativeFileIdentity } from './native-index-attach';
 import { retainedNativeIndexFailure } from './native-index-blocked';
 import {
   catalogFingerprint,
@@ -43,7 +44,13 @@ import {
   observeNativeIndexCatalog,
   triggerCatalogWorkspaces,
 } from './native-index-catalog-observation';
-import { decodeRoots, decodeSelectedCollections } from './native-index-pg-decoders';
+import {
+  assertSavedCollection,
+  catalogPartition,
+  partitionScopes,
+  vectorCollectionId,
+} from './native-index-partition';
+import { decodeRoots } from './native-index-pg-decoders';
 import { createNativeIndexReadAuthority } from './native-index-read-authority';
 import { createNativeIndexRuntime, type NativeIndexAuthority } from './native-index-runtime';
 import { createNativeScanAdmission } from './native-index-scan-admission';
@@ -58,6 +65,7 @@ import {
   joinInvalidNativeSettingsRetirement,
   prepareNativeSavedPause,
   readTrackedNativeSettings,
+  reconfigureNativeRoots,
   reconfigureNativeSavedSettings,
 } from './native-index-settings-preparation';
 import { NativeIndexSetupRequiredError as SetupRequired } from './native-index-setup-required';
@@ -109,47 +117,19 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     requestId: randomUUID(),
     signal: current.controller.signal,
   });
-  const identity = (current: Graph, record: NativeCanonicalCatalogRecord) => {
-    if (record.rootId === null) {
-      return {
-        embeddingSetId: record.embeddingSetId,
-        fileId: record.fileId,
-        fileName: record.fileName,
-        relativePath: null,
-        rootId: null,
-        sourcePath: record.path,
-      };
-    }
-    const lease = current.leases.get(record.rootId);
-    if (
-      !lease ||
-      record.path === null ||
-      path.posix.isAbsolute(record.path) ||
-      record.path.includes('\\') ||
-      record.path.split('/').some((part) => !part || part === '.' || part === '..')
-    ) {
-      throw new Error('Canonical catalog file has no current mounted relative-path authority.');
-    }
-    lease.signal.throwIfAborted();
-    return {
-      embeddingSetId: record.embeddingSetId,
-      fileId: record.fileId,
-      fileName: record.fileName,
-      relativePath: record.path,
-      rootId: record.rootId,
-      sourcePath: path.join(lease.canonicalPath, ...record.path.split('/')),
-    };
-  };
+  const identity = (current: Graph, record: NativeCanonicalCatalogRecord) =>
+    nativeFileIdentity(current.leases, record);
   const loadRecords = async (current: Graph): Promise<readonly NativeCanonicalCatalogRecord[]> => {
     assertCurrent(current);
     const database = await getDatabase();
+    const partition = catalogPartition(current.settings);
     const result = await database.query<NativeCanonicalCatalogRecord>(
       `SELECT id::text AS "fileId", name AS "fileName", path, root_id AS "rootId",
        embedding_set_id::text AS "embeddingSetId", content_hash AS "contentHash",
        (chunks_processed_at IS NOT NULL) AS "chunksProcessed", NULL::text AS content,
        json_build_object('mtimeMs',mtime_ms,'size',size) AS stat
-       FROM file_records WHERE embedding_set_id::text=$1 ORDER BY id`,
-      [current.settings.managedCollectionId]
+       FROM file_records WHERE ${partition.predicate} ORDER BY id`,
+      [...partition.params]
     );
     assertCurrent(current);
     const records = decodeNativeCanonicalCatalogRecords(result.rows);
@@ -170,14 +150,14 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       },
       resolveEmbeddingSetId: async (scope) => {
         assertCurrent(current);
+        const collectionId = vectorCollectionId(current.settings);
         if (
           (scope.kind === 'workspace' && !current.leases.has(scope.rootId)) ||
-          (scope.kind === 'collection' &&
-            scope.embeddingSetId !== current.settings.managedCollectionId)
+          (scope.kind === 'collection' && scope.embeddingSetId !== collectionId)
         ) {
           throw new Error('Canonical profile scope is not authorized by current desktop settings.');
         }
-        return current.settings.managedCollectionId;
+        return collectionId;
       },
     });
   const authority = async (): Promise<NativeIndexAuthority> => {
@@ -186,25 +166,16 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       throw new TransitionError('Native indexing has no current saved authority.');
     }
     assertCurrent(current);
-    const database = await getDatabase();
-    const collections = decodeSelectedCollections(
-      (
-        await database.query('SELECT id::text AS id FROM embedding_sets WHERE id::text=$1', [
-          current.settings.managedCollectionId,
-        ])
-      ).rows
+    await assertSavedCollection(
+      current.settings,
+      async (sql, params) => (await getDatabase()).query(sql, params),
+      () => assertCurrent(current)
     );
-    assertCurrent(current);
-    if (collections.length !== 1 || collections[0]?.id !== current.settings.managedCollectionId) {
-      throw new Error(
-        'The saved native collection is missing or ambiguous in the application catalog.'
-      );
-    }
     const profile =
       current.settings.mode === 'VECTOR'
         ? (
             await resolver(current).resolve(
-              { embeddingSetId: current.settings.managedCollectionId, kind: 'collection' },
+              { embeddingSetId: vectorCollectionId(current.settings), kind: 'collection' },
               contextFor(current)
             )
           ).profile
@@ -217,10 +188,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
         return { ...binding, profile };
       }),
       rootIds,
-      scopes: [
-        ...rootIds.map((rootId) => ({ kind: 'workspace' as const, rootId })),
-        { embeddingSetId: current.settings.managedCollectionId, kind: 'collection' },
-      ],
+      scopes: partitionScopes(rootIds, current.settings),
     };
   };
   const runtime = createNativeIndexRuntime({
@@ -551,7 +519,12 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     }
     await Promise.all(firstReceipts);
     assertSource();
-    const scope = { embeddingSetId: settings.managedCollectionId, kind: 'collection' } as const;
+    const collectionId = settings.managedCollectionId;
+    if (collectionId === null) {
+      // The TEXT partition is its workspace roots: no retained collection to ingest (BST-1988).
+      return;
+    }
+    const scope = { embeddingSetId: collectionId, kind: 'collection' } as const;
     const collection = await manager.attachCanonicalCollection({
       ...common,
       ...pipeline(scope),
@@ -934,15 +907,19 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       readerReady: () => readerReady,
     });
   };
-  const reconfigure = (): Promise<void> => {
+  const reconfigurationOwner = () => {
     const epoch = terminalEpoch;
-    return reconfigureNativeSavedSettings({
+    return {
       ...settingsOwner,
       assertAdmission: () => assertSettingsEpoch(epoch, 'configuration'),
-      invalidate: (error) => prepareInvalidSettings(error, epoch),
+      invalidate: (error: unknown) => prepareInvalidSettings(error, epoch),
+      sourcesHealthy: (current: Graph) =>
+        !startupFailed && lastError === undefined && current.watchFailures.size === 0,
       terminalRequested,
-    });
+    };
   };
+  const reconfigure = (): Promise<void> => reconfigureNativeSavedSettings(reconfigurationOwner());
+  const reconfigureRoots = (): Promise<void> => reconfigureNativeRoots(reconfigurationOwner());
   const readAuthority = createNativeIndexReadAuthority({
     acquireRead,
     assertCurrent,
@@ -952,7 +929,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     resolveProfile: (current) =>
       current.settings.mode === 'VECTOR'
         ? resolver(current).resolve(
-            { embeddingSetId: current.settings.managedCollectionId, kind: 'collection' },
+            { embeddingSetId: vectorCollectionId(current.settings), kind: 'collection' },
             contextFor(current)
           )
         : Promise.resolve(null),
@@ -994,6 +971,7 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     prepareSavedPause,
     rebuild: () => transition(true),
     reconfigure,
+    reconfigureRoots,
     resume,
     stopSources,
     withRead: readAuthority.withRead,

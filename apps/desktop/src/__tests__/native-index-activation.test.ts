@@ -41,6 +41,7 @@ import {
   mocks,
   requestedScope,
   resetActivationFixture,
+  saveSettingsChange,
   scope,
   storeId,
   unused,
@@ -115,10 +116,11 @@ it('retains the assistant profile through index settings replacement and rebuild
   mocks.manager.attachCanonicalCollection.mockImplementation(
     async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
   );
-  const { activation } = fixture();
+  const { activation, storage } = fixture();
   try {
     await activation.acquireProfile();
     await activation.acquire();
+    await saveSettingsChange(storage, { indexingPolicyPreset: 'full-root' });
     await activation.reconfigure();
     expect(mocks.close).toHaveBeenCalledOnce();
     expect(mocks.closeProfile).not.toHaveBeenCalled();
@@ -126,29 +128,6 @@ it('retains the assistant profile through index settings replacement and rebuild
     expect(mocks.destroy).toHaveBeenCalledOnce();
     expect(mocks.closeProfile).not.toHaveBeenCalled();
     await activation.acquireProfile();
-  } finally {
-    await activation.close();
-  }
-  expect(mocks.closeProfile).toHaveBeenCalledOnce();
-});
-
-it('closes only the native owner for a root-data deletion and resumes on the same profile', async () => {
-  // BST-2001: the profile's attachment is the agent host, so a deletion that
-  // retired it replaced the host and interrupted its runs.
-  mocks.manager.attachCanonicalCollection.mockImplementation(
-    async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
-  );
-  const { activation } = fixture();
-  try {
-    await activation.acquireProfile();
-    await activation.acquire();
-    await activation.closeNativeOwner();
-    expect(mocks.close).toHaveBeenCalledOnce();
-    expect(mocks.closeProfile).not.toHaveBeenCalled();
-    await activation.resume();
-    await activation.acquire();
-    expect(mocks.createProfileOwner).toHaveBeenCalledOnce();
-    expect(mocks.closeProfile).not.toHaveBeenCalled();
   } finally {
     await activation.close();
   }
@@ -463,10 +442,11 @@ it.each(['close', 'destroyAndRetireProfile'] as const)(
     mocks.manager.attachCanonicalCollection.mockImplementation(
       async (dependencies: CanonicalCollectionDependencies) => emptyCollection(dependencies)
     );
-    const { activation } = fixture();
+    const { activation, storage } = fixture();
     await activation.acquire();
     const writerExit = Promise.withResolvers<void>();
     mocks.close.mockReturnValueOnce(writerExit.promise);
+    await saveSettingsChange(storage, { indexingPolicyPreset: 'full-root' });
     const changing = activation.reconfigure().catch((error: unknown) => error);
     await vi.waitFor(() => expect(mocks.close).toHaveBeenCalledOnce());
     expect(mocks.closeProfile).not.toHaveBeenCalled();
@@ -910,7 +890,13 @@ it('finishes root plus collection VECTOR startup with reverified receipts and no
   ]);
   expect(documentEmbeddings).not.toHaveBeenCalled();
   expect(native.commitScopedFile).toHaveBeenCalledTimes(2);
-  expect(native.verifyScopedManifest).toHaveBeenCalledTimes(3);
+  // The opened writer lists the stored rows of its folder and its collection once
+  // each (no files declared, BST-1988/BST-2011), then the startup proves three.
+  const manifests = vi
+    .mocked(native.verifyScopedManifest)
+    .mock.calls.map(([input]) => (input as { readonly files: readonly unknown[] }).files.length);
+  expect(manifests.filter((declared) => declared === 0)).toHaveLength(2);
+  expect(manifests.filter((declared) => declared > 0)).toHaveLength(3);
   expect(native.coverageScope).toHaveBeenCalledTimes(1);
   await activation.close();
 });

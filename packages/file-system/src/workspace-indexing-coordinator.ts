@@ -32,14 +32,32 @@ export interface WorkspaceIndexingCoordinatorService {
 }
 type RootDirectoryHandle = WorkspaceIndexingRequest['rootDirectoryHandle'];
 
+/**
+ * The index partition a sync writes (BST-1988). A collection partition (the web
+ * producer, desktop vectors) syncs only once its collection is chosen. The
+ * native TEXT partition is per root and has no collection, so it never waits
+ * for one: text search needs no embedding model.
+ */
+export type WorkspaceIndexPartition =
+  | { readonly kind: 'collection'; readonly managedCollectionId: string | null }
+  | { readonly kind: 'text' };
+
+function partitionCollectionId(partition: WorkspaceIndexPartition): string | null {
+  return partition.kind === 'collection' ? partition.managedCollectionId : null;
+}
+
+function isPartitionReady(partition: WorkspaceIndexPartition): boolean {
+  return partition.kind === 'text' || Boolean(partition.managedCollectionId);
+}
+
 export interface WorkspaceIndexingCoordinatorInputs {
   enabled: boolean;
   hasHydrated: boolean;
   indexingPolicyPreset: BackgroundIndexingPolicyPreset;
   isAccessLoading: boolean;
-  managedCollectionId: string | null;
   onBootstrap: () => boolean;
   onError: (operation: string, error: unknown) => void;
+  partition: WorkspaceIndexPartition;
   publishPaused: (args: {
     activeRootPath: string | null;
     managedCollectionId: string | null;
@@ -50,7 +68,7 @@ export interface WorkspaceIndexingCoordinatorInputs {
     enabled: boolean;
     managedCollectionId: string | null;
   }) => void;
-  publishWaiting: (args: { activeRootPath: string; managedCollectionId: string }) => void;
+  publishWaiting: (args: { activeRootPath: string; managedCollectionId: string | null }) => void;
   readPaused: () => boolean;
   readPauseReasons: () => readonly string[];
   readRootDirectoryHandle: () => RootDirectoryHandle;
@@ -120,11 +138,12 @@ export class WorkspaceIndexingCoordinator {
 
     const rootDirectoryHandle = inputs.readRootDirectoryHandle();
     const activeRootPath = rootDirectoryHandle?.path ?? null;
+    const managedCollectionId = partitionCollectionId(inputs.partition);
     if (!inputs.service) {
       inputs.publishRuntimeUnavailable({
         activeRootPath,
         enabled: inputs.enabled,
-        managedCollectionId: inputs.managedCollectionId,
+        managedCollectionId,
       });
       return;
     }
@@ -139,19 +158,19 @@ export class WorkspaceIndexingCoordinator {
       void inputs.service.cancel().catch((error) => inputs.onError('cancel', error));
       inputs.publishPaused({
         activeRootPath,
-        managedCollectionId: inputs.managedCollectionId,
+        managedCollectionId,
         pauseReasons,
       });
       return;
     }
 
-    if (!(inputs.enabled && inputs.managedCollectionId && rootDirectoryHandle)) {
+    if (!(inputs.enabled && isPartitionReady(inputs.partition) && rootDirectoryHandle)) {
       this.invalidateActive(inputs.service, inputs.onError);
       void inputs.service
         .sync({
           enabled: inputs.enabled,
           indexingPolicyPreset: inputs.indexingPolicyPreset,
-          managedCollectionId: inputs.managedCollectionId,
+          managedCollectionId,
           rootDirectoryHandle,
           scope: { mode: 'full' },
         })
@@ -164,7 +183,7 @@ export class WorkspaceIndexingCoordinator {
       void inputs.service.cancel().catch((error) => inputs.onError('cancel', error));
       inputs.publishWaiting({
         activeRootPath: rootDirectoryHandle.path,
-        managedCollectionId: inputs.managedCollectionId,
+        managedCollectionId,
       });
       return;
     }

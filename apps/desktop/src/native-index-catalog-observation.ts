@@ -27,7 +27,8 @@ interface CatalogObservation {
     getReadiness(): readonly NativeScopeReadiness[];
   };
   queuedCatalogRecords?: readonly NativeCanonicalCatalogRecord[] | undefined;
-  readonly settings: { readonly managedCollectionId: string };
+  /** Null for the TEXT partition, which has workspace scopes and no collection scope. */
+  readonly settings: { readonly managedCollectionId: string | null };
 }
 
 /** A read cannot replace bindings while the previous canonical scan still owns completion. */
@@ -76,10 +77,10 @@ export function observeNativeIndexCatalog(
   const before = current.observedCatalogRecords ?? [];
   current.observedCatalogRecords = records;
   current.observedCatalogFingerprint = fingerprint;
-  current.publication?.invalidateScope({
-    embeddingSetId: current.settings.managedCollectionId,
-    kind: 'collection',
-  });
+  const collectionId = current.settings.managedCollectionId;
+  if (collectionId !== null) {
+    current.publication?.invalidateScope({ embeddingSetId: collectionId, kind: 'collection' });
+  }
   const changedRoots = [...current.leases.keys()].filter(
     (rootId) =>
       catalogFingerprint(before.filter((record) => record.rootId === rootId)) !==

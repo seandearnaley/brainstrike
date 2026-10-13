@@ -47,9 +47,9 @@ function createInputs(
     hasHydrated: true,
     indexingPolicyPreset: 'balanced',
     isAccessLoading: false,
-    managedCollectionId: 'collection-1',
     onBootstrap: () => false,
     onError: vi.fn(),
+    partition: { kind: 'collection', managedCollectionId: 'collection-1' },
     publishPaused: vi.fn(),
     publishRuntimeUnavailable: vi.fn(),
     publishWaiting: vi.fn(),
@@ -434,4 +434,28 @@ describe('WorkspaceIndexingCoordinator', () => {
       managedCollectionId: 'collection-1',
     });
   });
+
+  // BST-1988: text search needs no embedding model, so the native TEXT
+  // partition syncs a root with no collection; a collection partition waits.
+  it.each([
+    { partition: { kind: 'text' } as const, starts: true },
+    { partition: { kind: 'collection', managedCollectionId: null } as const, starts: false },
+  ])(
+    'starts a pass for a $partition.kind partition only when it is ready',
+    async ({ partition, starts }) => {
+      const service = createService();
+      const resolveTargets = vi.fn(async () => []);
+      const coordinator = new WorkspaceIndexingCoordinator();
+      coordinator.updateInputs(createInputs(service, { partition, resolveTargets }));
+
+      coordinator.trigger();
+
+      await vi.waitFor(() =>
+        starts
+          ? expect(resolveTargets).toHaveBeenCalledTimes(1)
+          : expect(service.sync).toHaveBeenCalledTimes(1)
+      );
+      expect(resolveTargets).toHaveBeenCalledTimes(starts ? 1 : 0);
+    }
+  );
 });
