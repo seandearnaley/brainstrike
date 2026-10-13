@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { TestInfo } from '@playwright/test';
+import type { ElectronApplication, TestInfo } from '@playwright/test';
 import { describe, expect, it, vi } from 'vitest';
 
 /**
@@ -28,6 +28,7 @@ const context = {
 };
 
 // The close request returns before the process has exited; the exit lands on a later task.
+let launchFailure: Error | null = null;
 const closeElectronApp = vi.fn(async () => {
   setTimeout(() => electronProcess.exit(0, null), 20);
 });
@@ -35,7 +36,17 @@ const closeElectronApp = vi.fn(async () => {
 vi.mock('../../e2e/utils/load-electron-helpers', () => ({
   loadElectronHelpers: async () => ({
     closeElectronApp,
-    launchElectronApp: async () => context,
+    launchElectronApp: async (
+      _port: unknown,
+      _directory: unknown,
+      options: { onAppAcquired?: (app: ElectronApplication) => void }
+    ) => {
+      options.onAppAcquired?.(context.app as unknown as ElectronApplication);
+      if (launchFailure) {
+        throw launchFailure;
+      }
+      return context;
+    },
   }),
 }));
 
@@ -55,4 +66,43 @@ describe('ElectronHarness dispose', () => {
       signalCode: null,
     });
   });
+});
+
+it('owns an acquired app even when its first window never opens', async () => {
+  electronProcess.exitCode = null;
+  electronProcess.signalCode = null;
+  closeElectronApp.mockClear();
+  const failure = new Error('firstWindow timed out');
+  launchFailure = failure;
+  const harness = new ElectronHarness(
+    { file: '/repo/apps/desktop/e2e/failed-launch.desktop.test.ts' } as TestInfo,
+    undefined,
+    '/tmp/brainstrike-failed-launch'
+  );
+  try {
+    await expect(harness.ensureContext()).rejects.toBe(failure);
+    await expect(harness.ensureContext()).rejects.toThrow('still owns');
+    await harness.dispose();
+    expect(closeElectronApp).toHaveBeenCalledOnce();
+    expect(electronProcess.exitCode).toBe(0);
+  } finally {
+    launchFailure = null;
+  }
+});
+
+it('keeps its app after failed disposal so teardown can join the same process', async () => {
+  electronProcess.exitCode = null;
+  electronProcess.signalCode = null;
+  closeElectronApp.mockClear();
+  const harness = new ElectronHarness(
+    { file: '/repo/apps/desktop/e2e/failed-close.desktop.test.ts' } as TestInfo,
+    undefined,
+    '/tmp/brainstrike-failed-close'
+  );
+  await harness.ensureContext();
+  closeElectronApp.mockRejectedValueOnce(new Error('retirement failed'));
+  await expect(harness.dispose()).rejects.toThrow('retirement failed');
+  await harness.dispose();
+  expect(closeElectronApp).toHaveBeenCalledTimes(2);
+  expect(electronProcess.exitCode).toBe(0);
 });

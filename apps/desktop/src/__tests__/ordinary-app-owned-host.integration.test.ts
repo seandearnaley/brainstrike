@@ -17,6 +17,7 @@ import { getAdjustedTimeout } from '@brainstrike/test-utils/test-timeouts';
 import { _electron, type ElectronApplication } from 'playwright';
 import { expect, test } from 'vitest';
 import { z } from 'zod';
+import { closeElectronApp } from '../../e2e/utils/electron-helpers.mts';
 import { ensureAssistantShellVisible } from '../../e2e/utils/layout-helpers';
 import {
   type ModelProviderRequest,
@@ -29,6 +30,10 @@ import {
   liveStdoutSlices,
   watchThreadTelemetry,
 } from './helpers/live-command-output';
+import {
+  type OwnedTestProcess,
+  retireOwnedTestProcesses,
+} from './helpers/retire-owned-test-processes';
 
 const desktop = resolve(import.meta.dirname, '../..');
 // A send's admission (MCP discovery, memory resolution) and each model step
@@ -201,14 +206,14 @@ setInterval(() => {}, 1000);
     let failure: unknown;
     const errors: unknown[] = [];
     const outputs: string[] = [];
-    const owners: { pid: number; start: string }[] = [];
+    const owners: OwnedTestProcess[] = [];
     const captured = new WeakSet<NonNullable<typeof application>>();
     const capture = async (app: NonNullable<typeof application>): Promise<void> => {
       if (!captured.has(app)) {
         const process = app.process();
         const start = process.pid && processStartTime(process.pid);
         if (process.pid && start) {
-          owners.push({ pid: process.pid, start });
+          owners.push({ kind: 'app', pid: process.pid, start });
         }
         process.stdout?.on('data', (data: Buffer) => outputs.push(data.toString()));
         process.stderr?.on('data', (data: Buffer) => outputs.push(data.toString()));
@@ -217,7 +222,7 @@ setInterval(() => {}, 1000);
       for (const { pid } of await app.evaluate(({ app }) => app.getAppMetrics())) {
         const start = processStartTime(pid);
         if (start) {
-          owners.push({ pid, start });
+          owners.push({ kind: 'child', pid, start });
         }
       }
     };
@@ -332,7 +337,7 @@ setInterval(() => {}, 1000);
       expect(record.pid).not.toBe(process.pid);
       const start = processStartTime(record.pid);
       if (start) {
-        owners.push({ pid: record.pid, start });
+        owners.push({ kind: 'child', pid: record.pid, start });
       }
       client = await attachAgentHost(record);
       let discoveredThreadId: string | undefined;
@@ -704,7 +709,7 @@ setInterval(() => {}, 1000);
         if (!start) {
           throw new Error('The owned command exited before the cancellation check');
         }
-        return { pid, start };
+        return { kind: 'command' as const, pid, start };
       });
       owners.push(...commandIdentities);
       if (fault === 'utility-loss') {
@@ -832,7 +837,7 @@ setInterval(() => {}, 1000);
       await client.closed;
       client = undefined;
       await capture(application);
-      await application.close();
+      await closeElectronApp({ app: application });
       application = undefined;
       expect(processStartTime(record.pid)).not.toBe(record.start);
       expect(RootLock.inspect(profile)?.owner.released).toBe(true);
@@ -940,7 +945,9 @@ setInterval(() => {}, 1000);
         errors.push(cause);
       }
       try {
-        await application?.close();
+        if (application) {
+          await closeElectronApp({ app: application });
+        }
       } catch (cause) {
         errors.push(cause);
       }
@@ -951,6 +958,17 @@ setInterval(() => {}, 1000);
       }
       try {
         await model.close();
+      } catch (cause) {
+        errors.push(cause);
+      }
+      try {
+        await retireOwnedTestProcesses(owners, {
+          join: async ({ pid, start }) => {
+            await expect.poll(() => processStartTime(pid), RUN_PROGRESS_POLL).not.toBe(start);
+          },
+          signal: (pid, signal) => process.kill(pid, signal),
+          startTime: processStartTime,
+        });
       } catch (cause) {
         errors.push(cause);
       }
@@ -970,23 +988,6 @@ setInterval(() => {}, 1000);
         )
       );
       process.stderr.write(`App-owned M3 evidence: ${evidence}\n`);
-      if (remaining.length > 0) {
-        errors.push(new Error('Owned app or Root process remains live'));
-        // The failure is recorded; a proven-owned survivor (pid and start time
-        // still match) must not outlive the test. A SIGTERM-immune command would.
-        for (const { pid, start } of remaining) {
-          try {
-            if (processStartTime(pid) === start) {
-              process.kill(pid, 'SIGKILL');
-            }
-          } catch (cause) {
-            // ESRCH: it exited between the identity check and the signal.
-            if (!(cause instanceof Error && 'code' in cause && cause.code === 'ESRCH')) {
-              errors.push(cause);
-            }
-          }
-        }
-      }
     }
     if (errors.length > 0) {
       throw new AggregateError(

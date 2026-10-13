@@ -341,6 +341,7 @@ beforeEach(() => {
     selectedThreadByResourceId: {},
     threadIdsByResourceId: {},
     threadsByResourceId: {},
+    unavailableSavedThreadByResourceId: {},
     unseenBaselineAt: 0,
   });
   mockDb.exec.mockClear();

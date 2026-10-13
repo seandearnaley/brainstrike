@@ -10,7 +10,7 @@ import { configureAssistantProvider } from './utils/assistant-mock';
 import { ensureAssistantShellVisible, ensureMockWorkspaceOpen } from './utils/layout-helpers';
 import { loadElectronHelpers } from './utils/load-electron-helpers';
 import type { ModelProviderShim } from './utils/model-provider-shim';
-import { seedThreadRows } from './utils/seed-threads';
+import { seedRetiredThreadRows } from './utils/seed-threads';
 import { E2E_TIMEOUTS } from './utils/timeouts';
 
 const REASON = 'Workspace reads are disabled by a project hook';
@@ -139,35 +139,20 @@ test('a retired thread cannot start the removed execution path', async ({
   await hooks.getByRole('button', { exact: true, name: 'Approve' }).click();
   await expect(hooks.getByText('Trusted', { exact: true })).toBeVisible();
 
-  // The retired owner is read-only. Host-owned trust cannot resurrect its
-  // removed HTTP execution path; the current-host case above proves enforcement.
-  const [legacyThreadId] = await seedThreadRows(page, [{ folder: null, title: LEGACY_TITLE }]);
+  // Retired rows are never advertised as usable host conversations.
+  await seedRetiredThreadRows(page, [{ folder: null, title: LEGACY_TITLE }]);
   const { reloadRenderer } = await loadElectronHelpers();
-  await reloadRenderer(page, 'hook-trust-legacy-thread');
+  await reloadRenderer(page, 'hook-trust-retired-thread');
   await ensureAssistantShellVisible(page);
   const showThreads = page.getByTestId('show-threads-panel');
   if (await showThreads.isVisible().catch(() => false)) {
     await showThreads.click();
   }
   await page.getByTestId('threads-tab-trigger').click();
-  await page
-    .getByTestId('thread-row')
-    .filter({ hasText: LEGACY_TITLE })
-    .getByRole('button', { exact: true, name: LEGACY_TITLE })
-    .click();
-  // The agent host is Desktop's only conversation owner: a thread its catalog does
-  // not list fails visibly and mounts no composer that could send.
-  const legacy = page.getByTestId(`assistant-thread-panel-${legacyThreadId}`);
-  await expect(legacy.getByRole('alert', { name: 'Agent host error' })).toHaveText(
-    'This thread is not owned by the agent host.',
-    { timeout: E2E_TIMEOUTS.messageVisibility }
-  );
-  await expect(legacy.getByRole('textbox', { name: 'Message input' })).toHaveCount(0);
-  await expect(legacy.getByRole('button', { exact: true, name: 'Send' })).toHaveCount(0);
-  expect(
-    modelProvider
-      .requests()
-      .filter(({ requestBody }) => (requestBody as { stream?: unknown }).stream === true)
-  ).toHaveLength(0);
+  await expect(page.getByTestId('threads-panel')).toBeVisible();
+  await expect(page.getByTestId('thread-row').filter({ hasText: LEGACY_TITLE })).toHaveCount(0);
+  scriptRead(modelProvider, 'The current conversation still works.');
+  await send(page, 'Read notes.txt', 'The current conversation still works.');
+  expect(lastFollowUp(modelProvider)).toContain(REASON);
   expect(modelProvider.refusals()).toEqual([]);
 });

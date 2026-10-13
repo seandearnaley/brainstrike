@@ -1,22 +1,8 @@
-/**
- * Seed `mastra_threads` rows through the renderer's `electronAPI.db` bridge.
- *
- * WHY A DB SEED AND NOT THE PRODUCT PATH: a thread's folder binding
- * (`metadata.operatingRootId`) is written at its FIRST REQUEST, not at
- * creation — see `docs/agents/assistant-persistence.md` § THREAD GROUPS. So
- * the only product gesture that mints a BOUND thread is "New thread here" on a
- * folder header, and that header only exists once a bound thread already
- * groups the folder into a section. A pure product-path e2e would have to run
- * a real model turn to break that circle. Seeding the rows the first request
- * would have written keeps the whole panel under test (load → group → render)
- * while the turn itself stays out of scope.
- *
- * The bridge is the SAME database the renderer's assistant memory and the
- * `roots` table live in (the pattern `assistant-mock.ts` and
- * `assistant-approval-reload-linearity.desktop.test.ts` already rely on), so a
- * seeded `operatingRootId` resolves against a real reconciled root row.
- */
+/** Current desktop conversations are created through the public host protocol.
+ * Retired PGlite rows are seeded only by explicit exclusion tests. */
+import { randomUUID } from 'node:crypto';
 import type { Page } from '@playwright/test';
+import { withAppHost } from './agent-host-log';
 
 /** The panel's single memory resource — `WORKSPACE_MEMORY_RESOURCE_ID`. */
 const WORKSPACE_MEMORY_RESOURCE_ID = 'brainstrike:workspace';
@@ -149,7 +135,7 @@ export async function waitForMastraMemorySchema(page: Page, timeoutMs = 60_000):
  * `seedCompactionSummaryThread` uses — so this helper cannot drift from the
  * shape Mastra actually persists.
  */
-export async function seedThreadRows(
+export async function seedRetiredThreadRows(
   page: Page,
   specs: readonly SeedThreadSpec[]
 ): Promise<readonly string[]> {
@@ -198,4 +184,31 @@ export async function seedThreadRows(
     },
     { resourceId: WORKSPACE_MEMORY_RESOURCE_ID, specs }
   );
+}
+
+/** Seed current conversations through the same owner that lists and opens them. */
+export async function seedHostThreads(
+  userDataDir: string,
+  specs: readonly SeedThreadSpec[]
+): Promise<readonly string[]> {
+  return await withAppHost(userDataDir, async (host) => {
+    const ids: string[] = [];
+    for (const spec of specs) {
+      const { threadId } = await host.request('thread/start', { commandId: randomUUID() });
+      await host.request('thread/update', { commandId: randomUUID(), threadId, title: spec.title });
+      if (spec.folder) {
+        await host.request('thread/workspace/binding/update', {
+          commandId: randomUUID(),
+          patch: {
+            operatingRootDisplayName: spec.folder.displayName,
+            operatingRootId: spec.folder.id,
+            ...(spec.folder.path ? { operatingRootPath: spec.folder.path } : {}),
+          },
+          threadId,
+        });
+      }
+      ids.push(threadId);
+    }
+    return ids;
+  });
 }

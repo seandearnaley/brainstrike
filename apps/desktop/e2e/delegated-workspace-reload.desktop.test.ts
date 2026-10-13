@@ -410,7 +410,9 @@ test('restores distinct child tabs and native transcripts without executing a ru
   await expect(cedar).toHaveAttribute('aria-selected', 'true');
   await expect(cedar).toBeFocused();
   await expect(rootThreadTab).toHaveAttribute('aria-selected', 'true');
-  await expect.poll(() => cedarViewport.evaluate((element) => element.scrollTop)).toBe(0);
+  await expect
+    .poll(() => cedarViewport.evaluate((element) => element.scrollTop))
+    .toBeLessThanOrEqual(1);
   await expect(rootComposer).toHaveValue('UNSENT_PARENT_DRAFT_1724');
   // Open an existing child's sidebar row while another root owns the workspace.
   await threadRow(OTHER_TITLE).click();

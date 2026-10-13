@@ -144,7 +144,40 @@ function requirePositiveInteger(value: number, field: string): void {
 }
 
 export class ThreadSearchService {
-  constructor(private readonly repository: ThreadSearchServiceRepository) {}
+  constructor(private readonly repository: ThreadSearchServiceRepository | null) {}
+
+  private async readRepositoryArms(
+    query: string,
+    options: {
+      extraArms: ThreadSearchExtraArms | undefined;
+      messageSourceLimit: number;
+      queryEmbedding: readonly number[] | null;
+      resourceId: string;
+      titleSourceLimit: number;
+      vectorOptions: ThreadMessageVectorOptions;
+    }
+  ): Promise<[ThreadMessageFtsMatch[], ThreadMessageVectorMatch[], ThreadTitleMatch[]]> {
+    if (!this.repository) {
+      if (!options.extraArms) {
+        throw new Error('Thread search requires an authoritative source.');
+      }
+      return [[], [], []];
+    }
+    return Promise.all([
+      this.repository.fullTextSearch(query, {
+        includeHeadline: true,
+        limit: options.messageSourceLimit,
+        resourceId: options.resourceId,
+      }),
+      options.queryEmbedding === null
+        ? Promise.resolve([])
+        : this.repository.searchSimilar(options.queryEmbedding, options.vectorOptions),
+      this.repository.searchThreadTitles(query, {
+        limit: options.titleSourceLimit,
+        resourceId: options.resourceId,
+      }),
+    ]);
+  }
 
   async searchThreads(
     queryText: string,
@@ -184,20 +217,14 @@ export class ThreadSearchService {
     }
 
     const semanticArmUsed = queryEmbedding !== null;
-    const [ftsResults, vectorResults, titleResults] = await Promise.all([
-      this.repository.fullTextSearch(trimmed, {
-        includeHeadline: true,
-        limit: messageSourceLimit,
-        resourceId,
-      }),
-      semanticArmUsed
-        ? this.repository.searchSimilar(queryEmbedding, vectorOptions)
-        : Promise.resolve<ThreadMessageVectorMatch[]>([]),
-      this.repository.searchThreadTitles(trimmed, {
-        limit: titleSourceLimit,
-        resourceId,
-      }),
-    ]);
+    const [ftsResults, vectorResults, titleResults] = await this.readRepositoryArms(trimmed, {
+      extraArms,
+      messageSourceLimit,
+      queryEmbedding,
+      resourceId,
+      titleSourceLimit,
+      vectorOptions,
+    });
 
     // Level 1: fuse the two message arms per message id.
     const fusedMessages = fuseRankedLists(
@@ -363,7 +390,7 @@ function groupExtraMessages(
 }
 
 export function createThreadSearchService(
-  repository: ThreadSearchServiceRepository
+  repository: ThreadSearchServiceRepository | null
 ): ThreadSearchService {
   return new ThreadSearchService(repository);
 }
