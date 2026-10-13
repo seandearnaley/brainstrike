@@ -10,7 +10,11 @@
 
 import { fitItemsToCharBudget, type HybridSearchInput, type RuntimeData } from '@brainstrike/agent';
 import { SecretReadError } from '@brainstrike/agent-host/credential-contract';
-import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
+import {
+  BoundaryFailureError,
+  NATIVE_TOOL_ID,
+  ToolInputError,
+} from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
 import {
   resolveAdmittedRetrievalRoots,
@@ -96,12 +100,15 @@ export interface HybridSearchToolResult {
 
 /**
  * The same rule as retrieval's handleRetrievalError, decided by type and never
- * by message text (BST-1985): a `ToolInputError` refusal passes through, a
+ * by message text (BST-1985): a `ToolInputError` or typed boundary refusal passes through unchanged, a
  * stored key the user must repair becomes one, and everything else is logged
  * redacted behind the generic failure.
  */
 function handleHybridSearchError(error: unknown): never {
-  if (error instanceof ToolInputError) {
+  if (
+    error instanceof ToolInputError ||
+    (error instanceof BoundaryFailureError && error.failure.kind === 'refusal')
+  ) {
     throw error;
   }
   if (error instanceof SecretReadError) {

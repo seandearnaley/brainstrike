@@ -1,4 +1,7 @@
-import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
+import {
+  BoundaryFailureError,
+  describeBoundaryError,
+} from '@brainstrike/assistant-contract/boundary-failure';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { SearchEmbedderProvider } from '@brainstrike/vector-management';
 import type {
@@ -778,3 +781,64 @@ describe('useWorkspaceSearchController', () => {
     }
   );
 });
+
+it.each([
+  new BoundaryFailureError(
+    {
+      category: 'configuration',
+      code: 'embedding.missing-key',
+      kind: 'refusal',
+      message: 'No API key configured for the embedding provider.',
+      remedy: 'Configure the embedding provider API key in Settings, then retry indexing.',
+    },
+    { cause: new Error('private fixture') }
+  ),
+  new Error('private untyped coverage failure'),
+])(
+  'renders coverage failure as unavailable using only its safe boundary description',
+  async (error) => {
+    useWorkspaceSearchStore.getState().reset();
+    const profile = {
+      dimensions: 384,
+      dtype: 'fp16' as const,
+      modelId: 'onnx-community/all-MiniLM-L6-v2-ONNX',
+      revision: 'aff7a1dc4e8a1ea593e6ea21e95c22ef0a25966f',
+      tokenCap: 256,
+    };
+    const capability: IndexSearchCapability = {
+      coverage: vi.fn(),
+      coverageBatch: vi.fn(async () => {
+        throw error;
+      }),
+      grep: vi.fn(),
+      rebuild: vi.fn(),
+      search: vi.fn(),
+      status: vi.fn(),
+    };
+    const dependencies = { capability, embedQuery: vi.fn(), profile };
+    const identities = new Map([['A1', 'D1']]);
+    function Wrapper({ children }: { children: ReactNode }) {
+      return (
+        <SearchEmbedderProvider>
+          <NativeWorkspaceSearchProvider dependencies={dependencies}>
+            <RootIdentityProvider dbRootIdByAdapterRootId={identities}>
+              {children}
+            </RootIdentityProvider>
+          </NativeWorkspaceSearchProvider>
+        </SearchEmbedderProvider>
+      );
+    }
+    const { result, unmount } = renderHook(() => useWorkspaceSearchController(), {
+      wrapper: Wrapper,
+    });
+    await waitFor(() =>
+      expect(result.current.semanticAvailability).toEqual({
+        available: false,
+        reason: describeBoundaryError(error),
+      })
+    );
+    expect(result.current.semanticAvailability?.reason).not.toContain('private');
+    expect(dependencies.embedQuery).not.toHaveBeenCalled();
+    unmount();
+  }
+);

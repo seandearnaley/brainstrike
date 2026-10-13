@@ -302,6 +302,80 @@ test.describe('Workspace Index first run (desktop)', () => {
     });
   }
 
+  test(
+    'completes paused semantic setup after choosing a local execution',
+    { tag: '@smoke' },
+    async ({ homePage, window }, testInfo) => {
+      await openSearchIndexingSettings({ homePage, page: window });
+      await window.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
+      await window.getByRole('option', { name: /BGE Small/ }).click();
+      await window.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
+      await expect(window.getByRole('combobox', { name: 'Managed collection' })).toContainText(
+        'Workspace Index (BGE Small)',
+        { timeout: 15_000 }
+      );
+      await window.getByRole('combobox', { name: 'Search mode' }).click();
+      await window.getByRole('option', { exact: true, name: 'Text search' }).click();
+      await expect
+        .poll(() => readNativeStatus(window), { timeout: 15_000 })
+        .toMatchObject({ embedding: { indexMode: 'text-only' }, kind: 'ready' });
+      const initial = await readSavedPreferences(window);
+      expect(initial.managedCollectionId).not.toBeNull();
+      await window.getByRole('button', { name: 'Pause workspace index' }).click();
+      await expect
+        .poll(() => readSavedPreferences(window), { timeout: 15_000 })
+        .toMatchObject({ paused: true });
+
+      // Mode is saved before execution: this is a real failed open with no writer,
+      // not a source pause on an already configured semantic host.
+      await window.getByRole('combobox', { name: 'Search mode' }).click();
+      await window.getByRole('option', { exact: true, name: 'Text and semantic search' }).click();
+      await expect
+        .poll(() => readNativeStatus(window), { timeout: 15_000 })
+        .toMatchObject({ cause: { kind: 'setup-required' }, kind: 'unavailable' });
+      const incomplete = await readNativeStatus(window);
+      await window.getByRole('combobox', { exact: true, name: 'Embedding model' }).click();
+      await window.getByRole('option', { name: /BGE Small/ }).click();
+      await window.getByRole('button', { exact: true, name: 'Use embedding model' }).click();
+      await window.getByRole('combobox', { name: 'Local model execution' }).click();
+      await window.getByRole('option', { exact: true, name: 'WASM · Q8' }).click();
+      await expect
+        .poll(() => readSavedPreferences(window), { timeout: 15_000 })
+        .toMatchObject({
+          managedCollectionId: initial.managedCollectionId,
+          nativeIndexMode: 'VECTOR',
+          nativeLocalSelection: {
+            device: 'wasm',
+            dtype: 'q8',
+            modelId: 'Xenova/bge-small-en-v1.5',
+          },
+          paused: true,
+        });
+      // Paused read authority needs a real native writer, but no document inference
+      // or model download. Do not resume ingestion to make this assertion pass.
+      await expect
+        .poll(() => readNativeStatus(window), { timeout: 15_000 })
+        .toMatchObject({
+          authorizedCollectionIds: [initial.managedCollectionId],
+          embedding: {
+            indexMode: 'vector-configured',
+            profile: { dtype: 'q8', modelId: 'Xenova/bge-small-en-v1.5' },
+          },
+          kind: 'ready',
+          queryPlan: { inferencePlan: { device: 'wasm', dtype: 'q8' } },
+        });
+      await expect(window.getByRole('button', { name: 'Resume workspace index' })).toBeVisible();
+      await testInfo.attach('paused-semantic-setup', {
+        body: JSON.stringify({
+          incomplete,
+          preferences: await readSavedPreferences(window),
+          status: await readNativeStatus(window),
+        }),
+        contentType: 'application/json',
+      });
+    }
+  );
+
   test('does not invent a collection or native search mode for a fresh profile', async ({
     electron,
   }, testInfo) => {

@@ -87,6 +87,7 @@ describe('guardToolExecution', () => {
             category: 'conflict',
             code: 'workspace.folder-removed',
             message: 'The folder "bravo" was removed from the workspace.',
+            remedy: 'Re-add the folder to continue.',
           })
         );
       }),
@@ -96,7 +97,8 @@ describe('guardToolExecution', () => {
     await expect(tool.execute({ context: {} })).resolves.toEqual({
       error: {
         code: 'tool_input_invalid',
-        message: 'The folder "bravo" was removed from the workspace.',
+        message:
+          'The folder "bravo" was removed from the workspace. Re-add the folder to continue.',
         toolName: 'brainstrike.readFile',
       },
       ok: false,

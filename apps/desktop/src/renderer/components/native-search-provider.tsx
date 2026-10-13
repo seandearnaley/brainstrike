@@ -1,4 +1,8 @@
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
+import {
+  BoundaryFailureError,
+  describeBoundaryFailure,
+} from '@brainstrike/assistant-contract/boundary-failure';
 import type {
   IndexerEmbeddingProfile,
   IndexerStatus,
@@ -119,6 +123,9 @@ function profileUnavailableReason(
 }
 
 function errorMessage(error: unknown): string {
+  if (error instanceof BoundaryFailureError) {
+    return describeBoundaryFailure(error.failure);
+  }
   return error instanceof Error ? error.message : String(error);
 }
 

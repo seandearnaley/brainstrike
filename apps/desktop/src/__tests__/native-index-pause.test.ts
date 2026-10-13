@@ -32,6 +32,7 @@ const mocks = vi.hoisted(() => ({
     retireCanonicalSources: vi.fn(),
     start: vi.fn(),
   },
+  readyHost: vi.fn(),
   readyPort: vi.fn(),
 }));
 vi.mock('../db-main', () => ({ getDatabase: async () => mocks.database }));
@@ -45,7 +46,7 @@ vi.mock('../indexer-runtime', () => ({
   acquireIndexerHost: mocks.acquire,
   closeIndexerRuntime: mocks.close,
   destroyIndexerRuntime: mocks.destroy,
-  getReadyIndexerHost: () => mocks.manager,
+  getReadyIndexerHost: mocks.readyHost,
   getReadyScopedIndexerPort: mocks.readyPort,
 }));
 vi.mock('../sqlite-query-host-manager', () => ({
@@ -157,6 +158,7 @@ beforeEach(() => {
     rows: sql.includes('FROM embedding_sets') ? [{ id: 'selected' }] : [],
   }));
   mocks.acquire.mockResolvedValue(writer());
+  mocks.readyHost.mockReturnValue(mocks.manager);
   mocks.readyPort.mockReturnValue(writer());
   mocks.close.mockResolvedValue(undefined);
   mocks.destroy.mockResolvedValue(undefined);
@@ -465,6 +467,44 @@ function vectorPauseFixture() {
   );
   return { ...f, profile };
 }
+
+it('opens a paused writer after the saved local execution choice completes previously incomplete VECTOR setup', async () => {
+  const { activation, storage, profile, transport } = vectorPauseFixture();
+  onTestFinished(() => activation.close());
+  const complete = await storage.getItem();
+  const incomplete = JSON.parse(complete) as { state: Record<string, unknown> };
+  incomplete.state['nativeLocalSelection'] = null;
+  storage.getItem.mockResolvedValue(JSON.stringify(incomplete));
+  // The physical runtime has no ready host until its first acquisition. Its
+  // production guard must not be bypassed merely because settings were saved.
+  const absentHost = new Error(
+    'Native indexer capability is unavailable or its owned host is not ready.'
+  );
+  mocks.readyHost.mockImplementation(() => {
+    if (mocks.acquire.mock.calls.length === 0) {
+      throw absentHost;
+    }
+    return mocks.manager;
+  });
+  const applySaved = async (): Promise<void> => {
+    const prepared = await activation.prepareSavedPause();
+    if (prepared) {
+      await prepared.complete();
+    } else {
+      await activation.reconfigure();
+    }
+  };
+  await expect(applySaved()).rejects.toBeInstanceOf(NativeIndexSetupRequiredError);
+  expect(mocks.acquire).not.toHaveBeenCalled();
+  expect(mocks.readyHost).not.toHaveBeenCalled();
+  storage.getItem.mockResolvedValue(complete);
+  await applySaved();
+  await activation.acquireRead();
+  expect(mocks.acquire).toHaveBeenCalledOnce();
+  expect((await activation.getSearchAuthority()).profile).toEqual(profile);
+  expect(mocks.manager.attachCanonicalCollection).not.toHaveBeenCalled();
+  expect(transport.documentEmbeddings).not.toHaveBeenCalled();
+});
 
 it('opens cold paused VECTOR authority with the exact saved query plan and zero document inference', async () => {
   const { activation, transport, profile } = vectorPauseFixture();

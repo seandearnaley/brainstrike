@@ -9,6 +9,7 @@ import type { NativeChildObserver } from '@brainstrike/state-store/native-childr
 import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
+import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
 import type { DesktopWorkspaceBindingBorrow } from './desktop-workspace-binding';
 import { serveHostRewindFiles } from './host-rewind-files';
@@ -230,7 +231,12 @@ export function serveDesktopPlatform(
       .catch((cause: unknown) => {
         // A typed failure reaches the host as the response data; anything else
         // is logged here and travels as the fixed internal fault (BST-2010).
-        throw toBoundaryResponseError(cause, (message, fields) => logger.error(message, fields));
+        const log = (message: string, fields: Readonly<Record<string, unknown>>): void =>
+          logger.error(message, fields);
+        throw toBoundaryResponseError(
+          new BoundaryFailureError(nativeIndexBoundaryFailure(cause, log)),
+          log
+        );
       });
     pending.add(task);
     const settled = (): void => {

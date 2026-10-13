@@ -1,4 +1,3 @@
-import { toBoundaryFailure } from '@brainstrike/agent-host/boundary-wire';
 import { NativeIndexRefusalError } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import type { ipcMain as ElectronIpcMain, IpcMainEvent, IpcMainInvokeEvent } from 'electron';
@@ -392,14 +391,12 @@ export async function settleIpcResult<T>(
   try {
     return ipcOk(await run());
   } catch (error) {
-    if (error instanceof NativeIndexRefusalError) {
-      return ipcFailure(
-        nativeIndexBoundaryFailure(error, (message, fields) => logger.error(message, fields))
-      );
-    }
     return ipcFailure(
-      toBoundaryFailure(error, (message, fields) =>
-        logger.error(message, { ...fields, operation: failure })
+      nativeIndexBoundaryFailure(error, (message, fields) =>
+        logger.error(
+          message,
+          error instanceof NativeIndexRefusalError ? fields : { ...fields, operation: failure }
+        )
       )
     );
   }
