@@ -433,6 +433,12 @@ describe('ProvidersSettings — connect → models chaining', () => {
 
     render(<ProvidersSettings verifyProvider={verifyProvider} />);
     await user.click(await screen.findByTestId('provider-card-toggle-anthropic'));
+    await waitFor(() =>
+      expect(screen.getByTestId('provider-connection-openai')).toHaveAttribute(
+        'data-connection',
+        'disconnected'
+      )
+    );
 
     sources = [{ provider: 'openai', source: 'stored' }];
     act(() => {
@@ -476,7 +482,12 @@ describe('ProvidersSettings — connect → models chaining', () => {
     const { verifyProvider } = makeVerifier('invalid');
 
     render(<ProvidersSettings verifyProvider={verifyProvider} />);
-    await waitFor(() => expect(screen.getByTestId('provider-card-openai')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId('provider-connection-openai')).toHaveAttribute(
+        'data-connection',
+        'disconnected'
+      )
+    );
     sources = [{ provider: 'openai', source: 'stored' }];
     act(() => {
       useSecretsStore.getState().notifySecretsChanged();
@@ -499,7 +510,12 @@ describe('ProvidersSettings — connect → models chaining', () => {
 
     render(<ProvidersSettings verifyProvider={verifyProvider} />);
     // The card is never expanded, so only the chaining could reveal models.
-    await waitFor(() => expect(screen.getByTestId('provider-card-openai')).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByTestId('provider-connection-openai')).toHaveAttribute(
+        'data-connection',
+        'disconnected'
+      )
+    );
 
     sources = [{ provider: 'openai', source: 'stored' }];
     act(() => {
