@@ -1,14 +1,12 @@
 import type { LocalLlmHostProgress } from '@brainstrike/agent/local-llm';
 import type { LocalLlmHostClient } from '@brainstrike/agent/provider-runtime';
 import type { HostPlatform } from '@brainstrike/agent-host';
+import { toBoundaryResponseError } from '@brainstrike/agent-host/boundary-wire';
 import { CliWorkspaceRootsSchema } from '@brainstrike/agent-host/standalone-workspace-input';
+import { BoundaryFailureError, fault } from '@brainstrike/assistant-contract';
+import { createLogger } from '@brainstrike/logging';
 import type { NativeChildObserver } from '@brainstrike/state-store/native-children';
-import {
-  type CancellationToken,
-  ErrorCodes,
-  type MessageConnection,
-  ResponseError,
-} from 'vscode-jsonrpc';
+import type { CancellationToken, MessageConnection } from 'vscode-jsonrpc';
 import { z } from 'zod';
 import type { EmbeddingHostManager } from '../embedding-host-manager';
 import type { DesktopAdmissionReads } from './desktop-run-admission';
@@ -38,6 +36,13 @@ import {
   PlatformWorkspaceBindingRequestSchema,
   PlatformWorkspaceLeaseSchema,
 } from './platform-wire';
+
+const logger = createLogger('DesktopMainPlatform');
+const PLATFORM_CLOSING = fault({
+  category: 'availability',
+  code: 'platform.closing',
+  message: 'The desktop is closing this agent host.',
+});
 
 export interface DesktopPlatformCapabilities {
   /**
@@ -207,7 +212,11 @@ export function serveDesktopPlatform(
     work: (signal: AbortSignal) => Promise<T>
   ): Promise<T> => {
     if (closing) {
-      return Promise.reject(new Error('Desktop platform capability is closing'));
+      return Promise.reject(
+        toBoundaryResponseError(new BoundaryFailureError(PLATFORM_CLOSING), (message, fields) =>
+          logger.error(message, fields)
+        )
+      );
     }
     const controller = new AbortController();
     controllers.add(controller);
@@ -219,15 +228,9 @@ export function serveDesktopPlatform(
     const task = Promise.resolve()
       .then(() => work(controller.signal))
       .catch((cause: unknown) => {
-        // vscode-jsonrpc reports a plain Error as "Request <method> failed with
-        // message: ..."; the host receives the platform's own message instead,
-        // a reason the composer can show (thread/memory/read).
-        throw cause instanceof ResponseError
-          ? cause
-          : new ResponseError(
-              ErrorCodes.InternalError,
-              cause instanceof Error ? cause.message : String(cause)
-            );
+        // A typed failure reaches the host as the response data; anything else
+        // is logged here and travels as the fixed internal fault (BST-2010).
+        throw toBoundaryResponseError(cause, (message, fields) => logger.error(message, fields));
       });
     pending.add(task);
     const settled = (): void => {

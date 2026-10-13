@@ -108,7 +108,6 @@ export type LlmHostErrorReport = RuntimeErrorEnvelope<'llm-error'> & {
   payload: RuntimeErrorEnvelope<'llm-error'>['payload'] & {
     errorDetails?: LlmHostErrorDetails;
     errorMessage: string;
-    errorStack?: string;
   };
 };
 export type LlmHostResponseReport =
@@ -537,7 +536,6 @@ function createErrorReport(
       errorMessage,
       message: typeof payload['message'] === 'string' ? payload['message'] : errorMessage,
       ...(errorCode ? { code: errorCode } : {}),
-      ...(typeof payload['errorStack'] === 'string' ? { errorStack: payload['errorStack'] } : {}),
       ...(typeof payload['errorDetails'] === 'object' && payload['errorDetails'] !== null
         ? { errorDetails: payload['errorDetails'] as LlmHostErrorDetails }
         : {}),
@@ -654,7 +652,6 @@ export function createLlmHostErrorReport(
     payload: {
       ...serialized,
       errorMessage: serialized.message,
-      ...(serialized.stack ? { errorStack: serialized.stack } : {}),
       ...(details ? { errorDetails: details } : {}),
     },
     requestId: request.requestId,

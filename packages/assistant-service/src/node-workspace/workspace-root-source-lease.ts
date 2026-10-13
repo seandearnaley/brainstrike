@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import type {
   CanonicalOperationContext,
   CanonicalSourceSubscription,
   CanonicalWorkspaceLease,
 } from '@brainstrike/canonical-ingestion';
-import { AccessError, getFileSizeConfig } from '@brainstrike/file-system';
+import { getFileSizeConfig } from '@brainstrike/file-system';
 import { ParcelWatchRetirementError } from '@brainstrike/file-system/native-watch';
 import { NATIVE_MAX_READ_BYTES } from '@brainstrike/file-system/secure-file-read';
 import { MAX_DIRECTORY_ENTRIES } from '@brainstrike/file-system/workspace-root-nodes';
@@ -224,10 +225,11 @@ function assertRelativeSourcePath(relativePath: string, allowRoot: boolean): voi
     /^[A-Za-z]:/u.test(relativePath) ||
     relativePath.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')
   ) {
-    throw new AccessError(
+    throw refusalError(
+      'input',
+      'workspace.path-invalid',
       'Source path must be normalized and root-relative.',
-      relativePath,
-      'read'
+      'Choose a file inside a connected folder.'
     );
   }
 }

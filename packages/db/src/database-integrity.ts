@@ -1,3 +1,4 @@
+import { type BoundaryResult, callBoundary } from '@brainstrike/assistant-contract/boundary-result';
 import { createLogger } from '@brainstrike/logging';
 import type { DatabaseIntegritySnapshot, DatabaseIntegrityState } from '@brainstrike/types';
 
@@ -25,7 +26,7 @@ export function isBackgroundDatabaseWorkAdmitted(state: DatabaseIntegrityState):
  */
 export interface DesktopDatabaseIntegrityBridge {
   /** The current snapshot; rejects when main cannot answer. */
-  getState: () => Promise<DatabaseIntegritySnapshot>;
+  getState: () => Promise<BoundaryResult<DatabaseIntegritySnapshot>>;
   /** Every state change main publishes; returns the unsubscribe. */
   onChanged: (callback: (snapshot: DatabaseIntegritySnapshot) => void) => () => void;
 }
@@ -114,7 +115,7 @@ export function createDatabaseIntegrityWatcher(
   const unsubscribeFromBridge = bridge.onChanged(accept);
 
   const read = (): Promise<void> => {
-    firstRead ??= bridge.getState().then(accept, (error: unknown) => {
+    firstRead ??= callBoundary(() => bridge.getState()).then(accept, (error: unknown) => {
       firstRead = null;
       throw error;
     });

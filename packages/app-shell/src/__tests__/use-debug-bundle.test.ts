@@ -66,7 +66,14 @@ describe('useDebugBundleBinding', () => {
     Object.assign(window, { desktopDiagnostics: bridge });
     const { result } = renderHook(() => useDebugBundleBinding('thread-1'));
     await result.current?.buildThreadPack?.();
-    expect(buildThreadPackMock).toHaveBeenLastCalledWith(db, 'thread-1', bridge);
+    expect(buildThreadPackMock).toHaveBeenLastCalledWith(
+      db,
+      'thread-1',
+      expect.objectContaining({
+        readMainLogWindow: expect.any(Function),
+        readProcessCounters: expect.any(Function),
+      })
+    );
   });
 
   it('is null without a db handle', () => {

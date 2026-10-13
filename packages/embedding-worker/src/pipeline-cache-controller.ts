@@ -54,6 +54,7 @@ interface PipelineCacheEntry<Resource extends EmbeddingPipelineResource> {
 }
 
 interface EmbeddingPipelineCacheControllerOptions<Resource extends EmbeddingPipelineResource> {
+  readonly beforeDispose?: (resource: Resource) => Promise<void>;
   readonly isIdleSweepAllowed?: () => boolean;
   readonly load: (
     model: string,
@@ -146,7 +147,7 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
 
   const entries = new Map<string, PipelineCacheEntry<Resource>>();
   const disposalFailures: unknown[] = [];
-  const pendingDisposals = new Set<Promise<void>>();
+  const pendingDisposals = new Map<Promise<void>, EmbeddingDevice>();
   const assertCacheCanLoad = (): void => {
     if (disposalFailures.length === 0) {
       return;
@@ -241,8 +242,8 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
     idleSweepTimer = null;
   };
 
-  const trackDisposal = (disposal: Promise<void>): void => {
-    pendingDisposals.add(disposal);
+  const trackDisposal = (disposal: Promise<void>, device: EmbeddingDevice): void => {
+    pendingDisposals.set(disposal, device);
     void disposal.then(
       () => {
         pendingDisposals.delete(disposal);
@@ -281,6 +282,7 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
       async (pipeline) => {
         if (pipeline.dispose) {
           try {
+            await options.beforeDispose?.(pipeline);
             await pipeline.dispose();
           } catch (error) {
             disposalFailures.push(error);
@@ -297,7 +299,7 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
         // A pipeline that never loaded owns no physical resource to release.
       }
     );
-    trackDisposal(disposal);
+    trackDisposal(disposal, entry.device);
     options.onResidencyChanged?.();
     if (entries.size === 0) {
       stopIdleSweep();
@@ -418,7 +420,15 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
       publishLoadFailure(request, error);
       throw error;
     }
-    const pipeline = Promise.all(victimDisposals).then(async () => {
+    // The sole WebGPU slot includes invalidated sessions still physically retiring.
+    // Independent WASM slots continue to join only their own eviction victims.
+    const priorGpuDisposals =
+      request.device === 'webgpu'
+        ? [...pendingDisposals]
+            .filter(([, device]) => device === 'webgpu')
+            .map(([pending]) => pending)
+        : [];
+    const pipeline = Promise.all([...priorGpuDisposals, ...victimDisposals]).then(async () => {
       assertCacheCanLoad();
       return request.revision === undefined
         ? await options.load(request.model, request.device, request.dtype)
@@ -462,7 +472,7 @@ export function createEmbeddingPipelineCacheController<Resource extends Embeddin
   const waitForPendingDisposals = async (): Promise<void> => {
     const failures: unknown[] = [];
     while (pendingDisposals.size > 0) {
-      const results = await Promise.allSettled([...pendingDisposals]);
+      const results = await Promise.allSettled([...pendingDisposals.keys()]);
       for (const result of results) {
         if (
           result.status === 'rejected' &&

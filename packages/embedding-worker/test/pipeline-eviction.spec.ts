@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  installMockOrtWebGpuDevice,
+  installMockWebGpuDevice,
   loadWorker,
   makeExtractor,
   pipelineMock,
@@ -18,8 +18,7 @@ describe('pipeline eviction policy', () => {
   });
 
   it('loading 2nd GPU pipeline evicts the 1st (max 1 GPU)', async () => {
-    vi.stubGlobal('navigator', { gpu: {} });
-    await installMockOrtWebGpuDevice();
+    installMockWebGpuDevice();
 
     const { extractor: gpu1, disposeMock: dispose1 } = makeExtractor('gpu1');
     const { extractor: gpu2 } = makeExtractor('gpu2');
@@ -80,8 +79,7 @@ describe('pipeline eviction policy', () => {
   });
 
   it('GPU and WASM limits are independent', async () => {
-    vi.stubGlobal('navigator', { gpu: {} });
-    await installMockOrtWebGpuDevice();
+    installMockWebGpuDevice();
 
     const wasmExtractors = Array.from({ length: 3 }, (_, i) => makeExtractor(`wasm${i}`));
     const { extractor: gpuExtractor } = makeExtractor('gpu0');
@@ -230,25 +228,13 @@ describe('pipeline eviction policy', () => {
 
   it('GPU keep-alive stops when last GPU pipeline evicted', async () => {
     vi.useFakeTimers({ now: 1000 });
-    vi.stubGlobal('navigator', { gpu: {} });
 
     const submitMock = vi.fn();
-    const transformers = await import('@huggingface/transformers');
-    const mockedEnv = transformers.env as {
-      allowRemoteModels: boolean;
-      backends?: { onnx?: { webgpu?: { device?: unknown } } };
-    };
-    mockedEnv.backends = {
-      onnx: {
-        webgpu: {
-          device: {
-            createCommandEncoder: () => ({ finish: () => ({}) }),
-            lost: new Promise(() => {}),
-            queue: { submit: submitMock },
-          },
-        },
-      },
-    };
+    installMockWebGpuDevice({
+      createCommandEncoder: () => ({ finish: () => ({}) }),
+      lost: new Promise(() => {}),
+      queue: { submit: submitMock },
+    });
 
     const { extractor: gpu1, disposeMock: dispose1 } = makeExtractor('gpu-ka1');
     const { extractor: gpu2 } = makeExtractor('gpu-ka2');

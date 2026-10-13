@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, join } from 'node:path';
+import { BoundaryFailureError, refusal } from '@brainstrike/assistant-contract';
 import type { StateStore } from '@brainstrike/state-store';
-import { ErrorCodes, ResponseError } from 'vscode-jsonrpc';
 import type { HostMethodHandler } from './auth-connection.js';
 import { type HostHookTrust, HostHookTrustSchema, type HostParams } from './protocol.js';
 
@@ -14,7 +14,12 @@ export type HostHookTrustStore = Pick<StateStore, 'deleteSetting' | 'getSetting'
  * hooks file, or bytes other than the reviewed ones. Clients receive it as
  * InvalidParams, apart from a failure to record the trust.
  */
-export class HostHookTrustRefusal extends Error {}
+/** A hooks-trust request the host refuses; its text is the reason the user reads. */
+export class HostHookTrustRefusal extends BoundaryFailureError {
+  constructor(message: string) {
+    super(refusal({ category: 'input', code: 'hooks.trust-refused', message }));
+  }
+}
 
 const trustKey = (rootId: string): string => `hooks.trust/${rootId}`;
 
@@ -90,15 +95,8 @@ export function bindHostHookTrustMethods(
   handle: HostMethodHandler,
   store: HostHookTrustStore
 ): void {
-  handle('hooks/trust', async (params) => {
-    try {
-      return await trustHostHooks(store, params);
-    } catch (cause) {
-      throw cause instanceof HostHookTrustRefusal
-        ? new ResponseError(ErrorCodes.InvalidParams, cause.message)
-        : cause;
-    }
-  });
+  // A refusal is a typed failure: the connection sends it as the response data.
+  handle('hooks/trust', (params) => trustHostHooks(store, params));
   handle('hooks/trust/read', async ({ rootId }) => ({
     trust: await readHostHookTrust(store, rootId),
   }));

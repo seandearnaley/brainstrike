@@ -1,3 +1,4 @@
+import { BoundaryFailureError } from '@brainstrike/assistant-contract/boundary-failure';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { SearchEmbedderProvider } from '@brainstrike/vector-management';
 import type {
@@ -7,6 +8,7 @@ import type {
   WorkspaceSearchResults,
 } from '@brainstrike/workspace-search/core';
 import {
+  NativeWorkspaceSearchExecutor,
   NativeWorkspaceSearchProvider,
   useWorkspaceSearchStore,
 } from '@brainstrike/workspace-search/core';
@@ -15,6 +17,7 @@ import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RootIdentityProvider } from '../roots/root-identity-context';
 import {
+  createNativeWorkspaceSearchRunners,
   createWorkspaceSearchRunners,
   useWorkspaceSearchController,
 } from '../use-workspace-search-controller';
@@ -63,6 +66,37 @@ function makeTextResults(overrides?: Partial<WorkspaceSearchResults>): Workspace
     ...overrides,
   };
 }
+
+describe('native Search boundary presentation', () => {
+  it('retains the recorded GPU-loss remedy without exposing the private cause', async () => {
+    useWorkspaceSearchStore.getState().reset();
+    useWorkspaceSearchStore.getState().setQuery('where is the release signing procedure');
+    // Recorded Main-to-visible envelope from actual hardware loss on 91d27dbeb.
+    const failure = new BoundaryFailureError(
+      {
+        category: 'availability',
+        code: 'EMBEDDING_DEVICE_LOST',
+        correlationId: '8cb3b33a-70a7-4753-b72b-cbea1c0b5250',
+        kind: 'fault',
+        message: 'WebGPU device was lost.',
+        remedy: 'Choose the model again to retry.',
+      },
+      { cause: new Error('private vendor device stack') }
+    );
+    const executor = new NativeWorkspaceSearchExecutor({
+      capability: null,
+      embedQuery: vi.fn(),
+      profile: null,
+    });
+    vi.spyOn(executor, 'searchSemantic').mockRejectedValueOnce(failure);
+    createNativeWorkspaceSearchRunners(executor, ['D1']).runSemanticSearch();
+    await waitFor(() => expect(useWorkspaceSearchStore.getState().status).toBe('error'));
+    expect(useWorkspaceSearchStore.getState().error).toBe(
+      'WebGPU device was lost. Choose the model again to retry.'
+    );
+    expect(useWorkspaceSearchStore.getState().error).not.toContain('private vendor');
+  });
+});
 
 describe('createWorkspaceSearchRunners', () => {
   beforeEach(() => {

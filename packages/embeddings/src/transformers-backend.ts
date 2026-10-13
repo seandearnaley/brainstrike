@@ -466,7 +466,7 @@ export class TransformersBackend {
   }
 
   private ensureStreamingClient(): StreamingEmbeddingWorkerClient {
-    if (this._streamingClient) {
+    if (this._streamingClient && !this._streamingClient.hasRetiredDeviceLoss) {
       return this._streamingClient;
     }
     if (!this._streamingWorkerUrl) {

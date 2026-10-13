@@ -1,4 +1,5 @@
 import type { PermissionToolGateSnapshot, ToolRiskCategory } from '@brainstrike/assistant-contract';
+import { refusalError } from '@brainstrike/assistant-contract';
 import type { ModelMessage, Tool } from 'ai';
 import { recordRawToolInputs } from './approval-input.js';
 import { canonical, type Json, jsonValue } from './json-value.js';
@@ -79,7 +80,11 @@ export class HostCommandLedger {
     const accepted = this.accepted.get(params.commandId);
     const previous = attempt ?? (accepted && { ...accepted, payload: canonical(accepted.payload) });
     if (previous && (previous.method !== method || previous.payload !== payload)) {
-      throw new Error('Command identity was reused with different input');
+      throw refusalError(
+        'input',
+        'command.identity-reused',
+        'Command identity was reused with different input'
+      );
     }
     if (attempt) {
       // Includes physical joining and preserves rejection after a genuine commit.
@@ -154,7 +159,7 @@ export function foldHostInteraction(
   const run = runs.get(event.runId);
   if (event.type === 'interaction.requested') {
     if (!run) {
-      throw new Error('Interaction references an unknown run');
+      throw refusalError('input', 'run.unknown', 'Interaction references an unknown run');
     }
     const runtimeInput = run.liveInputs.get(event.toolCallId);
     run.approvals.set(event.interactionId, { event, ...(runtimeInput ? { runtimeInput } : {}) });
@@ -306,6 +311,14 @@ export interface HostRunState {
  * scanning every thread's (one map owns both views).
  */
 export class HostRunMap extends Map<string, HostRunState> {
+  requireForThread(threadId: string, runId: string): HostRunState {
+    const run = this.get(runId);
+    if (!run || run.threadId !== threadId) {
+      throw refusalError('input', 'run.unknown', 'Unknown run for this thread');
+    }
+    return run;
+  }
+
   private readonly byThread = new Map<string, HostRunState[]>();
 
   override set(runId: string, run: HostRunState): this {
@@ -513,7 +526,7 @@ export function readHostWorkspaceSnapshot(
   threadId: string
 ): { snapshot: HostParams<'thread/workspace/set'>['snapshot'] | null } {
   if (!threads.has(threadId)) {
-    throw new Error('Unknown thread');
+    throw refusalError('input', 'thread.unknown', 'Unknown thread');
   }
   return { snapshot: structuredClone(workspaces.get(threadId) ?? null) };
 }
@@ -525,7 +538,7 @@ export async function acceptHostWorkspaceSnapshot(
   accept: (event: Extract<HostEvent, { type: 'workspace.updated' }>) => Promise<void>
 ): Promise<{ accepted: true }> {
   if (!threads.has(params.threadId)) {
-    throw new Error('Unknown thread');
+    throw refusalError('input', 'thread.unknown', 'Unknown thread');
   }
   await accept({ snapshot: structuredClone(params.snapshot), type: 'workspace.updated' });
   return { accepted: true };

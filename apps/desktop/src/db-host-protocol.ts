@@ -81,7 +81,6 @@ export interface DbHostSerializedError {
   readonly name?: string;
   readonly routine?: string;
   readonly schema?: string;
-  readonly stack?: string;
   readonly table?: string;
 }
 
@@ -184,9 +183,6 @@ export interface DbHostLiveQueryDiagnostics {
 export function toError(error: DbHostSerializedError): Error {
   const normalized = new Error(error.message);
   normalized.name = error.name ?? 'DbHostError';
-  if (error.stack) {
-    normalized.stack = error.stack;
-  }
   for (const field of ['code', ...DB_HOST_ERROR_IDENTIFIER_FIELDS] as const) {
     const value = error[field];
     if (value) {

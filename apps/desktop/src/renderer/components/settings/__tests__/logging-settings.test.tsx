@@ -2,13 +2,14 @@ import {
   __resetLoggingPreferencesStoreForTests,
   useLoggingPreferencesStore,
 } from '@brainstrike/app-state/stores/logging-preferences-store';
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import {
   createDefaultLoggingPreferences,
   type LoggingPreferences,
   LogLevel,
   type LogRecord,
 } from '@brainstrike/logging';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
 import type { LoggingSettingsPayload } from '../../../../logging-shared';
 import { getRendererLogBuffer } from '../../../log-buffer';
@@ -74,16 +75,23 @@ describe('DesktopLoggingSettings', () => {
     };
 
     window.logging = {
-      getBufferedLogs: vi.fn().mockResolvedValue([]),
+      getBufferedLogs: vi.fn().mockResolvedValue({ ok: true, value: [] }),
       getPreferences: vi.fn().mockResolvedValue({
-        capabilities,
-        preferences,
+        ok: true,
+        value: {
+          capabilities,
+          preferences,
+        },
       }),
-      openDestination: vi.fn().mockResolvedValue(true),
-      selectDestination: vi.fn().mockResolvedValue('/tmp/desktop.log'),
+      onDurableRecord: vi.fn(() => () => undefined),
+      openDestination: vi.fn().mockResolvedValue({ ok: true, value: true }),
+      selectDestination: vi.fn().mockResolvedValue({ ok: true, value: '/tmp/desktop.log' }),
       setPreferences: vi.fn(async (nextPreferences: LoggingPreferences) => ({
-        capabilities,
-        preferences: nextPreferences,
+        ok: true,
+        value: {
+          capabilities,
+          preferences: nextPreferences,
+        },
       })),
     } as unknown as Window['logging'];
   });
@@ -113,8 +121,9 @@ describe('DesktopLoggingSettings', () => {
 
   it('renders an error card when loading fails', async () => {
     window.logging = {
-      getBufferedLogs: vi.fn().mockResolvedValue([]),
+      getBufferedLogs: vi.fn().mockResolvedValue({ ok: true, value: [] }),
       getPreferences: vi.fn().mockRejectedValue(new Error('load failed')),
+      onDurableRecord: vi.fn(() => () => undefined),
       openDestination: vi.fn(),
       selectDestination: vi.fn(),
       setPreferences: vi.fn(),
@@ -125,7 +134,7 @@ describe('DesktopLoggingSettings', () => {
     await waitFor(() =>
       expect(screen.getByText(/logging configuration is unavailable/i)).toBeInTheDocument()
     );
-    expect(screen.getByText('load failed')).toBeInTheDocument();
+    expect(screen.getByText(INTERNAL_FAULT.message)).toBeInTheDocument();
   });
 
   it('includes Electron main buffered logs in the desktop log viewer source', async () => {
@@ -134,9 +143,10 @@ describe('DesktopLoggingSettings', () => {
     if (!logging) {
       throw new Error('Expected the logging bridge to be available.');
     }
-    logging.getBufferedLogs = vi
-      .fn()
-      .mockResolvedValue([createLogRecord('main diagnostic', 'electron-main')]);
+    logging.getBufferedLogs = vi.fn().mockResolvedValue({
+      ok: true,
+      value: [createLogRecord('main diagnostic', 'electron-main')],
+    });
 
     render(<DesktopLoggingSettings />);
 
@@ -147,6 +157,64 @@ describe('DesktopLoggingSettings', () => {
       },
       { timeout: 10_000 }
     );
+  });
+
+  it('does not fetch Main again when a failed snapshot logs to the renderer subscription', async () => {
+    const readMain = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('private Main failure'))
+      .mockResolvedValue({ ok: true, value: [] });
+    window.logging.getBufferedLogs = readMain;
+    render(<DesktopLoggingSettings />);
+
+    await screen.findByText('Electron main logs unavailable');
+    act(() =>
+      getRendererLogBuffer().push(createLogRecord('later renderer record', 'electron-renderer'))
+    );
+    await screen.findByText('later renderer record');
+    expect(readMain).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Electron main logs unavailable')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh Logs' }));
+    await waitFor(() =>
+      expect(screen.queryByText('Electron main logs unavailable')).not.toBeInTheDocument()
+    );
+    expect(readMain).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the failed snapshot remedy visible through live Main records until Refresh succeeds', async () => {
+    const readMain = vi
+      .fn()
+      .mockResolvedValueOnce({
+        error: {
+          category: 'availability',
+          code: 'logging.unavailable',
+          kind: 'refusal',
+          message: 'The log source is unavailable.',
+          remedy: 'Refresh after reconnecting.',
+        },
+        ok: false,
+      })
+      .mockResolvedValue({ ok: true, value: [] });
+    window.logging.getBufferedLogs = readMain;
+    let receiveMain: ((record: LogRecord) => void) | undefined;
+    const unsubscribe = vi.fn();
+    window.logging.onDurableRecord = (listener) => {
+      receiveMain = listener;
+      return unsubscribe;
+    };
+    const { unmount } = render(<DesktopLoggingSettings />);
+    await screen.findByText('Refresh after reconnecting.', { exact: false });
+    act(() => receiveMain?.(createLogRecord('live Main record', 'electron-main')));
+    await screen.findByText('live Main record');
+    expect(screen.getByText('Refresh after reconnecting.', { exact: false })).toBeInTheDocument();
+    expect(readMain).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh Logs' }));
+    await waitFor(() =>
+      expect(screen.queryByText('Electron main logs unavailable')).not.toBeInTheDocument()
+    );
+    expect(readMain).toHaveBeenCalledTimes(2);
+    unmount();
+    expect(unsubscribe).toHaveBeenCalled();
   });
 
   it('renders an explicit diagnostic when Electron main buffered logs cannot be loaded', async () => {
@@ -162,7 +230,7 @@ describe('DesktopLoggingSettings', () => {
     await waitFor(() => {
       expect(screen.getByText('renderer diagnostic')).toBeInTheDocument();
       expect(screen.getByText('Electron main logs unavailable')).toBeInTheDocument();
-      expect(screen.getByText(/main bridge failed/)).toBeInTheDocument();
+      expect(screen.getByText(INTERNAL_FAULT.message, { exact: false })).toBeInTheDocument();
     });
   });
 });

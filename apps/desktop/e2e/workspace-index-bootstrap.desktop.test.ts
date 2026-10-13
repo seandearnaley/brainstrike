@@ -94,8 +94,11 @@ async function readNativeStatus(
   page: Page
 ): Promise<Awaited<ReturnType<IndexSearchCapability['status']>>> {
   return await page.evaluate(async () => {
-    const capability = (window as Window & { readonly indexSearch?: IndexSearchCapability })
-      .indexSearch;
+    const capability = (
+      window as Window & {
+        readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
+      }
+    ).__brainstrikeTestHooks__?.indexSearch;
     if (!capability) {
       throw new Error('Native indexing capability is unavailable.');
     }
@@ -183,9 +186,11 @@ test.describe('Workspace Index first run (desktop)', () => {
               await window.evaluate(async () => {
                 const capability = (
                   globalThis as typeof globalThis & {
-                    readonly indexSearch?: IndexSearchCapability;
+                    readonly __brainstrikeTestHooks__?: {
+                      readonly indexSearch?: IndexSearchCapability;
+                    };
                   }
-                ).indexSearch;
+                ).__brainstrikeTestHooks__?.indexSearch;
                 if (!capability) {
                   throw new Error('Native capability missing');
                 }
@@ -222,10 +227,10 @@ test.describe('Workspace Index first run (desktop)', () => {
           .toBe(true);
         const semanticResult = await window.evaluate(async () => {
           const bridges = globalThis as typeof globalThis & {
-            readonly indexSearch?: IndexSearchCapability;
+            readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
             readonly embeddingHost?: VisibleEmbeddingHostBridge;
           };
-          const capability = bridges.indexSearch;
+          const capability = bridges.__brainstrikeTestHooks__?.indexSearch;
           const bridge = bridges.embeddingHost;
           if (!(capability && bridge && 'queryEmbedding' in bridge)) {
             throw new Error('Native search/query bridge unavailable');
@@ -238,7 +243,7 @@ test.describe('Workspace Index first run (desktop)', () => {
           ) {
             throw new Error('Selected collection has no ready semantic query plan');
           }
-          const vector = await bridge.queryEmbedding({
+          const response = await bridge.queryEmbedding({
             dimensions: status.embedding.profile.dimensions,
             modelId: status.embedding.profile.modelId,
             modelKey: status.queryPlan.modelKey,
@@ -247,6 +252,10 @@ test.describe('Workspace Index first run (desktop)', () => {
               ? { inferencePlan: status.queryPlan.inferencePlan }
               : {}),
           });
+          if (!response.ok) {
+            throw new Error(JSON.stringify(response.error));
+          }
+          const vector = response.value;
           const result = await capability.search({
             limit: 5,
             mode: 'vector',

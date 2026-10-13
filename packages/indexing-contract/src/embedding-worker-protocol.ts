@@ -151,6 +151,7 @@ export function assertEmbedWorkerTelemetrySourceClosed(
 /** Worker-lifetime failure delivered outside a workerpool RPC so the owner can replace it. */
 export interface EmbedWorkerLifetimeError {
   readonly cause?: string;
+  readonly code?: typeof EMBEDDING_DEVICE_LOST_CODE;
   readonly message: string;
   readonly type: 'worker-lifetime-error';
   readonly workerInstanceId: string;
@@ -171,6 +172,9 @@ export function assertEmbedWorkerLifetimeError(
   }
   if (event['cause'] !== undefined && typeof event['cause'] !== 'string') {
     throw new Error('Embedding worker lifetime-error event cause must be a string.');
+  }
+  if (event['code'] !== undefined && event['code'] !== EMBEDDING_DEVICE_LOST_CODE) {
+    throw new Error('Embedding worker lifetime-error event has an invalid code.');
   }
   if (!(typeof event['workerInstanceId'] === 'string' && event['workerInstanceId'].length > 0)) {
     throw new Error('Embedding worker lifetime-error event requires a worker instance identity.');
@@ -654,8 +658,19 @@ export interface EmbedWorkerSuccess {
   readonly vectors: readonly Float32Array[];
 }
 
+export const EMBEDDING_DEVICE_LOST_CODE = 'EMBEDDING_DEVICE_LOST';
+
+export class EmbeddingDeviceLostError extends Error {
+  readonly code = EMBEDDING_DEVICE_LOST_CODE;
+  constructor(cause: unknown) {
+    super('WebGPU device was lost. Choose the model again to retry.', { cause });
+    this.name = 'DeviceLost';
+  }
+}
+
 export interface EmbedWorkerError {
   readonly cause?: string | undefined;
+  readonly code?: typeof EMBEDDING_DEVICE_LOST_CODE;
   readonly id: string;
   readonly message: string;
   readonly type: 'error';

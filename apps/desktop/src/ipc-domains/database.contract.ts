@@ -18,12 +18,12 @@ import { DESKTOP_IPC_CHANNELS } from '../platform/desktop-ipc-channels';
 import {
   type AssertTrue,
   type Bridge,
-  type BridgeMatches,
   type Contract,
   channel,
   parseNoArgs,
   pushEvent,
   rawChannel,
+  type TransportBridge,
 } from '../platform/ipc-contract';
 import { assertArgCount, parseRecord } from './contract-args';
 
@@ -365,7 +365,9 @@ type ExactBridge<Generated extends object, Expected extends object> = ExactType<
 >;
 
 export type DatabaseIntegrityBridgeDerivationProof = AssertTrue<
-  BridgeMatches<typeof databaseIntegrityContract, DesktopDatabaseIntegrityBridge>
+  TransportBridge<typeof databaseIntegrityContract> extends DesktopDatabaseIntegrityBridge
+    ? true
+    : false
 >;
 export type DatabaseAdapterMethodDerivationProof = AssertTrue<
   ExactType<Pick<DatabaseBridge, AdaptedMethod>, ExpectedGeneratedAdapterMethods>
