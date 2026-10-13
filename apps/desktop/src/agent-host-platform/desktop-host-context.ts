@@ -10,12 +10,16 @@ import {
   injectWorkspaceRootManifestContext,
 } from '@brainstrike/agent/tool-runtime';
 import { type HostRunIntentRequest, hostToolDiscoveryEnabled } from '@brainstrike/agent-host';
-import { isSupportedProvider, type ToolRiskCategory } from '@brainstrike/assistant-contract';
+import {
+  isSupportedProvider,
+  type ReferencedFileFailure,
+  type ToolRiskCategory,
+} from '@brainstrike/assistant-contract';
 import type { WorkspaceFileReader } from '@brainstrike/assistant-service/ports';
 import { readWorkspaceTextFile } from '@brainstrike/host-capabilities/workspace-text-file-reader';
 import { createLogger } from '@brainstrike/logging';
 import { z } from 'zod';
-import { injectReferencedFilesContext } from '../assistant-server/referenced-files-context';
+import { readReferencedFilesContext } from '../assistant-server/referenced-files-context';
 import { injectActivatedSkillsContext } from '../assistant-server/skills-activation-context';
 import { injectWorkspaceInstructionsContext } from '../assistant-server/workspace-instructions-context';
 
@@ -38,6 +42,7 @@ export function desktopPlanModeTools<
 export interface DesktopHostSystemContext {
   /** BST-1932: date, skills and injected workspace context, never the root's supervisor text. */
   readonly childSystem?: string | undefined;
+  readonly referencedFileFailures?: readonly ReferencedFileFailure[];
   readonly system?: string | undefined;
 }
 
@@ -128,7 +133,14 @@ export async function readDesktopHostSystemContext(options: {
     },
   ];
   const readFile = options.readWorkspaceFile ?? readWorkspaceTextFile;
-  messages = await injectReferencedFilesContext(messages, options.runtime, readFile);
+  const referenced = await readReferencedFilesContext(
+    options.request.prompt ?? '',
+    options.runtime,
+    readFile
+  );
+  if (referenced.message) {
+    messages = [referenced.message, ...messages];
+  }
   messages = await injectActivatedSkillsContext(messages, skills);
   messages = await injectWorkspaceInstructionsContext(messages, options.runtime, readFile);
   // The legacy per-turn workspace topology: root selectors, main root and focused root.
@@ -144,6 +156,7 @@ export async function readDesktopHostSystemContext(options: {
     ? joinedSections([...shared, ...injected])
     : undefined;
   return {
+    ...(referenced.failures.length ? { referencedFileFailures: referenced.failures } : {}),
     ...(childSystem === undefined ? {} : { childSystem }),
     ...(system === undefined ? {} : { system }),
   };

@@ -11,7 +11,11 @@
  */
 import fsPromises from 'node:fs/promises';
 import { assertNotAgentIgnored } from './agent-ignore-guard.js';
-import { resolveWorkspaceAbsolutePath, WorkspacePathRefusal } from './workspace-path-resolution.js';
+import {
+  missingWorkspacePathRefusal,
+  resolveWorkspaceAbsolutePath,
+  WorkspacePathRefusal,
+} from './workspace-path-resolution.js';
 
 export const MAX_READ_WORKSPACE_FILE_BYTES = 2_000_000;
 
@@ -25,7 +29,16 @@ export async function readWorkspaceTextFile(args: {
   path: string;
   size: number;
 }> {
-  const resolved = await resolveWorkspaceAbsolutePath(args.rootPath, args.requestedPath);
+  const resolved = await resolveWorkspaceAbsolutePath(args.rootPath, args.requestedPath).catch(
+    async (cause: unknown) => {
+      if (cause instanceof Error && 'code' in cause && cause.code === 'ENOENT') {
+        const failure = await missingWorkspacePathRefusal(args.rootPath, args.requestedPath);
+        failure.cause = cause;
+        throw failure;
+      }
+      throw cause;
+    }
+  );
   // Checked here, at the shared reader, so every consumer inherits it: LSP
   // inspection, rename reindex, workspace-context, and @file injection all read
   // through this one function (BST-1432).

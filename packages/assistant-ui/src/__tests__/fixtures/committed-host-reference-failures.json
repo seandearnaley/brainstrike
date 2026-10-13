@@ -1,0 +1,249 @@
+[
+  {
+    "event": {
+      "commandId": "1d40d954-d0e2-4b81-92f1-8f19fc79d3fb",
+      "method": "thread/start",
+      "payload": {
+        "commandId": "1d40d954-d0e2-4b81-92f1-8f19fc79d3fb"
+      },
+      "result": {
+        "threadId": "3a634acb-1c5b-401b-84c7-0e91036ed190"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 1,
+    "threadId": "3a634acb-1c5b-401b-84c7-0e91036ed190",
+    "ts": 1791910480912
+  },
+  {
+    "event": {
+      "commandId": "1d40d954-d0e2-4b81-92f1-8f19fc79d3fb",
+      "type": "thread.started"
+    },
+    "seq": 2,
+    "threadId": "3a634acb-1c5b-401b-84c7-0e91036ed190",
+    "ts": 1791910480912
+  },
+  {
+    "event": {
+      "commandId": "d16a4095-1d3b-4fd3-9aef-c9fcd8024414",
+      "method": "run/start",
+      "payload": {
+        "commandId": "d16a4095-1d3b-4fd3-9aef-c9fcd8024414",
+        "modelId": "scripted",
+        "prompt": "Read the two references",
+        "threadId": "3a634acb-1c5b-401b-84c7-0e91036ed190"
+      },
+      "result": {
+        "runId": "f6b9bb88-c36c-46e5-85a8-42275b798bc8"
+      },
+      "type": "command.accepted"
+    },
+    "seq": 3,
+    "threadId": "3a634acb-1c5b-401b-84c7-0e91036ed190",
+    "ts": 1791910480928
+  },
+  {
+    "event": {
+      "modelId": "scripted",
+      "type": "thread.selection.updated"
+    },
+    "seq": 4,
+    "threadId": "3a634acb-1c5b-401b-84c7-0e91036ed190",
+    "ts": 1791910480928
+  },
+  {
+    "event": {
+      "type": "run.started",
+      "runId": "f6b9bb88-c36c-46e5-85a8-42275b798bc8",
+      "modelId": "scripted",
+      "parentMessageId": null,
+      "prompt": "Read the two references",
+      "snapshot": {
+        "configuration": {},
+        "maxSteps": 1,
+        "toolIdentities": {}
+      }
+    },
+    "seq": 5,
+    "threadId": "3a634acb-1c5b-401b-84c7-0e91036ed190",
+    "ts": 1791910480928
+  },
+  {
+    "event": {
+      "type": "references.unavailable",
+      "runId": "f6b9bb88-c36c-46e5-85a8-42275b798bc8",
+      "files": [
+        {
+          "rootId": "root-1",
+          "path": "missing.txt",
+          "failure": {
+            "category": "input",
+            "code": "tool.input-invalid",
+            "kind": "refusal",
+            "message": "Path \"missing.txt\" does not exist."
+          }
+        },
+        {
+          "rootId": "root-1",
+          "path": "dangling.txt",
+          "failure": {
+            "category": "input",
+            "code": "tool.input-invalid",
+            "kind": "refusal",
+            "message": "Path \"dangling.txt\" is outside the selected workspace root."
+          }
+        }
+      ]
+    },
+    "seq": 6,
+    "threadId": "3a634acb-1c5b-401b-84c7-0e91036ed190",
+    "ts": 1791910480928
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "f6b9bb88-c36c-46e5-85a8-42275b798bc8",
+      "chunk": {
+        "type": "start"
+      }
+    },
+    "seq": 7,
+    "threadId": "3a634acb-1c5b-401b-84c7-0e91036ed190",
+    "ts": 1791910480937
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "f6b9bb88-c36c-46e5-85a8-42275b798bc8",
+      "chunk": {
+        "type": "start-step",
+        "request": {},
+        "warnings": []
+      }
+    },
+    "seq": 8,
+    "threadId": "3a634acb-1c5b-401b-84c7-0e91036ed190",
+    "ts": 1791910480941
+  },
+  {
+    "event": {
+      "type": "model.step",
+      "runId": "f6b9bb88-c36c-46e5-85a8-42275b798bc8",
+      "messages": [
+        {
+          "role": "assistant",
+          "content": [
+            {
+              "type": "text",
+              "text": "Host run completed."
+            }
+          ]
+        }
+      ],
+      "model": {
+        "provider": "mock-provider",
+        "modelId": "mock-model-id"
+      },
+      "stepNumber": 0,
+      "usage": {
+        "inputTokens": 1,
+        "inputTokenDetails": {
+          "noCacheTokens": 1,
+          "cacheReadTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "outputTokens": 1,
+        "outputTokenDetails": {
+          "textTokens": 1,
+          "reasoningTokens": 0
+        },
+        "totalTokens": 2
+      }
+    },
+    "seq": 9,
+    "threadId": "3a634acb-1c5b-401b-84c7-0e91036ed190",
+    "ts": 1791910480944
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "f6b9bb88-c36c-46e5-85a8-42275b798bc8",
+      "chunk": {
+        "type": "finish-step",
+        "finishReason": "stop",
+        "rawFinishReason": "stop",
+        "usage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        },
+        "performance": {
+          "stepTimeMs": 3.942250000000058,
+          "toolExecutionMs": {},
+          "responseTimeMs": 1.7490000000000236,
+          "effectiveOutputTokensPerSecond": 571.755288736413,
+          "outputTokensPerSecond": 7341.658774383052,
+          "inputTokensPerSecond": 620.0431426018562,
+          "effectiveTotalTokensPerSecond": 1143.510577472826,
+          "timeToFirstOutputMs": 1.6127910000000156
+        },
+        "response": {
+          "id": "aitxt-wQxwaklnIvq4L4lXNNSgXRqu",
+          "timestamp": "2026-10-13T16:54:40.937Z",
+          "modelId": "mock-model-id"
+        }
+      }
+    },
+    "seq": 10,
+    "threadId": "3a634acb-1c5b-401b-84c7-0e91036ed190",
+    "ts": 1791910480949
+  },
+  {
+    "event": {
+      "type": "stream.chunk",
+      "runId": "f6b9bb88-c36c-46e5-85a8-42275b798bc8",
+      "chunk": {
+        "type": "finish",
+        "finishReason": "stop",
+        "rawFinishReason": "stop",
+        "totalUsage": {
+          "inputTokens": 1,
+          "inputTokenDetails": {
+            "noCacheTokens": 1,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          "outputTokens": 1,
+          "outputTokenDetails": {
+            "textTokens": 1,
+            "reasoningTokens": 0
+          },
+          "totalTokens": 2
+        }
+      }
+    },
+    "seq": 11,
+    "threadId": "3a634acb-1c5b-401b-84c7-0e91036ed190",
+    "ts": 1791910480956
+  },
+  {
+    "event": {
+      "type": "run.finished",
+      "runId": "f6b9bb88-c36c-46e5-85a8-42275b798bc8",
+      "outcome": "completed"
+    },
+    "seq": 12,
+    "threadId": "3a634acb-1c5b-401b-84c7-0e91036ed190",
+    "ts": 1791910480959
+  }
+]

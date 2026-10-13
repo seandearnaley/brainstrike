@@ -752,3 +752,11 @@ export function hostModelStepEvents(run: HostRunState, step: StepResult<ToolSet>
     ...hostStepInteractions(run, step.content),
   ];
 }
+
+/** One committed admission batch; recovery reads the log rather than rereading references. */
+export function hostReferencedFileEvents(admission: HostRunAdmission, runId: string): HostEvent[] {
+  if (!admission.referencedFileFailures?.length) {
+    return [];
+  }
+  return [{ files: [...admission.referencedFileFailures], runId, type: 'references.unavailable' }];
+}

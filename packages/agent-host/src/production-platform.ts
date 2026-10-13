@@ -86,6 +86,7 @@ export interface ProductionHostRunConfiguration {
     };
   };
   readonly providerRequestContext: ProviderRequestContext;
+  readonly referencedFileFailures?: HostRunAdmission['referencedFileFailures'];
   readonly resolvedToolResultBudget: ScaledToolResultBudget;
   /** Captured admission auth closure; never part of durable configuration. */
   readonly resolveProviderAuth?: (provider: string) => Promise<ProviderAuthInput | undefined>;
@@ -559,6 +560,9 @@ export async function createProductionHostPlatform<Configuration extends Product
           hooks: selected.hooks,
           inputTokenLimit: selected.providerRequestContext.inputTokenLimit,
           model,
+          ...(selected.referencedFileFailures
+            ? { referencedFileFailures: selected.referencedFileFailures }
+            : {}),
           ...admittedNativeWebSearch(provider, auth),
           openRun: (context) => {
             const bridge = runVectorBridge(selected, context.threadId, context.signal);

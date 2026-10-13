@@ -1,6 +1,6 @@
 import type { AgentMessage, RuntimeData } from '@brainstrike/agent';
 import { encodeFileMentionId, serializeFileMentionDirective } from '@brainstrike/agent';
-import { ToolInputError } from '@brainstrike/assistant-contract';
+import { INTERNAL_FAULT, ToolInputError } from '@brainstrike/assistant-contract';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildReferencedFilesContextMessage,
@@ -113,7 +113,7 @@ describe('buildReferencedFilesContextMessage', () => {
     const result = await buildReferencedFilesContextMessage(text, runtimeWithRoot(), reader);
 
     const body = result?.parts.map((p) => (p.type === 'text' ? p.text : '')).join('') ?? '';
-    expect(body).toContain('### missing.ts\n[Could not read: the file could not be read.]');
+    expect(body).toContain(`### missing.ts\n[Could not read: ${INTERNAL_FAULT.message}]`);
     expect(body).not.toContain('/Users/');
     expect(body).not.toContain('ENOENT');
   });

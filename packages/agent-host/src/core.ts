@@ -62,6 +62,7 @@ import {
   closeHostRunResources,
   ensureHostRunAdmission,
   hostMcpUnavailableEvents,
+  hostReferencedFileEvents,
   hostRunCommandRequest,
   openHostRunOwner,
 } from './run-admission.js';
@@ -595,7 +596,8 @@ export class HostCore {
       // A wake has no client command: its run.started records the delivery it answers.
       // A run command's differing pair becomes the thread's selection (ADR-0019).
       const chosen = method === 'wake' ? [] : this.selections.changes(params);
-      const events = [...chosen, started, ...unavailable];
+      const references = hostReferencedFileEvents(admission, run.id);
+      const events = [...chosen, started, ...unavailable, ...references];
       committed = { runId: run.id };
       await (method === 'wake'
         ? this.append(params.threadId, events)

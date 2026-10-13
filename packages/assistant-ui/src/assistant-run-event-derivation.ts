@@ -120,6 +120,7 @@ export function isAlwaysVisibleRunEvent(data: unknown): boolean {
     (event.kind === 'hook.notice' && event.status === 'failed') ||
     event.kind === 'mcp.tools.unavailable' ||
     event.kind === 'provider.request.warned' ||
+    event.kind === 'reference.unavailable' ||
     event.kind === 'run.failed' ||
     event.kind === 'run.cancelled' ||
     // A recovered stall shows the abandoned attempt's partial text; its two

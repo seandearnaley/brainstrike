@@ -61,6 +61,7 @@ export * from './provider-model-default-policies.js';
 export * from './provider-registry.js';
 export * from './provider-verification.js';
 export * from './reasoning-visibility.js';
+export * from './referenced-file-failure.js';
 export * from './run-attempt-notices.js';
 export * from './run-events.js';
 export * from './run-usage.js';
