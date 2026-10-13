@@ -1,10 +1,10 @@
+import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
 import { IndexerError } from '@brainstrike/indexer';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { afterEach, expect, it, vi } from 'vitest';
 import { indexSearchContract } from '../ipc-domains/index-search.contract';
 import { registerIndexSearchIpcHandlers } from '../ipc-index-search';
-import { NativeCoverageObservationInvalidatedError } from '../native-coverage-observation-invalidated';
-import { NativeIndexBlockedError } from '../native-index-blocked';
+import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 import { createIpcBridge } from '../platform/ipc-bridge';
 import { createTrustedInvokeEvent } from './helpers/desktop-ipc-sender-test-helpers';
@@ -61,9 +61,11 @@ function capability(): IndexSearchCapability {
 }
 it('preserves invalid observations as data while unrelated failures keep the canonical error envelope', async () => {
   const cap = capability();
-  const invalidation = new NativeCoverageObservationInvalidatedError();
+  const invalidation = new NativeAuthorityTransitionError(
+    'Native source or saved profile changed during search.'
+  );
   vi.mocked(cap.coverageBatch).mockResolvedValueOnce({
-    code: invalidation.code,
+    code: 'native-coverage-observation-invalidated',
     kind: 'invalidated',
   });
   dispose.push(
@@ -273,7 +275,11 @@ it('observes a retained startup failure as stable blocked data without logging a
     'indexer-startup-timeout',
     'Indexer startup exceeded its caller-provided deadline.'
   );
-  const retained = new NativeIndexBlockedError(original);
+  const retained = new NativeIndexRefusalError(
+    { kind: 'source-failure', message: original.message },
+    original.message,
+    { cause: original }
+  );
   const cap = createNativeScopedSearchCapability({
     openQuery: vi.fn(),
     rebuild: vi.fn(),
@@ -307,15 +313,22 @@ it('observes a retained startup failure as stable blocked data without logging a
   expect(retained.cause).toBe(original);
   await expect(
     handler('search')(event, { limit: 10, mode: 'bm25', rootIds: ['root'], text: 'marker' })
-  ).resolves.toMatchObject({ error: { code: 'native-index-failed' }, ok: false });
-  expect(registryError).toHaveBeenCalledOnce();
+  ).resolves.toMatchObject({ error: { code: 'native-index-source-failure' }, ok: false });
+  expect(registryError).not.toHaveBeenCalled();
   await expect(cap.coverage({ rootIds: ['root'] })).rejects.toThrow(original.message);
 });
 
 it.each([
   new Error('Indexer startup exceeded its caller-provided deadline.'),
   new AggregateError(
-    [new NativeIndexBlockedError(new Error('retained startup')), new Error('close failed')],
+    [
+      new NativeIndexRefusalError(
+        { kind: 'source-failure', message: 'retained startup' },
+        'retained startup',
+        { cause: new Error('retained startup') }
+      ),
+      new Error('close failed'),
+    ],
     'Independent cleanup failed.'
   ),
 ])('keeps independent observation errors fatal: %s', async (failure) => {
@@ -363,4 +376,24 @@ it('preserves the canonical failure envelope for registration failures', async (
     error: { category: 'native-index', code: 'native-index-failed', message: failure.message },
     ok: false,
   });
+});
+
+it('carries the lifecycle transition tag across IPC without logging a failed index', async () => {
+  const cap = capability();
+  vi.mocked(cap.search).mockRejectedValue(
+    new NativeAuthorityTransitionError('Native index is transitioning.')
+  );
+  dispose.push(registerIndexSearchIpcHandlers(cap, { rootsRegistered: async () => {} }));
+  await expect(
+    handler('search')(createTrustedInvokeEvent(), {
+      limit: 5,
+      mode: 'bm25',
+      rootIds: ['root'],
+      text: 'test',
+    })
+  ).resolves.toMatchObject({
+    error: { category: 'native-index', code: 'native-index-transitioning' },
+    ok: false,
+  });
+  expect(registryError).not.toHaveBeenCalled();
 });

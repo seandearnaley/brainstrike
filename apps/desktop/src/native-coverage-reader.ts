@@ -12,7 +12,7 @@ import {
   scopedCoverageBatchRequestSchema,
 } from '@brainstrike/indexer/coverage-reader';
 import type { SqliteQueryClient } from '@brainstrike/sqlite-query';
-import { NativeCoverageObservationInvalidatedError } from './native-coverage-observation-invalidated';
+import { NativeAuthorityTransitionError } from './native-authority-transition';
 
 export type NativeCoverageReader = Pick<SqliteQueryClient, 'nativeCoverage' | 'close'>;
 
@@ -49,7 +49,9 @@ export function isolateNativeCoverage(
           (current.authorityEpoch !== authority.authorityEpoch ||
             current.authorityRevision !== authority.authorityRevision)
         ) {
-          throw new NativeCoverageObservationInvalidatedError();
+          throw new NativeAuthorityTransitionError(
+            'Native coverage authority changed during observation.'
+          );
         }
       }
       throw work;

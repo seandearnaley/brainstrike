@@ -124,7 +124,8 @@ function validateDiscoveries(
 function validateBindings(
   reads: readonly (CanonicalDiscoveredSourceFile & { readonly contentHash: string })[],
   bindings: readonly CanonicalManifestFile[],
-  seenFileIds: Set<string>
+  seenFileIds: Set<string>,
+  membership: string | null
 ): ReadonlyMap<string, CanonicalManifestFile> {
   const byPath = new Map(bindings.map((file) => [sourceKey(file), file]));
   const returnedIds = new Set(bindings.map((file) => file.fileId));
@@ -140,8 +141,11 @@ function validateBindings(
     if (!actual) {
       throw new Error('Canonical prepared source differs from its authoritative catalog binding.');
     }
+    // The binding joins exactly this workspace's partition: its collection, or
+    // the TEXT partition (null) when it has none (BST-1988). Never the other.
     if (
-      !(actual.fileId.trim() && actual.embeddingSetId?.trim()) ||
+      !actual.fileId.trim() ||
+      actual.embeddingSetId !== membership ||
       actual.fileName !== read.fileName ||
       actual.sourcePath !== read.sourcePath ||
       actual.contentHash !== read.contentHash
@@ -163,12 +167,18 @@ export async function prepareDiscoveredSources(args: {
   readonly context: CanonicalOperationContext;
   readonly discovered: readonly CanonicalDiscoveredSourceFile[];
   readonly excluded: CanonicalSourceExclusion[];
+  /** The workspace's collection, null for the TEXT partition; absent on a non-discovering host. */
+  readonly membership: string | null | undefined;
   readonly request: CanonicalScanRequest;
   readonly seenFileIds: Set<string>;
   readonly source: CanonicalSourcePort;
 }): Promise<CanonicalPreparedRead[]> {
   if (args.discovered.length === 0) {
     return [];
+  }
+  const { membership } = args;
+  if (membership === undefined || (membership !== null && !membership.trim())) {
+    throw new Error('Canonical discovery requires its workspace partition.');
   }
   const scope = validateDiscoveries(args.discovered, args.request);
   const reads = [];
@@ -193,7 +203,7 @@ export async function prepareDiscoveredSources(args: {
     args.context
   );
   args.context.signal.throwIfAborted();
-  const byPath = validateBindings(reads, bindings, args.seenFileIds);
+  const byPath = validateBindings(reads, bindings, args.seenFileIds, membership);
   return reads.map((read) => {
     const binding = byPath.get(sourceKey(read));
     if (!binding) {

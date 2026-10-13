@@ -1,4 +1,6 @@
 // @vitest-environment node
+
+import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
 import type { IndexerPort, ScopedIndexerPort } from '@brainstrike/indexer';
 import type { CoverageAuthorityPort } from '@brainstrike/indexer/coverage-reader';
 import { createIndexerConnection, type IndexerConnection } from '@brainstrike/indexer/transport';
@@ -8,7 +10,6 @@ import { createDesktopProfileRuntime } from '../desktop-profile-runtime';
 import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import { createNativeIndexActivation } from '../native-index-activation';
-import { NativeIndexBlockedError } from '../native-index-blocked';
 
 const mocks = vi.hoisted(() => ({
   acquire: vi.fn(),
@@ -203,8 +204,8 @@ it.each(['startup', 'cleanup'] as const)(
         if (scenario === 'cleanup') {
           expect(result).toBe(failure);
         } else {
-          expect(result).toBeInstanceOf(NativeIndexBlockedError);
-          expect((result as NativeIndexBlockedError).cause).toBe(failure);
+          expect(result).toBeInstanceOf(NativeIndexRefusalError);
+          expect((result as NativeIndexRefusalError).cause).toBe(failure);
         }
       }
       expect(mocks.acquire).toHaveBeenCalledOnce();
@@ -302,8 +303,8 @@ it.each(['validated', 'deadline', 'request'] as const)(
     }
     if (scenario === 'deadline') {
       const failure = await read;
-      expect(failure).toBeInstanceOf(NativeIndexBlockedError);
-      expect((failure as NativeIndexBlockedError).cause).toMatchObject({
+      expect(failure).toBeInstanceOf(NativeIndexRefusalError);
+      expect((failure as NativeIndexRefusalError).cause).toMatchObject({
         code: 'indexer-startup-timeout',
       });
     }

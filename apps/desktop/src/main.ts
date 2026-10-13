@@ -958,6 +958,23 @@ const nativeIndexActivation = createNativeIndexActivation({
   profile: desktopBootstrap.profile,
   storage,
 });
+const nativeLifecycleObserver = new AbortController();
+void nativeIndexActivation
+  .observeLifecycle((observation) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) {
+        window.webContents.send(DESKTOP_IPC_CHANNELS.indexSearch.lifecycleChanged, observation);
+      }
+    }
+  }, nativeLifecycleObserver.signal)
+  .catch((error: unknown) => {
+    if (error !== nativeLifecycleObserver.signal.reason) {
+      reportNativeIndexActivationError('Native lifecycle observer failed', error);
+    }
+  });
+ipcDisposers.add('native-index-lifecycle', () =>
+  nativeLifecycleObserver.abort(new Error('Native lifecycle observer disposed.'))
+);
 // Main's own desktop-origin client: Settings credential writes, provider sign-in
 // and subscription verification reach the host, their single owner, through it.
 // The host's sign-in pages open through the same validated shell path as the
@@ -1019,7 +1036,7 @@ ipcDisposers.add(
     nativeIndexSearch,
     createNativeRootRegistration({
       isShuttingDown: isDesktopShuttingDown,
-      reconfigure: () => nativeIndexActivation.reconfigure(),
+      reconfigureRoots: () => nativeIndexActivation.reconfigureRoots(),
       reportError: reportNativeIndexActivationError,
       transition: (operation) => nativeRootDataDeletion.transition(operation),
     })

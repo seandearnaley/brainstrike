@@ -1,3 +1,4 @@
+import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
 import { createLogger } from '@brainstrike/logging';
 import type { ipcMain as ElectronIpcMain, IpcMainEvent, IpcMainInvokeEvent } from 'electron';
 import { type DesktopWindowRole, getWindowRoleByWebContentsId } from '../window-role';
@@ -383,6 +384,9 @@ export async function settleIpcResult<T>(
     return ipcOk(await run());
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    if (error instanceof NativeIndexRefusalError) {
+      return ipcFailure(failure.category, error.code, message);
+    }
     logger.error('Desktop IPC contract handler failed', {
       category: failure.category,
       code: failure.code,

@@ -95,6 +95,7 @@ export {
   type ManagedCacheBatchMutation,
   type ManagedCacheInvalidationResult,
   type ManagedCacheInvalidationTarget,
+  type ManagedCachePartitionId,
   parseManagedCacheBatchArgs,
 } from './managed-cache/index.js';
 // Legacy migration export

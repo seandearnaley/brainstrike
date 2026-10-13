@@ -48,17 +48,65 @@ export interface IndexerPublicationProgress {
     | { readonly kind: 'collection'; readonly embeddingSetId: string };
   readonly storeId: string;
 }
+/** Typed lifecycle refusal; no native objects or failure stacks cross the renderer boundary. */
+export type NativeIndexRefusalCause =
+  | { readonly kind: 'transitioning' }
+  | { readonly kind: 'closed'; readonly reason: string }
+  | {
+      readonly kind: 'setup-required' | 'settings-invalid' | 'source-failure';
+      readonly message: string;
+    };
+
+/** Only the lifecycle/resource owner can refuse admission with this typed cause. */
+export class NativeIndexRefusalError extends Error {
+  readonly code: `native-index-${NativeIndexRefusalCause['kind']}`;
+  readonly refusal: NativeIndexRefusalCause;
+
+  constructor(refusal: NativeIndexRefusalCause, message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'NativeIndexRefusalError';
+    this.refusal = refusal;
+    this.code = `native-index-${refusal.kind}`;
+  }
+}
+
+/** Readiness changes are projections of the native lifecycle owner, without stored resources. */
+export type NativeIndexLifecycleObservation =
+  | { readonly generation: number; readonly kind: 'ready' }
+  | {
+      readonly generation: number;
+      readonly kind: 'preparing' | 'refused';
+      readonly cause: NativeIndexRefusalCause;
+    };
+
+export interface IndexLifecycleCapability {
+  onLifecycleChanged(listener: (observation: NativeIndexLifecycleObservation) => void): () => void;
+}
+
+/** Existing canonical source receipts, projected without a second readiness owner. */
+export interface IndexerSourceObservation {
+  readonly ownerGeneration: number;
+  readonly readiness: readonly {
+    readonly generation: number;
+    readonly mutationRevision: number;
+    readonly scanComplete: boolean;
+    readonly scope: IndexerPublicationProgress['scope'];
+  }[];
+}
+
 export type IndexerStatus =
   | {
       readonly kind: 'unavailable';
       readonly reason: string;
       readonly phase?: 'setup-required' | 'preparing' | 'blocked';
+      readonly cause?: NativeIndexRefusalCause;
     }
   | {
       readonly kind: 'ready';
       readonly embedding: IndexerEmbeddingState;
       readonly storeId: string;
       readonly publicationProgress?: readonly IndexerPublicationProgress[];
+      readonly sourceObservation?: IndexerSourceObservation;
       readonly authorizedRootIds: readonly string[];
       readonly authorizedCollectionIds?: readonly string[];
       readonly collectionReadiness?: readonly {
@@ -137,6 +185,9 @@ export interface IndexerSearchResult {
   readonly embedding: IndexerEmbeddingState;
   readonly hits: readonly IndexerSearchHit[];
   readonly scanLimited: boolean;
+  /** Canonical producer proof for this read; absent on raw index-only capabilities. */
+  readonly sourceComplete?: boolean;
+  readonly sourceObservation?: IndexerSourceObservation;
   readonly storeId: string;
   readonly truncated: boolean;
 }
@@ -164,11 +215,13 @@ export interface IndexerCoverageCurrentObservation {
 }
 /** A rejected observation has no status or counters; callers must obtain a fresh batch. */
 export interface IndexerCoverageInvalidatedObservation {
+  readonly cause?: NativeIndexRefusalCause;
   readonly code: 'native-coverage-observation-invalidated';
   readonly kind: 'invalidated';
 }
 /** A retained activation failure has no current authority or counters. */
 export interface IndexerCoverageBlockedObservation {
+  readonly cause?: NativeIndexRefusalCause;
   readonly kind: 'blocked';
   readonly reason: string;
 }

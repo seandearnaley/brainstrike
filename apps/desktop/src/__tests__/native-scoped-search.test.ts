@@ -19,6 +19,59 @@ import {
   unused,
 } from './native-scoped-search-fixture';
 
+it.each(['unchanged', 'complete-during-read', 'invalidate-during-read'] as const)(
+  'projects source proof separately from bounded results: %s',
+  async (change) => {
+    const f = fixture();
+    const initialComplete = change !== 'complete-during-read';
+    f.replaceAuthority({
+      ...f.getAuthority(),
+      readiness: f
+        .getAuthority()
+        .readiness.map((receipt) => ({ ...receipt, scanComplete: initialComplete })),
+    });
+    const read = f.searchScopes.getMockImplementation()!;
+    f.searchScopes.mockImplementation(async (request) => {
+      const result = await read(request);
+      if (change !== 'unchanged') {
+        f.replaceAuthority({
+          ...f.getAuthority(),
+          readiness: f.getAuthority().readiness.map((receipt) => ({
+            ...receipt,
+            mutationRevision: receipt.mutationRevision + 1,
+            scanComplete: change === 'complete-during-read',
+          })),
+        });
+      }
+      return { ...result, scanLimited: true };
+    });
+    await expect(
+      f.capability.search({
+        collectionId: 'selected',
+        limit: 100,
+        mode: 'bm25',
+        rootIds: [],
+        text: 'retained',
+      })
+    ).resolves.toMatchObject({
+      scanLimited: true,
+      sourceComplete: change === 'unchanged',
+    });
+    await expect(
+      f.capability.grep({
+        caseSensitive: false,
+        collectionId: 'selected',
+        isRegex: false,
+        limit: 100,
+        pattern: 'retained',
+        rootIds: [],
+      })
+    ).resolves.toMatchObject({
+      sourceComplete: change !== 'invalidate-during-read',
+    });
+  }
+);
+
 it('keeps an unrelated same-message status failure fatal', async () => {
   const f = fixture();
   const failure = new Error('Native source authority changed.');
@@ -624,6 +677,7 @@ it.each([
     return;
   }
   await expect(f.capability.coverageBatch(pairedRequests)).resolves.toEqual({
+    cause: { kind: 'transitioning' },
     code: 'native-coverage-observation-invalidated',
     kind: 'invalidated',
   });
@@ -770,4 +824,30 @@ it('restricts canonical file membership before the native grep candidate limit',
   });
   expect(result.hits.map(({ fileId }) => fileId)).toEqual(['retained']);
   expect(f.close).toHaveBeenCalledOnce();
+});
+
+it('publishes the typed transition cause and refuses search without a failed-index wrapper', async () => {
+  const transition = new NativeAuthorityTransitionError('Native index is transitioning.');
+  const capability = createNativeScopedSearchCapability({
+    openQuery: unused,
+    rebuild: unused,
+    withRead: async () => {
+      throw transition;
+    },
+  });
+  await expect(capability.status()).resolves.toMatchObject({
+    cause: { kind: 'transitioning' },
+    kind: 'unavailable',
+    phase: 'preparing',
+  });
+  await expect(capability.coverageBatch([{ rootIds: ['root'] }])).resolves.toMatchObject({
+    cause: { kind: 'transitioning' },
+    kind: 'invalidated',
+  });
+  await expect(
+    capability.search({ limit: 10, mode: 'bm25', rootIds: ['root'], text: 'read me' })
+  ).rejects.toMatchObject({
+    code: 'native-index-transitioning',
+    refusal: { kind: 'transitioning' },
+  });
 });

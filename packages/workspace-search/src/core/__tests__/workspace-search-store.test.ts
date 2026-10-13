@@ -295,3 +295,33 @@ describe('useWorkspaceSearchStore', () => {
     });
   });
 });
+
+describe('native pending command ownership', () => {
+  it.each(['clearResults', 'toggleCase', 'toggleRegex', 'toggleWholeWord', 'reset'] as const)(
+    'retires the pending command with %s',
+    (action) => {
+      const store = useWorkspaceSearchStore.getState();
+      store.setQuery('notarize');
+      const command = { after: null, generation: store.beginSearch(), mode: 'text' as const };
+      store.retainNativeSearch(command);
+      expect(useWorkspaceSearchStore.getState().nativePendingSearch).toBe(command);
+      store[action]();
+      expect(useWorkspaceSearchStore.getState().nativePendingSearch).toBeNull();
+      expect(store.consumeNativeSearch(command)).toBe(false);
+    }
+  );
+  it('only consumes the exact current command and refuses superseded completions', () => {
+    const store = useWorkspaceSearchStore.getState();
+    store.setQuery('notarize');
+    const command = { after: null, generation: store.beginSearch(), mode: 'text' as const };
+    const replacement = { ...command };
+    store.retainNativeSearch(command);
+    store.retainNativeSearch(replacement);
+    expect(store.consumeNativeSearch(command)).toBe(false);
+    expect(store.consumeNativeSearch(replacement)).toBe(true);
+    expect(store.consumeNativeSearch(replacement)).toBe(false);
+    store.beginSearch();
+    store.retainNativeSearch(command);
+    expect(useWorkspaceSearchStore.getState().nativePendingSearch).toBeNull();
+  });
+});

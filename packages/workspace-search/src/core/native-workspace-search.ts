@@ -6,8 +6,11 @@ import {
   type IndexerEmbeddingState,
   type IndexerSearchHit,
   type IndexerSearchResult,
+  type IndexerSourceObservation,
+  type IndexerStatus,
   type IndexSearchCapability,
   indexerEmbeddingProfileValues,
+  NativeIndexRefusalError,
   validIndexerEmbeddingProfile,
 } from '@brainstrike/indexing-contract/indexer-client';
 import type { NativeWorkspaceSearchDependencies } from './native-workspace-search-context';
@@ -298,6 +301,18 @@ function emptyNativeResults(mode: WorkspaceSearchMode): WorkspaceSearchResults {
     totalMatches: 0,
   };
 }
+function nativeStatusFailure(status: Extract<IndexerStatus, { kind: 'unavailable' }>): Error {
+  return status.cause
+    ? new NativeIndexRefusalError(status.cause, status.reason)
+    : new Error(status.reason);
+}
+export interface NativeWorkspaceSearchResults extends WorkspaceSearchResults {
+  /** Only the scoped producer can prove incompleteness; bounded results do not imply it. */
+  readonly incompleteSource?: {
+    readonly storeId: string;
+    readonly observations: readonly IndexerSourceObservation[];
+  };
+}
 export class NativeWorkspaceSearchExecutor {
   private requestSeq = 0;
   private inferenceController: AbortController | undefined;
@@ -306,10 +321,12 @@ export class NativeWorkspaceSearchExecutor {
     this.requestSeq += 1;
     this.inferenceController?.abort(new Error('Native semantic search cancelled.'));
   }
-  searchText(request: NativeWorkspaceSearchRequest): Promise<WorkspaceSearchResults | null> {
+  searchText(request: NativeWorkspaceSearchRequest): Promise<NativeWorkspaceSearchResults | null> {
     return this.search(request, 'text');
   }
-  searchSemantic(request: NativeWorkspaceSearchRequest): Promise<WorkspaceSearchResults | null> {
+  searchSemantic(
+    request: NativeWorkspaceSearchRequest
+  ): Promise<NativeWorkspaceSearchResults | null> {
     return this.search(request, 'semantic');
   }
   private async prepareVector(
@@ -375,7 +392,7 @@ export class NativeWorkspaceSearchExecutor {
   private async search(
     request: NativeWorkspaceSearchRequest,
     mode: WorkspaceSearchMode
-  ): Promise<WorkspaceSearchResults | null> {
+  ): Promise<NativeWorkspaceSearchResults | null> {
     this.cancelPendingSearch();
     const seq = this.requestSeq;
     const empty = emptyScopeResult(request, mode);
@@ -391,7 +408,7 @@ export class NativeWorkspaceSearchExecutor {
       return null;
     }
     if (status.kind !== 'ready') {
-      throw new Error(status.reason);
+      throw nativeStatusFailure(status);
     }
     assertNativeStatusScope(status, request.rootIds, request.collectionId);
     const vector =
@@ -450,8 +467,28 @@ export class NativeWorkspaceSearchExecutor {
       status,
       (hit) => !constrained || hit.content.split('\n').some((line) => matcher.matches(line))
     );
-    return projectNativeResults(fused, grep, request, mode, matcher, constrained);
+    return {
+      ...projectNativeResults(fused, grep, request, mode, matcher, constrained),
+      ...incompleteSourceProof([bm25, grep, ...(vectorPool ? [vectorPool] : [])], status.storeId),
+    };
   }
+}
+
+function incompleteSourceProof(
+  pools: readonly IndexerSearchResult[],
+  storeId: string
+): Pick<NativeWorkspaceSearchResults, 'incompleteSource'> {
+  const observations = pools
+    .filter((pool) => pool.sourceComplete === false)
+    .map((pool) => {
+      if (!pool.sourceObservation) {
+        throw new Error(
+          'Incomplete native source results require their canonical publication proof.'
+        );
+      }
+      return pool.sourceObservation;
+    });
+  return observations.length > 0 ? { incompleteSource: { observations, storeId } } : {};
 }
 
 function projectNativeResults(

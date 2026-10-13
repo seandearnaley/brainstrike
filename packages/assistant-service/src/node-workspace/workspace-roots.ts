@@ -2,6 +2,7 @@ import path from 'node:path';
 import type { RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
+import type { StoredWorkspaceRoot } from './workspace-root-types.js';
 
 const logger = createLogger('AssistantWorkspaceRoots');
 // Process-lifetime revocation tombstones protect in-flight runtime snapshots.
@@ -13,6 +14,18 @@ export class BoundWorkspaceRootUnavailableError extends ToolInputError {
   constructor(message: string) {
     super(message);
     this.name = 'BoundWorkspaceRootUnavailableError';
+  }
+}
+
+/**
+ * A `root` that names none of a bound thread's folders (BST-1990). The run's
+ * roots are the thread's folders, so the named folder may still be open in the
+ * workspace; the user adds it to the thread from the composer's folder chip.
+ */
+export class RootNotInThreadError extends ToolInputError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RootNotInThreadError';
   }
 }
 
@@ -110,6 +123,27 @@ function assertRootStillConnected(root: RuntimeWorkspaceRoot): RuntimeWorkspaceR
   return root;
 }
 
+/** A `root` that names none of the run's roots: in a bound thread, the thread's folders. */
+function unknownRootRefusal(
+  qualifier: string,
+  roots: readonly RuntimeWorkspaceRoot[],
+  bound: boolean
+): ToolInputError {
+  return bound
+    ? new RootNotInThreadError(
+        `"${qualifier}" is not one of this thread's folders: ${describeRoots(roots)}. If it is open in the workspace, the user can add it to this thread from the composer's folder chip.`
+      )
+    : new ToolInputError(
+        `No folder "${qualifier}" in the workspace. Open folders: ${describeRoots(roots)}.`
+      );
+}
+
+function boundRootNotOpen(boundRootId: string): ToolInputError {
+  return new ToolInputError(
+    `The bound workspace root (id ${rootIdForMessage(boundRootId)}) is no longer open. Reconnect that folder before continuing this thread.`
+  );
+}
+
 function rootIdForMessage(rootId: string): string {
   return path.isAbsolute(rootId) ? 'path-backed id redacted' : rootId;
 }
@@ -200,17 +234,13 @@ export function resolveWorkspaceRoot(
         `Multiple folders are named "${trimmed}". Use the root id instead: ${describeRootsWithIds(byName)}.`
       );
     }
-    throw new ToolInputError(
-      `No folder "${trimmed}" in the workspace. Open folders: ${describeRoots(roots)}.`
-    );
+    throw unknownRootRefusal(trimmed, roots, Boolean(boundRootId));
   }
 
   if (boundRootId) {
     const boundRoot = roots.find((root) => root.rootId === boundRootId);
     if (!boundRoot) {
-      throw new ToolInputError(
-        `The bound workspace root (id ${rootIdForMessage(boundRootId)}) is no longer open. Reconnect that folder before continuing this thread.`
-      );
+      throw boundRootNotOpen(boundRootId);
     }
     logger.info('Resolved native workspace tool root.', {
       mode: 'thread-bound',
@@ -322,6 +352,38 @@ export function resolveOptionalWorkspaceRoot(
   return;
 }
 
+/** The folders a grep or glob searches. */
+export type WorkspaceSearchScope =
+  /** An explicit `root`: that folder. */
+  | { readonly kind: 'folder'; readonly root: RuntimeWorkspaceRoot }
+  /** No `root` in a bound thread: every folder of the thread. */
+  | { readonly kind: 'thread'; readonly roots: RuntimeWorkspaceRoot[] }
+  /** No `root` and no thread binding: every open folder. */
+  | { readonly kind: 'workspace'; readonly roots: RuntimeWorkspaceRoot[] };
+
+/**
+ * Resolve what a grep or glob searches (BST-1990, D3). An explicit `root`
+ * always wins. Without one, a bound thread searches every one of its folders
+ * (the run's roots), after the binding is validated, and none is skipped.
+ */
+export function resolveWorkspaceSearchScope(
+  runtimeData: RuntimeData | undefined,
+  qualifier?: string | null
+): WorkspaceSearchScope {
+  if (qualifier !== undefined && qualifier !== null) {
+    return { kind: 'folder', root: resolveWorkspaceRoot(runtimeData, qualifier) };
+  }
+  const roots = getWorkspaceRoots(runtimeData);
+  const boundRootId = getValidatedBoundRootId(runtimeData, false);
+  if (!boundRootId) {
+    return { kind: 'workspace', roots };
+  }
+  if (!roots.some((root) => root.rootId === boundRootId)) {
+    throw boundRootNotOpen(boundRootId);
+  }
+  return { kind: 'thread', roots: roots.map(assertRootStillConnected) };
+}
+
 /**
  * Load the active, path-backed workspace roots from the DB `roots` table. The
  * `roots.id` here is the SAME id stored on `file_records.root_id`, so search
@@ -380,6 +442,96 @@ export async function markRootDisconnectedByPath(
     disconnectedRootIds.add(rootId);
   }
   return rootIds;
+}
+
+/** Resolve an unmounted folder's retained record with the registry's canonical matcher. */
+export async function findRecordedWorkspaceRoot(
+  db: WorkspaceRootsQueryable,
+  existing: StoredWorkspaceRoot | undefined,
+  match: (records: readonly StoredWorkspaceRoot[]) => Promise<StoredWorkspaceRoot | undefined>
+): Promise<StoredWorkspaceRoot | undefined> {
+  if (existing) {
+    return existing;
+  }
+  const { rows } = await db.query<{ id: string; path: string }>(
+    'SELECT id, path FROM roots WHERE path IS NOT NULL'
+  );
+  return await match(rows.map((row) => ({ addedAt: 0, path: row.path, rootId: row.id })));
+}
+
+/**
+ * Record a mounted folder under its one id and return that id (BST-1990). On
+ * desktop, Main's root registry is the only writer of `roots`.
+ *
+ * - A path's existing row keeps its id, so a re-added folder is the same folder
+ *   and its indexed rows resume. A disconnected row becomes live again; other
+ *   statuses (needs-regrant, snapshot-stale) keep waiting for their own remedies.
+ * - A new path is inserted under `preferredId`, as a worktree when the active
+ *   managed-worktree ledger names it.
+ */
+export async function recordWorkspaceRoot(
+  db: WorkspaceRootsQueryable,
+  root: { readonly path: string; readonly preferredId: string }
+): Promise<string> {
+  const existing = await db.query<{ id: string }>('SELECT id FROM roots WHERE path = $1', [
+    root.path,
+  ]);
+  if (existing.rows.length > 1) {
+    throw new Error('More than one workspace folder record exists for this path.');
+  }
+  const recorded = existing.rows[0];
+  if (recorded) {
+    await db.query(
+      `UPDATE roots SET status = 'live', last_verified_at = NOW()
+        WHERE id = $1 AND status = 'disconnected'`,
+      [recorded.id]
+    );
+    return recorded.id;
+  }
+  await db.query(
+    `INSERT INTO roots (id, kind, display_name, path, last_verified_at)
+     SELECT $1,
+            CASE WHEN EXISTS (
+              SELECT 1 FROM brainstrike_worktrees WHERE path = $3 AND archived_at IS NULL
+            ) THEN 'worktree' ELSE 'path' END,
+            $2, $3, NOW()`,
+    [root.preferredId, path.basename(root.path) || root.path, root.path]
+  );
+  return root.preferredId;
+}
+
+/**
+ * Restore makes sure every mounted, persisted folder has its record. A record
+ * under another id (written before Main owned `roots`) is reported, not rewritten:
+ * greenfield data has no such rows to migrate (ADR-0020).
+ */
+export async function recordRestoredWorkspaceRoots(
+  getDb: () => Promise<WorkspaceRootsQueryable>,
+  roots: readonly { readonly path: string; readonly rootId: string }[]
+): Promise<void> {
+  if (roots.length === 0) {
+    return;
+  }
+  try {
+    const db = await getDb();
+    for (const root of roots) {
+      const recordedId = await recordWorkspaceRoot(db, {
+        path: root.path,
+        preferredId: root.rootId,
+      });
+      if (recordedId !== root.rootId) {
+        logger.error(
+          'A restored workspace folder is mounted under a different id than its record',
+          {
+            recordedId,
+            rootId: root.rootId,
+          }
+        );
+      }
+    }
+  } catch (error) {
+    logger.error('Restored workspace folders could not be recorded', { error });
+  }
 }
 
 /**

@@ -101,11 +101,8 @@ export function createNodeNativeTextServices(
 export {
   NATIVE_COVERAGE_OBSERVATION_INVALIDATED,
   NativeAuthorityTransitionError,
-  NativeCoverageObservationInvalidatedError,
-  NativeIndexBlockedError,
+  NativeIndexRefusalError,
   NativeIndexSetupRequiredError,
-  NativeReadAuthorityRetiredError,
-  retainedNativeIndexFailure,
 } from './node-native-index/errors.js';
 export {
   createNativeIndexSearchCapability,
