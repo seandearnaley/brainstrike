@@ -1,10 +1,10 @@
 // @vitest-environment node
-import { createHash } from 'node:crypto';
 import { MessageChannel } from 'node:worker_threads';
 import type { HostTool, HostToolContext } from '@brainstrike/agent-host';
 import { SecretReadError } from '@brainstrike/agent-host/credential-contract';
 import { NATIVE_TOOL_ID, ToolInputError } from '@brainstrike/assistant-contract';
 import { ReadWorkspaceFileCursorRegistry } from '@brainstrike/host-capabilities/native-tools';
+import { embeddingProfileHash } from '@brainstrike/indexer';
 import type {
   IndexerCoverageRequest,
   IndexerSearchResult,
@@ -46,17 +46,8 @@ const queryPlan = {
 const embedding = {
   indexMode: 'vector-configured',
   profile,
-  profileHash: createHash('sha256')
-    .update(
-      JSON.stringify([
-        profile.modelId,
-        profile.revision,
-        profile.dtype,
-        profile.dimensions,
-        profile.tokenCap,
-      ])
-    )
-    .digest('hex'),
+  // The indexer's own identity rule, never a copy of its formula.
+  profileHash: embeddingProfileHash(profile),
 } as const;
 const status: IndexerStatus = {
   authorizedCollectionIds: ['selected'],

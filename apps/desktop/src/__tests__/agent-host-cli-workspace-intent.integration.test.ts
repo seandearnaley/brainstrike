@@ -1,4 +1,5 @@
 // @vitest-environment node
+
 import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -6,6 +7,7 @@ import { join } from 'node:path';
 import type { HostRunAdmissionRequest, HostTool, HostToolContext } from '@brainstrike/agent-host';
 import { HostRunSnapshotSchema } from '@brainstrike/agent-host/protocol';
 import { NATIVE_TOOL_ID } from '@brainstrike/assistant-contract';
+import { embeddingProfileHash } from '@brainstrike/indexer';
 import type {
   IndexerSearchResult,
   IndexerStatus,
@@ -161,17 +163,8 @@ const queryPlan = {
 const embedding = {
   indexMode: 'vector-configured',
   profile,
-  profileHash: createHash('sha256')
-    .update(
-      JSON.stringify([
-        profile.modelId,
-        profile.revision,
-        profile.dtype,
-        profile.dimensions,
-        profile.tokenCap,
-      ])
-    )
-    .digest('hex'),
+  // The indexer's own identity rule, never a copy of its formula.
+  profileHash: embeddingProfileHash(profile),
 } as const;
 
 beforeEach(() => {

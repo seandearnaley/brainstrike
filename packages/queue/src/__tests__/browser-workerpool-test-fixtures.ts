@@ -21,6 +21,7 @@ export function createResult(id: string): QueueResult {
       elapsedMs: 10,
       fallbackApplied: false,
       model: 'local:test',
+      pooling: 'mean',
     },
     type: 'result',
     vectors: [new Float32Array([1, 2, 3])],

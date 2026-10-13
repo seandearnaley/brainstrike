@@ -611,12 +611,14 @@ export async function startEmbeddingWorker(
     if (
       (candidate.device === 'webgpu' || candidate.device === 'wasm') &&
       typeof candidate.dtype === 'string' &&
-      typeof candidate.fallbackApplied === 'boolean'
+      typeof candidate.fallbackApplied === 'boolean' &&
+      (candidate.pooling === 'mean' || candidate.pooling === 'cls')
     ) {
       return {
         device: candidate.device,
         dtype: candidate.dtype,
         fallbackApplied: candidate.fallbackApplied,
+        pooling: candidate.pooling,
       };
     }
     return;

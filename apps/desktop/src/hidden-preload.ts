@@ -36,6 +36,10 @@ type EmbeddingHostQueryEmbeddingCancel =
 type EmbeddingHostQueryEmbeddingResponseReport =
   import('./embedding-host-shared').EmbeddingHostQueryEmbeddingResponseReport;
 type EmbeddingHostStatus = import('./embedding-host-shared').EmbeddingHostStatus;
+type EmbeddingHostWebGpuAdapterRequest =
+  import('./embedding-host-webgpu-adapter').EmbeddingHostWebGpuAdapterRequest;
+type EmbeddingHostWebGpuAdapterResponseReport =
+  import('./embedding-host-webgpu-adapter').EmbeddingHostWebGpuAdapterResponseReport;
 type LlmHostRequest = import('./llm-host-shared').LlmHostRequest;
 type LlmHostResponseReport = import('./llm-host-shared').LlmHostResponseReport;
 type LlmHostStatus = import('./llm-host-shared').LlmHostStatus;
@@ -143,6 +147,9 @@ function exposeEmbeddingHostBridge(): void {
       subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbeddingCancel, callback),
     onQueryEmbeddingRequest: (callback: (request: EmbeddingHostQueryEmbeddingRequest) => void) =>
       subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbeddingRequest, callback),
+    // BST-1993: the host answers Main's WebGPU adapter request on its own channel.
+    onWebgpuAdapterRequest: (callback: (request: EmbeddingHostWebGpuAdapterRequest) => void) =>
+      subscribe(DESKTOP_IPC_CHANNELS.embeddingHost.webgpuAdapterRequest, callback),
     reportDocumentEmbeddingsResponse: (
       response: EmbeddingHostDocumentEmbeddingsResponseReport
     ): void => {
@@ -156,6 +163,9 @@ function exposeEmbeddingHostBridge(): void {
     },
     reportStatus: (status: EmbeddingHostStatus): void => {
       ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportStatus, status);
+    },
+    reportWebgpuAdapterResponse: (response: EmbeddingHostWebGpuAdapterResponseReport): void => {
+      ipcRenderer.send(DESKTOP_IPC_CHANNELS.embeddingHost.reportWebgpuAdapterResponse, response);
     },
   } satisfies EmbeddingHostRuntimeBridge;
   contextBridge.exposeInMainWorld('embeddingHost', embeddingHost);

@@ -48,6 +48,7 @@ function createQueueResult(id: string, vectors: Float32Array[]): QueueResult {
       elapsedMs: 1,
       fallbackApplied: false,
       model: 'jinaai/jina-embeddings-v2-base-code',
+      pooling: 'mean',
     },
     type: 'result',
     vectors,

@@ -1,4 +1,5 @@
 import { type EmbeddingDType, StreamingEmbeddingWorkerClient } from '@brainstrike/embedding-worker';
+import { type EmbeddingPooling, requestedEmbeddingPooling } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import type { QueueAdapter } from '@brainstrike/queue';
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
@@ -234,6 +235,7 @@ export class TransformersBackend {
   private _targetDimensions: number | null = null;
   private _selectedDType: EmbeddingDType | null = null;
   private _revision: string | undefined;
+  private _pooling: EmbeddingPooling | undefined;
   private _estimatedModelBytes: number | null = null;
 
   /**
@@ -250,6 +252,7 @@ export class TransformersBackend {
     this._selectedDevice = determineDevice(config.device);
     this._quantized = config.quantized;
     this._revision = config.revision;
+    this._pooling = config.pooling;
     this._selectedDType =
       config.dtype ?? unpinnedEmbeddingDType(this._selectedDevice, this._quantized);
     this._streamingWorkerUrl = config.streamingWorkerUrl ?? null;
@@ -351,6 +354,7 @@ export class TransformersBackend {
         device: metadata.device,
         dtype: metadata.dtype,
         fallbackApplied: metadata.fallbackApplied,
+        pooling: metadata.pooling,
       };
     } catch (error) {
       logger.debug('Embedding worker streaming failed', {
@@ -407,6 +411,7 @@ export class TransformersBackend {
         !(
           response.metadata.model === modelId &&
           response.metadata.revision === this._revision &&
+          response.metadata.pooling === requestedEmbeddingPooling({ pooling: this._pooling }) &&
           response.metadata.device === this._selectedDevice &&
           response.metadata.dtype === this._selectedDType &&
           response.metadata.fallbackApplied === false &&
@@ -419,7 +424,7 @@ export class TransformersBackend {
         )
       ) {
         throw new Error(
-          `Embedding worker returned mismatched pinned completion metadata or vectors: ${JSON.stringify({ actual: response.metadata, expected: { batchSize: texts.length, device: this._selectedDevice, dimensions: this._targetDimensions ?? DEFAULT_EMBEDDING_DIMENSION, dtype: this._selectedDType, model: modelId, revision: this._revision }, vectorDimensions: response.vectors.map((vector) => vector.length) })}`
+          `Embedding worker returned mismatched pinned completion metadata or vectors: ${JSON.stringify({ actual: response.metadata, expected: { batchSize: texts.length, device: this._selectedDevice, dimensions: this._targetDimensions ?? DEFAULT_EMBEDDING_DIMENSION, dtype: this._selectedDType, model: modelId, pooling: requestedEmbeddingPooling({ pooling: this._pooling }), revision: this._revision }, vectorDimensions: response.vectors.map((vector) => vector.length) })}`
         );
       }
       TransformersBackend._inferenceCount += texts.length;
@@ -437,6 +442,7 @@ export class TransformersBackend {
             device: response.metadata.device,
             dtype: response.metadata.dtype,
             fallbackApplied: response.metadata.fallbackApplied,
+            pooling: response.metadata.pooling,
           },
         };
       });
@@ -490,6 +496,7 @@ export class TransformersBackend {
       deviceHint: this.resolveDeviceHint(),
       dtype: this.resolveQueueDType(),
       ...(this._revision === undefined ? {} : { revision: this._revision }),
+      ...(this._pooling === undefined ? {} : { pooling: this._pooling }),
       ...(this._estimatedModelBytes === null
         ? {}
         : { estimatedModelBytes: this._estimatedModelBytes }),

@@ -1,7 +1,7 @@
 // @vitest-environment node
 
-import { createHash } from 'node:crypto';
 import { EventEmitter } from 'node:events';
+import { vectorProfileHash } from '@brainstrike/indexer';
 import type { IndexerStatus } from '@brainstrike/indexing-contract/indexer-client';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -400,14 +400,20 @@ describe('native assistant retrieval cutover', () => {
       expect(pg.search).not.toHaveBeenCalled();
     }
   );
-  it.each(['revision', 'dimensions', 'dtype', 'modelId', 'device'] as const)(
+  it.each(['revision', 'dimensions', 'dtype', 'modelId', 'device', 'pooling', 'prompts'] as const)(
     'refuses a mismatched saved query %s before inference',
     async (field) => {
       const f = fixture();
-      const mismatch = {
-        ...queryPlan.inferencePlan,
-        [field]: field === 'dimensions' ? 768 : 'unsupported',
-      };
+      // BST-1993: CLS or a prompted query plan against the saved profile is another vector space.
+      const value =
+        field === 'dimensions'
+          ? 768
+          : field === 'pooling'
+            ? 'cls'
+            : field === 'prompts'
+              ? { document: '', query: 'ask: ' }
+              : 'unsupported';
+      const mismatch = { ...queryPlan.inferencePlan, [field]: value };
       f.setStatus({
         ...f.status,
         queryPlan: { ...queryPlan, inferencePlan: mismatch },
@@ -584,19 +590,7 @@ it.each([
     const metricEmbedding = {
       indexMode: 'vector-configured' as const,
       profile: selectedProfile,
-      profileHash: createHash('sha256')
-        .update(
-          JSON.stringify([
-            'local',
-            profile.modelId,
-            profile.dimensions,
-            distance,
-            profile.revision,
-            profile.dtype,
-            profile.tokenCap,
-          ])
-        )
-        .digest('hex'),
+      profileHash: vectorProfileHash(selectedProfile),
     };
     for (const mode of ['semantic', 'hybrid'] as const) {
       const f = fixture();

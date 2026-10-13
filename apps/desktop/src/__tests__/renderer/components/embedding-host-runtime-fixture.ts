@@ -24,10 +24,12 @@ const {
   queryEmbeddingListenerRef,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
+  reportWebgpuAdapterResponseMock,
   setDetectedDevicePrefMock,
   startEmbeddingWorkerMock,
   stopMock,
   storeState,
+  webgpuAdapterListenerRef,
 } = vi.hoisted(() => ({
   commandListenerRef: {
     current: null as null | ((command: unknown) => void),
@@ -55,7 +57,13 @@ const {
     () => Promise<{
       embedding: number[];
       runtime?:
-        | { device: string; dtype: string; fallbackApplied: boolean; revision?: string }
+        | {
+            device: string;
+            dtype: string;
+            fallbackApplied: boolean;
+            pooling?: string;
+            revision?: string;
+          }
         | undefined;
     }>
   >(async () => ({
@@ -64,6 +72,7 @@ const {
       device: 'webgpu',
       dtype: 'fp32',
       fallbackApplied: false,
+      pooling: 'mean',
     },
   })),
   getEmbeddingQueueMock: vi.fn(() => ({ id: 'embedding-queue' })),
@@ -75,6 +84,7 @@ const {
   reportDocumentEmbeddingsResponseMock: vi.fn(),
   reportQueryEmbeddingResponseMock: vi.fn(),
   reportStatusMock: vi.fn(),
+  reportWebgpuAdapterResponseMock: vi.fn(),
   retireEmbeddingQueueMock: vi.fn(async () => {}),
   setDetectedDevicePrefMock: vi.fn(),
   startEmbeddingWorkerMock: vi.fn(),
@@ -88,6 +98,9 @@ const {
       storeState.devicePref = devicePref;
       setDetectedDevicePrefMock(devicePref);
     }),
+  },
+  webgpuAdapterListenerRef: {
+    current: null as null | ((request: unknown) => void),
   },
 }));
 
@@ -207,6 +220,7 @@ export function installEmbeddingHostRuntimeFixture(): void {
     retireEmbeddingQueueMock.mockReset().mockResolvedValue(undefined);
     generateDocumentEmbeddingsMock.mockReset();
     reportStatusMock.mockReset();
+    reportWebgpuAdapterResponseMock.mockReset();
     stopMock.mockResolvedValue(undefined);
     resetEmbeddingTelemetryForTests();
     currentDbRef.current = dbHandle;
@@ -265,9 +279,16 @@ export function installEmbeddingHostRuntimeFixture(): void {
             queryEmbeddingListenerRef.current = null;
           };
         },
+        onWebgpuAdapterRequest: (callback: (request: unknown) => void) => {
+          webgpuAdapterListenerRef.current = callback;
+          return () => {
+            webgpuAdapterListenerRef.current = null;
+          };
+        },
         reportDocumentEmbeddingsResponse: reportDocumentEmbeddingsResponseMock,
         reportQueryEmbeddingResponse: reportQueryEmbeddingResponseMock,
         reportStatus: reportStatusMock,
+        reportWebgpuAdapterResponse: reportWebgpuAdapterResponseMock,
       },
     });
 
@@ -305,9 +326,11 @@ export {
   reportDocumentEmbeddingsResponseMock,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
+  reportWebgpuAdapterResponseMock,
   retireEmbeddingQueueMock,
   setDetectedDevicePrefMock,
   startEmbeddingWorkerMock,
   stopMock,
   storeState,
+  webgpuAdapterListenerRef,
 };

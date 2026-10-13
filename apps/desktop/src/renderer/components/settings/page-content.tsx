@@ -19,6 +19,7 @@ import type {
 import { hasDurableAssistantUsageCapability } from '@brainstrike/assistant-data';
 import { useOptionalTokenCacheContext } from '@brainstrike/file-explorer-ui/indexing';
 import { useFileExplorerStoreSelector } from '@brainstrike/file-explorer-ui/shell';
+import type { LocalExecutionCapability } from '@brainstrike/indexing-contract';
 import { configureModelRuntimeServices } from '@brainstrike/settings-ui/settings/models/model-runtime-services';
 import {
   ModelCatalogHeaderActions,
@@ -78,6 +79,12 @@ configureModelRuntimeServices({
  * Transform the desktop-owned native tools into ToolDisplayMetadata format.
  * Mastra skill tools have their own preferences and are not desktop toggles.
  */
+/** The visible embedding host bridge as Settings' local execution capability (BST-1993). */
+function visibleLocalExecution(): LocalExecutionCapability | undefined {
+  const bridge = window.embeddingHost;
+  return bridge && 'webgpuAdapter' in bridge ? bridge : undefined;
+}
+
 function getNativeToolsAsDisplayMetadata(
   isToolEnabled: (toolId: string) => boolean
 ): ToolDisplayMetadata[] {
@@ -407,7 +414,7 @@ export default function SettingsPageContent() {
 
     return [
       createAppearanceSettingsCategory(),
-      createSearchIndexingSettingsCategory(window.indexSearch),
+      createSearchIndexingSettingsCategory(window.indexSearch, visibleLocalExecution()),
       createTokenCountingSettingsCategoryWithRuntimeSupport({ accurateRuntimeAvailable }),
       createCostTrackingSettingsCategory(),
       createLocalRuntimeSettingsCategory(),
