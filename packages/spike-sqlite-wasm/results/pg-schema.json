@@ -1,0 +1,466 @@
+{
+ "file_records": {
+  "columns": [
+   {
+    "column_name": "id",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "name",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "path",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "size",
+    "data_type": "integer",
+    "is_nullable": "NO",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "created_at",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": "to_char((CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'::text)",
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "updated_at",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": "to_char((CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'::text)",
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "content",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "content_hash",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "token_count",
+    "data_type": "integer",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "processed_at",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "embedding_set_id",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "chunks_processed_at",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "chunks_count",
+    "data_type": "integer",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "chunking_strategy",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "mtime_ms",
+    "data_type": "bigint",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "root_id",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   }
+  ],
+  "indexes": [
+   {
+    "indexname": "idx_file_records_path",
+    "indexdef": "CREATE INDEX idx_file_records_path ON public.file_records USING btree (path)"
+   },
+   {
+    "indexname": "idx_file_records_content_hash",
+    "indexdef": "CREATE INDEX idx_file_records_content_hash ON public.file_records USING btree (content_hash)"
+   },
+   {
+    "indexname": "file_records_pkey",
+    "indexdef": "CREATE UNIQUE INDEX file_records_pkey ON public.file_records USING btree (id)"
+   },
+   {
+    "indexname": "idx_file_records_embedding_set_id",
+    "indexdef": "CREATE INDEX idx_file_records_embedding_set_id ON public.file_records USING btree (embedding_set_id)"
+   },
+   {
+    "indexname": "idx_file_records_root_id",
+    "indexdef": "CREATE INDEX idx_file_records_root_id ON public.file_records USING btree (root_id)"
+   },
+   {
+    "indexname": "idx_file_records_root_identity",
+    "indexdef": "CREATE UNIQUE INDEX idx_file_records_root_identity ON public.file_records USING btree (embedding_set_id, root_id, path) WHERE ((embedding_set_id IS NOT NULL) AND (root_id IS NOT NULL))"
+   },
+   {
+    "indexname": "idx_file_records_name_trgm",
+    "indexdef": "CREATE INDEX idx_file_records_name_trgm ON public.file_records USING gin (name gin_trgm_ops)"
+   }
+  ],
+  "triggers": []
+ },
+ "file_chunks": {
+  "columns": [
+   {
+    "column_name": "id",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "file_record_id",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "chunk_index",
+    "data_type": "integer",
+    "is_nullable": "NO",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "content",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "content_hash",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "token_count",
+    "data_type": "integer",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "chunk_type",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "chunk_size",
+    "data_type": "integer",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "embedding",
+    "data_type": "USER-DEFINED",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "embedding_set_id",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "embedding_updated_at",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "embedding_hash",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "created_at",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": "to_char((CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'::text)",
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "updated_at",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": "to_char((CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'::text)",
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "start_line",
+    "data_type": "integer",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "end_line",
+    "data_type": "integer",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "start_offset",
+    "data_type": "integer",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "end_offset",
+    "data_type": "integer",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "content_tsvector",
+    "data_type": "tsvector",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "ALWAYS",
+    "generation_expression": "to_tsvector('english'::regconfig, COALESCE(content, ''::text))"
+   }
+  ],
+  "indexes": [
+   {
+    "indexname": "idx_file_chunks_content_hash",
+    "indexdef": "CREATE INDEX idx_file_chunks_content_hash ON public.file_chunks USING btree (content_hash)"
+   },
+   {
+    "indexname": "file_chunks_pkey",
+    "indexdef": "CREATE UNIQUE INDEX file_chunks_pkey ON public.file_chunks USING btree (id)"
+   },
+   {
+    "indexname": "idx_file_chunks_file_record_id",
+    "indexdef": "CREATE INDEX idx_file_chunks_file_record_id ON public.file_chunks USING btree (file_record_id)"
+   },
+   {
+    "indexname": "idx_file_chunks_embedding_set_id",
+    "indexdef": "CREATE INDEX idx_file_chunks_embedding_set_id ON public.file_chunks USING btree (embedding_set_id)"
+   },
+   {
+    "indexname": "idx_file_chunks_content_tsvector",
+    "indexdef": "CREATE INDEX idx_file_chunks_content_tsvector ON public.file_chunks USING gin (content_tsvector)"
+   },
+   {
+    "indexname": "idx_file_chunks_content_trgm",
+    "indexdef": "CREATE INDEX idx_file_chunks_content_trgm ON public.file_chunks USING gin (content gin_trgm_ops)"
+   },
+   {
+    "indexname": "idx_file_chunks_content_bm25",
+    "indexdef": "CREATE INDEX idx_file_chunks_content_bm25 ON public.file_chunks USING bm25 (content) WITH (text_config=english)"
+   }
+  ],
+  "triggers": []
+ },
+ "embedding_sets": {
+  "columns": [
+   {
+    "column_name": "id",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "model_key",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "model_id",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "dimensions",
+    "data_type": "integer",
+    "is_nullable": "NO",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "distance",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": "'cosine'::text",
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "created_at",
+    "data_type": "text",
+    "is_nullable": "NO",
+    "column_default": "to_char((CURRENT_TIMESTAMP AT TIME ZONE 'UTC'::text), 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'::text)",
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "name",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "description",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "tags",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "category",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "allow_duplicates",
+    "data_type": "boolean",
+    "is_nullable": "YES",
+    "column_default": "false",
+    "is_generated": "NEVER",
+    "generation_expression": null
+   },
+   {
+    "column_name": "system_role",
+    "data_type": "text",
+    "is_nullable": "YES",
+    "column_default": null,
+    "is_generated": "NEVER",
+    "generation_expression": null
+   }
+  ],
+  "indexes": [
+   {
+    "indexname": "embedding_sets_pkey",
+    "indexdef": "CREATE UNIQUE INDEX embedding_sets_pkey ON public.embedding_sets USING btree (id)"
+   },
+   {
+    "indexname": "idx_embedding_sets_workspace_index_system_role",
+    "indexdef": "CREATE UNIQUE INDEX idx_embedding_sets_workspace_index_system_role ON public.embedding_sets USING btree (system_role) WHERE (system_role = 'workspace-index'::text)"
+   }
+  ],
+  "triggers": []
+ },
+ "tables": {
+  "n": 66
+ }
+}

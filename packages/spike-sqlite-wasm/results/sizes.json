@@ -1,0 +1,132 @@
+{
+  "sqlite": {
+    "files": [
+      {
+        "brotli": 348812,
+        "file": "assets/sqlite3-Con_VOcu.wasm",
+        "gzip": 403404,
+        "raw": 868907
+      },
+      {
+        "brotli": 8969,
+        "file": "assets/sqlite3-opfs-async-proxy-Ck-yCayi.js",
+        "gzip": 10528,
+        "raw": 32505
+      },
+      {
+        "brotli": 54870,
+        "file": "assets/sqlite3-worker1-Cawy59Ce.js",
+        "gzip": 63273,
+        "raw": 212598
+      },
+      {
+        "brotli": 54953,
+        "file": "sqlite-entry.js",
+        "gzip": 62538,
+        "raw": 211298
+      }
+    ],
+    "fetched": {
+      "brotli": 403765,
+      "gzip": 465942,
+      "raw": 1080205
+    },
+    "emitted": {
+      "brotli": 467604,
+      "gzip": 539743,
+      "raw": 1325308
+    }
+  },
+  "pglite": {
+    "files": [
+      {
+        "brotli": 75,
+        "file": "assets/__vite-browser-external-BfAYthey.js",
+        "gzip": 95,
+        "raw": 77
+      },
+      {
+        "brotli": 98,
+        "file": "assets/__vite-browser-external-uP5PEmmg.js",
+        "gzip": 108,
+        "raw": 94
+      },
+      {
+        "brotli": 30339,
+        "file": "assets/chunk-DDJLRBDX-B5Hb5bFe.js",
+        "gzip": 34685,
+        "raw": 108247
+      },
+      {
+        "brotli": 119349,
+        "file": "assets/initdb-DwLcS450.wasm",
+        "gzip": 147404,
+        "raw": 395242
+      },
+      {
+        "brotli": 333,
+        "file": "assets/nodefs-BntsVnzo.js",
+        "gzip": 380,
+        "raw": 550
+      },
+      {
+        "brotli": 2723,
+        "file": "assets/opfs-ahp-CDeLZrnI.js",
+        "gzip": 3027,
+        "raw": 10013
+      },
+      {
+        "brotli": 78389,
+        "file": "assets/pg_textsearch.tar-DiBEZ2o9.gz",
+        "gzip": 78399,
+        "raw": 78384
+      },
+      {
+        "brotli": 15829,
+        "file": "assets/pg_trgm.tar-CowYIgmw.gz",
+        "gzip": 15853,
+        "raw": 15830
+      },
+      {
+        "brotli": 2649721,
+        "file": "assets/pglite-DgipwPsY.wasm",
+        "gzip": 3439803,
+        "raw": 10088161
+      },
+      {
+        "brotli": 1069273,
+        "file": "assets/pglite-n8RDJ3Sw.data",
+        "gzip": 2140187,
+        "raw": 6295316
+      },
+      {
+        "brotli": 326,
+        "file": "assets/rolldown-runtime-CbXtAM7H.js",
+        "gzip": 368,
+        "raw": 589
+      },
+      {
+        "brotli": 46553,
+        "file": "assets/vector.tar-DveqyHs9.gz",
+        "gzip": 46514,
+        "raw": 46549
+      },
+      {
+        "brotli": 85843,
+        "file": "pglite-entry.js",
+        "gzip": 104142,
+        "raw": 490420
+      }
+    ],
+    "fetched": {
+      "brotli": 4098851,
+      "gzip": 6010965,
+      "raw": 17529472
+    },
+    "emitted": {
+      "brotli": 4098851,
+      "gzip": 6010965,
+      "raw": 17529472
+    }
+  }
+}
