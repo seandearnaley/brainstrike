@@ -260,27 +260,6 @@ export interface WorkspaceInstructionsContextRequest {
   oversizedOptInByRootId?: Record<string, boolean>;
 }
 
-/** Renderer-attached opt-in for the self-improvement signal injection (BST-1241). */
-export interface SelfImprovementSignalPreferenceRequest {
-  readonly enabled?: boolean;
-}
-
-/**
- * Renderer-attached experiment enrollment for this run (BST-1250, recursive
- * self-improvement phase 2A). Persisted verbatim in the per-run treatment
- * record so control/intervention runs stay attributable; absent = un-enrolled.
- * The pair is atomic, so both fields are REQUIRED (review: optional fields
- * let a well-behaved producer typecheck its way into a warn loop); the
- * server-side strict parse remains the untrusted-wire guard. The renderer
- * producer is the experiment-assignment preference store (BST-1251, phase
- * 2B): the pair only rides the wire when both fields are set, and absent
- * still means un-enrolled.
- */
-export interface ExperimentAssignmentRequest {
-  readonly experimentId: string;
-  readonly variant: string;
-}
-
 /**
  * Renderer preference for subagent persona availability (see the
  * subagent-personas preferences store). Presence-means-non-default: the
@@ -334,7 +313,6 @@ export interface RuntimeData {
   contextTokenCount?: number;
   embeddingSetId?: string;
   enabledNativeToolIds?: readonly string[];
-  experimentAssignment?: ExperimentAssignmentRequest;
   includeFileReport?: boolean;
   includeProjectTree?: boolean;
   /**
@@ -394,7 +372,6 @@ export interface RuntimeData {
   selectionFilePathsFromOtherRoots?: number;
   selectionFolderId?: string;
   selectionSnapshotId?: string;
-  selfImprovementSignalPreference?: SelfImprovementSignalPreferenceRequest;
   signal?: AbortSignal;
   /**
    * Renderer-supplied Agent Skills preference (from the skills preferences

@@ -3,13 +3,11 @@ import { resetAssistantBudgetPreferencesStoreToDefaults } from './stores/assista
 import { resetAssistantSubagentPreferencesStoreToDefaults } from './stores/assistant-subagent-preferences-store';
 import { resetBackgroundIndexingPreferencesStoreToDefaults } from './stores/background-indexing-preferences-store';
 import { resetDiagnosticsRetentionStoreToDefaults } from './stores/diagnostics-retention-store';
-import { resetExperimentAssignmentPreferencesStoreToDefaults } from './stores/experiment-assignment-preferences-store';
 import { resetExplorerColumnSizesStoreToDefault } from './stores/explorer-column-sizes-store';
 import { resetExplorerColumnVisibilityStoreToDefault } from './stores/explorer-column-visibility-store';
 import { resetExplorerSortStateStoreToDefault } from './stores/explorer-sort-state-store';
 import { resetNotificationPreferencesStoreToDefaults } from './stores/notification-preferences-store';
 import { resetPermissionPolicyStoreToDefaults } from './stores/permission-policy-store';
-import { resetSelfImprovementSignalPreferencesStoreToDefaults } from './stores/self-improvement-signal-preferences-store';
 import { resetSkillsPreferencesStoreToDefaults } from './stores/skills-preferences-store';
 import { resetSubagentPersonasStoreToDefaults } from './stores/subagent-personas-store';
 import { resetWorkspaceInstructionsPreferencesStoreToDefaults } from './stores/workspace-instructions-preferences-store';
@@ -409,22 +407,6 @@ export function registerFactoryResetSessionStore(reset: () => void): () => void 
   };
 }
 
-function resetSelfImprovementSignalPreferences(): void {
-  try {
-    resetSelfImprovementSignalPreferencesStoreToDefaults();
-  } catch (error) {
-    logger.warn('Failed to reset self-improvement signal preferences store', { error });
-  }
-}
-
-function resetExperimentAssignmentPreferences(): void {
-  try {
-    resetExperimentAssignmentPreferencesStoreToDefaults();
-  } catch (error) {
-    logger.warn('Failed to reset experiment assignment preferences store', { error });
-  }
-}
-
 /**
  * Runs one live-store reset, logging (never throwing) on failure so one bad
  * store can never abort the rest of `clearBrowserStorage`'s pass. Extracted
@@ -489,15 +471,6 @@ function clearBrowserStorage(): void {
     'background indexing preferences store',
     resetBackgroundIndexingPreferencesStoreToDefaults
   );
-
-  // Self-improvement signal injection is an explicit persisted opt-in. Reset
-  // the live store as well as clearing localStorage so it returns to OFF.
-  resetSelfImprovementSignalPreferences();
-
-  // Experiment enrollment (BST-1251) is attribution metadata; a reset must
-  // return the profile to un-enrolled so stale enrollment never taints later
-  // treatment rows (FACTORY RESET CONTRACT).
-  resetExperimentAssignmentPreferences();
 
   // Budget guardrail caps are persisted preferences; reset the live store too
   // so an in-memory cap never survives a reset without a reload (web path).

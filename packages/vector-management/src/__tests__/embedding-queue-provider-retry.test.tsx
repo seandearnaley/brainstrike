@@ -22,6 +22,7 @@ function createQueueAdapter(): QueueAdapter {
       elapsedMs: 0,
       fallbackApplied: false,
       model: 'test-model',
+      pooling: 'mean',
     },
     type: 'result',
     vectors: [],

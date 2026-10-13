@@ -1,9 +1,12 @@
 import { DEFAULT_EMBEDDING_DIMENSION } from '@brainstrike/types';
+import type { EmbeddingPrompts } from './catalog-embedding-model.js';
 import { buildEmbeddingInputHash } from './embedding-input-hash.js';
-import type { EmbeddingDimensionParameter } from './embedding-worker-protocol.js';
+import type { EmbeddingDimensionParameter, EmbeddingPooling } from './embedding-worker-protocol.js';
 
+export * from './catalog-embedding-model.js';
 export * from './embedding-input-hash.js';
 export * from './embedding-worker-protocol.js';
+export type * from './local-execution.js';
 
 export const STANDARD_EMBEDDING_DIMENSION = DEFAULT_EMBEDDING_DIMENSION;
 
@@ -606,7 +609,11 @@ export interface EmbeddingModelConfig {
   id: string;
   name: string;
   origin?: string;
+  /** The catalog row's pooling (BST-1993); absent asks the worker for 'mean'. */
+  pooling?: EmbeddingPooling;
   pricePer1MTokens?: number;
+  /** The catalog row's query/document prompts (BST-1993); absent embeds raw text. */
+  prompts?: EmbeddingPrompts;
   quantized?: boolean;
   size?: string;
   supportedDimensions?: number[] | string;

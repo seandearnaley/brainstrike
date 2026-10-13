@@ -35,6 +35,9 @@ const EMBEDDING_HOST_CHANNELS = EMBEDDING_HOST_RUNTIME.createScopedChannels({
   queryEmbeddingRequest: 'query-embedding-request',
   reportDocumentEmbeddingsResponse: 'report-document-embeddings-response',
   reportQueryEmbeddingResponse: 'report-query-embedding-response',
+  reportWebgpuAdapterResponse: 'report-webgpu-adapter-response',
+  webgpuAdapter: 'webgpu-adapter',
+  webgpuAdapterRequest: 'webgpu-adapter-request',
 });
 export const EMBEDDING_HOST_STATUS_EVENT = EMBEDDING_HOST_LIFECYCLE_CHANNELS.statusEvent;
 export const EMBEDDING_HOST_COMMAND_EVENT = EMBEDDING_HOST_CHANNELS.command;
@@ -58,6 +61,11 @@ export const EMBEDDING_HOST_CANCEL_ALL_BACKFILLS_CHANNEL =
   EMBEDDING_HOST_CHANNELS.cancelAllBackfills;
 export const EMBEDDING_HOST_CANCEL_BACKFILL_CHANNEL = EMBEDDING_HOST_CHANNELS.cancelBackfill;
 export const EMBEDDING_HOST_QUERY_EMBEDDING_CHANNEL = EMBEDDING_HOST_CHANNELS.queryEmbedding;
+export const EMBEDDING_HOST_WEBGPU_ADAPTER_CHANNEL = EMBEDDING_HOST_CHANNELS.webgpuAdapter;
+export const EMBEDDING_HOST_WEBGPU_ADAPTER_REQUEST_EVENT =
+  EMBEDDING_HOST_CHANNELS.webgpuAdapterRequest;
+export const EMBEDDING_HOST_REPORT_WEBGPU_ADAPTER_RESPONSE_CHANNEL =
+  EMBEDDING_HOST_CHANNELS.reportWebgpuAdapterResponse;
 export const EMBEDDING_BACKFILL_CANCELED_MESSAGE = 'Embedding backfill was canceled.' as const;
 
 export type EmbeddingBackfillSource = 'background-indexing' | 'manual';
@@ -363,6 +371,16 @@ export function assertEmbeddingHostStatus(value: unknown): EmbeddingHostStatusRe
     ...(embeddingRuntime === undefined
       ? {}
       : { embeddingRuntime: assertEmbeddingHostRuntimeMetadata(embeddingRuntime) }),
+  };
+}
+
+/** A status report's optional host fields, carried unchanged into main's status. */
+export function reportedHostFields(
+  status: EmbeddingHostStatus
+): Pick<EmbeddingHostStatus, 'commandId' | 'embeddingRuntime'> {
+  return {
+    ...(status.commandId ? { commandId: status.commandId } : {}),
+    ...(status.embeddingRuntime ? { embeddingRuntime: status.embeddingRuntime } : {}),
   };
 }
 
@@ -743,7 +761,7 @@ export function assertEmbeddingHostDocumentEmbeddingsResponseReport(
   throw new Error('Invalid document embeddings response envelope.');
 }
 
-function assertEmbeddingHostErrorPayload(
+export function assertEmbeddingHostErrorPayload(
   payload: Record<string, unknown>
 ): EmbeddingHostQueryEmbeddingErrorReport['payload'] {
   return {

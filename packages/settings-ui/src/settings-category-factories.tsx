@@ -133,10 +133,16 @@ export function createWorkspaceSettingsCategory(
 }
 
 export function createSearchIndexingSettingsCategory(
-  nativeIndex?: import('@brainstrike/indexing-contract/indexer-client').IndexSearchCapability
+  nativeIndex?: import('@brainstrike/indexing-contract/indexer-client').IndexSearchCapability,
+  localExecution?: import('@brainstrike/indexing-contract').LocalExecutionCapability
 ): SettingsCategory {
   return {
-    content: <SearchIndexingSettingsSection {...(nativeIndex ? { nativeIndex } : {})} />,
+    content: (
+      <SearchIndexingSettingsSection
+        {...(nativeIndex ? { nativeIndex } : {})}
+        {...(localExecution ? { localExecution } : {})}
+      />
+    ),
     description: 'Choose the managed cache collection and control root-folder background indexing.',
     icon: Search,
     id: 'search-indexing',

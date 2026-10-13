@@ -752,6 +752,7 @@ describe('EmbeddingHostRuntime', () => {
             device: 'webgpu',
             dtype: 'fp32',
             fallbackApplied: false,
+            pooling: 'mean',
           },
           backendMismatch: false,
           selectedDevicePreference: 'webgpu',
@@ -911,7 +912,13 @@ describe('native pinned hidden renderer query', () => {
       dimensions: plan.dimensions,
       embedding: Array.from({ length: 384 }, () => 0.1),
       model: plan.modelId,
-      runtime: { device: 'wasm', dtype, fallbackApplied: false, revision: plan.revision },
+      runtime: {
+        device: 'wasm',
+        dtype,
+        fallbackApplied: false,
+        pooling: 'mean',
+        revision: plan.revision,
+      },
     };
   }
   it('uses exact pins without catalog/preferences reads and caches all plan fields', async () => {
@@ -966,6 +973,7 @@ describe('native pinned hidden renderer query', () => {
     { ...result().runtime, dtype: 'fp32' },
     { ...result().runtime, fallbackApplied: true },
     { ...result().runtime, revision: 'main' },
+    { ...result().runtime, pooling: 'cls' },
     { device: 'wasm', dtype: 'q8', fallbackApplied: false },
   ])('rejects absent or mismatched actual worker runtime %j', async (runtime) => {
     const listener = await start();

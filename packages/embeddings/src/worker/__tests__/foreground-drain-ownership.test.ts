@@ -42,6 +42,7 @@ async function createRunningBackgroundAndForeground() {
         elapsedMs: 1,
         fallbackApplied: false,
         model: task.model,
+        pooling: 'mean',
       },
       type: 'result',
       vectors: [Float32Array.from([0.1, 0.2])],
@@ -107,6 +108,7 @@ async function createRunningBackgroundAndForeground() {
           elapsedMs: 5001,
           fallbackApplied: false,
           model: request.model,
+          pooling: 'mean',
         },
         type: 'complete',
       });
