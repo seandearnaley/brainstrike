@@ -381,39 +381,56 @@ it.each([
   }
 );
 
-it('keeps the native missing-key remedy visible without its private cause', async () => {
-  useBackgroundIndexingPreferencesStore.setState({
-    managedCollectionId: 'selected',
-    nativeIndexMode: 'VECTOR',
-  });
-  const failure = refusal({
+it.each([
+  {
     category: 'configuration',
     code: 'embedding.missing-key',
     message: 'No API key configured for the embedding provider.',
     remedy: 'Configure the embedding provider API key in Settings, then retry indexing.',
-  });
-  const capability = {
-    coverage: vi.fn(),
-    coverageBatch: vi.fn(),
-    grep: vi.fn(),
-    rebuild: vi.fn(),
-    search: vi.fn(),
-    status: vi.fn(async () => {
-      throw new BoundaryFailureError(failure, { cause: new Error('private fixture diagnostic') });
-    }),
-  };
-  const mounted = render(
-    <NativeWorkspaceIndexProvider capability={capability}>
-      <span>Workspace</span>
-    </NativeWorkspaceIndexProvider>
-  );
-  await waitFor(() =>
-    expect(useWorkspaceCollectionSyncStatusStore.getState().lastError).toBe(
-      describeBoundaryFailure(failure)
-    )
-  );
-  expect(useWorkspaceCollectionSyncStatusStore.getState().lastError).not.toContain(
-    'private fixture diagnostic'
-  );
-  mounted.unmount();
-});
+  },
+  {
+    category: 'input',
+    code: 'embedding.input-too-long',
+    message: 'The embedding provider refused the input as too large.',
+    remedy: 'Reduce the text sent for embedding, then retry.',
+  },
+  {
+    category: 'availability',
+    code: 'embedding.rate-limit',
+    message: 'The embedding provider is rate limiting requests.',
+    remedy: 'Wait for the provider rate limit to clear, then retry.',
+  },
+] as const)(
+  'keeps the native $code remedy visible without its private cause',
+  async (description) => {
+    useBackgroundIndexingPreferencesStore.setState({
+      managedCollectionId: 'selected',
+      nativeIndexMode: 'VECTOR',
+    });
+    const failure = refusal(description);
+    const capability = {
+      coverage: vi.fn(),
+      coverageBatch: vi.fn(),
+      grep: vi.fn(),
+      rebuild: vi.fn(),
+      search: vi.fn(),
+      status: vi.fn(async () => {
+        throw new BoundaryFailureError(failure, { cause: new Error('private fixture diagnostic') });
+      }),
+    };
+    const mounted = render(
+      <NativeWorkspaceIndexProvider capability={capability}>
+        <span>Workspace</span>
+      </NativeWorkspaceIndexProvider>
+    );
+    await waitFor(() =>
+      expect(useWorkspaceCollectionSyncStatusStore.getState().lastError).toBe(
+        describeBoundaryFailure(failure)
+      )
+    );
+    expect(useWorkspaceCollectionSyncStatusStore.getState().lastError).not.toContain(
+      'private fixture diagnostic'
+    );
+    mounted.unmount();
+  }
+);

@@ -169,6 +169,12 @@ export async function generateHostedEmbeddings(input: {
     ) {
       throw input.signal.reason;
     }
+    // Keep the original typed provider diagnostic in Main before the utility
+    // fault channel deliberately projects plain-object causes to Error text.
+    logger.error('Hosted embedding request failed', {
+      error: result.error,
+      provider: input.provider,
+    });
     throw hostedRefusal(input.provider, result.error);
   }
   input.signal.throwIfAborted();

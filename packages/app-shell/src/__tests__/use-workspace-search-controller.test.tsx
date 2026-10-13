@@ -793,6 +793,28 @@ it.each([
     },
     { cause: new Error('private fixture') }
   ),
+  ...(
+    [
+      {
+        category: 'input',
+        code: 'embedding.input-too-long',
+        message: 'The embedding provider refused the input as too large.',
+        remedy: 'Reduce the text sent for embedding, then retry.',
+      },
+      {
+        category: 'availability',
+        code: 'embedding.rate-limit',
+        message: 'The embedding provider is rate limiting requests.',
+        remedy: 'Wait for the provider rate limit to clear, then retry.',
+      },
+    ] as const
+  ).map(
+    (failure) =>
+      new BoundaryFailureError(
+        { ...failure, kind: 'refusal' },
+        { cause: new Error('private fixture') }
+      )
+  ),
   new Error('private untyped coverage failure'),
 ])(
   'renders coverage failure as unavailable using only its safe boundary description',

@@ -508,9 +508,13 @@ it('serves the diagnostics store to the host', async () => {
   }
 });
 
-it('returns a typed missing-key refusal from the real Main index status handler', async () => {
+it.each([
+  ['missing-key', 'configuration'],
+  ['input-too-long', 'input'],
+  ['rate-limit', 'availability'],
+] as const)('retains typed %s through the real status boundary', async (kind, category) => {
   const original = new HostedEmbeddingError(
-    'missing-key',
+    kind,
     'No API key configured for the embedding provider.',
     { cause: new Error('private missing-key fixture') }
   );
@@ -537,8 +541,8 @@ it('returns a typed missing-key refusal from the real Main index status handler'
     expect(received).toMatchObject({
       code: -32_001,
       data: {
-        category: 'configuration',
-        code: 'embedding.missing-key',
+        category,
+        code: `embedding.${kind}`,
         correlationId: expect.any(String),
         kind: 'refusal',
         remedy: expect.any(String),

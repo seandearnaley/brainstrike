@@ -9,7 +9,7 @@ import {
   NativeIndexRefusalError,
 } from '@brainstrike/indexing-contract/indexer-client';
 
-import { HOSTED_EMBEDDING_MISSING_KEY, hostedEmbeddingFailure } from './hosted-embedding-error';
+import { HOSTED_EMBEDDING_REFUSALS, hostedEmbeddingFailure } from './hosted-embedding-error';
 
 const descriptions: Readonly<
   Record<NativeIndexRefusalCause['kind'], Pick<BoundaryFailure, 'category' | 'message' | 'remedy'>>
@@ -41,41 +41,55 @@ const descriptions: Readonly<
 };
 
 /**
- * BST-2008: generate and physical join report the same configuration refusal as
- * distinct transported errors. Every joined failure must prove that exact kind;
- * an independent cleanup fault is never hidden behind a recoverable refusal.
+ * Generate and physical join report the same hosted refusal as distinct
+ * transported errors. Every joined failure must prove the same allowed kind;
+ * an independent cleanup fault or different refusal never becomes one outcome.
  */
-function isMissingKey(error: unknown): boolean {
+function uniformHostedRefusal(error: unknown): BoundaryFailure | undefined {
   if (error instanceof AggregateError) {
-    return (
-      error.errors.length > 0 &&
-      error.errors.every(isMissingKey) &&
-      (error.cause === undefined || isMissingKey(error.cause))
-    );
+    if (error.errors.length === 0) {
+      return undefined;
+    }
+    const failures: readonly unknown[] =
+      error.cause === undefined ? error.errors : [...error.errors, error.cause];
+    const outcomes = failures.map(uniformHostedRefusal);
+    const first = outcomes[0];
+    if (
+      !first ||
+      outcomes.some(
+        (outcome) => outcome?.code !== first.code || outcome.category !== first.category
+      )
+    ) {
+      return undefined;
+    }
+    return first;
   }
   if (error instanceof NativeIndexRefusalError) {
-    return error.refusal.kind === 'source-failure' && isMissingKey(error.cause);
+    return error.refusal.kind === 'source-failure' ? uniformHostedRefusal(error.cause) : undefined;
   }
   if (error instanceof BoundaryFailureError) {
-    return (
-      error.failure.kind === 'refusal' &&
-      error.failure.category === 'configuration' &&
-      error.failure.code === HOSTED_EMBEDDING_MISSING_KEY.code
+    if (error.failure.kind !== 'refusal') {
+      return undefined;
+    }
+    return Object.values(HOSTED_EMBEDDING_REFUSALS).find(
+      (failure) =>
+        failure.code === error.failure.code && failure.category === error.failure.category
     );
   }
-  return hostedEmbeddingFailure(error) !== undefined;
+  return hostedEmbeddingFailure(error);
 }
 
 /** Preserve proven native outcomes; source and cleanup diagnostics stay in Main. */
 export function nativeIndexBoundaryFailure(error: unknown, log: BoundaryLog): BoundaryFailure {
-  if (isMissingKey(error)) {
+  const hostedFailure = uniformHostedRefusal(error);
+  if (hostedFailure) {
     const correlationId = crypto.randomUUID();
-    log('Native configuration refusal retained its original causes', {
+    log('Native hosted refusal retained its original causes', {
       cause: error,
-      code: HOSTED_EMBEDDING_MISSING_KEY.code,
+      code: hostedFailure.code,
       correlationId,
     });
-    return { ...HOSTED_EMBEDDING_MISSING_KEY, correlationId };
+    return { ...hostedFailure, correlationId };
   }
   if (!(error instanceof NativeIndexRefusalError)) {
     return toBoundaryFailure(error, log);

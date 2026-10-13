@@ -4,15 +4,23 @@ import {
   BoundaryFailureSchema,
   INTERNAL_FAULT,
 } from '@brainstrike/assistant-contract/boundary-failure';
+import { clearHostedProviderApiKeyCache } from '@brainstrike/embeddings/provider-core';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { Schema } from 'effect';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CanonicalUtilityChannel } from '../canonical-utility-channel';
 import { canonicalFault, decodeCanonicalFrame } from '../canonical-utility-protocol';
-import { HostedEmbeddingError } from '../hosted-embeddings';
+import { generateHostedEmbeddings, HostedEmbeddingError } from '../hosted-embeddings';
 import { NativeCanonicalInference } from '../native-canonical-profile';
 import { nativeIndexBoundaryFailure } from '../native-index-boundary-failure';
 
-vi.mock('../secrets', () => ({ getSecretsService: vi.fn() }));
+vi.mock('../secrets', () => ({
+  getSecretsService: () => ({ getKey: async () => 'fake-boundary-test' }),
+}));
+afterEach(() => {
+  vi.unstubAllGlobals();
+  clearHostedProviderApiKeyCache();
+});
 
 // Recorded c137 missing-key failure: generate and join each cross the utility
 // channel, becoming distinct errors before CanonicalIngestionHost aggregates them.
@@ -140,4 +148,146 @@ describe('native missing-key outcome (BST-2008)', () => {
       })
     ).toThrow();
   });
+});
+
+// Existing hosted adapter HTTP fixtures are exercised through the real provider
+// mapper before generate/join cross the utility boundary; no live call is made.
+it.each([
+  [413, 'input-too-long', 'input'],
+  [429, 'rate-limit', 'availability'],
+] as const)(
+  'retains actionable HTTP %s through actual generate/join and uniform aggregate',
+  async (status, kind, category) => {
+    const records: LogRecord[] = [];
+    const unsubscribe = addLogListener((record) => records.push(record));
+    const fetch = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ error: { message: 'private provider fixture body' } }), {
+          headers: { 'content-type': 'application/json' },
+          status,
+        })
+    );
+    vi.stubGlobal('fetch', fetch);
+    const profile = {
+      dimensions: 1536,
+      distance: 'cosine',
+      modelId: 'text-embedding-3-small',
+      provider: 'openai',
+    } as const;
+    const inference = new NativeCanonicalInference({
+      hostedEmbeddings: generateHostedEmbeddings,
+      resolver: {
+        resolve: async () => ({
+          modelKey: 'openai::text-embedding-3-small',
+          profile,
+          workerPlan: null,
+        }),
+      },
+      scope: { embeddingSetId: 'recorded-collection', kind: 'collection' },
+      transport: { documentEmbeddings: vi.fn() },
+    });
+    const generated: unknown = await inference
+      .generate({
+        chunks: [{ chunkId: 'first', content: 'notarize release' }],
+        profile,
+        requestId: 'recorded-operation',
+      })
+      .catch((error: unknown) => error);
+    unsubscribe();
+    expect(generated).toBeInstanceOf(HostedEmbeddingError);
+    expect(generated).toMatchObject({
+      cause: { type: status === 429 ? 'rate_limit_exceeded' : 'api_error' },
+    });
+    expect(
+      records.find((record) => record.scope === 'DesktopHostedEmbeddings')?.args.at(-1)
+    ).toMatchObject({
+      error: { provider: 'openai', type: status === 429 ? 'rate_limit_exceeded' : 'api_error' },
+    });
+    expect(generated).toMatchObject({ kind });
+    expect(fetch).toHaveBeenCalledOnce();
+    const joined: unknown = await inference
+      .join('recorded-operation')
+      .catch((error: unknown) => error);
+    expect(joined).toBe(generated);
+    const [generate, join] = await Promise.all([roundTrip(generated), roundTrip(joined)]);
+    const aggregate = await roundTrip(
+      new AggregateError([generate, join], 'Canonical inference and retirement failed.')
+    );
+    const log = vi.fn();
+    const failure = nativeIndexBoundaryFailure(aggregate, log);
+    expect(BoundaryFailureSchema.parse(failure)).toMatchObject({
+      category,
+      code: `embedding.${kind}`,
+      kind: 'refusal',
+      remedy: expect.any(String),
+    });
+    expect(JSON.stringify(failure)).not.toContain('private provider fixture body');
+    expect(log).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ cause: aggregate })
+    );
+    expect(aggregate).toBeInstanceOf(AggregateError);
+    if (!(aggregate instanceof AggregateError)) {
+      throw new Error('Missing aggregate');
+    }
+    expect(aggregate.errors).toHaveLength(2);
+    expect(aggregate.errors[0]).toMatchObject({ cause: expect.any(Error) });
+    await expect(inference.close()).resolves.toBeUndefined();
+  }
+);
+it.each([
+  new HostedEmbeddingError('input-too-long', 'safe producer message'),
+  new HostedEmbeddingError('rate-limit', 'safe producer message'),
+  new HostedEmbeddingError('provider-status', 'safe producer message'),
+])('does not promote mixed hosted outcomes to a uniform refusal', async (other) => {
+  const aggregate = await roundTrip(new AggregateError([missing(), other], 'Independent failures'));
+  expect(nativeIndexBoundaryFailure(aggregate, vi.fn())).toMatchObject(INTERNAL_FAULT);
+});
+
+it('retains provider diagnostic facts privately through the real redacting logger', async () => {
+  const original = Object.assign(new TypeError('fixture transport refused'), {
+    details: { authorization: 'Bearer fake-private-auth', phase: 'connect' },
+    token: 'fake-private-provider-token',
+  });
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => {
+      throw original;
+    })
+  );
+  const records: LogRecord[] = [];
+  const unsubscribe = addLogListener((record) => records.push(record));
+  let failure: unknown;
+  try {
+    failure = await generateHostedEmbeddings({
+      dimensions: 1536,
+      modelId: 'text-embedding-3-small',
+      provider: 'openai',
+      purpose: 'document',
+      signal: new AbortController().signal,
+      texts: ['notarize release'],
+    }).catch((error: unknown) => error);
+  } finally {
+    unsubscribe();
+  }
+  expect(failure).toMatchObject({
+    cause: { originalError: original, type: 'network_error' },
+    kind: 'network',
+  });
+  const diagnostic = records
+    .find((record) => record.scope === 'DesktopHostedEmbeddings')
+    ?.args.at(-1);
+  expect(diagnostic).toMatchObject({
+    error: {
+      originalError: {
+        details: { authorization: '[REDACTED]', phase: 'connect' },
+        token: '[REDACTED]',
+      },
+      type: 'network_error',
+    },
+  });
+  expect(JSON.stringify(diagnostic)).not.toContain('fake-private-provider-token');
+  expect(JSON.stringify(diagnostic)).not.toContain('fake-private-auth');
+  expect(original.token).toBe('fake-private-provider-token');
+  expect(nativeIndexBoundaryFailure(failure, vi.fn())).toMatchObject(INTERNAL_FAULT);
 });

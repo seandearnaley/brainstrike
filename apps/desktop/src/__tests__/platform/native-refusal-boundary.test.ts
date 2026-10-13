@@ -62,9 +62,13 @@ it.each(cases)(
   }
 );
 
-it('carries the recorded missing-key generate/join aggregate through visible status IPC', async () => {
+it.each([
+  ['missing-key', 'configuration'],
+  ['input-too-long', 'input'],
+  ['rate-limit', 'availability'],
+] as const)('retains typed %s through the real status boundary', async (kind, category) => {
   const original = new HostedEmbeddingError(
-    'missing-key',
+    kind,
     'No API key configured for the embedding provider.',
     { cause: new Error('private missing-key fixture') }
   );
@@ -81,7 +85,8 @@ it('carries the recorded missing-key generate/join aggregate through visible sta
   );
   expect(wire).toMatchObject({
     error: {
-      code: 'embedding.missing-key',
+      category,
+      code: `embedding.${kind}`,
       correlationId: expect.any(String),
       kind: 'refusal',
       remedy: expect.any(String),
@@ -90,7 +95,7 @@ it('carries the recorded missing-key generate/join aggregate through visible sta
   });
   expect(JSON.stringify(wire)).not.toContain('private missing-key fixture');
   expect(() => readBoundaryResult(structuredClone(wire))).toThrow(
-    expect.objectContaining({ code: 'embedding.missing-key' })
+    expect.objectContaining({ code: `embedding.${kind}` })
   );
   expect(log).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ cause: error }));
 });
