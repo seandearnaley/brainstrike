@@ -8,14 +8,14 @@ describe('CSP Utils', () => {
 
       expect(devCSP).toContain("default-src 'self' http://localhost:* ws://localhost:*");
       expect(devCSP).toContain(
-        "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:* https://cdn.jsdelivr.net"
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:* blob:"
       );
       expect(devCSP).toContain("worker-src 'self' blob:");
       expect(devCSP).toContain("style-src 'self' 'unsafe-inline' http://localhost:*");
       expect(devCSP).toContain("img-src 'self' data: blob: http://localhost:*");
       expect(devCSP).toContain("font-src 'self' data: http://localhost:*");
       expect(devCSP).toContain(
-        "connect-src 'self' ws://localhost:* http://localhost:* ws://127.0.0.1:* wss://localhost:* https://huggingface.co https://*.hf.co https://cdn.jsdelivr.net"
+        "connect-src 'self' ws://localhost:* http://localhost:* ws://127.0.0.1:* wss://localhost:* https://huggingface.co https://*.hf.co;"
       );
       expect(devCSP).toContain("object-src 'none'");
       expect(devCSP).toContain("base-uri 'self'");
@@ -32,9 +32,7 @@ describe('CSP Utils', () => {
       expect(prodCSP).toContain("style-src 'self' 'unsafe-inline'");
       expect(prodCSP).toContain("img-src 'self' data: blob:");
       expect(prodCSP).toContain("font-src 'self' data:");
-      expect(prodCSP).toContain(
-        "connect-src 'self' https://huggingface.co https://*.hf.co https://cdn.jsdelivr.net"
-      );
+      expect(prodCSP).toContain("connect-src 'self' https://huggingface.co https://*.hf.co;");
       expect(prodCSP).toContain("object-src 'none'");
       expect(prodCSP).toContain("base-uri 'self'");
       expect(prodCSP).toContain("form-action 'self'");
@@ -64,13 +62,9 @@ describe('CSP Utils', () => {
       expect(prodCSP).toContain('https://*.hf.co');
     });
 
-    it('keeps the CDN fetch-only in production', () => {
-      const devCSP = getCSP('development');
-      const prodCSP = getCSP('production');
-
-      expect(devCSP).toMatch(/script-src[^;]*https:\/\/cdn\.jsdelivr\.net/);
-      expect(prodCSP).not.toMatch(/script-src[^;]*https:\/\/cdn\.jsdelivr\.net/);
-      expect(prodCSP).toMatch(/connect-src[^;]*https:\/\/cdn\.jsdelivr\.net/);
+    it('allows no CDN: ONNX Runtime WASM is served same-origin (BST-2003)', () => {
+      expect(getCSP('development')).not.toContain('jsdelivr');
+      expect(getCSP('production')).not.toContain('jsdelivr');
     });
 
     it('maintains strict security directives in both environments', () => {
@@ -244,11 +238,7 @@ describe('CSP Utils', () => {
       const prodCSP = getCSP('production');
 
       // Critical external domains should be in both
-      const requiredDomains = [
-        'https://huggingface.co',
-        'https://*.hf.co',
-        'https://cdn.jsdelivr.net',
-      ];
+      const requiredDomains = ['https://huggingface.co', 'https://*.hf.co'];
 
       for (const domain of requiredDomains) {
         expect(devCSP).toContain(domain);

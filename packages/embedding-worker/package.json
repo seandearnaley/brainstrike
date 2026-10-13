@@ -10,6 +10,7 @@
     "workerpool": "catalog:"
   },
   "devDependencies": {
+    "@brainstrike/build-utils": "workspace:*",
     "@brainstrike/config": "workspace:*",
     "@brainstrike/test-utils": "workspace:*",
     "@types/node": "catalog:",

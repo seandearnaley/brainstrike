@@ -215,7 +215,7 @@ describe('LocalLlmBackend', () => {
   });
 
   it('rejects removed legacy local models', async () => {
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await expect(
       backend.initialize({
@@ -242,7 +242,7 @@ describe('LocalLlmBackend', () => {
 
   it('requires WebGPU for Gemma instead of silently falling back to wasm', async () => {
     installNavigatorWebGpu(false);
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await expect(
       backend.initialize({
@@ -252,7 +252,7 @@ describe('LocalLlmBackend', () => {
   });
 
   it('rejects explicit wasm requests instead of silently falling back', async () => {
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await expect(
       backend.initialize({
@@ -279,7 +279,7 @@ describe('LocalLlmBackend', () => {
       return callableProcessor;
     });
 
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -328,7 +328,7 @@ describe('LocalLlmBackend', () => {
       open: openCache,
     });
 
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -339,7 +339,7 @@ describe('LocalLlmBackend', () => {
   });
 
   it('tracks ready and uninitialized status across repeated initialize and dispose calls', async () => {
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     expect(backend.isReady()).toBe(false);
     expect(backend.getStatus()).toEqual({ state: 'uninitialized' });
@@ -368,7 +368,7 @@ describe('LocalLlmBackend', () => {
       dispose: disposeModel,
       generate: mockModelGenerate,
     });
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -404,7 +404,7 @@ describe('LocalLlmBackend', () => {
       });
       return callableProcessor;
     });
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -485,7 +485,7 @@ describe('LocalLlmBackend', () => {
     // the session (and interleave streamer state). The Mastra path can issue
     // chat + observational-memory generations close together, so the backend
     // must be the serialization chokepoint for every consumer.
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
     await backend.initialize({ modelId: GEMMA4_E2B_MODEL_ID });
 
     let active = 0;
@@ -525,7 +525,7 @@ describe('LocalLlmBackend', () => {
   });
 
   it('rejects a queued generation when its signal aborts while waiting for the slot', async () => {
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
     await backend.initialize({ modelId: GEMMA4_E2B_MODEL_ID });
 
     const releases: Array<() => void> = [];
@@ -574,7 +574,7 @@ describe('LocalLlmBackend', () => {
       dispose: disposeModel,
       generate: mockModelGenerate,
     });
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
     await backend.initialize({ modelId: GEMMA4_E2B_MODEL_ID });
 
     const releases: Array<() => void> = [];
@@ -611,7 +611,7 @@ describe('LocalLlmBackend', () => {
     // WebGPU faults are prompt-size dependent and the practical per-device
     // ceiling is unknown — the visible failure must carry the measurement so
     // the limit can be calibrated from the chat error itself.
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
     await backend.initialize({ modelId: GEMMA4_E2B_MODEL_ID });
 
     mockModelGenerate.mockRejectedValueOnce(
@@ -624,7 +624,7 @@ describe('LocalLlmBackend', () => {
   });
 
   it('does not decorate abort errors with prompt diagnostics', async () => {
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
     await backend.initialize({ modelId: GEMMA4_E2B_MODEL_ID });
 
     mockModelGenerate.mockRejectedValueOnce(
@@ -637,7 +637,7 @@ describe('LocalLlmBackend', () => {
   });
 
   it('strips Gemma thought traces from generated text', async () => {
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -672,7 +672,7 @@ describe('LocalLlmBackend', () => {
     mockBatchDecode.mockReturnValue([
       '<|channel|>thought\nI should use <|tool_call|>call:demo{x:1}<tool_call|> next.<channel|>Final answer',
     ]);
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -702,7 +702,7 @@ describe('LocalLlmBackend', () => {
   });
 
   it('streams official channel-delimited reasoning snapshots before the final answer', async () => {
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
     const reasoningSnapshots: string[] = [];
     const textSnapshots: string[] = [];
 
@@ -754,7 +754,7 @@ Because they make up everything!<turn|>`,
         slice: vi.fn().mockReturnValue('TOKENS'),
       };
     });
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -797,7 +797,7 @@ Because they make up everything!<turn|>`,
       };
     });
 
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
     });
@@ -834,7 +834,7 @@ Because they make up everything!<turn|>`,
       };
     });
 
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
     });
@@ -861,7 +861,7 @@ Because they make up everything!<turn|>`,
   });
 
   it('binds Transformers.js loaders and runtime methods to their owners', async () => {
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -922,7 +922,7 @@ Because they make up everything!<turn|>`,
   });
 
   it('supports callable processor instances without Function.bind', async () => {
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -941,7 +941,7 @@ Because they make up everything!<turn|>`,
   });
 
   it('uses the processor text-only call signature from the Gemma docs', async () => {
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -969,7 +969,7 @@ Because they make up everything!<turn|>`,
         dims: [1, 7],
       },
     });
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -997,7 +997,7 @@ Because they make up everything!<turn|>`,
         shape: [1, 4],
       },
     });
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -1009,7 +1009,7 @@ Because they make up everything!<turn|>`,
   });
 
   it('passes explicit generation options to Transformers with snake_case keys', async () => {
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -1036,7 +1036,7 @@ Because they make up everything!<turn|>`,
 
   it('aborts generation before running the processor when the signal is already aborted', async () => {
     const abortController = new AbortController();
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -1056,7 +1056,7 @@ Because they make up everything!<turn|>`,
       '<|tool_call|>call:tell_joke{topic: <|"|>penguins<|"|>}<tool_call|>',
     ]);
 
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -1095,7 +1095,7 @@ Because they make up everything!<turn|>`,
       '<|tool_call>call:brainstrike_executeCommand{"command":"printf "BST-708 manual approval preview\\n""}<tool_call|>',
     ]);
 
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -1142,7 +1142,7 @@ Because they make up everything!<turn|>`,
         slice: vi.fn().mockReturnValue('TOKENS'),
       };
     });
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
     const textSnapshots: string[] = [];
 
     await backend.initialize({
@@ -1203,7 +1203,7 @@ Because they make up everything!<turn|>`,
         slice: vi.fn().mockReturnValue('TOKENS'),
       };
     });
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
     const textSnapshots: string[] = [];
 
     await backend.initialize({
@@ -1254,7 +1254,7 @@ Because they make up everything!<turn|>`,
         slice: vi.fn().mockReturnValue('TOKENS'),
       };
     });
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -1281,7 +1281,7 @@ Because they make up everything!<turn|>`,
         slice: vi.fn().mockReturnValue('TOKENS'),
       };
     });
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -1325,7 +1325,7 @@ Because they make up everything!<turn|>`,
         slice: vi.fn().mockReturnValue('TOKENS'),
       };
     });
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
     const textSnapshots: string[] = [];
 
     await backend.initialize({
@@ -1350,7 +1350,7 @@ Because they make up everything!<turn|>`,
   it('rejects wrapped JSON tool calls with omitted arguments', async () => {
     mockBatchDecode.mockReturnValue(['<tool_call>{"name":"refresh_index"}</tool_call>']);
 
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -1380,7 +1380,7 @@ Because they make up everything!<turn|>`,
       '<tool_call>{"name":"refresh_index","arguments":{}}</tool_call>',
     ]);
 
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -1414,7 +1414,7 @@ Because they make up everything!<turn|>`,
       '<|tool_call|>call:   {topic: <|"|>penguins<|"|>}<tool_call|>',
     ]);
 
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -1449,7 +1449,7 @@ Because they make up everything!<turn|>`,
       '<|tool_call|>call:read_file{path: <|"|>/README.md<|"|>, options: {encoding: <|"|>utf8<|"|>}} trailing text<tool_call|>',
     ]);
 
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -1494,7 +1494,7 @@ Because they make up everything!<turn|>`,
   it('parses Gemma tool call arguments with single-character keys', async () => {
     mockBatchDecode.mockReturnValue(['<|tool_call|>call:demo{x:1,y:<|"|>two<|"|>}<tool_call|>']);
 
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -1534,7 +1534,7 @@ Because they make up everything!<turn|>`,
       '<|tool_call|>call:demo{message:<|"|>literal {x:1} value<|"|>}<tool_call|>',
     ]);
 
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,
@@ -1568,7 +1568,7 @@ Because they make up everything!<turn|>`,
   });
 
   it('formats assistant tool calls and tool responses using Gemma chat template fields', async () => {
-    const backend = new LocalLlmBackend();
+    const backend = new LocalLlmBackend({ onnxWasmPaths: null });
 
     await backend.initialize({
       modelId: GEMMA4_E2B_MODEL_ID,

@@ -1,4 +1,5 @@
 import { LocalLlmBackend, type LocalLlmGenerationResult } from '@brainstrike/agent/local-llm';
+import { resolveViteOnnxWasmPaths } from '@brainstrike/embedding-worker/vite';
 import { createLogger } from '@brainstrike/logging';
 import { useEffect, useRef } from 'react';
 import {
@@ -424,7 +425,8 @@ export function LlmHostRuntime(): null {
     logger.info('Llm host runtime booted', {
       runtimeId: runtimeIdRef.current,
     });
-    const backend = new LocalLlmBackend();
+    // ONNX Runtime's WASM is the app's own file, never a CDN's (BST-2003).
+    const backend = new LocalLlmBackend({ onnxWasmPaths: resolveViteOnnxWasmPaths() });
     reportStatus({
       ...createStoppedLlmHostStatus(runtimeIdRef.current),
       runtimeId: runtimeIdRef.current,

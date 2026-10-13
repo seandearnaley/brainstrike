@@ -23,6 +23,12 @@ test.each([false, true])(
     vi.spyOn(navigator, 'webdriver', 'get').mockReturnValue(webdriver);
     await expect(loadLocalLlmBackend()).resolves.toBeInstanceOf(NativeBackend);
     expect(NativeBackend).toHaveBeenCalledOnce();
+    // BST-2003: ONNX Runtime's WASM is served same-origin, never from a CDN.
+    const options: unknown = (NativeBackend.mock.calls[0] as readonly unknown[] | undefined)?.[0];
+    const paths = (options as { onnxWasmPaths?: { mjs: string; wasm: string } } | undefined)
+      ?.onnxWasmPaths;
+    expect(new URL(paths?.mjs ?? '').origin).toBe(window.location.origin);
+    expect(new URL(paths?.wasm ?? '').origin).toBe(window.location.origin);
   }
 );
 
