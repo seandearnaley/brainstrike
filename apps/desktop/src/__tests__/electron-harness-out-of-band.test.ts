@@ -36,7 +36,7 @@ const launched: { context: FakeContext; options: unknown; process: FakeElectronP
 vi.mock('../../e2e/utils/load-electron-helpers', () => ({
   loadElectronHelpers: async () => ({
     closeElectronApp: async (context: FakeContext) => {
-      context.app.process().exit(null, 'SIGKILL');
+      context.app.process().exit(0, null);
     },
     launchElectronApp: async (_port: unknown, _userDataDir: unknown, options: unknown) => {
       const electronProcess = new FakeElectronProcess();
@@ -85,7 +85,7 @@ describe('ElectronHarness.endOutOfBand', () => {
     await expect(harness.dispose()).resolves.toBeUndefined();
   });
 
-  it('SIGKILLs a process that is still alive when `end` rejects, then rethrows the failure', async () => {
+  it('SIGTERMs a process that is still alive when `end` rejects, then rethrows the failure', async () => {
     const harness = createHarness();
     const electronProcess = await launchedProcess(harness);
 
@@ -96,8 +96,8 @@ describe('ElectronHarness.endOutOfBand', () => {
       })
     ).rejects.toBe(failure);
 
-    expect(electronProcess.kill).toHaveBeenCalledExactlyOnceWith('SIGKILL');
-    expect(electronProcess.signalCode).toBe('SIGKILL');
+    expect(electronProcess.kill).toHaveBeenCalledExactlyOnceWith('SIGTERM');
+    expect(electronProcess.signalCode).toBe('SIGTERM');
   });
 
   it('keeps both errors when reaping the process fails too, so the original is never hidden', async () => {
@@ -127,7 +127,7 @@ describe('ElectronHarness.endOutOfBand', () => {
     expect(launched).toHaveLength(1);
   });
 
-  it('fails the reap at once when SIGKILL is refused through the error event, as Node reports EPERM', async () => {
+  it('fails the reap at once when SIGTERM is refused through the error event, as Node reports EPERM', async () => {
     const harness = createHarness();
     const electronProcess = await launchedProcess(harness);
     // Node's ChildProcess.kill throws only for EINVAL/ENOSYS; EPERM is emitted as 'error' and kill
@@ -185,7 +185,7 @@ describe('ElectronHarness.endOutOfBand', () => {
 
     await expect(harness.endOutOfBand(async () => undefined)).rejects.toThrow(/still running/);
 
-    expect(electronProcess.kill).toHaveBeenCalledExactlyOnceWith('SIGKILL');
+    expect(electronProcess.kill).toHaveBeenCalledExactlyOnceWith('SIGTERM');
   });
 
   it('keeps the app until the exit is confirmed, so nothing else launches or orphans it', async () => {

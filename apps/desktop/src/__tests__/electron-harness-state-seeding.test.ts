@@ -62,12 +62,9 @@ function createFakeContext(): FakeContext {
   return context;
 }
 
-/**
- * Playwright reaps the Electron child with SIGKILL after `app.close()`, so a
- * clean teardown still surfaces `code=null, signal=SIGKILL` to the guard.
- */
+/** Successful application-owned shutdown exits cleanly. */
 const closeElectronApp = vi.fn(async (context: FakeContext, options?: { dispose?: boolean }) => {
-  context.app.process().exit(null, 'SIGKILL');
+  context.app.process().exit(0, null);
   if (options?.dispose) {
     context.disposed = true;
   }
@@ -153,7 +150,7 @@ describe('ElectronHarness state seeding', () => {
       'Electron process health check and intentional close both failed'
     );
     expect((aggregate.errors[0] as Error).message).toMatch(
-      /Electron process exited unexpectedly before intentional close began \(code=null, signal=SIGKILL\)/
+      /Electron process exited unexpectedly before intentional close began \(code=0, signal=none\)/
     );
     expect((aggregate.errors[1] as Error).message).toMatch(/reading '_object'/);
   });
