@@ -1,6 +1,8 @@
 export interface ThreadCheckoutRoot {
   readonly displayName: string;
   readonly path?: string | undefined;
+  /** The workspace no longer serves this folder (BST-1990); a binding keeping it is refused. */
+  readonly removed?: true | undefined;
   readonly rootId: string;
 }
 

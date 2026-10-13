@@ -6,7 +6,10 @@ import { join } from 'node:path';
 import type { CanonicalWorkspaceLease } from '@brainstrike/canonical-ingestion';
 import { migrate, wasmLoader } from '@brainstrike/db';
 import { expect, test } from 'vitest';
-import { DesktopWorkspaceBindingAuthority } from '../agent-host-platform/desktop-workspace-binding';
+import {
+  DesktopWorkspaceBindingAuthority,
+  ThreadRootsRemovedError,
+} from '../agent-host-platform/desktop-workspace-binding';
 import { loadWorkspaceRootsFromDatabase } from '../assistant-server/workspace-roots';
 import { createWorktreeLedger } from '../assistant-server/worktree-ledger';
 import { WorkspaceRootRegistry } from '../ipc-domains/workspace-root-registry';
@@ -62,6 +65,13 @@ async function withWorkspace(
             throw new Error('Binding validation must not construct a watcher');
           })
         ),
+      readRootNames: async (ids) => {
+        const { rows } = await database.query<{ displayName: string; id: string }>(
+          'SELECT id, display_name AS "displayName" FROM roots WHERE id = ANY($1::text[])',
+          [[...ids]]
+        );
+        return new Map(rows.map((row) => [row.id, row.displayName]));
+      },
       readRoots: () => loadWorkspaceRootsFromDatabase(catalog),
       readWorktree: (id) => ledger.get(id),
     });
@@ -109,6 +119,44 @@ test('Main authority retains the existing pinned mount and fences actual catalog
     await expect(borrowed.revalidate(signal)).rejects.toThrow();
     await borrowed.close();
     await expect(authority.acquire(request)).rejects.toThrow();
+  });
+});
+
+test('a binding naming folders the workspace no longer serves is refused by their names (BST-1990)', async () => {
+  await withWorkspace(async ({ authority, database, mount }) => {
+    const alpha = await mount('alpha-root');
+    const bravo = await mount('bravo-root');
+    const charlie = await mount('charlie-root');
+    const binding = {
+      operatingRootDisplayName: 'bravo-root',
+      operatingRootId: bravo.rootId,
+      secondaryRootIds: [alpha.rootId],
+    };
+    const request = { binding, signal: new AbortController().signal, threadId: randomUUID() };
+    await database.query('UPDATE roots SET status=$1 WHERE id=$2', ['disconnected', bravo.rootId]);
+    await expect(authority.acquire(request)).rejects.toThrow(
+      new ThreadRootsRemovedError([{ displayName: 'bravo-root', rootId: bravo.rootId }])
+    );
+    await expect(authority.acquire(request)).rejects.toThrow(
+      `The folder "bravo-root" was removed from the workspace. Re-add it, or remove it from this thread in the composer's folder menu.`
+    );
+    // A folder deleted with its indexed data has no row left to name it.
+    await database.query('DELETE FROM roots WHERE id=$1', [charlie.rootId]);
+    await expect(
+      authority.acquire({
+        ...request,
+        binding: { ...binding, secondaryRootIds: [alpha.rootId, charlie.rootId] },
+      })
+    ).rejects.toThrow(
+      `The folders "bravo-root" and 1 other folder were removed from the workspace. Re-add them, or remove them from this thread in the composer's folder menu.`
+    );
+    // The repaired binding names only live folders and is accepted.
+    const repaired = await authority.acquire({
+      ...request,
+      binding: { operatingRootDisplayName: 'alpha-root', operatingRootId: alpha.rootId },
+    });
+    expect(repaired.roots).toEqual([alpha]);
+    await repaired.close();
   });
 });
 

@@ -14,10 +14,13 @@ const readSource = (relativePath: string): string =>
 const baseBarProps = {
   onAddFolder: vi.fn(),
   onMakePrimary: vi.fn(),
+  onRemovePrimary: vi.fn(),
   onRemoveSecondary: vi.fn(),
+  onUseFolder: vi.fn(),
   primaryRoot: { displayName: 'app', path: '/work/app', rootId: 'r-1' },
   recentRoots: [],
   secondaryRoots: [],
+  workspaceFolders: [],
 };
 
 describe('WorkspaceBar architecture', () => {

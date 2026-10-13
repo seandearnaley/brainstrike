@@ -30,6 +30,7 @@ import { useThreadCheckout } from './use-thread-checkout';
 import { useThreadCheckoutStatus } from './use-thread-checkout-status';
 import { useThreadFolderScope } from './use-thread-folder-scope';
 import type { ThreadCheckoutFolders, ThreadCheckoutWrite } from './use-thread-folders-write';
+import { useThreadRoots } from './use-thread-roots';
 import {
   useDuplicatePathNotice,
   type WorkspaceBarRootDescriptor,
@@ -40,12 +41,13 @@ import { resolveRootIdAfterReconciliation } from './use-workspace-bar-root-row-l
 import { useWorkspaceBarTerminal } from './use-workspace-bar-terminal';
 import {
   deriveMakePrimary,
+  deriveRemoveFromThread,
+  deriveUseFolder,
   folderWriteIdentityOf,
+  HAND_OFF_RETURN_ROOT_REMOVE_REASON,
   MakePrimaryDerivationError,
   persistedCheckoutMode,
-  type ResolvedSecondaryRoots,
   refuseWriteBeforeThreadMetadata,
-  secondaryRootsStatus,
   type ThreadFoldersWriteTail,
   touchedFolderWriteFields,
   writeStartingPoint,
@@ -70,23 +72,15 @@ export interface UseWorkspaceBarArgs {
   readonly selectedMemoryThreadId: string | undefined;
 }
 
-interface RootRow {
-  readonly displayName: string;
-  readonly id: string;
-  readonly path: string | null;
-}
-
 const EMPTY_SECONDARY_ROOT_IDS: readonly string[] = [];
 // Shared empty results: `setState` with a fresh `[]` would defeat React's
 // Object.is bail-out and re-render on every settle.
-const NO_ROOTS: readonly WorkspaceBarRoot[] = [];
 const NO_RECENT_ENTRIES: readonly RecentRootEntry[] = [];
 // Root ids are uuidv7, so a space can never occur inside one — the joined key
 // is a faithful VALUE identity for the id list. (If ids ever gain a format that
 // can contain a space, this key stops distinguishing `['a b']` from `['a','b']`
 // and must change with it.)
 const SECONDARY_ID_SEPARATOR = ' ';
-const HAND_OFF_RETURN_ROOT_REMOVE_REASON = 'This folder is where Hand off returns to.';
 
 // Merge note (BST-1400 × BST-1393 #2686): BOTH sides of this region moved
 // out of this file — the root-row lookup into
@@ -246,8 +240,9 @@ function decorateHandOffReturnRoot(
   if (!(checkoutMode === 'worktree' && checkoutLocalRootId)) {
     return loadedSecondaryRoots;
   }
+  // A removed return folder can go: the host refuses the binding while it stays.
   return loadedSecondaryRoots.map((root) =>
-    root.rootId === checkoutLocalRootId
+    root.rootId === checkoutLocalRootId && !root.removed
       ? { ...root, removeDisabledReason: HAND_OFF_RETURN_ROOT_REMOVE_REASON }
       : root
   );
@@ -469,25 +464,30 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     mainRootRow,
     metadataPending: selectedThreadMetadataPending,
   });
+  // BST-1990: one read of the thread's folders' rows. A folder whose row is
+  // gone or no longer live is marked `removed`; the host refuses a run while the
+  // binding names one, so the bar shows it and offers the repair.
+  const mountedPaths = useMemo(
+    () => new Set(Object.values(rootDescriptors ?? {}).map((descriptor) => descriptor.path)),
+    [rootDescriptors]
+  );
+  const threadRoots = useThreadRoots({
+    database,
+    mountedKey: [...mountedPaths].sort().join('\n'),
+    primaryRootId,
+    secondaryRootIds,
+    secondaryRootIdsKey,
+  });
+  const loadedSecondaryRoots = threadRoots.loadedSecondaryRoots;
   const primaryRoot: WorkspaceBarRoot | undefined =
     operatingRoot && primaryRootId
       ? {
           displayName: operatingRoot.displayName,
           ...(operatingRoot.path ? { path: operatingRoot.path } : {}),
+          ...(threadRoots.primaryRemoved ? { removed: true } : {}),
           rootId: primaryRootId,
         }
       : undefined;
-
-  // Id-list-tagged, for the same reason `mainRootRow` is path-tagged: a
-  // resolution for one id list is never rendered under another, and a bail-out
-  // needs no clearing setState (react-hooks/set-state-in-effect).
-  const [resolvedSecondaries, setResolvedSecondaries] = useState<ResolvedSecondaryRoots | null>(
-    null
-  );
-  const loadedSecondaryRoots =
-    database && resolvedSecondaries?.key === secondaryRootIdsKey
-      ? resolvedSecondaries.roots
-      : NO_ROOTS;
   // Display-only decoration (BST-1456): the hand-off return folder's Remove
   // action must be disabled with a visible reason while it is what a later
   // hand-off would return TO — the write-queue's own view of the secondary
@@ -497,59 +497,8 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     () => decorateHandOffReturnRoot(loadedSecondaryRoots, checkoutMode, checkoutLocalRootId),
     [checkoutLocalRootId, checkoutMode, loadedSecondaryRoots]
   );
-  const resolvedSecondaryRootsStatus = secondaryRootsStatus(
-    secondaryRootIds,
-    secondaryRootIdsKey,
-    resolvedSecondaries
-  );
-  const secondaryRootsError = resolvedSecondaryRootsStatus === 'error';
-  const secondaryRootsPending = resolvedSecondaryRootsStatus === 'pending';
-  useEffect(() => {
-    if (!(database && secondaryRootIds.length > 0)) {
-      return;
-    }
-    let cancelled = false;
-    database
-      .query<RootRow>(
-        'SELECT id, display_name AS "displayName", path FROM roots WHERE id = ANY($1::text[])',
-        [secondaryRootIds]
-      )
-      .then((result) => {
-        if (cancelled) {
-          return;
-        }
-        const byId = new Map(result.rows.map((row) => [row.id, row]));
-        setResolvedSecondaries({
-          error: false,
-          key: secondaryRootIdsKey,
-          roots: secondaryRootIds.flatMap((id) => {
-            const row = byId.get(id);
-            if (!row) {
-              logger.warn('secondary root id has no roots row', { id });
-              return [];
-            }
-            return [
-              {
-                displayName: row.displayName,
-                ...(row.path ? { path: row.path } : {}),
-                rootId: row.id,
-              },
-            ];
-          }),
-        });
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          logger.error('failed to load the thread secondary roots', { error });
-          // Tagged with the key it failed for, so the failure is not retried on
-          // every render and no other id list inherits an empty result.
-          setResolvedSecondaries({ error: true, key: secondaryRootIdsKey, roots: NO_ROOTS });
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [database, secondaryRootIds, secondaryRootIdsKey]);
+  const secondaryRootsError = threadRoots.secondaryRootsStatus === 'error';
+  const secondaryRootsPending = threadRoots.secondaryRootsStatus === 'pending';
 
   // The ledger is read once per capability identity, and re-read after the
   // shared file-system source reports a flow that may have mutated Recents; which
@@ -594,10 +543,6 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
       recentRequestGenerationRef.current += 1;
     };
   }, [listRecentRoots, recentRootsRevision]);
-  const mountedPaths = useMemo(
-    () => new Set(Object.values(rootDescriptors ?? {}).map((descriptor) => descriptor.path)),
-    [rootDescriptors]
-  );
   const recentRoots = useMemo<readonly WorkspaceBarRecentRoot[]>(
     () =>
       // Exact-string, unlike main's platform-aware `pathsEqual` (case-folds on
@@ -985,25 +930,15 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     [enqueueThreadFoldersWrite, selectedMemoryThreadId]
   );
 
-  const onRemoveSecondary = useCallback(
+  // "Remove from this thread" for a secondary, or for a primary the workspace
+  // no longer serves (BST-1990). The derive drops every removed folder in the
+  // same write and keeps the hand-off return folder while it is live (BST-1456).
+  const onRemoveFromThread = useCallback(
     (rootId: string) => {
-      // BST-1456: the UI disables this row (with a visible reason) while it is
-      // the hand-off return folder — this is the backstop for a call that
-      // bypasses that disable, so removal never silently strands a "return to"
-      // that no longer exists.
-      void enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) => {
-        if (current.checkoutMode === 'worktree' && current.checkoutLocalRootId === rootId) {
-          throw new Error(HAND_OFF_RETURN_ROOT_REMOVE_REASON);
-        }
-        return {
-          checkoutLocalRootId: current.checkoutLocalRootId,
-          ids: current.secondaryRootIds.filter((id) => id !== rootId),
-          primaryRoot: current.primaryRoot,
-          primaryRootId: current.primaryRootId,
-          secondaryRoots: current.secondaryRoots.filter((root) => root.rootId !== rootId),
-        };
-      }).catch((error: unknown) => {
-        logger.error('Remove secondary failed', { error, rootId });
+      void enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) =>
+        deriveRemoveFromThread(current, rootId)
+      ).catch((error: unknown) => {
+        logger.error('Remove from thread failed', { error, rootId });
         toast({
           description: describeFailure(error),
           title: 'Remove folder failed',
@@ -1013,6 +948,38 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     },
     [enqueueThreadFoldersWrite, selectedMemoryThreadId]
   );
+
+  // "Use another folder…" (BST-1990): a mounted workspace folder becomes the
+  // primary of a thread none of whose folders the workspace still serves.
+  const onUseFolder = useCallback(
+    (folder: { readonly displayName: string; readonly path: string }) => {
+      resolveRootIdForPath(folder.path, folder.displayName)
+        .then((rootId) =>
+          enqueueThreadFoldersWrite(selectedMemoryThreadId, (current) =>
+            deriveUseFolder(current, { ...folder, rootId })
+          )
+        )
+        .catch((error: unknown) => {
+          logger.error('Use another folder failed', { error, path: folder.path });
+          toast({
+            description: describeFailure(error),
+            title: "Couldn't use that folder",
+            variant: 'destructive',
+          });
+        });
+    },
+    [enqueueThreadFoldersWrite, resolveRootIdForPath, selectedMemoryThreadId]
+  );
+  // The workspace's mounted folders that are not this thread's.
+  const primaryRootPathForFolders = primaryRoot?.path;
+  const workspaceFolders = useMemo<readonly WorkspaceBarRecentRoot[]>(() => {
+    const threadPaths = new Set([primaryRootPathForFolders, ...secondaryRoots.map((r) => r.path)]);
+    return Object.values(rootDescriptors ?? {}).flatMap((descriptor) =>
+      threadPaths.has(descriptor.path)
+        ? []
+        : [{ displayName: descriptor.displayName, path: descriptor.path }]
+    );
+  }, [primaryRootPathForFolders, rootDescriptors, secondaryRoots]);
 
   // Resolved ONCE per hook instance, not per render — the capability check IS
   // the platform gate; web omits the affordance rather than stubbing it.
@@ -1097,10 +1064,13 @@ export function useWorkspaceBar(args: UseWorkspaceBarArgs): WorkspaceBarProps {
     onCopyPath,
     ...folderDropEntry,
     onMakePrimary,
-    onRemoveSecondary,
+    onRemovePrimary: onRemoveFromThread,
+    onRemoveSecondary: onRemoveFromThread,
+    onUseFolder,
     ...(primaryRoot ? { primaryRoot } : {}),
     recentRoots,
     ...(reveal ? { reveal } : {}),
     secondaryRoots,
+    workspaceFolders,
   };
 }
