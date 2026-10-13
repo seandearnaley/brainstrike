@@ -326,9 +326,15 @@ export const useModelRegistryStore = create<ModelRegistryState>()(
       ...initialState,
 
       ensureRegistry: (db: IDatabase) => {
-        const { hasLoaded, isLoading } = get();
+        const { error, hasLoaded, isLoading } = get();
         if (hasLoaded || isLoading) {
           return registryLoadPromise ?? Promise.resolve();
+        }
+        // After a failed fetch only an explicit Retry or Refresh (fetchRegistry) tries again.
+        // A consumer that mounts later must not refetch: each attempt clears the error and
+        // remounts the error view, which can swallow the user's click on Retry.
+        if (error !== null) {
+          return Promise.resolve();
         }
 
         if (registryLoadPromise) {

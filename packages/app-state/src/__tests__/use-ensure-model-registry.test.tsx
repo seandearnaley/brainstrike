@@ -1,0 +1,55 @@
+import type { IDatabase } from '@brainstrike/db';
+import { act, renderHook, waitFor } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useEnsureModelRegistry } from '../hooks/use-model-registry';
+import {
+  __resetModelRegistryStoreForTests,
+  useModelRegistryStore,
+} from '../stores/model-registry-store';
+
+vi.mock('@brainstrike/db/react', () => ({ usePGliteDatabase: vi.fn(() => null) }));
+
+vi.mock('@brainstrike/logging', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@brainstrike/logging')>()),
+  createLogger: () => ({ debug: vi.fn(), error: vi.fn(), info: vi.fn(), warn: vi.fn() }),
+}));
+
+/** One registry fetch reads providers first; count those reads. */
+function registryFetches(query: ReturnType<typeof vi.fn>): number {
+  return query.mock.calls.filter(([sql]) => String(sql).includes('FROM providers')).length;
+}
+
+describe('useEnsureModelRegistry after a failed registry fetch', () => {
+  beforeEach(() => {
+    __resetModelRegistryStoreForTests();
+  });
+
+  it('a consumer that mounts later neither refetches nor clears the error; Retry fetches once', async () => {
+    const query = vi.fn().mockRejectedValue(new Error('registry unavailable'));
+    const db = { query } as unknown as IDatabase;
+    renderHook(() => useEnsureModelRegistry({ db }));
+    await waitFor(() => {
+      expect(useModelRegistryStore.getState().error).toBe('registry unavailable');
+    });
+    expect(registryFetches(query)).toBe(1);
+
+    const errors: (string | null)[] = [];
+    const unsubscribe = useModelRegistryStore.subscribe((state) => errors.push(state.error));
+    const later = renderHook(() => useEnsureModelRegistry({ db }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    unsubscribe();
+    expect(registryFetches(query)).toBe(1);
+    expect(errors).not.toContain(null);
+    expect(later.result.current).toBe('registry unavailable');
+
+    // Retry and the header Refresh call fetchRegistry directly.
+    query.mockResolvedValue({ rows: [] });
+    await act(async () => {
+      await useModelRegistryStore.getState().fetchRegistry(db);
+    });
+    expect(registryFetches(query)).toBe(2);
+    expect(useModelRegistryStore.getState()).toMatchObject({ error: null, hasLoaded: true });
+  });
+});
