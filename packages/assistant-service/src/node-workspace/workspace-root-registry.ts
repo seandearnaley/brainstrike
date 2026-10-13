@@ -59,6 +59,7 @@ import type {
   WorkspaceRootStorage,
 } from './workspace-root-types.js';
 import {
+  findRecordedWorkspaceRoot,
   markRootsDisconnectedExcept,
   recordRestoredWorkspaceRoots,
   recordWorkspaceRoot,
@@ -153,15 +154,8 @@ export class WorkspaceRootRegistry {
       // read itself IS conditional on this flag — only its POSITION, above
       // the mutation, is unconditional).
       //
-      // The invariant throw below (`recentRootEntries === null`) sits AFTER
-      // reconcileAddMount/persistAddedRoot, so tripping it would reintroduce
-      // exactly the mount-succeeded-but-addRoot-rejected divergence this
-      // hoist exists to remove. Acceptable for a genuinely unreachable
-      // invariant (see that throw's own comment) — reading unconditionally
-      // instead (dropping this ternary and the `null` case entirely) would
-      // make the correlation a type-level fact rather than a runtime
-      // assertion, at the cost of one extra storage read on the
-      // managed-worktree path.
+      // The invariant throw after mounting is unreachable: this read and that
+      // check use the same recordInRecentRoots flag.
       const recentRootEntries = recordInRecentRoots
         ? await readRecentRootsOrQuarantine(this.storage)
         : null;
@@ -177,15 +171,20 @@ export class WorkspaceRootRegistry {
         const mountedMatch = this.mounts.findByCanonicalPath(canonicalPath);
         const existing = await this.findExistingStoredRoot(entries, mountedMatch, canonicalPath);
 
-        // The folder's one id is its `roots` record's, written before any window
-        // sees the mount, so a re-added path keeps its id (BST-1990).
-        const rootId = await recordWorkspaceRoot(await this.getRootsDatabase(), {
-          path: existing?.path ?? presentationPath,
-          preferredId: existing?.rootId ?? mountedMatch?.rootId ?? crypto.randomUUID(),
+        const db = await this.getRootsDatabase();
+        // Disconnect removes the grant, not the folder record. Match that record
+        // through the same canonical resolver as persisted grants: a different
+        // spelling of the same folder must not mint a second id (BST-1990).
+        const recorded = await findRecordedWorkspaceRoot(db, existing, (records) =>
+          this.findExistingStoredRoot(records, undefined, canonicalPath)
+        );
+        const rootId = await recordWorkspaceRoot(db, {
+          path: recorded?.path ?? presentationPath,
+          preferredId: recorded?.rootId ?? mountedMatch?.rootId ?? crypto.randomUUID(),
         });
         const entry: StoredWorkspaceRoot = {
           addedAt: Date.now(),
-          path: existing?.path ?? presentationPath,
+          path: recorded?.path ?? presentationPath,
           rootId,
         };
 

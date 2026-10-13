@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { migrate, wasmLoader } from '@brainstrike/db';
@@ -132,4 +132,45 @@ it('records a mounted managed worktree with the worktree kind', async () => {
     { id: added.rootId, kind: 'worktree', path: folder, status: 'live' },
   ]);
   await registry.dispose();
+});
+
+it('keeps the same folder id when disconnected and re-added through another path spelling', async () => {
+  const folder = await workspaceFolder('canonical-workspace');
+  const alias = path.join(path.dirname(folder), 'workspace-alias');
+  await symlink(folder, alias, 'dir');
+  const db = await openRootsDatabase('root-identity-path-spelling');
+  const storage = createStorage();
+  const registry = createRegistry(storage, db);
+  try {
+    const added = await registry.addRoot({
+      kind: 'directory',
+      name: 'workspace-alias',
+      path: alias,
+      platform: 'electron',
+    });
+    await registry.removeRoot(added.rootId);
+    const readded = await registry.addRoot({
+      kind: 'directory',
+      name: 'canonical-workspace',
+      path: folder,
+      platform: 'electron',
+    });
+    expect(readded.rootId).toBe(added.rootId);
+    expect(await rootRows(db)).toEqual([
+      { id: added.rootId, kind: 'path', path: alias, status: 'live' },
+    ]);
+    await registry.dispose();
+    const restarted = createRegistry(storage, db);
+    try {
+      const restored = await restarted.restoreRoots();
+      expect(restored.map((root) => root.rootId)).toEqual([added.rootId]);
+      expect(await rootRows(db)).toEqual([
+        { id: added.rootId, kind: 'path', path: alias, status: 'live' },
+      ]);
+    } finally {
+      await restarted.dispose();
+    }
+  } finally {
+    await registry.dispose();
+  }
 });

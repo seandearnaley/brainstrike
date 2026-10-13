@@ -2,6 +2,7 @@ import path from 'node:path';
 import type { RuntimeData, RuntimeWorkspaceRoot } from '@brainstrike/agent';
 import { ToolInputError } from '@brainstrike/assistant-contract';
 import { createLogger } from '@brainstrike/logging';
+import type { StoredWorkspaceRoot } from './workspace-root-types.js';
 
 const logger = createLogger('AssistantWorkspaceRoots');
 // Process-lifetime revocation tombstones protect in-flight runtime snapshots.
@@ -441,6 +442,21 @@ export async function markRootDisconnectedByPath(
     disconnectedRootIds.add(rootId);
   }
   return rootIds;
+}
+
+/** Resolve an unmounted folder's retained record with the registry's canonical matcher. */
+export async function findRecordedWorkspaceRoot(
+  db: WorkspaceRootsQueryable,
+  existing: StoredWorkspaceRoot | undefined,
+  match: (records: readonly StoredWorkspaceRoot[]) => Promise<StoredWorkspaceRoot | undefined>
+): Promise<StoredWorkspaceRoot | undefined> {
+  if (existing) {
+    return existing;
+  }
+  const { rows } = await db.query<{ id: string; path: string }>(
+    'SELECT id, path FROM roots WHERE path IS NOT NULL'
+  );
+  return await match(rows.map((row) => ({ addedAt: 0, path: row.path, rootId: row.id })));
 }
 
 /**
