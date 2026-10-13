@@ -13,6 +13,8 @@ import {
   type DesktopPlatformCapabilities,
   serveDesktopPlatform,
 } from '../agent-host-platform/main-platform';
+import { canonicalError, canonicalFault } from '../canonical-utility-protocol';
+import { HostedEmbeddingError } from '../hosted-embedding-error';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
 import { mainReads } from './fixtures/desktop-admission-reads';
@@ -473,6 +475,48 @@ it('serves the diagnostics store to the host', async () => {
       })
     ).resolves.toEqual([]);
     expect(diagnostics.events).toHaveBeenCalledWith({ limit: 5 });
+  } finally {
+    h.destroy();
+  }
+});
+
+it('returns a typed missing-key refusal from the real Main index status handler', async () => {
+  const original = new HostedEmbeddingError(
+    'missing-key',
+    'No API key configured for the embedding provider.',
+    { cause: new Error('private missing-key fixture') }
+  );
+  const aggregate = canonicalError(
+    canonicalFault(
+      new AggregateError([original, original], 'Canonical inference and retirement failed.')
+    )
+  );
+  const indexSearch = {
+    coverage: vi.fn(),
+    coverageBatch: vi.fn(),
+    grep: vi.fn(),
+    rebuild: vi.fn(),
+    search: vi.fn(),
+    status: vi.fn(async () => {
+      throw aggregate;
+    }),
+  };
+  const h = harness(mainReads(), undefined, { indexSearch });
+  try {
+    const received: unknown = await h.client
+      .sendRequest('desktop-read/index/status', { request: {}, threadId: 'thread' })
+      .catch((error: unknown) => error);
+    expect(received).toMatchObject({
+      code: -32_001,
+      data: {
+        category: 'configuration',
+        code: 'embedding.missing-key',
+        correlationId: expect.any(String),
+        kind: 'refusal',
+        remedy: expect.any(String),
+      },
+    });
+    expect(JSON.stringify(received)).not.toContain('private missing-key fixture');
   } finally {
     h.destroy();
   }

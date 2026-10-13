@@ -7,6 +7,10 @@ import {
   useWorkspaceCollectionSyncStatusStore,
   type WorkspaceCollectionSyncStatusPatch,
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import {
+  BoundaryFailureError,
+  describeBoundaryFailure,
+} from '@brainstrike/assistant-contract/boundary-failure';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { useAdapters } from '@brainstrike/file-explorer-hooks';
 import { useFileSystem } from '@brainstrike/file-explorer-ui/shell';
@@ -225,6 +229,9 @@ function publishNativeProgress(
 }
 
 function nativeProgressError(error: unknown): string {
+  if (error instanceof BoundaryFailureError) {
+    return describeBoundaryFailure(error.failure);
+  }
   return error instanceof Error ? error.message : String(error);
 }
 

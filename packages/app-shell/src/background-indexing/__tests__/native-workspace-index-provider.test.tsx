@@ -10,6 +10,11 @@ import {
   __resetWorkspaceCollectionSyncStatusStoreForTests,
   useWorkspaceCollectionSyncStatusStore,
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import {
+  BoundaryFailureError,
+  describeBoundaryFailure,
+  refusal,
+} from '@brainstrike/assistant-contract/boundary-failure';
 import type {
   IndexerCoverageBatch,
   IndexerCoverageRequest,
@@ -375,3 +380,40 @@ it.each([
     mounted.unmount();
   }
 );
+
+it('keeps the native missing-key remedy visible without its private cause', async () => {
+  useBackgroundIndexingPreferencesStore.setState({
+    managedCollectionId: 'selected',
+    nativeIndexMode: 'VECTOR',
+  });
+  const failure = refusal({
+    category: 'configuration',
+    code: 'embedding.missing-key',
+    message: 'No API key configured for the embedding provider.',
+    remedy: 'Configure the embedding provider API key in Settings, then retry indexing.',
+  });
+  const capability = {
+    coverage: vi.fn(),
+    coverageBatch: vi.fn(),
+    grep: vi.fn(),
+    rebuild: vi.fn(),
+    search: vi.fn(),
+    status: vi.fn(async () => {
+      throw new BoundaryFailureError(failure, { cause: new Error('private fixture diagnostic') });
+    }),
+  };
+  const mounted = render(
+    <NativeWorkspaceIndexProvider capability={capability}>
+      <span>Workspace</span>
+    </NativeWorkspaceIndexProvider>
+  );
+  await waitFor(() =>
+    expect(useWorkspaceCollectionSyncStatusStore.getState().lastError).toBe(
+      describeBoundaryFailure(failure)
+    )
+  );
+  expect(useWorkspaceCollectionSyncStatusStore.getState().lastError).not.toContain(
+    'private fixture diagnostic'
+  );
+  mounted.unmount();
+});

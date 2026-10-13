@@ -1,5 +1,6 @@
 import {
   BoundaryFailureError,
+  describeBoundaryFailure,
   type GuardedToolError,
   ToolInputError,
 } from '@brainstrike/assistant-contract';
@@ -197,7 +198,7 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
         return {
           error: {
             code: 'tool_input_invalid',
-            message: boundToolInputErrorMessage(error.failure.message),
+            message: boundToolInputErrorMessage(describeBoundaryFailure(error.failure)),
             toolName,
           },
           ok: false,
