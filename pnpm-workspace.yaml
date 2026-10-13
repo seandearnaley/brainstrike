@@ -400,6 +400,7 @@ minimumReleaseAgeExclude: []
 patchedDependencies:
   '@assistant-ui/core@0.3.17': patches/@assistant-ui__core@0.3.17.patch
   '@electric-sql/pglite@0.5.8': patches/@electric-sql__pglite@0.5.8.patch
+  '@huggingface/transformers@4.3.0': patches/@huggingface__transformers@4.3.0.patch
   '@mastra/core@1.71.0': patches/@mastra__core@1.71.0.patch
   '@mastra/memory@1.32.1': patches/@mastra__memory@1.32.1.patch
   '@stryker-mutator/vitest-runner@10.0.0': patches/@stryker-mutator__vitest-runner@10.0.0.patch

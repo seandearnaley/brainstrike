@@ -17,6 +17,7 @@ export * from './file-explorer-strings.js';
 export * from './file-system.js'; // Added export for file system types
 export * from './forge.js';
 export * from './git.js';
+export type * from './onnx-wasm-paths.js';
 export * from './tapestry-colors.js';
 export * from './view-filter-preset-types.js';
 export * from './workspace-path-utils.js';

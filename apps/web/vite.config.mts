@@ -56,6 +56,7 @@ const {
   isSanitizedPersistMergeModule,
   isZustandModule,
   preserveWorkerEntryPlugin,
+  transformersOnnxRuntimeWasmUrlsPlugin,
 } = await import('@brainstrike/build-utils');
 const wasmPath = findPGliteWasm(__dirname);
 const workerpoolBrowserStubAliases = getWorkerpoolBrowserStubAliases(__dirname);
@@ -189,6 +190,12 @@ export default defineConfig({
     },
   },
   plugins: [
+    // ONNX Runtime's WASM, emitted same-origin from the onnxruntime-web Transformers.js
+    // itself depends on (BST-2003).
+    transformersOnnxRuntimeWasmUrlsPlugin([
+      path.resolve(__dirname, '../../packages/embedding-worker'),
+      path.resolve(__dirname, '../../packages/agent'),
+    ]),
     // __BRAINSTRIKE_BUILD_ID__: a redeploy must yield a new id, so the deployment id
     // leads; a plain `vite build` falls back to the commit it was built from.
     buildIdPlugin([

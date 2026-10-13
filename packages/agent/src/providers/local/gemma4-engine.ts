@@ -1,4 +1,5 @@
 import { createLogger } from '@brainstrike/logging';
+import type { OnnxWasmPaths } from '@brainstrike/types';
 import {
   resolveLocalArtifactRemoteHost,
   resolveLocalArtifactRemotePathTemplate,
@@ -92,14 +93,38 @@ interface TransformersModule {
 
 interface TransformersEnvironmentLike {
   allowRemoteModels?: boolean;
+  backends?: {
+    onnx?: { versions?: { web?: string }; wasm?: { wasmPaths?: unknown } };
+  };
   remoteHost?: string;
   remotePathTemplate?: string;
 }
 
-export function configureTransformersEnvironment(environment: TransformersEnvironmentLike): void {
+/**
+ * Model artifacts come from the artifact host; browser ONNX Runtime's WASM comes only
+ * from the app-served files (BST-2003), which Transformers.js would otherwise point at
+ * jsDelivr. Node ONNX Runtime (no `versions.web`) loads no WASM and takes null.
+ */
+export function configureTransformersEnvironment(
+  environment: TransformersEnvironmentLike,
+  onnxWasmPaths: OnnxWasmPaths | null
+): void {
   environment.allowRemoteModels = true;
   environment.remoteHost = resolveLocalArtifactRemoteHost();
   environment.remotePathTemplate = resolveLocalArtifactRemotePathTemplate();
+  const onnx = environment.backends?.onnx;
+  if (!onnx?.versions?.web) {
+    return;
+  }
+  if (!onnxWasmPaths) {
+    throw new Error(
+      'The local model has no app-served ONNX Runtime WASM URLs; it never loads ONNX Runtime from a CDN.'
+    );
+  }
+  if (!onnx.wasm) {
+    throw new Error('Browser ONNX Runtime exposes no wasm settings for its WASM paths.');
+  }
+  onnx.wasm.wasmPaths = { mjs: onnxWasmPaths.mjs, wasm: onnxWasmPaths.wasm };
 }
 
 let cachePurged = false;
@@ -399,13 +424,15 @@ function normalizeGemmaModel(value: unknown): GemmaModel {
   return normalizedModel;
 }
 
-async function getTransformersModule(): Promise<TransformersModule> {
+async function getTransformersModule(
+  onnxWasmPaths: OnnxWasmPaths | null
+): Promise<TransformersModule> {
   await purgeStaleTransformersCache();
   const mod: unknown = await import(/* @vite-ignore */ '@huggingface/transformers');
   const candidate = getRecord(mod, 'Transformers.js module');
   const envCandidate = getOptionalProperty(candidate, 'env');
   if (envCandidate) {
-    configureTransformersEnvironment(envCandidate as TransformersEnvironmentLike);
+    configureTransformersEnvironment(envCandidate as TransformersEnvironmentLike, onnxWasmPaths);
   }
   const autoProcessor = getRecord(candidate['AutoProcessor'], 'Transformers.js AutoProcessor');
   const textStreamer = candidate['TextStreamer'];
@@ -1174,7 +1201,10 @@ export class Gemma4Engine {
   private processor: LoadedGemmaProcessor | null = null;
   private transformers: TransformersModule | null = null;
 
-  constructor(private readonly spec: LocalLlmModelSpec) {}
+  constructor(
+    private readonly spec: LocalLlmModelSpec,
+    private readonly onnxWasmPaths: OnnxWasmPaths | null
+  ) {}
 
   async initialize(device: 'webgpu', onProgress?: (progress: ProgressInfo) => void): Promise<void> {
     if (this.model && this.processor) {
@@ -1189,7 +1219,7 @@ export class Gemma4Engine {
         quantization: this.spec.quantization,
         revision: this.spec.remoteRevision,
       });
-      const transformers = await getTransformersModule();
+      const transformers = await getTransformersModule(this.onnxWasmPaths);
       this.transformers = transformers;
       stage = 'load-processor';
       const processorOptions: LoaderOptions = {
