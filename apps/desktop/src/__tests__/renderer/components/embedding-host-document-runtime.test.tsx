@@ -40,6 +40,7 @@ function results(): EmbeddingResult[] {
       device: plan.device,
       dtype: plan.dtype,
       fallbackApplied: false,
+      pooling: 'mean' as const,
       revision: plan.revision,
     },
   }));
@@ -50,6 +51,38 @@ function request() {
     inferencePlan: plan,
     modelId: plan.modelId,
     modelKey: 'native:documents',
+    texts: ['  document one\n', 'document two'],
+  });
+}
+// BST-1993: the granite catalog plan Main resolves, CLS pooling included.
+const granitePlan = {
+  device: 'webgpu' as const,
+  dimensions: 384 as const,
+  dtype: 'fp16' as const,
+  modelId: 'onnx-community/granite-embedding-small-english-r2-ONNX',
+  pooling: 'cls' as const,
+  revision: '1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8',
+};
+function graniteResults(pooling: 'mean' | 'cls'): EmbeddingResult[] {
+  return [0.1, 0.2].map((value) => ({
+    dimensions: 384,
+    embedding: Array.from({ length: 384 }, () => value),
+    model: granitePlan.modelId,
+    runtime: {
+      device: granitePlan.device,
+      dtype: granitePlan.dtype,
+      fallbackApplied: false,
+      pooling,
+      revision: granitePlan.revision,
+    },
+  }));
+}
+function graniteRequest() {
+  return createEmbeddingHostDocumentEmbeddingsRequest('test-runtime', {
+    dimensions: 384,
+    inferencePlan: granitePlan,
+    modelId: granitePlan.modelId,
+    modelKey: 'local::onnx-community/granite-embedding-small-english-r2-ONNX',
     texts: ['  document one\n', 'document two'],
   });
 }
@@ -81,6 +114,57 @@ describe('hidden pinned document batch', () => {
     expect(dbHandle.query).not.toHaveBeenCalled();
     expect(initializeWithModelMock).not.toHaveBeenCalled();
     expect(initializeMock).toHaveBeenCalledWith(expect.objectContaining(plan));
+  });
+  it('requests CLS pooling for the granite profile and keeps mean the default elsewhere (BST-1993)', async () => {
+    generateDocumentEmbeddingsMock
+      .mockResolvedValueOnce(results())
+      .mockResolvedValueOnce(graniteResults('cls'));
+    await mount();
+    await act(async () => documentEmbeddingsListenerRef.current?.(request()));
+    await waitFor(() => expect(reportDocumentEmbeddingsResponseMock).toHaveBeenCalledOnce());
+    expect(initializeMock).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ pooling: 'cls' })
+    );
+    await act(async () => documentEmbeddingsListenerRef.current?.(graniteRequest()));
+    await waitFor(() => expect(reportDocumentEmbeddingsResponseMock).toHaveBeenCalledTimes(2));
+    expect(initializeMock).toHaveBeenLastCalledWith(expect.objectContaining(granitePlan));
+    expect(reportDocumentEmbeddingsResponseMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ type: 'result' })
+    );
+  });
+  it("hands a plan's catalog prompts to the embedding service (BST-1993)", async () => {
+    const prompts = {
+      document: '',
+      query: 'Represent this sentence for searching relevant passages: ',
+    };
+    generateDocumentEmbeddingsMock.mockResolvedValue(results());
+    await mount();
+    await act(async () =>
+      documentEmbeddingsListenerRef.current?.(
+        createEmbeddingHostDocumentEmbeddingsRequest('test-runtime', {
+          dimensions: 384,
+          inferencePlan: { ...plan, prompts },
+          modelId: plan.modelId,
+          modelKey: 'native:documents',
+          texts: ['document'],
+        })
+      )
+    );
+    await waitFor(() => expect(initializeMock).toHaveBeenCalled());
+    expect(initializeMock).toHaveBeenLastCalledWith(expect.objectContaining({ prompts }));
+  });
+  it('refuses a granite batch whose worker did not apply CLS pooling (BST-1993)', async () => {
+    generateDocumentEmbeddingsMock.mockResolvedValue(graniteResults('mean'));
+    await mount();
+    await act(async () => documentEmbeddingsListenerRef.current?.(graniteRequest()));
+    await waitFor(() =>
+      expect(reportDocumentEmbeddingsResponseMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'error' })
+      )
+    );
+    expect(reportDocumentEmbeddingsResponseMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'result' })
+    );
   });
   it('retains the document response until physical pool retirement after execution rejects', async () => {
     const execution = Promise.withResolvers<EmbeddingResult[]>();

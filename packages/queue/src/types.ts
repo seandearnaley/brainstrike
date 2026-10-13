@@ -2,6 +2,7 @@ import type {
   EmbeddingDeviceHint,
   EmbeddingDimensionParameter,
   EmbeddingDType,
+  EmbeddingPooling,
   EmbedWorkerError,
   EmbedWorkerProgress,
   EmbedWorkerRequest,
@@ -21,6 +22,8 @@ export interface EmbedTaskPayload {
   readonly kind: 'embed';
   readonly maxBatchSize?: number;
   readonly model: string;
+  /** The model's pooling from its catalog row; absent asks the worker for 'mean'. */
+  readonly pooling?: EmbeddingPooling;
   readonly provider?: string;
   readonly revision?: string;
   readonly targetDimension?: number;
@@ -311,6 +314,7 @@ export function toWorkerRequest(payload: TaskPayload): EmbedWorkerRequest {
     ...(payload.truncateDim === undefined ? {} : { truncateDim: payload.truncateDim }),
     ...(payload.dtype === undefined ? {} : { dtype: payload.dtype }),
     ...(payload.revision === undefined ? {} : { revision: payload.revision }),
+    ...(payload.pooling === undefined ? {} : { pooling: payload.pooling }),
     deviceHint: payload.deviceHint,
     ...(payload.estimatedModelBytes === undefined
       ? {}

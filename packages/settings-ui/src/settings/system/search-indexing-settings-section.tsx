@@ -5,15 +5,28 @@ import {
 import { useLocalRuntimeEmbeddingModelCatalog } from '@brainstrike/app-state/hooks/use-local-runtime-embedding-model-catalog';
 import { useEnsureModelRegistry } from '@brainstrike/app-state/hooks/use-model-registry';
 import { useBackgroundIndexingPreferencesStore } from '@brainstrike/app-state/stores/background-indexing-preferences-store';
-import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
+import {
+  type DbModel,
+  useModelRegistryStore,
+} from '@brainstrike/app-state/stores/model-registry-store';
 import {
   getWorkspaceCollectionSyncCurrentActivity,
   getWorkspaceCollectionSyncMetricRows,
   shouldShowWorkspaceCollectionSyncPauseControl,
 } from '@brainstrike/app-state/stores/workspace-collection-sync-status-helpers';
 import { useWorkspaceCollectionSyncStatusStore } from '@brainstrike/app-state/stores/workspace-collection-sync-status-store';
+import {
+  type EmbeddingModelDefinition,
+  findProviderDefinition,
+} from '@brainstrike/assistant-contract/provider-registry';
 import { useEmbeddingSetsRepository } from '@brainstrike/db/react';
-import { parseEmbeddingProviderModelKey } from '@brainstrike/indexing-contract';
+import {
+  type CatalogEmbeddingModel,
+  decodeCatalogEmbeddingModel,
+  type LocalExecutionCapability,
+  parseEmbeddingProviderModelKey,
+  type WebGpuAdapterAvailability,
+} from '@brainstrike/indexing-contract';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import type { NativeLocalSelection } from '@brainstrike/indexing-contract/indexer-producer';
 import {
@@ -222,8 +235,13 @@ function NativeIndexControls({
   const setNativeLocalSelection = useBackgroundIndexingPreferencesStore(
     (state) => state.setNativeLocalSelection
   );
+  const models = useModelRegistryStore((state) => state.models);
+  const catalog = useMemo(
+    () => readLocalCatalogModel(models, selectedCollection),
+    [models, selectedCollection]
+  );
   const localPlans = selectedCollection
-    ? getNativeLocalPlans(selectedCollection, nativeLocalSelection)
+    ? getNativeLocalPlans(selectedCollection, nativeLocalSelection, catalog.model)
     : [];
   const selectedPlan = localPlans.find(
     ({ selection }) =>
@@ -284,11 +302,20 @@ function NativeIndexControls({
           </Select>
           {localPlans.length > 0 ? (
             <p className="text-muted-foreground text-sm" role="status">
-              Choose the execution format provided by your model. Unavailable formats report an
-              error; indexing never substitutes another model or execution device.
+              {catalog.model?.execution
+                ? [
+                    'Choose WebGPU on devices that have it; WASM runs this model without WebGPU. Each choice keeps its own vectors.',
+                    ...executionNotes(selectedCollection, localPlans),
+                  ].join(' ')
+                : 'Choose the execution format provided by your model. Unavailable formats report an error; indexing never substitutes another model or execution device.'}
             </p>
           ) : null}
         </div>
+      ) : null}
+      {catalog.error ? (
+        <p className="text-destructive text-sm" role="alert">
+          {catalog.error}
+        </p>
       ) : null}
       <div className="space-y-2">
         <Button
@@ -345,9 +372,11 @@ async function findOrCreateNativeCollection(
 }
 
 function NativeCollectionSetup({
+  localExecution,
   repository,
   onCreated,
 }: {
+  readonly localExecution: LocalExecutionCapability | undefined;
   readonly repository: ReturnType<typeof useEmbeddingSetsRepository>;
   readonly onCreated: (collection: CollectionOption) => void;
 }) {
@@ -361,6 +390,9 @@ function NativeCollectionSetup({
   });
   const availableModels = useAvailableModels(models, runtime.catalog);
   const availableProviders = useAvailableProviders(providers, runtime.catalog);
+  const webgpu = useWebGpuAvailability(localExecution);
+  const recommended =
+    webgpu.kind === 'known' ? recommendLocalModel(availableModels, webgpu.availability) : null;
   const selectedModel = availableModels.find((model) => model.id === setupModelKey);
   const dimensions = selectedModel?.capabilities.defaultDimension;
   const setupModel: CollectionModel | null =
@@ -427,6 +459,19 @@ function NativeCollectionSetup({
         Choose an embedding model from your existing collection providers. Selecting a different
         model creates or selects its own collection and preserves your existing collection.
       </p>
+      {recommended ? (
+        <p className="text-muted-foreground text-sm" role="note">
+          <span className="font-medium text-foreground">
+            Recommended: {recommended.name} ({executionLabel(recommended.execution)}).
+          </span>{' '}
+          {recommended.execution.reason}
+        </p>
+      ) : null}
+      {webgpu.kind === 'failed' ? (
+        <p className="text-destructive text-sm" role="alert">
+          {webgpu.reason}
+        </p>
+      ) : null}
       <Label htmlFor="workspace-index-model">Embedding model</Label>
       <ModelPicker
         disabled={creatingCollection}
@@ -477,8 +522,10 @@ function NativeCollectionSetup({
 }
 
 export function SearchIndexingSettingsSection({
+  localExecution,
   nativeIndex,
 }: {
+  readonly localExecution?: LocalExecutionCapability;
   readonly nativeIndex?: Pick<IndexSearchCapability, 'rebuild'>;
 } = {}) {
   const repository = useEmbeddingSetsRepository();
@@ -653,6 +700,7 @@ export function SearchIndexingSettingsSection({
       <CardContent className="space-y-5">
         {nativeIndex ? (
           <NativeCollectionSetup
+            localExecution={localExecution}
             onCreated={(collection) => {
               setCollections((current) => [
                 collection,
@@ -803,9 +851,128 @@ export function SearchIndexingSettingsSection({
   );
 }
 
+type WebGpuState =
+  | { readonly kind: 'unknown' }
+  | { readonly kind: 'known'; readonly availability: WebGpuAdapterAvailability }
+  | { readonly kind: 'failed'; readonly reason: string };
+
+/** The embedding host's WebGPU detection; unknown until it answers, never guessed (BST-1993). */
+function useWebGpuAvailability(localExecution: LocalExecutionCapability | undefined): WebGpuState {
+  const [state, setDetection] = useState<WebGpuState>({ kind: 'unknown' });
+  useEffect(() => {
+    if (!localExecution) {
+      return;
+    }
+    let current = true;
+    const detect = async (): Promise<void> => {
+      try {
+        const availability = await localExecution.webgpuAdapter();
+        if (current) {
+          setDetection({ availability, kind: 'known' });
+        }
+      } catch (error) {
+        if (current) {
+          setDetection({
+            kind: 'failed',
+            reason: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+    };
+    void detect();
+    return () => {
+      current = false;
+    };
+  }, [localExecution]);
+  return state;
+}
+
+type RecommendedExecution = NonNullable<EmbeddingModelDefinition['recommendedExecution']>;
+
+/** The static catalog definition of an embedding model, if the catalog lists it. */
+function findEmbeddingDefinition(
+  providerId: string,
+  modelId: string
+): EmbeddingModelDefinition | undefined {
+  const definition = findProviderDefinition(providerId)?.models.find(
+    (model) => model.id === modelId
+  );
+  return definition?.type === 'embedding' ? definition : undefined;
+}
+
+/** The enabled model the static catalog recommends for this host's execution device. */
+function recommendLocalModel<T extends { readonly modelId: string; readonly providerId: string }>(
+  models: readonly T[],
+  webgpu: WebGpuAdapterAvailability
+): (T & { readonly execution: RecommendedExecution }) | null {
+  const device = webgpu.available ? 'webgpu' : 'wasm';
+  for (const model of models) {
+    const execution = findEmbeddingDefinition(
+      model.providerId,
+      model.modelId
+    )?.recommendedExecution;
+    if (execution?.device === device) {
+      return { ...model, execution };
+    }
+  }
+  return null;
+}
+
+function executionLabel(execution: {
+  readonly device: 'webgpu' | 'wasm';
+  readonly dtype: string;
+}): string {
+  return `${EXECUTION_LABELS[execution.device]} · ${execution.dtype.toUpperCase()}`;
+}
+
+/** The selected local collection's catalog row; a malformed row is reported, never guessed. */
+function readLocalCatalogModel(
+  models: readonly DbModel[],
+  collection: CollectionOption | null
+): { readonly error: string | null; readonly model: CatalogEmbeddingModel | null } {
+  const provider = collection
+    ? parseEmbeddingProviderModelKey(collection.modelKey)?.provider
+    : undefined;
+  const row =
+    collection && (provider === 'local' || provider === 'transformers')
+      ? models.find(
+          (model) => model.id === collection.modelId && model.capabilities.type === 'embedding'
+        )
+      : undefined;
+  if (!row) {
+    return { error: null, model: null };
+  }
+  try {
+    return { error: null, model: decodeCatalogEmbeddingModel(row) };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error), model: null };
+  }
+}
+
+const EXECUTION_LABELS: Record<'webgpu' | 'wasm', string> = { wasm: 'WASM', webgpu: 'WebGPU' };
+
+/** Each offered plan's measured cost, as the static catalog states it (BST-1993). */
+function executionNotes(
+  collection: CollectionOption | null,
+  plans: readonly { readonly label: string; readonly selection: NativeLocalSelection }[]
+): readonly string[] {
+  const provider = collection
+    ? parseEmbeddingProviderModelKey(collection.modelKey)?.provider
+    : undefined;
+  const notes =
+    collection && provider
+      ? findEmbeddingDefinition(provider, collection.modelId)?.executionNotes
+      : undefined;
+  return plans.flatMap(({ label, selection }) => {
+    const note = notes?.[selection.device];
+    return note ? [`${label}: ${note}`] : [];
+  });
+}
+
 function getNativeLocalPlans(
   collection: CollectionOption,
-  current: NativeLocalSelection | null
+  current: NativeLocalSelection | null,
+  catalog: CatalogEmbeddingModel | null
 ): readonly {
   readonly label: string;
   readonly selection: NativeLocalSelection;
@@ -813,6 +980,26 @@ function getNativeLocalPlans(
   const provider = parseEmbeddingProviderModelKey(collection.modelKey)?.provider;
   if (provider !== 'local' && provider !== 'transformers') {
     return [];
+  }
+  // BST-1993: a catalog row that states its execution offers exactly those plans, at its pin.
+  if (catalog?.execution) {
+    return (['webgpu', 'wasm'] as const).flatMap((device) => {
+      const dtype = catalog.execution?.[device];
+      return dtype
+        ? [
+            {
+              label: `${EXECUTION_LABELS[device]} · ${dtype.toUpperCase()}`,
+              selection: {
+                device,
+                dimensions: collection.dimensions,
+                dtype,
+                modelId: collection.modelId,
+                ...(catalog.revision === undefined ? {} : { revision: catalog.revision }),
+              },
+            },
+          ]
+        : [];
+    });
   }
   const choices: readonly {
     device: 'webgpu' | 'wasm';

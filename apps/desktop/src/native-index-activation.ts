@@ -35,6 +35,7 @@ import {
 } from './native-canonical-profile';
 import { createNativeCanonicalPublication } from './native-canonical-publication';
 import { isolateNativeCoverage } from './native-coverage-reader';
+import { nativeFileIdentity } from './native-index-attach';
 import { retainedNativeIndexFailure } from './native-index-blocked';
 import {
   catalogFingerprint,
@@ -116,37 +117,8 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
     requestId: randomUUID(),
     signal: current.controller.signal,
   });
-  const identity = (current: Graph, record: NativeCanonicalCatalogRecord) => {
-    if (record.rootId === null) {
-      return {
-        embeddingSetId: record.embeddingSetId,
-        fileId: record.fileId,
-        fileName: record.fileName,
-        relativePath: null,
-        rootId: null,
-        sourcePath: record.path,
-      };
-    }
-    const lease = current.leases.get(record.rootId);
-    if (
-      !lease ||
-      record.path === null ||
-      path.posix.isAbsolute(record.path) ||
-      record.path.includes('\\') ||
-      record.path.split('/').some((part) => !part || part === '.' || part === '..')
-    ) {
-      throw new Error('Canonical catalog file has no current mounted relative-path authority.');
-    }
-    lease.signal.throwIfAborted();
-    return {
-      embeddingSetId: record.embeddingSetId,
-      fileId: record.fileId,
-      fileName: record.fileName,
-      relativePath: record.path,
-      rootId: record.rootId,
-      sourcePath: path.join(lease.canonicalPath, ...record.path.split('/')),
-    };
-  };
+  const identity = (current: Graph, record: NativeCanonicalCatalogRecord) =>
+    nativeFileIdentity(current.leases, record);
   const loadRecords = async (current: Graph): Promise<readonly NativeCanonicalCatalogRecord[]> => {
     assertCurrent(current);
     const database = await getDatabase();
@@ -988,6 +960,9 @@ export function createNativeIndexActivation(dependencies: Dependencies) {
       };
     },
     close,
+    // Closes the native index owner and keeps the profile, whose attachment is the
+    // agent host: deleting one folder's data must not replace the host (BST-2001).
+    closeNativeOwner: closeRootCapabilities,
     closeRootCapabilities: profileAdmission.releaseRootForHost,
     destroyAndRetireProfile,
     fenceTerminal,

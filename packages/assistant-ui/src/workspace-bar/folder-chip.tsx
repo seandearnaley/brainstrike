@@ -13,16 +13,19 @@ import {
   ChevronDown,
   ClipboardCopy,
   Folder,
+  FolderInput,
   FolderOpen,
   FolderPlus,
+  FolderX,
   History,
   type LucideIcon,
+  RotateCcw,
   Star,
   TerminalSquare,
   X,
 } from 'lucide-react';
 import { type ReactElement, useId } from 'react';
-import type { WorkspaceBarProps, WorkspaceBarRoot } from './workspace-bar';
+import type { WorkspaceBarProps, WorkspaceBarRecentRoot, WorkspaceBarRoot } from './workspace-bar';
 
 type FolderChipProps = Omit<WorkspaceBarProps, 'checkout'>;
 
@@ -34,6 +37,75 @@ interface RootAction {
   readonly testId: string;
 }
 
+type RootHandlers = Pick<
+  FolderChipProps,
+  | 'onAddRecent'
+  | 'onCopyPath'
+  | 'onMakePrimary'
+  | 'onOpenTerminal'
+  | 'onRemovePrimary'
+  | 'onRemoveSecondary'
+  | 'reveal'
+>;
+
+/** Shown on a removed folder, and why a removed primary's Remove action waits. */
+const REMOVED_FOLDER_LABEL = 'Removed from the workspace';
+const REMOVED_PRIMARY_NEEDS_ANOTHER_FOLDER = 'Choose another folder for this thread first.';
+
+/**
+ * A folder the workspace no longer serves (BST-1990): the host refuses the
+ * thread's runs until it is re-added or leaves the thread. A removed primary
+ * can leave only while another thread folder is live, which takes its place.
+ */
+function removedRootActions(
+  root: WorkspaceBarRoot,
+  isPrimary: boolean,
+  hasOtherLiveFolder: boolean,
+  handlers: RootHandlers
+): readonly RootAction[] {
+  const { path } = root;
+  const { onAddRecent, onCopyPath } = handlers;
+  return [
+    ...(path && onAddRecent
+      ? [
+          {
+            disabledReason: null,
+            icon: RotateCcw,
+            label: 'Re-add folder',
+            onSelect: () => onAddRecent(path),
+            testId: `workspace-bar-readd-${root.rootId}`,
+          },
+        ]
+      : []),
+    isPrimary
+      ? {
+          disabledReason: hasOtherLiveFolder ? null : REMOVED_PRIMARY_NEEDS_ANOTHER_FOLDER,
+          icon: X,
+          label: 'Remove from this thread',
+          onSelect: () => handlers.onRemovePrimary(root.rootId),
+          testId: `workspace-bar-remove-primary-${root.rootId}`,
+        }
+      : {
+          disabledReason: null,
+          icon: X,
+          label: 'Remove from this thread',
+          onSelect: () => handlers.onRemoveSecondary(root.rootId),
+          testId: `workspace-bar-remove-secondary-${root.rootId}`,
+        },
+    ...(path && onCopyPath
+      ? [
+          {
+            disabledReason: null,
+            icon: ClipboardCopy,
+            label: 'Copy path',
+            onSelect: () => onCopyPath(path),
+            testId: `workspace-bar-copy-path-${root.rootId}`,
+          },
+        ]
+      : []),
+  ];
+}
+
 /**
  * The actions a root row offers, in menu order. A root with none (the primary
  * root on a platform with no reveal/copy bridge) renders as an informational
@@ -42,11 +114,12 @@ interface RootAction {
 function rootActions(
   root: WorkspaceBarRoot,
   isPrimary: boolean,
-  handlers: Pick<
-    FolderChipProps,
-    'onCopyPath' | 'onMakePrimary' | 'onOpenTerminal' | 'onRemoveSecondary' | 'reveal'
-  >
+  hasOtherLiveFolder: boolean,
+  handlers: RootHandlers
 ): readonly RootAction[] {
+  if (root.removed) {
+    return removedRootActions(root, isPrimary, hasOtherLiveFolder, handlers);
+  }
   const actions: RootAction[] = [];
   if (!isPrimary) {
     actions.push({
@@ -101,6 +174,23 @@ function rootActions(
   return actions;
 }
 
+function RootRowIcon({
+  isPrimary,
+  root,
+}: {
+  readonly isPrimary: boolean;
+  readonly root: WorkspaceBarRoot;
+}): ReactElement {
+  if (root.removed) {
+    return <FolderX aria-hidden="true" className="size-3.5 shrink-0 text-destructive" />;
+  }
+  return isPrimary ? (
+    <Star aria-hidden="true" className="size-3.5 shrink-0 fill-current text-foreground" />
+  ) : (
+    <Folder aria-hidden="true" className="size-3.5 shrink-0" />
+  );
+}
+
 const RootRowContent = ({
   isPrimary,
   root,
@@ -109,14 +199,15 @@ const RootRowContent = ({
   readonly root: WorkspaceBarRoot;
 }): ReactElement => (
   <>
-    {isPrimary ? (
-      <Star aria-hidden="true" className="size-3.5 shrink-0 fill-current text-foreground" />
-    ) : (
-      <Folder aria-hidden="true" className="size-3.5 shrink-0" />
-    )}
+    <RootRowIcon isPrimary={isPrimary} root={root} />
     {/* flex-1 (not ml-auto) claims the free space: a sub-trigger adds its own
         ml-auto chevron, and two ml-auto siblings split the gap unevenly. */}
-    <span className="flex-1 truncate">{root.displayName}</span>
+    <span className="flex min-w-0 flex-1 flex-col">
+      <span className="truncate">{root.displayName}</span>
+      {root.removed ? (
+        <span className="text-destructive text-xs">{REMOVED_FOLDER_LABEL}</span>
+      ) : null}
+    </span>
     {isPrimary ? (
       <span className="shrink-0 text-[10px] text-muted-foreground uppercase tracking-wide">
         Primary
@@ -185,17 +276,16 @@ const DisableableMenuItem = ({
 };
 
 const RootRow = ({
+  hasOtherLiveFolder,
   isPrimary,
   root,
   ...handlers
 }: {
+  readonly hasOtherLiveFolder: boolean;
   readonly isPrimary: boolean;
   readonly root: WorkspaceBarRoot;
-} & Pick<
-  FolderChipProps,
-  'onCopyPath' | 'onMakePrimary' | 'onOpenTerminal' | 'onRemoveSecondary' | 'reveal'
->): ReactElement => {
-  const actions = rootActions(root, isPrimary, handlers);
+} & RootHandlers): ReactElement => {
+  const actions = rootActions(root, isPrimary, hasOtherLiveFolder, handlers);
   const testId = `workspace-bar-root-${root.rootId}`;
   const titleProps = root.path ? { title: root.path } : {};
 
@@ -233,9 +323,52 @@ const RootRow = ({
 };
 
 /**
+ * "Use another folder…" (BST-1990): offered when none of the thread's folders
+ * is live, listing the workspace's other mounted folders.
+ */
+const UseAnotherFolder = ({
+  folders,
+  onUseFolder,
+}: {
+  readonly folders: readonly WorkspaceBarRecentRoot[];
+  readonly onUseFolder: (folder: WorkspaceBarRecentRoot) => void;
+}): ReactElement => (
+  <DropdownMenuSub>
+    <DropdownMenuSubTrigger data-testid="workspace-bar-use-another-folder">
+      <FolderInput aria-hidden="true" className="size-3.5" />
+      <span className="flex-1 truncate">Use another folder…</span>
+    </DropdownMenuSubTrigger>
+    <DropdownMenuSubContent>
+      {folders.map((folder) => (
+        <DropdownMenuItem
+          data-testid={`workspace-bar-use-folder-${folder.path}`}
+          key={folder.path}
+          onSelect={() => onUseFolder(folder)}
+          title={folder.path}
+        >
+          <Folder aria-hidden="true" className="size-3.5" />
+          <span className="truncate">{folder.displayName}</span>
+        </DropdownMenuItem>
+      ))}
+    </DropdownMenuSubContent>
+  </DropdownMenuSub>
+);
+
+/** The chip's accessible name: the primary, whether it is removed, and how many more. */
+function folderChipName(primaryRoot: WorkspaceBarRoot | undefined, secondaryCount: number): string {
+  if (!primaryRoot) {
+    return 'Choose a folder';
+  }
+  const removed = primaryRoot.removed ? ` (${REMOVED_FOLDER_LABEL.toLowerCase()})` : '';
+  const more = secondaryCount > 0 ? `, ${secondaryCount} more` : '';
+  return `Folder: ${primaryRoot.displayName}${removed}${more}`;
+}
+
+/**
  * The workspace bar's folder control: this thread's primary root (★) and its
  * secondaries, recent folders the platform can re-mount, and "Add folder…".
- * With no root connected the chip IS the call to action.
+ * With no root connected the chip IS the call to action. A folder the
+ * workspace no longer serves is marked, with its repairs (BST-1990).
  */
 export const FolderChip = ({
   addFolderDisabledReason,
@@ -244,17 +377,18 @@ export const FolderChip = ({
   onCopyPath,
   onMakePrimary,
   onOpenTerminal,
+  onRemovePrimary,
   onRemoveSecondary,
+  onUseFolder,
   primaryRoot,
   recentRoots,
   reveal,
   secondaryRoots,
+  workspaceFolders,
 }: FolderChipProps): ReactElement => {
   const secondaryCount = primaryRoot ? secondaryRoots.length : 0;
   const label = primaryRoot ? primaryRoot.displayName : 'Choose a folder';
-  const accessibleName = primaryRoot
-    ? `Folder: ${primaryRoot.displayName}${secondaryCount > 0 ? `, ${secondaryCount} more` : ''}`
-    : 'Choose a folder';
+  const accessibleName = folderChipName(primaryRoot, secondaryCount);
   // Recents are an "add another" list: anything already mounted in this thread
   // would be a no-op row.
   const mountedPaths = new Set(
@@ -263,7 +397,17 @@ export const FolderChip = ({
       .filter((path): path is string => Boolean(path))
   );
   const visibleRecents = recentRoots.filter((recent) => !mountedPaths.has(recent.path));
-  const rootHandlers = { onCopyPath, onMakePrimary, onOpenTerminal, onRemoveSecondary, reveal };
+  const rootHandlers = {
+    onAddRecent,
+    onCopyPath,
+    onMakePrimary,
+    onOpenTerminal,
+    onRemovePrimary,
+    onRemoveSecondary,
+    reveal,
+  };
+  const liveSecondary = secondaryRoots.some((root) => !root.removed);
+  const noLiveFolder = Boolean(primaryRoot?.removed) && !liveSecondary;
 
   return (
     <DropdownMenu>
@@ -273,7 +417,11 @@ export const FolderChip = ({
         data-testid="workspace-bar-folder-chip"
         {...(primaryRoot?.path ? { title: primaryRoot.path } : {})}
       >
-        <Folder aria-hidden="true" className="size-3 shrink-0" />
+        {primaryRoot?.removed ? (
+          <FolderX aria-hidden="true" className="size-3 shrink-0 text-destructive" />
+        ) : (
+          <Folder aria-hidden="true" className="size-3 shrink-0" />
+        )}
         <span className="truncate">{label}</span>
         {secondaryCount > 0 ? (
           <span className="shrink-0 tabular-nums opacity-80">{`+${secondaryCount}`}</span>
@@ -286,10 +434,26 @@ export const FolderChip = ({
             <DropdownMenuLabel className="text-[10px] text-muted-foreground uppercase tracking-wide">
               This thread
             </DropdownMenuLabel>
-            {primaryRoot ? <RootRow isPrimary root={primaryRoot} {...rootHandlers} /> : null}
+            {primaryRoot ? (
+              <RootRow
+                hasOtherLiveFolder={liveSecondary}
+                isPrimary
+                root={primaryRoot}
+                {...rootHandlers}
+              />
+            ) : null}
             {secondaryRoots.map((root) => (
-              <RootRow isPrimary={false} key={root.rootId} root={root} {...rootHandlers} />
+              <RootRow
+                hasOtherLiveFolder={liveSecondary}
+                isPrimary={false}
+                key={root.rootId}
+                root={root}
+                {...rootHandlers}
+              />
             ))}
+            {noLiveFolder && workspaceFolders.length > 0 ? (
+              <UseAnotherFolder folders={workspaceFolders} onUseFolder={onUseFolder} />
+            ) : null}
             <DropdownMenuSeparator />
           </>
         ) : null}

@@ -163,7 +163,7 @@ const query = vi.fn(async (sql: string, params?: unknown[]) => {
     return {
       rows: ids.flatMap((id) => {
         const row = ROOT_ROW_BY_ID[id];
-        return row ? [{ displayName: row.displayName, id, path: row.path }] : [];
+        return row ? [{ displayName: row.displayName, id, path: row.path, status: 'live' }] : [];
       }),
     };
   }
@@ -713,11 +713,14 @@ describe('useWorkspaceBar', () => {
     );
   });
 
-  it('drops a secondary id with no roots row instead of rendering a placeholder', async () => {
+  // BST-1990: the binding still names it and the host refuses runs until it
+  // leaves the thread, so it is shown as removed rather than hidden.
+  it('shows a secondary id with no roots row as a removed folder', async () => {
     const { result } = await setup({ secondaryRootIds: ['r-docs', 'r-ghost'] });
     await waitFor(() =>
       expect(result.current.secondaryRoots).toEqual([
         { displayName: 'docs', path: '/ws/docs', rootId: 'r-docs' },
+        { displayName: 'Unknown folder', removed: true, rootId: 'r-ghost' },
       ])
     );
     expect(loggerMock.warn).toHaveBeenCalledWith('secondary root id has no roots row', {

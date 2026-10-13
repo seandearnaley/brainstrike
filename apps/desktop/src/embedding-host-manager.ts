@@ -3,6 +3,7 @@ import {
   type EmbeddingTelemetrySnapshot,
 } from '@brainstrike/embedding-worker';
 import { isHostedProvider, parseProviderModelKey } from '@brainstrike/embeddings/provider-core';
+import type { WebGpuAdapterAvailability } from '@brainstrike/indexing-contract';
 import { createLogger } from '@brainstrike/logging';
 import { createRuntimeId } from '@brainstrike/worker-runtime';
 import { type BrowserWindow, powerSaveBlocker } from 'electron';
@@ -13,6 +14,7 @@ import {
   joinQueryEmbeddingInterruption,
   queryResponseFailure,
 } from './embedding-host-inference-settlement';
+import { stopEmbeddingHostPowerSaveBlocker } from './embedding-host-power-save-blocker';
 import {
   createEmbeddingHostCommand,
   createEmbeddingHostDocumentEmbeddingsCancel,
@@ -28,6 +30,7 @@ import {
   EMBEDDING_HOST_STATUS_ADAPTER,
   EMBEDDING_HOST_STATUS_EVENT,
   EMBEDDING_HOST_STOPPED_RUNTIME_ID,
+  EMBEDDING_HOST_WEBGPU_ADAPTER_REQUEST_EVENT,
   type EmbeddingHostDocumentEmbeddingsPayload,
   type EmbeddingHostDocumentEmbeddingsRequest,
   type EmbeddingHostDocumentEmbeddingsResponseReport,
@@ -36,8 +39,15 @@ import {
   type EmbeddingHostQueryEmbeddingResponseReport,
   type EmbeddingHostStatus,
   type EmbeddingHostStatusReport,
+  reportedHostFields,
 } from './embedding-host-shared';
 import { waitForHostStartup } from './embedding-host-startup';
+import {
+  createEmbeddingHostWebGpuAdapterRequest,
+  createWebGpuAdapterRequestChannel,
+  type EmbeddingHostWebGpuAdapterResponseReport,
+  readWebGpuAdapterResponse,
+} from './embedding-host-webgpu-adapter';
 import { HostedEmbeddingRequests } from './hosted-embedding-requests';
 import { createHostRequestChannel, type HostRequestChannel } from './platform/host-request-channel';
 import {
@@ -69,6 +79,9 @@ export interface EmbeddingHostManagerOptions {
 export class EmbeddingHostManager {
   private readonly hostedRequests: HostedEmbeddingRequests;
   private readonly startup = new EmbeddingHostStartup();
+  private readonly webgpuAdapterRequests = createWebGpuAdapterRequestChannel((request) => {
+    this.requireHostWindow().webContents.send(EMBEDDING_HOST_WEBGPU_ADAPTER_REQUEST_EVENT, request);
+  }, QUERY_EMBEDDING_TIMEOUT_MS);
   private disposed = false;
   private disposing = false;
   private reportedRuntimeId: string | null = null;
@@ -293,6 +306,27 @@ export class EmbeddingHostManager {
 
   async ensureStarted(options?: { waitForRunning?: boolean }): Promise<EmbeddingHostStatus> {
     return this.ensureHostStarted(options, true);
+  }
+
+  /** Settings' WebGPU detection: an on-demand start, like a native request, loads no model. */
+  async webgpuAdapter(): Promise<WebGpuAdapterAvailability> {
+    const status = await this.ensureHostStarted({ waitForRunning: true }, false);
+    if (status.state !== 'running') {
+      throw new Error(status.lastError ?? 'The embedding host is not running.');
+    }
+    const request = createEmbeddingHostWebGpuAdapterRequest(status.runtimeId);
+    return readWebGpuAdapterResponse(await this.webgpuAdapterRequests.request(request));
+  }
+
+  acceptWebGpuAdapterResponseReport(
+    senderId: number,
+    report: EmbeddingHostWebGpuAdapterResponseReport
+  ): void {
+    const window = this.lifecycle.getHostWindow();
+    if (!window || window.isDestroyed() || window.webContents.id !== senderId) {
+      return;
+    }
+    this.webgpuAdapterRequests.accept(report);
   }
 
   private async ensureHostStarted(
@@ -782,11 +816,7 @@ export class EmbeddingHostManager {
       runtimeId: report.runtimeId,
       state: report.state,
     });
-    const nextStatus: EmbeddingHostStatus = {
-      ...baseStatus,
-      ...(report.commandId ? { commandId: report.commandId } : {}),
-      ...(report.embeddingRuntime ? { embeddingRuntime: report.embeddingRuntime } : {}),
-    };
+    const nextStatus: EmbeddingHostStatus = { ...baseStatus, ...reportedHostFields(report) };
     // Keep this exact identity test aligned with reset()'s old-runtime waiter clause.
     const isPendingResetFailure =
       nextStatus.state === 'error' &&
@@ -927,46 +957,11 @@ export class EmbeddingHostManager {
 
   private stopPowerSaveBlocker(): void {
     this.clearPendingIdleStop();
-    const blockerId = this.powerSaveBlockerId;
-    if (blockerId === null) {
-      return;
-    }
-    try {
-      if (powerSaveBlocker.isStarted(blockerId)) {
-        powerSaveBlocker.stop(blockerId);
-        logger.info('powerSaveBlocker stopped for idle embedding host', {
-          id: blockerId,
-          runtimeId: this.getStatus().runtimeId,
-        });
-      }
-      this.powerSaveBlockerId = null;
-    } catch (stopError) {
-      // Keep a verifiably active blocker for the next Stop; its non-null id prevents duplicates.
-      // Clear stale ids so syncPowerSaveBlocker can start a new blocker.
-      if (this.isPowerSaveBlockerStillActive(blockerId)) {
-        logger.warn('powerSaveBlocker stop failed; blocker still active, keeping id to retry', {
-          error: stopError,
-          id: blockerId,
-          runtimeId: this.getStatus().runtimeId,
-        });
-        return;
-      }
-      logger.warn('powerSaveBlocker stop failed; clearing stale blocker id', {
-        error: stopError,
-        id: blockerId,
-        runtimeId: this.getStatus().runtimeId,
-      });
-      this.powerSaveBlockerId = null;
-    }
-  }
-
-  private isPowerSaveBlockerStillActive(blockerId: number): boolean {
-    try {
-      return powerSaveBlocker.isStarted(blockerId);
-    } catch {
-      // The recheck itself failing means the id is unusable either way;
-      // treat it as stale so the manager cannot wedge.
-      return false;
+    if (this.powerSaveBlockerId !== null) {
+      this.powerSaveBlockerId = stopEmbeddingHostPowerSaveBlocker(
+        this.powerSaveBlockerId,
+        this.getStatus().runtimeId
+      );
     }
   }
 
@@ -992,5 +987,6 @@ export class EmbeddingHostManager {
       typeof reason === 'string' ? new Error(`${reason} (request ${requestId})`) : reason;
     this.queryRequests.rejectAll(failure, { interruptionFailure });
     this.documentRequests.rejectAll(failure, { interruptionFailure });
+    this.webgpuAdapterRequests.rejectAll(failure);
   }
 }

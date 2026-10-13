@@ -996,7 +996,7 @@ const nativeRootDataDeletion = createNativeRootDataDeletion({
     await nativeIndexActivation.getSearchAuthority();
     return nativeIndexActivation.captureAcknowledgedAuthority();
   },
-  closeOwner: () => nativeIndexActivation.close(),
+  closeOwner: () => nativeIndexActivation.closeNativeOwner(),
   deleteCanonicalRoot: async (mounted) => {
     const { deleteManagedRootData } = await import('@brainstrike/db');
     await deleteManagedRootData(await getDbHostManager().getDatabase(), {
@@ -2321,6 +2321,14 @@ desktopBootstrap.bindPlatform((platformPort, nativeChildren) => {
         root.path,
         applicationIpcDomain.watches.subscribe.bind(applicationIpcDomain.watches)
       ),
+    // BST-1990: names a removed folder in the refusal, whatever its status now.
+    readRootNames: async (ids) => {
+      const { rows } = await (await getDatabase()).query<{ displayName: string; id: string }>(
+        'SELECT id, display_name AS "displayName" FROM roots WHERE id = ANY($1::text[])',
+        [[...ids]]
+      );
+      return new Map(rows.map((row) => [row.id, row.displayName]));
+    },
     readRoots: async () => loadWorkspaceRootsFromDatabase(await getDatabase()),
     readWorktree: (id) => ledger.get(id),
   });

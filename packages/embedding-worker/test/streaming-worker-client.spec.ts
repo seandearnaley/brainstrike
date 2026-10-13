@@ -122,6 +122,7 @@ describe('StreamingEmbeddingWorkerClient', () => {
         elapsedMs: 5,
         fallbackApplied: false,
         model: 'local:test-model',
+        pooling: 'mean',
       },
       type: 'complete',
     });
@@ -197,6 +198,7 @@ describe('StreamingEmbeddingWorkerClient', () => {
         elapsedMs: 12,
         fallbackApplied: false,
         model: 'local:test-model',
+        pooling: 'mean',
       },
       type: 'complete',
     });
@@ -271,6 +273,7 @@ describe('StreamingEmbeddingWorkerClient', () => {
         elapsedMs: 12,
         fallbackApplied: false,
         model: 'local:test-model',
+        pooling: 'mean',
       },
       type: 'complete',
     });
@@ -400,6 +403,7 @@ describe('StreamingEmbeddingWorkerClient', () => {
         elapsedMs: 1,
         fallbackApplied: false,
         model: 'local:test-model',
+        pooling: 'mean',
       },
       type: 'complete',
     });
@@ -536,6 +540,7 @@ describe('StreamingEmbeddingWorkerClient', () => {
         elapsedMs: 12,
         fallbackApplied: false,
         model: 'local:test-model',
+        pooling: 'mean',
       },
       type: 'complete',
     });
@@ -864,6 +869,7 @@ describe('StreamingEmbeddingWorkerClient', () => {
         elapsedMs: 12,
         fallbackApplied: false,
         model: 'local:test-model',
+        pooling: 'mean',
       },
       type: 'complete',
     });

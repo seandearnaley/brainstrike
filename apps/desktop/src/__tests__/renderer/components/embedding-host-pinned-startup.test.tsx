@@ -1,5 +1,10 @@
 import './embedding-host-runtime-fixture';
 import type { EmbeddingResult } from '@brainstrike/embeddings';
+import { EMBEDDING_RUNTIME_STATUS_EXTENSION_KEYS } from '@brainstrike/vector-management';
+import {
+  createBackgroundRuntimeStatus,
+  createRuntimeStatusStore,
+} from '@brainstrike/worker-runtime';
 import { act, render, waitFor } from '@testing-library/react';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import { configureDesktopRendererTarget } from '../../../desktop-renderer-target';
@@ -10,7 +15,10 @@ import {
   assertEmbeddingHostStatus,
   EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_REQUEST_EVENT,
   EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT,
+  EMBEDDING_HOST_WEBGPU_ADAPTER_REQUEST_EVENT,
+  type EmbeddingHostStatus,
 } from '../../../embedding-host-shared';
+import { assertEmbeddingHostWebGpuAdapterResponseReport } from '../../../embedding-host-webgpu-adapter';
 import { EmbeddingHostRuntime } from '../../../renderer/components/embedding-host-runtime';
 import {
   commandListenerRef,
@@ -27,10 +35,12 @@ import {
   reportDocumentEmbeddingsResponseMock,
   reportQueryEmbeddingResponseMock,
   reportStatusMock,
+  reportWebgpuAdapterResponseMock,
   retireEmbeddingQueueMock,
   startEmbeddingWorkerMock,
   stopMock,
   storeState,
+  webgpuAdapterListenerRef,
 } from './embedding-host-runtime-fixture';
 
 const plan = {
@@ -50,7 +60,7 @@ function result(): EmbeddingResult {
     dimensions: plan.dimensions,
     embedding: Array.from({ length: plan.dimensions }, () => 0.1),
     model: plan.modelId,
-    runtime: { device: plan.device, dtype: plan.dtype, fallbackApplied: false },
+    runtime: { device: plan.device, dtype: plan.dtype, fallbackApplied: false, pooling: 'mean' },
   };
 }
 function connect(): EmbeddingHostManager {
@@ -75,11 +85,19 @@ function connect(): EmbeddingHostManager {
       assertEmbeddingHostQueryEmbeddingResponseReport(response)
     )
   );
+  reportWebgpuAdapterResponseMock.mockImplementation((response: unknown) =>
+    manager.acceptWebGpuAdapterResponseReport(
+      hostWindow.webContents.id,
+      assertEmbeddingHostWebGpuAdapterResponseReport(response)
+    )
+  );
   hostWindow.webContents.send.mockImplementation((channel: string, value: unknown) => {
     if (channel === EMBEDDING_HOST_DOCUMENT_EMBEDDINGS_REQUEST_EVENT) {
       documentEmbeddingsListenerRef.current?.(value);
     } else if (channel === EMBEDDING_HOST_QUERY_EMBEDDING_REQUEST_EVENT) {
       queryEmbeddingListenerRef.current?.(value);
+    } else if (channel === EMBEDDING_HOST_WEBGPU_ADAPTER_REQUEST_EVENT) {
+      webgpuAdapterListenerRef.current?.(value);
     } else {
       commandListenerRef.current?.(value);
     }
@@ -99,6 +117,86 @@ async function mount(): Promise<void> {
 
 describe('pinned native hidden-host startup', () => {
   installEmbeddingHostRuntimeFixture();
+
+  it('answers WebGPU detection on demand, whatever the saved device, without loading a model (BST-1993)', async () => {
+    const manager = connect();
+    storeState.devicePref = 'wasm';
+    storeState.devicePrefConfigured = true;
+    detectDeviceCapabilitiesMock.mockResolvedValue({
+      detectedAt: 1,
+      recommendationReason: 'WebGPU acceleration available (Apple M3)',
+      recommendedDevice: 'webgpu',
+      wasmAvailable: true,
+      webgpuAdapterAvailable: true,
+      webgpuAdapterInfo: null,
+      webgpuApiPresent: true,
+      webgpuUnavailableReason: null,
+      webWorkersAvailable: true,
+    });
+    const detected = manager.webgpuAdapter();
+    await mount();
+    await expect(detected).resolves.toEqual({
+      available: true,
+      reason: 'WebGPU acceleration available (Apple M3)',
+    });
+    expect(startEmbeddingWorkerMock).not.toHaveBeenCalled();
+    expect(initializeMock).not.toHaveBeenCalled();
+    expect(ensureVectorPreferencesHydratedMock).not.toHaveBeenCalled();
+  });
+
+  it('reports a software adapter as unavailable with the detection reason (BST-1993)', async () => {
+    const manager = connect();
+    detectDeviceCapabilitiesMock.mockResolvedValue({
+      detectedAt: 1,
+      recommendationReason: 'WASM recommended (WebGPU using software fallback would be slower)',
+      recommendedDevice: 'wasm',
+      wasmAvailable: true,
+      webgpuAdapterAvailable: true,
+      webgpuAdapterInfo: null,
+      webgpuApiPresent: true,
+      webgpuUnavailableReason: null,
+      webWorkersAvailable: true,
+    });
+    const detected = manager.webgpuAdapter();
+    await mount();
+    await expect(detected).resolves.toEqual({
+      available: false,
+      reason: 'WASM recommended (WebGPU using software fallback would be slower)',
+    });
+  });
+
+  it('refuses with the detection failure instead of guessing availability (BST-1993)', async () => {
+    const manager = connect();
+    detectDeviceCapabilitiesMock.mockRejectedValue(new Error('GPU process crashed'));
+    const detected = manager.webgpuAdapter();
+    onTestFinished(() =>
+      detected.then(
+        () => {},
+        () => {}
+      )
+    );
+    await mount();
+    await expect(detected).rejects.toThrow('WebGPU detection failed: GPU process crashed');
+  });
+
+  it('reports only statuses the visible renderer accepts, also after WebGPU detection (BST-1993)', async () => {
+    const manager = connect();
+    const detected = manager.webgpuAdapter();
+    await mount();
+    await expect(detected).resolves.toMatchObject({ available: true });
+    // The visible renderer's shared runtime store (useEmbeddingRuntimeController)
+    // throws on any non-canonical field; the smoke saw it reject "webgpuAdapter".
+    const store = createRuntimeStatusStore(
+      createBackgroundRuntimeStatus('embedding-host', 'embedding-host:stopped', 'stopped'),
+      { allowedExtensionKeys: EMBEDDING_RUNTIME_STATUS_EXTENSION_KEYS }
+    );
+    const reported = reportStatusMock.mock.calls.map(([status]) => status as EmbeddingHostStatus);
+    expect(reported.length).toBeGreaterThan(0);
+    for (const status of [...reported, manager.getStatus()]) {
+      const { commandId: _commandId, ...runtimeStatus } = status;
+      expect(() => store.setStatus(runtimeStatus)).not.toThrow();
+    }
+  });
 
   it.each(['document', 'query'] as const)(
     'starts a cold %s request without legacy device hydration',

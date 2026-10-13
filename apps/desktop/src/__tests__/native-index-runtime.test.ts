@@ -315,6 +315,39 @@ it('joins startup racing reset and never installs a query target for its late wr
   expect(f.closeProfile).toHaveBeenCalledTimes(1);
 });
 
+it('replaces bindings when only the profile pooling changes, never reusing mean authority (BST-1993)', async () => {
+  const f = fixture();
+  const binding = (pooling?: 'cls') => ({
+    embeddingSetId: 'collection',
+    fileId: 'file',
+    profile: {
+      dimensions: 384,
+      distance: 'cosine' as const,
+      dtype: 'fp16' as const,
+      modelId: 'onnx-community/granite-embedding-small-english-r2-ONNX',
+      provider: 'local' as const,
+      revision: '1dc7835ba0cb9c76a3618d0bf0c427c97671b3c8',
+      ...(pooling ? { pooling } : {}),
+    },
+    relativePath: 'file.txt',
+    rootId: 'root',
+    sourcePath: '/file.txt',
+  });
+  const authority = (pooling?: 'cls'): NativeIndexAuthority => ({
+    fileBindings: [binding(pooling)],
+    rootIds: ['root'],
+    scopes: [{ kind: 'workspace', rootId: 'root' }],
+  });
+  f.getAuthority.mockResolvedValue(authority());
+  await f.runtime.acquire();
+  await f.runtime.acquire();
+  const replacements = f.events.filter((event) => event === 'bindings-replace').length;
+  f.getAuthority.mockResolvedValue(authority('cls'));
+  await f.runtime.acquire();
+  expect(f.events.filter((event) => event === 'bindings-replace')).toHaveLength(replacements + 1);
+  await f.runtime.retireProfile();
+});
+
 it('drains the captured read before replacing bindings and fences later readers', async () => {
   const f = fixture();
   const entered = Promise.withResolvers<void>();

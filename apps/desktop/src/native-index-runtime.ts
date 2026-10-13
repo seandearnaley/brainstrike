@@ -2,11 +2,12 @@ import {
   NativeAuthorityTransitionError,
   NativeReadAuthorityRetiredError,
 } from '@brainstrike/assistant-service/node-native-text-services';
-import type {
-  IndexerPort,
-  IndexFileBinding,
-  IndexScope,
-  ScopedIndexerPort,
+import {
+  type IndexerPort,
+  type IndexFileBinding,
+  type IndexScope,
+  type ScopedIndexerPort,
+  vectorProfileHash,
 } from '@brainstrike/indexer';
 
 import type { DesktopProfileRuntime } from './desktop-profile-runtime';
@@ -95,20 +96,9 @@ function scopeIdentity(authority: NativeIndexAuthority): string {
   ]);
 }
 
-function profileIdentity(profile: IndexFileBinding['profile']): readonly unknown[] | null {
-  if (profile === null) {
-    return null;
-  }
-  const identity: readonly unknown[] = [
-    profile.provider,
-    profile.modelId,
-    profile.dimensions,
-    profile.distance,
-  ];
-  if (profile.provider === 'local' || profile.provider === 'transformers') {
-    return [...identity, profile.revision, profile.dtype, profile.tokenCap];
-  }
-  return identity;
+/** The indexer's own profile identity: every field that changes vectors, pooling included. */
+function profileIdentity(profile: IndexFileBinding['profile']): string | null {
+  return profile === null ? null : vectorProfileHash(profile);
 }
 
 function bindingIdentity(authority: NativeIndexAuthority): string {

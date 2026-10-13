@@ -59,7 +59,14 @@ const profile = {
 };
 const payload = {
   dimensions: 384,
-  inferencePlan: { ...profile, device: 'webgpu' as const, dimensions: 384 as const },
+  // The worker plan Main resolves: execution choices only, never the profile's token cap.
+  inferencePlan: {
+    device: 'webgpu' as const,
+    dimensions: 384 as const,
+    dtype: profile.dtype,
+    modelId: profile.modelId,
+    revision: profile.revision,
+  },
   modelId: profile.modelId,
   modelKey: 'native:queries',
   query: 'needle',

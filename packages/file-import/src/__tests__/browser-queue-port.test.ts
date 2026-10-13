@@ -18,6 +18,7 @@ const resultTemplate: QueueResult = {
     elapsedMs: 12,
     fallbackApplied: false,
     model: 'test-model',
+    pooling: 'mean',
   },
   type: 'result',
   vectors: [new Float32Array([0.1, 0.2])],

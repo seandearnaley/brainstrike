@@ -27,6 +27,7 @@ const noopResult: QueueResult = {
     elapsedMs: 0,
     fallbackApplied: false,
     model: 'test',
+    pooling: 'mean',
   },
   type: 'result',
   vectors: [],

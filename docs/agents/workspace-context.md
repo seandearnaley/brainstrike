@@ -104,42 +104,6 @@ Guard: `apps/desktop/src/assistant-server/__tests__/workspace-instructions-conte
 
 ---
 
-## SELF-IMPROVEMENT SIGNAL INJECTION (BST-1241)
-
-Desktop may prepend a compact summary of the previous 24 hours' wasteful tool
-behavior to a fresh run. Persisted opt-in, default OFF, strictly parsed server-side
-and failing safe to OFF.
-
-- Execute the app-owned `SELF_IMPROVEMENT_SIGNAL_SQL` constant, never
-  repository-authored SQL. Why: running SQL a mounted repo supplies would let it
-  shape a system message.
-- Inject only on the fresh-generation path, between explicit skill activation and
-  workspace instructions, with provider `local` excluded and approval/resume legs
-  keeping their early returns. Because every injector prepends, the final order is
-  workspace instructions → self-improvement signal → activated skills → referenced
-  files → conversation.
-- Treat the query's ROWS as untrusted even though its SQL is app-owned: telemetry
-  `tool_id` is persisted verbatim from arbitrary MCP server strings, so restrict each
-  rendered id to `[A-Za-z0-9_.:-]` capped at 40 characters. Worst-case block size is
-  then structural and test-pinned; there is no runtime truncation path.
-- Anchor the 24h window to the top of the hour and memoize parsed rows per hour-key
-  in main, so the cached prompt prefix is invalidated at most hourly. Memoize an
-  empty no-waste hour; never memoize a failure.
-- Query failure, malformed rows or an unexpected column contract logs a warning and
-  injects nothing; zero qualifying waste logs at debug; every no-op preserves the
-  original message-array identity.
-- The companion experiment-enrollment preference rides the same renderer seam: a
-  persisted `{ experimentId, variant }` pair (default null, factory-reset to null)
-  attached only when BOTH fields are set. It is attribution metadata and never
-  changes runtime behavior.
-
-Remove the feature after a meaningful sample if truncation and zero-match
-rates do not improve over equivalent windows. Evidence:
-`workspace-context/self-improvement-signal.md`.
-Guard: `apps/desktop/src/__tests__/assistant-server/self-improvement-signal-context.test.ts`.
-
----
-
 ## `.brainstrike/` SCAN CONVENTIONS — the family
 
 Three features scan per-root plus `~/.brainstrike/` config directories; a fourth
@@ -766,8 +730,15 @@ root with a per-row "Set as main".
   inventing one.
 - "Make primary" re-binds the THREAD through the same three `operatingRoot*` keys
   `persistThreadRootBinding` writes, in ONE metadata write with the secondary set; it
-  never calls `setMainRoot`. "Remove from thread" only edits `secondaryRootIds` and
-  never disconnects the folder from the workspace.
+  never calls `setMainRoot`. "Remove from thread" never disconnects the folder from the
+  workspace.
+- A thread folder whose `roots` row is gone or not live is marked "Removed from the
+  workspace" (BST-1990). The host refuses every run and binding write while the binding
+  names one, naming the folder (`ThreadRootsRemovedError`), so each repair drops every
+  removed folder in the same write: Make primary on a live folder; Remove from this
+  thread, which on a removed primary promotes the first live secondary; Re-add folder
+  (the Recents re-mount); and "Use another folder…", offered only when no thread folder
+  is live. The rows are re-read whenever the mounted set changes.
 - While checkout mode is Worktree, making a secondary primary includes the Local
   transition in that SAME write, so operating root and checkout record never disagree:
   the former worktree primary leaves the thread with an explicit success toast, other

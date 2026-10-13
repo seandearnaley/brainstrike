@@ -103,10 +103,6 @@
       "types": "./dist/stores/embedding-preferences-store.d.ts",
       "import": "./dist/stores/embedding-preferences-store.js"
     },
-    "./stores/experiment-assignment-preferences-store": {
-      "types": "./dist/stores/experiment-assignment-preferences-store.d.ts",
-      "import": "./dist/stores/experiment-assignment-preferences-store.js"
-    },
     "./stores/explorer-column-sizes-store": {
       "types": "./dist/stores/explorer-column-sizes-store.d.ts",
       "import": "./dist/stores/explorer-column-sizes-store.js"
@@ -154,10 +150,6 @@
     "./stores/secrets-store": {
       "types": "./dist/stores/secrets-store.d.ts",
       "import": "./dist/stores/secrets-store.js"
-    },
-    "./stores/self-improvement-signal-preferences-store": {
-      "types": "./dist/stores/self-improvement-signal-preferences-store.d.ts",
-      "import": "./dist/stores/self-improvement-signal-preferences-store.js"
     },
     "./stores/skills-preferences-store": {
       "types": "./dist/stores/skills-preferences-store.d.ts",

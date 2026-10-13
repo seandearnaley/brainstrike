@@ -608,8 +608,6 @@ export function buildAssistantRequestData(args: {
    * boundary — it can only reduce the skill set.
    */
   skillsPreference?: RuntimeData['skillsPreference'];
-  experimentAssignment?: RuntimeData['experimentAssignment'];
-  selfImprovementSignalPreference?: RuntimeData['selfImprovementSignalPreference'];
   subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
   /**
    * Per-child subagent budgets (Settings → Subagents → Subagent budgets).
@@ -706,10 +704,8 @@ export function buildAssistantRequestData(args: {
 }
 
 interface OptInRequestFields {
-  experimentAssignment?: RuntimeData['experimentAssignment'];
   planMode?: boolean;
   requestedReasoningEffort?: RuntimeData['requestedReasoningEffort'];
-  selfImprovementSignalPreference?: RuntimeData['selfImprovementSignalPreference'];
   skillsPreference?: RuntimeData['skillsPreference'];
   subagentPersonasRequest?: RuntimeData['subagentPersonasRequest'];
   workspaceInstructionsPreference?: RuntimeData['workspaceInstructionsPreference'];
@@ -739,20 +735,9 @@ function attachOptInRequestFields(data: Record<string, unknown>, fields: OptInRe
   if (fields.workspaceInstructionsPreference) {
     data['workspaceInstructionsPreference'] = fields.workspaceInstructionsPreference;
   }
-  // Self-improvement is default OFF; the desktop renderer sends its explicit
-  // plain-JSON preference snapshot and the server parses it strictly.
-  if (fields.selfImprovementSignalPreference) {
-    data['selfImprovementSignalPreference'] = fields.selfImprovementSignalPreference;
-  }
   // Skills preference: absent => server default (master on, nothing disabled).
   if (fields.skillsPreference) {
     data['skillsPreference'] = fields.skillsPreference;
-  }
-  // Experiment enrollment (BST-1251): presence-means-enrolled attribution
-  // metadata; the caller only supplies a complete {experimentId, variant}
-  // pair, matching the contract's jointly-required fields.
-  if (fields.experimentAssignment) {
-    data['experimentAssignment'] = fields.experimentAssignment;
   }
 }
 

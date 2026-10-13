@@ -58,6 +58,7 @@ import {
   embeddingHostDevice,
   withResolvedHostDevice,
 } from './embedding-host-runtime-metadata';
+import { answerWebGpuAdapterRequest } from './embedding-host-webgpu';
 import {
   resolveHydratedEmbeddingWorkerPreferences,
   resolveHydratedVectorDevicePreference,
@@ -911,6 +912,23 @@ export function EmbeddingHostRuntime(): null {
       }),
     []
   );
+
+  // Settings asks for this host's WebGPU detection with its own request and response, so
+  // status reports stay canonical for the renderer's runtime store (BST-1993).
+  useEffect(() => {
+    const bridge = getEmbeddingHostBridge();
+    const report = bridge?.reportWebgpuAdapterResponse;
+    if (!(bridge?.onWebgpuAdapterRequest && report)) {
+      return;
+    }
+    return bridge.onWebgpuAdapterRequest((request) => {
+      answerWebGpuAdapterRequest(request, report).catch((error: unknown) => {
+        logger.error('Embedding host could not answer a WebGPU adapter request', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    });
+  }, []);
 
   useEffect(() => {
     let disposed = false;
