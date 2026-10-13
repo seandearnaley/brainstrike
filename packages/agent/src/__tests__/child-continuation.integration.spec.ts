@@ -350,7 +350,8 @@ it.each([
               typeof arg === 'object' &&
               arg !== null &&
               'cause' in arg &&
-              JSON.stringify(arg.cause).includes('Provider refused continuation')
+              JSON.stringify(arg.cause).includes('Provider refused continuation') &&
+              JSON.stringify(arg.cause).includes('ENOENT /Users/fixture/private/credentials.json')
           )
       ).toBe(true);
       expect(JSON.stringify(model.prompts)).not.toContain('child_continuation_result');
