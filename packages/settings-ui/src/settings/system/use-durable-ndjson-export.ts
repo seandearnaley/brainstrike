@@ -1,3 +1,4 @@
+import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
 import type { useToast } from '@brainstrike/ui';
 import {
   downloadBlobFile,
@@ -53,7 +54,7 @@ export function useDurableNdjsonExport({
         }
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = describeBoundaryError(error);
       toast({
         description: message,
         title: 'Failed to export diagnostics',

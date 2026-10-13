@@ -164,7 +164,7 @@ export async function searchScope(
 ) {
   return await context.window.evaluate(
     async ({ term, scope, semantic }) => {
-      const api = (window as unknown as PublicBridges).indexSearch as
+      const api = (window as unknown as PublicBridges).__brainstrikeTestHooks__?.indexSearch as
         | IndexSearchCapability
         | undefined;
       if (!api) {
@@ -196,13 +196,17 @@ export async function searchScope(
       if (status.embedding.indexMode !== 'vector-configured' || !status.queryPlan || !host) {
         throw new Error('Semantic search has no saved local execution plan.');
       }
-      const vector = await host.queryEmbedding({
+      const response = await host.queryEmbedding({
         dimensions: status.embedding.profile.dimensions,
         inferencePlan: status.queryPlan.inferencePlan,
         modelId: status.embedding.profile.modelId,
         modelKey: status.queryPlan.modelKey,
         query: term,
       });
+      if (!response.ok) {
+        throw new Error(JSON.stringify(response.error));
+      }
+      const vector = response.value;
       return {
         bm25,
         grep,

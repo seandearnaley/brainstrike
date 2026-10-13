@@ -4,8 +4,13 @@ import {
   useDurableLogSource,
 } from '@brainstrike/app-shell/diagnostics';
 import { useLoggingPreferencesStore } from '@brainstrike/app-state/stores/logging-preferences-store';
+import {
+  describeBoundaryError,
+  refusalError,
+} from '@brainstrike/assistant-contract/boundary-failure';
+import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
 import type { LoggingPreferences } from '@brainstrike/logging';
-import { LogLevel, type LogRecord } from '@brainstrike/logging';
+import { LogBuffer, LogLevel, type LogRecord } from '@brainstrike/logging';
 import {
   LoggingSettingsSection,
   type LoggingSettingsSectionProps,
@@ -51,6 +56,61 @@ function loggingSettingsReducer(
   }
 }
 
+function createDesktopLogSource(): LoggingSettingsSectionProps['logSource'] {
+  const buffer = getRendererLogBuffer();
+  const mainBuffer = new LogBuffer();
+  let diagnostic: LogRecord | undefined;
+  const subscribers = new Set<(records: readonly LogRecord[]) => void>();
+  const readRecords = () => [
+    ...buffer.getRecords(),
+    ...mainBuffer.getRecords(),
+    ...(diagnostic ? [diagnostic] : []),
+  ];
+  const publish = () => {
+    const records = readRecords();
+    for (const handler of subscribers) {
+      handler(records);
+    }
+  };
+  return {
+    getInitialRecords: async () => {
+      try {
+        const getMainRecords = window.logging?.getBufferedLogs;
+        if (!getMainRecords) {
+          throw refusalError(
+            'availability',
+            'logging.unavailable',
+            'Electron main logging is unavailable.'
+          );
+        }
+        const records = await callBoundary(getMainRecords);
+        mainBuffer.clear();
+        for (const record of records) {
+          mainBuffer.push(record);
+        }
+        diagnostic = undefined;
+      } catch (error) {
+        diagnostic = createMainLogSourceDiagnostic(describeBoundaryError(error));
+      }
+      publish();
+      return readRecords();
+    },
+    subscribe: (handler) => {
+      subscribers.add(handler);
+      const unsubscribeRenderer = buffer.subscribe(publish);
+      const unsubscribeMain = window.logging?.onDurableRecord((record) => {
+        mainBuffer.push(record);
+        publish();
+      });
+      return () => {
+        subscribers.delete(handler);
+        unsubscribeRenderer();
+        unsubscribeMain?.();
+      };
+    },
+  };
+}
+
 export function DesktopLoggingSettings() {
   const [settingsState, settingsDispatch] = useReducer(loggingSettingsReducer, {
     error: null,
@@ -62,28 +122,7 @@ export function DesktopLoggingSettings() {
   const { toast } = useToast();
 
   const setPreferences = useLoggingPreferencesStore((state) => state.setPreferences);
-  const logSource = useMemo<LoggingSettingsSectionProps['logSource']>(() => {
-    const buffer = getRendererLogBuffer();
-    const loadRecords = (rendererRecords: readonly LogRecord[]) =>
-      loadDesktopLogRecords(rendererRecords);
-    return {
-      getInitialRecords: async () => loadRecords(buffer.getRecords()),
-      subscribe: (handler) => {
-        let disposed = false;
-        const unsubscribe = buffer.subscribe((rendererRecords) => {
-          void loadRecords(rendererRecords).then((records) => {
-            if (!disposed) {
-              handler(records);
-            }
-          });
-        });
-        return () => {
-          disposed = true;
-          unsubscribe();
-        };
-      },
-    };
-  }, []);
+  const logSource = useMemo(() => createDesktopLogSource(), []);
 
   const durableLogSource = useDurableLogSource();
   const onPurgeNow = useDiagnosticsPurge();
@@ -119,7 +158,7 @@ export function DesktopLoggingSettings() {
       if (cancelled) {
         return;
       }
-      const message = err instanceof Error ? err.message : String(err);
+      const message = describeBoundaryError(err);
       settingsDispatch({ error: message, type: 'load_error' });
     };
 
@@ -127,12 +166,24 @@ export function DesktopLoggingSettings() {
       try {
         const fn = window.logging?.getPreferences;
         if (!fn) {
-          finishWithError(new Error('Logging bridge is unavailable in this build.'));
+          finishWithError(
+            refusalError(
+              'availability',
+              'logging.unavailable',
+              'Logging is unavailable in this window.'
+            )
+          );
           return;
         }
-        const response = await fn();
+        const response = await callBoundary(fn);
         if (!response) {
-          finishWithError(new Error('Logging bridge is unavailable in this build.'));
+          finishWithError(
+            refusalError(
+              'availability',
+              'logging.unavailable',
+              'Logging is unavailable in this window.'
+            )
+          );
           return;
         }
         finishWithPayload(response);
@@ -151,19 +202,23 @@ export function DesktopLoggingSettings() {
   const commitPreferences = useCallback(
     async (preferences: LoggingPreferences) => {
       if (!window.logging?.setPreferences) {
-        throw new Error('Logging bridge is unavailable in this build.');
+        throw refusalError(
+          'availability',
+          'logging.unavailable',
+          'Logging is unavailable in this window.'
+        );
       }
       settingsDispatch({ type: 'start_syncing' });
       let caughtError: unknown = null;
-      let result: Awaited<ReturnType<typeof window.logging.setPreferences>> | undefined;
+      let result: LoggingSettingsPayload | undefined;
       try {
-        result = await window.logging.setPreferences(preferences);
+        result = await callBoundary(() => window.logging.setPreferences(preferences));
       } catch (err) {
         caughtError = err;
       }
       settingsDispatch({ type: 'stop_syncing' });
       if (caughtError !== null) {
-        const message = caughtError instanceof Error ? caughtError.message : String(caughtError);
+        const message = describeBoundaryError(caughtError);
         toast({
           description: message,
           title: 'Failed to persist logging preferences',
@@ -189,16 +244,20 @@ export function DesktopLoggingSettings() {
 
   const selectDestination = useCallback(async () => {
     if (!window.logging?.selectDestination) {
-      throw new Error('Cannot select destination in this environment.');
+      throw refusalError(
+        'availability',
+        'logging.unavailable',
+        'Log destination selection is unavailable in this window.'
+      );
     }
-    return window.logging.selectDestination();
+    return callBoundary(() => window.logging.selectDestination());
   }, []);
 
   const openDestination = useCallback(async (target: string | null) => {
     if (!window.logging?.openDestination) {
       return false;
     }
-    return window.logging.openDestination(target ?? null);
+    return callBoundary(() => window.logging.openDestination(target ?? null));
   }, []);
 
   if (loading) {
@@ -249,23 +308,6 @@ export function DesktopLoggingSettings() {
       {...(onPurgeNow === undefined ? {} : { onPurgeNow })}
     />
   );
-}
-
-async function loadDesktopLogRecords(rendererRecords: readonly LogRecord[]): Promise<LogRecord[]> {
-  const getMainRecords = window.logging?.getBufferedLogs;
-  if (!getMainRecords) {
-    return [
-      ...rendererRecords,
-      createMainLogSourceDiagnostic('Electron main logging bridge is unavailable.'),
-    ];
-  }
-  try {
-    const mainRecords = await getMainRecords();
-    return [...rendererRecords, ...mainRecords];
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return [...rendererRecords, createMainLogSourceDiagnostic(message)];
-  }
 }
 
 function createMainLogSourceDiagnostic(reason: string): LogRecord {

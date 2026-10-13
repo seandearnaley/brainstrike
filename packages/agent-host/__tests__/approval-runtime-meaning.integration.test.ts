@@ -4,12 +4,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { runInNewContext } from 'node:vm';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { StateStore } from '@brainstrike/state-store';
 import { expect, test } from 'vitest';
 import { z } from 'zod';
 import { HostCore } from '../src/core.js';
 import type { HostPlatform } from '../src/ports.js';
 import type { HostEvent } from '../src/protocol.js';
+import { captureHostFailureDiagnostics } from './fixtures/host-failure-diagnostics.js';
 import { scriptedToolSequence } from './fixtures/scripted-model.js';
 
 class RuntimeSelection {
@@ -160,6 +162,7 @@ test.each([
 test.each(['live', 'reopened'] as const)(
   'approval keeps live validated meaning and interrupts unreconstructable JSON meaning (%s)',
   async (mode) => {
+    const diagnostics = captureHostFailureDiagnostics();
     const root = await mkdtemp(join(tmpdir(), 'bs-m3-runtime-input-'));
     let store = await StateStore.open(root);
     let admitted: RuntimeSelection | undefined;
@@ -240,9 +243,12 @@ test.each(['live', 'reopened'] as const)(
         expect(
           (await core.read(threadId, 0)).find((row) => row.event.type === 'run.finished')?.event
         ).toMatchObject({
-          detail: 'Pending approval requires tool-owned runtime input reconstruction',
+          detail: INTERNAL_FAULT.message,
           outcome: 'interrupted',
         });
+        diagnostics.expectCause(
+          'Pending approval requires tool-owned runtime input reconstruction'
+        );
       }
     } finally {
       await core.close();

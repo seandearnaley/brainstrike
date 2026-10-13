@@ -257,10 +257,11 @@ describe('native vector availability', () => {
 
   it('surfaces bridge failure without requesting a search or rewriting selection', async () => {
     const bridge = capability();
-    bridge.coverage.mockRejectedValueOnce(new Error('Native coverage is offline.'));
-    expect(
-      await getNativeSemanticAvailability({ capability: bridge, profile, rootIds: ['root-a'] })
-    ).toEqual({ available: false, reason: 'Native coverage is offline.' });
+    const failure = new Error('Native coverage is offline.');
+    bridge.coverage.mockRejectedValueOnce(failure);
+    await expect(
+      getNativeSemanticAvailability({ capability: bridge, profile, rootIds: ['root-a'] })
+    ).rejects.toBe(failure);
     expect(bridge.search).not.toHaveBeenCalled();
   });
 });

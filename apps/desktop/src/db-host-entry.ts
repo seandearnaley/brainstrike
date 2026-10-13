@@ -171,6 +171,7 @@ function readPostgresErrorFields(error: unknown): PostgresErrorFields {
   return fields;
 }
 
+/** The wire form of a host error. Its stack stays in this host's own log (`stackOf`). */
 function serializeError(error: unknown): DbHostSerializedError {
   const postgresFields = readPostgresErrorFields(error);
   if (error instanceof Error) {
@@ -178,13 +179,17 @@ function serializeError(error: unknown): DbHostSerializedError {
       message: error.message,
       ...postgresFields,
       ...(error.name ? { name: error.name } : {}),
-      ...(error.stack ? { stack: error.stack } : {}),
     };
   }
   return {
     message: String(error ?? 'unknown error'),
     ...postgresFields,
   };
+}
+
+/** A host error's stack, for this host's own log only. */
+function stackOf(error: unknown): { readonly stack?: string } {
+  return error instanceof Error && error.stack ? { stack: error.stack } : {};
 }
 
 function post(message: DbHostToMainMessage): void {
@@ -624,6 +629,7 @@ async function handleEnvelope(envelope: DbHostRequestEnvelope): Promise<void> {
         ...readPostgresErrorFields(serializedError),
         message: serializedError.message,
         ...(serializedError.name ? { name: serializedError.name } : {}),
+        ...stackOf(error),
       },
       requestKind: envelope.request.kind,
     });
@@ -700,7 +706,7 @@ async function closeWhenIdle(settled: Promise<void> | null): Promise<void> {
   } catch (error) {
     lifecycle = 'close-failed';
     postLog('error', 'DB host failed to close the database', {
-      error: serializeError(error),
+      error: { ...serializeError(error), ...stackOf(error) },
       reason: closeReason,
     });
     post({

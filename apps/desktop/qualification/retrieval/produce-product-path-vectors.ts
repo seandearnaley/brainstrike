@@ -29,6 +29,7 @@ import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { z } from 'zod';
 import { verifyEvidence } from './evidence.ts';
 
@@ -129,7 +130,10 @@ interface VisibleWindow {
     documentEmbeddings(payload: unknown, options: { requestId: string }): Promise<number[][]>;
     ensureStarted(): Promise<{ readonly state: string; readonly lastError?: string | null }>;
     getStatus(): Promise<unknown>;
-    queryEmbedding(payload: unknown, options: { requestId: string }): Promise<number[]>;
+    queryEmbedding(
+      payload: unknown,
+      options: { requestId: string }
+    ): Promise<BoundaryResult<number[]>>;
   };
 }
 
@@ -280,7 +284,7 @@ try {
     visible.evaluate(
       async (arg) => {
         const begun = performance.now();
-        const vector = await (window as unknown as VisibleWindow).embeddingHost.queryEmbedding(
+        const response = await (window as unknown as VisibleWindow).embeddingHost.queryEmbedding(
           {
             dimensions: arg.dimensions,
             inferencePlan: arg.plan,
@@ -290,6 +294,10 @@ try {
           },
           { requestId: crypto.randomUUID() }
         );
+        if (!response.ok) {
+          throw new Error(JSON.stringify(response.error));
+        }
+        const vector = response.value;
         return { elapsedMs: performance.now() - begun, vector };
       },
       { dimensions: DIMENSIONS, modelKey, plan, text }

@@ -236,6 +236,54 @@ it('a settings save queued behind an open cannot reopen after terminal retiremen
   ]);
 });
 
+it.each([false, true])(
+  'saved Pause waits for held opening ownership and respects terminal supersession (%s)',
+  async (terminal) => {
+    const e = executor();
+    const held = Promise.withResolvers<void>();
+    e.execute.mockImplementationOnce(async (action) => {
+      e.performed.push(action);
+      await held.promise;
+      return action.kind === 'open' ? { generation: action.generation, kind: 'opened' } : undefined;
+    });
+    const lifecycle = await createNativeIndexLifecycle({ generation: 0, kind: 'idle' }, e);
+    const opening = lifecycle.start(Promise.resolve(VECTOR));
+    await vi.waitFor(() => expect(e.performed).toHaveLength(1));
+    let prepared = false;
+    const pausing = lifecycle
+      .prepareSavedPause(async () => ({ ...VECTOR, paused: true }))
+      .then(
+        (pause) => {
+          prepared = true;
+          return pause;
+        },
+        (error: unknown) => error
+      );
+    await expect(lifecycle.state()).resolves.toMatchObject({ generation: 1, kind: 'opening' });
+    expect(prepared).toBe(false);
+    const closing = terminal
+      ? lifecycle.dispatch({ kind: 'terminal', reason: 'shutdown' })
+      : undefined;
+    held.resolve();
+    await opening;
+    const pause = await pausing;
+    if (terminal) {
+      await closing;
+      expect(pause).toBeInstanceOf(NativeIndexEventRefusedError);
+      expect(e.performed.map((action) => action.kind)).toEqual(['open', 'close']);
+      return;
+    }
+    expect(pause).toHaveProperty('complete');
+    await (pause as { complete(): Promise<void> }).complete();
+    expect(e.performed.map((action) => action.kind)).toEqual(['open', 'apply-sources']);
+    await expect(lifecycle.state()).resolves.toMatchObject({
+      generation: 1,
+      kind: 'ready',
+      settings: { paused: true },
+    });
+  }
+);
+
 it('prepares Pause by aborting sources before joining their physical close', async () => {
   const e = executor();
   const stopped = Promise.withResolvers<void>();

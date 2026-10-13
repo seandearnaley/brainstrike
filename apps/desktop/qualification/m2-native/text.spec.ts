@@ -30,7 +30,8 @@ async function search(context: ElectronAppContext, term = 'DisposerStack'): Prom
   });
   await expect(panel.getByTestId('workspace-search-results-error')).toHaveCount(0);
   const arms = await page.evaluate(async (text) => {
-    const api = (window as typeof window & { indexSearch: IndexSearchCapability }).indexSearch;
+    const api = (window as typeof window & { indexSearch: IndexSearchCapability })
+      .__brainstrikeTestHooks__?.indexSearch;
     const status = await api.status();
     if (status.kind !== 'ready') {
       throw new Error(status.reason);
@@ -102,7 +103,7 @@ test('real canonical TEXT picker, incremental publication/removal, reopen and Fa
           }
           return await context.window.evaluate(async () => {
             const api = (window as typeof window & { indexSearch: IndexSearchCapability })
-              .indexSearch;
+              .__brainstrikeTestHooks__?.indexSearch;
             const status = await api.status();
             if (status.kind !== 'ready') {
               return false;

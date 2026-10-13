@@ -1,3 +1,9 @@
+import { guardToolExecution } from '@brainstrike/agent';
+import {
+  BoundaryFailureError,
+  fault,
+  refusal,
+} from '@brainstrike/assistant-contract/boundary-failure';
 // @vitest-environment node
 
 import { EventEmitter } from 'node:events';
@@ -638,3 +644,74 @@ it.each([
     }
   }
 );
+
+describe('recorded native missing-key result at the retrieval executors (BST-2008)', () => {
+  const cases = tools.flatMap((tool) =>
+    ['status', 'coverageBatch'].map((method) => ({ ...tool, method }))
+  );
+  it.each(cases)(
+    'preserves the typed refusal and private cause through $name/$method',
+    async ({ run, method }) => {
+      const f = fixture();
+      // Actual07e1 status payload, before the retrieval-core sanitizer erased it.
+      const failure = refusal({
+        category: 'configuration',
+        code: 'embedding.missing-key',
+        message: 'No API key configured for the embedding provider.',
+        remedy: 'Configure the embedding provider API key in Settings, then retry indexing.',
+      });
+      const cause = new Error('private missing-key diagnostic');
+      const error = new BoundaryFailureError(failure, { cause });
+      await expect(
+        run({ query: 'hosted retrieval key' }, undefined, {
+          embeddingHostManager: { queryEmbedding: f.queryEmbedding },
+          nativeIndexSearch: {
+            ...f.capability,
+            [method]: async () => {
+              throw error;
+            },
+          },
+        })
+      ).rejects.toBe(error);
+      expect(error.cause).toBe(cause);
+      expect(f.queryEmbedding).not.toHaveBeenCalled();
+    }
+  );
+  it.each(cases)(
+    'keeps typed faults and raw failures generic through the guarded $name/$method',
+    async ({ run, method }) => {
+      for (const error of [
+        new Error('private missing-key diagnostic'),
+        new BoundaryFailureError(
+          fault({
+            category: 'internal',
+            code: 'fixture.cleanup-failed',
+            message: 'private cleanup diagnostic',
+          }),
+          { cause: new Error('private cause') }
+        ),
+      ]) {
+        const f = fixture();
+        const guarded = guardToolExecution(
+          {
+            execute: async () =>
+              await run({ query: 'hosted retrieval key' }, undefined, {
+                embeddingHostManager: { queryEmbedding: f.queryEmbedding },
+                nativeIndexSearch: {
+                  ...f.capability,
+                  [method]: async () => {
+                    throw error;
+                  },
+                },
+              }),
+          },
+          { timeoutMs: 1000, toolName: 'brainstrike.queryEmbeddingSpace' }
+        );
+        const result: unknown = await guarded.execute();
+        expect(result).toMatchObject({ error: { code: 'tool_failed' }, ok: false });
+        expect(JSON.stringify(result)).not.toContain('private');
+        expect(f.queryEmbedding).not.toHaveBeenCalled();
+      }
+    }
+  );
+});

@@ -1,6 +1,20 @@
 # Foreground latency under a full index build
 
-## BST-1925 instrument and BEFORE numbers — 2026-10-02
+## Current host/native instrument — 2026-10-13
+
+CI is disabled due to cost; validation must run locally.
+
+The current v2 envelope requires operation markers
+`main-host-run-start-admission-ack` and
+`shared-file-read-and-authorized-native-grep`. Earlier v1 and historical v2
+DB-probe measurements below are historical evidence, not comparable host
+latency. Compare BEFORE and AFTER only with the same probe revision, device,
+corpus, and environment. This is steady-state admission under load, not a
+supervisor recovery-latency measurement.
+
+The separate thread-embedding instrument retains its existing workload and
+explicitly calls its measurement `legacyDbRunEventWrite`; it is not host
+admission evidence. It is not part of this index-build comparison.
 
 Working rule 4 reads: no new scheduler, budget, throttle, retry or timeout
 without before/after foreground p95 from the loaded benchmark. This is that
@@ -34,8 +48,9 @@ pipeline that no longer exists; compare native runs with native runs (see
 3. Open it as the workspace root with the Workspace Index **paused**. In
    Settings → Search & Indexing, choose BGE Small, "Text and semantic search"
    and the device's execution plan (`WebGPU · FP16`, or `WASM · Q8`); the
-   index stays paused. Seed one assistant thread with a `running` run row,
-   which the chat-path write needs as its parent.
+   index stays paused. Use the actual folder picker and Send once through a fixed
+   fake loopback provider. Capture that committed host command configuration
+   for the paced probes; no legacy thread or run rows are seeded.
 4. Calibrate the renderer probe: block the renderer's main thread for 120 ms and
    require the long-task observer to record it and the frame gap to show it.
    A dead observer would otherwise report "zero long tasks".
@@ -89,49 +104,39 @@ finishes cannot be produced on demand in the real app.
 | Renderer frame gap p50, p95, max | Time between consecutive `requestAnimationFrame` callbacks in the visible window. 16.7 ms at 60 Hz. | Jank is felt in the visible renderer, which runs today's sync orchestration. A gap over 50 ms is a visible stall. |
 | Renderer long tasks: count, total ms | `PerformanceObserver` `longtask` entries (main-thread tasks over 50 ms) in the visible window. | Names the cause of a frame gap. The M2 exit criterion requires zero. |
 | Main event-loop lag p95, max | `perf_hooks.monitorEventLoopDelay` at 10 ms resolution, minus the resolution, so 0 means on time. | Main brokers every IPC call, every chat-path write and every tool call. Its lag adds to all of them. |
-| Chat-path op p95, max | One `run.step.finished` event written through `recordDesktopAssistantRunEvent`, timed in main. | See below. M3 swaps in the run-log append. |
-| Tool read p95, loaded ÷ idle | The shared tool file reader (`readWorkspaceTextFile`) on a fixed corpus file, then the grep tool's index query (`GrepSearchService` over `FileChunkRepository` on main's database handle), scoped to one path. Timed in main. On the native index the chunks live in the indexer's own SQLite, so the PGlite query runs against a set id with no rows (`foreground-latency-benchmark-no-set`): a foreground PGlite read, identical idle and loaded. | An agent's tools read while a build runs. The loaded÷idle ratio is the contention signal. |
+| Host run admission p95, max | Main owner `run/start` request through its acknowledgement, with Send-derived configuration and a fixed fake one-step provider. | Measures current public host admission; terminal completion is joined outside the timed interval. |
+| Tool read p95, loaded ÷ idle | Shared tool file reader on the same corpus file, followed by `nativeGrepIndex` on the actual authorized roots and collection, scoped to the same never-indexed relative path. Timed in Main. | Measures native query contention without changing query result size. |
 | Build throughput | Embedded chunks ÷ build wall time (Resume to the first check that finds the index terminal). The fields reuse the stage benchmark's names: `chunkCount`, `completedChunkCount`, `elapsedMs`, `chunksPerSecond`. | M2's second exit criterion, and the context for every other number: a faster build is a heavier load. |
 
 The evidence also keeps the tool read's two components (file read, index
-query), p50s, `n` everywhere, and the raw chat-path and tool-read samples, for
+query), p50s, `n` everywhere, and the raw host-admission and tool-read samples, for
 diagnosis. They are not part of the metric set.
 
-#### Chat-path op: why `recordDesktopAssistantRunEvent`
+#### Host admission and physical settlement
 
-A streamed assistant run persists every run event through
-`observeDesktopAssistantRunEvents` → `recordDesktopAssistantRunEvent`
-(`apps/desktop/src/assistant-server/run-persistence.ts`): one
-`INSERT … SELECT … ON CONFLICT` into `brainstrike_assistant_run_events`, run by
-`runCriticalDatabaseOperation` on the **foreground** lane of the desktop
-`DatabaseWorkScheduler`, then on the PGlite DB host. Every finished step writes
-one (`run.step.finished`), and so does every tool start and finish.
+An actual Send creates the host-owned thread. Every timed probe uses that
+recorded configuration, a new command ID, the same fixed prompt, and no parent
+message, so ancestry does not grow between samples. Core remains the only
+writer. Timing ends at the public `run/start` acknowledgement, not first token,
+`model.step` full-durability append, terminal completion, or renderer display.
 
-- It is the one database operation every streamed step performs, so it is
-  what a chatting user waits on while a build runs.
-- It is a short, single-statement append, the same shape as the M3 run-log
-  append that replaces it, so the BEFORE/AFTER comparison is like for like.
-- It runs on the foreground scheduler lane, so it measures exactly what the
-  scheduler's 75 ms foreground quiet window and 250 ms background starvation
-  rule do to foreground work under load.
-- Mastra's per-step message save also runs on that lane, but it is a
-  transaction whose cost scales with message size; that would add variance
-  unrelated to contention.
-
-The probe writes the same event shape `agent-streaming.ts` mints (kind, status,
-label, step metadata plus `finishReason`) for a seeded `running` run, as during
-a real turn.
+A standard public HostClient observer subscribes before dispatch. Each sample
+must then receive a committed successful `run.finished` for its acknowledged
+run, outside the measured interval, before the next paced request. Admission
+refusal, non-successful terminal outcome, or observer loss invalidates the run.
+The E2E owner joins observer retirement and outstanding probes, retaining
+independent failures; it adds no production API, timeout, or retry.
 
 #### Tool read: why the index query targets a path that is never indexed
 
 The ratio only means contention if the work is identical idle and loaded. The
 file read reads the same corpus file every time. The index query is the grep
 tool's query scoped to `packages/foreground-latency-probe/never-indexed.ts`,
-which no build ever writes: it costs one `file_records.path` index probe and
-returns nothing, in both phases. Pointing it at a corpus file would return zero
-rows idle and real rows once that file is indexed, so the ratio would mix data
-growth into contention. Like the grep tool, this query runs on main's
-database handle without the scheduler.
+which no build ever writes. The native query uses the current authorized
+collection and roots in both phases. Pointing it at a corpus file would return
+zero rows idle and real rows once indexed, mixing data growth with contention.
+A refused or failed native query invalidates the sample; it never falls back
+to PGlite or a fabricated empty result.
 
 ### Running it
 
@@ -158,23 +163,11 @@ spec reads:
 running anything. With `--require-device`, both the configured and the actual
 embedding device must match, or the command fails.
 
-In CI, the `Desktop Foreground Latency Benchmark` job in
-`.github/workflows/desktop-e2e.yml` runs nightly and on dispatch, never on pull
-requests:
+Cloud workflows remain disabled. The historical CI measurements below do not
+authorize dispatching a workflow. Use the same host, device, corpus, probe
+revision, pacing, windows, and validity floors for a new comparison.
 
-```bash
-gh workflow run desktop-e2e.yml --ref <branch> -f suite=foreground-latency
-```
-
-Runners have no GPU, so CI embeds on `wasm` with 60 files. The evidence is the
-`desktop-foreground-latency-evidence` artifact.
-
-Compare a change only against BEFORE numbers from the same environment, device
-and corpus. Local and CI numbers measure different load: WebGPU on an M4 Max
-completes about 42 chunks/s and keeps the DB host busy; WASM on a 2-vCPU runner
-completes under 2 chunks/s, so its load is mostly CPU.
-
-### Native index runs
+### Historical native index runs (legacy DB probes)
 
 One local run, 2026-10-09, evidence schema v2: app at `1d627efcb` with the
 `473986260` spec, on the M3 integration branch. Apple M4 Max, Electron 44.4.5,

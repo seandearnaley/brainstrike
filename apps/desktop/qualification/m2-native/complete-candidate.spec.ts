@@ -119,7 +119,8 @@ for (const mode of ['TEXT', 'VECTOR'] as const) {
         retained: await requireHit(context, 'M2RetainedBefore', retained, semantic),
       });
       const rejected = await context.window.evaluate(async () => {
-        const capability = (window as unknown as PublicBridges).indexSearch;
+        const capability = (window as unknown as PublicBridges).__brainstrikeTestHooks__
+          ?.indexSearch;
         if (!capability) {
           throw new Error('Scoped capability missing.');
         }
@@ -350,7 +351,8 @@ for (const mode of ['TEXT', 'VECTOR'] as const) {
       }, rootId);
       expect(remaining).toEqual([]);
       const revoked = await context.window.evaluate(async (rootId) => {
-        const capability = (window as unknown as PublicBridges).indexSearch;
+        const capability = (window as unknown as PublicBridges).__brainstrikeTestHooks__
+          ?.indexSearch;
         if (!capability) {
           throw new Error('Scoped capability missing.');
         }

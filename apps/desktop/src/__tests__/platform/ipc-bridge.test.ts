@@ -1,5 +1,7 @@
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
+import { readBoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import { describe, expect, it, vi } from 'vitest';
-import { createBridgeExposer, createIpcBridge, unwrapIpcResult } from '../../platform/ipc-bridge';
+import { createBridgeExposer, createIpcBridge } from '../../platform/ipc-bridge';
 import {
   type Contract,
   channel,
@@ -31,28 +33,27 @@ function createIpcRenderer() {
 }
 
 describe('createIpcBridge', () => {
-  it('routes an ipc-result channel to its manifest channel and unwraps the reply', async () => {
+  it('routes an ipc-result channel and transports the plain envelope unchanged', async () => {
     const ipcRenderer = createIpcRenderer();
     ipcRenderer.invoke.mockResolvedValueOnce({ ok: true, value: 7 });
     const bridge = createIpcBridge(ipcRenderer, contract);
 
-    await expect(bridge.writeText('hello')).resolves.toBe(7);
+    await expect(bridge.writeText('hello')).resolves.toEqual({ ok: true, value: 7 });
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('fixture:write-text', 'hello');
   });
 
-  it('turns an ok:false envelope into a clean Error carrying the taxonomy', async () => {
+  it('transports refusal data without throwing inside the contextBridge', async () => {
     const ipcRenderer = createIpcRenderer();
-    ipcRenderer.invoke.mockResolvedValueOnce({
-      error: { category: 'clipboard', code: 'write_failed', message: 'clipboard locked' },
-      ok: false,
-    });
+    const failure = {
+      category: 'availability',
+      code: 'clipboard.unavailable',
+      kind: 'refusal',
+      message: 'Clipboard is unavailable.',
+      remedy: 'Try again.',
+    };
+    ipcRenderer.invoke.mockResolvedValueOnce({ error: failure, ok: false });
     const bridge = createIpcBridge(ipcRenderer, contract);
-
-    await expect(bridge.writeText('hello')).rejects.toMatchObject({
-      category: 'clipboard',
-      code: 'write_failed',
-      message: 'clipboard locked (clipboard · write_failed)',
-    });
+    await expect(bridge.writeText('hello')).resolves.toEqual({ error: failure, ok: false });
   });
 
   it('passes a raw channel reply through untouched', async () => {
@@ -91,16 +92,12 @@ describe('unwrapIpcResult', () => {
   it.each([undefined, null, 'ok', { value: 1 }, { ok: 'yes' }])(
     'rejects a malformed result envelope %p by name',
     (reply) => {
-      expect(() => unwrapIpcResult('fixture:x', reply)).toThrow(
-        'Desktop IPC fixture:x returned a malformed result envelope.'
-      );
+      expect(() => readBoundaryResult(reply)).toThrow(INTERNAL_FAULT.message);
     }
   );
 
   it('rejects an ok:false envelope whose error lacks the taxonomy', () => {
-    expect(() => unwrapIpcResult('fixture:x', { error: 'boom', ok: false })).toThrow(
-      'Desktop IPC fixture:x returned a malformed failure envelope.'
-    );
+    expect(() => readBoundaryResult({ error: 'boom', ok: false })).toThrow(INTERNAL_FAULT.message);
   });
 });
 

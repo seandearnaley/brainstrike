@@ -187,7 +187,11 @@ function settingsSaved(
   settings: NativeIndexSettings
 ): NativeIndexTransition {
   const live = liveSettings(state);
-  if (live === null || !sameConfiguration(live, settings)) {
+  if (
+    live === null ||
+    !sameConfiguration(live, settings) ||
+    (state.kind === 'failed' && state.cause.recovery !== 'sources')
+  ) {
     return open(state, settings);
   }
   if (live.paused !== settings.paused) {
@@ -409,11 +413,16 @@ export function reduceNativeIndex(
     case 'opened':
       return opened(state, event.generation);
     case 'prepare-pause': {
-      const settings = liveSettings(state);
-      if (settings === null) {
+      // A failed open retains its settings, not a ready writer. Only an explicit
+      // source-retirement failure can retry source cancellation in place.
+      if (
+        state.kind !== 'ready' &&
+        state.kind !== 'pausing' &&
+        !(state.kind === 'failed' && state.cause.recovery === 'sources')
+      ) {
         return unchanged(state);
       }
-      const paused = { ...settings, paused: true };
+      const paused = { ...state.settings, paused: true };
       return {
         actions: [{ kind: 'apply-sources', settings: paused }],
         state: {

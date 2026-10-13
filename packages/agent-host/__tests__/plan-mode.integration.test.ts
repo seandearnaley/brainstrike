@@ -3,6 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_PERMISSION_POLICIES } from '@brainstrike/assistant-contract';
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import { StateStore } from '@brainstrike/state-store';
 import { MockLanguageModelV4, simulateReadableStream } from 'ai/test';
 import { afterEach, expect, test } from 'vitest';
@@ -10,6 +11,7 @@ import { z } from 'zod';
 import { HostCore } from '../src/core.js';
 import type { HostPlatform, HostRunAdmissionRequest } from '../src/ports.js';
 import type { HostEvent, HostLogRow } from '../src/protocol.js';
+import { captureHostFailureDiagnostics } from './fixtures/host-failure-diagnostics.js';
 
 type Started = Extract<HostEvent, { type: 'run.started' }>;
 type Requested = Extract<HostEvent, { type: 'interaction.requested' }>;
@@ -244,6 +246,7 @@ test('rejecting a plan keeps its run in plan mode', async () => {
 });
 
 test('a follow-up run that cannot start is committed as the thread’s failed next run', async () => {
+  const diagnostics = captureHostFailureDiagnostics();
   const cause = 'The provider refused the follow-up admission';
   const { core, threadId } = await openHost({ followUpFails: cause });
   const { runId } = await core.startRun({
@@ -277,6 +280,11 @@ test('a follow-up run that cannot start is committed as the thread’s failed ne
   });
   expect(rows.flatMap((row) => (row.event.type === 'run.finished' ? [row.event] : []))).toEqual([
     expect.objectContaining({ outcome: 'completed', runId }),
-    expect.objectContaining({ detail: cause, outcome: 'failed', runId: started[1]?.runId }),
+    expect.objectContaining({
+      detail: INTERNAL_FAULT.message,
+      outcome: 'failed',
+      runId: started[1]?.runId,
+    }),
   ]);
+  diagnostics.expectCause(cause);
 });

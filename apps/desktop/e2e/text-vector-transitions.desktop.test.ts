@@ -60,8 +60,11 @@ async function waitForIndex(page: Page, mode: 'text-only' | 'vector-configured')
     .poll(
       async () =>
         await page.evaluate(async (expected) => {
-          const capability = (window as Window & { readonly indexSearch?: IndexSearchCapability })
-            .indexSearch;
+          const capability = (
+            window as Window & {
+              readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
+            }
+          ).__brainstrikeTestHooks__?.indexSearch;
           if (!capability) {
             throw new Error('The native index capability is unavailable');
           }
@@ -98,8 +101,11 @@ async function waitForIndex(page: Page, mode: 'text-only' | 'vector-configured')
 /** Native text search hits for the marker: each hit's file and the partition it belongs to. */
 async function textHits(page: Page): Promise<{ path: string; set: string | null }[]> {
   return await page.evaluate(async (needle) => {
-    const capability = (window as Window & { readonly indexSearch?: IndexSearchCapability })
-      .indexSearch;
+    const capability = (
+      window as Window & {
+        readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
+      }
+    ).__brainstrikeTestHooks__?.indexSearch;
     if (!capability) {
       throw new Error('The native index capability is unavailable');
     }
@@ -124,9 +130,9 @@ async function semanticFinds(page: Page, phrase: string): Promise<boolean> {
   return await page.evaluate(async (query) => {
     const bridges = window as Window & {
       readonly embeddingHost?: VisibleEmbeddingHostBridge;
-      readonly indexSearch?: IndexSearchCapability;
+      readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
     };
-    const capability = bridges.indexSearch;
+    const capability = bridges.__brainstrikeTestHooks__?.indexSearch;
     const bridge = bridges.embeddingHost;
     if (!(capability && bridge && 'queryEmbedding' in bridge)) {
       throw new Error('Native search/query bridge unavailable');
@@ -139,13 +145,17 @@ async function semanticFinds(page: Page, phrase: string): Promise<boolean> {
     ) {
       throw new Error('The selected collection has no ready semantic query plan');
     }
-    const vector = await bridge.queryEmbedding({
+    const response = await bridge.queryEmbedding({
       dimensions: status.embedding.profile.dimensions,
       modelId: status.embedding.profile.modelId,
       modelKey: status.queryPlan.modelKey,
       query,
       ...(status.queryPlan.inferencePlan ? { inferencePlan: status.queryPlan.inferencePlan } : {}),
     });
+    if (!response.ok) {
+      throw new Error(JSON.stringify(response.error));
+    }
+    const vector = response.value;
     const result = await capability.search({
       limit: 5,
       mode: 'vector',

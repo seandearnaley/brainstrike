@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
 import type { StateMessageUpsert, StateMessageVectorPort } from '@brainstrike/indexer';
 import { RootLock, RootLockedError, StateStore } from '@brainstrike/state-store';
 import { afterEach, beforeEach, expect, test, vi } from 'vitest';
 import type { HostResults } from '../src/protocol.js';
+import { captureHostFailureDiagnostics } from './fixtures/host-failure-diagnostics.js';
 import {
   deterministicEmbedding,
   failureReceipt,
@@ -162,6 +164,7 @@ test.each([
 ] as const)(
   'actual Core $operation joins an independent $boundary failure after cancellation and releases the run',
   async ({ boundary, operation }) => {
+    const diagnostics = captureHostFailureDiagnostics();
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
     const inferenceFailure = new DOMException(
@@ -233,8 +236,9 @@ test.each([
           .find((event) => event.type === 'run.finished');
         expect(finished).toMatchObject({ outcome: 'stopped', type: 'run.finished' });
         const detail = finished?.type === 'run.finished' ? finished.detail : undefined;
-        expect(detail).toContain('Memory save failed');
-        expect(detail).toContain(
+        expect(detail).toBe(INTERNAL_FAULT.message);
+        diagnostics.expectCause('Memory save failed');
+        diagnostics.expectCause(
           boundary === 'inference' ? inferenceFailure.message : 'Run stopped by user'
         );
       } else {

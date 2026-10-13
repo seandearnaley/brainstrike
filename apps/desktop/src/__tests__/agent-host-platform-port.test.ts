@@ -1,9 +1,17 @@
 // @vitest-environment node
+
 import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { MessageChannel, type MessagePort } from 'node:worker_threads';
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract';
+import { addLogListener, type LogRecord } from '@brainstrike/logging';
 import { expect, it, vi } from 'vitest';
-import { CancellationTokenSource, type MessageConnection } from 'vscode-jsonrpc/node';
+import {
+  CancellationTokenSource,
+  ErrorCodes,
+  type MessageConnection,
+  ResponseError,
+} from 'vscode-jsonrpc/node';
 import {
   mainPlatformConnection,
   type PlatformMessagePort,
@@ -13,6 +21,8 @@ import {
   type DesktopPlatformCapabilities,
   serveDesktopPlatform,
 } from '../agent-host-platform/main-platform';
+import { canonicalError, canonicalFault } from '../canonical-utility-protocol';
+import { HostedEmbeddingError } from '../hosted-embedding-error';
 import { createDesktopMcpPlatformCapabilities } from '../mcp/desktop-host-platform';
 import { MainMcpHostControl } from '../mcp/main-host-control';
 import { mainReads } from './fixtures/desktop-admission-reads';
@@ -239,6 +249,8 @@ it('an aborted acquisition returns the arriving borrow and keeps its cleanup fai
     })
   );
   const cancellation = new CancellationTokenSource();
+  const records: LogRecord[] = [];
+  const unsubscribe = addLogListener((record) => records.push(record));
   try {
     const acquired = acquire(h.client, cancellation.token);
     acquired.catch(() => undefined);
@@ -249,13 +261,31 @@ it('an aborted acquisition returns the arriving borrow and keeps its cleanup fai
     expect(close).not.toHaveBeenCalled();
     release.resolve();
     const failure = await acquired.catch((cause: unknown) => cause);
-    expect(failure).toBeInstanceOf(Error);
-    expect(String(failure)).toContain('Workspace acquisition and cleanup failed');
+    expect(failure).toBeInstanceOf(ResponseError);
+    const response = failure as ResponseError<unknown>;
+    expect(response.code).toBe(ErrorCodes.InternalError);
+    expect(response.data).toEqual({ ...INTERNAL_FAULT, correlationId: expect.any(String) });
+    const correlationId = (response.data as { correlationId: string }).correlationId;
+    const fields = records
+      .flatMap((record) => record.args)
+      .find(
+        (arg) =>
+          typeof arg === 'object' &&
+          arg !== null &&
+          'correlationId' in arg &&
+          arg.correlationId === correlationId
+      ) as { error: { name: string; errors: readonly { message: string }[] } };
+    expect(fields.error.name).toBe('AggregateError');
+    expect(fields.error.errors.map((error) => error.message)).toEqual([
+      signal.reason.message,
+      cleanup.message,
+    ]);
     expect(close).toHaveBeenCalledTimes(1);
     // The refused borrow is not held: closing Main returns nothing twice.
     await h.owner.close();
     expect(close).toHaveBeenCalledTimes(1);
   } finally {
+    unsubscribe();
     release.resolve();
     cancellation.dispose();
     h.destroy();
@@ -473,6 +503,48 @@ it('serves the diagnostics store to the host', async () => {
       })
     ).resolves.toEqual([]);
     expect(diagnostics.events).toHaveBeenCalledWith({ limit: 5 });
+  } finally {
+    h.destroy();
+  }
+});
+
+it('returns a typed missing-key refusal from the real Main index status handler', async () => {
+  const original = new HostedEmbeddingError(
+    'missing-key',
+    'No API key configured for the embedding provider.',
+    { cause: new Error('private missing-key fixture') }
+  );
+  const aggregate = canonicalError(
+    canonicalFault(
+      new AggregateError([original, original], 'Canonical inference and retirement failed.')
+    )
+  );
+  const indexSearch = {
+    coverage: vi.fn(),
+    coverageBatch: vi.fn(),
+    grep: vi.fn(),
+    rebuild: vi.fn(),
+    search: vi.fn(),
+    status: vi.fn(async () => {
+      throw aggregate;
+    }),
+  };
+  const h = harness(mainReads(), undefined, { indexSearch });
+  try {
+    const received: unknown = await h.client
+      .sendRequest('desktop-read/index/status', { request: {}, threadId: 'thread' })
+      .catch((error: unknown) => error);
+    expect(received).toMatchObject({
+      code: -32_001,
+      data: {
+        category: 'configuration',
+        code: 'embedding.missing-key',
+        correlationId: expect.any(String),
+        kind: 'refusal',
+        remedy: expect.any(String),
+      },
+    });
+    expect(JSON.stringify(received)).not.toContain('private missing-key fixture');
   } finally {
     h.destroy();
   }

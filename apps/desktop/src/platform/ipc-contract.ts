@@ -11,6 +11,7 @@
  * be registered without authorization (`registerDomain` has no
  * unauthenticated path). See `docs/agents/platform-contracts.md`.
  */
+import type { BoundaryFailure } from '@brainstrike/assistant-contract/boundary-failure';
 import type { DesktopWindowRole } from '../window-role';
 
 export type IpcChannelName = `${string}:${string}`;
@@ -23,11 +24,7 @@ export type IpcSenderRoles = readonly [DesktopWindowRole, ...DesktopWindowRole[]
  * travel as an envelope and the preload rebuilds a clean Error carrying
  * exactly these three fields.
  */
-export interface IpcFailure {
-  readonly category: string;
-  readonly code: string;
-  readonly message: string;
-}
+export type IpcFailure = BoundaryFailure;
 
 export type IpcResult<T> =
   | { readonly ok: true; readonly value: T }
@@ -37,17 +34,13 @@ export function ipcOk<T>(value: T): IpcResult<T> {
   return { ok: true, value };
 }
 
-export function ipcFailure<T = never>(
-  category: string,
-  code: string,
-  message: string
-): IpcResult<T> {
-  return { error: { category, code, message }, ok: false };
+export function ipcFailure<T = never>(error: IpcFailure): IpcResult<T> {
+  return { error, ok: false };
 }
 
 /**
- * `ipc-result`: the handler returns `IpcResult<Result>`; the preload bridge
- * unwraps it into `Promise<Result>` and throws a clean Error on `ok: false`.
+ * `ipc-result`: the handler returns `IpcResult<Result>`; the preload transports the envelope;
+ * the renderer capability decodes it into `Promise<Result>`.
  * `raw`: the handler's return value crosses untouched — for domains whose
  * consumers already read a typed envelope of their own (`GitResult`,
  * `TerminalResult`, `NotesVaultResult`) and never throw across IPC.
@@ -124,6 +117,15 @@ export type Handlers<C extends Contract> = {
 export type Bridge<C extends Contract> = {
   [K in keyof C]: C[K] extends IpcChannel<infer Args, infer Result, IpcEnvelope>
     ? (...args: Args) => Promise<Result>
+    : C[K] extends IpcEvent<infer Payload>
+      ? (callback: (payload: Payload) => void) => () => void
+      : never;
+};
+
+/** Actual preload transport: invoke results remain envelopes across contextBridge. */
+export type TransportBridge<C extends Contract> = {
+  [K in keyof C]: C[K] extends IpcChannel<infer Args, infer Result, infer Envelope>
+    ? (...args: Args) => Promise<Envelope extends 'ipc-result' ? IpcResult<Result> : Result>
     : C[K] extends IpcEvent<infer Payload>
       ? (callback: (payload: Payload) => void) => () => void
       : never;

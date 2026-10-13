@@ -6,7 +6,8 @@
     "@brainstrike/logging": "workspace:*",
     "@brainstrike/types": "workspace:*",
     "ignore": "catalog:",
-    "minimatch": "catalog:"
+    "minimatch": "catalog:",
+    "@brainstrike/assistant-contract": "workspace:*"
   },
   "devDependencies": {
     "@brainstrike/file-tree-test-fixtures": "workspace:*",

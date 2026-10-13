@@ -224,3 +224,77 @@ describe('streaming completion request correlation', () => {
     expect(worker.terminate).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('device-loss recovery', () => {
+  it('retains failed physical termination and never advertises a replaceable worker', async () => {
+    const worker = new CompletionMockWorker();
+    const retirement = new Error('worker termination failed');
+    worker.terminate.mockImplementation(() => {
+      throw retirement;
+    });
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+    const outcome = client.stream(createRequest()).catch((error: unknown) => error);
+    await Promise.resolve();
+    worker.emitMessage({
+      cause: 'destroyed',
+      code: 'EMBEDDING_DEVICE_LOST',
+      id: 'completion-request',
+      message: 'device lost',
+      type: 'error',
+    });
+    const failure = await outcome;
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect((failure as AggregateError).errors).toEqual([
+      expect.objectContaining({ code: 'EMBEDDING_DEVICE_LOST' }),
+      retirement,
+    ]);
+    expect(client.hasRetiredDeviceLoss).toBe(false);
+    await expect(client.stream(createRequest())).rejects.toBe(failure);
+  });
+
+  it('fences idle loss without fabricating an active request error', async () => {
+    const worker = new CompletionMockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+    worker.emitMessage({
+      cause: 'destroyed',
+      code: 'EMBEDDING_DEVICE_LOST',
+      message: 'device lost',
+      type: 'worker-lifetime-error',
+      workerInstanceId: 'idle-worker',
+    });
+    expect(worker.terminate).toHaveBeenCalledOnce();
+    await expect(client.stream(createRequest())).rejects.toMatchObject({
+      code: 'EMBEDDING_DEVICE_LOST',
+    });
+    expect(worker.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('retires the worker and fences queued requests after typed device loss', async () => {
+    const worker = new CompletionMockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+    const first = client.stream(createRequest());
+    await Promise.resolve();
+    worker.emitMessage({
+      cause: 'destroyed: test device',
+      code: 'EMBEDDING_DEVICE_LOST',
+      id: 'completion-request',
+      message: 'device lost',
+      type: 'error',
+    });
+    await expect(first).rejects.toMatchObject({
+      cause: 'destroyed: test device',
+      code: 'EMBEDDING_DEVICE_LOST',
+      name: 'DeviceLost',
+    });
+    expect(worker.terminate).toHaveBeenCalledOnce();
+    expect(client.hasRetiredDeviceLoss).toBe(true);
+    const posted = worker.postMessage.mock.calls.length;
+    await expect(client.stream({ ...createRequest(), id: 'explicit-retry' })).rejects.toMatchObject(
+      {
+        code: 'EMBEDDING_DEVICE_LOST',
+      }
+    );
+    expect(worker.postMessage).toHaveBeenCalledTimes(posted);
+    client.terminate();
+  });
+});

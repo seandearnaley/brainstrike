@@ -156,7 +156,7 @@ describe('hidden preload runtime capability manifest', () => {
     expect(Object.keys(integrity).sort()).toEqual(Object.keys(databaseIntegrityContract).sort());
     const snapshot = { revision: 2, state: { kind: 'healthy' } };
     invokeMock.mockResolvedValueOnce({ ok: true, value: snapshot });
-    await expect(integrity['getState']?.()).resolves.toEqual(snapshot);
+    await expect(integrity['getState']?.()).resolves.toEqual({ ok: true, value: snapshot });
     expect(invokeMock).toHaveBeenLastCalledWith('db:integrity:state');
 
     integrity['onChanged']?.(vi.fn());

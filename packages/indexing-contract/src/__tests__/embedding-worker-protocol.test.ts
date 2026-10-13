@@ -122,6 +122,21 @@ describe('assertEmbedWorkerLifetimeError', () => {
     ).toThrow('requires a message');
   });
 
+  it('accepts the explicit device-loss discriminator and refuses unknown codes', () => {
+    const event = {
+      cause: 'destroyed: device1',
+      message: 'WebGPU device was lost. Choose the model again to retry.',
+      type: 'worker-lifetime-error',
+      workerInstanceId: 'worker-device-loss',
+    };
+    expect(() =>
+      assertEmbedWorkerLifetimeError({ ...event, code: 'EMBEDDING_DEVICE_LOST' })
+    ).not.toThrow();
+    expect(() => assertEmbedWorkerLifetimeError({ ...event, code: 'unrecognized' })).toThrow(
+      'invalid code'
+    );
+  });
+
   it('rejects a non-string optional cause and a missing worker identity', () => {
     expect(() =>
       assertEmbedWorkerLifetimeError({

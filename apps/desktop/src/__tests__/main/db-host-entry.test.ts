@@ -304,6 +304,7 @@ describe('db-host-entry', () => {
       (message) => message['kind'] === 'log' && message['message'] === 'DB host request failed'
     );
     expect(failureLog).toBeDefined();
+    // The stack the wire no longer carries stays in the host's own log.
     expect((failureLog?.['context'] as { error?: unknown } | undefined)?.error).toEqual({
       code: 'XX002',
       file: 'nbtpage.c',
@@ -311,8 +312,10 @@ describe('db-host-entry', () => {
       name: 'Error',
       routine: '_bt_checkpage',
       schema: 'public',
+      stack: expect.stringContaining('index "idx_chunks" contains unexpected zero page'),
       table: 'brainstrike_chunks',
     });
+    expect(wireError).not.toHaveProperty('stack');
   });
 
   it('escapes literal percents for live query params before calling PGlite', async () => {

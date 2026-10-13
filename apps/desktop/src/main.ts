@@ -1249,7 +1249,11 @@ if (singleInstanceLockAcquired) {
   const e2eTestMode = isElectronE2ETestMode();
   if (e2eTestMode) {
     // The loaded foreground-latency benchmark times main-process operations (BST-1925).
-    installE2eForegroundLatencyProbes();
+    installE2eForegroundLatencyProbes({
+      acquireProfile: nativeIndexActivation.acquireProfile,
+      hostRequest: (method, params) => agentHostMainClient.request(method, params),
+      index: nativeIndexSearch,
+    });
   }
 
   const workspaceOpenQueue = desktopBootstrap.workspaceOpenQueue;

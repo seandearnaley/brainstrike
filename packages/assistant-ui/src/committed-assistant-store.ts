@@ -5,6 +5,7 @@ import {
   MessageNotSentError,
   type ThreadMessage,
 } from '@assistant-ui/react';
+import { describeBoundaryError, refusalError } from '@brainstrike/assistant-contract';
 import type { ThreadTokenUsage } from './context-usage-store';
 import type { LiveShellOutputs } from './live-shell-outputs';
 
@@ -105,7 +106,11 @@ function connectedPort<Args extends readonly unknown[], Result>(
       snapshot.error !== undefined ||
       snapshot.isDisabled
     ) {
-      throw new Error(snapshot.error ?? 'The agent host is unavailable.');
+      throw refusalError(
+        'availability',
+        'host.unavailable',
+        snapshot.error ?? 'The agent host is unavailable.'
+      );
     }
     return command(...args);
   };
@@ -139,7 +144,7 @@ export function bindCommittedAssistantCommands(
           throw cause;
         }
         if (restoresDraft && !dispatched) {
-          throw new MessageNotSentError(cause instanceof Error ? cause.message : String(cause));
+          throw new MessageNotSentError(describeBoundaryError(cause));
         }
       }
     };
@@ -178,7 +183,11 @@ export function bindCommittedAssistantCommands(
     onImport: synchronousPort(
       commands.onImport ??
         (() => {
-          throw new Error('The agent host does not support importing conversations.');
+          throw refusalError(
+            'configuration',
+            'host.import-unsupported',
+            'The agent host does not support importing conversations.'
+          );
         })
     ),
     onNew: (message) => {

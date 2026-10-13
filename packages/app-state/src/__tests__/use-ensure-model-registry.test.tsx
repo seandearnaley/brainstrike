@@ -29,8 +29,10 @@ describe('useEnsureModelRegistry after a failed registry fetch', () => {
     const db = { query } as unknown as IDatabase;
     renderHook(() => useEnsureModelRegistry({ db }));
     await waitFor(() => {
-      expect(useModelRegistryStore.getState().error).toBe('registry unavailable');
+      expect(useModelRegistryStore.getState().error).toEqual(expect.any(String));
     });
+    const retainedError = useModelRegistryStore.getState().error;
+    expect(retainedError).not.toBe('');
     expect(registryFetches(query)).toBe(1);
 
     const errors: (string | null)[] = [];
@@ -42,7 +44,7 @@ describe('useEnsureModelRegistry after a failed registry fetch', () => {
     unsubscribe();
     expect(registryFetches(query)).toBe(1);
     expect(errors).not.toContain(null);
-    expect(later.result.current).toBe('registry unavailable');
+    expect(later.result.current).toBe(retainedError);
 
     // Retry and the header Refresh call fetchRegistry directly.
     query.mockResolvedValue({ rows: [] });

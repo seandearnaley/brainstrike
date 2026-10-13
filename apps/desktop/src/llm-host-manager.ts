@@ -576,7 +576,6 @@ export class LlmHostManager {
         error: report.payload.errorMessage,
         requestId: report.requestId,
         runtimeId: report.runtimeId,
-        ...(report.payload.errorStack ? { stack: report.payload.errorStack } : {}),
         ...(report.payload.errorDetails ? { errorDetails: report.payload.errorDetails } : {}),
       });
       const enrichedMessage =

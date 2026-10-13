@@ -715,6 +715,14 @@ export function redactSensitiveLogValue(
     if (value.cause !== undefined) {
       redacted['cause'] = redactSensitiveLogValue(value.cause, [...path, 'cause'], seen, options);
     }
+    // AggregateError.errors is also non-enumerable. Keep every independent
+    // failure on the same recursive redaction path before Pino serializes it.
+    if ('errors' in value && Array.isArray(value.errors)) {
+      const errorsPath = [...path, 'errors'];
+      redacted['errors'] = isSensitiveLogKey('errors', errorsPath)
+        ? '[REDACTED]'
+        : redactSensitiveLogValue(value.errors, errorsPath, seen, options);
+    }
   }
   for (const [key, entry] of Object.entries(value)) {
     const entryPath = [...path, key];

@@ -1,4 +1,9 @@
-import { type GuardedToolError, ToolInputError } from '@brainstrike/assistant-contract';
+import {
+  BoundaryFailureError,
+  describeBoundaryFailure,
+  type GuardedToolError,
+  ToolInputError,
+} from '@brainstrike/assistant-contract';
 import { readToolCallId, readToolExecutionThreadId } from './read-tool-call-id';
 import type { ToolGuardBudget } from './resolve-tool-guard-budget';
 import type { ToolExecutionDurations } from './tool-execution-durations';
@@ -182,6 +187,18 @@ export function guardToolExecution<T>(tool: T, options: GuardOptions): T {
           error: {
             code: error.code,
             message: boundToolInputErrorMessage(error.message),
+            toolName,
+          },
+          ok: false,
+        };
+      }
+      // A typed refusal from another process is as model-readable as an input
+      // error; a typed fault stays behind the fixed text, like any other throw.
+      if (error instanceof BoundaryFailureError && error.failure.kind === 'refusal') {
+        return {
+          error: {
+            code: 'tool_input_invalid',
+            message: boundToolInputErrorMessage(describeBoundaryFailure(error.failure)),
             toolName,
           },
           ok: false,
