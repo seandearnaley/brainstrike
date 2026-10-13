@@ -51,3 +51,33 @@ it('does not discard saved tabs when the authoritative catalog fails to load', a
   ]);
   expect(repository.createThread).not.toHaveBeenCalled();
 });
+
+it('a successful New cannot replace a failed authoritative catalog read', async () => {
+  const repository = createRepository([]);
+  vi.mocked(repository.listThreads).mockRejectedValueOnce(new Error('Host catalog unavailable'));
+  useAssistantThreadStore.setState({
+    activeThreadIdByResourceId: { [workspaceId]: 'saved-current' },
+    openThreadIdsByResourceId: { [workspaceId]: ['saved-current'] },
+    selectedThreadByResourceId: { [workspaceId]: 'saved-current' },
+  });
+  await expect(
+    useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId)
+  ).rejects.toThrow('Host catalog unavailable');
+  await expect(
+    useAssistantThreadStore.getState().createThread(repository, workspaceId)
+  ).rejects.toThrow('Host catalog unavailable');
+  expect(repository.createThread).not.toHaveBeenCalled();
+  expect(useAssistantThreadStore.getState().loadStateByResourceId[workspaceId]).toEqual({
+    error: 'Host catalog unavailable',
+    status: 'error',
+  });
+  expect(useAssistantThreadStore.getState().activeThreadIdByResourceId[workspaceId]).toBe(
+    'saved-current'
+  );
+  await useAssistantThreadStore.getState().ensureResourceThreads(repository, workspaceId);
+  expect(repository.listThreads).toHaveBeenCalledTimes(2);
+  expect(repository.createThread).toHaveBeenCalledTimes(1);
+  expect(useAssistantThreadStore.getState().loadStateByResourceId[workspaceId]).toEqual({
+    status: 'ready',
+  });
+});
