@@ -1,4 +1,5 @@
 import type { ElectronVectorPreferencesBridge } from '@brainstrike/app-state/stores/vector-preferences-store';
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { ChunkResult } from '@brainstrike/chunking-worker';
 import type { DatabaseWorkOptions, DesktopDatabaseBridge } from '@brainstrike/db';
 import type { DirectoryHandle, FileHandle } from '@brainstrike/file-system';
@@ -228,7 +229,7 @@ export interface VisibleEmbeddingHostBridge {
   queryEmbedding: (
     payload: EmbeddingHostQueryEmbeddingPayload,
     options?: { readonly requestId: string }
-  ) => Promise<number[]>;
+  ) => Promise<BoundaryResult<number[]>>;
   reportDocumentEmbeddingsResponse: (
     response: EmbeddingHostDocumentEmbeddingsResponseReport
   ) => void;

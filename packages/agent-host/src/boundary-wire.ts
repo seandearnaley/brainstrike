@@ -24,6 +24,14 @@ function typedFailure(cause: unknown): BoundaryFailure | undefined {
   if (cause instanceof BoundaryFailureError) {
     return cause.failure;
   }
+  if (cause instanceof Error && 'code' in cause && cause.code === 'EMBEDDING_DEVICE_LOST') {
+    return fault({
+      category: 'availability',
+      code: 'EMBEDDING_DEVICE_LOST',
+      message: 'WebGPU device was lost.',
+      remedy: 'Choose the model again to retry.',
+    });
+  }
   if (cause instanceof ToolInputError) {
     return {
       category: 'input',
@@ -51,7 +59,7 @@ export function toBoundaryFailure(cause: unknown, log: BoundaryLog): BoundaryFai
   }
   if (typed) {
     // A typed fault's inner cause stays here, logged under its correlation id.
-    const inner = cause instanceof Error ? cause.cause : undefined;
+    const inner = cause instanceof BoundaryFailureError ? cause.cause : cause;
     const correlationId = typed.correlationId ?? crypto.randomUUID();
     if (inner !== undefined) {
       log('A typed fault crossed a process boundary', {

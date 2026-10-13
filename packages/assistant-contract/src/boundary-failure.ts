@@ -28,6 +28,7 @@ const BoundaryFailureCode = z.union([
   z.string().regex(/^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$/),
   // Existing native-index refusal codes are consumed by the Ready re-run seam.
   z.enum([
+    'EMBEDDING_DEVICE_LOST',
     'native-index-transitioning',
     'native-index-closed',
     'native-index-setup-required',

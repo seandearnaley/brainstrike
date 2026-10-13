@@ -1,3 +1,5 @@
+import type { IpcResult } from './platform/ipc-contract';
+
 // Electron preload script. `electron` is the ONE runtime require a sandboxed
 // preload can resolve; every other import below is either type-only (erased)
 // or a PURE relative module that `scripts/build-main-config.mjs` inlines into
@@ -602,9 +604,9 @@ if (shouldExposeBridge('runtime')) {
 
 if (shouldExposeBridge('logging')) {
   contextBridge.exposeInMainWorld('logging', {
-    getBufferedLogs: (): Promise<LogRecord[]> =>
+    getBufferedLogs: (): Promise<IpcResult<LogRecord[]>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.getBufferedLogs),
-    getPreferences: (): Promise<LoggingSettingsPayload> =>
+    getPreferences: (): Promise<IpcResult<LoggingSettingsPayload>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.getPreferences),
     ingestBufferedRecord: (record: LogRecord): void => {
       ipcRenderer.send(DESKTOP_IPC_CHANNELS.logging.ingestBufferedRecord, record);
@@ -623,11 +625,11 @@ if (shouldExposeBridge('logging')) {
         ipcRenderer.removeListener(DESKTOP_IPC_CHANNELS.logging.preferencesUpdated, listener);
       };
     },
-    openDestination: (target: string | null): Promise<boolean> =>
+    openDestination: (target: string | null): Promise<IpcResult<boolean>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.openDestination, target ?? null),
-    selectDestination: (): Promise<string | null> =>
+    selectDestination: (): Promise<IpcResult<string | null>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.selectDestination),
-    setPreferences: (preferences: LoggingPreferences): Promise<LoggingSettingsPayload> =>
+    setPreferences: (preferences: LoggingPreferences): Promise<IpcResult<LoggingSettingsPayload>> =>
       ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.logging.setPreferences, preferences),
   });
 }
@@ -841,7 +843,7 @@ const embeddingHost = {
   queryEmbedding: (
     payload: EmbeddingHostQueryEmbeddingPayload,
     options?: { readonly requestId: string }
-  ): Promise<number[]> =>
+  ): Promise<IpcResult<number[]>> =>
     ipcRenderer.invoke(DESKTOP_IPC_CHANNELS.embeddingHost.queryEmbedding, {
       payload: assertEmbeddingHostQueryEmbeddingPayload(payload),
       requestId: options?.requestId ?? crypto.randomUUID(),

@@ -143,7 +143,11 @@ async function toolProbe(
   );
   const grep = await context.window.evaluate(
     async ({ rootId, neverIndexedPath, pattern }) => {
-      const api = (window as typeof window & { indexSearch?: IndexSearchCapability }).indexSearch;
+      const api = (
+        window as typeof window & {
+          __brainstrikeTestHooks__?: { indexSearch?: IndexSearchCapability };
+        }
+      ).__brainstrikeTestHooks__?.indexSearch;
       if (!api) {
         throw new Error('Native preload grep capability is missing.');
       }
@@ -373,8 +377,11 @@ test('native full-pipeline historical throughput and calibrated foreground laten
       readCoverage: () => observeNativeSnapshot(context),
       readStatus: () =>
         context.window.evaluate(async () => {
-          const api = (window as typeof window & { indexSearch?: IndexSearchCapability })
-            .indexSearch;
+          const api = (
+            window as typeof window & {
+              __brainstrikeTestHooks__?: { indexSearch?: IndexSearchCapability };
+            }
+          ).__brainstrikeTestHooks__?.indexSearch;
           if (!api) {
             throw new Error('Native status capability is missing.');
           }

@@ -3,6 +3,7 @@
 // the former monolithic spec's setup code in one documented fixture surface.
 // biome-ignore-all lint/complexity/noExcessiveCognitiveComplexity: shared E2E fixture preserves historical setup helpers.
 // biome-ignore-all lint/style/useNamingConvention: shared E2E fixture touches browser globals and DB-shaped fields.
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { Locator, Page } from '@playwright/test';
 import type { ElectronApplication } from 'playwright';
 import {
@@ -404,14 +405,18 @@ export async function getMainBufferedLogs(page: Page): Promise<MainBufferedLogRe
     const loggingApi = (
       window as Window & {
         logging?: {
-          getBufferedLogs?: () => Promise<MainBufferedLogRecord[]>;
+          getBufferedLogs?: () => Promise<BoundaryResult<MainBufferedLogRecord[]>>;
         };
       }
     ).logging;
     if (!loggingApi?.getBufferedLogs) {
       throw new Error('Logging bridge is not available');
     }
-    return await loggingApi.getBufferedLogs();
+    const response = await loggingApi.getBufferedLogs();
+    if (!response.ok) {
+      throw new Error(JSON.stringify(response.error));
+    }
+    return response.value;
   });
 }
 

@@ -135,7 +135,12 @@ export function borrowedLocalInference(
   const models = admittedLocalModels(selected);
   const admitted = (modelId: string): void => {
     if (!models.has(modelId)) {
-      throw new Error('Local generation is not part of this admitted thread selection');
+      throw refusalError(
+        'authorization',
+        'model.not-admitted',
+        'Local generation is not part of this admitted thread selection',
+        'Select the model for this thread and retry.'
+      );
     }
   };
   const borrow = async (
@@ -158,7 +163,12 @@ export function borrowedLocalInference(
       queryEmbedding: async ({ query }, options) => {
         const local = selected.localEmbedding;
         if (!local) {
-          throw new Error('Local embedding is not part of this admitted thread selection');
+          throw refusalError(
+            'configuration',
+            'embedding.not-configured',
+            'Local embedding is not part of this admitted thread selection',
+            'Select a local embedding model in Settings.'
+          );
         }
         const { workerPlan } = local;
         return await mainQueryEmbedding(
@@ -374,7 +384,12 @@ export async function createDesktopHostConfiguration(
       // (signed legal gate, constraint 4), including restart recovery.
       const resolveAuth = (selectedProvider: string): Promise<ProviderAuthInput | undefined> => {
         if (closing) {
-          throw new Error('Provider selection is closing');
+          throw refusalError(
+            'availability',
+            'provider.selection-closing',
+            'Provider selection is closing.',
+            'Retry after selecting a model.'
+          );
         }
         return host.auth.resolveProviderAuth(selectedProvider, admission.origin);
       };
@@ -474,7 +489,12 @@ export async function createDesktopHostConfiguration(
     // The saved policy, else the admitted run's; Core remains the only gate.
     readPermissionPolicy: (threadId) => runAdmission.readPermissionPolicy(threadId),
     resolveProviderAuth: async () => {
-      throw new Error('Desktop provider auth requires an admitted thread selection');
+      throw refusalError(
+        'authorization',
+        'provider.not-admitted',
+        'Provider access requires an admitted thread selection.',
+        'Select a model for this thread and retry.'
+      );
     },
     resolveWorkspaceRoot: async ({ rootId, signal }) =>
       z

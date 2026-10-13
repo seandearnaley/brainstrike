@@ -184,7 +184,12 @@ function desktopContextReader(
     request.signal.throwIfAborted();
     const currentRoots = await readRoots();
     if (restricted && !currentRoots.some((root) => root.path === args.rootPath)) {
-      throw new Error('Context reader root is outside the admitted workspace selection');
+      throw refusalError(
+        'authorization',
+        'workspace.root-not-admitted',
+        'This folder is outside the thread workspace.',
+        'Choose a folder connected to this thread.'
+      );
     }
     request.signal.throwIfAborted();
     const result = await readWorkspaceTextFile(args);
@@ -323,7 +328,12 @@ function desktopRunSkills(
     });
   }
   if (intent.skillsPreference?.masterEnabled ?? true) {
-    throw new Error('CLI Skills require an explicit existing home-tier read authority');
+    throw refusalError(
+      'authorization',
+      'skills.home-not-admitted',
+      'Skills need permission to read the home skills folder.',
+      'Grant access to the skills folder or turn Skills off.'
+    );
   }
   return {};
 }
@@ -421,7 +431,12 @@ export function createDesktopRunAdmission(
     const intent = await readDesktopIntent(request, catalog, savedPolicy, reads.cliOwnerIntent);
     const configuration = PlatformModelConfigurationSchema.parse(intent.modelConfiguration);
     if (configuration.provider !== catalog.provider || configuration.model !== catalog.model) {
-      throw new Error('Captured settings do not belong to the selected catalog model');
+      throw refusalError(
+        'conflict',
+        'model.selection-changed',
+        'The model selection changed before this request started.',
+        'Select the model again and retry.'
+      );
     }
     const inputTokenLimit = desktopInputTokenLimit(catalog.definition, intent, configuration);
     const { memorySettings, observerTarget } = resolveDesktopMemorySettings(
@@ -566,8 +581,11 @@ export function createDesktopRunAdmission(
             skills: 'off',
           });
           if (captured.length !== workspace.roots.length) {
-            throw new Error(
-              'Recovered workspace binding cannot widen its committed root observation'
+            throw refusalError(
+              'authorization',
+              'workspace.recovery-root-mismatch',
+              'The recovered thread workspace differs from its saved folders.',
+              'Reconnect the thread folders and retry.'
             );
           }
         }

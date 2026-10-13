@@ -90,3 +90,23 @@ test('a focus on a folder the workspace no longer mounts refuses the run', async
     'The selected workspace root is no longer mounted'
   );
 });
+
+test('a changed model selection returns a typed refusal with a remedy', async () => {
+  const request = send('root-a');
+  await expect(
+    admission([alpha]).readConfiguration({
+      ...request,
+      configuration: {
+        ...request.configuration,
+        modelConfiguration: { model: 'other-model', provider: 'openai' },
+      },
+    })
+  ).rejects.toMatchObject({
+    failure: {
+      category: 'conflict',
+      code: 'model.selection-changed',
+      kind: 'refusal',
+      remedy: 'Select the model again and retry.',
+    },
+  });
+});

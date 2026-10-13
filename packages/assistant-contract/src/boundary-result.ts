@@ -21,16 +21,18 @@ export type BoundaryTransport<C> = {
 const logger = createLogger('BoundaryResult');
 
 /** Decode on the receiving renderer, after contextBridge has transported plain data. */
-export function readBoundaryResult<T>(wire: BoundaryResult<T>): T {
-  if (typeof wire !== 'object' || wire === null) {
+export function readBoundaryResult<T>(wire: BoundaryResult<T>): T;
+export function readBoundaryResult(wire: unknown): unknown;
+export function readBoundaryResult(wire: unknown): unknown {
+  if (typeof wire !== 'object' || wire === null || !('ok' in wire)) {
     logger.error('Desktop IPC returned a malformed envelope', { wire });
     throw new BoundaryFailureError(INTERNAL_FAULT);
   }
-  if (wire.ok === true && Object.hasOwn(wire, 'value')) {
+  if (wire.ok === true && 'value' in wire && Object.hasOwn(wire, 'value')) {
     return wire.value;
   }
   if (wire.ok === false) {
-    const { failure, valid } = decodeBoundaryFailure(wire.error);
+    const { failure, valid } = decodeBoundaryFailure('error' in wire ? wire.error : undefined);
     if (!valid) {
       logger.error('Desktop IPC returned an untyped failure', { wire });
     }

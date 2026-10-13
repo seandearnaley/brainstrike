@@ -58,12 +58,17 @@ test('only the admission’s own local observer or chat model borrows the llm-ho
   }));
   const local = borrowedLocalInference(request, new Map(), selection());
 
-  await expect(local.llm.warmup('another-local-model')).rejects.toThrow(
-    'Local generation is not part of this admitted thread selection'
-  );
+  await expect(local.llm.warmup('another-local-model')).rejects.toMatchObject({
+    failure: {
+      category: 'authorization',
+      code: 'model.not-admitted',
+      kind: 'refusal',
+      remedy: 'Select the model for this thread and retry.',
+    },
+  });
   await expect(
     local.llm.generate({ messages: [], modelId: 'another-local-model' })
-  ).rejects.toThrow('Local generation is not part of this admitted thread selection');
+  ).rejects.toMatchObject({ failure: { code: 'model.not-admitted' } });
   await expect(
     local.embedding.queryEmbedding({
       dimensions: 8,
@@ -71,7 +76,14 @@ test('only the admission’s own local observer or chat model borrows the llm-ho
       modelKey: 'local::recall-model',
       query: 'recall',
     })
-  ).rejects.toThrow('Local embedding is not part of this admitted thread selection');
+  ).rejects.toMatchObject({
+    failure: {
+      category: 'configuration',
+      code: 'embedding.not-configured',
+      kind: 'refusal',
+      remedy: 'Select a local embedding model in Settings.',
+    },
+  });
   expect(request).not.toHaveBeenCalled();
 
   await local.llm.generate({ messages: [], modelId: 'gemma-observer' });

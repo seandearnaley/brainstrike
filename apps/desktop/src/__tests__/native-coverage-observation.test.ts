@@ -1,9 +1,11 @@
 // @vitest-environment node
+
+import { INTERNAL_FAULT } from '@brainstrike/assistant-contract/boundary-failure';
+import { readBoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type { IndexSearchCapability } from '@brainstrike/indexing-contract/indexer-client';
 import { afterEach, expect, it, vi } from 'vitest';
 import type { ElectronAppContext } from '../../e2e/utils/electron-helpers.mts';
 import { readNativeSnapshot } from '../../qualification/m2-native/candidate';
-import { unwrapIpcResult } from '../platform/ipc-bridge';
 import { ipcFailure } from '../platform/ipc-contract';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -20,19 +22,16 @@ function context(failure: {
     storeId: 'a'.repeat(64),
   };
   vi.stubGlobal('window', {
-    embeddingHost: { getStatus: vi.fn() },
-    indexSearch: {
-      coverageBatch: () =>
-        failure.code === 'native-coverage-observation-invalidated'
-          ? Promise.resolve({ code: failure.code, kind: 'invalidated' })
-          : Promise.resolve().then(() =>
-              unwrapIpcResult(
-                'index-search:coverage-batch',
-                ipcFailure(failure.category, failure.code, 'Rejected observation')
-              )
-            ),
-      status: () => Promise.resolve(status),
+    __brainstrikeTestHooks__: {
+      indexSearch: {
+        coverageBatch: () =>
+          failure.code === 'native-coverage-observation-invalidated'
+            ? Promise.resolve({ code: failure.code, kind: 'invalidated' })
+            : Promise.resolve().then(() => readBoundaryResult(ipcFailure(INTERNAL_FAULT))),
+        status: () => Promise.resolve(status),
+      },
     },
+    embeddingHost: { getStatus: vi.fn() },
   });
   return {
     window: {
@@ -72,5 +71,5 @@ it('does not reclassify unrelated public failures as invalid observations', asyn
         code: 'native-index-failed',
       })
     )
-  ).rejects.toThrow('Rejected observation (native-index · native-index-failed)');
+  ).rejects.toThrow(INTERNAL_FAULT.message);
 });
