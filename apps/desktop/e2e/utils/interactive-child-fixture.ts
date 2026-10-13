@@ -54,7 +54,11 @@ export async function runInteractiveChildFixture<Window>({
   // Resolves once the owned process has exited.
   await settle(() => electron.dispose());
   await settle(() => {
-    if (ownedProcess && ownedProcess.exitCode !== 0) {
+    if (!ownedProcess || (ownedProcess.exitCode === null && ownedProcess.signalCode === null)) {
+      // An exit disposal could not confirm is reported with the retained workspace below.
+      return;
+    }
+    if (ownedProcess.exitCode !== 0) {
       throw new Error(
         `Interactive fixture Electron exited with code=${ownedProcess.exitCode}, signal=${ownedProcess.signalCode}`
       );
