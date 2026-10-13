@@ -3,7 +3,11 @@
 import type { HostedProviderType } from '@brainstrike/embeddings/provider-core';
 import { clearHostedProviderApiKeyCache } from '@brainstrike/embeddings/provider-core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { generateHostedEmbeddings } from '../hosted-embeddings';
+import {
+  createHostedProvider,
+  generateHostedEmbeddings,
+  HostedEmbeddingError,
+} from '../hosted-embeddings';
 
 vi.mock('../secrets', () => ({ getSecretsService: () => ({ getKey: async () => 'test-key' }) }));
 const existing = [
@@ -153,3 +157,73 @@ it.each(['ollama', 'lmstudio'] as const)(
     ]);
   }
 );
+
+// BST-1994: hosted refusals reach BST-1996's mapping as one typed error. The fixture
+// responses are documented shapes, not live recordings: no provider is called.
+describe('typed hosted embedding refusals', () => {
+  const request = {
+    dimensions: 1536,
+    modelId: 'text-embedding-3-small',
+    provider: 'openai',
+    purpose: 'query',
+    texts: ['query'],
+  } as const;
+  async function refusal(): Promise<unknown> {
+    return await generateHostedEmbeddings({
+      ...request,
+      signal: new AbortController().signal,
+    }).then(
+      () => {
+        throw new Error('Expected a refusal');
+      },
+      (error: unknown) => error
+    );
+  }
+
+  it.each([
+    [429, 'rate-limit'],
+    [413, 'input-too-long'],
+    [400, 'provider-status'],
+    [503, 'provider-status'],
+  ] as const)('maps HTTP %s to %s with a model-safe message', async (status, kind) => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: { message: 'raw detail for sk-live-secret' } }), {
+            headers: { 'content-type': 'application/json' },
+            status,
+          })
+      )
+    );
+    const error = await refusal();
+    expect(error).toBeInstanceOf(HostedEmbeddingError);
+    expect(error).toMatchObject({ kind, name: 'HostedEmbeddingError' });
+    expect((error as Error).message).not.toContain('sk-live-secret');
+  });
+
+  it('maps a transport failure to network and keeps the provider error as its cause', async () => {
+    const failure = new TypeError('fetch failed');
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw failure;
+      })
+    );
+    const error = await refusal();
+    expect(error).toBeInstanceOf(HostedEmbeddingError);
+    expect(error).toMatchObject({
+      cause: { originalError: failure, type: 'network_error' },
+      kind: 'network',
+    });
+  });
+
+  it.each(['google', 'cohere', 'voyage'] as const)(
+    'refuses %s without a key as missing-key',
+    (provider) => {
+      expect(() => createHostedProvider(provider, 'model', 768)).toThrow(
+        expect.objectContaining({ kind: 'missing-key', name: 'HostedEmbeddingError' })
+      );
+    }
+  );
+});

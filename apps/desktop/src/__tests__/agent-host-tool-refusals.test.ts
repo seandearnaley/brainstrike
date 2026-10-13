@@ -231,6 +231,10 @@ test('deliberate path, read, write and context refusals reach the model verbatim
   await writeFile(join(root, 'secret.txt'), 'ignored by the agent\n');
   await writeFile(join(root, '.brainstrikeignore'), 'secret.txt\n');
   await symlink(outside, join(root, 'escape'));
+  // A link that leaves the root gets the containment refusal whether or not its
+  // outside target exists, so a read reveals nothing about the outside.
+  await symlink(join(outside, 'missing-target.txt'), join(root, 'dangling-out'));
+  await symlink(join(outside, 'private.txt'), join(root, 'link-out-existing'));
   const roots = [{ displayName: 'A', path: root, rootId: 'root-a' }];
   const tools = hostTools(roots, rootsOnly(roots), { workspaceRootPath: root });
   const call = (id: string, input: Record<string, unknown>) =>
@@ -241,6 +245,29 @@ test('deliberate path, read, write and context refusals reach the model verbatim
       NATIVE_TOOL_ID.readWorkspaceFile,
       { path: 'escape/private.txt' },
       'Path "escape/private.txt" is outside the selected workspace root.',
+    ],
+    // BST-1996 reverses BST-1892 for a path inside the root: a missing file is the
+    // model's to correct, and the refusal echoes only the path the model sent.
+    [
+      NATIVE_TOOL_ID.readWorkspaceFile,
+      { path: 'src/missing.ts' },
+      'Path "src/missing.ts" does not exist.',
+    ],
+    // A missing file behind a symlink that escapes the root keeps the containment refusal.
+    [
+      NATIVE_TOOL_ID.readWorkspaceFile,
+      { path: 'escape/missing.txt' },
+      'Path "escape/missing.txt" is outside the selected workspace root.',
+    ],
+    [
+      NATIVE_TOOL_ID.readWorkspaceFile,
+      { path: 'dangling-out' },
+      'Path "dangling-out" is outside the selected workspace root.',
+    ],
+    [
+      NATIVE_TOOL_ID.readWorkspaceFile,
+      { path: 'link-out-existing' },
+      'Path "link-out-existing" is outside the selected workspace root.',
     ],
     [NATIVE_TOOL_ID.readWorkspaceFile, { path: 'src' }, 'Path "src" is not a file.'],
     [
