@@ -133,22 +133,11 @@ const UPSERT_CONFLICT_SQL = `
   WHERE ${INDEX_TABLE}.content_hash IS DISTINCT FROM EXCLUDED.content_hash
 `;
 
-/** Search visibility follows every native parent boundary from an owned root. */
+/** Web search reads only threads owned by the selected resource. */
 function ownedThreadsSql(ownerParameter: string): string {
-  return `WITH RECURSIVE search_owned_threads AS (
-    SELECT native.id AS thread_id, native."resourceId" AS resource_id, native.id AS root_thread_id
-    FROM mastra_threads native
-    LEFT JOIN brainstrike_delegated_conversations root ON root.thread_id = native.id
-    WHERE native."resourceId" = ${ownerParameter}
-      AND (root.thread_id IS NULL OR (root.parent_thread_id IS NULL
-        AND root.root_thread_id = native.id AND root.owner_resource_id = ${ownerParameter}
-        AND root.resource_id = native."resourceId"))
-    UNION ALL
-    SELECT child.thread_id, child.resource_id, parent.root_thread_id
-    FROM search_owned_threads parent
-    JOIN brainstrike_delegated_conversations child ON child.parent_thread_id = parent.thread_id
-      AND child.root_thread_id = parent.root_thread_id AND child.owner_resource_id = ${ownerParameter}
-    JOIN mastra_threads native ON native.id = child.thread_id AND native."resourceId" = child.resource_id
+  return `WITH search_owned_threads AS (
+    SELECT id AS thread_id, "resourceId" AS resource_id, id AS root_thread_id
+    FROM mastra_threads WHERE "resourceId" = ${ownerParameter}
   )`;
 }
 
@@ -233,10 +222,9 @@ export class ThreadSearchRepository {
     }>(
       `${ownedThreadsSql('$1')}
       SELECT owned.root_thread_id AS "rootThreadId", owned.resource_id AS "resourceId",
-        native.title, child.display_name AS "displayName"
+        native.title, NULL::text AS "displayName"
       FROM search_owned_threads owned
       JOIN mastra_threads native ON native.id = owned.thread_id AND native."resourceId" = owned.resource_id
-      LEFT JOIN brainstrike_delegated_conversations child ON child.thread_id = owned.thread_id
       WHERE owned.thread_id = $2 AND ($3::text IS NULL OR EXISTS (
         SELECT 1 FROM mastra_messages message WHERE message.id = $3 AND message.thread_id = owned.thread_id
           AND COALESCE(message."resourceId", native."resourceId") = owned.resource_id
@@ -267,10 +255,9 @@ export class ThreadSearchRepository {
       displayName: string | null;
     }>(
       `${ownedThreadsSql('$1')}
-      SELECT owned.thread_id AS "threadId", native.title, child.display_name AS "displayName"
+      SELECT owned.thread_id AS "threadId", native.title, NULL::text AS "displayName"
       FROM search_owned_threads owned
       JOIN mastra_threads native ON native.id = owned.thread_id AND native."resourceId" = owned.resource_id
-      LEFT JOIN brainstrike_delegated_conversations child ON child.thread_id = owned.thread_id
       WHERE owned.thread_id = ANY($2::text[])`,
       [ownerResourceId, threadIds]
     );

@@ -105,7 +105,6 @@ describe('useAssistantRequestLifecycle', () => {
 
   it.each([
     {
-      expected: { turnMessageId: 'child-input' },
       runConfig: {
         custom: {
           [CHILD_FOLLOWUP_RUN_CONFIG_KEY]: {
@@ -117,7 +116,6 @@ describe('useAssistantRequestLifecycle', () => {
       },
     },
     {
-      expected: { childContinuation: { id: 'receipt', nativeRunId: 'native-child' } },
       runConfig: {
         custom: {
           [TOOL_APPROVAL_RUN_CONFIG_KEY]: {
@@ -131,8 +129,8 @@ describe('useAssistantRequestLifecycle', () => {
       },
     },
   ])(
-    'carries child input and decision identity into the real managed-run preparation seam',
-    async ({ runConfig, expected }) => {
+    'refuses unsupported child controls before writing an ordinary web run',
+    async ({ runConfig }) => {
       const repository = createRepositoryStub();
       const { result } = renderHook(() =>
         useAssistantRequestLifecycle({
@@ -149,10 +147,12 @@ describe('useAssistantRequestLifecycle', () => {
           selectedProvider: 'openai',
         })
       );
-      await act(async () =>
-        result.current.prepareRequestData(undefined, 'stale-parent-input', runConfig)
-      );
-      expect(repository.createThreadRun).toHaveBeenCalledWith(expect.objectContaining(expected));
+      await expect(
+        act(async () =>
+          result.current.prepareRequestData(undefined, 'stale-parent-input', runConfig)
+        )
+      ).rejects.toThrow('Child conversation controls require the agent host.');
+      expect(repository.createThreadRun).not.toHaveBeenCalled();
     }
   );
 

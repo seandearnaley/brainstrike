@@ -79,7 +79,6 @@ import {
 } from './assistant-ui-panel-wrapper-runtime';
 import { useChangeset } from './changes/use-changeset';
 import { useWrapperRewindWiring } from './changes/use-wrapper-rewind-wiring';
-import { DelegatedWorkspaceNavigation } from './delegated-workspace-navigation';
 import { useAssistantLocalRuntimeCatalog } from './hooks/use-assistant-local-runtime-catalog';
 import { useAssistantModelChange } from './hooks/use-assistant-model-change';
 import { useAssistantModelPickerConfig } from './hooks/use-assistant-model-picker-config';
@@ -98,6 +97,7 @@ import { useOpenRouterModelMetadata } from './hooks/use-openrouter-model-metadat
 import { useRunVerdictBinding } from './hooks/use-run-verdict';
 import { useSubagentPersonasRequest } from './hooks/use-subagent-personas-request';
 import { useThreadBranchByRootPath } from './hooks/use-thread-branch-by-root-path';
+import { ThreadSearchMessageNavigation } from './thread-search-message-navigation';
 import { useAssistantRootHistoryAdapter } from './use-assistant-root-history-adapter';
 import { useAssistantRunNotifications } from './use-assistant-run-notifications';
 import { useAssistantSlashCommands } from './use-assistant-slash-commands';
@@ -1165,9 +1165,10 @@ export function AssistantUiPanelWrapper({
   });
 
   return (
-    <DelegatedWorkspaceNavigation
+    <ThreadSearchMessageNavigation
+      isLoading={false}
       ownerResourceId={memoryResourceId}
-      rootThreadId={selectedMemoryThreadId}
+      threadId={selectedMemoryThreadId}
     >
       <AssistantDecisionProviders>
         <RunVerdictProvider value={runVerdictBinding}>
@@ -1252,7 +1253,7 @@ export function AssistantUiPanelWrapper({
           </DebugBundleProvider>
         </RunVerdictProvider>
       </AssistantDecisionProviders>
-    </DelegatedWorkspaceNavigation>
+    </ThreadSearchMessageNavigation>
   );
 }
 

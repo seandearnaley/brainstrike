@@ -1,6 +1,4 @@
 export * from './assistant-history-repository.js';
-export * from './delegated-continuation-repository.js';
-export * from './delegated-conversation-insights.js';
 // Interfaces
 
 // Re-export preset types from @brainstrike/types for convenience
@@ -21,20 +19,6 @@ export {
 } from './assistant-run-error-repository.js';
 // Base class
 export { BaseFileRecordRepository } from './base-repository.js';
-export {
-  type CreateDelegatedChild,
-  type CreateDelegatedInvocation,
-  createDelegatedConversationRepository,
-  DELEGATED_CONVERSATION_COLOR_IDS,
-  type DelegatedConversationColor,
-  type DelegatedConversationDatabase,
-  DelegatedConversationIdentityError,
-  type DelegatedConversationNode,
-  type DelegatedConversationRepository,
-  type DelegatedConversationScope,
-  type DelegatedInvocation,
-  type DelegatedInvocationKey,
-} from './delegated-conversation-repository.js';
 export {
   DIAGNOSTIC_EVENTS_PURGE_LIMIT,
   DIAGNOSTIC_RETENTION_MAX_AGE_MS,

@@ -7,6 +7,12 @@ verification and OpenRouter metadata only; old execution/discovery/resume routes
 and `agent:chat` IPC have been removed. Historical Mastra/PGlite sections below
 continue to describe shared/web code where still consumed, not Desktop execution.
 
+PGlite delegation tables/repositories are retired (BST-1987, migration 152).
+Ordinary web thread/run/event/usage persistence remains; its readers and deletion
+use the selected thread directly. Child controls require the current agent host.
+Older delegated PGlite sections below record the retired owner, not a supported
+shared/web delegation path.
+
 Resource recall includes only settled turns from other host threads. A live parent
 with a pending approval cannot become a child's completed provider history. Current-run
 continuation and selected same-thread ancestry retain their existing owners.

@@ -82,23 +82,6 @@ export async function reapOrphanedThreadRuns(
   bootedAt: Date
 ): Promise<ThreadRunReapReport> {
   const report = await reapOrphanedAssistantThreadRuns(db, bootedAt);
-  // A dead execution leg cannot still own native resume admission. Retain the
-  // leaf identity as interrupted: an unknown effect must never be replayed.
-  await db.query(
-    `UPDATE brainstrike_delegated_tool_decisions decisions
-     SET state = 'interrupted', finished_at = NOW()
-     FROM brainstrike_assistant_thread_runs runs
-     WHERE decisions.host_run_id = runs.id AND decisions.state = 'claimed'
-       AND runs.status IN ('completed', 'failed', 'cancelled')`
-  );
-  await db.query(`UPDATE brainstrike_delegated_continuations continuation
-    SET state = 'interrupted', error = 'The execution host stopped before confirming completion.', updated_at = NOW()
-    FROM brainstrike_assistant_thread_runs host WHERE continuation.active_host_run_id = host.id
-      AND continuation.state IN ('claimed', 'running') AND host.status IN ('completed', 'failed', 'cancelled')`);
-  await db.query(`UPDATE brainstrike_delegated_continuation_decisions decision
-    SET state = 'interrupted' FROM brainstrike_assistant_thread_runs host
-    WHERE decision.host_run_id = host.id AND decision.state = 'claimed'
-      AND host.status IN ('completed', 'failed', 'cancelled')`);
   // BST-1749: no worker survives a process, so a background task created
   // before boot that is still pending/running never finishes. Mastra's own
   // stale-task recovery is thread-scoped and waits for that thread's next run,
@@ -107,10 +90,6 @@ export async function reapOrphanedThreadRuns(
   // suspended on the user stays resumable. `delivered_at` stays NULL so the
   // thread's next turn delivers the failure once.
   //
-  // LAST on purpose (PR #3206 review): these statements share no transaction,
-  // and the decision repair above predates this sweep. A throw here must never
-  // cost that repair, which is what stops a dead leg from owning native resume
-  // admission. Pinned by the reaper suite's statement-order case.
   const backgroundTasks = await db.query<{ id: string }>(
     `UPDATE ${MASTRA_BACKGROUND_TASKS_TABLE}
      SET status = 'failed', error = jsonb_build_object('message', $2::text), "completedAt" = NOW()

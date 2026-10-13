@@ -7,13 +7,13 @@ import { z } from 'zod';
  *
  * - TREE limits, one set per original root turn across resumes and every
  *   descendant: `maxDepth`, `maxInvocations`, `maxTreeOutputTokens` are copied
- *   into the turn's `brainstrike_delegation_budgets` row at first admission;
+ *   into the host-owned turn budget at first admission;
  *   `maxConcurrentWork` sizes each leg's work queue.
  * - PER-CHILD allocations, each within the tree: steps, summary, child and
- *   step output (copied into the same row), and the runtime limit.
+ *   step output (copied into the same budget), and the runtime limit.
  *
- * Everything the row stores is TURN-scoped (`TurnSubagentLimits`): a later
- * leg of the same turn reads it back from the row (`applyTurnSubagentLimits`)
+ * Everything the budget stores is TURN-scoped (`TurnSubagentLimits`): a later
+ * leg of the same turn reads it back from its owner (`applyTurnSubagentLimits`)
  * so it never enforces or tells the model different limits than the host
  * admitted under. `maxConcurrentWork` and `maxChildRuntimeMs` are PER-REQUEST.
  */

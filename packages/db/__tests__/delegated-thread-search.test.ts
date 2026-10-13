@@ -3,7 +3,6 @@ import type { PGlite } from '@electric-sql/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { MigrationRunner, migrations } from '../src/migrations/index.js';
 import { readAssistantHistoryMessages } from '../src/repositories/assistant-history-repository.js';
-import { createDelegatedConversationRepository } from '../src/repositories/delegated-conversation-repository.js';
 import { ThreadSearchRepository } from '../src/repositories/thread-search-repository.js';
 import { wasmLoader } from '../src/wasm-loader.js';
 import { createPGliteTestDataDir } from './test-data-dir.js';
@@ -74,38 +73,16 @@ describe('ThreadSearchRepository', () => {
     );
   }
 
-  it('searches owned descendants and rejects a changed intermediate native owner', async () => {
+  it('searches only the selected resource and rejects a changed native owner', async () => {
     await seedThread('search-root', 'Search root');
-    const graph = createDelegatedConversationRepository(db);
-    const scope = { ownerResourceId: RESOURCE_ID, rootThreadId: 'search-root' };
-    await graph.registerRoot(scope);
-    for (const [id, parent] of [
-      ['search-child', 'search-root'],
-      ['search-leaf', 'search-child'],
-    ] as const) {
+    for (const id of ['search-child', 'search-leaf']) {
       await seedThread(id, 'quasarcobalt');
-      await db.query('UPDATE mastra_threads SET "resourceId" = $2 WHERE id = $1', [
-        id,
-        `${id}-resource`,
-      ]);
-      await graph.createChild(scope, {
-        color: 'blue',
-        configuration: {},
-        displayName: `Callsign ${id}`,
-        parentThreadId: parent,
-        resourceId: `${id}-resource`,
-        threadId: id,
-      });
       await seedMessage({
         content: v2Content('quasarcobalt'),
         id: `${id}-message`,
         role: 'assistant',
         threadId: id,
       });
-      await db.query('UPDATE mastra_messages SET "resourceId" = $2 WHERE thread_id = $1', [
-        id,
-        `${id}-resource`,
-      ]);
     }
     expect(
       (
@@ -153,9 +130,9 @@ describe('ThreadSearchRepository', () => {
     expect(
       await repository.getNavigationTarget(RESOURCE_ID, 'search-leaf', 'search-leaf-message')
     ).toMatchObject({
-      displayName: 'Callsign search-leaf',
-      resourceId: 'search-leaf-resource',
-      rootThreadId: 'search-root',
+      displayName: null,
+      resourceId: RESOURCE_ID,
+      rootThreadId: 'search-leaf',
     });
     expect(
       await repository.getNavigationTarget(RESOURCE_ID, 'search-leaf', 'search-child-message')
@@ -165,21 +142,27 @@ describe('ThreadSearchRepository', () => {
     ).toBeNull();
     await db.query('UPDATE mastra_threads SET "resourceId" = $1 WHERE id = $2', [
       'foreign-owner',
-      'search-child',
+      'search-leaf',
     ]);
     expect(
       await repository.getNavigationTarget(RESOURCE_ID, 'search-leaf', 'search-leaf-message')
     ).toBeNull();
     expect(
       await repository.getNavigationTitles(RESOURCE_ID, ['search-child', 'search-leaf'])
-    ).toEqual([]);
-    expect(await repository.fullTextSearch('quasarcobalt', options)).toEqual([]);
-    expect(await repository.searchSimilar(vec(0), options)).toEqual([]);
-    expect(await repository.searchThreadTitles('quasarcobalt', options)).toEqual([]);
+    ).toMatchObject([{ threadId: 'search-child' }]);
+    expect(
+      (await repository.fullTextSearch('quasarcobalt', options)).map((row) => row.threadId)
+    ).toEqual(['search-child']);
+    expect((await repository.searchSimilar(vec(0), options)).map((row) => row.threadId)).toEqual([
+      'search-child',
+    ]);
+    expect(
+      (await repository.searchThreadTitles('quasarcobalt', options)).map((row) => row.threadId)
+    ).toEqual(['search-child']);
     expect(await repository.listNeedingEmbedding(options)).toEqual([]);
     expect(await repository.getCoverage(RESOURCE_ID)).toMatchObject({
-      indexedMessages: 0,
-      totalMessages: 0,
+      indexedMessages: 1,
+      totalMessages: 1,
     });
   });
 
