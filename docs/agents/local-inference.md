@@ -371,6 +371,14 @@ Environment variables: `VITE_EMBED_CONCURRENCY` (default 1), `VITE_EMBED_LEASE_M
   latches the controller against future loads, stays visible to `wait` and `close`, and
   replaces a pool worker through workerpool's managed lifetime-error channel — a direct
   worker re-reports through the owner-visible uncaught-worker-error path instead.
+- The hidden embedding worker owns one explicit WebGPU device and passes it to each
+  ONNX session through Transformers.js `session_options.executionProviders`. Session
+  eviction releases sessions, not the worker's device. Actual device loss invalidates
+  GPU cache entries and surfaces `DeviceLost` (`EMBEDDING_DEVICE_LOST`) only after
+  physical inference settles; it never self-closes or cancels the managed worker.
+  A subsequent explicit request can acquire a new device; the failed request is not
+  retried or downgraded. Settings shows a plain detection failure and retries failed
+  adapter detection when the keep-mounted Settings tab is reopened.
 - Keep worker-global diagnostics on the pool-unique `BroadcastChannel` and
   request-scoped cancellation on the separate derived channel, so siblings never consume
   one another's telemetry as control traffic. Abort between inference batches with

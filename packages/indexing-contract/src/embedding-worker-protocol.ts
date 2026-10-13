@@ -654,8 +654,19 @@ export interface EmbedWorkerSuccess {
   readonly vectors: readonly Float32Array[];
 }
 
+export const EMBEDDING_DEVICE_LOST_CODE = 'EMBEDDING_DEVICE_LOST';
+
+export class EmbeddingDeviceLostError extends Error {
+  readonly code = EMBEDDING_DEVICE_LOST_CODE;
+  constructor(cause: string) {
+    super('WebGPU device was lost. Choose the model again to retry.', { cause });
+    this.name = 'DeviceLost';
+  }
+}
+
 export interface EmbedWorkerError {
   readonly cause?: string | undefined;
+  readonly code?: typeof EMBEDDING_DEVICE_LOST_CODE;
   readonly id: string;
   readonly message: string;
   readonly type: 'error';

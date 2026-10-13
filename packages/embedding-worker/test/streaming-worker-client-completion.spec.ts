@@ -224,3 +224,33 @@ describe('streaming completion request correlation', () => {
     expect(worker.terminate).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('device-loss recovery', () => {
+  it('keeps the worker available for an explicit request after typed device loss', async () => {
+    const worker = new CompletionMockWorker();
+    const client = new StreamingEmbeddingWorkerClient(worker as unknown as Worker);
+    const first = client.stream(createRequest());
+    await Promise.resolve();
+    worker.emitMessage({
+      cause: 'destroyed: test device',
+      code: 'EMBEDDING_DEVICE_LOST',
+      id: 'completion-request',
+      message: 'device lost',
+      type: 'error',
+    });
+    await expect(first).rejects.toMatchObject({
+      cause: 'destroyed: test device',
+      code: 'EMBEDDING_DEVICE_LOST',
+      name: 'DeviceLost',
+    });
+    expect(worker.terminate).not.toHaveBeenCalled();
+    const second = client.stream({ ...createRequest(), id: 'explicit-retry' });
+    await Promise.resolve();
+    expect(worker.postMessage).toHaveBeenLastCalledWith(
+      expect.objectContaining({ request: expect.objectContaining({ id: 'explicit-retry' }) })
+    );
+    worker.emitMessage({ id: 'explicit-retry', message: 'ordinary failure', type: 'error' });
+    await expect(second).rejects.toThrow('ordinary failure');
+    client.terminate();
+  });
+});

@@ -123,25 +123,19 @@ describe('embedding worker runtime', () => {
     vi.useRealTimers();
   });
 
-  async function setOrtWebGpuDevice(device: MockGpuDevice | Promise<MockGpuDevice> | null) {
-    const transformers = await import('@huggingface/transformers');
-    const mockedEnv = transformers.env as {
-      allowRemoteModels: boolean;
-      backends?: { onnx?: { webgpu?: { device?: Promise<MockGpuDevice> | MockGpuDevice } } };
-    };
-
-    if (!device) {
-      mockedEnv.backends = undefined;
-      return;
-    }
-
-    mockedEnv.backends = {
-      onnx: {
-        webgpu: {
-          device,
-        },
+  function setWebGpuDevice(device: MockGpuDevice | Promise<MockGpuDevice> | null): void {
+    vi.stubGlobal('navigator', {
+      gpu: {
+        requestAdapter: async () =>
+          device === null
+            ? null
+            : {
+                features: new Set<string>(),
+                limits: {},
+                requestDevice: async () => await device,
+              },
       },
-    };
+    });
   }
 
   const flushMicrotasks = async (): Promise<void> => {
@@ -754,7 +748,7 @@ describe('embedding worker runtime', () => {
     expect(observedTotalBytes).toBe(expectedTotalBytes);
   });
 
-  it('notifies active streaming requests before closing on WebGPU device loss', async () => {
+  it('reports typed streaming device loss after the outstanding batch is acknowledged without closing', async () => {
     vi.stubGlobal('navigator', { gpu: {} });
     const telemetryPostMessage = vi.fn();
     vi.stubGlobal('name', `${EMBED_WORKER_INSTANCE_NAME_PREFIX}worker-device-loss`);
@@ -784,7 +778,7 @@ describe('embedding worker runtime', () => {
     });
 
     let resolveLost: ((info: { message: string; reason?: string }) => void) | null = null;
-    await setOrtWebGpuDevice({
+    await setWebGpuDevice({
       createCommandEncoder: () => ({ finish: () => ({}) }),
       lost: new Promise((resolve) => {
         resolveLost = resolve;
@@ -828,21 +822,23 @@ describe('embedding worker runtime', () => {
     resolveLost?.({ message: 'device was lost', reason: 'destroyed' });
     await flushMicrotasks();
 
-    expect(postMessage).toHaveBeenCalledWith(
-      {
-        cause: 'reason=destroyed',
-        id: 'stream-device-loss',
-        message: 'WebGPU device lost: device was lost',
-        type: 'error',
-      },
-      []
+    handleMessage({
+      data: { batchIndex: 0, id: 'stream-device-loss', type: 'stream-ack' },
+    } as MessageEvent<unknown>);
+    await waitForAssertion(() =>
+      expect(postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          code: 'EMBEDDING_DEVICE_LOST',
+          id: 'stream-device-loss',
+          type: 'error',
+        }),
+        []
+      )
     );
-    expect(telemetryPostMessage).toHaveBeenCalledWith({
-      reason: 'device-lost',
-      type: 'telemetry-source-closed',
-      workerInstanceId: 'worker-device-loss',
-    });
-    expect(closeMock).toHaveBeenCalledTimes(1);
+    expect(telemetryPostMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'telemetry-source-closed' })
+    );
+    expect(closeMock).not.toHaveBeenCalled();
   });
 
   it('fails fast when streaming requests are malformed', async () => {
@@ -1320,7 +1316,11 @@ describe('embedding worker runtime', () => {
   });
 
   it('throws when the webgpu pipeline creation fails', async () => {
-    vi.stubGlobal('navigator', { gpu: {} });
+    setWebGpuDevice({
+      createCommandEncoder: () => ({ finish: () => ({}) }),
+      lost: new Promise(() => {}),
+      queue: { submit: vi.fn() },
+    });
     pipelineMock.mockRejectedValueOnce(new Error('webgpu unavailable'));
     pipelineMock.mockResolvedValueOnce(async () => new Float32Array([0.2, 0.8]));
     const runEmbedding = await loadWorker();
@@ -1335,6 +1335,49 @@ describe('embedding worker runtime', () => {
       })
     ).rejects.toThrow('webgpu unavailable');
     expect(pipelineMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('owns one device across WebGPU model switches and passes it to every vendor session', async () => {
+    const device = {
+      createCommandEncoder: () => ({ finish: () => ({}) }),
+      lost: new Promise(() => {}),
+      queue: { submit: vi.fn() },
+    };
+    const requestDevice = vi.fn(async () => device);
+    const limits = {};
+    Object.setPrototypeOf(limits, { maxBufferSize: 1024 });
+    vi.stubGlobal('navigator', {
+      gpu: {
+        requestAdapter: vi.fn(async () => ({
+          features: new Set(['shader-f16']),
+          limits,
+          requestDevice,
+        })),
+      },
+    });
+    const dispose = vi.fn(async () => {});
+    pipelineMock.mockImplementation(async () =>
+      Object.assign(async () => new Float32Array([1, 0, 0]), { dispose })
+    );
+    const runEmbedding = await loadWorker();
+    for (const model of ['bge-small', 'minilm']) {
+      await runEmbedding({
+        deviceHint: 'webgpu',
+        id: model,
+        model,
+        texts: ['hello'],
+        type: 'embed',
+      });
+    }
+    expect(requestDevice).toHaveBeenCalledOnce();
+    expect(requestDevice).toHaveBeenCalledWith({
+      requiredFeatures: ['shader-f16'],
+      requiredLimits: { maxBufferSize: 1024 },
+    });
+    expect(dispose).toHaveBeenCalledOnce();
+    for (const [, , options] of pipelineMock.mock.calls) {
+      expect(options.session_options.executionProviders).toEqual([{ device, name: 'webgpu' }]);
+    }
   });
 
   it('activates WebGPU guard, ticks keep-alive, and recovers quietly after idle device loss', async () => {
@@ -1361,7 +1404,7 @@ describe('embedding worker runtime', () => {
       finish: finishMock,
     }));
 
-    await setOrtWebGpuDevice({
+    await setWebGpuDevice({
       createCommandEncoder: createCommandEncoderMock,
       lost,
       queue: {
@@ -1387,13 +1430,18 @@ describe('embedding worker runtime', () => {
 
     resolveLost?.({ message: 'device was lost', reason: 'destroyed' });
     await flushMicrotasks();
-    expect(closeMock).toHaveBeenCalled();
+    expect(closeMock).not.toHaveBeenCalled();
 
     const deviceLostCall = workerEmitMock.mock.calls.find(
       ([event]) => event?.type === 'error' && event?.id === 'device-lost'
     );
     expect(deviceLostCall).toBeUndefined();
 
+    setWebGpuDevice({
+      createCommandEncoder: createCommandEncoderMock,
+      lost: new Promise(() => {}),
+      queue: { submit: submitMock },
+    });
     await runEmbedding({
       deviceHint: 'webgpu',
       id: 'webgpu-guard-reload',
@@ -1412,7 +1460,7 @@ describe('embedding worker runtime', () => {
       onunhandledrejection: undefined,
     });
     let resolveLost!: (info: { readonly reason?: string; readonly message: string }) => void;
-    await setOrtWebGpuDevice({
+    await setWebGpuDevice({
       createCommandEncoder: () => ({ finish: () => ({}) }),
       lost: new Promise((resolve) => {
         resolveLost = resolve;
@@ -1436,24 +1484,30 @@ describe('embedding worker runtime', () => {
     });
     await flushMicrotasks();
 
+    await waitForAssertion(() => expect(resolveInference).toBeTypeOf('function'));
     resolveLost({ message: 'device was lost', reason: 'destroyed' });
-    await waitForAssertion(() =>
-      expect(workerEmitMock).toHaveBeenCalledWith({
-        cause: 'reason=destroyed',
+    await flushMicrotasks();
+    expect(workerEmitMock).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'error' }));
+    const failed = expect(embeddingPromise).rejects.toMatchObject({
+      code: 'EMBEDDING_DEVICE_LOST',
+      name: 'DeviceLost',
+    });
+    resolveInference(new Float32Array([1, 0, 0]));
+    await failed;
+    expect(workerEmitMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'EMBEDDING_DEVICE_LOST',
         id: 'active-device-loss',
-        message: 'WebGPU device lost: device was lost',
         type: 'error',
       })
     );
-    resolveInference(new Float32Array([1, 0, 0]));
-    await embeddingPromise;
   });
 
   it('handles keep-alive tick failures by stopping the timer', async () => {
     vi.useFakeTimers();
     vi.stubGlobal('navigator', { gpu: {} });
 
-    await setOrtWebGpuDevice({
+    await setWebGpuDevice({
       createCommandEncoder: () => {
         throw new Error('encoder unavailable');
       },
@@ -1480,9 +1534,9 @@ describe('embedding worker runtime', () => {
     await vi.advanceTimersByTimeAsync(30_000);
   });
 
-  it('rejects WebGPU embedding when ORT WebGPU device is unavailable', async () => {
+  it('rejects WebGPU embedding when no WebGPU adapter is available', async () => {
     vi.stubGlobal('navigator', { gpu: {} });
-    await setOrtWebGpuDevice(null);
+    await setWebGpuDevice(null);
 
     const disposeCatchMock = vi.fn();
     const disposeMock = vi.fn(() => ({ catch: disposeCatchMock }));
@@ -1498,14 +1552,15 @@ describe('embedding worker runtime', () => {
         texts: ['hello'],
         type: 'embed',
       })
-    ).rejects.toThrow('WebGPU pipeline loaded without a usable ORT WebGPU device');
-    expect(disposeMock).toHaveBeenCalledTimes(1);
-    expect(disposeCatchMock).toHaveBeenCalledTimes(1);
+    ).rejects.toThrow('WebGPU adapter is unavailable.');
+    expect(pipelineMock).not.toHaveBeenCalled();
+    expect(disposeMock).not.toHaveBeenCalled();
+    expect(disposeCatchMock).not.toHaveBeenCalled();
   });
 
-  it('rejects WebGPU embedding when ORT returns an invalid device object', async () => {
+  it('rejects WebGPU embedding when the adapter returns an invalid device object', async () => {
     vi.stubGlobal('navigator', { gpu: {} });
-    await setOrtWebGpuDevice(
+    await setWebGpuDevice(
       Promise.resolve({ lost: Promise.resolve({ message: 'ok' }) } as MockGpuDevice)
     );
 
@@ -1520,15 +1575,15 @@ describe('embedding worker runtime', () => {
         texts: ['hello'],
         type: 'embed',
       })
-    ).rejects.toThrow('WebGPU pipeline loaded without a usable ORT WebGPU device');
+    ).rejects.toThrow('WebGPU adapter returned an invalid device.');
     expect('dispose' in extractor).toBe(false);
   });
 
-  it('rejects WebGPU embedding when ORT device promise rejects and retries cleanly', async () => {
+  it('rejects WebGPU embedding when the device request rejects and retries cleanly', async () => {
     vi.stubGlobal('navigator', { gpu: {} });
     const rejectedDevice = Promise.reject(new Error('device unavailable'));
     void rejectedDevice.catch(() => {});
-    await setOrtWebGpuDevice(rejectedDevice);
+    await setWebGpuDevice(rejectedDevice);
 
     pipelineMock.mockResolvedValue(async () => new Float32Array([0.2, 0.8]));
     const runEmbedding = await loadWorker();
@@ -1540,9 +1595,9 @@ describe('embedding worker runtime', () => {
         texts: ['hello'],
         type: 'embed',
       })
-    ).rejects.toThrow('WebGPU pipeline loaded without a usable ORT WebGPU device');
+    ).rejects.toThrow('device unavailable');
 
-    await setOrtWebGpuDevice({
+    await setWebGpuDevice({
       createCommandEncoder: () => ({ finish: () => ({}) }),
       lost: new Promise(() => {}),
       queue: {
@@ -1561,7 +1616,7 @@ describe('embedding worker runtime', () => {
       device: 'webgpu',
       fallbackApplied: false,
     });
-    expect(pipelineMock).toHaveBeenCalledTimes(2);
+    expect(pipelineMock).toHaveBeenCalledTimes(1);
   });
 
   it('supports tasks requesting non-default embedding dimensions', async () => {
@@ -1820,7 +1875,7 @@ describe('embedding worker runtime', () => {
       finish: finishMock,
     }));
 
-    await setOrtWebGpuDevice({
+    await setWebGpuDevice({
       createCommandEncoder: createCommandEncoderMock,
       lost: new Promise(() => {}),
       queue: { submit: submitMock },
@@ -1881,7 +1936,7 @@ describe('embedding worker runtime', () => {
     const submitMock = vi.fn();
     const finishMock = vi.fn<() => unknown>(() => ({ kind: 'command-buffer' }));
 
-    await setOrtWebGpuDevice({
+    await setWebGpuDevice({
       createCommandEncoder: vi.fn<() => MockGpuCommandEncoder>(() => ({ finish: finishMock })),
       lost: new Promise(() => {}),
       queue: { submit: submitMock },

@@ -5,6 +5,8 @@ import {
   EMBED_WORKER_INSTANCE_NAME_PREFIX,
   EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
+  EMBEDDING_DEVICE_LOST_CODE,
+  EmbeddingDeviceLostError,
   type EmbedWorkerLifetimeError,
   type EmbedWorkerPipelineCacheDiagnostic,
   type EmbedWorkerRequestControl,
@@ -64,7 +66,8 @@ function readWorkerEvent(value: unknown): WorkerEvent | null {
         record['id'].length > 0 &&
         typeof record['message'] === 'string' &&
         record['message'].length > 0 &&
-        (record['cause'] === undefined || typeof record['cause'] === 'string')
+        (record['cause'] === undefined || typeof record['cause'] === 'string') &&
+        (record['code'] === undefined || record['code'] === EMBEDDING_DEVICE_LOST_CODE)
       )
     ) {
       throw new Error('Embedding worker request error event is malformed.');
@@ -78,6 +81,13 @@ function assertCurrentTaskWorkerEvent(workerEvent: WorkerEvent, taskId: string):
   if (workerEvent.id !== taskId) {
     throw new Error('Embedding worker request event id must match the current task id.');
   }
+}
+
+function readDeviceLoss(workerEvent: WorkerEvent): EmbeddingDeviceLostError | null {
+  if (workerEvent.type !== 'error' || workerEvent.code !== EMBEDDING_DEVICE_LOST_CODE) {
+    return null;
+  }
+  return new EmbeddingDeviceLostError(workerEvent.cause ?? workerEvent.message);
 }
 
 function throwIfWorkerError(workerEvent: WorkerEvent): void {
@@ -641,6 +651,7 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
     const startedAt = now();
     const request = toWorkerRequest(task);
     const telemetrySource: { current: string | null } = { current: null };
+    let deviceLoss: EmbeddingDeviceLostError | null = null;
     const telemetryError: { current: Error | null } = { current: null };
     let rejectTelemetryError!: (error: Error) => void;
     const telemetryFailure = new Promise<never>((_resolve, reject) => {
@@ -662,13 +673,17 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
             return;
           }
           const workerEvent = readWorkerEvent(event);
-          if (workerEvent) {
-            assertCurrentTaskWorkerEvent(workerEvent, task.id);
-            emitter.emit(workerEvent);
-            throwIfWorkerError(workerEvent);
+          if (!workerEvent) {
+            throw new Error('Embedding worker request emitted an unsupported event.');
+          }
+          assertCurrentTaskWorkerEvent(workerEvent, task.id);
+          emitter.emit(workerEvent);
+          const deviceFailure = readDeviceLoss(workerEvent);
+          if (deviceFailure) {
+            deviceLoss = deviceFailure;
             return;
           }
-          throw new Error('Embedding worker request emitted an unsupported event.');
+          throwIfWorkerError(workerEvent);
         } catch (error) {
           telemetryError.current =
             error instanceof Error
@@ -692,6 +707,9 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
         if (telemetryError.current) {
           throw telemetryError.current;
         }
+        if (deviceLoss) {
+          throw deviceLoss;
+        }
         return result;
       },
       (error: unknown) => {
@@ -701,6 +719,9 @@ export function createWorkerpoolAdapter(options?: WorkerpoolAdapterOptions): Que
         executionPending = false;
         if (telemetryError.current) {
           throw telemetryError.current;
+        }
+        if (deviceLoss) {
+          throw deviceLoss;
         }
         throw error;
       }

@@ -2,6 +2,8 @@ import {
   assertEmbedWorkerBatch,
   assertEmbedWorkerComplete,
   assertEmbedWorkerPipelineCacheDiagnostic,
+  EMBEDDING_DEVICE_LOST_CODE,
+  EmbeddingDeviceLostError,
   requestedEmbeddingPooling,
 } from '@brainstrike/indexing-contract';
 import { createWorkerRuntimeClient } from '@brainstrike/worker-runtime';
@@ -480,7 +482,10 @@ export class StreamingEmbeddingWorkerClient {
 
     if (payload.type === 'error') {
       options.onError?.(payload);
-      const failure = this.runtime.markFailed(new Error(payload.message));
+      const failure =
+        payload.code === EMBEDDING_DEVICE_LOST_CODE
+          ? new EmbeddingDeviceLostError(payload.cause ?? payload.message)
+          : this.runtime.markFailed(new Error(payload.message));
       this.activeStream = null;
       cleanup();
       reject(failure);

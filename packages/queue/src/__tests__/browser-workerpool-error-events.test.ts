@@ -87,6 +87,49 @@ describe('workerpool request error events', () => {
     vi.unstubAllGlobals();
   });
 
+  it('joins device-loss failures without cancelling or replacing the worker', async () => {
+    const execution = createCancelablePromise<QueueResult>();
+    let emit: ((event: unknown) => void) | undefined;
+    poolExecMock.mockImplementation(
+      (_method, _args, options?: { on?: (event: unknown) => void }) => {
+        emit = options?.on;
+        return execution.promise;
+      }
+    );
+    const { createWorkerpoolAdapter } = await import('../adapters/browser-workerpool.js');
+    const adapter = createWorkerpoolAdapter({
+      telemetry: {
+        recordBatch: vi.fn(),
+        recordFailure: vi.fn(),
+        recordPipelineCache: vi.fn(),
+        removeSource: vi.fn(),
+      },
+      workerUrl: '/worker.js',
+    });
+    const settled = vi.fn();
+    const outcome = adapter.add(createTask('lost-device')).catch((error: unknown) => {
+      settled();
+      return error;
+    });
+    emit?.({
+      cause: 'destroyed: test device',
+      code: 'EMBEDDING_DEVICE_LOST',
+      id: 'lost-device',
+      message: 'device lost',
+      type: 'error',
+    });
+    await Promise.resolve();
+    expect(settled).not.toHaveBeenCalled();
+    expect(execution.promise.cancel).not.toHaveBeenCalled();
+    execution.reject(new Error('vendor request settled'));
+    await expect(outcome).resolves.toMatchObject({
+      cause: 'destroyed: test device',
+      code: 'EMBEDDING_DEVICE_LOST',
+      name: 'DeviceLost',
+    });
+    expect(poolFactoryMock.mock.results[0]?.value.terminate).not.toHaveBeenCalled();
+  });
+
   it('treats a correlated worker error event as terminal', async () => {
     const errorListener = vi.fn();
     const { promise, resolve } = createCancelablePromise<QueueResult>();

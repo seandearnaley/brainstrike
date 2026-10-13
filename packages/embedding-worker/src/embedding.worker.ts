@@ -6,6 +6,7 @@ import {
   EMBED_WORKER_INSTANCE_NAME_PREFIX,
   EMBED_WORKER_REQUEST_CONTROL_CHANNEL_SUFFIX,
   EMBED_WORKER_TELEMETRY_CHANNEL_FRAGMENT_KEY,
+  EmbeddingDeviceLostError,
   type EmbedWorkerRequestControl,
   readOnnxWasmPathsFragment,
   requestedEmbeddingPooling,
@@ -35,7 +36,6 @@ import type {
   EmbedWorkerProgress,
   EmbedWorkerRequest,
   EmbedWorkerSuccess,
-  EmbedWorkerTelemetrySourceClosed,
 } from './shared';
 import {
   cloneAsFloat32,
@@ -47,6 +47,11 @@ import {
   vectorsFromPipelineOutput,
 } from './shared';
 import { consumeEmbeddingWorkerTestRuntimeOverride } from './test-runtime-bootstrap';
+import {
+  createWebGpuDeviceOwner,
+  type GpuDeviceHandle,
+  type OwnedWebGpuDevice,
+} from './webgpu-device-owner';
 
 function resolveEmbeddingWorkerInstanceId(): string {
   const workerName = (globalThis as typeof globalThis & { readonly name?: unknown }).name;
@@ -287,36 +292,6 @@ type FeatureExtractor = FeatureExtractionPipeline &
     }
   ) => Promise<unknown>);
 
-interface CatchableCleanup {
-  catch: (onRejected: () => void) => unknown;
-}
-
-function isCatchableCleanup(value: unknown): value is CatchableCleanup {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'catch' in value &&
-    typeof value.catch === 'function'
-  );
-}
-
-function disposeFeatureExtractorBestEffort(extractor: FeatureExtractor): void {
-  try {
-    if (typeof extractor.dispose !== 'function') {
-      return;
-    }
-
-    const cleanupResult = (extractor.dispose as () => unknown).call(extractor);
-    if (!isCatchableCleanup(cleanupResult)) {
-      return;
-    }
-
-    cleanupResult.catch(() => {});
-  } catch {
-    // Disposal must not mask the pipeline load failure that triggered cleanup.
-  }
-}
-
 interface TransformersRuntime {
   readonly env: {
     allowRemoteModels?: boolean;
@@ -335,6 +310,13 @@ interface TransformersRuntime {
       readonly device: EmbeddingDevice;
       readonly dtype: EmbeddingDType;
       readonly revision?: string;
+      // biome-ignore lint/style/useNamingConvention: Transformers.js session_options is the vendor API.
+      readonly session_options?: {
+        readonly executionProviders: readonly {
+          readonly name: 'webgpu';
+          readonly device: GpuDeviceHandle;
+        }[];
+      };
     }
   ) => Promise<FeatureExtractionPipeline>;
   readonly tensorConstructor: unknown;
@@ -434,63 +416,14 @@ async function getTransformersRuntime(): Promise<TransformersRuntime> {
   return runtimePromise;
 }
 
-// ---------------------------------------------------------------------------
-// WebGPU device keep-alive & device loss recovery
-//
-// Problem:
-//   ONNX Runtime Web acquires a GPUDevice internally when using the WebGPU
-//   execution provider. If the Electron renderer is backgrounded (unfocused)
-//   for ~5 minutes, Chromium freezes all JS timers. The GPU device then idles
-//   out, and when ONNX Runtime next accesses the stale native handle it
-//   triggers a V8 CHECK() assertion failure (SIGTRAP / exitCode 5), killing
-//   the entire renderer process.
-//
-// Fix (three layers):
-//   Layer 1 (root cause) — the hidden desktop embedding-host renderer uses
-//     `backgroundThrottling: false` so Chromium never freezes that worker
-//     host's timers while local embeddings are running.
-//   Layer 2 (defence-in-depth) — this file's keep-alive submits a real GPU
-//     command buffer every 15 s to register activity with the driver.
-//   Layer 3 (recovery) — device-loss watcher terminates this worker cleanly
-//     via self.close(); workerpool (minWorkers: 1) spawns a replacement.
-//     create-window.ts also has a `render-process-gone` handler that reloads
-//     the renderer if a crash still occurs.
-//
-// The ONNX Runtime device is accessible after the first inference session via
-// `env.backends.onnx.webgpu.device` (a Promise<GPUDevice>).
-//
-// Full write-up: docs/debug-handoff-renderer-crash.md
-//
-// Refs:
-//   - WebGPU spec device loss: https://gpuweb.github.io/gpuweb/#dom-gpudevice-lost
-//   - ONNX Runtime env flags:  https://onnxruntime.ai/docs/api/js/interfaces/Env.WebGpuFlags.html
-//   - Toji best practices:     https://toji.dev/webgpu-best-practices/device-loss.html
-// ---------------------------------------------------------------------------
-
+// The hidden worker owns its WebGPU device and shares it across ORT sessions.
+// Existing keep-alive preserves driver activity while hidden (BST-2005).
 const GPU_KEEPALIVE_INTERVAL_MS = 15_000;
-
-// Minimal WebGPU type surface used by the keep-alive / device-loss system.
-// The full @webgpu/types package is not in this project's deps; these cover
-// only the members we actually touch.
-interface GpuDeviceLostInfo {
-  readonly message: string;
-  readonly reason: string | undefined;
-}
-interface GpuCommandBuffer {
-  // Phantom field to avoid accidentally passing plain `{}` into queue.submit.
-  readonly __brand: 'GPUCommandBuffer';
-}
-interface GpuCommandEncoder {
-  finish: () => GpuCommandBuffer;
-}
-interface GpuQueue {
-  submit: (buffers: GpuCommandBuffer[]) => void;
-}
-interface GpuDeviceHandle {
-  createCommandEncoder: () => GpuCommandEncoder;
-  readonly lost: Promise<GpuDeviceLostInfo>;
-  readonly queue: GpuQueue;
-}
+const pipelineDevices = new WeakMap<FeatureExtractor, OwnedWebGpuDevice>();
+const webGpuDeviceOwner = createWebGpuDeviceOwner(() => {
+  stopKeepAlive();
+  pipelineCacheController.invalidateWebGpuPipelines();
+});
 
 /** Handle for the keep-alive interval so it can be stopped on device loss. */
 let keepAliveTimer: ReturnType<typeof setInterval> | null = null;
@@ -504,9 +437,6 @@ let keepAlivePaused = false;
  *  The keep-alive skips its tick to avoid concurrent GPUQueue submissions
  *  that can race on the Metal command queue and trigger a Dawn CHECK(). */
 let isInferenceActive = false;
-
-/** Whether we have already attached the device-loss watcher for the current device. */
-let deviceLossWatcherAttached = false;
 
 /** Counter for diagnostic logging of keep-alive ticks. */
 let keepAliveTickCount = 0;
@@ -585,43 +515,6 @@ function acknowledgeBatch(id: string, batchIndex: number): void {
 }
 
 /**
- * Obtain the GPUDevice that ONNX Runtime created internally.
- *
- * After the first WebGPU inference session, ONNX Runtime freezes the device
- * onto `env.webgpu.device` via Object.defineProperty (writable: false,
- * configurable: false). Transformers.js exposes the ORT env at
- * `env.backends.onnx`, so the device lives at `env.backends.onnx.webgpu.device`.
- *
- * Returns `null` if WebGPU is not in use or the device is unavailable.
- */
-async function getOrtWebGpuDevice(): Promise<GpuDeviceHandle | null> {
-  try {
-    const runtime = await getTransformersRuntime();
-    const onnxEnv = runtime.env.backends?.onnx as
-      | { webgpu?: { device: Promise<GpuDeviceHandle> | GpuDeviceHandle } }
-      | undefined;
-    if (!onnxEnv?.webgpu) {
-      debugLog('GPU guard skipped because env.backends.onnx.webgpu is unavailable');
-      return null;
-    }
-    const device = await onnxEnv.webgpu.device;
-    if (!device || typeof device.createCommandEncoder !== 'function') {
-      debugLog('GPU guard skipped because device is missing or invalid', {
-        hasDevice: Boolean(device),
-        type: typeof device,
-      });
-      return null;
-    }
-    return device;
-  } catch (error) {
-    debugLog('GPU guard could not acquire device', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return null;
-  }
-}
-
-/**
  * Start periodic GPU command submissions to keep the device alive.
  *
  * Chromium / the OS GPU driver may reclaim a WebGPU device after an extended
@@ -671,104 +564,10 @@ function stopKeepAlive(): void {
   }
 }
 
-/**
- * Invalidate all cached pipelines that were loaded with a WebGPU device.
- * The next embed() call will call loadPipeline() which recreates the pipeline
- * (and ONNX Runtime will acquire a fresh GPUDevice internally).
- *
- * NOTE: ONNX Runtime freezes `env.webgpu.device` with configurable: false,
- * so a fresh device can only be obtained in a new worker instance. The
- * pipeline invalidation is still useful as a signal, but true recovery
- * requires workerpool to restart this worker (which it does automatically
- * when minWorkers >= 1).
- */
-function invalidateWebGpuPipelines(): void {
-  const residentGpuCount = pipelineCacheController
-    .getResidentEntries()
-    .filter((entry) => entry.device === 'webgpu').length;
-  pipelineCacheController.invalidateWebGpuPipelines();
-  debugLog('Invalidated cached WebGPU pipelines', { count: residentGpuCount });
-}
-
 function updateKeepAliveState(): void {
   if (!pipelineCacheController.hasResidentDevice('webgpu')) {
     stopKeepAlive();
   }
-}
-
-/**
- * Attach a one-time watcher on GPUDevice.lost. When device loss fires:
- *   1. Stop the keep-alive interval (the device is gone).
- *   2. Invalidate all WebGPU pipeline cache entries.
- *   3. Terminate this worker so workerpool can spawn a fresh one.
- *
- * Self-termination is necessary because ONNX Runtime's WebGPU backend is a
- * one-shot singleton — `env.webgpu.device` is frozen (configurable: false)
- * and cannot be replaced. A new device can only exist in a new worker.
- * Calling `self.close()` terminates cleanly (no SIGTRAP), and workerpool's
- * `minWorkers: 1` ensures a replacement is spawned immediately.
- */
-function watchDeviceLoss(device: GpuDeviceHandle): void {
-  if (deviceLossWatcherAttached) {
-    return;
-  }
-  deviceLossWatcherAttached = true;
-
-  void device.lost.then((info: GpuDeviceLostInfo) => {
-    const workerpoolRequestId = activeWorkerpoolRequestId;
-    const hasActiveRequests = workerpoolRequestId !== null || activeStreamRequestIds.size > 0;
-    if (hasActiveRequests) {
-      warnLog('WebGPU device lost', { message: info.message, reason: info.reason });
-    } else {
-      debugLog('Idle WebGPU device lost', { message: info.message, reason: info.reason });
-    }
-
-    stopKeepAlive();
-    invalidateWebGpuPipelines();
-    deviceLossWatcherAttached = false;
-
-    if (workerpoolRequestId !== null) {
-      workerEmit({
-        cause: `reason=${String(info.reason)}`,
-        id: workerpoolRequestId,
-        message: `WebGPU device lost: ${info.message}`,
-        type: 'error',
-      });
-    }
-    if (activeStreamRequestIds.size > 0) {
-      notifyActiveStreamsOfDeviceLoss(info);
-    }
-
-    // Terminate this worker cleanly. Workerpool will spawn a fresh one
-    // (minWorkers: 1) which can acquire a new GPUDevice.
-    // Any in-flight request rejects and is expected to be retried by the
-    // embedding queue's existing retry path.
-    if (hasActiveRequests) {
-      warnLog('Terminating worker after WebGPU device loss for clean recovery');
-    }
-    workerpoolTelemetryChannel?.postMessage({
-      reason: 'device-lost',
-      type: 'telemetry-source-closed',
-      workerInstanceId: embeddingWorkerInstanceId,
-    } satisfies EmbedWorkerTelemetrySourceClosed);
-    if (typeof self !== 'undefined' && typeof self.close === 'function') {
-      self.close();
-    }
-  });
-}
-
-/**
- * After a WebGPU pipeline successfully loads, set up the keep-alive heartbeat
- * and device-loss watcher on the ONNX Runtime device.
- */
-async function initWebGpuDeviceGuard(): Promise<void> {
-  const device = await getOrtWebGpuDevice();
-  if (!device) {
-    throw new Error('WebGPU pipeline loaded without a usable ORT WebGPU device');
-  }
-  debugLog('GPU guard acquired device and attached keep-alive plus loss watcher');
-  startKeepAlive(device);
-  watchDeviceLoss(device);
 }
 
 function hasWebGPU(): boolean {
@@ -799,24 +598,76 @@ async function createFeatureExtractor(
   revision?: string
 ): Promise<FeatureExtractor> {
   const runtime = await getTransformersRuntime();
-  const result = await runtime.pipeline('feature-extraction', model, {
-    device,
-    dtype,
-    ...(revision === undefined ? {} : { revision }),
-  });
-
-  if (device !== 'webgpu') {
-    return result as FeatureExtractor;
-  }
-
+  const owned =
+    device === 'webgpu' && !webGpuClassProxyEnabled ? await webGpuDeviceOwner.acquire() : null;
+  let result: FeatureExtractor;
   try {
-    await initWebGpuDeviceGuard();
-  } catch (guardError) {
-    disposeFeatureExtractorBestEffort(result as FeatureExtractor);
-    throw guardError;
+    result = (await runtime.pipeline('feature-extraction', model, {
+      device,
+      dtype,
+      ...(revision === undefined ? {} : { revision }),
+      ...(owned
+        ? {
+            // biome-ignore lint/style/useNamingConvention: Transformers.js session_options is the vendor API.
+            session_options: {
+              executionProviders: [{ device: owned.device, name: 'webgpu' as const }],
+            },
+          }
+        : {}),
+    })) as FeatureExtractor;
+  } catch (error) {
+    if (owned?.error) {
+      throw new EmbeddingDeviceLostError(
+        `${String(owned.error.cause)}; loading: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    throw error;
   }
+  if (owned) {
+    if (owned.error) {
+      try {
+        await result.dispose();
+      } catch (error) {
+        throw new EmbeddingDeviceLostError(
+          `${String(owned.error.cause)}; disposal: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+      throw owned.error;
+    }
+    pipelineDevices.set(result, owned);
+    startKeepAlive(owned.device);
+  }
+  return result;
+}
 
-  return result as FeatureExtractor;
+/** Keep physical inference joined before publishing a device-loss failure. */
+async function extractOwnedEmbeddingBatch(
+  extractor: FeatureExtractor,
+  texts: readonly string[],
+  pooling: EmbeddingPooling
+): Promise<unknown> {
+  const owned = pipelineDevices.get(extractor);
+  if (owned?.error) {
+    throw owned.error;
+  }
+  try {
+    const result = await extractEmbeddingBatch(extractor, texts, pooling);
+    if (owned?.error) {
+      const runtime = await getTransformersRuntime();
+      if (isTransformersTensor(result, runtime) && typeof result.dispose === 'function') {
+        result.dispose();
+      }
+      throw owned.error;
+    }
+    return result;
+  } catch (error) {
+    if (owned?.error && error !== owned.error) {
+      throw new EmbeddingDeviceLostError(
+        `${String(owned.error.cause)}; inference: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    throw error;
+  }
 }
 
 async function loadPipeline(
@@ -1144,17 +995,6 @@ function postStreamEvent(
   self.postMessage(event, transferList ?? []);
 }
 
-function notifyActiveStreamsOfDeviceLoss(info: GpuDeviceLostInfo): void {
-  for (const id of activeStreamRequestIds) {
-    postStreamEvent({
-      cause: `reason=${String(info.reason)}`,
-      id,
-      message: `WebGPU device lost: ${info.message}`,
-      type: 'error',
-    });
-  }
-}
-
 async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState): Promise<void> {
   const { texts, truncateDim, id, total } = context;
   const started = typeof performance === 'undefined' ? Date.now() : performance.now();
@@ -1184,7 +1024,7 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
   let startIndex = 0;
   for (const endIndex of createBatchEnds(context, state)) {
     const slice = texts.slice(startIndex, endIndex);
-    const rawOutput = await extractEmbeddingBatch(extractor, slice, context.pooling);
+    const rawOutput = await extractOwnedEmbeddingBatch(extractor, slice, context.pooling);
     const vectorsFromBatch = isTransformersTensor(rawOutput, runtime)
       ? convertTensorToVectors(rawOutput, truncateDim)
       : vectorsFromPipelineOutput(rawOutput, truncateDim);
@@ -1227,6 +1067,10 @@ async function streamEmbeddings(context: EmbeddingContext, state: EmbeddingState
     });
 
     await waitForBatchAck(id, batchIndex);
+    const lost = pipelineDevices.get(extractor)?.error;
+    if (lost) {
+      throw lost;
+    }
     batchIndex += 1;
     startIndex = endIndex;
   }
@@ -1262,7 +1106,7 @@ async function runBatches(
   for (const endIndex of createBatchEnds(context, state)) {
     throwIfWorkerpoolRequestCanceled(id);
     const slice = texts.slice(startIndex, endIndex);
-    const rawOutput = await extractEmbeddingBatch(extractor, slice, context.pooling);
+    const rawOutput = await extractOwnedEmbeddingBatch(extractor, slice, context.pooling);
     const vectorsFromBatch = isTransformersTensor(rawOutput, runtime)
       ? convertTensorToVectors(rawOutput, truncateDim)
       : vectorsFromPipelineOutput(rawOutput, truncateDim);
@@ -1377,6 +1221,7 @@ function emitErrorEvent(id: string, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   const event: EmbedWorkerError = {
     cause: serializeErrorCause(error),
+    ...(error instanceof EmbeddingDeviceLostError ? { code: error.code } : {}),
     id,
     message,
     type: 'error',
@@ -1433,6 +1278,7 @@ if (typeof self !== 'undefined' && typeof self.addEventListener === 'function') 
       } catch (error) {
         postStreamEvent({
           cause: serializeErrorCause(error),
+          ...(error instanceof EmbeddingDeviceLostError ? { code: error.code } : {}),
           id: context?.id ?? requestId,
           message: error instanceof Error ? error.message : String(error),
           type: 'error',

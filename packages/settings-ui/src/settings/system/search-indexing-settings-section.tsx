@@ -58,6 +58,7 @@ import {
 } from '@brainstrike/utils/browser-events';
 import { AlertTriangle, CheckCircle2, Loader2, RefreshCw } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useWebGpuAvailability } from './use-webgpu-availability';
 
 interface CollectionOption {
   createdAt: string;
@@ -469,7 +470,7 @@ function NativeCollectionSetup({
       ) : null}
       {webgpu.kind === 'failed' ? (
         <p className="text-destructive text-sm" role="alert">
-          {webgpu.reason}
+          Couldn't detect WebGPU.
         </p>
       ) : null}
       <Label htmlFor="workspace-index-model">Embedding model</Label>
@@ -843,42 +844,6 @@ export function SearchIndexingSettingsSection({
       </CardContent>
     </Card>
   );
-}
-
-type WebGpuState =
-  | { readonly kind: 'unknown' }
-  | { readonly kind: 'known'; readonly availability: WebGpuAdapterAvailability }
-  | { readonly kind: 'failed'; readonly reason: string };
-
-/** The embedding host's WebGPU detection; unknown until it answers, never guessed (BST-1993). */
-function useWebGpuAvailability(localExecution: LocalExecutionCapability | undefined): WebGpuState {
-  const [state, setDetection] = useState<WebGpuState>({ kind: 'unknown' });
-  useEffect(() => {
-    if (!localExecution) {
-      return;
-    }
-    let current = true;
-    const detect = async (): Promise<void> => {
-      try {
-        const availability = await localExecution.webgpuAdapter();
-        if (current) {
-          setDetection({ availability, kind: 'known' });
-        }
-      } catch (error) {
-        if (current) {
-          setDetection({
-            kind: 'failed',
-            reason: error instanceof Error ? error.message : String(error),
-          });
-        }
-      }
-    };
-    void detect();
-    return () => {
-      current = false;
-    };
-  }, [localExecution]);
-  return state;
 }
 
 type RecommendedExecution = NonNullable<EmbeddingModelDefinition['recommendedExecution']>;
