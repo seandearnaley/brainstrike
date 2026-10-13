@@ -49,7 +49,6 @@ import {
 } from './native-index-activation-fixture';
 
 beforeEach(resetActivationFixture);
-
 afterEach(resetFileSizeConfig);
 
 it.each(['cancelled', 'startup-failed', 'cleanup-failed'] as const)(
@@ -571,7 +570,7 @@ it('keeps captured cleanup authority through expected source abort and refuses i
   expect(() => captured.readAuthority()).toThrow();
 });
 
-it('joins outgoing rooted collection removal before replacing the main writer', async () => {
+it('joins retained rooted-row convergence before admitting the replacement writer to reads', async () => {
   const lease: CanonicalWorkspaceLease = {
     canonicalPath: '/actual/root',
     generation: 'actual-generation',
@@ -609,9 +608,14 @@ it('joins outgoing rooted collection removal before replacing the main writer', 
     return { rows: params[0] === 'selected' ? records : [] };
   });
   const removal = Promise.withResolvers<boolean>();
+  let retired = false;
   const native = {
     ...writer(),
-    removeScopedFile: vi.fn(() => removal.promise),
+    removeScopedFile: vi.fn(async () => {
+      const removed = await removal.promise;
+      retired = true;
+      return removed;
+    }),
     verifyScopedManifest: vi.fn(
       async (request: Parameters<ScopedIndexerPort['verifyScopedManifest']>[0]) => ({
         authorityEpoch: 'b'.repeat(64),
@@ -621,7 +625,22 @@ it('joins outgoing rooted collection removal before replacing the main writer', 
         missing: [],
         scope: requestedScope(request),
         storeId,
-        unexpected: [],
+        unexpected:
+          mocks.acquire.mock.calls.length >= 2 &&
+          !retired &&
+          requestedScope(request).kind === 'workspace'
+            ? [
+                {
+                  chunks: [],
+                  contentHash: 'c'.repeat(64),
+                  embeddingSetId: 'selected',
+                  fileId: 'retained-0',
+                  relativePath: 'file.txt',
+                  rootId: 'root',
+                  sourcePath: '/actual/root/file.txt',
+                },
+              ]
+            : [],
       })
     ),
   };
@@ -660,8 +679,9 @@ it('joins outgoing rooted collection removal before replacing the main writer', 
     scope: { kind: 'workspace', rootId: 'root' },
   });
   expect(lease.retire).toHaveBeenCalledOnce();
-  expect(mocks.close).not.toHaveBeenCalled();
-  expect(mocks.acquire).toHaveBeenCalledOnce();
+  expect(mocks.close).toHaveBeenCalledOnce();
+  expect(mocks.acquire).toHaveBeenCalledTimes(2);
+  await expect(activation.acquireRead()).rejects.toThrow('transitioning');
   removal.resolve(true);
   await changing;
   expect(mocks.close).toHaveBeenCalledOnce();

@@ -187,6 +187,7 @@ export const DESKTOP_IPC_CHANNELS = {
     coverage: 'index-search:coverage',
     coverageBatch: 'index-search:coverage-batch',
     grep: 'index-search:grep',
+    lifecycleChanged: 'index-search:lifecycle-changed',
     rebuild: 'index-search:rebuild',
     rootsRegistered: 'index-search:roots-registered',
     search: 'index-search:search',

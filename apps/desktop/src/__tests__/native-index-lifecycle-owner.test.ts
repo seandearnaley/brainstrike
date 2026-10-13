@@ -80,7 +80,7 @@ it('a failed open records that generation failure before its error reaches the c
     failure
   );
   await expect(lifecycle.state()).resolves.toEqual({
-    cause: { kind: 'source-failure', message: failure.message },
+    cause: { error: failure, kind: 'source-failure', message: failure.message },
     generation: 2,
     kind: 'failed',
     settings: TEXT,
@@ -234,4 +234,92 @@ it('a settings save queued behind an open cannot reopen after terminal retiremen
     'close',
     'retire-profile',
   ]);
+});
+
+it('prepares Pause by aborting sources before joining their physical close', async () => {
+  const e = executor();
+  const stopped = Promise.withResolvers<void>();
+  e.execute.mockImplementationOnce(async () => {
+    await stopped.promise;
+    return;
+  });
+  const lifecycle = await createNativeIndexLifecycle(ready, e);
+  const prepared = await lifecycle.preparePause({ ...VECTOR, paused: true });
+  expect(e.execute).toHaveBeenCalledWith({
+    kind: 'apply-sources',
+    settings: { ...VECTOR, paused: true },
+  });
+  let completed = false;
+  const completion = prepared.complete().then(() => {
+    completed = true;
+  });
+  await Promise.resolve();
+  expect(completed).toBe(false);
+  stopped.resolve();
+  await completion;
+  await expect(lifecycle.state()).resolves.toMatchObject({
+    kind: 'ready',
+    settings: { paused: true },
+  });
+});
+
+it('a prepared pause cannot complete by reopening after folder deletion or shutdown', async () => {
+  for (const reason of ['root-data-deletion', 'profile-retired'] as const) {
+    const e = executor();
+    const stopped = Promise.withResolvers<void>();
+    e.execute.mockImplementationOnce(async () => {
+      await stopped.promise;
+      return;
+    });
+    const lifecycle = await createNativeIndexLifecycle(ready, e);
+    const prepared = await lifecycle.preparePause({ ...TEXT, paused: true });
+    const closed = lifecycle.dispatch({ kind: 'terminal', reason });
+    stopped.resolve();
+    await closed;
+    await expect(prepared.complete()).rejects.toBeInstanceOf(NativeIndexEventRefusedError);
+    expect(e.execute.mock.calls.map(([action]) => action.kind)).not.toContain('open');
+  }
+});
+
+it('fences read admission while saved settings are read and joins that read before shutdown', async () => {
+  const e = executor();
+  const saved = Promise.withResolvers<typeof TEXT>();
+  const lifecycle = await createNativeIndexLifecycle(ready, e);
+  const configured = lifecycle.configure(() => saved.promise).catch((error: unknown) => error);
+  await expect(lifecycle.state()).resolves.toMatchObject({ kind: 'validating' });
+  const closing = lifecycle.dispatch({ kind: 'terminal', reason: 'profile-retired' });
+  expect(e.execute).not.toHaveBeenCalled();
+  saved.resolve(TEXT);
+  expect(await configured).toBeInstanceOf(NativeIndexEventRefusedError);
+  await closing;
+  expect(e.performed).toEqual([{ kind: 'close' }, { kind: 'retire-profile' }]);
+});
+
+it('projects owner changes through one subscription and joins unsubscribe', async () => {
+  const e = executor();
+  const lifecycle = await createNativeIndexLifecycle(ready, e);
+  const changes: NativeIndexState[] = [];
+  const stopped = new AbortController();
+  const observed = lifecycle
+    .observe((state) => {
+      changes.push(state);
+    }, stopped.signal)
+    .catch((error: unknown) => error);
+  await vi.waitFor(() => expect(changes).toHaveLength(1));
+  await lifecycle.dispatch({ kind: 'settings-saved', settings: TEXT });
+  await vi.waitFor(() => expect(changes.at(-1)).toMatchObject({ generation: 2, kind: 'ready' }));
+  expect(changes.map((state) => state.kind)).toEqual(['ready', 'transitioning', 'ready']);
+  const reason = new Error('Observer disposed');
+  stopped.abort(reason);
+  expect(await observed).toBe(reason);
+  await lifecycle.dispatch({ kind: 'terminal', reason: 'profile-retired' });
+  expect(changes).toHaveLength(3);
+});
+
+it('an explicit profile retirement escalates a prior shutdown fence and releases its profile', async () => {
+  const e = executor();
+  const lifecycle = await createNativeIndexLifecycle(ready, e);
+  await lifecycle.dispatch({ kind: 'fence', reason: 'shutdown' });
+  await lifecycle.dispatch({ kind: 'terminal', reason: 'profile-retired' });
+  expect(e.performed).toEqual([{ kind: 'close' }, { kind: 'retire-profile' }]);
 });

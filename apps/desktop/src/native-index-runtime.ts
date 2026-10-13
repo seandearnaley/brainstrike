@@ -1,7 +1,4 @@
-import {
-  NativeAuthorityTransitionError,
-  NativeReadAuthorityRetiredError,
-} from '@brainstrike/assistant-service/node-native-text-services';
+import { NativeAuthorityTransitionError } from '@brainstrike/assistant-service/node-native-text-services';
 import {
   type IndexerPort,
   type IndexFileBinding,
@@ -11,8 +8,6 @@ import {
 } from '@brainstrike/indexer';
 
 import type { DesktopProfileRuntime } from './desktop-profile-runtime';
-
-export { NativeReadAuthorityRetiredError } from '@brainstrike/assistant-service/node-native-text-services';
 
 type NativePort = IndexerPort & ScopedIndexerPort;
 
@@ -54,8 +49,6 @@ export interface NativeIndexRuntime<Attachment = unknown> {
   retireFailedProfile(): Promise<boolean>;
   retireProfile(reason?: unknown): Promise<void>;
   retireReads(): Promise<void>;
-  /** Retire one partition's workspace files: a collection, or null for the TEXT partition. */
-  retireWorkspaceCollectionFiles(embeddingSetId: string | null): Promise<void>;
   withRead<T>(
     acquireRead: () => Promise<NativePort>,
     work: (captured: CapturedNativeIndexAuthority) => Promise<T>
@@ -249,11 +242,6 @@ export function createNativeIndexRuntime<Attachment>(
   let acknowledgedAuthority: NativeIndexAuthority | undefined;
   let acknowledgedPort: NativePort | undefined;
   let bindingRemovalPending = false;
-  // undefined: no retirement pending; null: the TEXT partition's files (BST-1988).
-  let outgoingCollectionId: string | null | undefined;
-  let outgoingPort: NativePort | undefined;
-  let outgoingFiles: Map<string, IndexFileBinding> | undefined;
-  let workspaceRetirement: Promise<void> | undefined;
   let closed = false;
   let closing: Promise<void> | undefined;
   let closingKind: 'close' | 'destroy' | undefined;
@@ -413,55 +401,6 @@ export function createNativeIndexRuntime<Attachment>(
     port = ready;
     return ready;
   };
-  const settleWorkspaceRetirement = (): Promise<void> => {
-    workspaceRetirement ??= (async () => {
-      await acquisition?.catch(() => undefined);
-      await authorityMutation?.catch(() => undefined);
-      await joinReads();
-      if (!outgoingFiles) {
-        if (!(acknowledgedPort && acknowledgedAuthority)) {
-          if (indexOwner) {
-            throw new Error('Outgoing native files have no acknowledged writer authority.');
-          }
-          return;
-        }
-        outgoingPort = acknowledgedPort;
-        outgoingFiles = new Map(
-          acknowledgedAuthority.fileBindings
-            .filter((file) => file.rootId !== null && file.embeddingSetId === outgoingCollectionId)
-            .map((file) => [file.fileId, file])
-        );
-      }
-      await closeQueries();
-      const ready = outgoingPort;
-      if (!ready) {
-        throw new Error('Outgoing native workspace authority is unavailable.');
-      }
-      for (const file of outgoingFiles.values()) {
-        await ready.removeScopedFile(workspaceRemoval(file));
-        outgoingFiles.delete(file.fileId);
-      }
-    })().finally(() => {
-      workspaceRetirement = undefined;
-    });
-    return workspaceRetirement;
-  };
-  const retireWorkspaceCollectionFiles = (embeddingSetId: string | null): Promise<void> => {
-    if (closing || (embeddingSetId !== null && !embeddingSetId.trim())) {
-      return Promise.reject(
-        new Error('Native workspace retirement cannot change a closing owner.')
-      );
-    }
-    if (outgoingCollectionId !== undefined && outgoingCollectionId !== embeddingSetId) {
-      return Promise.reject(
-        new Error('Original outgoing native collection retirement must settle first.')
-      );
-    }
-    closed = true;
-    readsClosed = true;
-    outgoingCollectionId = embeddingSetId;
-    return settleWorkspaceRetirement();
-  };
   const closeIndex = (destroy = false): Promise<void> => {
     closed = true;
     readsClosed = true;
@@ -477,9 +416,6 @@ export function createNativeIndexRuntime<Attachment>(
       await acquisition?.catch(() => undefined);
       await authorityMutation?.catch(() => undefined);
       await joinReads();
-      if (outgoingCollectionId !== undefined) {
-        await settleWorkspaceRetirement();
-      }
       await closeQueries();
       if (destroy && indexOwner) {
         if (!indexOwner.destroy) {
@@ -496,9 +432,6 @@ export function createNativeIndexRuntime<Attachment>(
       acknowledgedAuthority = undefined;
       acknowledgedPort = undefined;
       bindingRemovalPending = false;
-      outgoingCollectionId = undefined;
-      outgoingPort = undefined;
-      outgoingFiles = undefined;
       authorityMutation = undefined;
     })().finally(() => {
       closing = undefined;
@@ -589,7 +522,6 @@ export function createNativeIndexRuntime<Attachment>(
       readsClosed = true;
       await joinReads();
     },
-    retireWorkspaceCollectionFiles,
     withRead: async <T>(
       acquireRead: () => Promise<NativePort>,
       work: (captured: CapturedNativeIndexAuthority) => Promise<T>
@@ -617,7 +549,7 @@ export function createNativeIndexRuntime<Attachment>(
             port: captured.port,
             readAuthority: () => {
               if (closed || readsClosed) {
-                throw new NativeReadAuthorityRetiredError();
+                throw new NativeAuthorityTransitionError('Native read admission is closed.');
               }
               return captured.readAuthority();
             },

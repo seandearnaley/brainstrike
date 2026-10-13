@@ -23,6 +23,78 @@ import {
 
 beforeEach(resetActivationFixture);
 
+it.each(['acquire', 'acquireRead'] as const)(
+  'captures the initial saved-settings read before %s returns',
+  async (method) => {
+    const f = fixture();
+    const saved = JSON.parse(await f.storage.getItem()) as { state: { paused: boolean } };
+    saved.state.paused = true;
+    f.storage.getItem.mockClear().mockResolvedValue(JSON.stringify(saved));
+    const acquired = f.activation[method]();
+    onTestFinished(async () => {
+      await acquired.catch(() => undefined);
+      await f.activation.close();
+    });
+    expect(f.storage.getItem).toHaveBeenCalledOnce();
+    await expect(acquired).resolves.toBeDefined();
+  }
+);
+
+it('concurrent acquire and acquireRead share the first captured startup input', async () => {
+  const f = fixture();
+  const saved = JSON.parse(await f.storage.getItem()) as {
+    state: { paused: boolean; indexingPolicyPreset: string };
+  };
+  saved.state.paused = true;
+  const captured = JSON.stringify(saved);
+  const held = Promise.withResolvers<string>();
+  f.storage.getItem.mockReturnValueOnce(held.promise);
+  const strict = f.activation.acquire();
+  saved.state.indexingPolicyPreset = 'full-root';
+  f.storage.getItem.mockResolvedValue(JSON.stringify(saved));
+  const reader = f.activation.acquireRead();
+  onTestFinished(async () => {
+    held.resolve(captured);
+    await Promise.allSettled([strict, reader]);
+    await f.activation.close();
+  });
+  held.resolve(captured);
+  await expect(strict).resolves.toBeDefined();
+  await expect(reader).resolves.toBeDefined();
+  expect(mocks.acquire).toHaveBeenCalledOnce();
+  expect(mocks.close).not.toHaveBeenCalled();
+  expect(mocks.manager.attachCanonicalCollection).not.toHaveBeenCalled();
+});
+
+it('a terminal command supersedes captured startup input before it can open', async () => {
+  const f = fixture();
+  const captured = await f.storage.getItem();
+  const held = Promise.withResolvers<string>();
+  f.storage.getItem.mockClear().mockReturnValueOnce(held.promise);
+  const initial = f.activation.acquire().catch((error: unknown) => error);
+  expect(f.storage.getItem).toHaveBeenCalledOnce();
+  const closing = f.activation.close();
+  onTestFinished(async () => {
+    held.resolve(captured);
+    await Promise.allSettled([initial, closing]);
+  });
+  held.resolve(captured);
+  expect(await initial).toBeInstanceOf(Error);
+  await closing;
+  expect(mocks.acquire).not.toHaveBeenCalled();
+  await expect(f.activation.acquireRead()).rejects.toBeInstanceOf(Error);
+});
+
+it('preserves a synchronously captured settings failure through asynchronous construction', async () => {
+  const f = fixture();
+  const failure = new Error('Saved settings storage could not be read');
+  f.storage.getItem.mockRejectedValue(failure);
+  const initial = f.activation.acquire();
+  onTestFinished(() => f.activation.close());
+  await expect(initial).rejects.toBe(failure);
+  expect(mocks.acquire).not.toHaveBeenCalled();
+});
+
 function heldWorkspace(beforeAttach?: () => Promise<void>) {
   const attached = Promise.withResolvers<void>();
   const physicallyClosed = Promise.withResolvers<void>();
@@ -136,7 +208,7 @@ it.each(['reconfigure', 'invalid-settings', 'terminal'] as const)(
     if (operation === 'invalid-settings') {
       expect(await initial).toEqual(new Error('Native index preferences have no state.'));
     } else {
-      expect(await initial).toMatchObject({ code: 'native-authority-transition' });
+      expect(await initial).toMatchObject({ code: 'native-index-transitioning' });
     }
     expect(mocks.closeProfile).not.toHaveBeenCalled();
     if (operation !== 'terminal') {
@@ -176,7 +248,7 @@ it('retains an independent physical source-close failure after graph invalidatio
   await saveSettingsChange(f.storage, { indexingPolicyPreset: 'full-root' });
   replacing = f.activation.reconfigure().catch((error: unknown) => error);
   await vi.waitFor(() => expect(f.close).toHaveBeenCalledOnce());
-  expect(await initial).toMatchObject({ code: 'native-authority-transition' });
+  expect(await initial).toMatchObject({ code: 'native-index-transitioning' });
   expect(await replacing).toMatchObject({ errors: [failure] });
   expect(mocks.closeProfile).not.toHaveBeenCalled();
   expect(mocks.close).not.toHaveBeenCalled();
@@ -334,10 +406,11 @@ it.each(['invalid-settings', 'physical-failure'] as const)(
     f.physicallyClosed.resolve();
     const error = await outcome;
     if (kind === 'invalid-settings') {
-      expect(error).toMatchObject({
-        errors: [await initial, new Error('Native index preferences have no state.')],
+      expect(error).toBe(await initial);
+      await expect(f.activation.acquireRead()).rejects.toMatchObject({
+        cause: error,
+        refusal: { kind: 'settings-invalid' },
       });
-      await expect(f.activation.acquireRead()).rejects.toThrow('closed');
     } else {
       expect(error).toMatchObject({ errors: [failure] });
       await expect(f.activation.acquireRead()).rejects.toBe(error);

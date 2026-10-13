@@ -6,8 +6,10 @@ import {
   type IndexerEmbeddingState,
   type IndexerSearchHit,
   type IndexerSearchResult,
+  type IndexerStatus,
   type IndexSearchCapability,
   indexerEmbeddingProfileValues,
+  NativeIndexRefusalError,
   validIndexerEmbeddingProfile,
 } from '@brainstrike/indexing-contract/indexer-client';
 import type { NativeWorkspaceSearchDependencies } from './native-workspace-search-context';
@@ -298,6 +300,11 @@ function emptyNativeResults(mode: WorkspaceSearchMode): WorkspaceSearchResults {
     totalMatches: 0,
   };
 }
+function nativeStatusFailure(status: Extract<IndexerStatus, { kind: 'unavailable' }>): Error {
+  return status.cause
+    ? new NativeIndexRefusalError(status.cause, status.reason)
+    : new Error(status.reason);
+}
 export class NativeWorkspaceSearchExecutor {
   private requestSeq = 0;
   private inferenceController: AbortController | undefined;
@@ -391,7 +398,7 @@ export class NativeWorkspaceSearchExecutor {
       return null;
     }
     if (status.kind !== 'ready') {
-      throw new Error(status.reason);
+      throw nativeStatusFailure(status);
     }
     assertNativeStatusScope(status, request.rootIds, request.collectionId);
     const vector =

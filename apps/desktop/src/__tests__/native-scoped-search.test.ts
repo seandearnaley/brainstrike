@@ -624,6 +624,7 @@ it.each([
     return;
   }
   await expect(f.capability.coverageBatch(pairedRequests)).resolves.toEqual({
+    cause: { kind: 'transitioning' },
     code: 'native-coverage-observation-invalidated',
     kind: 'invalidated',
   });
@@ -770,4 +771,30 @@ it('restricts canonical file membership before the native grep candidate limit',
   });
   expect(result.hits.map(({ fileId }) => fileId)).toEqual(['retained']);
   expect(f.close).toHaveBeenCalledOnce();
+});
+
+it('publishes the typed transition cause and refuses search without a failed-index wrapper', async () => {
+  const transition = new NativeAuthorityTransitionError('Native index is transitioning.');
+  const capability = createNativeScopedSearchCapability({
+    openQuery: unused,
+    rebuild: unused,
+    withRead: async () => {
+      throw transition;
+    },
+  });
+  await expect(capability.status()).resolves.toMatchObject({
+    cause: { kind: 'transitioning' },
+    kind: 'unavailable',
+    phase: 'preparing',
+  });
+  await expect(capability.coverageBatch([{ rootIds: ['root'] }])).resolves.toMatchObject({
+    cause: { kind: 'transitioning' },
+    kind: 'invalidated',
+  });
+  await expect(
+    capability.search({ limit: 10, mode: 'bm25', rootIds: ['root'], text: 'read me' })
+  ).rejects.toMatchObject({
+    code: 'native-index-transitioning',
+    refusal: { kind: 'transitioning' },
+  });
 });

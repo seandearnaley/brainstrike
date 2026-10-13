@@ -1,6 +1,5 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
-import { NativeAuthorityTransitionError } from '../native-authority-transition';
 import { resolveNativeCanonicalProfile } from '../native-canonical-profile';
 import { readNativeIndexSettings } from '../native-index-settings';
 import { NativeIndexSetupRequiredError } from '../native-index-setup-required';
@@ -67,6 +66,7 @@ describe('native index setup observation', () => {
     });
     for (let poll = 0; poll < 3; poll += 1) {
       await expect(capability.status()).resolves.toEqual({
+        cause: { kind: 'setup-required', message: reason.message },
         kind: 'unavailable',
         phase: 'setup-required',
         reason: reason.message,
@@ -77,7 +77,7 @@ describe('native index setup observation', () => {
 
   it('preserves a retained setup reason, but never suppresses independent cleanup failures', async () => {
     const setup = new NativeIndexSetupRequiredError('Choose a collection.');
-    expect(NativeAuthorityTransitionError.closedAdmission('Closed', setup)).toBe(setup);
+    expect(setup.refusal).toEqual({ kind: 'setup-required', message: setup.message });
     const failures = [
       new Error(setup.message),
       new AggregateError([setup, new Error('Cleanup failed')], 'Retirement failed'),

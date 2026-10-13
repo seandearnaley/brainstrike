@@ -95,7 +95,7 @@ async function publish(
 }
 
 it.each(['TEXT', 'VECTOR'] as const)(
-  'retires outgoing same-root rows before %s selection, preserving retained and unrelated profile vectors',
+  'converges same-root stored rows at %s writer open, preserving retained and unrelated profile vectors',
   async (mode) => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'brainstrike-collection-retirement-'));
     const dbPath = path.join(directory, 'index.sqlite');
@@ -134,9 +134,8 @@ it.each(['TEXT', 'VECTOR'] as const)(
       await publish(original, other, 'other canonical marker');
       const storeId = (await original.info()).storeId;
       const captured = runtime.captureAcknowledgedAuthority();
-      await runtime.retireWorkspaceCollectionFiles('old');
       expect(captured.readAuthority().fileBindings).toEqual([oldRoot, retained, other]);
-      await runtime.retireProfile();
+      await runtime.closeIndex();
       const nextRoot = {
         ...oldRoot,
         embeddingSetId: 'next',
@@ -164,7 +163,7 @@ it.each(['TEXT', 'VECTOR'] as const)(
           })
         ).hits.map((hit) => hit.fileId)
       ).toEqual([nextRoot.fileId]);
-      await runtime.retireProfile();
+      await runtime.closeIndex();
       authority = {
         fileBindings: [retained, nextRoot, other],
         rootIds: [workspace.rootId],
@@ -185,7 +184,7 @@ it.each(['TEXT', 'VECTOR'] as const)(
         vectorCoverageComplete: true,
       });
     } finally {
-      await runtime.retireProfile();
+      await runtime.closeIndex();
       await rm(directory, { force: true, recursive: true });
     }
   }

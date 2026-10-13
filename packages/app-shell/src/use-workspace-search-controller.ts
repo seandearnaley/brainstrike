@@ -7,6 +7,7 @@ import {
   buildLocalEmbeddingModelConfigMap,
   resolveEmbeddingSetModelInfo,
 } from '@brainstrike/db-explorer/embedding-models';
+import type { NativeIndexLifecycleObservation } from '@brainstrike/indexing-contract/indexer-client';
 import { createLogger } from '@brainstrike/logging';
 import { useIdeFileEditor } from '@brainstrike/ui';
 import { useSharedSearchEmbedder } from '@brainstrike/vector-management';
@@ -20,7 +21,7 @@ import {
   WorkspaceSearchExecutor,
   type WorkspaceSearchMode,
 } from '@brainstrike/workspace-search/core';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { useOptionalRootIdentity } from './roots/root-identity-context';
 
 const logger = createLogger('WorkspaceSearchController');
@@ -164,7 +165,8 @@ export function createWorkspaceSearchRunners(deps: WorkspaceSearchRunnerDeps): {
 
 export function createNativeWorkspaceSearchRunners(
   executor: NativeWorkspaceSearchExecutor,
-  rootIds: readonly string[]
+  rootIds: readonly string[],
+  onTransitioning?: (generation: number, mode: WorkspaceSearchMode) => void
 ): { runSemanticSearch: () => void; runTextSearch: () => void } {
   const run = (mode: WorkspaceSearchMode): void => {
     const store = useWorkspaceSearchStore.getState();
@@ -178,6 +180,15 @@ export function createNativeWorkspaceSearchRunners(
         }
       })
       .catch((error: unknown) => {
+        if (
+          onTransitioning &&
+          error instanceof Error &&
+          'code' in error &&
+          error.code === 'native-index-transitioning'
+        ) {
+          onTransitioning(generation, mode);
+          return;
+        }
         useWorkspaceSearchStore
           .getState()
           .failSearch(error instanceof Error ? error.message : String(error), generation);
@@ -194,6 +205,12 @@ export function createNativeWorkspaceSearchRunners(
  */
 export function useWorkspaceSearchController(): WorkspaceSearchController {
   const nativeDependencies = useNativeWorkspaceSearchDependencies();
+  const [pendingSearch, setPendingSearch] = useState<{
+    readonly generation: number;
+    readonly mode: WorkspaceSearchMode;
+    readonly after: NativeIndexLifecycleObservation | null;
+  } | null>(null);
+  const lifecycle = nativeDependencies?.lifecycle;
   const selectedCollectionId = useWorkspaceSearchStore((state) => state.collectionId);
   const [availabilityResult, setAvailabilityResult] = useState<{
     readonly scope: Parameters<typeof getNativeSemanticAvailability>[0];
@@ -295,20 +312,41 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
           }),
     [nativeCapability, nativeProfile, nativeEmbedQuery, nativeProfileReason]
   );
-  useEffect(
-    () => () => {
-      if (!nativeExecutor) {
-        return;
+  const retireSearchScope = useEffectEvent(() => {
+    const store = useWorkspaceSearchStore.getState();
+    if (store.status !== 'searching') {
+      return;
+    }
+    const pending = pendingSearch?.generation === store.generation ? pendingSearch : null;
+    const generation = store.beginSearch();
+    if (lifecycle !== undefined && (pending || lifecycle?.kind === 'preparing')) {
+      setPendingSearch({
+        after: pending ? pending.after : lifecycle,
+        generation,
+        mode: pending?.mode ?? store.mode,
+      });
+      return;
+    }
+    store.failSearch('Native workspace search scope or capability changed.', generation);
+  });
+  useEffect(() => {
+    const releaseSearchScope = (): void => {
+      if (nativeExecutor) {
+        nativeExecutor.cancelPendingSearch();
+        retireSearchScope();
       }
-      nativeExecutor.cancelPendingSearch();
+    };
+    return releaseSearchScope;
+  }, [nativeExecutor, workspaceDbRootIds]);
+  useEffect(() => {
+    const closeSearch = (): void => {
       const store = useWorkspaceSearchStore.getState();
       if (store.status === 'searching') {
-        const generation = store.beginSearch();
-        store.failSearch('Native workspace search scope or capability changed.', generation);
+        store.failSearch('Native workspace search was closed.', store.generation);
       }
-    },
-    [nativeExecutor, workspaceDbRootIds]
-  );
+    };
+    return closeSearch;
+  }, []);
   const availabilityScope = useMemo(
     () =>
       nativeEmbedQuery === null
@@ -372,7 +410,17 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
 
   const runners = useMemo(() => {
     if (nativeExecutor) {
-      return createNativeWorkspaceSearchRunners(nativeExecutor, workspaceDbRootIds);
+      return createNativeWorkspaceSearchRunners(
+        nativeExecutor,
+        workspaceDbRootIds,
+        lifecycle === undefined
+          ? undefined
+          : (generation, mode) => {
+              if (useWorkspaceSearchStore.getState().generation === generation) {
+                setPendingSearch({ after: lifecycle, generation, mode });
+              }
+            }
+      );
     }
     if (!executor) {
       const unavailable = (): void => {
@@ -388,7 +436,40 @@ export function useWorkspaceSearchController(): WorkspaceSearchController {
       resolveEffectiveEmbeddingSetId,
       workspaceDbRootIds,
     });
-  }, [executor, nativeExecutor, resolveEffectiveEmbeddingSetId, workspaceDbRootIds]);
+  }, [executor, lifecycle, nativeExecutor, resolveEffectiveEmbeddingSetId, workspaceDbRootIds]);
+
+  useEffect(() => {
+    if (
+      !(pendingSearch && lifecycle) ||
+      lifecycle.kind === 'preparing' ||
+      lifecycle === pendingSearch.after
+    ) {
+      return;
+    }
+    const store = useWorkspaceSearchStore.getState();
+    if (store.generation !== pendingSearch.generation || !store.query.trim()) {
+      return;
+    }
+    // Cleanup may already have scheduled a command for a replacement scope.
+    // Consume only the command this render actually observed.
+    setPendingSearch((current) => (current === pendingSearch ? null : current));
+    if (lifecycle.kind === 'refused') {
+      const cause = lifecycle.cause;
+      const message =
+        cause.kind === 'closed'
+          ? cause.reason
+          : cause.kind === 'transitioning'
+            ? 'Native index is transitioning.'
+            : cause.message;
+      store.failSearch(message, pendingSearch.generation);
+      return;
+    }
+    if (pendingSearch.mode === 'text') {
+      runners.runTextSearch();
+    } else {
+      runners.runSemanticSearch();
+    }
+  }, [lifecycle, pendingSearch, runners]);
 
   const resolveAdapterRootId = useCallback(
     (dbRootId: string): string | null => rootIdentity?.resolveAdapterRootId(dbRootId) ?? null,

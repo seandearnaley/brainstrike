@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
 import type {
   CanonicalScanReceipt,
   CanonicalWorkspaceLease,
@@ -27,7 +28,6 @@ import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
 import { createNativeIndexActivation } from '../native-index-activation';
-import { NativeIndexBlockedError } from '../native-index-blocked';
 import {
   createNativeScopedSearchCapability,
   type NativeSearchAuthority,
@@ -519,7 +519,7 @@ it.each([false, true])(
         { generation: 2, mutationRevision: 2, scanComplete: true, scope },
       ]);
       expect(test.receipts).toHaveLength(2);
-      expect(test.manifests).toEqual([[], ['retained-0']]);
+      expect(test.manifests).toEqual([[], [], ['retained-0']]);
       expect(test.onError).not.toHaveBeenCalled();
       expect(
         (
@@ -596,7 +596,7 @@ it('queues a newer inventory until the actual host and private channel join the 
     await test.activation.acquire();
     expect(test.receipts).toHaveLength(3);
     expect(test.receipts.every((receipt) => receipt.scanComplete)).toBe(true);
-    expect(test.manifests).toEqual([[], ['retained-0'], ['retained-0', 'retained-1']]);
+    expect(test.manifests).toEqual([[], [], ['retained-0'], ['retained-0', 'retained-1']]);
     expect(test.proofs.at(-1)).toMatchObject({
       changed: [],
       complete: true,
@@ -648,9 +648,9 @@ it.each([false, true])(
       await updating;
       await vi.waitFor(() => expect(test.onError).toHaveBeenCalled());
       const blocked = await test.activation.acquireRead().catch((error: unknown) => error);
-      expect(blocked).toBeInstanceOf(NativeIndexBlockedError);
+      expect(blocked).toBeInstanceOf(NativeIndexRefusalError);
       expect(blocked).toHaveProperty('cause', test.onError.mock.calls.at(-1)?.[1]);
-      expect(test.manifests).toEqual([[], ['retained-0']]);
+      expect(test.manifests).toEqual([[], [], ['retained-0']]);
     } finally {
       await test.close();
     }
@@ -675,7 +675,7 @@ it('observes catalog population before the initial collection scan so concurrent
     test.gate.resolve();
     expect(await test.finished.promise).toMatchObject({ reason: 'complete', scanComplete: true });
     expect(await starting).toHaveProperty('info');
-    expect(test.manifests).toEqual([['retained-0']]);
+    expect(test.manifests).toEqual([[], ['retained-0']]);
     expect(test.onError).not.toHaveBeenCalled();
     test.expectReadiness((await test.activation.getSearchAuthority()).readiness, [
       { generation: 1, mutationRevision: 2, scanComplete: true, scope },
@@ -718,7 +718,7 @@ it.each([false, true])(
         message: 'genuine verification failure',
       });
       await expect(test.activation.acquireRead()).rejects.toBe(test.onError.mock.calls[0]?.[1]);
-      expect(test.manifests).toEqual([[], ['retained-0']]);
+      expect(test.manifests).toEqual([[], [], ['retained-0']]);
       test.expectReadiness(test.activation.getReadiness(), [
         { generation: 2, mutationRevision: 2, scanComplete: false, scope },
       ]);
@@ -749,7 +749,7 @@ it('joins a queued inventory that reverts before the old verified scan settles w
     expect(await test.finished.promise).toMatchObject({ reason: 'complete', scanComplete: true });
     expect(await updating).toHaveProperty('info');
     expect(await reverted).toHaveProperty('info');
-    expect(test.manifests).toEqual([[], ['retained-0']]);
+    expect(test.manifests).toEqual([[], [], ['retained-0']]);
     expect(test.bindings.at(-1)).toEqual(['retained-0']);
     test.expectReadiness(test.activation.getReadiness(), [
       { generation: 2, mutationRevision: 2, scanComplete: true, scope },
@@ -784,7 +784,7 @@ it.each([false, true])(
       expect(await joining).toHaveProperty('info');
       expect(test.onError).not.toHaveBeenCalled();
       expect(test.manifests).toEqual(
-        newer ? [[], ['retained-0'], ['retained-0', 'retained-1']] : [[], ['retained-0']]
+        newer ? [[], [], ['retained-0'], ['retained-0', 'retained-1']] : [[], [], ['retained-0']]
       );
       expect(test.receipts.every((receipt) => receipt.scanComplete)).toBe(true);
       test.expectReadiness((await test.activation.getSearchAuthority()).readiness, [
@@ -810,7 +810,7 @@ it('uses one snapshot for admission, bindings and source inventory when PG chang
     test.inventoryGate.resolve();
     expect(await initial).toHaveProperty('info');
     expect(await latest).toHaveProperty('info');
-    expect(test.manifests).toEqual([[], ['retained-0'], ['retained-0', 'retained-1']]);
+    expect(test.manifests).toEqual([[], [], ['retained-0'], ['retained-0', 'retained-1']]);
     expect(test.receipts.every((receipt) => receipt.scanComplete)).toBe(true);
     expect(test.onError).not.toHaveBeenCalled();
   } finally {
@@ -982,11 +982,12 @@ it('rejects held native coverage when genuine saved authority replacement retire
     expect(mocks.close).not.toHaveBeenCalled();
     expect((await test.native.info()).storeId).toBe(originalStore);
     await expect(test.activation.withRead(async () => {})).rejects.toThrow(
-      'Native read admission is closed.'
+      'Native index is transitioning.'
     );
     expect(mocks.coverageClosed).toHaveBeenCalledTimes(closedBefore);
     test.coverageGate.resolve();
     expect(await pending).toEqual({
+      cause: { kind: 'transitioning' },
       code: 'native-coverage-observation-invalidated',
       kind: 'invalidated',
     });

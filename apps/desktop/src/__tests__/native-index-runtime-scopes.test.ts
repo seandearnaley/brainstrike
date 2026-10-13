@@ -28,6 +28,7 @@ const binding: IndexFileBinding = {
 
 function fixture(initial: Authority) {
   let authority = initial;
+  let stored: readonly IndexFileBinding[] = [];
   const events: string[] = [];
   const unused = async (): Promise<never> => {
     throw new Error('Unused fixture operation');
@@ -61,7 +62,17 @@ function fixture(initial: Authority) {
         missing: [],
         scope,
         storeId: 'store',
-        unexpected: [],
+        unexpected: stored
+          .filter((file) =>
+            scope.kind === 'workspace'
+              ? file.rootId === scope.rootId
+              : file.embeddingSetId === scope.embeddingSetId
+          )
+          .map(({ profile: _profile, ...file }) => ({
+            ...file,
+            chunks: [],
+            contentHash: 'c'.repeat(64),
+          })),
       };
     }
   );
@@ -136,6 +147,9 @@ function fixture(initial: Authority) {
     setAuthority: (next: Authority): void => {
       authority = next;
     },
+    setStored: (files: readonly IndexFileBinding[]): void => {
+      stored = files;
+    },
   };
 }
 
@@ -151,7 +165,7 @@ it('acquires an empty authority: Text search with no collection and no folder (B
   });
 });
 
-it('joins original-authority rooted collection removal before closing the writer', async () => {
+it('joins opening-writer convergence before closing a replacement writer', async () => {
   const rooted = {
     ...binding,
     fileId: 'workspace-file',
@@ -160,36 +174,32 @@ it('joins original-authority rooted collection removal before closing the writer
     sourcePath: '/actual/root/file.txt',
   };
   const f = fixture({
-    fileBindings: [rooted, binding],
+    fileBindings: [binding],
     rootIds: ['root'],
     scopes: [collection, { kind: 'workspace', rootId: 'root' }],
   });
-  await f.runtime.acquire();
+  f.setStored([rooted, binding]);
   const held = Promise.withResolvers<boolean>();
   f.removeScopedFile.mockReturnValueOnce(held.promise);
-  // New live choices cannot replace the old native ACK's cleanup authority.
-  f.setAuthority({
-    fileBindings: [],
-    rootIds: [],
-    scopes: [{ embeddingSetId: 'other', kind: 'collection' }],
-  });
-  const retiring = f.runtime.retireWorkspaceCollectionFiles('collection');
+  const opening = f.runtime.acquire().catch((error: unknown) => error);
   await vi.waitFor(() =>
     expect(f.removeScopedFile).toHaveBeenCalledExactlyOnceWith({
       fileId: rooted.fileId,
       scope: { kind: 'workspace', rootId: 'root' },
     })
   );
+  expect(f.installQueryTarget).not.toHaveBeenCalled();
   const closing = f.runtime.closeIndex();
   expect(f.closeWriter).not.toHaveBeenCalled();
   await expect(f.runtime.acquire()).rejects.toThrow('admission is closed');
   held.resolve(true);
-  await Promise.all([retiring, closing]);
+  expect(await opening).toBeInstanceOf(Error);
+  await closing;
   expect(f.removeScopedFile).toHaveBeenCalledTimes(1);
   expect(f.closeWriter).toHaveBeenCalledTimes(1);
 });
 
-it('retains failed outgoing native removal for explicit retry without erasing rootless rows', async () => {
+it('retains failed opening convergence for explicit retry without erasing owned rootless rows', async () => {
   const rooted = {
     ...binding,
     fileId: 'workspace-file',
@@ -198,25 +208,27 @@ it('retains failed outgoing native removal for explicit retry without erasing ro
     sourcePath: '/actual/root/file.txt',
   };
   const f = fixture({
-    fileBindings: [rooted, binding],
+    fileBindings: [binding],
     rootIds: ['root'],
     scopes: [collection, { kind: 'workspace', rootId: 'root' }],
   });
-  await f.runtime.acquire();
-  const cause = new Error('Native outgoing removal did not settle.');
+  f.setStored([rooted, binding]);
+  const cause = new Error('Native opening removal did not settle.');
   f.removeScopedFile.mockRejectedValueOnce(cause);
-  await expect(f.runtime.retireWorkspaceCollectionFiles('collection')).rejects.toBe(cause);
+  await expect(f.runtime.acquire()).rejects.toBe(cause);
+  expect(f.installQueryTarget).not.toHaveBeenCalled();
   expect(f.closeWriter).not.toHaveBeenCalled();
   await expect(f.runtime.resume()).rejects.toThrow('Previous native ownership');
-  await f.runtime.retireWorkspaceCollectionFiles('collection');
   await f.runtime.closeIndex();
+  await f.runtime.resume();
+  await f.runtime.acquire();
   expect(f.removeScopedFile).toHaveBeenCalledTimes(2);
-  expect(
-    f.removeScopedFile.mock.calls.every(([request]) =>
-      JSON.stringify(request).includes('workspace-file')
-    )
-  ).toBe(true);
-  expect(f.closeWriter).toHaveBeenCalledTimes(1);
+  expect(f.removeScopedFile.mock.calls.map(([request]) => request)).toEqual([
+    { fileId: rooted.fileId, scope: { kind: 'workspace', rootId: 'root' } },
+    { fileId: rooted.fileId, scope: { kind: 'workspace', rootId: 'root' } },
+  ]);
+  expect(f.installQueryTarget).toHaveBeenCalledOnce();
+  await f.runtime.closeIndex();
 });
 
 it('retains the actual replacement ACK inventory when live authority changes immediately afterward', async () => {
@@ -239,7 +251,11 @@ it('retains the actual replacement ACK inventory when live authority changes imm
   });
   f.setAuthority({ ...initial, fileBindings: [rooted] });
   await expect(f.runtime.acquire()).rejects.toThrow('authority changed');
-  await f.runtime.retireWorkspaceCollectionFiles('collection');
+  expect(f.runtime.captureAcknowledgedAuthority().readAuthority().fileBindings).toEqual([rooted]);
+  f.setStored([rooted]);
+  await f.runtime.closeIndex();
+  await f.runtime.resume();
+  await f.runtime.acquire();
   expect(f.removeScopedFile).toHaveBeenCalledExactlyOnceWith({
     fileId: rooted.fileId,
     scope: { kind: 'workspace', rootId: 'root' },
@@ -399,7 +415,7 @@ it('captures one actual writer and reads its complete latest acknowledged invent
   const admitted = f.runtime.acquire().catch((error: unknown) => error);
   await vi.waitFor(() => expect(f.replaceFileBindings).toHaveBeenCalledOnce());
   expect(captured.readAuthority().fileBindings).toEqual([]);
-  const retiring = f.runtime.retireWorkspaceCollectionFiles('collection');
+  const retiring = f.runtime.retireReads();
   acknowledgment.resolve();
   await Promise.all([admitted, retiring]);
   expect(captured.readAuthority().fileBindings).toEqual([rooted]);

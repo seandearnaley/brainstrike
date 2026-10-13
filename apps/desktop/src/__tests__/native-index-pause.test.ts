@@ -1,4 +1,6 @@
 // @vitest-environment node
+
+import { NativeIndexRefusalError } from '@brainstrike/assistant-service/node-native-text-services';
 import type {
   CanonicalScanReceipt,
   CanonicalWorkspaceLease,
@@ -14,7 +16,6 @@ import { createDesktopHostLease } from '../host-lease-manager';
 import type { ApplicationIpcDomain } from '../ipc-handlers';
 import type { NativeCanonicalCatalogRecord } from '../native-canonical-catalog';
 import { createNativeIndexActivation } from '../native-index-activation';
-import { NativeIndexBlockedError } from '../native-index-blocked';
 import { NativeIndexSetupRequiredError } from '../native-index-setup-required';
 import { createNativeScopedSearchCapability } from '../native-scoped-search';
 
@@ -785,6 +786,7 @@ it('keeps the setup requirement as the read refusal after a reconfiguration find
   });
   const setup = 'Choose a search mode in Search & Indexing settings.';
   await expect(capability.status()).resolves.toEqual({
+    cause: { kind: 'setup-required', message: setup },
     kind: 'unavailable',
     phase: 'setup-required',
     reason: setup,
@@ -829,10 +831,13 @@ it('refuses reused read ownership when source retirement left the actual manager
   await expect(activation.reconfigure()).rejects.toBe(cause);
   await expect(activation.acquireRead()).rejects.toMatchObject({
     cause,
-    code: 'native-index-blocked',
-    name: NativeIndexBlockedError.name,
+    code: 'native-index-source-failure',
+    name: NativeIndexRefusalError.name,
   });
-  await expect(activation.acquire()).rejects.toThrow('Canonical native scan failed');
+  await expect(activation.acquire()).rejects.toMatchObject({
+    cause,
+    refusal: { kind: 'source-failure' },
+  });
   await activation.reconfigure();
   await activation.acquireRead();
   expect(mocks.close).toHaveBeenCalledOnce();
