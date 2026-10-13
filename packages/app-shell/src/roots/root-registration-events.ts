@@ -76,6 +76,15 @@ type Waiter = () => void;
 // membership, is what a waiter compares against.
 const seqByKey = new Map<string, number>();
 const waitersByKey = new Map<string, Set<Waiter>>();
+const subscribers = new Set<Waiter>();
+
+/** Observe committed registrations; consumers still read the authoritative rows. */
+export function subscribeRootRegistered(read: Waiter): () => void {
+  subscribers.add(read);
+  return () => {
+    subscribers.delete(read);
+  };
+}
 
 /**
  * The current registration generation for `key` (0 = never registered).
@@ -109,6 +118,9 @@ export function notifyRootRegistered(keys: readonly string[]): void {
     for (const wake of waiters) {
       wake();
     }
+  }
+  for (const read of subscribers) {
+    read();
   }
 }
 
@@ -182,4 +194,5 @@ export function awaitRootRegistration(
 export function resetRootRegistrationEventsForTests(): void {
   seqByKey.clear();
   waitersByKey.clear();
+  subscribers.clear();
 }

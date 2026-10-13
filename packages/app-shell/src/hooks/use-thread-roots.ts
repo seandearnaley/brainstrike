@@ -8,6 +8,7 @@
 import type { DbHandle } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import { useEffect, useState } from 'react';
+import { subscribeRootRegistered } from '../roots/root-registration-events';
 import type { ThreadCheckoutRoot } from './use-thread-folders-write';
 import {
   type ResolvedSecondaryRoots,
@@ -54,7 +55,8 @@ function secondaryRoot(id: string, row: RootRow | undefined): ThreadCheckoutRoot
 /**
  * `mountedKey` names the workspace's mounted folders: removing or re-adding a
  * folder changes it, and the rows are read again, because the folder's row
- * changes status without the thread's own ids changing.
+ * changes status without the thread's own ids changing. Registration may commit
+ * after the mount is published, so its producer notification also refreshes the read.
  */
 export function useThreadRoots(args: {
   readonly database: DbHandle | null;
@@ -75,35 +77,46 @@ export function useThreadRoots(args: {
     if (!database || ids.length === 0) {
       return;
     }
-    let cancelled = false;
-    database
-      .query<RootRow>(
-        'SELECT id, display_name AS "displayName", path, status FROM roots WHERE id = ANY($1::text[])',
-        [ids]
-      )
-      .then((result) => {
-        if (cancelled) {
-          return;
-        }
-        const byId = new Map(result.rows.map((row) => [row.id, row]));
-        const primary = primaryRootId ? byId.get(primaryRootId) : undefined;
-        setResolved({
-          error: false,
-          key,
-          primaryRemoved: Boolean(primaryRootId) && primary?.status !== 'live',
-          roots: secondaryRootIds.map((id) => secondaryRoot(id, byId.get(id))),
+    let cancelRead = (): void => {};
+    const read = (): void => {
+      cancelRead();
+      let cancelled = false;
+      cancelRead = () => {
+        cancelled = true;
+      };
+      database
+        .query<RootRow>(
+          'SELECT id, display_name AS "displayName", path, status FROM roots WHERE id = ANY($1::text[])',
+          [ids]
+        )
+        .then((result) => {
+          if (cancelled) {
+            return;
+          }
+          const byId = new Map(result.rows.map((row) => [row.id, row]));
+          const primary = primaryRootId ? byId.get(primaryRootId) : undefined;
+          setResolved({
+            error: false,
+            key,
+            primaryRemoved: Boolean(primaryRootId) && primary?.status !== 'live',
+            roots: secondaryRootIds.map((id) => secondaryRoot(id, byId.get(id))),
+          });
+        })
+        .catch((error: unknown) => {
+          if (!cancelled) {
+            logger.error('failed to load the thread secondary roots', { error });
+            // Tagged with the key it failed for, so the failure is not retried on
+            // every render and no other id list inherits an empty result.
+            setResolved({ error: true, key, primaryRemoved: false, roots: NO_ROOTS });
+          }
         });
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          logger.error('failed to load the thread secondary roots', { error });
-          // Tagged with the key it failed for, so the failure is not retried on
-          // every render and no other id list inherits an empty result.
-          setResolved({ error: true, key, primaryRemoved: false, roots: NO_ROOTS });
-        }
-      });
+    };
+    // Subscribe before reading: a commit during the first read supersedes it.
+    const unsubscribe = subscribeRootRegistered(read);
+    read();
     return () => {
-      cancelled = true;
+      unsubscribe();
+      cancelRead();
     };
   }, [database, key, mountedKey, primaryRootId, secondaryRootIds]);
   const current = database && resolved?.key === key ? resolved : null;
