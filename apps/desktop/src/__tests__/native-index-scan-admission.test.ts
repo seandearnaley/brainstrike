@@ -6,6 +6,7 @@ import { expect, it, vi } from 'vitest';
 import { CanonicalUtilityChild } from '../canonical-utility-child';
 import { CanonicalUtilityParent } from '../canonical-utility-parent';
 import { createNativeCanonicalPublication } from '../native-canonical-publication';
+import { catalogFingerprint, deferNativeIndexCatalog } from '../native-index-catalog-observation';
 import { createNativeScanAdmission } from '../native-index-scan-admission';
 
 const workspace = { kind: 'workspace', rootId: 'root' } as const;
@@ -372,3 +373,63 @@ it('retains a failed binding ACK and rejects later admission with its exact aggr
   await expect(test.admission.acquireRead(work)).rejects.toBe(failure);
   expect(work).not.toHaveBeenCalled();
 });
+
+it.each(['complete', 'failed', 'terminal'] as const)(
+  'joins existing workspace publication for changed catalog with %s settlement',
+  async (outcome) => {
+    const test = fixture();
+    const ticket = await test.publication.beginScan({ requestId: 'discovery', scope: workspace });
+    const records = [
+      {
+        chunksProcessed: true,
+        content: null,
+        contentHash: 'c'.repeat(64),
+        embeddingSetId: file.embeddingSetId,
+        fileId: file.fileId,
+        fileName: file.fileName,
+        path: file.relativePath,
+        rootId: file.rootId,
+        stat: { mtimeMs: 1, size: 4 },
+      },
+    ];
+    const observation = {
+      leases: new Map([[workspace.rootId, {}]]),
+      observedCatalogFingerprint: catalogFingerprint([]),
+      observedCatalogRecords: [],
+      settings: { managedCollectionId: collection.embeddingSetId },
+    };
+    const completions = test.admission.getWorkspaceCompletions();
+    expect(completions).toHaveLength(1);
+    expect(deferNativeIndexCatalog(observation, [], completions)).toBeUndefined();
+    const pending = deferNativeIndexCatalog(observation, records, completions);
+    expect(pending).toBeDefined();
+    let settled = false;
+    const joining = test.admission.joinPublication(pending!).then(
+      () => {
+        settled = true;
+      },
+      (error: unknown) => {
+        settled = true;
+        return error;
+      }
+    );
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    const original = new Error('Owned source failure');
+    if (outcome === 'complete') {
+      test.admission.completeWorkspace(
+        await test.publication.finishScan({ ...completion, ticket })
+      );
+      expect(await joining).toBeUndefined();
+      expect(test.admission.getWorkspaceCompletions()).toEqual([]);
+      return;
+    }
+    if (outcome === 'failed') {
+      test.admission.failWorkspace(workspace.rootId, original);
+    } else {
+      test.source.abort(original);
+    }
+    expect(await joining).toBe(original);
+    expect(test.admission.getWorkspaceCompletions()).toEqual(completions);
+  }
+);
