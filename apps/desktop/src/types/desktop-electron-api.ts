@@ -42,6 +42,7 @@ import type {
   EmbeddingHostWebGpuAdapterRequest,
   EmbeddingHostWebGpuAdapterResponseReport,
 } from '../embedding-host-webgpu-adapter';
+import type { DesktopFileSystemTransport } from '../ipc-domains/file-system.contract';
 
 export interface DesktopStorageBridge {
   clear: () => Promise<void>;
@@ -155,7 +156,7 @@ type EmbeddingHostDatabaseBridge = Pick<
 export interface VisibleDesktopElectronApi extends LayoutElectronAPI {
   db: VisibleDesktopDatabaseBridge;
   dbLive: DesktopLiveQueryBridge;
-  fileSystem: DesktopFileSystemBridge;
+  fileSystem: DesktopFileSystemTransport;
   getUserDataPath: () => Promise<string>;
   storage: DesktopStorageBridge;
 }

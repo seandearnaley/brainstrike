@@ -1082,12 +1082,15 @@ export async function mockFileSystemOperations(window: Page): Promise<void> {
           console.log('🔸 Mocked requestDirectoryAccess called');
         }
         return {
-          id: 'mock-directory-handle',
-          kind: 'directory',
-          name: 'mock-test-directory',
-          path: '/mock/test/directory',
-          platform: 'electron',
-          type: 'directory',
+          ok: true,
+          value: {
+            id: 'mock-directory-handle',
+            kind: 'directory',
+            name: 'mock-test-directory',
+            path: '/mock/test/directory',
+            platform: 'electron',
+            type: 'directory',
+          },
         };
       };
       // @ts-expect-error - runtime mock only
@@ -1095,7 +1098,7 @@ export async function mockFileSystemOperations(window: Page): Promise<void> {
         if (verboseLogging) {
           console.log('🔸 Mocked exists called with path:', p);
         }
-        return p.includes('/mock/');
+        return { ok: true, value: p.includes('/mock/') };
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.readDirectory = async (_p: string) => {
@@ -1103,14 +1106,14 @@ export async function mockFileSystemOperations(window: Page): Promise<void> {
         if (verboseLogging) {
           console.log('🔸 Mocked readDirectory called with path:', _p);
         }
-        return getTestDirectoryStructure(rootPath);
+        return { ok: true, value: getTestDirectoryStructure(rootPath) };
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.readFile = async (_p: string) => {
         if (verboseLogging) {
           console.log('🔸 Mocked readFile called with path:', _p);
         }
-        return 'Mock file content for testing';
+        return { ok: true, value: 'Mock file content for testing' };
       };
       // @ts-expect-error - runtime mock only
       electronAPI.fileSystem.writeFile = async (p: string, content: string) => {

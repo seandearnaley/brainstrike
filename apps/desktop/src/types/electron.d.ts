@@ -1,3 +1,4 @@
+import type { BoundaryResult } from '@brainstrike/assistant-contract/boundary-result';
 import type {
   WorkspaceIndexingIdleState,
   WorkspaceIndexingPowerSource,
@@ -30,7 +31,7 @@ import type { windowFocusContract } from '../ipc-domains/window-focus.contract';
 import type { worktreesContract } from '../ipc-domains/worktrees.contract';
 import type { LlmHostRequest, LlmHostResponseReport, LlmHostStatus } from '../llm-host-shared';
 import type { LoggingSettingsPayload } from '../logging-shared';
-import type { IpcResult, TransportBridge } from '../platform/ipc-contract';
+import type { TransportBridge } from '../platform/ipc-contract';
 import type {
   ChunkingHostRuntimeBridge,
   DesktopElectronApi,
@@ -115,9 +116,11 @@ declare global {
      */
     databaseIntegrity?: TransportBridge<typeof databaseIntegrityContract>;
     desktopDiagnostics?: {
-      getSnapshot: () => Promise<DesktopPlatformDiagnosticsSnapshot>;
-      readMainLogWindow: (request: MainLogWindowRequest) => Promise<MainLogWindowResult>;
-      readProcessCounters: () => Promise<ProcessCounterSnapshot>;
+      getSnapshot: () => Promise<BoundaryResult<DesktopPlatformDiagnosticsSnapshot>>;
+      readMainLogWindow: (
+        request: MainLogWindowRequest
+      ) => Promise<BoundaryResult<MainLogWindowResult>>;
+      readProcessCounters: () => Promise<BoundaryResult<ProcessCounterSnapshot>>;
     };
     desktopLifecycle?: {
       isTestMode: boolean;
@@ -188,13 +191,13 @@ declare global {
       onProgress: (callback: (progress: LlmHostResponseReport) => void) => () => void;
     };
     logging: {
-      getPreferences: () => Promise<IpcResult<LoggingSettingsPayload>>;
+      getPreferences: () => Promise<BoundaryResult<LoggingSettingsPayload>>;
       setPreferences: (
         preferences: LoggingPreferences
-      ) => Promise<IpcResult<LoggingSettingsPayload>>;
-      selectDestination: () => Promise<IpcResult<string | null>>;
-      openDestination: (target: string | null) => Promise<IpcResult<boolean>>;
-      getBufferedLogs: () => Promise<IpcResult<LogRecord[]>>;
+      ) => Promise<BoundaryResult<LoggingSettingsPayload>>;
+      selectDestination: () => Promise<BoundaryResult<string | null>>;
+      openDestination: (target: string | null) => Promise<BoundaryResult<boolean>>;
+      getBufferedLogs: () => Promise<BoundaryResult<LogRecord[]>>;
       ingestBufferedRecord: (record: LogRecord) => void;
       onDurableRecord: (listener: (record: LogRecord) => void) => () => void;
       onPreferencesUpdated: (

@@ -1,4 +1,8 @@
 import {
+  BoundaryFailureError,
+  INTERNAL_FAULT,
+} from '@brainstrike/assistant-contract/boundary-failure';
+import {
   type DirectoryHandle,
   type FileHandle,
   type FileSystemAdapter,
@@ -19,7 +23,10 @@ import type {
   WatcherRetryOutcome,
   WatcherRootHealthEvent,
 } from '@brainstrike/types';
+import { type FileReadErrorPayload, isFileReadErrorPayload } from '../file-read-errors';
+import { fileSystemContract, fileSystemWatchContract } from '../ipc-domains/file-system.contract';
 import type { DesktopFileSystemBridge, DesktopStorageBridge } from '../types/desktop-electron-api';
+import { createIpcCapability } from './ipc-capability';
 
 const logger = createLogger('ElectronRendererAdapters');
 
@@ -32,7 +39,29 @@ function assertExplicitAbsoluteReadPath(value: unknown, label: string): asserts 
 
 function getFileSystemBridge(): DesktopFileSystemBridge | undefined {
   const api = window.electronAPI;
-  return api && 'fileSystem' in api ? api.fileSystem : undefined;
+  if (!(api && 'fileSystem' in api)) {
+    return;
+  }
+  const files = createIpcCapability(api.fileSystem, fileSystemContract);
+  return {
+    ...files,
+    ...createIpcCapability(api.fileSystem, fileSystemWatchContract),
+    readFile: async (handle) => readFileOutcome(await files.readFile(handle)),
+    readFileByAbsolutePath: async (filePath, rootPath, rootId) =>
+      readFileOutcome(await files.readFileByAbsolutePath(filePath, rootPath, rootId)),
+    readFileByPath: async (filePath) => readFileOutcome(await files.readFileByPath(filePath)),
+  };
+}
+
+/** File-size and missing-file outcomes retain their existing explicit codes after transport. */
+function readFileOutcome(result: string | FileReadErrorPayload): string {
+  if (typeof result === 'string') {
+    return result;
+  }
+  if (isFileReadErrorPayload(result)) {
+    throw Object.assign(new Error(result.message), { code: result.code });
+  }
+  throw new BoundaryFailureError(INTERNAL_FAULT);
 }
 
 function requireFileSystemBridge(): DesktopFileSystemBridge {

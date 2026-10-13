@@ -8,6 +8,7 @@ vi.mock('electron', async () => (await import('./file-system-ipc-test-harness'))
 
 import { registerFileSystemIpcHandlers } from '../../ipc-domains/file-system-ipc';
 import {
+  capabilityHandler,
   clearE2eFileSystemFixture,
   createFileSystem,
   createStorage,
@@ -39,7 +40,7 @@ function registerFixture(overrides: Record<string, unknown> = {}): void {
 }
 
 function readFixtureDirectory(): Promise<unknown> {
-  return handlers.get('fs:readDirectory')?.(
+  return capabilityHandler('fs:readDirectory')?.(
     createTrustedInvokeEvent(),
     ROOT_HANDLE
   ) as Promise<unknown>;
@@ -103,9 +104,7 @@ describe('fs:readDirectory fixture read delay', () => {
     for (const malformedDelay of ['250', -1, Number.NaN, Number.POSITIVE_INFINITY, null]) {
       registerFixture({ directoryReadDelayMs: malformedDelay });
 
-      await expect(readFixtureDirectory()).rejects.toThrow(
-        'Invalid E2E fixture directoryReadDelayMs'
-      );
+      await expect(readFixtureDirectory()).rejects.toMatchObject({ code: 'boundary.internal' });
     }
 
     expect(fileSystem.readDirectory).not.toHaveBeenCalled();

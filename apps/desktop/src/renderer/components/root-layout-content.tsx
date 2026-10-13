@@ -25,6 +25,7 @@ import {
 import { isTerminalBridgeAvailable } from '@brainstrike/app-shell/terminal-panel/availability';
 import type { NavigationItem } from '@brainstrike/app-shell/types';
 import { isWorktreesBridgeAvailable } from '@brainstrike/app-shell/worktrees/availability';
+import { callBoundary } from '@brainstrike/assistant-contract/boundary-result';
 import { McpTaskBridgeProvider } from '@brainstrike/assistant-ui/mcp-task-bridge-context';
 import { ToolResultRendererProvider } from '@brainstrike/assistant-ui/tool-result-renderer-context';
 import { usePGliteDatabase } from '@brainstrike/db/react';
@@ -189,7 +190,7 @@ export default function RootLayoutContent() {
       if (!(bridge && 'fileSystem' in bridge)) {
         throw new Error('Desktop root data deletion bridge is unavailable.');
       }
-      return bridge.fileSystem.deleteRootData(rootId);
+      return callBoundary(() => bridge.fileSystem.deleteRootData(rootId));
     },
     nativeIndexSearch: nativeSearch,
     navigationItems: navigationConfig,

@@ -1,5 +1,7 @@
 import { resolveCacheDirectorySelectionTestOverride } from '@brainstrike/app-state/automation-overrides';
 import { useModelRegistryStore } from '@brainstrike/app-state/stores/model-registry-store';
+import { describeBoundaryError } from '@brainstrike/assistant-contract/boundary-failure';
+import { type BoundaryResult, callBoundary } from '@brainstrike/assistant-contract/boundary-result';
 import { usePGliteDatabase } from '@brainstrike/db/react';
 import { createLogger } from '@brainstrike/logging';
 import {
@@ -118,7 +120,9 @@ export function ModelCacheDirectoryPopover() {
     const requestDirectoryAccess = (
       window as unknown as {
         electronAPI?: {
-          fileSystem?: { requestDirectoryAccess?: () => Promise<{ path?: string }> };
+          fileSystem?: {
+            requestDirectoryAccess?: () => Promise<BoundaryResult<{ path?: string }>>;
+          };
         };
       }
     ).electronAPI?.fileSystem?.requestDirectoryAccess;
@@ -136,14 +140,11 @@ export function ModelCacheDirectoryPopover() {
     try {
       let handle: { path?: string };
       try {
-        handle = await requestDirectoryAccess();
+        handle = await callBoundary(requestDirectoryAccess);
       } catch (err: unknown) {
         logger.error('Failed to select cache directory', err);
         toast({
-          description:
-            err instanceof Error
-              ? err.message
-              : 'The directory picker failed without an error message.',
+          description: describeBoundaryError(err),
           title: 'Directory selection failed',
           variant: 'destructive',
         });

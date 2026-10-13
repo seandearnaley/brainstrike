@@ -10,13 +10,15 @@ import type {
 export interface PublicBridges {
   readonly __brainstrikeTestHooks__?: { readonly indexSearch?: IndexSearchCapability };
   readonly desktopDiagnostics?: {
-    getSnapshot(): Promise<{
-      readonly embeddingHost: {
-        readonly pendingRequestCount: number;
-        readonly state: string;
-        readonly runtimeId: string;
-      };
-    }>;
+    getSnapshot(): Promise<
+      BoundaryResult<{
+        readonly embeddingHost: {
+          readonly pendingRequestCount: number;
+          readonly state: string;
+          readonly runtimeId: string;
+        };
+      }>
+    >;
   };
   readonly electronAPI?: {
     readonly db: {

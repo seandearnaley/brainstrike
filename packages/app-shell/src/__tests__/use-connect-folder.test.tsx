@@ -1,3 +1,4 @@
+import { INTERNAL_FAULT, refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -45,6 +46,25 @@ describe('useConnectFolder', () => {
     addRootDirectoryMock.mockResolvedValue(null);
   });
 
+  it('uses the typed authorization code for the persistent picker remedy', async () => {
+    addRootDirectoryByPathMock.mockRejectedValue(
+      refusalError(
+        'authorization',
+        'workspace.never-granted',
+        'Folder access was declined.',
+        'Choose this folder with Add folder to grant access.'
+      )
+    );
+    const { result } = renderHook(() => useConnectFolder());
+    await act(async () => {
+      await result.current.connectPath?.({ origin: 'argv', path: '/folder' });
+    });
+    expect(toastMock.mock.calls[0]?.[0]).toMatchObject({
+      action: expect.anything(),
+      persistent: true,
+    });
+  });
+
   it('mounts a granted path through the picker-less seam', async () => {
     addRootDirectoryByPathMock.mockResolvedValue({ name: 'brainstrike', path: '/w/bs' });
     const { result } = renderHook(() => useConnectFolder());
@@ -61,7 +81,11 @@ describe('useConnectFolder', () => {
   it('REFUSES a never-granted path and offers the picker as the remedy', async () => {
     // The core of ruling S1: no silent grant, and the remedy is one click.
     addRootDirectoryByPathMock.mockRejectedValue(
-      new Error('Folder was never granted in this app; use Add Folder to grant it.')
+      refusalError(
+        'authorization',
+        'workspace.never-granted',
+        'Folder was never granted in this app; use Add Folder to grant it.'
+      )
     );
     const { result } = renderHook(() => useConnectFolder());
 
@@ -80,14 +104,7 @@ describe('useConnectFolder', () => {
     expect(call?.[0]?.action).toBeDefined();
   });
 
-  it('matches the never-granted refusal even through the ipcRenderer.invoke envelope', async () => {
-    // Real Electron wraps a main-process rejection's message exactly like
-    // this before it reaches the renderer — a review finding: the exact-string
-    // match never fired in production because it was only tested un-enveloped.
-    // The prefix is `AccessError:`, NOT `Error:`: main throws the refusal as
-    // an AccessError and the class NAME survives IPC serialization (BST-1393
-    // L5 live finding — a literal-`Error:`-only stripper left `AccessError: `
-    // on the message and this remedy silently degraded to the generic toast).
+  it('does not infer a grant remedy from an Electron rejection string', async () => {
     addRootDirectoryByPathMock.mockRejectedValue(
       new Error(
         "Error invoking remote method 'fs:addRootByPath': AccessError: Folder was never granted in this app; use Add Folder to grant it."
@@ -101,18 +118,14 @@ describe('useConnectFolder', () => {
 
     const [call] = toastMock.mock.calls;
     expect(call?.[0]).toMatchObject({
-      persistent: true,
-      title: 'BrainStrike has not been granted access to this folder',
+      description: INTERNAL_FAULT.message,
       variant: 'destructive',
     });
-    expect(call?.[0]?.action).toBeDefined();
+    expect(call?.[0]?.persistent).not.toBe(true);
+    expect(call?.[0]?.action).toBeUndefined();
   });
 
-  it('matches the never-granted refusal through a plain-Error envelope too', async () => {
-    // Both envelope spellings must strip: `Error:` (a plain Error thrown in
-    // main) and the class-named `AccessError:` above. The name group is
-    // optional-prefix + literal `Error:`, so a regression in either
-    // direction fails one of these two cases.
+  it('does not infer a grant remedy from an untyped Error', async () => {
     addRootDirectoryByPathMock.mockRejectedValue(
       new Error(
         "Error invoking remote method 'fs:addRootByPath': Error: Folder was never granted in this app; use Add Folder to grant it."
@@ -126,20 +139,13 @@ describe('useConnectFolder', () => {
 
     const [call] = toastMock.mock.calls;
     expect(call?.[0]).toMatchObject({
-      persistent: true,
-      title: 'BrainStrike has not been granted access to this folder',
+      description: INTERNAL_FAULT.message,
       variant: 'destructive',
     });
+    expect(call?.[0]?.persistent).not.toBe(true);
   });
 
-  it('matches the refusal even under a prefix the stripper does NOT recognize', async () => {
-    // The falsifier for the CLASS of failure, not the instance: the stripper
-    // recognizes the envelope plus any `*Error:` class name, but a refusal
-    // surfaced through a class named WITHOUT an Error suffix leaves its
-    // prefix on the message. The behavioral match is a SUFFIX match on the
-    // canonical sentences, so it must still fire here — an
-    // equality-on-stripped-message implementation goes dark on this case
-    // (the third notch on the failure the L5 e2e caught live).
+  it('does not infer a grant remedy from a custom error name', async () => {
     addRootDirectoryByPathMock.mockRejectedValue(
       new Error(
         "Error invoking remote method 'fs:addRootByPath': RefusalFault: Folder was never granted in this app; use Add Folder to grant it."
@@ -153,17 +159,19 @@ describe('useConnectFolder', () => {
 
     const [call] = toastMock.mock.calls;
     expect(call?.[0]).toMatchObject({
-      persistent: true,
-      title: 'BrainStrike has not been granted access to this folder',
+      description: INTERNAL_FAULT.message,
       variant: 'destructive',
     });
-    expect(call?.[0]?.action).toBeDefined();
+    expect(call?.[0]?.persistent).not.toBe(true);
+    expect(call?.[0]?.action).toBeUndefined();
   });
 
   it('matches the managed-but-unauthorized refusal on the same remedy', async () => {
     addRootDirectoryByPathMock.mockRejectedValue(
-      new Error(
-        'Folder was never granted in this app and is not a BrainStrike-managed worktree; use Add Folder to grant it.'
+      refusalError(
+        'authorization',
+        'workspace.managed-not-authorized',
+        'The managed folder is not authorized.'
       )
     );
     const { result } = renderHook(() => useConnectFolder());
@@ -173,6 +181,9 @@ describe('useConnectFolder', () => {
     });
 
     expect(toastMock.mock.calls[0]?.[0]?.action).toBeDefined();
+    expect(toastMock.mock.calls[0]?.[0]?.description).toContain(
+      'The managed folder is not authorized.'
+    );
   });
 
   it('does NOT offer the grant remedy for a missing folder', async () => {
@@ -187,7 +198,7 @@ describe('useConnectFolder', () => {
 
     const [call] = toastMock.mock.calls;
     expect(call?.[0]?.action).toBeUndefined();
-    expect(String(call?.[0]?.description)).toContain('ENOENT');
+    expect(call?.[0]?.description).toBe(INTERNAL_FAULT.message);
   });
 
   it('reports a null handle rather than pretending the folder connected', async () => {

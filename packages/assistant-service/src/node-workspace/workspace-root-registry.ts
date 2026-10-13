@@ -1,10 +1,10 @@
 import path from 'node:path';
+import { refusalError } from '@brainstrike/assistant-contract/boundary-failure';
 import type {
   CanonicalSourceSubscription,
   CanonicalWorkspaceLease,
 } from '@brainstrike/canonical-ingestion';
 import {
-  AccessError,
   type DirectoryHandle,
   type FileHandle,
   type IFileNode,
@@ -17,8 +17,7 @@ import {
 } from '@brainstrike/file-system/workspace-root-nodes';
 import { createLogger } from '@brainstrike/logging';
 import type { RecentRootEntry, RootDescriptor } from '@brainstrike/types';
-import { isFileNotFoundError } from './file-not-found-error.js';
-import { projectReadDenialDiagnostic, projectReadDenialError } from './read-denial-diagnostic.js';
+import { projectReadDenialDiagnostic, readDenialDiagnostic } from './read-denial-diagnostic.js';
 import {
   listRecentRootEntries,
   type ManagedWorktreeAuthorizer,
@@ -410,7 +409,12 @@ export class WorkspaceRootRegistry {
       MAX_DIRECTORY_ENTRIES
     );
     if (!listing) {
-      throw new AccessError('Directory is not accessible.', handle.path, 'read');
+      throw refusalError(
+        'availability',
+        'workspace.directory-unavailable',
+        'Directory is not accessible.',
+        'Check that the folder is available, then refresh.'
+      );
     }
     return buildDirectoryListing(resolved.mounted, handle.path, listing);
   }
@@ -435,10 +439,11 @@ export class WorkspaceRootRegistry {
       assertNativeAbsoluteReadPath(claimedRootPath, 'Claimed workspace root path');
       assertNativeAbsoluteReadPath(requestedPath, 'Requested file path');
       if (!isDurableRootId(claimedRootId)) {
-        throw new AccessError(
-          'Claimed workspace root identity must be a durable rootId.',
-          diagnosticPath,
-          'read'
+        throw refusalError(
+          'input',
+          'workspace.root-id-invalid',
+          'The workspace folder identity is invalid.',
+          'Reconnect the folder and retry.'
         );
       }
       return this.readFileByAbsolutePathUnlogged(requestedPath, claimedRootPath, claimedRootId);
@@ -457,7 +462,12 @@ export class WorkspaceRootRegistry {
     this.assertActive();
     const mounted = this.mounts.get(claimedRootId);
     if (!mounted) {
-      throw new AccessError('Claimed workspace rootId is not mounted.', requestedPath, 'read');
+      throw refusalError(
+        'availability',
+        'workspace.root-unmounted',
+        'The workspace folder is no longer connected.',
+        'Reconnect the folder and retry.'
+      );
     }
     if (
       !(
@@ -465,10 +475,11 @@ export class WorkspaceRootRegistry {
         pathsEqual(mounted.canonicalPath, claimedRootPath)
       )
     ) {
-      throw new AccessError(
-        'Claimed workspace root path does not match the mounted workspace rootId.',
-        requestedPath,
-        'read'
+      throw refusalError(
+        'authorization',
+        'workspace.root-mismatch',
+        'The requested path does not match the connected folder.',
+        'Choose a file inside the connected folder.'
       );
     }
     const resolved = await resolveReadAgainstMountedRoot(
@@ -914,8 +925,8 @@ export class WorkspaceRootRegistry {
     try {
       return await run();
     } catch (error) {
-      if (error instanceof AccessError && !isFileNotFoundError(error)) {
-        const diagnosticError = projectReadDenialError(error);
+      const diagnosticError = readDenialDiagnostic(error);
+      if (diagnosticError) {
         logger.warn('Workspace read denied', {
           ...diagnosticError,
           operation,
@@ -932,21 +943,28 @@ export class WorkspaceRootRegistry {
     rootId?: string
   ): Promise<ResolvedWorkspaceRead> {
     if (requestedPath.includes('\0')) {
-      throw new AccessError('Requested path contains null bytes.', requestedPath, 'read');
+      throw refusalError(
+        'input',
+        'workspace.path-invalid',
+        'The requested path is invalid.',
+        'Choose a file inside a connected folder.'
+      );
     }
     if (rootId === undefined && !path.isAbsolute(requestedPath)) {
-      throw new AccessError(
-        'Relative workspace reads require a durable rootId.',
-        requestedPath,
-        'read'
+      throw refusalError(
+        'input',
+        'workspace.root-id-invalid',
+        'A relative file read needs a connected folder identity.',
+        'Reconnect the folder and retry.'
       );
     }
     const mounted = this.mounts.resolveForRead(requestedPath, rootId);
     if (!mounted) {
-      throw new AccessError(
+      throw refusalError(
+        rootId ? 'availability' : 'authorization',
+        rootId ? 'workspace.root-unmounted' : 'workspace.path-outside-root',
         rootId ? 'Workspace root is not mounted.' : 'Path is outside every mounted workspace root.',
-        requestedPath,
-        'read'
+        'Reconnect the folder or choose a file inside a connected folder.'
       );
     }
     return resolveReadAgainstMountedRoot(requestedPath, mounted, this.resolveReadPath);
