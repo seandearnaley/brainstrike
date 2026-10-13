@@ -1,7 +1,7 @@
 {
   "react-hooks/immutability": 3,
   "react-hooks/incompatible-library": 2,
-  "react-hooks/memo-dependencies": 68,
+  "react-hooks/memo-dependencies": 67,
   "react-hooks/preserve-manual-memoization": 2,
   "react-hooks/refs": 123,
   "react-hooks/set-state-in-effect": 39,

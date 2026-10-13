@@ -192,14 +192,6 @@ async function purgeTablesTx(tx: { query: (sql: string) => Promise<unknown> }): 
   await clearRelationIfPresent(tx, 'brainstrike_assistant_run_errors');
   await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_placements');
   await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_workspaces');
-  await clearRelationIfPresent(tx, 'brainstrike_delegation_step_reservations');
-  await clearRelationIfPresent(tx, 'brainstrike_delegation_child_budgets');
-  await clearRelationIfPresent(tx, 'brainstrike_delegation_budgets');
-  await clearRelationIfPresent(tx, 'brainstrike_delegated_tool_decisions');
-  await clearRelationIfPresent(tx, 'brainstrike_delegated_continuation_decisions');
-  await clearRelationIfPresent(tx, 'brainstrike_delegated_continuations');
-  await clearRelationIfPresent(tx, 'brainstrike_delegated_invocations');
-  await clearRelationIfPresent(tx, 'brainstrike_delegated_conversations');
   await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_groups');
   await clearRelationIfPresent(tx, MASTRA_MEMORY_TABLES.messages);
   await clearRelationIfPresent(tx, MASTRA_MEMORY_TABLES.observationalMemory);
@@ -479,14 +471,6 @@ export function createPgliteDirectTransport(
       // Delete placements before groups, and both before Mastra threads.
       await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_placements');
       await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_workspaces');
-      await clearRelationIfPresent(tx, 'brainstrike_delegation_step_reservations');
-      await clearRelationIfPresent(tx, 'brainstrike_delegation_child_budgets');
-      await clearRelationIfPresent(tx, 'brainstrike_delegation_budgets');
-      await clearRelationIfPresent(tx, 'brainstrike_delegated_tool_decisions');
-      await clearRelationIfPresent(tx, 'brainstrike_delegated_continuation_decisions');
-      await clearRelationIfPresent(tx, 'brainstrike_delegated_continuations');
-      await clearRelationIfPresent(tx, 'brainstrike_delegated_invocations');
-      await clearRelationIfPresent(tx, 'brainstrike_delegated_conversations');
       await clearRelationIfPresent(tx, 'brainstrike_assistant_thread_groups');
       // Mastra memory tables are lazy, database-owned assistant persistence.
       // Delete children before their logical parents even though the current

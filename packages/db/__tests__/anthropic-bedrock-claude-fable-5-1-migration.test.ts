@@ -154,7 +154,7 @@ describe('anthropic + bedrock claude fable 5.1 migration', () => {
     timeout: 60_000,
   }, async () => {
     const baseline = await baselineOrders();
-    await runner.up(migrations);
+    await runner.up(migrations.filter((entry) => entry.version <= migration.version));
     await runner.down(migrations, migration.version - 1);
 
     expect((await order('anthropic')).rows).toEqual(baseline.anthropic);

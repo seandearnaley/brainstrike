@@ -26,7 +26,7 @@ describe('migration 139 swarm diagnostics', () => {
     db = await wasmLoader.createPGlite(createPGliteTestDataDir('migration-139'));
     const runner = new MigrationRunner(db);
     await runner.initialize();
-    await runner.up(migrations);
+    await runner.up(migrations.filter((migration) => migration.version <= 139));
     await db.exec(MASTRA_MEMORY_SCHEMA_SQL);
   });
   afterEach(async () => {
