@@ -129,15 +129,17 @@ test('the Threads panel searches only usable host threads by content and title',
   await expect(contentMatch.locator('mark')).toHaveText([WORD]);
   // The host thread whose title alone holds the word is listed.
   await expect(results.filter({ hasText: TITLE_MATCH }).first()).toBeVisible();
-  // The host's semantic arm answers too: the reply shares no word with the
-  // query, so nothing in its row is marked. (At the shipped 0.35 threshold
-  // the embedder ranks even "Noted." near "marigold"; history's arm uses the
-  // same threshold.)
+  // A related query exercises the semantic arm without a lexical/title match.
+  // The real MiniLM profile scores "acknowledged" against "Noted." above the
+  // shipped 0.35 threshold; the unrelated "marigold" query scores below it.
+  await search.fill('acknowledged');
   const semanticMatch = results.filter({ hasText: CONTENT_TITLE }).filter({ hasText: REPLY });
   await expect(semanticMatch).toHaveCount(1);
   await expect(semanticMatch.locator('mark')).toHaveCount(0);
 
-  // A host result opens its thread.
+  // A host result opens its thread after returning to the lexical query.
+  await search.fill(WORD);
+  await expect(contentMatch).toHaveCount(1);
   await contentMatch.click();
   await expect(strip.getByRole('tab', { name: CONTENT_TITLE, selected: true })).toBeVisible({
     timeout: 30_000,
