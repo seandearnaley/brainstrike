@@ -1,4 +1,5 @@
-// Recorded real HostCore admission/store rows; only the provider was scripted.
+// Exact desktop app HostCore rows from real missing/dangling/good file Send.
+// Recorded by the BST-2007 disposable Electron smoke; only the loopback provider is fake.
 import { readAssistantRunEventDataPart } from '@brainstrike/assistant-contract';
 import { TooltipProvider } from '@brainstrike/ui';
 import { render, screen } from '@testing-library/react';
