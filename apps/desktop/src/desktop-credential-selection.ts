@@ -4,8 +4,9 @@ import { app } from 'electron';
 import { isElectronE2ETestMode } from './electron-e2e-test-mode';
 
 /**
- * The profile's credential store: the forked agent host is its writer and Main
- * reads it. Production uses the OS keyring under a profile-scoped service;
+ * The launch credential store: the forked agent host is its writer and Main
+ * reads it. Bootstrap pins this before ordinary-dev workspace path isolation.
+ * Production uses the OS keyring under the selected launch service;
  * isolated test runs use a private file inside their disposable profile and
  * never reach the OS keychain.
  */

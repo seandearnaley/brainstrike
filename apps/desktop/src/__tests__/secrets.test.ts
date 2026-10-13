@@ -9,6 +9,12 @@ vi.mock('electron', () => ({
   app: { getPath: () => userData.path },
 }));
 
+vi.mock('../desktop-bootstrap-runtime', () => ({
+  getDesktopBootstrapRuntime: () => ({
+    credentialStore: { kind: 'file', path: join(userData.path, 'brainstrike-credentials.json') },
+  }),
+}));
+
 import {
   matchSecretReadError,
   type ProviderCredential,
